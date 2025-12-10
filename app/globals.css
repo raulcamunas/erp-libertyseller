@@ -1,0 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --brand-color: #FF6600;
+    --bg-color: #080808;
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --border-color: rgba(255, 255, 255, 0.1);
+    --text-primary: #FFFFFF;
+    --text-secondary: #a0a0b0;
+    --text-tertiary: #999;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-[#080808] text-foreground;
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism Premium */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(50px) saturate(180%) brightness(1.1);
+    -webkit-backdrop-filter: blur(50px) saturate(180%) brightness(1.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 24px;
+  }
+
+  .glass-card-light {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .glass-card-medium {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  /* Tipografía */
+  .heading-large {
+    @apply text-4xl md:text-6xl font-bold tracking-tight;
+    letter-spacing: -1px;
+  }
+
+  .heading-medium {
+    @apply text-2xl md:text-4xl font-bold tracking-tight;
+  }
+
+  .heading-small {
+    @apply text-xl font-semibold;
+  }
+
+  .label-uppercase {
+    @apply text-xs uppercase font-bold tracking-wide;
+    letter-spacing: 1px;
+  }
+
+  .button-uppercase {
+    @apply uppercase font-bold tracking-wide;
+    letter-spacing: 1px;
+  }
+
+  /* Botones */
+  .btn-primary {
+    @apply bg-[#FF6600] text-white border-none px-6 py-4 rounded-xl font-bold text-base button-uppercase cursor-pointer transition-all duration-300 shadow-brand;
+  }
+
+  .btn-primary:hover {
+    @apply -translate-y-0.5 shadow-brand-lg brightness-110;
+  }
+
+  .btn-primary:disabled {
+    @apply opacity-70 cursor-not-allowed translate-y-0;
+  }
+
+  .btn-glass {
+    @apply bg-white/5 border border-white/10 text-white px-6 py-3 rounded-full text-sm font-semibold button-uppercase cursor-pointer flex items-center gap-3 transition-all duration-300 backdrop-blur-sm;
+  }
+
+  .btn-glass:hover {
+    @apply border-[#FF6600] bg-[#FF6600]/10 translate-x-1;
+  }
+
+  /* Inputs */
+  .input-glass {
+    @apply w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white text-[15px] outline-none transition-all duration-300;
+  }
+
+  .input-glass:focus {
+    @apply bg-white/8 border-[#FF6600] shadow-[0_0_0_4px_rgba(255,102,0,0.1)];
+  }
+
+  .input-glass::placeholder {
+    @apply text-[#666];
+  }
+}

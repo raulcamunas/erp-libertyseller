@@ -1,0 +1,1063 @@
+================================================================================
+                    GUÍA COMPLETA DE DISEÑO - LIBERTY SELLER
+                    Sistema de Diseño para Clonar en ERP/Cursos
+================================================================================
+
+FECHA: 2025
+PROYECTO: Liberty Seller - Agencia Amazon FBA
+OBJETIVO: Documentación completa de estilos, componentes y funcionalidades
+          para replicar el diseño en otros proyectos (ERP, cursos, etc.)
+
+================================================================================
+1. VARIABLES CSS Y TOKENS DE DISEÑO
+================================================================================
+
+:root {
+    --brand-color: #FF6600;              /* Naranja principal - CTA, acentos */
+    --bg-color: #080808;                 /* Fondo oscuro principal */
+    --border-color: rgba(255,255,255,0.1); /* Bordes sutiles */
+    --glass-bg: rgba(255, 255, 255, 0.03);  /* Fondo glassmorphism */
+}
+
+COLORES ADICIONALES:
+- Azul secundario: #0073FF (para tema alternativo)
+- Texto principal: #FFFFFF (blanco puro)
+- Texto secundario: #a0a0b0 (gris claro)
+- Texto terciario: #999 (gris medio)
+- Texto deshabilitado: #666, #888
+- Fondo overlay: rgba(0, 0, 0, 0.85)
+- Sombra naranja: rgba(255, 102, 0, 0.2)
+- Sombra azul: rgba(0, 115, 255, 0.2)
+
+GRADIENTES:
+- Hero mist (naranja): radial-gradient(circle at 30% 40%, rgba(255, 102, 0, 0.12), transparent 40%)
+- Hero mist (azul): radial-gradient(circle at 70% 60%, rgba(0, 115, 255, 0.08), transparent 40%)
+- Background sections: radial-gradient(circle at 50% 50%, rgba(255, 102, 0, 0.08), transparent 40%)
+
+================================================================================
+2. TIPOGRAFÍA Y FUENTES
+================================================================================
+
+FAMILIA PRINCIPAL:
+font-family: 'Inter', sans-serif;
+
+PESOS DISPONIBLES:
+- 300: Light
+- 400: Regular
+- 500: Medium
+- 600: Semi-bold
+- 700: Bold
+- 800: Extra-bold
+
+IMPORTACIÓN:
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+TAMAÑOS TÍPICOS:
+- Hero title: 64px (desktop) / 36px (mobile)
+- Hero subtitle: 20px (desktop) / 16px (mobile)
+- Section titles: 36px-48px
+- Card titles: 20px
+- Body text: 15px-16px
+- Small text: 12px-14px
+- Labels: 12px uppercase
+
+ESPACIADO DE LETRAS:
+- Títulos grandes: letter-spacing: -2px
+- Títulos normales: letter-spacing: 0px
+- Botones: letter-spacing: 1px-1.5px
+- Labels: letter-spacing: 1px-2px
+
+================================================================================
+3. COMPONENTES PRINCIPALES
+================================================================================
+
+3.1. BOTONES
+
+BOTÓN PRINCIPAL (CTA):
+.submit-btn {
+    width: 100%;
+    background: var(--brand-color);
+    color: white;
+    border: none;
+    padding: 16px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 16px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 10px 20px rgba(255, 102, 0, 0.2);
+    margin-top: 10px;
+}
+
+.submit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px rgba(255, 102, 0, 0.3);
+    filter: brightness(1.1);
+}
+
+.submit-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+BOTÓN SECUNDARIO (Glass):
+.btn-watch-video {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 50px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    backdrop-filter: blur(5px);
+}
+
+.btn-watch-video:hover {
+    border-color: var(--brand-color);
+    background: rgba(255, 102, 0, 0.1);
+    transform: translateX(5px);
+}
+
+BOTÓN CTA GRANDE (Secciones):
+.cta-btn-big {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: white;
+    padding: 18px 40px;
+    border-radius: 50px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+}
+
+.cta-btn-big:hover {
+    transform: translateY(-3px);
+    background: rgba(0, 0, 0, 0.5);
+    border-color: rgba(255, 102, 0, 0.3);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(255, 255, 255, 0.15) inset,
+                0 0 60px rgba(255, 102, 0, 0.2);
+}
+
+BOTÓN SECCIÓN SUTIL:
+.section-cta-btn {
+    background: rgba(255, 102, 0, 0.1);
+    border: 1px solid rgba(255, 102, 0, 0.3);
+    color: var(--brand-color);
+    padding: 12px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+}
+
+.section-cta-btn:hover {
+    background: rgba(255, 102, 0, 0.2);
+    border-color: var(--brand-color);
+    transform: translateY(-2px);
+}
+
+3.2. CARDS Y CONTENEDORES
+
+CARD GLASSMORPHISM (Formulario):
+.form-card {
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(50px) saturate(180%) brightness(1.1);
+    -webkit-backdrop-filter: blur(50px) saturate(180%) brightness(1.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 24px;
+    padding: 40px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+FEATURE CARD:
+.feature-card {
+    border-right: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    padding: 40px 30px;
+    min-height: 280px;
+    transition: all 0.3s ease;
+    position: relative;
+    background: transparent;
+    cursor: default;
+    border-color: rgba(255,255,255,0.05);
+}
+
+.feature-card:hover {
+    z-index: 10;
+    background-color: rgba(255,255,255,0.03);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--brand-color) !important;
+    box-shadow: 0 0 20px rgba(255, 102, 0, 0.2);
+}
+
+3.3. INPUTS Y FORMULARIOS
+
+INPUT ESTILO GLASS:
+.form-input {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 15px 20px;
+    color: white;
+    font-size: 15px;
+    outline: none;
+    transition: all 0.3s ease;
+}
+
+.form-input:focus {
+    background: rgba(255,255,255,0.08);
+    border-color: var(--brand-color);
+    box-shadow: 0 0 0 4px rgba(255, 102, 0, 0.1);
+}
+
+.form-input::placeholder {
+    color: #666;
+}
+
+TOGGLE SWITCH (SÍ/NO):
+.toggle-switch {
+    position: relative;
+    width: 60px;
+    height: 30px;
+    display: inline-block;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #333;
+    transition: .4s;
+    border-radius: 34px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 22px;
+    width: 22px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    z-index: 2;
+}
+
+input:checked + .slider {
+    background-color: var(--brand-color);
+}
+
+input:checked + .slider:before {
+    transform: translateX(30px);
+}
+
+PILL BUTTONS (Selección múltiple):
+.pill-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #ccc;
+    padding: 12px 20px;
+    border-radius: 50px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+}
+
+.pill-btn:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.2);
+}
+
+.pill-btn.active {
+    background: var(--brand-color);
+    border-color: var(--brand-color);
+    color: white;
+    box-shadow: 0 4px 12px rgba(255, 102, 0, 0.2);
+}
+
+3.4. MODALES
+
+VIDEO MODAL:
+.video-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(15px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.video-modal.active {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.video-modal-content {
+    width: 90%;
+    max-width: 900px;
+    aspect-ratio: 16/9;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    box-shadow: 0 50px 100px rgba(0,0,0,0.5);
+    position: relative;
+    transform: scale(0.95);
+    transition: transform 0.3s ease;
+    overflow: hidden;
+}
+
+.video-modal.active .video-modal-content {
+    transform: scale(1);
+}
+
+================================================================================
+4. ANIMACIONES Y TRANSICIONES
+================================================================================
+
+4.1. KEYFRAMES
+
+TEXT BLUR IN (Entrada de texto con blur):
+@keyframes textBlurIn {
+    0% {
+        opacity: 0;
+        filter: blur(20px);
+        transform: translateY(10px);
+    }
+    100% {
+        opacity: 1;
+        filter: blur(0);
+        transform: translateY(0);
+    }
+}
+
+USO:
+.hero-title {
+    opacity: 0;
+    animation: textBlurIn 1s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0.2s forwards;
+}
+
+MIST FLOW (Neblina animada):
+@keyframes mistFlow {
+    0% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(-30px, 20px) scale(1.1); }
+    66% { transform: translate(20px, -20px) scale(0.9); }
+    100% { transform: translate(0, 0) scale(1); }
+}
+
+USO:
+.hero-mist {
+    filter: blur(80px);
+    animation: mistFlow 25s infinite alternate ease-in-out;
+}
+
+FADE IN:
+@keyframes fadeIn {
+    to { opacity: 1; }
+}
+
+4.2. SCROLL TRIGGERS
+
+CLASE PARA ELEMENTOS QUE APARECEN AL SCROLL:
+.scroll-trigger {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(10px);
+    transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                filter 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.scroll-trigger.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+}
+
+JAVASCRIPT (IntersectionObserver):
+const scrollTriggers = document.querySelectorAll('.scroll-trigger');
+const scrollObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            scrollObserver.unobserve(entry.target);
+        }
+    });
+}, { threshold: 0.2 });
+
+scrollTriggers.forEach(trigger => scrollObserver.observe(trigger));
+
+4.3. TRANSICIONES ESTÁNDAR
+
+CURVAS DE EASING:
+- Suave: cubic-bezier(0.25, 0.46, 0.45, 0.94)
+- Elástica: cubic-bezier(0.68, -0.55, 0.27, 1.55)
+- Estándar: ease, ease-in-out
+
+DURACIONES:
+- Rápida: 0.2s - 0.3s
+- Media: 0.5s - 0.6s
+- Lenta: 0.8s - 1s
+
+================================================================================
+5. EFECTOS GLASSMORPHISM
+================================================================================
+
+GLASSMORPHISM BÁSICO:
+background: rgba(255, 255, 255, 0.02);
+backdrop-filter: blur(50px) saturate(180%) brightness(1.1);
+-webkit-backdrop-filter: blur(50px) saturate(180%) brightness(1.1);
+border: 1px solid rgba(255, 255, 255, 0.15);
+
+VARIACIONES:
+
+LIGERO (Cards hover):
+background: rgba(255,255,255,0.03);
+backdrop-filter: blur(10px);
+
+MEDIO (Formularios):
+background: rgba(255, 255, 255, 0.05);
+backdrop-filter: blur(20px);
+
+INTENSO (Modales):
+background: rgba(255, 255, 255, 0.05);
+backdrop-filter: blur(50px) saturate(180%) brightness(1.1);
+
+================================================================================
+6. LAYOUT Y ESTRUCTURA
+================================================================================
+
+6.1. HERO SECTION (Fixed Fullscreen)
+
+.hero-section {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: var(--bg-color);
+    z-index: 0;
+    overflow: hidden;
+}
+
+.hero-container {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 1200px;
+    padding: 0 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: center;
+    margin: 0 auto;
+}
+
+6.2. MAIN CONTENT WRAPPER
+
+.main-content-wrapper {
+    position: relative;
+    z-index: 20;
+    margin-top: 100vh;
+    background-color: var(--bg-color);
+    box-shadow: 0 -50px 100px rgba(0,0,0,1);
+    overflow: visible;
+    padding-top: 0;
+}
+
+6.3. SECTIONS ESTÁNDAR
+
+.features-section {
+    padding: 60px 20px;
+    display: flex;
+    justify-content: center;
+    border-top: 1px solid var(--border-color);
+    position: relative;
+    z-index: 1;
+    background-color: #080808;
+    overflow: hidden;
+}
+
+6.4. GRIDS
+
+FEATURES GRID (4 columnas):
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border: 1px solid var(--border-color);
+    background: rgba(255,255,255,0.01);
+    backdrop-filter: blur(5px);
+}
+
+PILL GRID (3 columnas):
+.pill-grid.cols-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+PILL GRID (4 columnas):
+.pill-grid.cols-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+================================================================================
+7. JAVASCRIPT ESENCIAL
+================================================================================
+
+7.1. FORMULARIO EXPANDIBLE
+
+function setupExpandableForm(checkboxId, expandableId) {
+    const checkbox = document.getElementById(checkboxId);
+    const container = document.getElementById(expandableId);
+    if(checkbox && container) {
+        checkbox.addEventListener('change', function() {
+            if(this.checked) {
+                container.classList.add('open');
+            } else {
+                container.classList.remove('open');
+            }
+        });
+    }
+}
+
+CSS ASOCIADO:
+.expandable-fields {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.5s ease-in-out, opacity 0.5s ease-in-out, padding 0.5s ease;
+    opacity: 0;
+    padding: 0;
+}
+
+.expandable-fields.open {
+    max-height: 1000px;
+    opacity: 1;
+    padding: 20px 0;
+}
+
+7.2. CAMBIO DINÁMICO DE TEXTO EN BOTÓN
+
+function updateSubmitButtonText() {
+    const amazonCheckbox = document.getElementById('form-amazon-seller');
+    const submitBtn = document.querySelector('#signup-form .submit-btn');
+    
+    if (amazonCheckbox && submitBtn) {
+        if (amazonCheckbox.checked) {
+            submitBtn.textContent = 'AUDITAR MI CUENTA';
+        } else {
+            submitBtn.textContent = 'QUIERO EMPEZAR';
+        }
+    }
+}
+
+// Inicializar
+const amazonCheckbox = document.getElementById('form-amazon-seller');
+if (amazonCheckbox) {
+    amazonCheckbox.addEventListener('change', updateSubmitButtonText);
+    updateSubmitButtonText(); // Estado inicial
+}
+
+7.3. SELECT PILL (Selección de opciones)
+
+window.selectPill = function(element, inputId, gridId) {
+    document.getElementById(inputId).value = element.innerText;
+    const grid = document.getElementById(gridId);
+    const pills = grid.querySelectorAll('.pill-btn');
+    pills.forEach(p => p.classList.remove('active'));
+    element.classList.add('active');
+};
+
+USO HTML:
+<div class="pill-btn" onclick="selectPill(this, 'input-id', 'grid-id')">Opción 1</div>
+
+7.4. MODAL DE VIDEO
+
+function openVideoModal(videoUrl) {
+    const modal = document.getElementById('video-modal');
+    const iframe = document.querySelector('.video-iframe');
+    if (modal && iframe) {
+        iframe.src = videoUrl;
+        modal.classList.add('active');
+    }
+}
+
+function closeVideoModal() {
+    const modal = document.getElementById('video-modal');
+    const iframe = document.querySelector('.video-iframe');
+    if (modal && iframe) {
+        modal.classList.remove('active');
+        iframe.src = '';
+    }
+}
+
+// Cerrar al hacer click fuera
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('video-modal');
+    if (modal && modal.classList.contains('active')) {
+        if (!modal.querySelector('.video-modal-content').contains(e.target) && !e.target.closest('.btn-watch-video')) {
+            closeVideoModal();
+        }
+    }
+});
+
+7.5. SCROLL TO FORM
+
+function scrollToForm() {
+    const form = document.getElementById('signup-form');
+    if (form) {
+        form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+window.scrollToForm = scrollToForm;
+
+================================================================================
+8. RESPONSIVE DESIGN
+================================================================================
+
+8.1. BREAKPOINTS
+
+- Mobile: max-width: 767px
+- Tablet: 768px - 991px
+- Desktop: min-width: 992px
+
+8.2. MEDIA QUERIES BÁSICAS
+
+@media (max-width: 767px) {
+    .hero-title {
+        font-size: 36px;
+    }
+    
+    .hero-subtitle {
+        font-size: 16px;
+        color: #a0a0b0;
+        line-height: 1.6;
+    }
+    
+    .hero-container {
+        grid-template-columns: 1fr;
+        gap: 40px;
+    }
+    
+    .features-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .pill-grid.cols-4 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+8.3. AJUSTES MÓVILES ESPECÍFICOS
+
+- Hero section: Una columna, padding reducido
+- Formularios: Padding reducido (20px en lugar de 40px)
+- Botones: Width 100% en móvil
+- Cards: Sin hover effects en móvil
+- Textos: Tamaños reducidos proporcionalmente
+
+================================================================================
+9. EFECTOS ESPECIALES
+================================================================================
+
+9.1. PARTÍCULAS EN CANVAS (Hero)
+
+HTML:
+<canvas id="hero-canvas"></canvas>
+
+JAVASCRIPT BÁSICO:
+const canvas = document.getElementById('hero-canvas');
+const ctx = canvas.getContext('2d');
+let width, height, particles = [], mouse = { x: null, y: null };
+const particleCount = 3000;
+const mouseConnectDistance = 120;
+
+class Particle {
+    constructor() {
+        this.x = Math.random() * width;
+        this.y = Math.random() * height;
+        this.vx = (Math.random() - 0.5) * 0.5;
+        this.vy = (Math.random() - 0.5) * 0.5;
+        this.size = Math.random() * 2 + 1;
+        this.color = 'rgba(255, 102, 0, 0.5)';
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        if (this.x < 0 || this.x > width) this.vx *= -1;
+        if (this.y < 0 || this.y > height) this.vy *= -1;
+    }
+    draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = 0.5;
+        ctx.fill();
+    }
+}
+
+function initCanvas() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    particles = [];
+    for (let i = 0; i < particleCount; i++) {
+        particles.push(new Particle());
+    }
+}
+
+function animateCanvas() {
+    ctx.clearRect(0, 0, width, height);
+    for (let i = 0; i < particles.length; i++) {
+        let p = particles[i];
+        p.update();
+        p.draw();
+        if (mouse.x != null) {
+            let dx = mouse.x - p.x;
+            let dy = mouse.y - p.y;
+            let distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < mouseConnectDistance) {
+                ctx.beginPath();
+                ctx.strokeStyle = `rgba(255, 102, 0, ${1 - distance/mouseConnectDistance})`;
+                ctx.lineWidth = 0.5;
+                ctx.moveTo(mouse.x, mouse.y);
+                ctx.lineTo(p.x, p.y);
+                ctx.stroke();
+                const force = (mouseConnectDistance - distance) / mouseConnectDistance;
+                p.x -= (dx / distance) * force * 0.5;
+                p.y -= (dy / distance) * force * 0.5;
+            }
+        }
+    }
+    requestAnimationFrame(animateCanvas);
+}
+
+window.addEventListener('resize', initCanvas);
+if(window.innerWidth > 991) {
+    window.addEventListener('mousemove', (e) => {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+    });
+}
+window.addEventListener('mouseout', () => {
+    mouse.x = null;
+    mouse.y = null;
+});
+
+initCanvas();
+animateCanvas();
+
+CSS:
+#hero-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+9.2. NEBLINA ANIMADA (Hero Background)
+
+.hero-mist {
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 30% 40%, rgba(255, 102, 0, 0.12), transparent 40%),
+                radial-gradient(circle at 70% 60%, rgba(0, 115, 255, 0.08), transparent 40%);
+    filter: blur(80px);
+    animation: mistFlow 25s infinite alternate ease-in-out;
+    z-index: 0;
+}
+
+9.3. SCROLL CURTAIN (Hero desaparece al hacer scroll)
+
+window.addEventListener('scroll', () => {
+    if (window.innerWidth > 991) {
+        const scrollPosition = window.scrollY;
+        const windowHeight = window.innerHeight;
+        let opacity = 1 - (scrollPosition / (windowHeight * 0.7));
+        opacity = Math.max(0, Math.min(1, opacity));
+        
+        heroContainer.style.opacity = opacity;
+        heroContainer.style.transform = `translateY(${scrollPosition * 0.3}px)`;
+        
+        if (opacity <= 0.01) {
+            heroContainer.style.pointerEvents = 'none';
+        } else {
+            heroContainer.style.pointerEvents = 'auto';
+        }
+    }
+});
+
+================================================================================
+10. ESTRUCTURA HTML BÁSICA
+================================================================================
+
+10.1. HERO SECTION
+
+<section class="hero-section" id="hero">
+    <div class="hero-mist"></div>
+    <canvas id="hero-canvas"></canvas>
+    <div class="hero-container">
+        <div class="hero-text-col">
+            <div class="logo-wrapper">
+                <img src="logo.png" alt="Logo" class="hero-main-logo">
+            </div>
+            <h1 class="hero-title">Título Principal</h1>
+            <p class="hero-subtitle">Subtítulo descriptivo</p>
+            <div class="hero-text-actions">
+                <button class="btn-watch-video" onclick="openVideoModal('URL')">
+                    <i class="fa-solid fa-play"></i>
+                    Ver video
+                </button>
+            </div>
+        </div>
+        <div class="hero-form-col">
+            <div class="form-card">
+                <h3 class="form-title">Título del Formulario</h3>
+                <form id="signup-form" class="smart-form">
+                    <div class="input-group">
+                        <input type="text" class="form-input" placeholder="Nombre" required>
+                    </div>
+                    <div class="amazon-switch-group">
+                        <span class="switch-label-text">¿Pregunta?</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="form-amazon-seller">
+                            <span class="slider">
+                                <span class="txt-no">NO</span>
+                                <span class="txt-si">SÍ</span>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="expandable-fields" id="hero-expandable">
+                        <span class="pill-label">Selecciona opción:</span>
+                        <div class="pill-grid cols-3" id="hero-duration-grid">
+                            <div class="pill-btn" onclick="selectPill(this, 'input-id', 'hero-duration-grid')">Opción 1</div>
+                            <div class="pill-btn" onclick="selectPill(this, 'input-id', 'hero-duration-grid')">Opción 2</div>
+                            <div class="pill-btn" onclick="selectPill(this, 'input-id', 'hero-duration-grid')">Opción 3</div>
+                        </div>
+                    </div>
+                    <button type="submit" class="submit-btn">ENVIAR</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+
+10.2. MAIN CONTENT
+
+<div class="main-content-wrapper">
+    <section class="features-section">
+        <div class="features-container">
+            <!-- Contenido -->
+        </div>
+    </section>
+</div>
+
+10.3. MODAL DE VIDEO
+
+<div class="video-modal" id="video-modal">
+    <div class="video-modal-content">
+        <button class="close-modal-btn" onclick="closeVideoModal()">
+            <i class="fa-solid fa-times"></i>
+        </button>
+        <iframe class="video-iframe" src="" frameborder="0" allowfullscreen></iframe>
+    </div>
+</div>
+
+================================================================================
+11. ICONOS (FONT AWESOME)
+================================================================================
+
+CDN:
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+ICONOS COMUNES:
+- Play: <i class="fa-solid fa-play"></i>
+- Cerrar: <i class="fa-solid fa-times"></i>
+- Email: <i class="fa-solid fa-envelope"></i>
+- Teléfono: <i class="fa-solid fa-phone"></i>
+- Gráficos: <i class="fa-solid fa-chart-line"></i>
+- Búsqueda: <i class="fa-solid fa-magnifying-glass"></i>
+- Tienda: <i class="fa-solid fa-store"></i>
+- Almacén: <i class="fa-solid fa-warehouse"></i>
+- Escudo: <i class="fa-solid fa-shield"></i>
+- Globo: <i class="fa-solid fa-globe"></i>
+- Soporte: <i class="fa-solid fa-headset"></i>
+- Barra: <i class="fa-solid fa-chart-bar"></i>
+- Twitter: <i class="fa-brands fa-twitter"></i>
+- LinkedIn: <i class="fa-brands fa-linkedin"></i>
+
+================================================================================
+12. Z-INDEX HIERARCHY
+================================================================================
+
+- Hero mist: z-index: 0
+- Hero canvas: z-index: 1
+- Hero container: z-index: 10
+- Top nav: z-index: 100
+- Main content: z-index: 20
+- Modales: z-index: 9999
+- Feature cards hover: z-index: 10
+
+================================================================================
+13. PERFORMANCE OPTIMIZATIONS
+================================================================================
+
+13.1. PRELOAD Y PREFETCH
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" href="logo.png" as="image" type="image/png" fetchpriority="high">
+
+13.2. LAZY LOADING
+
+<img src="image.jpg" loading="lazy" alt="Description">
+
+13.3. DEFER SCRIPTS
+
+<script defer>
+    // Código JavaScript
+</script>
+
+13.4. INTERSECTION OBSERVER
+
+- Usar IntersectionObserver en lugar de scroll events
+- Unobserve después de animar para mejor performance
+- Threshold y rootMargin ajustados según necesidad
+
+13.5. WILL-CHANGE
+
+.hero-section {
+    will-change: opacity, transform;
+}
+
+================================================================================
+14. CONTEXTO Y FILOSOFÍA DE DISEÑO
+================================================================================
+
+ESTILO GENERAL:
+- Dark mode premium (#080808)
+- Glassmorphism elegante y sutil
+- Animaciones suaves y profesionales
+- Tipografía Inter (moderna, legible)
+- Espaciado generoso
+- Bordes sutiles y translúcidos
+
+PALETA DE COLORES:
+- Principal: Naranja (#FF6600) - Energía, acción, CTA
+- Secundario: Azul (#0073FF) - Confianza, profesionalismo
+- Fondo: Negro profundo (#080808) - Premium, sofisticado
+- Textos: Blanco/grises - Legibilidad y contraste
+
+EFECTOS CLAVE:
+- Blur y saturación en glassmorphism
+- Gradientes radiales suaves
+- Sombras sutiles con color de marca
+- Transiciones cubic-bezier suaves
+- Hover effects discretos pero notables
+
+PRINCIPIOS:
+1. Menos es más - Diseño limpio y minimalista
+2. Performance first - Optimizado para móvil
+3. Accesibilidad - Contraste adecuado, focus states
+4. Consistencia - Mismos estilos en todo el sitio
+5. Elegancia - Detalles sutiles que marcan la diferencia
+
+================================================================================
+15. CHECKLIST PARA IMPLEMENTACIÓN
+================================================================================
+
+□ Variables CSS definidas en :root
+□ Fuente Inter importada
+□ Reset CSS básico aplicado
+□ Componentes de botones creados
+□ Cards con glassmorphism
+□ Inputs estilizados
+□ Toggle switches implementados
+□ Pill buttons funcionales
+□ Modales configurados
+□ Animaciones keyframes definidas
+□ Scroll triggers con IntersectionObserver
+□ Responsive breakpoints configurados
+□ JavaScript esencial implementado
+□ Font Awesome incluido
+□ Canvas particles (opcional)
+□ Neblina animada (opcional)
+□ Z-index hierarchy respetada
+□ Performance optimizations aplicadas
+
+================================================================================
+16. NOTAS FINALES
+================================================================================
+
+- Este diseño está optimizado para performance en móviles
+- Usa GPU acceleration (transform, opacity) para animaciones
+- Evita animaciones pesadas en móvil (backdrop-filter reducido)
+- Los efectos blur pueden ser costosos, úsalos con moderación
+- Las partículas del canvas se pueden desactivar en móvil
+- Siempre prueba en dispositivos reales, no solo en DevTools
+- El diseño es escalable y modular, fácil de adaptar
+
+================================================================================
+                        FIN DE LA DOCUMENTACIÓN
+================================================================================
+
+Para cualquier duda o implementación específica, referirse a este documento
+como guía de referencia completa del sistema de diseño Liberty Seller.
+
