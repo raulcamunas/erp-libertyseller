@@ -87,20 +87,20 @@
   }
 
   .btn-glass {
-    @apply bg-white/5 border border-white/10 text-white px-6 py-3 rounded-full text-sm font-semibold button-uppercase cursor-pointer flex items-center gap-3 transition-all duration-300 backdrop-blur-sm;
+    @apply bg-white/[0.05] border border-white/10 text-white px-6 py-3 rounded-full text-sm font-semibold button-uppercase cursor-pointer flex items-center gap-3 transition-all duration-300 backdrop-blur-sm;
   }
 
   .btn-glass:hover {
-    @apply border-[#FF6600] bg-[#FF6600]/10 translate-x-1;
+    @apply border-[#FF6600] bg-[#FF6600]/[0.1] translate-x-1;
   }
 
   /* Inputs */
   .input-glass {
-    @apply w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white text-[15px] outline-none transition-all duration-300;
+    @apply w-full bg-white/[0.05] border border-white/10 rounded-xl px-5 py-4 text-white text-[15px] outline-none transition-all duration-300;
   }
 
   .input-glass:focus {
-    @apply bg-white/8 border-[#FF6600] shadow-[0_0_0_4px_rgba(255,102,0,0.1)];
+    @apply bg-white/[0.08] border-[#FF6600] shadow-[0_0_0_4px_rgba(255,102,0,0.1)];
   }
 
   .input-glass::placeholder {
