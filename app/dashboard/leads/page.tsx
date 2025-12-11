@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
-import { Header } from '@/components/layout/Header'
 import { LeadsTable } from '@/components/leads/LeadsTable'
 import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
@@ -32,28 +31,25 @@ export default async function LeadsPage() {
   }
 
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-7xl mx-auto">
-        <Header />
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="heading-large text-white mb-2">
-              Leads
-            </h1>
-            <p className="text-white/50">
-              Gestiona todos tus leads y oportunidades
-            </p>
-          </div>
-          <Link href="/dashboard/leads/new">
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" />
-              Nuevo Lead
-            </Button>
-          </Link>
+    <div>
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="heading-medium text-white mb-2">
+            Gestión de Leads
+          </h1>
+          <p className="text-white/50">
+            Gestiona todos tus leads y oportunidades
+          </p>
         </div>
-        <div className="glass-card p-6">
-          <LeadsTable leads={leads || []} />
-        </div>
+        <Link href="/dashboard/leads/new">
+          <Button className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nuevo Lead
+          </Button>
+        </Link>
+      </div>
+      <div className="glass-card p-6">
+        <LeadsTable leads={leads || []} />
       </div>
     </div>
   )
