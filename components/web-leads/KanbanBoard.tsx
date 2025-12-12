@@ -14,6 +14,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { WebLead, WebLeadStatus } from '@/lib/types/web-leads'
 import { LeadCard } from './LeadCard'
 import { LeadColumn } from './LeadColumn'
+import { LeadSheet } from './LeadSheet'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
