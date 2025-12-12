@@ -17,6 +17,7 @@ import { LeadColumn } from './LeadColumn'
 import { LeadSheet } from './LeadSheet'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 const STATUSES: { id: WebLeadStatus; label: string; color: string }[] = [
   { id: 'registrado', label: 'Registrado', color: 'bg-blue-500/20 border-blue-500/30' },
@@ -43,6 +44,56 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
       },
     })
   )
+
+  // Real-time subscription para nuevos leads
+  useEffect(() => {
+    const channel = supabase
+      .channel('web_leads_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'web_leads',
+        },
+        (payload) => {
+          const newLead = payload.new as WebLead
+          
+          // Verificar que el lead no esté ya en la lista (evitar duplicados)
+          setLeads((prevLeads) => {
+            const exists = prevLeads.some(l => l.id === newLead.id)
+            if (exists) return prevLeads
+            
+            // Mostrar notificación
+            toast.success('Nuevo lead registrado en formulario web', {
+              description: `${newLead.nombre}${newLead.email ? ` - ${newLead.email}` : ''}`,
+              duration: 5000,
+            })
+            
+            return [newLead, ...prevLeads]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'web_leads',
+        },
+        (payload) => {
+          const updatedLead = payload.new as WebLead
+          setLeads((prevLeads) =>
+            prevLeads.map((l) => (l.id === updatedLead.id ? updatedLead : l))
+          )
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase])
 
   // Agrupar leads por estado
   const leadsByStatus = leads.reduce((acc, lead) => {
@@ -126,9 +177,9 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
           })}
         </div>
 
-        <DragOverlay>
+        <DragOverlay dropAnimation={null}>
           {activeLead ? (
-            <div className="opacity-90">
+            <div className="opacity-90 rotate-2 scale-105 cursor-grabbing">
               <LeadCard lead={activeLead} onClick={() => {}} />
             </div>
           ) : null}

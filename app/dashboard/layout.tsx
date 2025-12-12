@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { AppSidebar } from '@/components/layout/AppSidebar'
+import { Toaster } from '@/components/ui/sonner'
 
 export default async function DashboardLayout({
   children,
@@ -29,6 +30,7 @@ export default async function DashboardLayout({
           {children}
         </div>
       </main>
+      <Toaster position="top-right" richColors />
     </div>
   )
 }

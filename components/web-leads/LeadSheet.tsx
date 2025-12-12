@@ -217,18 +217,18 @@ export function LeadSheet({ lead, onClose, onUpdate }: LeadSheetProps) {
           </div>
 
           {/* Botones de Acción */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-stretch">
             <Button
               variant="outline"
               onClick={onClose}
-              className="flex-1"
+              className="flex-1 h-12"
             >
               Cancelar
             </Button>
             <LibertyButton
               onClick={handleSave}
               disabled={saving}
-              className="flex-1"
+              className="flex-1 h-12"
             >
               {saving ? 'Guardando...' : 'Guardar Cambios'}
             </LibertyButton>

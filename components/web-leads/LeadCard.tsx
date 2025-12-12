@@ -21,10 +21,19 @@ export function LeadCard({ lead, onClick }: LeadCardProps) {
     <div
       onClick={onClick}
       className={cn(
-        "glass-card p-4 cursor-pointer transition-all duration-300",
-        "hover:border-[#FF6600]/30 hover:shadow-brand hover:scale-[1.02]",
+        "glass-card p-4 cursor-pointer transition-all duration-300 relative",
+        "hover:border-[#FF6600]/30 hover:scale-[1.02]",
         "border border-white/10 rounded-xl"
       )}
+      style={{
+        boxShadow: 'none'
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.boxShadow = '0 0 30px rgba(255, 102, 0, 0.3)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.boxShadow = 'none'
+      }}
     >
       {/* Nombre y Empresa */}
       <div className="mb-3">
