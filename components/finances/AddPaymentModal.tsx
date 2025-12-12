@@ -17,6 +17,7 @@ interface AddPaymentModalProps {
 export function AddPaymentModal({ periodId, onClose, onPaymentAdded }: AddPaymentModalProps) {
   const [clientName, setClientName] = useState('')
   const [amount, setAmount] = useState('')
+  const [type, setType] = useState<'income' | 'expense'>('income')
   const [description, setDescription] = useState('')
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
   const [files, setFiles] = useState<File[]>([])
@@ -46,6 +47,7 @@ export function AddPaymentModal({ periodId, onClose, onPaymentAdded }: AddPaymen
             period_id: periodId,
             client_name: clientName,
             amount: parseFloat(amount),
+            type: type,
             description: description || null,
             payment_date: paymentDate || null
           }
@@ -99,9 +101,9 @@ export function AddPaymentModal({ periodId, onClose, onPaymentAdded }: AddPaymen
       <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-white">Agregar Pago</CardTitle>
+            <CardTitle className="text-white">Agregar Movimiento</CardTitle>
             <CardDescription>
-              Registra un nuevo pago recibido
+              Registra un ingreso o gasto
             </CardDescription>
           </div>
           <Button
@@ -115,15 +117,48 @@ export function AddPaymentModal({ periodId, onClose, onPaymentAdded }: AddPaymen
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Tipo de Movimiento */}
+            <div className="space-y-2">
+              <label className="label-uppercase text-white/70">
+                Tipo de Movimiento *
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setType('income')}
+                  className={`px-4 py-3 rounded-xl border transition-all ${
+                    type === 'income'
+                      ? 'bg-[#FF6600]/[0.2] border-[#FF6600] text-[#FF6600]'
+                      : 'bg-white/[0.05] border-white/10 text-white/70 hover:bg-white/[0.1]'
+                  }`}
+                >
+                  <div className="font-semibold">Ingreso</div>
+                  <div className="text-xs opacity-70">Dinero recibido</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setType('expense')}
+                  className={`px-4 py-3 rounded-xl border transition-all ${
+                    type === 'expense'
+                      ? 'bg-red-500/[0.2] border-red-500 text-red-400'
+                      : 'bg-white/[0.05] border-white/10 text-white/70 hover:bg-white/[0.1]'
+                  }`}
+                >
+                  <div className="font-semibold">Gasto</div>
+                  <div className="text-xs opacity-70">Dinero gastado</div>
+                </button>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <label htmlFor="clientName" className="label-uppercase text-white/70">
-                Nombre del Cliente *
+                {type === 'income' ? 'Nombre del Cliente' : 'Concepto'} *
               </label>
               <Input
                 id="clientName"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
-                placeholder="Ej: Cliente ABC"
+                placeholder={type === 'income' ? 'Ej: Cliente ABC' : 'Ej: Servicios, Materiales, etc.'}
                 required
               />
             </div>
@@ -223,7 +258,7 @@ export function AddPaymentModal({ periodId, onClose, onPaymentAdded }: AddPaymen
                 disabled={uploading}
                 className="flex-1"
               >
-                {uploading ? 'Guardando...' : 'Guardar Pago'}
+                {uploading ? 'Guardando...' : 'Guardar Movimiento'}
               </LibertyButton>
             </div>
           </form>

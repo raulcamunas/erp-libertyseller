@@ -4,8 +4,6 @@ import { MonthlySummary } from '@/lib/types/finances'
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -35,17 +33,17 @@ export function FinanceChart({ data }: FinanceChartProps) {
   }))
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={chartData}>
+    <ResponsiveContainer width="100%" height={280}>
+      <LineChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
         <XAxis 
           dataKey="mes" 
           stroke="rgba(255, 255, 255, 0.5)"
-          style={{ fontSize: '12px' }}
+          style={{ fontSize: '11px' }}
         />
         <YAxis 
           stroke="rgba(255, 255, 255, 0.5)"
-          style={{ fontSize: '12px' }}
+          style={{ fontSize: '11px' }}
           tickFormatter={(value) => `€${value.toLocaleString()}`}
         />
         <Tooltip
@@ -61,12 +59,36 @@ export function FinanceChart({ data }: FinanceChartProps) {
           ]}
         />
         <Legend 
-          wrapperStyle={{ color: 'rgba(255, 255, 255, 0.7)' }}
+          wrapperStyle={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '12px' }}
         />
-        <Bar dataKey="ingresos" fill="#FF6600" name="Ingresos" radius={[8, 8, 0, 0]} />
-        <Bar dataKey="gastos" fill="#ef4444" name="Gastos" radius={[8, 8, 0, 0]} />
-        <Bar dataKey="beneficio" fill="#22c55e" name="Beneficio" radius={[8, 8, 0, 0]} />
-      </BarChart>
+        <Line 
+          type="monotone" 
+          dataKey="ingresos" 
+          stroke="#FF6600" 
+          strokeWidth={2}
+          name="Ingresos"
+          dot={{ fill: '#FF6600', r: 4 }}
+          activeDot={{ r: 6 }}
+        />
+        <Line 
+          type="monotone" 
+          dataKey="gastos" 
+          stroke="#ef4444" 
+          strokeWidth={2}
+          name="Gastos"
+          dot={{ fill: '#ef4444', r: 4 }}
+          activeDot={{ r: 6 }}
+        />
+        <Line 
+          type="monotone" 
+          dataKey="beneficio" 
+          stroke="#22c55e" 
+          strokeWidth={2}
+          name="Beneficio"
+          dot={{ fill: '#22c55e', r: 4 }}
+          activeDot={{ r: 6 }}
+        />
+      </LineChart>
     </ResponsiveContainer>
   )
 }

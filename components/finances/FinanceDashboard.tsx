@@ -82,11 +82,17 @@ export function FinanceDashboard() {
         for (const period of allPeriods) {
           const { data: periodPayments } = await supabase
             .from('finance_payments')
-            .select('amount')
+            .select('amount, type')
             .eq('period_id', period.id)
 
-          const totalIncome = periodPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0
-          const totalExpenses = 0 // Por ahora solo ingresos
+          const totalIncome = periodPayments
+            ?.filter(p => p.type === 'income')
+            .reduce((sum, p) => sum + Number(p.amount), 0) || 0
+          
+          const totalExpenses = periodPayments
+            ?.filter(p => p.type === 'expense')
+            .reduce((sum, p) => sum + Number(p.amount), 0) || 0
+          
           const profit = totalIncome - totalExpenses
 
           summaries.push({
@@ -117,8 +123,14 @@ export function FinanceDashboard() {
     loadData()
   }
 
-  const totalIncome = payments.reduce((sum, p) => sum + Number(p.amount), 0)
-  const totalExpenses = 0 // Por ahora solo ingresos
+  const totalIncome = payments
+    .filter(p => p.type === 'income')
+    .reduce((sum, p) => sum + Number(p.amount), 0)
+  
+  const totalExpenses = payments
+    .filter(p => p.type === 'expense')
+    .reduce((sum, p) => sum + Number(p.amount), 0)
+  
   const profit = totalIncome - totalExpenses
 
   if (loading) {
@@ -130,18 +142,18 @@ export function FinanceDashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="space-y-4">
+      {/* Stats Cards - Compactas */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-white/70">
+            <CardTitle className="text-xs font-medium text-white/70">
               Ingresos del Mes
             </CardTitle>
             <TrendingUp className="h-4 w-4 text-[#FF6600]" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-white">
+          <CardContent className="pt-0">
+            <div className="text-xl font-bold text-white">
               €{totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
@@ -149,13 +161,13 @@ export function FinanceDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-white/70">
+            <CardTitle className="text-xs font-medium text-white/70">
               Gastos del Mes
             </CardTitle>
             <TrendingDown className="h-4 w-4 text-red-400" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-white">
+          <CardContent className="pt-0">
+            <div className="text-xl font-bold text-white">
               €{totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
@@ -163,38 +175,28 @@ export function FinanceDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-white/70">
+            <CardTitle className="text-xs font-medium text-white/70">
               Beneficio Neto
             </CardTitle>
             <DollarSign className="h-4 w-4 text-green-400" />
           </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          <CardContent className="pt-0">
+            <div className={`text-xl font-bold ${profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               €{profit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Month Selector and Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+      {/* Layout: Gráfico a la derecha, Mes selector y lista al centro/izquierda */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        {/* Mes Selector y Lista de Pagos - Ocupa 3 columnas */}
+        <div className="lg:col-span-3 space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-white">Evolución Financiera</CardTitle>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-white">Seleccionar Mes</CardTitle>
             </CardHeader>
-            <CardContent>
-              <FinanceChart data={monthlySummaries} />
-            </CardContent>
-          </Card>
-        </div>
-
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-white">Seleccionar Mes</CardTitle>
-            </CardHeader>
-            <CardContent>
+            <CardContent className="pt-0">
               <MonthSelector
                 selectedYear={selectedYear}
                 selectedMonth={selectedMonth}
@@ -203,28 +205,39 @@ export function FinanceDashboard() {
               />
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-sm text-white">
+                Movimientos de {format(new Date(selectedYear, selectedMonth - 1), 'MMMM yyyy', { locale: es })}
+              </CardTitle>
+              <Button onClick={() => setIsAddModalOpen(true)} size="sm" className="gap-2 h-8">
+                <Plus className="h-3 w-3" />
+                Agregar
+              </Button>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <PaymentList
+                payments={payments}
+                periodId={currentPeriod?.id}
+                onPaymentDeleted={handlePaymentDeleted}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Gráfico - Ocupa 2 columnas a la derecha */}
+        <div className="lg:col-span-2">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-white">Evolución Financiera</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <FinanceChart data={monthlySummaries} />
+            </CardContent>
+          </Card>
         </div>
       </div>
-
-      {/* Payments List */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-white">
-            Pagos de {format(new Date(selectedYear, selectedMonth - 1), 'MMMM yyyy', { locale: es })}
-          </CardTitle>
-          <Button onClick={() => setIsAddModalOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Agregar Pago
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <PaymentList
-            payments={payments}
-            periodId={currentPeriod?.id}
-            onPaymentDeleted={handlePaymentDeleted}
-          />
-        </CardContent>
-      </Card>
 
       {/* Add Payment Modal */}
       {isAddModalOpen && currentPeriod && (
