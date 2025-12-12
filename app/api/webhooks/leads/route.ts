@@ -1,45 +1,118 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { LeadFormData } from '@/lib/types/leads'
 
 export async function POST(request: NextRequest) {
   try {
-    // Verificar que el request tenga el formato correcto
-    const body = await request.json()
-
-    // Validar campos requeridos
-    if (!body.name) {
+    // Intentar parsear como JSON primero, si falla, intentar como form-data
+    let body: any
+    const contentType = request.headers.get('content-type') || ''
+    
+    try {
+      if (contentType.includes('application/json')) {
+        body = await request.json()
+      } else if (contentType.includes('application/x-www-form-urlencoded')) {
+        const formData = await request.formData()
+        body = Object.fromEntries(formData.entries())
+      } else {
+        // Intentar JSON por defecto
+        body = await request.json()
+      }
+    } catch (parseError) {
+      console.error('Error parsing request body:', parseError)
       return NextResponse.json(
-        { error: 'El campo "name" es requerido' },
+        { error: 'Error al parsear el cuerpo de la solicitud', details: String(parseError) },
+        { status: 400 }
+      )
+    }
+    
+    // Log para debugging
+    console.log('Webhook received:', JSON.stringify(body, null, 2))
+    console.log('Content-Type:', contentType)
+
+    // Validar campos requeridos (aceptar tanto 'nombre' como 'name', y 'telefono' como 'phone')
+    const nombre = body.nombre || body.name
+    const email = body.email
+    const telefono = body.telefono || body.phone
+
+    if (!nombre || !email) {
+      console.error('Validation error: missing nombre or email', { nombre, email })
+      return NextResponse.json(
+        { error: 'Los campos "nombre" (o "name") y "email" son requeridos' },
         { status: 400 }
       )
     }
 
-    // Preparar los datos del lead
-    const leadData: LeadFormData = {
-      name: body.name,
-      phone: body.phone || null,
-      email: body.email || null,
-      revenue_range: body.revenue_range || null,
-      is_amazon_seller: body.is_amazon_seller || false,
-      status: body.status || 'nuevo',
-      notes: body.notes || null,
+    // Verificar que las variables de entorno estén configuradas
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.error('Missing Supabase environment variables')
+      return NextResponse.json(
+        { error: 'Error de configuración del servidor' },
+        { status: 500 }
+      )
     }
 
-    // Crear cliente de Supabase
-    const supabase = await createClient()
+    // Crear cliente de Supabase público (sin autenticación para webhook)
+    const supabase = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    )
 
-    // Insertar el lead en la base de datos
+    // Construir mensaje con información adicional del formulario
+    let mensaje = body.mensaje || ''
+    const mensajeParts: string[] = []
+    
+    if (body.vendeEnAmazon) {
+      mensajeParts.push(`Vende en Amazon: ${body.vendeEnAmazon}`)
+    }
+    if (body.sellingDuration) {
+      mensajeParts.push(`Tiempo vendiendo: ${body.sellingDuration}`)
+    }
+    if (body.monthlyRevenue) {
+      mensajeParts.push(`Facturación mensual: ${body.monthlyRevenue}`)
+    }
+    if (body.source) {
+      mensajeParts.push(`Fuente: ${body.source}`)
+    }
+    
+    if (mensajeParts.length > 0) {
+      mensaje = mensajeParts.join('\n') + (mensaje ? '\n\n' + mensaje : '')
+    }
+
+    // Mapear campos del webhook a la tabla web_leads
+    const leadData = {
+      nombre: nombre.trim(),
+      email: email.trim(),
+      telefono: telefono ? telefono.trim() : null,
+      empresa: body.empresa ? body.empresa.trim() : null,
+      mensaje: mensaje || null,
+      ingresos: body.ingresos || body.monthlyRevenue || null,
+      status: 'registrado' as const // Estado inicial
+    }
+
+    console.log('Inserting lead data:', JSON.stringify(leadData, null, 2))
+
+    // Insertar el lead en la base de datos (tabla web_leads)
     const { data, error } = await supabase
-      .from('leads')
+      .from('web_leads')
       .insert([leadData])
       .select()
       .single()
 
     if (error) {
-      console.error('Error inserting lead:', error)
+      console.error('Error inserting web lead:', {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        leadData
+      })
       return NextResponse.json(
-        { error: 'Error al guardar el lead', details: error.message },
+        { 
+          error: 'Error al guardar el lead', 
+          details: error.message,
+          code: error.code,
+          hint: error.hint
+        },
         { status: 500 }
       )
     }
@@ -65,10 +138,28 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json(
     {
-      message: 'Webhook endpoint para leads',
+      message: 'Webhook endpoint para web leads',
       method: 'POST',
-      required_fields: ['name'],
-      optional_fields: ['phone', 'email', 'revenue_range', 'is_amazon_seller', 'status', 'notes'],
+      required_fields: ['nombre (o name)', 'email'],
+      optional_fields: [
+        'telefono (o phone)',
+        'empresa',
+        'mensaje',
+        'ingresos (o monthlyRevenue)',
+        'vendeEnAmazon',
+        'sellingDuration',
+        'source',
+        'timestamp'
+      ],
+      example: {
+        nombre: 'Pepe',
+        email: 'pepe@example.com',
+        telefono: '678112754',
+        vendeEnAmazon: 'Sí',
+        sellingDuration: '0-1 año',
+        monthlyRevenue: '0-5k',
+        source: 'Hero Form'
+      }
     },
     { status: 200 }
   )
