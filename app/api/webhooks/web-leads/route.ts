@@ -3,7 +3,31 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    // Intentar parsear como JSON primero, si falla, intentar como form-data
+    let body: any
+    const contentType = request.headers.get('content-type') || ''
+    
+    try {
+      if (contentType.includes('application/json')) {
+        body = await request.json()
+      } else if (contentType.includes('application/x-www-form-urlencoded')) {
+        const formData = await request.formData()
+        body = Object.fromEntries(formData.entries())
+      } else {
+        // Intentar JSON por defecto
+        body = await request.json()
+      }
+    } catch (parseError) {
+      console.error('Error parsing request body:', parseError)
+      return NextResponse.json(
+        { error: 'Error al parsear el cuerpo de la solicitud', details: String(parseError) },
+        { status: 400 }
+      )
+    }
+    
+    // Log para debugging
+    console.log('Webhook received:', JSON.stringify(body, null, 2))
+    console.log('Content-Type:', contentType)
 
     // Validar campos requeridos (aceptar tanto 'nombre' como 'name', y 'telefono' como 'phone')
     const nombre = body.nombre || body.name
@@ -11,16 +35,26 @@ export async function POST(request: NextRequest) {
     const telefono = body.telefono || body.phone
 
     if (!nombre || !email) {
+      console.error('Validation error: missing nombre or email', { nombre, email })
       return NextResponse.json(
         { error: 'Los campos "nombre" (o "name") y "email" son requeridos' },
         { status: 400 }
       )
     }
 
+    // Verificar que las variables de entorno estén configuradas
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.error('Missing Supabase environment variables')
+      return NextResponse.json(
+        { error: 'Error de configuración del servidor' },
+        { status: 500 }
+      )
+    }
+
     // Crear cliente de Supabase público (sin autenticación para webhook)
     const supabase = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     )
 
     // Construir mensaje con información adicional del formulario
@@ -46,14 +80,16 @@ export async function POST(request: NextRequest) {
 
     // Mapear campos del webhook a la tabla
     const leadData = {
-      nombre: nombre,
-      email: email,
-      telefono: telefono || null,
-      empresa: body.empresa || null,
+      nombre: nombre.trim(),
+      email: email.trim(),
+      telefono: telefono ? telefono.trim() : null,
+      empresa: body.empresa ? body.empresa.trim() : null,
       mensaje: mensaje || null,
       ingresos: body.ingresos || body.monthlyRevenue || null,
-      status: 'registrado' // Estado inicial
+      status: 'registrado' as const // Estado inicial
     }
+
+    console.log('Inserting lead data:', JSON.stringify(leadData, null, 2))
 
     // Insertar el lead en la base de datos
     const { data, error } = await supabase
@@ -63,9 +99,20 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Error inserting web lead:', error)
+      console.error('Error inserting web lead:', {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        leadData
+      })
       return NextResponse.json(
-        { error: 'Error al guardar el lead', details: error.message },
+        { 
+          error: 'Error al guardar el lead', 
+          details: error.message,
+          code: error.code,
+          hint: error.hint
+        },
         { status: 500 }
       )
     }
