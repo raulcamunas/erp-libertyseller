@@ -91,21 +91,57 @@ export async function POST(request: NextRequest) {
 
     console.log('Inserting lead data:', JSON.stringify(leadData, null, 2))
 
-    // Insertar el lead en la base de datos (tabla web_leads)
-    const { data, error } = await supabase
-      .from('web_leads')
-      .insert([leadData])
-      .select()
-      .single()
+    // Usar función SQL con SECURITY DEFINER para bypassear RLS
+    const { data, error } = await supabase.rpc('insert_web_lead', {
+      p_nombre: leadData.nombre,
+      p_email: leadData.email,
+      p_telefono: leadData.telefono,
+      p_empresa: leadData.empresa,
+      p_mensaje: leadData.mensaje,
+      p_ingresos: leadData.ingresos
+    })
 
     if (error) {
-      console.error('Error inserting web lead:', {
+      console.error('Error inserting web lead via function:', {
         error: error.message,
         code: error.code,
         details: error.details,
         hint: error.hint,
         leadData
       })
+      
+      // Si la función no existe, intentar insert directo como fallback
+      if (error.code === '42883' || error.message.includes('function') || error.message.includes('does not exist')) {
+        console.log('Function not found, trying direct insert...')
+        const { data: directData, error: directError } = await supabase
+          .from('web_leads')
+          .insert([leadData])
+          .select()
+          .single()
+        
+        if (directError) {
+          console.error('Error with direct insert:', directError)
+          return NextResponse.json(
+            { 
+              error: 'Error al guardar el lead', 
+              details: directError.message,
+              code: directError.code,
+              hint: directError.hint
+            },
+            { status: 500 }
+          )
+        }
+        
+        return NextResponse.json(
+          {
+            success: true,
+            message: 'Lead creado exitosamente',
+            data: directData,
+          },
+          { status: 201 }
+        )
+      }
+      
       return NextResponse.json(
         { 
           error: 'Error al guardar el lead', 
