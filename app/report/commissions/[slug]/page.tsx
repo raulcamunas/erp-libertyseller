@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { CommissionReportView } from '@/components/commissions/CommissionReportView'
 import { Logo } from '@/components/ui/Logo'
 
@@ -8,7 +7,11 @@ export default async function PublicCommissionReportPage({
 }: {
   params: { slug: string }
 }) {
-  const supabase = await createClient()
+  // Usar cliente anónimo para acceso público (sin autenticación)
+  const supabase = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
   
   const { data: report, error } = await supabase
     .from('commission_reports')

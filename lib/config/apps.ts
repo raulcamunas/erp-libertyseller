@@ -5,7 +5,8 @@ import {
   FileText, 
   Settings, 
   BarChart3,
-  Calculator
+  Calculator,
+  Globe
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -37,6 +38,15 @@ export const apps: AppConfig[] = [
     icon: Users,
     route: '/dashboard/leads',
     badge: 'Nuevo',
+    status: 'active',
+    category: 'core'
+  },
+  {
+    id: 'web-leads',
+    name: 'CRM Leads Web',
+    description: 'Leads desde tu sitio web',
+    icon: Globe,
+    route: '/dashboard/web-leads',
     status: 'active',
     category: 'core'
   },
