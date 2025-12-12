@@ -35,7 +35,7 @@ export function CommissionsReportsDashboard({ reports, clients }: CommissionsRep
     : reports.filter(r => r.client_id === selectedClient)
 
   const handleCopyLink = async (slug: string) => {
-    const url = `${window.location.origin}/dashboard/commissions/report/${slug}`
+    const url = `${window.location.origin}/report/commissions/${slug}`
     try {
       await navigator.clipboard.writeText(url)
       setCopiedSlug(slug)
@@ -115,7 +115,7 @@ export function CommissionsReportsDashboard({ reports, clients }: CommissionsRep
         {filteredReports.map((report) => {
           const clientName = report.clients?.name || 'Cliente desconocido'
           const summary = report.data.summary
-          const shareUrl = `${window.location.origin}/dashboard/commissions/report/${report.slug}`
+          const shareUrl = `${window.location.origin}/report/commissions/${report.slug}`
 
           return (
             <Card key={report.id} className="glass-card">
@@ -172,7 +172,7 @@ export function CommissionsReportsDashboard({ reports, clients }: CommissionsRep
                       ) : (
                         <>
                           <Copy className="h-4 w-4" />
-                          Copiar Link
+                          Copiar Link Público
                         </>
                       )}
                     </Button>
@@ -227,9 +227,12 @@ export function CommissionsReportsDashboard({ reports, clients }: CommissionsRep
                 {report.slug && (
                   <div className="flex items-center gap-2 p-3 bg-white/[0.03] border border-white/10 rounded-lg">
                     <div className="flex-1">
-                      <div className="text-xs text-white/50 mb-1">Link para compartir:</div>
+                      <div className="text-xs text-white/50 mb-1">Link público para compartir:</div>
                       <div className="text-sm text-white/70 font-mono break-all">
                         {shareUrl}
+                      </div>
+                      <div className="text-xs text-green-400/70 mt-1">
+                        ✓ No requiere autenticación
                       </div>
                     </div>
                     <Button

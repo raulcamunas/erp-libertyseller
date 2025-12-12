@@ -11,7 +11,6 @@ import {
   TrendingUp, 
   TrendingDown,
   BarChart3,
-  PieChart,
   Download,
   X
 } from 'lucide-react'
@@ -22,14 +21,10 @@ import {
   Bar, 
   LineChart, 
   Line, 
-  PieChart as RechartsPieChart, 
-  Pie, 
-  Cell,
   XAxis, 
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  Legend, 
   ResponsiveContainer 
 } from 'recharts'
 import { cn } from '@/lib/utils'
@@ -52,7 +47,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   const [minCommission, setMinCommission] = useState('')
   const [maxCommission, setMaxCommission] = useState('')
   const [showExceptionsOnly, setShowExceptionsOnly] = useState(false)
-  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>('bar')
+  const [chartType, setChartType] = useState<'bar' | 'line'>('bar')
 
   // Filtrar y ordenar filas
   const filteredAndSortedRows = useMemo(() => {
@@ -121,23 +116,6 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
       }))
   }, [filteredAndSortedRows])
 
-  // Datos para gráfico de distribución
-  const distributionData = useMemo(() => {
-    const ranges = [
-      { name: '0-50€', min: 0, max: 50 },
-      { name: '50-100€', min: 50, max: 100 },
-      { name: '100-200€', min: 100, max: 200 },
-      { name: '200-500€', min: 200, max: 500 },
-      { name: '500€+', min: 500, max: Infinity }
-    ]
-
-    return ranges.map(range => ({
-      name: range.name,
-      value: filteredAndSortedRows.filter(r => 
-        r.commission >= range.min && r.commission < range.max
-      ).length
-    }))
-  }, [filteredAndSortedRows])
 
   // Estadísticas calculadas
   const stats = useMemo(() => {
@@ -168,8 +146,6 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
       setSortDirection('desc')
     }
   }
-
-  const COLORS = ['#FF6600', '#0073FF', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6']
 
   return (
     <div className="space-y-6">
@@ -363,133 +339,50 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
         </CardContent>
       </Card>
 
-      {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Gráfico Principal */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-white flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Top Productos por Comisión
-            </CardTitle>
-            <div className="flex gap-2">
-              <Button
-                onClick={() => setChartType('bar')}
-                variant={chartType === 'bar' ? 'default' : 'outline'}
-                size="sm"
-                className={cn(chartType === 'bar' && "bg-[#FF6600]")}
-              >
-                <BarChart3 className="h-4 w-4" />
-              </Button>
-              <Button
-                onClick={() => setChartType('line')}
-                variant={chartType === 'line' ? 'default' : 'outline'}
-                size="sm"
-                className={cn(chartType === 'line' && "bg-[#FF6600]")}
-              >
-                <TrendingUp className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              {chartType === 'bar' ? (
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
-                  <XAxis 
-                    dataKey="name" 
-                    stroke="rgba(255, 255, 255, 0.5)"
-                    style={{ fontSize: '11px' }}
-                    angle={-45}
-                    textAnchor="end"
-                    height={80}
-                  />
-                  <YAxis 
-                    stroke="rgba(255, 255, 255, 0.5)"
-                    style={{ fontSize: '11px' }}
-                    tickFormatter={(value) => `€${value.toLocaleString()}`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'rgba(8, 8, 8, 0.95)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '8px',
-                      color: '#fff'
-                    }}
-                    formatter={(value: number) => [
-                      `€${value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                      'Comisión'
-                    ]}
-                  />
-                  <Bar dataKey="comision" fill="#FF6600" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              ) : (
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
-                  <XAxis 
-                    dataKey="name" 
-                    stroke="rgba(255, 255, 255, 0.5)"
-                    style={{ fontSize: '11px' }}
-                    angle={-45}
-                    textAnchor="end"
-                    height={80}
-                  />
-                  <YAxis 
-                    stroke="rgba(255, 255, 255, 0.5)"
-                    style={{ fontSize: '11px' }}
-                    tickFormatter={(value) => `€${value.toLocaleString()}`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'rgba(8, 8, 8, 0.95)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '8px',
-                      color: '#fff'
-                    }}
-                    formatter={(value: number) => [
-                      `€${value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                      'Comisión'
-                    ]}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="comision" 
-                    stroke="#FF6600" 
-                    strokeWidth={2}
-                    dot={{ fill: '#FF6600', r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                </LineChart>
-              )}
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Gráfico de Distribución */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <PieChart className="h-5 w-5" />
-              Distribución de Comisiones
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <RechartsPieChart>
-                <Pie
-                  data={distributionData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {distributionData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
+      {/* Gráfico Principal */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-white flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Top Productos por Comisión
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setChartType('bar')}
+              variant={chartType === 'bar' ? 'default' : 'outline'}
+              size="sm"
+              className={cn(chartType === 'bar' && "bg-[#FF6600]")}
+            >
+              <BarChart3 className="h-4 w-4" />
+            </Button>
+            <Button
+              onClick={() => setChartType('line')}
+              variant={chartType === 'line' ? 'default' : 'outline'}
+              size="sm"
+              className={cn(chartType === 'line' && "bg-[#FF6600]")}
+            >
+              <TrendingUp className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={400}>
+            {chartType === 'bar' ? (
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
+                <XAxis 
+                  dataKey="name" 
+                  stroke="rgba(255, 255, 255, 0.5)"
+                  style={{ fontSize: '11px' }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                />
+                <YAxis 
+                  stroke="rgba(255, 255, 255, 0.5)"
+                  style={{ fontSize: '11px' }}
+                  tickFormatter={(value) => `€${value.toLocaleString()}`}
+                />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: 'rgba(8, 8, 8, 0.95)',
@@ -497,24 +390,54 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                     borderRadius: '8px',
                     color: '#fff'
                   }}
+                  formatter={(value: number) => [
+                    `€${value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                    'Comisión'
+                  ]}
                 />
-              </RechartsPieChart>
-            </ResponsiveContainer>
-            <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-              {distributionData.map((item, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <div 
-                    className="w-3 h-3 rounded-full" 
-                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                  />
-                  <span className="text-white/70">{item.name}:</span>
-                  <span className="text-white font-semibold">{item.value} productos</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                <Bar dataKey="comision" fill="#FF6600" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            ) : (
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
+                <XAxis 
+                  dataKey="name" 
+                  stroke="rgba(255, 255, 255, 0.5)"
+                  style={{ fontSize: '11px' }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                />
+                <YAxis 
+                  stroke="rgba(255, 255, 255, 0.5)"
+                  style={{ fontSize: '11px' }}
+                  tickFormatter={(value) => `€${value.toLocaleString()}`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'rgba(8, 8, 8, 0.95)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    color: '#fff'
+                  }}
+                  formatter={(value: number) => [
+                    `€${value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                    'Comisión'
+                  ]}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="comision" 
+                  stroke="#FF6600" 
+                  strokeWidth={2}
+                  dot={{ fill: '#FF6600', r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
+            )}
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
 
       {/* Tabla Interactiva */}
       <Card>

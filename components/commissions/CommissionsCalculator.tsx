@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { Client, CommissionCalculationData, CommissionRow } from '@/lib/types/commissions'
+import { useState, useCallback, useEffect } from 'react'
+import { Client, CommissionCalculationData, CommissionRow, CommissionException } from '@/lib/types/commissions'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,11 +12,13 @@ import {
   Download,
   Save,
   Calculator,
-  AlertCircle
+  AlertCircle,
+  Info
 } from 'lucide-react'
 import { LibertyButton } from '@/components/ui/LibertyButton'
 import { SaveReportModal } from './SaveReportModal'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 
 interface CommissionsCalculatorProps {
   clients: Client[]
@@ -30,6 +32,23 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const [error, setError] = useState<string | null>(null)
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [exceptions, setExceptions] = useState<CommissionException[]>([])
+  const supabase = createClient()
+
+  // Cargar excepciones cuando se selecciona un cliente
+  useEffect(() => {
+    if (selectedClientId) {
+      supabase
+        .from('commission_exceptions')
+        .select('*')
+        .eq('client_id', selectedClientId)
+        .then(({ data }) => {
+          setExceptions(data || [])
+        })
+    } else {
+      setExceptions([])
+    }
+  }, [selectedClientId, supabase])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -119,10 +138,43 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
               <option value="">-- Selecciona un cliente --</option>
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
-                  {client.name} ({(client.base_commission_rate * 100).toFixed(2)}%)
+                  {client.name} ({(client.base_commission_rate * 100).toFixed(0)}% base)
                 </option>
               ))}
             </select>
+            {selectedClientId && (() => {
+              const client = clients.find(c => c.id === selectedClientId)
+              if (!client) return null
+              
+              return (
+                <div className="mt-2 p-3 bg-white/[0.03] border border-white/10 rounded-lg">
+                  <div className="flex items-start gap-2 mb-2">
+                    <Info className="h-4 w-4 text-[#FF6600] mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-xs text-white/70 mb-1.5">Reglas de comisión:</div>
+                      <div className="text-sm text-white font-semibold mb-1">
+                        Tasa base: {(client.base_commission_rate * 100).toFixed(0)}%
+                      </div>
+                      {exceptions.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          <div className="text-xs text-white/60">Excepciones:</div>
+                          {exceptions.map((exc) => (
+                            <div key={exc.id} className="text-xs text-[#FF6600]">
+                              • <span className="font-semibold">{exc.keyword}</span>: {(exc.special_rate * 100).toFixed(0)}%
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {exceptions.length === 0 && (
+                        <div className="text-xs text-white/50 mt-1">
+                          Sin excepciones - se aplica la tasa base a todos los productos
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
 
           {/* Upload de Archivo */}

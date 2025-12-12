@@ -76,14 +76,20 @@ CREATE TRIGGER update_commission_reports_updated_at
 -- Datos Semilla (Seed)
 INSERT INTO public.clients (name, base_commission_rate) VALUES 
 ('Jamones Tapas Party', 0.05),
+('Ham Master', 0.05),
 ('Lenobotics', 0.03)
 ON CONFLICT (name) DO NOTHING;
 
--- Insertar excepciones para Lenobotics (ejemplo con Thrustmaster)
--- Nota: Esto se ejecutará después de que se cree el cliente, así que usamos un subquery
+-- Insertar excepciones para Lenobotics
+-- Hércules: 1%
+-- Thrustmaster: 1%
 INSERT INTO public.commission_exceptions (client_id, keyword, special_rate)
-SELECT id, 'Thrustmaster', 0.01
-FROM public.clients
+SELECT id, keyword, rate
+FROM public.clients,
+(VALUES 
+  ('Hércules', 0.01),
+  ('Thrustmaster', 0.01)
+) AS exceptions(keyword, rate)
 WHERE name = 'Lenobotics'
-ON CONFLICT (client_id, keyword) DO NOTHING;
+ON CONFLICT (client_id, keyword) DO UPDATE SET special_rate = EXCLUDED.special_rate;
 

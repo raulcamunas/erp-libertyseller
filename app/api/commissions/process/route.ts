@@ -135,15 +135,20 @@ export async function POST(request: NextRequest) {
         let commissionRate = client.base_commission_rate
         let appliedException: string | undefined
 
-        // Buscar excepciones por keyword
+        // Buscar excepciones por keyword (case insensitive)
+        // IMPORTANTE: Las excepciones tienen prioridad sobre la tasa base
         if (exceptions && exceptions.length > 0) {
           const productTitleLower = productTitle.toLowerCase()
-          for (const exception of exceptions) {
-            if (productTitleLower.includes(exception.keyword.toLowerCase())) {
-              commissionRate = exception.special_rate
-              appliedException = exception.keyword
-              break
-            }
+          // Buscar todas las excepciones que coincidan
+          const matchingExceptions = exceptions.filter(exception => 
+            productTitleLower.includes(exception.keyword.toLowerCase())
+          )
+          
+          // Si hay múltiples excepciones, usar la primera encontrada
+          // (En el futuro se podría usar la más baja o más alta según reglas)
+          if (matchingExceptions.length > 0) {
+            commissionRate = matchingExceptions[0].special_rate
+            appliedException = matchingExceptions[0].keyword
           }
         }
 
