@@ -78,8 +78,8 @@ export function SaveReportModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <Card className="w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
+      <Card className="w-full max-w-md mx-auto">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-white">Guardar Reporte</CardTitle>

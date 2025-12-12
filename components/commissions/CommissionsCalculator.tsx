@@ -127,7 +127,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
 
           {/* Upload de Archivo */}
           <div className="space-y-2">
-            <label className="label-uppercase text-white/70">
+            <label className="label-uppercase text-white/70 block">
               Subir Archivo CSV *
             </label>
             <div
@@ -135,7 +135,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               className={cn(
-                "border-2 border-dashed rounded-xl p-8 text-center transition-all",
+                "border-2 border-dashed rounded-xl p-8 text-center transition-all flex flex-col items-center justify-center",
                 isDragging
                   ? "border-[#FF6600] bg-[#FF6600]/[0.1]"
                   : "border-white/20 bg-white/[0.02] hover:border-white/30"
@@ -154,8 +154,8 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                 </div>
               ) : (
                 <>
-                  <Upload className="h-8 w-8 text-white/50 mx-auto mb-3" />
-                  <p className="text-white/70 mb-2">
+                  <Upload className="h-8 w-8 text-white/50 mb-3" />
+                  <p className="text-white/70 mb-2 text-center">
                     Arrastra tu archivo CSV aquí o
                   </p>
                   <label className="inline-block">
@@ -181,23 +181,33 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
             </div>
           )}
 
-          <LibertyButton
-            onClick={handleProcess}
-            disabled={!file || !selectedClientId || processing}
-            className="w-full"
-          >
-            {processing ? (
-              <>
-                <Calculator className="h-4 w-4 animate-spin" />
-                Procesando...
-              </>
-            ) : (
-              <>
-                <Calculator className="h-4 w-4" />
-                Calcular Comisiones
-              </>
-            )}
-          </LibertyButton>
+          <div className="flex gap-4">
+            <LibertyButton
+              onClick={handleProcess}
+              disabled={!file || !selectedClientId || processing}
+              className="flex-1"
+            >
+              {processing ? (
+                <>
+                  <Calculator className="h-4 w-4 animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <Calculator className="h-4 w-4" />
+                  Calcular Comisiones
+                </>
+              )}
+            </LibertyButton>
+            <Button
+              onClick={() => window.location.href = '/dashboard/commissions/reports'}
+              variant="glass"
+              className="gap-2"
+            >
+              <FileText className="h-4 w-4" />
+              Ver Reportes
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

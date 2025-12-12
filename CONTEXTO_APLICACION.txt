@@ -1,0 +1,637 @@
+================================================================================
+                    CONTEXTO COMPLETO DE LA APLICACIÓN
+                    ERP LIBERTY SELLER HUB
+================================================================================
+
+FECHA DE CREACIÓN: Diciembre 2024
+VERSIÓN: 0.1.0
+FRAMEWORK: Next.js 14 (App Router) + TypeScript
+BACKEND: Supabase (PostgreSQL + Auth + Storage)
+
+================================================================================
+1. DESCRIPCIÓN GENERAL
+================================================================================
+
+ERP Liberty Seller Hub es un sistema de gestión empresarial (ERP) diseñado
+específicamente para vendedores de Amazon. La aplicación proporciona:
+
+- Gestión de Leads y CRM
+- Control financiero mensual con facturación
+- Calculadora de comisiones para procesar CSVs de Amazon/Sellerboard
+- Sistema de autenticación con roles (Admin/Employee)
+- Interfaz moderna con diseño glassmorphism
+
+ARQUITECTURA:
+- Frontend: Next.js 14 con App Router
+- Backend: Supabase (PostgreSQL, Auth, Storage)
+- Estilos: Tailwind CSS + CSS personalizado
+- Componentes UI: Shadcn/UI + componentes custom
+- Iconos: Lucide React
+- Gráficos: Recharts
+- Formateo de fechas: date-fns
+
+================================================================================
+2. SISTEMA DE DISEÑO
+================================================================================
+
+COLORES PRINCIPALES:
+- Brand Color (Naranja): #FF6600
+- Background: #080808 (Negro profundo)
+- Texto Primario: #FFFFFF
+- Texto Secundario: #a0a0b0
+- Texto Terciario: #999
+
+GLASSMORPHISM:
+- Background: rgba(255, 255, 255, 0.02) o 0.03
+- Border: rgba(255, 255, 255, 0.1) o 0.15
+- Backdrop Filter: blur(50px) saturate(180%) brightness(1.1)
+- Border Radius: 24px (lg), 12px (md), 8px (sm)
+
+TIPOGRAFÍA:
+- Fuente: 'Inter' (Google Fonts)
+- Letter Spacing: -1px para títulos grandes
+- Uppercase + letter-spacing: 1px para botones/etiquetas
+- Font Weight: 700 para botones y labels
+
+CLASES CSS PRINCIPALES:
+- .glass-card: Card con efecto glassmorphism
+- .glass-card-light: Variante más clara
+- .heading-large: Títulos grandes
+- .heading-medium: Títulos medianos
+- .heading-small: Títulos pequeños
+- .label-uppercase: Labels en mayúsculas
+- .input-glass: Inputs con estilo glass
+- .btn-primary: Botón naranja principal
+- .btn-glass: Botón con estilo glass
+- .liquid-glass-bg: Fondo animado con efecto líquido
+
+ARCHIVO DE DISEÑO: DISEÑO_LIBERTY_SELLER.txt (contiene especificaciones completas)
+
+================================================================================
+3. ESTRUCTURA DE CARPETAS
+================================================================================
+
+/
+├── app/                          # Next.js App Router
+│   ├── api/                      # API Routes
+│   │   ├── webhooks/
+│   │   │   └── leads/           # Webhook para recibir leads desde n8n
+│   │   └── commissions/
+│   │       └── process/         # API para procesar CSVs de comisiones
+│   ├── auth/
+│   │   ├── login/               # Página de login
+│   │   └── signup/             # Página de registro
+│   ├── dashboard/
+│   │   ├── layout.tsx          # Layout con sidebar
+│   │   ├── page.tsx            # Dashboard home (grid de apps)
+│   │   ├── leads/              # Módulo de gestión de leads
+│   │   ├── finances/           # Módulo de finanzas mensuales
+│   │   └── commissions/       # Calculadora de comisiones
+│   ├── admin/                  # Rutas solo para admins
+│   ├── globals.css             # Estilos globales y sistema de diseño
+│   ├── layout.tsx              # Layout raíz
+│   └── page.tsx                # Landing page
+│
+├── components/
+│   ├── auth/
+│   │   └── logout-button.tsx
+│   ├── commissions/
+│   │   ├── CommissionsCalculator.tsx
+│   │   └── SaveReportModal.tsx
+│   ├── finances/
+│   │   ├── FinanceDashboard.tsx
+│   │   ├── FinanceChart.tsx
+│   │   ├── MonthSelector.tsx
+│   │   ├── PaymentList.tsx
+│   │   └── AddPaymentModal.tsx
+│   ├── layout/
+│   │   ├── AppSidebar.tsx      # Sidebar lateral con navegación
+│   │   └── Header.tsx          # Header (deprecated, ahora usa sidebar)
+│   ├── leads/
+│   │   └── LeadsTable.tsx
+│   └── ui/                     # Componentes Shadcn/UI + custom
+│       ├── badge.tsx
+│       ├── button.tsx
+│       ├── card.tsx
+│       ├── input.tsx
+│       ├── LibertyButton.tsx   # Botón custom del sistema de diseño
+│       ├── Logo.tsx            # Componente de logo
+│       └── table.tsx
+│
+├── lib/
+│   ├── config/
+│   │   └── apps.ts             # Configuración de apps del dashboard
+│   ├── supabase/
+│   │   ├── client.ts           # Cliente Supabase para cliente
+│   │   ├── server.ts           # Cliente Supabase para servidor
+│   │   └── get-user-profile.ts # Utilidad para obtener perfil
+│   ├── types/
+│   │   ├── commissions.ts      # Tipos para módulo de comisiones
+│   │   ├── finances.ts         # Tipos para módulo de finanzas
+│   │   └── leads.ts           # Tipos para módulo de leads
+│   ├── utils/
+│   │   ├── csv-parser.ts       # Parser robusto para CSVs
+│   │   └── ts                  # Utilidades generales (cn, etc.)
+│
+├── public/
+│   └── logos/
+│       ├── icon.png            # Favicon
+│       └── logo.png             # Logo principal
+│
+├── supabase/
+│   └── migrations/             # Migraciones SQL
+│       ├── 001_create_profiles_table.sql
+│       ├── 002_insert_admin_user.sql
+│       ├── 003_create_leads_table.sql
+│       ├── 004_create_finances_tables.sql
+│       ├── 005_create_storage_bucket.sql
+│       ├── 006_add_payment_type.sql
+│       └── 007_create_commissions_tables.sql
+│
+├── middleware.ts               # Middleware de Next.js para RBAC
+├── tailwind.config.ts          # Configuración de Tailwind
+├── components.json             # Configuración de Shadcn/UI
+└── DISEÑO_LIBERTY_SELLER.txt   # Especificaciones de diseño
+
+================================================================================
+4. AUTENTICACIÓN Y RBAC (ROLE-BASED ACCESS CONTROL)
+================================================================================
+
+SISTEMA DE ROLES:
+- admin: Acceso completo (incluye /admin/*)
+- employee: Acceso a /dashboard/* pero no a /admin/*
+
+TABLA PROFILES:
+- id (UUID, FK a auth.users)
+- email
+- full_name
+- role (enum: 'admin' | 'employee', default: 'employee')
+- created_at, updated_at
+
+MIDDLEWARE (middleware.ts):
+- Refresca sesión de Supabase
+- Protege rutas según rol:
+  * /admin/* → Solo admin
+  * /dashboard/* → Admin y employee
+  * /auth/login, /auth/signup, / → Públicas
+- Redirige no autenticados a /auth/login
+- Redirige employees que intentan acceder a /admin/* a /dashboard
+
+TRIGGERS:
+- handle_new_user(): Crea automáticamente un perfil cuando un usuario se registra
+- on_auth_user_created: Trigger que ejecuta handle_new_user()
+
+ARCHIVO DE INSTRUCCIONES: INSTRUCCIONES_RBAC.md
+
+================================================================================
+5. MÓDULOS PRINCIPALES
+================================================================================
+
+5.1. MÓDULO DE LEADS (/dashboard/leads)
+----------------------------------------
+FUNCIONALIDAD:
+- Visualización de leads en tabla
+- Estados: nuevo, contactado, perdido
+- Campos: name, phone, email, revenue_range, is_amazon_seller, status, notes
+- Badges de colores según estado
+
+TABLA: leads
+- id, created_at, updated_at
+- name, phone, email
+- revenue_range (texto)
+- is_amazon_seller (boolean)
+- status (default: 'nuevo')
+- notes, assigned_to
+
+API: POST /api/webhooks/leads
+- Recibe JSON desde n8n
+- Valida y guarda en tabla leads
+- Campos requeridos: name
+
+ARCHIVO DE INSTRUCCIONES: README_LEADS.md
+
+5.2. MÓDULO DE FINANZAS (/dashboard/finances)
+----------------------------------------------
+FUNCIONALIDAD:
+- Dashboard mensual de ingresos y gastos
+- Selector de mes/año
+- Agregar movimientos (ingresos o gastos)
+- Adjuntar archivos (facturas, etc.) a cada movimiento
+- Gráfico de evolución financiera (líneas) últimos 12 meses
+- Cards de resumen: Ingresos, Gastos, Beneficio Neto
+
+TABLAS:
+- finance_periods: Períodos mensuales (year, month)
+- finance_payments: Movimientos (period_id, client_name, amount, type, description, payment_date)
+- finance_attachments: Archivos adjuntos (payment_id, file_name, file_url, file_type, file_size)
+
+STORAGE:
+- Bucket: finance-attachments
+- Políticas: Autenticados pueden subir, leer y eliminar
+
+TIPOS DE MOVIMIENTOS:
+- income: Ingresos
+- expense: Gastos
+
+CÁLCULOS:
+- Total Ingresos = Suma de payments con type='income'
+- Total Gastos = Suma de payments con type='expense'
+- Beneficio = Ingresos - Gastos
+
+ARCHIVO DE INSTRUCCIONES: README_FINANZAS.md
+
+5.3. MÓDULO DE COMISIONES (/dashboard/commissions)
+---------------------------------------------------
+FUNCIONALIDAD:
+- Calculadora de comisiones para CSVs de Amazon/Sellerboard
+- Upload de CSV (drag & drop)
+- Procesamiento robusto de formatos europeos
+- Aplicación de reglas por cliente y excepciones por keyword
+- Informe detallado al milímetro
+
+TABLAS:
+- clients: Clientes con tasa base de comisión
+- commission_exceptions: Excepciones por keyword (ej: Thrustmaster → 1%)
+- commission_reports: Reportes guardados con slug para compartir
+
+PARSER CSV (lib/utils/csv-parser.ts):
+- parseNum(): Maneja formato europeo (1 200,50 → 1200.50)
+- getVal(): Búsqueda flexible de columnas (case insensitive + regex)
+- detectDelimiter(): Detecta ; o , automáticamente
+- parseCSV(): Parsea CSV a objetos
+
+CÁLCULO DE COMISIONES:
+1. Ventas Brutas = parseNum(Sales)
+2. Reembolsos = Math.abs(parseNum(Refund Cost))
+3. Facturación Real = Ventas - Reembolsos
+4. Base Neta (SIN IVA) = Facturación Real ÷ 1.21
+5. IVA Descontado = Facturación Real - Base Neta
+6. Comisión = Base Neta × Tasa
+
+REGLAS:
+- Tasa base del cliente por defecto
+- Si el nombre del producto contiene keyword de excepción → usa tasa especial
+- Búsqueda case insensitive
+
+INFORME DETALLADO:
+- 8 cards de resumen
+- Tabla con 11 columnas: #, Producto, ASIN, Pedido, Ventas, Reembolsos, Fact. Real, IVA, Base Neta, % Comisión, Comisión
+- Pie de tabla con totales
+- Manejo de errores de parsing
+
+API: POST /api/commissions/process
+- Recibe FormData con file (CSV) y clientId
+- Procesa CSV y retorna CommissionCalculationData
+
+ARCHIVO DE INSTRUCCIONES: README_COMISIONES.md
+
+================================================================================
+6. BASE DE DATOS (SUPABASE POSTGRESQL)
+================================================================================
+
+TABLAS PRINCIPALES:
+
+1. profiles
+   - Sistema de roles (admin/employee)
+   - Auto-creado con trigger al registrarse
+
+2. leads
+   - Gestión de leads y oportunidades
+   - Estados: nuevo, contactado, perdido
+
+3. finance_periods
+   - Períodos mensuales para finanzas
+   - Unique(year, month)
+
+4. finance_payments
+   - Movimientos financieros (ingresos/gastos)
+   - type: 'income' | 'expense'
+
+5. finance_attachments
+   - Archivos adjuntos a movimientos
+   - FK a finance_payments
+
+6. clients
+   - Clientes para comisiones
+   - base_commission_rate (NUMERIC 5,4)
+
+7. commission_exceptions
+   - Excepciones de comisión por keyword
+   - Unique(client_id, keyword)
+
+8. commission_reports
+   - Reportes guardados de comisiones
+   - slug único para compartir
+   - data JSONB con todo el cálculo
+
+RLS (Row Level Security):
+- Todas las tablas tienen RLS habilitado
+- Políticas: Usuarios autenticados pueden leer/escribir
+
+TRIGGERS:
+- update_updated_at_column(): Actualiza updated_at automáticamente
+- handle_new_user(): Crea perfil al registrarse
+- on_auth_user_created: Ejecuta handle_new_user()
+
+STORAGE BUCKETS:
+- finance-attachments: Para archivos de finanzas
+  * Límite: 50MB por archivo
+  * MIME types permitidos: pdf, jpg, jpeg, png, xlsx, xls, csv
+
+================================================================================
+7. NAVEGACIÓN Y LAYOUT
+================================================================================
+
+ARQUITECTURA EASYPANEL-LIKE:
+- Sidebar lateral fijo (64px colapsado, 250px expandido)
+- Dashboard home como "launcher" de apps
+- Grid de apps con cards glassmorphism
+
+SIDEBAR (components/layout/AppSidebar.tsx):
+- Logo/Icono "LS" arriba
+- Lista de apps instaladas (Home, Leads, Finanzas, Comisiones, etc.)
+- Item activo resaltado con color brand (#FF6600)
+- Footer: Settings, Profile, Logout
+- Responsive: Menú hamburguesa en mobile
+
+DASHBOARD HOME (app/dashboard/page.tsx):
+- Grid responsive (1 col mobile, 3 md, 4 lg)
+- Cards de apps con:
+  * Icono grande (Lucide React)
+  * Nombre y descripción
+  * Badge de estado (Nuevo, Activo, Inactivo)
+  * Indicador visual (punto animado)
+- Card de bienvenida con perfil del usuario
+
+CONFIGURACIÓN DE APPS (lib/config/apps.ts):
+- Array de AppConfig con:
+  * id, name, description
+  * icon (LucideIcon)
+  * route, badge, status, category
+
+APPS DISPONIBLES:
+- Inicio (/dashboard) - Home
+- Gestión de Leads (/dashboard/leads) - Nuevo
+- Finanzas (/dashboard/finances) - Activo
+- Comisiones (/dashboard/commissions) - Activo
+- Reportes (/dashboard/reports) - Activo
+- Documentos (/dashboard/documents) - Inactivo
+
+================================================================================
+8. COMPONENTES UI PRINCIPALES
+================================================================================
+
+LibertyButton (components/ui/LibertyButton.tsx):
+- Botón naranja del sistema de diseño
+- Fondo #FF6600, texto blanco uppercase
+- Hover: translateY(-2px) + sombra naranja
+- Disabled states
+
+Logo (components/ui/Logo.tsx):
+- Componente reutilizable para logo/icono
+- Usa next/image
+- Rutas: /logos/logo.png, /logos/icon.png
+
+Card Components (Shadcn/UI):
+- Adaptados con clases glass-card
+- Variantes: default, glass
+
+Badge (components/ui/badge.tsx):
+- Variantes: nuevo (naranja), contactado (azul), perdido (gris)
+- Para estados de leads
+
+Table (components/ui/table.tsx):
+- Tabla adaptada para dark theme
+- Bordes sutiles white/10
+
+Input (components/ui/input.tsx):
+- Clase .input-glass aplicada
+- Focus: borde naranja + sombra
+
+================================================================================
+9. APIS Y WEBHOOKS
+================================================================================
+
+9.1. POST /api/webhooks/leads
+-----------------------------
+ENTRADA: JSON desde n8n
+{
+  name: string (requerido)
+  phone?: string
+  email?: string
+  revenue_range?: string
+  is_amazon_seller?: boolean
+  notes?: string
+}
+
+SALIDA: { success: true, id: string }
+
+9.2. POST /api/commissions/process
+-----------------------------------
+ENTRADA: FormData
+- file: File (CSV)
+- clientId: string
+
+SALIDA: {
+  success: true,
+  data: CommissionCalculationData
+}
+
+CommissionCalculationData:
+{
+  summary: {
+    totalSales, totalRefunds, realTurnover,
+    totalIva, netBase, totalCommission,
+    averageCommissionRate, totalOrders
+  },
+  rows: CommissionRow[],
+  errors: string[]
+}
+
+================================================================================
+10. CONFIGURACIÓN Y VARIABLES DE ENTORNO
+================================================================================
+
+ARCHIVO: .env.local (no versionado)
+
+VARIABLES REQUERIDAS:
+- NEXT_PUBLIC_SUPABASE_URL: URL del proyecto Supabase
+- NEXT_PUBLIC_SUPABASE_ANON_KEY: Clave anónima de Supabase
+
+EJEMPLO:
+NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+OBTENER CREDENCIALES:
+1. Supabase Dashboard → Settings → API
+2. Project URL y anon/public key
+
+================================================================================
+11. DEPENDENCIAS PRINCIPALES
+================================================================================
+
+NEXT.JS Y CORE:
+- next: 14.2.33
+- react: ^18
+- react-dom: ^18
+- typescript: ^5
+
+SUPABASE:
+- @supabase/ssr: Para autenticación SSR
+- @supabase/supabase-js: Cliente Supabase
+
+UI Y ESTILOS:
+- tailwindcss: ^3
+- @radix-ui/react-*: Componentes base de Shadcn
+- lucide-react: Iconos
+- class-variance-authority: Para variantes de componentes
+- clsx, tailwind-merge: Utilidades CSS
+
+UTILIDADES:
+- date-fns: Formateo de fechas
+- recharts: Gráficos (finanzas)
+
+================================================================================
+12. FLUJOS DE TRABAJO PRINCIPALES
+================================================================================
+
+12.1. FLUJO DE AUTENTICACIÓN
+-----------------------------
+1. Usuario visita /auth/login
+2. Ingresa email/password
+3. Supabase Auth valida credenciales
+4. Middleware verifica sesión y rol
+5. Redirige según rol:
+   - Admin → /dashboard o /admin
+   - Employee → /dashboard
+
+12.2. FLUJO DE LEADS
+--------------------
+1. Lead llega desde n8n → POST /api/webhooks/leads
+2. Se valida y guarda en tabla leads
+3. Usuario ve leads en /dashboard/leads
+4. Puede cambiar estado (nuevo → contactado → perdido)
+
+12.3. FLUJO DE FINANZAS
+------------------------
+1. Usuario selecciona mes/año en /dashboard/finances
+2. Se crea/obtiene periodo (finance_periods)
+3. Usuario agrega movimiento (ingreso/gasto)
+4. Puede adjuntar archivos (facturas)
+5. Se calculan totales y se muestra gráfico
+
+12.4. FLUJO DE COMISIONES
+--------------------------
+1. Usuario selecciona cliente en /dashboard/commissions
+2. Sube CSV (drag & drop o click)
+3. API procesa CSV con parser robusto
+4. Aplica reglas del cliente y excepciones
+5. Calcula comisiones (quitando IVA y reembolsos)
+6. Muestra informe detallado
+7. Opcional: Guarda reporte con slug
+
+================================================================================
+13. CARACTERÍSTICAS TÉCNICAS IMPORTANTES
+================================================================================
+
+PARSER CSV ROBUSTO:
+- Maneja formatos europeos: "1 200,50" → 1200.50
+- Detecta delimitadores: ; o ,
+- Búsqueda flexible de columnas: case insensitive + regex
+- Maneja caracteres cirílicos en nombres de columnas
+- Maneja errores gracefully
+
+CÁLCULO DE IVA:
+- IVA fijo: 21%
+- Fórmula: Base Neta = Facturación Real ÷ 1.21
+- Comisión se calcula sobre Base Neta (SIN IVA)
+
+GLASSMORPHISM:
+- Efecto visual premium con blur y transparencias
+- Fondo animado "liquid glass" con gradientes radiales
+- Transiciones suaves entre páginas
+
+RESPONSIVE:
+- Mobile-first approach
+- Sidebar colapsable en mobile
+- Grids adaptativos (1/2/3/4 columnas según breakpoint)
+
+PERFORMANCE:
+- Server Components por defecto
+- Client Components solo cuando necesario ('use client')
+- Caching con cache() de React
+- Optimización de imágenes con next/image
+
+================================================================================
+14. ARCHIVOS DE DOCUMENTACIÓN
+================================================================================
+
+- DISEÑO_LIBERTY_SELLER.txt: Sistema de diseño completo
+- INSTRUCCIONES_RBAC.md: Setup de autenticación y roles
+- README_LEADS.md: Instrucciones módulo de leads
+- README_FINANZAS.md: Instrucciones módulo de finanzas
+- README_COMISIONES.md: Instrucciones módulo de comisiones
+- CONTEXTO_APLICACION.txt: Este archivo
+
+================================================================================
+15. CONVENCIONES DE CÓDIGO
+================================================================================
+
+NOMBRES DE ARCHIVOS:
+- Componentes: PascalCase (ej: CommissionsCalculator.tsx)
+- Utilidades: camelCase (ej: csv-parser.ts)
+- Páginas: lowercase (ej: page.tsx, layout.tsx)
+
+COMPONENTES:
+- Server Components por defecto
+- 'use client' solo cuando necesario (hooks, eventos, etc.)
+
+ESTILOS:
+- Tailwind CSS para estilos utilitarios
+- Clases custom en globals.css para sistema de diseño
+- No usar colores hardcodeados, usar variables CSS o Tailwind config
+
+TIPOS:
+- TypeScript estricto
+- Interfaces en lib/types/
+- Exportar tipos desde archivos de tipos
+
+SUPABASE:
+- Usar createClient() del servidor en Server Components
+- Usar createClient() del cliente en Client Components
+- Siempre verificar autenticación antes de queries
+
+================================================================================
+16. PRÓXIMOS PASOS / MEJORAS FUTURAS
+================================================================================
+
+- Módulo de Reportes completo
+- Módulo de Documentos
+- Exportación de reportes a PDF/Excel
+- Dashboard con métricas agregadas
+- Notificaciones en tiempo real
+- Integración con más plataformas (no solo Amazon)
+- Sistema de plantillas para reportes de comisiones
+
+================================================================================
+17. NOTAS IMPORTANTES PARA DESARROLLADORES
+================================================================================
+
+- SIEMPRE respetar el sistema de diseño (colores, glassmorphism, tipografía)
+- NO inventar nuevos colores, usar los definidos
+- El IVA es SIEMPRE 21% fijo
+- Las comisiones se calculan sobre la base SIN IVA
+- El parser CSV debe ser robusto (formatos europeos, delimitadores variables)
+- Usar RLS en todas las tablas de Supabase
+- Verificar autenticación en todas las rutas protegidas
+- Los archivos se guardan en Supabase Storage, no localmente
+- El slug de reportes debe ser único y URL-friendly
+
+================================================================================
+FIN DEL CONTEXTO
+================================================================================
+
+Este documento contiene toda la información necesaria para entender y trabajar
+con la aplicación ERP Liberty Seller Hub. Para detalles específicos de cada
+módulo, consultar los archivos README correspondientes.
+
