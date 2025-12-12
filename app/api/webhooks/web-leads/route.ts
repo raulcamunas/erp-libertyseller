@@ -93,12 +93,12 @@ export async function GET() {
     {
       message: 'Webhook endpoint para web leads',
       method: 'POST',
-      required_fields: ['nombre' || 'name', 'email'],
+      required_fields: ['nombre (o name)', 'email'],
       optional_fields: [
-        'telefono' || 'phone',
+        'telefono (o phone)',
         'empresa',
         'mensaje',
-        'ingresos' || 'monthlyRevenue',
+        'ingresos (o monthlyRevenue)',
         'vendeEnAmazon',
         'sellingDuration',
         'source',
