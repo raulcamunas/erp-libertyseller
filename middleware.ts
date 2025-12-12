@@ -34,10 +34,10 @@ export async function middleware(request: NextRequest) {
 
   // Rutas públicas (no requieren autenticación)
   const publicRoutes = ['/auth/login', '/auth/signup', '/']
-  const isPublicRoute = publicRoutes.includes(pathname) || 
-                       pathname.startsWith('/auth/') || 
-                       pathname.startsWith('/report/commissions/') ||
-                       pathname.startsWith('/api/webhooks/web-leads')
+  const isPublicRoute = publicRoutes.includes(pathname) ||
+                       pathname.startsWith('/auth/') ||
+                       pathname.startsWith('/api/') ||
+                       pathname.startsWith('/report/commissions/')
 
   // Si no hay usuario y no es ruta pública, redirigir a login
   if (!user && !isPublicRoute) {
