@@ -60,8 +60,9 @@ export function LeadSheet({ lead, onClose, onUpdate }: LeadSheetProps) {
         .single()
 
       if (error) throw error
+      if (!data) throw new Error('No data returned from update')
 
-      onUpdate(data as WebLead)
+      onUpdate(data)
     } catch (error) {
       console.error('Error updating lead:', error)
       alert('Error al guardar los cambios')
