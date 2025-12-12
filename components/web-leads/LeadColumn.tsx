@@ -31,7 +31,13 @@ function SortableLeadCard({ lead, onClick }: { lead: WebLead; onClick: () => voi
   }
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      {...attributes} 
+      {...listeners}
+      data-id={lead.id}
+    >
       <LeadCard lead={lead} onClick={onClick} />
     </div>
   )

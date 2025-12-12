@@ -6,9 +6,11 @@ import {
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
+  DragMoveEvent,
   PointerSensor,
   useSensor,
   useSensors,
+  useDndMonitor,
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { WebLead, WebLeadStatus } from '@/lib/types/web-leads'
@@ -35,6 +37,8 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
   const [leads, setLeads] = useState<WebLead[]>(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [selectedLead, setSelectedLead] = useState<WebLead | null>(null)
+  const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null)
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
   const supabase = createClient()
 
   const sensors = useSensors(
@@ -104,13 +108,47 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
     return acc
   }, {} as Record<WebLeadStatus, WebLead[]>)
 
+  // Track cursor position during drag
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (activeId) {
+        setCursorPosition({ x: e.clientX, y: e.clientY })
+      }
+    }
+
+    if (activeId) {
+      window.addEventListener('mousemove', handleMouseMove)
+      return () => window.removeEventListener('mousemove', handleMouseMove)
+    } else {
+      setCursorPosition(null)
+      setDragOffset(null)
+    }
+  }, [activeId])
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string)
+    
+    // Calcular el offset del cursor desde el centro de la tarjeta
+    const activeElement = document.querySelector(`[data-id="${event.active.id}"]`) as HTMLElement
+    if (activeElement && event.activatorEvent instanceof MouseEvent) {
+      const rect = activeElement.getBoundingClientRect()
+      const mouseX = event.activatorEvent.clientX
+      const mouseY = event.activatorEvent.clientY
+      
+      // Offset desde el centro de la tarjeta hasta el cursor
+      setDragOffset({
+        x: mouseX - (rect.left + rect.width / 2),
+        y: mouseY - (rect.top + rect.height / 2),
+      })
+      setCursorPosition({ x: mouseX, y: mouseY })
+    }
   }
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
     setActiveId(null)
+    setCursorPosition(null)
+    setDragOffset(null)
 
     if (!over) return
 
@@ -177,7 +215,22 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
           })}
         </div>
 
-        <DragOverlay dropAnimation={null}>
+        <DragOverlay 
+          dropAnimation={null}
+          adjustScale={false}
+          style={
+            cursorPosition && dragOffset
+              ? {
+                  position: 'fixed',
+                  left: `${cursorPosition.x - dragOffset.x}px`,
+                  top: `${cursorPosition.y - dragOffset.y}px`,
+                  transform: 'translate(-50%, -50%)',
+                  pointerEvents: 'none',
+                  zIndex: 9999,
+                }
+              : undefined
+          }
+        >
           {activeLead ? (
             <div className="opacity-90 rotate-2 scale-105 cursor-grabbing">
               <LeadCard lead={activeLead} onClick={() => {}} />
