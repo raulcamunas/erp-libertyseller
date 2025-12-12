@@ -4,7 +4,8 @@ import {
   DollarSign, 
   FileText, 
   Settings, 
-  BarChart3
+  BarChart3,
+  Calculator
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -45,6 +46,15 @@ export const apps: AppConfig[] = [
     description: 'Control financiero y facturación',
     icon: DollarSign,
     route: '/dashboard/finances',
+    status: 'active',
+    category: 'core'
+  },
+  {
+    id: 'commissions',
+    name: 'Comisiones',
+    description: 'Calculadora de comisiones y liquidaciones',
+    icon: Calculator,
+    route: '/dashboard/commissions',
     status: 'active',
     category: 'core'
   },
