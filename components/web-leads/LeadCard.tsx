@@ -1,27 +1,59 @@
 'use client'
 
-import { WebLead } from '@/lib/types/web-leads'
+import { WebLead, WebLeadStatus } from '@/lib/types/web-leads'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Building2, Mail, Phone } from 'lucide-react'
+import { Building2, Mail, Phone, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 interface LeadCardProps {
   lead: WebLead
   onClick: () => void
+  currentStatus: WebLeadStatus
+  onMoveLeft?: () => void
+  onMoveRight?: () => void
+  canMoveLeft: boolean
+  canMoveRight: boolean
 }
 
-export function LeadCard({ lead, onClick }: LeadCardProps) {
+export function LeadCard({ 
+  lead, 
+  onClick, 
+  currentStatus,
+  onMoveLeft,
+  onMoveRight,
+  canMoveLeft,
+  canMoveRight
+}: LeadCardProps) {
   const timeAgo = formatDistanceToNow(new Date(lead.created_at), {
     addSuffix: true,
     locale: es
   })
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    // No abrir el panel si se hace clic en los botones
+    if ((e.target as HTMLElement).closest('button')) {
+      return
+    }
+    onClick()
+  }
+
+  const handleMoveLeft = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onMoveLeft?.()
+  }
+
+  const handleMoveRight = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onMoveRight?.()
+  }
+
   return (
     <div
-      onClick={onClick}
+      onClick={handleCardClick}
       className={cn(
-        "glass-card p-4 cursor-pointer transition-all duration-300 relative",
+        "glass-card p-4 cursor-pointer transition-all duration-300 relative group",
         "hover:border-[#FF6600]/30 hover:scale-[1.02]",
         "border border-white/10 rounded-xl"
       )}
@@ -67,6 +99,32 @@ export function LeadCard({ lead, onClick }: LeadCardProps) {
       {/* Tiempo */}
       <div className="text-[10px] text-white/40 mt-2">
         {timeAgo}
+      </div>
+
+      {/* Botones de navegación */}
+      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {canMoveLeft && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 bg-white/[0.1] hover:bg-white/[0.2] border border-white/10"
+            onClick={handleMoveLeft}
+            title="Mover a la izquierda"
+          >
+            <ChevronLeft className="h-4 w-4 text-white" />
+          </Button>
+        )}
+        {canMoveRight && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 bg-white/[0.1] hover:bg-white/[0.2] border border-white/10"
+            onClick={handleMoveRight}
+            title="Mover a la derecha"
+          >
+            <ChevronRight className="h-4 w-4 text-white" />
+          </Button>
+        )}
       </div>
     </div>
   )

@@ -1,52 +1,30 @@
 'use client'
 
-import { useDroppable } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { WebLead, WebLeadStatus } from '@/lib/types/web-leads'
 import { LeadCard } from './LeadCard'
-import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/utils'
 
 interface LeadColumnProps {
   status: { id: WebLeadStatus; label: string; color: string }
   leads: WebLead[]
   onLeadClick: (lead: WebLead) => void
+  onMoveLead: (leadId: string, newStatus: WebLeadStatus) => void
+  statusIndex: number
+  totalStatuses: number
+  allStatuses: { id: WebLeadStatus; label: string; color: string }[]
 }
 
-function SortableLeadCard({ lead, onClick }: { lead: WebLead; onClick: () => void }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: lead.id })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  }
-
-  return (
-    <div 
-      ref={setNodeRef} 
-      style={style} 
-      {...attributes} 
-      {...listeners}
-      data-id={lead.id}
-    >
-      <LeadCard lead={lead} onClick={onClick} />
-    </div>
-  )
-}
-
-export function LeadColumn({ status, leads, onLeadClick }: LeadColumnProps) {
-  const { setNodeRef } = useDroppable({
-    id: status.id,
-  })
+export function LeadColumn({ 
+  status, 
+  leads, 
+  onLeadClick, 
+  onMoveLead,
+  statusIndex,
+  totalStatuses,
+  allStatuses
+}: LeadColumnProps) {
+  const canMoveLeft = statusIndex > 0
+  const canMoveRight = statusIndex < totalStatuses - 1
 
   return (
     <div className="flex flex-col h-full">
@@ -66,22 +44,25 @@ export function LeadColumn({ status, leads, onLeadClick }: LeadColumnProps) {
       </div>
 
       {/* Contenido de la columna */}
-      <div
-        ref={setNodeRef}
-        className="flex-1 space-y-3 min-h-[200px] pb-4"
-      >
-        <SortableContext
-          items={leads.map(l => l.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          {leads.map((lead) => (
-            <SortableLeadCard
+      <div className="flex-1 space-y-3 min-h-[200px] pb-4">
+        {leads.map((lead) => {
+          // Determinar estados adyacentes
+          const prevStatus = canMoveLeft ? allStatuses[statusIndex - 1]?.id : null
+          const nextStatus = canMoveRight ? allStatuses[statusIndex + 1]?.id : null
+
+          return (
+            <LeadCard
               key={lead.id}
               lead={lead}
               onClick={() => onLeadClick(lead)}
+              currentStatus={status.id}
+              onMoveLeft={canMoveLeft && prevStatus ? () => onMoveLead(lead.id, prevStatus) : undefined}
+              onMoveRight={canMoveRight && nextStatus ? () => onMoveLead(lead.id, nextStatus) : undefined}
+              canMoveLeft={canMoveLeft}
+              canMoveRight={canMoveRight}
             />
-          ))}
-        </SortableContext>
+          )
+        })}
 
         {leads.length === 0 && (
           <div className="text-center py-8 text-white/30 text-sm">
