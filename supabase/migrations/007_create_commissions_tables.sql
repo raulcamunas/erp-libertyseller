@@ -75,7 +75,6 @@ CREATE TRIGGER update_commission_reports_updated_at
 
 -- Datos Semilla (Seed)
 INSERT INTO public.clients (name, base_commission_rate) VALUES 
-('Jamones Tapas Party', 0.05),
 ('Ham Master', 0.05),
 ('Lenobotics', 0.03)
 ON CONFLICT (name) DO NOTHING;

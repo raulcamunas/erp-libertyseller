@@ -6,32 +6,13 @@ import { CommissionCalculationData, CommissionRow } from '@/lib/types/commission
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
-    const file = formData.get('file') as File
+    const file = formData.get('file') as File | null
+    const filePreviousYear = formData.get('filePreviousYear') as File | null
+    const fileCurrentYear = formData.get('fileCurrentYear') as File | null
     const clientId = formData.get('clientId') as string
 
-    if (!file || !clientId) {
-      return NextResponse.json(
-        { error: 'Archivo y cliente son requeridos' },
-        { status: 400 }
-      )
-    }
-
-    // Leer el contenido del archivo
-    const csvContent = await file.text()
-
-    // Parsear CSV
-    const rows = parseCSV(csvContent)
-
-    if (rows.length === 0) {
-      return NextResponse.json(
-        { error: 'El archivo CSV está vacío o no es válido' },
-        { status: 400 }
-      )
-    }
-
-    // Obtener cliente y excepciones desde Supabase
+    // Obtener cliente primero para saber si es ShoesF
     const supabase = await createClient()
-
     const { data: client, error: clientError } = await supabase
       .from('clients')
       .select('*')
@@ -42,6 +23,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Cliente no encontrado' },
         { status: 404 }
+      )
+    }
+
+    const isShoesF = client.name === 'ShoesF'
+
+    // Validar archivos según el tipo de cliente
+    if (isShoesF) {
+      if (!filePreviousYear || !fileCurrentYear || !clientId) {
+        return NextResponse.json(
+          { error: 'Se requieren ambos archivos CSV (año anterior y año actual)' },
+          { status: 400 }
+        )
+      }
+    } else {
+      if (!file || !clientId) {
+        return NextResponse.json(
+          { error: 'Archivo y cliente son requeridos' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Si es ShoesF, procesar comparación entre años
+    if (isShoesF) {
+      return await processShoesFComparison(
+        filePreviousYear!,
+        fileCurrentYear!,
+        client,
+        supabase
+      )
+    }
+
+    // Procesamiento normal para otros clientes
+    const csvContent = await file!.text()
+    const rows = parseCSV(csvContent)
+
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: 'El archivo CSV está vacío o no es válido' },
+        { status: 400 }
       )
     }
 
@@ -221,6 +242,181 @@ export async function POST(request: NextRequest) {
     console.error('Error processing commission CSV:', error)
     return NextResponse.json(
       { error: 'Error al procesar el archivo', details: error.message },
+      { status: 500 }
+    )
+  }
+}
+
+// Función para procesar comparación de ShoesF
+async function processShoesFComparison(
+  filePreviousYear: File,
+  fileCurrentYear: File,
+  client: any,
+  supabase: any
+) {
+  try {
+    // Leer ambos archivos
+    const csvContentPrevious = await filePreviousYear.text()
+    const csvContentCurrent = await fileCurrentYear.text()
+
+    // Parsear ambos CSVs
+    const rowsPrevious = parseCSV(csvContentPrevious)
+    const rowsCurrent = parseCSV(csvContentCurrent)
+
+    if (rowsPrevious.length === 0 || rowsCurrent.length === 0) {
+      return NextResponse.json(
+        { error: 'Uno o ambos archivos CSV están vacíos o no son válidos' },
+        { status: 400 }
+      )
+    }
+
+    // Procesar año anterior: crear un mapa por ASIN para hacer match
+    const previousYearData = new Map<string, { netBase: number, grossSales: number, refunds: number }>()
+    let previousYearNetBase = 0
+    const errors: string[] = []
+
+    for (let i = 0; i < rowsPrevious.length; i++) {
+      const row = rowsPrevious[i]
+      try {
+        const grossSales = parseNum(
+          getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
+        )
+        const refunds = Math.abs(parseNum(
+          getVal(row, [
+            'Refund Cost',
+            'Refund сost',
+            'Coste reembolso',
+            /Refund.*[Cc]ost/i,
+            /Coste.*reembolso/i,
+            /Reembolso/i
+          ])
+        ))
+        const asin = getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A'
+        const realTurnover = grossSales - refunds
+        const netBase = realTurnover / 1.21 // Quitar IVA
+        
+        // Agrupar por ASIN (sumar si hay múltiples filas del mismo producto)
+        const existing = previousYearData.get(asin) || { netBase: 0, grossSales: 0, refunds: 0 }
+        previousYearData.set(asin, {
+          netBase: existing.netBase + netBase,
+          grossSales: existing.grossSales + grossSales,
+          refunds: existing.refunds + refunds
+        })
+        
+        previousYearNetBase += netBase
+      } catch (error: any) {
+        errors.push(`Fila ${i + 2} (Año Anterior): ${error.message || 'Error al procesar'}`)
+      }
+    }
+
+    // Calcular base neta (sin IVA) para año actual y hacer match con año anterior
+    let currentYearNetBase = 0
+    const processedRows: CommissionRow[] = []
+
+    for (let i = 0; i < rowsCurrent.length; i++) {
+      const row = rowsCurrent[i]
+      try {
+        const grossSales = parseNum(
+          getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
+        )
+        const refunds = Math.abs(parseNum(
+          getVal(row, [
+            'Refund Cost',
+            'Refund сost',
+            'Coste reembolso',
+            /Refund.*[Cc]ost/i,
+            /Coste.*reembolso/i,
+            /Reembolso/i
+          ])
+        ))
+        const productTitle = getVal(row, [
+          'Product',
+          'Title',
+          'Nombre',
+          'Product Title',
+          /Product.*Title/i,
+          /Nombre.*Producto/i
+        ]) || 'Sin nombre'
+        const asin = getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A'
+        const orderId = getVal(row, ['Order ID', 'OrderId', 'Order', 'Pedido', /Order.*ID/i, /Pedido/i]) || undefined
+        const date = getVal(row, ['Date', 'Fecha', 'Sale Date', /Date/i, /Fecha/i]) || undefined
+        const quantity = parseNum(getVal(row, ['Quantity', 'Cantidad', 'Qty', /Quantity/i, /Cantidad/i]))
+
+        const realTurnover = grossSales - refunds
+        const netBase = realTurnover / 1.21 // Quitar IVA
+        const iva = realTurnover - netBase
+
+        currentYearNetBase += netBase
+
+        // Buscar datos del año anterior para este ASIN
+        const previousYearInfo = previousYearData.get(asin) || { netBase: 0, grossSales: 0, refunds: 0 }
+
+        // Guardar fila para el reporte detallado
+        processedRows.push({
+          productTitle,
+          asin,
+          orderId,
+          date,
+          quantity,
+          grossSales,
+          refunds,
+          realTurnover,
+          iva,
+          netBase,
+          commissionRate: 0, // No aplicamos tasa por producto en ShoesF
+          commission: 0, // La comisión se calcula sobre el excedente total
+          rowNumber: i + 2,
+          // Datos de comparación para ShoesF
+          previousYearNetBase: previousYearInfo.netBase,
+          currentYearNetBase: netBase
+        })
+      } catch (error: any) {
+        errors.push(`Fila ${i + 2} (Año Actual): ${error.message || 'Error al procesar'}`)
+      }
+    }
+
+    // Calcular excedente (año actual - año anterior)
+    const excessAmount = Math.max(0, currentYearNetBase - previousYearNetBase)
+
+    // Calcular comisión: 5% sobre el excedente
+    const commissionRate = client.base_commission_rate // 0.05 (5%)
+    const totalCommission = excessAmount * commissionRate
+
+    // Calcular totales para el resumen
+    const totalSales = processedRows.reduce((sum, r) => sum + r.grossSales, 0)
+    const totalRefunds = processedRows.reduce((sum, r) => sum + r.refunds, 0)
+    const realTurnover = totalSales - totalRefunds
+    const totalIva = realTurnover - currentYearNetBase
+    const uniqueOrders = new Set(processedRows.map(r => r.orderId).filter(Boolean))
+    const totalOrders = uniqueOrders.size || processedRows.length
+
+    const result: CommissionCalculationData = {
+      summary: {
+        totalSales,
+        totalRefunds,
+        realTurnover,
+        totalIva,
+        netBase: currentYearNetBase,
+        totalCommission,
+        averageCommissionRate: commissionRate,
+        totalOrders,
+        // Datos específicos de ShoesF
+        previousYearNetBase,
+        currentYearNetBase,
+        excessAmount
+      },
+      rows: processedRows,
+      errors
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: result
+    })
+  } catch (error: any) {
+    console.error('Error processing ShoesF comparison:', error)
+    return NextResponse.json(
+      { error: 'Error al procesar la comparación', details: error.message },
       { status: 500 }
     )
   }

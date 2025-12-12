@@ -2,9 +2,11 @@
 -- ACTUALIZAR REGLAS DE COMISIONES
 -- =====================================================
 
+-- Eliminar cliente duplicado "Jamones Tapas Party" (es el mismo que Ham Master)
+DELETE FROM public.clients WHERE name = 'Jamones Tapas Party';
+
 -- Actualizar/Insertar clientes con sus tasas correctas
 INSERT INTO public.clients (name, base_commission_rate) VALUES 
-('Jamones Tapas Party', 0.05),
 ('Ham Master', 0.05),
 ('Lenobotics', 0.03)
 ON CONFLICT (name) DO UPDATE SET base_commission_rate = EXCLUDED.base_commission_rate;

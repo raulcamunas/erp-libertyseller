@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -28,7 +29,17 @@ export function SaveReportModal({
   const [period, setPeriod] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
   const supabase = createClient()
+
+  useEffect(() => {
+    setMounted(true)
+    // Prevenir scroll del body cuando el modal está abierto
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = 'unset'
+    }
+  }, [])
 
   const generateSlug = (text: string) => {
     return text
@@ -77,9 +88,34 @@ export function SaveReportModal({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
-      <Card className="w-full max-w-md mx-auto">
+  if (!mounted) return null
+
+  const modalContent = (
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+      style={{ 
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        margin: 0,
+        padding: '1rem'
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose()
+        }
+      }}
+    >
+      <Card 
+        className="w-full max-w-md relative"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxHeight: '90vh',
+          overflowY: 'auto'
+        }}
+      >
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-white">Guardar Reporte</CardTitle>
@@ -119,7 +155,7 @@ export function SaveReportModal({
               required
             />
             <p className="text-xs text-white/50">
-              Se usará para compartir el reporte: /commissions/report/{slug}
+              Se usará para compartir el reporte: /report/commissions/{slug}
             </p>
           </div>
 
@@ -161,5 +197,8 @@ export function SaveReportModal({
       </Card>
     </div>
   )
+
+  // Usar portal para renderizar fuera del DOM tree
+  return createPortal(modalContent, document.body)
 }
 

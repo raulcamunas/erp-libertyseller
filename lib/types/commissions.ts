@@ -35,6 +35,10 @@ export interface CommissionCalculationData {
     totalCommission: number
     averageCommissionRate: number
     totalOrders: number
+    // Para ShoesF: comparación entre años
+    previousYearNetBase?: number // Base neta año anterior
+    currentYearNetBase?: number // Base neta año actual
+    excessAmount?: number // Excedente (año actual - año anterior)
   }
   rows: CommissionRow[]
   errors: string[]
@@ -55,5 +59,8 @@ export interface CommissionRow {
   commission: number
   appliedException?: string
   rowNumber: number // Número de fila original
+  // Para ShoesF: comparación entre años
+  previousYearNetBase?: number // Base neta del año anterior para este producto
+  currentYearNetBase?: number // Base neta del año actual para este producto
 }
 

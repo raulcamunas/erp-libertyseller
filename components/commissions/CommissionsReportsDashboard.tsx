@@ -126,16 +126,6 @@ export function CommissionsReportsDashboard({ reports, clients }: CommissionsRep
                     <CardTitle className="text-white">
                       {report.period || 'Sin período'}
                     </CardTitle>
-                    <span className={cn(
-                      "text-xs px-2 py-1 rounded-full font-semibold",
-                      report.status === 'final' 
-                        ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                        : report.status === 'archived'
-                        ? "bg-gray-500/20 text-gray-400 border border-gray-500/30"
-                        : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                    )}>
-                      {report.status === 'final' ? 'Final' : report.status === 'archived' ? 'Archivado' : 'Borrador'}
-                    </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-4 text-sm text-white/60">
                     <div className="flex items-center gap-1.5">

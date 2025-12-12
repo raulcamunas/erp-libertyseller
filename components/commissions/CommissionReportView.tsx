@@ -7,12 +7,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { 
   Search, 
-  Filter, 
-  TrendingUp, 
-  TrendingDown,
   BarChart3,
   Download,
-  X
+  X,
+  TrendingUp
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -44,42 +42,18 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [sortField, setSortField] = useState<SortField>('commission')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
-  const [minCommission, setMinCommission] = useState('')
-  const [maxCommission, setMaxCommission] = useState('')
-  const [showExceptionsOnly, setShowExceptionsOnly] = useState(false)
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar')
 
   // Filtrar y ordenar filas
   const filteredAndSortedRows = useMemo(() => {
     let filtered = [...allRows]
 
-    // Búsqueda por texto
+    // Búsqueda por ASIN solamente
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       filtered = filtered.filter(row => 
-        row.productTitle.toLowerCase().includes(term) ||
-        row.asin.toLowerCase().includes(term) ||
-        (row.orderId && row.orderId.toLowerCase().includes(term))
+        row.asin.toLowerCase().includes(term)
       )
-    }
-
-    // Filtro por excepciones
-    if (showExceptionsOnly) {
-      filtered = filtered.filter(row => row.appliedException)
-    }
-
-    // Filtro por rango de comisión
-    if (minCommission) {
-      const min = parseFloat(minCommission)
-      if (!isNaN(min)) {
-        filtered = filtered.filter(row => row.commission >= min)
-      }
-    }
-    if (maxCommission) {
-      const max = parseFloat(maxCommission)
-      if (!isNaN(max)) {
-        filtered = filtered.filter(row => row.commission <= max)
-      }
     }
 
     // Ordenar
@@ -100,7 +74,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
     })
 
     return filtered
-  }, [allRows, searchTerm, showExceptionsOnly, minCommission, maxCommission, sortField, sortDirection])
+  }, [allRows, searchTerm, sortField, sortDirection])
 
   // Datos para gráficos
   const chartData = useMemo(() => {
@@ -117,26 +91,6 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   }, [filteredAndSortedRows])
 
 
-  // Estadísticas calculadas
-  const stats = useMemo(() => {
-    const filtered = filteredAndSortedRows
-    if (filtered.length === 0) return null
-
-    const totalCommission = filtered.reduce((sum, r) => sum + r.commission, 0)
-    const avgCommission = totalCommission / filtered.length
-    const maxCommission = Math.max(...filtered.map(r => r.commission))
-    const minCommission = Math.min(...filtered.map(r => r.commission))
-    const withExceptions = filtered.filter(r => r.appliedException).length
-
-    return {
-      totalCommission,
-      avgCommission,
-      maxCommission,
-      minCommission,
-      withExceptions,
-      totalProducts: filtered.length
-    }
-  }, [filteredAndSortedRows])
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -148,192 +102,92 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Resumen con Estadísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-white/70">
+    <div className="space-y-4 sm:space-y-6">
+      {/* Resumen con Estadísticas - Responsive con blur */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <Card className="glass-card animate-pulse-on-load">
+          <CardHeader className="pb-1 px-2 py-1.5">
+            <CardTitle className="text-xs font-semibold text-white/90 leading-tight">
               Ventas Brutas Totales
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-xl font-bold text-white">
+          <CardContent className="pt-0 px-2 pb-2">
+            <div className="text-base sm:text-lg lg:text-xl font-bold text-white">
               €{summary.totalSales.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-white/70">
+        <Card className="glass-card animate-pulse-on-load">
+          <CardHeader className="pb-1 px-2 py-1.5">
+            <CardTitle className="text-xs font-semibold text-white/90 leading-tight">
               Base Neta (SIN IVA)
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-xl font-bold text-green-400">
+          <CardContent className="pt-0 px-2 pb-2">
+            <div className="text-base sm:text-lg lg:text-xl font-bold text-green-400">
               €{summary.netBase.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-white/70">
+        <Card className="glass-card animate-pulse-on-load">
+          <CardHeader className="pb-1 px-2 py-1.5">
+            <CardTitle className="text-xs font-semibold text-white/90 leading-tight">
               Comisión Total
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-2xl font-bold text-[#FF6600]">
+          <CardContent className="pt-0 px-2 pb-2">
+            <div className="text-lg sm:text-xl lg:text-2xl font-bold text-[#FF6600]">
               €{summary.totalCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-white/70">
+        <Card className="glass-card animate-pulse-on-load">
+          <CardHeader className="pb-1 px-2 py-1.5">
+            <CardTitle className="text-xs font-semibold text-white/90 leading-tight">
               Productos Procesados
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-xl font-bold text-white">
+          <CardContent className="pt-0 px-2 pb-2">
+            <div className="text-base sm:text-lg lg:text-xl font-bold text-white">
               {allRows.length}
             </div>
-            <div className="text-xs text-white/50 mt-1">
+            <div className="text-[10px] sm:text-xs text-white/70 mt-0.5">
               {filteredAndSortedRows.length} mostrados
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Estadísticas Avanzadas */}
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-white/70 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-green-400" />
-                Comisión Promedio
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-lg font-bold text-white">
-                €{stats.avgCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-white/70 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-[#FF6600]" />
-                Comisión Máxima
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-lg font-bold text-[#FF6600]">
-                €{stats.maxCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-white/70 flex items-center gap-2">
-                <TrendingDown className="h-4 w-4 text-red-400" />
-                Comisión Mínima
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-lg font-bold text-red-400">
-                €{stats.minCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-white/70">
-                Con Excepciones
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-lg font-bold text-yellow-400">
-                {stats.withExceptions}
-              </div>
-              <div className="text-xs text-white/50 mt-1">
-                {((stats.withExceptions / stats.totalProducts) * 100).toFixed(1)}% del total
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
       {/* Filtros y Búsqueda */}
-      <Card>
+      <Card className="glass-card">
         <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Filtros y Búsqueda
+          <CardTitle className="text-white text-sm sm:text-base flex items-center gap-2">
+            <Search className="h-4 w-4 sm:h-5 sm:w-5" />
+            Buscar por ASIN
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Búsqueda */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50" />
-              <Input
-                placeholder="Buscar producto, ASIN..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-
-            {/* Rango de comisión mínimo */}
+        <CardContent>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50" />
             <Input
-              type="number"
-              placeholder="Comisión mínima (€)"
-              value={minCommission}
-              onChange={(e) => setMinCommission(e.target.value)}
+              placeholder="Buscar por ASIN..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 w-full"
             />
-
-            {/* Rango de comisión máximo */}
-            <Input
-              type="number"
-              placeholder="Comisión máxima (€)"
-              value={maxCommission}
-              onChange={(e) => setMaxCommission(e.target.value)}
-            />
-
-            {/* Filtro de excepciones */}
-            <Button
-              onClick={() => setShowExceptionsOnly(!showExceptionsOnly)}
-              variant={showExceptionsOnly ? "default" : "outline"}
-              className={cn(
-                showExceptionsOnly && "bg-[#FF6600] text-white border-[#FF6600]"
-              )}
-            >
-              {showExceptionsOnly ? '✓ ' : ''}Solo Excepciones
-            </Button>
           </div>
-
-          {/* Limpiar filtros */}
-          {(searchTerm || minCommission || maxCommission || showExceptionsOnly) && (
+          {searchTerm && (
             <Button
-              onClick={() => {
-                setSearchTerm('')
-                setMinCommission('')
-                setMaxCommission('')
-                setShowExceptionsOnly(false)
-              }}
+              onClick={() => setSearchTerm('')}
               variant="ghost"
               size="sm"
-              className="gap-2"
+              className="gap-2 mt-3"
             >
               <X className="h-4 w-4" />
-              Limpiar Filtros
+              Limpiar búsqueda
             </Button>
           )}
         </CardContent>
