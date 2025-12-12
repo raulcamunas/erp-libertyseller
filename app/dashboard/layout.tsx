@@ -22,10 +22,10 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-[#080808] flex">
+    <div className="min-h-screen bg-[#080808] flex relative">
       <AppSidebar />
-      <main className="flex-1 lg:ml-64 transition-all duration-300 min-h-screen pt-16 lg:pt-0">
-        <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+      <main className="flex-1 lg:ml-64 transition-all duration-500 ease-in-out min-h-screen pt-16 lg:pt-0 relative z-10">
+        <div className="p-6 lg:p-8 max-w-7xl mx-auto page-transition animate-fadeInUp">
           {children}
         </div>
       </main>

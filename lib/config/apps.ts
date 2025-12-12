@@ -4,9 +4,7 @@ import {
   DollarSign, 
   FileText, 
   Settings, 
-  BarChart3,
-  Mail,
-  ShoppingCart
+  BarChart3
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -47,7 +45,7 @@ export const apps: AppConfig[] = [
     description: 'Control financiero y facturación',
     icon: DollarSign,
     route: '/dashboard/finances',
-    status: 'inactive',
+    status: 'active',
     category: 'core'
   },
   {
@@ -67,24 +65,6 @@ export const apps: AppConfig[] = [
     route: '/dashboard/documents',
     status: 'inactive',
     category: 'productivity'
-  },
-  {
-    id: 'email',
-    name: 'Email Marketing',
-    description: 'Campañas y comunicaciones',
-    icon: Mail,
-    route: '/dashboard/email',
-    status: 'inactive',
-    category: 'productivity'
-  },
-  {
-    id: 'orders',
-    name: 'Pedidos',
-    description: 'Gestión de pedidos y envíos',
-    icon: ShoppingCart,
-    route: '/dashboard/orders',
-    status: 'inactive',
-    category: 'core'
   }
 ]
 
