@@ -188,24 +188,22 @@ export function FinanceDashboard() {
         </Card>
       </div>
 
-      {/* Layout: Gráfico a la derecha, Mes selector y lista al centro/izquierda */}
+      {/* Layout: Gráfico arriba, Lista de movimientos y selector abajo */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Mes Selector y Lista de Pagos - Ocupa 3 columnas */}
-        <div className="lg:col-span-3 space-y-4">
+        {/* Gráfico - Ocupa todo el ancho arriba */}
+        <div className="lg:col-span-5">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm text-white">Seleccionar Mes</CardTitle>
+              <CardTitle className="text-sm text-white">Evolución Financiera</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
-              <MonthSelector
-                selectedYear={selectedYear}
-                selectedMonth={selectedMonth}
-                onYearChange={setSelectedYear}
-                onMonthChange={setSelectedMonth}
-              />
+              <FinanceChart data={monthlySummaries} />
             </CardContent>
           </Card>
+        </div>
 
+        {/* Lista de Movimientos - Ocupa 3 columnas a la izquierda */}
+        <div className="lg:col-span-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <CardTitle className="text-sm text-white">
@@ -226,14 +224,19 @@ export function FinanceDashboard() {
           </Card>
         </div>
 
-        {/* Gráfico - Ocupa 2 columnas a la derecha */}
+        {/* Selector de Mes - Abajo a la derecha, 2 columnas */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm text-white">Evolución Financiera</CardTitle>
+              <CardTitle className="text-sm text-white">Seleccionar Mes</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
-              <FinanceChart data={monthlySummaries} />
+              <MonthSelector
+                selectedYear={selectedYear}
+                selectedMonth={selectedMonth}
+                onYearChange={setSelectedYear}
+                onMonthChange={setSelectedMonth}
+              />
             </CardContent>
           </Card>
         </div>
