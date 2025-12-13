@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+// Lazy initialization - solo se crea cuando se necesita
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    return null
+  }
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  })
+}
 
 interface BleederAnalysis {
   term: string
@@ -114,6 +120,16 @@ ${body.harvest_opportunities.slice(0, 5).map((h, i) =>
 ).join('\n')}
 
 Analiza estos datos y proporciona tu diagnóstico siguiendo la estructura requerida.`
+
+    // Verificar que OpenAI está disponible
+    const openai = getOpenAIClient()
+    if (!openai) {
+      return NextResponse.json({
+        error: true,
+        message: 'La IA está descansando, pero los datos matemáticos son correctos.',
+        fallback: true,
+      })
+    }
 
     // Llamar a OpenAI con timeout
     const controller = new AbortController()
