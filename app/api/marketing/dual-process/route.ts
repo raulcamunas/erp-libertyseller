@@ -264,7 +264,7 @@ export async function POST(request: NextRequest) {
             'Producto': getValue(baseKeyword, ['Producto', 'Product', 'SKU']) || '',
             'Entidad': 'Palabra clave',
             'Operación': 'CREATE',
-            'ID de la campaña': campaignId,
+            'ID de la campaña': String(campaignId),
             'ID del grupo de anuncios': getValue(baseKeyword, [
               'ID del grupo de anuncios',
               'Ad Group ID',
