@@ -9,9 +9,28 @@ import { Upload, FileX, FileSpreadsheet, Loader2, Download, Sparkles } from 'luc
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { AIInsightsPanel } from './AIInsightsPanel'
+import { ChangesReview } from './ChangesReview'
+import { createClient } from '@/lib/supabase/client'
 
 interface OptimizerToolProps {
   clientId: string
+}
+
+interface ChangeRow {
+  'Producto': string
+  'Entidad': string
+  'Operación': string
+  'ID de la campaña': string
+  'ID del grupo de anuncios': string
+  'ID de palabra clave': string
+  'Puja': number
+  'Estado': string
+  'Texto de palabra clave': string
+  'Tipo de coincidencia': string
+  'Puja Original'?: number
+  'ACOS'?: number
+  'Ventas'?: number
+  'Origen'?: string
 }
 
 export function OptimizerTool({ clientId }: OptimizerToolProps) {
@@ -20,6 +39,8 @@ export function OptimizerTool({ clientId }: OptimizerToolProps) {
   const [targetACOS, setTargetACOS] = useState<string>('20')
   const [processing, setProcessing] = useState(false)
   const [analysisData, setAnalysisData] = useState<any>(null)
+  const [changes, setChanges] = useState<ChangeRow[] | null>(null)
+  const [showReview, setShowReview] = useState(false)
 
   const onBulkDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -36,11 +57,11 @@ export function OptimizerTool({ clientId }: OptimizerToolProps) {
   const onSearchDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       const file = acceptedFiles[0]
-      if (file.name.endsWith('.csv')) {
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSearchFile(file)
         toast.success('Search Term Report cargado correctamente')
       } else {
-        toast.error('El archivo debe ser CSV')
+        toast.error('El archivo debe ser Excel (.xlsx o .xls)')
       }
     }
   }, [])
@@ -57,7 +78,8 @@ export function OptimizerTool({ clientId }: OptimizerToolProps) {
   const { getRootProps: getSearchRootProps, getInputProps: getSearchInputProps, isDragActive: isSearchDragActive } = useDropzone({
     onDrop: onSearchDrop,
     accept: {
-      'text/csv': ['.csv'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls'],
     },
     multiple: false,
   })
@@ -75,7 +97,7 @@ export function OptimizerTool({ clientId }: OptimizerToolProps) {
       formData.append('searchFile', searchFile)
       formData.append('targetACOS', targetACOS)
 
-      // Procesar archivos y generar Excel
+      // Procesar archivos y obtener cambios
       const processResponse = await fetch('/api/marketing/dual-process', {
         method: 'POST',
         body: formData,
@@ -86,16 +108,15 @@ export function OptimizerTool({ clientId }: OptimizerToolProps) {
         throw new Error(error.error || 'Error al procesar los archivos')
       }
 
-      // Descargar archivo
-      const blob = await processResponse.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `optimizacion_ppc_${Date.now()}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
+      const processData = await processResponse.json()
+      
+      if (processData.success && processData.changes) {
+        setChanges(processData.changes)
+        setShowReview(true)
+        toast.success(`${processData.changes.length} cambios propuestos. Revisa y edita antes de aplicar.`)
+      } else {
+        throw new Error('No se generaron cambios')
+      }
 
       // Analizar datos para IA
       const analyzeResponse = await fetch('/api/marketing/analyze-data', {
@@ -109,8 +130,6 @@ export function OptimizerTool({ clientId }: OptimizerToolProps) {
           setAnalysisData(analyzeData.data)
         }
       }
-
-      toast.success('Optimización completada. Archivo descargado.')
     } catch (error: any) {
       console.error('Error processing:', error)
       toast.error(error.message || 'Error al procesar los archivos')
@@ -246,7 +265,7 @@ export function OptimizerTool({ clientId }: OptimizerToolProps) {
                   o haz clic para seleccionar
                 </p>
                 <p className="text-xs text-white/40 mt-2">
-                  Formato: .csv
+                  Formato: .xlsx o .xls
                 </p>
               </div>
             </div>
@@ -300,14 +319,76 @@ export function OptimizerTool({ clientId }: OptimizerToolProps) {
         </ul>
       </div>
 
-      {/* Panel de Análisis de IA */}
-      {analysisData && (
-        <AIInsightsPanel
+      {/* Panel de Revisión de Cambios */}
+      {showReview && changes && (
+        <ChangesReview
           clientId={clientId}
-          clientContext={analysisData.client_context}
-          bleeders={analysisData.bleeders_analysis}
-          winners={analysisData.winners_analysis}
-          harvestOpportunities={analysisData.harvest_opportunities}
+          changes={changes}
+          analysisData={analysisData}
+          onFinalize={async (finalChanges) => {
+            // Generar y descargar Excel
+            const formData = new FormData()
+            formData.append('changes', JSON.stringify(finalChanges))
+
+            const excelResponse = await fetch('/api/marketing/generate-excel', {
+              method: 'POST',
+              body: formData,
+            })
+
+            if (!excelResponse.ok) throw new Error('Error al generar Excel')
+
+            const blob = await excelResponse.blob()
+            const url = window.URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `optimizacion_ppc_${Date.now()}.xlsx`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            window.URL.revokeObjectURL(url)
+
+            // Guardar snapshot en el dashboard
+            if (analysisData && analysisData.client_context) {
+              const supabase = createClient()
+              const weekStart = new Date()
+              weekStart.setDate(weekStart.getDate() - weekStart.getDay()) // Lunes de esta semana
+
+              // Calcular métricas desde los cambios finales
+              const totalSpend = analysisData.client_context.total_spend_week || 0
+              const globalACOS = analysisData.client_context.global_acos || 0.01
+              const totalSales = totalSpend / globalACOS
+
+              const { error: snapshotError } = await supabase
+                .from('ppc_weekly_snapshots')
+                .upsert({
+                  client_id: clientId,
+                  week_start_date: weekStart.toISOString().split('T')[0],
+                  total_spend: totalSpend,
+                  total_sales: totalSales,
+                  global_acos: globalACOS * 100,
+                  top_products: (analysisData.winners_analysis || []).slice(0, 5).map((w: any) => ({
+                    name: w.term || 'N/A',
+                    sales: w.sales || 0,
+                    acos: (w.acos || 0) * 100,
+                  })),
+                  ai_summary: null, // Se puede actualizar después con el análisis de IA
+                }, {
+                  onConflict: 'client_id,week_start_date',
+                })
+
+              if (snapshotError) {
+                console.error('Error saving snapshot:', snapshotError)
+                // No fallar si no se puede guardar el snapshot
+              }
+            }
+
+            // Resetear estado
+            setShowReview(false)
+            setChanges(null)
+            setAnalysisData(null)
+            setBulkFile(null)
+            setSearchFile(null)
+          }}
         />
       )}
     </div>

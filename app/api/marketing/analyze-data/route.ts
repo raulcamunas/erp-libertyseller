@@ -1,6 +1,95 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
-import Papa from 'papaparse'
+
+/**
+ * Normaliza las claves de un objeto eliminando espacios al inicio y final
+ */
+function normalizeKeys(obj: Record<string, any>): Record<string, any> {
+  const normalized: Record<string, any> = {}
+  for (const [key, value] of Object.entries(obj)) {
+    normalized[key.trim()] = value
+  }
+  return normalized
+}
+
+/**
+ * Busca la pestaña correcta en un libro Excel
+ */
+function findCorrectSheet(
+  workbook: XLSX.WorkBook,
+  searchColumn: string | string[]
+): { sheetName: string; data: any[] } | null {
+  const searchColumns = Array.isArray(searchColumn) ? searchColumn : [searchColumn]
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName]
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][]
+
+    if (rows.length === 0) continue
+
+    const headers = rows[0].map((h: any) => String(h).trim())
+
+    const found = searchColumns.some((col) =>
+      headers.some((header: string) =>
+        header.toLowerCase().includes(col.toLowerCase())
+      )
+    )
+
+    if (found) {
+      const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      const normalizedData = jsonData.map((row: any) => normalizeKeys(row))
+      return { sheetName, data: normalizedData }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Obtiene un valor de un objeto con múltiples posibles claves
+ */
+function getValue(row: Record<string, any>, keys: string[]): any {
+  for (const key of keys) {
+    const normalizedKey = Object.keys(row).find(
+      (k) => k.trim().toLowerCase() === key.trim().toLowerCase()
+    )
+    if (normalizedKey !== undefined && row[normalizedKey] !== undefined && row[normalizedKey] !== '') {
+      return row[normalizedKey]
+    }
+  }
+  return null
+}
+
+/**
+ * Parsea un número de formato Amazon
+ */
+function parseAmazonNumber(value: any): number {
+  if (typeof value === 'number') return value
+  if (!value) return 0
+
+  const str = String(value)
+    .replace(/[€$£,]/g, '')
+    .replace(/\s/g, '')
+    .replace('%', '')
+    .trim()
+
+  const hasComma = str.includes(',')
+  const hasDot = str.includes('.')
+
+  if (hasComma && hasDot) {
+    const lastComma = str.lastIndexOf(',')
+    const lastDot = str.lastIndexOf('.')
+    if (lastComma > lastDot) {
+      return parseFloat(str.replace(/\./g, '').replace(',', '.'))
+    } else {
+      return parseFloat(str.replace(/,/g, ''))
+    }
+  } else if (hasComma) {
+    return parseFloat(str.replace(',', '.'))
+  } else {
+    return parseFloat(str) || 0
+  }
+}
 
 interface SearchTermRow {
   'Término de búsqueda de cliente': string
@@ -34,103 +123,137 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Parsear Search Term Report (CSV)
-    const searchText = await searchFile.text()
-    
-    // Usar parse síncrono (devuelve resultado directamente)
-    const parseResult = Papa.parse<SearchTermRow>(searchText, {
-      header: true,
-      skipEmptyLines: true,
-    })
+    // Parsear Search Term Report (Excel)
+    const searchBuffer = await searchFile.arrayBuffer()
+    const searchWorkbook = XLSX.read(searchBuffer, { type: 'array' })
 
-    const searchData: SearchTermRow[] = parseResult.data.map((row: any) => ({
-      'Término de búsqueda de cliente': row['Término de búsqueda de cliente'] || '',
-      'Pedidos totales de 7 días (#)': parseFloat(String(row['Pedidos totales de 7 días (#)'] || '0').replace(',', '.')) || 0,
-      'Coste publicitario de las ventas (ACOS) total': parseFloat(String(row['Coste publicitario de las ventas (ACOS) total'] || '0').replace(',', '.').replace('%', '')) || 0,
-      'Campaña': row['Campaña'] || '',
-    }))
+    const searchSheetResult = findCorrectSheet(searchWorkbook, [
+      'Término de búsqueda de cliente',
+      'Término de búsqueda',
+    ])
+    if (!searchSheetResult) {
+      return NextResponse.json(
+        {
+          error:
+            'No se encontró la pestaña con columna "Término de búsqueda de cliente" en el Search Term Report',
+        },
+        { status: 400 }
+      )
+    }
+
+    const searchData: SearchTermRow[] = searchSheetResult.data as SearchTermRow[]
 
     // Parsear Bulk File (XLSX)
     const bulkBuffer = await bulkFile.arrayBuffer()
     const bulkWorkbook = XLSX.read(bulkBuffer, { type: 'array' })
-    const bulkSheetName = bulkWorkbook.SheetNames[0]
-    const bulkSheet = bulkWorkbook.Sheets[bulkSheetName]
-    const bulkData: BulkRow[] = XLSX.utils.sheet_to_json(bulkSheet, { raw: false })
 
-    // Normalizar datos del Bulk File
-    const normalizedBulkData: BulkRow[] = bulkData.map((row: any) => ({
-      'ID de la campaña': String(row['ID de la campaña'] || row['Campaign ID'] || ''),
-      'Entidad': String(row['Entidad'] || row['Entity'] || ''),
-      'Texto de palabra clave': String(row['Texto de palabra clave'] || row['Keyword Text'] || ''),
-      'Puja': parseFloat(String(row['Puja'] || row['Bid'] || '0').replace(',', '.').replace('€', '').trim()) || 0,
-      'ACOS': parseFloat(String(row['ACOS'] || row['Acos'] || '0').replace(',', '.').replace('%', '').trim()) || 0,
-      'Ventas': parseFloat(String(row['Ventas'] || row['Sales'] || '0').replace(',', '.').replace('€', '').trim()) || 0,
-      'Clics': parseFloat(String(row['Clics'] || row['Clicks'] || '0').replace(',', '.')) || 0,
-      'Impresiones': parseFloat(String(row['Impresiones'] || row['Impressions'] || '0').replace(',', '.')) || 0,
-    }))
+    const bulkSheetResult = findCorrectSheet(bulkWorkbook, ['Entidad', 'Entity'])
+    if (!bulkSheetResult) {
+      return NextResponse.json(
+        { error: 'No se encontró la pestaña con columna "Entidad" o "Entity" en el Bulk File' },
+        { status: 400 }
+      )
+    }
+
+    const bulkData: BulkRow[] = bulkSheetResult.data as BulkRow[]
+    const normalizedBulkData: BulkRow[] = bulkData
 
     // Calcular totales
     const totalSpend = normalizedBulkData.reduce((sum, row) => {
-      const spend = row['Puja'] * row['Clics'] || 0
-      return sum + spend
+      const puja = parseAmazonNumber(getValue(row, ['Puja', 'Bid']))
+      const clics = parseAmazonNumber(getValue(row, ['Clics', 'Clicks']))
+      const gasto = parseAmazonNumber(getValue(row, ['Gasto', 'Spend', 'Cost', 'Coste']))
+      return sum + (gasto || puja * clics || 0)
     }, 0)
 
-    const totalSales = normalizedBulkData.reduce((sum, row) => sum + row['Ventas'], 0)
+    const totalSales = normalizedBulkData.reduce((sum, row) => {
+      return sum + parseAmazonNumber(getValue(row, ['Ventas', 'Sales', 'Revenue']))
+    }, 0)
     const globalACOS = totalSpend > 0 ? (totalSpend / totalSales) * 100 : 0
 
     // Identificar Bleeders (Top 5 peores)
     const bleeders = normalizedBulkData
-      .filter(row => row['Clics'] > 15 && row['Ventas'] === 0)
-      .map(row => ({
-        term: row['Texto de palabra clave'],
-        spend: row['Puja'] * row['Clics'],
-        sales: row['Ventas'],
-        clicks: row['Clics'],
-        acos: row['ACOS'] / 100,
-      }))
+      .filter((row) => {
+        const entity = getValue(row, ['Entidad', 'Entity'])
+        if (entity !== 'Palabra clave' && entity !== 'Keyword') return false
+        const ventas = parseAmazonNumber(getValue(row, ['Ventas', 'Sales']))
+        const gasto = parseAmazonNumber(getValue(row, ['Gasto', 'Spend', 'Cost']))
+        return ventas === 0 && gasto > 5
+      })
+      .map((row) => {
+        const puja = parseAmazonNumber(getValue(row, ['Puja', 'Bid']))
+        const clics = parseAmazonNumber(getValue(row, ['Clics', 'Clicks']))
+        const gasto = parseAmazonNumber(getValue(row, ['Gasto', 'Spend', 'Cost'])) || puja * clics
+        return {
+          term: String(getValue(row, ['Texto de palabra clave', 'Keyword Text']) || '').trim(),
+          spend: gasto,
+          sales: parseAmazonNumber(getValue(row, ['Ventas', 'Sales'])),
+          clicks: clics,
+          acos: 0,
+        }
+      })
       .sort((a, b) => b.spend - a.spend)
       .slice(0, 5)
 
     // Identificar Winners (Top 5 mejores)
     const winners = normalizedBulkData
-      .filter(row => row['ACOS'] > 0 && row['ACOS'] < 10 && row['Ventas'] > 0)
-      .map(row => ({
-        term: row['Texto de palabra clave'],
-        acos: row['ACOS'] / 100,
-        sales: row['Ventas'],
-        conversion_rate: row['Clics'] > 0 ? row['Ventas'] / row['Clics'] : 0,
-        spend: row['Puja'] * row['Clics'],
-      }))
+      .filter((row) => {
+        const entity = getValue(row, ['Entidad', 'Entity'])
+        if (entity !== 'Palabra clave' && entity !== 'Keyword') return false
+        const acos = parseAmazonNumber(getValue(row, ['ACOS', 'Acos', 'ACOS total'])) / 100
+        const ventas = parseAmazonNumber(getValue(row, ['Ventas', 'Sales']))
+        return acos > 0 && acos < 0.10 && ventas > 0
+      })
+      .map((row) => {
+        const puja = parseAmazonNumber(getValue(row, ['Puja', 'Bid']))
+        const clics = parseAmazonNumber(getValue(row, ['Clics', 'Clicks']))
+        const acos = parseAmazonNumber(getValue(row, ['ACOS', 'Acos', 'ACOS total'])) / 100
+        const ventas = parseAmazonNumber(getValue(row, ['Ventas', 'Sales']))
+        return {
+          term: String(getValue(row, ['Texto de palabra clave', 'Keyword Text']) || '').trim(),
+          acos: acos,
+          sales: ventas,
+          conversion_rate: clics > 0 ? ventas / clics : 0,
+          spend: puja * clics,
+        }
+      })
       .sort((a, b) => a.acos - b.acos)
       .slice(0, 5)
 
     // Identificar Harvest Opportunities
     const harvestOpportunities = searchData
-      .filter(row => {
-        const pedidos = typeof row['Pedidos totales de 7 días (#)'] === 'number' 
-          ? row['Pedidos totales de 7 días (#)'] 
-          : parseFloat(String(row['Pedidos totales de 7 días (#)']).replace(',', '.')) || 0
-        
-        const acos = typeof row['Coste publicitario de las ventas (ACOS) total'] === 'number'
-          ? row['Coste publicitario de las ventas (ACOS) total']
-          : parseFloat(String(row['Coste publicitario de las ventas (ACOS) total']).replace(',', '.').replace('%', '')) || 0
-
-        return pedidos >= 1 && acos < 30
+      .filter((row) => {
+        const pedidos = parseAmazonNumber(
+          getValue(row, ['Pedidos totales de 7 días (#)', 'Pedidos', 'Orders', 'Total Orders'])
+        )
+        const acos = parseAmazonNumber(
+          getValue(row, [
+            'Coste publicitario de las ventas (ACOS) total',
+            'ACOS',
+            'ACOS total',
+            'Total ACOS',
+          ])
+        ) / 100
+        return pedidos >= 1 && acos < 0.30
       })
-      .map(row => {
-        const pedidos = typeof row['Pedidos totales de 7 días (#)'] === 'number' 
-          ? row['Pedidos totales de 7 días (#)'] 
-          : parseFloat(String(row['Pedidos totales de 7 días (#)']).replace(',', '.')) || 0
-        
-        const acos = typeof row['Coste publicitario de las ventas (ACOS) total'] === 'number'
-          ? row['Coste publicitario de las ventas (ACOS) total']
-          : parseFloat(String(row['Coste publicitario de las ventas (ACOS) total']).replace(',', '.').replace('%', '')) || 0
-
+      .map((row) => {
+        const pedidos = parseAmazonNumber(
+          getValue(row, ['Pedidos totales de 7 días (#)', 'Pedidos', 'Orders'])
+        )
+        const acos = parseAmazonNumber(
+          getValue(row, [
+            'Coste publicitario de las ventas (ACOS) total',
+            'ACOS',
+            'ACOS total',
+          ])
+        ) / 100
         return {
-          term: String(row['Término de búsqueda de cliente']).trim(),
-          origin_campaign: String(row['Campaña']).trim(),
+          term: String(
+            getValue(row, ['Término de búsqueda de cliente', 'Término de búsqueda', 'Search Term']) || ''
+          ).trim(),
+          origin_campaign: String(getValue(row, ['Campaña', 'Campaign', 'Nombre de campaña']) || '').trim(),
           orders: pedidos,
-          acos: acos / 100,
+          acos: acos,
         }
       })
       .sort((a, b) => b.orders - a.orders)
