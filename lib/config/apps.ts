@@ -7,7 +7,8 @@ import {
   BarChart3,
   Calculator,
   Globe,
-  Linkedin
+  Linkedin,
+  TrendingUp
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -102,6 +103,15 @@ export const apps: AppConfig[] = [
     description: 'Crea y gestiona usuarios del sistema',
     icon: Users,
     route: '/dashboard/users',
+    status: 'active',
+    category: 'core'
+  },
+  {
+    id: 'marketing',
+    name: 'PPC Agency Hub',
+    description: 'Gestión de clientes y campañas PPC',
+    icon: TrendingUp,
+    route: '/dashboard/marketing',
     status: 'active',
     category: 'core'
   }
