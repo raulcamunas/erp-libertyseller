@@ -26,8 +26,11 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
 
   // Real-time subscription para nuevos leads
   useEffect(() => {
+    console.log('Setting up realtime subscription...')
+    
+    const channelName = `web_leads_changes_${Date.now()}`
     const channel = supabase
-      .channel('web_leads_changes')
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -36,12 +39,18 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
           table: 'web_leads',
         },
         (payload) => {
+          console.log('✅ INSERT event received:', payload)
           const newLead = payload.new as WebLead
           
           // Verificar que el lead no esté ya en la lista (evitar duplicados)
           setLeads((prevLeads) => {
             const exists = prevLeads.some(l => l.id === newLead.id)
-            if (exists) return prevLeads
+            if (exists) {
+              console.log('⚠️ Lead already exists, skipping:', newLead.id)
+              return prevLeads
+            }
+            
+            console.log('➕ Adding new lead:', newLead)
             
             // Mostrar notificación
             toast.success('Nuevo lead registrado en formulario web', {
@@ -61,15 +70,46 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
           table: 'web_leads',
         },
         (payload) => {
+          console.log('🔄 UPDATE event received:', payload)
           const updatedLead = payload.new as WebLead
           setLeads((prevLeads) =>
             prevLeads.map((l) => (l.id === updatedLead.id ? updatedLead : l))
           )
         }
       )
-      .subscribe()
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'web_leads',
+        },
+        (payload) => {
+          console.log('🗑️ DELETE event received:', payload)
+          const deletedLeadId = payload.old.id as string
+          setLeads((prevLeads) => prevLeads.filter(l => l.id !== deletedLeadId))
+          
+          // Cerrar el panel si el lead eliminado estaba abierto
+          setSelectedLead((current) => current?.id === deletedLeadId ? null : current)
+        }
+      )
+      .subscribe((status, err) => {
+        console.log('📡 Realtime subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to web_leads changes')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Error subscribing to web_leads changes:', err)
+          toast.error('Error al conectar con actualizaciones en tiempo real. Verifica que Realtime esté habilitado en Supabase.')
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Timeout subscribing to web_leads changes')
+          toast.error('Timeout al conectar con actualizaciones en tiempo real')
+        } else if (status === 'CLOSED') {
+          console.warn('⚠️ Channel closed')
+        }
+      })
 
     return () => {
+      console.log('🧹 Cleaning up realtime subscription...')
       supabase.removeChannel(channel)
     }
   }, [supabase])
