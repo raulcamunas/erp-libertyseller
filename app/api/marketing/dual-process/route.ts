@@ -261,14 +261,14 @@ export async function POST(request: NextRequest) {
             : 0.5
 
           outputRows.push({
-            'Producto': getValue(baseKeyword, ['Producto', 'Product', 'SKU']) || '',
+            'Producto': baseKeyword ? (getValue(baseKeyword, ['Producto', 'Product', 'SKU']) || '') : '',
             'Entidad': 'Palabra clave',
             'Operación': 'CREATE',
             'ID de la campaña': String(campaignId),
-            'ID del grupo de anuncios': getValue(baseKeyword, [
+            'ID del grupo de anuncios': baseKeyword ? (getValue(baseKeyword, [
               'ID del grupo de anuncios',
               'Ad Group ID',
-            ]) || '',
+            ]) || '') : '',
             'ID de palabra clave': '',
             'Puja': Math.round(baseBid * 100) / 100,
             'Estado': 'habilitado',
