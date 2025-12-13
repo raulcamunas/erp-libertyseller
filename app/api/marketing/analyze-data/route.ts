@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import XLSX from 'xlsx'
+import * as XLSX from 'xlsx'
 import Papa from 'papaparse'
 
 interface SearchTermRow {
@@ -36,22 +36,19 @@ export async function POST(request: NextRequest) {
 
     // Parsear Search Term Report (CSV)
     const searchText = await searchFile.text()
-    const searchData: SearchTermRow[] = []
     
+    // Usar parse síncrono (devuelve resultado directamente)
     const parseResult = Papa.parse<SearchTermRow>(searchText, {
       header: true,
       skipEmptyLines: true,
-      encoding: 'UTF-8',
     })
 
-    parseResult.data.forEach((row: any) => {
-      searchData.push({
-        'Término de búsqueda de cliente': row['Término de búsqueda de cliente'] || '',
-        'Pedidos totales de 7 días (#)': parseFloat(String(row['Pedidos totales de 7 días (#)'] || '0').replace(',', '.')) || 0,
-        'Coste publicitario de las ventas (ACOS) total': parseFloat(String(row['Coste publicitario de las ventas (ACOS) total'] || '0').replace(',', '.').replace('%', '')) || 0,
-        'Campaña': row['Campaña'] || '',
-      })
-    })
+    const searchData: SearchTermRow[] = parseResult.data.map((row: any) => ({
+      'Término de búsqueda de cliente': row['Término de búsqueda de cliente'] || '',
+      'Pedidos totales de 7 días (#)': parseFloat(String(row['Pedidos totales de 7 días (#)'] || '0').replace(',', '.')) || 0,
+      'Coste publicitario de las ventas (ACOS) total': parseFloat(String(row['Coste publicitario de las ventas (ACOS) total'] || '0').replace(',', '.').replace('%', '')) || 0,
+      'Campaña': row['Campaña'] || '',
+    }))
 
     // Parsear Bulk File (XLSX)
     const bulkBuffer = await bulkFile.arrayBuffer()

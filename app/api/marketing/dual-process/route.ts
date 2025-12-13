@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import XLSX from 'xlsx'
+import * as XLSX from 'xlsx'
 import Papa from 'papaparse'
 
 interface SearchTermRow {
@@ -49,11 +49,10 @@ export async function POST(request: NextRequest) {
     const searchText = await searchFile.text()
     const searchData: SearchTermRow[] = []
     
-    // Parsear CSV de forma síncrona
+    // Usar parse síncrono (devuelve resultado directamente)
     const parseResult = Papa.parse<SearchTermRow>(searchText, {
       header: true,
       skipEmptyLines: true,
-      encoding: 'UTF-8',
     })
 
     parseResult.data.forEach((row: any) => {
