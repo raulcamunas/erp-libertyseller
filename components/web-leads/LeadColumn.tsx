@@ -9,6 +9,7 @@ interface LeadColumnProps {
   leads: WebLead[]
   onLeadClick: (lead: WebLead) => void
   onMoveLead: (leadId: string, newStatus: WebLeadStatus) => void
+  onDeleteLead: (leadId: string) => void
   statusIndex: number
   totalStatuses: number
   allStatuses: { id: WebLeadStatus; label: string; color: string }[]
@@ -19,6 +20,7 @@ export function LeadColumn({
   leads, 
   onLeadClick, 
   onMoveLead,
+  onDeleteLead,
   statusIndex,
   totalStatuses,
   allStatuses
@@ -58,6 +60,7 @@ export function LeadColumn({
               currentStatus={status.id}
               onMoveLeft={canMoveLeft && prevStatus ? () => onMoveLead(lead.id, prevStatus) : undefined}
               onMoveRight={canMoveRight && nextStatus ? () => onMoveLead(lead.id, nextStatus) : undefined}
+              onDelete={() => onDeleteLead(lead.id)}
               canMoveLeft={canMoveLeft}
               canMoveRight={canMoveRight}
             />

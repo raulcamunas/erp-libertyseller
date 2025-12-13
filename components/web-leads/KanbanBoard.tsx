@@ -115,6 +115,40 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
     }
   }
 
+  const handleDeleteLead = async (leadId: string) => {
+    // Optimistic update
+    setLeads(prevLeads => prevLeads.filter(l => l.id !== leadId))
+
+    // Cerrar el panel si el lead eliminado estaba abierto
+    if (selectedLead?.id === leadId) {
+      setSelectedLead(null)
+    }
+
+    // Eliminar en Supabase
+    try {
+      const { error } = await supabase
+        .from('web_leads')
+        .delete()
+        .eq('id', leadId)
+
+      if (error) throw error
+      
+      toast.success('Lead eliminado correctamente')
+    } catch (error) {
+      console.error('Error deleting lead:', error)
+      // Recargar leads en caso de error
+      const { data } = await supabase
+        .from('web_leads')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (data) {
+        setLeads(data as WebLead[])
+      }
+      toast.error('Error al eliminar el lead')
+    }
+  }
+
   const handleLeadUpdate = (updatedLead: WebLead) => {
     setLeads(prevLeads =>
       prevLeads.map(l => (l.id === updatedLead.id ? updatedLead : l))
@@ -134,6 +168,7 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
               leads={statusLeads}
               onLeadClick={setSelectedLead}
               onMoveLead={handleMoveLead}
+              onDeleteLead={handleDeleteLead}
               statusIndex={index}
               totalStatuses={STATUSES.length}
               allStatuses={STATUSES}

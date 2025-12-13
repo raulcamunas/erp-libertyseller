@@ -3,7 +3,7 @@
 import { WebLead, WebLeadStatus } from '@/lib/types/web-leads'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Building2, Mail, Phone, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Building2, Mail, Phone, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -13,6 +13,7 @@ interface LeadCardProps {
   currentStatus: WebLeadStatus
   onMoveLeft?: () => void
   onMoveRight?: () => void
+  onDelete?: () => void
   canMoveLeft: boolean
   canMoveRight: boolean
 }
@@ -23,6 +24,7 @@ export function LeadCard({
   currentStatus,
   onMoveLeft,
   onMoveRight,
+  onDelete,
   canMoveLeft,
   canMoveRight
 }: LeadCardProps) {
@@ -47,6 +49,13 @@ export function LeadCard({
   const handleMoveRight = (e: React.MouseEvent) => {
     e.stopPropagation()
     onMoveRight?.()
+  }
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (onDelete && confirm(`¿Estás seguro de eliminar el lead "${lead.nombre}"?`)) {
+      onDelete()
+    }
   }
 
   return (
@@ -101,7 +110,7 @@ export function LeadCard({
         {timeAgo}
       </div>
 
-      {/* Botones de navegación */}
+      {/* Botones de navegación y borrar */}
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         {canMoveLeft && (
           <Button
@@ -123,6 +132,17 @@ export function LeadCard({
             title="Mover a la derecha"
           >
             <ChevronRight className="h-4 w-4 text-white" />
+          </Button>
+        )}
+        {onDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 bg-red-500/[0.1] hover:bg-red-500/[0.2] border border-red-500/20"
+            onClick={handleDelete}
+            title="Eliminar lead"
+          >
+            <Trash2 className="h-4 w-4 text-red-400" />
           </Button>
         )}
       </div>
