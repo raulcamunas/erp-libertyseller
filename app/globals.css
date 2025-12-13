@@ -144,6 +144,51 @@
     @apply bg-white/[0.08] border-[#FF6600] shadow-[0_0_0_4px_rgba(255,102,0,0.1)];
   }
 
+
+
+  /* Eliminar TODAS las animaciones de desplegables en LinkedIn */
+  .linkedin-module [data-radix-popper-content-wrapper],
+  .linkedin-module [data-radix-portal],
+  .linkedin-module [data-radix-dropdown-menu-content],
+  .linkedin-module [data-radix-select-content],
+  .linkedin-module [role="listbox"],
+  .linkedin-module [role="menu"],
+  .linkedin-module [data-state="open"],
+  .linkedin-module [data-state="closed"],
+  .linkedin-module [data-radix-select-viewport] {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+
+  /* Forzar que aparezcan instantáneamente en el lugar correcto */
+  .linkedin-module [data-radix-dropdown-menu-content],
+  .linkedin-module [data-radix-select-content] {
+    opacity: 1 !important;
+    transform: translate(0, 0) !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* Eliminar animaciones de Radix UI Select - MÁS AGRESIVO */
+  .linkedin-module [data-radix-select-content],
+  .linkedin-module [data-radix-select-content][data-state="open"],
+  .linkedin-module [data-radix-select-content][data-state="closed"],
+  .linkedin-module [data-radix-popper-content-wrapper] > * {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+    will-change: auto !important;
+  }
+
+  /* Forzar posición correcta sin animación */
+  .linkedin-module [data-radix-select-content] {
+    transform: translate(0, 0) !important;
+    top: auto !important;
+    left: auto !important;
+  }
+
   .input-glass::placeholder {
     @apply text-[#666];
   }
@@ -154,6 +199,7 @@
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 200ms;
   }
+
 
   /* Page Transitions */
   .page-transition {
@@ -199,5 +245,24 @@
 
   .animate-pulse-on-load {
     animation: pulse-on-load 0.6s ease-out forwards;
+  }
+
+
+  /* EXCEPCIÓN: Permitir naranja en badges de Mario */
+  .linkedin-module [data-agent="Mario"],
+  .linkedin-module [data-agent="Mario"] * {
+    border-color: rgba(251, 146, 60, 0.7) !important;
+    background-color: rgba(249, 115, 22, 0.2) !important;
+    color: rgb(253, 186, 116) !important;
+  }
+
+  /* Eliminar cualquier fondo gris del header de LinkedIn */
+  .linkedin-module > div:first-child,
+  .linkedin-module > div:first-child:hover,
+  .linkedin-module .mb-8,
+  .linkedin-module .mb-8:hover,
+  .linkedin-module div[class*="mb-8"],
+  .linkedin-module div[class*="mb-8"]:hover {
+    background-color: transparent !important;
   }
 }

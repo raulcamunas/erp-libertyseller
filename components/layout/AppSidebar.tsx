@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { 
@@ -22,9 +22,68 @@ import { createClient } from '@/lib/supabase/client'
 export function AppSidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
+  const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+
+  useEffect(() => {
+    loadUserPermissions()
+  }, [])
+
+  const loadUserPermissions = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Obtener perfil del usuario
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, email')
+        .eq('id', user.id)
+        .single()
+
+      if (profile) {
+        setUserRole(profile.role)
+        setUserEmail(profile.email)
+
+        // Si es admin, tiene acceso a todo
+        if (profile.role === 'admin') {
+          setUserPermissions(new Set(apps.map(app => app.id)))
+          return
+        }
+
+        // Si es employee, cargar permisos específicos
+        const { data: permissions } = await supabase
+          .from('user_app_permissions')
+          .select('app_id')
+          .eq('user_id', user.id)
+          .eq('can_access', true)
+
+        if (permissions) {
+          setUserPermissions(new Set(permissions.map(p => p.app_id)))
+        }
+      }
+    } catch (error) {
+      console.error('Error loading permissions:', error)
+    }
+  }
+
+  // Filtrar apps según permisos
+  const filteredApps = apps.filter(app => {
+    // Home siempre visible
+    if (app.id === 'home') return true
+    // Gestión de usuarios solo para admin específico
+    if (app.id === 'users') {
+      return userRole === 'admin' && userEmail === 'raulcamunas369@gmail.com'
+    }
+    // Para admins, acceso a todo
+    if (userRole === 'admin') return true
+    // Para employees, verificar permisos
+    return userPermissions.has(app.id)
+  })
 
   const isActive = (route: string) => {
     if (route === '/dashboard') {
@@ -93,7 +152,7 @@ export function AppSidebar() {
         {/* Apps Menu */}
         <nav className="flex-1 overflow-y-auto py-4 px-2">
           <div className="space-y-1">
-            {apps.map((app) => {
+            {filteredApps.map((app) => {
               const Icon = app.icon
               const active = isActive(app.route)
               
@@ -131,20 +190,20 @@ export function AppSidebar() {
           </div>
         </nav>
 
-        {/* Footer con Settings y Logout */}
+        {/* Footer con Gestión de Usuarios y Logout */}
         <div className="border-t border-white/10 p-4 space-y-1">
           <Link
-            href="/dashboard/settings"
+            href="/dashboard/users"
             onClick={() => setIsMobileOpen(false)}
             className={cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200",
               "text-white/70 hover:text-white hover:bg-white/[0.05]",
-              isActive('/dashboard/settings') && "bg-[#FF6600]/[0.1] text-[#FF6600]"
+              isActive('/dashboard/users') && "bg-[#FF6600]/[0.1] text-[#FF6600]"
             )}
-            title={isCollapsed ? "Ajustes" : undefined}
+            title={isCollapsed ? "Gestión de usuarios" : undefined}
           >
-            <Settings className="h-5 w-5 flex-shrink-0" />
-            {!isCollapsed && <span className="text-sm font-medium">Ajustes</span>}
+            <Users className="h-5 w-5 flex-shrink-0" />
+            {!isCollapsed && <span className="text-sm font-medium">Gestión de usuarios</span>}
           </Link>
           
           <div className={cn(

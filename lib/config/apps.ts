@@ -6,7 +6,8 @@ import {
   Settings, 
   BarChart3,
   Calculator,
-  Globe
+  Globe,
+  Linkedin
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -51,6 +52,15 @@ export const apps: AppConfig[] = [
     category: 'core'
   },
   {
+    id: 'linkedin',
+    name: 'LinkedIn Prospección',
+    description: 'Gestión de prospección ABM en LinkedIn',
+    icon: Linkedin,
+    route: '/dashboard/linkedin',
+    status: 'active',
+    category: 'core'
+  },
+  {
     id: 'finances',
     name: 'Finanzas',
     description: 'Control financiero y facturación',
@@ -85,6 +95,15 @@ export const apps: AppConfig[] = [
     route: '/dashboard/documents',
     status: 'inactive',
     category: 'productivity'
+  },
+  {
+    id: 'users',
+    name: 'Gestión de Usuarios',
+    description: 'Crea y gestiona usuarios del sistema',
+    icon: Users,
+    route: '/dashboard/users',
+    status: 'active',
+    category: 'core'
   }
 ]
 

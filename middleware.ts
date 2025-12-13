@@ -80,6 +80,53 @@ export async function middleware(request: NextRequest) {
         url.pathname = '/auth/login'
         return NextResponse.redirect(url)
       }
+
+      // Ruta /dashboard/users - Solo admin con email específico
+      if (pathname === '/dashboard/users') {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('email, role')
+          .eq('id', user.id)
+          .single()
+
+        if (profile?.role !== 'admin' || profile?.email !== 'raulcamunas369@gmail.com') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
+      // Verificar permisos por aplicación (excepto para admins y rutas especiales)
+      if (userRole === 'employee' && pathname !== '/dashboard' && pathname !== '/dashboard/users') {
+        // Mapear rutas a app_ids
+        const routeToAppId: Record<string, string> = {
+          '/dashboard/leads': 'leads',
+          '/dashboard/web-leads': 'web-leads',
+          '/dashboard/linkedin': 'linkedin',
+          '/dashboard/finances': 'finances',
+          '/dashboard/commissions': 'commissions',
+          '/dashboard/reports': 'reports',
+          '/dashboard/documents': 'documents',
+        }
+
+        const appId = routeToAppId[pathname]
+        if (appId) {
+          // Verificar si el usuario tiene permiso para esta app
+          const { data: permission } = await supabase
+            .from('user_app_permissions')
+            .select('can_access')
+            .eq('user_id', user.id)
+            .eq('app_id', appId)
+            .single()
+
+          // Si no tiene permiso explícito, denegar acceso
+          if (!permission?.can_access) {
+            const url = request.nextUrl.clone()
+            url.pathname = '/dashboard'
+            return NextResponse.redirect(url)
+          }
+        }
+      }
     }
   }
 
