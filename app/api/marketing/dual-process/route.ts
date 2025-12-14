@@ -63,6 +63,15 @@ interface FinalChange {
   'Tipo de coincidencia': string
   'Decision Maker'?: 'ALGORITHM' | 'AI'
   'AI Reasoning'?: string
+  'Gasto'?: number
+  'ACOS'?: number
+  'Clics'?: number
+  'Ventas'?: number
+  'Pedidos'?: number
+  'CPC'?: number
+  'ROAS'?: number
+  'CTR'?: number
+  'Origen'?: string
 }
 
 // ============================================================================
