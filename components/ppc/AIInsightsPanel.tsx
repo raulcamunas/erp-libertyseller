@@ -2,19 +2,36 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Sparkles, Loader2, AlertCircle } from 'lucide-react'
+import { Sparkles, Loader2, AlertCircle, ExternalLink, Link as LinkIcon } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 interface AIInsightsPanelProps {
   clientId: string
+  clientName: string
   clientContext: {
     target_acos: number
     total_spend_week: number
     global_acos: number
     client_name?: string
   }
+  changes: Array<{
+    'Texto de palabra clave': string
+    'Operación': string
+    'Puja Original'?: number
+    'Puja': number
+    'Gasto'?: number
+    'ACOS'?: number
+    'CPC'?: number
+    'ROAS'?: number
+    'CTR'?: number
+    'Clics'?: number
+    'Ventas'?: number
+    'Decision Maker'?: 'ALGORITHM' | 'AI'
+    'AI Reasoning'?: string
+    'Entidad'?: string
+  }>
   bleeders: Array<{
     term: string
     spend: number
@@ -38,7 +55,9 @@ interface AIInsightsPanelProps {
 
 export function AIInsightsPanel({
   clientId,
+  clientName,
   clientContext,
+  changes,
   bleeders,
   winners,
   harvestOpportunities,
@@ -47,6 +66,8 @@ export function AIInsightsPanel({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isFallback, setIsFallback] = useState(false)
+  const [publicReportUrl, setPublicReportUrl] = useState<string | null>(null)
+  const [generatingReport, setGeneratingReport] = useState(false)
 
   const generateInsights = async () => {
     setLoading(true)
@@ -170,7 +191,102 @@ export function AIInsightsPanel({
           </p>
         </div>
       )}
+
+      {/* Generar Reporte Público */}
+      {insights && !isFallback && (
+        <div className="mt-6 pt-6 border-t border-white/10">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-white mb-1">Reporte Público para Cliente</h4>
+              <p className="text-xs text-white/50">
+                Genera un reporte detallado con gráficos para compartir con el cliente
+              </p>
+            </div>
+            <Button
+              onClick={async () => {
+                setGeneratingReport(true)
+                try {
+                  const response = await fetch('/api/marketing/generate-report', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      clientId,
+                      clientName,
+                      changes,
+                      clientContext,
+                      bleeders,
+                      winners,
+                      harvestOpportunities,
+                    }),
+                  })
+
+                  const data = await response.json()
+
+                  if (data.success && data.publicUrl) {
+                    setPublicReportUrl(data.publicUrl)
+                    toast.success('Reporte público generado correctamente')
+                  } else {
+                    throw new Error(data.error || 'Error al generar reporte')
+                  }
+                } catch (err: any) {
+                  console.error('Error generating report:', err)
+                  toast.error('Error al generar el reporte público')
+                } finally {
+                  setGeneratingReport(false)
+                }
+              }}
+              disabled={generatingReport}
+              variant="outline"
+              className="border-[#FF6600]/30 text-[#FF6600] hover:bg-[#FF6600]/10"
+            >
+              {generatingReport ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generando...
+                </>
+              ) : (
+                <>
+                  <LinkIcon className="h-4 w-4 mr-2" />
+                  Generar Reporte Público
+                </>
+              )}
+            </Button>
+          </div>
+
+          {publicReportUrl && (
+            <div className="mt-4 p-4 bg-white/[0.03] border border-white/10 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <p className="text-xs text-white/50 mb-2">Link público para compartir:</p>
+                  <div className="text-sm text-white/70 font-mono break-all bg-black/30 p-2 rounded">
+                    {typeof window !== 'undefined' ? `${window.location.origin}${publicReportUrl}` : publicReportUrl}
+                  </div>
+                  <p className="text-xs text-green-400/70 mt-2">
+                    ✓ No requiere autenticación - Comparte este link con tu cliente
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    const fullUrl = typeof window !== 'undefined' 
+                      ? `${window.location.origin}${publicReportUrl}`
+                      : publicReportUrl
+                    window.open(fullUrl, '_blank')
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  className="ml-4"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
+
 

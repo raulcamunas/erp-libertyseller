@@ -35,7 +35,7 @@ export default async function MarketingClientLayout({
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
       {/* Navbar Secundaria */}
       <ClientNavbar clientId={params.clientId} clientName={client.name} />
 
@@ -46,4 +46,5 @@ export default async function MarketingClientLayout({
     </div>
   )
 }
+
 

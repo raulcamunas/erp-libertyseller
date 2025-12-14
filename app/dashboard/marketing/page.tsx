@@ -31,7 +31,7 @@ export default async function MarketingPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
@@ -80,4 +80,5 @@ export default async function MarketingPage() {
     </div>
   )
 }
+
 

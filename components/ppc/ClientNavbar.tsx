@@ -85,3 +85,4 @@ export function ClientNavbar({ clientId, clientName }: ClientNavbarProps) {
   )
 }
 
+

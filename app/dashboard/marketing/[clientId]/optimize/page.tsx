@@ -43,7 +43,7 @@ export default async function OptimizePage({
         </p>
       </div>
 
-      <OptimizerTool clientId={params.clientId} />
+      <OptimizerTool clientId={params.clientId} clientName={client.name} />
     </div>
   )
 }

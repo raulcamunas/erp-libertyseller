@@ -17,9 +17,20 @@ function normalizeKeys(obj: Record<string, any>): Record<string, any> {
  */
 function findCorrectSheet(
   workbook: XLSX.WorkBook,
-  searchColumn: string | string[]
+  searchColumn: string | string[],
+  preferredSheetName?: string
 ): { sheetName: string; data: any[] } | null {
   const searchColumns = Array.isArray(searchColumn) ? searchColumn : [searchColumn]
+
+  // Si hay un nombre de pestaña preferido, intentar usarlo primero
+  if (preferredSheetName) {
+    const preferredSheet = workbook.Sheets[preferredSheetName]
+    if (preferredSheet) {
+      const jsonData = XLSX.utils.sheet_to_json(preferredSheet, { defval: '' })
+      const normalizedData = jsonData.map((row: any) => normalizeKeys(row))
+      return { sheetName: preferredSheetName, data: normalizedData }
+    }
+  }
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName]
@@ -147,7 +158,11 @@ export async function POST(request: NextRequest) {
     const bulkBuffer = await bulkFile.arrayBuffer()
     const bulkWorkbook = XLSX.read(bulkBuffer, { type: 'array' })
 
-    const bulkSheetResult = findCorrectSheet(bulkWorkbook, ['Entidad', 'Entity'])
+    const bulkSheetResult = findCorrectSheet(
+      bulkWorkbook,
+      ['Entidad', 'Entity'],
+      'Camp. de Sponsored Products'
+    )
     if (!bulkSheetResult) {
       return NextResponse.json(
         { error: 'No se encontró la pestaña con columna "Entidad" o "Entity" en el Bulk File' },
@@ -158,18 +173,36 @@ export async function POST(request: NextRequest) {
     const bulkData: BulkRow[] = bulkSheetResult.data as BulkRow[]
     const normalizedBulkData: BulkRow[] = bulkData
 
-    // Calcular totales
-    const totalSpend = normalizedBulkData.reduce((sum, row) => {
-      const puja = parseAmazonNumber(getValue(row, ['Puja', 'Bid']))
-      const clics = parseAmazonNumber(getValue(row, ['Clics', 'Clicks']))
-      const gasto = parseAmazonNumber(getValue(row, ['Gasto', 'Spend', 'Cost', 'Coste']))
-      return sum + (gasto || puja * clics || 0)
-    }, 0)
+    // Calcular totales - SOLO filas donde Entidad = "Campaña" para evitar duplicados
+    // El archivo Bulk repite datos: Campaña + Grupo + Keyword = mismo dato 3 veces
+    let totalSpend = 0
+    let totalSales = 0
+    let totalClics = 0
 
-    const totalSales = normalizedBulkData.reduce((sum, row) => {
-      return sum + parseAmazonNumber(getValue(row, ['Ventas', 'Sales', 'Revenue']))
-    }, 0)
-    const globalACOS = totalSpend > 0 ? (totalSpend / totalSales) * 100 : 0
+    for (const row of normalizedBulkData) {
+      const entity = getValue(row, ['Entidad', 'Entity'])
+      
+      // SOLO procesar filas de Campaña (datos "padre" sin duplicados)
+      if (entity === 'Campaña' || entity === 'Campaign') {
+        const ventas = parseAmazonNumber(getValue(row, ['Ventas', 'Sales', 'Revenue']))
+        const gasto = parseAmazonNumber(
+          getValue(row, ['Inversión', 'Gasto', 'Spend', 'Cost', 'Coste'])
+        )
+        const clics = parseAmazonNumber(getValue(row, ['Clics', 'Clicks']))
+        const puja = parseAmazonNumber(getValue(row, ['Puja', 'Bid']))
+        
+        // Calcular gasto si no está disponible
+        const rowSpend = gasto || (puja * clics) || 0
+        
+        totalSpend += rowSpend
+        totalSales += ventas
+        totalClics += clics
+      }
+    }
+
+    const globalACOS = totalSpend > 0 && totalSales > 0 
+      ? (totalSpend / totalSales) * 100 
+      : 0
 
     // Identificar Bleeders (Top 5 peores)
     const bleeders = normalizedBulkData
@@ -177,13 +210,13 @@ export async function POST(request: NextRequest) {
         const entity = getValue(row, ['Entidad', 'Entity'])
         if (entity !== 'Palabra clave' && entity !== 'Keyword') return false
         const ventas = parseAmazonNumber(getValue(row, ['Ventas', 'Sales']))
-        const gasto = parseAmazonNumber(getValue(row, ['Gasto', 'Spend', 'Cost']))
+        const gasto = parseAmazonNumber(getValue(row, ['Inversión', 'Gasto', 'Spend', 'Cost']))
         return ventas === 0 && gasto > 5
       })
       .map((row) => {
         const puja = parseAmazonNumber(getValue(row, ['Puja', 'Bid']))
         const clics = parseAmazonNumber(getValue(row, ['Clics', 'Clicks']))
-        const gasto = parseAmazonNumber(getValue(row, ['Gasto', 'Spend', 'Cost'])) || puja * clics
+        const gasto = parseAmazonNumber(getValue(row, ['Inversión', 'Gasto', 'Spend', 'Cost'])) || puja * clics
         return {
           term: String(getValue(row, ['Texto de palabra clave', 'Keyword Text']) || '').trim(),
           spend: gasto,
@@ -200,14 +233,16 @@ export async function POST(request: NextRequest) {
       .filter((row) => {
         const entity = getValue(row, ['Entidad', 'Entity'])
         if (entity !== 'Palabra clave' && entity !== 'Keyword') return false
-        const acos = parseAmazonNumber(getValue(row, ['ACOS', 'Acos', 'ACOS total'])) / 100
+        const acosRaw = parseAmazonNumber(getValue(row, ['ACOS', 'Acos', 'ACOS total']))
+        const acos = acosRaw > 1 ? acosRaw / 100 : acosRaw
         const ventas = parseAmazonNumber(getValue(row, ['Ventas', 'Sales']))
         return acos > 0 && acos < 0.10 && ventas > 0
       })
       .map((row) => {
         const puja = parseAmazonNumber(getValue(row, ['Puja', 'Bid']))
         const clics = parseAmazonNumber(getValue(row, ['Clics', 'Clicks']))
-        const acos = parseAmazonNumber(getValue(row, ['ACOS', 'Acos', 'ACOS total'])) / 100
+        const acosRaw = parseAmazonNumber(getValue(row, ['ACOS', 'Acos', 'ACOS total']))
+        const acos = acosRaw > 1 ? acosRaw / 100 : acosRaw
         const ventas = parseAmazonNumber(getValue(row, ['Ventas', 'Sales']))
         return {
           term: String(getValue(row, ['Texto de palabra clave', 'Keyword Text']) || '').trim(),
@@ -226,38 +261,45 @@ export async function POST(request: NextRequest) {
         const pedidos = parseAmazonNumber(
           getValue(row, ['Pedidos totales de 7 días (#)', 'Pedidos', 'Orders', 'Total Orders'])
         )
-        const acos = parseAmazonNumber(
+        const acosRaw = parseAmazonNumber(
           getValue(row, [
+            'Coste publicitario de las ventas (ACOS) total ',
             'Coste publicitario de las ventas (ACOS) total',
             'ACOS',
             'ACOS total',
             'Total ACOS',
           ])
-        ) / 100
+        )
+        const acos = acosRaw > 1 ? acosRaw / 100 : acosRaw
         return pedidos >= 1 && acos < 0.30
       })
       .map((row) => {
         const pedidos = parseAmazonNumber(
           getValue(row, ['Pedidos totales de 7 días (#)', 'Pedidos', 'Orders'])
         )
-        const acos = parseAmazonNumber(
+        const acosRaw = parseAmazonNumber(
           getValue(row, [
+            'Coste publicitario de las ventas (ACOS) total ',
             'Coste publicitario de las ventas (ACOS) total',
             'ACOS',
             'ACOS total',
           ])
-        ) / 100
+        )
+        const acos = acosRaw > 1 ? acosRaw / 100 : acosRaw
         return {
           term: String(
             getValue(row, ['Término de búsqueda de cliente', 'Término de búsqueda', 'Search Term']) || ''
           ).trim(),
-          origin_campaign: String(getValue(row, ['Campaña', 'Campaign', 'Nombre de campaña']) || '').trim(),
+          origin_campaign: String(getValue(row, ['Nombre de campaña', 'Campaña', 'Campaign', 'Campaign Name']) || '').trim(),
           orders: pedidos,
           acos: acos,
         }
       })
       .sort((a, b) => b.orders - a.orders)
       .slice(0, 5)
+
+    // Calcular CPC medio
+    const avgCPC = totalClics > 0 ? (totalSpend / totalClics) : 0
 
     return NextResponse.json({
       success: true,
@@ -266,6 +308,9 @@ export async function POST(request: NextRequest) {
           target_acos: targetACOS / 100,
           total_spend_week: totalSpend,
           global_acos: globalACOS / 100,
+          total_sales: totalSales,
+          total_clicks: totalClics,
+          avg_cpc: avgCPC,
         },
         bleeders_analysis: bleeders,
         winners_analysis: winners,

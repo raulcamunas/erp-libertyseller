@@ -90,8 +90,8 @@ export default async function MarketingClientDashboardPage({
         </p>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {/* KPI Cards - Todas las métricas */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4 mb-8">
         <KPICard
           title="Gasto Total"
           value={latestSnapshot.total_spend.toLocaleString('es-ES', {
@@ -101,6 +101,7 @@ export default async function MarketingClientDashboardPage({
           previousValue={previousSnapshot?.total_spend}
           currentValue={latestSnapshot.total_spend}
           currency={client.currency}
+          icon="spend"
         />
         <KPICard
           title="Ventas Totales"
@@ -111,6 +112,7 @@ export default async function MarketingClientDashboardPage({
           previousValue={previousSnapshot?.total_sales}
           currentValue={latestSnapshot.total_sales}
           currency={client.currency}
+          icon="sales"
         />
         <KPICard
           title="ACOS Global"
@@ -118,12 +120,51 @@ export default async function MarketingClientDashboardPage({
           previousValue={previousSnapshot?.global_acos}
           currentValue={latestSnapshot.global_acos}
           isPercentage={true}
+          icon="acos"
         />
         <KPICard
           title="ROAS"
-          value={currentROAS.toFixed(2)}
-          previousValue={previousROAS}
-          currentValue={currentROAS}
+          value={latestSnapshot.roas !== null && latestSnapshot.roas !== undefined
+            ? Number(latestSnapshot.roas).toFixed(2)
+            : currentROAS.toFixed(2)
+          }
+          previousValue={previousSnapshot?.roas ? Number(previousSnapshot.roas) : previousROAS}
+          currentValue={latestSnapshot.roas !== null && latestSnapshot.roas !== undefined 
+            ? Number(latestSnapshot.roas) 
+            : currentROAS
+          }
+          icon="roas"
+        />
+        <KPICard
+          title="CPC Promedio"
+          value={latestSnapshot.avg_cpc !== null && latestSnapshot.avg_cpc !== undefined
+            ? `${Number(latestSnapshot.avg_cpc).toFixed(2)}€`
+            : '-'
+          }
+          previousValue={previousSnapshot?.avg_cpc ? Number(previousSnapshot.avg_cpc) : undefined}
+          currentValue={latestSnapshot.avg_cpc ? Number(latestSnapshot.avg_cpc) : 0}
+          icon="cpc"
+        />
+        <KPICard
+          title="CTR Promedio"
+          value={latestSnapshot.avg_ctr !== null && latestSnapshot.avg_ctr !== undefined
+            ? `${Number(latestSnapshot.avg_ctr).toFixed(2)}%`
+            : '-'
+          }
+          previousValue={previousSnapshot?.avg_ctr ? Number(previousSnapshot.avg_ctr) : undefined}
+          currentValue={latestSnapshot.avg_ctr ? Number(latestSnapshot.avg_ctr) : 0}
+          isPercentage={true}
+          icon="ctr"
+        />
+        <KPICard
+          title="Clics Totales"
+          value={latestSnapshot.total_clicks !== null && latestSnapshot.total_clicks !== undefined
+            ? Number(latestSnapshot.total_clicks).toLocaleString('es-ES')
+            : '-'
+          }
+          previousValue={previousSnapshot?.total_clicks ? Number(previousSnapshot.total_clicks) : undefined}
+          currentValue={latestSnapshot.total_clicks ? Number(latestSnapshot.total_clicks) : 0}
+          icon="clicks"
         />
       </div>
 

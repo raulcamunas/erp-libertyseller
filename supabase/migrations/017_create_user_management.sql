@@ -91,3 +91,4 @@ CREATE POLICY "Users can view own permissions"
   TO authenticated
   USING (user_id = auth.uid());
 
+

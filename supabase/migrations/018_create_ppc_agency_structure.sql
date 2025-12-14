@@ -131,3 +131,4 @@ CREATE POLICY "Users can delete ppc weekly snapshots"
   TO authenticated
   USING (true);
 
+
