@@ -22,8 +22,9 @@ import {
 } from 'recharts'
 import { format, parseISO, startOfDay, endOfDay, startOfWeek, addDays, eachDayOfInterval, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useRouter } from 'next/navigation'
 
 interface TrackerLog {
   id: string
@@ -68,6 +69,7 @@ const entertainmentDomains = ['youtube', 'netflix', 'facebook', 'instagram', 'tw
 
 export function TrackerDashboard({ employees }: TrackerDashboardProps) {
   const supabase = createClient()
+  const router = useRouter()
   const [selectedEmployee, setSelectedEmployee] = useState<string>(employees[0] || '')
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
   const [viewMode, setViewMode] = useState<'day' | 'week'>('week')
@@ -377,6 +379,13 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-white">Employee Tracker</h1>
+        <Button
+          onClick={() => router.push('/dashboard/tracker/employees')}
+          className="bg-[#FF6600] hover:bg-[#FF8533] text-white"
+        >
+          <Users className="h-4 w-4 mr-2" />
+          Gestión de Empleados
+        </Button>
       </div>
 
       {/* Filtros */}
