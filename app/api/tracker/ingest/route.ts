@@ -87,17 +87,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Insertar el reporte
-    const { data: report, error: reportError } = await supabase
-      .from('tracker_reports')
-      .insert({
-        employee_id: body.employee_id,
-        report_date: reportDate.toISOString(),
-      })
-      .select()
-      .single()
+    // Usar función SQL con SECURITY DEFINER para bypassear RLS
+    const { data: reportData, error: reportError } = await supabase.rpc('insert_tracker_report', {
+      p_employee_id: body.employee_id,
+      p_report_date: reportDate.toISOString()
+    })
 
-    if (reportError || !report) {
+    if (reportError || !reportData || reportData.length === 0) {
       console.error('❌ [TRACKER] Error inserting tracker report:', reportError)
       return NextResponse.json(
         { 
@@ -109,33 +105,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const report = reportData[0]
     console.log('✅ [TRACKER] Report created:', report.id)
 
-    // Preparar logs para inserción
-    const logsToInsert = body.logs.map((log) => ({
-      report_id: report.id,
-      domain: log.domain,
-      url: log.url,
-      title: log.title || null,
-      duration_seconds: log.duration,
-      start_time: new Date(log.startTime).toISOString(),
-      end_time: log.endTime ? new Date(log.endTime).toISOString() : null,
-    }))
+    // Insertar logs uno por uno usando función SQL con SECURITY DEFINER
+    const logErrors: any[] = []
+    for (const log of body.logs) {
+      const { error: logError } = await supabase.rpc('insert_tracker_log', {
+        p_report_id: report.id,
+        p_domain: log.domain,
+        p_url: log.url,
+        p_title: log.title || null,
+        p_duration_seconds: log.duration,
+        p_start_time: new Date(log.startTime).toISOString(),
+        p_end_time: log.endTime ? new Date(log.endTime).toISOString() : null,
+      })
 
-    // Insertar todos los logs
-    const { error: logsError } = await supabase
-      .from('tracker_logs')
-      .insert(logsToInsert)
+      if (logError) {
+        logErrors.push(logError)
+        console.error('❌ [TRACKER] Error inserting log:', logError)
+      }
+    }
 
-    if (logsError) {
-      console.error('❌ [TRACKER] Error inserting tracker logs:', logsError)
+    if (logErrors.length > 0) {
+      console.error('❌ [TRACKER] Error inserting tracker logs:', logErrors)
       // Intentar eliminar el reporte si falla la inserción de logs
       await supabase.from('tracker_reports').delete().eq('id', report.id)
       return NextResponse.json(
         { 
           success: false, 
           error: 'Failed to insert logs',
-          details: logsError?.message || 'Unknown error'
+          details: logErrors[0]?.message || 'Unknown error'
         },
         { status: 500, headers }
       )
