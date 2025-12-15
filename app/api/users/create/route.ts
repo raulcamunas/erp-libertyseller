@@ -26,10 +26,20 @@ export async function POST(request: NextRequest) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('Missing Supabase credentials')
+    if (!supabaseUrl) {
+      console.error('Missing NEXT_PUBLIC_SUPABASE_URL')
       return NextResponse.json(
-        { error: 'Error de configuración del servidor' },
+        { error: 'Error de configuración: falta NEXT_PUBLIC_SUPABASE_URL' },
+        { status: 500 }
+      )
+    }
+
+    if (!supabaseServiceKey) {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY')
+      return NextResponse.json(
+        { 
+          error: 'Error de configuración: falta SUPABASE_SERVICE_ROLE_KEY. Agrega esta variable en tu .env.local con la service_role key de Supabase (Settings → API → service_role key)'
+        },
         { status: 500 }
       )
     }
