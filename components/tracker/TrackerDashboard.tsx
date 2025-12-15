@@ -160,6 +160,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       Communication: number
       Productivity: number
       Other: number
+      [key: string]: string | number // Index signature para permitir acceso dinámico
     }> = {}
 
     hours.forEach(hour => {
