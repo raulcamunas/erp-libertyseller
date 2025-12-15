@@ -8,7 +8,8 @@ import {
   Calculator,
   Globe,
   Linkedin,
-  TrendingUp
+  TrendingUp,
+  Activity
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -114,6 +115,15 @@ export const apps: AppConfig[] = [
     route: '/dashboard/marketing',
     status: 'active',
     category: 'core'
+  },
+  {
+    id: 'tracker',
+    name: 'Employee Tracker',
+    description: 'Seguimiento de actividad de empleados',
+    icon: Activity,
+    route: '/dashboard/tracker',
+    status: 'active',
+    category: 'productivity'
   }
 ]
 
