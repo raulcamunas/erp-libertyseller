@@ -18,6 +18,26 @@ import { TrendingUp, TrendingDown, Target, DollarSign, MousePointerClick } from 
 import { cn } from '@/lib/utils'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
+interface KeywordData {
+  keyword: string
+  operation: string
+  originalBid: number
+  newBid: number
+  spend: number
+  sales: number
+  clicks: number
+  orders: number
+  acos: number
+  cpc: number
+  ctr: number
+  roas: number
+  matchType: string
+  campaignId: string
+  decisionMaker: string
+  aiReasoning: string | null
+  status: 'BLEEDER' | 'WINNER' | 'NORMAL'
+}
+
 interface PPCReportViewProps {
   report: {
     id: string
@@ -65,9 +85,9 @@ export function PPCReportView({ report }: PPCReportViewProps) {
   ]
 
   // Preparar datos de palabras clave con todas las métricas
-  const allKeywords = changes
+  const allKeywords: KeywordData[] = changes
     .filter((c: any) => c['Texto de palabra clave'] && c['Entidad'] !== 'Palabra clave negativa')
-    .map((c: any) => ({
+    .map((c: any): KeywordData => ({
       keyword: c['Texto de palabra clave'] || 'N/A',
       operation: c['Operación'] || 'N/A',
       originalBid: c['Puja Original'] || c['Puja'] || 0,
@@ -87,7 +107,7 @@ export function PPCReportView({ report }: PPCReportViewProps) {
       status: c['Gasto'] > 0 && c['Ventas'] === 0 ? 'BLEEDER' : 
               (c['ACOS'] && c['ACOS'] < 0.1) ? 'WINNER' : 'NORMAL'
     }))
-    .sort((a, b) => b.spend - a.spend) // Ordenar por gasto descendente
+    .sort((a: KeywordData, b: KeywordData) => b.spend - a.spend) // Ordenar por gasto descendente
 
   // Separar en winners y bleeders
   const keywordsWinners = allKeywords.filter(k => k.status === 'WINNER' || (k.acos > 0 && k.acos < 10))
