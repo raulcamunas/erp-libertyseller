@@ -36,6 +36,11 @@ interface GenerateReportRequest {
     target_acos: number
     total_spend_week: number
     global_acos: number
+    total_sales?: number
+    total_clicks?: number
+    avg_cpc?: number
+    avg_ctr?: number
+    roas?: number
   }
   bleeders: Array<{
     term: string
@@ -116,8 +121,8 @@ export async function POST(request: NextRequest) {
     const totalClicks = Number(body.clientContext.total_clicks) || 0
     const globalACOS = (Number(body.clientContext.global_acos) || 0) * 100 // Convertir a porcentaje
     const avgCPC = Number(body.clientContext.avg_cpc) || 0
-    const avgCTR = 0 // Se puede calcular si tenemos impresiones
-    const roas = totalSpend > 0 ? (totalSales / totalSpend) : 0
+    const avgCTR = Number(body.clientContext.avg_ctr) || 0
+    const roas = Number(body.clientContext.roas) || (totalSpend > 0 ? (totalSales / totalSpend) : 0)
     
     console.log('📊 [GENERATE-REPORT] Métricas calculadas:', {
       totalSpend,
