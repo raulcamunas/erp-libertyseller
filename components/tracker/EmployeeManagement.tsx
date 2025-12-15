@@ -74,16 +74,28 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
 
     setLoading(true)
     try {
-      // Cargar ajustes de pago
-      const { data: adjustmentsData, error: adjustmentsError } = await supabase
+      // Cargar ajustes de pago (manejar caso donde la tabla no existe aún)
+      let adjustmentsData: EmployeePaymentAdjustment[] = []
+      const { data, error: adjustmentsError } = await supabase
         .from('employee_payment_adjustments')
         .select('*')
         .eq('employee_id', selectedEmployee)
         .eq('week_start_date', selectedWeek)
         .order('created_at', { ascending: true })
 
-      if (adjustmentsError) throw adjustmentsError
-      setAdjustments(adjustmentsData || [])
+      if (adjustmentsError) {
+        // Si la tabla no existe, simplemente continuar con array vacío
+        if (adjustmentsError.code === '42P01' || adjustmentsError.message.includes('does not exist')) {
+          console.warn('Tabla employee_payment_adjustments no existe aún. Ejecuta la migración 024_create_employee_payment_adjustments.sql')
+          adjustmentsData = []
+        } else {
+          throw adjustmentsError
+        }
+      } else {
+        adjustmentsData = data || []
+      }
+      
+      setAdjustments(adjustmentsData)
 
       // Cargar datos de tracking de la semana
       const weekStart = parseISO(selectedWeek)
@@ -119,7 +131,7 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
           weekStart: selectedWeek,
           totalHours,
           baseEarnings,
-          adjustments: adjustmentsData || [],
+          adjustments: adjustmentsData,
           totalEarnings: baseEarnings + adjustmentsTotal
         }])
       } else {
@@ -127,8 +139,8 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
           weekStart: selectedWeek,
           totalHours: 0,
           baseEarnings: 0,
-          adjustments: adjustmentsData || [],
-          totalEarnings: (adjustmentsData || []).reduce((sum, adj) => {
+          adjustments: adjustmentsData,
+          totalEarnings: adjustmentsData.reduce((sum, adj) => {
             if (adj.adjustment_type === 'deduction') {
               return sum - adj.amount
             }
@@ -136,9 +148,19 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
           }, 0)
         }])
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading data:', error)
-      toast.error('Error al cargar los datos')
+      const errorMessage = error?.message || 'Error desconocido'
+      const errorCode = error?.code || 'UNKNOWN'
+      
+      // Mostrar error más descriptivo
+      if (errorCode === '42P01' || errorMessage.includes('does not exist')) {
+        toast.error('La tabla de ajustes no existe. Ejecuta la migración 024_create_employee_payment_adjustments.sql en Supabase')
+      } else if (errorCode === '42501' || errorMessage.includes('permission denied')) {
+        toast.error('No tienes permisos para acceder a esta tabla')
+      } else {
+        toast.error(`Error al cargar los datos: ${errorMessage}`)
+      }
     } finally {
       setLoading(false)
     }
@@ -165,7 +187,12 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
           })
           .eq('id', editingAdjustment.id)
 
-        if (error) throw error
+        if (error) {
+          if (error.code === '42P01' || error.message.includes('does not exist')) {
+            throw new Error('La tabla de ajustes no existe. Ejecuta la migración 024_create_employee_payment_adjustments.sql en Supabase')
+          }
+          throw error
+        }
         toast.success('Ajuste actualizado correctamente')
       } else {
         // Crear nuevo ajuste
@@ -179,7 +206,12 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
             week_start_date: formData.week_start_date
           })
 
-        if (error) throw error
+        if (error) {
+          if (error.code === '42P01' || error.message.includes('does not exist')) {
+            throw new Error('La tabla de ajustes no existe. Ejecuta la migración 024_create_employee_payment_adjustments.sql en Supabase')
+          }
+          throw error
+        }
         toast.success('Ajuste creado correctamente')
       }
 
@@ -294,6 +326,15 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
 
       {loading ? (
         <div className="text-center text-white/50 py-12">Cargando...</div>
+      ) : adjustments.length === 0 && weeklyEarnings.length > 0 && weeklyEarnings[0].totalHours === 0 ? (
+        <Card className="glass-card border-white/10">
+          <CardContent className="pt-6">
+            <div className="text-center py-8">
+              <p className="text-white/70 mb-2">No hay datos de tracking para esta semana</p>
+              <p className="text-white/50 text-sm">Los ajustes de pago se mostrarán aquí una vez que se registren</p>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <>
           {/* Resumen de la Semana */}

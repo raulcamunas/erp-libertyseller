@@ -83,45 +83,24 @@ export function UsersManagement() {
 
     setCreating(true)
     try {
-      // Crear usuario en auth
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: formData.email,
-        password: formData.password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: formData.full_name,
+      // Llamar a la API para crear el usuario
+      const response = await fetch('/api/users/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          full_name: formData.full_name,
+          permissions: formData.permissions,
+        }),
       })
 
-      if (authError) throw authError
+      const data = await response.json()
 
-      if (!authData.user) {
-        throw new Error('No se pudo crear el usuario')
-      }
-
-      // Actualizar perfil con nombre completo
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ full_name: formData.full_name })
-        .eq('id', authData.user.id)
-
-      if (profileError) throw profileError
-
-      // Crear permisos
-      const permissionsToCreate = formData.permissions
-        .filter(p => p.can_access)
-        .map(p => ({
-          user_id: authData.user.id,
-          app_id: p.app_id,
-          can_access: true,
-        }))
-
-      if (permissionsToCreate.length > 0) {
-        const { error: permissionsError } = await supabase
-          .from('user_app_permissions')
-          .insert(permissionsToCreate)
-
-        if (permissionsError) throw permissionsError
+      if (!response.ok) {
+        throw new Error(data.error || 'Error al crear usuario')
       }
 
       toast.success('Usuario creado correctamente')
@@ -179,8 +158,20 @@ export function UsersManagement() {
     }
 
     try {
-      const { error } = await supabase.auth.admin.deleteUser(userId)
-      if (error) throw error
+      // Llamar a la API para eliminar el usuario
+      const response = await fetch('/api/users/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Error al eliminar usuario')
+      }
 
       toast.success('Usuario eliminado')
       loadUsers()
