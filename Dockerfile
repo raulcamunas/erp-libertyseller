@@ -2,6 +2,10 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Aceptar build args para variables de entorno
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+
 # Copiar archivos de dependencias
 COPY package.json package-lock.json* ./
 
@@ -10,6 +14,10 @@ RUN npm ci
 
 # Copiar el resto del código
 COPY . .
+
+# Convertir build args en variables de entorno para el build
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 # Construir la aplicación
 RUN npm run build
