@@ -181,7 +181,9 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       const durationMinutes = log.duration_seconds / 60
 
       if (hour >= 9 && hour <= 18 && hourData[hour]) {
-        hourData[hour][category] = (hourData[hour][category] || 0) + durationMinutes
+        const currentValue = hourData[hour][category]
+        const numericValue = typeof currentValue === 'number' ? currentValue : 0
+        hourData[hour][category] = numericValue + durationMinutes
       }
     })
 
