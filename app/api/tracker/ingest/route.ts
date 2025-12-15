@@ -110,6 +110,8 @@ export async function POST(request: NextRequest) {
 
     // Insertar logs uno por uno usando función SQL con SECURITY DEFINER
     const logErrors: any[] = []
+    let insertedLogsCount = 0
+    
     for (const log of body.logs) {
       const { error: logError } = await supabase.rpc('insert_tracker_log', {
         p_report_id: report.id,
@@ -124,6 +126,8 @@ export async function POST(request: NextRequest) {
       if (logError) {
         logErrors.push(logError)
         console.error('❌ [TRACKER] Error inserting log:', logError)
+      } else {
+        insertedLogsCount++
       }
     }
 
@@ -141,7 +145,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`✅ [TRACKER] Report created: ${report.id} with ${logsToInsert.length} logs`)
+    console.log(`✅ [TRACKER] Report created: ${report.id} with ${insertedLogsCount} logs`)
 
     return NextResponse.json(
       { success: true, report_id: report.id },
