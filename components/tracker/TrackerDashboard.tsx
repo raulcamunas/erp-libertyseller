@@ -153,7 +153,14 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
   // Preparar datos para el gráfico (agrupar por hora)
   const chartData = useMemo(() => {
     const hours = Array.from({ length: 10 }, (_, i) => i + 9) // 09:00 a 18:00
-    const hourData: Record<number, Record<string, number>> = {}
+    const hourData: Record<number, {
+      hour: string
+      Prospecting: number
+      Entertainment: number
+      Communication: number
+      Productivity: number
+      Other: number
+    }> = {}
 
     hours.forEach(hour => {
       hourData[hour] = {

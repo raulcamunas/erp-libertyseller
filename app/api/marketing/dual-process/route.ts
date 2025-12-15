@@ -555,6 +555,12 @@ async function validateWithAI(
 ): Promise<Map<string, AIValidationResult>> {
   console.log('🧠 [PHASE-2C] Consultando IA para validación...')
   
+  // Verificar API key antes de importar
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('⚠️ [PHASE-2C] OPENAI_API_KEY no configurada, usando decisiones matemáticas')
+    return new Map()
+  }
+
   // Lazy import para evitar errores de build
   let OpenAI: any
   try {
@@ -568,11 +574,6 @@ async function validateWithAI(
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
   })
-
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn('⚠️ [PHASE-2C] OPENAI_API_KEY no configurada')
-    return new Map()
-  }
 
   const results = new Map<string, AIValidationResult>()
 
