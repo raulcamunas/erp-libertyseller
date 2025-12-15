@@ -15,6 +15,10 @@ export interface PPCWeeklySnapshot {
   total_spend: number
   total_sales: number
   global_acos: number
+  total_clicks: number | null
+  avg_cpc: number | null
+  avg_ctr: number | null
+  roas: number | null
   top_products: any[]
   ai_summary: string | null
   created_at: string
