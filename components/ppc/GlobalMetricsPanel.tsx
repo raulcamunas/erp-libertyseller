@@ -11,6 +11,9 @@ interface GlobalMetricsPanelProps {
     'Ventas'?: number
     'Puja'?: number
     'Puja Original'?: number
+    'CPC'?: number
+    'ROAS'?: number
+    'CTR'?: number
   }>
 }
 
