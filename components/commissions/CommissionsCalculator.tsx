@@ -42,8 +42,11 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   // Obtener cliente seleccionado
   const selectedClient = clients.find(c => c.id === selectedClientId)
   
-  // Detectar si el cliente es ShoesF
+  // Detectar si el cliente es ShoesF, DIRU o SAUSI
   const isShoesF = selectedClient?.name === 'ShoesF'
+  const isDIRU = selectedClient?.name === 'DIRU'
+  const isSAUSI = selectedClient?.name === 'SAUSI'
+  const isBenefitsClient = isDIRU || isSAUSI // Clientes que usan Net profit
 
   // Cargar excepciones cuando se selecciona un cliente
   useEffect(() => {
@@ -79,7 +82,8 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
     setIsDragging(false)
 
     const droppedFile = e.dataTransfer.files[0]
-    if (droppedFile && droppedFile.type === 'text/csv' || droppedFile.name.endsWith('.csv')) {
+    // Todos los clientes aceptan CSV (incluyendo DIRU)
+    if (droppedFile && (droppedFile.type === 'text/csv' || droppedFile.name.endsWith('.csv'))) {
       setFile(droppedFile)
       setError(null)
     } else {
@@ -136,8 +140,13 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
-      setFile(selectedFile)
-      setError(null)
+      // Todos los clientes aceptan CSV (incluyendo DIRU)
+      if (selectedFile.type === 'text/csv' || selectedFile.name.endsWith('.csv')) {
+        setFile(selectedFile)
+        setError(null)
+      } else {
+        setError('Por favor, sube un archivo CSV válido')
+      }
     }
   }
 
@@ -149,7 +158,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
         return
       }
     } else {
-      // Para otros clientes, solo un archivo
+      // Para otros clientes, solo un archivo CSV
       if (!file || !selectedClientId) {
         setError('Por favor, selecciona un cliente y sube un archivo CSV')
         return
@@ -394,7 +403,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
           ) : (
             <div className="space-y-2">
               <label className="label-uppercase text-white/70 block">
-                Subir Archivo CSV *
+                {isBenefitsClient ? 'Subir Archivo CSV (con columna Net profit) *' : 'Subir Archivo CSV *'}
               </label>
               <div
                 onDragOver={handleDragOver}
@@ -422,7 +431,10 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                   <>
                     <Upload className="h-8 w-8 text-white/50 mb-3" />
                     <p className="text-white/70 mb-2 text-center">
-                      Arrastra tu archivo CSV aquí o
+                      {isBenefitsClient 
+                        ? 'Arrastra tu archivo CSV con la columna "Net profit" aquí o'
+                        : 'Arrastra tu archivo CSV aquí o'
+                      }
                     </p>
                     <label className="inline-block">
                       <span className="btn-glass cursor-pointer">
@@ -546,6 +558,57 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                   </div>
                   <div className="text-xs text-white/50 mt-1">
                     5% sobre excedente
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : isBenefitsClient && result.summary.totalBenefits !== undefined ? (
+            // Resumen específico para DIRU
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">
+                    Beneficios Totales
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-2xl font-bold text-green-400">
+                    €{result.summary.totalBenefits.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    De la pestaña de beneficios
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">
+                    Tasa de Comisión
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-xl font-bold text-white">
+                    {(result.summary.averageCommissionRate * 100).toFixed(0)}%
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    Sobre beneficios
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">
+                    Comisión Total
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-2xl font-bold text-[#FF6600]">
+                    €{result.summary.totalCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    50% de los beneficios
                   </div>
                 </CardContent>
               </Card>
@@ -698,7 +761,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
               </Button>
             </CardHeader>
             <CardContent>
-              <CommissionsTable rows={result.rows} isShoesF={isShoesF} />
+              <CommissionsTable rows={result.rows} isShoesF={isShoesF} isBenefitsClient={isBenefitsClient} />
               
               {result.errors.length > 0 && (
                 <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
@@ -735,7 +798,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   )
 }
 
-function CommissionsTable({ rows, isShoesF = false }: { rows: CommissionRow[], isShoesF?: boolean }) {
+function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: { rows: CommissionRow[], isShoesF?: boolean, isBenefitsClient?: boolean }) {
   if (rows.length === 0) {
     return (
       <div className="text-center py-8 text-white/50">
@@ -751,8 +814,19 @@ function CommissionsTable({ rows, isShoesF = false }: { rows: CommissionRow[], i
           <tr className="border-b border-white/10">
             <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">#</th>
             <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Producto</th>
-            <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>
-            {!isShoesF && (
+            {isBenefitsClient && (
+              <>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">SKU</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Units</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Refunds</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Net Profit</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">% Comisión</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Comisión</th>
+              </>
+            )}
+            {!isBenefitsClient && <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>}
+            {!isShoesF && !isBenefitsClient && (
               <>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Pedido</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Ventas</th>
@@ -789,11 +863,48 @@ function CommissionsTable({ rows, isShoesF = false }: { rows: CommissionRow[], i
                   </span>
                 )}
               </td>
-              <td className="py-3 px-3 text-white/70 text-xs font-mono">
-                {row.asin}
-              </td>
-              {!isShoesF && (
+              {isBenefitsClient && (
                 <>
+                  <td className="py-3 px-3 text-white/70 text-xs font-mono">
+                    {row.asin}
+                  </td>
+                  <td className="py-3 px-3 text-white/60 text-xs font-mono">
+                    {row.orderId ? (
+                      <span>{row.orderId}</span>
+                    ) : (
+                      <span className="text-white/30">-</span>
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-white/70 text-xs text-right">
+                    {row.quantity !== undefined ? (
+                      <span>{row.quantity}</span>
+                    ) : (
+                      <span className="text-white/30">-</span>
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-red-400/70 text-xs text-right">
+                    {row.refunds > 0 ? (
+                      <span>{row.refunds}</span>
+                    ) : (
+                      <span className="text-white/30">-</span>
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-green-400/70 text-xs text-right font-semibold">
+                    €{row.netBase.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="py-3 px-3 text-white/70 text-xs text-right">
+                    {(row.commissionRate * 100).toFixed(0)}%
+                  </td>
+                  <td className="py-3 px-3 text-[#FF6600] font-bold text-sm text-right">
+                    €{row.commission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </>
+              )}
+              {!isShoesF && !isBenefitsClient && (
+                <>
+                  <td className="py-3 px-3 text-white/70 text-xs font-mono">
+                    {row.asin}
+                  </td>
                   <td className="py-3 px-3 text-white/60 text-xs">
                     {row.orderId ? (
                       <span className="font-mono">{row.orderId}</span>
@@ -848,7 +959,32 @@ function CommissionsTable({ rows, isShoesF = false }: { rows: CommissionRow[], i
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-white/20 bg-white/[0.02]">
-            {!isShoesF && (
+            {isBenefitsClient && (
+              <>
+                <td colSpan={2} className="py-4 px-3 text-white font-semibold text-right">
+                  TOTALES:
+                </td>
+                <td className="py-4 px-3 text-white/70 text-right">
+                  -
+                </td>
+                <td className="py-4 px-3 text-white/70 text-right">
+                  {rows.reduce((sum, r) => sum + (r.quantity || 0), 0)}
+                </td>
+                <td className="py-4 px-3 text-red-400 font-semibold text-right">
+                  {rows.reduce((sum, r) => sum + r.refunds, 0)}
+                </td>
+                <td className="py-4 px-3 text-green-400 font-semibold text-right">
+                  €{rows.reduce((sum, r) => sum + r.netBase, 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="py-4 px-3 text-white/70 text-right">
+                  -
+                </td>
+                <td className="py-4 px-3 text-[#FF6600] font-bold text-lg text-right">
+                  €{rows.reduce((sum, r) => sum + r.commission, 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+              </>
+            )}
+            {!isShoesF && !isBenefitsClient && (
               <>
                 <td colSpan={4} className="py-4 px-3 text-white font-semibold text-right">
                   TOTALES:

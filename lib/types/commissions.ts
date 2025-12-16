@@ -39,6 +39,8 @@ export interface CommissionCalculationData {
     previousYearNetBase?: number // Base neta año anterior
     currentYearNetBase?: number // Base neta año actual
     excessAmount?: number // Excedente (año actual - año anterior)
+    // Para DIRU: beneficios totales
+    totalBenefits?: number // Total de beneficios de la pestaña
   }
   rows: CommissionRow[]
   errors: string[]

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { parseCSV, parseNum, getVal } from '@/lib/utils/csv-parser'
 import { CommissionCalculationData, CommissionRow } from '@/lib/types/commissions'
+import * as XLSX from 'xlsx'
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,12 +28,29 @@ export async function POST(request: NextRequest) {
     }
 
     const isShoesF = client.name === 'ShoesF'
+    const isDIRU = client.name === 'DIRU'
+    const isSAUSI = client.name === 'SAUSI'
+    const isBenefitsClient = isDIRU || isSAUSI // Clientes que usan Net profit
 
     // Validar archivos según el tipo de cliente
     if (isShoesF) {
       if (!filePreviousYear || !fileCurrentYear || !clientId) {
         return NextResponse.json(
           { error: 'Se requieren ambos archivos CSV (año anterior y año actual)' },
+          { status: 400 }
+        )
+      }
+    } else if (isBenefitsClient) {
+      if (!file || !clientId) {
+        return NextResponse.json(
+          { error: 'Archivo CSV y cliente son requeridos' },
+          { status: 400 }
+        )
+      }
+      // Verificar que sea un archivo CSV
+      if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
+        return NextResponse.json(
+          { error: `${client.name} requiere un archivo CSV` },
           { status: 400 }
         )
       }
@@ -50,6 +68,15 @@ export async function POST(request: NextRequest) {
       return await processShoesFComparison(
         filePreviousYear!,
         fileCurrentYear!,
+        client,
+        supabase
+      )
+    }
+
+    // Si es DIRU o SAUSI, procesar CSV con columna Net profit
+    if (isBenefitsClient) {
+      return await processDIRUBenefits(
+        file!,
         client,
         supabase
       )
@@ -417,6 +444,196 @@ async function processShoesFComparison(
     console.error('Error processing ShoesF comparison:', error)
     return NextResponse.json(
       { error: 'Error al procesar la comparación', details: error.message },
+      { status: 500 }
+    )
+  }
+}
+
+// Función para procesar DIRU con CSV y columna Net profit
+async function processDIRUBenefits(
+  file: File,
+  client: any,
+  supabase: any
+) {
+  try {
+    // Leer el archivo CSV
+    const csvContent = await file.text()
+    const rows = parseCSV(csvContent)
+
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: 'El archivo CSV está vacío o no es válido' },
+        { status: 400 }
+      )
+    }
+
+    // Buscar la columna "Net profit" en el CSV
+    const benefitColumnKeys = [
+      'net profit',      // Prioridad 1: Nombre exacto
+      'netprofit',       // Sin espacio
+      'beneficios netos',
+      'net benefits'
+    ]
+
+    let totalBenefits = 0
+    const errors: string[] = []
+    const processedRows: CommissionRow[] = []
+
+    // Buscar la columna "Net profit" usando getVal (que ya maneja case insensitive y variaciones)
+    let benefitKey: string | null = null
+    
+    // Buscar en la primera fila (headers)
+    if (rows.length > 0) {
+      const firstRow = rows[0]
+      // Intentar encontrar la columna usando getVal
+      const netProfitValue = getVal(firstRow, [
+        'Net profit',
+        'Net Profit',
+        'NET PROFIT',
+        'net profit',
+        'netprofit',
+        'NetProfit'
+      ])
+      
+      // Si encontramos un valor, buscar la clave original
+      if (netProfitValue !== undefined && netProfitValue !== null && netProfitValue !== '') {
+        // Buscar la clave que contiene "net profit"
+        for (const key of Object.keys(firstRow)) {
+          const normalizedKey = key.toLowerCase().trim()
+          if (normalizedKey === 'net profit' || normalizedKey === 'netprofit') {
+            benefitKey = key
+            break
+          }
+        }
+      }
+      
+      // Si no se encontró, buscar cualquier columna que contenga "net profit"
+      if (!benefitKey) {
+        for (const key of Object.keys(firstRow)) {
+          const normalizedKey = key.toLowerCase().trim()
+          if (benefitColumnKeys.some(bc => normalizedKey.includes(bc))) {
+            benefitKey = key
+            break
+          }
+        }
+      }
+    }
+
+    if (!benefitKey) {
+      return NextResponse.json(
+        { error: 'No se encontró la columna "Net profit" en el archivo CSV. Por favor, asegúrate de que existe una columna con ese nombre.' },
+        { status: 400 }
+      )
+    }
+
+    // Sumar los valores de la columna "Net profit" (incluyendo negativos)
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      const benefitValue = parseNum(getVal(row, [benefitKey]))
+      
+      if (!isNaN(benefitValue)) {
+        // Sumar el valor (si es negativo, se restará automáticamente)
+        totalBenefits += benefitValue
+
+        // Extraer datos adicionales del CSV
+        const productTitle = getVal(row, [
+          'Product',
+          'Producto',
+          'Title',
+          'Nombre',
+          'Product Title',
+          /Product.*Title/i,
+          /Nombre.*Producto/i
+        ]) || `Fila ${i + 2}`
+
+        const asin = getVal(row, [
+          'ASIN',
+          'asin',
+          'Asin'
+        ]) || 'N/A'
+
+        const sku = getVal(row, [
+          'SKU',
+          'sku',
+          'Sku'
+        ]) || undefined
+
+        const units = parseNum(getVal(row, [
+          'Units',
+          'units',
+          'Unidades',
+          'Cantidad',
+          'Quantity',
+          /Units/i,
+          /Unidades/i,
+          /Cantidad/i
+        ])) || undefined
+
+        const refunds = Math.abs(parseNum(getVal(row, [
+          'Refunds',
+          'refunds',
+          'Reembolsos',
+          'Refund',
+          /Refunds/i,
+          /Reembolsos/i
+        ]))) || 0
+
+        // Crear una fila para el reporte
+        processedRows.push({
+          productTitle,
+          asin,
+          orderId: sku, // Usamos SKU como orderId para mostrarlo en la tabla
+          date: undefined,
+          quantity: units,
+          grossSales: 0,
+          refunds,
+          realTurnover: 0,
+          iva: 0,
+          netBase: benefitValue, // Valor individual de Net profit
+          commissionRate: client.base_commission_rate, // 0.50 (50%)
+          commission: benefitValue * client.base_commission_rate, // 50% de cada fila
+          rowNumber: i + 2
+        })
+      } else {
+        const rawValue = getVal(row, [benefitKey])
+        if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+          errors.push(`Fila ${i + 2}: Valor no numérico en Net profit: ${rawValue}`)
+        }
+      }
+    }
+
+    // Calcular comisión: 50% de la suma total de "Net profit"
+    // Nota: totalBenefits ya incluye la suma de todos los valores (positivos y negativos)
+    // Los negativos se restan automáticamente al sumar
+    const commissionRate = client.base_commission_rate // 0.50 (50%)
+    const totalCommission = totalBenefits * commissionRate
+
+    // Crear resultado
+    const result: CommissionCalculationData = {
+      summary: {
+        totalSales: 0, // No aplica para DIRU
+        totalRefunds: 0, // No aplica para DIRU
+        realTurnover: 0, // No aplica para DIRU
+        totalIva: 0, // No aplica para DIRU
+        netBase: totalBenefits, // Total de beneficios
+        totalCommission,
+        averageCommissionRate: commissionRate,
+        totalOrders: processedRows.length,
+        // Datos específicos de DIRU
+        totalBenefits
+      },
+      rows: processedRows,
+      errors
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: result
+    })
+  } catch (error: any) {
+    console.error('Error processing DIRU benefits:', error)
+    return NextResponse.json(
+      { error: 'Error al procesar el archivo CSV de beneficios', details: error.message },
       { status: 500 }
     )
   }
