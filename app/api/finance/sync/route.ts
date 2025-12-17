@@ -66,23 +66,32 @@ export async function POST(request: NextRequest) {
     // Procesar cada transacción
     for (const tx of transactions) {
       try {
+        // Preparar datos del pago primero
+        const clientName = tx.details.recipient?.name || 
+                          tx.details.paymentReference || 
+                          'Wise Transaction'
+        
+        const description = tx.details.description || 
+                           `Transacción Wise: ${tx.type}` ||
+                           ''
+        
         // Determinar si es ingreso, gasto o conversión
         // Las conversiones son movimientos internos entre cuentas de Wise
         const amount = tx.amount.value
         const isConversion = (tx as any)._isConversion || false
         
-        // También verificar por descripción/cliente si contiene "To " seguido de moneda
-        const clientName = tx.details.recipient?.name || ''
-        const description = tx.details.description || ''
-        const isConversionByDescription = 
-          clientName.toLowerCase().startsWith('to ') ||
-          clientName.toLowerCase().includes('to eur') ||
-          clientName.toLowerCase().includes('to usd') ||
-          clientName.toLowerCase().includes('to gbp') ||
-          description.toLowerCase().includes('moved by you')
+        // Verificar por client_name y descripción si es conversión
+        const clientNameLower = clientName.toLowerCase()
+        const descriptionLower = description.toLowerCase()
+        const isConversionByClientName = 
+          clientNameLower.startsWith('to ') ||
+          clientNameLower.includes('to eur') ||
+          clientNameLower.includes('to usd') ||
+          clientNameLower.includes('to gbp') ||
+          descriptionLower.includes('moved by you')
         
         let type: 'income' | 'expense' | 'conversion'
-        if (isConversion || isConversionByDescription) {
+        if (isConversion || isConversionByClientName) {
           type = 'conversion'
           console.log(`🔄 Detectada conversión: "${clientName}" - "${description}"`)
         } else {
@@ -127,15 +136,6 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Preparar datos del pago
-        const clientName = tx.details.recipient?.name || 
-                          tx.details.paymentReference || 
-                          'Wise Transaction'
-        
-        const description = tx.details.description || 
-                           `Transacción Wise: ${tx.type}` ||
-                           ''
-
         // Verificar si ya existe esta transacción (por external_id)
         const { data: existing } = await supabase
           .from('finance_payments')
@@ -144,12 +144,25 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (existing) {
+          // Verificar si la transacción existente debería ser conversión (por si el client_name cambió)
+          let finalType = type
+          const existingClientNameLower = clientName.toLowerCase()
+          
+          // Si el client_name indica conversión, forzar el tipo
+          if (existingClientNameLower.startsWith('to ') ||
+              existingClientNameLower.includes('to eur') ||
+              existingClientNameLower.includes('to usd') ||
+              existingClientNameLower.includes('to gbp')) {
+            finalType = 'conversion'
+            console.log(`🔄 Actualizando transacción existente a conversión: "${clientName}"`)
+          }
+          
           // Actualizar transacción existente
           const { error: updateError } = await supabase
             .from('finance_payments')
             .update({
               amount: absoluteAmount,
-              type,
+              type: finalType,
               client_name: clientName,
               description,
               payment_date: txDate.toISOString().split('T')[0],
