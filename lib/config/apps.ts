@@ -2,9 +2,6 @@ import {
   Home, 
   Users, 
   DollarSign, 
-  FileText, 
-  Settings, 
-  BarChart3,
   Calculator,
   Globe,
   Linkedin,
@@ -31,16 +28,6 @@ export const apps: AppConfig[] = [
     description: 'Dashboard principal',
     icon: Home,
     route: '/dashboard',
-    status: 'active',
-    category: 'core'
-  },
-  {
-    id: 'leads',
-    name: 'Gestión de Leads',
-    description: 'Gestiona tus leads y oportunidades',
-    icon: Users,
-    route: '/dashboard/leads',
-    badge: 'Nuevo',
     status: 'active',
     category: 'core'
   },
@@ -79,24 +66,6 @@ export const apps: AppConfig[] = [
     route: '/dashboard/commissions',
     status: 'active',
     category: 'core'
-  },
-  {
-    id: 'reports',
-    name: 'Reportes',
-    description: 'Análisis y reportes detallados',
-    icon: BarChart3,
-    route: '/dashboard/reports',
-    status: 'active',
-    category: 'analytics'
-  },
-  {
-    id: 'documents',
-    name: 'Documentos',
-    description: 'Gestión de documentos y archivos',
-    icon: FileText,
-    route: '/dashboard/documents',
-    status: 'inactive',
-    category: 'productivity'
   },
   {
     id: 'users',
