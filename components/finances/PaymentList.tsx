@@ -68,6 +68,11 @@ export function PaymentList({ payments, periodId, onPaymentDeleted }: PaymentLis
                   }`}>
                     {isExpense ? 'GASTO' : 'INGRESO'}
                   </span>
+                  {payment.external_id && (
+                    <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded" title="Sincronizado desde Wise">
+                      🏦
+                    </span>
+                  )}
                   <h3 className="text-sm font-semibold text-white">
                     {payment.client_name}
                   </h3>

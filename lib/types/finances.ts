@@ -14,6 +14,7 @@ export interface FinancePayment {
   type: 'income' | 'expense'
   description: string | null
   payment_date: string | null
+  external_id: string | null
   created_at: string
   updated_at: string
   attachments?: FinanceAttachment[]

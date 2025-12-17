@@ -7,7 +7,7 @@ import { MonthSelector } from './MonthSelector'
 import { PaymentList } from './PaymentList'
 import { AddPaymentModal } from './AddPaymentModal'
 import { FinanceChart } from './FinanceChart'
-import { Plus, TrendingUp, TrendingDown, DollarSign } from 'lucide-react'
+import { Plus, TrendingUp, TrendingDown, DollarSign, Wallet, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { format } from 'date-fns'
@@ -21,6 +21,9 @@ export function FinanceDashboard() {
   const [monthlySummaries, setMonthlySummaries] = useState<MonthlySummary[]>([])
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [wiseBalance, setWiseBalance] = useState<number | null>(null)
+  const [wiseBalanceLoading, setWiseBalanceLoading] = useState(false)
   const supabase = createClient()
 
   const currentPeriod = periods.find(
@@ -29,7 +32,93 @@ export function FinanceDashboard() {
 
   useEffect(() => {
     loadData()
+    loadWiseBalance()
   }, [selectedYear, selectedMonth])
+
+  const loadWiseBalance = async () => {
+    setWiseBalanceLoading(true)
+    try {
+      const response = await fetch('/api/finance/balance')
+      const data = await response.json()
+      
+      console.log('Wise balance response:', data)
+      
+      if (data.success && data.balance !== null && data.balance !== undefined) {
+        setWiseBalance(Number(data.balance))
+      } else {
+        console.warn('Wise balance no disponible:', data.error || data.message)
+        setWiseBalance(null)
+      }
+    } catch (error) {
+      console.error('Error loading Wise balance:', error)
+      setWiseBalance(null)
+    } finally {
+      setWiseBalanceLoading(false)
+    }
+  }
+
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      console.log(`Iniciando sincronización con Wise para ${selectedYear}-${selectedMonth}...`)
+      const response = await fetch('/api/finance/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          year: selectedYear,
+          month: selectedMonth
+        })
+      })
+      
+      const data = await response.json()
+      console.log('Respuesta de sincronización:', data)
+      
+      if (data.success) {
+        // Recargar datos después de sincronizar
+        // Forzar recarga completa de los datos
+        setLoading(true)
+        await loadData()
+        await loadWiseBalance()
+        setLoading(false)
+        
+        // Mostrar mensaje de éxito
+        const transactionsFound = data.summary?.transactionsFound || 0
+        const created = data.summary?.created || 0
+        const updated = data.summary?.updated || 0
+        
+        let message = `✅ Sincronización completada!\n\n` +
+          `Transacciones encontradas en Wise: ${transactionsFound}\n` +
+          `Creadas: ${created}\n` +
+          `Actualizadas: ${updated}`
+        
+        if (transactionsFound === 0) {
+          const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+          const monthName = monthNames[selectedMonth - 1]
+          message += `\n\nℹ️ No se encontraron transacciones en Wise para ${monthName} ${selectedYear}.` +
+            `\nEsto puede ser normal si:` +
+            `\n- No hay actividad en ese mes` +
+            `\n- Las transacciones están en otro mes` +
+            `\n- La cuenta no tiene movimientos en este período`
+        }
+        
+        if (data.summary?.errors > 0) {
+          message += `\n\n⚠️ Errores: ${data.summary.errors}`
+        }
+        
+        alert(message)
+      } else {
+        console.error('Error en sincronización:', data.error)
+        alert(`❌ Error al sincronizar: ${data.message || data.error}\n\n${data.errors ? data.errors.join('\n') : ''}`)
+      }
+    } catch (error: any) {
+      console.error('Error syncing:', error)
+      alert(`❌ Error al sincronizar: ${error.message}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const loadData = async () => {
     setLoading(true)
@@ -63,16 +152,30 @@ export function FinanceDashboard() {
 
       // Cargar pagos del periodo actual
       if (periodData) {
-        const { data: paymentsData } = await supabase
+        const { data: paymentsData, error: paymentsError } = await supabase
           .from('finance_payments')
           .select(`
             *,
             attachments:finance_attachments(*)
           `)
           .eq('period_id', periodData.id)
+          .order('payment_date', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
 
-        setPayments(paymentsData || [])
+        if (paymentsError) {
+          console.error('Error cargando pagos:', paymentsError)
+        }
+
+        // Ordenar manualmente por fecha de pago (más recientes primero)
+        const sortedPayments = (paymentsData || []).sort((a, b) => {
+          const dateA = a.payment_date ? new Date(a.payment_date).getTime() : 0
+          const dateB = b.payment_date ? new Date(b.payment_date).getTime() : 0
+          if (dateB !== dateA) return dateB - dateA
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        })
+
+        setPayments(sortedPayments)
+        console.log(`Cargados ${sortedPayments.length} pagos para ${selectedYear}-${selectedMonth}`)
       }
 
       // Calcular resúmenes mensuales
@@ -143,8 +246,21 @@ export function FinanceDashboard() {
 
   return (
     <div className="space-y-4">
+      {/* Header con botón de sincronización */}
+      <div className="flex items-center justify-end">
+        <Button 
+          onClick={handleSync} 
+          disabled={syncing}
+          className="gap-2"
+          variant="glass"
+        >
+          <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Sincronizando...' : '🔄 Sincronizar Banco'}
+        </Button>
+      </div>
+
       {/* Stats Cards - Compactas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-medium text-white/70">
@@ -184,6 +300,26 @@ export function FinanceDashboard() {
             <div className={`text-xl font-bold ${profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               €{profit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xs font-medium text-white/70">
+              Tesorería (Cash)
+            </CardTitle>
+            <Wallet className="h-4 w-4 text-blue-400" />
+          </CardHeader>
+          <CardContent className="pt-0">
+            {wiseBalanceLoading ? (
+              <div className="text-white/50 text-sm">Cargando...</div>
+            ) : wiseBalance !== null ? (
+              <div className="text-xl font-bold text-blue-400">
+                €{wiseBalance.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            ) : (
+              <div className="text-white/50 text-sm">No configurado</div>
+            )}
           </CardContent>
         </Card>
       </div>
