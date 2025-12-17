@@ -23,6 +23,7 @@ export function FinanceDashboard() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [wiseBalance, setWiseBalance] = useState<number | null>(null)
+  const [wiseBalances, setWiseBalances] = useState<Array<{ currency: string; amount: number }>>([])
   const [wiseBalanceLoading, setWiseBalanceLoading] = useState(false)
   const supabase = createClient()
 
@@ -43,15 +44,24 @@ export function FinanceDashboard() {
       
       console.log('Wise balance response:', data)
       
-      if (data.success && data.balance !== null && data.balance !== undefined) {
+      if (data.success && data.balances && Array.isArray(data.balances)) {
+        setWiseBalances(data.balances)
+        // Mantener compatibilidad: usar el balance en EUR si existe
+        const eurBalance = data.balances.find((b: any) => b.currency === 'EUR')
+        setWiseBalance(eurBalance ? Number(eurBalance.amount) : null)
+      } else if (data.success && data.balance !== null && data.balance !== undefined) {
+        // Fallback para compatibilidad
         setWiseBalance(Number(data.balance))
+        setWiseBalances([{ currency: 'EUR', amount: Number(data.balance) }])
       } else {
         console.warn('Wise balance no disponible:', data.error || data.message)
         setWiseBalance(null)
+        setWiseBalances([])
       }
     } catch (error) {
       console.error('Error loading Wise balance:', error)
       setWiseBalance(null)
+      setWiseBalances([])
     } finally {
       setWiseBalanceLoading(false)
     }
@@ -266,10 +276,10 @@ export function FinanceDashboard() {
             <CardTitle className="text-xs font-medium text-white/70">
               Ingresos del Mes
             </CardTitle>
-            <TrendingUp className="h-4 w-4 text-[#FF6600]" />
+            <TrendingUp className="h-4 w-4 text-green-400" />
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-xl font-bold text-white">
+            <div className="text-xl font-bold text-green-400">
               €{totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
@@ -283,7 +293,7 @@ export function FinanceDashboard() {
             <TrendingDown className="h-4 w-4 text-red-400" />
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-xl font-bold text-white">
+            <div className="text-xl font-bold text-red-400">
               €{totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
@@ -294,10 +304,10 @@ export function FinanceDashboard() {
             <CardTitle className="text-xs font-medium text-white/70">
               Beneficio Neto
             </CardTitle>
-            <DollarSign className="h-4 w-4 text-green-400" />
+            <DollarSign className={`h-4 w-4 ${profit >= 0 ? 'text-green-600' : 'text-red-400'}`} />
           </CardHeader>
           <CardContent className="pt-0">
-            <div className={`text-xl font-bold ${profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <div className={`text-xl font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-400'}`}>
               €{profit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
@@ -313,6 +323,18 @@ export function FinanceDashboard() {
           <CardContent className="pt-0">
             {wiseBalanceLoading ? (
               <div className="text-white/50 text-sm">Cargando...</div>
+            ) : wiseBalances.length > 0 ? (
+              <div className="space-y-1">
+                {wiseBalances.map((balance, index) => (
+                  <div key={index} className="text-xl font-bold text-blue-400">
+                    {balance.currency === 'EUR' ? '€' : balance.currency === 'USD' ? '$' : balance.currency === 'GBP' ? '£' : balance.currency + ' '}
+                    {balance.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {balance.currency !== 'EUR' && balance.currency !== 'USD' && balance.currency !== 'GBP' && (
+                      <span className="text-xs text-white/50 ml-1">{balance.currency}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
             ) : wiseBalance !== null ? (
               <div className="text-xl font-bold text-blue-400">
                 €{wiseBalance.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -355,6 +377,7 @@ export function FinanceDashboard() {
                 payments={payments}
                 periodId={currentPeriod?.id}
                 onPaymentDeleted={handlePaymentDeleted}
+                onPaymentUpdated={handlePaymentAdded}
               />
             </CardContent>
           </Card>

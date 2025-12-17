@@ -14,3 +14,4 @@ WHERE external_id IS NOT NULL;
 -- Añadir comentario a la columna
 COMMENT ON COLUMN public.finance_payments.external_id IS 'ID externo de la transacción (ej: ID de Wise) para evitar duplicados en sincronización';
 
+

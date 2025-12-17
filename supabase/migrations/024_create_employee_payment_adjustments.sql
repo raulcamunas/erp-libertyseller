@@ -62,3 +62,4 @@ CREATE POLICY "Authenticated users can delete payment adjustments"
   FOR DELETE
   USING (auth.role() = 'authenticated');
 
+

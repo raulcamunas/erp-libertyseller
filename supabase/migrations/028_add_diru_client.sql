@@ -8,3 +8,4 @@ INSERT INTO public.clients (name, base_commission_rate) VALUES
 ('DIRU', 0.50)
 ON CONFLICT (name) DO UPDATE SET base_commission_rate = EXCLUDED.base_commission_rate;
 
+

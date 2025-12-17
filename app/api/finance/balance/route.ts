@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
-import { getBalance } from '@/lib/wise'
+import { getBalances, getBalance } from '@/lib/wise'
 
 /**
- * Endpoint para obtener el saldo actual de Wise
+ * Endpoint para obtener los saldos actuales de Wise en todas las monedas
  * GET /api/finance/balance
  */
 export async function GET() {
@@ -15,28 +15,35 @@ export async function GET() {
           success: false,
           error: 'Wise API no configurada',
           message: 'Por favor, configura WISE_API_KEY en .env.local',
+          balances: [],
           balance: null
         },
         { status: 200 } // Devolvemos 200 para que el frontend pueda manejar el error
       )
     }
 
-    console.log('Obteniendo balance de Wise...')
-    const balance = await getBalance()
-    console.log('Balance obtenido:', balance)
+    console.log('Obteniendo balances de Wise...')
+    const balances = await getBalances()
+    console.log('Balances obtenidos:', balances)
+
+    // Mantener compatibilidad: también devolver el balance en EUR
+    const eurBalance = balances.find(b => b.currency === 'EUR')
+    const balance = eurBalance?.amount || 0
 
     return NextResponse.json({
       success: true,
-      balance,
+      balances, // Todos los balances en diferentes monedas
+      balance, // Balance en EUR (compatibilidad)
       currency: 'EUR'
     })
   } catch (error: any) {
-    console.error('Error fetching Wise balance:', error)
+    console.error('Error fetching Wise balances:', error)
     return NextResponse.json(
       { 
         success: false,
-        error: 'Error al obtener saldo',
+        error: 'Error al obtener saldos',
         message: error.message,
+        balances: [],
         balance: null
       },
       { status: 200 } // Devolvemos 200 para que el frontend pueda manejar el error

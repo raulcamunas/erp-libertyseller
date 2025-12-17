@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { 
           error: 'Wise API no configurada',
-          message: 'Por favor, configura WISE_API_KEY en .env.local'
+          message: 'Por favor, configura WISE_API_KEY como variable de entorno en Easypanel'
         },
         { status: 500 }
       )

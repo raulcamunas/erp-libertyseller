@@ -119,9 +119,9 @@ export async function getBusinessProfileId(): Promise<number> {
 }
 
 /**
- * Obtiene el saldo actual de la cuenta Wise en EUR
+ * Obtiene todos los balances de la cuenta Wise en diferentes monedas
  */
-export async function getBalance(): Promise<number> {
+export async function getBalances(): Promise<Array<{ currency: string; amount: number }>> {
   const apiKey = process.env.WISE_API_KEY
 
   if (!apiKey) {
@@ -148,23 +148,35 @@ export async function getBalance(): Promise<number> {
 
     const balances: WiseBalance[] = await response.json()
 
-    // Buscar el balance en EUR
-    const eurBalance = balances.find(b => b.currency === 'EUR')
-    
-    if (!eurBalance) {
-      // Si no hay balance en EUR, sumar todos los cashAmount
-      return balances.reduce((sum, b) => {
+    // Devolver todos los balances con su moneda y monto
+    return balances
+      .filter(b => {
         const amount = b.cashAmount?.value || b.amount?.value || 0
-        return sum + amount
-      }, 0)
-    }
-
-    // Usar cashAmount (disponible) o amount (total)
-    return eurBalance.cashAmount?.value || eurBalance.amount?.value || 0
+        return amount > 0 // Solo incluir balances con saldo positivo
+      })
+      .map(b => ({
+        currency: b.currency,
+        amount: b.cashAmount?.value || b.amount?.value || 0
+      }))
+      .sort((a, b) => {
+        // Ordenar: EUR primero, luego alfabéticamente
+        if (a.currency === 'EUR') return -1
+        if (b.currency === 'EUR') return 1
+        return a.currency.localeCompare(b.currency)
+      })
   } catch (error: any) {
-    console.error('Error fetching Wise balance:', error)
-    throw new Error(`Error al obtener saldo de Wise: ${error.message}`)
+    console.error('Error fetching Wise balances:', error)
+    throw new Error(`Error al obtener saldos de Wise: ${error.message}`)
   }
+}
+
+/**
+ * Obtiene el saldo actual de la cuenta Wise en EUR (mantener compatibilidad)
+ */
+export async function getBalance(): Promise<number> {
+  const balances = await getBalances()
+  const eurBalance = balances.find(b => b.currency === 'EUR')
+  return eurBalance?.amount || 0
 }
 
 /**
