@@ -104,32 +104,6 @@ export function FinanceDashboard() {
         await loadData()
         await loadWiseBalance()
         setLoading(false)
-        
-        // Mostrar mensaje de éxito
-        const transactionsFound = data.summary?.transactionsFound || 0
-        const created = data.summary?.created || 0
-        const updated = data.summary?.updated || 0
-        
-        let message = `✅ Sincronización completada!\n\n` +
-          `Transacciones encontradas en Wise: ${transactionsFound}\n` +
-          `Creadas: ${created}\n` +
-          `Actualizadas: ${updated}`
-        
-        if (transactionsFound === 0) {
-          const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-          const monthName = monthNames[selectedMonth - 1]
-          message += `\n\nℹ️ No se encontraron transacciones en Wise para ${monthName} ${selectedYear}.` +
-            `\nEsto puede ser normal si:` +
-            `\n- No hay actividad en ese mes` +
-            `\n- Las transacciones están en otro mes` +
-            `\n- La cuenta no tiene movimientos en este período`
-        }
-        
-        if (data.summary?.errors > 0) {
-          message += `\n\n⚠️ Errores: ${data.summary.errors}`
-        }
-        
-        alert(message)
       } else {
         console.error('Error en sincronización:', data.error)
         alert(`❌ Error al sincronizar: ${data.message || data.error}\n\n${data.errors ? data.errors.join('\n') : ''}`)
@@ -277,7 +251,7 @@ export function FinanceDashboard() {
           variant="glass"
         >
           <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Sincronizando...' : '🔄 Sincronizar Banco'}
+          {syncing ? 'Sincronizando...' : 'Sincronizar Banco'}
         </Button>
       </div>
 

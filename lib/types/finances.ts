@@ -11,7 +11,7 @@ export interface FinancePayment {
   period_id: string
   client_name: string
   amount: number
-  type: 'income' | 'expense'
+  type: 'income' | 'expense' | 'conversion'
   description: string | null
   payment_date: string | null
   external_id: string | null

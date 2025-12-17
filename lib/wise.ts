@@ -148,11 +148,20 @@ export async function getBalances(): Promise<Array<{ currency: string; amount: n
 
     const balances: WiseBalance[] = await response.json()
 
+    console.log(`=== DEBUG BALANCES WISE ===`)
+    console.log(`Total balances recibidos de API: ${balances.length}`)
+    console.log(`Balances raw:`, JSON.stringify(balances, null, 2))
+
     // Devolver todos los balances con su moneda y monto
     // Incluir todos los balances con saldo > 0 para mostrar solo cuentas con dinero
     const result = balances
       .map(b => {
-        const amount = b.cashAmount?.value || b.amount?.value || 0
+        const cashAmount = b.cashAmount?.value || 0
+        const totalAmount = b.amount?.value || 0
+        const amount = cashAmount > 0 ? cashAmount : totalAmount
+        
+        console.log(`Balance ${b.currency}: cashAmount=${cashAmount}, amount=${totalAmount}, final=${amount}`)
+        
         return {
           currency: b.currency,
           amount: amount
@@ -160,7 +169,11 @@ export async function getBalances(): Promise<Array<{ currency: string; amount: n
       })
       .filter(b => {
         // Incluir solo balances con valor definido y mayor a 0
-        return b.amount !== undefined && b.amount !== null && b.amount > 0
+        const include = b.amount !== undefined && b.amount !== null && b.amount > 0
+        if (!include) {
+          console.log(`Excluyendo balance ${b.currency}: amount=${b.amount}`)
+        }
+        return include
       })
       .sort((a, b) => {
         // Ordenar: EUR primero, USD segundo, luego alfabéticamente
@@ -173,6 +186,7 @@ export async function getBalances(): Promise<Array<{ currency: string; amount: n
     
     console.log(`Balances encontrados en Wise API: ${balances.length}`)
     console.log(`Balances con saldo > 0: ${result.length}`, result)
+    console.log(`=== FIN DEBUG BALANCES ===`)
     return result
   } catch (error: any) {
     console.error('Error fetching Wise balances:', error)
@@ -266,11 +280,31 @@ export async function getTransactions(
               // Solo incluir actividades completadas y relevantes
               if (activity.status !== 'COMPLETED') return false
               
-              // Incluir: TRANSFER, CARD_PAYMENT, INTERBALANCE, etc.
               // Excluir: CARD_CHECK (solo verificaciones, no transacciones reales)
               if (activity.type === 'CARD_CHECK') return false
               
               return true
+            })
+            .map((activity: any) => {
+              // Detectar si es una conversión interna (movimiento entre cuentas de la misma cuenta Wise)
+              const title = (activity.title || '').toLowerCase()
+              const description = (activity.description || '').toLowerCase()
+              
+              const isInternalTransfer = 
+                activity.type === 'INTERBALANCE' ||
+                title.includes('moved by you') ||
+                description.includes('moved by you') ||
+                (title.includes('to ') && (title.includes('moved') || title.includes('transfer'))) ||
+                ((title.includes('to eur') || title.includes('to usd') || title.includes('to gbp')) && 
+                 (description.includes('moved') || description.includes('transfer')))
+              
+              // Marcar como conversión si es movimiento interno
+              if (isInternalTransfer) {
+                activity._isConversion = true
+                console.log(`Marcando como conversión: ${activity.title || activity.description}`)
+              }
+              
+              return activity
             })
             .map((activity: any) => {
               // Parsear el monto del campo primaryAmount
