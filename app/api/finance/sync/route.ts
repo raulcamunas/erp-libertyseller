@@ -104,6 +104,12 @@ export async function POST(request: NextRequest) {
           period = newPeriod
         }
 
+        // Verificar que period existe antes de continuar
+        if (!period || !period.id) {
+          errors.push(`Error: periodo no disponible para transacción ${tx.id}`)
+          continue
+        }
+
         // Preparar datos del pago
         const clientName = tx.details.recipient?.name || 
                           tx.details.paymentReference || 
