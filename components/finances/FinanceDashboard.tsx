@@ -43,18 +43,30 @@ export function FinanceDashboard() {
       const data = await response.json()
       
       console.log('Wise balance response:', data)
+      console.log('Response status:', response.status)
+      console.log('Data success:', data.success)
+      console.log('Data balances:', data.balances)
+      console.log('Data balance:', data.balance)
       
-      if (data.success && data.balances && Array.isArray(data.balances)) {
+      if (data.success && data.balances && Array.isArray(data.balances) && data.balances.length > 0) {
+        console.log('Setting balances:', data.balances)
         setWiseBalances(data.balances)
         // Mantener compatibilidad: usar el balance en EUR si existe
         const eurBalance = data.balances.find((b: any) => b.currency === 'EUR')
         setWiseBalance(eurBalance ? Number(eurBalance.amount) : null)
-      } else if (data.success && data.balance !== null && data.balance !== undefined) {
+      } else if (data.success && data.balance !== null && data.balance !== undefined && data.balance > 0) {
         // Fallback para compatibilidad
+        console.log('Using fallback balance:', data.balance)
         setWiseBalance(Number(data.balance))
         setWiseBalances([{ currency: 'EUR', amount: Number(data.balance) }])
       } else {
-        console.warn('Wise balance no disponible:', data.error || data.message)
+        console.warn('Wise balance no disponible:', {
+          success: data.success,
+          error: data.error,
+          message: data.message,
+          balances: data.balances,
+          balance: data.balance
+        })
         setWiseBalance(null)
         setWiseBalances([])
       }
