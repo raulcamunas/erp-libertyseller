@@ -71,9 +71,20 @@ export async function POST(request: NextRequest) {
         const amount = tx.amount.value
         const isConversion = (tx as any)._isConversion || false
         
+        // También verificar por descripción/cliente si contiene "To " seguido de moneda
+        const clientName = tx.details.recipient?.name || ''
+        const description = tx.details.description || ''
+        const isConversionByDescription = 
+          clientName.toLowerCase().startsWith('to ') ||
+          clientName.toLowerCase().includes('to eur') ||
+          clientName.toLowerCase().includes('to usd') ||
+          clientName.toLowerCase().includes('to gbp') ||
+          description.toLowerCase().includes('moved by you')
+        
         let type: 'income' | 'expense' | 'conversion'
-        if (isConversion) {
+        if (isConversion || isConversionByDescription) {
           type = 'conversion'
+          console.log(`🔄 Detectada conversión: "${clientName}" - "${description}"`)
         } else {
           const isIncome = amount > 0
           type = isIncome ? 'income' : 'expense'

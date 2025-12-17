@@ -290,18 +290,24 @@ export async function getTransactions(
               const title = (activity.title || '').toLowerCase()
               const description = (activity.description || '').toLowerCase()
               
+              // Detectar conversiones: cualquier transacción que empiece con "To " seguido de una moneda
+              // Ejemplos: "To USD", "To EUR", "To GBP", etc.
               const isInternalTransfer = 
                 activity.type === 'INTERBALANCE' ||
+                title.startsWith('to ') ||
+                title.startsWith('to eur') ||
+                title.startsWith('to usd') ||
+                title.startsWith('to gbp') ||
+                title.includes('to eur') ||
+                title.includes('to usd') ||
+                title.includes('to gbp') ||
                 title.includes('moved by you') ||
-                description.includes('moved by you') ||
-                (title.includes('to ') && (title.includes('moved') || title.includes('transfer'))) ||
-                ((title.includes('to eur') || title.includes('to usd') || title.includes('to gbp')) && 
-                 (description.includes('moved') || description.includes('transfer')))
+                description.includes('moved by you')
               
               // Marcar como conversión si es movimiento interno
               if (isInternalTransfer) {
                 activity._isConversion = true
-                console.log(`Marcando como conversión: ${activity.title || activity.description}`)
+                console.log(`✅ Marcando como conversión: "${activity.title || ''}" - "${activity.description || ''}"`)
               }
               
               return activity
@@ -361,6 +367,13 @@ export async function getTransactions(
               // Extraer el título (puede tener HTML)
               const title = (activity.title || '').replace(/<[^>]*>/g, '').trim()
               
+              // Preservar el flag de conversión del primer map
+              const isConversion = activity._isConversion || false
+              
+              if (isConversion) {
+                console.log(`✅ Transacción marcada como conversión: "${title}" - "${activity.description || ''}"`)
+              }
+              
               return {
                 id: activity.id || String(Date.now() + Math.random()),
                 type: activity.type || 'ACTIVITY',
@@ -378,7 +391,7 @@ export async function getTransactions(
                 exchangeDetails: null,
                 date: activity.createdOn || activity.date || new Date().toISOString(),
                 status: activity.status,
-                _isConversion: activity._isConversion || false // Marcar si es conversión
+                _isConversion: isConversion // Preservar el flag de conversión
               }
             })
           
