@@ -222,6 +222,7 @@ export function FinanceDashboard() {
     loadData()
   }
 
+  // Excluir conversiones de los cálculos (no son ingresos ni gastos reales)
   const totalIncome = payments
     .filter(p => p.type === 'income')
     .reduce((sum, p) => sum + Number(p.amount), 0)

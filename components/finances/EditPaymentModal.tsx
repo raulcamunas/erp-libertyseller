@@ -18,7 +18,9 @@ interface EditPaymentModalProps {
 export function EditPaymentModal({ payment, onClose, onPaymentUpdated }: EditPaymentModalProps) {
   const [clientName, setClientName] = useState(payment.client_name)
   const [amount, setAmount] = useState(String(payment.amount))
-  const [type, setType] = useState<'income' | 'expense'>(payment.type)
+  const [type, setType] = useState<'income' | 'expense' | 'conversion'>(
+    payment.type === 'conversion' ? 'income' : payment.type
+  )
   const [description, setDescription] = useState(payment.description || '')
   const [paymentDate, setPaymentDate] = useState(
     payment.payment_date ? new Date(payment.payment_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
@@ -160,37 +162,50 @@ export function EditPaymentModal({ payment, onClose, onPaymentUpdated }: EditPay
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Tipo de Movimiento */}
-            <div className="space-y-2">
-              <label className="label-uppercase text-white/70">
-                Tipo de Movimiento *
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setType('income')}
-                  className={`px-4 py-3 rounded-xl border transition-all ${
-                    type === 'income'
-                      ? 'bg-green-500/[0.2] border-green-500 text-green-400'
-                      : 'bg-white/[0.05] border-white/10 text-white/70 hover:bg-white/[0.1]'
-                  }`}
-                >
-                  <div className="font-semibold">Ingreso</div>
-                  <div className="text-xs opacity-70">Dinero recibido</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setType('expense')}
-                  className={`px-4 py-3 rounded-xl border transition-all ${
-                    type === 'expense'
-                      ? 'bg-red-500/[0.2] border-red-500 text-red-400'
-                      : 'bg-white/[0.05] border-white/10 text-white/70 hover:bg-white/[0.1]'
-                  }`}
-                >
-                  <div className="font-semibold">Gasto</div>
-                  <div className="text-xs opacity-70">Dinero gastado</div>
-                </button>
+            {payment.type !== 'conversion' && (
+              <div className="space-y-2">
+                <label className="label-uppercase text-white/70">
+                  Tipo de Movimiento *
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setType('income')}
+                    className={`px-4 py-3 rounded-xl border transition-all ${
+                      type === 'income'
+                        ? 'bg-green-500/[0.2] border-green-500 text-green-400'
+                        : 'bg-white/[0.05] border-white/10 text-white/70 hover:bg-white/[0.1]'
+                    }`}
+                  >
+                    <div className="font-semibold">Ingreso</div>
+                    <div className="text-xs opacity-70">Dinero recibido</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setType('expense')}
+                    className={`px-4 py-3 rounded-xl border transition-all ${
+                      type === 'expense'
+                        ? 'bg-red-500/[0.2] border-red-500 text-red-400'
+                        : 'bg-white/[0.05] border-white/10 text-white/70 hover:bg-white/[0.1]'
+                    }`}
+                  >
+                    <div className="font-semibold">Gasto</div>
+                    <div className="text-xs opacity-70">Dinero gastado</div>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+            {payment.type === 'conversion' && (
+              <div className="space-y-2">
+                <label className="label-uppercase text-white/70">
+                  Tipo de Movimiento
+                </label>
+                <div className="px-4 py-3 rounded-xl border bg-yellow-500/[0.2] border-yellow-500 text-yellow-400">
+                  <div className="font-semibold">CONVERTIDO</div>
+                  <div className="text-xs opacity-70">Movimiento interno entre cuentas</div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label htmlFor="clientName" className="label-uppercase text-white/70">

@@ -66,12 +66,18 @@ export async function POST(request: NextRequest) {
     // Procesar cada transacción
     for (const tx of transactions) {
       try {
-        // Determinar si es ingreso o gasto
-        // En Wise, los valores negativos son gastos y positivos son ingresos
-        // También podemos verificar el status de la transferencia
+        // Determinar si es ingreso, gasto o conversión
+        // Las conversiones son movimientos internos entre cuentas de Wise
         const amount = tx.amount.value
-        const isIncome = amount > 0
-        const type = isIncome ? 'income' : 'expense'
+        const isConversion = (tx as any)._isConversion || false
+        
+        let type: 'income' | 'expense' | 'conversion'
+        if (isConversion) {
+          type = 'conversion'
+        } else {
+          const isIncome = amount > 0
+          type = isIncome ? 'income' : 'expense'
+        }
         const absoluteAmount = Math.abs(amount)
         
         console.log(`Procesando transacción ${tx.id}: ${type} de ${absoluteAmount} ${tx.amount.currency}`)
@@ -193,6 +199,7 @@ export async function POST(request: NextRequest) {
         .eq('period_id', currentPeriod.id)
 
       if (payments) {
+        // Excluir conversiones de los cálculos
         totalIncome = payments
           .filter(p => p.type === 'income')
           .reduce((sum, p) => sum + Number(p.amount), 0)

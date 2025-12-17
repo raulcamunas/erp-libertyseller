@@ -63,6 +63,7 @@ export function PaymentList({ payments, periodId, onPaymentDeleted, onPaymentUpd
       <div className="space-y-3">
         {payments.map((payment) => {
           const isExpense = payment.type === 'expense'
+          const isConversion = payment.type === 'conversion'
           
           return (
             <div
@@ -73,13 +74,19 @@ export function PaymentList({ payments, periodId, onPaymentDeleted, onPaymentUpd
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1.5">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                      isExpense 
-                        ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-                        : 'bg-green-500/20 text-green-400 border border-green-500/30'
-                    }`}>
-                      {isExpense ? 'GASTO' : 'INGRESO'}
-                    </span>
+                    {isConversion ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                        CONVERTIDO
+                      </span>
+                    ) : (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                        isExpense 
+                          ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
+                          : 'bg-green-500/20 text-green-400 border border-green-500/30'
+                      }`}>
+                        {isExpense ? 'GASTO' : 'INGRESO'}
+                      </span>
+                    )}
                     {payment.external_id && (
                       <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded" title="Sincronizado desde Wise">
                         🏦
@@ -89,9 +96,9 @@ export function PaymentList({ payments, periodId, onPaymentDeleted, onPaymentUpd
                       {payment.client_name}
                     </h3>
                     <span className={`text-base font-bold ml-auto ${
-                      isExpense ? 'text-red-400' : 'text-green-400'
+                      isConversion ? 'text-yellow-400' : isExpense ? 'text-red-400' : 'text-green-400'
                     }`}>
-                      {isExpense ? '-' : '+'}€{Number(payment.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {isConversion ? '' : isExpense ? '-' : '+'}€{Number(payment.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                   

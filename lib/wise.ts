@@ -377,7 +377,8 @@ export async function getTransactions(
                 },
                 exchangeDetails: null,
                 date: activity.createdOn || activity.date || new Date().toISOString(),
-                status: activity.status
+                status: activity.status,
+                _isConversion: activity._isConversion || false // Marcar si es conversión
               }
             })
           
