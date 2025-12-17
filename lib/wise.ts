@@ -149,21 +149,27 @@ export async function getBalances(): Promise<Array<{ currency: string; amount: n
     const balances: WiseBalance[] = await response.json()
 
     // Devolver todos los balances con su moneda y monto
-    return balances
-      .filter(b => {
+    // Incluir todos los balances, incluso si son 0, para que el usuario vea todas las cuentas
+    const result = balances
+      .map(b => {
         const amount = b.cashAmount?.value || b.amount?.value || 0
-        return amount > 0 // Solo incluir balances con saldo positivo
+        return {
+          currency: b.currency,
+          amount: amount
+        }
       })
-      .map(b => ({
-        currency: b.currency,
-        amount: b.cashAmount?.value || b.amount?.value || 0
-      }))
+      .filter(b => b.amount !== undefined && b.amount !== null) // Solo excluir si no hay valor
       .sort((a, b) => {
-        // Ordenar: EUR primero, luego alfabéticamente
+        // Ordenar: EUR primero, USD segundo, luego alfabéticamente
         if (a.currency === 'EUR') return -1
         if (b.currency === 'EUR') return 1
+        if (a.currency === 'USD') return -1
+        if (b.currency === 'USD') return 1
         return a.currency.localeCompare(b.currency)
       })
+    
+    console.log(`Balances encontrados: ${result.length}`, result)
+    return result
   } catch (error: any) {
     console.error('Error fetching Wise balances:', error)
     throw new Error(`Error al obtener saldos de Wise: ${error.message}`)

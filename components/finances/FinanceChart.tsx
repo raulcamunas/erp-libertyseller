@@ -53,10 +53,22 @@ export function FinanceChart({ data }: FinanceChartProps) {
             borderRadius: '8px',
             color: '#fff'
           }}
-          formatter={(value: number, name: string) => [
-            `€${value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            name === 'ingresos' ? 'Ingresos' : name === 'gastos' ? 'Gastos' : 'Beneficio'
-          ]}
+          formatter={(value: number, name: string) => {
+            let label = ''
+            if (name === 'ingresos') {
+              label = 'Ingreso'
+            } else if (name === 'gastos') {
+              label = 'Gasto'
+            } else if (name === 'beneficio') {
+              label = 'Beneficio Neto'
+            } else {
+              label = name
+            }
+            return [
+              `€${value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+              label
+            ]
+          }}
         />
         <Legend 
           wrapperStyle={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '12px' }}
@@ -82,10 +94,10 @@ export function FinanceChart({ data }: FinanceChartProps) {
         <Line 
           type="monotone" 
           dataKey="beneficio" 
-          stroke="#22c55e" 
+          stroke="#16a34a" 
           strokeWidth={2}
-          name="Beneficio"
-          dot={{ fill: '#22c55e', r: 4 }}
+          name="Beneficio Neto"
+          dot={{ fill: '#16a34a', r: 4 }}
           activeDot={{ r: 6 }}
         />
       </LineChart>

@@ -324,14 +324,14 @@ export function FinanceDashboard() {
             {wiseBalanceLoading ? (
               <div className="text-white/50 text-sm">Cargando...</div>
             ) : wiseBalances.length > 0 ? (
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {wiseBalances.map((balance, index) => (
-                  <div key={index} className="text-xl font-bold text-blue-400">
-                    {balance.currency === 'EUR' ? '€' : balance.currency === 'USD' ? '$' : balance.currency === 'GBP' ? '£' : balance.currency + ' '}
-                    {balance.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    {balance.currency !== 'EUR' && balance.currency !== 'USD' && balance.currency !== 'GBP' && (
-                      <span className="text-xs text-white/50 ml-1">{balance.currency}</span>
-                    )}
+                  <div key={index} className="flex items-center gap-2">
+                    <span className="text-sm text-white/60 font-medium">{balance.currency}:</span>
+                    <span className="text-xl font-bold text-blue-400">
+                      {balance.currency === 'EUR' ? '€' : balance.currency === 'USD' ? '$' : balance.currency === 'GBP' ? '£' : balance.currency + ' '}
+                      {balance.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
                   </div>
                 ))}
               </div>
