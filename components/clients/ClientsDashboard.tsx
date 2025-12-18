@@ -21,6 +21,7 @@ interface Client {
   description: string | null
   color: string
   icon: string | null
+  created_by: string
   created_at: string
   updated_at: string
 }
