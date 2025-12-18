@@ -11,7 +11,7 @@ export interface ManagedUser {
   id: string
   email: string
   full_name: string | null
-  role: 'admin' | 'employee'
+  role: 'admin' | 'employee' | 'partner'
   created_at: string
   permissions: UserAppPermission[]
 }
@@ -20,6 +20,7 @@ export interface CreateUserData {
   email: string
   password: string
   full_name: string
+  role?: 'admin' | 'employee' | 'partner'
   permissions: {
     app_id: string
     can_access: boolean

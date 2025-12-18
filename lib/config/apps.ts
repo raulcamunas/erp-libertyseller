@@ -6,7 +6,8 @@ import {
   Globe,
   Linkedin,
   TrendingUp,
-  Activity
+  Activity,
+  Briefcase
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -93,6 +94,15 @@ export const apps: AppConfig[] = [
     route: '/dashboard/tracker',
     status: 'active',
     category: 'productivity'
+  },
+  {
+    id: 'clients',
+    name: 'Canvas Clientes',
+    description: 'Gestión de clientes tipo Notion con tareas y más',
+    icon: Briefcase,
+    route: '/dashboard/clients',
+    status: 'active',
+    category: 'core'
   }
 ]
 

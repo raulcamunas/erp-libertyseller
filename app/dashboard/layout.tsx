@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { AppSidebar } from '@/components/layout/AppSidebar'
+import { NotificationsBell } from '@/components/layout/NotificationsBell'
 import { Toaster } from '@/components/ui/sonner'
 
 export default async function DashboardLayout({
@@ -26,7 +27,11 @@ export default async function DashboardLayout({
     <div className="min-h-screen bg-[#080808] flex relative">
       <AppSidebar />
       <main className="flex-1 lg:ml-64 transition-all duration-500 ease-in-out min-h-screen pt-16 lg:pt-0 relative z-10">
-        <div className="p-6 lg:p-8 max-w-[98%] 2xl:max-w-[95%] mx-auto page-transition animate-fadeInUp">
+        {/* Header con notificaciones - fijo arriba a la derecha */}
+        <div className="fixed top-4 right-4 lg:top-6 lg:right-8 z-50">
+          <NotificationsBell />
+        </div>
+        <div className="p-6 lg:p-8 w-full page-transition animate-fadeInUp">
           {children}
         </div>
       </main>

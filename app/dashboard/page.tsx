@@ -20,6 +20,59 @@ export default async function DashboardPage() {
     redirect('/auth/login')
   }
 
+  // Obtener permisos del usuario
+  let userPermissions: Set<string> = new Set()
+  
+  // Si es admin, tiene acceso a todo
+  if (profile.role === 'admin') {
+    userPermissions = new Set(apps.map(app => app.id))
+  } else if (profile.role === 'partner') {
+    // Los partners solo tienen acceso a client-canvas (si son miembros de algún cliente)
+    // Verificar si el partner es miembro de algún cliente
+    const { data: memberClients } = await supabase
+      .from('client_members')
+      .select('client_id')
+      .eq('user_id', user.id)
+      .limit(1)
+    
+    if (memberClients && memberClients.length > 0) {
+      userPermissions.add('client-canvas')
+    }
+  } else {
+    // Si es employee, cargar permisos específicos
+    const { data: permissions } = await supabase
+      .from('user_app_permissions')
+      .select('app_id')
+      .eq('user_id', user.id)
+      .eq('can_access', true)
+
+    if (permissions) {
+      userPermissions = new Set(permissions.map(p => p.app_id))
+    }
+  }
+
+  // Filtrar apps según permisos
+  const filteredApps = apps.filter(app => {
+    // Home siempre visible
+    if (app.id === 'home') return true
+    
+    // Gestión de usuarios solo para admin específico
+    if (app.id === 'users') {
+      return profile.role === 'admin' && profile.email === 'raulcamunas369@gmail.com'
+    }
+    
+    // Para admins, acceso a todo
+    if (profile.role === 'admin') return true
+    
+    // Para partners, solo acceso a client-canvas si tienen permisos
+    if (profile.role === 'partner') {
+      return userPermissions.has(app.id)
+    }
+    
+    // Para employees, verificar permisos
+    return userPermissions.has(app.id)
+  })
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* Header */}
@@ -34,7 +87,7 @@ export default async function DashboardPage() {
 
       {/* Grid de Apps */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {apps.map((app) => {
+        {filteredApps.map((app) => {
           const Icon = app.icon
           const isActive = app.status === 'active'
           
