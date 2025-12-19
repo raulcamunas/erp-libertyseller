@@ -19,3 +19,4 @@ CREATE POLICY "Admins can update all profiles"
     )
   );
 
+

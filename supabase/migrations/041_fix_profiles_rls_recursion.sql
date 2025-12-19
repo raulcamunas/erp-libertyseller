@@ -33,3 +33,4 @@ CREATE POLICY "Admins can update all profiles"
     public.get_user_role_safe(auth.uid()) = 'admin'
   );
 
+

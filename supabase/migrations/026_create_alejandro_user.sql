@@ -53,3 +53,4 @@ LEFT JOIN public.user_app_permissions uap ON p.id = uap.user_id
 WHERE p.email = 'alejandrogamez@gmail.com';
 
 
+

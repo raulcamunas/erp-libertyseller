@@ -72,3 +72,4 @@ WHERE p.email = 'alejandrogamez@gmail.com'
 ORDER BY uap.app_id;
 
 
+

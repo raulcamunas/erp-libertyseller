@@ -123,3 +123,4 @@ COMMENT ON TABLE public.tracker_logs IS 'Logs individuales de actividad web de l
 COMMENT ON COLUMN public.tracker_logs.category IS 'Categoría automática basada en el dominio (Prospecting, Entertainment, Communication, Productivity, Other)';
 
 
+

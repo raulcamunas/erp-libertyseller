@@ -18,6 +18,15 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { FileText, Clock } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectGroup,
+  SelectLabel,
+} from '@/components/ui/select'
 
 interface Client {
   id: string
@@ -136,6 +145,7 @@ interface ClientPrivateBrand {
   foto_7: boolean
   video: boolean
   categoria: boolean
+  pais: string | null
   position: number
   created_by: string
   created_at: string
@@ -809,6 +819,24 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
   const [newInvoiceUrl, setNewInvoiceUrl] = useState('')
   const [privateBrandRows, setPrivateBrandRows] = useState<ClientPrivateBrand[]>([])
   const [isLoadingPrivateBrand, setIsLoadingPrivateBrand] = useState(false)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+
+  // Lista de todos los países
+  const allCountries = [
+    'Reino Unido',
+    'Alemania',
+    'Francia',
+    'España',
+    'Italia',
+    'Países Bajos',
+    'Suecia',
+    'Polonia',
+    'Bélgica',
+    'Irlanda',
+    'USA',
+    'México',
+    'Canadá'
+  ].sort()
   const newTaskInputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
@@ -1510,12 +1538,14 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
       {/* Separador y Pestañas */}
       <div className="border-t border-white/10 pt-4">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
-            <TabsTrigger value="tasks">Todo List</TabsTrigger>
-            <TabsTrigger value="documents">Cumplimiento de politicas</TabsTrigger>
-            <TabsTrigger value="invoices">Facturas</TabsTrigger>
-            <TabsTrigger value="private-brand">Marca Privada</TabsTrigger>
-          </TabsList>
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <TabsList>
+              <TabsTrigger value="tasks">Todo List</TabsTrigger>
+              <TabsTrigger value="documents">Cumplimiento de politicas</TabsTrigger>
+              <TabsTrigger value="invoices">Facturas</TabsTrigger>
+              <TabsTrigger value="private-brand">Marca Privada</TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="tasks">
             {/* Kanban Board estilo Notion */}
@@ -2375,10 +2405,22 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
           <TabsContent value="private-brand">
             {/* Tabla de checklist de marca privada */}
             <div className="glass-card overflow-hidden w-full">
-              <div className="overflow-x-auto w-full">
+                <div className="overflow-x-auto w-full">
                 <table className="w-full border-collapse" style={{ tableLayout: 'auto', minWidth: '100%' }}>
                   <thead>
                     <tr className="border-b border-white/10 bg-[#0a0a0a]">
+                      <th className="text-left p-3 text-sm font-semibold text-white/70 border-r border-white/10">
+                        <div className="flex items-center gap-2">
+                          <span>País</span>
+                          <button
+                            onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                            className="text-white/40 hover:text-white/70 transition-colors"
+                            title={sortOrder === 'desc' ? 'Ordenar A-Z' : 'Ordenar Z-A'}
+                          >
+                            {sortOrder === 'desc' ? '↓' : '↑'}
+                          </button>
+                        </div>
+                      </th>
                       <th className="text-left p-3 text-sm font-semibold text-white/70 border-r border-white/10">
                         <span>Nombre</span>
                       </th>
@@ -2423,22 +2465,55 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
                   <tbody>
                     {isLoadingPrivateBrand ? (
                       <tr>
-                        <td colSpan={13} className="p-8 text-center text-white/50 text-sm">
+                        <td colSpan={14} className="p-8 text-center text-white/50 text-sm">
                           Cargando checklist...
                         </td>
                       </tr>
                     ) : privateBrandRows.length === 0 ? (
                       <tr>
-                        <td colSpan={13} className="p-8 text-center text-white/50 text-sm">
+                        <td colSpan={14} className="p-8 text-center text-white/50 text-sm">
                           No hay elementos aún. Añade una nueva fila.
                         </td>
                       </tr>
                     ) : (
-                      privateBrandRows.map((row) => (
+                      [...privateBrandRows]
+                        .sort((a, b) => {
+                          const aPais = a.pais || ''
+                          const bPais = b.pais || ''
+                          if (sortOrder === 'desc') {
+                            return bPais.localeCompare(aPais)
+                          } else {
+                            return aPais.localeCompare(bPais)
+                          }
+                        })
+                        .map((row) => (
                         <tr
                           key={row.id}
                           className="border-b border-white/10 hover:bg-white/5 transition-colors"
                         >
+                          {/* País */}
+                          <td className="p-2 border-r border-white/10">
+                            <Select
+                              value={row.pais || undefined}
+                              onValueChange={(value) => {
+                                handleUpdatePrivateBrandRow(row.id, 'pais', value || null)
+                              }}
+                            >
+                              <SelectTrigger 
+                                className="w-full h-8 text-xs bg-transparent border-white/10 hover:border-white/20 cursor-pointer"
+                                style={{ pointerEvents: 'auto' }}
+                              >
+                                <SelectValue placeholder="Seleccionar" />
+                              </SelectTrigger>
+                              <SelectContent className="z-[100]">
+                                {allCountries.map((country) => (
+                                  <SelectItem key={country} value={country}>
+                                    {country}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
                           {/* Nombre */}
                           <td className="p-2 border-r border-white/10">
                             <Input
@@ -2655,6 +2730,29 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
                               </button>
                             </div>
                           </td>
+                          {/* País */}
+                          <td className="p-2 border-r border-white/10">
+                            <Select
+                              value={row.pais || undefined}
+                              onValueChange={(value) => {
+                                handleUpdatePrivateBrandRow(row.id, 'pais', value || null)
+                              }}
+                            >
+                              <SelectTrigger 
+                                className="w-full h-8 text-xs bg-transparent border-white/10 hover:border-white/20 cursor-pointer"
+                                style={{ pointerEvents: 'auto' }}
+                              >
+                                <SelectValue placeholder="Seleccionar" />
+                              </SelectTrigger>
+                              <SelectContent className="z-[100]">
+                                {allCountries.map((country) => (
+                                  <SelectItem key={country} value={country}>
+                                    {country}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
                           {/* Acciones */}
                           <td className="p-2">
                             <button
@@ -2671,7 +2769,7 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
                     
                     {/* Botón para añadir nueva fila */}
                     <tr>
-                      <td colSpan={13} className="p-3 border-t border-white/10">
+                      <td colSpan={14} className="p-3 border-t border-white/10">
                         <button
                           onClick={handleCreatePrivateBrandRow}
                           className="w-full p-3 text-left text-white/40 hover:text-white/60 hover:bg-white/5 rounded-lg border border-dashed border-white/10 transition-colors flex items-center gap-2"
@@ -2685,6 +2783,7 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
                 </table>
               </div>
             </div>
+
           </TabsContent>
         </Tabs>
       </div>

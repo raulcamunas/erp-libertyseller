@@ -36,3 +36,4 @@ CREATE POLICY "authenticated_insert_tracker_logs"
   WITH CHECK (true);
 
 
+
