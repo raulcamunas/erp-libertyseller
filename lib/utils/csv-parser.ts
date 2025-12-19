@@ -62,28 +62,68 @@ export const detectDelimiter = (csvContent: string): string => {
 }
 
 /**
- * Parsea CSV a array de objetos
+ * Parsea CSV a array de objetos (mejorado para manejar campos entrecomillados)
  */
 export const parseCSV = (csvContent: string): Record<string, any>[] => {
   const delimiter = detectDelimiter(csvContent)
-  const lines = csvContent.split('\n').filter(line => line.trim())
+  const lines = csvContent.split(/\r?\n/).filter(line => line.trim())
   
   if (lines.length < 2) return []
   
+  // Función para parsear una línea CSV respetando comillas
+  const parseLine = (line: string): string[] => {
+    const result: string[] = []
+    let current = ''
+    let inQuotes = false
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i]
+      const nextChar = line[i + 1]
+      
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          // Comilla escapada
+          current += '"'
+          i++ // Saltar la siguiente comilla
+        } else {
+          // Toggle de comillas
+          inQuotes = !inQuotes
+        }
+      } else if (char === delimiter && !inQuotes) {
+        // Delimitador fuera de comillas
+        result.push(current.trim())
+        current = ''
+      } else {
+        current += char
+      }
+    }
+    
+    // Añadir el último campo
+    result.push(current.trim())
+    return result
+  }
+  
   // Parsear headers
-  const headers = lines[0]
-    .split(delimiter)
-    .map(h => h.trim().replace(/^"|"$/g, ''))
+  const headers = parseLine(lines[0]).map(h => h.replace(/^"|"$/g, ''))
   
   // Parsear filas
   const rows: Record<string, any>[] = []
   
   for (let i = 1; i < lines.length; i++) {
-    const values = lines[i]
-      .split(delimiter)
-      .map(v => v.trim().replace(/^"|"$/g, ''))
+    const values = parseLine(lines[i]).map(v => v.replace(/^"|"$/g, ''))
     
-    if (values.length !== headers.length) continue
+    if (values.length !== headers.length) {
+      // Intentar con el método simple si falla el avanzado
+      const simpleValues = lines[i].split(delimiter).map(v => v.trim().replace(/^"|"$/g, ''))
+      if (simpleValues.length === headers.length) {
+        const row: Record<string, any> = {}
+        headers.forEach((header, index) => {
+          row[header] = simpleValues[index]
+        })
+        rows.push(row)
+      }
+      continue
+    }
     
     const row: Record<string, any> = {}
     headers.forEach((header, index) => {

@@ -7,7 +7,8 @@ import {
   Linkedin,
   TrendingUp,
   Activity,
-  Briefcase
+  Briefcase,
+  CheckCircle2
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -103,6 +104,15 @@ export const apps: AppConfig[] = [
     route: '/dashboard/clients',
     status: 'active',
     category: 'core'
+  },
+  {
+    id: 'validator',
+    name: 'Validador FBA',
+    description: 'Validación de rentabilidad de productos Amazon FBA',
+    icon: CheckCircle2,
+    route: '/dashboard/validator',
+    status: 'active',
+    category: 'analytics'
   }
 ]
 

@@ -28,7 +28,7 @@ export default async function DashboardLayout({
       <AppSidebar />
       <main className="flex-1 lg:ml-64 transition-all duration-500 ease-in-out min-h-screen pt-16 lg:pt-0 relative z-10">
         {/* Header con notificaciones - fijo arriba a la derecha */}
-        <div className="fixed top-4 right-4 lg:top-6 lg:right-8 z-50">
+        <div className="fixed top-4 right-16 lg:top-6 lg:right-20 z-50">
           <NotificationsBell />
         </div>
         <div className="p-6 lg:p-8 w-full page-transition animate-fadeInUp">
