@@ -195,9 +195,16 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
 
       const aiResponse = JSON.parse(completion.choices[0].message.content || '{}')
       
+      // Validar y normalizar el verdict
+      const rawVerdict = aiResponse.verdict || 'CAUTION'
+      const normalizedVerdict: 'GO' | 'NO GO' | 'CAUTION' = 
+        rawVerdict === 'GO' || rawVerdict === 'NO GO' || rawVerdict === 'CAUTION'
+          ? rawVerdict
+          : 'CAUTION'
+      
       ai_analysis = {
         score: aiResponse.score || 50,
-        verdict: (aiResponse.verdict || 'CAUTION') as 'GO' | 'NO GO' | 'CAUTION',
+        verdict: normalizedVerdict,
         pros: Array.isArray(aiResponse.pros) ? aiResponse.pros : [],
         cons: Array.isArray(aiResponse.cons) ? aiResponse.cons : [],
         financial_summary: aiResponse.financial_summary || 'Análisis no disponible',
@@ -205,9 +212,13 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
     } catch (error) {
       console.error('Error en análisis IA:', error)
       // Fallback si falla OpenAI
+      const fallbackVerdict: 'GO' | 'NO GO' | 'CAUTION' = 
+        roi_percent >= min_roi && margin_percent >= 25 ? 'GO' : 
+        roi_percent >= min_roi * 0.8 ? 'CAUTION' : 'NO GO'
+      
       ai_analysis = {
         score: roi_percent >= min_roi && margin_percent >= 25 ? 75 : 40,
-        verdict: roi_percent >= min_roi && margin_percent >= 25 ? 'GO' : 'NO GO',
+        verdict: fallbackVerdict,
         pros: roi_percent >= min_roi ? ['ROI cumple objetivo'] : [],
         cons: roi_percent < min_roi ? ['ROI por debajo del objetivo'] : [],
         financial_summary: `ROI: ${roi_percent.toFixed(1)}%, Margen: ${margin_percent.toFixed(1)}%`,
