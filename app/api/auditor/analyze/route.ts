@@ -154,6 +154,14 @@ export async function POST(request: NextRequest) {
     }
 
     body = await request.json()
+    
+    if (!body) {
+      return NextResponse.json(
+        { error: 'Cuerpo de la petición inválido' },
+        { status: 400 }
+      )
+    }
+
     const { computed_metrics, business_model, seller_url } = body
 
     if (!computed_metrics || !business_model) {
