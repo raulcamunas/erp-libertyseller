@@ -119,8 +119,11 @@ export async function POST(request: NextRequest) {
     const { calculateMetrics } = await import('@/lib/auditor/calculator')
     const computedMetrics = calculateMetrics(xrayData, cerebroData, businessModel)
 
-    // Añadir computed_metrics al input_data
-    inputData.computed_metrics = computedMetrics
+    // Crear input_data completo con computed_metrics
+    const inputDataWithMetrics = {
+      ...inputData,
+      computed_metrics: computedMetrics,
+    }
 
     // Insertar en la base de datos
     console.log('Insertando reporte con token:', publicToken)
@@ -130,7 +133,7 @@ export async function POST(request: NextRequest) {
         public_token: publicToken,
         seller_url,
         business_model: businessModel,
-        input_data: inputData,
+        input_data: inputDataWithMetrics,
         status: 'processing',
       })
       .select('id, public_token, created_at')
