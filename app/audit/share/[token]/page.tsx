@@ -962,7 +962,7 @@ export default function AuditSharePage() {
                         <AlertTriangle className="h-5 w-5 text-red-400" />
                         <div>
                           <p className="text-white/70 text-sm">Nichos Saturados</p>
-                          <p className="text-white/50 text-xs">>20 vendedores</p>
+                          <p className="text-white/50 text-xs">{'>'}20 vendedores</p>
                         </div>
                       </div>
                       <p className="text-xl font-bold text-red-400">
