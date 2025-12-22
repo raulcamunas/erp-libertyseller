@@ -273,6 +273,20 @@ export function AddProspectModal({
                 >
                   Mario
                 </Button>
+                <Button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, agent: 'Alejandro' })}
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "text-xs",
+                    formData.agent === 'Alejandro'
+                      ? "bg-sky-500/20 border-2 border-sky-400 text-sky-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-sky-400/30 hover:text-sky-300"
+                  )}
+                >
+                  Alejandro
+                </Button>
               </div>
             </div>
           </div>
