@@ -216,7 +216,6 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
             .filter(
               ({ prospect, effectiveNext }) =>
                 (prospect.status === 'connected' || prospect.status === 'messaged') &&
-                prospect.status !== 'replied' &&
                 effectiveNext &&
                 new Date(effectiveNext) <= limit
             )
