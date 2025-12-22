@@ -23,6 +23,37 @@ export const parseNum = (val: any): number => {
 }
 
 /**
+ * Convierte número en formato europeo a float
+ * Ejemplos:
+ * - "1.000,00" -> 1000.00
+ * - "1 200,50" -> 1200.50
+ * - "500" -> 500.00
+ */
+export function parseEuroNumber(str: string | number | null | undefined): number {
+  if (str === null || str === undefined) return 0
+  if (typeof str === 'number') return str
+  
+  let s = String(str)
+    .trim()
+    .replace(/\s/g, '') // Eliminar espacios
+    .replace(/[^\d,.-]/g, '') // Solo números, comas, puntos y guiones
+  
+  if (!s) return 0
+  
+  // Si tiene ambos, punto es miles y coma es decimal
+  if (s.includes(',') && s.includes('.')) {
+    s = s.replace(/\./g, '').replace(',', '.')
+  } 
+  // Si solo tiene coma, es decimal
+  else if (s.includes(',')) {
+    s = s.replace(',', '.')
+  }
+  
+  const parsed = parseFloat(s)
+  return isNaN(parsed) ? 0 : parsed
+}
+
+/**
  * Busca un valor en un objeto usando múltiples candidatos (case insensitive y regex)
  */
 export const getVal = (row: Record<string, any>, candidates: (string | RegExp)[]): any => {

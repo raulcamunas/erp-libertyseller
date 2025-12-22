@@ -37,7 +37,8 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute = publicRoutes.includes(pathname) ||
                        pathname.startsWith('/auth/') ||
                        pathname.startsWith('/api/') ||
-                       pathname.startsWith('/report/commissions/')
+                       pathname.startsWith('/report/commissions/') ||
+                       pathname.startsWith('/audit/share/')
 
   // Si no hay usuario y no es ruta pública, redirigir a login
   if (!user && !isPublicRoute) {

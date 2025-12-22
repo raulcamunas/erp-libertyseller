@@ -8,7 +8,8 @@ import {
   TrendingUp,
   Activity,
   Briefcase,
-  CheckCircle2
+  CheckCircle2,
+  FileSearch
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -111,6 +112,15 @@ export const apps: AppConfig[] = [
     description: 'Validación de rentabilidad de productos Amazon FBA',
     icon: CheckCircle2,
     route: '/dashboard/validator',
+    status: 'active',
+    category: 'analytics'
+  },
+  {
+    id: 'auditor',
+    name: 'Sales Auditor',
+    description: 'Auditoría estratégica de cuentas Amazon FBA',
+    icon: FileSearch,
+    route: '/dashboard/auditor',
     status: 'active',
     category: 'analytics'
   }

@@ -17,7 +17,7 @@ export function LinkedInHeaderButton() {
     <>
       <Button
         onClick={() => setIsAddCompanyModalOpen(true)}
-        className="bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600] hover:bg-[#FF6600]/30 hover:border-[#FF6600]/80"
+        className="bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600] hover:bg-[#FF6600]/30 hover:border-[#FF6600]/80 mr-24"
       >
         <Plus className="h-4 w-4 mr-2" />
         Añadir Empresa

@@ -2,7 +2,7 @@ export type CompanyStatus = 'active' | 'discarded'
 
 export type ProspectStatus = 'identified' | 'connected' | 'messaged' | 'replied'
 
-export type Agent = 'Raul' | 'Mario'
+export type Agent = 'Raul' | 'Mario' | 'Alejandro'
 
 export interface TargetCompany {
   id: string
@@ -24,6 +24,7 @@ export interface CompanyProspect {
   agent: Agent
   created_at: string
   updated_at: string
+  next_contact_at?: string | null
 }
 
 export interface ProspectStatusHistory {

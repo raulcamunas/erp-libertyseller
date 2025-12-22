@@ -139,6 +139,11 @@ export function NotificationsBell() {
   }
 
   const getNotificationLink = (notification: Notification) => {
+    // Link para notificaciones de web leads
+    if (notification.type === 'web_lead') {
+      return '/dashboard/web-leads'
+    }
+    
     if (notification.related_client_id && notification.related_task_id) {
       return `/dashboard/clients/${notification.related_client_id}`
     }

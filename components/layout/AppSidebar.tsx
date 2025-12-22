@@ -25,6 +25,7 @@ export function AppSidebar() {
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
   const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [webLeadsBadge, setWebLeadsBadge] = useState<number | undefined>(undefined)
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
@@ -32,6 +33,50 @@ export function AppSidebar() {
   useEffect(() => {
     loadUserPermissions()
   }, [])
+
+  useEffect(() => {
+    if (userRole === 'admin') {
+      loadWebLeadsCount()
+      
+      // Suscribirse a cambios en web_leads para actualizar el badge
+      const channel = supabase
+        .channel('web_leads_badge')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'web_leads',
+          },
+          () => {
+            loadWebLeadsCount()
+          }
+        )
+        .subscribe()
+
+      return () => {
+        supabase.removeChannel(channel)
+      }
+    }
+  }, [userRole])
+
+  const loadWebLeadsCount = async () => {
+    try {
+      // Solo cargar el badge si el usuario es admin
+      if (userRole !== 'admin') return
+
+      const { count, error } = await supabase
+        .from('web_leads')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'registrado')
+
+      if (error) throw error
+
+      setWebLeadsBadge(count && count > 0 ? count : undefined)
+    } catch (error) {
+      console.error('Error loading web leads count:', error)
+    }
+  }
 
   const loadUserPermissions = async () => {
     try {
@@ -156,13 +201,18 @@ export function AppSidebar() {
               const Icon = app.icon
               const active = isActive(app.route)
               
+              // Usar badge dinámico para web-leads si es admin
+              const badge = app.id === 'web-leads' && userRole === 'admin' 
+                ? webLeadsBadge 
+                : app.badge
+              
               return (
                 <Link
                   key={app.id}
                   href={app.route}
                   onClick={() => setIsMobileOpen(false)}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200",
+                    "relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200",
                     "hover:bg-white/[0.05]",
                     active
                       ? "bg-[#FF6600]/[0.1] text-[#FF6600] border border-[#FF6600]/30"
@@ -177,12 +227,18 @@ export function AppSidebar() {
                   {!isCollapsed && (
                     <>
                       <span className="flex-1 text-sm font-medium">{app.name}</span>
-                      {app.badge && (
+                      {badge && (
                         <span className="px-2 py-0.5 text-xs bg-[#FF6600] text-white rounded-full">
-                          {app.badge}
+                          {badge}
                         </span>
                       )}
                     </>
+                  )}
+                  {/* Badge para sidebar colapsado */}
+                  {isCollapsed && badge && (
+                    <span className="absolute top-1 right-1 h-4 w-4 bg-[#FF6600] text-white rounded-full text-[10px] flex items-center justify-center font-semibold">
+                      {badge > 9 ? '9+' : badge}
+                    </span>
                   )}
                 </Link>
               )

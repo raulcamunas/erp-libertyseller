@@ -113,6 +113,25 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
 
     setSaving(true)
     try {
+      // Calcular próxima fecha de contacto según el nuevo estado
+      let next_contact_at: string | null = prospect.next_contact_at || null
+      const now = new Date()
+
+      if (status === 'connected') {
+        // Contactar al día siguiente
+        const d = new Date(now)
+        d.setDate(d.getDate() + 1)
+        next_contact_at = d.toISOString()
+      } else if (status === 'messaged') {
+        // Volver a contactar 3 días después del mensaje
+        const d = new Date(now)
+        d.setDate(d.getDate() + 3)
+        next_contact_at = d.toISOString()
+      } else if (status === 'replied') {
+        // Si ya respondió, no hay siguiente contacto automático
+        next_contact_at = null
+      }
+
       const { error } = await supabase
         .from('company_prospects')
         .update({
@@ -121,6 +140,7 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
           notes: notes || null,
           status,
           agent,
+          next_contact_at,
         })
         .eq('id', prospect.id)
 
@@ -208,7 +228,7 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
               <Label className="text-sm font-semibold text-white mb-3 block">
                 Estado
               </Label>
-              <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                 {STATUS_OPTIONS.map((option) => (
                   <Button
                     key={option.value}
@@ -240,28 +260,42 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
                   onClick={() => setAgent('Raul')}
                   variant="outline"
                   size="sm"
-                    className={cn(
-                      "text-xs",
-                      agent === 'Raul'
-                        ? "bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600]"
-                        : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-[#FF6600]/30 hover:text-[#FF6600]"
-                    )}
-                  >
-                    Raul
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => setAgent('Mario')}
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "text-xs",
-                      agent === 'Mario'
-                        ? "bg-orange-500/20 border-2 border-orange-400 text-orange-300"
-                        : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-orange-400/30 hover:text-orange-300"
-                    )}
+                  className={cn(
+                    "text-xs",
+                    agent === 'Raul'
+                      ? "bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600]"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-[#FF6600]/30 hover:text-[#FF6600]"
+                  )}
+                >
+                  Raul
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setAgent('Mario')}
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "text-xs",
+                    agent === 'Mario'
+                      ? "bg-orange-500/20 border-2 border-orange-400 text-orange-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-orange-400/30 hover:text-orange-300"
+                  )}
                 >
                   Mario
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setAgent('Alejandro')}
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "text-xs",
+                    agent === 'Alejandro'
+                      ? "bg-sky-500/20 border-2 border-sky-400 text-sky-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-sky-400/30 hover:text-sky-300"
+                  )}
+                >
+                  Alejandro
                 </Button>
               </div>
             </div>
