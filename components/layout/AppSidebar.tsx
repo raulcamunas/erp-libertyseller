@@ -237,7 +237,10 @@ export function AppSidebar() {
                   {/* Badge para sidebar colapsado */}
                   {isCollapsed && badge && (
                     <span className="absolute top-1 right-1 h-4 w-4 bg-[#FF6600] text-white rounded-full text-[10px] flex items-center justify-center font-semibold">
-                      {badge > 9 ? '9+' : badge}
+                      {(() => {
+                        const badgeNum = typeof badge === 'number' ? badge : typeof badge === 'string' ? Number(badge) : 0
+                        return badgeNum > 9 ? '9+' : badge
+                      })()}
                     </span>
                   )}
                 </Link>
