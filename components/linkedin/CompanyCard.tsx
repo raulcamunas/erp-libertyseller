@@ -3,7 +3,7 @@
 import { CompanyWithProspects } from '@/lib/types/linkedin'
 import { ProspectMiniCard } from './ProspectMiniCard'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, ExternalLink, Edit } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface CompanyCardProps {
@@ -11,6 +11,7 @@ interface CompanyCardProps {
   onProspectClick: (prospectId: string) => void
   onAddProspect: (companyId: string) => void
   onDeleteCompany?: (companyId: string) => void
+  onEditCompany?: (company: CompanyWithProspects) => void
 }
 
 export function CompanyCard({
@@ -18,6 +19,7 @@ export function CompanyCard({
   onProspectClick,
   onAddProspect,
   onDeleteCompany,
+  onEditCompany,
 }: CompanyCardProps) {
   return (
     <div className="glass-card p-5 border border-white/10 rounded-xl hover:border-[#FF6600]/20 transition-all duration-200">
@@ -31,21 +33,38 @@ export function CompanyCard({
             {company.prospects.length} {company.prospects.length === 1 ? 'prospecto' : 'prospectos'}
           </p>
         </div>
-        {onDeleteCompany && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation()
-              if (confirm(`¿Eliminar la empresa "${company.name}"?`)) {
-                onDeleteCompany(company.id)
-              }
-            }}
-            className="h-8 w-8 text-white/50 hover:text-red-400 hover:bg-red-500/10"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
+        <div className="flex items-center gap-1">
+          {onEditCompany && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation()
+                onEditCompany(company)
+              }}
+              className="h-8 w-8 text-white/50 hover:text-[#FF6600] hover:bg-[#FF6600]/10"
+              title="Editar empresa"
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+          )}
+          {onDeleteCompany && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (confirm(`¿Eliminar la empresa "${company.name}"?`)) {
+                  onDeleteCompany(company.id)
+                }
+              }}
+              className="h-8 w-8 text-white/50 hover:text-red-400 hover:bg-red-500/10"
+              title="Eliminar empresa"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Lista de Prospectos */}
@@ -65,15 +84,30 @@ export function CompanyCard({
         )}
       </div>
 
-      {/* Footer - Botón Añadir Empleado */}
-      <Button
-        variant="ghost"
-        onClick={() => onAddProspect(company.id)}
-        className="w-full border border-[#FF6600]/20 hover:border-[#FF6600]/40 hover:bg-[#FF6600]/10 text-[#FF6600]"
-      >
-        <Plus className="h-4 w-4 mr-2" />
-        Añadir Empleado
-      </Button>
+      {/* Footer - Botones */}
+      <div className="space-y-2">
+        {company.amazon_url && (
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation()
+              window.open(company.amazon_url!, '_blank')
+            }}
+            className="w-full border border-blue-500/20 hover:border-blue-500/40 hover:bg-blue-500/10 text-blue-400"
+          >
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Página de Amazon
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          onClick={() => onAddProspect(company.id)}
+          className="w-full border border-[#FF6600]/20 hover:border-[#FF6600]/40 hover:bg-[#FF6600]/10 text-[#FF6600]"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Añadir Empleado
+        </Button>
+      </div>
     </div>
   )
 }

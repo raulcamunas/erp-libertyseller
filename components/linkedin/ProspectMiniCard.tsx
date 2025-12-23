@@ -31,6 +31,8 @@ export function ProspectMiniCard({ prospect, onClick }: ProspectMiniCardProps) {
         return 'border-2 border-[#FF6600]/70' // Naranja
       case 'replied':
         return 'border-2 border-purple-400/70' // Morado
+      case 'third_contact':
+        return 'border-2 border-red-400/70' // Rojo suave
       default:
         return 'border-2 border-white/20'
     }
@@ -45,13 +47,13 @@ export function ProspectMiniCard({ prospect, onClick }: ProspectMiniCardProps) {
 
   // Fecha efectiva de próximo contacto:
   // 1) si existe next_contact_at la usamos
-  // 2) si no existe pero el status ya es connected/messaged (leads antiguos), usamos created_at + (1 o 3 días)
+  // 2) si no existe pero el status ya es connected/messaged (leads antiguos), usamos created_at + 3 días
   let effectiveNextContactAt: string | null = prospect.next_contact_at || null
 
   if (!effectiveNextContactAt) {
     if (prospect.status === 'connected') {
       const d = new Date(prospect.created_at)
-      d.setDate(d.getDate() + 1)
+      d.setDate(d.getDate() + 3)
       effectiveNextContactAt = d.toISOString()
     } else if (prospect.status === 'messaged') {
       const d = new Date(prospect.created_at)
@@ -94,9 +96,10 @@ export function ProspectMiniCard({ prospect, onClick }: ProspectMiniCardProps) {
         borderWidth: '2px',
         borderStyle: 'solid',
         ...(prospect.status === 'identified' && { borderColor: 'rgba(255, 255, 255, 0.2)' }),
-        ...(prospect.status === 'connected' && { borderColor: 'rgba(56, 189, 248, 0.7)' }), // sky-400
-        ...(prospect.status === 'messaged' && { borderColor: 'rgba(59, 130, 246, 0.7)' }), // blue-500
+        ...(prospect.status === 'connected' && { borderColor: 'rgba(255, 102, 0, 0.7)' }), // orange
+        ...(prospect.status === 'messaged' && { borderColor: 'rgba(255, 102, 0, 0.7)' }), // orange
         ...(prospect.status === 'replied' && { borderColor: 'rgba(192, 132, 252, 0.7)' }), // purple-400
+        ...(prospect.status === 'third_contact' && { borderColor: 'rgba(248, 113, 113, 0.7)' }), // red-400
       }}
     >
       <div className="flex-1 min-w-0 flex flex-col justify-center">

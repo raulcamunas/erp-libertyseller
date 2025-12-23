@@ -16,3 +16,4 @@ ADD CONSTRAINT company_prospects_agent_check
 CHECK (agent IN ('Raul', 'Mario', 'Alejandro'));
 
 
+

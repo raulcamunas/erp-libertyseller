@@ -6,8 +6,10 @@ import { CompanyCard } from './CompanyCard'
 import { ProspectModal } from './ProspectModal'
 import { AddCompanyModal } from './AddCompanyModal'
 import { AddProspectModal } from './AddProspectModal'
+import { EditCompanyModal } from './EditCompanyModal'
 import { Button } from '@/components/ui/button'
-import { Plus } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Plus, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -20,6 +22,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  Cell,
 } from 'recharts'
 import { format, differenceInCalendarDays, startOfDay } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -36,10 +39,13 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
   const [isProspectModalOpen, setIsProspectModalOpen] = useState(false)
   const [isAddCompanyModalOpen, setIsAddCompanyModalOpen] = useState(false)
   const [isAddProspectModalOpen, setIsAddProspectModalOpen] = useState(false)
+  const [isEditCompanyModalOpen, setIsEditCompanyModalOpen] = useState(false)
+  const [selectedCompanyForEdit, setSelectedCompanyForEdit] = useState<CompanyWithProspects | null>(null)
   const [selectedCompanyForProspect, setSelectedCompanyForProspect] = useState<{
     id: string
     name: string
   } | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const supabase = createClient()
 
   const handleProspectClick = (prospectId: string) => {
@@ -183,6 +189,34 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
     }
   }
 
+  const handleEditCompany = (company: CompanyWithProspects) => {
+    setSelectedCompanyForEdit(company)
+    setIsEditCompanyModalOpen(true)
+  }
+
+  const handleCompanyUpdated = async () => {
+    // Recargar empresas
+    const { data: companiesData } = await supabase
+      .from('target_companies')
+      .select('*')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+
+    const { data: prospectsData } = await supabase
+      .from('company_prospects')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (companiesData && prospectsData) {
+      const updatedCompanies = companiesData.map((company) => ({
+        ...company,
+        prospects: prospectsData.filter((p) => p.company_id === company.id),
+      }))
+      setCompanies(updatedCompanies)
+      toast.success('Empresa actualizada correctamente')
+    }
+  }
+
   // ===== Datos derivados para vistas avanzadas =====
   const allProspects: CompanyProspect[] = useMemo(
     () => companies.flatMap((c) => c.prospects),
@@ -203,7 +237,7 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
               if (!effectiveNext) {
                 if (p.status === 'connected') {
                   const d = new Date(p.created_at)
-                  d.setDate(d.getDate() + 1)
+                  d.setDate(d.getDate() + 3)
                   effectiveNext = d.toISOString()
                 } else if (p.status === 'messaged') {
                   const d = new Date(p.created_at)
@@ -238,15 +272,17 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
     const connected = allProspects.filter(p => p.status === 'connected').length
     const messaged = allProspects.filter(p => p.status === 'messaged').length
     const replied = allProspects.filter(p => p.status === 'replied').length
+    const thirdContact = allProspects.filter(p => p.status === 'third_contact').length
 
-    return { total, identified, connected, messaged, replied }
+    return { total, identified, connected, messaged, replied, thirdContact }
   }, [allProspects])
 
   const statusChartData = useMemo(() => ([
     { name: 'Identificados', value: statusMetrics.identified },
-    { name: 'Conectados', value: statusMetrics.connected },
-    { name: 'Mensaje enviado', value: statusMetrics.messaged },
+    { name: 'Primer contacto', value: statusMetrics.connected },
+    { name: '2o contacto', value: statusMetrics.messaged },
     { name: 'Respondieron', value: statusMetrics.replied },
+    { name: '3er contacto', value: statusMetrics.thirdContact },
   ]), [statusMetrics])
 
   const weeklyCreationData = useMemo(() => {
@@ -284,17 +320,32 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
     })
   }, [allProspects])
 
+  // Filtrar empresas según búsqueda
+  const filteredCompanies = useMemo(() => {
+    if (!searchQuery.trim()) return companies
+    
+    const query = searchQuery.toLowerCase().trim()
+    return companies.filter((company) => {
+      const matchesName = company.name.toLowerCase().includes(query)
+      const matchesProspects = company.prospects.some(
+        (p) =>
+          p.full_name.toLowerCase().includes(query) ||
+          (p.role && p.role.toLowerCase().includes(query))
+      )
+      return matchesName || matchesProspects
+    })
+  }, [companies, searchQuery])
+
   return (
     <div className="linkedin-module">
-      <div className="mb-4 flex items-center justify-between">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+        <div className="mb-4 flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="companies">Empresas</TabsTrigger>
             <TabsTrigger value="followup">Seguimiento</TabsTrigger>
             <TabsTrigger value="metrics">Métricas</TabsTrigger>
           </TabsList>
-        </Tabs>
-      </div>
+        </div>
 
       {/* Contadores diarios por agente */}
       <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -338,20 +389,57 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
         })}
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
         <TabsContent value="companies">
+          {/* Barra de búsqueda */}
+          <div className="mb-6 flex items-center gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/40 z-10 pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Buscar empresas o prospectos..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="!pl-12 !pr-4 input-glass"
+              />
+            </div>
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSearchQuery('')}
+                className="text-white/60 hover:text-white"
+              >
+                Limpiar
+              </Button>
+            )}
+          </div>
+
           {/* Grid de Empresas */}
-          {companies.length > 0 ? (
+          {filteredCompanies.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {companies.map((company) => (
+              {filteredCompanies.map((company) => (
                 <CompanyCard
                   key={company.id}
                   company={company}
                   onProspectClick={handleProspectClick}
                   onAddProspect={handleAddProspect}
                   onDeleteCompany={handleDeleteCompany}
+                  onEditCompany={handleEditCompany}
                 />
               ))}
+            </div>
+          ) : companies.length > 0 ? (
+            <div className="glass-card p-12 text-center">
+              <p className="text-white/60 mb-4">
+                No se encontraron empresas que coincidan con "{searchQuery}"
+              </p>
+              <Button
+                variant="ghost"
+                onClick={() => setSearchQuery('')}
+                className="text-white/60 hover:text-white"
+              >
+                Limpiar búsqueda
+              </Button>
             </div>
           ) : (
             <div className="glass-card p-12 text-center">
@@ -421,9 +509,15 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
                         </td>
                         <td className="py-2 px-3 text-white/70">
                           {p.status === 'connected'
-                            ? 'Conectado'
+                            ? 'Primer contacto'
                             : p.status === 'messaged'
-                            ? 'Mensaje enviado'
+                            ? '2o contacto'
+                            : p.status === 'third_contact'
+                            ? '3er contacto'
+                            : p.status === 'replied'
+                            ? 'Respondió'
+                            : p.status === 'identified'
+                            ? 'Identificado'
                             : p.status}
                         </td>
                         <td className="py-2 px-3 text-white/70">
@@ -445,22 +539,30 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
 
         <TabsContent value="metrics">
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
               <div className="glass-card p-4 rounded-xl">
                 <p className="text-xs text-white/60 mb-1">Prospectos totales</p>
                 <p className="text-2xl font-bold text-white">{statusMetrics.total}</p>
               </div>
               <div className="glass-card p-4 rounded-xl">
-                <p className="text-xs text-white/60 mb-1">Conectados</p>
-                <p className="text-2xl font-bold text-sky-300">{statusMetrics.connected}</p>
+                <p className="text-xs text-white/60 mb-1">Identificados</p>
+                <p className="text-2xl font-bold text-gray-300">{statusMetrics.identified}</p>
               </div>
               <div className="glass-card p-4 rounded-xl">
-                <p className="text-xs text-white/60 mb-1">Mensajes enviados</p>
-                <p className="text-2xl font-bold text-blue-300">{statusMetrics.messaged}</p>
+                <p className="text-xs text-white/60 mb-1">Primer contacto</p>
+                <p className="text-2xl font-bold text-[#FF6600]">{statusMetrics.connected}</p>
               </div>
               <div className="glass-card p-4 rounded-xl">
-                <p className="text-xs text-white/60 mb-1">Respuestas</p>
+                <p className="text-xs text-white/60 mb-1">2o contacto</p>
+                <p className="text-2xl font-bold text-blue-400">{statusMetrics.messaged}</p>
+              </div>
+              <div className="glass-card p-4 rounded-xl">
+                <p className="text-xs text-white/60 mb-1">Respondieron</p>
                 <p className="text-2xl font-bold text-purple-300">{statusMetrics.replied}</p>
+              </div>
+              <div className="glass-card p-4 rounded-xl">
+                <p className="text-xs text-white/60 mb-1">3er contacto</p>
+                <p className="text-2xl font-bold text-red-300">{statusMetrics.thirdContact}</p>
               </div>
             </div>
 
@@ -481,7 +583,11 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
                       }}
                     />
                     <Legend />
-                    <Bar dataKey="value" fill="#FF6600" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                      {statusChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -541,6 +647,15 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
           onSuccess={handleProspectAdded}
         />
       )}
+      <EditCompanyModal
+        open={isEditCompanyModalOpen}
+        onClose={() => {
+          setSelectedCompanyForEdit(null)
+          setIsEditCompanyModalOpen(false)
+        }}
+        company={selectedCompanyForEdit}
+        onSuccess={handleCompanyUpdated}
+      />
     </div>
   )
 }

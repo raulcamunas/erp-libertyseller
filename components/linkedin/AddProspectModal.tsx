@@ -190,8 +190,8 @@ export function AddProspectModal({
                   className={cn(
                     "text-xs",
                     formData.status === 'identified'
-                      ? "bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600]"
-                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-[#FF6600]/30 hover:text-[#FF6600]"
+                      ? "bg-gray-500/20 border-2 border-gray-400 text-gray-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-gray-400/30 hover:text-gray-300"
                   )}
                 >
                   Identificado
@@ -208,7 +208,7 @@ export function AddProspectModal({
                       : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-[#FF6600]/30 hover:text-[#FF6600]"
                   )}
                 >
-                  Conectado
+                  Primer contacto
                 </Button>
                 <Button
                   type="button"
@@ -218,11 +218,11 @@ export function AddProspectModal({
                   className={cn(
                     "text-xs",
                     formData.status === 'messaged'
-                      ? "bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600]"
-                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-[#FF6600]/30 hover:text-[#FF6600]"
+                      ? "bg-blue-500/20 border-2 border-blue-400 text-blue-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-blue-400/30 hover:text-blue-300"
                   )}
                 >
-                  Mensaje Enviado
+                  2o contacto
                 </Button>
                 <Button
                   type="button"
@@ -237,6 +237,20 @@ export function AddProspectModal({
                   )}
                 >
                   Respondió
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, status: 'third_contact' })}
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "text-xs",
+                    formData.status === 'third_contact'
+                      ? "bg-red-400/20 border-2 border-red-400/70 text-red-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-red-400/30 hover:text-red-300"
+                  )}
+                >
+                  3er contacto
                 </Button>
               </div>
             </div>

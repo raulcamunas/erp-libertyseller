@@ -124,6 +124,8 @@ export function AppSidebar() {
     if (app.id === 'users') {
       return userRole === 'admin' && userEmail === 'raulcamunas369@gmail.com'
     }
+    // Si aún no se ha cargado el rol, mostrar todas temporalmente (evita parpadeo)
+    if (userRole === null) return true
     // Para admins, acceso a todo
     if (userRole === 'admin') return true
     // Para employees, verificar permisos

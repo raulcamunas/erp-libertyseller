@@ -10,3 +10,4 @@ CREATE POLICY "Public can view audit reports by token"
   TO anon, authenticated
   USING (true);
 
+

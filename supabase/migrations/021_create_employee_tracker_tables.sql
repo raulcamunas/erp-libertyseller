@@ -124,3 +124,4 @@ COMMENT ON COLUMN public.tracker_logs.category IS 'Categoría automática basada
 
 
 
+

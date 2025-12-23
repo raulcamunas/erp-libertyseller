@@ -59,3 +59,4 @@ CREATE TRIGGER trigger_create_web_lead_notification
   FOR EACH ROW
   EXECUTE FUNCTION public.create_web_lead_notification();
 
+

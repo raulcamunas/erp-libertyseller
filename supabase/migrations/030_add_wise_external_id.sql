@@ -16,3 +16,4 @@ COMMENT ON COLUMN public.finance_payments.external_id IS 'ID externo de la trans
 
 
 
+

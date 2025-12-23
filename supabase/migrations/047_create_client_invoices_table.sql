@@ -79,3 +79,4 @@ CREATE INDEX idx_client_invoices_client_id ON public.client_invoices(client_id);
 CREATE INDEX idx_client_invoices_year_month ON public.client_invoices(year DESC, month DESC);
 
 
+

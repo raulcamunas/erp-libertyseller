@@ -77,3 +77,4 @@ CREATE POLICY "Authenticated users can manage client tasks"
   WITH CHECK (auth.role() = 'authenticated');
 
 
+

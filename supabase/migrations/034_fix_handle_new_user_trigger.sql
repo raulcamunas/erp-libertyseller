@@ -48,3 +48,4 @@ CREATE POLICY "Allow trigger to insert profiles"
   WITH CHECK (true); -- Permitir todos los inserts (el trigger se encarga de la validación)
 
 
+

@@ -28,9 +28,10 @@ interface ProspectModalProps {
 
 const STATUS_OPTIONS: { value: ProspectStatus; label: string }[] = [
   { value: 'identified', label: 'Identificado' },
-  { value: 'connected', label: 'Conectado' },
-  { value: 'messaged', label: 'Mensaje Enviado' },
+  { value: 'connected', label: 'Primer contacto' },
+  { value: 'messaged', label: '2o contacto' },
   { value: 'replied', label: 'Respondió' },
+  { value: 'third_contact', label: '3er contacto' },
 ]
 
 export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectModalProps) {
@@ -97,6 +98,8 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
         return 'bg-[#FF6600]' // Naranja fuerte
       case 'replied':
         return 'bg-purple-400' // Morado
+      case 'third_contact':
+        return 'bg-red-400/70' // Rojo suave
       default:
         return 'bg-white/20'
     }
@@ -117,18 +120,24 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
       let next_contact_at: string | null = prospect.next_contact_at || null
       const now = new Date()
 
-      if (status === 'connected') {
-        // Contactar al día siguiente
+      if (status === 'identified') {
+        // Identificado: no hay contador
+        next_contact_at = null
+      } else if (status === 'connected') {
+        // Primer contacto: 3 días
         const d = new Date(now)
-        d.setDate(d.getDate() + 1)
+        d.setDate(d.getDate() + 3)
         next_contact_at = d.toISOString()
       } else if (status === 'messaged') {
-        // Volver a contactar 3 días después del mensaje
+        // 2o contacto: 3 días
         const d = new Date(now)
         d.setDate(d.getDate() + 3)
         next_contact_at = d.toISOString()
       } else if (status === 'replied') {
         // Si ya respondió, no hay siguiente contacto automático
+        next_contact_at = null
+      } else if (status === 'third_contact') {
+        // 3er contacto: no hay siguiente contacto automático
         next_contact_at = null
       }
 
@@ -229,23 +238,50 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
                 Estado
               </Label>
                 <div className="flex flex-wrap gap-2">
-                {STATUS_OPTIONS.map((option) => (
-                  <Button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setStatus(option.value)}
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "text-xs",
-                      status === option.value
-                        ? "bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600]"
-                        : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-[#FF6600]/30 hover:text-[#FF6600]"
-                    )}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
+                {STATUS_OPTIONS.map((option) => {
+                  const isSelected = status === option.value
+                  
+                  // Colores únicos para cada estado
+                  const getStatusColors = (statusValue: ProspectStatus) => {
+                    switch (statusValue) {
+                      case 'identified':
+                        return isSelected
+                          ? "bg-gray-500/20 border-2 border-gray-400 text-gray-300"
+                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-gray-400/30 hover:text-gray-300"
+                      case 'connected':
+                        return isSelected
+                          ? "bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600]"
+                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-[#FF6600]/30 hover:text-[#FF6600]"
+                      case 'messaged':
+                        return isSelected
+                          ? "bg-blue-500/20 border-2 border-blue-400 text-blue-300"
+                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-blue-400/30 hover:text-blue-300"
+                      case 'replied':
+                        return isSelected
+                          ? "bg-purple-500/20 border-2 border-purple-400 text-purple-300"
+                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-purple-400/30 hover:text-purple-300"
+                      case 'third_contact':
+                        return isSelected
+                          ? "bg-red-400/20 border-2 border-red-400/70 text-red-300"
+                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-red-400/30 hover:text-red-300"
+                      default:
+                        return "bg-white/[0.05] border border-white/10 text-white/70"
+                    }
+                  }
+                  
+                  return (
+                    <Button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setStatus(option.value)}
+                      variant="outline"
+                      size="sm"
+                      className={cn("text-xs", getStatusColors(option.value))}
+                    >
+                      {option.label}
+                    </Button>
+                  )
+                })}
               </div>
             </div>
 

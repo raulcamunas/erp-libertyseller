@@ -10,3 +10,4 @@ ON CONFLICT (name) DO UPDATE SET base_commission_rate = EXCLUDED.base_commission
 
 
 
+

@@ -11,3 +11,4 @@ CREATE INDEX IF NOT EXISTS idx_client_document_rows_subido
 ON public.client_document_rows(subido);
 
 
+

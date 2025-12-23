@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -13,18 +13,27 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Save, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { TargetCompany } from '@/lib/types/linkedin'
 
-interface AddCompanyModalProps {
+interface EditCompanyModalProps {
   open: boolean
   onClose: () => void
   onSuccess: () => void
+  company: TargetCompany | null
 }
 
-export function AddCompanyModal({ open, onClose, onSuccess }: AddCompanyModalProps) {
+export function EditCompanyModal({ open, onClose, onSuccess, company }: EditCompanyModalProps) {
   const [name, setName] = useState('')
   const [amazonUrl, setAmazonUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const supabase = createClient()
+
+  useEffect(() => {
+    if (company) {
+      setName(company.name)
+      setAmazonUrl(company.amazon_url || '')
+    }
+  }, [company])
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -32,24 +41,25 @@ export function AddCompanyModal({ open, onClose, onSuccess }: AddCompanyModalPro
       return
     }
 
+    if (!company) return
+
     setSaving(true)
     try {
       const { error } = await supabase
         .from('target_companies')
-        .insert({ 
+        .update({ 
           name: name.trim(),
           amazon_url: amazonUrl.trim() || null
         })
+        .eq('id', company.id)
 
       if (error) throw error
 
-      setName('')
-      setAmazonUrl('')
       onSuccess()
       onClose()
     } catch (error) {
-      console.error('Error creating company:', error)
-      alert('Error al crear la empresa')
+      console.error('Error updating company:', error)
+      alert('Error al actualizar la empresa')
     } finally {
       setSaving(false)
     }
@@ -60,10 +70,10 @@ export function AddCompanyModal({ open, onClose, onSuccess }: AddCompanyModalPro
       <DialogContent className="bg-[#080808] border-white/10 backdrop-blur-md">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-white">
-            Añadir Nueva Empresa
+            Editar Empresa
           </DialogTitle>
           <DialogDescription className="text-white/60">
-            Crea un nuevo contenedor para gestionar prospectos
+            Actualiza la información de la empresa
           </DialogDescription>
         </DialogHeader>
 
@@ -115,7 +125,7 @@ export function AddCompanyModal({ open, onClose, onSuccess }: AddCompanyModalPro
               className="flex-1 bg-[#FF6600]/20 border-2 border-[#FF6600] text-[#FF6600] hover:bg-[#FF6600]/30 hover:border-[#FF6600]/80"
             >
               <Save className="h-4 w-4 mr-2" />
-              {saving ? 'Creando...' : 'Crear Empresa'}
+              {saving ? 'Guardando...' : 'Guardar Cambios'}
             </Button>
           </div>
         </div>

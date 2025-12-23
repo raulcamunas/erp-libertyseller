@@ -1,12 +1,13 @@
 export type CompanyStatus = 'active' | 'discarded'
 
-export type ProspectStatus = 'identified' | 'connected' | 'messaged' | 'replied'
+export type ProspectStatus = 'identified' | 'connected' | 'messaged' | 'replied' | 'third_contact'
 
 export type Agent = 'Raul' | 'Mario' | 'Alejandro'
 
 export interface TargetCompany {
   id: string
   name: string
+  amazon_url: string | null
   created_at: string
   status: CompanyStatus
 }
@@ -41,6 +42,7 @@ export interface CompanyWithProspects extends TargetCompany {
 
 export interface CompanyFormData {
   name: string
+  amazon_url?: string | null
   status?: CompanyStatus
 }
 
