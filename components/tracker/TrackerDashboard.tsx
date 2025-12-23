@@ -22,9 +22,11 @@ import {
 } from 'recharts'
 import { format, parseISO, startOfDay, endOfDay, startOfWeek, addDays, eachDayOfInterval, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
+import { AddManualHoursModal } from './AddManualHoursModal'
+import { toast } from 'sonner'
 
 interface TrackerLog {
   id: string
@@ -42,6 +44,7 @@ interface TrackerReport {
   id: string
   employee_id: string
   report_date: string
+  created_at?: string
   logs: TrackerLog[]
 }
 
@@ -77,6 +80,8 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
   const [loading, setLoading] = useState(true)
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set())
   const [expandedReports, setExpandedReports] = useState<Set<string>>(new Set())
+  const [isAddHoursModalOpen, setIsAddHoursModalOpen] = useState(false)
+  const [selectedDayForHours, setSelectedDayForHours] = useState<Date | null>(null)
 
   // Cargar datos cuando cambian los filtros
   useEffect(() => {
@@ -107,7 +112,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       // Obtener reportes del rango seleccionado
       const { data: reportsData, error: reportsError } = await supabase
         .from('tracker_reports')
-        .select('id, employee_id, report_date')
+        .select('id, employee_id, report_date, created_at')
         .eq('employee_id', selectedEmployee)
         .gte('report_date', startDate.toISOString())
         .lte('report_date', endDate.toISOString())
@@ -261,13 +266,22 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       })
       
       // Para cada reporte, filtrar solo los logs de este día
-      grouped[dayKey] = dayReports.map(report => ({
+      const filteredReports = dayReports.map(report => ({
         ...report,
         logs: report.logs.filter(log => {
           const logDate = parseISO(log.start_time)
           return isSameDay(logDate, day)
         })
       })).filter(report => report.logs.length > 0)
+      
+      // Ordenar por fecha de creación (más antiguo primero) para numerar correctamente
+      filteredReports.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0).getTime()
+        const dateB = new Date(b.created_at || 0).getTime()
+        return dateA - dateB
+      })
+      
+      grouped[dayKey] = filteredReports
     })
     
     return grouped
@@ -514,24 +528,39 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                         )}
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => toggleDay(dayKey)}
-                      className="text-white/70 hover:text-white"
-                    >
-                      {isDayExpanded ? (
-                        <>
-                          <ChevronUp className="h-4 w-4 mr-1" />
-                          Ocultar
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="h-4 w-4 mr-1" />
-                          Ver Reportes
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedDayForHours(day)
+                          setIsAddHoursModalOpen(true)
+                        }}
+                        className="text-[#FF6600] hover:text-[#FF6600] hover:bg-[#FF6600]/10 border border-[#FF6600]/30"
+                        title="Añadir horas manuales"
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Añadir Horas
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleDay(dayKey)}
+                        className="text-white/70 hover:text-white"
+                      >
+                        {isDayExpanded ? (
+                          <>
+                            <ChevronUp className="h-4 w-4 mr-1" />
+                            Ocultar
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="h-4 w-4 mr-1" />
+                            Ver Reportes
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -562,25 +591,45 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                       {dayReports.length === 0 ? (
                         <p className="text-white/50 text-sm">No hay reportes registrados este día</p>
                       ) : (
-                        dayReports.map((report) => {
+                        dayReports.map((report, index) => {
                           const isReportExpanded = expandedReports.has(report.id)
-                          const timeRange = getReportTimeRange(report)
                           const reportTotalSeconds = getReportTotalSeconds(report)
                           const reportCategoryStats = getReportCategoryStats(report)
+                          
+                          // Numerar los paquetes: 1er, 2o, 3er, 4o, etc.
+                          const getPackageNumber = (num: number): string => {
+                            if (num === 1) return '1er'
+                            if (num === 2) return '2o'
+                            if (num === 3) return '3er'
+                            return `${num}o`
+                          }
+                          
+                          const packageNumber = getPackageNumber(index + 1)
+                          
+                          // Hora de subida del reporte
+                          const uploadTime = report.created_at 
+                            ? format(parseISO(report.created_at), 'HH:mm', { locale: es })
+                            : 'N/A'
 
                           return (
                             <Card key={report.id} className="bg-white/5 border-white/10">
                               <CardHeader className="pb-3">
                                 <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-4">
-                                    <CardTitle className="text-white text-sm">
-                                      Reporte de las {timeRange}
+                                  <div className="flex items-center gap-4 flex-1">
+                                    <CardTitle className="text-white text-sm font-semibold">
+                                      {packageNumber} paquete de trabajo
                                     </CardTitle>
-                                    <div className="flex items-center gap-2 text-white/70">
-                                      <Clock className="h-3 w-3" />
-                                      <span className="text-xs font-medium">
-                                        {formatHours(reportTotalSeconds)}
-                                      </span>
+                                    <div className="flex items-center gap-3 text-white/60 text-xs">
+                                      <div className="flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        <span>Subido a las {uploadTime}</span>
+                                      </div>
+                                      <span className="text-white/40">•</span>
+                                      <div className="flex items-center gap-1">
+                                        <span className="font-medium text-white/70">
+                                          Duración: {formatHours(reportTotalSeconds)}
+                                        </span>
+                                      </div>
                                     </div>
                                   </div>
                                   <Button
@@ -628,6 +677,38 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                 {/* Detalles del reporte */}
                                 {isReportExpanded && (
                                   <div className="mt-3 pt-3 border-t border-white/10">
+                                    {/* Resumen del paquete */}
+                                    <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10">
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                                        <div>
+                                          <span className="text-white/60">Total duración:</span>
+                                          <span className="ml-2 font-semibold text-white">
+                                            {formatHours(reportTotalSeconds)}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <span className="text-white/60">Subido a las:</span>
+                                          <span className="ml-2 font-semibold text-white">
+                                            {uploadTime}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <span className="text-white/60">Total actividades:</span>
+                                          <span className="ml-2 font-semibold text-white">
+                                            {report.logs.length}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <span className="text-white/60">Creado:</span>
+                                          <span className="ml-2 font-semibold text-white">
+                                            {report.created_at 
+                                              ? format(parseISO(report.created_at), 'dd/MM/yyyy', { locale: es })
+                                              : 'N/A'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    
                                     <div className="overflow-x-auto">
                                       <Table>
                                         <TableHeader>
@@ -837,6 +918,22 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Modal para añadir horas manuales */}
+      {selectedDayForHours && (
+        <AddManualHoursModal
+          open={isAddHoursModalOpen}
+          onClose={() => {
+            setIsAddHoursModalOpen(false)
+            setSelectedDayForHours(null)
+          }}
+          onSuccess={() => {
+            loadData()
+          }}
+          employeeId={selectedEmployee}
+          date={selectedDayForHours}
+        />
       )}
     </div>
   )
