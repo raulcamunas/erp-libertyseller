@@ -109,38 +109,57 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         endDate = endOfDay(parseISO(selectedDate))
       }
 
-      // Obtener reportes del rango seleccionado
+      // Obtener reportes del rango seleccionado (usar un rango más amplio para capturar todos los reportes)
+      // Ya que report_date está redondeado a la hora, necesitamos buscar en un rango más amplio
+      const extendedStartDate = new Date(startDate)
+      extendedStartDate.setHours(0, 0, 0, 0)
+      const extendedEndDate = new Date(endDate)
+      extendedEndDate.setHours(23, 59, 59, 999)
+
       const { data: reportsData, error: reportsError } = await supabase
         .from('tracker_reports')
         .select('id, employee_id, report_date, created_at')
         .eq('employee_id', selectedEmployee)
-        .gte('report_date', startDate.toISOString())
-        .lte('report_date', endDate.toISOString())
+        .gte('report_date', extendedStartDate.toISOString())
+        .lte('report_date', extendedEndDate.toISOString())
         .order('report_date', { ascending: true })
 
       if (reportsError) throw reportsError
 
-      if (!reportsData || reportsData.length === 0) {
+      // Obtener logs del rango de fechas directamente (más confiable que filtrar por report_date)
+      const { data: logsData, error: logsError } = await supabase
+        .from('tracker_logs')
+        .select('*')
+        .gte('start_time', startDate.toISOString())
+        .lte('start_time', endDate.toISOString())
+        .order('start_time', { ascending: true })
+
+      if (logsError) throw logsError
+
+      // Si no hay logs, no hay nada que mostrar
+      if (!logsData || logsData.length === 0) {
         setReports([])
         setLoading(false)
         return
       }
 
-      // Obtener logs de todos los reportes
-      const reportIds = reportsData.map(r => r.id)
-      const { data: logsData, error: logsError } = await supabase
-        .from('tracker_logs')
-        .select('*')
-        .in('report_id', reportIds)
-        .order('start_time', { ascending: true })
+      // Obtener los IDs de reportes únicos de los logs
+      const uniqueReportIds = Array.from(new Set(logsData.map(log => log.report_id)))
+      
+      // Obtener los reportes correspondientes a esos IDs
+      const { data: reportsForLogs, error: reportsForLogsError } = await supabase
+        .from('tracker_reports')
+        .select('id, employee_id, report_date, created_at')
+        .in('id', uniqueReportIds)
+        .eq('employee_id', selectedEmployee)
 
-      if (logsError) throw logsError
+      if (reportsForLogsError) throw reportsForLogsError
 
       // Agrupar logs por reporte
-      const reportsWithLogs: TrackerReport[] = reportsData.map(report => ({
+      const reportsWithLogs: TrackerReport[] = (reportsForLogs || []).map(report => ({
         ...report,
         logs: (logsData || []).filter(log => log.report_id === report.id)
-      }))
+      })).filter(report => report.logs.length > 0) // Solo reportes con logs
 
       setReports(reportsWithLogs)
     } catch (error) {
