@@ -277,12 +277,12 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
     return { total, identified, connected, messaged, replied, thirdContact }
   }, [allProspects])
 
-  const statusChartData = useMemo(() => ([
-    { name: 'Identificados', value: statusMetrics.identified },
-    { name: 'Primer contacto', value: statusMetrics.connected },
-    { name: '2o contacto', value: statusMetrics.messaged },
-    { name: 'Respondieron', value: statusMetrics.replied },
-    { name: '3er contacto', value: statusMetrics.thirdContact },
+  const statusChartData: Array<{ name: string; value: number; color: string }> = useMemo(() => ([
+    { name: 'Identificados', value: statusMetrics.identified, color: '#9ca3af' },
+    { name: 'Primer contacto', value: statusMetrics.connected, color: '#FF6600' },
+    { name: '2o contacto', value: statusMetrics.messaged, color: '#60a5fa' },
+    { name: 'Respondieron', value: statusMetrics.replied, color: '#a78bfa' },
+    { name: '3er contacto', value: statusMetrics.thirdContact, color: '#f87171' },
   ]), [statusMetrics])
 
   const weeklyCreationData = useMemo(() => {
