@@ -87,26 +87,49 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Usar función SQL con SECURITY DEFINER para bypassear RLS
-    const { data: reportData, error: reportError } = await supabase.rpc('insert_tracker_report', {
-      p_employee_id: body.employee_id,
-      p_report_date: reportDate.toISOString()
-    })
+    // Redondear la fecha al inicio del día (00:00:00) para agrupar por día completo
+    const dayStart = new Date(reportDate)
+    dayStart.setHours(0, 0, 0, 0)
 
-    if (reportError || !reportData || reportData.length === 0) {
-      console.error('❌ [TRACKER] Error inserting tracker report:', reportError)
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Failed to create report',
-          details: reportError?.message || 'Unknown error'
-        },
-        { status: 500, headers }
-      )
+    // Buscar si ya existe un reporte para este empleado en este día
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+    const { data: existingReports, error: findError } = await supabase
+      .from('tracker_reports')
+      .select('id, employee_id, report_date, created_at')
+      .eq('employee_id', body.employee_id)
+      .gte('report_date', dayStart.toISOString())
+      .lt('report_date', dayEnd.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    let report: { id: string; employee_id: string; report_date: string; created_at: string }
+
+    if (existingReports && existingReports.length > 0 && !findError) {
+      // Usar el reporte existente
+      report = existingReports[0]
+      console.log('✅ [TRACKER] Using existing report:', report.id)
+    } else {
+      // Crear nuevo reporte con la fecha al inicio del día
+      const { data: reportData, error: reportError } = await supabase.rpc('insert_tracker_report', {
+        p_employee_id: body.employee_id,
+        p_report_date: dayStart.toISOString()
+      })
+
+      if (reportError || !reportData || reportData.length === 0) {
+        console.error('❌ [TRACKER] Error inserting tracker report:', reportError)
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Failed to create report',
+            details: reportError?.message || 'Unknown error'
+          },
+          { status: 500, headers }
+        )
+      }
+
+      report = reportData[0]
+      console.log('✅ [TRACKER] Report created:', report.id)
     }
-
-    const report = reportData[0]
-    console.log('✅ [TRACKER] Report created:', report.id)
 
     // Insertar logs uno por uno usando función SQL con SECURITY DEFINER
     const logErrors: any[] = []

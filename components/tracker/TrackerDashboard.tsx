@@ -22,7 +22,7 @@ import {
 } from 'recharts'
 import { format, parseISO, startOfDay, endOfDay, startOfWeek, addDays, eachDayOfInterval, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users, Plus } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users, Plus, Trash2, Target } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { AddManualHoursModal } from './AddManualHoursModal'
@@ -54,7 +54,10 @@ interface TrackerDashboardProps {
 
 // Colores por categoría
 const categoryColors: Record<string, string> = {
-  'Prospecting': '#3b82f6', // Azul
+  'linkedin': '#3b82f6', // Azul
+  'amazon': '#FF6600', // Naranja corporativo
+  'navegación': '#f59e0b', // Amarillo
+  'Prospecting': '#3b82f6', // Azul (mantener compatibilidad)
   'Entertainment': '#ef4444', // Rojo
   'Communication': '#10b981', // Verde
   'Productivity': '#f59e0b', // Amarillo
@@ -82,6 +85,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
   const [expandedReports, setExpandedReports] = useState<Set<string>>(new Set())
   const [isAddHoursModalOpen, setIsAddHoursModalOpen] = useState(false)
   const [selectedDayForHours, setSelectedDayForHours] = useState<Date | null>(null)
+  const [deletingDay, setDeletingDay] = useState<string | null>(null)
 
   // Cargar datos cuando cambian los filtros
   useEffect(() => {
@@ -116,6 +120,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       const extendedEndDate = new Date(endDate)
       extendedEndDate.setHours(23, 59, 59, 999)
 
+      // Primero obtener los reportes del empleado en el rango de fechas
       const { data: reportsData, error: reportsError } = await supabase
         .from('tracker_reports')
         .select('id, employee_id, report_date, created_at')
@@ -126,12 +131,29 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
 
       if (reportsError) throw reportsError
 
-      // Obtener logs del rango de fechas directamente (más confiable que filtrar por report_date)
+      // Si no hay reportes, no hay nada que mostrar
+      if (!reportsData || reportsData.length === 0) {
+        setReports([])
+        setLoading(false)
+        return
+      }
+
+      // Obtener los IDs de los reportes
+      const reportIds = reportsData.map(r => r.id)
+
+      // Obtener los logs de esos reportes en el rango de fechas
+      // Usar un rango más amplio para capturar logs que puedan estar cerca de los límites
+      const logsStartDate = new Date(startDate)
+      logsStartDate.setHours(0, 0, 0, 0)
+      const logsEndDate = new Date(endDate)
+      logsEndDate.setHours(23, 59, 59, 999)
+
       const { data: logsData, error: logsError } = await supabase
         .from('tracker_logs')
         .select('*')
-        .gte('start_time', startDate.toISOString())
-        .lte('start_time', endDate.toISOString())
+        .in('report_id', reportIds)
+        .gte('start_time', logsStartDate.toISOString())
+        .lte('start_time', logsEndDate.toISOString())
         .order('start_time', { ascending: true })
 
       if (logsError) throw logsError
@@ -143,20 +165,8 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         return
       }
 
-      // Obtener los IDs de reportes únicos de los logs
-      const uniqueReportIds = Array.from(new Set(logsData.map(log => log.report_id)))
-      
-      // Obtener los reportes correspondientes a esos IDs
-      const { data: reportsForLogs, error: reportsForLogsError } = await supabase
-        .from('tracker_reports')
-        .select('id, employee_id, report_date, created_at')
-        .in('id', uniqueReportIds)
-        .eq('employee_id', selectedEmployee)
-
-      if (reportsForLogsError) throw reportsForLogsError
-
       // Agrupar logs por reporte
-      const reportsWithLogs: TrackerReport[] = (reportsForLogs || []).map(report => ({
+      const reportsWithLogs: TrackerReport[] = reportsData.map(report => ({
         ...report,
         logs: (logsData || []).filter(log => log.report_id === report.id)
       })).filter(report => report.logs.length > 0) // Solo reportes con logs
@@ -189,6 +199,9 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     const hours = Array.from({ length: 10 }, (_, i) => i + 9) // 09:00 a 18:00
     const hourData: Record<number, {
       hour: string
+      linkedin: number
+      amazon: number
+      'navegación': number
       Prospecting: number
       Entertainment: number
       Communication: number
@@ -200,6 +213,9 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     hours.forEach(hour => {
       hourData[hour] = {
         hour: `${hour}:00`,
+        linkedin: 0,
+        amazon: 0,
+        'navegación': 0,
         Prospecting: 0,
         Entertainment: 0,
         Communication: 0,
@@ -408,17 +424,61 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     setSelectedDate(format(newDate, 'yyyy-MM-dd'))
   }
 
+  const handleDeleteDay = async (day: Date) => {
+    const dayKey = format(day, 'yyyy-MM-dd')
+    const dayStart = startOfDay(day)
+    const dayEnd = endOfDay(day)
+
+    if (!confirm(`¿Estás seguro de que quieres eliminar todas las horas registradas del ${format(day, "dd 'de' MMMM 'de' yyyy", { locale: es })}?`)) {
+      return
+    }
+
+    setDeletingDay(dayKey)
+    try {
+      // Usar función SQL con SECURITY DEFINER para bypassear RLS
+      const { data: deletedCount, error: deleteError } = await supabase.rpc('delete_tracker_reports', {
+        p_employee_id: selectedEmployee,
+        p_day_start: dayStart.toISOString(),
+        p_day_end: dayEnd.toISOString()
+      })
+
+      if (deleteError) throw deleteError
+
+      const count = deletedCount || 0
+      if (count > 0) {
+        toast.success(`Se eliminaron todas las horas del ${format(day, "dd 'de' MMMM", { locale: es })}`)
+        loadData() // Recargar datos
+      } else {
+        toast.info('No hay horas registradas para eliminar en este día')
+      }
+    } catch (error: any) {
+      console.error('Error deleting day:', error)
+      toast.error(`Error al eliminar las horas: ${error.message || 'Error desconocido'}`)
+    } finally {
+      setDeletingDay(null)
+    }
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-white">Employee Tracker</h1>
-        <Button
-          onClick={() => router.push('/dashboard/tracker/employees')}
-          className="bg-[#FF6600] hover:bg-[#FF8533] text-white"
-        >
-          <Users className="h-4 w-4 mr-2" />
-          Gestión de Empleados
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => router.push('/dashboard/tracker/performance')}
+            className="bg-[#FF6600] hover:bg-[#FF8533] text-white"
+          >
+            <Target className="h-4 w-4 mr-2" />
+            Gestionar Rendimiento
+          </Button>
+          <Button
+            onClick={() => router.push('/dashboard/tracker/employees')}
+            className="bg-[#FF6600] hover:bg-[#FF8533] text-white"
+          >
+            <Users className="h-4 w-4 mr-2" />
+            Gestión de Empleados
+          </Button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -561,6 +621,18 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                         <Plus className="h-4 w-4 mr-1" />
                         Añadir Horas
                       </Button>
+                      {stats.totalSeconds > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteDay(day)}
+                          disabled={deletingDay === dayKey}
+                          className="text-red-500 hover:text-red-600 hover:bg-red-500/10 border border-red-500/30"
+                          title="Eliminar todas las horas de este día"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -575,7 +647,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                         ) : (
                           <>
                             <ChevronDown className="h-4 w-4 mr-1" />
-                            Ver Reportes
+                            Ver Búsquedas
                           </>
                         )}
                       </Button>
@@ -604,143 +676,23 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                     </div>
                   )}
 
-                  {/* Lista de Reportes (Paquetes) */}
+                  {/* Lista de todas las búsquedas del día */}
                   {isDayExpanded && (
-                    <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
-                      {dayReports.length === 0 ? (
-                        <p className="text-white/50 text-sm">No hay reportes registrados este día</p>
-                      ) : (
-                        dayReports.map((report, index) => {
-                          const isReportExpanded = expandedReports.has(report.id)
-                          const reportTotalSeconds = getReportTotalSeconds(report)
-                          const reportCategoryStats = getReportCategoryStats(report)
-                          
-                          // Numerar los paquetes: 1er, 2o, 3er, 4o, etc.
-                          const getPackageNumber = (num: number): string => {
-                            if (num === 1) return '1er'
-                            if (num === 2) return '2o'
-                            if (num === 3) return '3er'
-                            return `${num}o`
-                          }
-                          
-                          const packageNumber = getPackageNumber(index + 1)
-                          
-                          // Hora de subida del reporte
-                          const uploadTime = report.created_at 
-                            ? format(parseISO(report.created_at), 'HH:mm', { locale: es })
-                            : 'N/A'
-
-                          return (
-                            <Card key={report.id} className="bg-white/5 border-white/10">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-4 flex-1">
-                                    <CardTitle className="text-white text-sm font-semibold">
-                                      {packageNumber} paquete de trabajo
-                                    </CardTitle>
-                                    <div className="flex items-center gap-3 text-white/60 text-xs">
-                                      <div className="flex items-center gap-1">
-                                        <Clock className="h-3 w-3" />
-                                        <span>Subido a las {uploadTime}</span>
-                                      </div>
-                                      <span className="text-white/40">•</span>
-                                      <div className="flex items-center gap-1">
-                                        <span className="font-medium text-white/70">
-                                          Duración: {formatHours(reportTotalSeconds)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => toggleReport(report.id)}
-                                    className="text-white/70 hover:text-white h-8"
-                                  >
-                                    {isReportExpanded ? (
-                                      <>
-                                        <ChevronUp className="h-3 w-3 mr-1" />
-                                        Ocultar
-                                      </>
-                                    ) : (
-                                      <>
-                                        <ChevronDown className="h-3 w-3 mr-1" />
-                                        Ver Actividad
-                                      </>
-                                    )}
-                                  </Button>
-                                </div>
-                              </CardHeader>
-                              <CardContent className="pt-0">
-                                {/* Resumen por categoría del reporte */}
-                                {Object.keys(reportCategoryStats).length > 0 && (
-                                  <div className="flex flex-wrap gap-2 mb-3">
-                                    {Object.entries(reportCategoryStats).map(([category, seconds]) => (
-                                      <div
-                                        key={category}
-                                        className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white/5 border border-white/10"
-                                      >
-                                        <div
-                                          className="w-2 h-2 rounded-full"
-                                          style={{ backgroundColor: categoryColors[category] || categoryColors.Other }}
-                                        />
-                                        <span className="text-xs text-white/70">{category}</span>
-                                        <span className="text-xs font-medium text-white">
-                                          {formatHours(seconds)}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* Detalles del reporte */}
-                                {isReportExpanded && (
-                                  <div className="mt-3 pt-3 border-t border-white/10">
-                                    {/* Resumen del paquete */}
-                                    <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10">
-                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                                        <div>
-                                          <span className="text-white/60">Total duración:</span>
-                                          <span className="ml-2 font-semibold text-white">
-                                            {formatHours(reportTotalSeconds)}
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-white/60">Subido a las:</span>
-                                          <span className="ml-2 font-semibold text-white">
-                                            {uploadTime}
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-white/60">Total actividades:</span>
-                                          <span className="ml-2 font-semibold text-white">
-                                            {report.logs.length}
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-white/60">Creado:</span>
-                                          <span className="ml-2 font-semibold text-white">
-                                            {report.created_at 
-                                              ? format(parseISO(report.created_at), 'dd/MM/yyyy', { locale: es })
-                                              : 'N/A'}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                    
+                    <div className="mt-4 pt-4 border-t border-white/10">
+                      {logsByDay[dayKey] && logsByDay[dayKey].length > 0 ? (
                                     <div className="overflow-x-auto">
                                       <Table>
                                         <TableHeader>
                                           <TableRow className="border-white/10">
                                             <TableHead className="text-white/70 text-xs">Hora Inicio</TableHead>
                                             <TableHead className="text-white/70 text-xs">Duración</TableHead>
-                                            <TableHead className="text-white/70 text-xs">Actividad</TableHead>
+                                <TableHead className="text-white/70 text-xs">Búsqueda</TableHead>
                                             <TableHead className="text-white/70 text-xs">Categoría</TableHead>
                                             <TableHead className="text-white/70 text-xs">Link</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                          {report.logs.map((log) => (
+                              {logsByDay[dayKey].map((log) => (
                                             <TableRow key={log.id} className="border-white/10">
                                               <TableCell className="text-white/90 text-xs">
                                                 <div className="flex items-center gap-2">
@@ -758,7 +710,9 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                                 <span
                                                   className={cn(
                                                     "px-2 py-0.5 rounded text-xs font-medium",
-                                                    log.category === 'Prospecting' && "bg-blue-500/20 text-blue-300",
+                                                    (log.category === 'linkedin' || log.category === 'Prospecting') && "bg-blue-500/20 text-blue-300",
+                                                    log.category === 'amazon' && "bg-[#FF6600]/20 text-[#FF8533]",
+                                                    log.category === 'navegación' && "bg-yellow-500/20 text-yellow-300",
                                                     log.category === 'Entertainment' && "bg-red-500/20 text-red-300",
                                                     log.category === 'Communication' && "bg-green-500/20 text-green-300",
                                                     log.category === 'Productivity' && "bg-yellow-500/20 text-yellow-300",
@@ -784,12 +738,8 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                         </TableBody>
                                       </Table>
                                     </div>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          )
-                        })
+                      ) : (
+                        <p className="text-white/50 text-sm">No hay búsquedas registradas este día</p>
                       )}
                     </div>
                   )}
@@ -850,6 +800,9 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                   <Legend 
                     wrapperStyle={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '12px' }}
                   />
+                  <Bar dataKey="linkedin" stackId="a" fill={categoryColors.linkedin} />
+                  <Bar dataKey="amazon" stackId="a" fill={categoryColors.amazon} />
+                  <Bar dataKey="navegación" stackId="a" fill={categoryColors['navegación']} />
                   <Bar dataKey="Prospecting" stackId="a" fill={categoryColors.Prospecting} />
                   <Bar dataKey="Entertainment" stackId="a" fill={categoryColors.Entertainment} />
                   <Bar dataKey="Communication" stackId="a" fill={categoryColors.Communication} />
@@ -866,7 +819,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       {viewMode === 'day' && (
         <Card className="glass-card border-white/10">
           <CardHeader>
-            <CardTitle className="text-white">Detalles de Actividad</CardTitle>
+            <CardTitle className="text-white">Detalles de Búsquedas</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -884,7 +837,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                     <TableRow className="border-white/10">
                       <TableHead className="text-white/70">Hora Inicio</TableHead>
                       <TableHead className="text-white/70">Duración</TableHead>
-                      <TableHead className="text-white/70">Actividad</TableHead>
+                      <TableHead className="text-white/70">Búsqueda</TableHead>
                       <TableHead className="text-white/70">Categoría</TableHead>
                       <TableHead className="text-white/70">Link</TableHead>
                     </TableRow>
@@ -908,7 +861,9 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                           <span
                             className={cn(
                               "px-2 py-1 rounded text-xs font-medium",
-                              log.category === 'Prospecting' && "bg-blue-500/20 text-blue-300",
+                              (log.category === 'linkedin' || log.category === 'Prospecting') && "bg-blue-500/20 text-blue-300",
+                              log.category === 'amazon' && "bg-[#FF6600]/20 text-[#FF8533]",
+                              log.category === 'navegación' && "bg-yellow-500/20 text-yellow-300",
                               log.category === 'Entertainment' && "bg-red-500/20 text-red-300",
                               log.category === 'Communication' && "bg-green-500/20 text-green-300",
                               log.category === 'Productivity' && "bg-yellow-500/20 text-yellow-300",

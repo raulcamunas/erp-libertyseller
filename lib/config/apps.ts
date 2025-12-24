@@ -9,7 +9,8 @@ import {
   Activity,
   Briefcase,
   CheckCircle2,
-  FileSearch
+  FileSearch,
+  Upload
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -94,6 +95,15 @@ export const apps: AppConfig[] = [
     description: 'Seguimiento de actividad de empleados',
     icon: Activity,
     route: '/dashboard/tracker',
+    status: 'active',
+    category: 'productivity'
+  },
+  {
+    id: 'subir-horas',
+    name: 'Subir Horas',
+    description: 'Subir horas de trabajo desde CSV',
+    icon: Upload,
+    route: '/dashboard/subir-horas',
     status: 'active',
     category: 'productivity'
   },
