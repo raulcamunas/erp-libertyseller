@@ -313,19 +313,37 @@ export function UploadHoursComponent({ employees, initialEmployee }: UploadHours
       // Esto permite que múltiples CSV del mismo día se agreguen al mismo reporte
       const reportDate = firstLogDate 
         ? (() => {
-            // Crear fecha al inicio del día en hora local
-            const dayStart = new Date(firstLogDate.getFullYear(), firstLogDate.getMonth(), firstLogDate.getDate(), 0, 0, 0)
-            console.log('📅 [UPLOAD] Report date:', {
+            // Crear fecha al inicio del día en hora local (00:00:00)
+            // Usar los valores locales para evitar problemas de zona horaria
+            const year = firstLogDate.getFullYear()
+            const month = firstLogDate.getMonth()
+            const day = firstLogDate.getDate()
+            
+            // Crear fecha en hora local (no UTC)
+            const dayStart = new Date(year, month, day, 0, 0, 0, 0)
+            
+            // Convertir a UTC manteniendo la fecha local
+            // Esto asegura que el report_date represente el inicio del día en la zona horaria local
+            const utcDayStart = new Date(Date.UTC(year, month, day, 0, 0, 0, 0))
+            
+            console.log('📅 [UPLOAD] Report date calculation:', {
               firstLogDate: firstLogDate.toISOString(),
-              dayStart: dayStart.toISOString(),
+              firstLogDate_local: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+              dayStart_local: dayStart.toISOString(),
+              dayStart_utc: utcDayStart.toISOString(),
               dateString: format(dayStart, 'yyyy-MM-dd')
             })
-            return dayStart.toISOString()
+            
+            // Usar UTC para mantener consistencia con Supabase
+            return utcDayStart.toISOString()
           })()
         : (() => {
             const now = new Date()
-            const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
-            return dayStart.toISOString()
+            const year = now.getFullYear()
+            const month = now.getMonth()
+            const day = now.getDate()
+            const utcDayStart = new Date(Date.UTC(year, month, day, 0, 0, 0, 0))
+            return utcDayStart.toISOString()
           })()
       
       console.log('📤 [UPLOAD] Subiendo reporte:', {
@@ -345,13 +363,24 @@ export function UploadHoursComponent({ employees, initialEmployee }: UploadHours
           first_log: logs[0]
         })
 
+        // Asegurarse de que el employee_id esté limpio (sin espacios)
+        const cleanEmployeeId = selectedEmployee.trim()
+        
+        console.log('📤 [UPLOAD] Enviando request a /api/tracker/ingest:', {
+          employee_id: cleanEmployeeId,
+          employee_id_original: selectedEmployee,
+          report_date: reportDate,
+          logs_count: logs.length,
+          first_log: logs[0]
+        })
+
         const response = await fetch('/api/tracker/ingest', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            employee_id: selectedEmployee,
+            employee_id: cleanEmployeeId,
             report_date: reportDate,
             logs: logs
           })

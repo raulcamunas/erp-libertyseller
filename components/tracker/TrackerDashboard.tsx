@@ -113,19 +113,23 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         endDate = endOfDay(parseISO(selectedDate))
       }
 
-      // Obtener reportes del rango seleccionado (usar un rango más amplio para capturar todos los reportes)
-      // Ya que report_date está redondeado a la hora, necesitamos buscar en un rango más amplio
-      const extendedStartDate = new Date(startDate)
-      extendedStartDate.setHours(0, 0, 0, 0)
-      const extendedEndDate = new Date(endDate)
-      extendedEndDate.setHours(23, 59, 59, 999)
-
-      // Primero obtener los reportes del empleado en el rango de fechas
-      // Usar un rango más amplio para capturar reportes que puedan estar en diferentes zonas horarias
-      const extendedStartDateForReports = new Date(startDate)
-      extendedStartDateForReports.setHours(-12, 0, 0, 0) // 12 horas antes para capturar reportes de diferentes zonas horarias
-      const extendedEndDateForReports = new Date(endDate)
-      extendedEndDateForReports.setHours(36, 0, 0, 0) // 36 horas después
+      // Obtener reportes del rango seleccionado
+      // El report_date se guarda como UTC al inicio del día local (00:00:00 local convertido a UTC)
+      // Si el usuario está en UTC+1 (España), el día 25 local (00:00:00) = día 24 UTC (23:00:00)
+      // Necesitamos buscar en un rango amplio que cubra ±1 día en UTC
+      
+      // Convertir las fechas de inicio y fin a UTC para la búsqueda
+      // Restar 2 días en UTC para capturar reportes del día anterior
+      const startDateUTC = new Date(startDate)
+      startDateUTC.setUTCHours(0, 0, 0, 0)
+      startDateUTC.setUTCDate(startDateUTC.getUTCDate() - 2) // -2 días para estar seguros
+      
+      const endDateUTC = new Date(endDate)
+      endDateUTC.setUTCHours(23, 59, 59, 999)
+      endDateUTC.setUTCDate(endDateUTC.getUTCDate() + 2) // +2 días para estar seguros
+      
+      const extendedStartDateForReports = startDateUTC
+      const extendedEndDateForReports = endDateUTC
       
       console.log('🔍 [TRACKER] Buscando reportes:', {
         employee: selectedEmployee,
@@ -134,10 +138,28 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         selectedDate
       })
 
+      // Limpiar el employee_id para la búsqueda (trim)
+      const cleanEmployeeId = selectedEmployee.trim()
+      
+      console.log('🔍 [TRACKER] Buscando reportes con employee_id:', {
+        original: selectedEmployee,
+        cleaned: cleanEmployeeId,
+        length: cleanEmployeeId.length
+      })
+
+      console.log('🔍 [TRACKER] Rango de búsqueda de reportes:', {
+        start: extendedStartDateForReports.toISOString(),
+        end: extendedEndDateForReports.toISOString(),
+        start_local: format(extendedStartDateForReports, 'yyyy-MM-dd HH:mm:ss'),
+        end_local: format(extendedEndDateForReports, 'yyyy-MM-dd HH:mm:ss'),
+        selectedDate_start: format(startDate, 'yyyy-MM-dd'),
+        selectedDate_end: format(endDate, 'yyyy-MM-dd')
+      })
+
       const { data: reportsData, error: reportsError } = await supabase
         .from('tracker_reports')
         .select('id, employee_id, report_date, created_at')
-        .eq('employee_id', selectedEmployee)
+        .eq('employee_id', cleanEmployeeId)
         .gte('report_date', extendedStartDateForReports.toISOString())
         .lte('report_date', extendedEndDateForReports.toISOString())
         .order('report_date', { ascending: true })
@@ -171,13 +193,24 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       const logsEndDate = new Date(endDate)
       logsEndDate.setHours(23, 59, 59, 999)
 
+      // Obtener logs con un rango amplio y luego filtrar por fecha local
+      const logsStartDate = new Date(startDate)
+      logsStartDate.setUTCHours(0, 0, 0, 0)
+      logsStartDate.setUTCDate(logsStartDate.getUTCDate() - 1) // -1 día para estar seguros
+      
+      const logsEndDate = new Date(endDate)
+      logsEndDate.setUTCHours(23, 59, 59, 999)
+      logsEndDate.setUTCDate(logsEndDate.getUTCDate() + 1) // +1 día para estar seguros
+
       console.log('🔍 [TRACKER] Buscando logs:', {
         reportIds: reportIds.length,
         logsStartDate: logsStartDate.toISOString(),
-        logsEndDate: logsEndDate.toISOString()
+        logsEndDate: logsEndDate.toISOString(),
+        selectedDate_start: format(startDate, 'yyyy-MM-dd'),
+        selectedDate_end: format(endDate, 'yyyy-MM-dd')
       })
 
-      const { data: logsData, error: logsError } = await supabase
+      const { data: allLogsData, error: logsError } = await supabase
         .from('tracker_logs')
         .select('*')
         .in('report_id', reportIds)
@@ -190,7 +223,29 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         throw logsError
       }
 
-      console.log('📊 [TRACKER] Logs encontrados:', logsData?.length || 0)
+      // Filtrar logs que realmente correspondan a los días seleccionados (fecha local)
+      const logsData = (allLogsData || []).filter(log => {
+        const logDate = new Date(log.start_time)
+        const logDateLocal = format(logDate, 'yyyy-MM-dd')
+        
+        // Verificar si el log corresponde a alguno de los días en el rango
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+          const dayStr = format(d, 'yyyy-MM-dd')
+          if (logDateLocal === dayStr) {
+            return true
+          }
+        }
+        return false
+      })
+      
+      console.log('📊 [TRACKER] Logs encontrados:', {
+        total: allLogsData?.length || 0,
+        filtered: logsData.length,
+        sample: logsData.slice(0, 3).map(l => ({
+          start_time: l.start_time,
+          date_local: format(new Date(l.start_time), 'yyyy-MM-dd')
+        }))
+      })
 
       // Si no hay logs, no hay nada que mostrar
       if (!logsData || logsData.length === 0) {

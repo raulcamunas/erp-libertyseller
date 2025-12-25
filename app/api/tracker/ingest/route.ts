@@ -106,14 +106,29 @@ export async function POST(request: NextRequest) {
 
     // Buscar si ya existe un reporte para este empleado en este día
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+    
+    console.log('🔍 [TRACKER] Buscando reporte existente:', {
+      employee_id: body.employee_id,
+      employee_id_type: typeof body.employee_id,
+      employee_id_length: body.employee_id?.length,
+      dayStart: dayStart.toISOString(),
+      dayEnd: dayEnd.toISOString()
+    })
+    
     const { data: existingReports, error: findError } = await supabase
       .from('tracker_reports')
       .select('id, employee_id, report_date, created_at')
-      .eq('employee_id', body.employee_id)
+      .eq('employee_id', body.employee_id.trim()) // Trim para eliminar espacios
       .gte('report_date', dayStart.toISOString())
       .lt('report_date', dayEnd.toISOString())
       .order('created_at', { ascending: false })
       .limit(1)
+    
+    if (findError) {
+      console.error('❌ [TRACKER] Error buscando reporte existente:', findError)
+    } else {
+      console.log('📋 [TRACKER] Reportes existentes encontrados:', existingReports?.length || 0, existingReports)
+    }
 
     let report: { id: string; employee_id: string; report_date: string; created_at: string }
 
@@ -123,8 +138,14 @@ export async function POST(request: NextRequest) {
       console.log('✅ [TRACKER] Using existing report:', report.id)
     } else {
       // Crear nuevo reporte con la fecha al inicio del día
+      const trimmedEmployeeId = body.employee_id.trim()
+      console.log('📝 [TRACKER] Creando nuevo reporte:', {
+        employee_id: trimmedEmployeeId,
+        report_date: dayStart.toISOString()
+      })
+      
       const { data: reportData, error: reportError } = await supabase.rpc('insert_tracker_report', {
-        p_employee_id: body.employee_id,
+        p_employee_id: trimmedEmployeeId,
         p_report_date: dayStart.toISOString()
       })
 
@@ -205,9 +226,31 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`✅ [TRACKER] Report created: ${report.id} with ${insertedLogsCount} logs`)
+    
+    // Verificar que los logs se guardaron correctamente
+    const { data: verifyLogs, error: verifyError } = await supabase
+      .from('tracker_logs')
+      .select('id, domain, start_time')
+      .eq('report_id', report.id)
+      .limit(5)
+    
+    console.log('🔍 [TRACKER] Verificación de logs guardados:', {
+      report_id: report.id,
+      logs_found: verifyLogs?.length || 0,
+      sample_logs: verifyLogs,
+      verify_error: verifyError
+    })
 
     return NextResponse.json(
-      { success: true, report_id: report.id },
+      { 
+        success: true, 
+        report_id: report.id,
+        logs_inserted: insertedLogsCount,
+        verification: {
+          logs_found: verifyLogs?.length || 0,
+          sample_logs: verifyLogs?.slice(0, 3) || []
+        }
+      },
       { status: 200, headers }
     )
   } catch (error: any) {
