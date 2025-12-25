@@ -23,36 +23,19 @@ Análisis de Productividad:
 - Identifica patrones de comportamiento productivo vs no productivo
 - Detecta tiempos muertos y distracciones
 - Evalúa la distribución del tiempo por categorías
+- Calcula un "focusScore" (0-100) basado en concentración y productividad
+- Determina la tendencia de productividad: "improving", "stable", o "declining"
 
 Recomendaciones:
 - Sé específico y accionable
 - Prioriza las mejoras más impactantes
 - Considera el contexto del trabajo del empleado
 
-Tono y Formato:
+IMPORTANTE:
+- Si el prompt solicita JSON, responde SOLO con JSON válido, sin texto adicional
+- Si el prompt solicita texto, responde en formato Markdown
 - Sé profesional, directo y constructivo
-- Usa Markdown con negritas y listas
-- Sé empático pero objetivo
-- Responde en español
-
-ESTRUCTURA DE RESPUESTA REQUERIDA:
-
-📊 **Análisis del Rendimiento**
-[2-3 frases resumiendo el rendimiento general del día]
-
-✅ **Puntos Fuertes**
-- [Punto fuerte 1]
-- [Punto fuerte 2]
-- [Punto fuerte 3]
-
-⚠️ **Áreas de Mejora**
-- [Área de mejora 1 con recomendación específica]
-- [Área de mejora 2 con recomendación específica]
-
-💡 **Recomendaciones**
-- [Recomendación 1]
-- [Recomendación 2]
-- [Recomendación 3]`
+- Responde siempre en español`
 
 export async function POST(request: NextRequest) {
   try {
@@ -80,6 +63,9 @@ export async function POST(request: NextRequest) {
     const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 segundos
 
     try {
+      // Detectar si el prompt solicita JSON
+      const isJSONRequest = body.prompt.includes('JSON') || body.prompt.includes('json')
+      
       const completion = await openai.chat.completions.create(
         {
           model: 'gpt-4o',
@@ -89,6 +75,9 @@ export async function POST(request: NextRequest) {
           ],
           temperature: 0.5,
           max_tokens: 1000,
+          ...(isJSONRequest && {
+            response_format: { type: 'json_object' }
+          }),
         },
         { signal: controller.signal }
       )

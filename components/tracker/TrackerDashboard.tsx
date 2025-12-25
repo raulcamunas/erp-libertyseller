@@ -720,14 +720,15 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                         <TableHeader>
                                           <TableRow className="border-white/10">
                                             <TableHead className="text-white/70 text-xs">Hora Inicio</TableHead>
-                                            <TableHead className="text-white/70 text-xs">Duración</TableHead>
+                                            <TableHead className="text-white/70 text-xs">Hora Fin</TableHead>
+                                            <TableHead className="text-white/70 text-xs">Duración (s)</TableHead>
                                 <TableHead className="text-white/70 text-xs">Búsqueda</TableHead>
                                             <TableHead className="text-white/70 text-xs">Categoría</TableHead>
                                             <TableHead className="text-white/70 text-xs">Link</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                              {logsByDay[dayKey].map((log) => (
+                                          {logsByDay[dayKey].map((log) => (
                                             <TableRow key={log.id} className="border-white/10">
                                               <TableCell className="text-white/90 text-xs">
                                                 <div className="flex items-center gap-2">
@@ -736,7 +737,17 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                                 </div>
                                               </TableCell>
                                               <TableCell className="text-white/90 text-xs">
-                                                {formatDuration(log.duration_seconds)}
+                                                {log.end_time ? (
+                                                  <div className="flex items-center gap-2">
+                                                    <Clock className="h-3 w-3 text-white/50" />
+                                                    {formatTime(log.end_time)}
+                                                  </div>
+                                                ) : (
+                                                  <span className="text-white/50">-</span>
+                                                )}
+                                              </TableCell>
+                                              <TableCell className="text-white/90 text-xs font-medium">
+                                                {log.duration_seconds}s
                                               </TableCell>
                                               <TableCell className="text-white/90 text-xs">
                                                 {log.title || log.domain}
@@ -871,7 +882,8 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                   <TableHeader>
                     <TableRow className="border-white/10">
                       <TableHead className="text-white/70">Hora Inicio</TableHead>
-                      <TableHead className="text-white/70">Duración</TableHead>
+                      <TableHead className="text-white/70">Hora Fin</TableHead>
+                      <TableHead className="text-white/70">Duración (s)</TableHead>
                       <TableHead className="text-white/70">Búsqueda</TableHead>
                       <TableHead className="text-white/70">Categoría</TableHead>
                       <TableHead className="text-white/70">Link</TableHead>
@@ -887,7 +899,17 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                           </div>
                         </TableCell>
                         <TableCell className="text-white/90">
-                          {formatDuration(log.duration_seconds)}
+                          {log.end_time ? (
+                            <div className="flex items-center gap-2">
+                              <Clock className="h-4 w-4 text-white/50" />
+                              {formatTime(log.end_time)}
+                            </div>
+                          ) : (
+                            <span className="text-white/50">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-white/90 font-medium">
+                          {log.duration_seconds}s
                         </TableCell>
                         <TableCell className="text-white/90">
                           {log.title || log.domain}
