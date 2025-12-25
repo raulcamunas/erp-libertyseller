@@ -186,13 +186,6 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       // Obtener los IDs de los reportes
       const reportIds = reportsData.map(r => r.id)
 
-      // Obtener los logs de esos reportes en el rango de fechas
-      // Usar un rango más amplio para capturar logs que puedan estar cerca de los límites
-      const logsStartDate = new Date(startDate)
-      logsStartDate.setHours(0, 0, 0, 0)
-      const logsEndDate = new Date(endDate)
-      logsEndDate.setHours(23, 59, 59, 999)
-
       // Obtener logs con un rango amplio y luego filtrar por fecha local
       const logsStartDate = new Date(startDate)
       logsStartDate.setUTCHours(0, 0, 0, 0)
