@@ -701,101 +701,100 @@ Sé conciso y específico. Responde SOLO con el JSON, sin texto adicional.`
                       <p className="text-white/50 text-sm">Generando insights personalizados...</p>
                     </div>
                   </div>
-                ) : aiInsights && (
-                <div className="space-y-4">
-                  {aiInsights && (
+                ) : aiInsights ? (
+                  <div className="space-y-4">
                     <div className="text-white bg-white/5 p-4 rounded-lg border border-white/10">
                       <p className="text-sm leading-relaxed">{aiInsights}</p>
                     </div>
-                  )}
-                  
-                  {aiMetrics && (
-                    <>
-                      {/* Métricas mejoradas por IA */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-white/5 p-4 rounded-lg border border-white/10">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-white/70 text-sm">Puntuación de Enfoque</span>
-                            <span className={`text-lg font-bold ${
-                              aiMetrics.focusScore >= 70 ? 'text-green-400' :
-                              aiMetrics.focusScore >= 50 ? 'text-yellow-400' :
-                              'text-red-400'
-                            }`}>
-                              {aiMetrics.focusScore}/100
-                            </span>
-                          </div>
-                          <div className="w-full bg-white/10 rounded-full h-2">
-                            <div
-                              className={`h-2 rounded-full ${
-                                aiMetrics.focusScore >= 70 ? 'bg-green-400' :
-                                aiMetrics.focusScore >= 50 ? 'bg-yellow-400' :
-                                'bg-red-400'
-                              }`}
-                              style={{ width: `${aiMetrics.focusScore}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="bg-white/5 p-4 rounded-lg border border-white/10">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-white/70 text-sm">Tendencia de Productividad</span>
-                            <div className={`flex items-center gap-2 ${
-                              aiMetrics.productivityTrend === 'improving' ? 'text-green-400' :
-                              aiMetrics.productivityTrend === 'declining' ? 'text-red-400' :
-                              'text-yellow-400'
-                            }`}>
-                              {aiMetrics.productivityTrend === 'improving' && <TrendingUp className="h-4 w-4" />}
-                              {aiMetrics.productivityTrend === 'declining' && <TrendingDown className="h-4 w-4" />}
-                              {aiMetrics.productivityTrend === 'stable' && <Target className="h-4 w-4" />}
-                              <span className="text-sm font-semibold capitalize">
-                                {aiMetrics.productivityTrend === 'improving' ? 'Mejorando' :
-                                 aiMetrics.productivityTrend === 'declining' ? 'En Declive' :
-                                 'Estable'}
+                    
+                    {aiMetrics && (
+                      <>
+                        {/* Métricas mejoradas por IA */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="bg-white/5 p-4 rounded-lg border border-white/10">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-white/70 text-sm">Puntuación de Enfoque</span>
+                              <span className={`text-lg font-bold ${
+                                aiMetrics.focusScore >= 70 ? 'text-green-400' :
+                                aiMetrics.focusScore >= 50 ? 'text-yellow-400' :
+                                'text-red-400'
+                              }`}>
+                                {aiMetrics.focusScore}/100
                               </span>
+                            </div>
+                            <div className="w-full bg-white/10 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full ${
+                                  aiMetrics.focusScore >= 70 ? 'bg-green-400' :
+                                  aiMetrics.focusScore >= 50 ? 'bg-yellow-400' :
+                                  'bg-red-400'
+                                }`}
+                                style={{ width: `${aiMetrics.focusScore}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="bg-white/5 p-4 rounded-lg border border-white/10">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-white/70 text-sm">Tendencia de Productividad</span>
+                              <div className={`flex items-center gap-2 ${
+                                aiMetrics.productivityTrend === 'improving' ? 'text-green-400' :
+                                aiMetrics.productivityTrend === 'declining' ? 'text-red-400' :
+                                'text-yellow-400'
+                              }`}>
+                                {aiMetrics.productivityTrend === 'improving' && <TrendingUp className="h-4 w-4" />}
+                                {aiMetrics.productivityTrend === 'declining' && <TrendingDown className="h-4 w-4" />}
+                                {aiMetrics.productivityTrend === 'stable' && <Target className="h-4 w-4" />}
+                                <span className="text-sm font-semibold capitalize">
+                                  {aiMetrics.productivityTrend === 'improving' ? 'Mejorando' :
+                                   aiMetrics.productivityTrend === 'declining' ? 'En Declive' :
+                                   'Estable'}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Fortalezas y Debilidades */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {aiMetrics.recommendations && aiMetrics.recommendations.length > 0 && (
-                          <div className="bg-green-500/10 border border-green-500/30 p-4 rounded-lg">
-                            <h4 className="text-green-400 font-semibold mb-2 flex items-center gap-2">
-                              <TrendingUp className="h-4 w-4" />
-                              Recomendaciones
-                            </h4>
-                            <ul className="space-y-1">
-                              {aiMetrics.recommendations.map((rec, idx) => (
-                                <li key={idx} className="text-white/90 text-sm flex items-start gap-2">
-                                  <span className="text-green-400 mt-1">•</span>
-                                  <span>{rec}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                        {/* Fortalezas y Debilidades */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {aiMetrics.recommendations && aiMetrics.recommendations.length > 0 && (
+                            <div className="bg-green-500/10 border border-green-500/30 p-4 rounded-lg">
+                              <h4 className="text-green-400 font-semibold mb-2 flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4" />
+                                Recomendaciones
+                              </h4>
+                              <ul className="space-y-1">
+                                {aiMetrics.recommendations.map((rec, idx) => (
+                                  <li key={idx} className="text-white/90 text-sm flex items-start gap-2">
+                                    <span className="text-green-400 mt-1">•</span>
+                                    <span>{rec}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
 
-                        {aiMetrics.riskFactors && aiMetrics.riskFactors.length > 0 && (
-                          <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-lg">
-                            <h4 className="text-red-400 font-semibold mb-2 flex items-center gap-2">
-                              <AlertTriangle className="h-4 w-4" />
-                              Factores de Riesgo
-                            </h4>
-                            <ul className="space-y-1">
-                              {aiMetrics.riskFactors.map((risk, idx) => (
-                                <li key={idx} className="text-white/90 text-sm flex items-start gap-2">
-                                  <span className="text-red-400 mt-1">•</span>
-                                  <span>{risk}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
+                          {aiMetrics.riskFactors && aiMetrics.riskFactors.length > 0 && (
+                            <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-lg">
+                              <h4 className="text-red-400 font-semibold mb-2 flex items-center gap-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                Factores de Riesgo
+                              </h4>
+                              <ul className="space-y-1">
+                                {aiMetrics.riskFactors.map((risk, idx) => (
+                                  <li key={idx} className="text-white/90 text-sm flex items-start gap-2">
+                                    <span className="text-red-400 mt-1">•</span>
+                                    <span>{risk}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           )}
