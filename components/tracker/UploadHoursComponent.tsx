@@ -338,6 +338,13 @@ export function UploadHoursComponent({ employees, initialEmployee }: UploadHours
 
       // Subir un solo reporte con todos los logs
       try {
+        console.log('📤 [UPLOAD] Enviando request a /api/tracker/ingest:', {
+          employee_id: selectedEmployee,
+          report_date: reportDate,
+          logs_count: logs.length,
+          first_log: logs[0]
+        })
+
         const response = await fetch('/api/tracker/ingest', {
           method: 'POST',
           headers: {
@@ -351,24 +358,38 @@ export function UploadHoursComponent({ employees, initialEmployee }: UploadHours
         })
 
         const result = await response.json()
+        console.log('📥 [UPLOAD] Respuesta del servidor:', {
+          status: response.status,
+          ok: response.ok,
+          result
+        })
 
         if (!response.ok || !result.success) {
-          throw new Error(result.error || 'Error desconocido al subir el reporte')
+          const errorMsg = result.error || result.details || 'Error desconocido al subir el reporte'
+          console.error('❌ [UPLOAD] Error del servidor:', errorMsg)
+          throw new Error(errorMsg)
         }
 
+        console.log('✅ [UPLOAD] Reporte subido exitosamente:', result.report_id)
         toast.success(`✅ Se subió 1 paquete con ${logs.length} actividades correctamente`)
+        
+        // Limpiar estado después de éxito
+        setFile(null)
+        setPreview(null)
+        // No limpiar selectedEmployee para que el usuario pueda subir más archivos del mismo empleado
       } catch (err: any) {
-        throw new Error(`Error al subir los datos: ${err.message}`)
+        console.error('❌ [UPLOAD] Error completo:', err)
+        const errorMessage = err.message || 'Error desconocido al subir los datos'
+        throw new Error(errorMessage)
       }
-
-      // Limpiar estado
-      setFile(null)
-      setPreview(null)
-      setSelectedEmployee('')
     } catch (error: any) {
-      console.error('Error uploading CSV:', error)
-      setError(error.message || 'Error al procesar el archivo CSV')
-      toast.error(error.message || 'Error al procesar el archivo CSV')
+      console.error('❌ [UPLOAD] Error uploading CSV:', error)
+      const errorMessage = error.message || 'Error al procesar el archivo CSV'
+      setError(errorMessage)
+      toast.error(`Error: ${errorMessage}`, {
+        description: 'Revisa la consola del navegador para más detalles',
+        duration: 5000
+      })
     } finally {
       setUploading(false)
     }

@@ -32,19 +32,32 @@ export async function POST(request: NextRequest) {
 
   try {
     // Verificar variables de entorno
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      console.error('❌ [TRACKER] Missing Supabase environment variables')
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      console.error('❌ [TRACKER] Missing Supabase URL')
       return NextResponse.json(
         { success: false, error: 'Server configuration error' },
         { status: 500, headers }
       )
     }
 
-    // Crear cliente de Supabase público (sin autenticación)
+    // Usar service role key si está disponible (bypass RLS), sino usar anon key
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    
+    if (!supabaseKey) {
+      console.error('❌ [TRACKER] Missing Supabase key')
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500, headers }
+      )
+    }
+
+    // Crear cliente de Supabase
     const supabase = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      supabaseKey
     )
+    
+    console.log('🔑 [TRACKER] Using Supabase key type:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SERVICE_ROLE' : 'ANON')
 
     // Parsear body
     let body: TrackerIngestRequest
@@ -135,34 +148,57 @@ export async function POST(request: NextRequest) {
     const logErrors: any[] = []
     let insertedLogsCount = 0
     
-    for (const log of body.logs) {
-      const { error: logError } = await supabase.rpc('insert_tracker_log', {
-        p_report_id: report.id,
-        p_domain: log.domain,
-        p_url: log.url,
-        p_title: log.title || null,
-        p_duration_seconds: log.duration,
-        p_start_time: new Date(log.startTime).toISOString(),
-        p_end_time: log.endTime ? new Date(log.endTime).toISOString() : null,
-      })
+    console.log(`📝 [TRACKER] Insertando ${body.logs.length} logs en el reporte ${report.id}`)
+    
+    for (let i = 0; i < body.logs.length; i++) {
+      const log = body.logs[i]
+      try {
+        const { data: logData, error: logError } = await supabase.rpc('insert_tracker_log', {
+          p_report_id: report.id,
+          p_domain: log.domain,
+          p_url: log.url,
+          p_title: log.title || null,
+          p_duration_seconds: log.duration,
+          p_start_time: new Date(log.startTime).toISOString(),
+          p_end_time: log.endTime ? new Date(log.endTime).toISOString() : null,
+        })
 
-      if (logError) {
-        logErrors.push(logError)
-        console.error('❌ [TRACKER] Error inserting log:', logError)
-      } else {
-        insertedLogsCount++
+        if (logError) {
+          logErrors.push({ index: i, log, error: logError })
+          console.error(`❌ [TRACKER] Error inserting log ${i + 1}/${body.logs.length}:`, {
+            log: { domain: log.domain, url: log.url, startTime: log.startTime },
+            error: logError
+          })
+        } else {
+          insertedLogsCount++
+          if (i < 3 || i === body.logs.length - 1) {
+            console.log(`✅ [TRACKER] Log ${i + 1}/${body.logs.length} insertado:`, logData)
+          }
+        }
+      } catch (err: any) {
+        logErrors.push({ index: i, log, error: { message: err.message, stack: err.stack } })
+        console.error(`❌ [TRACKER] Exception inserting log ${i + 1}:`, err)
       }
     }
 
     if (logErrors.length > 0) {
-      console.error('❌ [TRACKER] Error inserting tracker logs:', logErrors)
+      console.error('❌ [TRACKER] Error inserting tracker logs:', {
+        total_errors: logErrors.length,
+        total_logs: body.logs.length,
+        errors: logErrors
+      })
       // Intentar eliminar el reporte si falla la inserción de logs
-      await supabase.from('tracker_reports').delete().eq('id', report.id)
+      try {
+        await supabase.from('tracker_reports').delete().eq('id', report.id)
+      } catch (deleteErr) {
+        console.error('❌ [TRACKER] Error deleting report after log failure:', deleteErr)
+      }
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Failed to insert logs',
-          details: logErrors[0]?.message || 'Unknown error'
+          error: `Failed to insert ${logErrors.length} of ${body.logs.length} logs`,
+          details: logErrors[0]?.error?.message || logErrors[0]?.error || 'Unknown error',
+          errors: logErrors.map(e => ({ index: e.index, error: e.error }))
         },
         { status: 500, headers }
       )
