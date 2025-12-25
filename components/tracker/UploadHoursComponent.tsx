@@ -214,7 +214,7 @@ export function UploadHoursComponent({ employees, initialEmployee }: UploadHours
         }
 
         // Crear fecha/hora de inicio en hora local
-        // Usar el constructor de Date con parámetros locales para evitar problemas de zona horaria
+        // El CSV tiene horas en hora local, así que las mantenemos así
         const startDateTime = new Date(año, mes - 1, dia, hora, minuto, segundo || 0)
         
         // Verificar que la fecha sea válida
@@ -311,37 +311,31 @@ export function UploadHoursComponent({ employees, initialEmployee }: UploadHours
 
       // Usar la fecha del primer log redondeada al inicio del día como report_date
       // Esto permite que múltiples CSV del mismo día se agreguen al mismo reporte
+      // El report_date se guarda como UTC al inicio del día (00:00:00 UTC)
       const reportDate = firstLogDate 
         ? (() => {
-            // Crear fecha al inicio del día en hora local (00:00:00)
-            // Usar los valores locales para evitar problemas de zona horaria
-            const year = firstLogDate.getFullYear()
-            const month = firstLogDate.getMonth()
-            const day = firstLogDate.getDate()
+            // Obtener año, mes y día del primer log
+            const year = firstLogDate.getUTCFullYear()
+            const month = firstLogDate.getUTCMonth()
+            const day = firstLogDate.getUTCDate()
             
-            // Crear fecha en hora local (no UTC)
-            const dayStart = new Date(year, month, day, 0, 0, 0, 0)
-            
-            // Convertir a UTC manteniendo la fecha local
-            // Esto asegura que el report_date represente el inicio del día en la zona horaria local
+            // Crear fecha UTC al inicio del día (00:00:00 UTC)
             const utcDayStart = new Date(Date.UTC(year, month, day, 0, 0, 0, 0))
             
             console.log('📅 [UPLOAD] Report date calculation:', {
               firstLogDate: firstLogDate.toISOString(),
-              firstLogDate_local: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-              dayStart_local: dayStart.toISOString(),
+              firstLogDate_utc: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
               dayStart_utc: utcDayStart.toISOString(),
-              dateString: format(dayStart, 'yyyy-MM-dd')
+              dateString: format(utcDayStart, 'yyyy-MM-dd')
             })
             
-            // Usar UTC para mantener consistencia con Supabase
             return utcDayStart.toISOString()
           })()
         : (() => {
             const now = new Date()
-            const year = now.getFullYear()
-            const month = now.getMonth()
-            const day = now.getDate()
+            const year = now.getUTCFullYear()
+            const month = now.getUTCMonth()
+            const day = now.getUTCDate()
             const utcDayStart = new Date(Date.UTC(year, month, day, 0, 0, 0, 0))
             return utcDayStart.toISOString()
           })()

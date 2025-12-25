@@ -113,78 +113,42 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         endDate = endOfDay(parseISO(selectedDate))
       }
 
-      // Obtener reportes del rango seleccionado
-      // El report_date se guarda como UTC al inicio del día local (00:00:00 local convertido a UTC)
-      // Si el usuario está en UTC+1 (España), el día 25 local (00:00:00) = día 24 UTC (23:00:00)
-      // Necesitamos buscar en un rango amplio que cubra ±1 día en UTC
-      
-      // Convertir las fechas de inicio y fin a UTC para la búsqueda
-      // Restar 2 días en UTC para capturar reportes del día anterior
-      const startDateUTC = new Date(startDate)
-      startDateUTC.setUTCHours(0, 0, 0, 0)
-      startDateUTC.setUTCDate(startDateUTC.getUTCDate() - 2) // -2 días para estar seguros
-      
-      const endDateUTC = new Date(endDate)
-      endDateUTC.setUTCHours(23, 59, 59, 999)
-      endDateUTC.setUTCDate(endDateUTC.getUTCDate() + 2) // +2 días para estar seguros
-      
-      const extendedStartDateForReports = startDateUTC
-      const extendedEndDateForReports = endDateUTC
-      
-      console.log('🔍 [TRACKER] Buscando reportes:', {
-        employee: selectedEmployee,
-        startDate: extendedStartDateForReports.toISOString(),
-        endDate: extendedEndDateForReports.toISOString(),
-        selectedDate
-      })
-
-      // Limpiar el employee_id para la búsqueda (trim)
+      // Simplificar: obtener TODOS los reportes del empleado y filtrar por logs después
+      // Esto evita problemas de zona horaria con report_date
       const cleanEmployeeId = selectedEmployee.trim()
       
-      console.log('🔍 [TRACKER] Buscando reportes con employee_id:', {
-        original: selectedEmployee,
-        cleaned: cleanEmployeeId,
-        length: cleanEmployeeId.length
-      })
-
-      console.log('🔍 [TRACKER] Rango de búsqueda de reportes:', {
-        start: extendedStartDateForReports.toISOString(),
-        end: extendedEndDateForReports.toISOString(),
-        start_local: format(extendedStartDateForReports, 'yyyy-MM-dd HH:mm:ss'),
-        end_local: format(extendedEndDateForReports, 'yyyy-MM-dd HH:mm:ss'),
+      console.log('🔍 [TRACKER] Buscando TODOS los reportes del empleado:', {
+        employee: cleanEmployeeId,
         selectedDate_start: format(startDate, 'yyyy-MM-dd'),
         selectedDate_end: format(endDate, 'yyyy-MM-dd')
       })
 
-      const { data: reportsData, error: reportsError } = await supabase
+      // Obtener todos los reportes del empleado (sin filtrar por fecha)
+      const { data: allReportsData, error: reportsError } = await supabase
         .from('tracker_reports')
         .select('id, employee_id, report_date, created_at')
         .eq('employee_id', cleanEmployeeId)
-        .gte('report_date', extendedStartDateForReports.toISOString())
-        .lte('report_date', extendedEndDateForReports.toISOString())
         .order('report_date', { ascending: true })
+      
+      console.log('📋 [TRACKER] Todos los reportes del empleado:', allReportsData?.length || 0)
 
       if (reportsError) {
         console.error('❌ [TRACKER] Error loading reports:', reportsError)
         throw reportsError
       }
 
-      console.log('📊 [TRACKER] Reportes encontrados:', reportsData?.length || 0, reportsData?.map(r => ({
-        id: r.id,
-        report_date: r.report_date,
-        created_at: r.created_at
-      })))
-
       // Si no hay reportes, no hay nada que mostrar
-      if (!reportsData || reportsData.length === 0) {
-        console.log('⚠️ [TRACKER] No se encontraron reportes para:', { employee: selectedEmployee, selectedDate })
+      if (!allReportsData || allReportsData.length === 0) {
+        console.log('⚠️ [TRACKER] No se encontraron reportes para:', { employee: selectedEmployee })
         setReports([])
         setLoading(false)
         return
       }
 
-      // Obtener los IDs de los reportes
-      const reportIds = reportsData.map(r => r.id)
+      // Obtener los IDs de todos los reportes
+      const reportIds = allReportsData.map(r => r.id)
+      
+      console.log('📊 [TRACKER] Total reportes encontrados:', allReportsData.length, 'IDs:', reportIds)
 
       // Obtener logs con un rango amplio y luego filtrar por fecha local
       const logsStartDate = new Date(startDate)
@@ -217,18 +181,30 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       }
 
       // Filtrar logs que realmente correspondan a los días seleccionados (fecha local)
+      // Crear un set de días válidos para comparación rápida
+      const validDays = new Set<string>()
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        validDays.add(format(d, 'yyyy-MM-dd'))
+      }
+      
+      console.log('📅 [TRACKER] Días válidos para filtrar:', Array.from(validDays))
+      
       const logsData = (allLogsData || []).filter(log => {
         const logDate = new Date(log.start_time)
         const logDateLocal = format(logDate, 'yyyy-MM-dd')
+        const isValid = validDays.has(logDateLocal)
         
-        // Verificar si el log corresponde a alguno de los días en el rango
-        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-          const dayStr = format(d, 'yyyy-MM-dd')
-          if (logDateLocal === dayStr) {
-            return true
-          }
+        // Loggear algunos ejemplos para debugging
+        if (allLogsData && allLogsData.length > 0 && allLogsData.length < 20) {
+          console.log('🔍 [TRACKER] Log:', {
+            start_time: log.start_time,
+            date_local: logDateLocal,
+            isValid,
+            in_valid_days: validDays.has(logDateLocal)
+          })
         }
-        return false
+        
+        return isValid
       })
       
       console.log('📊 [TRACKER] Logs encontrados:', {
@@ -248,11 +224,16 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         return
       }
 
-      // Agrupar logs por reporte
-      const reportsWithLogs: TrackerReport[] = reportsData.map(report => ({
-        ...report,
-        logs: (logsData || []).filter(log => log.report_id === report.id)
-      })).filter(report => report.logs.length > 0) // Solo reportes con logs
+      // Agrupar logs por reporte, pero solo incluir reportes que tengan logs en el rango de fechas seleccionado
+      const reportsWithLogs: TrackerReport[] = allReportsData
+        .map(report => ({
+          ...report,
+          logs: (logsData || []).filter(log => log.report_id === report.id)
+        }))
+        .filter(report => report.logs.length > 0) // Solo reportes con logs en el rango
+
+      console.log('✅ [TRACKER] Reportes con logs en el rango:', reportsWithLogs.length)
+      console.log('📊 [TRACKER] Total logs en reportes:', reportsWithLogs.reduce((sum, r) => sum + r.logs.length, 0))
 
       setReports(reportsWithLogs)
     } catch (error) {
