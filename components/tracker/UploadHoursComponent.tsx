@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 
 interface UploadHoursComponentProps {
   employees: string[]
+  initialEmployee?: string
 }
 
 interface CSVRow {
@@ -26,13 +27,44 @@ interface CSVRow {
   URL?: string
 }
 
-export function UploadHoursComponent({ employees }: UploadHoursComponentProps) {
-  const [selectedEmployee, setSelectedEmployee] = useState<string>('')
+export function UploadHoursComponent({ employees, initialEmployee }: UploadHoursComponentProps) {
+  const [selectedEmployee, setSelectedEmployee] = useState<string>(initialEmployee || employees[0] || '')
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [preview, setPreview] = useState<CSVRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isEmployee, setIsEmployee] = useState(false)
   const supabase = createClient()
+
+  // Verificar si el usuario es empleado
+  useEffect(() => {
+    const checkUserRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role, full_name, email')
+          .eq('id', user.id)
+          .single()
+
+        if (profile && profile.role === 'employee') {
+          setIsEmployee(true)
+          // Si es empleado y hay un initialEmployee, asegurarse de que esté seleccionado
+          if (initialEmployee) {
+            setSelectedEmployee(initialEmployee)
+          } else {
+            // Usar el nombre del perfil o email
+            const employeeName = profile.full_name || profile.email || ''
+            if (employeeName) {
+              setSelectedEmployee(employeeName)
+            }
+          }
+        }
+      }
+    }
+    checkUserRole()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEmployee])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
@@ -282,24 +314,35 @@ export function UploadHoursComponent({ employees }: UploadHoursComponentProps) {
           {/* Selector de Empleado */}
           <div className="space-y-2">
             <Label htmlFor="employee" className="text-white/70">Empleado</Label>
-            <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-              <SelectTrigger id="employee" className="bg-white/[0.05] border-white/10 text-white">
-                <SelectValue placeholder="Seleccionar empleado" />
-              </SelectTrigger>
-              <SelectContent>
-                {employees.length === 0 ? (
-                  <SelectItem value="no-employees" disabled>
-                    No hay empleados disponibles
-                  </SelectItem>
-                ) : (
-                  employees.map(emp => (
-                    <SelectItem key={emp} value={emp}>
-                      {emp}
+            {isEmployee && employees.length === 1 ? (
+              // Si es empleado y solo hay una opción, mostrar como texto fijo
+              <div className="bg-white/[0.05] border border-white/10 rounded-md px-3 py-2 text-white">
+                {selectedEmployee || employees[0]}
+              </div>
+            ) : (
+              <Select 
+                value={selectedEmployee} 
+                onValueChange={setSelectedEmployee}
+                disabled={isEmployee && employees.length === 1}
+              >
+                <SelectTrigger id="employee" className="bg-white/[0.05] border-white/10 text-white">
+                  <SelectValue placeholder="Seleccionar empleado" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.length === 0 ? (
+                    <SelectItem value="no-employees" disabled>
+                      No hay empleados disponibles
                     </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+                  ) : (
+                    employees.map(emp => (
+                      <SelectItem key={emp} value={emp}>
+                        {emp}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           {/* Área de Drop */}
