@@ -59,7 +59,10 @@ export default async function LinkedInPage() {
         <LinkedInHeaderButton />
       </div>
 
-      <LinkedInDashboard initialCompanies={companiesWithProspects} />
+      <LinkedInDashboard 
+        initialCompanies={companiesWithProspects} 
+        userRole={profile.role || 'employee'} 
+      />
     </div>
   )
 }

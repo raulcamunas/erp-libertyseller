@@ -24,17 +24,20 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts'
-import { format, differenceInCalendarDays, startOfDay } from 'date-fns'
+import { format, differenceInCalendarDays, startOfDay, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
+import { LinkedInLogsTab } from './LinkedInLogsTab'
 
 interface LinkedInDashboardProps {
   initialCompanies: CompanyWithProspects[]
+  userRole?: string
 }
 
-export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) {
+export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: LinkedInDashboardProps) {
   const [companies, setCompanies] = useState<CompanyWithProspects[]>(initialCompanies)
-  const [activeTab, setActiveTab] = useState<'companies' | 'followup' | 'metrics'>('companies')
+  const [activeTab, setActiveTab] = useState<'companies' | 'followup' | 'metrics' | 'logs'>('companies')
+  const isAdmin = userRole === 'admin'
   const [selectedProspect, setSelectedProspect] = useState<CompanyProspect | null>(null)
   const [isProspectModalOpen, setIsProspectModalOpen] = useState(false)
   const [isAddCompanyModalOpen, setIsAddCompanyModalOpen] = useState(false)
@@ -344,6 +347,7 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
             <TabsTrigger value="companies">Empresas</TabsTrigger>
             <TabsTrigger value="followup">Seguimiento</TabsTrigger>
             <TabsTrigger value="metrics">Métricas</TabsTrigger>
+            {isAdmin && <TabsTrigger value="logs">Logs</TabsTrigger>}
           </TabsList>
         </div>
 
@@ -616,6 +620,13 @@ export function LinkedInDashboard({ initialCompanies }: LinkedInDashboardProps) 
             </div>
           </div>
         </TabsContent>
+
+        {/* Pestaña de Logs - Solo para Admin */}
+        {isAdmin && (
+          <TabsContent value="logs" className="mt-6">
+            <LinkedInLogsTab />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Modales */}
