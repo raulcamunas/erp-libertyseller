@@ -11,6 +11,7 @@ import { Upload, FileText, CheckCircle2, AlertCircle, Loader2 } from 'lucide-rea
 import { useDropzone } from 'react-dropzone'
 import { parseCSV, getVal } from '@/lib/utils/csv-parser'
 import { toast } from 'sonner'
+import { format } from 'date-fns'
 
 interface UploadHoursComponentProps {
   employees: string[]
@@ -177,27 +178,87 @@ export function UploadHoursComponent({ employees, initialEmployee }: UploadHours
           continue
         }
 
-        // Parsear hora inicio (formato: 16:59:11)
-        const [hora, minuto, segundo] = horaInicio.split(':').map(Number)
+        // Parsear hora inicio (puede ser formato 24h: 16:59:11 o 12h: 3:32:31 p. m.)
+        let hora: number, minuto: number, segundo: number = 0
+        
+        // Detectar si es formato 12 horas (contiene "a. m." o "p. m.")
+        const horaLower = horaInicio.toLowerCase().trim()
+        const isPM = horaLower.includes('p. m.') || horaLower.includes('pm')
+        const isAM = horaLower.includes('a. m.') || horaLower.includes('am')
+        
+        if (isPM || isAM) {
+          // Formato 12 horas: "3:32:31 p. m."
+          const horaSinAMPM = horaInicio.replace(/[ap]\.?\s*m\.?/gi, '').trim()
+          const partes = horaSinAMPM.split(':').map(Number)
+          hora = partes[0] || 0
+          minuto = partes[1] || 0
+          segundo = partes[2] || 0
+          
+          // Convertir a 24 horas
+          if (isPM && hora !== 12) {
+            hora = hora + 12
+          } else if (isAM && hora === 12) {
+            hora = 0
+          }
+        } else {
+          // Formato 24 horas: "16:59:11"
+          const partes = horaInicio.split(':').map(Number)
+          hora = partes[0]
+          minuto = partes[1] || 0
+          segundo = partes[2] || 0
+        }
+        
         if (hora === undefined || minuto === undefined) {
           console.warn('Hora inicio inválida, saltando:', horaInicio)
           continue
         }
 
-        // Crear fecha/hora de inicio
-        // Interpretar el CSV como si las horas estuvieran en hora local
-        // y luego convertir a ISO string (que se guarda en UTC en la BD)
+        // Crear fecha/hora de inicio en hora local
+        // Usar el constructor de Date con parámetros locales para evitar problemas de zona horaria
         const startDateTime = new Date(año, mes - 1, dia, hora, minuto, segundo || 0)
+        
+        // Verificar que la fecha sea válida
+        if (isNaN(startDateTime.getTime())) {
+          console.warn('Fecha/hora inválida, saltando:', { fecha, horaInicio, año, mes, dia, hora, minuto })
+          continue
+        }
 
         // Guardar la fecha del primer log para usarla como report_date
         if (!firstLogDate) {
           firstLogDate = new Date(startDateTime)
         }
 
-        // Crear fecha/hora de fin si existe
+        // Crear fecha/hora de fin si existe (puede ser formato 12h o 24h)
         let endDateTime: Date | null = null
         if (horaFin) {
-          const [horaFinNum, minutoFin, segundoFin] = horaFin.split(':').map(Number)
+          let horaFinNum: number, minutoFin: number, segundoFin: number = 0
+          
+          const horaFinLower = horaFin.toLowerCase().trim()
+          const isPMFin = horaFinLower.includes('p. m.') || horaFinLower.includes('pm')
+          const isAMFin = horaFinLower.includes('a. m.') || horaFinLower.includes('am')
+          
+          if (isPMFin || isAMFin) {
+            // Formato 12 horas
+            const horaSinAMPM = horaFin.replace(/[ap]\.?\s*m\.?/gi, '').trim()
+            const partes = horaSinAMPM.split(':').map(Number)
+            horaFinNum = partes[0] || 0
+            minutoFin = partes[1] || 0
+            segundoFin = partes[2] || 0
+            
+            // Convertir a 24 horas
+            if (isPMFin && horaFinNum !== 12) {
+              horaFinNum = horaFinNum + 12
+            } else if (isAMFin && horaFinNum === 12) {
+              horaFinNum = 0
+            }
+          } else {
+            // Formato 24 horas
+            const partes = horaFin.split(':').map(Number)
+            horaFinNum = partes[0]
+            minutoFin = partes[1] || 0
+            segundoFin = partes[2] || 0
+          }
+          
           if (horaFinNum !== undefined && minutoFin !== undefined) {
             endDateTime = new Date(año, mes - 1, dia, horaFinNum, minutoFin, segundoFin || 0)
           }
@@ -252,15 +313,28 @@ export function UploadHoursComponent({ employees, initialEmployee }: UploadHours
       // Esto permite que múltiples CSV del mismo día se agreguen al mismo reporte
       const reportDate = firstLogDate 
         ? (() => {
-            const dayStart = new Date(firstLogDate)
-            dayStart.setHours(0, 0, 0, 0)
+            // Crear fecha al inicio del día en hora local
+            const dayStart = new Date(firstLogDate.getFullYear(), firstLogDate.getMonth(), firstLogDate.getDate(), 0, 0, 0)
+            console.log('📅 [UPLOAD] Report date:', {
+              firstLogDate: firstLogDate.toISOString(),
+              dayStart: dayStart.toISOString(),
+              dateString: format(dayStart, 'yyyy-MM-dd')
+            })
             return dayStart.toISOString()
           })()
         : (() => {
             const now = new Date()
-            now.setHours(0, 0, 0, 0)
-            return now.toISOString()
+            const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+            return dayStart.toISOString()
           })()
+      
+      console.log('📤 [UPLOAD] Subiendo reporte:', {
+        employee: selectedEmployee,
+        reportDate,
+        logsCount: logs.length,
+        firstLogTime: logs[0]?.startTime,
+        lastLogTime: logs[logs.length - 1]?.startTime
+      })
 
       // Subir un solo reporte con todos los logs
       try {

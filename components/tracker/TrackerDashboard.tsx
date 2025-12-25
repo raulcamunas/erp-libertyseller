@@ -121,18 +121,41 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       extendedEndDate.setHours(23, 59, 59, 999)
 
       // Primero obtener los reportes del empleado en el rango de fechas
+      // Usar un rango más amplio para capturar reportes que puedan estar en diferentes zonas horarias
+      const extendedStartDateForReports = new Date(startDate)
+      extendedStartDateForReports.setHours(-12, 0, 0, 0) // 12 horas antes para capturar reportes de diferentes zonas horarias
+      const extendedEndDateForReports = new Date(endDate)
+      extendedEndDateForReports.setHours(36, 0, 0, 0) // 36 horas después
+      
+      console.log('🔍 [TRACKER] Buscando reportes:', {
+        employee: selectedEmployee,
+        startDate: extendedStartDateForReports.toISOString(),
+        endDate: extendedEndDateForReports.toISOString(),
+        selectedDate
+      })
+
       const { data: reportsData, error: reportsError } = await supabase
         .from('tracker_reports')
         .select('id, employee_id, report_date, created_at')
         .eq('employee_id', selectedEmployee)
-        .gte('report_date', extendedStartDate.toISOString())
-        .lte('report_date', extendedEndDate.toISOString())
+        .gte('report_date', extendedStartDateForReports.toISOString())
+        .lte('report_date', extendedEndDateForReports.toISOString())
         .order('report_date', { ascending: true })
 
-      if (reportsError) throw reportsError
+      if (reportsError) {
+        console.error('❌ [TRACKER] Error loading reports:', reportsError)
+        throw reportsError
+      }
+
+      console.log('📊 [TRACKER] Reportes encontrados:', reportsData?.length || 0, reportsData?.map(r => ({
+        id: r.id,
+        report_date: r.report_date,
+        created_at: r.created_at
+      })))
 
       // Si no hay reportes, no hay nada que mostrar
       if (!reportsData || reportsData.length === 0) {
+        console.log('⚠️ [TRACKER] No se encontraron reportes para:', { employee: selectedEmployee, selectedDate })
         setReports([])
         setLoading(false)
         return
@@ -148,6 +171,12 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       const logsEndDate = new Date(endDate)
       logsEndDate.setHours(23, 59, 59, 999)
 
+      console.log('🔍 [TRACKER] Buscando logs:', {
+        reportIds: reportIds.length,
+        logsStartDate: logsStartDate.toISOString(),
+        logsEndDate: logsEndDate.toISOString()
+      })
+
       const { data: logsData, error: logsError } = await supabase
         .from('tracker_logs')
         .select('*')
@@ -156,10 +185,16 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         .lte('start_time', logsEndDate.toISOString())
         .order('start_time', { ascending: true })
 
-      if (logsError) throw logsError
+      if (logsError) {
+        console.error('❌ [TRACKER] Error loading logs:', logsError)
+        throw logsError
+      }
+
+      console.log('📊 [TRACKER] Logs encontrados:', logsData?.length || 0)
 
       // Si no hay logs, no hay nada que mostrar
       if (!logsData || logsData.length === 0) {
+        console.log('⚠️ [TRACKER] No se encontraron logs para los reportes:', reportIds)
         setReports([])
         setLoading(false)
         return
