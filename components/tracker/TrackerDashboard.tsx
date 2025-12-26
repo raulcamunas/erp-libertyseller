@@ -129,7 +129,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         .select('id, employee_id, report_date, created_at')
         .eq('employee_id', cleanEmployeeId)
         .order('report_date', { ascending: true })
-      
+
       console.log('📋 [TRACKER] Todos los reportes del empleado:', allReportsData?.length || 0)
 
       if (reportsError) {
@@ -227,8 +227,8 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       // Agrupar logs por reporte, pero solo incluir reportes que tengan logs en el rango de fechas seleccionado
       const reportsWithLogs: TrackerReport[] = allReportsData
         .map(report => ({
-          ...report,
-          logs: (logsData || []).filter(log => log.report_id === report.id)
+        ...report,
+        logs: (logsData || []).filter(log => log.report_id === report.id)
         }))
         .filter(report => report.logs.length > 0) // Solo reportes con logs en el rango
 
@@ -411,9 +411,34 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     }> = {}
     
     Object.entries(logsByDay).forEach(([dayKey, logs]) => {
-      const totalSeconds = logs.reduce((sum, log) => sum + log.duration_seconds, 0)
-      const byCategory: Record<string, number> = {}
+      // Calcular tiempo total como diferencia entre primera hora de inicio y última hora de fin
+      let totalSeconds = 0
+      if (logs.length > 0) {
+        // Ordenar logs por start_time
+        const sortedLogs = [...logs].sort((a, b) => 
+          new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+        )
+        
+        const firstLog = sortedLogs[0]
+        const lastLog = sortedLogs[sortedLogs.length - 1]
+        
+        const firstStartTime = new Date(firstLog.start_time).getTime()
+        // Usar end_time si existe, sino usar start_time + duration_seconds
+        const lastEndTime = lastLog.end_time 
+          ? new Date(lastLog.end_time).getTime()
+          : new Date(lastLog.start_time).getTime() + (lastLog.duration_seconds * 1000)
+        
+        // Calcular diferencia en segundos
+        totalSeconds = Math.floor((lastEndTime - firstStartTime) / 1000)
+        
+        // Asegurarse de que no sea negativo
+        if (totalSeconds < 0) {
+          totalSeconds = 0
+        }
+      }
       
+      // Calcular por categoría (mantener suma de duraciones para las categorías)
+      const byCategory: Record<string, number> = {}
       logs.forEach(log => {
         const category = log.category || 'Other'
         byCategory[category] = (byCategory[category] || 0) + log.duration_seconds
@@ -535,13 +560,13 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
             <Target className="h-4 w-4 mr-2" />
             Gestionar Rendimiento
           </Button>
-          <Button
-            onClick={() => router.push('/dashboard/tracker/employees')}
-            className="bg-[#FF6600] hover:bg-[#FF8533] text-white"
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Gestión de Empleados
-          </Button>
+        <Button
+          onClick={() => router.push('/dashboard/tracker/employees')}
+          className="bg-[#FF6600] hover:bg-[#FF8533] text-white"
+        >
+          <Users className="h-4 w-4 mr-2" />
+          Gestión de Empleados
+        </Button>
         </div>
       </div>
 
