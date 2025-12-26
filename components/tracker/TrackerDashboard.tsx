@@ -314,9 +314,12 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     return `${secs}s`
   }
 
-  // Formatear hora
+  // Formatear hora (ajustada a zona horaria de Colombia UTC-5, pero usando -6h como indicado)
   const formatTime = (dateString: string): string => {
-    return format(parseISO(dateString), 'HH:mm', { locale: es })
+    const date = parseISO(dateString)
+    // Ajustar a hora de Colombia: restar 6 horas (21600000 ms)
+    const colombiaTime = new Date(date.getTime() - (6 * 60 * 60 * 1000))
+    return format(colombiaTime, 'HH:mm', { locale: es })
   }
 
   // Formatear horas totales
@@ -478,12 +481,16 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     const minTime = new Date(Math.min(...times.map(t => t.getTime())))
     const maxTime = new Date(Math.max(...times.map(t => t.getTime())))
     
-    const minHour = format(minTime, 'HH:mm')
-    const maxHour = format(maxTime, 'HH:mm')
+    // Ajustar a hora de Colombia: restar 6 horas
+    const minTimeColombia = new Date(minTime.getTime() - (6 * 60 * 60 * 1000))
+    const maxTimeColombia = new Date(maxTime.getTime() - (6 * 60 * 60 * 1000))
+    
+    const minHour = format(minTimeColombia, 'HH:mm')
+    const maxHour = format(maxTimeColombia, 'HH:mm')
     
     // Si es el mismo rango, mostrar solo una hora
     if (minHour === maxHour) {
-      return `${format(minTime, 'HH')}h`
+      return `${format(minTimeColombia, 'HH')}h`
     }
     
     return `${format(minTime, 'HH')}h - ${format(maxTime, 'HH')}h`
