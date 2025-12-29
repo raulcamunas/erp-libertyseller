@@ -32,3 +32,4 @@ $$;
 -- Permitir que usuarios autenticados ejecuten esta función
 GRANT EXECUTE ON FUNCTION public.delete_tracker_reports TO authenticated;
 
+

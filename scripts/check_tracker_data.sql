@@ -48,3 +48,4 @@ SELECT
 FROM pg_proc
 WHERE proname = 'insert_tracker_log';
 
+

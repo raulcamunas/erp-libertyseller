@@ -32,3 +32,4 @@ ALTER TABLE public.tracker_logs ADD COLUMN category TEXT GENERATED ALWAYS AS (
 DROP INDEX IF EXISTS idx_tracker_logs_category;
 CREATE INDEX IF NOT EXISTS idx_tracker_logs_category ON public.tracker_logs(category);
 
+

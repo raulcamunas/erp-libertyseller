@@ -2792,16 +2792,6 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
       {fabricanteModalOpen && (
         <div 
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
-          style={{ 
-            position: 'fixed', 
-            top: 0, 
-            left: 0, 
-            right: 0, 
-            bottom: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setFabricanteModalOpen(null)
@@ -2809,11 +2799,7 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
           }}
         >
           <div 
-            className="glass-card p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-            style={{ 
-              margin: '0 auto',
-              position: 'relative'
-            }}
+            className="glass-card p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto rounded-lg"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-6">

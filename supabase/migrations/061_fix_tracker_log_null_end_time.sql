@@ -50,3 +50,4 @@ $$;
 GRANT EXECUTE ON FUNCTION public.insert_tracker_log TO anon;
 GRANT EXECUTE ON FUNCTION public.insert_tracker_log TO authenticated;
 
+
