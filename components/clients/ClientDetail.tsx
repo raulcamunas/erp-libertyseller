@@ -2791,7 +2791,7 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
       {/* Modal de Datos de Contacto del Fabricante */}
       {fabricanteModalOpen && (
         <div 
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setFabricanteModalOpen(null)
@@ -2799,7 +2799,7 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
           }}
         >
           <div 
-            className="glass-card p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto rounded-lg"
+            className="glass-card p-6 max-w-5xl w-full my-auto rounded-lg"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-6">
@@ -2812,7 +2812,7 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[70vh] overflow-y-auto pr-2">
               {/* Nombre o empresa */}
               <div>
                 <label className="block text-sm font-medium text-white/70 mb-2">
@@ -3112,6 +3112,7 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
                   className="input-glass"
                 />
               </div>
+            </div>
             </div>
 
             <div className="flex gap-3 mt-6">
