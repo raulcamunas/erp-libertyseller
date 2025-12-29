@@ -3113,7 +3113,6 @@ export function ClientDetail({ client, initialTasks, initialMembers = [], allUse
                 />
               </div>
             </div>
-            </div>
 
             <div className="flex gap-3 mt-6">
               <Button
