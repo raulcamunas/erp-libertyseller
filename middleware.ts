@@ -74,9 +74,9 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // Ruta /dashboard/* - Admins y employees
+    // Ruta /dashboard/* - Admins, employees y partners
     if (pathname.startsWith('/dashboard')) {
-      if (userRole !== 'admin' && userRole !== 'employee') {
+      if (userRole !== 'admin' && userRole !== 'employee' && userRole !== 'partner') {
         const url = request.nextUrl.clone()
         url.pathname = '/auth/login'
         return NextResponse.redirect(url)
@@ -97,7 +97,29 @@ export async function middleware(request: NextRequest) {
         }
       }
 
-      // Verificar permisos por aplicación (excepto para admins y rutas especiales)
+      // Protección para partners: solo pueden acceder a /dashboard/clients si son miembros
+      if (userRole === 'partner' && pathname.startsWith('/dashboard/clients')) {
+        const { data: memberClients } = await supabase
+          .from('client_members')
+          .select('client_id')
+          .eq('user_id', user.id)
+          .limit(1)
+        
+        if (!memberClients || memberClients.length === 0) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
+      // Bloquear partners de otras rutas excepto /dashboard y /dashboard/clients
+      if (userRole === 'partner' && pathname !== '/dashboard' && !pathname.startsWith('/dashboard/clients')) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/dashboard'
+        return NextResponse.redirect(url)
+      }
+
+      // Verificar permisos por aplicación (excepto para admins, partners y rutas especiales)
       if (userRole === 'employee' && pathname !== '/dashboard' && pathname !== '/dashboard/users') {
         // Mapear rutas a app_ids
         const routeToAppId: Record<string, string> = {
