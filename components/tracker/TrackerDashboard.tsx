@@ -86,6 +86,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
   const [isAddHoursModalOpen, setIsAddHoursModalOpen] = useState(false)
   const [selectedDayForHours, setSelectedDayForHours] = useState<Date | null>(null)
   const [deletingDay, setDeletingDay] = useState<string | null>(null)
+  const [deletingLog, setDeletingLog] = useState<string | null>(null)
 
   // Cargar datos cuando cambian los filtros
   useEffect(() => {
@@ -555,6 +556,34 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     }
   }
 
+  const handleDeleteLog = async (logId: string) => {
+    if (!confirm('¿Estás seguro de que quieres eliminar este registro?')) {
+      return
+    }
+
+    setDeletingLog(logId)
+    try {
+      // Usar función SQL con SECURITY DEFINER para bypassear RLS
+      const { data: deleted, error: deleteError } = await supabase.rpc('delete_tracker_log', {
+        p_log_id: logId
+      })
+
+      if (deleteError) throw deleteError
+
+      if (deleted) {
+        toast.success('Registro eliminado correctamente')
+        loadData() // Recargar datos
+      } else {
+        toast.error('No se pudo eliminar el registro')
+      }
+    } catch (error: any) {
+      console.error('Error deleting log:', error)
+      toast.error(`Error al eliminar el registro: ${error.message || 'Error desconocido'}`)
+    } finally {
+      setDeletingLog(null)
+    }
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -786,6 +815,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                 <TableHead className="text-white/70 text-xs">Búsqueda</TableHead>
                                             <TableHead className="text-white/70 text-xs">Categoría</TableHead>
                                             <TableHead className="text-white/70 text-xs">Link</TableHead>
+                                            <TableHead className="text-white/70 text-xs">Acciones</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -839,6 +869,18 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                                   <ExternalLink className="h-3 w-3" />
                                                   Abrir
                                                 </a>
+                                              </TableCell>
+                                              <TableCell>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={() => handleDeleteLog(log.id)}
+                                                  disabled={deletingLog === log.id}
+                                                  className="h-7 px-2 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                                  title="Eliminar registro"
+                                                >
+                                                  <Trash2 className="h-3 w-3" />
+                                                </Button>
                                               </TableCell>
                                             </TableRow>
                                           ))}
@@ -948,6 +990,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                       <TableHead className="text-white/70">Búsqueda</TableHead>
                       <TableHead className="text-white/70">Categoría</TableHead>
                       <TableHead className="text-white/70">Link</TableHead>
+                      <TableHead className="text-white/70">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1001,6 +1044,18 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                             <ExternalLink className="h-4 w-4" />
                             Abrir
                           </a>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteLog(log.id)}
+                            disabled={deletingLog === log.id}
+                            className="h-8 px-2 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                            title="Eliminar registro"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
