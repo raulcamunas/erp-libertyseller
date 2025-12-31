@@ -22,7 +22,7 @@ import {
 } from 'recharts'
 import { format, parseISO, startOfDay, endOfDay, startOfWeek, addDays, eachDayOfInterval, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users, Plus, Trash2, Target } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users, Plus, Trash2, Target, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { AddManualHoursModal } from './AddManualHoursModal'
@@ -81,12 +81,12 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
   const [viewMode, setViewMode] = useState<'day' | 'week'>('week')
   const [reports, setReports] = useState<TrackerReport[]>([])
   const [loading, setLoading] = useState(true)
-  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set())
-  const [expandedReports, setExpandedReports] = useState<Set<string>>(new Set())
   const [isAddHoursModalOpen, setIsAddHoursModalOpen] = useState(false)
   const [selectedDayForHours, setSelectedDayForHours] = useState<Date | null>(null)
   const [deletingDay, setDeletingDay] = useState<string | null>(null)
   const [deletingLog, setDeletingLog] = useState<string | null>(null)
+  const [hoveredReport, setHoveredReport] = useState<TrackerReport | null>(null)
+  const [showReportModal, setShowReportModal] = useState(false)
 
   // Cargar datos cuando cambian los filtros
   useEffect(() => {
@@ -454,25 +454,6 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     return stats
   }, [logsByDay, viewMode])
 
-  const toggleDay = (dayKey: string) => {
-    const newExpanded = new Set(expandedDays)
-    if (newExpanded.has(dayKey)) {
-      newExpanded.delete(dayKey)
-    } else {
-      newExpanded.add(dayKey)
-    }
-    setExpandedDays(newExpanded)
-  }
-
-  const toggleReport = (reportId: string) => {
-    const newExpanded = new Set(expandedReports)
-    if (newExpanded.has(reportId)) {
-      newExpanded.delete(reportId)
-    } else {
-      newExpanded.add(reportId)
-    }
-    setExpandedReports(newExpanded)
-  }
 
   // Calcular rango de horas de un reporte
   const getReportTimeRange = (report: TrackerReport): string => {
@@ -510,6 +491,38 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       stats[category] = (stats[category] || 0) + log.duration_seconds
     })
     return stats
+  }
+
+  // Obtener hora de inicio del primer log de un reporte
+  const getReportStartTime = (report: TrackerReport): string | null => {
+    if (report.logs.length === 0) return null
+    const sortedLogs = [...report.logs].sort((a, b) => 
+      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    )
+    return formatTime(sortedLogs[0].start_time)
+  }
+
+  // Obtener hora de fin del último log de un reporte
+  const getReportEndTime = (report: TrackerReport): string | null => {
+    if (report.logs.length === 0) return null
+    const sortedLogs = [...report.logs].sort((a, b) => {
+      const aEnd = a.end_time ? new Date(a.end_time).getTime() : new Date(a.start_time).getTime() + (a.duration_seconds * 1000)
+      const bEnd = b.end_time ? new Date(b.end_time).getTime() : new Date(b.start_time).getTime() + (b.duration_seconds * 1000)
+      return bEnd - aEnd
+    })
+    const lastLog = sortedLogs[0]
+    if (lastLog.end_time) {
+      return formatTime(lastLog.end_time)
+    }
+    const endTime = new Date(lastLog.start_time)
+    endTime.setSeconds(endTime.getSeconds() + lastLog.duration_seconds)
+    return formatTime(endTime.toISOString())
+  }
+
+  // Calcular ganancia de un reporte
+  const calculateReportEarnings = (report: TrackerReport): number => {
+    const totalSeconds = getReportTotalSeconds(report)
+    return calculateDailyEarnings(totalSeconds, selectedEmployee)
   }
 
   const navigateWeek = (direction: 'prev' | 'next') => {
@@ -758,24 +771,6 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleDay(dayKey)}
-                        className="text-white/70 hover:text-white"
-                      >
-                        {isDayExpanded ? (
-                          <>
-                            <ChevronUp className="h-4 w-4 mr-1" />
-                            Ocultar
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown className="h-4 w-4 mr-1" />
-                            Ver Búsquedas
-                          </>
-                        )}
-                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -801,95 +796,113 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                     </div>
                   )}
 
-                  {/* Lista de todas las búsquedas del día */}
-                  {isDayExpanded && (
+                  {/* Lista de todos los paquetes (reportes) del día */}
+                  {dayReports.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-white/10">
-                      {logsByDay[dayKey] && logsByDay[dayKey].length > 0 ? (
-                                    <div className="overflow-x-auto">
-                                      <Table>
-                                        <TableHeader>
-                                          <TableRow className="border-white/10">
-                                            <TableHead className="text-white/70 text-xs">Hora Inicio</TableHead>
-                                            <TableHead className="text-white/70 text-xs">Hora Fin</TableHead>
-                                            <TableHead className="text-white/70 text-xs">Duración (s)</TableHead>
-                                <TableHead className="text-white/70 text-xs">Búsqueda</TableHead>
-                                            <TableHead className="text-white/70 text-xs">Categoría</TableHead>
-                                            <TableHead className="text-white/70 text-xs">Link</TableHead>
-                                            <TableHead className="text-white/70 text-xs">Acciones</TableHead>
-                                          </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                          {logsByDay[dayKey].map((log) => (
-                                            <TableRow key={log.id} className="border-white/10">
-                                              <TableCell className="text-white/90 text-xs">
-                                                <div className="flex items-center gap-2">
-                                                  <Clock className="h-3 w-3 text-white/50" />
-                                                  {formatTime(log.start_time)}
-                                                </div>
-                                              </TableCell>
-                                              <TableCell className="text-white/90 text-xs">
-                                                {log.end_time ? (
-                                                  <div className="flex items-center gap-2">
-                                                    <Clock className="h-3 w-3 text-white/50" />
-                                                    {formatTime(log.end_time)}
-                                                  </div>
-                                                ) : (
-                                                  <span className="text-white/50">-</span>
-                                                )}
-                                              </TableCell>
-                                              <TableCell className="text-white/90 text-xs font-medium">
-                                                {log.duration_seconds}s
-                                              </TableCell>
-                                              <TableCell className="text-white/90 text-xs">
-                                                {log.title || log.domain}
-                                              </TableCell>
-                                              <TableCell>
-                                                <span
-                                                  className={cn(
-                                                    "px-2 py-0.5 rounded text-xs font-medium",
-                                                    (log.category === 'linkedin' || log.category === 'Prospecting') && "bg-blue-500/20 text-blue-300",
-                                                    log.category === 'amazon' && "bg-[#FF6600]/20 text-[#FF8533]",
-                                                    log.category === 'navegación' && "bg-yellow-500/20 text-yellow-300",
-                                                    log.category === 'Entertainment' && "bg-red-500/20 text-red-300",
-                                                    log.category === 'Communication' && "bg-green-500/20 text-green-300",
-                                                    log.category === 'Productivity' && "bg-yellow-500/20 text-yellow-300",
-                                                    (!log.category || log.category === 'Other') && "bg-gray-500/20 text-gray-300"
-                                                  )}
-                                                >
-                                                  {log.category || 'Other'}
-                                                </span>
-                                              </TableCell>
-                                              <TableCell>
-                                                <a
-                                                  href={log.url}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  className="text-[#FF6600] hover:text-[#FF8533] flex items-center gap-1 text-xs"
-                                                >
-                                                  <ExternalLink className="h-3 w-3" />
-                                                  Abrir
-                                                </a>
-                                              </TableCell>
-                                              <TableCell>
-                                                <Button
-                                                  variant="ghost"
-                                                  size="sm"
-                                                  onClick={() => handleDeleteLog(log.id)}
-                                                  disabled={deletingLog === log.id}
-                                                  className="h-7 px-2 text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                                                  title="Eliminar registro"
-                                                >
-                                                  <Trash2 className="h-3 w-3" />
-                                                </Button>
-                                              </TableCell>
-                                            </TableRow>
-                                          ))}
-                                        </TableBody>
-                                      </Table>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {dayReports.map((report) => {
+                          const reportStartTime = getReportStartTime(report)
+                          const reportEndTime = getReportEndTime(report)
+                          const reportTotalSeconds = getReportTotalSeconds(report)
+                          const reportEarnings = calculateReportEarnings(report)
+                          const reportHours = calculateHours(reportTotalSeconds)
+                          const uploadTime = report.created_at ? formatTime(report.created_at) : null
+                          const categoryStats = getReportCategoryStats(report)
+
+                          return (
+                            <div
+                              key={report.id}
+                              className="relative group"
+                              onMouseEnter={() => {
+                                setHoveredReport(report)
+                                setShowReportModal(true)
+                              }}
+                              onMouseLeave={() => {
+                                setShowReportModal(false)
+                                setTimeout(() => {
+                                  if (!document.querySelector('.report-modal:hover')) {
+                                    setHoveredReport(null)
+                                  }
+                                }, 200)
+                              }}
+                            >
+                              <Card className="glass-card border-white/10 hover:border-[#FF6600]/50 transition-all cursor-pointer">
+                                <CardContent className="p-4">
+                                  <div className="space-y-2">
+                                    {/* Hora de subida */}
+                                    {uploadTime && (
+                                      <div className="flex items-center gap-2 text-xs text-white/60">
+                                        <Clock className="h-3 w-3" />
+                                        <span>Subido: {uploadTime}</span>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Rango de horas */}
+                                    <div className="flex items-center gap-2">
+                                      <Clock className="h-4 w-4 text-[#FF6600]" />
+                                      <div className="flex-1">
+                                        <div className="text-sm font-medium text-white">
+                                          {reportStartTime && reportEndTime ? (
+                                            `${reportStartTime} - ${reportEndTime}`
+                                          ) : reportStartTime ? (
+                                            `Desde ${reportStartTime}`
+                                          ) : (
+                                            'Sin datos'
+                                          )}
+                                        </div>
+                                        <div className="text-xs text-white/70">
+                                          {formatHours(reportTotalSeconds)}
+                                        </div>
+                                      </div>
                                     </div>
-                      ) : (
-                        <p className="text-white/50 text-sm">No hay búsquedas registradas este día</p>
-                      )}
+
+                                    {/* Ganancia del paquete */}
+                                    {hourlyRate > 0 && reportTotalSeconds > 0 && (
+                                      <div className="flex items-center justify-between px-2 py-1 rounded bg-[#FF6600]/10 border border-[#FF6600]/20">
+                                        <span className="text-xs text-white/70">Ganancia:</span>
+                                        <span className="text-sm font-semibold text-[#FF6600]">
+                                          ${reportEarnings.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    {/* Resumen por categoría (mini) */}
+                                    {Object.keys(categoryStats).length > 0 && (
+                                      <div className="flex flex-wrap gap-1 pt-1">
+                                        {Object.entries(categoryStats).slice(0, 3).map(([category, seconds]) => (
+                                          <div
+                                            key={category}
+                                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-white/5 border border-white/10"
+                                          >
+                                            <div
+                                              className="w-2 h-2 rounded-full"
+                                              style={{ backgroundColor: categoryColors[category] || categoryColors.Other }}
+                                            />
+                                            <span className="text-white/70">{category}</span>
+                                            <span className="text-white/90 font-medium">
+                                              {Math.floor(seconds / 60)}m
+                                            </span>
+                                          </div>
+                                        ))}
+                                        {Object.keys(categoryStats).length > 3 && (
+                                          <div className="text-xs text-white/50 px-2 py-0.5">
+                                            +{Object.keys(categoryStats).length - 3} más
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Indicador de hover */}
+                                    <div className="text-xs text-white/40 group-hover:text-white/70 transition-colors">
+                                      Pasa el mouse para ver detalles
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -1065,6 +1078,194 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Modal de detalles del paquete (hover) */}
+      {showReportModal && hoveredReport && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm report-modal"
+          onMouseEnter={() => setShowReportModal(true)}
+          onMouseLeave={() => {
+            setShowReportModal(false)
+            setHoveredReport(null)
+          }}
+        >
+          <div
+            className="glass-card p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto rounded-lg"
+            onMouseEnter={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-white">Detalles del Paquete</h2>
+              <button
+                onClick={() => {
+                  setShowReportModal(false)
+                  setHoveredReport(null)
+                }}
+                className="text-white/40 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Información del paquete */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
+                  <div className="text-xs text-white/60 mb-1">Hora de Subida</div>
+                  <div className="text-sm font-medium text-white">
+                    {hoveredReport.created_at ? formatTime(hoveredReport.created_at) : 'N/A'}
+                  </div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
+                  <div className="text-xs text-white/60 mb-1">Hora Inicio</div>
+                  <div className="text-sm font-medium text-white">
+                    {getReportStartTime(hoveredReport) || 'N/A'}
+                  </div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
+                  <div className="text-xs text-white/60 mb-1">Hora Final</div>
+                  <div className="text-sm font-medium text-white">
+                    {getReportEndTime(hoveredReport) || 'N/A'}
+                  </div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
+                  <div className="text-xs text-white/60 mb-1">Duración Total</div>
+                  <div className="text-sm font-medium text-white">
+                    {formatHours(getReportTotalSeconds(hoveredReport))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Ganancia del paquete */}
+              {hourlyRate > 0 && getReportTotalSeconds(hoveredReport) > 0 && (
+                <div className="bg-[#FF6600]/10 border border-[#FF6600]/30 p-4 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-white/70">Ganancia del Paquete:</span>
+                    <span className="text-lg font-semibold text-[#FF6600]">
+                      ${calculateReportEarnings(hoveredReport).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    {calculateHours(getReportTotalSeconds(hoveredReport)).toFixed(2)}h × ${hourlyRate}/h
+                  </div>
+                </div>
+              )}
+
+              {/* Resumen por categoría */}
+              {Object.keys(getReportCategoryStats(hoveredReport)).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-white/70 mb-2">Resumen por Categoría</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(getReportCategoryStats(hoveredReport)).map(([category, seconds]) => (
+                      <div
+                        key={category}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10"
+                      >
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: categoryColors[category] || categoryColors.Other }}
+                        />
+                        <span className="text-sm text-white/70">{category}</span>
+                        <span className="text-sm font-medium text-white">
+                          {formatHours(seconds)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tabla de logs del paquete */}
+              <div>
+                <h3 className="text-sm font-medium text-white/70 mb-2">
+                  Actividades ({hoveredReport.logs.length} registros)
+                </h3>
+                <div className="overflow-x-auto max-h-[400px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-white/10">
+                        <TableHead className="text-white/70 text-xs">Hora Inicio</TableHead>
+                        <TableHead className="text-white/70 text-xs">Hora Fin</TableHead>
+                        <TableHead className="text-white/70 text-xs">Duración</TableHead>
+                        <TableHead className="text-white/70 text-xs">Actividad</TableHead>
+                        <TableHead className="text-white/70 text-xs">Categoría</TableHead>
+                        <TableHead className="text-white/70 text-xs">Link</TableHead>
+                        <TableHead className="text-white/70 text-xs">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {hoveredReport.logs.map((log) => (
+                        <TableRow key={log.id} className="border-white/10">
+                          <TableCell className="text-white/90 text-xs">
+                            <div className="flex items-center gap-2">
+                              <Clock className="h-3 w-3 text-white/50" />
+                              {formatTime(log.start_time)}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-white/90 text-xs">
+                            {log.end_time ? (
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-3 w-3 text-white/50" />
+                                {formatTime(log.end_time)}
+                              </div>
+                            ) : (
+                              <span className="text-white/50">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-white/90 text-xs font-medium">
+                            {formatDuration(log.duration_seconds)}
+                          </TableCell>
+                          <TableCell className="text-white/90 text-xs">
+                            {log.title || log.domain}
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={cn(
+                                "px-2 py-0.5 rounded text-xs font-medium",
+                                (log.category === 'linkedin' || log.category === 'Prospecting') && "bg-blue-500/20 text-blue-300",
+                                log.category === 'amazon' && "bg-[#FF6600]/20 text-[#FF8533]",
+                                log.category === 'navegación' && "bg-yellow-500/20 text-yellow-300",
+                                log.category === 'Entertainment' && "bg-red-500/20 text-red-300",
+                                log.category === 'Communication' && "bg-green-500/20 text-green-300",
+                                log.category === 'Productivity' && "bg-yellow-500/20 text-yellow-300",
+                                (!log.category || log.category === 'Other') && "bg-gray-500/20 text-gray-300"
+                              )}
+                            >
+                              {log.category || 'Other'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <a
+                              href={log.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[#FF6600] hover:text-[#FF8533] flex items-center gap-1 text-xs"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Abrir
+                            </a>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteLog(log.id)}
+                              disabled={deletingLog === log.id}
+                              className="h-7 px-2 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                              title="Eliminar registro"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal para añadir horas manuales */}
