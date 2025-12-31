@@ -708,7 +708,6 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
             const dayKey = format(day, 'yyyy-MM-dd')
             const dayReports = reportsByDay[dayKey] || []
             const stats = dayStats[dayKey] || { totalSeconds: 0, byCategory: {} }
-            const isDayExpanded = expandedDays.has(dayKey)
             const dayName = format(day, 'EEEE', { locale: es })
             const dayDate = format(day, 'dd/MM/yyyy', { locale: es })
 
