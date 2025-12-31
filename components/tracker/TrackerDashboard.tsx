@@ -1136,19 +1136,22 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
               </div>
 
               {/* Ganancia del paquete */}
-              {hourlyRate > 0 && getReportTotalSeconds(hoveredReport) > 0 && (
-                <div className="bg-[#FF6600]/10 border border-[#FF6600]/30 p-4 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-white/70">Ganancia del Paquete:</span>
-                    <span className="text-lg font-semibold text-[#FF6600]">
-                      ${calculateReportEarnings(hoveredReport).toFixed(2)}
-                    </span>
+              {(() => {
+                const hourlyRate = hourlyRates[hoveredReport.employee_id] || 0
+                return hourlyRate > 0 && getReportTotalSeconds(hoveredReport) > 0 && (
+                  <div className="bg-[#FF6600]/10 border border-[#FF6600]/30 p-4 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-white/70">Ganancia del Paquete:</span>
+                      <span className="text-lg font-semibold text-[#FF6600]">
+                        ${calculateReportEarnings(hoveredReport).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-white/50 mt-1">
+                      {calculateHours(getReportTotalSeconds(hoveredReport)).toFixed(2)}h × ${hourlyRate}/h
+                    </div>
                   </div>
-                  <div className="text-xs text-white/50 mt-1">
-                    {calculateHours(getReportTotalSeconds(hoveredReport)).toFixed(2)}h × ${hourlyRate}/h
-                  </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* Resumen por categoría */}
               {Object.keys(getReportCategoryStats(hoveredReport)).length > 0 && (
