@@ -85,6 +85,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
   const [selectedDayForHours, setSelectedDayForHours] = useState<Date | null>(null)
   const [deletingDay, setDeletingDay] = useState<string | null>(null)
   const [deletingLog, setDeletingLog] = useState<string | null>(null)
+  const [deletingReport, setDeletingReport] = useState<string | null>(null)
   const [hoveredReport, setHoveredReport] = useState<TrackerReport | null>(null)
   const [showReportModal, setShowReportModal] = useState(false)
 
@@ -597,6 +598,39 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     }
   }
 
+  const handleDeleteReport = async (reportId: string) => {
+    if (!confirm('¿Estás seguro de que quieres eliminar este paquete? Se eliminarán todos los registros asociados.')) {
+      return
+    }
+
+    setDeletingReport(reportId)
+    try {
+      // Usar función SQL con SECURITY DEFINER para bypassear RLS
+      const { data: deleted, error: deleteError } = await supabase.rpc('delete_tracker_report', {
+        p_report_id: reportId
+      })
+
+      if (deleteError) throw deleteError
+
+      if (deleted) {
+        toast.success('Paquete eliminado correctamente')
+        loadData() // Recargar datos
+        // Cerrar el modal si estaba abierto para este reporte
+        if (hoveredReport?.id === reportId) {
+          setShowReportModal(false)
+          setHoveredReport(null)
+        }
+      } else {
+        toast.error('No se pudo eliminar el paquete')
+      }
+    } catch (error: any) {
+      console.error('Error deleting report:', error)
+      toast.error(`Error al eliminar el paquete: ${error.message || 'Error desconocido'}`)
+    } finally {
+      setDeletingReport(null)
+    }
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -882,18 +916,30 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                       </div>
                                     )}
 
-                                    {/* Botón para ver detalles */}
-                                    <Button
-                                      onClick={() => {
-                                        setHoveredReport(report)
-                                        setShowReportModal(true)
-                                      }}
-                                      variant="outline"
-                                      size="sm"
-                                      className="w-full mt-2 border-[#FF6600]/30 text-[#FF6600] hover:bg-[#FF6600]/10 hover:text-[#FF6600]"
-                                    >
-                                      Ver detalles
-                                    </Button>
+                                    {/* Botones de acción */}
+                                    <div className="flex gap-2 mt-2">
+                                      <Button
+                                        onClick={() => {
+                                          setHoveredReport(report)
+                                          setShowReportModal(true)
+                                        }}
+                                        variant="outline"
+                                        size="sm"
+                                        className="flex-1 border-[#FF6600]/30 text-[#FF6600] hover:bg-[#FF6600]/10 hover:text-[#FF6600]"
+                                      >
+                                        Ver detalles
+                                      </Button>
+                                      <Button
+                                        onClick={() => handleDeleteReport(report.id)}
+                                        variant="ghost"
+                                        size="sm"
+                                        disabled={deletingReport === report.id}
+                                        className="text-red-500 hover:text-red-600 hover:bg-red-500/10 border border-red-500/30"
+                                        title="Eliminar paquete"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
                                   </div>
                                 </CardContent>
                               </Card>
@@ -1082,27 +1128,39 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       {showReportModal && hoveredReport && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm report-modal"
-          onMouseEnter={() => setShowReportModal(true)}
-          onMouseLeave={() => {
+          onClick={() => {
             setShowReportModal(false)
             setHoveredReport(null)
           }}
         >
           <div
             className="glass-card p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto rounded-lg"
-            onMouseEnter={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-white">Detalles del Paquete</h2>
-              <button
-                onClick={() => {
-                  setShowReportModal(false)
-                  setHoveredReport(null)
-                }}
-                className="text-white/40 hover:text-white transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => handleDeleteReport(hoveredReport.id)}
+                  variant="ghost"
+                  size="sm"
+                  disabled={deletingReport === hoveredReport.id}
+                  className="text-red-500 hover:text-red-600 hover:bg-red-500/10 border border-red-500/30"
+                  title="Eliminar paquete"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Eliminar
+                </Button>
+                <button
+                  onClick={() => {
+                    setShowReportModal(false)
+                    setHoveredReport(null)
+                  }}
+                  className="text-white/40 hover:text-white transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4">
