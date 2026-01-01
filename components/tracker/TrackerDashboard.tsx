@@ -812,20 +812,8 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                             <div
                               key={report.id}
                               className="relative group"
-                              onMouseEnter={() => {
-                                setHoveredReport(report)
-                                setShowReportModal(true)
-                              }}
-                              onMouseLeave={() => {
-                                setShowReportModal(false)
-                                setTimeout(() => {
-                                  if (!document.querySelector('.report-modal:hover')) {
-                                    setHoveredReport(null)
-                                  }
-                                }, 200)
-                              }}
                             >
-                              <Card className="glass-card border-white/10 hover:border-[#FF6600]/50 transition-all cursor-pointer">
+                              <Card className="glass-card border-white/10 transition-all">
                                 <CardContent className="p-4">
                                   <div className="space-y-2">
                                     {/* Hora de subida */}
@@ -856,14 +844,17 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                     </div>
 
                                     {/* Ganancia del paquete */}
-                                    {hourlyRate > 0 && reportTotalSeconds > 0 && (
-                                      <div className="flex items-center justify-between px-2 py-1 rounded bg-[#FF6600]/10 border border-[#FF6600]/20">
-                                        <span className="text-xs text-white/70">Ganancia:</span>
-                                        <span className="text-sm font-semibold text-[#FF6600]">
-                                          ${reportEarnings.toFixed(2)}
-                                        </span>
-                                      </div>
-                                    )}
+                                    {(() => {
+                                      const hourlyRate = hourlyRates[report.employee_id] || 0
+                                      return hourlyRate > 0 && reportTotalSeconds > 0 && (
+                                        <div className="flex items-center justify-between px-2 py-1 rounded bg-[#FF6600]/10 border border-[#FF6600]/20">
+                                          <span className="text-xs text-white/70">Ganancia:</span>
+                                          <span className="text-sm font-semibold text-[#FF6600]">
+                                            ${reportEarnings.toFixed(2)}
+                                          </span>
+                                        </div>
+                                      )
+                                    })()}
 
                                     {/* Resumen por categoría (mini) */}
                                     {Object.keys(categoryStats).length > 0 && (
@@ -891,10 +882,18 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
                                       </div>
                                     )}
 
-                                    {/* Indicador de hover */}
-                                    <div className="text-xs text-white/40 group-hover:text-white/70 transition-colors">
-                                      Pasa el mouse para ver detalles
-                                    </div>
+                                    {/* Botón para ver detalles */}
+                                    <Button
+                                      onClick={() => {
+                                        setHoveredReport(report)
+                                        setShowReportModal(true)
+                                      }}
+                                      variant="outline"
+                                      size="sm"
+                                      className="w-full mt-2 border-[#FF6600]/30 text-[#FF6600] hover:bg-[#FF6600]/10 hover:text-[#FF6600]"
+                                    >
+                                      Ver detalles
+                                    </Button>
                                   </div>
                                 </CardContent>
                               </Card>
