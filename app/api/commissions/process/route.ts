@@ -590,8 +590,8 @@ async function processDIRUBenefits(
           realTurnover: 0,
           iva: 0,
           netBase: benefitValue, // Valor individual de Net profit
-          commissionRate: client.base_commission_rate, // 0.50 (50%)
-          commission: benefitValue * client.base_commission_rate, // 50% de cada fila
+          commissionRate: client.base_commission_rate,
+          commission: benefitValue * client.base_commission_rate,
           rowNumber: i + 2
         })
       } else {
@@ -602,10 +602,10 @@ async function processDIRUBenefits(
       }
     }
 
-    // Calcular comisión: 50% de la suma total de "Net profit"
+    // Calcular comisión usando la tasa base del cliente sobre la suma total de "Net profit"
     // Nota: totalBenefits ya incluye la suma de todos los valores (positivos y negativos)
     // Los negativos se restan automáticamente al sumar
-    const commissionRate = client.base_commission_rate // 0.50 (50%)
+    const commissionRate = client.base_commission_rate
     const totalCommission = totalBenefits * commissionRate
 
     // Crear resultado
