@@ -17,7 +17,6 @@ export function ProspectMiniCard({ prospect, onClick }: ProspectMiniCardProps) {
   const agentColors: Record<Agent, string> = {
     Raul: 'border-2 border-[#FF6600]/70 bg-[#FF6600]/20 text-[#FF6600]',
     Mario: 'border-2 border-orange-400/70 bg-orange-500/20 text-orange-300',
-    Alejandro: 'border-2 border-sky-400/70 bg-sky-500/20 text-sky-300',
   }
 
   // Colores del borde según el estado del prospecto (siempre activo)
@@ -29,10 +28,14 @@ export function ProspectMiniCard({ prospect, onClick }: ProspectMiniCardProps) {
         return 'border-2 border-[#FF6600]/70' // Naranja
       case 'messaged':
         return 'border-2 border-[#FF6600]/70' // Naranja
-      case 'replied':
-        return 'border-2 border-purple-400/70' // Morado
       case 'third_contact':
         return 'border-2 border-red-400/70' // Rojo suave
+      case 'in_follow_up':
+        return 'border-2 border-green-500/70' // Verde
+      case 'meeting_scheduled':
+        return 'border-2 border-emerald-500/70' // Verde esmeralda
+      case 'not_interested':
+        return 'border-2 border-slate-500/70' // Gris oscuro
       default:
         return 'border-2 border-white/20'
     }
@@ -98,8 +101,10 @@ export function ProspectMiniCard({ prospect, onClick }: ProspectMiniCardProps) {
         ...(prospect.status === 'identified' && { borderColor: 'rgba(255, 255, 255, 0.2)' }),
         ...(prospect.status === 'connected' && { borderColor: 'rgba(255, 102, 0, 0.7)' }), // orange
         ...(prospect.status === 'messaged' && { borderColor: 'rgba(255, 102, 0, 0.7)' }), // orange
-        ...(prospect.status === 'replied' && { borderColor: 'rgba(192, 132, 252, 0.7)' }), // purple-400
         ...(prospect.status === 'third_contact' && { borderColor: 'rgba(248, 113, 113, 0.7)' }), // red-400
+        ...(prospect.status === 'in_follow_up' && { borderColor: 'rgba(34, 197, 94, 0.7)' }), // green-500
+        ...(prospect.status === 'meeting_scheduled' && { borderColor: 'rgba(16, 185, 129, 0.7)' }), // emerald-500
+        ...(prospect.status === 'not_interested' && { borderColor: 'rgba(100, 116, 139, 0.7)' }), // slate-500
       }}
     >
       <div className="flex-1 min-w-0 flex flex-col justify-center">

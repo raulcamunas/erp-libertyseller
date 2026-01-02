@@ -1,8 +1,8 @@
 export type CompanyStatus = 'active' | 'discarded'
 
-export type ProspectStatus = 'identified' | 'connected' | 'messaged' | 'replied' | 'third_contact'
+export type ProspectStatus = 'identified' | 'connected' | 'messaged' | 'third_contact' | 'in_follow_up' | 'meeting_scheduled' | 'not_interested'
 
-export type Agent = 'Raul' | 'Mario' | 'Alejandro'
+export type Agent = 'Raul' | 'Mario'
 
 export interface TargetCompany {
   id: string

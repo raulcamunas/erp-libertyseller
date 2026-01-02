@@ -274,18 +274,22 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
     const identified = allProspects.filter(p => p.status === 'identified').length
     const connected = allProspects.filter(p => p.status === 'connected').length
     const messaged = allProspects.filter(p => p.status === 'messaged').length
-    const replied = allProspects.filter(p => p.status === 'replied').length
     const thirdContact = allProspects.filter(p => p.status === 'third_contact').length
+    const inFollowUp = allProspects.filter(p => p.status === 'in_follow_up').length
+    const meetingScheduled = allProspects.filter(p => p.status === 'meeting_scheduled').length
+    const notInterested = allProspects.filter(p => p.status === 'not_interested').length
 
-    return { total, identified, connected, messaged, replied, thirdContact }
+    return { total, identified, connected, messaged, thirdContact, inFollowUp, meetingScheduled, notInterested }
   }, [allProspects])
 
   const statusChartData: Array<{ name: string; value: number; color: string }> = useMemo(() => ([
     { name: 'Identificados', value: statusMetrics.identified, color: '#9ca3af' },
     { name: 'Primer contacto', value: statusMetrics.connected, color: '#FF6600' },
     { name: '2o contacto', value: statusMetrics.messaged, color: '#60a5fa' },
-    { name: 'Respondieron', value: statusMetrics.replied, color: '#a78bfa' },
     { name: '3er contacto', value: statusMetrics.thirdContact, color: '#f87171' },
+    { name: 'En seguimiento', value: statusMetrics.inFollowUp, color: '#22c55e' },
+    { name: 'Reunión concretada', value: statusMetrics.meetingScheduled, color: '#10b981' },
+    { name: 'No le interesa', value: statusMetrics.notInterested, color: '#64748b' },
   ]), [statusMetrics])
 
   const weeklyCreationData = useMemo(() => {
@@ -304,7 +308,7 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
 
   const dailyAgentCounters = useMemo(() => {
     const todayStart = startOfDay(new Date())
-    const agents: Agent[] = ['Raul', 'Mario', 'Alejandro']
+    const agents: Agent[] = ['Raul', 'Mario']
 
     return agents.map((agent) => {
       const usedToday = allProspects.filter((p) => {
@@ -352,7 +356,7 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
         </div>
 
       {/* Contadores diarios por agente */}
-      <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
         {dailyAgentCounters.map((counter) => {
           const isLow = counter.remaining <= 3
           const isZero = counter.remaining === 0
@@ -360,9 +364,7 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
           const accentColor =
             counter.agent === 'Raul'
               ? '#FF6600'
-              : counter.agent === 'Mario'
-              ? '#F97316'
-              : '#0EA5E9'
+              : '#F97316' // Mario
 
           return (
             <div
@@ -518,10 +520,14 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
                             ? '2o contacto'
                             : p.status === 'third_contact'
                             ? '3er contacto'
-                            : p.status === 'replied'
-                            ? 'Respondió'
                             : p.status === 'identified'
                             ? 'Identificado'
+                            : p.status === 'in_follow_up'
+                            ? 'En seguimiento'
+                            : p.status === 'meeting_scheduled'
+                            ? 'Reunión concretada'
+                            : p.status === 'not_interested'
+                            ? 'No le interesa'
                             : p.status}
                         </td>
                         <td className="py-2 px-3 text-white/70">
@@ -561,12 +567,20 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
                 <p className="text-2xl font-bold text-blue-400">{statusMetrics.messaged}</p>
               </div>
               <div className="glass-card p-4 rounded-xl">
-                <p className="text-xs text-white/60 mb-1">Respondieron</p>
-                <p className="text-2xl font-bold text-purple-300">{statusMetrics.replied}</p>
-              </div>
-              <div className="glass-card p-4 rounded-xl">
                 <p className="text-xs text-white/60 mb-1">3er contacto</p>
                 <p className="text-2xl font-bold text-red-300">{statusMetrics.thirdContact}</p>
+              </div>
+              <div className="glass-card p-4 rounded-xl">
+                <p className="text-xs text-white/60 mb-1">En seguimiento</p>
+                <p className="text-2xl font-bold text-green-400">{statusMetrics.inFollowUp}</p>
+              </div>
+              <div className="glass-card p-4 rounded-xl">
+                <p className="text-xs text-white/60 mb-1">Reunión concretada</p>
+                <p className="text-2xl font-bold text-emerald-400">{statusMetrics.meetingScheduled}</p>
+              </div>
+              <div className="glass-card p-4 rounded-xl">
+                <p className="text-xs text-white/60 mb-1">No le interesa</p>
+                <p className="text-2xl font-bold text-slate-400">{statusMetrics.notInterested}</p>
               </div>
             </div>
 

@@ -30,8 +30,10 @@ const STATUS_OPTIONS: { value: ProspectStatus; label: string }[] = [
   { value: 'identified', label: 'Identificado' },
   { value: 'connected', label: 'Primer contacto' },
   { value: 'messaged', label: '2o contacto' },
-  { value: 'replied', label: 'Respondió' },
   { value: 'third_contact', label: '3er contacto' },
+  { value: 'in_follow_up', label: 'En seguimiento' },
+  { value: 'meeting_scheduled', label: 'Reunión concretada' },
+  { value: 'not_interested', label: 'No le interesa' },
 ]
 
 export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectModalProps) {
@@ -96,10 +98,14 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
         return 'bg-[#FF6600]/70' // Naranja
       case 'messaged':
         return 'bg-[#FF6600]' // Naranja fuerte
-      case 'replied':
-        return 'bg-purple-400' // Morado
       case 'third_contact':
         return 'bg-red-400/70' // Rojo suave
+      case 'in_follow_up':
+        return 'bg-green-500/70' // Verde
+      case 'meeting_scheduled':
+        return 'bg-emerald-500/70' // Verde esmeralda
+      case 'not_interested':
+        return 'bg-slate-500/70' // Gris oscuro
       default:
         return 'bg-white/20'
     }
@@ -133,11 +139,19 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
         const d = new Date(now)
         d.setDate(d.getDate() + 3)
         next_contact_at = d.toISOString()
-      } else if (status === 'replied') {
-        // Si ya respondió, no hay siguiente contacto automático
-        next_contact_at = null
       } else if (status === 'third_contact') {
         // 3er contacto: no hay siguiente contacto automático
+        next_contact_at = null
+      } else if (status === 'in_follow_up') {
+        // En seguimiento: seguimiento activo cada 7 días
+        const d = new Date(now)
+        d.setDate(d.getDate() + 7)
+        next_contact_at = d.toISOString()
+      } else if (status === 'meeting_scheduled') {
+        // Reunión concretada: no hay siguiente contacto automático
+        next_contact_at = null
+      } else if (status === 'not_interested') {
+        // No le interesa: no hay siguiente contacto automático
         next_contact_at = null
       }
 
@@ -256,14 +270,22 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
                         return isSelected
                           ? "bg-blue-500/20 border-2 border-blue-400 text-blue-300"
                           : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-blue-400/30 hover:text-blue-300"
-                      case 'replied':
-                        return isSelected
-                          ? "bg-purple-500/20 border-2 border-purple-400 text-purple-300"
-                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-purple-400/30 hover:text-purple-300"
                       case 'third_contact':
                         return isSelected
                           ? "bg-red-400/20 border-2 border-red-400/70 text-red-300"
                           : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-red-400/30 hover:text-red-300"
+                      case 'in_follow_up':
+                        return isSelected
+                          ? "bg-green-500/20 border-2 border-green-400 text-green-300"
+                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-green-400/30 hover:text-green-300"
+                      case 'meeting_scheduled':
+                        return isSelected
+                          ? "bg-emerald-500/20 border-2 border-emerald-400 text-emerald-300"
+                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-emerald-400/30 hover:text-emerald-300"
+                      case 'not_interested':
+                        return isSelected
+                          ? "bg-slate-500/20 border-2 border-slate-400 text-slate-300"
+                          : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-slate-400/30 hover:text-slate-300"
                       default:
                         return "bg-white/[0.05] border border-white/10 text-white/70"
                     }
@@ -318,20 +340,6 @@ export function ProspectModal({ prospect, open, onClose, onUpdate }: ProspectMod
                   )}
                 >
                   Mario
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => setAgent('Alejandro')}
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    "text-xs",
-                    agent === 'Alejandro'
-                      ? "bg-sky-500/20 border-2 border-sky-400 text-sky-300"
-                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-sky-400/30 hover:text-sky-300"
-                  )}
-                >
-                  Alejandro
                 </Button>
               </div>
             </div>

@@ -226,20 +226,6 @@ export function AddProspectModal({
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => setFormData({ ...formData, status: 'replied' })}
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    "text-xs",
-                    formData.status === 'replied'
-                      ? "bg-purple-500/20 border-2 border-purple-400 text-purple-300"
-                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-purple-400/30 hover:text-purple-300"
-                  )}
-                >
-                  Respondió
-                </Button>
-                <Button
-                  type="button"
                   onClick={() => setFormData({ ...formData, status: 'third_contact' })}
                   variant="outline"
                   size="sm"
@@ -251,6 +237,48 @@ export function AddProspectModal({
                   )}
                 >
                   3er contacto
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, status: 'in_follow_up' })}
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "text-xs",
+                    formData.status === 'in_follow_up'
+                      ? "bg-green-500/20 border-2 border-green-400 text-green-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-green-400/30 hover:text-green-300"
+                  )}
+                >
+                  En seguimiento
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, status: 'meeting_scheduled' })}
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "text-xs",
+                    formData.status === 'meeting_scheduled'
+                      ? "bg-emerald-500/20 border-2 border-emerald-400 text-emerald-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-emerald-400/30 hover:text-emerald-300"
+                  )}
+                >
+                  Reunión concretada
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, status: 'not_interested' })}
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "text-xs",
+                    formData.status === 'not_interested'
+                      ? "bg-slate-500/20 border-2 border-slate-400 text-slate-300"
+                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-slate-400/30 hover:text-slate-300"
+                  )}
+                >
+                  No le interesa
                 </Button>
               </div>
             </div>
@@ -286,20 +314,6 @@ export function AddProspectModal({
                   )}
                 >
                   Mario
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, agent: 'Alejandro' })}
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    "text-xs",
-                    formData.agent === 'Alejandro'
-                      ? "bg-sky-500/20 border-2 border-sky-400 text-sky-300"
-                      : "bg-white/[0.05] border border-white/10 text-white/70 hover:border-sky-400/30 hover:text-sky-300"
-                  )}
-                >
-                  Alejandro
                 </Button>
               </div>
             </div>
