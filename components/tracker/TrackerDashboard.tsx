@@ -267,11 +267,14 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     
     weekDays.forEach(day => {
       const dayKey = format(day, 'yyyy-MM-dd')
-      // Filtrar reportes que tienen logs en este día
+      const dayStart = startOfDay(day)
+      const dayEnd = endOfDay(day)
+      
+      // Filtrar reportes que tienen logs en este día (usar rango para evitar problemas de zona horaria)
       const dayReports = reports.filter(report => {
         return report.logs.some(log => {
-          const logDate = parseISO(log.start_time)
-          return isSameDay(logDate, day)
+          const logDate = new Date(log.start_time)
+          return logDate >= dayStart && logDate <= dayEnd
         })
       })
       
@@ -279,8 +282,8 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       const filteredReports = dayReports.map(report => ({
         ...report,
         logs: report.logs.filter(log => {
-          const logDate = parseISO(log.start_time)
-          return isSameDay(logDate, day)
+          const logDate = new Date(log.start_time)
+          return logDate >= dayStart && logDate <= dayEnd
         })
       })).filter(report => report.logs.length > 0)
       
