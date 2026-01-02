@@ -141,6 +141,8 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         }))
         .filter(report => report.logs.length > 0) // Solo reportes con logs
 
+      console.log('Reportes cargados:', reportsWithLogs.length, 'Logs totales:', allLogsData?.length || 0)
+
       setReports(reportsWithLogs)
     } catch (error) {
       console.error('Error loading tracker data:', error)
