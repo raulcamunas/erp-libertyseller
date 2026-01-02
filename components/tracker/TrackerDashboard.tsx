@@ -142,6 +142,20 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         .filter(report => report.logs.length > 0) // Solo reportes con logs
 
       console.log('Reportes cargados:', reportsWithLogs.length, 'Logs totales:', allLogsData?.length || 0)
+      
+      // Loggear detalles de cada reporte
+      reportsWithLogs.forEach(report => {
+        if (report.logs.length > 0) {
+          const firstLog = report.logs[0]
+          const lastLog = report.logs[report.logs.length - 1]
+          console.log(`Reporte ${report.id}:`, {
+            report_date: report.report_date,
+            logs_count: report.logs.length,
+            first_log_date: format(new Date(firstLog.start_time), 'yyyy-MM-dd'),
+            last_log_date: format(new Date(lastLog.start_time), 'yyyy-MM-dd')
+          })
+        }
+      })
 
       setReports(reportsWithLogs)
     } catch (error) {
@@ -307,9 +321,12 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
     
     weekDays.forEach(day => {
       const dayKey = format(day, 'yyyy-MM-dd')
+      const dayStart = startOfDay(day)
+      const dayEnd = endOfDay(day)
+      
       grouped[dayKey] = allLogs.filter(log => {
-        const logDate = parseISO(log.start_time)
-        return isSameDay(logDate, day)
+        const logDate = new Date(log.start_time)
+        return logDate >= dayStart && logDate <= dayEnd
       })
     })
     
