@@ -170,12 +170,14 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         selectedDate_end: format(endDate, 'yyyy-MM-dd')
       })
 
-      // Primero, obtener TODOS los logs de estos reportes sin filtrar por fecha
-      // Luego filtrar por fecha local para evitar problemas de zona horaria
+      // Obtener logs con filtro SQL por rango de fechas (más eficiente)
+      // Usar rango amplio para capturar todos los logs posibles
       const { data: allLogsData, error: logsError } = await supabase
         .from('tracker_logs')
         .select('*')
         .in('report_id', reportIds)
+        .gte('start_time', logsStartDate.toISOString())
+        .lte('start_time', logsEndDate.toISOString())
         .order('start_time', { ascending: true })
 
       if (logsError) {
@@ -183,8 +185,7 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         throw logsError
       }
 
-      // Filtrar logs que realmente correspondan a los días seleccionados (fecha local)
-      // Crear un set de días válidos para comparación rápida
+      // Crear set de días válidos para filtrar por fecha local
       const validDays = new Set<string>()
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
         validDays.add(format(d, 'yyyy-MM-dd'))
@@ -192,30 +193,28 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       
       console.log('📅 [TRACKER] Días válidos para filtrar:', Array.from(validDays))
       
-      // Loggear muestras de fechas de logs para debugging
+      // Filtrar logs por fecha local (para manejar zona horaria correctamente)
+      const logsData = (allLogsData || []).filter(log => {
+        const logDate = new Date(log.start_time)
+        const logDateLocal = format(logDate, 'yyyy-MM-dd')
+        return validDays.has(logDateLocal)
+      })
+      
+      // Loggear información de debugging
       if (allLogsData && allLogsData.length > 0) {
-        const sampleDates = allLogsData.slice(0, 10).map(log => {
+        const sampleDates = allLogsData.slice(0, 5).map(log => {
           const logDate = new Date(log.start_time)
           return {
             start_time: log.start_time,
             date_local: format(logDate, 'yyyy-MM-dd'),
-            date_utc: format(logDate, 'yyyy-MM-dd', { timeZone: 'UTC' }),
             in_valid_days: validDays.has(format(logDate, 'yyyy-MM-dd'))
           }
         })
-        console.log('🔍 [TRACKER] Muestra de fechas de logs (primeros 10):', sampleDates)
+        console.log('🔍 [TRACKER] Muestra de fechas de logs:', sampleDates)
         
-        // Verificar si hay logs con fechas que deberían estar en el rango
         const uniqueDates = new Set(allLogsData.map(log => format(new Date(log.start_time), 'yyyy-MM-dd')))
-        console.log('📅 [TRACKER] Fechas únicas en los logs:', Array.from(uniqueDates).sort())
+        console.log('📅 [TRACKER] Fechas únicas en los logs encontrados:', Array.from(uniqueDates).sort())
       }
-      
-      const logsData = (allLogsData || []).filter(log => {
-        const logDate = new Date(log.start_time)
-        const logDateLocal = format(logDate, 'yyyy-MM-dd')
-        const isValid = validDays.has(logDateLocal)
-        return isValid
-      })
       
       console.log('📊 [TRACKER] Logs encontrados:', {
         total: allLogsData?.length || 0,
