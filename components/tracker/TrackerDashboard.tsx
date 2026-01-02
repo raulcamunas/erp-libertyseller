@@ -22,7 +22,7 @@ import {
 } from 'recharts'
 import { format, parseISO, startOfDay, endOfDay, startOfWeek, addDays, eachDayOfInterval, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users, Plus, Trash2, Target, X } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users, Plus, Trash2, Target, X, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { AddManualHoursModal } from './AddManualHoursModal'
@@ -234,8 +234,33 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
         }))
         .filter(report => report.logs.length > 0) // Solo reportes con logs en el rango
 
+      // Loggear reportes sin logs para debugging
+      const reportsWithoutLogs = allReportsData.filter(report => {
+        const reportLogs = (logsData || []).filter(log => log.report_id === report.id)
+        return reportLogs.length === 0
+      })
+      
+      if (reportsWithoutLogs.length > 0) {
+        console.log('⚠️ [TRACKER] Reportes sin logs en el rango:', reportsWithoutLogs.map(r => ({
+          id: r.id,
+          report_date: r.report_date,
+          created_at: r.created_at
+        })))
+      }
+
       console.log('✅ [TRACKER] Reportes con logs en el rango:', reportsWithLogs.length)
       console.log('📊 [TRACKER] Total logs en reportes:', reportsWithLogs.reduce((sum, r) => sum + r.logs.length, 0))
+      
+      // Loggear detalles de los reportes encontrados
+      if (reportsWithLogs.length > 0) {
+        console.log('📋 [TRACKER] Detalles de reportes:', reportsWithLogs.map(r => ({
+          id: r.id,
+          report_date: r.report_date,
+          logs_count: r.logs.length,
+          first_log_time: r.logs[0]?.start_time,
+          last_log_time: r.logs[r.logs.length - 1]?.start_time
+        })))
+      }
 
       setReports(reportsWithLogs)
     } catch (error) {
@@ -636,6 +661,18 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-white">Employee Tracker</h1>
         <div className="flex items-center gap-2">
+          <Button
+            onClick={() => {
+              console.log('🔄 [TRACKER] Recargando datos manualmente...')
+              loadData()
+            }}
+            variant="outline"
+            size="sm"
+            className="border-white/20 text-white hover:bg-white/10"
+            title="Recargar datos"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
           <Button
             onClick={() => router.push('/dashboard/tracker/performance')}
             className="bg-[#FF6600] hover:bg-[#FF8533] text-white"
