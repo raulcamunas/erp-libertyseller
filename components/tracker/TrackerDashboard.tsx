@@ -192,21 +192,28 @@ export function TrackerDashboard({ employees }: TrackerDashboardProps) {
       
       console.log('📅 [TRACKER] Días válidos para filtrar:', Array.from(validDays))
       
+      // Loggear muestras de fechas de logs para debugging
+      if (allLogsData && allLogsData.length > 0) {
+        const sampleDates = allLogsData.slice(0, 10).map(log => {
+          const logDate = new Date(log.start_time)
+          return {
+            start_time: log.start_time,
+            date_local: format(logDate, 'yyyy-MM-dd'),
+            date_utc: format(logDate, 'yyyy-MM-dd', { timeZone: 'UTC' }),
+            in_valid_days: validDays.has(format(logDate, 'yyyy-MM-dd'))
+          }
+        })
+        console.log('🔍 [TRACKER] Muestra de fechas de logs (primeros 10):', sampleDates)
+        
+        // Verificar si hay logs con fechas que deberían estar en el rango
+        const uniqueDates = new Set(allLogsData.map(log => format(new Date(log.start_time), 'yyyy-MM-dd')))
+        console.log('📅 [TRACKER] Fechas únicas en los logs:', Array.from(uniqueDates).sort())
+      }
+      
       const logsData = (allLogsData || []).filter(log => {
         const logDate = new Date(log.start_time)
         const logDateLocal = format(logDate, 'yyyy-MM-dd')
         const isValid = validDays.has(logDateLocal)
-        
-        // Loggear algunos ejemplos para debugging
-        if (allLogsData && allLogsData.length > 0 && allLogsData.length < 20) {
-          console.log('🔍 [TRACKER] Log:', {
-            start_time: log.start_time,
-            date_local: logDateLocal,
-            isValid,
-            in_valid_days: validDays.has(logDateLocal)
-          })
-        }
-        
         return isValid
       })
       
