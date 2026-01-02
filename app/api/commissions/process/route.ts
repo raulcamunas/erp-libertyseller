@@ -578,6 +578,15 @@ async function processDIRUBenefits(
           /Reembolsos/i
         ]))) || 0
 
+        // Intentar obtener ventas del CSV si existe la columna
+        const grossSales = parseNum(
+          getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
+        ) || 0
+
+        // Calcular realTurnover y iva si tenemos ventas
+        const realTurnover = grossSales > 0 ? grossSales - refunds : 0
+        const iva = realTurnover > 0 ? realTurnover - (realTurnover / 1.21) : 0
+
         // Crear una fila para el reporte
         processedRows.push({
           productTitle,
@@ -585,10 +594,10 @@ async function processDIRUBenefits(
           orderId: sku, // Usamos SKU como orderId para mostrarlo en la tabla
           date: undefined,
           quantity: units,
-          grossSales: 0,
+          grossSales,
           refunds,
-          realTurnover: 0,
-          iva: 0,
+          realTurnover,
+          iva,
           netBase: benefitValue, // Valor individual de Net profit
           commissionRate: client.base_commission_rate,
           commission: benefitValue * client.base_commission_rate,
@@ -608,18 +617,24 @@ async function processDIRUBenefits(
     const commissionRate = client.base_commission_rate
     const totalCommission = totalBenefits * commissionRate
 
+    // Calcular totales de ventas, reembolsos, etc. si están disponibles
+    const totalSales = processedRows.reduce((sum, r) => sum + r.grossSales, 0)
+    const totalRefunds = processedRows.reduce((sum, r) => sum + r.refunds, 0)
+    const realTurnover = totalSales - totalRefunds
+    const totalIva = processedRows.reduce((sum, r) => sum + r.iva, 0)
+
     // Crear resultado
     const result: CommissionCalculationData = {
       summary: {
-        totalSales: 0, // No aplica para DIRU
-        totalRefunds: 0, // No aplica para DIRU
-        realTurnover: 0, // No aplica para DIRU
-        totalIva: 0, // No aplica para DIRU
+        totalSales,
+        totalRefunds,
+        realTurnover,
+        totalIva,
         netBase: totalBenefits, // Total de beneficios
         totalCommission,
         averageCommissionRate: commissionRate,
         totalOrders: processedRows.length,
-        // Datos específicos de DIRU
+        // Datos específicos de DIRU/SAUSI
         totalBenefits
       },
       rows: processedRows,

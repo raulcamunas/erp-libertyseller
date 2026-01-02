@@ -26,8 +26,6 @@ import {
   ResponsiveContainer 
 } from 'recharts'
 import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
-import { nanoid } from 'nanoid'
 
 interface CommissionReportViewProps {
   report: CommissionReport & { clients?: { name: string } }
@@ -36,18 +34,15 @@ interface CommissionReportViewProps {
 type SortField = 'productTitle' | 'grossSales' | 'commission' | 'commissionRate'
 type SortDirection = 'asc' | 'desc'
 
-export function CommissionReportView({ report: initialReport }: CommissionReportViewProps) {
-  const [report, setReport] = useState(initialReport)
+export function CommissionReportView({ report }: CommissionReportViewProps) {
   const summary = report.data.summary
   const allRows = report.data.rows
-  const supabase = createClient()
   
   // Estados para filtros y búsqueda
   const [searchTerm, setSearchTerm] = useState('')
   const [sortField, setSortField] = useState<SortField>('commission')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar')
-  const [exporting, setExporting] = useState(false)
 
   // Filtrar y ordenar filas
   const filteredAndSortedRows = useMemo(() => {
@@ -103,56 +98,6 @@ export function CommissionReportView({ report: initialReport }: CommissionReport
     } else {
       setSortField(field)
       setSortDirection('desc')
-    }
-  }
-
-  const handleExportCSV = async () => {
-    setExporting(true)
-    try {
-      // Si el reporte no tiene slug, generar uno y guardarlo automáticamente
-      if (!report.slug) {
-        const newSlug = `comm-${nanoid(12)}`
-        
-        // Actualizar el reporte con el slug
-        const { error: updateError } = await supabase
-          .from('commission_reports')
-          .update({ slug: newSlug })
-          .eq('id', report.id)
-
-        if (updateError) {
-          console.error('Error al guardar el slug:', updateError)
-          // Continuar con la exportación aunque falle el guardado
-        } else {
-          // Actualizar el estado local del reporte
-          setReport({ ...report, slug: newSlug })
-        }
-      }
-
-      // Exportar a CSV
-      const csv = [
-        ['Producto', 'ASIN', 'Ventas', 'Reembolsos', 'Base Neta', '% Comisión', 'Comisión'].join(','),
-        ...filteredAndSortedRows.map(row => [
-          `"${row.productTitle}"`,
-          row.asin,
-          row.grossSales,
-          row.refunds,
-          row.netBase,
-          row.commissionRate * 100,
-          row.commission
-        ].join(','))
-      ].join('\n')
-      
-      const blob = new Blob([csv], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `reporte-${report.slug || 'comisiones'}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch (error) {
-      console.error('Error al exportar CSV:', error)
-    } finally {
-      setExporting(false)
     }
   }
 
@@ -358,11 +303,31 @@ export function CommissionReportView({ report: initialReport }: CommissionReport
             variant="glass"
             size="sm"
             className="gap-2"
-            onClick={handleExportCSV}
-            disabled={exporting}
+            onClick={() => {
+              // Exportar a CSV
+              const csv = [
+                ['Producto', 'ASIN', 'Ventas', 'Reembolsos', 'Base Neta', '% Comisión', 'Comisión'].join(','),
+                ...filteredAndSortedRows.map(row => [
+                  `"${row.productTitle}"`,
+                  row.asin,
+                  row.grossSales,
+                  row.refunds,
+                  row.netBase,
+                  row.commissionRate * 100,
+                  row.commission
+                ].join(','))
+              ].join('\n')
+              
+              const blob = new Blob([csv], { type: 'text/csv' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `reporte-${report.slug || 'comisiones'}.csv`
+              a.click()
+            }}
           >
             <Download className="h-4 w-4" />
-            {exporting ? 'Guardando...' : 'Exportar CSV'}
+            Exportar CSV
           </Button>
         </CardHeader>
         <CardContent>
