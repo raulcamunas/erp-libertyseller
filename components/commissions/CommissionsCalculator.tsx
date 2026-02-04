@@ -38,6 +38,8 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const [isDraggingCurrent, setIsDraggingCurrent] = useState(false)
   const [exceptions, setExceptions] = useState<CommissionException[]>([])
   const supabase = createClient()
+  // Modalidad de beneficios para SAUSI (15% o 35%)
+  const [sausiBenefitRate, setSausiBenefitRate] = useState<0.15 | 0.35>(0.15)
 
   // Obtener cliente seleccionado
   const selectedClient = clients.find(c => c.id === selectedClientId)
@@ -178,6 +180,10 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
         formData.append('fileCurrentYear', fileCurrentYear!)
       } else {
         formData.append('file', file!)
+        // Para SAUSI permitimos seleccionar la modalidad (15% o 35% sobre beneficios)
+        if (isSAUSI) {
+          formData.append('benefitRate', String(sausiBenefitRate))
+        }
       }
 
       const response = await fetch('/api/commissions/process', {
@@ -276,7 +282,43 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                       )}
                       {isShoesF && (
                         <div className="text-xs text-[#FF6600] mt-1">
-                          ⚠ Este cliente requiere comparar facturación entre dos años. Se calculará el 5% sobre el excedente (año actual - año anterior).
+                          ⚠ Este cliente requiere comparar facturación entre dos años. Se calculará el 3% sobre el excedente (año actual - año anterior).
+                        </div>
+                      )}
+                      {isSAUSI && (
+                        <div className="mt-3 space-y-2">
+                          <div className="text-xs text-white/60">
+                            Modalidad de comisión sobre beneficios (Net profit):
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSausiBenefitRate(0.15)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-xs border transition-all",
+                                sausiBenefitRate === 0.15
+                                  ? "bg-[#FF6600]/20 border-[#FF6600] text-white"
+                                  : "bg-white/[0.03] border-white/15 text-white/70 hover:border-white/40"
+                              )}
+                            >
+                              15% de los beneficios
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSausiBenefitRate(0.35)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-xs border transition-all",
+                                sausiBenefitRate === 0.35
+                                  ? "bg-[#FF6600]/20 border-[#FF6600] text-white"
+                                  : "bg-white/[0.03] border-white/15 text-white/70 hover:border-white/40"
+                              )}
+                            >
+                              35% de los beneficios
+                            </button>
+                          </div>
+                          <div className="text-[11px] text-white/50">
+                            Usa el archivo de beneficios (mismo formato anterior). El nuevo CSV de facturación no aplica aquí.
+                          </div>
                         </div>
                       )}
                     </div>
@@ -549,7 +591,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs font-medium text-white/70">
-                    Comisión Total (5%)
+                    Comisión Total (3%)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0">
@@ -557,13 +599,13 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                     €{result.summary.totalCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                   <div className="text-xs text-white/50 mt-1">
-                    5% sobre excedente
+                    3% sobre excedente
                   </div>
                 </CardContent>
               </Card>
             </div>
           ) : isBenefitsClient && result.summary.totalBenefits !== undefined ? (
-            // Resumen específico para DIRU
+            // Resumen específico para DIRU/SAUSI (beneficios)
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <Card>
                 <CardHeader className="pb-2">
@@ -608,7 +650,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                     €{result.summary.totalCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                   <div className="text-xs text-white/50 mt-1">
-                    50% de los beneficios
+                    {(result.summary.averageCommissionRate * 100).toFixed(0)}% de los beneficios
                   </div>
                 </CardContent>
               </Card>

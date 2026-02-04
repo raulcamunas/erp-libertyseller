@@ -42,6 +42,8 @@ export interface CommissionCalculationData {
     // Para DIRU: beneficios totales
     totalBenefits?: number // Total de beneficios de la pestaña
   }
+  // CSV original subido (para poder descargarlo tal cual en el reporte)
+  originalCsv?: string
   rows: CommissionRow[]
   errors: string[]
 }

@@ -322,21 +322,24 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
             size="sm"
             className="gap-2"
             onClick={() => {
-              // Exportar a CSV
-              const csv = [
-                ['Producto', 'ASIN', 'Ventas', 'Reembolsos', 'Base Neta', '% Comisión', 'Comisión'].join(','),
-                ...filteredAndSortedRows.map(row => [
-                  `"${row.productTitle}"`,
-                  row.asin,
-                  row.grossSales,
-                  row.refunds,
-                  row.netBase,
-                  row.commissionRate * 100,
-                  row.commission
-                ].join(','))
-              ].join('\n')
-              
-              const blob = new Blob([csv], { type: 'text/csv' })
+              // Exportar el CSV original subido (si existe); si no, generamos uno a partir del reporte
+              const originalCsv = report.data.originalCsv
+              const csvToDownload = originalCsv && originalCsv.trim().length > 0
+                ? originalCsv
+                : [
+                    ['Producto', 'ASIN', 'Ventas', 'Reembolsos', 'Base Neta', '% Comisión', 'Comisión'].join(','),
+                    ...filteredAndSortedRows.map(row => [
+                      `"${row.productTitle}"`,
+                      row.asin,
+                      row.grossSales,
+                      row.refunds,
+                      row.netBase,
+                      row.commissionRate * 100,
+                      row.commission
+                    ].join(','))
+                  ].join('\n')
+
+              const blob = new Blob([csvToDownload], { type: 'text/csv' })
               const url = URL.createObjectURL(blob)
               const a = document.createElement('a')
               a.href = url

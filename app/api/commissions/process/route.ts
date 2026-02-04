@@ -76,10 +76,15 @@ export async function POST(request: NextRequest) {
 
     // Si es DIRU o SAUSI, procesar CSV con columna Net profit
     if (isBenefitsClient) {
+      // Para SAUSI podemos recibir una tasa específica (15% o 35%)
+      const benefitRateRaw = formData.get('benefitRate') as string | null
+      const benefitRate = benefitRateRaw ? parseFloat(benefitRateRaw) : undefined
+
       return await processDIRUBenefits(
         file!,
         client,
-        supabase
+        supabase,
+        isSAUSI && benefitRate ? benefitRate : undefined
       )
     }
 
@@ -316,6 +321,8 @@ export async function POST(request: NextRequest) {
         averageCommissionRate,
         totalOrders
       },
+      // Guardamos el CSV original para poder descargarlo tal cual en el reporte
+      originalCsv: csvContent,
       rows: processedRows,
       errors
     }
@@ -465,8 +472,8 @@ async function processShoesFComparison(
     // Calcular excedente (año actual - año anterior)
     const excessAmount = Math.max(0, currentYearNetBase - previousYearNetBase)
 
-    // Calcular comisión: 5% sobre el excedente
-    const commissionRate = client.base_commission_rate // 0.05 (5%)
+    // Calcular comisión: 3% sobre el excedente (forzamos a 3% independientemente de la base)
+    const commissionRate = 0.03
     const totalCommission = excessAmount * commissionRate
 
     // Calcular totales para el resumen
@@ -509,11 +516,12 @@ async function processShoesFComparison(
   }
 }
 
-// Función para procesar DIRU con CSV y columna Net profit
+// Función para procesar DIRU/SAUSI con CSV y columna Net profit
 async function processDIRUBenefits(
   file: File,
   client: any,
-  supabase: any
+  supabase: any,
+  benefitRateOverride?: number
 ) {
   try {
     // Leer el archivo CSV
@@ -659,8 +667,8 @@ async function processDIRUBenefits(
           realTurnover,
           iva,
           netBase: benefitValue, // Valor individual de Net profit
-          commissionRate: client.base_commission_rate,
-          commission: benefitValue * client.base_commission_rate,
+          commissionRate: benefitRateOverride ?? client.base_commission_rate,
+          commission: benefitValue * (benefitRateOverride ?? client.base_commission_rate),
           rowNumber: i + 2
         })
       } else {
@@ -674,7 +682,7 @@ async function processDIRUBenefits(
     // Calcular comisión usando la tasa base del cliente sobre la suma total de "Net profit"
     // Nota: totalBenefits ya incluye la suma de todos los valores (positivos y negativos)
     // Los negativos se restan automáticamente al sumar
-    const commissionRate = client.base_commission_rate
+    const commissionRate = benefitRateOverride ?? client.base_commission_rate
     const totalCommission = totalBenefits * commissionRate
 
     // Calcular totales de ventas, reembolsos, etc. si están disponibles
