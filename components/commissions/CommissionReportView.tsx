@@ -335,12 +335,6 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th 
-                    className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase cursor-pointer hover:text-white transition-colors"
-                    onClick={() => handleSort('productTitle')}
-                  >
-                    Producto {sortField === 'productTitle' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
                   <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>
                   <th 
                     className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase cursor-pointer hover:text-white transition-colors"
@@ -367,16 +361,6 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
               <tbody>
                 {filteredAndSortedRows.map((row, idx) => (
                   <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                    <td className="py-3 px-3 text-white text-sm">
-                      <div className="max-w-xs truncate" title={row.productTitle}>
-                        {row.productTitle}
-                      </div>
-                      {row.appliedException && (
-                        <span className="text-xs text-[#FF6600] block mt-1">
-                          ⚠ Excepción: {row.appliedException}
-                        </span>
-                      )}
-                    </td>
                     <td className="py-3 px-3 text-white/70 text-xs font-mono">
                       {row.asin}
                     </td>
@@ -406,7 +390,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-white/20 bg-white/[0.02]">
-                  <td colSpan={2} className="py-4 px-3 text-white font-semibold text-right">
+                  <td className="py-4 px-3 text-white font-semibold text-right">
                     TOTALES ({filteredAndSortedRows.length} productos):
                   </td>
                   <td className="py-4 px-3 text-white font-semibold text-right">

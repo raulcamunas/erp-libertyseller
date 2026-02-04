@@ -813,7 +813,6 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
         <thead>
           <tr className="border-b border-white/10">
             <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">#</th>
-            <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Producto</th>
             {isBenefitsClient && (
               <>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>
@@ -832,7 +831,6 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Ventas</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Reembolsos</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Fact. Real</th>
-                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">IVA (-21%)</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Base Neta</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">% Comisión</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Comisión</th>
@@ -852,16 +850,6 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
             <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
               <td className="py-3 px-3 text-white/50 text-xs">
                 {row.rowNumber}
-              </td>
-              <td className="py-3 px-3 text-white text-sm">
-                <div className="max-w-xs truncate" title={row.productTitle}>
-                  {row.productTitle}
-                </div>
-                {row.appliedException && (
-                  <span className="text-xs text-[#FF6600] block mt-1">
-                    ⚠ Excepción: {row.appliedException}
-                  </span>
-                )}
               </td>
               {isBenefitsClient && (
                 <>
@@ -925,9 +913,6 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
                   <td className="py-3 px-3 text-white/70 text-xs text-right">
                     €{row.realTurnover.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td className="py-3 px-3 text-yellow-400/70 text-xs text-right">
-                    -€{row.iva.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
                   <td className="py-3 px-3 text-green-400/70 text-xs text-right font-semibold">
                     €{row.netBase.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
@@ -986,7 +971,7 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
             )}
             {!isShoesF && !isBenefitsClient && (
               <>
-                <td colSpan={4} className="py-4 px-3 text-white font-semibold text-right">
+                <td colSpan={3} className="py-4 px-3 text-white font-semibold text-right">
                   TOTALES:
                 </td>
                 <td className="py-4 px-3 text-white font-semibold text-right">
@@ -997,9 +982,6 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
                 </td>
                 <td className="py-4 px-3 text-white font-semibold text-right">
                   €{rows.reduce((sum, r) => sum + r.realTurnover, 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </td>
-                <td className="py-4 px-3 text-yellow-400 font-semibold text-right">
-                  -€{rows.reduce((sum, r) => sum + r.iva, 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td className="py-4 px-3 text-green-400 font-semibold text-right">
                   €{rows.reduce((sum, r) => sum + r.netBase, 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1014,7 +996,7 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
             )}
             {isShoesF && (
               <>
-                <td colSpan={3} className="py-4 px-3 text-white font-semibold text-right">
+                <td colSpan={2} className="py-4 px-3 text-white font-semibold text-right">
                   TOTALES:
                 </td>
                 <td className="py-4 px-3 text-white/70 font-semibold text-right">
