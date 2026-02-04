@@ -663,22 +663,6 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs font-medium text-white/70">
-                  IVA Descontado (21%)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-xl font-bold text-yellow-400">
-                  -€{result.summary.totalIva.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div className="text-xs text-white/50 mt-1">
-                  IVA eliminado del cálculo
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-white/70">
                   Base Neta (SIN IVA)
                 </CardTitle>
               </CardHeader>
