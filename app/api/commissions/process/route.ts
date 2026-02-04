@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
     const isShoesF = client.name === 'ShoesF'
     const isDIRU = client.name === 'DIRU'
     const isSAUSI = client.name === 'SAUSI'
+    const isCreativeToys = client.name === 'Creative Toys'
     const isBenefitsClient = isDIRU || isSAUSI // Clientes que usan Net profit
 
     // Validar archivos según el tipo de cliente
@@ -109,22 +110,7 @@ export async function POST(request: NextRequest) {
       const row = rows[i]
       
       try {
-        // Obtener valores con parsing robusto
-        const grossSales = parseNum(
-          getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
-        )
-
-        const refunds = Math.abs(parseNum(
-          getVal(row, [
-            'Refund Cost',
-            'Refund сost', // Con caracteres cirílicos
-            'Coste reembolso',
-            /Refund.*[Cc]ost/i,
-            /Coste.*reembolso/i,
-            /Reembolso/i
-          ])
-        ))
-
+        // Datos comunes (producto, ASIN, pedido, etc.)
         const productTitle = getVal(row, [
           'Product',
           'Title',
@@ -167,17 +153,88 @@ export async function POST(request: NextRequest) {
           ])
         ) || undefined
 
-        // CÁLCULOS CORRECTOS:
-        // 1. Facturación real = Ventas - Reembolsos
-        const realTurnover = grossSales - refunds
-        
-        // 2. Base neta SIN IVA (descontamos el 21% de IVA)
-        // Si realTurnover incluye IVA: netBase = realTurnover / 1.21
-        // Esto quita el IVA antes de calcular comisiones
-        const netBase = realTurnover / 1.21
-        
-        // 3. IVA descontado (para mostrar en el informe)
-        const iva = realTurnover - netBase
+        let grossSales = 0
+        let refunds = 0
+        let realTurnover = 0
+        let netBase = 0
+        let iva = 0
+
+        if (isCreativeToys) {
+          // LÓGICA ANTIGUA (Creative Toys mantiene el cálculo anterior)
+          grossSales = parseNum(
+            getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
+          )
+
+          refunds = Math.abs(parseNum(
+            getVal(row, [
+              'Refund Cost',
+              'Refund сost', // Con caracteres cirílicos
+              'Coste reembolso',
+              /Refund.*[Cc]ost/i,
+              /Coste.*reembolso/i,
+              /Reembolso/i
+            ])
+          ))
+
+          // 1. Facturación real = Ventas - Reembolsos
+          realTurnover = grossSales - refunds
+          
+          // 2. Base neta SIN IVA (descontamos el 21% de IVA)
+          netBase = realTurnover / 1.21
+          
+          // 3. IVA descontado (para mostrar en el informe)
+          iva = realTurnover - netBase
+        } else {
+          // NUEVA LÓGICA AMAZON (todas las cuentas excepto Creative Toys)
+          const transactionType = String(
+            getVal(row, [
+              'Transaction Type',
+              'transaction_type',
+              /Transaction.*Type/i
+            ]) || ''
+          ).toUpperCase()
+
+          const ourPrice = parseNum(
+            getVal(row, [
+              'OUR_PRICE Tax Exclusive Selling Price',
+              /OUR_PRICE.*Tax Exclusive Selling Price/i
+            ])
+          )
+
+          const shippingPrice = parseNum(
+            getVal(row, [
+              'SHIPPING Tax Exclusive Selling Price',
+              /SHIPPING.*Tax Exclusive Selling Price/i
+            ])
+          )
+
+          // Importe total sin IVA de la línea (producto + envío)
+          const lineAmount = ourPrice + shippingPrice
+          const lineAmountAbs = Math.abs(lineAmount)
+
+          if (transactionType === 'SHIPMENT') {
+            // Ventas: sumamos la base imponible neta de la agencia (sin IVA)
+            grossSales = lineAmountAbs
+            refunds = 0
+            realTurnover = lineAmountAbs
+            netBase = lineAmountAbs // Ya viene sin IVA
+            iva = 0 // El reporte ya es "Tax Exclusive"
+
+            totalSales += grossSales
+          } else if (transactionType === 'RETURN' || transactionType === 'REFUND') {
+            // Devoluciones/abonos: restamos la base imponible (en positivo)
+            grossSales = 0
+            refunds = lineAmountAbs
+            realTurnover = -lineAmountAbs
+            netBase = -lineAmountAbs
+            iva = 0
+
+            totalRefunds += refunds
+          } else {
+            // Otros tipos de transacción se ignoran
+            continue
+          }
+        }
 
         // Determinar tasa de comisión
         let commissionRate = client.base_commission_rate
@@ -200,8 +257,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 4. Comisión = Base neta (SIN IVA) * Tasa
-        // Esto asegura que la comisión se calcula sobre la base sin IVA
+        // Comisión = Base neta (SIN IVA) * Tasa
         const commission = netBase * commissionRate
 
         processedRows.push({
@@ -221,8 +277,11 @@ export async function POST(request: NextRequest) {
           rowNumber: i + 2 // Fila en el CSV (empezando desde 2 por el header)
         })
 
-        totalSales += grossSales
-        totalRefunds += refunds
+        // Si estamos en la lógica antigua de Creative Toys, acumulamos aquí
+        if (isCreativeToys) {
+          totalSales += grossSales
+          totalRefunds += refunds
+        }
 
       } catch (error: any) {
         errors.push(`Fila ${i + 2}: ${error.message || 'Error al procesar'}`)
@@ -231,8 +290,9 @@ export async function POST(request: NextRequest) {
 
     // Calcular totales
     const realTurnover = totalSales - totalRefunds
-    const netBase = realTurnover / 1.21
-    const totalIva = realTurnover - netBase
+    // En la nueva lógica Amazon, los importes ya vienen sin IVA, así que la base es igual
+    const netBase = realTurnover
+    const totalIva = isCreativeToys ? (realTurnover - netBase) : 0
     const totalCommission = processedRows.reduce((sum, r) => sum + r.commission, 0)
     
     // Calcular tasa promedio de comisión
