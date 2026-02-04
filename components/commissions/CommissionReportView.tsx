@@ -10,7 +10,8 @@ import {
   BarChart3,
   Download,
   X,
-  TrendingUp
+  TrendingUp,
+  FileText
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -81,9 +82,10 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
     return filteredAndSortedRows
       .slice(0, 20) // Top 20 para el gráfico
       .map(row => ({
-        name: row.productTitle.length > 20 
-          ? row.productTitle.substring(0, 20) + '...' 
-          : row.productTitle,
+        // Usamos el ASIN como etiqueta principal para evitar "Sin nombre"
+        name: (row.asin || row.productTitle || '').length > 20
+          ? (row.asin || row.productTitle || '').substring(0, 20) + '...'
+          : (row.asin || row.productTitle || ''),
         comision: row.commission,
         base: row.netBase,
         tasa: row.commissionRate * 100
@@ -200,23 +202,39 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
             <BarChart3 className="h-5 w-5" />
             Top Productos por Comisión
           </CardTitle>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Button
-              onClick={() => setChartType('bar')}
-              variant={chartType === 'bar' ? 'default' : 'outline'}
+              onClick={() => {
+                const el = document.getElementById('detalle-productos-csv')
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              }}
+              variant="glass"
               size="sm"
-              className={cn(chartType === 'bar' && "bg-[#FF6600]")}
+              className="gap-1"
             >
-              <BarChart3 className="h-4 w-4" />
+              <FileText className="h-4 w-4" />
+              Ver detalle tipo CSV
             </Button>
-            <Button
-              onClick={() => setChartType('line')}
-              variant={chartType === 'line' ? 'default' : 'outline'}
-              size="sm"
-              className={cn(chartType === 'line' && "bg-[#FF6600]")}
-            >
-              <TrendingUp className="h-4 w-4" />
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => setChartType('bar')}
+                variant={chartType === 'bar' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(chartType === 'bar' && "bg-[#FF6600]")}
+              >
+                <BarChart3 className="h-4 w-4" />
+              </Button>
+              <Button
+                onClick={() => setChartType('line')}
+                variant={chartType === 'line' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(chartType === 'line' && "bg-[#FF6600]")}
+              >
+                <TrendingUp className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -294,7 +312,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
       </Card>
 
       {/* Tabla Interactiva */}
-      <Card>
+      <Card id="detalle-productos-csv">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-white">
             Detalle de Productos ({filteredAndSortedRows.length})
