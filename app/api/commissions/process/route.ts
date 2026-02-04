@@ -31,6 +31,9 @@ export async function POST(request: NextRequest) {
     const isDIRU = client.name === 'DIRU'
     const isSAUSI = client.name === 'SAUSI'
     const isCreativeToys = client.name === 'Creative Toys'
+    const isLenobotics = client.name === 'Lenobotics'
+    // Sistema anterior: Sales + Refund Cost, base neta = facturación real / 1.21
+    const useOldCalculation = isCreativeToys || isLenobotics
     const isBenefitsClient = isDIRU || isSAUSI // Clientes que usan Net profit
 
     // Validar archivos según el tipo de cliente
@@ -164,8 +167,8 @@ export async function POST(request: NextRequest) {
         let netBase = 0
         let iva = 0
 
-        if (isCreativeToys) {
-          // LÓGICA ANTIGUA (Creative Toys mantiene el cálculo anterior)
+        if (useOldCalculation) {
+          // LÓGICA ANTIGUA (Creative Toys y Lenobotics: Sales, Refund Cost, base = facturación real / 1.21)
           grossSales = parseNum(
             getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
           )
@@ -282,8 +285,8 @@ export async function POST(request: NextRequest) {
           rowNumber: i + 2 // Fila en el CSV (empezando desde 2 por el header)
         })
 
-        // Si estamos en la lógica antigua de Creative Toys, acumulamos aquí
-        if (isCreativeToys) {
+        // Si estamos en la lógica antigua (Creative Toys / Lenobotics), acumulamos aquí
+        if (useOldCalculation) {
           totalSales += grossSales
           totalRefunds += refunds
         }
@@ -297,7 +300,7 @@ export async function POST(request: NextRequest) {
     const realTurnover = totalSales - totalRefunds
     // En la nueva lógica Amazon, los importes ya vienen sin IVA, así que la base es igual
     const netBase = realTurnover
-    const totalIva = isCreativeToys ? (realTurnover - netBase) : 0
+    const totalIva = useOldCalculation ? (realTurnover - netBase) : 0
     const totalCommission = processedRows.reduce((sum, r) => sum + r.commission, 0)
     
     // Calcular tasa promedio de comisión
@@ -364,7 +367,29 @@ async function processShoesFComparison(
       )
     }
 
-    // Procesar año anterior: crear un mapa por ASIN para hacer match
+    // Helper: calcular base neta de una fila con formato Amazon (Transaction Type + OUR_PRICE/SHIPPING Tax Exclusive)
+    const getAmazonLineNetBase = (row: Record<string, any>) => {
+      const transactionType = String(
+        getVal(row, ['Transaction Type', 'transaction_type', /Transaction.*Type/i]) || ''
+      ).toUpperCase()
+      const ourPrice = parseNum(
+        getVal(row, ['OUR_PRICE Tax Exclusive Selling Price', /OUR_PRICE.*Tax Exclusive Selling Price/i])
+      )
+      const shippingPrice = parseNum(
+        getVal(row, ['SHIPPING Tax Exclusive Selling Price', /SHIPPING.*Tax Exclusive Selling Price/i])
+      )
+      const lineAmount = ourPrice + shippingPrice
+      const lineAmountAbs = Math.abs(lineAmount)
+      if (transactionType === 'SHIPMENT') {
+        return { grossSales: lineAmountAbs, refunds: 0, netBase: lineAmountAbs }
+      }
+      if (transactionType === 'RETURN' || transactionType === 'REFUND') {
+        return { grossSales: 0, refunds: lineAmountAbs, netBase: -lineAmountAbs }
+      }
+      return null // otros tipos se ignoran
+    }
+
+    // Procesar año anterior: mismo formato Amazon (Transaction Type, OUR_PRICE/SHIPPING Tax Exclusive)
     const previousYearData = new Map<string, { netBase: number, grossSales: number, refunds: number }>()
     let previousYearNetBase = 0
     const errors: string[] = []
@@ -372,57 +397,35 @@ async function processShoesFComparison(
     for (let i = 0; i < rowsPrevious.length; i++) {
       const row = rowsPrevious[i]
       try {
-        const grossSales = parseNum(
-          getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
-        )
-        const refunds = Math.abs(parseNum(
-          getVal(row, [
-            'Refund Cost',
-            'Refund сost',
-            'Coste reembolso',
-            /Refund.*[Cc]ost/i,
-            /Coste.*reembolso/i,
-            /Reembolso/i
-          ])
-        ))
-        const asin = getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A'
-        const realTurnover = grossSales - refunds
-        const netBase = realTurnover / 1.21 // Quitar IVA
-        
-        // Agrupar por ASIN (sumar si hay múltiples filas del mismo producto)
+        const line = getAmazonLineNetBase(row)
+        if (line === null) continue
+
+        const asin = String(getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A').trim() || 'N/A'
+        const netBase = line.netBase
+
         const existing = previousYearData.get(asin) || { netBase: 0, grossSales: 0, refunds: 0 }
         previousYearData.set(asin, {
           netBase: existing.netBase + netBase,
-          grossSales: existing.grossSales + grossSales,
-          refunds: existing.refunds + refunds
+          grossSales: existing.grossSales + line.grossSales,
+          refunds: existing.refunds + line.refunds
         })
-        
+
         previousYearNetBase += netBase
       } catch (error: any) {
         errors.push(`Fila ${i + 2} (Año Anterior): ${error.message || 'Error al procesar'}`)
       }
     }
 
-    // Calcular base neta (sin IVA) para año actual y hacer match con año anterior
+    // Año actual: mismo formato Amazon
     let currentYearNetBase = 0
     const processedRows: CommissionRow[] = []
 
     for (let i = 0; i < rowsCurrent.length; i++) {
       const row = rowsCurrent[i]
       try {
-        const grossSales = parseNum(
-          getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
-        )
-        const refunds = Math.abs(parseNum(
-          getVal(row, [
-            'Refund Cost',
-            'Refund сost',
-            'Coste reembolso',
-            /Refund.*[Cc]ost/i,
-            /Coste.*reembolso/i,
-            /Reembolso/i
-          ])
-        ))
+        const line = getAmazonLineNetBase(row)
+        if (line === null) continue
+
         const productTitle = getVal(row, [
           'Product',
           'Title',
@@ -431,21 +434,20 @@ async function processShoesFComparison(
           /Product.*Title/i,
           /Nombre.*Producto/i
         ]) || 'Sin nombre'
-        const asin = getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A'
+        const asin = String(getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A').trim() || 'N/A'
         const orderId = getVal(row, ['Order ID', 'OrderId', 'Order', 'Pedido', /Order.*ID/i, /Pedido/i]) || undefined
-        const date = getVal(row, ['Date', 'Fecha', 'Sale Date', /Date/i, /Fecha/i]) || undefined
+        const date = getVal(row, ['Date', 'Fecha', 'Sale Date', 'Shipment Date', /Date/i, /Fecha/i]) || undefined
         const quantity = parseNum(getVal(row, ['Quantity', 'Cantidad', 'Qty', /Quantity/i, /Cantidad/i]))
 
+        const netBase = line.netBase
+        const grossSales = line.grossSales
+        const refunds = line.refunds
         const realTurnover = grossSales - refunds
-        const netBase = realTurnover / 1.21 // Quitar IVA
-        const iva = realTurnover - netBase
 
         currentYearNetBase += netBase
 
-        // Buscar datos del año anterior para este ASIN
         const previousYearInfo = previousYearData.get(asin) || { netBase: 0, grossSales: 0, refunds: 0 }
 
-        // Guardar fila para el reporte detallado
         processedRows.push({
           productTitle,
           asin,
@@ -455,12 +457,11 @@ async function processShoesFComparison(
           grossSales,
           refunds,
           realTurnover,
-          iva,
+          iva: 0, // ya es tax exclusive
           netBase,
-          commissionRate: 0, // No aplicamos tasa por producto en ShoesF
-          commission: 0, // La comisión se calcula sobre el excedente total
+          commissionRate: 0,
+          commission: 0,
           rowNumber: i + 2,
-          // Datos de comparación para ShoesF
           previousYearNetBase: previousYearInfo.netBase,
           currentYearNetBase: netBase
         })
