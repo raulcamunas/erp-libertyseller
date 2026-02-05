@@ -400,7 +400,7 @@ async function processShoesFComparison(
         const line = getAmazonLineNetBase(row)
         if (line === null) continue
 
-        const asin = String(getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A').trim() || 'N/A'
+        const asin = String(getVal(row, ['ASIN', 'asin', 'Asin', /^\s*ASIN\s*$/i]) || 'N/A').trim() || 'N/A'
         const netBase = line.netBase
 
         const existing = previousYearData.get(asin) || { netBase: 0, grossSales: 0, refunds: 0 }
@@ -434,7 +434,9 @@ async function processShoesFComparison(
           /Product.*Title/i,
           /Nombre.*Producto/i
         ]) || 'Sin nombre'
-        const asin = String(getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A').trim() || 'N/A'
+        // Para ShoesF mostramos SKU (identificador de producto en su CSV); ASIN se usa solo para agrupar año anterior
+        const asinForGrouping = String(getVal(row, ['ASIN', 'asin', 'Asin', /^\s*ASIN\s*$/i]) || 'N/A').trim() || 'N/A'
+        const skuForDisplay = String(getVal(row, ['SKU', 'sku', 'Sku', /^\s*SKU\s*$/i]) || '').trim() || asinForGrouping
         const orderId = getVal(row, ['Order ID', 'OrderId', 'Order', 'Pedido', /Order.*ID/i, /Pedido/i]) || undefined
         const date = getVal(row, ['Date', 'Fecha', 'Sale Date', 'Shipment Date', /Date/i, /Fecha/i]) || undefined
         const quantity = parseNum(getVal(row, ['Quantity', 'Cantidad', 'Qty', /Quantity/i, /Cantidad/i]))
@@ -446,11 +448,11 @@ async function processShoesFComparison(
 
         currentYearNetBase += netBase
 
-        const previousYearInfo = previousYearData.get(asin) || { netBase: 0, grossSales: 0, refunds: 0 }
+        const previousYearInfo = previousYearData.get(asinForGrouping) || { netBase: 0, grossSales: 0, refunds: 0 }
 
         processedRows.push({
           productTitle,
-          asin,
+          asin: skuForDisplay, // En ShoesF la tabla muestra SKU en la columna correspondiente
           orderId,
           date,
           quantity,

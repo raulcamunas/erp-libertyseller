@@ -850,7 +850,11 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Comisión</th>
               </>
             )}
-            {!isBenefitsClient && <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>}
+            {!isBenefitsClient && (
+              <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">
+                {isShoesF ? 'SKU' : 'ASIN'}
+              </th>
+            )}
             {!isShoesF && !isBenefitsClient && (
               <>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Pedido</th>
@@ -954,6 +958,9 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
               )}
               {isShoesF && (
                 <>
+                  <td className="py-3 px-3 text-white/70 text-xs font-mono">
+                    {row.asin || '-'}
+                  </td>
                   <td className="py-3 px-3 text-white/70 text-xs text-right">
                     €{(row.previousYearNetBase || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
