@@ -72,11 +72,18 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
           bVal = b.previousYearNetBase ?? 0
         }
       } else {
-        aVal = a[sortField]
-        bVal = b[sortField]
-        if (sortField === 'productTitle') {
-          aVal = (aVal || '').toLowerCase()
-          bVal = (bVal || '').toLowerCase()
+        // sortField solo puede ser 'excedente' cuando isShoesF; en otro caso no existe en CommissionRow
+        if (sortField === 'excedente') {
+          aVal = 0
+          bVal = 0
+        } else {
+          const key = sortField as keyof CommissionRow
+          aVal = a[key]
+          bVal = b[key]
+          if (sortField === 'productTitle') {
+            aVal = (aVal || '').toLowerCase()
+            bVal = (bVal || '').toLowerCase()
+          }
         }
       }
 
