@@ -32,7 +32,7 @@ interface CommissionReportViewProps {
   report: CommissionReport & { clients?: { name: string } }
 }
 
-type SortField = 'productTitle' | 'grossSales' | 'commission' | 'commissionRate' | 'currentYearNetBase' | 'previousYearNetBase' | 'excedente'
+type SortField = 'productTitle' | 'grossSales' | 'commission' | 'commissionRate' | 'currentYearNetBase' | 'previousYearNetBase'
 type SortDirection = 'asc' | 'desc'
 
 export function CommissionReportView({ report }: CommissionReportViewProps) {
@@ -41,7 +41,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   const isShoesF = summary.excessAmount !== undefined && summary.previousYearNetBase !== undefined
 
   const [searchTerm, setSearchTerm] = useState('')
-  const [sortField, setSortField] = useState<SortField>(isShoesF ? 'excedente' : 'commission')
+  const [sortField, setSortField] = useState<SortField>(isShoesF ? 'currentYearNetBase' : 'commission')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar')
 
@@ -58,32 +58,16 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
     filtered.sort((a, b) => {
       let aVal: any
       let bVal: any
-      if (isShoesF && (sortField === 'excedente' || sortField === 'currentYearNetBase' || sortField === 'previousYearNetBase')) {
-        const excedenteA = Math.max(0, (a.currentYearNetBase || 0) - (a.previousYearNetBase || 0))
-        const excedenteB = Math.max(0, (b.currentYearNetBase || 0) - (b.previousYearNetBase || 0))
-        if (sortField === 'excedente') {
-          aVal = excedenteA
-          bVal = excedenteB
-        } else if (sortField === 'currentYearNetBase') {
-          aVal = a.currentYearNetBase ?? 0
-          bVal = b.currentYearNetBase ?? 0
-        } else {
-          aVal = a.previousYearNetBase ?? 0
-          bVal = b.previousYearNetBase ?? 0
-        }
+      if (isShoesF && (sortField === 'currentYearNetBase' || sortField === 'previousYearNetBase')) {
+        aVal = sortField === 'currentYearNetBase' ? (a.currentYearNetBase ?? 0) : (a.previousYearNetBase ?? 0)
+        bVal = sortField === 'currentYearNetBase' ? (b.currentYearNetBase ?? 0) : (b.previousYearNetBase ?? 0)
       } else {
-        // sortField solo puede ser 'excedente' cuando isShoesF; en otro caso no existe en CommissionRow
-        if (sortField === 'excedente') {
-          aVal = 0
-          bVal = 0
-        } else {
-          const key = sortField as keyof CommissionRow
-          aVal = a[key]
-          bVal = b[key]
-          if (sortField === 'productTitle') {
-            aVal = (aVal || '').toLowerCase()
-            bVal = (bVal || '').toLowerCase()
-          }
+        const key = sortField as keyof CommissionRow
+        aVal = a[key]
+        bVal = b[key]
+        if (sortField === 'productTitle') {
+          aVal = (aVal || '').toLowerCase()
+          bVal = (bVal || '').toLowerCase()
         }
       }
 
@@ -456,12 +440,6 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                       >
                         Base Neta Año Actual {sortField === 'currentYearNetBase' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th
-                        className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase cursor-pointer hover:text-white transition-colors"
-                        onClick={() => handleSort('excedente')}
-                      >
-                        Excedente {sortField === 'excedente' && (sortDirection === 'asc' ? '↑' : '↓')}
-                      </th>
                     </>
                   ) : (
                     <>
@@ -492,24 +470,18 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
               </thead>
               <tbody>
                 {isShoesF
-                  ? filteredAndSortedRows.map((row, idx) => {
-                      const excedente = Math.max(0, (row.currentYearNetBase || 0) - (row.previousYearNetBase || 0))
-                      return (
-                        <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                          <td className="py-3 px-3 text-white/50 text-xs">{row.rowNumber}</td>
-                          <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.asin || '-'}</td>
-                          <td className="py-3 px-3 text-white/70 text-xs text-right">
-                            €{(row.previousYearNetBase ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-3 text-green-400/70 text-xs text-right font-semibold">
-                            €{(row.currentYearNetBase ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-3 text-[#FF6600] font-bold text-sm text-right">
-                            €{excedente.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      )
-                    })
+                  ? filteredAndSortedRows.map((row, idx) => (
+                      <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                        <td className="py-3 px-3 text-white/50 text-xs">{row.rowNumber}</td>
+                        <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.asin || '-'}</td>
+                        <td className="py-3 px-3 text-white/70 text-xs text-right">
+                          €{(row.previousYearNetBase ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3 px-3 text-green-400/70 text-xs text-right font-semibold">
+                          €{(row.currentYearNetBase ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))
                   : filteredAndSortedRows.map((row, idx) => (
                       <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
                         <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.asin}</td>
@@ -549,9 +521,6 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                       </td>
                       <td className="py-4 px-3 text-green-400 font-semibold text-right">
                         €{filteredAndSortedRows.reduce((sum, r) => sum + (r.currentYearNetBase ?? 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-4 px-3 text-[#FF6600] font-bold text-lg text-right">
-                        €{filteredAndSortedRows.reduce((sum, r) => sum + Math.max(0, (r.currentYearNetBase ?? 0) - (r.previousYearNetBase ?? 0)), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </>
                   ) : (

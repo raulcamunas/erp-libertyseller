@@ -870,7 +870,6 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
               <>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Base Neta Año Anterior</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Base Neta Año Actual</th>
-                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Excedente</th>
               </>
             )}
           </tr>
@@ -967,9 +966,6 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
                   <td className="py-3 px-3 text-green-400/70 text-xs text-right font-semibold">
                     €{(row.currentYearNetBase || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td className="py-3 px-3 text-[#FF6600] font-bold text-sm text-right">
-                    €{Math.max(0, (row.currentYearNetBase || 0) - (row.previousYearNetBase || 0)).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
                 </>
               )}
             </tr>
@@ -1037,9 +1033,6 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
                 </td>
                 <td className="py-4 px-3 text-green-400 font-semibold text-right">
                   €{rows.reduce((sum, r) => sum + (r.currentYearNetBase || 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </td>
-                <td className="py-4 px-3 text-[#FF6600] font-bold text-lg text-right">
-                  €{rows.reduce((sum, r) => sum + Math.max(0, (r.currentYearNetBase || 0) - (r.previousYearNetBase || 0)), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
               </>
             )}
