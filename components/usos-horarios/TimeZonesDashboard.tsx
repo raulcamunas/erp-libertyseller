@@ -34,17 +34,42 @@ function formatDate(date: Date, timeZone: string) {
   }).format(date)
 }
 
+function getGmtOffset(date: Date, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      timeZoneName: 'longOffset',
+    }).formatToParts(date)
+    const tz = parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
+    if (!tz) return ''
+    // Normalizar "GMT-06:00" -> "GMT-6", "GMT+01:00" -> "GMT+1"
+    const m = tz.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/)
+    if (m) {
+      const sign = m[1]
+      const h = parseInt(m[2], 10)
+      const min = m[3] ? parseInt(m[3], 10) : 0
+      if (min === 0) return `GMT${sign}${h}`
+      return `GMT${sign}${h}:${String(min).padStart(2, '0')}`
+    }
+    return tz
+  } catch {
+    return ''
+  }
+}
+
 function TimeCard({
   title,
   subtitle,
   time,
   date,
+  gmt,
   accent = false,
 }: {
   title: string
   subtitle: string
   time: string
   date: string
+  gmt?: string
   accent?: boolean
 }) {
   return (
@@ -58,6 +83,11 @@ function TimeCard({
         <CardTitle className="text-xs font-semibold text-white/90 flex items-center gap-1.5">
           <Clock className="h-3.5 w-3.5 text-[#FF6600]" />
           {title}
+          {gmt && (
+            <span className="text-[10px] font-normal text-[#FF6600]/90 ml-0.5">
+              {gmt}
+            </span>
+          )}
         </CardTitle>
         <p className="text-[11px] text-white/50 mt-0.5">{subtitle}</p>
       </CardHeader>
@@ -81,61 +111,59 @@ export function TimeZonesDashboard() {
 
   return (
     <div className="space-y-8">
-      {/* 3 columnas */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Columna 1: Las 4 zonas de México */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="h-6 w-px bg-[#FF6600]" />
-            <h2 className="label-uppercase text-white/70 text-[11px]">Zonas horarias México</h2>
-          </div>
-          <div className="space-y-2">
-            {ZONAS_MEXICO.map((zona) => (
-              <TimeCard
-                key={zona.id}
-                title={zona.name}
-                subtitle={zona.city}
-                time={formatTime(now, zona.tz)}
-                date={formatDate(now, zona.tz)}
-              />
-            ))}
-          </div>
+      {/* Bloque 1: México (4 zonas en fila vertical) */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="h-6 w-px bg-[#FF6600]" />
+          <h2 className="label-uppercase text-white/70 text-[11px]">Zonas horarias México</h2>
         </div>
-
-        {/* Columna 2: Referencia Argentina */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="h-6 w-px bg-[#FF6600]" />
-            <h2 className="label-uppercase text-white/70 text-[11px]">Referencia Argentina</h2>
-          </div>
-          <TimeCard
-            title={REFERENCIA_ARGENTINA.name}
-            subtitle={REFERENCIA_ARGENTINA.city}
-            time={formatTime(now, REFERENCIA_ARGENTINA.tz)}
-            date={formatDate(now, REFERENCIA_ARGENTINA.tz)}
-            accent
-          />
-          <p className="text-[11px] text-white/50 px-1">
-            Hora de Buenos Aires (ART). Referencia para coordinación con Argentina.
-          </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {ZONAS_MEXICO.map((zona) => (
+            <TimeCard
+              key={zona.id}
+              title={zona.name}
+              subtitle={zona.city}
+              time={formatTime(now, zona.tz)}
+              date={formatDate(now, zona.tz)}
+              gmt={getGmtOffset(now, zona.tz)}
+            />
+          ))}
         </div>
+      </div>
 
-        {/* Columna 3: España (Madrid) */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="h-6 w-px bg-[#FF6600]" />
-            <h2 className="label-uppercase text-white/70 text-[11px]">España (Madrid)</h2>
+      {/* Bloque 2: Argentina y España juntas (2 tarjetas en fila) */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="h-6 w-px bg-[#FF6600]" />
+          <h2 className="label-uppercase text-white/70 text-[11px]">Argentina y España</h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <TimeCard
+              title={REFERENCIA_ARGENTINA.name}
+              subtitle={REFERENCIA_ARGENTINA.city}
+              time={formatTime(now, REFERENCIA_ARGENTINA.tz)}
+              date={formatDate(now, REFERENCIA_ARGENTINA.tz)}
+              gmt={getGmtOffset(now, REFERENCIA_ARGENTINA.tz)}
+              accent
+            />
+            <p className="text-[11px] text-white/50 px-1 mt-1.5">
+              Hora de Buenos Aires (ART). Referencia para coordinación con Argentina.
+            </p>
           </div>
-          <TimeCard
-            title={ESPANA_MADRID.name}
-            subtitle={ESPANA_MADRID.city}
-            time={formatTime(now, ESPANA_MADRID.tz)}
-            date={formatDate(now, ESPANA_MADRID.tz)}
-            accent
-          />
-          <p className="text-[11px] text-white/50 px-1">
-            Hora de Madrid (CET/CEST). Útil para alinear con equipo y clientes en España.
-          </p>
+          <div>
+            <TimeCard
+              title={ESPANA_MADRID.name}
+              subtitle={ESPANA_MADRID.city}
+              time={formatTime(now, ESPANA_MADRID.tz)}
+              date={formatDate(now, ESPANA_MADRID.tz)}
+              gmt={getGmtOffset(now, ESPANA_MADRID.tz)}
+              accent
+            />
+            <p className="text-[11px] text-white/50 px-1 mt-1.5">
+              Hora de Madrid (CET/CEST). Útil para alinear con equipo y clientes en España.
+            </p>
+          </div>
         </div>
       </div>
 

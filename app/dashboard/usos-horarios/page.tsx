@@ -24,7 +24,7 @@ export default async function UsosHorariosPage() {
           Control de usos horarios
         </h1>
         <p className="text-white/50">
-          Las 4 zonas de México y España (Madrid) en tiempo real
+          México, Argentina y España (Madrid) en tiempo real
         </p>
       </div>
       <TimeZonesDashboard />
