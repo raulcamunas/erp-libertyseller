@@ -1,9 +1,29 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Clock } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Clock, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// Prefijos CP México -> zona horaria (primeros 2 dígitos: estado)
+const CP_PREFIX_TZ: Record<string, string> = {
+  '21': 'America/Tijuana',   // Baja California
+  '22': 'America/Tijuana',   // Baja California
+  '23': 'America/Mazatlan',  // Baja California Sur (Pacífico)
+  '77': 'America/Cancun',    // Quintana Roo
+  '78': 'America/Merida',    // Campeche
+  '83': 'America/Hermosillo', // Sonora
+  '84': 'America/Hermosillo',
+  '85': 'America/Hermosillo',
+  '97': 'America/Merida',    // Yucatán
+}
+const TZ_DEFAULT = 'America/Mexico_City'
+
+function getTzForCp(cp: string): string {
+  const prefix = cp.slice(0, 2)
+  return CP_PREFIX_TZ[prefix] ?? TZ_DEFAULT
+}
 
 const ZONAS_MEXICO = [
   { id: 'noroeste', name: 'Zona Noroeste', tz: 'America/Tijuana', city: 'Tijuana, Baja California' },
@@ -103,11 +123,24 @@ function TimeCard({
 
 export function TimeZonesDashboard() {
   const [now, setNow] = useState<Date>(() => new Date())
+  const [codigosSet, setCodigosSet] = useState<Set<string>>(new Set())
+  const [cpBusqueda, setCpBusqueda] = useState('')
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
+
+  useEffect(() => {
+    fetch('/api/usos-horarios/codigos-postales')
+      .then((res) => res.json())
+      .then((data: { codigos?: string[] }) => setCodigosSet(new Set(data.codigos ?? [])))
+      .catch(() => setCodigosSet(new Set()))
+  }, [])
+
+  const cpNormalizado = useMemo(() => cpBusqueda.replace(/\D/g, '').slice(0, 5), [cpBusqueda])
+  const cpValido = cpNormalizado.length === 5 && codigosSet.has(cpNormalizado)
+  const tzCp = cpValido ? getTzForCp(cpNormalizado) : null
 
   return (
     <div className="space-y-8">
@@ -167,59 +200,61 @@ export function TimeZonesDashboard() {
         </div>
       </div>
 
-      {/* Comparativa: Madrid, Argentina, diferencia */}
-      <Card className="glass-card border-white/10">
-        <CardHeader className="pb-1 pt-3 px-3">
-          <CardTitle className="text-xs font-semibold text-white/90">
-            Comparativa en este momento
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 px-3 pb-3">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="p-2.5 rounded-lg bg-white/[0.04] border border-white/10">
-              <span className="text-white/50">En Madrid: </span>
-              <span className="font-bold text-white tabular-nums">
-                {formatTime(now, 'Europe/Madrid')}
-              </span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-white/[0.04] border border-white/10">
-              <span className="text-white/50">En Argentina: </span>
-              <span className="font-bold text-white tabular-nums">
-                {formatTime(now, 'America/Argentina/Buenos_Aires')}
-              </span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-[#FF6600]/10 border border-[#FF6600]/20">
-              <span className="text-white/50">Diferencia: </span>
-              <span className="font-bold text-[#FF6600]">
-                {getOffsetLabel('Europe/Madrid', 'America/Argentina/Buenos_Aires', now)}
-              </span>
-            </div>
+      {/* Buscador por código postal */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="h-6 w-px bg-[#FF6600]" />
+          <h2 className="label-uppercase text-white/70 text-[11px]">Hora por código postal</h2>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          <div className="relative flex-1 w-full sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40 pointer-events-none" />
+            <Input
+              type="text"
+              inputMode="numeric"
+              placeholder="Ej. 03100"
+              maxLength={5}
+              value={cpBusqueda}
+              onChange={(e) => setCpBusqueda(e.target.value.replace(/\D/g, ''))}
+              className="pl-9 h-9 text-sm bg-white/5 border-white/10"
+            />
           </div>
-        </CardContent>
-      </Card>
+          {cpNormalizado.length === 5 && !cpValido && (
+            <span className="text-xs text-amber-400/90">Código no está en la lista</span>
+          )}
+        </div>
+        {cpValido && tzCp && (
+          <Card className="glass-card border-[#FF6600]/30 bg-[#FF6600]/[0.04]">
+            <CardContent className="pt-3 px-3 pb-3">
+              <p className="text-[11px] text-white/50 mb-2">En tiempo real para CP <strong className="text-white/80">{cpNormalizado}</strong></p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-2.5 rounded-lg bg-white/[0.06] border border-white/10">
+                  <span className="text-white/50">Allí (CP {cpNormalizado}): </span>
+                  <span className="font-bold text-white tabular-nums block mt-0.5 text-sm">
+                    {formatTime(now, tzCp)}
+                  </span>
+                  <span className="text-[10px] text-white/40">{formatDate(now, tzCp)} · {getGmtOffset(now, tzCp)}</span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-white/[0.06] border border-white/10">
+                  <span className="text-white/50">Argentina: </span>
+                  <span className="font-bold text-white tabular-nums block mt-0.5 text-sm">
+                    {formatTime(now, REFERENCIA_ARGENTINA.tz)}
+                  </span>
+                  <span className="text-[10px] text-white/40">{formatDate(now, REFERENCIA_ARGENTINA.tz)} · {getGmtOffset(now, REFERENCIA_ARGENTINA.tz)}</span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-white/[0.06] border border-white/10">
+                  <span className="text-white/50">México (Centro): </span>
+                  <span className="font-bold text-white tabular-nums block mt-0.5 text-sm">
+                    {formatTime(now, 'America/Mexico_City')}
+                  </span>
+                  <span className="text-[10px] text-white/40">{formatDate(now, 'America/Mexico_City')} · {getGmtOffset(now, 'America/Mexico_City')}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }
 
-function getOffsetLabel(tzA: string, tzB: string, date: Date): string {
-  const fmt = (tz: string) =>
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      hour: 'numeric',
-      minute: 'numeric',
-      hour12: false,
-    })
-      .formatToParts(date)
-      .reduce((acc, p) => ({ ...acc, [p.type]: p.value }), {} as Record<string, string>)
-  const a = fmt(tzA)
-  const b = fmt(tzB)
-  const minA = parseInt(a.hour ?? '0', 10) * 60 + parseInt(a.minute ?? '0', 10)
-  const minB = parseInt(b.hour ?? '0', 10) * 60 + parseInt(b.minute ?? '0', 10)
-  let diff = minA - minB
-  if (diff > 12 * 60) diff -= 24 * 60
-  if (diff < -12 * 60) diff += 24 * 60
-  const diffHours = Math.round(diff / 60)
-  if (diffHours === 0) return 'Misma hora'
-  if (diffHours > 0) return `Madrid va ${diffHours} h por delante`
-  return `Argentina va ${Math.abs(diffHours)} h por delante`
-}
