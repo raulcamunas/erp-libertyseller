@@ -207,8 +207,10 @@ export function TimeZonesDashboard() {
           <h2 className="label-uppercase text-white/70 text-[11px]">Hora por código postal</h2>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <div className="relative flex-1 w-full sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40 pointer-events-none" />
+          <div className="relative w-full sm:max-w-xs">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 text-white/40 pointer-events-none" aria-hidden>
+              <Search className="h-4 w-4" />
+            </span>
             <Input
               type="text"
               inputMode="numeric"
@@ -216,18 +218,18 @@ export function TimeZonesDashboard() {
               maxLength={5}
               value={cpBusqueda}
               onChange={(e) => setCpBusqueda(e.target.value.replace(/\D/g, ''))}
-              className="pl-9 h-9 text-sm bg-white/5 border-white/10"
+              className="pl-11 pr-3 h-9 text-sm bg-white/5 border-white/10 w-full"
             />
           </div>
           {cpNormalizado.length === 5 && !cpValido && (
-            <span className="text-xs text-amber-400/90">Código no está en la lista</span>
+            <span className="text-xs text-amber-400/90 shrink-0">Código no está en la lista</span>
           )}
         </div>
         {cpValido && tzCp && (
           <Card className="glass-card border-[#FF6600]/30 bg-[#FF6600]/[0.04]">
             <CardContent className="pt-3 px-3 pb-3">
               <p className="text-[11px] text-white/50 mb-2">En tiempo real para CP <strong className="text-white/80">{cpNormalizado}</strong></p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                 <div className="p-2.5 rounded-lg bg-white/[0.06] border border-white/10">
                   <span className="text-white/50">Allí (CP {cpNormalizado}): </span>
                   <span className="font-bold text-white tabular-nums block mt-0.5 text-sm">
@@ -248,6 +250,13 @@ export function TimeZonesDashboard() {
                     {formatTime(now, 'America/Mexico_City')}
                   </span>
                   <span className="text-[10px] text-white/40">{formatDate(now, 'America/Mexico_City')} · {getGmtOffset(now, 'America/Mexico_City')}</span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-white/[0.06] border border-white/10">
+                  <span className="text-white/50">España (Madrid): </span>
+                  <span className="font-bold text-white tabular-nums block mt-0.5 text-sm">
+                    {formatTime(now, ESPANA_MADRID.tz)}
+                  </span>
+                  <span className="text-[10px] text-white/40">{formatDate(now, ESPANA_MADRID.tz)} · {getGmtOffset(now, ESPANA_MADRID.tz)}</span>
                 </div>
               </div>
             </CardContent>
