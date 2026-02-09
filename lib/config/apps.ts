@@ -10,7 +10,8 @@ import {
   Briefcase,
   CheckCircle2,
   FileSearch,
-  Upload
+  Upload,
+  Clock
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -104,6 +105,15 @@ export const apps: AppConfig[] = [
     description: 'Subir horas de trabajo desde CSV',
     icon: Upload,
     route: '/dashboard/subir-horas',
+    status: 'active',
+    category: 'productivity'
+  },
+  {
+    id: 'usos-horarios',
+    name: 'Usos horarios',
+    description: 'México (4 zonas) y España (Madrid)',
+    icon: Clock,
+    route: '/dashboard/usos-horarios',
     status: 'active',
     category: 'productivity'
   },

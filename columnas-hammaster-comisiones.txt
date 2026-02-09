@@ -1,0 +1,40 @@
+COLUMNAS CSV PARA CÁLCULO DE COMISIONES – HAM MASTER (Y CLIENTES CON MISMO FORMATO)
+
+Este flujo aplica a Ham Master y a cualquier cliente que no sea Creative Toys, Lenobotics, ShoesF, DIRU o SAUSI. El CSV debe ser el reporte de impuestos/transacciones de Amazon.
+
+--------------------------------------------------------------------------------
+COLUMNAS QUE ENTRAN EN EL CÁLCULO
+--------------------------------------------------------------------------------
+
+1. Transaction Type
+   - Clasifica la fila:
+     • SHIPMENT → venta (se suma a la base).
+     • RETURN o REFUND → devolución/abono (se resta).
+   - Cualquier otro valor se ignora (no suma ni resta).
+
+2. OUR_PRICE Tax Exclusive Selling Price
+   - Importe neto del producto (sin IVA).
+   - También se reconoce si el nombre de la columna coincide con un patrón tipo "OUR_PRICE... Tax Exclusive Selling Price".
+
+3. SHIPPING Tax Exclusive Selling Price
+   - Importe neto del envío (sin IVA).
+   - Se suma al importe del producto en cada fila.
+
+LÓGICA:
+- Por cada fila: importe_línea = OUR_PRICE Tax Exclusive + SHIPPING Tax Exclusive.
+- Si Transaction Type = SHIPMENT → ese importe se suma a ventas (base imponible neta).
+- Si Transaction Type = RETURN o REFUND → ese importe se resta (devoluciones).
+- Facturación neta agencia = suma SHIPMENT − suma RETURN/REFUND.
+- Sobre esa base se aplica el % de comisión del cliente (ej. 5% para Ham Master) y las excepciones por keyword si existen.
+
+--------------------------------------------------------------------------------
+COLUMNAS SOLO PARA DETALLE DEL REPORTE (NO AFECTAN AL TOTAL)
+--------------------------------------------------------------------------------
+
+- Product / Title / Product Title / Nombre (etc.) → nombre del producto.
+- ASIN → identificador del producto.
+- Order ID / OrderId / Pedido (etc.) → ID del pedido.
+- Date / Fecha / Sale Date (etc.) → fecha.
+- Quantity / Cantidad / Qty (etc.) → cantidad.
+
+Si alguna no existe en el CSV, ese campo queda vacío o por defecto ("Sin nombre", "N/A"); el cálculo de base y comisión solo depende de Transaction Type, OUR_PRICE Tax Exclusive Selling Price y SHIPPING Tax Exclusive Selling Price.
