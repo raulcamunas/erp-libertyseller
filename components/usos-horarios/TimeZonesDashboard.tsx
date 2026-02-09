@@ -229,7 +229,7 @@ export function TimeZonesDashboard() {
           <Card className="glass-card border-[#FF6600]/30 bg-[#FF6600]/[0.04]">
             <CardContent className="pt-3 px-3 pb-3">
               <p className="text-[11px] text-white/50 mb-2">En tiempo real para CP <strong className="text-white/80">{cpNormalizado}</strong></p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div className="p-2.5 rounded-lg bg-white/[0.06] border border-white/10">
                   <span className="text-white/50">Allí (CP {cpNormalizado}): </span>
                   <span className="font-bold text-white tabular-nums block mt-0.5 text-sm">
@@ -243,13 +243,6 @@ export function TimeZonesDashboard() {
                     {formatTime(now, REFERENCIA_ARGENTINA.tz)}
                   </span>
                   <span className="text-[10px] text-white/40">{formatDate(now, REFERENCIA_ARGENTINA.tz)} · {getGmtOffset(now, REFERENCIA_ARGENTINA.tz)}</span>
-                </div>
-                <div className="p-2.5 rounded-lg bg-white/[0.06] border border-white/10">
-                  <span className="text-white/50">México (Centro): </span>
-                  <span className="font-bold text-white tabular-nums block mt-0.5 text-sm">
-                    {formatTime(now, 'America/Mexico_City')}
-                  </span>
-                  <span className="text-[10px] text-white/40">{formatDate(now, 'America/Mexico_City')} · {getGmtOffset(now, 'America/Mexico_City')}</span>
                 </div>
                 <div className="p-2.5 rounded-lg bg-white/[0.06] border border-white/10">
                   <span className="text-white/50">España (Madrid): </span>
