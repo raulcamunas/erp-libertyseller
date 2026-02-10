@@ -66,5 +66,9 @@ export interface CommissionRow {
   // Para ShoesF: comparación entre años
   previousYearNetBase?: number // Base neta del año anterior para este producto
   currentYearNetBase?: number // Base neta del año actual para este producto
+  // Para Ham Master y formato Amazon: detalle por línea (SHIPMENT/RETURN/REFUND)
+  transactionTypeLabel?: 'Venta' | 'Devolución'
+  baseProductNet?: number   // OUR_PRICE Tax Exclusive (sin IVA)
+  baseShippingNet?: number   // SHIPPING Tax Exclusive (sin IVA)
 }
 

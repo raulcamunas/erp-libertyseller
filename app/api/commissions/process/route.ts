@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
         // Comisión = Base neta (SIN IVA) * Tasa
         const commission = netBase * commissionRate
 
-        processedRows.push({
+        const rowPayload: CommissionRow = {
           productTitle,
           asin,
           orderId,
@@ -283,7 +283,33 @@ export async function POST(request: NextRequest) {
           commission,
           appliedException,
           rowNumber: i + 2 // Fila en el CSV (empezando desde 2 por el header)
-        })
+        }
+
+        // Para formato Amazon (Ham Master): detalle por línea con Order ID, tipo, base producto/envío
+        if (!useOldCalculation) {
+          const txnType = String(
+            getVal(row, [
+              'Transaction Type',
+              'transaction_type',
+              /Transaction.*Type/i
+            ]) || ''
+          ).toUpperCase()
+          rowPayload.transactionTypeLabel = txnType === 'SHIPMENT' ? 'Venta' : 'Devolución'
+          rowPayload.baseProductNet = parseNum(
+            getVal(row, [
+              'OUR_PRICE Tax Exclusive Selling Price',
+              /OUR_PRICE.*Tax Exclusive Selling Price/i
+            ])
+          )
+          rowPayload.baseShippingNet = parseNum(
+            getVal(row, [
+              'SHIPPING Tax Exclusive Selling Price',
+              /SHIPPING.*Tax Exclusive Selling Price/i
+            ])
+          )
+        }
+
+        processedRows.push(rowPayload)
 
         // Si estamos en la lógica antigua (Creative Toys / Lenobotics), acumulamos aquí
         if (useOldCalculation) {

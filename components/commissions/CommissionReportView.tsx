@@ -39,6 +39,8 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   const summary = report.data.summary
   const allRows = report.data.rows
   const isShoesF = summary.excessAmount !== undefined && summary.previousYearNetBase !== undefined
+  // Formato Ham Master / Amazon: una fila por SHIPMENT/RETURN/REFUND con Order ID, Tipo, Base Producto/Envío
+  const isAmazonLineFormat = allRows.length > 0 && allRows[0].transactionTypeLabel != null
 
   const [searchTerm, setSearchTerm] = useState('')
   const [sortField, setSortField] = useState<SortField>(isShoesF ? 'currentYearNetBase' : 'commission')
@@ -51,7 +53,9 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       filtered = filtered.filter(row =>
-        (row.asin || '').toLowerCase().includes(term)
+        (row.asin || '').toLowerCase().includes(term) ||
+        (row.orderId || '').toLowerCase().includes(term) ||
+        (row.date || '').toLowerCase().includes(term)
       )
     }
 
@@ -236,14 +240,14 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
         <CardHeader>
           <CardTitle className="text-white text-sm sm:text-base flex items-center gap-2">
             <Search className="h-4 w-4 sm:h-5 sm:w-5" />
-            {isShoesF ? 'Buscar por SKU' : 'Buscar por ASIN'}
+            {isShoesF ? 'Buscar por SKU' : isAmazonLineFormat ? 'Buscar por Order ID, fecha o ASIN' : 'Buscar por ASIN'}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50" />
             <Input
-              placeholder={isShoesF ? 'Buscar por SKU...' : 'Buscar por ASIN...'}
+              placeholder={isShoesF ? 'Buscar por SKU...' : isAmazonLineFormat ? 'Order ID, fecha o ASIN...' : 'Buscar por ASIN...'}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 w-full"
@@ -383,7 +387,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
       <Card id="detalle-productos-csv">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-white">
-            Detalle de Productos ({filteredAndSortedRows.length})
+            {isAmazonLineFormat ? 'Detalle por transacción (línea por línea)' : `Detalle de Productos (${filteredAndSortedRows.length})`}
           </CardTitle>
           <Button
             variant="glass"
@@ -441,6 +445,18 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                         Base Neta Año Actual {sortField === 'currentYearNetBase' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
                     </>
+                  ) : isAmazonLineFormat ? (
+                    <>
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Fecha</th>
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ID del Pedido</th>
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Tipo</th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Base Producto (Neto)</th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Base Envío (Neto)</th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Total Base</th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">
+                        Comisión ({filteredAndSortedRows[0] ? ((filteredAndSortedRows[0].commissionRate ?? 0) * 100).toFixed(0) : ''}%)
+                      </th>
+                    </>
                   ) : (
                     <>
                       <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>
@@ -482,7 +498,27 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                         </td>
                       </tr>
                     ))
-                  : filteredAndSortedRows.map((row, idx) => (
+                  : isAmazonLineFormat
+                    ? filteredAndSortedRows.map((row, idx) => (
+                        <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                          <td className="py-3 px-3 text-white/70 text-xs">{row.date ?? '-'}</td>
+                          <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.orderId ?? '-'}</td>
+                          <td className="py-3 px-3 text-white/70 text-xs">{row.transactionTypeLabel ?? '-'}</td>
+                          <td className="py-3 px-3 text-white/70 text-xs text-right">
+                            €{(row.baseProductNet ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3 px-3 text-white/70 text-xs text-right">
+                            €{(row.baseShippingNet ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3 px-3 text-green-400/70 text-xs text-right font-semibold">
+                            €{(row.netBase ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3 px-3 text-[#FF6600] font-bold text-sm text-right">
+                            €{(row.commission ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))
+                    : filteredAndSortedRows.map((row, idx) => (
                       <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
                         <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.asin}</td>
                         <td className="py-3 px-3 text-white/70 text-xs text-right">
@@ -521,6 +557,24 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                       </td>
                       <td className="py-4 px-3 text-green-400 font-semibold text-right">
                         €{filteredAndSortedRows.reduce((sum, r) => sum + (r.currentYearNetBase ?? 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </>
+                  ) : isAmazonLineFormat ? (
+                    <>
+                      <td colSpan={3} className="py-4 px-3 text-white font-semibold">
+                        TOTALES
+                      </td>
+                      <td className="py-4 px-3 text-white font-semibold text-right">
+                        €{filteredAndSortedRows.reduce((sum, r) => sum + (r.baseProductNet ?? 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-4 px-3 text-white font-semibold text-right">
+                        €{filteredAndSortedRows.reduce((sum, r) => sum + (r.baseShippingNet ?? 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-4 px-3 text-green-400 font-semibold text-right">
+                        €{filteredAndSortedRows.reduce((sum, r) => sum + (r.netBase ?? 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-4 px-3 text-[#FF6600] font-bold text-lg text-right">
+                        €{filteredAndSortedRows.reduce((sum, r) => sum + (r.commission ?? 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </>
                   ) : (
