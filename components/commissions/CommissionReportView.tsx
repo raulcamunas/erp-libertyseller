@@ -510,7 +510,10 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                           <td className="py-3 px-3 text-white/70 text-xs text-right">
                             €{(row.baseShippingNet ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="py-3 px-3 text-green-400/70 text-xs text-right font-semibold">
+                          <td className={cn(
+                            'py-3 px-3 text-xs text-right font-semibold',
+                            (row.netBase ?? 0) < 0 ? 'text-red-400/90' : 'text-green-400/70'
+                          )}>
                             €{(row.netBase ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="py-3 px-3 text-[#FF6600] font-bold text-sm text-right">
