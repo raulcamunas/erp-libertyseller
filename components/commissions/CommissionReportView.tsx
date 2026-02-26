@@ -28,6 +28,19 @@ import {
 } from 'recharts'
 import { cn } from '@/lib/utils'
 
+/** Corta el nombre del producto en la primera coma o en el primer " - " (guion con espacios). */
+function truncateProductName(title: string): string {
+  if (!title || !String(title).trim()) return title || '-'
+  const s = String(title).trim()
+  const comma = s.indexOf(',')
+  const hyphen = s.indexOf(' - ')
+  let cut = -1
+  if (comma >= 0 && hyphen >= 0) cut = Math.min(comma, hyphen)
+  else if (comma >= 0) cut = comma
+  else if (hyphen >= 0) cut = hyphen
+  return cut >= 0 ? s.slice(0, cut).trim() : s
+}
+
 interface CommissionReportViewProps {
   report: CommissionReport & { clients?: { name: string } }
 }
@@ -55,7 +68,8 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
       filtered = filtered.filter(row =>
         (row.asin || '').toLowerCase().includes(term) ||
         (row.orderId || '').toLowerCase().includes(term) ||
-        (row.date || '').toLowerCase().includes(term)
+        (row.date || '').toLowerCase().includes(term) ||
+        (row.productTitle || '').toLowerCase().includes(term)
       )
     }
 
@@ -459,6 +473,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                     </>
                   ) : (
                     <>
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Nombre del producto</th>
                       <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>
                       <th
                         className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase cursor-pointer hover:text-white transition-colors"
@@ -523,6 +538,9 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                       ))
                     : filteredAndSortedRows.map((row, idx) => (
                       <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                        <td className="py-3 px-3 text-white/70 text-xs max-w-[200px] truncate" title={row.productTitle}>
+                          {truncateProductName(row.productTitle)}
+                        </td>
                         <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.asin}</td>
                         <td className="py-3 px-3 text-white/70 text-xs text-right">
                           €{row.grossSales.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -582,7 +600,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                     </>
                   ) : (
                     <>
-                      <td className="py-4 px-3 text-white font-semibold text-right">
+                      <td colSpan={2} className="py-4 px-3 text-white font-semibold text-right">
                         TOTALES ({filteredAndSortedRows.length} productos):
                       </td>
                       <td className="py-4 px-3 text-white font-semibold text-right">
