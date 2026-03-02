@@ -5,15 +5,15 @@ import { Client, CommissionCalculationData, CommissionRow, CommissionException }
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { 
-  Upload, 
-  FileText, 
-  X, 
+import {
+  Upload,
+  FileText,
+  X,
   Download,
   Save,
   Calculator,
   AlertCircle,
-  Info
+  Info,
 } from 'lucide-react'
 import { LibertyButton } from '@/components/ui/LibertyButton'
 import { SaveReportModal } from './SaveReportModal'
@@ -22,6 +22,20 @@ import { createClient } from '@/lib/supabase/client'
 
 interface CommissionsCalculatorProps {
   clients: Client[]
+}
+
+// Corta el nombre del producto en la primera coma o en el primer " - "
+function getShortProductName(title?: string | null): string {
+  if (!title) return ''
+  const s = String(title).trim()
+  if (!s) return ''
+  const comma = s.indexOf(',')
+  const hyphen = s.indexOf(' - ')
+  let cut = -1
+  if (comma >= 0 && hyphen >= 0) cut = Math.min(comma, hyphen)
+  else if (comma >= 0) cut = comma
+  else if (hyphen >= 0) cut = hyphen
+  return cut >= 0 ? s.slice(0, cut).trim() : s
 }
 
 export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
@@ -48,6 +62,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const isShoesF = selectedClient?.name === 'ShoesF'
   const isDIRU = selectedClient?.name === 'DIRU'
   const isSAUSI = selectedClient?.name === 'SAUSI'
+  const isLenobotics = selectedClient?.name === 'Lenobotics'
   const isBenefitsClient = isDIRU || isSAUSI // Clientes que usan Net profit
 
   // Cargar excepciones cuando se selecciona un cliente
@@ -857,7 +872,9 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
             )}
             {!isShoesF && !isBenefitsClient && (
               <>
-                <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Pedido</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">
+                  {isLenobotics ? 'Producto' : 'Pedido'}
+                </th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Ventas</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Reembolsos</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Fact. Real</th>
@@ -923,7 +940,15 @@ function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: 
                     {row.asin}
                   </td>
                   <td className="py-3 px-3 text-white/60 text-xs">
-                    {row.orderId ? (
+                    {isLenobotics ? (
+                      row.productTitle ? (
+                        <span title={row.productTitle}>
+                          {getShortProductName(row.productTitle)}
+                        </span>
+                      ) : (
+                        <span className="text-white/30">-</span>
+                      )
+                    ) : row.orderId ? (
                       <span className="font-mono">{row.orderId}</span>
                     ) : (
                       <span className="text-white/30">-</span>
