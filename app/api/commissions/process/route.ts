@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     const fileCurrentYear = formData.get('fileCurrentYear') as File | null
     const clientId = formData.get('clientId') as string
 
-    // Obtener cliente primero para saber si es ShoesF
+    // Obtener cliente primero para saber si es ShoesF / SHOPLAMP u otros tipos especiales
     const supabase = await createClient()
     const { data: client, error: clientError } = await supabase
       .from('clients')
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const isShoesF = client.name === 'ShoesF'
+    const isShoesF = client.name === 'ShoesF' || client.name === 'SHOPLAMP'
     const isDIRU = client.name === 'DIRU'
     const isSAUSI = client.name === 'SAUSI'
     const isCreativeToys = client.name === 'Creative Toys'
@@ -67,13 +67,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Si es ShoesF, procesar comparación entre años
+    // Si es ShoesF / SHOPLAMP, procesar comparación entre años (dos CSV)
     if (isShoesF) {
+      // ShoesF: 3% sobre excedente; SHOPLAMP: 5% sobre excedente
+      const commissionRate =
+        client.name === 'SHOPLAMP' ? 0.05 : 0.03
+
       return await processShoesFComparison(
         filePreviousYear!,
         fileCurrentYear!,
         client,
-        supabase
+        supabase,
+        commissionRate
       )
     }
 
@@ -370,12 +375,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Función para procesar comparación de ShoesF
+// Función para procesar comparación por excedente (ShoesF, SHOPLAMP, etc.)
 async function processShoesFComparison(
   filePreviousYear: File,
   fileCurrentYear: File,
   client: any,
-  supabase: any
+  supabase: any,
+  commissionRateOverride = 0.03
 ) {
   try {
     // Leer ambos archivos
@@ -501,8 +507,8 @@ async function processShoesFComparison(
     // Calcular excedente (año actual - año anterior)
     const excessAmount = Math.max(0, currentYearNetBase - previousYearNetBase)
 
-    // Calcular comisión: 3% sobre el excedente (forzamos a 3% independientemente de la base)
-    const commissionRate = 0.03
+    // Calcular comisión: porcentaje sobre el excedente
+    const commissionRate = commissionRateOverride
     const totalCommission = excessAmount * commissionRate
 
     // Calcular totales para el resumen

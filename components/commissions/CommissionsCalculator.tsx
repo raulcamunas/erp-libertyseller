@@ -58,8 +58,8 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   // Obtener cliente seleccionado
   const selectedClient = clients.find(c => c.id === selectedClientId)
   
-  // Detectar si el cliente es ShoesF, DIRU o SAUSI
-  const isShoesF = selectedClient?.name === 'ShoesF'
+  // Detectar si el cliente es ShoesF / SHOPLAMP, DIRU o SAUSI
+  const isShoesF = selectedClient?.name === 'ShoesF' || selectedClient?.name === 'SHOPLAMP'
   const isDIRU = selectedClient?.name === 'DIRU'
   const isSAUSI = selectedClient?.name === 'SAUSI'
   const isLenobotics = selectedClient?.name === 'Lenobotics'
@@ -802,7 +802,12 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
               </Button>
             </CardHeader>
             <CardContent>
-              <CommissionsTable rows={result.rows} isShoesF={isShoesF} isBenefitsClient={isBenefitsClient} />
+              <CommissionsTable
+                rows={result.rows}
+                isShoesF={isShoesF}
+                isBenefitsClient={isBenefitsClient}
+                isLenobotics={isLenobotics}
+              />
               
               {result.errors.length > 0 && (
                 <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
@@ -839,7 +844,17 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   )
 }
 
-function CommissionsTable({ rows, isShoesF = false, isBenefitsClient = false }: { rows: CommissionRow[], isShoesF?: boolean, isBenefitsClient?: boolean }) {
+function CommissionsTable({
+  rows,
+  isShoesF = false,
+  isBenefitsClient = false,
+  isLenobotics = false,
+}: {
+  rows: CommissionRow[]
+  isShoesF?: boolean
+  isBenefitsClient?: boolean
+  isLenobotics?: boolean
+}) {
   if (rows.length === 0) {
     return (
       <div className="text-center py-8 text-white/50">
