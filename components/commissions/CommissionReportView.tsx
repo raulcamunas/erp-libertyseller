@@ -239,7 +239,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
       )}
 
       {/* Resumen: ShoesF = comparación años; resto = resumen estándar */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
         {isShoesF ? (
           <>
             <Card className="glass-card animate-pulse-on-load">
@@ -306,6 +306,18 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
               <CardContent className="pt-0 px-2 pb-2">
                 <div className="text-base sm:text-lg lg:text-xl font-bold text-white">
                   {formatMoney(summary.totalSales, selectedCurrency !== 'ALL' ? selectedCurrency : undefined)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">
+                  Devoluciones / Reembolsos
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-base sm:text-lg lg:text-xl font-bold text-red-400">
+                  -{formatMoney(summary.totalRefunds, selectedCurrency !== 'ALL' ? selectedCurrency : undefined)}
                 </div>
               </CardContent>
             </Card>
