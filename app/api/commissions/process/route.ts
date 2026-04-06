@@ -118,6 +118,17 @@ export async function POST(request: NextRequest) {
 
     let totalSales = 0
     let totalRefunds = 0
+    let totalIvaAmazon = 0
+
+    const byCurrencyAgg = new Map<string, {
+      currency: string
+      unitsGross: number
+      unitsNet: number
+      netBase: number
+      iva: number
+      totalInclusive: number
+      commission: number
+    }>()
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
@@ -207,6 +218,14 @@ export async function POST(request: NextRequest) {
             ]) || ''
           ).toUpperCase()
 
+          const currency = String(
+            getVal(row, [
+              'Currency',
+              'currency',
+              /Currency/i
+            ]) || ''
+          ).trim() || undefined
+
           const ourPrice = parseNum(
             getVal(row, [
               'OUR_PRICE Tax Exclusive Selling Price',
@@ -221,32 +240,70 @@ export async function POST(request: NextRequest) {
             ])
           )
 
-          // Importe total sin IVA de la línea (producto + envío)
-          const lineAmount = ourPrice + shippingPrice
-          const lineAmountAbs = Math.abs(lineAmount)
+          const promoNet = parseNum(
+            getVal(row, [
+              'OUR_PRICE Tax Exclusive Promo Amount',
+              /OUR_PRICE.*Tax Exclusive Promo Amount/i
+            ])
+          )
+
+          const taxAmount = parseNum(
+            getVal(row, [
+              'OUR_PRICE Tax Amount',
+              /OUR_PRICE.*Tax Amount/i
+            ])
+          )
+
+          // Neto final por línea (Base imponible real): producto + envío - promo
+          const netLine = ourPrice + shippingPrice - promoNet
+          const netLineAbs = Math.abs(netLine)
+          const taxAmountAbs = Math.abs(taxAmount)
 
           if (transactionType === 'SHIPMENT') {
             // Ventas: sumamos la base imponible neta de la agencia (sin IVA)
-            grossSales = lineAmountAbs
+            grossSales = netLineAbs
             refunds = 0
-            realTurnover = lineAmountAbs
-            netBase = lineAmountAbs // Ya viene sin IVA
-            iva = 0 // El reporte ya es "Tax Exclusive"
+            realTurnover = netLineAbs
+            netBase = netLineAbs // Ya viene sin IVA
+            iva = taxAmountAbs
 
             totalSales += grossSales
+            totalIvaAmazon += iva
           } else if (transactionType === 'RETURN' || transactionType === 'REFUND') {
             // Devoluciones/abonos: restamos la base imponible (en positivo)
             grossSales = 0
-            refunds = lineAmountAbs
-            realTurnover = -lineAmountAbs
-            netBase = -lineAmountAbs
-            iva = 0
+            refunds = netLineAbs
+            realTurnover = -netLineAbs
+            netBase = -netLineAbs
+            iva = -taxAmountAbs
 
             totalRefunds += refunds
+            totalIvaAmazon += iva
           } else {
             // Otros tipos de transacción se ignoran
             continue
           }
+
+          // Agregar al agregado por moneda (para transparencia en reportes)
+          const curKey = currency || 'N/A'
+          const existing = byCurrencyAgg.get(curKey) || {
+            currency: curKey,
+            unitsGross: 0,
+            unitsNet: 0,
+            netBase: 0,
+            iva: 0,
+            totalInclusive: 0,
+            commission: 0
+          }
+          const qty = quantity ?? 0
+          const unitsGrossAdd = transactionType === 'SHIPMENT' ? qty : 0
+          const unitsNetAdd = transactionType === 'SHIPMENT' ? qty : (transactionType === 'RETURN' || transactionType === 'REFUND') ? -qty : 0
+          existing.unitsGross += unitsGrossAdd
+          existing.unitsNet += unitsNetAdd
+          existing.netBase += netBase
+          existing.iva += iva
+          existing.totalInclusive += (netBase + iva)
+          byCurrencyAgg.set(curKey, existing)
         }
 
         // Determinar tasa de comisión
@@ -279,6 +336,7 @@ export async function POST(request: NextRequest) {
           orderId,
           date,
           quantity,
+          currency: !useOldCalculation ? (String(getVal(row, ['Currency', 'currency', /Currency/i]) || '').trim() || undefined) : undefined,
           grossSales,
           refunds,
           realTurnover,
@@ -312,6 +370,32 @@ export async function POST(request: NextRequest) {
               /SHIPPING.*Tax Exclusive Selling Price/i
             ])
           )
+          rowPayload.promoNet = parseNum(
+            getVal(row, [
+              'OUR_PRICE Tax Exclusive Promo Amount',
+              /OUR_PRICE.*Tax Exclusive Promo Amount/i
+            ])
+          )
+          rowPayload.taxAmount = parseNum(
+            getVal(row, [
+              'OUR_PRICE Tax Amount',
+              /OUR_PRICE.*Tax Amount/i
+            ])
+          )
+          rowPayload.netLine = (rowPayload.baseProductNet ?? 0) + (rowPayload.baseShippingNet ?? 0) - (rowPayload.promoNet ?? 0)
+
+          const rowCur = rowPayload.currency || 'N/A'
+          const existing = byCurrencyAgg.get(rowCur) || {
+            currency: rowCur,
+            unitsGross: 0,
+            unitsNet: 0,
+            netBase: 0,
+            iva: 0,
+            totalInclusive: 0,
+            commission: 0
+          }
+          existing.commission += commission
+          byCurrencyAgg.set(rowCur, existing)
         }
 
         processedRows.push(rowPayload)
@@ -331,7 +415,7 @@ export async function POST(request: NextRequest) {
     const realTurnover = totalSales - totalRefunds
     // En la nueva lógica Amazon, los importes ya vienen sin IVA, así que la base es igual
     const netBase = realTurnover
-    const totalIva = useOldCalculation ? (realTurnover - netBase) : 0
+    const totalIva = useOldCalculation ? (realTurnover - netBase) : totalIvaAmazon
     const totalCommission = processedRows.reduce((sum, r) => sum + r.commission, 0)
     
     // Calcular tasa promedio de comisión
@@ -344,6 +428,10 @@ export async function POST(request: NextRequest) {
     const uniqueOrders = new Set(processedRows.map(r => r.orderId).filter(Boolean))
     const totalOrders = uniqueOrders.size || processedRows.length
 
+    const byCurrency = byCurrencyAgg.size
+      ? Object.fromEntries(Array.from(byCurrencyAgg.entries()).map(([k, v]) => [k, v]))
+      : undefined
+
     const result: CommissionCalculationData = {
       summary: {
         totalSales,
@@ -353,7 +441,8 @@ export async function POST(request: NextRequest) {
         netBase,
         totalCommission,
         averageCommissionRate,
-        totalOrders
+        totalOrders,
+        byCurrency
       },
       // Guardamos el CSV original para poder descargarlo tal cual en el reporte
       originalCsv: csvContent,

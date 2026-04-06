@@ -35,6 +35,15 @@ export interface CommissionCalculationData {
     totalCommission: number
     averageCommissionRate: number
     totalOrders: number
+    byCurrency?: Record<string, {
+      currency: string
+      unitsGross: number
+      unitsNet: number
+      netBase: number
+      iva: number
+      totalInclusive: number
+      commission: number
+    }>
     // Para ShoesF: comparación entre años
     previousYearNetBase?: number // Base neta año anterior
     currentYearNetBase?: number // Base neta año actual
@@ -54,6 +63,7 @@ export interface CommissionRow {
   orderId?: string
   date?: string
   quantity?: number
+  currency?: string
   grossSales: number
   refunds: number
   realTurnover: number
@@ -70,5 +80,8 @@ export interface CommissionRow {
   transactionTypeLabel?: 'Venta' | 'Devolución'
   baseProductNet?: number   // OUR_PRICE Tax Exclusive (sin IVA)
   baseShippingNet?: number   // SHIPPING Tax Exclusive (sin IVA)
+  promoNet?: number
+  taxAmount?: number
+  netLine?: number
 }
 
