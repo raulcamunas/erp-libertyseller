@@ -32,9 +32,44 @@ export async function POST(request: NextRequest) {
     const isSAUSI = client.name === 'SAUSI'
     const isCreativeToys = client.name === 'Creative Toys'
     const isLenobotics = client.name === 'Lenobotics'
+    const isHamMasterSecondary = client.name === 'HamMaster Cuenta secundaria'
     // Sistema anterior: Sales + Refund Cost, base neta = facturación real / 1.21
     const useOldCalculation = isCreativeToys || isLenobotics
     const isBenefitsClient = isDIRU || isSAUSI // Clientes que usan Net profit
+
+    const hamMasterSecondaryAsins = new Set<string>([
+      'B0GTQMWRB9',
+      'B0GTQG2K71',
+      'B0FXBQZMGR',
+      'B0G3X5J6YS',
+      'B0GTQBLRXV',
+      'B0GTQSM693',
+      'B0GT9PYT21',
+      'B0FN4XNGFB',
+      'B0FNN9GYN8',
+      'B0FMKMFM2Z',
+      'B0FN4MT7VP',
+      'B0FMYT6Y9H',
+      'B0FMYXBBDD',
+      'B0FMS4L1QR',
+      'B0FN12R76R',
+      'B0FN4RG69J',
+      'B0FN4TDYWF',
+      'B0FMYWHRNY',
+      'B0FMT1WLGG',
+      'B0FMZWMBQN',
+      'B0FN4QGFWQ',
+      'B0FN4XV6VX',
+      'B0FMZRS9JS',
+      'B0FMS6N5L8',
+      'B0FMZWK26K',
+      'B0FN4T7B8N',
+      'B0FN56TGD5',
+      'B0FY7L1P8Y',
+      'B0FY7H6L8P',
+      'B0FMYM6J6R',
+      'B0FY7KHGP9'
+    ])
 
     // Validar archivos según el tipo de cliente
     if (isShoesF) {
@@ -149,6 +184,13 @@ export async function POST(request: NextRequest) {
           'asin',
           'Asin'
         ]) || 'N/A'
+
+        if (isHamMasterSecondary) {
+          const asinKey = String(asin).trim().toUpperCase()
+          if (!hamMasterSecondaryAsins.has(asinKey)) {
+            continue
+          }
+        }
 
         const orderId = getVal(row, [
           'Order ID',
@@ -310,9 +352,13 @@ export async function POST(request: NextRequest) {
         let commissionRate = client.base_commission_rate
         let appliedException: string | undefined
 
+        if (isHamMasterSecondary) {
+          commissionRate = 0.05
+        }
+
         // Buscar excepciones por keyword (case insensitive)
         // IMPORTANTE: Las excepciones tienen prioridad sobre la tasa base
-        if (exceptions && exceptions.length > 0) {
+        if (!isHamMasterSecondary && exceptions && exceptions.length > 0) {
           const productTitleLower = productTitle.toLowerCase()
           // Buscar todas las excepciones que coincidan
           const matchingExceptions = exceptions.filter(exception => 
@@ -421,7 +467,9 @@ export async function POST(request: NextRequest) {
     if (!useOldCalculation && processedRows.length === 0) {
       return NextResponse.json(
         {
-          error: 'No se han detectado transacciones procesables en el CSV. Revisa que el archivo sea de Amazon Tax Document Library y contenga las columnas: Transaction Type, Currency, OUR_PRICE Tax Exclusive Selling Price, SHIPPING Tax Exclusive Selling Price, OUR_PRICE Tax Exclusive Promo Amount y OUR_PRICE Tax Amount.'
+          error: isHamMasterSecondary
+            ? 'El CSV no contiene transacciones para los ASIN configurados en HamMaster Cuenta secundaria.'
+            : 'No se han detectado transacciones procesables en el CSV. Revisa que el archivo sea de Amazon Tax Document Library y contenga las columnas: Transaction Type, Currency, OUR_PRICE Tax Exclusive Selling Price, SHIPPING Tax Exclusive Selling Price, OUR_PRICE Tax Exclusive Promo Amount y OUR_PRICE Tax Amount.'
         },
         { status: 400 }
       )
