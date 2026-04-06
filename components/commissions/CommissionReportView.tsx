@@ -55,6 +55,8 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   // Formato Ham Master / Amazon: una fila por SHIPMENT/RETURN/REFUND con Order ID, Tipo, Base Producto/Envío
   const isAmazonLineFormat = allRows.length > 0 && allRows[0].transactionTypeLabel != null
 
+  const forcedCurrency = isAmazonLineFormat ? 'EUR' : undefined
+
   const currencies = useMemo(() => {
     const set = new Set<string>()
     for (const r of allRows) {
@@ -65,6 +67,8 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
 
   const [selectedCurrency, setSelectedCurrency] = useState<string>('ALL')
 
+  const effectiveCurrency = forcedCurrency ?? selectedCurrency
+
   const [searchTerm, setSearchTerm] = useState('')
   const [sortField, setSortField] = useState<SortField>(isShoesF ? 'currentYearNetBase' : 'commission')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
@@ -73,7 +77,9 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   const filteredAndSortedRows = useMemo(() => {
     let filtered = [...allRows]
 
-    if (selectedCurrency !== 'ALL') {
+    if (forcedCurrency) {
+      filtered = filtered.filter(r => (r.currency || 'N/A') === forcedCurrency)
+    } else if (selectedCurrency !== 'ALL') {
       filtered = filtered.filter(r => (r.currency || 'N/A') === selectedCurrency)
     }
 
@@ -108,10 +114,10 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
     })
 
     return filtered
-  }, [allRows, searchTerm, sortField, sortDirection, isShoesF, selectedCurrency])
+  }, [allRows, searchTerm, sortField, sortDirection, isShoesF, selectedCurrency, forcedCurrency])
 
   const formatMoney = (value: number, currency?: string) => {
-    const cur = currency || (selectedCurrency !== 'ALL' ? selectedCurrency : undefined)
+    const cur = currency || (effectiveCurrency !== 'ALL' ? effectiveCurrency : undefined)
     try {
       if (cur) {
         return new Intl.NumberFormat('es-ES', {
@@ -126,6 +132,16 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
     }
     return value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
+
+  const amazonEurSummary = useMemo(() => {
+    if (!isAmazonLineFormat) return null
+    const rows = filteredAndSortedRows
+    const totalSales = rows.reduce((sum, r) => sum + (r.grossSales ?? 0), 0)
+    const totalRefunds = rows.reduce((sum, r) => sum + (r.refunds ?? 0), 0)
+    const netBase = rows.reduce((sum, r) => sum + (r.netBase ?? 0), 0)
+    const totalCommission = rows.reduce((sum, r) => sum + (r.commission ?? 0), 0)
+    return { totalSales, totalRefunds, netBase, totalCommission }
+  }, [filteredAndSortedRows, isAmazonLineFormat])
 
   const chartData = useMemo(() => {
     if (isShoesF) {
@@ -166,7 +182,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {isAmazonLineFormat && (currencies.length > 1 || (summary.byCurrency && Object.keys(summary.byCurrency).length > 1)) && (
+      {isAmazonLineFormat && !forcedCurrency && (currencies.length > 1 || (summary.byCurrency && Object.keys(summary.byCurrency).length > 1)) && (
         <Card className="glass-card">
           <CardHeader>
             <CardTitle className="text-white text-sm sm:text-base">
@@ -196,7 +212,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
         </Card>
       )}
 
-      {isAmazonLineFormat && summary.byCurrency && Object.keys(summary.byCurrency).length > 0 && (
+      {isAmazonLineFormat && !forcedCurrency && summary.byCurrency && Object.keys(summary.byCurrency).length > 0 && (
         <Card className="glass-card">
           <CardHeader>
             <CardTitle className="text-white text-sm sm:text-base">
@@ -305,7 +321,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
               </CardHeader>
               <CardContent className="pt-0 px-2 pb-2">
                 <div className="text-base sm:text-lg lg:text-xl font-bold text-white">
-                  {formatMoney(summary.totalSales, selectedCurrency !== 'ALL' ? selectedCurrency : undefined)}
+                  {formatMoney((amazonEurSummary?.totalSales ?? summary.totalSales), 'EUR')}
                 </div>
               </CardContent>
             </Card>
@@ -317,7 +333,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
               </CardHeader>
               <CardContent className="pt-0 px-2 pb-2">
                 <div className="text-base sm:text-lg lg:text-xl font-bold text-green-400">
-                  {formatMoney(summary.netBase, selectedCurrency !== 'ALL' ? selectedCurrency : undefined)}
+                  {formatMoney((amazonEurSummary?.netBase ?? summary.netBase), 'EUR')}
                 </div>
               </CardContent>
             </Card>
@@ -329,7 +345,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
               </CardHeader>
               <CardContent className="pt-0 px-2 pb-2">
                 <div className="text-lg sm:text-xl lg:text-2xl font-bold text-[#FF6600]">
-                  {formatMoney(summary.totalCommission, selectedCurrency !== 'ALL' ? selectedCurrency : undefined)}
+                  {formatMoney((amazonEurSummary?.totalCommission ?? summary.totalCommission), 'EUR')}
                 </div>
               </CardContent>
             </Card>
@@ -513,11 +529,23 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
             onClick={() => {
               // Exportar el CSV original subido (si existe); si no, generamos uno a partir del reporte
               const originalCsv = report.data.originalCsv
-              const csvToDownload = originalCsv && originalCsv.trim().length > 0
+              const csvToDownload = !forcedCurrency && originalCsv && originalCsv.trim().length > 0
                 ? originalCsv
                 : [
                     (isAmazonLineFormat
-                      ? ['Fecha', 'Order ID', 'Tipo', 'Currency', 'Base Producto (Excl.)', 'Envío (Excl.)', 'Promo (Excl.)', 'Neto Final (Excl.)', 'IVA real', '% Comisión', 'Comisión'].join(',')
+                      ? [
+                          'Fecha',
+                          'Order ID',
+                          'Tipo',
+                          ...(forcedCurrency ? [] : ['Currency']),
+                          'Base Producto (Excl.)',
+                          'Envío (Excl.)',
+                          'Promo (Excl.)',
+                          'Neto Final (Excl.)',
+                          'IVA real',
+                          '% Comisión',
+                          'Comisión'
+                        ].join(',')
                       : ['Producto', 'ASIN', 'Ventas', 'Reembolsos', 'Base Neta', '% Comisión', 'Comisión'].join(',')),
                     ...filteredAndSortedRows.map(row => (
                       isAmazonLineFormat
@@ -525,7 +553,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                             `"${row.date ?? ''}"`,
                             `"${row.orderId ?? ''}"`,
                             `"${row.transactionTypeLabel ?? ''}"`,
-                            row.currency ?? '',
+                            ...(forcedCurrency ? [] : [row.currency ?? '']),
                             row.baseProductNet ?? 0,
                             row.baseShippingNet ?? 0,
                             row.promoNet ?? 0,
@@ -585,7 +613,9 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                       <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Fecha</th>
                       <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ID del Pedido</th>
                       <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Tipo</th>
-                      <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Currency</th>
+                      {!forcedCurrency && (
+                        <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Currency</th>
+                      )}
                       <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Base Producto (Neto)</th>
                       <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Base Envío (Neto)</th>
                       <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Promo (Neto)</th>
@@ -643,7 +673,9 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                           <td className="py-3 px-3 text-white/70 text-xs">{row.date ?? '-'}</td>
                           <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.orderId ?? '-'}</td>
                           <td className="py-3 px-3 text-white/70 text-xs">{row.transactionTypeLabel ?? '-'}</td>
-                          <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.currency ?? '-'}</td>
+                          {!forcedCurrency && (
+                            <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.currency ?? '-'}</td>
+                          )}
                           <td className="py-3 px-3 text-white/70 text-xs text-right">
                             {formatMoney((row.baseProductNet ?? 0), row.currency)}
                           </td>
@@ -716,7 +748,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                     </>
                   ) : isAmazonLineFormat ? (
                     <>
-                      <td colSpan={4} className="py-4 px-3 text-white font-semibold">
+                      <td colSpan={forcedCurrency ? 3 : 4} className="py-4 px-3 text-white font-semibold">
                         TOTALES
                       </td>
                       <td className="py-4 px-3 text-white font-semibold text-right">
