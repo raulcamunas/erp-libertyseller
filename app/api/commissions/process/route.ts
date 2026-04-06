@@ -417,6 +417,15 @@ export async function POST(request: NextRequest) {
     const netBase = realTurnover
     const totalIva = useOldCalculation ? (realTurnover - netBase) : totalIvaAmazon
     const totalCommission = processedRows.reduce((sum, r) => sum + r.commission, 0)
+
+    if (!useOldCalculation && processedRows.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'No se han detectado transacciones procesables en el CSV. Revisa que el archivo sea de Amazon Tax Document Library y contenga las columnas: Transaction Type, Currency, OUR_PRICE Tax Exclusive Selling Price, SHIPPING Tax Exclusive Selling Price, OUR_PRICE Tax Exclusive Promo Amount y OUR_PRICE Tax Amount.'
+        },
+        { status: 400 }
+      )
+    }
     
     // Calcular tasa promedio de comisión
     const totalWeightedRate = processedRows.reduce((sum, r) => {

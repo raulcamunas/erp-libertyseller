@@ -141,26 +141,26 @@ export const parseCSV = (csvContent: string): Record<string, any>[] => {
   const rows: Record<string, any>[] = []
   
   for (let i = 1; i < lines.length; i++) {
-    const values = parseLine(lines[i]).map(v => v.replace(/^"|"$/g, ''))
-    
+    let values = parseLine(lines[i]).map(v => v.replace(/^"|"$/g, ''))
+
     if (values.length !== headers.length) {
-      // Intentar con el método simple si falla el avanzado
       const simpleValues = lines[i].split(delimiter).map(v => v.trim().replace(/^"|"$/g, ''))
-      if (simpleValues.length === headers.length) {
-        const row: Record<string, any> = {}
-        headers.forEach((header, index) => {
-          row[header] = simpleValues[index]
-        })
-        rows.push(row)
+      if (simpleValues.length > 1) {
+        values = simpleValues
       }
-      continue
     }
-    
+
+    if (values.length < headers.length) {
+      values = values.concat(new Array(headers.length - values.length).fill(''))
+    } else if (values.length > headers.length) {
+      values = values.slice(0, headers.length)
+    }
+
     const row: Record<string, any> = {}
     headers.forEach((header, index) => {
       row[header] = values[index]
     })
-    
+
     rows.push(row)
   }
   
