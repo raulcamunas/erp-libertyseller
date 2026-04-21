@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { UploadCloud, FileText, Loader2, Download, RefreshCw } from 'lucide-react'
+import { useDropzone } from 'react-dropzone'
 
 type MergedRow = {
   ean: string
@@ -126,13 +127,33 @@ export default function VisualizadorProductosPage() {
     }
   }
 
-  const filePicker = (
-    title: string,
-    desc: string,
-    accept: string,
-    file: File | null,
+  const FileDropzone = ({
+    title,
+    desc,
+    accept,
+    file,
+    setFile,
+  }: {
+    title: string
+    desc: string
+    accept: { [mime: string]: string[] }
+    file: File | null
     setFile: (f: File | null) => void
-  ) => {
+  }) => {
+    const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+      multiple: false,
+      accept,
+      noClick: true,
+      onDrop: (acceptedFiles) => {
+        const f = acceptedFiles[0] || null
+        setFile(f)
+        if (f) toast.success(`Archivo cargado: ${f.name}`)
+      },
+      onDropRejected: () => {
+        toast.error('Formato de archivo no válido')
+      },
+    })
+
     return (
       <Card className="glass-card">
         <CardHeader>
@@ -140,11 +161,17 @@ export default function VisualizadorProductosPage() {
           <CardDescription className="text-white/60">{desc}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="border-2 border-dashed rounded-xl px-6 pt-5 pb-6 border-white/20">
+          <div
+            {...getRootProps()}
+            className={`border-2 border-dashed rounded-xl px-6 pt-5 pb-6 transition-colors ${
+              isDragActive ? 'border-[#FF6600] bg-[#FF6600]/10' : 'border-white/20'
+            }`}
+          >
+            <input {...getInputProps()} />
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-white/80">
                 <UploadCloud className="h-5 w-5" />
-                <span className="text-sm">{file ? file.name : 'Arrastra o selecciona archivo'}</span>
+                <span className="text-sm">{file ? file.name : 'Arrastra aquí el archivo'}</span>
               </div>
               <div className="flex items-center gap-2">
                 {file && (
@@ -155,25 +182,13 @@ export default function VisualizadorProductosPage() {
                     className="text-white/60"
                   >
                     <RefreshCw className="h-4 w-4 mr-2" />
-                    Cambiar
+                    Quitar
                   </Button>
                 )}
-                <label className="cursor-pointer">
-                  <input
-                    type="file"
-                    accept={accept}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null
-                      setFile(f)
-                      if (f) toast.success(`Archivo cargado: ${f.name}`)
-                    }}
-                    className="hidden"
-                  />
-                  <Button type="button" variant="outline">
-                    <FileText className="h-4 w-4 mr-2" />
-                    Seleccionar
-                  </Button>
-                </label>
+                <Button type="button" variant="outline" onClick={open}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Seleccionar
+                </Button>
               </div>
             </div>
           </div>
@@ -192,27 +207,31 @@ export default function VisualizadorProductosPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {filePicker(
-          'Archivo Keepa (CSV)',
-          'Columna clave: Imported by Code (EAN). Incluye fees y Buy Box.',
-          '.csv,text/csv',
-          keepaFile,
-          setKeepaFile
-        )}
-        {filePicker(
-          'Archivo Filtrado (XLSX)',
-          'Columna clave: EAN. Incluye producto, ASIN y precio.',
-          '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          filtradoFile,
-          setFiltradoFile
-        )}
-        {filePicker(
-          'Precios de compra (XLSX)',
-          'Columna clave: EAN. Usamos PUC como precio de compra (según tarifa).',
-          '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          compraFile,
-          setCompraFile
-        )}
+        <FileDropzone
+          title="Archivo Keepa (CSV)"
+          desc="Columna clave: Imported by Code (EAN). Incluye fees y Buy Box."
+          accept={{ 'text/csv': ['.csv'] }}
+          file={keepaFile}
+          setFile={setKeepaFile}
+        />
+        <FileDropzone
+          title="Archivo Filtrado (XLSX)"
+          desc="Columna clave: EAN. Incluye producto, ASIN y precio."
+          accept={{
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+          }}
+          file={filtradoFile}
+          setFile={setFiltradoFile}
+        />
+        <FileDropzone
+          title="Precios de compra (XLSX)"
+          desc="Columna clave: EAN. Usamos PUC como precio de compra (según tarifa)."
+          accept={{
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+          }}
+          file={compraFile}
+          setFile={setCompraFile}
+        />
       </div>
 
       <div className="flex gap-3">
