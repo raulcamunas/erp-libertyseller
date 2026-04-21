@@ -34,6 +34,7 @@ export default function VisualizadorProductosPage() {
 
   const [loading, setLoading] = useState(false)
   const [rows, setRows] = useState<MergedRow[]>([])
+  const [meta, setMeta] = useState<any>(null)
 
   const canSubmit = useMemo(() => {
     return Boolean(keepaFile && filtradoFile && compraFile)
@@ -102,6 +103,7 @@ export default function VisualizadorProductosPage() {
 
     setLoading(true)
     setRows([])
+    setMeta(null)
 
     try {
       const formData = new FormData()
@@ -118,6 +120,7 @@ export default function VisualizadorProductosPage() {
       if (!res.ok) throw new Error(data?.error || 'Error procesando')
 
       setRows(data.rows || [])
+      setMeta(data.meta || null)
       toast.success(`Generado: ${(data.rows || []).length} filas`) 
     } catch (err: any) {
       console.error(err)
@@ -252,7 +255,12 @@ export default function VisualizadorProductosPage() {
         </Button>
 
         <div className="text-white/50 text-sm flex items-center">
-          {rows.length ? `${rows.length} filas` : ''}
+          {meta?.merged_rows ? `${meta.merged_rows} filas (filtrado)` : rows.length ? `${rows.length} filas` : ''}
+          {meta?.missing_keepa !== undefined && meta?.missing_compra !== undefined ? (
+            <span className="ml-3 text-white/40">
+              Falta Keepa: {meta.missing_keepa} | Falta Compra: {meta.missing_compra}
+            </span>
+          ) : null}
         </div>
       </div>
 

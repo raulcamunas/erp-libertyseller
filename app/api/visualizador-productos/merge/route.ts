@@ -15,8 +15,33 @@ function normalizeEan(raw: any): string {
   }
 
   // Eliminar espacios
-  const digits = s.replace(/\D/g, '')
+  let digits = s.replace(/\D/g, '')
+  if (!digits) return ''
+
+  // Keepa a veces devuelve GTIN-14 con un 0 delante (ej: 03282770400786)
+  if (digits.length === 14 && digits.startsWith('0')) {
+    digits = digits.slice(1)
+  }
+
+  // UPC (12) -> EAN13 añadiendo 0 delante
+  if (digits.length === 12) {
+    digits = `0${digits}`
+  }
+
+  // Si viene con más de 14 por errores, intentamos quedarnos con los 13 últimos (lo más habitual)
+  if (digits.length > 14) {
+    digits = digits.slice(-13)
+  }
+
   return digits
+}
+
+function eanVariants(ean: string): string[] {
+  const v = new Set<string>()
+  const n = normalizeEan(ean)
+  if (n) v.add(n)
+  if (n.startsWith('0') && n.length === 13) v.add(n.slice(1))
+  return Array.from(v)
 }
 
 function parseKeepaPriceEuro(s: any): number {
@@ -84,9 +109,17 @@ export async function POST(request: NextRequest) {
     // Map Keepa por EAN (Imported by Code)
     const keepaByEan = new Map<string, any>()
     for (const r of keepaRows) {
-      const ean = normalizeEan(getVal(r, ['Imported by Code', /imported by code/i]))
+      const rawEan =
+        getVal(r, ['Imported by Code', /imported by code/i]) ||
+        getVal(r, ['EAN', 'ean', /\bean\b/i]) ||
+        getVal(r, ['GTIN', 'gtin', /gtin/i])
+
+      const ean = normalizeEan(rawEan)
       if (!ean) continue
-      if (!keepaByEan.has(ean)) keepaByEan.set(ean, r)
+
+      for (const key of eanVariants(ean)) {
+        if (!keepaByEan.has(key)) keepaByEan.set(key, r)
+      }
     }
 
     // ===== Filtrado XLSX =====
@@ -126,20 +159,34 @@ export async function POST(request: NextRequest) {
     for (const r of compraRows) {
       const ean = normalizeEan(r['EAN'] ?? r['ean'])
       if (!ean) continue
-      if (!compraByEan.has(ean)) compraByEan.set(ean, r)
+      for (const key of eanVariants(ean)) {
+        if (!compraByEan.has(key)) compraByEan.set(key, r)
+      }
     }
 
-    // ===== Merge keys =====
-    const eans = new Set<string>([...keepaByEan.keys(), ...filtradoByEan.keys(), ...compraByEan.keys()])
+    // ===== Merge: EXACTAMENTE las filas del archivo FILTRADO =====
+    // (left join Keepa + Compra)
+    const merged = filtradoRows
+      .map((filtrado) => {
+        const ean = normalizeEan(filtrado?.EAN ?? filtrado?.ean)
+        if (!ean) return null
 
-    const merged = Array.from(eans)
-      .map((ean) => {
-        const keepa = keepaByEan.get(ean)
-        const filtrado = filtradoByEan.get(ean)
-        const compra = compraByEan.get(ean)
+        const keepa = keepaByEan.get(ean) || keepaByEan.get(`0${ean}`)
+        const compra = compraByEan.get(ean) || compraByEan.get(`0${ean}`)
 
-        const asin = (filtrado?.ASIN ?? filtrado?.asin ?? getVal(keepa || {}, ['ASIN', /asin/i]) ?? '').toString().trim() || undefined
-        const producto = (filtrado?.Título ?? filtrado?.Titulo ?? filtrado?.title ?? filtrado?.['Título'] ?? getVal(keepa || {}, ['Título', 'Titulo', /t[ií]tulo/i]) ?? '').toString().trim() || undefined
+        const asin = (filtrado?.ASIN ?? filtrado?.asin ?? getVal(keepa || {}, ['ASIN', /asin/i]) ?? '')
+          .toString()
+          .trim() || undefined
+        const producto = (
+          filtrado?.Título ??
+          filtrado?.Titulo ??
+          filtrado?.title ??
+          filtrado?.['Título'] ??
+          getVal(keepa || {}, ['Título', 'Titulo', /t[ií]tulo/i]) ??
+          ''
+        )
+          .toString()
+          .trim() || undefined
 
         const precioVenta = (() => {
           // Filtrado tiene "Precio" como número (por pandas). Keepa tiene Caja de Compra: Actual como string "€ xx".
@@ -197,15 +244,13 @@ export async function POST(request: NextRequest) {
           },
         }
       })
-      .filter((r) => r.ean)
+      .filter(Boolean) as any[]
 
-    // Orden: primero los que tienen los 3
-    merged.sort((a, b) => {
-      const aScore = (a.source?.keepa ? 1 : 0) + (a.source?.filtrado ? 1 : 0) + (a.source?.compra ? 1 : 0)
-      const bScore = (b.source?.keepa ? 1 : 0) + (b.source?.filtrado ? 1 : 0) + (b.source?.compra ? 1 : 0)
-      if (bScore !== aScore) return bScore - aScore
-      return (b.beneficio ?? 0) - (a.beneficio ?? 0)
-    })
+    // Mantener el orden del archivo filtrado.
+    // (No reordenamos por beneficio ni por completitud.)
+
+    const missingKeepa = merged.filter((r) => !r.source?.keepa).length
+    const missingCompra = merged.filter((r) => !r.source?.compra).length
 
     return NextResponse.json({
       rows: merged,
@@ -215,6 +260,8 @@ export async function POST(request: NextRequest) {
         compra_rows: compraRows.length,
         merged_rows: merged.length,
         compra_header_row_index0: headerRowIndex0,
+        missing_keepa: missingKeepa,
+        missing_compra: missingCompra,
       },
     })
   } catch (error: any) {
