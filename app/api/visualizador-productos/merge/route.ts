@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { parseCSV, getVal, parseNum } from '@/lib/utils/csv-parser'
 
+function vpLog(...args: any[]) {
+  // Debug intencional para depurar mapeos de columnas y matches por EAN.
+  // (Se verá en la consola del servidor Next.js.)
+  console.log('[VP]', ...args)
+}
+
 function normalizeEan(raw: any): string {
   if (raw === null || raw === undefined) return ''
   const s = String(raw).trim()
@@ -108,6 +114,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Faltan archivos requeridos' }, { status: 400 })
     }
 
+    vpLog('Incoming files', {
+      keepa: { name: keepaFile.name, type: keepaFile.type, size: keepaFile.size },
+      filtrado: { name: filtradoFile.name, type: filtradoFile.type, size: filtradoFile.size },
+      compra: { name: compraFile.name, type: compraFile.type, size: compraFile.size },
+    })
+
     // ===== Keepa CSV =====
     const keepaText = await keepaFile.text()
     const keepaRows = parseCSV(keepaText)
@@ -121,6 +133,7 @@ export async function POST(request: NextRequest) {
 
     // Map Keepa por EAN (Imported by Code)
     const keepaByEan = new Map<string, any>()
+    const keepaEanSamples: string[] = []
     for (const r of keepaRows) {
       const rawEan =
         getVal(r, ['Imported by Code', /imported by code/i]) ||
@@ -130,10 +143,19 @@ export async function POST(request: NextRequest) {
       const ean = normalizeEan(rawEan)
       if (!ean) continue
 
+      if (keepaEanSamples.length < 10) keepaEanSamples.push(ean)
+
       for (const key of eanVariants(ean)) {
         if (!keepaByEan.has(key)) keepaByEan.set(key, r)
       }
     }
+
+    vpLog('Keepa parsed', {
+      rows: keepaRows.length,
+      mapped_eans: keepaByEan.size,
+      sample_eans: keepaEanSamples,
+      sample_columns: Object.keys(keepaRows?.[0] || {}).slice(0, 30),
+    })
 
     // ===== Filtrado XLSX =====
     const filtradoBuf = await filtradoFile.arrayBuffer()
@@ -157,11 +179,20 @@ export async function POST(request: NextRequest) {
     }
 
     const filtradoByEan = new Map<string, any>()
+    const filtradoEanSamples: string[] = []
     for (const r of filtradoRows) {
       const ean = normalizeEan(r['EAN'] ?? r['ean'])
       if (!ean) continue
       if (!filtradoByEan.has(ean)) filtradoByEan.set(ean, r)
+      if (filtradoEanSamples.length < 10) filtradoEanSamples.push(ean)
     }
+
+    vpLog('Filtrado parsed', {
+      rows: filtradoRows.length,
+      unique_eans: filtradoByEan.size,
+      sample_eans: filtradoEanSamples,
+      sample_columns: Object.keys(filtradoRows?.[0] || {}).slice(0, 30),
+    })
 
     // ===== Compra XLSX (TARIFA) =====
     const compraBuf = await compraFile.arrayBuffer()
@@ -203,16 +234,30 @@ export async function POST(request: NextRequest) {
     }
 
     const compraByEan = new Map<string, any>()
+    const compraEanSamples: string[] = []
     for (const r of compraRows) {
       const ean = normalizeEan(r['EAN'] ?? r['ean'])
       if (!ean) continue
       for (const key of eanVariants(ean)) {
         if (!compraByEan.has(key)) compraByEan.set(key, r)
       }
+      if (compraEanSamples.length < 10) compraEanSamples.push(ean)
     }
+
+    vpLog('Compra parsed', {
+      header_row_index0: headerRowIndex0,
+      rows: compraRows.length,
+      mapped_eans: compraByEan.size,
+      sample_eans: compraEanSamples,
+      sample_columns: Object.keys(compraRows?.[0] || {}).slice(0, 30),
+      puc_examples: compraRows
+        .slice(0, 5)
+        .map((r) => ({ EAN: r?.EAN ?? r?.ean, PUC: r?.PUC ?? r?.puc })),
+    })
 
     // ===== Merge: EXACTAMENTE las filas del archivo FILTRADO =====
     // (left join Keepa + Compra)
+    let debugRowLogs = 0
     const merged = filtradoRows
       .map((filtrado) => {
         const ean = normalizeEan(filtrado?.EAN ?? filtrado?.ean)
@@ -246,25 +291,46 @@ export async function POST(request: NextRequest) {
 
         const precioCompra = (() => {
           // En tarifa: PUC es el coste unitario. Viene como número.
-          const n = parseNum(compra?.PUC ?? compra?.puc)
+          const raw = compra?.PUC ?? compra?.puc
+          const n = parseNum(raw)
           return n || 0
         })()
 
         const fbaPickPack = (() => {
-          const v = getVal(keepa || {}, ['Tarifa FBA Pick&Pack', /pick\s*&\s*pack/i])
-          return parseKeepaPriceEuro(v)
+          const raw = getVal(keepa || {}, ['Tarifa FBA Pick&Pack', /pick\s*&\s*pack/i])
+          return parseKeepaPriceEuro(raw)
         })()
 
         const referralFeePercent = (() => {
-          const v = getVal(keepa || {}, ['% de comisión de referencia', /comisi[oó]n de referencia/i])
-          const n = parseNum(String(v || '').replace('%', ''))
+          const raw = getVal(keepa || {}, ['% de comisión de referencia', /comisi[oó]n de referencia/i])
+          const n = parseNum(String(raw || '').replace('%', ''))
           return n || 0
         })()
 
         const referralFeeAmount = (() => {
-          const v = getVal(keepa || {}, ['Comisión de referencia basada en el precio actual de la Buy Box', /comisi[oó]n de referencia basada/i])
-          return parseKeepaPriceEuro(v)
+          const raw = getVal(keepa || {}, ['Comisión de referencia basada en el precio actual de la Buy Box', /comisi[oó]n de referencia basada/i])
+          return parseKeepaPriceEuro(raw)
         })()
+
+        if (debugRowLogs < 15) {
+          const rawPickPack = getVal(keepa || {}, ['Tarifa FBA Pick&Pack', /pick\s*&\s*pack/i])
+          const rawRefPercent = getVal(keepa || {}, ['% de comisión de referencia', /comisi[oó]n de referencia/i])
+          const rawRefAmount = getVal(keepa || {}, ['Comisión de referencia basada en el precio actual de la Buy Box', /comisi[oó]n de referencia basada/i])
+          vpLog('Row debug', {
+            ean,
+            has_keepa: Boolean(keepa),
+            has_compra: Boolean(compra),
+            raw_puc: compra?.PUC ?? compra?.puc,
+            parsed_compra: precioCompra,
+            raw_pickpack: rawPickPack,
+            parsed_pickpack: fbaPickPack,
+            raw_ref_percent: rawRefPercent,
+            parsed_ref_percent: referralFeePercent,
+            raw_ref_amount: rawRefAmount,
+            parsed_ref_amount: referralFeeAmount,
+          })
+          debugRowLogs++
+        }
 
         const totalFees = (fbaPickPack || 0) + (referralFeeAmount || 0)
         const totalCostes = (precioCompra || 0) + totalFees
@@ -292,6 +358,37 @@ export async function POST(request: NextRequest) {
         }
       })
       .filter(Boolean) as any[]
+
+    const keepaMatched = merged.filter((r) => r.source?.keepa).length
+    const compraMatched = merged.filter((r) => r.source?.compra).length
+    const compraWithPuc = merged.filter((r) => typeof r.precio_compra === 'number' && r.precio_compra > 0).length
+    const keepaWithPickPack = merged.filter((r) => typeof r.fba_pick_pack === 'number' && r.fba_pick_pack > 0).length
+    const keepaWithRefAmount = merged.filter((r) => typeof r.referral_fee_amount === 'number' && r.referral_fee_amount > 0).length
+
+    vpLog('Merge stats', {
+      merged_rows: merged.length,
+      keepa_matched: keepaMatched,
+      compra_matched: compraMatched,
+      compra_with_puc_gt0: compraWithPuc,
+      keepa_with_pickpack_gt0: keepaWithPickPack,
+      keepa_with_ref_amount_gt0: keepaWithRefAmount,
+    })
+
+    vpLog(
+      'Merge sample rows',
+      merged.slice(0, 8).map((r) => ({
+        ean: r.ean,
+        asin: r.asin,
+        has_keepa: r.source?.keepa,
+        has_compra: r.source?.compra,
+        venta: r.precio_venta,
+        compra: r.precio_compra,
+        pickpack: r.fba_pick_pack,
+        ref_percent: r.referral_fee_percent,
+        ref_amount: r.referral_fee_amount,
+        costes: r.total_costes,
+      }))
+    )
 
     // Mantener el orden del archivo filtrado.
     // (No reordenamos por beneficio ni por completitud.)
