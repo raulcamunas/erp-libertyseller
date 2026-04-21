@@ -11,7 +11,9 @@ import {
   CheckCircle2,
   FileSearch,
   Upload,
-  Clock
+  Clock,
+  Package,
+  Table
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -142,6 +144,24 @@ export const apps: AppConfig[] = [
     icon: FileSearch,
     route: '/dashboard/auditor',
     status: 'active',
+    category: 'analytics'
+  },
+  {
+    id: 'listing-builder',
+    name: 'Listing Builder',
+    description: 'Generador y depurador de flat files Amazon con IA',
+    icon: Package,
+    route: '/dashboard/listing-builder',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    id: 'visualizador-productos',
+    name: 'Visualizador Productos',
+    description: 'Cruce Keepa + Filtrado + Precios por EAN para validar productos',
+    icon: Table,
+    route: '/dashboard/visualizador-productos',
+    status: 'new',
     category: 'analytics'
   }
 ]
