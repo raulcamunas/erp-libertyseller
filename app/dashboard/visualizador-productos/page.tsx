@@ -40,6 +40,9 @@ export default function VisualizadorProductosPage() {
     return Boolean(keepaFile && filtradoFile && compraFile)
   }, [keepaFile, filtradoFile, compraFile])
 
+  const looksLikeTarifa = (name: string) => /tarifa/i.test(name)
+  const looksLikeFiltrado = (name: string) => /filtrado/i.test(name)
+
   const downloadCsv = () => {
     if (!rows.length) return
 
@@ -101,6 +104,15 @@ export default function VisualizadorProductosPage() {
       return
     }
 
+    if (filtradoFile && looksLikeTarifa(filtradoFile.name)) {
+      toast.error('Parece que has subido la TARIFA en el campo Filtrado')
+      return
+    }
+    if (compraFile && looksLikeFiltrado(compraFile.name)) {
+      toast.error('Parece que has subido el FILTRADO en el campo Precios de compra')
+      return
+    }
+
     setLoading(true)
     setRows([])
     setMeta(null)
@@ -118,6 +130,10 @@ export default function VisualizadorProductosPage() {
 
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'Error procesando')
+
+      if (!data?.rows || data.rows.length === 0) {
+        throw new Error(data?.error || 'No se generó ninguna fila. Revisa que los archivos estén en su campo correcto.')
+      }
 
       setRows(data.rows || [])
       setMeta(data.meta || null)

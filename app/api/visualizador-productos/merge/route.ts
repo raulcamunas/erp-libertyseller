@@ -66,6 +66,12 @@ function readXlsxFirstSheetRows(buffer: ArrayBuffer): any[] {
   return json as any[]
 }
 
+function hasColumn(rows: any[], columnName: string): boolean {
+  if (!rows || rows.length === 0) return false
+  const target = columnName.trim().toLowerCase()
+  return Object.keys(rows[0] || {}).some((k) => String(k).trim().toLowerCase() === target)
+}
+
 function readXlsxAsRowsWithHeaderRowIndex(buffer: ArrayBuffer, headerRowIndex0: number): any[] {
   const wb = XLSX.read(buffer, { type: 'array' })
   const sheetName = wb.SheetNames[0]
@@ -106,6 +112,13 @@ export async function POST(request: NextRequest) {
     const keepaText = await keepaFile.text()
     const keepaRows = parseCSV(keepaText)
 
+    if (!keepaRows || keepaRows.length === 0) {
+      return NextResponse.json(
+        { error: 'El archivo Keepa está vacío o no se pudo leer como CSV' },
+        { status: 400 }
+      )
+    }
+
     // Map Keepa por EAN (Imported by Code)
     const keepaByEan = new Map<string, any>()
     for (const r of keepaRows) {
@@ -125,6 +138,23 @@ export async function POST(request: NextRequest) {
     // ===== Filtrado XLSX =====
     const filtradoBuf = await filtradoFile.arrayBuffer()
     const filtradoRows = readXlsxFirstSheetRows(filtradoBuf)
+
+    if (!filtradoRows || filtradoRows.length === 0) {
+      return NextResponse.json(
+        { error: 'El archivo Filtrado está vacío o no contiene datos en la primera hoja' },
+        { status: 400 }
+      )
+    }
+
+    if (!hasColumn(filtradoRows, 'EAN')) {
+      return NextResponse.json(
+        {
+          error:
+            'El archivo Filtrado no tiene la columna "EAN". Probablemente has subido el archivo de TARIFA en el campo Filtrado.',
+        },
+        { status: 400 }
+      )
+    }
 
     const filtradoByEan = new Map<string, any>()
     for (const r of filtradoRows) {
@@ -154,6 +184,23 @@ export async function POST(request: NextRequest) {
     }
 
     const compraRows = readXlsxAsRowsWithHeaderRowIndex(compraBuf, headerRowIndex0)
+
+    if (!compraRows || compraRows.length === 0) {
+      return NextResponse.json(
+        { error: 'El archivo de Precios de compra está vacío o no se pudo detectar la cabecera' },
+        { status: 400 }
+      )
+    }
+
+    if (!hasColumn(compraRows, 'EAN') || !hasColumn(compraRows, 'PUC')) {
+      return NextResponse.json(
+        {
+          error:
+            'El archivo de Precios de compra debe contener columnas "EAN" y "PUC". Probablemente has subido el archivo FILTRADO en el campo de Precios.',
+        },
+        { status: 400 }
+      )
+    }
 
     const compraByEan = new Map<string, any>()
     for (const r of compraRows) {
@@ -251,6 +298,16 @@ export async function POST(request: NextRequest) {
 
     const missingKeepa = merged.filter((r) => !r.source?.keepa).length
     const missingCompra = merged.filter((r) => !r.source?.compra).length
+
+    if (merged.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'No se generó ninguna fila. Revisa que el archivo Filtrado tenga EANs válidos y que estés subiendo cada archivo en su campo correcto.',
+        },
+        { status: 400 }
+      )
+    }
 
     return NextResponse.json({
       rows: merged,
