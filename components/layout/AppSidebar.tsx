@@ -128,6 +128,10 @@ export function AppSidebar() {
     if (userRole === null) return true
     // Para admins, acceso a todo
     if (userRole === 'admin') return true
+    // Para partners, mostrar solo apps permitidas
+    if (userRole === 'partner') {
+      return app.id === 'clients' || app.id === 'monthly-closings'
+    }
     // Para employees, verificar permisos
     return userPermissions.has(app.id)
   })

@@ -113,7 +113,12 @@ export async function middleware(request: NextRequest) {
       }
 
       // Bloquear partners de otras rutas excepto /dashboard y /dashboard/clients
-      if (userRole === 'partner' && pathname !== '/dashboard' && !pathname.startsWith('/dashboard/clients')) {
+      if (
+        userRole === 'partner' &&
+        pathname !== '/dashboard' &&
+        !pathname.startsWith('/dashboard/clients') &&
+        !pathname.startsWith('/dashboard/monthly-closings')
+      ) {
         const url = request.nextUrl.clone()
         url.pathname = '/dashboard'
         return NextResponse.redirect(url)
@@ -128,6 +133,7 @@ export async function middleware(request: NextRequest) {
           '/dashboard/linkedin': 'linkedin',
           '/dashboard/finances': 'finances',
           '/dashboard/commissions': 'commissions',
+          '/dashboard/monthly-closings': 'monthly-closings',
           '/dashboard/reports': 'reports',
           '/dashboard/documents': 'documents',
         }

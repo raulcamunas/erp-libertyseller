@@ -84,6 +84,15 @@ export const apps: AppConfig[] = [
     category: 'core'
   },
   {
+    id: 'monthly-closings',
+    name: 'Cuadro Mensual',
+    description: 'Sube el CSV mensual y consulta desglose por país/mes',
+    icon: Table,
+    route: '/dashboard/monthly-closings',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
     id: 'users',
     name: 'Gestión de Usuarios',
     description: 'Crea y gestiona usuarios del sistema',
