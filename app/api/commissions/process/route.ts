@@ -558,19 +558,40 @@ async function processShoesFComparison(
       const transactionType = String(
         getVal(row, ['Transaction Type', 'transaction_type', /Transaction.*Type/i]) || ''
       ).toUpperCase()
-      const ourPrice = parseNum(
-        getVal(row, ['OUR_PRICE Tax Exclusive Selling Price', /OUR_PRICE.*Tax Exclusive Selling Price/i])
-      )
-      const shippingPrice = parseNum(
-        getVal(row, ['SHIPPING Tax Exclusive Selling Price', /SHIPPING.*Tax Exclusive Selling Price/i])
-      )
+
+      const ourPrice = parseNum(getVal(row, ['OUR_PRICE Tax Exclusive Selling Price', /OUR_PRICE.*Tax Exclusive Selling Price/i]))
+      const shippingPrice = parseNum(getVal(row, ['SHIPPING Tax Exclusive Selling Price', /SHIPPING.*Tax Exclusive Selling Price/i]))
+
       const lineAmount = ourPrice + shippingPrice
       const lineAmountAbs = Math.abs(lineAmount)
+      const ourAbs = Math.abs(ourPrice)
+      const shippingAbs = Math.abs(shippingPrice)
+
       if (transactionType === 'SHIPMENT') {
-        return { grossSales: lineAmountAbs, refunds: 0, netBase: lineAmountAbs }
+        return {
+          grossSales: lineAmountAbs,
+          refunds: 0,
+          netBase: lineAmountAbs,
+          grossProduct: ourAbs,
+          grossShipping: shippingAbs,
+          refundsProduct: 0,
+          refundsShipping: 0,
+          baseProductNet: ourAbs,
+          baseShippingNet: shippingAbs,
+        }
       }
       if (transactionType === 'RETURN' || transactionType === 'REFUND') {
-        return { grossSales: 0, refunds: lineAmountAbs, netBase: -lineAmountAbs }
+        return {
+          grossSales: 0,
+          refunds: lineAmountAbs,
+          netBase: -lineAmountAbs,
+          grossProduct: 0,
+          grossShipping: 0,
+          refundsProduct: ourAbs,
+          refundsShipping: shippingAbs,
+          baseProductNet: -ourAbs,
+          baseShippingNet: -shippingAbs,
+        }
       }
       return null // otros tipos se ignoran
     }
@@ -584,6 +605,24 @@ async function processShoesFComparison(
     const includedTransactionTypes: Record<string, number> = {}
     const excludedTransactionTypes: Record<string, number> = {}
     const byJurisdictionAgg = new Map<string, { jurisdiction: string; previousYearNetBase: number; currentYearNetBase: number }>()
+
+    const previousYearBreakdown = {
+      grossProduct: 0,
+      grossShipping: 0,
+      refundsProduct: 0,
+      refundsShipping: 0,
+      baseProductNet: 0,
+      baseShippingNet: 0,
+    }
+
+    const currentYearBreakdown = {
+      grossProduct: 0,
+      grossShipping: 0,
+      refundsProduct: 0,
+      refundsShipping: 0,
+      baseProductNet: 0,
+      baseShippingNet: 0,
+    }
 
     // Procesar año anterior: mismo formato Amazon (Transaction Type, OUR_PRICE/SHIPPING Tax Exclusive)
     const previousYearData = new Map<string, { netBase: number, grossSales: number, refunds: number }>()
@@ -615,6 +654,13 @@ async function processShoesFComparison(
         })
 
         previousYearNetBase += netBase
+
+        previousYearBreakdown.grossProduct += line.grossProduct || 0
+        previousYearBreakdown.grossShipping += line.grossShipping || 0
+        previousYearBreakdown.refundsProduct += line.refundsProduct || 0
+        previousYearBreakdown.refundsShipping += line.refundsShipping || 0
+        previousYearBreakdown.baseProductNet += line.baseProductNet || 0
+        previousYearBreakdown.baseShippingNet += line.baseShippingNet || 0
 
         const j = byJurisdictionAgg.get(jurisdiction) || {
           jurisdiction,
@@ -667,6 +713,13 @@ async function processShoesFComparison(
         const jurisdiction = getJurisdiction(row)
 
         currentYearNetBase += netBase
+
+        currentYearBreakdown.grossProduct += line.grossProduct || 0
+        currentYearBreakdown.grossShipping += line.grossShipping || 0
+        currentYearBreakdown.refundsProduct += line.refundsProduct || 0
+        currentYearBreakdown.refundsShipping += line.refundsShipping || 0
+        currentYearBreakdown.baseProductNet += line.baseProductNet || 0
+        currentYearBreakdown.baseShippingNet += line.baseShippingNet || 0
 
         const previousYearInfo = previousYearData.get(asinForGrouping) || { netBase: 0, grossSales: 0, refunds: 0 }
 
@@ -751,11 +804,23 @@ async function processShoesFComparison(
             grossSales: Array.from(previousYearData.values()).reduce((s, x) => s + x.grossSales, 0),
             refunds: Array.from(previousYearData.values()).reduce((s, x) => s + x.refunds, 0),
             netBase: previousYearNetBase,
+            grossProduct: previousYearBreakdown.grossProduct,
+            grossShipping: previousYearBreakdown.grossShipping,
+            refundsProduct: previousYearBreakdown.refundsProduct,
+            refundsShipping: previousYearBreakdown.refundsShipping,
+            baseProductNet: previousYearBreakdown.baseProductNet,
+            baseShippingNet: previousYearBreakdown.baseShippingNet,
           },
           currentYear: {
             grossSales: totalSales,
             refunds: totalRefunds,
             netBase: currentYearNetBase,
+            grossProduct: currentYearBreakdown.grossProduct,
+            grossShipping: currentYearBreakdown.grossShipping,
+            refundsProduct: currentYearBreakdown.refundsProduct,
+            refundsShipping: currentYearBreakdown.refundsShipping,
+            baseProductNet: currentYearBreakdown.baseProductNet,
+            baseShippingNet: currentYearBreakdown.baseShippingNet,
           },
           formula: {
             excessAmount,

@@ -44,7 +44,7 @@ export default async function CommissionsShoesFPage() {
           Comparación entre años + % manual + desglose por país (Jurisdiction Name)
         </p>
       </div>
-      <ShoesFCommissionsCalculator shoesClientId={shoesClient.id} />
+      <ShoesFCommissionsCalculator shoesClientId={shoesClient.id} shoesClientName={shoesClient.name} />
     </div>
   )
 }

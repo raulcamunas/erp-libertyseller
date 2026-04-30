@@ -66,11 +66,23 @@ export interface CommissionCalculationData {
         grossSales: number
         refunds: number
         netBase: number
+        grossProduct?: number
+        grossShipping?: number
+        refundsProduct?: number
+        refundsShipping?: number
+        baseProductNet?: number
+        baseShippingNet?: number
       }
       currentYear: {
         grossSales: number
         refunds: number
         netBase: number
+        grossProduct?: number
+        grossShipping?: number
+        refundsProduct?: number
+        refundsShipping?: number
+        baseProductNet?: number
+        baseShippingNet?: number
       }
       formula: {
         excessAmount: number

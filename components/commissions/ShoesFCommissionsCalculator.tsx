@@ -7,14 +7,23 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { AlertCircle, Calculator, FileText, Upload, X } from 'lucide-react'
 import type { CommissionCalculationData } from '@/lib/types/commissions'
+import { SaveReportModal } from './SaveReportModal'
 
-export function ShoesFCommissionsCalculator({ shoesClientId }: { shoesClientId: string }) {
+export function ShoesFCommissionsCalculator({
+  shoesClientId,
+  shoesClientName,
+}: {
+  shoesClientId: string
+  shoesClientName: string
+}) {
   const [filePreviousYear, setFilePreviousYear] = useState<File | null>(null)
   const [fileCurrentYear, setFileCurrentYear] = useState<File | null>(null)
   const [manualRatePercent, setManualRatePercent] = useState<string>('3')
   const [processing, setProcessing] = useState(false)
   const [result, setResult] = useState<CommissionCalculationData | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false)
 
   const [isDraggingPrevious, setIsDraggingPrevious] = useState(false)
   const [isDraggingCurrent, setIsDraggingCurrent] = useState(false)
@@ -86,6 +95,14 @@ export function ShoesFCommissionsCalculator({ shoesClientId }: { shoesClientId: 
     return `€${value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   }
 
+  const breakdown = result?.summary?.calculationBreakdown
+  const prev = breakdown?.previousYear
+  const curr = breakdown?.currentYear
+  const prevRealTurnover = (prev?.grossSales || 0) - (prev?.refunds || 0)
+  const currRealTurnover = (curr?.grossSales || 0) - (curr?.refunds || 0)
+  const prevRealTurnoverParts = (prev?.grossProduct || 0) + (prev?.grossShipping || 0) - (prev?.refundsProduct || 0) - (prev?.refundsShipping || 0)
+  const currRealTurnoverParts = (curr?.grossProduct || 0) + (curr?.grossShipping || 0) - (curr?.refundsProduct || 0) - (curr?.refundsShipping || 0)
+
   const jurisdictionRows = useMemo(() => {
     const by = result?.summary?.byJurisdiction
     if (!by) return []
@@ -101,6 +118,18 @@ export function ShoesFCommissionsCalculator({ shoesClientId }: { shoesClientId: 
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <Button
+          onClick={() => (window.location.href = '/dashboard/commissions-shoes-f/reports')}
+          variant="glass"
+          className="gap-2"
+          type="button"
+        >
+          <FileText className="h-4 w-4" />
+          Historial
+        </Button>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-white">Paso 1: Subir CSVs y configurar %</CardTitle>
@@ -268,6 +297,17 @@ export function ShoesFCommissionsCalculator({ shoesClientId }: { shoesClientId: 
 
       {result && (
         <div className="space-y-4">
+          <div className="flex items-center justify-end">
+            <Button
+              onClick={() => setIsSaveModalOpen(true)}
+              variant="glass"
+              className="gap-2"
+              type="button"
+            >
+              Guardar reporte
+            </Button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <CardHeader className="pb-2">
@@ -315,6 +355,84 @@ export function ShoesFCommissionsCalculator({ shoesClientId }: { shoesClientId: 
               <CardTitle className="text-white">Desglose del cálculo (ERP)</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
+              <div className="p-3 bg-white/[0.03] border border-white/10 rounded-lg">
+                <div className="text-white/70 text-xs mb-3">Suma / resta por año (Tax Exclusive)</div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="overflow-x-auto">
+                    <div className="text-white/70 text-xs mb-2">Año anterior</div>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        <tr className="border-b border-white/5">
+                          <td className="py-2 px-2 text-white/60">Ventas producto (OUR_PRICE)</td>
+                          <td className="py-2 px-2 text-right text-white/80">{formatMoney(prev?.grossProduct || 0)}</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                          <td className="py-2 px-2 text-white/60">Ventas envío (SHIPPING)</td>
+                          <td className="py-2 px-2 text-right text-white/80">{formatMoney(prev?.grossShipping || 0)}</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                          <td className="py-2 px-2 text-white/60">Devoluciones producto</td>
+                          <td className="py-2 px-2 text-right text-red-400">-{formatMoney(prev?.refundsProduct || 0)}</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                          <td className="py-2 px-2 text-white/60">Devoluciones envío</td>
+                          <td className="py-2 px-2 text-right text-red-400">-{formatMoney(prev?.refundsShipping || 0)}</td>
+                        </tr>
+                        <tr className="border-b border-white/10">
+                          <td className="py-2 px-2 text-white/70 font-semibold">Facturación real (calculada)</td>
+                          <td className="py-2 px-2 text-right text-white font-semibold">{formatMoney(prevRealTurnoverParts)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2 text-white/70 font-semibold">Base neta (netBase)</td>
+                          <td className="py-2 px-2 text-right text-green-400 font-semibold">{formatMoney(prev?.netBase || 0)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2 text-white/40 text-xs">Check: ventas - devoluciones</td>
+                          <td className="py-2 px-2 text-right text-white/40 text-xs">{formatMoney(prevRealTurnover)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <div className="text-white/70 text-xs mb-2">Año actual</div>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        <tr className="border-b border-white/5">
+                          <td className="py-2 px-2 text-white/60">Ventas producto (OUR_PRICE)</td>
+                          <td className="py-2 px-2 text-right text-white/80">{formatMoney(curr?.grossProduct || 0)}</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                          <td className="py-2 px-2 text-white/60">Ventas envío (SHIPPING)</td>
+                          <td className="py-2 px-2 text-right text-white/80">{formatMoney(curr?.grossShipping || 0)}</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                          <td className="py-2 px-2 text-white/60">Devoluciones producto</td>
+                          <td className="py-2 px-2 text-right text-red-400">-{formatMoney(curr?.refundsProduct || 0)}</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                          <td className="py-2 px-2 text-white/60">Devoluciones envío</td>
+                          <td className="py-2 px-2 text-right text-red-400">-{formatMoney(curr?.refundsShipping || 0)}</td>
+                        </tr>
+                        <tr className="border-b border-white/10">
+                          <td className="py-2 px-2 text-white/70 font-semibold">Facturación real (calculada)</td>
+                          <td className="py-2 px-2 text-right text-white font-semibold">{formatMoney(currRealTurnoverParts)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2 text-white/70 font-semibold">Base neta (netBase)</td>
+                          <td className="py-2 px-2 text-right text-green-400 font-semibold">{formatMoney(curr?.netBase || 0)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2 text-white/40 text-xs">Check: ventas - devoluciones</td>
+                          <td className="py-2 px-2 text-right text-white/40 text-xs">{formatMoney(currRealTurnover)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="p-3 bg-white/[0.03] border border-white/10 rounded-lg">
                   <div className="text-white/70 text-xs mb-2">Qué se incluye / qué no se incluye</div>
@@ -385,6 +503,18 @@ export function ShoesFCommissionsCalculator({ shoesClientId }: { shoesClientId: 
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {isSaveModalOpen && result && (
+        <SaveReportModal
+          clientId={shoesClientId}
+          clientName={shoesClientName}
+          data={result}
+          onClose={() => setIsSaveModalOpen(false)}
+          onSaved={() => {
+            setIsSaveModalOpen(false)
+          }}
+        />
       )}
     </div>
   )
