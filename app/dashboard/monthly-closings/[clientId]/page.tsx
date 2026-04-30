@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { notFound, redirect } from 'next/navigation'
+import { MonthlyClosingsClient } from '@/components/monthly-closings/MonthlyClosingsClient'
 
 export default async function MonthlyClosingsClientPage({
   params,
@@ -50,23 +51,7 @@ export default async function MonthlyClosingsClientPage({
 
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="mb-8">
-        <h1 className="heading-medium text-white mb-2">Cuadro Mensual - {client.name}</h1>
-        <p className="text-white/50">
-          Aquí mostraremos el histórico de meses, subida de CSV y desglose por país.
-        </p>
-      </div>
-
-      <div className="glass-card p-6">
-        <div className="text-white/80 text-sm">
-          Próximamente:
-          <div className="mt-3 space-y-1 text-white/60">
-            <div>- Subir CSV del mes</div>
-            <div>- Tabla por meses (enero..diciembre) con ventas/devoluciones por país</div>
-            <div>- Drilldown con desglose auditable</div>
-          </div>
-        </div>
-      </div>
+      <MonthlyClosingsClient clientId={client.id} clientName={client.name} />
     </div>
   )
 }
