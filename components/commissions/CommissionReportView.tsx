@@ -63,6 +63,34 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
     return Array.from(set).sort()
   }, [allRows])
 
+  const breakdown = summary.calculationBreakdown
+  const prev = breakdown?.previousYear
+  const curr = breakdown?.currentYear
+  const prevRealTurnover = (prev?.grossSales ?? 0) - (prev?.refunds ?? 0)
+  const currRealTurnover = (curr?.grossSales ?? 0) - (curr?.refunds ?? 0)
+  const prevRealTurnoverParts =
+    (prev?.grossProduct ?? 0) +
+    (prev?.grossShipping ?? 0) -
+    (prev?.refundsProduct ?? 0) -
+    (prev?.refundsShipping ?? 0)
+  const currRealTurnoverParts =
+    (curr?.grossProduct ?? 0) +
+    (curr?.grossShipping ?? 0) -
+    (curr?.refundsProduct ?? 0) -
+    (curr?.refundsShipping ?? 0)
+
+  const shoesFJurisdictions = useMemo(() => {
+    if (!summary.byJurisdiction) return []
+    return Object.values(summary.byJurisdiction)
+      .sort((a, b) => (b.excessAmount || 0) - (a.excessAmount || 0))
+      .map((x) => ({
+        jurisdiction: x.jurisdiction,
+        previousYearNetBase: x.previousYearNetBase,
+        currentYearNetBase: x.currentYearNetBase,
+        excessAmount: x.excessAmount,
+      }))
+  }, [summary.byJurisdiction])
+
   const [selectedCurrency, setSelectedCurrency] = useState<string>('ALL')
 
   const [searchTerm, setSearchTerm] = useState('')
@@ -284,14 +312,16 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
             <Card className="glass-card animate-pulse-on-load">
               <CardHeader className="pb-1 px-2 py-1.5">
                 <CardTitle className="text-xs font-semibold text-white/90 leading-tight">
-                  Comisión Total (3%)
+                  Comisión Total
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0 px-2 pb-2">
                 <div className="text-lg sm:text-xl lg:text-2xl font-bold text-[#FF6600]">
                   {formatMoney(summary.totalCommission, 'EUR')}
                 </div>
-                <div className="text-[10px] text-white/50">3% sobre excedente</div>
+                <div className="text-[10px] text-white/50">
+                  {(((summary.commissionRateUsed ?? summary.averageCommissionRate) || 0) * 100).toFixed(2)}% sobre excedente
+                </div>
               </CardContent>
             </Card>
           </>
@@ -363,6 +393,153 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
           </>
         )}
       </div>
+
+      {isShoesF && breakdown && (
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-white text-sm sm:text-base">Desglose del cálculo (auditable)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="p-3 bg-white/[0.03] border border-white/10 rounded-lg overflow-x-auto">
+                <div className="text-white/70 text-xs mb-2">Año anterior</div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    <tr className="border-b border-white/5">
+                      <td className="py-2 px-2 text-white/60">Ventas producto (OUR_PRICE)</td>
+                      <td className="py-2 px-2 text-right text-white/80">{formatMoney(prev?.grossProduct ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="py-2 px-2 text-white/60">Ventas envío (SHIPPING)</td>
+                      <td className="py-2 px-2 text-right text-white/80">{formatMoney(prev?.grossShipping ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="py-2 px-2 text-white/60">Devoluciones producto</td>
+                      <td className="py-2 px-2 text-right text-red-400">-{formatMoney(prev?.refundsProduct ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="py-2 px-2 text-white/60">Devoluciones envío</td>
+                      <td className="py-2 px-2 text-right text-red-400">-{formatMoney(prev?.refundsShipping ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr className="border-b border-white/10">
+                      <td className="py-2 px-2 text-white/70 font-semibold">Facturación real (calculada)</td>
+                      <td className="py-2 px-2 text-right text-white font-semibold">{formatMoney(prevRealTurnoverParts, 'EUR')}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-2 text-white/70 font-semibold">Base neta (netBase)</td>
+                      <td className="py-2 px-2 text-right text-green-400 font-semibold">{formatMoney(prev?.netBase ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-2 text-white/40 text-xs">Check: ventas - devoluciones</td>
+                      <td className="py-2 px-2 text-right text-white/40 text-xs">{formatMoney(prevRealTurnover, 'EUR')}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="p-3 bg-white/[0.03] border border-white/10 rounded-lg overflow-x-auto">
+                <div className="text-white/70 text-xs mb-2">Año actual</div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    <tr className="border-b border-white/5">
+                      <td className="py-2 px-2 text-white/60">Ventas producto (OUR_PRICE)</td>
+                      <td className="py-2 px-2 text-right text-white/80">{formatMoney(curr?.grossProduct ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="py-2 px-2 text-white/60">Ventas envío (SHIPPING)</td>
+                      <td className="py-2 px-2 text-right text-white/80">{formatMoney(curr?.grossShipping ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="py-2 px-2 text-white/60">Devoluciones producto</td>
+                      <td className="py-2 px-2 text-right text-red-400">-{formatMoney(curr?.refundsProduct ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="py-2 px-2 text-white/60">Devoluciones envío</td>
+                      <td className="py-2 px-2 text-right text-red-400">-{formatMoney(curr?.refundsShipping ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr className="border-b border-white/10">
+                      <td className="py-2 px-2 text-white/70 font-semibold">Facturación real (calculada)</td>
+                      <td className="py-2 px-2 text-right text-white font-semibold">{formatMoney(currRealTurnoverParts, 'EUR')}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-2 text-white/70 font-semibold">Base neta (netBase)</td>
+                      <td className="py-2 px-2 text-right text-green-400 font-semibold">{formatMoney(curr?.netBase ?? 0, 'EUR')}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-2 text-white/40 text-xs">Check: ventas - devoluciones</td>
+                      <td className="py-2 px-2 text-right text-white/40 text-xs">{formatMoney(currRealTurnover, 'EUR')}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="p-3 bg-white/[0.03] border border-white/10 rounded-lg">
+                <div className="text-white/70 text-xs mb-2">Qué se suma y qué se ignora</div>
+                <div className="text-white/60 text-xs mb-1">Incluye (Transaction Type):</div>
+                <pre className="text-[11px] text-white/70 whitespace-pre-wrap">
+{JSON.stringify(breakdown.includedTransactionTypes || {}, null, 2)}
+                </pre>
+                <div className="text-white/60 text-xs mt-3 mb-1">Excluye (Transaction Type):</div>
+                <pre className="text-[11px] text-white/70 whitespace-pre-wrap">
+{JSON.stringify(breakdown.excludedTransactionTypes || {}, null, 2)}
+                </pre>
+              </div>
+
+              <div className="p-3 bg-white/[0.03] border border-white/10 rounded-lg">
+                <div className="text-white/70 text-xs mb-2">Fórmula aplicada</div>
+                <div className="text-white/70">
+                  <div>
+                    <span className="text-white/50">Excedente</span> = max(0, BaseNetaActual - BaseNetaAnterior)
+                  </div>
+                  <div>
+                    <span className="text-white/50">Comisión</span> = Excedente × Tasa
+                  </div>
+                </div>
+                <div className="mt-3 text-white/70">
+                  <div>
+                    <span className="text-white/50">Excedente</span>: {formatMoney(summary.excessAmount ?? 0, 'EUR')}
+                  </div>
+                  <div>
+                    <span className="text-white/50">Tasa</span>:{' '}
+                    {(((summary.commissionRateUsed ?? summary.averageCommissionRate) || 0) * 100).toFixed(2)}%
+                  </div>
+                  <div>
+                    <span className="text-white/50">Comisión</span>: {formatMoney(summary.totalCommission ?? 0, 'EUR')}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {shoesFJurisdictions.length > 0 && (
+              <div className="p-3 bg-white/[0.03] border border-white/10 rounded-lg overflow-x-auto">
+                <div className="text-white/70 text-xs mb-3">Desglose por país (Jurisdiction Name)</div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="text-left py-2 px-2 text-xs font-semibold text-white/70 uppercase">País</th>
+                      <th className="text-right py-2 px-2 text-xs font-semibold text-white/70 uppercase">Base anterior</th>
+                      <th className="text-right py-2 px-2 text-xs font-semibold text-white/70 uppercase">Base actual</th>
+                      <th className="text-right py-2 px-2 text-xs font-semibold text-white/70 uppercase">Excedente</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shoesFJurisdictions.map((r) => (
+                      <tr key={r.jurisdiction} className="border-b border-white/5">
+                        <td className="py-2 px-2 text-white/80">{r.jurisdiction}</td>
+                        <td className="py-2 px-2 text-white/70 text-right">{formatMoney(r.previousYearNetBase || 0, 'EUR')}</td>
+                        <td className="py-2 px-2 text-white/70 text-right">{formatMoney(r.currentYearNetBase || 0, 'EUR')}</td>
+                        <td className="py-2 px-2 text-[#FF6600] text-right font-semibold">{formatMoney(r.excessAmount || 0, 'EUR')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filtros y Búsqueda */}
       <Card className="glass-card">
