@@ -27,6 +27,7 @@ type MonthlyClosingProcessResult = {
     includedTransactionTypes: string[]
     excludedTransactionTypes: string[]
     rowsProcessed: number
+    rowsTotal: number
   }
 }
 
@@ -111,11 +112,26 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="text-xs text-white/60">Mes</label>
-              <Input value={month} onChange={(e) => setMonth(e.target.value)} className="input-glass" />
+              <select
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="w-full h-9 rounded-lg border border-white/10 bg-[#0a0a0a] px-3 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#FF6600]"
+              >
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={String(m)}>
+                    {String(m).padStart(2, '0')}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-xs text-white/60">Año</label>
-              <Input value={year} onChange={(e) => setYear(e.target.value)} className="input-glass" />
+              <Input
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+                inputMode="numeric"
+                className="input-glass"
+              />
             </div>
             <div className="flex items-end">
               <Button
@@ -192,7 +208,7 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="text-xs text-white/50">
-              Filas procesadas: {result.meta.rowsProcessed} | Incluidos: {result.meta.includedTransactionTypes.join(', ') || '—'} | Excluidos:{' '}
+              Filas procesadas: {result.meta.rowsProcessed} / {result.meta.rowsTotal} | Incluidos: {result.meta.includedTransactionTypes.join(', ') || '—'} | Excluidos:{' '}
               {result.meta.excludedTransactionTypes.join(', ') || '—'}
             </div>
 

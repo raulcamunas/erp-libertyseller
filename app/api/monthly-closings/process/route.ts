@@ -58,6 +58,33 @@ const normalizeCountryCode = (value: string): string => {
   return COUNTRY_NAME_TO_CODE[v] || COUNTRY_NAME_TO_CODE[underscored] || v
 }
 
+const AMAZON_MONTHS: Record<string, number> = {
+  JAN: 1,
+  FEB: 2,
+  MAR: 3,
+  APR: 4,
+  MAY: 5,
+  JUN: 6,
+  JUL: 7,
+  AUG: 8,
+  SEP: 9,
+  OCT: 10,
+  NOV: 11,
+  DEC: 12,
+}
+
+const parseAmazonUtcDate = (raw: string): { year: number; month: number } | null => {
+  const s = String(raw || '').replace(/"/g, '').trim()
+  if (!s) return null
+
+  // Ej: 28-Mar-2026 UTC
+  const m = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})/)
+  if (!m) return null
+  const mon = AMAZON_MONTHS[m[2].toUpperCase()]
+  if (!mon) return null
+  return { year: Number(m[3]), month: mon }
+}
+
 const emptyAgg = (jurisdiction: string): JurisdictionAgg => ({
   jurisdiction,
   grossProduct: 0,
@@ -138,11 +165,19 @@ export async function POST(req: Request) {
     const csvText = await file.text()
     const rows = parseCSV(csvText)
 
+    const rowsTotal = rows.length
+
     const byJurisdiction = new Map<string, JurisdictionAgg>()
     const excludedTypes = new Set<string>()
     let includedCount = 0
 
     for (const row of rows) {
+      const orderDateRaw = getVal(row, ['Order Date', 'order_date', /Order\s*Date/i])
+      const parsedDate = parseAmazonUtcDate(String(orderDateRaw || ''))
+      if (!parsedDate || parsedDate.year !== year || parsedDate.month !== month) {
+        continue
+      }
+
       const transactionType = String(
         getVal(row, ['Transaction Type', 'transaction_type', /Transaction.*Type/i]) || ''
       )
@@ -228,6 +263,7 @@ export async function POST(req: Request) {
           includedTransactionTypes: Array.from(INCLUDED_TYPES),
           excludedTransactionTypes: Array.from(excludedTypes).sort(),
           rowsProcessed: includedCount,
+          rowsTotal,
         },
       },
     })
