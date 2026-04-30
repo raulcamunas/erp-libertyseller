@@ -28,7 +28,7 @@ const COUNTRY_NAME_TO_CODE: Record<string, string> = {
   AUSTRIA: 'AT',
   IRELAND: 'IE',
   CZECH_REPUBLIC: 'CZ',
-  CZECH REPUBLIC: 'CZ',
+  'CZECH REPUBLIC': 'CZ',
   SLOVAKIA: 'SK',
   HUNGARY: 'HU',
   ROMANIA: 'RO',
