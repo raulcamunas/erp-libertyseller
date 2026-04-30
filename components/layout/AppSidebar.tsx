@@ -23,7 +23,7 @@ export function AppSidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
-  const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null)
+  const [userRole, setUserRole] = useState<'admin' | 'employee' | 'partner' | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [webLeadsBadge, setWebLeadsBadge] = useState<number | undefined>(undefined)
   const pathname = usePathname()
@@ -97,6 +97,12 @@ export function AppSidebar() {
         // Si es admin, tiene acceso a todo
         if (profile.role === 'admin') {
           setUserPermissions(new Set(apps.map(app => app.id)))
+          return
+        }
+
+        // Partners: el menú y accesos se controlan en middleware y en el filtrado de apps
+        if (profile.role === 'partner') {
+          setUserPermissions(new Set())
           return
         }
 
