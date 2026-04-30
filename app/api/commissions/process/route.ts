@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
     const filePreviousYear = formData.get('filePreviousYear') as File | null
     const fileCurrentYear = formData.get('fileCurrentYear') as File | null
     const clientId = formData.get('clientId') as string
+    const manualCommissionRateRaw = formData.get('manualCommissionRate') as string | null
 
     // Obtener cliente primero para saber si es ShoesF / SHOPLAMP u otros tipos especiales
     const supabase = await createClient()
@@ -105,8 +106,15 @@ export async function POST(request: NextRequest) {
     // Si es ShoesF / SHOPLAMP, procesar comparación entre años (dos CSV)
     if (isShoesF) {
       // ShoesF: 3% sobre excedente; SHOPLAMP: 5% sobre excedente
+      const defaultCommissionRate = client.name === 'SHOPLAMP' ? 0.05 : 0.03
+
+      const parsedManual = manualCommissionRateRaw ? parseFloat(manualCommissionRateRaw) : NaN
+      // manualCommissionRate llega como porcentaje (ej: "3" -> 0.03)
+      const manualCommissionRate = Number.isFinite(parsedManual) ? parsedManual / 100 : undefined
       const commissionRate =
-        client.name === 'SHOPLAMP' ? 0.05 : 0.03
+        manualCommissionRate !== undefined && manualCommissionRate >= 0
+          ? manualCommissionRate
+          : defaultCommissionRate
 
       return await processShoesFComparison(
         filePreviousYear!,
@@ -567,6 +575,16 @@ async function processShoesFComparison(
       return null // otros tipos se ignoran
     }
 
+    const getJurisdiction = (row: Record<string, any>) => {
+      const v = getVal(row, ['Jurisdiction Name', 'jurisdiction name', /jurisdiction\s*name/i])
+      const s = String(v || '').trim()
+      return s || 'N/A'
+    }
+
+    const includedTransactionTypes: Record<string, number> = {}
+    const excludedTransactionTypes: Record<string, number> = {}
+    const byJurisdictionAgg = new Map<string, { jurisdiction: string; previousYearNetBase: number; currentYearNetBase: number }>()
+
     // Procesar año anterior: mismo formato Amazon (Transaction Type, OUR_PRICE/SHIPPING Tax Exclusive)
     const previousYearData = new Map<string, { netBase: number, grossSales: number, refunds: number }>()
     let previousYearNetBase = 0
@@ -575,11 +593,19 @@ async function processShoesFComparison(
     for (let i = 0; i < rowsPrevious.length; i++) {
       const row = rowsPrevious[i]
       try {
+        const transactionType = String(
+          getVal(row, ['Transaction Type', 'transaction_type', /Transaction.*Type/i]) || ''
+        ).toUpperCase()
         const line = getAmazonLineNetBase(row)
-        if (line === null) continue
+        if (line === null) {
+          excludedTransactionTypes[transactionType || 'UNKNOWN'] = (excludedTransactionTypes[transactionType || 'UNKNOWN'] || 0) + 1
+          continue
+        }
+        includedTransactionTypes[transactionType || 'UNKNOWN'] = (includedTransactionTypes[transactionType || 'UNKNOWN'] || 0) + 1
 
         const asin = String(getVal(row, ['ASIN', 'asin', 'Asin', /^\s*ASIN\s*$/i]) || 'N/A').trim() || 'N/A'
         const netBase = line.netBase
+        const jurisdiction = getJurisdiction(row)
 
         const existing = previousYearData.get(asin) || { netBase: 0, grossSales: 0, refunds: 0 }
         previousYearData.set(asin, {
@@ -589,6 +615,14 @@ async function processShoesFComparison(
         })
 
         previousYearNetBase += netBase
+
+        const j = byJurisdictionAgg.get(jurisdiction) || {
+          jurisdiction,
+          previousYearNetBase: 0,
+          currentYearNetBase: 0,
+        }
+        j.previousYearNetBase += netBase
+        byJurisdictionAgg.set(jurisdiction, j)
       } catch (error: any) {
         errors.push(`Fila ${i + 2} (Año Anterior): ${error.message || 'Error al procesar'}`)
       }
@@ -601,8 +635,15 @@ async function processShoesFComparison(
     for (let i = 0; i < rowsCurrent.length; i++) {
       const row = rowsCurrent[i]
       try {
+        const transactionType = String(
+          getVal(row, ['Transaction Type', 'transaction_type', /Transaction.*Type/i]) || ''
+        ).toUpperCase()
         const line = getAmazonLineNetBase(row)
-        if (line === null) continue
+        if (line === null) {
+          excludedTransactionTypes[transactionType || 'UNKNOWN'] = (excludedTransactionTypes[transactionType || 'UNKNOWN'] || 0) + 1
+          continue
+        }
+        includedTransactionTypes[transactionType || 'UNKNOWN'] = (includedTransactionTypes[transactionType || 'UNKNOWN'] || 0) + 1
 
         const productTitle = getVal(row, [
           'Product',
@@ -623,10 +664,19 @@ async function processShoesFComparison(
         const grossSales = line.grossSales
         const refunds = line.refunds
         const realTurnover = grossSales - refunds
+        const jurisdiction = getJurisdiction(row)
 
         currentYearNetBase += netBase
 
         const previousYearInfo = previousYearData.get(asinForGrouping) || { netBase: 0, grossSales: 0, refunds: 0 }
+
+        const j = byJurisdictionAgg.get(jurisdiction) || {
+          jurisdiction,
+          previousYearNetBase: 0,
+          currentYearNetBase: 0,
+        }
+        j.currentYearNetBase += netBase
+        byJurisdictionAgg.set(jurisdiction, j)
 
         processedRows.push({
           productTitle,
@@ -634,6 +684,7 @@ async function processShoesFComparison(
           orderId,
           date,
           quantity,
+          jurisdiction,
           grossSales,
           refunds,
           realTurnover,
@@ -657,6 +708,18 @@ async function processShoesFComparison(
     const commissionRate = commissionRateOverride
     const totalCommission = excessAmount * commissionRate
 
+    const byJurisdiction: Record<string, { jurisdiction: string; previousYearNetBase: number; currentYearNetBase: number; excessAmount: number }> = {}
+    for (const [key, v] of byJurisdictionAgg.entries()) {
+      const prev = v.previousYearNetBase
+      const cur = v.currentYearNetBase
+      byJurisdiction[key] = {
+        jurisdiction: v.jurisdiction,
+        previousYearNetBase: prev,
+        currentYearNetBase: cur,
+        excessAmount: Math.max(0, cur - prev),
+      }
+    }
+
     // Calcular totales para el resumen
     const totalSales = processedRows.reduce((sum, r) => sum + r.grossSales, 0)
     const totalRefunds = processedRows.reduce((sum, r) => sum + r.refunds, 0)
@@ -678,7 +741,28 @@ async function processShoesFComparison(
         // Datos específicos de ShoesF
         previousYearNetBase,
         currentYearNetBase,
-        excessAmount
+        excessAmount,
+        commissionRateUsed: commissionRate,
+        byJurisdiction,
+        calculationBreakdown: {
+          includedTransactionTypes,
+          excludedTransactionTypes,
+          previousYear: {
+            grossSales: Array.from(previousYearData.values()).reduce((s, x) => s + x.grossSales, 0),
+            refunds: Array.from(previousYearData.values()).reduce((s, x) => s + x.refunds, 0),
+            netBase: previousYearNetBase,
+          },
+          currentYear: {
+            grossSales: totalSales,
+            refunds: totalRefunds,
+            netBase: currentYearNetBase,
+          },
+          formula: {
+            excessAmount,
+            commissionRate,
+            totalCommission,
+          },
+        },
       },
       rows: processedRows,
       errors

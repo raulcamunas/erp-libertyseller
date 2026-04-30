@@ -75,6 +75,15 @@ export const apps: AppConfig[] = [
     category: 'core'
   },
   {
+    id: 'commissions-shoes-f',
+    name: 'Comisiones Shoes F',
+    description: 'Comparativa de años + % manual + desglose por país',
+    icon: Calculator,
+    route: '/dashboard/commissions-shoes-f',
+    status: 'active',
+    category: 'core'
+  },
+  {
     id: 'users',
     name: 'Gestión de Usuarios',
     description: 'Crea y gestiona usuarios del sistema',

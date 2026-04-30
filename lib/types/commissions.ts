@@ -48,6 +48,36 @@ export interface CommissionCalculationData {
     previousYearNetBase?: number // Base neta año anterior
     currentYearNetBase?: number // Base neta año actual
     excessAmount?: number // Excedente (año actual - año anterior)
+    // Para ShoesF: desglose y agregados
+    commissionRateUsed?: number // Tasa final usada (puede ser override)
+    byJurisdiction?: Record<
+      string,
+      {
+        jurisdiction: string
+        previousYearNetBase: number
+        currentYearNetBase: number
+        excessAmount: number
+      }
+    >
+    calculationBreakdown?: {
+      includedTransactionTypes: Record<string, number>
+      excludedTransactionTypes: Record<string, number>
+      previousYear: {
+        grossSales: number
+        refunds: number
+        netBase: number
+      }
+      currentYear: {
+        grossSales: number
+        refunds: number
+        netBase: number
+      }
+      formula: {
+        excessAmount: number
+        commissionRate: number
+        totalCommission: number
+      }
+    }
     // Para DIRU: beneficios totales
     totalBenefits?: number // Total de beneficios de la pestaña
   }
@@ -64,6 +94,7 @@ export interface CommissionRow {
   date?: string
   quantity?: number
   currency?: string
+  jurisdiction?: string
   grossSales: number
   refunds: number
   realTurnover: number
