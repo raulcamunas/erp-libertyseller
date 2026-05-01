@@ -50,7 +50,7 @@ export default async function MonthlyClosingsClientPage({
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
       <MonthlyClosingsClient clientId={client.id} clientName={client.name} />
     </div>
   )

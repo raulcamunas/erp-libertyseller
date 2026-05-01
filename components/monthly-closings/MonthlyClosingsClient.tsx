@@ -251,20 +251,20 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
   }, [year])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full">
       <div>
         <h1 className="heading-medium text-white mb-2">Cuadro Mensual - {clientName}</h1>
         <p className="text-white/50">Adjunta el CSV por mes y el ERP rellenará la tabla automáticamente.</p>
       </div>
 
-      <div className="glass-card p-4 overflow-auto">
+      <div className="glass-card p-4 overflow-auto w-full">
         <div className="flex items-center gap-3 mb-4">
           <div className="text-white/60 text-xs">Año</div>
           <Input value={year} onChange={(e) => setYear(e.target.value)} inputMode="numeric" className="input-glass w-32" />
           <div className="text-white/40 text-xs">Adjunta el tax report en cada fila (año/mes) para rellenar la tabla.</div>
         </div>
 
-        <table className="min-w-[1400px] w-full text-xs">
+        <table className="min-w-[1800px] w-full text-xs">
           <thead>
             <tr className="border-b border-white/10 text-white/70">
               {HEADER_COLUMNS.map((c) => (
@@ -352,6 +352,20 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
 
                           <td className="py-2 px-2 font-semibold text-white whitespace-nowrap">
                             {m.label} {rowYear}
+                            {state?.status === 'processing' && (
+                              <div className="text-[10px] text-white/40 font-normal">Procesando…</div>
+                            )}
+                            {state?.status === 'done' && state.result?.meta && (
+                              <div className="text-[10px] text-white/40 font-normal">
+                                {state.result.meta.rowsProcessed}/{state.result.meta.rowsTotal}
+                                {state.result.meta.excludedTransactionTypes?.length
+                                  ? ` | excl: ${state.result.meta.excludedTransactionTypes.join(', ')}`
+                                  : ''}
+                              </div>
+                            )}
+                            {state?.status === 'error' && (
+                              <div className="text-[10px] text-red-400 font-normal">{state.error}</div>
+                            )}
                           </td>
 
                           <td className="py-2 px-2 text-right">{row.ventasES ? formatMoney(row.ventasES) : ''}</td>

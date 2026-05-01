@@ -85,6 +85,32 @@ const parseAmazonUtcDate = (raw: string): { year: number; month: number } | null
   return { year: Number(m[3]), month: mon }
 }
 
+const parseAnyDate = (raw: string): { year: number; month: number } | null => {
+  const s = String(raw || '').replace(/"/g, '').trim()
+  if (!s) return null
+
+  const amazon = parseAmazonUtcDate(s)
+  if (amazon) return amazon
+
+  const ms = Date.parse(s)
+  if (!Number.isFinite(ms)) return null
+  const d = new Date(ms)
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 }
+}
+
+const MARKETPLACE_ID_TO_CODE: Record<string, string> = {
+  // EU
+  A1RKKUPIHCS9HS: 'ES',
+  A1PA6795UKMFR9: 'DE',
+  APJ6JRA9NG5V4: 'IT',
+  A13V1IB3VIYZZH: 'FR',
+  A1F83G8C2ARO7P: 'UK',
+  A1805IZSGTT6HS: 'NL',
+  A2NODRKZP88ZB9: 'SE',
+  A1C3SOZRARQ6R3: 'PL',
+  A33AVAJ2PDY3EV: 'TR',
+}
+
 const emptyAgg = (jurisdiction: string): JurisdictionAgg => ({
   jurisdiction,
   grossProduct: 0,
@@ -173,7 +199,7 @@ export async function POST(req: Request) {
 
     for (const row of rows) {
       const orderDateRaw = getVal(row, ['Order Date', 'order_date', /Order\s*Date/i])
-      const parsedDate = parseAmazonUtcDate(String(orderDateRaw || ''))
+      const parsedDate = parseAnyDate(String(orderDateRaw || ''))
       if (!parsedDate || parsedDate.year !== year || parsedDate.month !== month) {
         continue
       }
@@ -203,7 +229,8 @@ export async function POST(req: Request) {
         .trim()
         .toUpperCase()
 
-      const jurisdictionRaw = marketplaceId || shipToCountry || jurisdictionName || 'N/A'
+      const marketplaceCode = MARKETPLACE_ID_TO_CODE[marketplaceId] || ''
+      const jurisdictionRaw = shipToCountry || jurisdictionName || marketplaceCode || marketplaceId || 'N/A'
       const jurisdiction = normalizeCountryCode(jurisdictionRaw)
 
       const ourPrice = parseNum(
