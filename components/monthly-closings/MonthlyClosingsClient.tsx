@@ -453,7 +453,7 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
 
                           <td className="py-2 px-2 text-right">
                             {isYearTopRow ? (
-                              <div className="flex flex-col items-end gap-1">
+                              <div className="flex items-center justify-end gap-2">
                                 <Input
                                   value={settings.commissionPct}
                                   onChange={(e) => setMonthSetting(m.number, { commissionPct: e.target.value })}
@@ -461,7 +461,7 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
                                   className="input-glass h-7 w-20 text-right"
                                   placeholder="%"
                                 />
-                                <div className="text-[10px] text-white/50 font-normal">
+                                <div className="min-w-[90px] text-right">
                                   {row.comisionesLS !== null ? formatMoney(row.comisionesLS) : ''}
                                 </div>
                               </div>
@@ -472,7 +472,7 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
 
                           <td className="py-2 px-2 text-right">
                             {isYearTopRow ? (
-                              <div className="flex flex-col items-end gap-1">
+                              <div className="flex items-center justify-end gap-2">
                                 <Input
                                   value={settings.feeMonthly}
                                   onChange={(e) => setMonthSetting(m.number, { feeMonthly: e.target.value })}
@@ -480,7 +480,7 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
                                   className="input-glass h-7 w-24 text-right"
                                   placeholder="Fee"
                                 />
-                                <div className="text-[10px] text-white/50 font-normal">
+                                <div className="min-w-[90px] text-right">
                                   {row.pagoLS !== null ? formatMoney(row.pagoLS) : ''}
                                 </div>
                               </div>
