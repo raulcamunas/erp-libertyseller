@@ -5,6 +5,11 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { Upload, Trash2 } from 'lucide-react'
 
+type MonthSettings = {
+  commissionPct: string
+  feeMonthly: string
+}
+
 type JurisdictionRow = {
   jurisdiction: string
   grossProduct: number
@@ -104,8 +109,16 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
 
   const [monthData, setMonthData] = useState<Record<string, MonthRowData>>({})
 
+  const [monthSettings, setMonthSettings] = useState<Record<number, MonthSettings>>({})
+
   const formatMoney = (value: number) => {
     return `€${value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+
+  const parseUserNumber = (value: string): number => {
+    const s = String(value || '').trim().replace(',', '.')
+    const n = Number(s)
+    return Number.isFinite(n) ? n : 0
   }
 
   const formatPercent = (value: number | null) => {
@@ -155,6 +168,17 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
     const prevNeto = prevRes?.totals.netBase ?? null
     const pctDiferencia = prevNeto && prevNeto !== 0 ? ((netoTotal - prevNeto) / prevNeto) * 100 : null
 
+    const yearTop = Number.isFinite(Number(year)) ? Number(year) : new Date().getFullYear()
+    const isYearTopRow = rowYear === yearTop
+    const excedente = isYearTopRow && prevNeto !== null ? netoTotal - prevNeto : null
+
+    const settings = monthSettings[monthNumber]
+    const commissionPct = parseUserNumber(settings?.commissionPct || '')
+    const feeMonthly = parseUserNumber(settings?.feeMonthly || '')
+
+    const comisionesLS = isYearTopRow && excedente !== null ? (excedente * commissionPct) / 100 : null
+    const pagoLS = isYearTopRow && excedente !== null ? excedente - (comisionesLS || 0) - feeMonthly : null
+
     return {
       monthLabel,
       monthNumber,
@@ -174,11 +198,11 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
       devsEnvios,
       brutoTotal,
       netoTotal,
-      excedente: null,
-      comisionesLS: null,
-      pagoLS: null,
+      excedente,
+      comisionesLS,
+      pagoLS,
     }
-  }, [monthData])
+  }, [monthData, monthSettings, year])
 
   const handleAttachAndProcess = useCallback(
     async (monthNumber: number, rowYear: number, file: File) => {
@@ -250,6 +274,22 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
     return Number.isFinite(y) ? y : new Date().getFullYear()
   }, [year])
 
+  const setMonthSetting = useCallback(
+    (monthNumber: number, patch: Partial<MonthSettings>) => {
+      setMonthSettings((prev) => {
+        const current: MonthSettings = prev[monthNumber] || { commissionPct: '', feeMonthly: '' }
+        return {
+          ...prev,
+          [monthNumber]: {
+            ...current,
+            ...patch,
+          },
+        }
+      })
+    },
+    []
+  )
+
   return (
     <div className="space-y-6 w-full">
       <div>
@@ -257,29 +297,30 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
         <p className="text-white/50">Adjunta el CSV por mes y el ERP rellenará la tabla automáticamente.</p>
       </div>
 
-      <div className="glass-card p-4 overflow-auto w-full">
+      <div className="glass-card p-4 w-full">
         <div className="flex items-center gap-3 mb-4">
           <div className="text-white/60 text-xs">Año</div>
           <Input value={year} onChange={(e) => setYear(e.target.value)} inputMode="numeric" className="input-glass w-32" />
           <div className="text-white/40 text-xs">Adjunta el tax report en cada fila (año/mes) para rellenar la tabla.</div>
         </div>
 
-        <table className="min-w-[1800px] w-full text-xs">
-          <thead>
-            <tr className="border-b border-white/10 text-white/70">
-              {HEADER_COLUMNS.map((c) => (
-                <th
-                  key={c.label + String(c.key)}
-                  className={cn(
-                    'py-2 px-2 font-semibold whitespace-nowrap',
-                    c.align === 'right' ? 'text-right' : 'text-left'
-                  )}
-                >
-                  {c.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
+        <div className="w-full overflow-x-auto overflow-y-hidden pr-2 pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <table className="min-w-[1900px] w-full text-xs">
+            <thead>
+              <tr className="border-b border-white/10 text-white/70">
+                {HEADER_COLUMNS.map((c) => (
+                  <th
+                    key={c.label + String(c.key)}
+                    className={cn(
+                      'py-2 px-2 font-semibold whitespace-nowrap',
+                      c.align === 'right' ? 'text-right' : 'text-left'
+                    )}
+                  >
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
 
           <tbody>
             {(['Q1', 'Q2', 'Q3', 'Q4'] as const).map((q) => {
@@ -301,6 +342,10 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
                       const state = monthData[`${rowYear}-${m.number}`]
                       const hasData = Boolean(state?.result)
                       const rowTone = hasData ? 'text-white/80' : 'text-white/40'
+
+                      const yearTop = selectedYearNumber
+                      const isYearTopRow = rowYear === yearTop
+                      const settings = monthSettings[m.number] || { commissionPct: '', feeMonthly: '' }
 
                       return (
                         <tr key={`${q}-${m.number}-${rowKeySuffix}`} className={cn('border-b border-white/5', rowTone)}>
@@ -361,6 +406,18 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
                                 {state.result.meta.excludedTransactionTypes?.length
                                   ? ` | excl: ${state.result.meta.excludedTransactionTypes.join(', ')}`
                                   : ''}
+                                <div className="mt-1 h-1 w-full bg-white/10 rounded">
+                                  <div
+                                    className="h-1 bg-[#FF6600]/70 rounded"
+                                    style={{
+                                      width: `${
+                                        state.result.meta.rowsTotal > 0
+                                          ? Math.min(100, (state.result.meta.rowsProcessed / state.result.meta.rowsTotal) * 100)
+                                          : 0
+                                      }%`,
+                                    }}
+                                  />
+                                </div>
                               </div>
                             )}
                             {state?.status === 'error' && (
@@ -390,9 +447,47 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
                           <td className="py-2 px-2 text-right">{row.brutoTotal ? formatMoney(row.brutoTotal) : ''}</td>
                           <td className="py-2 px-2 text-right">{row.netoTotal ? formatMoney(row.netoTotal) : ''}</td>
 
-                          <td className="py-2 px-2 text-right"></td>
-                          <td className="py-2 px-2 text-right"></td>
-                          <td className="py-2 px-2 text-right"></td>
+                          <td className="py-2 px-2 text-right">
+                            {isYearTopRow && row.excedente !== null ? formatMoney(row.excedente) : ''}
+                          </td>
+
+                          <td className="py-2 px-2 text-right">
+                            {isYearTopRow ? (
+                              <div className="flex flex-col items-end gap-1">
+                                <Input
+                                  value={settings.commissionPct}
+                                  onChange={(e) => setMonthSetting(m.number, { commissionPct: e.target.value })}
+                                  inputMode="decimal"
+                                  className="input-glass h-7 w-20 text-right"
+                                  placeholder="%"
+                                />
+                                <div className="text-[10px] text-white/50 font-normal">
+                                  {row.comisionesLS !== null ? formatMoney(row.comisionesLS) : ''}
+                                </div>
+                              </div>
+                            ) : (
+                              ''
+                            )}
+                          </td>
+
+                          <td className="py-2 px-2 text-right">
+                            {isYearTopRow ? (
+                              <div className="flex flex-col items-end gap-1">
+                                <Input
+                                  value={settings.feeMonthly}
+                                  onChange={(e) => setMonthSetting(m.number, { feeMonthly: e.target.value })}
+                                  inputMode="decimal"
+                                  className="input-glass h-7 w-24 text-right"
+                                  placeholder="Fee"
+                                />
+                                <div className="text-[10px] text-white/50 font-normal">
+                                  {row.pagoLS !== null ? formatMoney(row.pagoLS) : ''}
+                                </div>
+                              </div>
+                            ) : (
+                              ''
+                            )}
+                          </td>
                         </tr>
                       )
                     }
@@ -403,7 +498,8 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
               )
             })}
           </tbody>
-        </table>
+          </table>
+        </div>
 
         {Object.values(monthData).some((m) => m.status === 'error') && (
           <div className="mt-4 text-xs text-red-400">
