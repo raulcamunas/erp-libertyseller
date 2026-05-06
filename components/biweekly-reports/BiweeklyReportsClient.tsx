@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Line } from 'react-chartjs-2'
+import { Line, Scatter } from 'react-chartjs-2'
 import {
   CategoryScale,
   Chart as ChartJS,
@@ -11,17 +11,19 @@ import {
   LinearScale,
   LineElement,
   PointElement,
+  ScatterController,
   Title,
   Tooltip,
 } from 'chart.js'
-import { Download, FileUp, TrendingUp } from 'lucide-react'
+import { Download, Euro, FileUp, Megaphone, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 import Papa from 'papaparse'
 import { getVal, parseEuroNumber, parseCSV } from '@/lib/utils/csv-parser'
 import { cn } from '@/lib/utils'
+import { StrategicInsights } from '@/components/biweekly-reports/StrategicInsights'
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler, ScatterController)
 
 type UploadState = {
   file?: File
@@ -33,6 +35,12 @@ type DailyMixPoint = {
   date: string
   organicSales: number
   ppcSales: number
+}
+
+type DailyPerfPoint = {
+  date: string
+  netProfit: number
+  adSpend: number
 }
 
 type TopProductRow = {
@@ -59,7 +67,7 @@ type ProcessedReport = {
   insights: string[]
 }
 
-const money = (v: number) => `€${v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const money = (v: number) => `${v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
 const pct = (v: number) => `${v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
 
 const normalizeDay = (raw: any) => {
@@ -151,6 +159,30 @@ const detectDailyMix = (rows: Array<Record<string, any>>) => {
     points.push({ date, organicSales, ppcSales })
   }
   return points.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+const detectDailyNetProfit = (rows: Array<Record<string, any>>) => {
+  const map = new Map<string, number>()
+  for (const r of rows) {
+    const date = normalizeDay(getVal(r, ['Date', 'Day', /date/i, /day/i]))
+    if (!date) continue
+    const v = parseEuroNumber(getVal(r, ['NetProfit', 'Net profit', /net\s*profit/i, /beneficio\s*neto/i]))
+    if (!Number.isFinite(v) || v === 0) continue
+    map.set(date, (map.get(date) || 0) + v)
+  }
+  return map
+}
+
+const detectDailyAdSpend = (rows: Array<Record<string, any>>) => {
+  const map = new Map<string, number>()
+  for (const r of rows) {
+    const date = normalizeDay(getVal(r, ['Date', 'Day', /date/i, /day/i]))
+    if (!date) continue
+    const v = parseEuroNumber(getVal(r, ['Spend', /spend/i, /cost/i, /gasto/i, /ad\s*spent/i]))
+    if (!Number.isFinite(v) || v === 0) continue
+    map.set(date, (map.get(date) || 0) + v)
+  }
+  return map
 }
 
 const detectTopProducts = (rows: Array<Record<string, any>>) => {
@@ -306,6 +338,46 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
     }
   }, [allReady, totalsState.rows, goodsState.rows, adsState.rows])
 
+  const dailyPerf: DailyPerfPoint[] = useMemo(() => {
+    if (!processed) return []
+    const profitByDay = detectDailyNetProfit(totalsState.rows || [])
+    const spendByDay = detectDailyAdSpend(adsState.rows || [])
+
+    const out: DailyPerfPoint[] = []
+    for (const [date, netProfit] of profitByDay.entries()) {
+      const adSpend = spendByDay.get(date) || 0
+      if (adSpend === 0) continue
+      out.push({ date, netProfit, adSpend })
+    }
+    out.sort((a, b) => a.date.localeCompare(b.date))
+    return out
+  }, [processed, totalsState.rows, adsState.rows])
+
+  const kpiTrends = useMemo(() => {
+    if (!processed) return null
+    const mix = processed.dailyMix
+    const totalsDaily = mix.map((p) => p.organicSales + p.ppcSales).filter((n) => Number.isFinite(n) && n > 0)
+    const meanSales = totalsDaily.length ? totalsDaily.reduce((a, b) => a + b, 0) / totalsDaily.length : 0
+    const lastSales = totalsDaily.length ? totalsDaily[totalsDaily.length - 1] : 0
+
+    const profitByDay = Array.from(detectDailyNetProfit(totalsState.rows || []).values()).filter(
+      (n) => Number.isFinite(n) && n !== 0
+    )
+    const meanProfit = profitByDay.length ? profitByDay.reduce((a, b) => a + b, 0) / profitByDay.length : 0
+    const lastProfit = profitByDay.length ? profitByDay[profitByDay.length - 1] : 0
+
+    const trend = (value: number, mean: number) => {
+      if (!Number.isFinite(value) || !Number.isFinite(mean) || mean === 0) return null
+      const diffPct = ((value - mean) / mean) * 100
+      return { diffPct }
+    }
+
+    return {
+      sales: trend(lastSales, meanSales),
+      profit: trend(lastProfit, meanProfit),
+    }
+  }, [processed, totalsState.rows])
+
   const chartData = useMemo(() => {
     if (!processed) return null
 
@@ -315,31 +387,56 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
         {
           label: 'Ventas Orgánicas',
           data: processed.dailyMix.map((p) => p.organicSales),
-          borderColor: '#2563eb',
-          backgroundColor: 'rgba(37, 99, 235, 0.18)',
+          borderColor: 'rgba(16, 185, 129, 0.95)',
+          backgroundColor: 'rgba(16, 185, 129, 0.22)',
           fill: true,
           tension: 0.25,
           pointRadius: 0,
+          stack: 'sales',
         },
         {
           label: 'Ventas PPC',
           data: processed.dailyMix.map((p) => p.ppcSales),
-          borderColor: '#f97316',
-          backgroundColor: 'rgba(249, 115, 22, 0.18)',
+          borderColor: 'rgba(139, 92, 246, 0.95)',
+          backgroundColor: (ctx: any) => {
+            const chart = ctx?.chart
+            const { ctx: c, chartArea } = chart || {}
+            if (!c || !chartArea) return 'rgba(139, 92, 246, 0.18)'
+            const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+            g.addColorStop(0, 'rgba(139, 92, 246, 0.35)')
+            g.addColorStop(1, 'rgba(139, 92, 246, 0.10)')
+            return g
+          },
           fill: true,
           tension: 0.25,
           pointRadius: 0,
+          stack: 'sales',
         },
       ],
     }
   }, [processed])
+
+  const scatterData = useMemo(() => {
+    if (!dailyPerf.length) return null
+    return {
+      datasets: [
+        {
+          label: 'Gasto vs Beneficio (día)',
+          data: dailyPerf.map((p) => ({ x: p.adSpend, y: p.netProfit })),
+          backgroundColor: 'rgba(139, 92, 246, 0.55)',
+          borderColor: 'rgba(139, 92, 246, 0.9)',
+          pointRadius: 4,
+        },
+      ],
+    }
+  }, [dailyPerf])
 
   const exportPDF = useCallback(async () => {
     if (!reportRef.current) return
 
     const canvas = await html2canvas(reportRef.current, {
       scale: 2,
-      backgroundColor: '#ffffff',
+      backgroundColor: '#f8fafc',
       useCORS: true,
     })
 
@@ -370,7 +467,7 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
 
   return (
     <div className="w-full">
-      <div className="max-w-6xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+      <div className="max-w-6xl mx-auto bg-slate-50 rounded-3xl border border-slate-200 shadow-sm p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-xs font-semibold tracking-wide text-slate-500">Mini-App</div>
@@ -435,22 +532,83 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
         {processed && (
           <div ref={reportRef} className="mt-8">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div className="rounded-2xl border border-slate-200 p-4 bg-white">
-                <div className="text-xs font-semibold text-slate-500">Ventas Totales</div>
-                <div className="text-2xl font-semibold text-slate-900 mt-2">{money(processed.totals.totalSales)}</div>
+              <div className="rounded-2xl border border-slate-200 p-5 bg-white shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-500">Ventas Totales</div>
+                    <div className="text-2xl font-semibold text-slate-900 mt-2">{money(processed.totals.totalSales)}</div>
+                  </div>
+                  <div className="h-10 w-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center">
+                    <Euro className="h-5 w-5 text-slate-700" />
+                  </div>
+                </div>
+                {kpiTrends?.sales && (
+                  <div className="mt-3">
+                    <div
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold border',
+                        kpiTrends.sales.diffPct >= 0
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          : 'bg-red-50 text-red-700 border-red-100'
+                      )}
+                    >
+                      {kpiTrends.sales.diffPct >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                      {`${pct(Math.abs(kpiTrends.sales.diffPct))} vs media`}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="rounded-2xl border border-slate-200 p-4 bg-white">
-                <div className="text-xs font-semibold text-slate-500">Beneficio Neto</div>
-                <div className="text-2xl font-semibold text-slate-900 mt-2">{money(processed.totals.netProfit)}</div>
-                <div className="text-xs text-slate-500 mt-1">Margen medio: {pct(processed.totals.avgMarginPct)}</div>
+
+              <div className="rounded-2xl border border-slate-200 p-5 bg-white shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-500">Beneficio Neto</div>
+                    <div className="text-2xl font-semibold text-slate-900 mt-2 text-emerald-600">{money(processed.totals.netProfit)}</div>
+                  </div>
+                  <div className="h-10 w-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                    <Wallet className="h-5 w-5 text-emerald-600" />
+                  </div>
+                </div>
+                <div className="text-xs text-slate-500 mt-2">Margen medio: {pct(processed.totals.avgMarginPct)}</div>
+                {kpiTrends?.profit && (
+                  <div className="mt-3">
+                    <div
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold border',
+                        kpiTrends.profit.diffPct >= 0
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          : 'bg-red-50 text-red-700 border-red-100'
+                      )}
+                    >
+                      {kpiTrends.profit.diffPct >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                      {`${pct(Math.abs(kpiTrends.profit.diffPct))} vs media`}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="rounded-2xl border border-slate-200 p-4 bg-white">
-                <div className="text-xs font-semibold text-slate-500">ROAS</div>
-                <div className="text-2xl font-semibold text-slate-900 mt-2">{processed.ads.roas.toFixed(2)}</div>
+
+              <div className="rounded-2xl border border-slate-200 p-5 bg-white shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-500">ROAS</div>
+                    <div className="text-2xl font-semibold text-slate-900 mt-2 text-violet-600">{processed.ads.roas.toFixed(2)}</div>
+                  </div>
+                  <div className="h-10 w-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center">
+                    <TrendingUp className="h-5 w-5 text-violet-600" />
+                  </div>
+                </div>
               </div>
-              <div className="rounded-2xl border border-slate-200 p-4 bg-white">
-                <div className="text-xs font-semibold text-slate-500">TACOS</div>
-                <div className="text-2xl font-semibold text-slate-900 mt-2">{pct(processed.ads.tacosPct)}</div>
+
+              <div className="rounded-2xl border border-slate-200 p-5 bg-white shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-500">TACOS</div>
+                    <div className="text-2xl font-semibold text-slate-900 mt-2 text-violet-600">{pct(processed.ads.tacosPct)}</div>
+                  </div>
+                  <div className="h-10 w-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center">
+                    <Megaphone className="h-5 w-5 text-violet-600" />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -458,8 +616,8 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
               <div className="xl:col-span-3 rounded-2xl border border-slate-200 p-4 bg-white">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-semibold text-slate-900">Mix de ventas (Orgánico vs PPC)</div>
-                    <div className="text-xs text-slate-500">Dependencia de publicidad por día</div>
+                    <div className="text-sm font-semibold text-slate-900">Sales Mix (Áreas apiladas)</div>
+                    <div className="text-xs text-slate-500">Volumen total y contribución PPC por día</div>
                   </div>
                   <div className="inline-flex items-center gap-2 text-xs text-slate-500">
                     <TrendingUp className="h-4 w-4" />
@@ -479,8 +637,9 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
                         },
                         scales: {
                           y: {
+                            stacked: true,
                             ticks: {
-                              callback: (value: string | number) => `€${value}`,
+                              callback: (value: string | number) => `${Number(value).toLocaleString('es-ES')} €`,
                             },
                           },
                         },
@@ -527,17 +686,45 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
               </div>
             </div>
 
-            <div className="mt-8 rounded-2xl border border-slate-200 p-4 bg-white">
-              <div className="text-sm font-semibold text-slate-900">Insights automáticos</div>
-              <div className="text-xs text-slate-500">Resumen listo para WhatsApp o email</div>
+            {scatterData && (
+              <div className="mt-8 rounded-2xl border border-slate-200 p-4 bg-white shadow-sm">
+                <div className="text-sm font-semibold text-slate-900">Eficiencia diaria (Gasto vs Beneficio)</div>
+                <div className="text-xs text-slate-500">Detecta días con gasto alto y beneficio bajo</div>
 
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                {processed.insights.map((txt, idx) => (
-                  <div key={idx} className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
-                    {txt || '—'}
-                  </div>
-                ))}
+                <div className="mt-4 h-[220px]">
+                  <Scatter
+                    data={scatterData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: { legend: { position: 'bottom' } },
+                      scales: {
+                        x: {
+                          title: { display: true, text: 'Gasto publicitario (€)' },
+                          ticks: {
+                            callback: (value: string | number) => `${Number(value).toLocaleString('es-ES')} €`,
+                          },
+                        },
+                        y: {
+                          title: { display: true, text: 'Beneficio neto (€)' },
+                          ticks: {
+                            callback: (value: string | number) => `${Number(value).toLocaleString('es-ES')} €`,
+                          },
+                        },
+                      },
+                    }}
+                  />
+                </div>
               </div>
+            )}
+
+            <div className="mt-8">
+              <StrategicInsights
+                totalNetProfit={processed.totals.netProfit}
+                tacosPct={processed.ads.tacosPct}
+                roas={processed.ads.roas}
+                topProducts={processed.topProducts}
+              />
             </div>
 
             <div className="mt-6 text-xs text-slate-400">Cliente ID: {clientId}</div>
