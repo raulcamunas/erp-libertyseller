@@ -13,7 +13,8 @@ import {
   Upload,
   Clock,
   Package,
-  Table
+  Table,
+  BarChart3
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -89,6 +90,15 @@ export const apps: AppConfig[] = [
     description: 'Sube el CSV mensual y consulta desglose por país/mes',
     icon: Table,
     route: '/dashboard/monthly-closings',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
+    id: 'biweekly-reports',
+    name: 'Reportes 15 días',
+    description: 'Sube CSVs de Sellerboard (Goods/Totals/Ads) y genera un reporte',
+    icon: BarChart3,
+    route: '/dashboard/biweekly-reports',
     status: 'new',
     category: 'analytics'
   },

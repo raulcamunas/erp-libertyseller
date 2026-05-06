@@ -117,7 +117,8 @@ export async function middleware(request: NextRequest) {
         userRole === 'partner' &&
         pathname !== '/dashboard' &&
         !pathname.startsWith('/dashboard/clients') &&
-        !pathname.startsWith('/dashboard/monthly-closings')
+        !pathname.startsWith('/dashboard/monthly-closings') &&
+        !pathname.startsWith('/dashboard/biweekly-reports')
       ) {
         const url = request.nextUrl.clone()
         url.pathname = '/dashboard'
@@ -134,6 +135,7 @@ export async function middleware(request: NextRequest) {
           '/dashboard/finances': 'finances',
           '/dashboard/commissions': 'commissions',
           '/dashboard/monthly-closings': 'monthly-closings',
+          '/dashboard/biweekly-reports': 'biweekly-reports',
           '/dashboard/reports': 'reports',
           '/dashboard/documents': 'documents',
         }

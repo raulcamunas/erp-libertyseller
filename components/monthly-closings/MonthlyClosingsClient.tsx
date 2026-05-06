@@ -458,7 +458,7 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
                                   value={settings.commissionPct}
                                   onChange={(e) => setMonthSetting(m.number, { commissionPct: e.target.value })}
                                   inputMode="decimal"
-                                  className="input-glass h-7 w-20 text-right"
+                                  className="input-glass h-7 w-20 text-right !px-3 !py-0 text-sm leading-[28px]"
                                   placeholder="%"
                                 />
                                 <div className="min-w-[90px] text-right">
@@ -477,7 +477,7 @@ export function MonthlyClosingsClient({ clientId, clientName }: { clientId: stri
                                   value={settings.feeMonthly}
                                   onChange={(e) => setMonthSetting(m.number, { feeMonthly: e.target.value })}
                                   inputMode="decimal"
-                                  className="input-glass h-7 w-24 text-right"
+                                  className="input-glass h-7 w-24 text-right !px-3 !py-0 text-sm leading-[28px]"
                                   placeholder="Fee"
                                 />
                                 <div className="min-w-[90px] text-right">

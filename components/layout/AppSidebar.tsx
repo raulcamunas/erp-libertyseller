@@ -136,7 +136,7 @@ export function AppSidebar() {
     if (userRole === 'admin') return true
     // Para partners, mostrar solo apps permitidas
     if (userRole === 'partner') {
-      return app.id === 'clients' || app.id === 'monthly-closings'
+      return app.id === 'clients' || app.id === 'monthly-closings' || app.id === 'biweekly-reports'
     }
     // Para employees, verificar permisos
     return userPermissions.has(app.id)
