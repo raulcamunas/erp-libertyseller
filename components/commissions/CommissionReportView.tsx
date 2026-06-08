@@ -52,6 +52,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   const summary = report.data.summary
   const allRows = report.data.rows
   const isShoesF = summary.excessAmount !== undefined && summary.previousYearNetBase !== undefined
+  const isShoplamp = summary.baselineAmount !== undefined
   // Formato Ham Master / Amazon: una fila por SHIPMENT/RETURN/REFUND con Order ID, Tipo, Base Producto/Envío
   const isAmazonLineFormat = allRows.length > 0 && allRows[0].transactionTypeLabel != null
 
@@ -266,9 +267,56 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
         </Card>
       )}
 
-      {/* Resumen: ShoesF = comparación años; resto = resumen estándar */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
-        {isShoesF ? (
+      {/* Resumen: SHOPLAMP = excedente sobre baseline; ShoesF = comparación años; resto = estándar */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        {isShoplamp ? (
+          <>
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">Base Neta del Mes</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-base sm:text-lg lg:text-xl font-bold text-green-400">
+                  {formatMoney(summary.netBase, 'EUR')}
+                </div>
+                <div className="text-[10px] text-white/50">Sin IVA</div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">Baseline Acordado</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-base sm:text-lg lg:text-xl font-bold text-white/70">
+                  {formatMoney(summary.baselineAmount ?? 0, 'EUR')}
+                </div>
+                <div className="text-[10px] text-white/50">Promedio mensual pactado</div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">Excedente</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-base sm:text-lg lg:text-xl font-bold text-[#FF6600]">
+                  {formatMoney(summary.excessAmount ?? 0, 'EUR')}
+                </div>
+                <div className="text-[10px] text-white/50">Base neta − €3.500</div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">Comisión Total (5%)</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-lg sm:text-xl lg:text-2xl font-bold text-[#FF6600]">
+                  {formatMoney(summary.totalCommission, 'EUR')}
+                </div>
+                <div className="text-[10px] text-white/50">5% sobre excedente</div>
+              </CardContent>
+            </Card>
+          </>
+        ) : isShoesF ? (
           <>
             <Card className="glass-card animate-pulse-on-load">
               <CardHeader className="pb-1 px-2 py-1.5">
@@ -326,7 +374,7 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
             </Card>
           </>
         ) : (
-          <>
+          <div className="col-span-2 sm:col-span-2 lg:col-span-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
             <Card className="glass-card animate-pulse-on-load">
               <CardHeader className="pb-1 px-2 py-1.5">
                 <CardTitle className="text-xs font-semibold text-white/90 leading-tight">
@@ -390,9 +438,43 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                 </div>
               </CardContent>
             </Card>
-          </>
+          </div>
         )}
       </div>
+
+      {/* Desglose del cálculo SHOPLAMP */}
+      {isShoplamp && (
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-white text-sm sm:text-base">Desglose del cálculo (auditable)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="p-3 bg-white/[0.03] border border-white/10 rounded-lg text-sm space-y-2">
+              <div className="text-white/60 text-xs mb-3">Fórmula aplicada — SHOPLAMP</div>
+              <div className="flex justify-between">
+                <span className="text-white/60">Base neta del mes (sin IVA)</span>
+                <span className="text-green-400 font-semibold">{formatMoney(summary.netBase, 'EUR')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">Baseline acordado</span>
+                <span className="text-white/70">− {formatMoney(summary.baselineAmount ?? 0, 'EUR')}</span>
+              </div>
+              <div className="border-t border-white/10 pt-2 flex justify-between">
+                <span className="text-white/60">Excedente</span>
+                <span className="text-[#FF6600] font-semibold">{formatMoney(summary.excessAmount ?? 0, 'EUR')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">Tasa de comisión</span>
+                <span className="text-white/80">5%</span>
+              </div>
+              <div className="border-t border-white/10 pt-2 flex justify-between text-base">
+                <span className="text-white font-semibold">Comisión total</span>
+                <span className="text-[#FF6600] font-bold">{formatMoney(summary.totalCommission, 'EUR')}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {isShoesF && breakdown && (
         <Card className="glass-card">
@@ -792,9 +874,11 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                       <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Promo (Neto)</th>
                       <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">IVA</th>
                       <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Total Base</th>
-                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">
-                        Comisión ({filteredAndSortedRows[0] ? ((filteredAndSortedRows[0].commissionRate ?? 0) * 100).toFixed(0) : ''}%)
-                      </th>
+                      {!isShoplamp && (
+                        <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">
+                          Comisión ({filteredAndSortedRows[0] ? ((filteredAndSortedRows[0].commissionRate ?? 0) * 100).toFixed(0) : ''}%)
+                        </th>
+                      )}
                     </>
                   ) : (
                     <>
@@ -866,9 +950,11 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                           )}>
                             {formatMoney((row.netLine ?? row.netBase ?? 0), row.currency)}
                           </td>
-                          <td className="py-3 px-3 text-[#FF6600] font-bold text-sm text-right">
-                            {formatMoney((row.commission ?? 0), row.currency)}
-                          </td>
+                          {!isShoplamp && (
+                            <td className="py-3 px-3 text-[#FF6600] font-bold text-sm text-right">
+                              {formatMoney((row.commission ?? 0), row.currency)}
+                            </td>
+                          )}
                         </tr>
                       ))
                     : filteredAndSortedRows.map((row, idx) => (
@@ -935,9 +1021,16 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                       <td className="py-4 px-3 text-green-400 font-semibold text-right">
                         {formatMoney(filteredAndSortedRows.reduce((sum, r) => sum + (r.netLine ?? r.netBase ?? 0), 0))}
                       </td>
-                      <td className="py-4 px-3 text-[#FF6600] font-bold text-lg text-right">
-                        {formatMoney(filteredAndSortedRows.reduce((sum, r) => sum + (r.commission ?? 0), 0))}
-                      </td>
+                      {!isShoplamp && (
+                        <td className="py-4 px-3 text-[#FF6600] font-bold text-lg text-right">
+                          {formatMoney(filteredAndSortedRows.reduce((sum, r) => sum + (r.commission ?? 0), 0))}
+                        </td>
+                      )}
+                      {isShoplamp && (
+                        <td className="py-4 px-3 text-[#FF6600] font-bold text-lg text-right" colSpan={0}>
+                          {/* Comisión calculada sobre excedente, ver desglose arriba */}
+                        </td>
+                      )}
                     </>
                   ) : (
                     <>

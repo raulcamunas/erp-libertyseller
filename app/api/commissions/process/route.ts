@@ -478,6 +478,15 @@ export async function POST(request: NextRequest) {
     if (isShoplamp) {
       shoplampExcess = Math.max(0, netBase - shoplampBaseline)
       totalCommission = shoplampExcess * client.base_commission_rate
+      // Parchear byCurrency para que la comisión refleje el total real, no la suma por fila
+      if (byCurrencyAgg.size > 0) {
+        const entries = Array.from(byCurrencyAgg.entries())
+        // Asignar toda la comisión a la única moneda (EUR normalmente)
+        for (const [key, val] of entries) {
+          val.commission = totalCommission
+          byCurrencyAgg.set(key, val)
+        }
+      }
     }
 
     if (!useOldCalculation && processedRows.length === 0) {
