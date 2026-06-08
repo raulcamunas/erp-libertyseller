@@ -6,6 +6,9 @@ WORKDIR /app
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 
+# Instalar curl (para el ping a Supabase)
+RUN apk add --no-cache curl
+
 # Copiar archivos de dependencias
 COPY package.json package-lock.json* ./
 
@@ -22,6 +25,12 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 # Construir la aplicación
 RUN npm run build
 
+# Configurar scripts del entrypoint y cron
+RUN chmod +x /app/docker-entrypoint.sh /app/scripts/supabase-ping.sh
+
+# Cron: ping a Supabase cada día a las 08:00 UTC
+RUN echo "0 8 * * * /app/scripts/supabase-ping.sh" > /etc/crontabs/root
+
 # Exponer el puerto
 EXPOSE 3000
 
@@ -30,5 +39,5 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Iniciar la aplicación
-CMD ["npm", "run", "start"]
+# Entrypoint: arranca crond + Next.js
+CMD ["/app/docker-entrypoint.sh"]
