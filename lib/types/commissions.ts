@@ -90,6 +90,8 @@ export interface CommissionCalculationData {
         totalCommission: number
       }
     }
+    // Para SHOPLAMP: excedente sobre baseline fijo
+    baselineAmount?: number // Baseline acordado (ej: 3500)
     // Para DIRU: beneficios totales
     totalBenefits?: number // Total de beneficios de la pestaña
   }

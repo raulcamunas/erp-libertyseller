@@ -58,8 +58,9 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   // Obtener cliente seleccionado
   const selectedClient = clients.find(c => c.id === selectedClientId)
   
-  // Detectar si el cliente es ShoesF / SHOPLAMP, DIRU o SAUSI
-  const isShoesF = selectedClient?.name === 'ShoesF' || selectedClient?.name === 'SHOPLAMP'
+  // Detectar tipo de cliente para lógica de cálculo y UI
+  const isShoesF = selectedClient?.name === 'ShoesF'
+  const isShoplamp = selectedClient?.name === 'SHOPLAMP'
   const isDIRU = selectedClient?.name === 'DIRU'
   const isSAUSI = selectedClient?.name === 'SAUSI'
   const isLenobotics = selectedClient?.name === 'Lenobotics'
@@ -298,6 +299,11 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                       {isShoesF && (
                         <div className="text-xs text-[#FF6600] mt-1">
                           ⚠ Este cliente requiere comparar facturación entre dos años. Se calculará el 3% sobre el excedente (año actual - año anterior).
+                        </div>
+                      )}
+                      {isShoplamp && (
+                        <div className="text-xs text-[#FF6600] mt-1">
+                          ⚠ Comisión sobre excedente mensual. Baseline acordado: €3.500 netos/mes. Se calcula el 5% sobre (base neta del mes − €3.500). Si la base neta es inferior a €3.500, la comisión es €0.
                         </div>
                       )}
                       {isSAUSI && (
@@ -552,8 +558,74 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
       {/* Paso 2: Resultados */}
       {result && (
         <div className="space-y-4">
-          {/* Resumen Detallado - Diferente para ShoesF */}
-          {isShoesF && result.summary.excessAmount !== undefined ? (
+          {/* Resumen Detallado - Diferente para ShoesF / SHOPLAMP / Benefits */}
+          {isShoplamp && result.summary.baselineAmount !== undefined ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">
+                    Base Neta del Mes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-xl font-bold text-green-400">
+                    €{result.summary.netBase.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    Sin IVA
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">
+                    Baseline Acordado
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-xl font-bold text-white/70">
+                    €{result.summary.baselineAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    Promedio mensual pactado
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">
+                    Excedente
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-xl font-bold text-[#FF6600]">
+                    €{(result.summary.excessAmount ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    Base neta − €3.500
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">
+                    Comisión Total (5%)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-2xl font-bold text-[#FF6600]">
+                    €{result.summary.totalCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    5% sobre excedente
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : isShoesF && result.summary.excessAmount !== undefined ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card>
                 <CardHeader className="pb-2">

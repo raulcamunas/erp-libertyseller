@@ -15,7 +15,7 @@ import {
   Title,
   Tooltip,
 } from 'chart.js'
-import { Download, Euro, FileUp, Megaphone, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import { CheckCircle2, Download, Euro, FileUp, Megaphone, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 import Papa from 'papaparse'
@@ -268,6 +268,9 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
   const [goodsState, setGoodsState] = useState<UploadState>({})
   const [adsState, setAdsState] = useState<UploadState>({})
 
+  const [completedTasksText, setCompletedTasksText] = useState<string>('')
+  const [nextWeekFocusText, setNextWeekFocusText] = useState<string>('')
+
   const [processingError, setProcessingError] = useState<string | null>(null)
 
   const reportRef = useRef<HTMLDivElement | null>(null)
@@ -337,6 +340,28 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
       return null
     }
   }, [allReady, totalsState.rows, goodsState.rows, adsState.rows])
+
+  const reportPeriodLabel = useMemo(() => {
+    if (!processed?.dailyMix?.length) return ''
+    const start = processed.dailyMix[0]?.date
+    const end = processed.dailyMix[processed.dailyMix.length - 1]?.date
+    if (!start || !end) return ''
+
+    const toES = (iso: string) => {
+      const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/)
+      if (!m) return iso
+      return `${m[3]}/${m[2]}/${m[1]}`
+    }
+
+    return `Periodo del Informe: ${toES(start)} al ${toES(end)}`
+  }, [processed])
+
+  const completedTasksList = useMemo(() => {
+    return completedTasksText
+      .split(/\r?\n/g)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }, [completedTasksText])
 
   const dailyPerf: DailyPerfPoint[] = useMemo(() => {
     if (!processed) return []
@@ -473,6 +498,7 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
             <div className="text-xs font-semibold tracking-wide text-slate-500">Mini-App</div>
             <h1 className="text-2xl font-semibold text-slate-900">Reporte 15 días - {clientName}</h1>
             <p className="text-slate-500 text-sm mt-1">Sube DashboardGoods, DashboardTotals y Advertising Performance (Sellerboard).</p>
+            {reportPeriodLabel && <div className="mt-2 text-xs font-semibold text-slate-700">{reportPeriodLabel}</div>}
           </div>
 
           <button
@@ -657,7 +683,7 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
                   <table className="min-w-[520px] w-full text-sm">
                     <thead>
                       <tr className="text-xs text-slate-500 border-b border-slate-200">
-                        <th className="text-left py-2">SKU</th>
+                        <th className="text-left py-2">Name</th>
                         <th className="text-right py-2">Beneficio</th>
                         <th className="text-right py-2">Conv.</th>
                       </tr>
@@ -666,8 +692,13 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
                       {processed.topProducts.map((p) => (
                         <tr key={p.sku + p.title} className="border-b border-slate-100">
                           <td className="py-2 pr-2">
-                            <div className="font-semibold text-slate-900">{p.sku}</div>
-                            <div className="text-xs text-slate-500 line-clamp-2">{p.title}</div>
+                            <div
+                              className="font-semibold text-slate-900 max-w-[340px] truncate"
+                              title={p.title || p.sku}
+                            >
+                              {p.title || '—'}
+                            </div>
+                            <div className="text-xs text-slate-500">{p.sku}</div>
                           </td>
                           <td className="py-2 text-right font-semibold text-slate-900">{money(p.profit)}</td>
                           <td
@@ -725,6 +756,52 @@ export function BiweeklyReportsClient({ clientId, clientName }: { clientId: stri
                 roas={processed.ads.roas}
                 topProducts={processed.topProducts}
               />
+            </div>
+
+            <div className="mt-8 rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
+              <div className="text-sm font-semibold text-slate-900">Log de Actividad y Próximos Pasos</div>
+              <div className="text-xs text-slate-500">Deja el informe listo para cliente y para tu seguimiento interno</div>
+
+              <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-xs font-semibold text-slate-500">Tareas Completadas</div>
+                  <textarea
+                    value={completedTasksText}
+                    onChange={(e) => setCompletedTasksText(e.target.value)}
+                    rows={5}
+                    className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                    placeholder={`- Optimización de keywords\n- Nuevas fotos en el ASIN X\n- Revisión de campañas de marca`}
+                  />
+
+                  <div className="mt-3 space-y-2">
+                    {completedTasksList.length ? (
+                      completedTasksList.map((t, idx) => (
+                        <div key={idx} className="flex items-start gap-2 text-sm text-slate-800">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5" />
+                          <div className="leading-5">{t}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-slate-400">Escribe arriba para generar el checklist.</div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold text-slate-500">Enfoque Próxima Semana</div>
+                  <textarea
+                    value={nextWeekFocusText}
+                    onChange={(e) => setNextWeekFocusText(e.target.value)}
+                    rows={5}
+                    className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    placeholder="Ej: Priorizar eficiencia: reducir ACOS en términos genéricos, reforzar posicionamiento orgánico y mejorar conversión en el listing con más tráfico."
+                  />
+
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-800">
+                    {nextWeekFocusText?.trim() || <span className="text-slate-400">Escribe arriba para dejar una nota estratégica.</span>}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-6 text-xs text-slate-400">Cliente ID: {clientId}</div>

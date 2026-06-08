@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     const clientId = formData.get('clientId') as string
     const manualCommissionRateRaw = formData.get('manualCommissionRate') as string | null
 
-    // Obtener cliente primero para saber si es ShoesF / SHOPLAMP u otros tipos especiales
+    // Obtener cliente para determinar tipo de cálculo
     const supabase = await createClient()
     const { data: client, error: clientError } = await supabase
       .from('clients')
@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const isShoesF = client.name === 'ShoesF' || client.name === 'SHOPLAMP'
+    const isShoesF = client.name === 'ShoesF'
+    const isShoplamp = client.name === 'SHOPLAMP'
     const isDIRU = client.name === 'DIRU'
     const isSAUSI = client.name === 'SAUSI'
     const isCreativeToys = client.name === 'Creative Toys'
@@ -103,10 +104,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Si es ShoesF / SHOPLAMP, procesar comparación entre años (dos CSV)
+    // Si es ShoesF, procesar comparación entre años (dos CSV)
     if (isShoesF) {
-      // ShoesF: 3% sobre excedente; SHOPLAMP: 5% sobre excedente
-      const defaultCommissionRate = client.name === 'SHOPLAMP' ? 0.05 : 0.03
+      const defaultCommissionRate = 0.03
 
       const parsedManual = manualCommissionRateRaw ? parseFloat(manualCommissionRateRaw) : NaN
       // manualCommissionRate llega como porcentaje (ej: "3" -> 0.03)
@@ -470,7 +470,15 @@ export async function POST(request: NextRequest) {
     // En la nueva lógica Amazon, los importes ya vienen sin IVA, así que la base es igual
     const netBase = realTurnover
     const totalIva = useOldCalculation ? (realTurnover - netBase) : totalIvaAmazon
-    const totalCommission = processedRows.reduce((sum, r) => sum + r.commission, 0)
+    let totalCommission = processedRows.reduce((sum, r) => sum + r.commission, 0)
+
+    // SHOPLAMP: comisión sobre excedente respecto al baseline mensual de €3.500
+    const shoplampBaseline = 3500
+    let shoplampExcess: number | undefined
+    if (isShoplamp) {
+      shoplampExcess = Math.max(0, netBase - shoplampBaseline)
+      totalCommission = shoplampExcess * client.base_commission_rate
+    }
 
     if (!useOldCalculation && processedRows.length === 0) {
       return NextResponse.json(
@@ -507,7 +515,11 @@ export async function POST(request: NextRequest) {
         totalCommission,
         averageCommissionRate,
         totalOrders,
-        byCurrency
+        byCurrency,
+        ...(isShoplamp && {
+          baselineAmount: shoplampBaseline,
+          excessAmount: shoplampExcess,
+        }),
       },
       // Guardamos el CSV original para poder descargarlo tal cual en el reporte
       originalCsv: csvContent,
@@ -529,7 +541,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Función para procesar comparación por excedente (ShoesF, SHOPLAMP, etc.)
+// Función para procesar comparación por excedente entre dos años (ShoesF)
 async function processShoesFComparison(
   filePreviousYear: File,
   fileCurrentYear: File,
