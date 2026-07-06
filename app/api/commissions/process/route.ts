@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const isShoesF = client.name === 'ShoesF'
+    const isShoesF = client.name === 'ShoesF' || client.name === 'Farmacia Garrachon'
     const isShoplamp = client.name === 'SHOPLAMP'
     const isDIRU = client.name === 'DIRU'
     const isSAUSI = client.name === 'SAUSI'
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
 
     // Si es ShoesF, procesar comparación entre años (dos CSV)
     if (isShoesF) {
-      const defaultCommissionRate = 0.03
+      const defaultCommissionRate = client.base_commission_rate
 
       const parsedManual = manualCommissionRateRaw ? parseFloat(manualCommissionRateRaw) : NaN
       // manualCommissionRate llega como porcentaje (ej: "3" -> 0.03)

@@ -59,7 +59,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const selectedClient = clients.find(c => c.id === selectedClientId)
   
   // Detectar tipo de cliente para lógica de cálculo y UI
-  const isShoesF = selectedClient?.name === 'ShoesF'
+  const isShoesF = selectedClient?.name === 'ShoesF' || selectedClient?.name === 'Farmacia Garrachon'
   const isShoplamp = selectedClient?.name === 'SHOPLAMP'
   const isDIRU = selectedClient?.name === 'DIRU'
   const isSAUSI = selectedClient?.name === 'SAUSI'
