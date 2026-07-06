@@ -1,7 +1,7 @@
-import { 
-  Home, 
-  Users, 
-  DollarSign, 
+import {
+  Home,
+  Users,
+  DollarSign,
   Calculator,
   Globe,
   Linkedin,
@@ -14,7 +14,8 @@ import {
   Clock,
   Package,
   Table,
-  BarChart3
+  BarChart3,
+  Receipt
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -54,6 +55,15 @@ export const apps: AppConfig[] = [
     description: 'Gestión de prospección ABM en LinkedIn',
     icon: Linkedin,
     route: '/dashboard/linkedin',
+    status: 'active',
+    category: 'core'
+  },
+  {
+    id: 'invoices',
+    name: 'Facturación',
+    description: 'Crea, envía y cobra facturas a clientes',
+    icon: Receipt,
+    route: '/dashboard/invoices',
     status: 'active',
     category: 'core'
   },

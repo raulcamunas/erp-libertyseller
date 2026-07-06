@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(curl -s \"http://72.61.167.239:3000/api/deploy/fdd760649c554122271f9d2931db3406eb28e58801d36ea2\")",
+      "mcp__042b53da-b776-43d2-b241-a59ce3d01361__search_threads",
+      "mcp__042b53da-b776-43d2-b241-a59ce3d01361__create_draft",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/creatividades)",
+      "Read(//private/tmp/**)",
+      "Bash(lsof -iTCP -sTCP:LISTEN -P)",
+      "Bash(curl -s -m 5 -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(timeout 90 bash -c 'until ls .next/server/pages/index.html 2>/dev/null || ls .next/server/app/page.js 2>/dev/null; do sleep 3; done')",
+      "Bash(rm -rf .next)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(git remote *)",
+      "Bash(GIT_ASKPASS=/usr/bin/true git push origin main)",
+      "Bash(git config *)",
+      "Bash(security find-internet-password *)",
+      "Bash(gh api *)",
+      "Bash(gh repo *)",
+      "Bash(defaults read *)",
+      "Bash(git ls-remote *)",
+      "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); [print\\(k,v\\) for k,v in {**p.get\\('dependencies',{}\\),**p.get\\('devDependencies',{}\\)}.items\\(\\)]\")"
+    ]
+  }
+}

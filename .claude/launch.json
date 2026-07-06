@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "liberty-seller-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "/Users/raulcamunas/Desktop/Liberty Seller Web"],
+      "port": 3000
+    }
+  ]
+}
