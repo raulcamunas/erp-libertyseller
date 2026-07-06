@@ -262,7 +262,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                   >
                     <div className="font-semibold text-sm mb-1">{client.name}</div>
                     <div className="text-xs text-white/60">
-                      Tasa base: {(client.base_commission_rate * 100).toFixed(0)}%
+                      Tasa base: {+(client.base_commission_rate * 100).toFixed(2)}%
                     </div>
                   </button>
                 )
@@ -279,7 +279,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                     <div className="flex-1">
                       <div className="text-xs text-white/70 mb-1.5">Reglas de comisión:</div>
                       <div className="text-sm text-white font-semibold mb-1">
-                        Tasa base: {(client.base_commission_rate * 100).toFixed(0)}%
+                        Tasa base: {+(client.base_commission_rate * 100).toFixed(2)}%
                       </div>
                       {exceptions.length > 0 && (
                         <div className="mt-2 space-y-1">
@@ -298,7 +298,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                       )}
                       {isShoesF && (
                         <div className="text-xs text-[#FF6600] mt-1">
-                          ⚠ Este cliente requiere comparar facturación entre dos años. Se calculará el 3% sobre el excedente (año actual - año anterior).
+                          ⚠ Este cliente requiere comparar facturación entre dos años. Se calculará el {+(client.base_commission_rate * 100).toFixed(2)}% sobre el excedente (año actual - año anterior).
                         </div>
                       )}
                       {isShoplamp && (
@@ -678,7 +678,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs font-medium text-white/70">
-                    Comisión Total (3%)
+                    Comisión Total ({+(selectedClient!.base_commission_rate * 100).toFixed(2)}%)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0">
@@ -686,7 +686,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                     €{result.summary.totalCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                   <div className="text-xs text-white/50 mt-1">
-                    3% sobre excedente
+                    {+(selectedClient!.base_commission_rate * 100).toFixed(2)}% sobre excedente
                   </div>
                 </CardContent>
               </Card>
