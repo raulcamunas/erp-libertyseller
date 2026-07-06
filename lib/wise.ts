@@ -599,6 +599,110 @@ export async function getTransactions(
   }
 }
 
+export interface WiseInvoiceItem {
+  description: string
+  quantity: number
+  unitPrice: number
+}
+
+export interface WiseInvoiceResult {
+  invoiceId?: string
+  paymentLink: string
+  method: 'api' | 'paylink'
+}
+
+/**
+ * Crea una factura en Wise y devuelve el link de pago.
+ * Intenta primero la Invoice API; si falla, genera un Pay Me link con importe prefijado.
+ */
+export async function createWiseInvoice(opts: {
+  recipientEmail: string
+  amount: number
+  currency: string
+  title: string
+  items: WiseInvoiceItem[]
+  dueDate: string
+}): Promise<WiseInvoiceResult> {
+  const apiKey = process.env.WISE_API_KEY
+  if (!apiKey) throw new Error('WISE_API_KEY no configurado')
+
+  const profileId = await getBusinessProfileId()
+
+  // ── Intento 1: Invoice API (requiere "Acceso total") ───────────────────────
+  try {
+    const body = {
+      profileId,
+      sourceAmount: opts.amount,
+      sourceCurrency: opts.currency,
+      targetCurrency: opts.currency,
+      recipient: { email: opts.recipientEmail },
+      dueDate: opts.dueDate,
+      title: opts.title,
+      lineItems: opts.items.map(i => ({
+        description: i.description,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        currency: opts.currency,
+      })),
+    }
+
+    const res = await fetch(
+      `https://api.transferwise.com/v3/profiles/${profileId}/invoices`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      }
+    )
+
+    if (res.ok) {
+      const data = await res.json()
+      const paymentLink =
+        data.paymentLink ||
+        data.paymentUrl ||
+        `https://wise.com/invoice/${data.id}`
+      return { invoiceId: String(data.id), paymentLink, method: 'api' }
+    }
+
+    const errText = await res.text()
+    console.warn(`Wise Invoice API falló (${res.status}): ${errText}. Usando Pay Me link.`)
+  } catch (e: any) {
+    console.warn(`Wise Invoice API error: ${e.message}. Usando Pay Me link.`)
+  }
+
+  // ── Intento 2: Pay Me link con importe prefijado ───────────────────────────
+  // Obtiene el handle del perfil para construir wise.com/pay/me/{handle}
+  let handle = ''
+  try {
+    const profileRes = await fetch(
+      `https://api.transferwise.com/v1/profiles/${profileId}`,
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    )
+    if (profileRes.ok) {
+      const profileData = await profileRes.json()
+      handle =
+        profileData?.details?.payMeLink?.split('/').pop() ||
+        profileData?.details?.handle ||
+        profileData?.handle ||
+        ''
+    }
+  } catch {}
+
+  if (!handle) {
+    // Último recurso: link genérico de Wise con amount en query param
+    const note = encodeURIComponent(opts.title)
+    const paymentLink = `https://wise.com/pay?amount=${opts.amount}&currency=${opts.currency}&note=${note}`
+    return { paymentLink, method: 'paylink' }
+  }
+
+  const note = encodeURIComponent(opts.title)
+  const paymentLink = `https://wise.com/pay/me/${handle}?amount=${opts.amount}&currency=${opts.currency}&note=${note}`
+  return { paymentLink, method: 'paylink' }
+}
+
 /**
  * Obtiene información del perfil de Wise
  */

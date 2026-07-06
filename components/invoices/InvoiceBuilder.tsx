@@ -132,6 +132,21 @@ export function InvoiceBuilder({ clients }: { clients: Client[] }) {
 
       toast.success(`Factura ${data.data.invoice_number} creada`)
 
+      // Auto-generate Wise link if client email is set
+      if (payload.client_email) {
+        try {
+          const wiseRes = await fetch(`/api/invoices/${data.data.id}/wise-link`, { method: 'POST' })
+          const wiseData = await wiseRes.json()
+          if (!wiseData.error) {
+            toast.success(
+              wiseData.method === 'api'
+                ? '✅ Factura creada también en Wise'
+                : '🔗 Link de pago Wise generado'
+            )
+          }
+        } catch {}
+      }
+
       if (sendAfter) {
         router.push(`/dashboard/invoices/${data.data.id}?send=1`)
       } else {
