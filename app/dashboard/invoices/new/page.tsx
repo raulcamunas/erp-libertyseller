@@ -9,7 +9,7 @@ export default async function NewInvoicePage() {
 
   const { data: clients } = await supabase
     .from('clients')
-    .select('id, name, base_commission_rate')
+    .select('*')
     .order('name')
 
   return <InvoiceBuilder clients={clients || []} />
