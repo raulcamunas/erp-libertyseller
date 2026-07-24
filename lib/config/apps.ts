@@ -15,7 +15,8 @@ import {
   Package,
   Table,
   BarChart3,
-  Receipt
+  Receipt,
+  CalendarDays
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -56,6 +57,15 @@ export const apps: AppConfig[] = [
     icon: Linkedin,
     route: '/dashboard/linkedin',
     status: 'active',
+    category: 'core'
+  },
+  {
+    id: 'agenda',
+    name: 'Agenda Comercial',
+    description: 'Calendario de citas del equipo, sincronizado con Google Calendar',
+    icon: CalendarDays,
+    route: '/dashboard/agenda',
+    status: 'new',
     category: 'core'
   },
   {
