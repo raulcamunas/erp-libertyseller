@@ -130,8 +130,12 @@ export function AppointmentSheet({
   const [leadEmail, setLeadEmail] = useState(appointment?.lead_email ?? '')
   const [leadPhone, setLeadPhone] = useState(appointment?.lead_phone ?? '')
   const [leadCompany, setLeadCompany] = useState(appointment?.lead_company ?? '')
+  // Si el que agenda es uno de los comerciales, se autoselecciona a sí
+  // mismo como closer para evitar que elija a otra persona por error.
+  const loggedInIsComercial = team.some((p) => p.id === currentUser.id)
   const [assignedCloser, setAssignedCloser] = useState<string>(
-    appointment?.assigned_closer_id ?? 'none'
+    appointment?.assigned_closer_id ??
+      (mode === 'create' && loggedInIsComercial ? currentUser.id : 'none')
   )
   const [date, setDate] = useState(toDateInput(initialStart))
   const [startTime, setStartTime] = useState(toTimeInput(initialStart))
