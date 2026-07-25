@@ -24,7 +24,7 @@ export async function applyGoogleEventsToErp(
     if (!ev.id) continue
 
     if (ev.status === 'cancelled') {
-      const { data } = await svc
+      const { data, error } = await svc
         .from('appointments')
         .update({
           status: 'cancelled',
@@ -33,6 +33,7 @@ export async function applyGoogleEventsToErp(
         })
         .eq('google_event_id', ev.id)
         .select('id')
+      if (error) throw new Error(`Supabase (cancel): ${error.message}`)
       if (data && data.length > 0) cancelled += data.length
       continue
     }
@@ -44,16 +45,17 @@ export async function applyGoogleEventsToErp(
 
     const erpId = ev.extendedProperties?.private?.erpAppointmentId
 
-    const { data: byEvent } = await svc
+    const { data: byEvent, error: lookupError } = await svc
       .from('appointments')
       .select('id')
       .eq('google_event_id', ev.id)
       .maybeSingle()
+    if (lookupError) throw new Error(`Supabase (lookup): ${lookupError.message}`)
 
     const targetId = byEvent?.id ?? erpId ?? null
 
     if (targetId) {
-      await svc
+      const { error: updateError } = await svc
         .from('appointments')
         .update({
           start_time: start,
@@ -66,6 +68,7 @@ export async function applyGoogleEventsToErp(
           last_synced_at: new Date().toISOString(),
         })
         .eq('id', targetId)
+      if (updateError) throw new Error(`Supabase (update): ${updateError.message}`)
       updated++
       continue
     }
@@ -73,7 +76,7 @@ export async function applyGoogleEventsToErp(
     // Evento creado directamente en Google, sin vínculo al ERP:
     // se importa como externo (solo lectura). `byEvent` ya confirmó
     // arriba que no existía ninguna cita con este google_event_id.
-    await svc.from('appointments').insert({
+    const { error: insertError } = await svc.from('appointments').insert({
       comercial_id: null,
       lead_name: ev.summary || '(Sin título)',
       notes: ev.description || null,
@@ -89,6 +92,7 @@ export async function applyGoogleEventsToErp(
       sync_status: 'synced',
       last_synced_at: new Date().toISOString(),
     })
+    if (insertError) throw new Error(`Supabase (insert): ${insertError.message}`)
     imported++
   }
 
