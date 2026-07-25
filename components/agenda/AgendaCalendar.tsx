@@ -69,6 +69,11 @@ export function AgendaCalendar({
     | null
   >(null)
   const [importing, setImporting] = useState(false)
+  const [hoverSlot, setHoverSlot] = useState<{
+    dayIso: string
+    hour: number
+    minute: number
+  } | null>(null)
   const [now, setNow] = useState(() => new Date())
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
   const gridRef = useRef<HTMLDivElement>(null)
@@ -187,11 +192,22 @@ export function AgendaCalendar({
     return { top, height }
   }
 
-  function handleSlotClick(day: Date, hour: number) {
+  function handleSlotClick(day: Date, hour: number, minute: number = 0) {
     const start = new Date(day)
-    start.setHours(hour, 0, 0, 0)
-    const end = new Date(start.getTime() + 60 * 60 * 1000)
+    start.setHours(hour, minute, 0, 0)
+    const end = new Date(start.getTime() + 30 * 60 * 1000)
     setSheet({ mode: 'create', prefill: { start, end } })
+    setHoverSlot(null)
+  }
+
+  /** Convierte un offset en px dentro de la columna del día a hora:minuto, con snap de 30 min */
+  function timeFromOffsetY(offsetY: number) {
+    const totalMinutes = (offsetY / HOUR_HEIGHT) * 60
+    const snapped = Math.min(
+      Math.max(Math.round(totalMinutes / 30) * 30, 0),
+      (DAY_END - DAY_START) * 60 - 30
+    )
+    return { hour: DAY_START + Math.floor(snapped / 60), minute: snapped % 60 }
   }
 
   function upsertLocal(appt: AppointmentWithPeople) {
@@ -276,9 +292,10 @@ export function AgendaCalendar({
             whileTap={{ scale: 0.97 }}
             onClick={() => {
               const start = new Date()
-              start.setMinutes(0, 0, 0)
-              start.setHours(start.getHours() + 1)
-              const end = new Date(start.getTime() + 60 * 60 * 1000)
+              const roundedMinutes = start.getMinutes() < 30 ? 30 : 0
+              start.setMinutes(roundedMinutes, 0, 0)
+              if (roundedMinutes === 0) start.setHours(start.getHours() + 1)
+              const end = new Date(start.getTime() + 30 * 60 * 1000)
               setSheet({ mode: 'create', prefill: { start, end } })
             }}
             className="h-10 px-5 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-sm font-semibold flex items-center gap-2 shadow-[0_4px_16px_-4px_rgba(255,102,0,0.5)]"
@@ -376,23 +393,60 @@ export function AgendaCalendar({
                 {days.map((day) => {
                   const positioned = layoutForDay(day)
                   const showNowLine = isToday(day) && nowLineTop !== null
+                  const dayIso = day.toISOString()
+                  const isHoveredDay = hoverSlot?.dayIso === dayIso
+                  const hoverTop = isHoveredDay
+                    ? ((hoverSlot!.hour - DAY_START) * 60 + hoverSlot!.minute) / 60 *
+                      HOUR_HEIGHT
+                    : null
 
                   return (
                     <div
-                      key={day.toISOString()}
-                      className="relative border-l border-white/5"
+                      key={dayIso}
+                      className="relative border-l border-white/5 cursor-pointer"
                       style={{ height: HOURS.length * HOUR_HEIGHT }}
+                      onMouseMove={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const { hour, minute } = timeFromOffsetY(e.clientY - rect.top)
+                        setHoverSlot({ dayIso, hour, minute })
+                      }}
+                      onMouseLeave={() => setHoverSlot(null)}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const { hour, minute } = timeFromOffsetY(e.clientY - rect.top)
+                        handleSlotClick(day, hour, minute)
+                      }}
                     >
                       {HOURS.map((h) => (
                         <div
                           key={h}
-                          onClick={() => handleSlotClick(day, h)}
                           style={{ height: HOUR_HEIGHT }}
-                          className="border-b border-white/[0.04] hover:bg-white/[0.025] cursor-pointer transition-colors group relative"
+                          className="border-b border-white/[0.04] relative"
                         >
-                          <Plus className="hidden group-hover:block h-3.5 w-3.5 text-white/20 absolute top-1 left-1/2 -translate-x-1/2" />
+                          <div
+                            className="absolute left-0 right-0 border-b border-white/[0.02]"
+                            style={{ top: HOUR_HEIGHT / 2 }}
+                          />
                         </div>
                       ))}
+
+                      {isHoveredDay && hoverTop !== null && (
+                        <div
+                          className="absolute left-0 right-0 z-30 pointer-events-none"
+                          style={{ top: hoverTop }}
+                        >
+                          <div className="border-t border-dashed border-[#FF6600]/60" />
+                          <motion.span
+                            initial={{ opacity: 0, y: 2 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.1 }}
+                            className="absolute -top-[13px] left-1 bg-[#161616] border border-white/15 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded-md shadow-lg tabular-nums whitespace-nowrap"
+                          >
+                            {String(hoverSlot!.hour).padStart(2, '0')}:
+                            {String(hoverSlot!.minute).padStart(2, '0')}
+                          </motion.span>
+                        </div>
+                      )}
 
                       {showNowLine && (
                         <div
