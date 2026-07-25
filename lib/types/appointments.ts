@@ -9,8 +9,11 @@ export type SyncStatus = 'pending' | 'synced' | 'error' | 'local'
 
 export interface Appointment {
   id: string
-  comercial_id: string
+  /** null en eventos externos importados de Google (no gestionados por el ERP) */
+  comercial_id: string | null
   assigned_closer_id: string | null
+  /** true = evento que ya existía en Google Calendar, solo lectura en el ERP */
+  is_external: boolean
 
   lead_name: string
   lead_email: string | null
@@ -31,6 +34,7 @@ export interface Appointment {
   google_event_id: string | null
   google_calendar_id: string | null
   google_html_link: string | null
+  google_meet_link: string | null
   sync_status: SyncStatus
   sync_error: string | null
   last_synced_at: string | null

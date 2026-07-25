@@ -12,7 +12,13 @@ import {
   isToday,
 } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalIcon } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Calendar as CalIcon,
+  RefreshCw,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LibertyButton } from '@/components/ui/LibertyButton'
 import { AppointmentSheet } from './AppointmentSheet'
@@ -51,6 +57,27 @@ export function AgendaCalendar({
     | { mode: 'edit'; appointment: AppointmentWithPeople }
     | null
   >(null)
+  const [importing, setImporting] = useState(false)
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
+
+  async function handleImportFromGoogle() {
+    setImporting(true)
+    try {
+      const res = await fetch('/api/appointments/google-import', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error al importar')
+      toast.success(
+        `Importado de Google: ${data.imported} nuevos, ${data.updated} actualizados`
+      )
+      // Recargar para traer los eventos externos recién importados
+      window.location.reload()
+    } catch (err) {
+      console.error('Error importando de Google:', err)
+      toast.error((err as Error).message || 'Error al importar de Google Calendar')
+    } finally {
+      setImporting(false)
+    }
+  }
 
   // Comerciales que aparecen en la leyenda (quienes han agendado algo o pueden)
   const legendPeople = useMemo(() => {
@@ -178,18 +205,32 @@ export function AgendaCalendar({
           </span>
         </div>
 
-        <LibertyButton
-          onClick={() => {
-            const start = new Date()
-            start.setMinutes(0, 0, 0)
-            start.setHours(start.getHours() + 1)
-            const end = new Date(start.getTime() + 60 * 60 * 1000)
-            setSheet({ mode: 'create', prefill: { start, end } })
-          }}
-          className="gap-2"
-        >
-          <Plus className="h-4 w-4" /> Nueva cita
-        </LibertyButton>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              onClick={handleImportFromGoogle}
+              disabled={importing}
+              className="gap-2"
+              title="Trae a este calendario los eventos que ya existían en Google Calendar"
+            >
+              <RefreshCw className={`h-4 w-4 ${importing ? 'animate-spin' : ''}`} />
+              {importing ? 'Importando...' : 'Importar de Google'}
+            </Button>
+          )}
+          <LibertyButton
+            onClick={() => {
+              const start = new Date()
+              start.setMinutes(0, 0, 0)
+              start.setHours(start.getHours() + 1)
+              const end = new Date(start.getTime() + 60 * 60 * 1000)
+              setSheet({ mode: 'create', prefill: { start, end } })
+            }}
+            className="gap-2"
+          >
+            <Plus className="h-4 w-4" /> Nueva cita
+          </LibertyButton>
+        </div>
       </div>
 
       {/* Leyenda de comerciales */}
@@ -272,9 +313,11 @@ export function AgendaCalendar({
                   {/* Citas */}
                   {dayAppts.map((a) => {
                     const { top, height } = positionFor(a)
-                    const color = a.comercial
-                      ? colorForAgent(a.comercial.id, a.comercial.calendar_color)
-                      : '#FF6600'
+                    const color = a.is_external
+                      ? '#6B7280'
+                      : a.comercial
+                        ? colorForAgent(a.comercial.id, a.comercial.calendar_color)
+                        : '#FF6600'
                     const cancelled = a.status === 'cancelled'
                     return (
                       <button
@@ -287,18 +330,27 @@ export function AgendaCalendar({
                           top,
                           height,
                           borderLeftColor: color,
-                          backgroundColor: `${color}22`,
+                          backgroundColor: a.is_external
+                            ? 'rgba(107,114,128,0.12)'
+                            : `${color}22`,
+                          backgroundImage: a.is_external
+                            ? 'repeating-linear-gradient(135deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 4px, transparent 4px, transparent 8px)'
+                            : undefined,
                         }}
                         className={`absolute left-1 right-1 rounded-md border-l-4 px-2 py-1 text-left overflow-hidden hover:brightness-125 transition-all ${
                           cancelled ? 'opacity-50 line-through' : ''
-                        }`}
+                        } ${a.is_external ? 'border-dashed' : ''}`}
                       >
                         <div className="text-[11px] font-semibold text-white truncate">
                           {a.lead_name}
                         </div>
                         <div className="text-[10px] text-white/60 truncate">
                           {format(new Date(a.start_time), 'HH:mm')}
-                          {a.lead_company ? ` · ${a.lead_company}` : ''}
+                          {a.is_external
+                            ? ' · Google Calendar'
+                            : a.lead_company
+                              ? ` · ${a.lead_company}`
+                              : ''}
                         </div>
                       </button>
                     )

@@ -81,7 +81,8 @@ export async function POST(request: NextRequest) {
           Boolean
         ) as string[],
         erpAppointmentId: inserted.id,
-        colorId: googleColorId(inserted.comercial_id),
+        colorId: googleColorId(inserted.comercial_id!),
+        addMeet: true,
       })
 
       const { data: synced } = await supabase
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
           google_event_id: gEvent.id,
           google_calendar_id: getCalendarId(),
           google_html_link: gEvent.htmlLink,
+          google_meet_link: gEvent.hangoutLink ?? null,
           sync_status: 'synced',
           last_synced_at: new Date().toISOString(),
         })

@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { LibertyButton } from '@/components/ui/LibertyButton'
-import { X, Trash2, Phone, Mail, Building2, User, Lock } from 'lucide-react'
+import { X, Trash2, Phone, Mail, Building2, User, Lock, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import {
@@ -97,10 +97,12 @@ export function AppointmentSheet({
   const [deleting, setDeleting] = useState(false)
 
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
+  const isExternal = appointment?.is_external ?? false
   const canEdit =
-    mode === 'create' ||
-    isAdmin ||
-    appointment?.comercial_id === currentUser.id
+    !isExternal &&
+    (mode === 'create' ||
+      isAdmin ||
+      appointment?.comercial_id === currentUser.id)
 
   const closers = team // cualquiera del equipo puede ser el closer asignado
 
@@ -194,9 +196,11 @@ export function AppointmentSheet({
                   {mode === 'create' ? 'Nueva cita' : leadName || 'Cita'}
                 </SheetTitle>
                 <SheetDescription className="text-white/60">
-                  {mode === 'edit' && appointment?.comercial
-                    ? `Agendada por ${appointment.comercial.full_name || appointment.comercial.email}`
-                    : 'Rellena los datos del lead y la franja horaria'}
+                  {isExternal
+                    ? 'Evento ya existente en Google Calendar'
+                    : mode === 'edit' && appointment?.comercial
+                      ? `Agendada por ${appointment.comercial.full_name || appointment.comercial.email}`
+                      : 'Rellena los datos del lead y la franja horaria'}
                 </SheetDescription>
               </div>
             </div>
@@ -209,7 +213,25 @@ export function AppointmentSheet({
         {!canEdit && (
           <div className="glass-card p-3 mb-4 flex items-center gap-2 text-sm text-white/60">
             <Lock className="h-4 w-4 text-white/40" />
-            Solo puedes ver esta cita. La agendó otro comercial.
+            {isExternal
+              ? 'Este evento no lo gestiona el ERP: se importó de Google Calendar para que veas el hueco ocupado.'
+              : 'Solo puedes ver esta cita. La agendó otro comercial.'}
+          </div>
+        )}
+
+        {appointment?.google_meet_link && (
+          <div className="glass-card p-3 mb-4 flex items-center justify-between gap-2">
+            <span className="text-sm text-white/70 flex items-center gap-2">
+              <Video className="h-4 w-4 text-[#FF6600]" /> Videollamada de Google Meet
+            </span>
+            <a
+              href={appointment.google_meet_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-[#FF6600] hover:underline"
+            >
+              Unirse
+            </a>
           </div>
         )}
 

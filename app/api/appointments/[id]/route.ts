@@ -75,19 +75,23 @@ export async function PUT(
         end: updated.end_time,
         attendeeEmails: [updated.lead_email, closerEmail].filter(Boolean) as string[],
         erpAppointmentId: updated.id,
-        colorId: googleColorId(updated.comercial_id),
+        colorId: googleColorId(updated.comercial_id!),
+        addMeet: true,
       }
 
       let gEventId = updated.google_event_id as string | null
       let htmlLink = updated.google_html_link as string | null
+      let meetLink = updated.google_meet_link as string | null
 
       if (gEventId) {
         const gEvent = await updateGoogleEvent(gEventId, eventInput)
         htmlLink = gEvent.htmlLink ?? htmlLink
+        meetLink = gEvent.hangoutLink ?? meetLink
       } else {
         const gEvent = await createGoogleEvent(eventInput)
         gEventId = gEvent.id ?? null
         htmlLink = gEvent.htmlLink ?? null
+        meetLink = gEvent.hangoutLink ?? null
       }
 
       const { data: synced } = await supabase
@@ -96,6 +100,7 @@ export async function PUT(
           google_event_id: gEventId,
           google_calendar_id: getCalendarId(),
           google_html_link: htmlLink,
+          google_meet_link: meetLink,
           sync_status: 'synced',
           sync_error: null,
           last_synced_at: new Date().toISOString(),

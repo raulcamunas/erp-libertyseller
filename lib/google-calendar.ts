@@ -51,6 +51,8 @@ export interface GoogleEventInput {
   erpAppointmentId?: string
   /** colorId de Google (1-11) para diferenciar por comercial */
   colorId?: string
+  /** genera un enlace de Google Meet para la reunión */
+  addMeet?: boolean
 }
 
 function toEventBody(input: GoogleEventInput): calendar_v3.Schema$Event {
@@ -66,6 +68,14 @@ function toEventBody(input: GoogleEventInput): calendar_v3.Schema$Event {
     extendedProperties: input.erpAppointmentId
       ? { private: { erpAppointmentId: input.erpAppointmentId } }
       : undefined,
+    conferenceData: input.addMeet
+      ? {
+          createRequest: {
+            requestId: input.erpAppointmentId || `meet-${Date.now()}`,
+            conferenceSolutionKey: { type: 'hangoutsMeet' },
+          },
+        }
+      : undefined,
   }
 }
 
@@ -77,6 +87,7 @@ export async function createGoogleEvent(
     calendarId: getCalendarId(),
     requestBody: toEventBody(input),
     sendUpdates: 'all', // invita al lead/closer por email
+    conferenceDataVersion: input.addMeet ? 1 : undefined,
   })
   return res.data
 }
@@ -91,6 +102,7 @@ export async function updateGoogleEvent(
     eventId,
     requestBody: toEventBody(input),
     sendUpdates: 'all',
+    conferenceDataVersion: input.addMeet ? 1 : undefined,
   })
   return res.data
 }
