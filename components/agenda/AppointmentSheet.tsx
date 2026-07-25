@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { motion } from 'framer-motion'
 import {
   Sheet,
   SheetContent,
@@ -20,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { LibertyButton } from '@/components/ui/LibertyButton'
-import { X, Trash2, Phone, Mail, Building2, User, Lock, Video } from 'lucide-react'
+import { X, Trash2, Phone, Mail, Building2, User, Lock, Video, Clock3 } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import {
@@ -28,6 +29,7 @@ import {
   AppointmentStatus,
   CalendarPerson,
   APPOINTMENT_STATUS_LABELS,
+  APPOINTMENT_STATUS_COLORS,
   colorForAgent,
 } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -54,6 +56,14 @@ function combine(dateStr: string, timeStr: string): Date {
   return new Date(`${dateStr}T${timeStr}:00`)
 }
 
+function initials(name: string | null | undefined, fallback: string) {
+  const source = (name || fallback || '?').trim()
+  const parts = source.split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[1][0]).toUpperCase()
+}
+
 const STATUS_OPTIONS: AppointmentStatus[] = [
   'scheduled',
   'confirmed',
@@ -61,6 +71,43 @@ const STATUS_OPTIONS: AppointmentStatus[] = [
   'cancelled',
   'no_show',
 ]
+
+const sectionVariants = {
+  hidden: { opacity: 0, y: 10 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: 0.04 * i, duration: 0.25, ease: 'easeOut' as const },
+  }),
+}
+
+function Section({
+  icon,
+  title,
+  index,
+  children,
+}: {
+  icon?: ReactNode
+  title: string
+  index: number
+  children: ReactNode
+}) {
+  return (
+    <motion.div
+      custom={index}
+      variants={sectionVariants}
+      initial="hidden"
+      animate="show"
+      className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 space-y-3"
+    >
+      <h3 className="text-[13px] font-semibold text-white/90 flex items-center gap-2 tracking-wide">
+        {icon}
+        {title}
+      </h3>
+      {children}
+    </motion.div>
+  )
+}
 
 export function AppointmentSheet({
   mode,
@@ -179,165 +226,199 @@ export function AppointmentSheet({
 
   const ownerColor = appointment?.comercial
     ? colorForAgent(appointment.comercial.id, appointment.comercial.calendar_color)
-    : colorForAgent(currentUser.id)
+    : isExternal
+      ? '#7C8493'
+      : colorForAgent(currentUser.id)
+
+  const ownerLabel = isExternal
+    ? 'Google'
+    : appointment?.comercial
+      ? initials(appointment.comercial.full_name, appointment.comercial.email || '')
+      : initials(currentUser.full_name, currentUser.email || '')
 
   return (
     <Sheet open={true} onOpenChange={onClose}>
-      <SheetContent className="w-full sm:max-w-xl bg-[#080808] border-l border-white/10 overflow-y-auto">
-        <SheetHeader className="mb-6">
-          <div className="flex items-start justify-between">
-            <div className="flex items-start gap-3">
-              <span
-                className="mt-1 h-4 w-4 rounded-full flex-shrink-0"
-                style={{ backgroundColor: ownerColor }}
-              />
-              <div>
-                <SheetTitle className="text-2xl font-bold text-white mb-1">
-                  {mode === 'create' ? 'Nueva cita' : leadName || 'Cita'}
-                </SheetTitle>
-                <SheetDescription className="text-white/60">
-                  {isExternal
-                    ? 'Evento ya existente en Google Calendar'
-                    : mode === 'edit' && appointment?.comercial
-                      ? `Agendada por ${appointment.comercial.full_name || appointment.comercial.email}`
-                      : 'Rellena los datos del lead y la franja horaria'}
-                </SheetDescription>
+      <SheetContent className="w-full sm:max-w-xl bg-[#0a0a0a] border-l border-white/10 overflow-y-auto p-0">
+        <div className="sticky top-0 z-10 bg-[#0a0a0a]/90 backdrop-blur-xl border-b border-white/[0.06] px-6 pt-6 pb-5">
+          <SheetHeader>
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3.5">
+                <div
+                  className="h-11 w-11 rounded-full flex items-center justify-center text-[13px] font-bold text-white flex-shrink-0 shadow-lg"
+                  style={{
+                    background: `linear-gradient(135deg, ${ownerColor}, ${ownerColor}cc)`,
+                    boxShadow: `0 4px 16px -4px ${ownerColor}66`,
+                  }}
+                >
+                  {ownerLabel}
+                </div>
+                <div>
+                  <SheetTitle className="text-xl font-bold text-white leading-tight">
+                    {mode === 'create' ? 'Nueva cita' : leadName || 'Cita'}
+                  </SheetTitle>
+                  <SheetDescription className="text-white/50 text-[13px] mt-0.5">
+                    {isExternal
+                      ? 'Evento importado de Google Calendar'
+                      : mode === 'edit' && appointment?.comercial
+                        ? `Agendada por ${appointment.comercial.full_name || appointment.comercial.email}`
+                        : 'Rellena los datos del lead y la franja horaria'}
+                  </SheetDescription>
+                </div>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClose}
+                className="h-8 w-8 rounded-full hover:bg-white/10 flex-shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </SheetHeader>
+          </SheetHeader>
 
-        {!canEdit && (
-          <div className="glass-card p-3 mb-4 flex items-center gap-2 text-sm text-white/60">
-            <Lock className="h-4 w-4 text-white/40" />
-            {isExternal
-              ? 'Este evento no lo gestiona el ERP: se importó de Google Calendar para que veas el hueco ocupado.'
-              : 'Solo puedes ver esta cita. La agendó otro comercial.'}
-          </div>
-        )}
-
-        {appointment?.google_meet_link && (
-          <div className="glass-card p-3 mb-4 flex items-center justify-between gap-2">
-            <span className="text-sm text-white/70 flex items-center gap-2">
-              <Video className="h-4 w-4 text-[#FF6600]" /> Videollamada de Google Meet
+          {mode === 'edit' && appointment && !isExternal && (
+            <span
+              className={`mt-3 inline-flex text-[11px] font-semibold px-2.5 py-1 rounded-full border ${APPOINTMENT_STATUS_COLORS[appointment.status]}`}
+            >
+              {APPOINTMENT_STATUS_LABELS[appointment.status]}
             </span>
-            <a
+          )}
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {!canEdit && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="rounded-2xl border border-white/10 bg-white/[0.03] p-3.5 flex items-center gap-2.5 text-sm text-white/60"
+            >
+              <Lock className="h-4 w-4 text-white/40 flex-shrink-0" />
+              {isExternal
+                ? 'Este evento no lo gestiona el ERP: se importó de Google Calendar para que veas el hueco ocupado.'
+                : 'Solo puedes ver esta cita. La agendó otro comercial.'}
+            </motion.div>
+          )}
+
+          {appointment?.google_meet_link && (
+            <motion.a
               href={appointment.google_meet_link}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-[#FF6600] hover:underline"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ y: -1 }}
+              className="flex items-center justify-between gap-2 rounded-2xl border border-[#FF6600]/25 bg-gradient-to-r from-[#FF6600]/[0.12] to-transparent p-3.5 group"
             >
-              Unirse
-            </a>
-          </div>
-        )}
+              <span className="text-sm text-white/80 flex items-center gap-2.5">
+                <span className="h-8 w-8 rounded-full bg-[#FF6600]/15 flex items-center justify-center">
+                  <Video className="h-4 w-4 text-[#FF6600]" />
+                </span>
+                Videollamada de Google Meet
+              </span>
+              <span className="text-sm font-semibold text-[#FF6600] group-hover:underline">
+                Unirse →
+              </span>
+            </motion.a>
+          )}
 
-        <div className="space-y-5">
           {/* Datos del lead */}
-          <div className="glass-card p-4 space-y-3">
-            <h3 className="font-semibold text-white flex items-center gap-2">
-              <User className="h-4 w-4 text-[#FF6600]" /> Lead
-            </h3>
+          <Section icon={<User className="h-3.5 w-3.5 text-[#FF6600]" />} title="LEAD" index={0}>
             <div>
-              <Label className="text-xs text-white/50">Nombre *</Label>
+              <Label className="text-xs text-white/40">Nombre *</Label>
               <Input
                 value={leadName}
                 onChange={(e) => setLeadName(e.target.value)}
                 disabled={!canEdit}
-                className="input-glass"
+                className="input-glass mt-1"
                 placeholder="Nombre del contacto"
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs text-white/50 flex items-center gap-1">
+                <Label className="text-xs text-white/40 flex items-center gap-1">
                   <Mail className="h-3 w-3" /> Email
                 </Label>
                 <Input
                   value={leadEmail}
                   onChange={(e) => setLeadEmail(e.target.value)}
                   disabled={!canEdit}
-                  className="input-glass"
+                  className="input-glass mt-1"
                   placeholder="email@empresa.com"
                 />
               </div>
               <div>
-                <Label className="text-xs text-white/50 flex items-center gap-1">
+                <Label className="text-xs text-white/40 flex items-center gap-1">
                   <Phone className="h-3 w-3" /> Teléfono
                 </Label>
                 <Input
                   value={leadPhone}
                   onChange={(e) => setLeadPhone(e.target.value)}
                   disabled={!canEdit}
-                  className="input-glass"
+                  className="input-glass mt-1"
                   placeholder="+34 ..."
                 />
               </div>
             </div>
             <div>
-              <Label className="text-xs text-white/50 flex items-center gap-1">
+              <Label className="text-xs text-white/40 flex items-center gap-1">
                 <Building2 className="h-3 w-3" /> Empresa
               </Label>
               <Input
                 value={leadCompany}
                 onChange={(e) => setLeadCompany(e.target.value)}
                 disabled={!canEdit}
-                className="input-glass"
+                className="input-glass mt-1"
                 placeholder="Empresa"
               />
             </div>
-          </div>
+          </Section>
 
           {/* Franja horaria */}
-          <div className="glass-card p-4 space-y-3">
-            <h3 className="font-semibold text-white">Cuándo</h3>
+          <Section icon={<Clock3 className="h-3.5 w-3.5 text-[#FF6600]" />} title="CUÁNDO" index={1}>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label className="text-xs text-white/50">Fecha</Label>
+                <Label className="text-xs text-white/40">Fecha</Label>
                 <Input
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                   disabled={!canEdit}
-                  className="input-glass"
+                  className="input-glass mt-1"
                 />
               </div>
               <div>
-                <Label className="text-xs text-white/50">Inicio</Label>
+                <Label className="text-xs text-white/40">Inicio</Label>
                 <Input
                   type="time"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
                   disabled={!canEdit}
-                  className="input-glass"
+                  className="input-glass mt-1"
                 />
               </div>
               <div>
-                <Label className="text-xs text-white/50">Fin</Label>
+                <Label className="text-xs text-white/40">Fin</Label>
                 <Input
                   type="time"
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
                   disabled={!canEdit}
-                  className="input-glass"
+                  className="input-glass mt-1"
                 />
               </div>
             </div>
-          </div>
+          </Section>
 
           {/* Asignación + estado */}
-          <div className="glass-card p-4 space-y-3">
+          <Section title="ASIGNACIÓN" index={2}>
             <div>
-              <Label className="text-xs text-white/50">Closer asignado</Label>
+              <Label className="text-xs text-white/40">Closer asignado</Label>
               <Select
                 value={assignedCloser}
                 onValueChange={setAssignedCloser}
                 disabled={!canEdit}
               >
-                <SelectTrigger className="input-glass">
+                <SelectTrigger className="input-glass mt-1">
                   <SelectValue placeholder="Sin asignar" />
                 </SelectTrigger>
                 <SelectContent>
@@ -351,13 +432,13 @@ export function AppointmentSheet({
               </Select>
             </div>
             <div>
-              <Label className="text-xs text-white/50">Estado</Label>
+              <Label className="text-xs text-white/40">Estado</Label>
               <Select
                 value={status}
                 onValueChange={(v) => setStatus(v as AppointmentStatus)}
                 disabled={!canEdit}
               >
-                <SelectTrigger className="input-glass">
+                <SelectTrigger className="input-glass mt-1">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -369,44 +450,49 @@ export function AppointmentSheet({
                 </SelectContent>
               </Select>
             </div>
-          </div>
+          </Section>
 
           {/* Notas */}
-          <div className="glass-card p-4">
-            <Label className="text-sm font-semibold text-white mb-2 block">
-              Notas de la cita
-            </Label>
+          <Section title="NOTAS DE LA CITA" index={3}>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={!canEdit}
               placeholder="Contexto del lead, qué se ha hablado, objetivo de la reunión..."
-              className="input-glass min-h-[140px] resize-none"
+              className="input-glass min-h-[130px] resize-none"
             />
-          </div>
-
-          {/* Acciones */}
-          {canEdit && (
-            <div className="flex gap-3 items-stretch pb-4">
-              {mode === 'edit' && (
-                <Button
-                  variant="outline"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="h-12 border-red-500/30 text-red-300 hover:bg-red-500/10"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
-              <Button variant="outline" onClick={onClose} className="flex-1 h-12">
-                Cancelar
-              </Button>
-              <LibertyButton onClick={handleSave} disabled={saving} className="flex-1 h-12">
-                {saving ? 'Guardando...' : mode === 'create' ? 'Agendar cita' : 'Guardar'}
-              </LibertyButton>
-            </div>
-          )}
+          </Section>
         </div>
+
+        {/* Acciones */}
+        {canEdit && (
+          <div className="sticky bottom-0 bg-[#0a0a0a]/90 backdrop-blur-xl border-t border-white/[0.06] px-6 py-4 flex gap-3">
+            {mode === 'edit' && (
+              <Button
+                variant="outline"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="h-11 w-11 flex-shrink-0 rounded-xl border-red-500/25 text-red-300 hover:bg-red-500/10 hover:border-red-500/40"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={onClose}
+              className="flex-1 h-11 rounded-xl"
+            >
+              Cancelar
+            </Button>
+            <LibertyButton
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 h-11 rounded-xl"
+            >
+              {saving ? 'Guardando...' : mode === 'create' ? 'Agendar cita' : 'Guardar'}
+            </LibertyButton>
+          </div>
+        )}
       </SheetContent>
     </Sheet>
   )
