@@ -1,4 +1,4 @@
-import { google, calendar_v3 } from 'googleapis'
+import { calendar, calendar_v3, auth as googleAuth } from '@googleapis/calendar'
 
 /**
  * Cliente de Google Calendar autenticado con la service account
@@ -16,14 +16,14 @@ function getCalendarClient(): calendar_v3.Calendar {
     )
   }
 
-  const auth = new google.auth.JWT({
+  const authClient = new googleAuth.JWT({
     email: clientEmail,
     key: privateKey,
     scopes: ['https://www.googleapis.com/auth/calendar'],
     subject, // impersonación (domain-wide delegation)
   })
 
-  return google.calendar({ version: 'v3', auth })
+  return calendar({ version: 'v3', auth: authClient })
 }
 
 export function getCalendarId(): string {
