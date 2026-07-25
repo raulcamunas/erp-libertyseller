@@ -110,14 +110,9 @@ export function AgendaCalendar({
     }
   }
 
-  const legendPeople = useMemo(() => {
-    const map = new Map<string, CalendarPerson>()
-    team.forEach((p) => map.set(p.id, p))
-    appointments.forEach((a) => {
-      if (a.comercial && !map.has(a.comercial.id)) map.set(a.comercial.id, a.comercial)
-    })
-    return Array.from(map.values())
-  }, [team, appointments])
+  // Leyenda: solo los comerciales (filtrados en el servidor), no cualquiera
+  // que haya agendado una cita (p.ej. un admin haciendo una prueba).
+  const legendPeople = team
 
   useEffect(() => {
     const channel = supabase

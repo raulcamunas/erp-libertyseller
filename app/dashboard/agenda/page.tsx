@@ -12,10 +12,11 @@ export default async function AgendaPage() {
   const profile = await getUserProfile()
   if (!profile) redirect('/auth/login')
 
-  // Equipo (comerciales + closers) para colores, leyenda y asignación
+  // Comerciales (Yamila, Alejandro, José, Maoli) para leyenda y asignación
   const { data: team } = await supabase
     .from('profiles')
     .select('id, full_name, email, role, calendar_color')
+    .eq('is_comercial', true)
     .order('full_name', { ascending: true })
 
   // Citas con la persona que las agendó y el closer asignado
