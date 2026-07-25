@@ -486,10 +486,15 @@ export function AgendaCalendar({
                               height,
                               left: `calc(${leftPct}% + 2px)`,
                               width: `calc(${widthPct}% - 4px)`,
-                              borderLeft: `3px solid ${color}`,
+                              border: a.is_external
+                                ? '1.5px dashed rgba(124,132,147,0.5)'
+                                : `1.5px solid ${color}`,
+                              boxShadow: a.is_external
+                                ? undefined
+                                : `inset 0 0 0 1px ${color}33`,
                               background: a.is_external
                                 ? 'rgba(124,132,147,0.10)'
-                                : `linear-gradient(135deg, ${color}26, ${color}12)`,
+                                : `linear-gradient(135deg, ${color}29, ${color}14)`,
                               backgroundImage: a.is_external
                                 ? 'repeating-linear-gradient(135deg, rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 4px, transparent 4px, transparent 9px)'
                                 : undefined,
