@@ -131,15 +131,27 @@ export interface IncrementalSyncResult {
 
 /**
  * Lista cambios desde el último syncToken. Si no hay token, hace una
- * carga inicial (los próximos 6 meses) y devuelve el nextSyncToken.
+ * carga inicial acotada por `timeMin`/`timeMax` (por defecto: desde hoy
+ * hasta dentro de 90 días) y devuelve el nextSyncToken.
+ *
+ * Sin un timeMax, calendarios con páginas de "Horario de reservas"
+ * (que generan huecos disponibles muchos meses hacia el futuro) pueden
+ * devolver miles de eventos y colgar la petición. Google además no
+ * permite combinar syncToken con timeMin/timeMax, así que solo se
+ * aplican en la carga inicial.
  */
 export async function incrementalSync(
-  syncToken: string | null
+  syncToken: string | null,
+  range?: { timeMin?: string; timeMax?: string }
 ): Promise<IncrementalSyncResult> {
   const cal = getCalendarClient()
   const events: calendar_v3.Schema$Event[] = []
   let pageToken: string | undefined
   let nextSyncToken: string | null = null
+
+  const timeMin = range?.timeMin ?? new Date().toISOString()
+  const timeMax =
+    range?.timeMax ?? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
 
   try {
     do {
@@ -149,9 +161,7 @@ export async function incrementalSync(
         showDeleted: true,
         maxResults: 250,
         pageToken,
-        ...(syncToken
-          ? { syncToken }
-          : { timeMin: new Date().toISOString() }),
+        ...(syncToken ? { syncToken } : { timeMin, timeMax }),
       })
       events.push(...(res.data.items || []))
       pageToken = res.data.nextPageToken || undefined

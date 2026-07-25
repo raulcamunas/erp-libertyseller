@@ -35,8 +35,23 @@ export async function POST(_request: NextRequest) {
   }
 
   try {
-    // Carga completa (sin syncToken) de los próximos eventos del calendario
-    const result = await incrementalSync(null)
+    // Desde el lunes de esta semana hasta dentro de 90 días. Sin este
+    // límite, las páginas de "Horario de reservas" de los comerciales
+    // generan huecos disponibles muchos meses hacia el futuro y la
+    // petición se cuelga (miles de eventos).
+    const now = new Date()
+    const day = now.getDay() // 0=domingo..6=sábado
+    const diffToMonday = day === 0 ? -6 : 1 - day
+    const monday = new Date(now)
+    monday.setDate(now.getDate() + diffToMonday)
+    monday.setHours(0, 0, 0, 0)
+
+    const timeMax = new Date(monday.getTime() + 90 * 24 * 60 * 60 * 1000)
+
+    const result = await incrementalSync(null, {
+      timeMin: monday.toISOString(),
+      timeMax: timeMax.toISOString(),
+    })
     const svc = createServiceClient()
     const stats = await applyGoogleEventsToErp(svc, result.events)
 
