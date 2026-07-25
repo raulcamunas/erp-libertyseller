@@ -7,6 +7,7 @@ import {
   deleteGoogleEvent,
   getCalendarId,
 } from '@/lib/google-calendar'
+import { buildAppointmentSummary } from '@/lib/appointments-sync'
 import { CreateAppointmentPayload } from '@/lib/types/appointments'
 
 const SELECT_WITH_PEOPLE = `
@@ -64,9 +65,7 @@ export async function PUT(
     try {
       const closerEmail = updated.assigned_closer?.email as string | undefined
       const eventInput = {
-        summary: updated.lead_company
-          ? `${updated.lead_name} · ${updated.lead_company}`
-          : updated.lead_name,
+        summary: buildAppointmentSummary(updated.lead_name),
         description:
           `Agendada por: ${updated.comercial?.full_name || updated.comercial?.email || ''}\n` +
           (updated.lead_phone ? `Tel: ${updated.lead_phone}\n` : '') +

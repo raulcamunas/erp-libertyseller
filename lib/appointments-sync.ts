@@ -2,6 +2,14 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { calendar_v3 } from '@googleapis/calendar'
 
 /**
+ * Título de la cita en Google Calendar. El nombre del lead es la parte
+ * dinámica: "Consultoría Estratégica Amazon · Liberty Seller · {lead}".
+ */
+export function buildAppointmentSummary(leadName: string): string {
+  return `Consultoría Estratégica Amazon · Liberty Seller · ${leadName}`
+}
+
+/**
  * Aplica una lista de eventos de Google Calendar sobre la tabla
  * `appointments`. Usado tanto por el import inicial (full sync) como
  * por el webhook incremental, para no duplicar la lógica.
