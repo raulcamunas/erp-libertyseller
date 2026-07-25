@@ -82,12 +82,14 @@ export async function applyGoogleEventsToErp(
     }
 
     // Evento creado directamente en Google, sin vínculo al ERP:
-    // se importa como externo (solo lectura). `byEvent` ya confirmó
-    // arriba que no existía ninguna cita con este google_event_id.
+    // se importa como externo (solo lectura). Por privacidad no se
+    // guarda el título ni la descripción reales del evento — solo se
+    // marca el hueco como ocupado. `byEvent` ya confirmó arriba que no
+    // existía ninguna cita con este google_event_id.
     const { error: insertError } = await svc.from('appointments').insert({
       comercial_id: null,
-      lead_name: ev.summary || '(Sin título)',
-      notes: ev.description || null,
+      lead_name: 'Hueco no disponible',
+      notes: null,
       start_time: start,
       end_time: end,
       status: 'scheduled',
