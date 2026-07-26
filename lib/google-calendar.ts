@@ -51,8 +51,13 @@ export interface GoogleEventInput {
   erpAppointmentId?: string
   /** colorId de Google (1-11) para diferenciar por comercial */
   colorId?: string
-  /** genera un enlace de Google Meet para la reunión */
+  /** genera un enlace de Google Meet para la reunión (SOLO al crear; en
+   *  updates no se debe volver a pedir o Google puede regenerar el link) */
   addMeet?: boolean
+  /** 'all' notifica por email a los invitados; 'none' no manda nada.
+   *  Los cambios internos del ERP (notas, estado, facturación...) no
+   *  deben avisar al lead — solo la invitación inicial. */
+  sendUpdates?: 'all' | 'none'
 }
 
 function toEventBody(input: GoogleEventInput): calendar_v3.Schema$Event {
@@ -86,7 +91,7 @@ export async function createGoogleEvent(
   const res = await cal.events.insert({
     calendarId: getCalendarId(),
     requestBody: toEventBody(input),
-    sendUpdates: 'all', // invita al lead/closer por email
+    sendUpdates: input.sendUpdates ?? 'all', // invitación inicial al lead
     conferenceDataVersion: input.addMeet ? 1 : undefined,
   })
   return res.data
@@ -101,19 +106,24 @@ export async function updateGoogleEvent(
     calendarId: getCalendarId(),
     eventId,
     requestBody: toEventBody(input),
-    sendUpdates: 'all',
+    // Por defecto NO se notifica: los cambios normales (notas, estado,
+    // facturación, reasignar closer...) son internos de la empresa.
+    sendUpdates: input.sendUpdates ?? 'none',
     conferenceDataVersion: input.addMeet ? 1 : undefined,
   })
   return res.data
 }
 
-export async function deleteGoogleEvent(eventId: string): Promise<void> {
+export async function deleteGoogleEvent(
+  eventId: string,
+  sendUpdates: 'all' | 'none' = 'none'
+): Promise<void> {
   const cal = getCalendarClient()
   try {
     await cal.events.delete({
       calendarId: getCalendarId(),
       eventId,
-      sendUpdates: 'all',
+      sendUpdates,
     })
   } catch (err: unknown) {
     // 404/410 => ya no existe en Google, lo tratamos como éxito

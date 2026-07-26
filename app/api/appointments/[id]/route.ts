@@ -68,6 +68,10 @@ export async function PUT(
     try {
       // Solo se invita al lead real; los emails internos de los
       // comerciales no son buzones reales de Workspace (ver route.ts).
+      let gEventId = updated.google_event_id as string | null
+      let htmlLink = updated.google_html_link as string | null
+      let meetLink = updated.google_meet_link as string | null
+
       const eventInput = {
         summary: buildAppointmentSummary(updated.lead_name),
         description: buildAppointmentDescription(),
@@ -76,12 +80,13 @@ export async function PUT(
         attendeeEmails: [updated.lead_email].filter(Boolean) as string[],
         erpAppointmentId: updated.id,
         colorId: googleColorId(updated.comercial_id!),
-        addMeet: true,
+        // El Meet solo se pide si todavía no existe uno: volver a
+        // pedirlo en cada edición hace que Google lo regenere.
+        addMeet: !gEventId,
+        // Los cambios normales (notas, estado, facturación, reagendar...)
+        // son internos: no se le avisa al lead por email.
+        sendUpdates: 'none' as const,
       }
-
-      let gEventId = updated.google_event_id as string | null
-      let htmlLink = updated.google_html_link as string | null
-      let meetLink = updated.google_meet_link as string | null
 
       if (gEventId) {
         const gEvent = await updateGoogleEvent(gEventId, eventInput)

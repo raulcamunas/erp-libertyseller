@@ -83,10 +83,18 @@ export function CommentsThread({ appointmentId, currentUser }: CommentsThreadPro
     if (!body) return
     setSending(true)
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('appointment_comments')
         .insert({ appointment_id: appointmentId, author_id: currentUser.id, body })
+        .select(COMMENT_SELECT)
+        .single()
       if (error) throw error
+      // Se añade al momento sin esperar al viaje de ida y vuelta de
+      // Realtime — así aparece nada más pulsar enviar.
+      const comment = data as AppointmentComment
+      setComments((prev) =>
+        prev.some((c) => c.id === comment.id) ? prev : [...prev, comment]
+      )
       setText('')
     } catch (err) {
       console.error('Error enviando comentario:', err)
