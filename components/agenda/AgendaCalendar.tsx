@@ -370,9 +370,9 @@ export function AgendaCalendar({
   })()
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col h-full min-h-0 gap-4">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center rounded-full border border-white/10 bg-white/[0.03] p-1">
             <motion.button
@@ -440,7 +440,7 @@ export function AgendaCalendar({
 
       {/* Leyenda de comerciales */}
       {legendPeople.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
           {legendPeople.map((p) => {
             const color = colorForAgent(p.id, p.calendar_color)
             return (
@@ -466,10 +466,10 @@ export function AgendaCalendar({
       )}
 
       {/* Calendario */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden flex-1 min-h-0 flex flex-col">
         <div
           ref={gridRef}
-          className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-320px)]"
+          className="overflow-x-auto overflow-y-auto flex-1 min-h-0"
         >
           <div className="min-w-[880px]">
             {/* Cabecera de días (sticky) */}
@@ -608,7 +608,7 @@ export function AgendaCalendar({
                           : a.comercial
                             ? colorForAgent(a.comercial.id, a.comercial.calendar_color)
                             : '#FF6600'
-                        const cancelled = a.status === 'cancelled'
+                        const cancelled = a.status === 'not_qualified'
                         const widthPct = 100 / totalCols
                         const leftPct = col * widthPct
                         const compact = height < 40

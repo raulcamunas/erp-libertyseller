@@ -76,9 +76,10 @@ function initials(name: string | null | undefined, fallback: string) {
 const STATUS_OPTIONS: AppointmentStatus[] = [
   'scheduled',
   'confirmed',
-  'completed',
-  'cancelled',
+  'rescheduled',
   'no_show',
+  'qualified',
+  'not_qualified',
 ]
 
 // Input "fantasma" al estilo Notion: sin caja visible hasta que se

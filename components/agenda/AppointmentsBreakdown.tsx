@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { format, isFuture } from 'date-fns'
+import { format, isFuture, addMonths } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { motion } from 'framer-motion'
-import { ArrowLeft, CalendarDays, Users } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Users, ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react'
 import {
   AppointmentWithPeople,
   CalendarPerson,
@@ -25,6 +25,8 @@ interface AppointmentsBreakdownProps {
   restrictToOwn?: boolean
 }
 
+type FilterMode = 'all' | 'upcoming' | 'period'
+
 function initials(name: string | null | undefined, fallback: string) {
   const source = (name || fallback || '?').trim()
   const parts = source.split(/\s+/).filter(Boolean)
@@ -35,6 +37,14 @@ function initials(name: string | null | undefined, fallback: string) {
 
 function formatEuros(n: number) {
   return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
+}
+
+/** Ciclo de comisión: del 15 de un mes al 15 del siguiente (fin exclusivo) */
+function periodStartContaining(date: Date): Date {
+  const day = date.getDate()
+  return day >= 15
+    ? new Date(date.getFullYear(), date.getMonth(), 15)
+    : new Date(date.getFullYear(), date.getMonth() - 1, 15)
 }
 
 const SELECT_WITH_PEOPLE = `
@@ -53,8 +63,21 @@ export function AppointmentsBreakdown({
   const [appointments, setAppointments] = useState<AppointmentWithPeople[]>(
     initialAppointments
   )
-  const [filter, setFilter] = useState<'all' | 'upcoming'>('all')
+  const [filter, setFilter] = useState<FilterMode>('all')
+  const [periodOffset, setPeriodOffset] = useState(0)
   const [selected, setSelected] = useState<AppointmentWithPeople | null>(null)
+
+  const basePeriodStart = useMemo(() => periodStartContaining(new Date()), [])
+  const periodStart = useMemo(
+    () => addMonths(basePeriodStart, periodOffset),
+    [basePeriodStart, periodOffset]
+  )
+  const periodEnd = useMemo(() => addMonths(periodStart, 1), [periodStart])
+  const periodLabel = `${format(periodStart, "d 'de' MMM", { locale: es })} – ${format(
+    periodEnd,
+    "d 'de' MMM yyyy",
+    { locale: es }
+  )}`
 
   useEffect(() => {
     const channel = supabase
@@ -95,9 +118,17 @@ export function AppointmentsBreakdown({
   }, [supabase])
 
   const filtered = useMemo(() => {
-    if (filter === 'all') return appointments
-    return appointments.filter((a) => isFuture(new Date(a.start_time)))
-  }, [appointments, filter])
+    if (filter === 'upcoming') {
+      return appointments.filter((a) => isFuture(new Date(a.start_time)))
+    }
+    if (filter === 'period') {
+      return appointments.filter((a) => {
+        const t = new Date(a.start_time)
+        return t >= periodStart && t < periodEnd
+      })
+    }
+    return appointments
+  }, [appointments, filter, periodStart, periodEnd])
 
   const groups = useMemo(() => {
     const map = new Map<string, { person: CalendarPerson; items: AppointmentWithPeople[] }>()
@@ -127,7 +158,8 @@ export function AppointmentsBreakdown({
   const totals = useMemo(() => {
     const total = filtered.length
     const upcoming = filtered.filter((a) => isFuture(new Date(a.start_time))).length
-    return { total, upcoming }
+    const qualified = filtered.filter((a) => a.status === 'qualified').length
+    return { total, upcoming, qualified }
   }, [filtered])
 
   return (
@@ -157,18 +189,58 @@ export function AppointmentsBreakdown({
           >
             Próximas
           </button>
+          <button
+            onClick={() => setFilter('period')}
+            className={`px-4 h-8 rounded-full text-xs font-semibold transition-colors ${
+              filter === 'period' ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white/80'
+            }`}
+          >
+            Por periodo (15 a 15)
+          </button>
         </div>
       </div>
 
+      {/* Navegador de periodo: solo visible en modo "Por periodo" */}
+      {filter === 'period' && (
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => setPeriodOffset((o) => o - 1)}
+            className="h-8 w-8 rounded-full border border-white/10 bg-white/[0.03] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div className="flex items-center gap-2 text-white font-semibold text-sm">
+            <CalendarDays className="h-4 w-4 text-[#FF6600]" />
+            {periodLabel}
+            {periodOffset !== 0 && (
+              <button
+                onClick={() => setPeriodOffset(0)}
+                className="ml-1 text-[11px] font-medium text-[#FF6600] hover:underline"
+              >
+                (hoy)
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => setPeriodOffset((o) => o + 1)}
+            className="h-8 w-8 rounded-full border border-white/10 bg-white/[0.03] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Resumen general */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex items-center gap-3">
           <span className="h-9 w-9 rounded-full bg-[#FF6600]/15 flex items-center justify-center">
             <CalendarDays className="h-4 w-4 text-[#FF6600]" />
           </span>
           <div>
             <div className="text-2xl font-bold text-white leading-none">{totals.total}</div>
-            <div className="text-xs text-white/40 mt-1">Citas totales</div>
+            <div className="text-xs text-white/40 mt-1">
+              {filter === 'period' ? 'Citas en el periodo' : 'Citas totales'}
+            </div>
           </div>
         </div>
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex items-center gap-3">
@@ -180,6 +252,15 @@ export function AppointmentsBreakdown({
             <div className="text-xs text-white/40 mt-1">Próximas</div>
           </div>
         </div>
+        <div className="rounded-2xl border border-green-500/20 bg-green-500/[0.06] p-4 flex items-center gap-3">
+          <span className="h-9 w-9 rounded-full bg-green-500/15 flex items-center justify-center">
+            <CheckCircle2 className="h-4 w-4 text-green-300" />
+          </span>
+          <div>
+            <div className="text-2xl font-bold text-white leading-none">{totals.qualified}</div>
+            <div className="text-xs text-green-300/70 mt-1">Cualificadas (cuentan para comisión)</div>
+          </div>
+        </div>
       </div>
 
       {/* Por comercial */}
@@ -187,7 +268,7 @@ export function AppointmentsBreakdown({
         {groups.map(({ person, items }, i) => {
           const color = colorForAgent(person.id, person.calendar_color)
           const upcoming = items.filter((a) => isFuture(new Date(a.start_time))).length
-          const completed = items.filter((a) => a.status === 'completed').length
+          const qualified = items.filter((a) => a.status === 'qualified').length
 
           return (
             <motion.div
@@ -213,11 +294,13 @@ export function AppointmentsBreakdown({
                   <span>
                     <b className="text-white">{items.length}</b> citas
                   </span>
+                  {filter !== 'period' && (
+                    <span>
+                      <b className="text-white">{upcoming}</b> próximas
+                    </span>
+                  )}
                   <span>
-                    <b className="text-white">{upcoming}</b> próximas
-                  </span>
-                  <span>
-                    <b className="text-white">{completed}</b> realizadas
+                    <b className="text-green-300">{qualified}</b> cualificadas
                   </span>
                 </div>
               </div>

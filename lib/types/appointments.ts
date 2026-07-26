@@ -1,9 +1,10 @@
 export type AppointmentStatus =
   | 'scheduled'
   | 'confirmed'
-  | 'completed'
-  | 'cancelled'
+  | 'rescheduled'
   | 'no_show'
+  | 'qualified'
+  | 'not_qualified'
 
 export type SyncStatus = 'pending' | 'synced' | 'error' | 'local'
 
@@ -108,17 +109,19 @@ export interface AppointmentComment {
 export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
   scheduled: 'Agendada',
   confirmed: 'Confirmada',
-  completed: 'Realizada',
-  cancelled: 'Cancelada',
+  rescheduled: 'Re-agendada',
   no_show: 'No asistió',
+  qualified: 'Cita Cualificada',
+  not_qualified: 'Cita No Cualificada',
 }
 
 export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, string> = {
   scheduled: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  confirmed: 'bg-green-500/20 text-green-300 border-green-500/30',
-  completed: 'bg-emerald-600/20 text-emerald-300 border-emerald-600/30',
-  cancelled: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
-  no_show: 'bg-red-500/20 text-red-300 border-red-500/30',
+  confirmed: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+  rescheduled: 'bg-sky-400/20 text-sky-300 border-sky-400/30',
+  no_show: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
+  qualified: 'bg-green-500/20 text-green-300 border-green-500/30',
+  not_qualified: 'bg-red-500/20 text-red-300 border-red-500/30',
 }
 
 /**

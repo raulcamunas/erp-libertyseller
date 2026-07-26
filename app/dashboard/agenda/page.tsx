@@ -30,16 +30,18 @@ export default async function AgendaPage() {
     .order('start_time', { ascending: true })
 
   return (
-    <div className="space-y-6">
-      <div className="mb-2">
+    <div className="flex flex-col h-[calc(100vh-3rem)] lg:h-[calc(100vh-4rem)]">
+      <div className="mb-4 flex-shrink-0">
         <h1 className="heading-medium text-white mb-2">Agenda Comercial</h1>
       </div>
 
-      <AgendaCalendar
-        initialAppointments={(appointments as AppointmentWithPeople[]) || []}
-        team={(team as CalendarPerson[]) || []}
-        currentUser={profile}
-      />
+      <div className="flex-1 min-h-0">
+        <AgendaCalendar
+          initialAppointments={(appointments as AppointmentWithPeople[]) || []}
+          team={(team as CalendarPerson[]) || []}
+          currentUser={profile}
+        />
+      </div>
     </div>
   )
 }
