@@ -34,6 +34,14 @@ export async function PUT(
 
   const body = (await request.json()) as Partial<CreateAppointmentPayload>
 
+  // Fecha/hora previas, para saber si esto es un reagendado real (que sí
+  // debe avisar al lead) o solo un cambio interno (notas, estado...).
+  const { data: before } = await supabase
+    .from('appointments')
+    .select('start_time, end_time')
+    .eq('id', params.id)
+    .single()
+
   // 1) Actualizar en Supabase (RLS: solo propias o admin)
   const { data: updated, error } = await supabase
     .from('appointments')
@@ -72,6 +80,14 @@ export async function PUT(
       let htmlLink = updated.google_html_link as string | null
       let meetLink = updated.google_meet_link as string | null
 
+      // Solo se avisa al lead si de verdad cambió la fecha/hora (un
+      // reagendado real). Cambios internos (notas, estado, facturación,
+      // closer asignado...) no le incumben y no deben notificarle.
+      const timeChanged =
+        !before ||
+        new Date(before.start_time).getTime() !== new Date(updated.start_time).getTime() ||
+        new Date(before.end_time).getTime() !== new Date(updated.end_time).getTime()
+
       const eventInput = {
         summary: buildAppointmentSummary(updated.lead_name),
         description: buildAppointmentDescription(),
@@ -83,9 +99,7 @@ export async function PUT(
         // El Meet solo se pide si todavía no existe uno: volver a
         // pedirlo en cada edición hace que Google lo regenere.
         addMeet: !gEventId,
-        // Los cambios normales (notas, estado, facturación, reagendar...)
-        // son internos: no se le avisa al lead por email.
-        sendUpdates: 'none' as const,
+        sendUpdates: (timeChanged ? 'all' : 'none') as 'all' | 'none',
       }
 
       if (gEventId) {
@@ -157,7 +171,9 @@ export async function DELETE(
 
   if (isGoogleConfigured() && appt?.google_event_id) {
     try {
-      await deleteGoogleEvent(appt.google_event_id)
+      // Cancelar sí debe avisar al lead: a diferencia de un cambio
+      // interno, aquí la reunión deja de existir.
+      await deleteGoogleEvent(appt.google_event_id, 'all')
     } catch (err) {
       console.error('Error eliminando evento en Google:', err)
     }
