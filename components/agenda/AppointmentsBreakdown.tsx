@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { format, isFuture } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { motion } from 'framer-motion'
-import { ArrowLeft, CalendarDays, TrendingUp, Users } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Users } from 'lucide-react'
 import {
   AppointmentWithPeople,
   CalendarPerson,
@@ -21,6 +21,8 @@ interface AppointmentsBreakdownProps {
   initialAppointments: AppointmentWithPeople[]
   team: CalendarPerson[]
   currentUser: UserProfile
+  /** true si este usuario solo debe ver sus propias citas (no admin) */
+  restrictToOwn?: boolean
 }
 
 function initials(name: string | null | undefined, fallback: string) {
@@ -45,6 +47,7 @@ export function AppointmentsBreakdown({
   initialAppointments,
   team,
   currentUser,
+  restrictToOwn = false,
 }: AppointmentsBreakdownProps) {
   const supabase = createClient()
   const [appointments, setAppointments] = useState<AppointmentWithPeople[]>(
@@ -74,6 +77,9 @@ export function AppointmentsBreakdown({
             .single()
           if (!data) return
           const appt = data as AppointmentWithPeople
+          // Por si otro comercial crea/edita una cita mientras tenemos
+          // esto abierto: no dejamos que se cuele si no es nuestra.
+          if (restrictToOwn && appt.comercial_id !== currentUser.id) return
           setAppointments((prev) => {
             const exists = prev.some((a) => a.id === appt.id)
             return exists
@@ -121,8 +127,7 @@ export function AppointmentsBreakdown({
   const totals = useMemo(() => {
     const total = filtered.length
     const upcoming = filtered.filter((a) => isFuture(new Date(a.start_time))).length
-    const revenue = filtered.reduce((sum, a) => sum + (a.revenue_amount || 0), 0)
-    return { total, upcoming, revenue }
+    return { total, upcoming }
   }, [filtered])
 
   return (
@@ -156,7 +161,7 @@ export function AppointmentsBreakdown({
       </div>
 
       {/* Resumen general */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex items-center gap-3">
           <span className="h-9 w-9 rounded-full bg-[#FF6600]/15 flex items-center justify-center">
             <CalendarDays className="h-4 w-4 text-[#FF6600]" />
@@ -175,17 +180,6 @@ export function AppointmentsBreakdown({
             <div className="text-xs text-white/40 mt-1">Próximas</div>
           </div>
         </div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex items-center gap-3">
-          <span className="h-9 w-9 rounded-full bg-emerald-500/15 flex items-center justify-center">
-            <TrendingUp className="h-4 w-4 text-emerald-300" />
-          </span>
-          <div>
-            <div className="text-2xl font-bold text-white leading-none">
-              {formatEuros(totals.revenue)}
-            </div>
-            <div className="text-xs text-white/40 mt-1">Facturación registrada</div>
-          </div>
-        </div>
       </div>
 
       {/* Por comercial */}
@@ -194,7 +188,6 @@ export function AppointmentsBreakdown({
           const color = colorForAgent(person.id, person.calendar_color)
           const upcoming = items.filter((a) => isFuture(new Date(a.start_time))).length
           const completed = items.filter((a) => a.status === 'completed').length
-          const revenue = items.reduce((s, a) => s + (a.revenue_amount || 0), 0)
 
           return (
             <motion.div
@@ -225,9 +218,6 @@ export function AppointmentsBreakdown({
                   </span>
                   <span>
                     <b className="text-white">{completed}</b> realizadas
-                  </span>
-                  <span>
-                    <b className="text-emerald-300">{formatEuros(revenue)}</b>
                   </span>
                 </div>
               </div>

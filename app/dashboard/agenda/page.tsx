@@ -33,9 +33,6 @@ export default async function AgendaPage() {
     <div className="space-y-6">
       <div className="mb-2">
         <h1 className="heading-medium text-white mb-2">Agenda Comercial</h1>
-        <p className="text-white/50">
-          Calendario de citas del equipo. Cada comercial gestiona las suyas; todos veis todo.
-        </p>
       </div>
 
       <AgendaCalendar
