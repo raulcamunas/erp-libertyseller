@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import {
@@ -20,6 +21,7 @@ import {
   Calendar as CalIcon,
   Video,
   Link2,
+  Table2,
 } from 'lucide-react'
 import { AppointmentSheet } from './AppointmentSheet'
 import {
@@ -412,6 +414,12 @@ export function AgendaCalendar({
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard/agenda/desglose"
+            className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+          >
+            <Table2 className="h-4 w-4" /> Desglose de citas
+          </Link>
           <motion.button
             whileHover={{ y: -1, boxShadow: '0 8px 24px -4px rgba(255,102,0,0.45)' }}
             whileTap={{ scale: 0.97 }}
