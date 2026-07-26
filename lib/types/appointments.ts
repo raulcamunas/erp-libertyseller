@@ -7,6 +7,7 @@ export type AppointmentStatus =
   | 'not_qualified'
 
 export type SyncStatus = 'pending' | 'synced' | 'error' | 'local'
+export type TranscriptionStatus = 'none' | 'processing' | 'done' | 'error'
 
 export interface Appointment {
   id: string
@@ -38,6 +39,10 @@ export interface Appointment {
   amazon_link: string | null
   recording_url: string | null
   recording_filename: string | null
+  transcription: string | null
+  transcription_summary: string | null
+  transcription_status: TranscriptionStatus
+  transcription_error: string | null
 
   google_event_id: string | null
   google_calendar_id: string | null

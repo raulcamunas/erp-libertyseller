@@ -35,12 +35,14 @@ import {
   AppointmentWithPeople,
   AppointmentStatus,
   CalendarPerson,
+  TranscriptionStatus,
   APPOINTMENT_STATUS_LABELS,
   APPOINTMENT_STATUS_COLORS,
   colorForAgent,
 } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { AudioRecordingField } from './AudioRecordingField'
+import { TranscriptionPanel } from './TranscriptionPanel'
 import { CommentsThread } from './CommentsThread'
 
 interface AppointmentSheetProps {
@@ -191,6 +193,16 @@ export function AppointmentSheet({
   const [recordingUrl, setRecordingUrl] = useState(appointment?.recording_url ?? null)
   const [recordingFilename, setRecordingFilename] = useState(
     appointment?.recording_filename ?? null
+  )
+  const [transcription, setTranscription] = useState(appointment?.transcription ?? null)
+  const [transcriptionSummary, setTranscriptionSummary] = useState(
+    appointment?.transcription_summary ?? null
+  )
+  const [transcriptionStatus, setTranscriptionStatus] = useState<TranscriptionStatus>(
+    appointment?.transcription_status ?? 'none'
+  )
+  const [transcriptionError, setTranscriptionError] = useState(
+    appointment?.transcription_error ?? null
   )
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -597,16 +609,33 @@ export function AppointmentSheet({
                 <Mic className="h-3 w-3" /> Grabación de la llamada
               </div>
               {mode === 'edit' && appointment ? (
-                <AudioRecordingField
-                  appointmentId={appointment.id}
-                  recordingUrl={recordingUrl}
-                  recordingFilename={recordingFilename}
-                  canEdit={canEdit}
-                  onChange={(url, filename) => {
-                    setRecordingUrl(url)
-                    setRecordingFilename(filename)
-                  }}
-                />
+                <>
+                  <AudioRecordingField
+                    appointmentId={appointment.id}
+                    recordingUrl={recordingUrl}
+                    recordingFilename={recordingFilename}
+                    canEdit={canEdit}
+                    onChange={(url, filename) => {
+                      setRecordingUrl(url)
+                      setRecordingFilename(filename)
+                    }}
+                  />
+                  <TranscriptionPanel
+                    appointmentId={appointment.id}
+                    hasRecording={Boolean(recordingUrl)}
+                    transcription={transcription}
+                    transcriptionSummary={transcriptionSummary}
+                    transcriptionStatus={transcriptionStatus}
+                    transcriptionError={transcriptionError}
+                    canEdit={canEdit}
+                    onUpdated={(fields) => {
+                      setTranscription(fields.transcription)
+                      setTranscriptionSummary(fields.transcription_summary)
+                      setTranscriptionStatus(fields.transcription_status)
+                      setTranscriptionError(fields.transcription_error)
+                    }}
+                  />
+                </>
               ) : (
                 <p className="text-[11px] text-white/30">
                   Podrás subir la grabación una vez agendada la cita.
