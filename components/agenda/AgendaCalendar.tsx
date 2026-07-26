@@ -77,6 +77,22 @@ export function AgendaCalendar({
   const [now, setNow] = useState(() => new Date())
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
   const gridRef = useRef<HTMLDivElement>(null)
+  const daysGridRef = useRef<HTMLDivElement>(null)
+
+  // ── Drag & drop de citas ──────────────────────────────────────────────
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragTarget, setDragTarget] = useState<{
+    dayIso: string
+    hour: number
+    minute: number
+  } | null>(null)
+  const dragInfoRef = useRef<{
+    initialDayIso: string
+    initialHour: number
+    initialMinute: number
+  } | null>(null)
+  const dragTargetRef = useRef<typeof dragTarget>(null)
+  const justDraggedRef = useRef(false)
 
   // Reloj para la línea de "ahora"
   useEffect(() => {
@@ -204,6 +220,151 @@ export function AgendaCalendar({
     )
     return { hour: DAY_START + Math.floor(snapped / 60), minute: snapped % 60 }
   }
+
+  function topForSlot(hour: number, minute: number) {
+    return (((hour - DAY_START) * 60 + minute) / 60) * HOUR_HEIGHT
+  }
+
+  /** A partir de coordenadas de pantalla, calcula qué día/columna y hora:minuto está debajo */
+  function pointerToSlot(clientX: number, clientY: number) {
+    if (!daysGridRef.current) return null
+    const rect = daysGridRef.current.getBoundingClientRect()
+    const HOUR_COL = 60
+    const dayWidth = (rect.width - HOUR_COL) / 7
+    if (dayWidth <= 0) return null
+    const xInGrid = clientX - rect.left - HOUR_COL
+    const dayIndex = Math.min(Math.max(Math.floor(xInGrid / dayWidth), 0), 6)
+    const { hour, minute } = timeFromOffsetY(clientY - rect.top)
+    return { dayIndex, hour, minute }
+  }
+
+  function handleDragStart(e: React.PointerEvent, a: AppointmentWithPeople) {
+    const canDrag = !a.is_external && (isAdmin || a.comercial_id === currentUser.id)
+    if (!canDrag) return
+    e.stopPropagation()
+    const start = new Date(a.start_time)
+    const dayMatch = days.find((d) => isSameDay(d, start))
+    if (!dayMatch) return
+    const initial = {
+      dayIso: dayMatch.toISOString(),
+      hour: start.getHours(),
+      minute: start.getMinutes(),
+    }
+    dragInfoRef.current = {
+      initialDayIso: initial.dayIso,
+      initialHour: initial.hour,
+      initialMinute: initial.minute,
+    }
+    dragTargetRef.current = initial
+    setDraggingId(a.id)
+    setDragTarget(initial)
+  }
+
+  async function commitDrag(
+    id: string,
+    target: { dayIso: string; hour: number; minute: number }
+  ) {
+    const original = appointments.find((a) => a.id === id)
+    const day = days.find((d) => d.toISOString() === target.dayIso)
+    if (!original || !day) return
+
+    const durationMs =
+      new Date(original.end_time).getTime() - new Date(original.start_time).getTime()
+    const newStart = new Date(day)
+    newStart.setHours(target.hour, target.minute, 0, 0)
+    const newEnd = new Date(newStart.getTime() + durationMs)
+
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? { ...a, start_time: newStart.toISOString(), end_time: newEnd.toISOString() }
+          : a
+      )
+    )
+
+    try {
+      const res = await fetch(`/api/appointments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead_name: original.lead_name,
+          lead_email: original.lead_email,
+          lead_phone: original.lead_phone,
+          lead_company: original.lead_company,
+          assigned_closer_id: original.assigned_closer_id,
+          start_time: newStart.toISOString(),
+          end_time: newEnd.toISOString(),
+          status: original.status,
+          notes: original.notes,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error al mover la cita')
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === id ? (data as AppointmentWithPeople) : a))
+      )
+      toast.success('Cita reagendada')
+    } catch (err) {
+      console.error('Error moving appointment:', err)
+      toast.error('No se pudo mover la cita')
+      setAppointments((prev) => prev.map((a) => (a.id === id ? original : a)))
+    }
+  }
+
+  // Escucha global de puntero mientras se arrastra una cita
+  useEffect(() => {
+    if (!draggingId) return
+    const currentId = draggingId
+
+    function onMove(e: PointerEvent) {
+      const slot = pointerToSlot(e.clientX, e.clientY)
+      if (!slot) return
+      const dayIso = days[slot.dayIndex].toISOString()
+      const prev = dragTargetRef.current
+      if (prev && prev.dayIso === dayIso && prev.hour === slot.hour && prev.minute === slot.minute) {
+        return
+      }
+      const next = { dayIso, hour: slot.hour, minute: slot.minute }
+      dragTargetRef.current = next
+      setDragTarget(next)
+    }
+
+    function onUp() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.userSelect = ''
+
+      const info = dragInfoRef.current
+      const target = dragTargetRef.current
+      const moved = !!(
+        info &&
+        target &&
+        (target.dayIso !== info.initialDayIso ||
+          target.hour !== info.initialHour ||
+          target.minute !== info.initialMinute)
+      )
+
+      dragInfoRef.current = null
+      dragTargetRef.current = null
+      setDraggingId(null)
+      setDragTarget(null)
+
+      if (moved && target) {
+        justDraggedRef.current = true
+        commitDrag(currentId, target)
+      }
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    document.body.style.userSelect = 'none'
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.userSelect = ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingId, days])
 
   function upsertLocal(appt: AppointmentWithPeople) {
     setAppointments((prev) => {
@@ -370,6 +531,7 @@ export function AgendaCalendar({
                 exit={{ opacity: 0, x: direction > 0 ? -24 : 24 }}
                 transition={{ duration: 0.2, ease: 'easeOut' }}
                 className="grid grid-cols-[60px_repeat(7,1fr)]"
+                ref={daysGridRef}
               >
                 {/* Columna de horas */}
                 <div className="relative">
@@ -389,11 +551,14 @@ export function AgendaCalendar({
                   const positioned = layoutForDay(day)
                   const showNowLine = isToday(day) && nowLineTop !== null
                   const dayIso = day.toISOString()
-                  const isHoveredDay = hoverSlot?.dayIso === dayIso
+                  const isHoveredDay = !draggingId && hoverSlot?.dayIso === dayIso
                   const hoverTop = isHoveredDay
                     ? ((hoverSlot!.hour - DAY_START) * 60 + hoverSlot!.minute) / 60 *
                       HOUR_HEIGHT
                     : null
+                  const draggingAppt =
+                    draggingId ? appointments.find((a) => a.id === draggingId) : null
+                  const isDropTargetDay = draggingId && dragTarget?.dayIso === dayIso
 
                   return (
                     <div
@@ -401,12 +566,17 @@ export function AgendaCalendar({
                       className="relative border-l border-white/5 cursor-pointer"
                       style={{ height: HOURS.length * HOUR_HEIGHT }}
                       onMouseMove={(e) => {
+                        if (draggingId) return
                         const rect = e.currentTarget.getBoundingClientRect()
                         const { hour, minute } = timeFromOffsetY(e.clientY - rect.top)
                         setHoverSlot({ dayIso, hour, minute })
                       }}
                       onMouseLeave={() => setHoverSlot(null)}
                       onClick={(e) => {
+                        if (justDraggedRef.current) {
+                          justDraggedRef.current = false
+                          return
+                        }
                         const rect = e.currentTarget.getBoundingClientRect()
                         const { hour, minute } = timeFromOffsetY(e.clientY - rect.top)
                         handleSlotClick(day, hour, minute)
@@ -454,6 +624,7 @@ export function AgendaCalendar({
                       )}
 
                       {positioned.map(({ event: a, col, totalCols }) => {
+                        if (a.id === draggingId) return null // se sustituye por el "fantasma"
                         const { top, height } = positionFor(a)
                         const color = a.is_external
                           ? '#7C8493'
@@ -464,6 +635,8 @@ export function AgendaCalendar({
                         const widthPct = 100 / totalCols
                         const leftPct = col * widthPct
                         const compact = height < 40
+                        const canDrag =
+                          !a.is_external && (isAdmin || a.comercial_id === currentUser.id)
 
                         return (
                           <motion.button
@@ -477,8 +650,13 @@ export function AgendaCalendar({
                               boxShadow: '0 8px 20px -6px rgba(0,0,0,0.5)',
                             }}
                             transition={{ duration: 0.15 }}
+                            onPointerDown={(e) => handleDragStart(e, a)}
                             onClick={(e) => {
                               e.stopPropagation()
+                              if (justDraggedRef.current) {
+                                justDraggedRef.current = false
+                                return
+                              }
                               setSheet({ mode: 'edit', appointment: a })
                             }}
                             style={{
@@ -486,6 +664,7 @@ export function AgendaCalendar({
                               height,
                               left: `calc(${leftPct}% + 2px)`,
                               width: `calc(${widthPct}% - 4px)`,
+                              touchAction: 'none',
                               border: a.is_external
                                 ? '1.5px dashed rgba(124,132,147,0.5)'
                                 : `1.5px solid ${color}`,
@@ -501,7 +680,7 @@ export function AgendaCalendar({
                             }}
                             className={`absolute rounded-lg px-2 py-1 text-left overflow-hidden z-10 ${
                               cancelled ? 'opacity-45' : ''
-                            }`}
+                            } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
                           >
                             <div
                               className={`flex items-center gap-1 text-[11px] font-semibold text-white truncate ${
@@ -529,6 +708,45 @@ export function AgendaCalendar({
                           </motion.button>
                         )
                       })}
+
+                      {isDropTargetDay && dragTarget && draggingAppt && (
+                        <div
+                          className="absolute left-1 right-1 rounded-lg px-2 py-1 z-40 pointer-events-none border-2 border-dashed"
+                          style={{
+                            top: topForSlot(dragTarget.hour, dragTarget.minute),
+                            height: Math.max(
+                              ((new Date(draggingAppt.end_time).getTime() -
+                                new Date(draggingAppt.start_time).getTime()) /
+                                60000 /
+                                60) *
+                                HOUR_HEIGHT,
+                              26
+                            ),
+                            borderColor: draggingAppt.comercial
+                              ? colorForAgent(
+                                  draggingAppt.comercial.id,
+                                  draggingAppt.comercial.calendar_color
+                                )
+                              : '#FF6600',
+                            background: `${
+                              draggingAppt.comercial
+                                ? colorForAgent(
+                                    draggingAppt.comercial.id,
+                                    draggingAppt.comercial.calendar_color
+                                  )
+                                : '#FF6600'
+                            }33`,
+                          }}
+                        >
+                          <div className="text-[11px] font-semibold text-white truncate">
+                            {draggingAppt.lead_name}
+                          </div>
+                          <div className="text-[10px] text-white/70 tabular-nums">
+                            {String(dragTarget.hour).padStart(2, '0')}:
+                            {String(dragTarget.minute).padStart(2, '0')}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
