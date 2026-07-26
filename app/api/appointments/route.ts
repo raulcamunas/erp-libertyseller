@@ -5,7 +5,7 @@ import {
   createGoogleEvent,
   getCalendarId,
 } from '@/lib/google-calendar'
-import { buildAppointmentSummary } from '@/lib/appointments-sync'
+import { buildAppointmentSummary, buildAppointmentDescription } from '@/lib/appointments-sync'
 import { CreateAppointmentPayload } from '@/lib/types/appointments'
 
 const SELECT_WITH_PEOPLE = `
@@ -74,13 +74,7 @@ export async function POST(request: NextRequest) {
       // compartido, no necesitan invitación.
       const gEvent = await createGoogleEvent({
         summary: buildAppointmentSummary(inserted.lead_name),
-        description:
-          `Agendada por: ${inserted.comercial?.full_name || inserted.comercial?.email || ''}\n` +
-          (inserted.assigned_closer
-            ? `Closer asignado: ${inserted.assigned_closer.full_name || inserted.assigned_closer.email}\n`
-            : '') +
-          (inserted.lead_phone ? `Tel: ${inserted.lead_phone}\n` : '') +
-          (inserted.notes ? `\n${inserted.notes}` : ''),
+        description: buildAppointmentDescription(),
         start: inserted.start_time,
         end: inserted.end_time,
         attendeeEmails: [inserted.lead_email].filter(Boolean) as string[],

@@ -10,6 +10,20 @@ export function buildAppointmentSummary(leadName: string): string {
 }
 
 /**
+ * Descripción del evento en Google Calendar. El lead ve este texto en
+ * la invitación, así que es contenido de cara al cliente, sin datos
+ * internos (quién agendó, teléfono, notas del equipo).
+ */
+export function buildAppointmentDescription(): string {
+  return (
+    'Durante la sesión analizaremos el rendimiento general, identificaremos ' +
+    'oportunidades de mejora y definiremos acciones estratégicas con el ' +
+    'objetivo de presentarte una propuesta de colaboración alineada con tus ' +
+    'necesidades comerciales.'
+  )
+}
+
+/**
  * Aplica una lista de eventos de Google Calendar sobre la tabla
  * `appointments`. Usado tanto por el import inicial (full sync) como
  * por el webhook incremental, para no duplicar la lógica.

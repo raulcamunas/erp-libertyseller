@@ -7,7 +7,7 @@ import {
   deleteGoogleEvent,
   getCalendarId,
 } from '@/lib/google-calendar'
-import { buildAppointmentSummary } from '@/lib/appointments-sync'
+import { buildAppointmentSummary, buildAppointmentDescription } from '@/lib/appointments-sync'
 import { CreateAppointmentPayload } from '@/lib/types/appointments'
 
 const SELECT_WITH_PEOPLE = `
@@ -67,13 +67,7 @@ export async function PUT(
       // comerciales no son buzones reales de Workspace (ver route.ts).
       const eventInput = {
         summary: buildAppointmentSummary(updated.lead_name),
-        description:
-          `Agendada por: ${updated.comercial?.full_name || updated.comercial?.email || ''}\n` +
-          (updated.assigned_closer
-            ? `Closer asignado: ${updated.assigned_closer.full_name || updated.assigned_closer.email}\n`
-            : '') +
-          (updated.lead_phone ? `Tel: ${updated.lead_phone}\n` : '') +
-          (updated.notes ? `\n${updated.notes}` : ''),
+        description: buildAppointmentDescription(),
         start: updated.start_time,
         end: updated.end_time,
         attendeeEmails: [updated.lead_email].filter(Boolean) as string[],
