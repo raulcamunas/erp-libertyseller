@@ -14,7 +14,23 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { LibertyButton } from '@/components/ui/LibertyButton'
-import { X, Trash2, Phone, Mail, Building2, User, Lock, Video, Clock3, Check } from 'lucide-react'
+import {
+  X,
+  Trash2,
+  Phone,
+  Mail,
+  Building2,
+  User,
+  Lock,
+  Video,
+  Clock3,
+  Check,
+  Euro,
+  CalendarClock,
+  Link2 as LinkIcon,
+  Mic,
+  MessageSquare,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import {
@@ -26,6 +42,8 @@ import {
   colorForAgent,
 } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
+import { AudioRecordingField } from './AudioRecordingField'
+import { CommentsThread } from './CommentsThread'
 
 interface AppointmentSheetProps {
   mode: 'create' | 'edit'
@@ -140,6 +158,15 @@ export function AppointmentSheet({
     appointment?.status ?? 'scheduled'
   )
   const [notes, setNotes] = useState(appointment?.notes ?? '')
+  const [revenueAmount, setRevenueAmount] = useState(
+    appointment?.revenue_amount != null ? String(appointment.revenue_amount) : ''
+  )
+  const [callDate, setCallDate] = useState(appointment?.call_date ?? '')
+  const [amazonLink, setAmazonLink] = useState(appointment?.amazon_link ?? '')
+  const [recordingUrl, setRecordingUrl] = useState(appointment?.recording_url ?? null)
+  const [recordingFilename, setRecordingFilename] = useState(
+    appointment?.recording_filename ?? null
+  )
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -180,6 +207,9 @@ export function AppointmentSheet({
         end_time: end.toISOString(),
         status,
         notes: notes.trim() || null,
+        revenue_amount: revenueAmount.trim() ? Number(revenueAmount.replace(',', '.')) : null,
+        call_date: callDate || null,
+        amazon_link: amazonLink.trim() || null,
       }
 
       const res = await fetch(
@@ -513,8 +543,77 @@ export function AppointmentSheet({
             </div>
           </Section>
 
+          {/* Datos comerciales */}
+          <Section
+            icon={<Euro className="h-3.5 w-3.5 text-[#FF6600]" />}
+            title="DATOS COMERCIALES"
+            index={3}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-white/40 flex items-center gap-1">
+                  <Euro className="h-3 w-3" /> Facturación
+                </Label>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={revenueAmount}
+                  onChange={(e) => setRevenueAmount(e.target.value)}
+                  disabled={!canEdit}
+                  className="input-glass mt-1"
+                  placeholder="0,00"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-white/40 flex items-center gap-1">
+                  <CalendarClock className="h-3 w-3" /> Fecha de la llamada
+                </Label>
+                <Input
+                  type="date"
+                  value={callDate}
+                  onChange={(e) => setCallDate(e.target.value)}
+                  disabled={!canEdit}
+                  className="input-glass mt-1"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-white/40 flex items-center gap-1">
+                <LinkIcon className="h-3 w-3" /> Link Amazon
+              </Label>
+              <Input
+                value={amazonLink}
+                onChange={(e) => setAmazonLink(e.target.value)}
+                disabled={!canEdit}
+                className="input-glass mt-1"
+                placeholder="https://amazon.es/..."
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-white/40 flex items-center gap-1 mb-1.5">
+                <Mic className="h-3 w-3" /> Grabación de la llamada
+              </Label>
+              {mode === 'edit' && appointment ? (
+                <AudioRecordingField
+                  appointmentId={appointment.id}
+                  recordingUrl={recordingUrl}
+                  recordingFilename={recordingFilename}
+                  canEdit={canEdit}
+                  onChange={(url, filename) => {
+                    setRecordingUrl(url)
+                    setRecordingFilename(filename)
+                  }}
+                />
+              ) : (
+                <p className="text-xs text-white/30">
+                  Podrás subir la grabación una vez agendada la cita.
+                </p>
+              )}
+            </div>
+          </Section>
+
           {/* Notas */}
-          <Section title="NOTAS DE LA CITA" index={3}>
+          <Section title="NOTAS DE LA CITA" index={4}>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -523,6 +622,17 @@ export function AppointmentSheet({
               className="input-glass min-h-[130px] resize-none"
             />
           </Section>
+
+          {/* Comentarios */}
+          {mode === 'edit' && appointment && (
+            <Section
+              icon={<MessageSquare className="h-3.5 w-3.5 text-[#FF6600]" />}
+              title="COMENTARIOS"
+              index={5}
+            >
+              <CommentsThread appointmentId={appointment.id} currentUser={currentUser} />
+            </Section>
+          )}
         </div>
 
         {/* Acciones */}

@@ -48,6 +48,9 @@ export async function PUT(
       status: body.status,
       title: body.title ?? null,
       notes: body.notes ?? null,
+      revenue_amount: body.revenue_amount ?? null,
+      call_date: body.call_date ?? null,
+      amazon_link: body.amazon_link ?? null,
       updated_source: 'erp',
       sync_status: isGoogleConfigured() ? 'pending' : 'local',
     })

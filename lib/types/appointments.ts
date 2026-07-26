@@ -31,6 +31,13 @@ export interface Appointment {
   notes: string | null
   details: Record<string, unknown>
 
+  /** Datos comerciales del lead (rellenados tras la llamada) */
+  revenue_amount: number | null
+  call_date: string | null
+  amazon_link: string | null
+  recording_url: string | null
+  recording_filename: string | null
+
   google_event_id: string | null
   google_calendar_id: string | null
   google_html_link: string | null
@@ -74,6 +81,28 @@ export interface CreateAppointmentPayload {
   title?: string | null
   notes?: string | null
   details?: Record<string, unknown>
+  revenue_amount?: number | null
+  call_date?: string | null
+  amazon_link?: string | null
+  recording_url?: string | null
+  recording_filename?: string | null
+}
+
+/** Perfil mínimo del autor de un comentario */
+export interface CommentAuthor {
+  id: string
+  full_name: string | null
+  email: string | null
+  calendar_color: string | null
+}
+
+export interface AppointmentComment {
+  id: string
+  appointment_id: string
+  author_id: string
+  body: string
+  created_at: string
+  author?: CommentAuthor | null
 }
 
 export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
