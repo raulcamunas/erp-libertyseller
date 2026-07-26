@@ -22,13 +22,16 @@ import {
   Video,
   Link2,
   Table2,
+  Clock3 as ClockIcon,
 } from 'lucide-react'
 import { AppointmentSheet } from './AppointmentSheet'
+import { AvailabilitySettings } from './AvailabilitySettings'
 import {
   AppointmentWithPeople,
   CalendarPerson,
   colorForAgent,
 } from '@/lib/types/appointments'
+import { AvailabilityWindow, parseTimeToHourMinute } from '@/lib/types/availability'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { layoutOverlappingEvents } from '@/lib/calendar-layout'
 
@@ -36,6 +39,7 @@ interface AgendaCalendarProps {
   initialAppointments: AppointmentWithPeople[]
   team: CalendarPerson[]
   currentUser: UserProfile
+  initialAvailabilityWindows?: AvailabilityWindow[]
 }
 
 const DAY_START = 8 // 08:00
@@ -55,6 +59,7 @@ export function AgendaCalendar({
   initialAppointments,
   team,
   currentUser,
+  initialAvailabilityWindows,
 }: AgendaCalendarProps) {
   const supabase = createClient()
   const [appointments, setAppointments] = useState<AppointmentWithPeople[]>(
@@ -78,6 +83,10 @@ export function AgendaCalendar({
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
   const gridRef = useRef<HTMLDivElement>(null)
   const daysGridRef = useRef<HTMLDivElement>(null)
+  const [availabilityWindows, setAvailabilityWindows] = useState<AvailabilityWindow[]>(
+    initialAvailabilityWindows ?? []
+  )
+  const [showAvailabilitySettings, setShowAvailabilitySettings] = useState(false)
 
   // ── Drag & drop de citas ──────────────────────────────────────────────
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -414,6 +423,14 @@ export function AgendaCalendar({
         </div>
 
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              onClick={() => setShowAvailabilitySettings(true)}
+              className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+            >
+              <ClockIcon className="h-4 w-4" /> Mi disponibilidad
+            </button>
+          )}
           <Link
             href="/dashboard/agenda/desglose"
             className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
@@ -571,6 +588,26 @@ export function AgendaCalendar({
                           />
                         </div>
                       ))}
+
+                      {/* Franjas de disponibilidad (banda visual, informativa) */}
+                      {availabilityWindows
+                        .filter((w) => w.days_of_week.includes(day.getDay()))
+                        .map((w) => {
+                          const start = parseTimeToHourMinute(w.start_time)
+                          const end = parseTimeToHourMinute(w.end_time)
+                          const top = topForSlot(start.hour, start.minute)
+                          const height =
+                            (((end.hour - start.hour) * 60 + (end.minute - start.minute)) /
+                              60) *
+                            HOUR_HEIGHT
+                          return (
+                            <div
+                              key={w.id}
+                              className="absolute left-0 right-0 bg-emerald-500/[0.06] border-y border-emerald-500/20 pointer-events-none"
+                              style={{ top, height }}
+                            />
+                          )
+                        })}
 
                       {isHoveredDay && hoverTop !== null && (
                         <div
@@ -747,6 +784,15 @@ export function AgendaCalendar({
           />
         )}
       </AnimatePresence>
+
+      {showAvailabilitySettings && (
+        <AvailabilitySettings
+          currentUser={currentUser}
+          windows={availabilityWindows}
+          onClose={() => setShowAvailabilitySettings(false)}
+          onChange={setAvailabilityWindows}
+        />
+      )}
     </div>
   )
 }
