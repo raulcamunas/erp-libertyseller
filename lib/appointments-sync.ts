@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { calendar_v3 } from '@googleapis/calendar'
+import { incrementalSync, getCalendarId } from '@/lib/google-calendar'
 
 /**
  * Título de la cita en Google Calendar. El nombre del lead es la parte
@@ -121,4 +122,39 @@ export async function applyGoogleEventsToErp(
   }
 
   return { updated, imported, cancelled }
+}
+
+/**
+ * Ciclo completo de sincronización: lee el syncToken guardado, pide a
+ * Google los cambios desde entonces (o una carga inicial si no hay
+ * token todavía), los aplica al ERP y guarda el nuevo token. Usado por
+ * el webhook de Google y por el cron de sync periódico — así el
+ * calendario del ERP nunca se queda desactualizado sin depender de que
+ * nadie pulse un botón.
+ */
+export async function runSyncCycle(svc: SupabaseClient) {
+  const calendarId = getCalendarId()
+
+  const { data: syncRow } = await svc
+    .from('google_calendar_sync')
+    .select('sync_token')
+    .eq('calendar_id', calendarId)
+    .maybeSingle()
+
+  let result = await incrementalSync(syncRow?.sync_token ?? null)
+  if (result.needsFullSync) {
+    result = await incrementalSync(null)
+  }
+
+  const stats = await applyGoogleEventsToErp(svc, result.events)
+
+  if (result.nextSyncToken) {
+    await svc.from('google_calendar_sync').upsert({
+      calendar_id: calendarId,
+      sync_token: result.nextSyncToken,
+      updated_at: new Date().toISOString(),
+    })
+  }
+
+  return stats
 }

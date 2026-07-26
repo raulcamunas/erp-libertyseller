@@ -18,7 +18,6 @@ import {
   ChevronRight,
   Plus,
   Calendar as CalIcon,
-  RefreshCw,
   Video,
   Link2,
 } from 'lucide-react'
@@ -68,7 +67,6 @@ export function AgendaCalendar({
     | { mode: 'edit'; appointment: AppointmentWithPeople }
     | null
   >(null)
-  const [importing, setImporting] = useState(false)
   const [hoverSlot, setHoverSlot] = useState<{
     dayIso: string
     hour: number
@@ -102,24 +100,6 @@ export function AgendaCalendar({
     const offset = Math.max(0, (h - DAY_START - 1) * HOUR_HEIGHT)
     gridRef.current.scrollTop = offset
   }, [])
-
-  async function handleImportFromGoogle() {
-    setImporting(true)
-    try {
-      const res = await fetch('/api/appointments/google-import', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Error al importar')
-      toast.success(
-        `Importado de Google: ${data.imported} nuevos, ${data.updated} actualizados`
-      )
-      window.location.reload()
-    } catch (err) {
-      console.error('Error importando de Google:', err)
-      toast.error((err as Error).message || 'Error al importar de Google Calendar')
-    } finally {
-      setImporting(false)
-    }
-  }
 
   // Leyenda: solo los comerciales (filtrados en el servidor), no cualquiera
   // que haya agendado una cita (p.ej. un admin haciendo una prueba).
@@ -432,19 +412,6 @@ export function AgendaCalendar({
         </div>
 
         <div className="flex items-center gap-2">
-          {isAdmin && (
-            <motion.button
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleImportFromGoogle}
-              disabled={importing}
-              title="Trae a este calendario los eventos que ya existían en Google Calendar"
-              className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors disabled:opacity-60"
-            >
-              <RefreshCw className={`h-4 w-4 ${importing ? 'animate-spin' : ''}`} />
-              {importing ? 'Importando…' : 'Importar de Google'}
-            </motion.button>
-          )}
           <motion.button
             whileHover={{ y: -1, boxShadow: '0 8px 24px -4px rgba(255,102,0,0.45)' }}
             whileTap={{ scale: 0.97 }}
