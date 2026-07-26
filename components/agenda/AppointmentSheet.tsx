@@ -629,7 +629,7 @@ export function AppointmentSheet({
                 variant="outline"
                 onClick={handleDelete}
                 disabled={deleting}
-                className="h-9 w-9 flex-shrink-0 rounded-lg border-red-500/25 text-red-300 hover:bg-red-500/10 hover:border-red-500/40"
+                className="h-9 w-9 p-0 flex-shrink-0 rounded-lg border-red-500/25 text-red-300 hover:bg-red-500/10 hover:border-red-500/40"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -637,14 +637,14 @@ export function AppointmentSheet({
             <Button
               variant="outline"
               onClick={onClose}
-              className="flex-1 h-9 rounded-lg text-sm"
+              className="flex-1 h-9 py-0 px-4 rounded-lg text-sm normal-case tracking-normal font-semibold"
             >
               Cancelar
             </Button>
             <LibertyButton
               onClick={handleSave}
               disabled={saving}
-              className="flex-1 h-9 rounded-lg text-sm"
+              className="flex-1 h-9 py-0 px-4 mt-0 rounded-lg text-sm flex items-center justify-center"
             >
               {saving ? 'Guardando...' : mode === 'create' ? 'Agendar cita' : 'Guardar'}
             </LibertyButton>
