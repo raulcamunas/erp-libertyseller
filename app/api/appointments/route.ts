@@ -67,18 +67,23 @@ export async function POST(request: NextRequest) {
   // 2) Empujar a Google Calendar (si está configurado)
   if (isGoogleConfigured()) {
     try {
-      const closerEmail = inserted.assigned_closer?.email as string | undefined
+      // Solo se invita al lead real. Los emails de los comerciales
+      // (jose@, yamila@...) son logins internos del ERP, no buzones
+      // reales de Workspace: invitarlos hacía rebotar el correo a
+      // business@. Los comerciales ya ven la cita en el calendario
+      // compartido, no necesitan invitación.
       const gEvent = await createGoogleEvent({
         summary: buildAppointmentSummary(inserted.lead_name),
         description:
           `Agendada por: ${inserted.comercial?.full_name || inserted.comercial?.email || ''}\n` +
+          (inserted.assigned_closer
+            ? `Closer asignado: ${inserted.assigned_closer.full_name || inserted.assigned_closer.email}\n`
+            : '') +
           (inserted.lead_phone ? `Tel: ${inserted.lead_phone}\n` : '') +
           (inserted.notes ? `\n${inserted.notes}` : ''),
         start: inserted.start_time,
         end: inserted.end_time,
-        attendeeEmails: [inserted.lead_email, closerEmail].filter(
-          Boolean
-        ) as string[],
+        attendeeEmails: [inserted.lead_email].filter(Boolean) as string[],
         erpAppointmentId: inserted.id,
         colorId: googleColorId(inserted.comercial_id!),
         addMeet: true,

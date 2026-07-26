@@ -63,16 +63,20 @@ export async function PUT(
   // 2) Sincronizar con Google
   if (isGoogleConfigured()) {
     try {
-      const closerEmail = updated.assigned_closer?.email as string | undefined
+      // Solo se invita al lead real; los emails internos de los
+      // comerciales no son buzones reales de Workspace (ver route.ts).
       const eventInput = {
         summary: buildAppointmentSummary(updated.lead_name),
         description:
           `Agendada por: ${updated.comercial?.full_name || updated.comercial?.email || ''}\n` +
+          (updated.assigned_closer
+            ? `Closer asignado: ${updated.assigned_closer.full_name || updated.assigned_closer.email}\n`
+            : '') +
           (updated.lead_phone ? `Tel: ${updated.lead_phone}\n` : '') +
           (updated.notes ? `\n${updated.notes}` : ''),
         start: updated.start_time,
         end: updated.end_time,
-        attendeeEmails: [updated.lead_email, closerEmail].filter(Boolean) as string[],
+        attendeeEmails: [updated.lead_email].filter(Boolean) as string[],
         erpAppointmentId: updated.id,
         colorId: googleColorId(updated.comercial_id!),
         addMeet: true,
