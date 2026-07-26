@@ -86,11 +86,6 @@ export function AgendaCalendar({
     hour: number
     minute: number
   } | null>(null)
-  const dragInfoRef = useRef<{
-    initialDayIso: string
-    initialHour: number
-    initialMinute: number
-  } | null>(null)
   const dragTargetRef = useRef<typeof dragTarget>(null)
   const justDraggedRef = useRef(false)
 
@@ -238,10 +233,17 @@ export function AgendaCalendar({
     return { dayIndex, hour, minute }
   }
 
+  /**
+   * Arranca en pointerdown pero NO activa el modo "arrastrando" hasta que
+   * el puntero se mueva más de un pequeño umbral. Así un clic normal (sin
+   * mover el ratón) nunca oculta la cita ni interfiere con el onClick que
+   * abre la cajita — solo un arrastre real la convierte en un drag.
+   */
   function handleDragStart(e: React.PointerEvent, a: AppointmentWithPeople) {
     const canDrag = !a.is_external && (isAdmin || a.comercial_id === currentUser.id)
     if (!canDrag) return
     e.stopPropagation()
+
     const start = new Date(a.start_time)
     const dayMatch = days.find((d) => isSameDay(d, start))
     if (!dayMatch) return
@@ -250,14 +252,69 @@ export function AgendaCalendar({
       hour: start.getHours(),
       minute: start.getMinutes(),
     }
-    dragInfoRef.current = {
-      initialDayIso: initial.dayIso,
-      initialHour: initial.hour,
-      initialMinute: initial.minute,
+    const startX = e.clientX
+    const startY = e.clientY
+    const THRESHOLD = 6
+    let isDragging = false
+
+    function beginDrag() {
+      isDragging = true
+      dragTargetRef.current = initial
+      setDraggingId(a.id)
+      setDragTarget(initial)
+      document.body.style.userSelect = 'none'
     }
-    dragTargetRef.current = initial
-    setDraggingId(a.id)
-    setDragTarget(initial)
+
+    function onMove(ev: PointerEvent) {
+      if (!isDragging) {
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        if (Math.hypot(dx, dy) < THRESHOLD) return
+        beginDrag()
+      }
+      const slot = pointerToSlot(ev.clientX, ev.clientY)
+      if (!slot) return
+      const dayIso = days[slot.dayIndex].toISOString()
+      const prev = dragTargetRef.current
+      if (
+        prev &&
+        prev.dayIso === dayIso &&
+        prev.hour === slot.hour &&
+        prev.minute === slot.minute
+      ) {
+        return
+      }
+      const next = { dayIso, hour: slot.hour, minute: slot.minute }
+      dragTargetRef.current = next
+      setDragTarget(next)
+    }
+
+    function onUp() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.userSelect = ''
+
+      if (!isDragging) return // fue un clic normal, no un drag
+
+      const target = dragTargetRef.current
+      dragTargetRef.current = null
+      setDraggingId(null)
+      setDragTarget(null)
+
+      const moved =
+        !!target &&
+        (target.dayIso !== initial.dayIso ||
+          target.hour !== initial.hour ||
+          target.minute !== initial.minute)
+
+      if (moved && target) {
+        justDraggedRef.current = true
+        commitDrag(a.id, target)
+      }
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
   }
 
   async function commitDrag(
@@ -310,61 +367,6 @@ export function AgendaCalendar({
       setAppointments((prev) => prev.map((a) => (a.id === id ? original : a)))
     }
   }
-
-  // Escucha global de puntero mientras se arrastra una cita
-  useEffect(() => {
-    if (!draggingId) return
-    const currentId = draggingId
-
-    function onMove(e: PointerEvent) {
-      const slot = pointerToSlot(e.clientX, e.clientY)
-      if (!slot) return
-      const dayIso = days[slot.dayIndex].toISOString()
-      const prev = dragTargetRef.current
-      if (prev && prev.dayIso === dayIso && prev.hour === slot.hour && prev.minute === slot.minute) {
-        return
-      }
-      const next = { dayIso, hour: slot.hour, minute: slot.minute }
-      dragTargetRef.current = next
-      setDragTarget(next)
-    }
-
-    function onUp() {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      document.body.style.userSelect = ''
-
-      const info = dragInfoRef.current
-      const target = dragTargetRef.current
-      const moved = !!(
-        info &&
-        target &&
-        (target.dayIso !== info.initialDayIso ||
-          target.hour !== info.initialHour ||
-          target.minute !== info.initialMinute)
-      )
-
-      dragInfoRef.current = null
-      dragTargetRef.current = null
-      setDraggingId(null)
-      setDragTarget(null)
-
-      if (moved && target) {
-        justDraggedRef.current = true
-        commitDrag(currentId, target)
-      }
-    }
-
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    document.body.style.userSelect = 'none'
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      document.body.style.userSelect = ''
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draggingId, days])
 
   function upsertLocal(appt: AppointmentWithPeople) {
     setAppointments((prev) => {
