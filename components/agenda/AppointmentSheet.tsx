@@ -443,6 +443,24 @@ export function AppointmentSheet({
             </div>
           </Section>
 
+          {/* Asignación, datos comerciales y notas: bloqueados hasta guardar
+              la cita por primera vez, para que no se rellenen antes de
+              agendarla y luego se pierda al crearla. */}
+          <div className="relative">
+            {mode === 'create' && (
+              <div className="sticky top-16 z-20 flex justify-center pointer-events-none mb-2.5">
+                <div className="pointer-events-none bg-[#171717] border border-white/15 rounded-xl px-3.5 py-2 flex items-center gap-2 shadow-xl">
+                  <Lock className="h-3.5 w-3.5 text-[#FF6600] flex-shrink-0" />
+                  <span className="text-[11px] text-white/80">
+                    Agenda la cita primero para añadir esta información
+                  </span>
+                </div>
+              </div>
+            )}
+            <div
+              className={`space-y-2.5 ${mode === 'create' ? 'blur-[3px] opacity-40 pointer-events-none select-none' : ''}`}
+              aria-hidden={mode === 'create'}
+            >
           {/* Asignación + estado */}
           <Section title="Asignación" index={2}>
             <div className="py-1.5">
@@ -606,6 +624,8 @@ export function AppointmentSheet({
               className="bg-white/[0.03] border-white/10 rounded-lg px-2.5 py-2 text-[13px] min-h-[70px] resize-none mt-1"
             />
           </Section>
+            </div>
+          </div>
 
           {/* Comentarios */}
           {mode === 'edit' && appointment && (
