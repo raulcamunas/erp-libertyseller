@@ -10,8 +10,6 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { LibertyButton } from '@/components/ui/LibertyButton'
 import {
@@ -83,12 +81,17 @@ const STATUS_OPTIONS: AppointmentStatus[] = [
   'no_show',
 ]
 
+// Input "fantasma" al estilo Notion: sin caja visible hasta que se
+// interactúa, para que cada fila ocupe lo mínimo posible.
+const ghostInput =
+  'w-full bg-transparent hover:bg-white/[0.04] focus:bg-white/[0.06] border border-transparent focus:border-white/15 rounded-md px-2 py-1 text-[13px] text-white outline-none transition-colors placeholder:text-white/25 disabled:opacity-50 disabled:hover:bg-transparent'
+
 const sectionVariants = {
-  hidden: { opacity: 0, y: 10 },
+  hidden: { opacity: 0, y: 8 },
   show: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: 0.04 * i, duration: 0.25, ease: 'easeOut' as const },
+    transition: { delay: 0.03 * i, duration: 0.2, ease: 'easeOut' as const },
   }),
 }
 
@@ -109,14 +112,35 @@ function Section({
       variants={sectionVariants}
       initial="hidden"
       animate="show"
-      className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 space-y-3"
+      className="rounded-xl border border-white/10 bg-white/[0.02] p-3"
     >
-      <h3 className="text-[13px] font-semibold text-white/90 flex items-center gap-2 tracking-wide">
+      <h3 className="text-[10px] font-semibold text-white/45 flex items-center gap-1.5 tracking-wider uppercase mb-1.5">
         {icon}
         {title}
       </h3>
-      {children}
+      <div className="divide-y divide-white/[0.04]">{children}</div>
     </motion.div>
+  )
+}
+
+/** Fila de propiedad estilo Notion: icono + etiqueta a la izquierda, valor a la derecha */
+function PropertyRow({
+  icon,
+  label,
+  children,
+}: {
+  icon?: ReactNode
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <div className="w-[104px] flex-shrink-0 flex items-center gap-1.5 text-[12px] text-white/40">
+        {icon}
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
   )
 }
 
@@ -271,30 +295,30 @@ export function AppointmentSheet({
 
   return (
     <Sheet open={true} onOpenChange={onClose}>
-      <SheetContent className="w-full sm:max-w-xl bg-[#0a0a0a] border-l border-white/10 overflow-y-auto p-0">
-        <div className="sticky top-0 z-10 bg-[#0a0a0a]/90 backdrop-blur-xl border-b border-white/[0.06] px-6 pt-6 pb-5">
+      <SheetContent className="w-full sm:max-w-md bg-[#0a0a0a] border-l border-white/10 overflow-y-auto p-0">
+        <div className="sticky top-0 z-10 bg-[#0a0a0a]/90 backdrop-blur-xl border-b border-white/[0.06] px-4 pt-4 pb-2.5">
           <SheetHeader>
             <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3.5">
+              <div className="flex items-center gap-2.5">
                 <div
-                  className="h-11 w-11 rounded-full flex items-center justify-center text-[13px] font-bold text-white flex-shrink-0 shadow-lg"
+                  className="h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0 shadow-lg"
                   style={{
                     background: `linear-gradient(135deg, ${ownerColor}, ${ownerColor}cc)`,
-                    boxShadow: `0 4px 16px -4px ${ownerColor}66`,
+                    boxShadow: `0 4px 12px -4px ${ownerColor}66`,
                   }}
                 >
                   {ownerLabel}
                 </div>
                 <div>
-                  <SheetTitle className="text-xl font-bold text-white leading-tight">
+                  <SheetTitle className="text-[15px] font-bold text-white leading-tight">
                     {mode === 'create' ? 'Nueva cita' : leadName || 'Cita'}
                   </SheetTitle>
-                  <SheetDescription className="text-white/50 text-[13px] mt-0.5">
+                  <SheetDescription className="text-white/45 text-[11px] leading-tight">
                     {isExternal
                       ? 'Evento importado de Google Calendar'
                       : mode === 'edit' && appointment?.comercial
                         ? `Agendada por ${appointment.comercial.full_name || appointment.comercial.email}`
-                        : 'Rellena los datos del lead y la franja horaria'}
+                        : 'Rellena los datos del lead'}
                   </SheetDescription>
                 </div>
               </div>
@@ -302,30 +326,30 @@ export function AppointmentSheet({
                 variant="ghost"
                 size="icon"
                 onClick={onClose}
-                className="h-8 w-8 rounded-full hover:bg-white/10 flex-shrink-0"
+                className="h-6 w-6 rounded-full hover:bg-white/10 flex-shrink-0"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
               </Button>
             </div>
           </SheetHeader>
 
           {mode === 'edit' && appointment && !isExternal && (
             <span
-              className={`mt-3 inline-flex text-[11px] font-semibold px-2.5 py-1 rounded-full border ${APPOINTMENT_STATUS_COLORS[appointment.status]}`}
+              className={`mt-2 inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full border ${APPOINTMENT_STATUS_COLORS[appointment.status]}`}
             >
               {APPOINTMENT_STATUS_LABELS[appointment.status]}
             </span>
           )}
         </div>
 
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-4 py-3 space-y-2.5">
           {!canEdit && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="rounded-2xl border border-white/10 bg-white/[0.03] p-3.5 flex items-center gap-2.5 text-sm text-white/60"
+              className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5 flex items-center gap-2 text-xs text-white/60"
             >
-              <Lock className="h-4 w-4 text-white/40 flex-shrink-0" />
+              <Lock className="h-3.5 w-3.5 text-white/40 flex-shrink-0" />
               {isExternal
                 ? 'Este evento no lo gestiona el ERP: se importó de Google Calendar para que veas el hueco ocupado.'
                 : 'Solo puedes ver esta cita. La agendó otro comercial.'}
@@ -337,121 +361,96 @@ export function AppointmentSheet({
               href={appointment.google_meet_link}
               target="_blank"
               rel="noopener noreferrer"
-              initial={{ opacity: 0, y: 6 }}
+              initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               whileHover={{ y: -1 }}
-              className="flex items-center justify-between gap-2 rounded-2xl border border-[#FF6600]/25 bg-gradient-to-r from-[#FF6600]/[0.12] to-transparent p-3.5 group"
+              className="flex items-center justify-between gap-2 rounded-xl border border-[#FF6600]/25 bg-gradient-to-r from-[#FF6600]/[0.12] to-transparent px-3 py-2 group"
             >
-              <span className="text-sm text-white/80 flex items-center gap-2.5">
-                <span className="h-8 w-8 rounded-full bg-[#FF6600]/15 flex items-center justify-center">
-                  <Video className="h-4 w-4 text-[#FF6600]" />
-                </span>
+              <span className="text-xs text-white/80 flex items-center gap-2">
+                <Video className="h-3.5 w-3.5 text-[#FF6600]" />
                 Videollamada de Google Meet
               </span>
-              <span className="text-sm font-semibold text-[#FF6600] group-hover:underline">
+              <span className="text-xs font-semibold text-[#FF6600] group-hover:underline">
                 Unirse →
               </span>
             </motion.a>
           )}
 
           {/* Datos del lead */}
-          <Section icon={<User className="h-3.5 w-3.5 text-[#FF6600]" />} title="LEAD" index={0}>
-            <div>
-              <Label className="text-xs text-white/40">Nombre *</Label>
-              <Input
+          <Section icon={<User className="h-3 w-3" />} title="Lead" index={0}>
+            <PropertyRow label="Nombre *">
+              <input
                 value={leadName}
                 onChange={(e) => setLeadName(e.target.value)}
                 disabled={!canEdit}
-                className="input-glass mt-1"
+                className={ghostInput}
                 placeholder="Nombre del contacto"
               />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs text-white/40 flex items-center gap-1">
-                  <Mail className="h-3 w-3" /> Email
-                </Label>
-                <Input
-                  value={leadEmail}
-                  onChange={(e) => setLeadEmail(e.target.value)}
-                  disabled={!canEdit}
-                  className="input-glass mt-1"
-                  placeholder="email@empresa.com"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-white/40 flex items-center gap-1">
-                  <Phone className="h-3 w-3" /> Teléfono
-                </Label>
-                <Input
-                  value={leadPhone}
-                  onChange={(e) => setLeadPhone(e.target.value)}
-                  disabled={!canEdit}
-                  className="input-glass mt-1"
-                  placeholder="+34 ..."
-                />
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs text-white/40 flex items-center gap-1">
-                <Building2 className="h-3 w-3" /> Empresa
-              </Label>
-              <Input
+            </PropertyRow>
+            <PropertyRow icon={<Mail className="h-3 w-3" />} label="Email">
+              <input
+                value={leadEmail}
+                onChange={(e) => setLeadEmail(e.target.value)}
+                disabled={!canEdit}
+                className={ghostInput}
+                placeholder="email@empresa.com"
+              />
+            </PropertyRow>
+            <PropertyRow icon={<Phone className="h-3 w-3" />} label="Teléfono">
+              <input
+                value={leadPhone}
+                onChange={(e) => setLeadPhone(e.target.value)}
+                disabled={!canEdit}
+                className={ghostInput}
+                placeholder="+34 ..."
+              />
+            </PropertyRow>
+            <PropertyRow icon={<Building2 className="h-3 w-3" />} label="Empresa">
+              <input
                 value={leadCompany}
                 onChange={(e) => setLeadCompany(e.target.value)}
                 disabled={!canEdit}
-                className="input-glass mt-1"
+                className={ghostInput}
                 placeholder="Empresa"
               />
-            </div>
+            </PropertyRow>
           </Section>
 
           {/* Franja horaria */}
-          <Section icon={<Clock3 className="h-3.5 w-3.5 text-[#FF6600]" />} title="CUÁNDO" index={1}>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label className="text-xs text-white/40">Fecha</Label>
-                <Input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  disabled={!canEdit}
-                  className="input-glass mt-1"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-white/40">Inicio</Label>
-                <Input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  disabled={!canEdit}
-                  className="input-glass mt-1"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-white/40">Fin</Label>
-                <Input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  disabled={!canEdit}
-                  className="input-glass mt-1"
-                />
-              </div>
+          <Section icon={<Clock3 className="h-3 w-3" />} title="Cuándo" index={1}>
+            <div className="grid grid-cols-3 gap-2 py-1">
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                disabled={!canEdit}
+                className={`${ghostInput} text-[12px] px-1.5`}
+              />
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                disabled={!canEdit}
+                className={`${ghostInput} text-[12px] px-1.5`}
+              />
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                disabled={!canEdit}
+                className={`${ghostInput} text-[12px] px-1.5`}
+              />
             </div>
           </Section>
 
           {/* Asignación + estado */}
-          <Section title="ASIGNACIÓN" index={2}>
-            <div>
-              <Label className="text-xs text-white/40 mb-2 block">Closer asignado</Label>
+          <Section title="Asignación" index={2}>
+            <div className="py-1.5">
+              <div className="text-[12px] text-white/40 mb-1.5">Closer asignado</div>
               {closerLocked ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled
-                    className="flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full border text-sm font-medium cursor-default"
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full border text-xs font-medium"
                     style={{
                       borderColor: colorForAgent(currentUser.id, undefined),
                       backgroundColor: `${colorForAgent(currentUser.id, undefined)}22`,
@@ -459,30 +458,30 @@ export function AppointmentSheet({
                     }}
                   >
                     <span
-                      className="h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+                      className="h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
                       style={{ backgroundColor: colorForAgent(currentUser.id, undefined) }}
                     >
                       {initials(currentUser.full_name, currentUser.email || '')}
                     </span>
                     {currentUser.full_name || currentUser.email}
-                  </button>
-                  <span className="text-[11px] text-white/35 flex items-center gap-1">
-                    <Lock className="h-3 w-3" /> Eres tú
+                  </span>
+                  <span className="text-[10px] text-white/35 flex items-center gap-1">
+                    <Lock className="h-2.5 w-2.5" /> Eres tú
                   </span>
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
                     onClick={() => canEdit && setAssignedCloser('none')}
                     disabled={!canEdit}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
+                    className={`flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-all ${
                       assignedCloser === 'none'
                         ? 'border-white/30 bg-white/10 text-white'
                         : 'border-white/10 text-white/40 hover:border-white/20 hover:text-white/70'
                     } ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
-                    {assignedCloser === 'none' && <Check className="h-3.5 w-3.5" />}
+                    {assignedCloser === 'none' && <Check className="h-3 w-3" />}
                     Sin asignar
                   </button>
                   {closers.map((p) => {
@@ -494,7 +493,7 @@ export function AppointmentSheet({
                         type="button"
                         onClick={() => canEdit && setAssignedCloser(p.id)}
                         disabled={!canEdit}
-                        className={`flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
+                        className={`flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full border text-xs font-medium transition-all ${
                           !canEdit ? 'cursor-not-allowed opacity-60' : ''
                         }`}
                         style={{
@@ -504,7 +503,7 @@ export function AppointmentSheet({
                         }}
                       >
                         <span
-                          className="h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0"
+                          className="h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0"
                           style={{ backgroundColor: color, opacity: selected ? 1 : 0.5 }}
                         >
                           {initials(p.full_name, p.email || '')}
@@ -517,9 +516,9 @@ export function AppointmentSheet({
               )}
             </div>
 
-            <div>
-              <Label className="text-xs text-white/40 mb-2 block">Estado</Label>
-              <div className="flex flex-wrap gap-2">
+            <div className="py-1.5">
+              <div className="text-[12px] text-white/40 mb-1.5">Estado</div>
+              <div className="flex flex-wrap gap-1.5">
                 {STATUS_OPTIONS.map((s) => {
                   const selected = status === s
                   return (
@@ -528,13 +527,13 @@ export function AppointmentSheet({
                       type="button"
                       onClick={() => canEdit && setStatus(s)}
                       disabled={!canEdit}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
+                      className={`flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-all ${
                         selected
                           ? APPOINTMENT_STATUS_COLORS[s]
                           : 'border-white/10 text-white/40 bg-transparent hover:border-white/20 hover:text-white/70'
                       } ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
                     >
-                      {selected && <Check className="h-3.5 w-3.5" />}
+                      {selected && <Check className="h-3 w-3" />}
                       {APPOINTMENT_STATUS_LABELS[s]}
                     </button>
                   )
@@ -544,55 +543,40 @@ export function AppointmentSheet({
           </Section>
 
           {/* Datos comerciales */}
-          <Section
-            icon={<Euro className="h-3.5 w-3.5 text-[#FF6600]" />}
-            title="DATOS COMERCIALES"
-            index={3}
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs text-white/40 flex items-center gap-1">
-                  <Euro className="h-3 w-3" /> Facturación
-                </Label>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  value={revenueAmount}
-                  onChange={(e) => setRevenueAmount(e.target.value)}
-                  disabled={!canEdit}
-                  className="input-glass mt-1"
-                  placeholder="0,00"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-white/40 flex items-center gap-1">
-                  <CalendarClock className="h-3 w-3" /> Fecha de la llamada
-                </Label>
-                <Input
-                  type="date"
-                  value={callDate}
-                  onChange={(e) => setCallDate(e.target.value)}
-                  disabled={!canEdit}
-                  className="input-glass mt-1"
-                />
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs text-white/40 flex items-center gap-1">
-                <LinkIcon className="h-3 w-3" /> Link Amazon
-              </Label>
-              <Input
+          <Section icon={<Euro className="h-3 w-3" />} title="Datos comerciales" index={3}>
+            <PropertyRow icon={<Euro className="h-3 w-3" />} label="Facturación">
+              <input
+                type="number"
+                inputMode="decimal"
+                value={revenueAmount}
+                onChange={(e) => setRevenueAmount(e.target.value)}
+                disabled={!canEdit}
+                className={ghostInput}
+                placeholder="0,00"
+              />
+            </PropertyRow>
+            <PropertyRow icon={<CalendarClock className="h-3 w-3" />} label="Fecha llamada">
+              <input
+                type="date"
+                value={callDate}
+                onChange={(e) => setCallDate(e.target.value)}
+                disabled={!canEdit}
+                className={ghostInput}
+              />
+            </PropertyRow>
+            <PropertyRow icon={<LinkIcon className="h-3 w-3" />} label="Link Amazon">
+              <input
                 value={amazonLink}
                 onChange={(e) => setAmazonLink(e.target.value)}
                 disabled={!canEdit}
-                className="input-glass mt-1"
+                className={ghostInput}
                 placeholder="https://amazon.es/..."
               />
-            </div>
-            <div>
-              <Label className="text-xs text-white/40 flex items-center gap-1 mb-1.5">
+            </PropertyRow>
+            <div className="pt-2">
+              <div className="text-[12px] text-white/40 mb-1.5 flex items-center gap-1.5">
                 <Mic className="h-3 w-3" /> Grabación de la llamada
-              </Label>
+              </div>
               {mode === 'edit' && appointment ? (
                 <AudioRecordingField
                   appointmentId={appointment.id}
@@ -605,7 +589,7 @@ export function AppointmentSheet({
                   }}
                 />
               ) : (
-                <p className="text-xs text-white/30">
+                <p className="text-[11px] text-white/30">
                   Podrás subir la grabación una vez agendada la cita.
                 </p>
               )}
@@ -613,52 +597,54 @@ export function AppointmentSheet({
           </Section>
 
           {/* Notas */}
-          <Section title="NOTAS DE LA CITA" index={4}>
+          <Section title="Notas de la cita" index={4}>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={!canEdit}
               placeholder="Contexto del lead, qué se ha hablado, objetivo de la reunión..."
-              className="input-glass min-h-[130px] resize-none"
+              className="bg-white/[0.03] border-white/10 rounded-lg px-2.5 py-2 text-[13px] min-h-[70px] resize-none mt-1"
             />
           </Section>
 
           {/* Comentarios */}
           {mode === 'edit' && appointment && (
             <Section
-              icon={<MessageSquare className="h-3.5 w-3.5 text-[#FF6600]" />}
-              title="COMENTARIOS"
+              icon={<MessageSquare className="h-3 w-3" />}
+              title="Comentarios"
               index={5}
             >
-              <CommentsThread appointmentId={appointment.id} currentUser={currentUser} />
+              <div className="pt-1">
+                <CommentsThread appointmentId={appointment.id} currentUser={currentUser} />
+              </div>
             </Section>
           )}
         </div>
 
         {/* Acciones */}
         {canEdit && (
-          <div className="sticky bottom-0 bg-[#0a0a0a]/90 backdrop-blur-xl border-t border-white/[0.06] px-6 py-4 flex gap-3">
+          <div className="sticky bottom-0 bg-[#0a0a0a]/90 backdrop-blur-xl border-t border-white/[0.06] px-4 py-2.5 flex gap-2">
             {mode === 'edit' && (
               <Button
                 variant="outline"
                 onClick={handleDelete}
                 disabled={deleting}
-                className="h-11 w-11 flex-shrink-0 rounded-xl border-red-500/25 text-red-300 hover:bg-red-500/10 hover:border-red-500/40"
+                className="h-9 w-9 flex-shrink-0 rounded-lg border-red-500/25 text-red-300 hover:bg-red-500/10 hover:border-red-500/40"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             )}
             <Button
               variant="outline"
               onClick={onClose}
-              className="flex-1 h-11 rounded-xl"
+              className="flex-1 h-9 rounded-lg text-sm"
             >
               Cancelar
             </Button>
             <LibertyButton
               onClick={handleSave}
               disabled={saving}
-              className="flex-1 h-11 rounded-xl"
+              className="flex-1 h-9 rounded-lg text-sm"
             >
               {saving ? 'Guardando...' : mode === 'create' ? 'Agendar cita' : 'Guardar'}
             </LibertyButton>

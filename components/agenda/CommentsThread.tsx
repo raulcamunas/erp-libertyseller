@@ -97,33 +97,33 @@ export function CommentsThread({ appointmentId, currentUser }: CommentsThreadPro
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {loading ? (
-        <p className="text-xs text-white/30">Cargando comentarios...</p>
+        <p className="text-[11px] text-white/30">Cargando comentarios...</p>
       ) : comments.length === 0 ? (
-        <p className="text-xs text-white/30">Todavía no hay comentarios.</p>
+        <p className="text-[11px] text-white/30">Todavía no hay comentarios.</p>
       ) : (
-        <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+        <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
           {comments.map((c) => {
             const color = colorForAgent(c.author_id, c.author?.calendar_color)
             return (
-              <div key={c.id} className="flex items-start gap-2.5">
+              <div key={c.id} className="flex items-start gap-2">
                 <span
-                  className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+                  className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0"
                   style={{ backgroundColor: color }}
                 >
                   {initials(c.author?.full_name, c.author?.email || '')}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-xs font-semibold text-white">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[11px] font-semibold text-white">
                       {c.author?.full_name || c.author?.email || 'Alguien'}
                     </span>
                     <span className="text-[10px] text-white/30">
-                      {format(new Date(c.created_at), "d MMM 'a las' HH:mm", { locale: es })}
+                      {format(new Date(c.created_at), "d MMM, HH:mm", { locale: es })}
                     </span>
                   </div>
-                  <p className="text-sm text-white/75 whitespace-pre-wrap break-words">
+                  <p className="text-[12px] text-white/75 whitespace-pre-wrap break-words leading-snug">
                     {c.body}
                   </p>
                 </div>
@@ -133,7 +133,7 @@ export function CommentsThread({ appointmentId, currentUser }: CommentsThreadPro
         </div>
       )}
 
-      <div className="flex items-center gap-2 pt-1">
+      <div className="flex items-center gap-1.5 pt-0.5">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -144,15 +144,15 @@ export function CommentsThread({ appointmentId, currentUser }: CommentsThreadPro
             }
           }}
           placeholder="Añadir un comentario..."
-          className="flex-1 bg-white/[0.05] border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-[#FF6600] transition-colors"
+          className="flex-1 bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-white outline-none focus:border-[#FF6600] transition-colors"
         />
         <button
           type="button"
           onClick={handleSend}
           disabled={sending || !text.trim()}
-          className="h-9 w-9 rounded-xl bg-[#FF6600] flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0"
+          className="h-7 w-7 rounded-lg bg-[#FF6600] flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0"
         >
-          <Send className="h-4 w-4" />
+          <Send className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
