@@ -13,15 +13,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { LibertyButton } from '@/components/ui/LibertyButton'
-import { X, Trash2, Phone, Mail, Building2, User, Lock, Video, Clock3 } from 'lucide-react'
+import { X, Trash2, Phone, Mail, Building2, User, Lock, Video, Clock3, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import {
@@ -132,10 +125,13 @@ export function AppointmentSheet({
   const [leadCompany, setLeadCompany] = useState(appointment?.lead_company ?? '')
   // Si el que agenda es uno de los comerciales, se autoselecciona a sí
   // mismo como closer para evitar que elija a otra persona por error.
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
+  // Un comercial (no admin) siempre agenda a su propio nombre: no puede
+  // elegir a otro closer, por si acaso se equivoca.
   const loggedInIsComercial = team.some((p) => p.id === currentUser.id)
+  const closerLocked = loggedInIsComercial && !isAdmin
   const [assignedCloser, setAssignedCloser] = useState<string>(
-    appointment?.assigned_closer_id ??
-      (mode === 'create' && loggedInIsComercial ? currentUser.id : 'none')
+    closerLocked ? currentUser.id : appointment?.assigned_closer_id ?? 'none'
   )
   const [date, setDate] = useState(toDateInput(initialStart))
   const [startTime, setStartTime] = useState(toTimeInput(initialStart))
@@ -147,7 +143,6 @@ export function AppointmentSheet({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
   const isExternal = appointment?.is_external ?? false
   const canEdit =
     !isExternal &&
@@ -176,7 +171,11 @@ export function AppointmentSheet({
         lead_email: leadEmail.trim() || null,
         lead_phone: leadPhone.trim() || null,
         lead_company: leadCompany.trim() || null,
-        assigned_closer_id: assignedCloser === 'none' ? null : assignedCloser,
+        assigned_closer_id: closerLocked
+          ? currentUser.id
+          : assignedCloser === 'none'
+            ? null
+            : assignedCloser,
         start_time: start.toISOString(),
         end_time: end.toISOString(),
         status,
@@ -416,43 +415,101 @@ export function AppointmentSheet({
           {/* Asignación + estado */}
           <Section title="ASIGNACIÓN" index={2}>
             <div>
-              <Label className="text-xs text-white/40">Closer asignado</Label>
-              <Select
-                value={assignedCloser}
-                onValueChange={setAssignedCloser}
-                disabled={!canEdit}
-              >
-                <SelectTrigger className="input-glass mt-1">
-                  <SelectValue placeholder="Sin asignar" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Sin asignar</SelectItem>
-                  {closers.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.full_name || p.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs text-white/40 mb-2 block">Closer asignado</Label>
+              {closerLocked ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled
+                    className="flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full border text-sm font-medium cursor-default"
+                    style={{
+                      borderColor: colorForAgent(currentUser.id, undefined),
+                      backgroundColor: `${colorForAgent(currentUser.id, undefined)}22`,
+                      color: 'white',
+                    }}
+                  >
+                    <span
+                      className="h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+                      style={{ backgroundColor: colorForAgent(currentUser.id, undefined) }}
+                    >
+                      {initials(currentUser.full_name, currentUser.email || '')}
+                    </span>
+                    {currentUser.full_name || currentUser.email}
+                  </button>
+                  <span className="text-[11px] text-white/35 flex items-center gap-1">
+                    <Lock className="h-3 w-3" /> Eres tú
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => canEdit && setAssignedCloser('none')}
+                    disabled={!canEdit}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
+                      assignedCloser === 'none'
+                        ? 'border-white/30 bg-white/10 text-white'
+                        : 'border-white/10 text-white/40 hover:border-white/20 hover:text-white/70'
+                    } ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
+                  >
+                    {assignedCloser === 'none' && <Check className="h-3.5 w-3.5" />}
+                    Sin asignar
+                  </button>
+                  {closers.map((p) => {
+                    const color = colorForAgent(p.id, p.calendar_color)
+                    const selected = assignedCloser === p.id
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => canEdit && setAssignedCloser(p.id)}
+                        disabled={!canEdit}
+                        className={`flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
+                          !canEdit ? 'cursor-not-allowed opacity-60' : ''
+                        }`}
+                        style={{
+                          borderColor: selected ? color : 'rgba(255,255,255,0.1)',
+                          backgroundColor: selected ? `${color}26` : 'transparent',
+                          color: selected ? 'white' : 'rgba(255,255,255,0.5)',
+                        }}
+                      >
+                        <span
+                          className="h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0"
+                          style={{ backgroundColor: color, opacity: selected ? 1 : 0.5 }}
+                        >
+                          {initials(p.full_name, p.email || '')}
+                        </span>
+                        {p.full_name || p.email}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
+
             <div>
-              <Label className="text-xs text-white/40">Estado</Label>
-              <Select
-                value={status}
-                onValueChange={(v) => setStatus(v as AppointmentStatus)}
-                disabled={!canEdit}
-              >
-                <SelectTrigger className="input-glass mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_OPTIONS.map((s) => (
-                    <SelectItem key={s} value={s}>
+              <Label className="text-xs text-white/40 mb-2 block">Estado</Label>
+              <div className="flex flex-wrap gap-2">
+                {STATUS_OPTIONS.map((s) => {
+                  const selected = status === s
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => canEdit && setStatus(s)}
+                      disabled={!canEdit}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
+                        selected
+                          ? APPOINTMENT_STATUS_COLORS[s]
+                          : 'border-white/10 text-white/40 bg-transparent hover:border-white/20 hover:text-white/70'
+                      } ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
+                    >
+                      {selected && <Check className="h-3.5 w-3.5" />}
                       {APPOINTMENT_STATUS_LABELS[s]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </Section>
 
