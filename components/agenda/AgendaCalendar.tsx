@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -55,6 +55,19 @@ function initials(name: string | null | undefined, fallback: string) {
   return (parts[0][0] + parts[1][0]).toUpperCase()
 }
 
+/** Estado de presencia: quién está rellenando/editando qué en este momento */
+interface PresenceEntry {
+  userId: string
+  fullName: string | null
+  email: string | null
+  color: string
+  mode: 'create' | 'edit'
+  dayIso?: string
+  hour?: number
+  minute?: number
+  appointmentId?: string
+}
+
 export function AgendaCalendar({
   initialAppointments,
   team,
@@ -87,6 +100,10 @@ export function AgendaCalendar({
     initialAvailabilityWindows ?? []
   )
   const [showAvailabilitySettings, setShowAvailabilitySettings] = useState(false)
+
+  // ── Presencia en vivo: quién está creando/editando una cita ahora mismo ──
+  const [presenceList, setPresenceList] = useState<PresenceEntry[]>([])
+  const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   // ── Drag & drop de citas ──────────────────────────────────────────────
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -154,10 +171,73 @@ export function AgendaCalendar({
     }
   }, [supabase])
 
+  // Canal de presencia compartido por todo el equipo: quién está creando
+  // o editando una cita ahora mismo, para evitar solapamientos.
+  useEffect(() => {
+    const channel = supabase.channel('agenda-presence', {
+      config: { presence: { key: currentUser.id } },
+    })
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState<PresenceEntry>()
+        const entries = Object.values(state)
+          .flat()
+          .filter((p) => p.userId !== currentUser.id)
+        setPresenceList(entries)
+      })
+      .subscribe()
+    presenceChannelRef.current = channel
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, currentUser.id])
+
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   )
+
+  // Anuncia al resto del equipo qué se está rellenando ahora mismo (o
+  // deja de anunciarlo al cerrar la cajita).
+  useEffect(() => {
+    const channel = presenceChannelRef.current
+    if (!channel) return
+
+    if (!sheet) {
+      channel.untrack()
+      return
+    }
+
+    const color = colorForAgent(currentUser.id)
+    if (sheet.mode === 'create') {
+      const start = toMadrid(sheet.prefill.start)
+      const dayMatch = days.find((d) => isSameDay(d, start))
+      channel.track({
+        userId: currentUser.id,
+        fullName: currentUser.full_name,
+        email: currentUser.email,
+        color,
+        mode: 'create',
+        dayIso: dayMatch?.toISOString(),
+        hour: start.getHours(),
+        minute: start.getMinutes(),
+      } satisfies PresenceEntry)
+    } else {
+      channel.track({
+        userId: currentUser.id,
+        fullName: currentUser.full_name,
+        email: currentUser.email,
+        color,
+        mode: 'edit',
+        appointmentId: sheet.appointment.id,
+      } satisfies PresenceEntry)
+    }
+
+    return () => {
+      channel.untrack()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet, days, currentUser])
 
   const weekLabel = `${format(weekStart, "d 'de' MMM", { locale: es })} – ${format(
     addDays(weekStart, 6),
@@ -551,6 +631,9 @@ export function AgendaCalendar({
                   const draggingAppt =
                     draggingId ? appointments.find((a) => a.id === draggingId) : null
                   const isDropTargetDay = draggingId && dragTarget?.dayIso === dayIso
+                  const presenceHere = presenceList.filter(
+                    (p) => p.mode === 'create' && p.dayIso === dayIso
+                  )
 
                   return (
                     <div
@@ -607,6 +690,39 @@ export function AgendaCalendar({
                           )
                         })}
 
+                      {/* Alguien más está rellenando una cita nueva a esta hora */}
+                      {presenceHere.map((p) => (
+                        <motion.div
+                          key={p.userId}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="absolute left-1 right-1 z-30 pointer-events-none rounded-lg border-2 border-dashed px-2 py-1 overflow-hidden"
+                          style={{
+                            top: topForSlot(p.hour ?? 0, p.minute ?? 0),
+                            height: HOUR_HEIGHT / 2,
+                            borderColor: p.color,
+                            background: `${p.color}1a`,
+                          }}
+                        >
+                          <div
+                            className="flex items-center gap-1 text-[10px] font-semibold truncate"
+                            style={{ color: p.color }}
+                          >
+                            <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                              <span
+                                className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                                style={{ backgroundColor: p.color }}
+                              />
+                              <span
+                                className="relative inline-flex rounded-full h-1.5 w-1.5"
+                                style={{ backgroundColor: p.color }}
+                              />
+                            </span>
+                            {p.fullName || p.email} agendando...
+                          </div>
+                        </motion.div>
+                      ))}
+
                       {isHoveredDay && hoverTop !== null && (
                         <div
                           className="absolute left-0 right-0 z-30 pointer-events-none"
@@ -649,10 +765,13 @@ export function AgendaCalendar({
                         const compact = height < 40
                         const canDrag =
                           !a.is_external && (isAdmin || a.comercial_id === currentUser.id)
+                        const editorPresence = presenceList.find(
+                          (p) => p.mode === 'edit' && p.appointmentId === a.id
+                        )
 
                         return (
+                          <Fragment key={a.id}>
                           <motion.button
-                            key={a.id}
                             layout
                             initial={{ opacity: 0, scale: 0.96 }}
                             animate={{ opacity: 1, scale: 1 }}
@@ -718,6 +837,29 @@ export function AgendaCalendar({
                               </div>
                             )}
                           </motion.button>
+
+                          {editorPresence && (
+                            <div
+                              className="absolute z-20 pointer-events-none"
+                              style={{
+                                top: top - 3,
+                                left: `calc(${leftPct + widthPct}% - 12px)`,
+                              }}
+                              title={`${editorPresence.fullName || editorPresence.email} está editando esta cita`}
+                            >
+                              <span className="relative flex h-2.5 w-2.5">
+                                <span
+                                  className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                                  style={{ backgroundColor: editorPresence.color }}
+                                />
+                                <span
+                                  className="relative inline-flex rounded-full h-2.5 w-2.5 border-2 border-[#0a0a0a]"
+                                  style={{ backgroundColor: editorPresence.color }}
+                                />
+                              </span>
+                            </div>
+                          )}
+                          </Fragment>
                         )
                       })}
 
