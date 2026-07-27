@@ -30,6 +30,7 @@ import {
   AppointmentWithPeople,
   CalendarPerson,
   colorForAgent,
+  APPOINTMENT_STATUS_COLORS,
 } from '@/lib/types/appointments'
 import { AvailabilityWindow, parseTimeToHourMinute } from '@/lib/types/availability'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -46,6 +47,16 @@ const DAY_START = 8 // 08:00
 const DAY_END = 21 // 21:00
 const HOUR_HEIGHT = 64 // px por hora
 const HOURS = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i)
+
+// Etiquetas cortas para que quepan dentro de la tarjeta del calendario
+const CARD_STATUS_LABELS: Record<string, string> = {
+  scheduled: 'Agendada',
+  confirmed: 'Confirmada',
+  rescheduled: 'Reagendada',
+  no_show: 'No asistió',
+  qualified: 'Cualificada',
+  not_qualified: 'No cualificada',
+}
 
 function initials(name: string | null | undefined, fallback: string) {
   const source = (name || fallback || '?').trim()
@@ -422,6 +433,9 @@ export function AgendaCalendar({
           end_time: newEnd.toISOString(),
           status: original.status,
           notes: original.notes,
+          revenue_amount: original.revenue_amount,
+          call_date: original.call_date,
+          amazon_link: original.amazon_link,
         }),
       })
       const data = await res.json()
@@ -813,18 +827,27 @@ export function AgendaCalendar({
                               cancelled ? 'opacity-45' : ''
                             } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
                           >
-                            <div
-                              className={`flex items-center gap-1 text-[11px] font-semibold text-white truncate ${
-                                cancelled ? 'line-through' : ''
-                              }`}
-                            >
-                              {a.google_meet_link && (
-                                <Video className="h-2.5 w-2.5 flex-shrink-0 text-white/70" />
+                            <div className="flex items-center justify-between gap-1">
+                              <div
+                                className={`flex items-center gap-1 text-[11px] font-semibold text-white truncate min-w-0 ${
+                                  cancelled ? 'line-through' : ''
+                                }`}
+                              >
+                                {a.google_meet_link && (
+                                  <Video className="h-2.5 w-2.5 flex-shrink-0 text-white/70" />
+                                )}
+                                {a.is_external && (
+                                  <Link2 className="h-2.5 w-2.5 flex-shrink-0 text-white/50" />
+                                )}
+                                <span className="truncate">{a.lead_name}</span>
+                              </div>
+                              {!a.is_external && (
+                                <span
+                                  className={`flex-shrink-0 text-[8px] font-semibold px-1 py-0.5 rounded border leading-none whitespace-nowrap ${APPOINTMENT_STATUS_COLORS[a.status]}`}
+                                >
+                                  {CARD_STATUS_LABELS[a.status] ?? a.status}
+                                </span>
                               )}
-                              {a.is_external && (
-                                <Link2 className="h-2.5 w-2.5 flex-shrink-0 text-white/50" />
-                              )}
-                              <span className="truncate">{a.lead_name}</span>
                             </div>
                             {!compact && (
                               <div className="text-[10px] text-white/55 truncate tabular-nums">

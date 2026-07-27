@@ -34,31 +34,46 @@ export async function PUT(
 
   const body = (await request.json()) as Partial<CreateAppointmentPayload>
 
-  // Fecha/hora previas, para saber si esto es un reagendado real (que sí
-  // debe avisar al lead) o solo un cambio interno (notas, estado...).
-  const { data: before } = await supabase
+  // Estado previo completo: hace falta para dos cosas.
+  // 1) Saber si esto es un reagendado real (cambia start/end) o solo un
+  //    cambio interno, para decidir si avisar al lead por email.
+  // 2) MUY IMPORTANTE: un caller (p.ej. el drag-and-drop, que solo
+  //    quiere mover la hora) puede mandar un payload parcial. Cualquier
+  //    campo que NO venga en el body se conserva tal cual estaba —
+  //    nunca se sobreescribe con null solo porque no llegó. Antes esto
+  //    borraba facturación/fecha de llamada/link Amazon al arrastrar
+  //    una cita para reagendarla.
+  const { data: before, error: beforeError } = await supabase
     .from('appointments')
-    .select('start_time, end_time')
+    .select('*')
     .eq('id', params.id)
     .single()
+
+  if (beforeError || !before) {
+    return NextResponse.json({ error: 'Cita no encontrada' }, { status: 404 })
+  }
 
   // 1) Actualizar en Supabase (RLS: solo propias o admin)
   const { data: updated, error } = await supabase
     .from('appointments')
     .update({
-      assigned_closer_id: body.assigned_closer_id ?? null,
-      lead_name: body.lead_name?.trim(),
-      lead_email: body.lead_email ?? null,
-      lead_phone: body.lead_phone ?? null,
-      lead_company: body.lead_company ?? null,
-      start_time: body.start_time,
-      end_time: body.end_time,
-      status: body.status,
-      title: body.title ?? null,
-      notes: body.notes ?? null,
-      revenue_amount: body.revenue_amount ?? null,
-      call_date: body.call_date ?? null,
-      amazon_link: body.amazon_link ?? null,
+      assigned_closer_id:
+        body.assigned_closer_id !== undefined
+          ? body.assigned_closer_id
+          : before.assigned_closer_id,
+      lead_name: body.lead_name !== undefined ? body.lead_name?.trim() : before.lead_name,
+      lead_email: body.lead_email !== undefined ? body.lead_email : before.lead_email,
+      lead_phone: body.lead_phone !== undefined ? body.lead_phone : before.lead_phone,
+      lead_company: body.lead_company !== undefined ? body.lead_company : before.lead_company,
+      start_time: body.start_time ?? before.start_time,
+      end_time: body.end_time ?? before.end_time,
+      status: body.status ?? before.status,
+      title: body.title !== undefined ? body.title : before.title,
+      notes: body.notes !== undefined ? body.notes : before.notes,
+      revenue_amount:
+        body.revenue_amount !== undefined ? body.revenue_amount : before.revenue_amount,
+      call_date: body.call_date !== undefined ? body.call_date : before.call_date,
+      amazon_link: body.amazon_link !== undefined ? body.amazon_link : before.amazon_link,
       updated_source: 'erp',
       sync_status: isGoogleConfigured() ? 'pending' : 'local',
     })
