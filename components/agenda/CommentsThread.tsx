@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { toMadrid } from '@/lib/timezone'
 import { Send } from 'lucide-react'
 import { AppointmentComment, colorForAgent } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -128,7 +129,7 @@ export function CommentsThread({ appointmentId, currentUser }: CommentsThreadPro
                       {c.author?.full_name || c.author?.email || 'Alguien'}
                     </span>
                     <span className="text-[10px] text-white/30">
-                      {format(new Date(c.created_at), "d MMM, HH:mm", { locale: es })}
+                      {format(toMadrid(c.created_at), "d MMM, HH:mm", { locale: es })}
                     </span>
                   </div>
                   <p className="text-[12px] text-white/75 whitespace-pre-wrap break-words leading-snug">

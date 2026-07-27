@@ -10,8 +10,8 @@ import {
   addWeeks,
   format,
   isSameDay,
-  isToday,
 } from 'date-fns'
+import { toMadrid, fromMadrid, madridWallClockString } from '@/lib/timezone'
 import { es } from 'date-fns/locale'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -66,7 +66,7 @@ export function AgendaCalendar({
     initialAppointments
   )
   const [weekStart, setWeekStart] = useState<Date>(
-    startOfWeek(new Date(), { weekStartsOn: 1 })
+    startOfWeek(toMadrid(new Date()), { weekStartsOn: 1 })
   )
   const [direction, setDirection] = useState(0)
   const [sheet, setSheet] = useState<
@@ -79,7 +79,7 @@ export function AgendaCalendar({
     hour: number
     minute: number
   } | null>(null)
-  const [now, setNow] = useState(() => new Date())
+  const [now, setNow] = useState(() => toMadrid(new Date()))
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
   const gridRef = useRef<HTMLDivElement>(null)
   const daysGridRef = useRef<HTMLDivElement>(null)
@@ -98,16 +98,16 @@ export function AgendaCalendar({
   const dragTargetRef = useRef<typeof dragTarget>(null)
   const justDraggedRef = useRef(false)
 
-  // Reloj para la línea de "ahora"
+  // Reloj para la línea de "ahora" (siempre en hora de España)
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000)
+    const id = setInterval(() => setNow(toMadrid(new Date())), 60_000)
     return () => clearInterval(id)
   }, [])
 
-  // Centrar el scroll cerca de la hora actual al montar
+  // Centrar el scroll cerca de la hora actual (España) al montar
   useEffect(() => {
     if (!gridRef.current) return
-    const h = new Date().getHours()
+    const h = toMadrid(new Date()).getHours()
     const offset = Math.max(0, (h - DAY_START - 1) * HOUR_HEIGHT)
     gridRef.current.scrollTop = offset
   }, [])
@@ -171,7 +171,7 @@ export function AgendaCalendar({
   }
 
   function layoutForDay(day: Date) {
-    const dayAppts = appointments.filter((a) => isSameDay(new Date(a.start_time), day))
+    const dayAppts = appointments.filter((a) => isSameDay(toMadrid(a.start_time), day))
     return layoutOverlappingEvents(
       dayAppts,
       (a) => new Date(a.start_time).getTime(),
@@ -180,8 +180,8 @@ export function AgendaCalendar({
   }
 
   function positionFor(a: AppointmentWithPeople) {
-    const start = new Date(a.start_time)
-    const end = new Date(a.end_time)
+    const start = toMadrid(a.start_time)
+    const end = toMadrid(a.end_time)
     const startMins = (start.getHours() - DAY_START) * 60 + start.getMinutes()
     const endMins = (end.getHours() - DAY_START) * 60 + end.getMinutes()
     const top = (startMins / 60) * HOUR_HEIGHT
@@ -190,8 +190,7 @@ export function AgendaCalendar({
   }
 
   function handleSlotClick(day: Date, hour: number, minute: number = 0) {
-    const start = new Date(day)
-    start.setHours(hour, minute, 0, 0)
+    const start = fromMadrid(madridWallClockString(day, hour, minute))
     const end = new Date(start.getTime() + 30 * 60 * 1000)
     setSheet({ mode: 'create', prefill: { start, end } })
     setHoverSlot(null)
@@ -235,7 +234,7 @@ export function AgendaCalendar({
     if (!canDrag) return
     e.stopPropagation()
 
-    const start = new Date(a.start_time)
+    const start = toMadrid(a.start_time)
     const dayMatch = days.find((d) => isSameDay(d, start))
     if (!dayMatch) return
     const initial = {
@@ -318,8 +317,7 @@ export function AgendaCalendar({
 
     const durationMs =
       new Date(original.end_time).getTime() - new Date(original.start_time).getTime()
-    const newStart = new Date(day)
-    newStart.setHours(target.hour, target.minute, 0, 0)
+    const newStart = fromMadrid(madridWallClockString(day, target.hour, target.minute))
     const newEnd = new Date(newStart.getTime() + durationMs)
 
     setAppointments((prev) =>
@@ -393,7 +391,7 @@ export function AgendaCalendar({
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={() => goToWeek(startOfWeek(new Date(), { weekStartsOn: 1 }), 0)}
+              onClick={() => goToWeek(startOfWeek(toMadrid(new Date()), { weekStartsOn: 1 }), 0)}
               className="px-4 h-8 rounded-full text-xs font-semibold text-white/80 hover:text-white hover:bg-white/[0.06] transition-colors button-uppercase tracking-wide"
             >
               Hoy
@@ -496,7 +494,7 @@ export function AgendaCalendar({
                 <div
                   key={day.toISOString()}
                   className={`py-3 text-center border-l border-white/5 transition-colors ${
-                    isToday(day) ? 'bg-[#FF6600]/[0.06]' : ''
+                    isSameDay(day, now) ? 'bg-[#FF6600]/[0.06]' : ''
                   }`}
                 >
                   <div className="text-[10px] text-white/35 uppercase tracking-wider font-medium">
@@ -504,7 +502,7 @@ export function AgendaCalendar({
                   </div>
                   <div
                     className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-[15px] font-semibold ${
-                      isToday(day)
+                      isSameDay(day, now)
                         ? 'bg-[#FF6600] text-white'
                         : 'text-white/85'
                     }`}
@@ -543,7 +541,7 @@ export function AgendaCalendar({
                 {/* Columnas de días */}
                 {days.map((day) => {
                   const positioned = layoutForDay(day)
-                  const showNowLine = isToday(day) && nowLineTop !== null
+                  const showNowLine = isSameDay(day, now) && nowLineTop !== null
                   const dayIso = day.toISOString()
                   const isHoveredDay = !draggingId && hoverSlot?.dayIso === dayIso
                   const hoverTop = isHoveredDay
@@ -711,7 +709,7 @@ export function AgendaCalendar({
                             </div>
                             {!compact && (
                               <div className="text-[10px] text-white/55 truncate tabular-nums">
-                                {format(new Date(a.start_time), 'HH:mm')}
+                                {format(toMadrid(a.start_time), 'HH:mm')}
                                 {a.is_external
                                   ? ''
                                   : a.lead_company

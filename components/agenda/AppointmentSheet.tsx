@@ -31,6 +31,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
+import { toMadrid, fromMadrid } from '@/lib/timezone'
 import {
   AppointmentWithPeople,
   AppointmentStatus,
@@ -57,14 +58,17 @@ interface AppointmentSheetProps {
   onDeleted: (id: string) => void
 }
 
+// Todas las fechas/horas de la cajita se muestran y se guardan en hora
+// de España, sea cual sea el huso horario del navegador (comerciales
+// en Latinoamérica incluidos).
 function toDateInput(d: Date) {
-  return format(d, 'yyyy-MM-dd')
+  return format(toMadrid(d), 'yyyy-MM-dd')
 }
 function toTimeInput(d: Date) {
-  return format(d, 'HH:mm')
+  return format(toMadrid(d), 'HH:mm')
 }
 function combine(dateStr: string, timeStr: string): Date {
-  return new Date(`${dateStr}T${timeStr}:00`)
+  return fromMadrid(`${dateStr}T${timeStr}:00`)
 }
 
 function initials(name: string | null | undefined, fallback: string) {

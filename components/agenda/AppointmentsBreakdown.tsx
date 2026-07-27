@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { format, isFuture, addMonths } from 'date-fns'
+import { format, isFuture } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { toMadrid, fromMadrid } from '@/lib/timezone'
 import { motion } from 'framer-motion'
 import { ArrowLeft, CalendarDays, Users, ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react'
 import {
@@ -39,12 +40,39 @@ function formatEuros(n: number) {
   return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
 }
 
-/** Ciclo de comisión: del 15 de un mes al 15 del siguiente (fin exclusivo) */
-function periodStartContaining(date: Date): Date {
-  const day = date.getDate()
-  return day >= 15
-    ? new Date(date.getFullYear(), date.getMonth(), 15)
-    : new Date(date.getFullYear(), date.getMonth() - 1, 15)
+function pad(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+/**
+ * Ciclo de comisión: del 15 de un mes al 15 del siguiente (fin
+ * exclusivo), siempre en hora de España — el "15" es el 15 en Madrid,
+ * no en el huso del navegador de quien lo mire. `offset` desplaza el
+ * ciclo hacia adelante/atrás en meses.
+ */
+function periodBoundsForOffset(offset: number): { start: Date; end: Date } {
+  const madridNow = toMadrid(new Date())
+  const day = madridNow.getDate()
+  let y = madridNow.getFullYear()
+  let m = madridNow.getMonth() // 0-11, mes del inicio del ciclo actual
+  if (day < 15) {
+    m -= 1
+  }
+  m += offset
+  y += Math.floor(m / 12)
+  m = ((m % 12) + 12) % 12
+
+  let endY = y
+  let endM = m + 1
+  if (endM > 11) {
+    endM = 0
+    endY += 1
+  }
+
+  return {
+    start: fromMadrid(`${y}-${pad(m + 1)}-15T00:00:00`),
+    end: fromMadrid(`${endY}-${pad(endM + 1)}-15T00:00:00`),
+  }
 }
 
 const SELECT_WITH_PEOPLE = `
@@ -67,14 +95,12 @@ export function AppointmentsBreakdown({
   const [periodOffset, setPeriodOffset] = useState(0)
   const [selected, setSelected] = useState<AppointmentWithPeople | null>(null)
 
-  const basePeriodStart = useMemo(() => periodStartContaining(new Date()), [])
-  const periodStart = useMemo(
-    () => addMonths(basePeriodStart, periodOffset),
-    [basePeriodStart, periodOffset]
+  const { start: periodStart, end: periodEnd } = useMemo(
+    () => periodBoundsForOffset(periodOffset),
+    [periodOffset]
   )
-  const periodEnd = useMemo(() => addMonths(periodStart, 1), [periodStart])
-  const periodLabel = `${format(periodStart, "d 'de' MMM", { locale: es })} – ${format(
-    periodEnd,
+  const periodLabel = `${format(toMadrid(periodStart), "d 'de' MMM", { locale: es })} – ${format(
+    toMadrid(periodEnd),
     "d 'de' MMM yyyy",
     { locale: es }
   )}`
@@ -328,7 +354,7 @@ export function AppointmentsBreakdown({
                           className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer transition-colors"
                         >
                           <td className="px-4 py-2 text-white/70 whitespace-nowrap tabular-nums">
-                            {format(new Date(a.start_time), "d MMM yyyy · HH:mm", { locale: es })}
+                            {format(toMadrid(a.start_time), "d MMM yyyy · HH:mm", { locale: es })}
                           </td>
                           <td className="px-4 py-2 text-white font-medium">{a.lead_name}</td>
                           <td className="px-4 py-2 text-white/60">{a.lead_company || '—'}</td>
