@@ -22,6 +22,7 @@ import {
   Video,
   Link2,
   Table2,
+  Contact,
   Clock3 as ClockIcon,
 } from 'lucide-react'
 import { AppointmentSheet } from './AppointmentSheet'
@@ -529,6 +530,14 @@ export function AgendaCalendar({
           >
             <Table2 className="h-4 w-4" /> Desglose de citas
           </Link>
+          {isAdmin && (
+            <Link
+              href="/dashboard/agenda/crm"
+              className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+            >
+              <Contact className="h-4 w-4" /> CRM de clientes
+            </Link>
+          )}
           <motion.button
             whileHover={{ y: -1, boxShadow: '0 8px 24px -4px rgba(255,102,0,0.45)' }}
             whileTap={{ scale: 0.97 }}
