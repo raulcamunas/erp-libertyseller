@@ -36,6 +36,7 @@ import {
   CRM_STAGES,
   CRM_STAGE_LABELS,
   CRM_STAGE_COLORS,
+  crmContact,
 } from '@/lib/types/crm'
 import { CalendarPerson, colorForAgent } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -110,9 +111,22 @@ export function CrmClientDetail({
 }: CrmClientDetailProps) {
   const supabase = createClient()
   const appt = client.appointment
+  const contact = crmContact(client)
+  // Si la ficha nace de una cita, la cita manda: nombre, email, teléfono y
+  // empresa se editan allí para que agenda y CRM no se contradigan. En las
+  // altas manuales no hay cita, así que se editan aquí.
+  const isManual = !client.appointment_id
 
   // Campos editables. Se guardan al salir del campo (blur) si cambiaron,
   // igual que en Notion: sin botón de guardar.
+  const [leadName, setLeadName] = useState(client.lead_name ?? '')
+  const [leadEmail, setLeadEmail] = useState(client.lead_email ?? '')
+  const [leadPhone, setLeadPhone] = useState(client.lead_phone ?? '')
+  const [leadCompany, setLeadCompany] = useState(client.lead_company ?? '')
+  const [manualRevenue, setManualRevenue] = useState(
+    client.revenue_amount != null ? String(client.revenue_amount) : ''
+  )
+  const [manualAmazonLink, setManualAmazonLink] = useState(client.amazon_link ?? '')
   const [contactRole, setContactRole] = useState(client.contact_role ?? '')
   const [website, setWebsite] = useState(client.website ?? '')
   const [country, setCountry] = useState(client.country ?? '')
@@ -177,15 +191,18 @@ export function CrmClientDetail({
     patch({ [field]: clean } as Partial<CrmClientWithDetails>)
   }
 
-  function commitNumber(field: 'setup_budget' | 'maintenance_budget', value: string) {
+  function commitNumber(
+    field: 'setup_budget' | 'maintenance_budget' | 'revenue_amount',
+    value: string
+  ) {
     const parsed = value.trim() === '' ? null : Number(value)
     if (parsed !== null && Number.isNaN(parsed)) return
     if ((client[field] ?? null) === parsed) return
     patch({ [field]: parsed })
   }
 
-  const meetingDate = appt?.start_time
-    ? format(toMadrid(appt.start_time), "d 'de' MMMM yyyy · HH:mm", { locale: es })
+  const meetingDate = contact.meetingAt
+    ? format(toMadrid(contact.meetingAt), "d 'de' MMMM yyyy · HH:mm", { locale: es })
     : null
 
   const ownerPerson = team.find((p) => p.id === client.owner_id) ?? null
@@ -201,11 +218,11 @@ export function CrmClientDetail({
       >
         <div className="min-w-0">
           <h2 className="text-white text-lg font-semibold truncate">
-            {appt?.lead_name || 'Cliente'}
+            {contact.name || 'Cliente'}
           </h2>
           <p className="text-[12px] text-white/40 truncate">
-            {appt?.lead_company || 'Sin empresa'}
-            {meetingDate ? ` · Reunión ${meetingDate}` : ''}
+            {contact.company || 'Sin empresa'}
+            {meetingDate ? ` · Reunión ${meetingDate}` : ' · Alta manual'}
           </p>
         </div>
         {ownerPerson && (
@@ -286,7 +303,17 @@ export function CrmClientDetail({
       <Section icon={<Building2 className="h-3 w-3" />} title="Datos del cliente">
         <div className="space-y-0.5">
           <Row icon={<User className="h-3 w-3" />} label="Contacto">
-            <ReadOnly value={appt?.lead_name} />
+            {isManual ? (
+              <input
+                value={leadName}
+                onChange={(e) => setLeadName(e.target.value)}
+                onBlur={() => leadName.trim() && commitText('lead_name', leadName)}
+                className={ghostInput}
+                placeholder="Nombre y apellidos"
+              />
+            ) : (
+              <ReadOnly value={contact.name} />
+            )}
           </Row>
           <Row icon={<Briefcase className="h-3 w-3" />} label="Cargo">
             <input
@@ -298,22 +325,50 @@ export function CrmClientDetail({
             />
           </Row>
           <Row icon={<Mail className="h-3 w-3" />} label="Email">
-            {appt?.lead_email ? (
+            {isManual ? (
+              <input
+                value={leadEmail}
+                onChange={(e) => setLeadEmail(e.target.value)}
+                onBlur={() => commitText('lead_email', leadEmail)}
+                className={ghostInput}
+                placeholder="hola@empresa.com"
+              />
+            ) : contact.email ? (
               <a
-                href={`mailto:${appt.lead_email}`}
+                href={`mailto:${contact.email}`}
                 className="text-[13px] text-white/80 hover:text-[#FF6600] px-2 transition-colors break-all"
               >
-                {appt.lead_email}
+                {contact.email}
               </a>
             ) : (
               <ReadOnly value={null} />
             )}
           </Row>
           <Row icon={<Phone className="h-3 w-3" />} label="Teléfono">
-            <ReadOnly value={appt?.lead_phone} />
+            {isManual ? (
+              <input
+                value={leadPhone}
+                onChange={(e) => setLeadPhone(e.target.value)}
+                onBlur={() => commitText('lead_phone', leadPhone)}
+                className={ghostInput}
+                placeholder="+34..."
+              />
+            ) : (
+              <ReadOnly value={contact.phone} />
+            )}
           </Row>
           <Row icon={<Building2 className="h-3 w-3" />} label="Empresa">
-            <ReadOnly value={appt?.lead_company} />
+            {isManual ? (
+              <input
+                value={leadCompany}
+                onChange={(e) => setLeadCompany(e.target.value)}
+                onBlur={() => commitText('lead_company', leadCompany)}
+                className={ghostInput}
+                placeholder="Nombre de la empresa"
+              />
+            ) : (
+              <ReadOnly value={contact.company} />
+            )}
           </Row>
           <Row icon={<Globe className="h-3 w-3" />} label="Web">
             <input
@@ -343,27 +398,46 @@ export function CrmClientDetail({
             />
           </Row>
           <Row icon={<Link2 className="h-3 w-3" />} label="Amazon">
-            {appt?.amazon_link ? (
+            {isManual ? (
+              <input
+                value={manualAmazonLink}
+                onChange={(e) => setManualAmazonLink(e.target.value)}
+                onBlur={() => commitText('amazon_link', manualAmazonLink)}
+                className={ghostInput}
+                placeholder="https://amazon.es/..."
+              />
+            ) : contact.amazonLink ? (
               <a
-                href={appt.amazon_link}
+                href={contact.amazonLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[13px] text-white/80 hover:text-[#FF6600] px-2 transition-colors break-all"
               >
-                {appt.amazon_link}
+                {contact.amazonLink}
               </a>
             ) : (
               <ReadOnly value={null} />
             )}
           </Row>
           <Row icon={<Euro className="h-3 w-3" />} label="Facturación">
-            <ReadOnly
-              value={
-                appt?.revenue_amount != null
-                  ? `${Number(appt.revenue_amount).toLocaleString('es-ES')} €`
-                  : null
-              }
-            />
+            {isManual ? (
+              <input
+                value={manualRevenue}
+                onChange={(e) => setManualRevenue(e.target.value)}
+                onBlur={() => commitNumber('revenue_amount', manualRevenue)}
+                inputMode="decimal"
+                className={ghostInput}
+                placeholder="0 €"
+              />
+            ) : (
+              <ReadOnly
+                value={
+                  contact.revenue != null
+                    ? `${Number(contact.revenue).toLocaleString('es-ES')} €`
+                    : null
+                }
+              />
+            )}
           </Row>
         </div>
       </Section>

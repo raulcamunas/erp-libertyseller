@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toMadrid } from '@/lib/timezone'
-import { Search, Users, Euro, Trophy, MousePointerClick } from 'lucide-react'
+import { Search, Users, Euro, Trophy, MousePointerClick, Plus } from 'lucide-react'
 import {
   CrmClientWithDetails,
   CrmStage,
@@ -14,10 +14,12 @@ import {
   CRM_STAGE_LABELS,
   CRM_STAGE_COLORS,
   CRM_STAGE_DOTS,
+  crmContact,
 } from '@/lib/types/crm'
 import { CalendarPerson } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { CrmClientDetail } from './CrmClientDetail'
+import { NewLeadDialog } from './NewLeadDialog'
 
 interface ClientsCRMProps {
   initialClients: CrmClientWithDetails[]
@@ -47,6 +49,7 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
   )
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<CrmStage | 'all'>('all')
+  const [showNewLead, setShowNewLead] = useState(false)
 
   // Los dos admins pueden estar trabajando el pipeline a la vez: si uno
   // cualifica una cita o cambia un estado, el otro lo ve al momento.
@@ -91,8 +94,8 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
       .filter((c) => (stageFilter === 'all' ? true : c.stage === stageFilter))
       .filter((c) => {
         if (!q) return true
-        const a = c.appointment
-        return [a?.lead_name, a?.lead_company, a?.lead_email, a?.lead_phone, c.country]
+        const contact = crmContact(c)
+        return [contact.name, contact.company, contact.email, contact.phone, c.country]
           .filter(Boolean)
           .some((v) => String(v).toLowerCase().includes(q))
       })
@@ -193,7 +196,7 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(280px,340px)_1fr] gap-3">
         {/* Lista de clientes */}
         <div className="flex flex-col min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
-          <div className="p-2.5 border-b border-white/[0.06] flex-shrink-0">
+          <div className="p-2.5 border-b border-white/[0.06] flex-shrink-0 space-y-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/30" />
               <input
@@ -203,6 +206,13 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
                 className="w-full bg-white/[0.04] border border-white/10 rounded-lg pl-8 pr-2.5 py-1.5 text-[12px] text-white outline-none focus:border-[#FF6600] transition-colors placeholder:text-white/25"
               />
             </div>
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setShowNewLead(true)}
+              className="w-full h-8 rounded-lg bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[12px] font-semibold flex items-center justify-center gap-1.5 shadow-[0_4px_16px_-6px_rgba(255,102,0,0.6)]"
+            >
+              <Plus className="h-3.5 w-3.5" /> Nuevo cliente
+            </motion.button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
@@ -214,7 +224,7 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
               </p>
             ) : (
               filtered.map((c) => {
-                const a = c.appointment
+                const contact = crmContact(c)
                 const active = c.id === selectedId
                 return (
                   <motion.button
@@ -233,17 +243,17 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
                         style={{ backgroundColor: CRM_STAGE_DOTS[c.stage] }}
                       />
                       <span className="text-[13px] font-semibold text-white truncate flex-1 min-w-0">
-                        {a?.lead_name || 'Sin nombre'}
+                        {contact.name || 'Sin nombre'}
                       </span>
                     </div>
                     <p className="text-[11px] text-white/45 truncate pl-4">
-                      {a?.lead_company || 'Sin empresa'}
+                      {contact.company || 'Sin empresa'}
                     </p>
                     <div className="flex items-center justify-between gap-2 pl-4 mt-1">
                       <span className="text-[10px] text-white/30 truncate">
-                        {a?.start_time
-                          ? format(toMadrid(a.start_time), "d MMM yyyy", { locale: es })
-                          : '—'}
+                        {contact.meetingAt
+                          ? format(toMadrid(contact.meetingAt), "d MMM yyyy", { locale: es })
+                          : 'Alta manual'}
                         {c.setup_budget != null || c.maintenance_budget != null
                           ? ` · ${money(c.setup_budget) ?? '—'} + ${
                               money(c.maintenance_budget) ?? '—'
@@ -295,6 +305,23 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
           </AnimatePresence>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showNewLead && (
+          <NewLeadDialog
+            team={team}
+            onClose={() => setShowNewLead(false)}
+            onCreated={(created) => {
+              setClients((prev) =>
+                prev.some((c) => c.id === created.id) ? prev : [created, ...prev]
+              )
+              setSelectedId(created.id)
+              setStageFilter('all')
+              setSearch('')
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

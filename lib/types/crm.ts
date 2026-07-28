@@ -21,9 +21,19 @@ export type CrmDocumentKind = 'propuesta' | 'contrato' | 'otro'
 
 export interface CrmClient {
   id: string
-  appointment_id: string
+  /** null en fichas dadas de alta a mano, sin cita de origen */
+  appointment_id: string | null
   stage: CrmStage
   owner_id: string | null
+
+  /** Datos de contacto propios: solo se usan en las altas manuales.
+   *  Si la ficha viene de una cita, los datos buenos son los de la cita. */
+  lead_name: string | null
+  lead_email: string | null
+  lead_phone: string | null
+  lead_company: string | null
+  revenue_amount: number | null
+  amazon_link: string | null
 
   contact_role: string | null
   website: string | null
@@ -110,6 +120,24 @@ export const CRM_STAGE_DOTS: Record<CrmStage, string> = {
   negociacion: '#06B6D4',
   ganado: '#22C55E',
   perdido: '#EF4444',
+}
+
+/**
+ * Datos de contacto de una ficha, vengan de la cita o del alta manual.
+ * La cita manda cuando existe: es la fuente de verdad de la agenda.
+ */
+export function crmContact(client: CrmClientWithDetails) {
+  const a = client.appointment
+  return {
+    name: a?.lead_name ?? client.lead_name ?? null,
+    email: a?.lead_email ?? client.lead_email ?? null,
+    phone: a?.lead_phone ?? client.lead_phone ?? null,
+    company: a?.lead_company ?? client.lead_company ?? null,
+    revenue: a?.revenue_amount ?? client.revenue_amount ?? null,
+    amazonLink: a?.amazon_link ?? client.amazon_link ?? null,
+    /** Fecha de la reunión de cualificación, o null si es alta manual */
+    meetingAt: a?.start_time ?? null,
+  }
 }
 
 export const CRM_INTERACTION_LABELS: Record<CrmInteractionKind, string> = {
