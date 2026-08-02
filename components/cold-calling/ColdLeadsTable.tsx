@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { ExternalLink, Maximize2, PhoneCall } from 'lucide-react'
+import { Copy, ExternalLink, Maximize2 } from 'lucide-react'
 import {
   ColdLead,
   ColdLeadStatus,
@@ -11,7 +11,6 @@ import {
   COLD_STATUS_LABELS,
   COLD_STATUS_DOTS,
   colorForList,
-  telHref,
 } from '@/lib/types/cold-leads'
 
 interface ColdLeadsTableProps {
@@ -137,7 +136,6 @@ export function ColdLeadsTable({
             const canEdit = isAdmin || l.assigned_to === currentUserId
             const color = COLD_STATUS_DOTS[l.status]
             const active = l.id === selectedId
-            const tel = telHref(l.phone)
 
             // Fondo teñido con el color del estado: es exactamente lo que
             // hacían en el Excel pintando la fila entera.
@@ -216,17 +214,21 @@ export function ColdLeadsTable({
                   className="px-2 py-1 text-white/70 whitespace-nowrap"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {tel ? (
-                    <a
-                      href={`tel:${tel}`}
-                      className="inline-flex items-center gap-1 hover:text-[#FF6600] transition-colors"
-                      title="Llamar"
+                  {l.phone ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(l.phone!)
+                        toast.success('Teléfono copiado')
+                      }}
+                      className="inline-flex items-center gap-1 hover:text-white transition-colors"
+                      title="Copiar el teléfono"
                     >
-                      <PhoneCall className="h-3 w-3 flex-shrink-0" />
                       {l.phone}
-                    </a>
+                      <Copy className="h-3 w-3 flex-shrink-0 opacity-40" />
+                    </button>
                   ) : (
-                    <span className="text-white/20">{l.phone || '—'}</span>
+                    <span className="text-white/20">—</span>
                   )}
                 </td>
 

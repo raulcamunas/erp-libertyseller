@@ -20,7 +20,6 @@ import {
   History,
   FileText,
   ChevronRight,
-  PhoneCall,
   Copy,
 } from 'lucide-react'
 import {
@@ -32,7 +31,6 @@ import {
   COLD_STATUS_HINTS,
   COLD_STATUS_DOTS,
   colorForList,
-  telHref,
   formatRevenue,
 } from '@/lib/types/cold-leads'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -124,11 +122,10 @@ export function ColdLeadDetail({
     patch(fields)
   }
 
-  const tel = telHref(lead.phone)
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-3">
-      {/* Cabecera con la acción principal: llamar */}
+      {/* Cabecera del lead */}
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
@@ -165,14 +162,6 @@ export function ColdLeadDetail({
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {tel && (
-            <a
-              href={`tel:${tel}`}
-              className="h-9 px-4 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[13px] font-semibold flex items-center gap-2 shadow-[0_4px_16px_-6px_rgba(255,102,0,0.6)]"
-            >
-              <PhoneCall className="h-4 w-4" /> Llamar
-            </a>
-          )}
           <button
             type="button"
             onClick={onNext}

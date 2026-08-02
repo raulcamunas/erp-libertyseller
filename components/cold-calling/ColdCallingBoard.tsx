@@ -69,17 +69,59 @@ export function ColdCallingBoard({
   const [sort, setSort] = useState<ColdSort>('due_first')
   const [visible, setVisible] = useState(PAGE)
   // Muchos vienen del Excel y se manejan mejor en tabla; la ficha es para
-  // trabajar un lead a fondo. Se elige y se recuerda entre sesiones.
+  // trabajar un lead a fondo.
   const [view, setView] = useState<'ficha' | 'tabla'>('ficha')
 
-  useEffect(() => {
-    const saved = window.localStorage.getItem('coldCallingView')
-    if (saved === 'tabla' || saved === 'ficha') setView(saved)
-  }, [])
+  // La sesión de trabajo se recuerda: si Maoli se pasa el día en «+100k,
+  // sin contactar, vista tabla», mañana entra exactamente ahí. La clave
+  // lleva el id del usuario por si comparten ordenador.
+  const prefsKey = `coldCalling:${currentUser.id}`
+  const [prefsLoaded, setPrefsLoaded] = useState(false)
 
-  function changeView(v: 'ficha' | 'tabla') {
-    setView(v)
-    window.localStorage.setItem('coldCallingView', v)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(prefsKey)
+      if (raw) {
+        const p = JSON.parse(raw)
+        if (p.view === 'tabla' || p.view === 'ficha') setView(p.view)
+        if (typeof p.statusFilter === 'string') setStatusFilter(p.statusFilter)
+        if (typeof p.listFilter === 'string') setListFilter(p.listFilter)
+        if (typeof p.minRev === 'string') setMinRev(p.minRev)
+        if (typeof p.maxRev === 'string') setMaxRev(p.maxRev)
+        if (typeof p.sort === 'string') setSort(p.sort)
+        if (isAdmin && typeof p.ownerFilter === 'string') setOwnerFilter(p.ownerFilter)
+      }
+    } catch {
+      // preferencias corruptas: se ignoran y se arranca en limpio
+    }
+    setPrefsLoaded(true)
+  }, [prefsKey, isAdmin])
+
+  useEffect(() => {
+    // No se guarda hasta haber leído lo anterior, o el estado inicial
+    // pisaría lo que dejó el usuario la última vez.
+    if (!prefsLoaded) return
+    window.localStorage.setItem(
+      prefsKey,
+      JSON.stringify({ view, statusFilter, listFilter, minRev, maxRev, sort, ownerFilter })
+    )
+  }, [prefsLoaded, prefsKey, view, statusFilter, listFilter, minRev, maxRev, sort, ownerFilter])
+
+  const hasFilters =
+    statusFilter !== 'all' ||
+    listFilter !== 'all' ||
+    minRev !== '' ||
+    maxRev !== '' ||
+    search !== '' ||
+    sort !== 'due_first'
+
+  function resetFilters() {
+    setStatusFilter('all')
+    setListFilter('all')
+    setMinRev('')
+    setMaxRev('')
+    setSearch('')
+    setSort('due_first')
   }
 
   useEffect(() => {
@@ -354,7 +396,7 @@ export function ColdCallingBoard({
               <button
                 key={v.id}
                 type="button"
-                onClick={() => changeView(v.id)}
+                onClick={() => setView(v.id)}
                 className={`h-6 px-2.5 rounded-full text-[11px] font-medium flex items-center gap-1.5 transition-colors ${
                   view === v.id
                     ? 'bg-[#FF6600] text-white'
@@ -469,6 +511,18 @@ export function ColdCallingBoard({
             {filtered.length} {filtered.length === 1 ? 'lead' : 'leads'} en ese rango
           </span>
         )}
+
+        {/* Los filtros se recuerdan de un día para otro, así que hace falta
+            una salida clara o alguien acabará pensando que ha perdido leads. */}
+        {hasFilters && (
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="ml-auto px-2.5 py-1 rounded-full border border-white/10 text-[11px] font-medium text-white/45 hover:text-white hover:border-white/25 transition-colors flex items-center gap-1.5"
+          >
+            <X className="h-3 w-3" /> Limpiar filtros
+          </button>
+        )}
       </div>
 
       {view === 'tabla' ? (
@@ -481,7 +535,7 @@ export function ColdCallingBoard({
             onSelect={setSelectedId}
             onOpenDetail={(id) => {
               setSelectedId(id)
-              changeView('ficha')
+              setView('ficha')
             }}
             onPatched={handlePatched}
           />
