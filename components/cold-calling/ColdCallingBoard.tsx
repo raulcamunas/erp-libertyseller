@@ -12,6 +12,8 @@ import {
   Users,
   Layers,
   ArrowUpDown,
+  Euro,
+  X,
 } from 'lucide-react'
 import {
   ColdLead,
@@ -36,7 +38,15 @@ interface ColdCallingBoardProps {
 }
 
 /** Cuántas filas se pintan de golpe: la lista completa son miles */
-const PAGE = 120
+const PAGE = 400
+
+/** Atajos del filtro de facturación, en euros al mes */
+const REVENUE_PRESETS: Array<{ label: string; min: string; max: string }> = [
+  { label: '+ de 100k', min: '100000', max: '' },
+  { label: '50k – 100k', min: '50000', max: '100000' },
+  { label: '20k – 50k', min: '20000', max: '50000' },
+  { label: '- de 20k', min: '', max: '20000' },
+]
 
 export function ColdCallingBoard({
   initialLeads,
@@ -51,6 +61,8 @@ export function ColdCallingBoard({
   const [statusFilter, setStatusFilter] = useState<ColdLeadStatus | 'all'>('all')
   const [ownerFilter, setOwnerFilter] = useState<string>(isAdmin ? 'all' : currentUser.id)
   const [listFilter, setListFilter] = useState<string>('all')
+  const [minRev, setMinRev] = useState('')
+  const [maxRev, setMaxRev] = useState('')
   const [sort, setSort] = useState<ColdSort>('due_first')
   const [visible, setVisible] = useState(PAGE)
 
@@ -106,6 +118,18 @@ export function ColdCallingBoard({
         listFilter === 'all' ? true : (l.source_list || 'Sin lista') === listFilter
       )
       .filter((l) => {
+        // Rango de facturación. Si hay rango activo, los leads sin importe
+        // quedan fuera: no se puede afirmar que caigan dentro.
+        const min = minRev.trim() === '' ? null : Number(minRev)
+        const max = maxRev.trim() === '' ? null : Number(maxRev)
+        if (min === null && max === null) return true
+        const rev = l.revenue_monthly == null ? null : Number(l.revenue_monthly)
+        if (rev == null) return false
+        if (min !== null && !Number.isNaN(min) && rev < min) return false
+        if (max !== null && !Number.isNaN(max) && rev > max) return false
+        return true
+      })
+      .filter((l) => {
         if (!q) return true
         return [l.store_name, l.company, l.phone, l.email, l.province, l.category]
           .filter(Boolean)
@@ -124,12 +148,12 @@ export function ColdCallingBoard({
         if (!ad && bd) return 1
         return byRevenue(a, b)
       })
-  }, [scoped, search, statusFilter, listFilter, sort])
+  }, [scoped, search, statusFilter, listFilter, minRev, maxRev, sort])
 
   // Al cambiar de filtro se vuelve al principio de la lista
   useEffect(() => {
     setVisible(PAGE)
-  }, [search, statusFilter, ownerFilter, listFilter, sort])
+  }, [search, statusFilter, ownerFilter, listFilter, minRev, maxRev, sort])
 
   // Si al cambiar de comercial la lista elegida ya no existe, se resetea
   useEffect(() => {
@@ -306,6 +330,7 @@ export function ColdCallingBoard({
 
         <div className="ml-auto flex items-center gap-2">
           <ArrowUpDown className="h-3 w-3 text-white/30" />
+
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as ColdSort)}
@@ -336,6 +361,76 @@ export function ColdCallingBoard({
             </select>
           )}
         </div>
+      </div>
+
+      {/* Rango de facturación */}
+      <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+        <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
+          <Euro className="h-3 w-3" /> Facturación
+        </span>
+        <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2 py-1">
+          <input
+            value={minRev}
+            onChange={(e) => setMinRev(e.target.value.replace(/[^\d]/g, ''))}
+            inputMode="numeric"
+            placeholder="desde"
+            className="w-20 bg-transparent text-[11px] text-white outline-none placeholder:text-white/25 tabular-nums"
+          />
+          <span className="text-white/20 text-[11px]">–</span>
+          <input
+            value={maxRev}
+            onChange={(e) => setMaxRev(e.target.value.replace(/[^\d]/g, ''))}
+            inputMode="numeric"
+            placeholder="hasta"
+            className="w-20 bg-transparent text-[11px] text-white outline-none placeholder:text-white/25 tabular-nums"
+          />
+          <span className="text-white/25 text-[11px]">€/mes</span>
+          {(minRev || maxRev) && (
+            <button
+              type="button"
+              onClick={() => {
+                setMinRev('')
+                setMaxRev('')
+              }}
+              className="text-white/30 hover:text-white transition-colors"
+              title="Quitar el filtro de facturación"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+
+        {REVENUE_PRESETS.map((p) => {
+          const active = minRev === p.min && maxRev === p.max
+          return (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => {
+                if (active) {
+                  setMinRev('')
+                  setMaxRev('')
+                } else {
+                  setMinRev(p.min)
+                  setMaxRev(p.max)
+                }
+              }}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                active
+                  ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
+                  : 'border-white/10 text-white/40 hover:text-white/80'
+              }`}
+            >
+              {p.label}
+            </button>
+          )
+        })}
+
+        {(minRev || maxRev) && (
+          <span className="text-[11px] text-white/35">
+            {filtered.length} {filtered.length === 1 ? 'lead' : 'leads'} en ese rango
+          </span>
+        )}
       </div>
 
       {/* Lista + ficha */}
