@@ -83,22 +83,14 @@ export function MonthBreakdown({
   }, [offset])
 
   // ---------- Ingresos ----------
-  // Los set ups entran el mes que el cliente paga (fecha de cierre); el
-  // mantenimiento se cobra todos los meses desde que entró, así que
-  // cuenta todo el que ya estuviera cerrado a final de ese mes.
+  // Solo el set up: es lo único que se cobra el mes que entra el cliente.
+  // El mantenimiento no arranca hasta más adelante (unos 3 meses de
+  // media), así que meterlo aquí inflaría la caja del mes.
   const income = useMemo(() => {
     const won = clients.filter((c) => c.stage === 'ganado' && c.closed_at)
-
     const closedThisMonth = won.filter((c) => monthOf(c.closed_at!) === monthKey)
     const setups = closedThisMonth.reduce((s, c) => s + (Number(c.setup_budget) || 0), 0)
-
-    const active = won.filter((c) => monthOf(c.closed_at!) <= monthKey)
-    const recurring = active.reduce(
-      (s, c) => s + (Number(c.maintenance_budget) || 0),
-      0
-    )
-
-    return { closedThisMonth, active, setups, recurring, total: setups + recurring }
+    return { closedThisMonth, setups, total: setups }
   }, [clients, monthKey])
 
   // ---------- Costes por comercial ----------
@@ -258,11 +250,11 @@ export function MonthBreakdown({
             </div>
 
             {income.closedThisMonth.length === 0 ? (
-              <p className="text-[11px] text-white/25 mb-2">
+              <p className="text-[11px] text-white/25">
                 Ningún cliente cerrado este mes.
               </p>
             ) : (
-              <div className="space-y-1 mb-2">
+              <div className="space-y-1">
                 {income.closedThisMonth.map((c) => {
                   const contact = crmContact(c)
                   return (
@@ -286,15 +278,6 @@ export function MonthBreakdown({
                 })}
               </div>
             )}
-
-            <div className="flex items-baseline justify-between gap-2 pt-1.5 border-t border-white/[0.06]">
-              <span className="text-[12px] text-white/50">
-                Mantenimiento recurrente ({income.active.length} clientes)
-              </span>
-              <span className="text-[13px] font-semibold text-white">
-                {euros(income.recurring)}
-              </span>
-            </div>
           </div>
 
           {/* Costes */}
@@ -360,11 +343,11 @@ export function MonthBreakdown({
         </div>
 
         <p className="text-[10px] text-white/25 mt-3 leading-snug">
-          Los set ups cuentan en el mes de la fecha de cierre de cada cliente —
-          la que marcas en su ficha, que es cuando pagó de verdad. El
-          mantenimiento suma todos los meses desde que el cliente entró. Las
-          horas se pagan a la tarifa de su ciclo del 15 al 14, aunque el
-          desglose se agrupe por mes natural.
+          Solo se cuenta el set up, que es lo único que se cobra al entrar el
+          cliente, en el mes de su fecha de cierre — la que marcas en su ficha,
+          que es cuando pagó de verdad. El mantenimiento no entra aquí porque
+          no arranca ese mismo mes. Las horas se pagan a la tarifa de su ciclo
+          del 15 al 14, aunque el desglose se agrupe por mes natural.
         </p>
       </motion.div>
     </div>
