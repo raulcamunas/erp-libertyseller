@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import Image from 'next/image'
 import { motion } from 'framer-motion'
-import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toMadrid } from '@/lib/timezone'
@@ -13,7 +12,6 @@ import {
   Building2,
   Mail,
   Phone,
-  Copy,
   X,
   CalendarCheck,
 } from 'lucide-react'
@@ -46,7 +44,6 @@ export function AppointmentConfirmation({
   appointment,
   onClose,
 }: AppointmentConfirmationProps) {
-  const [copied, setCopied] = useState(false)
   const start = toMadrid(appointment.start_time)
   const end = toMadrid(appointment.end_time)
 
@@ -61,25 +58,6 @@ export function AppointmentConfirmation({
     '—'
   const closerPerson = appointment.assigned_closer ?? appointment.comercial ?? null
 
-  /** Mismo resumen en texto plano, por si prefieren pegarlo que capturarlo */
-  function copySummary() {
-    const lines = [
-      '✅ CITA AGENDADA',
-      '',
-      `📅 ${dayLabel} ${start.getDate()} de ${format(start, 'MMMM', { locale: es })} · ${timeRange} (hora de España)`,
-      `👤 ${appointment.lead_name}`,
-      appointment.lead_company ? `🏢 ${appointment.lead_company}` : null,
-      appointment.lead_phone ? `📞 ${appointment.lead_phone}` : null,
-      appointment.lead_email ? `✉️ ${appointment.lead_email}` : null,
-      `🎯 Closer: ${closer}`,
-      appointment.google_meet_link ? `🎥 ${appointment.google_meet_link}` : null,
-    ].filter(Boolean)
-
-    navigator.clipboard.writeText(lines.join('\n'))
-    setCopied(true)
-    toast.success('Resumen copiado, listo para pegar')
-    setTimeout(() => setCopied(false), 2500)
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -125,9 +103,14 @@ export function AppointmentConfirmation({
             <p className="text-[13px] text-white/45 mt-0.5">
               Sesión de Consultoría Estratégica Amazon
             </p>
-            <p className="text-[11px] font-semibold tracking-[0.18em] text-[#FF6600] uppercase mt-2">
-              Liberty Seller
-            </p>
+            <Image
+              src="/logos/logo.png"
+              alt="Liberty Seller"
+              width={132}
+              height={34}
+              priority
+              className="object-contain mx-auto mt-2.5 h-[26px] w-auto"
+            />
           </div>
         </div>
 
@@ -216,27 +199,12 @@ export function AppointmentConfirmation({
           </div>
         )}
 
-        {/* Acciones: fuera de la parte que se captura */}
-        <div className="flex items-center gap-2 px-5 py-4 mt-1">
-          <button
-            type="button"
-            onClick={copySummary}
-            className="flex-1 h-10 rounded-full border border-white/12 bg-white/[0.04] text-white/80 text-[13px] font-medium flex items-center justify-center gap-2 hover:bg-white/[0.08] hover:text-white transition-colors"
-          >
-            {copied ? (
-              <>
-                <Check className="h-4 w-4 text-green-400" /> Copiado
-              </>
-            ) : (
-              <>
-                <Copy className="h-4 w-4" /> Copiar para WhatsApp
-              </>
-            )}
-          </button>
+        {/* Acción: fuera de la parte que se captura */}
+        <div className="px-5 py-4 mt-1">
           <button
             type="button"
             onClick={onClose}
-            className="h-10 px-5 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[13px] font-semibold shadow-[0_4px_16px_-6px_rgba(255,102,0,0.6)]"
+            className="w-full h-10 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[13px] font-semibold shadow-[0_4px_16px_-6px_rgba(255,102,0,0.6)]"
           >
             Hecho
           </button>

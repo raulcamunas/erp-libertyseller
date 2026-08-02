@@ -482,15 +482,25 @@ export function AgendaCalendar({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'No se pudo sincronizar')
 
-      const { data: fresh } = await supabase
-        .from('appointments')
-        .select(`
-          *,
-          comercial:profiles!appointments_comercial_id_fkey(id, full_name, email, role, calendar_color),
-          assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
-        `)
-        .order('start_time', { ascending: true })
-      if (fresh) setAppointments(fresh as AppointmentWithPeople[])
+      // Por tramos: Supabase corta a 1.000 filas por consulta
+      const CHUNK = 1000
+      const fresh: AppointmentWithPeople[] = []
+      for (let from = 0; ; from += CHUNK) {
+        const { data } = await supabase
+          .from('appointments')
+          .select(`
+            *,
+            comercial:profiles!appointments_comercial_id_fkey(id, full_name, email, role, calendar_color),
+            assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
+          `)
+          .order('start_time', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + CHUNK - 1)
+        if (!data || data.length === 0) break
+        fresh.push(...(data as AppointmentWithPeople[]))
+        if (data.length < CHUNK) break
+      }
+      setAppointments(fresh)
 
       const partes = [
         data.imported ? `${data.imported} nuevos` : null,
