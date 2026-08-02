@@ -290,11 +290,11 @@ export function HoursTracker({
   const todayInPeriod = days.includes(today)
 
   return (
-    // Acotado: los comerciales trabajan en portátiles pequeños y a pantalla
-    // completa todo quedaba estirado y con mucho hueco muerto.
-    <div className="space-y-3 max-w-[880px]">
+    // Ocupa toda la altura disponible: el calendario del ciclo se estira
+    // para que cada día sea una casilla grande y cómoda de pulsar.
+    <div className="flex flex-col h-full gap-3 min-h-0">
       {/* Barra de control */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 flex-shrink-0">
         <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-1">
           <button
             onClick={() => setOffset((o) => o - 1)}
@@ -379,7 +379,7 @@ export function HoursTracker({
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
-        className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#FF6600]/[0.13] via-white/[0.03] to-transparent p-4"
+        className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#FF6600]/[0.13] via-white/[0.03] to-transparent p-4 flex-shrink-0"
       >
         <div
           aria-hidden
@@ -390,7 +390,7 @@ export function HoursTracker({
             <p className="text-[10px] uppercase tracking-[0.14em] text-white/40 flex items-center gap-1.5">
               <TrendingUp className="h-3 w-3" /> Llevas ganado este periodo
             </p>
-            <p className="text-white font-bold text-[32px] sm:text-[38px] leading-none mt-1.5 tabular-nums">
+            <p className="text-white font-bold text-[34px] sm:text-[44px] leading-none mt-1.5 tabular-nums">
               {formatDollars(animatedTotal)}
             </p>
           </div>
@@ -424,13 +424,13 @@ export function HoursTracker({
         </div>
       </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-3 flex-1 min-h-0">
         {/* Calendario del periodo */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 flex flex-col min-h-0">
           {/* Apuntar hoy, a un toque */}
           {todayInPeriod && viewingSelf && (
             <div
-              className={`rounded-xl border px-3 py-2 mb-3 flex flex-wrap items-center gap-2 ${
+              className={`rounded-xl border px-3 py-2 mb-3 flex flex-wrap items-center gap-2 flex-shrink-0 ${
                 todayHours > 0
                   ? 'border-green-500/25 bg-green-500/[0.06]'
                   : 'border-[#FF6600]/30 bg-[#FF6600]/[0.07]'
@@ -470,7 +470,7 @@ export function HoursTracker({
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
+                className="overflow-hidden flex-shrink-0"
               >
                 <div className="rounded-xl border border-white/12 bg-white/[0.04] p-3 mb-3">
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -557,21 +557,21 @@ export function HoursTracker({
             )}
           </AnimatePresence>
 
-          {/* Rejilla de días. Ancho acotado: en un portátil ancho, celdas
-              cuadradas a todo lo largo salían enormes y vacías. */}
-          <div className="max-w-[400px] mx-auto">
-            <div className="grid grid-cols-7 gap-1 mb-1">
+          {/* Rejilla de días: se reparte toda la altura que sobra, así que
+              cada casilla es lo más grande que quepa en la pantalla. */}
+          <div className="flex flex-col flex-1 min-h-0">
+            <div className="grid grid-cols-7 gap-1.5 mb-1.5 flex-shrink-0">
               {WEEKDAYS.map((d, i) => (
                 <div
                   key={`${d}-${i}`}
-                  className="text-center text-[9px] font-semibold text-white/25 uppercase tracking-wider"
+                  className="text-center text-[11px] font-semibold text-white/25 uppercase tracking-wider"
                 >
                   {d}
                 </div>
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 auto-rows-fr gap-1.5 flex-1 min-h-0">
             {Array.from({ length: leadingBlanks }).map((_, i) => (
               <div key={`blank-${i}`} />
             ))}
@@ -588,7 +588,7 @@ export function HoursTracker({
                   key={key}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => openDay(key)}
-                  className={`relative h-11 rounded-lg border flex flex-col items-center justify-center transition-colors ${
+                  className={`group relative min-h-[52px] rounded-xl border flex flex-col items-start justify-between p-2 transition-colors ${
                     isSelected
                       ? 'border-[#FF6600] bg-[#FF6600]/15'
                       : value > 0
@@ -599,19 +599,28 @@ export function HoursTracker({
                   } ${isFuture ? 'opacity-40' : ''}`}
                 >
                   <span
-                    className={`text-[11px] leading-none ${
+                    className={`text-[13px] leading-none ${
                       isToday ? 'text-[#FF6600] font-bold' : 'text-white/45'
                     }`}
                   >
                     {dayNumber(key)}
                   </span>
-                  {value > 0 && (
-                    <span className="text-[13px] font-bold text-white leading-none mt-0.5 tabular-nums">
+
+                  {value > 0 ? (
+                    <span className="self-end text-[22px] font-bold text-white leading-none tabular-nums">
                       {value}
+                      <span className="text-[12px] font-medium text-white/45 ml-0.5">h</span>
                     </span>
+                  ) : (
+                    !isFuture && (
+                      <span className="self-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Plus className="h-4 w-4 text-white/30" />
+                      </span>
+                    )
                   )}
+
                   {isToday && (
-                    <span className="absolute bottom-0.5 h-1 w-1 rounded-full bg-[#FF6600]" />
+                    <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-[#FF6600]" />
                   )}
                 </motion.button>
               )
@@ -621,7 +630,7 @@ export function HoursTracker({
         </div>
 
         {/* Resumen lateral */}
-        <div className="space-y-3">
+        <div className="space-y-3 overflow-y-auto min-h-0">
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
             <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider mb-2">
               Resumen del periodo
@@ -667,7 +676,7 @@ export function HoursTracker({
                 cualificada, aparecerá aquí y sumará a tus comisiones.
               </p>
             ) : (
-              <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+              <div className="space-y-1.5 pr-1">
                 {periodQualified.map((a) => (
                   <div
                     key={a.id}
