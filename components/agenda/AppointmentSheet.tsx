@@ -27,6 +27,7 @@ import {
   CalendarClock,
   Link2 as LinkIcon,
   Mic,
+  Image as ImageIcon,
   MessageSquare,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -43,6 +44,7 @@ import {
 } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { AudioRecordingField } from './AudioRecordingField'
+import { AttachmentsField } from './AttachmentsField'
 import { TranscriptionPanel } from './TranscriptionPanel'
 import { CommentsThread } from './CommentsThread'
 
@@ -644,6 +646,25 @@ export function AppointmentSheet({
               ) : (
                 <p className="text-[11px] text-white/30">
                   Podrás subir la grabación una vez agendada la cita.
+                </p>
+              )}
+            </div>
+
+            {/* Capturas: para las citas que se cierran por correo o WhatsApp,
+                donde no hay grabación que subir. */}
+            <div className="pt-2">
+              <div className="text-[12px] text-white/40 mb-1.5 flex items-center gap-1.5">
+                <ImageIcon className="h-3 w-3" /> Capturas de la conversación
+              </div>
+              {mode === 'edit' && appointment ? (
+                <AttachmentsField
+                  appointmentId={appointment.id}
+                  currentUser={currentUser}
+                  canEdit={canEdit}
+                />
+              ) : (
+                <p className="text-[11px] text-white/30">
+                  Podrás adjuntar capturas una vez agendada la cita.
                 </p>
               )}
             </div>
