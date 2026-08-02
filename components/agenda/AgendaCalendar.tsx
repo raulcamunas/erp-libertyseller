@@ -59,6 +59,7 @@ const CARD_STATUS_LABELS: Record<string, string> = {
   no_show: 'No asistió',
   qualified: 'Cualificada',
   not_qualified: 'No cualificada',
+  cancelled: 'Cancelada',
 }
 
 function initials(name: string | null | undefined, fallback: string) {
@@ -840,7 +841,8 @@ export function AgendaCalendar({
                           : a.comercial
                             ? colorForAgent(a.comercial.id, a.comercial.calendar_color)
                             : '#FF6600'
-                        const cancelled = a.status === 'not_qualified'
+                        const cancelled =
+                          a.status === 'not_qualified' || a.status === 'cancelled'
                         const widthPct = 100 / totalCols
                         const leftPct = col * widthPct
                         const compact = height < 40

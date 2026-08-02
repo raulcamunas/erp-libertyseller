@@ -5,6 +5,8 @@ export type AppointmentStatus =
   | 'no_show'
   | 'qualified'
   | 'not_qualified'
+  /** La reunión no llegó a celebrarse: se anuló. Distinto de no cualificada. */
+  | 'cancelled'
 
 export type SyncStatus = 'pending' | 'synced' | 'error' | 'local'
 export type TranscriptionStatus = 'none' | 'processing' | 'done' | 'error'
@@ -118,6 +120,7 @@ export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
   no_show: 'No asistió',
   qualified: 'Cita Cualificada',
   not_qualified: 'Cita No Cualificada',
+  cancelled: 'Cancelada',
 }
 
 export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, string> = {
@@ -127,6 +130,7 @@ export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, string> = {
   no_show: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
   qualified: 'bg-green-500/20 text-green-300 border-green-500/30',
   not_qualified: 'bg-red-500/20 text-red-300 border-red-500/30',
+  cancelled: 'bg-zinc-600/25 text-zinc-300 border-zinc-500/30',
 }
 
 /**

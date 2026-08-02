@@ -47,7 +47,21 @@ export async function applyGoogleEventsToErp(
     if (!ev.id) continue
 
     if (ev.status === 'cancelled') {
-      const { data, error } = await svc
+      // Un hueco importado que desaparece de Google deja de existir: se
+      // borra, no se marca. Si se quedara marcado seguiría ocupando sitio
+      // en el calendario sin motivo.
+      const { data: removed, error: deleteError } = await svc
+        .from('appointments')
+        .delete()
+        .eq('google_event_id', ev.id)
+        .eq('is_external', true)
+        .select('id')
+      if (deleteError) throw new Error(`Supabase (cancel externo): ${deleteError.message}`)
+      if (removed) cancelled += removed.length
+
+      // Una cita del ERP anulada desde Google sí se conserva, marcada como
+      // cancelada: detrás hay notas, grabación y comentarios del equipo.
+      const { data: marked, error } = await svc
         .from('appointments')
         .update({
           status: 'cancelled',
@@ -55,9 +69,10 @@ export async function applyGoogleEventsToErp(
           last_synced_at: new Date().toISOString(),
         })
         .eq('google_event_id', ev.id)
+        .eq('is_external', false)
         .select('id')
       if (error) throw new Error(`Supabase (cancel): ${error.message}`)
-      if (data && data.length > 0) cancelled += data.length
+      if (marked) cancelled += marked.length
       continue
     }
 

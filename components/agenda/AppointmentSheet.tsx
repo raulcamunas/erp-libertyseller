@@ -86,6 +86,7 @@ const STATUS_OPTIONS: AppointmentStatus[] = [
   'no_show',
   'qualified',
   'not_qualified',
+  'cancelled',
 ]
 
 // Input "fantasma" al estilo Notion: sin caja visible hasta que se
