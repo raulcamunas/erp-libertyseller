@@ -7,6 +7,7 @@ import {
   Activity,
   Clock,
   Timer,
+  PhoneCall,
   CalendarDays
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
@@ -75,6 +76,15 @@ export const apps: AppConfig[] = [
     icon: Calculator,
     route: '/dashboard/commissions-shoes-f',
     status: 'active',
+    category: 'core'
+  },
+  {
+    id: 'cold-calling',
+    name: 'Cold Calling',
+    description: 'Cartera de sellers a prospectar, con estado e historial de llamadas',
+    icon: PhoneCall,
+    route: '/dashboard/cold-calling',
+    status: 'new',
     category: 'core'
   },
   {
