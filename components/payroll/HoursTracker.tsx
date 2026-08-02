@@ -290,7 +290,9 @@ export function HoursTracker({
   const todayInPeriod = days.includes(today)
 
   return (
-    <div className="space-y-3">
+    // Acotado: los comerciales trabajan en portátiles pequeños y a pantalla
+    // completa todo quedaba estirado y con mucho hueco muerto.
+    <div className="space-y-3 max-w-[880px]">
       {/* Barra de control */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-1">
@@ -388,7 +390,7 @@ export function HoursTracker({
             <p className="text-[10px] uppercase tracking-[0.14em] text-white/40 flex items-center gap-1.5">
               <TrendingUp className="h-3 w-3" /> Llevas ganado este periodo
             </p>
-            <p className="text-white font-bold text-[42px] leading-none mt-1.5 tabular-nums">
+            <p className="text-white font-bold text-[32px] sm:text-[38px] leading-none mt-1.5 tabular-nums">
               {formatDollars(animatedTotal)}
             </p>
           </div>
@@ -422,7 +424,7 @@ export function HoursTracker({
         </div>
       </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
         {/* Calendario del periodo */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
           {/* Apuntar hoy, a un toque */}
@@ -555,19 +557,21 @@ export function HoursTracker({
             )}
           </AnimatePresence>
 
-          {/* Rejilla de días */}
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {WEEKDAYS.map((d, i) => (
-              <div
-                key={`${d}-${i}`}
-                className="text-center text-[10px] font-semibold text-white/25 uppercase tracking-wider py-1"
-              >
-                {d}
-              </div>
-            ))}
-          </div>
+          {/* Rejilla de días. Ancho acotado: en un portátil ancho, celdas
+              cuadradas a todo lo largo salían enormes y vacías. */}
+          <div className="max-w-[400px] mx-auto">
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {WEEKDAYS.map((d, i) => (
+                <div
+                  key={`${d}-${i}`}
+                  className="text-center text-[9px] font-semibold text-white/25 uppercase tracking-wider"
+                >
+                  {d}
+                </div>
+              ))}
+            </div>
 
-          <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-1">
             {Array.from({ length: leadingBlanks }).map((_, i) => (
               <div key={`blank-${i}`} />
             ))}
@@ -584,7 +588,7 @@ export function HoursTracker({
                   key={key}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => openDay(key)}
-                  className={`relative aspect-square rounded-lg border flex flex-col items-center justify-center transition-colors ${
+                  className={`relative h-11 rounded-lg border flex flex-col items-center justify-center transition-colors ${
                     isSelected
                       ? 'border-[#FF6600] bg-[#FF6600]/15'
                       : value > 0
@@ -607,11 +611,12 @@ export function HoursTracker({
                     </span>
                   )}
                   {isToday && (
-                    <span className="absolute bottom-1 h-1 w-1 rounded-full bg-[#FF6600]" />
+                    <span className="absolute bottom-0.5 h-1 w-1 rounded-full bg-[#FF6600]" />
                   )}
                 </motion.button>
               )
             })}
+            </div>
           </div>
         </div>
 

@@ -136,6 +136,7 @@ export async function middleware(request: NextRequest) {
           '/dashboard/commissions': 'commissions',
           '/dashboard/monthly-closings': 'monthly-closings',
           '/dashboard/biweekly-reports': 'biweekly-reports',
+          '/dashboard/horas': 'horas',
           '/dashboard/reports': 'reports',
           '/dashboard/documents': 'documents',
         }
