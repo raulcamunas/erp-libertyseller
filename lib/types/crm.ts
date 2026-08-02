@@ -47,6 +47,9 @@ export interface CrmClient {
   next_action_date: string | null
   notes: string | null
 
+  /** Se sella solo al pasar a "Cliente cerrado"; null en cualquier otro estado */
+  closed_at: string | null
+
   created_at: string
   updated_at: string
 }

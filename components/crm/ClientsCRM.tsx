@@ -110,20 +110,21 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
 
   const stats = useMemo(() => {
     const won = clients.filter((c) => c.stage === 'ganado')
-    const openStages: CrmStage[] = [
-      'nuevo',
-      'seguimiento',
-      'propuesta_enviada',
-      'revision_propuesta',
-      'negociacion',
-    ]
-    const open = clients.filter((c) => openStages.includes(c.stage))
-    const pipelineValue = open.reduce(
-      (sum, c) => sum + (Number(c.setup_budget) || 0) + (Number(c.maintenance_budget) || 0) * 12,
-      0
-    )
+
+    // Facturación del mes: el set up se cobra una sola vez, el mes que se
+    // cierra el cliente; el mantenimiento se cobra todos los meses mientras
+    // siga siendo cliente. Por eso se cuentan de forma distinta.
+    const now = toMadrid(new Date())
+    const setupsThisMonth = won.reduce((sum, c) => {
+      if (!c.closed_at) return sum
+      const closed = toMadrid(c.closed_at)
+      const sameMonth =
+        closed.getFullYear() === now.getFullYear() && closed.getMonth() === now.getMonth()
+      return sameMonth ? sum + (Number(c.setup_budget) || 0) : sum
+    }, 0)
     const mrr = won.reduce((sum, c) => sum + (Number(c.maintenance_budget) || 0), 0)
-    return { total: clients.length, won: won.length, pipelineValue, mrr }
+
+    return { total: clients.length, won: won.length, setupsThisMonth, mrr }
   }, [clients])
 
   function handlePatched(id: string, patch: Partial<CrmClientWithDetails>) {
@@ -140,16 +141,18 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
   return (
     <div className="flex flex-col h-full gap-3">
       {/* Métricas de cabecera */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 flex-shrink-0">
         {[
-          { icon: Users, label: 'Clientes en CRM', value: String(stats.total) },
-          { icon: Trophy, label: 'Cerrados', value: String(stats.won) },
+          { icon: Users, label: 'Clientes en CRM', value: String(stats.total), hint: null },
+          { icon: Trophy, label: 'Cerrados', value: String(stats.won), hint: null },
           {
             icon: Euro,
-            label: 'Pipeline abierto (año 1)',
-            value: money(stats.pipelineValue) ?? '0 €',
+            label: 'Facturación de este mes',
+            value: money(stats.setupsThisMonth) ?? '0 €',
+            // Entre paréntesis, lo recurrente: se cobra todos los meses,
+            // no solo este, así que no se suma al número grande.
+            hint: `(${money(stats.mrr) ?? '0 €'}/mes de mantenimiento)`,
           },
-          { icon: Euro, label: 'Mantenimiento cerrado', value: `${money(stats.mrr) ?? '0 €'}/mes` },
         ].map((s) => (
           <div
             key={s.label}
@@ -158,7 +161,12 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
             <p className="text-[10px] uppercase tracking-wider text-white/35 flex items-center gap-1.5">
               <s.icon className="h-3 w-3" /> {s.label}
             </p>
-            <p className="text-white font-semibold text-[15px] mt-0.5">{s.value}</p>
+            <p className="text-white font-semibold text-[15px] mt-0.5 flex items-baseline gap-1.5 flex-wrap">
+              {s.value}
+              {s.hint && (
+                <span className="text-[11px] font-normal text-white/35">{s.hint}</span>
+              )}
+            </p>
           </div>
         ))}
       </div>
