@@ -16,6 +16,7 @@ import {
   Wallet,
   Pencil,
   Check,
+  BarChart3,
 } from 'lucide-react'
 import {
   CrmClientWithDetails,
@@ -36,6 +37,7 @@ import { CalendarPerson } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { CrmClientDetail } from './CrmClientDetail'
 import { NewLeadDialog } from './NewLeadDialog'
+import { MonthBreakdown } from './MonthBreakdown'
 
 /** Cita cualificada, con lo justo para calcular comisiones */
 export interface CrmQualifiedAppointment {
@@ -93,6 +95,7 @@ export function ClientsCRM({
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<CrmStage | 'all'>('all')
   const [showNewLead, setShowNewLead] = useState(false)
+  const [showBreakdown, setShowBreakdown] = useState(false)
 
   // Coste del equipo comercial: se recalcula solo cuando alguien apunta
   // horas, se cualifica una cita o se cambia una tarifa.
@@ -295,6 +298,16 @@ export function ClientsCRM({
 
   return (
     <div className="flex flex-col h-full gap-3">
+      <div className="flex justify-end flex-shrink-0">
+        <button
+          type="button"
+          onClick={() => setShowBreakdown(true)}
+          className="h-9 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[13px] font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+        >
+          <BarChart3 className="h-4 w-4" /> Desglose mes
+        </button>
+      </div>
+
       {/* Métricas de cabecera */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
         {[
@@ -529,6 +542,20 @@ export function ClientsCRM({
           </AnimatePresence>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showBreakdown && (
+          <MonthBreakdown
+            clients={clients}
+            team={team}
+            hours={hours}
+            rates={rates}
+            qualified={qualified}
+            usdEur={usdEur}
+            onClose={() => setShowBreakdown(false)}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showNewLead && (

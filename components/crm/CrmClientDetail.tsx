@@ -20,6 +20,7 @@ import {
   Link2,
   Video,
   Target,
+  BadgeEuro,
   FileSignature,
   FileText,
   History,
@@ -139,6 +140,9 @@ export function CrmClientDetail({
   )
   const [nextAction, setNextAction] = useState(client.next_action ?? '')
   const [nextActionDate, setNextActionDate] = useState(client.next_action_date ?? '')
+  const [closedAt, setClosedAt] = useState(
+    client.closed_at ? format(toMadrid(client.closed_at), 'yyyy-MM-dd') : ''
+  )
   const [notes, setNotes] = useState(client.notes ?? '')
 
   const [interactions, setInteractions] = useState<CrmInteraction[]>([])
@@ -171,6 +175,12 @@ export function CrmClientDetail({
       active = false
     }
   }, [client.id, supabase])
+
+  // La fecha de cierre la sella un trigger al pasar a «Cliente cerrado»,
+  // así que llega de vuelta por Realtime y hay que reflejarla aquí.
+  useEffect(() => {
+    setClosedAt(client.closed_at ? format(toMadrid(client.closed_at), 'yyyy-MM-dd') : '')
+  }, [client.closed_at])
 
   async function patch(fields: Partial<CrmClientWithDetails>) {
     // Solo se mandan los campos tocados: nunca un update completo, para
@@ -294,6 +304,31 @@ export function CrmClientDetail({
                 patch({ next_action_date: e.target.value || null })
               }}
               className={`${ghostInput} [color-scheme:dark]`}
+            />
+          </Row>
+          {/* Fecha de cierre = cuándo pagó de verdad. Se sella sola al
+              marcar «Cliente cerrado», pero se puede corregir: una cita
+              cualificada del 30 de julio que paga el 3 de agosto cuenta en
+              la tesorería de agosto, no en la de julio. */}
+          <Row icon={<BadgeEuro className="h-3 w-3" />} label="Fecha de cierre">
+            <input
+              type="date"
+              value={closedAt}
+              onChange={(e) => {
+                setClosedAt(e.target.value)
+                patch({
+                  closed_at: e.target.value
+                    ? new Date(`${e.target.value}T12:00:00Z`).toISOString()
+                    : null,
+                })
+              }}
+              disabled={client.stage !== 'ganado'}
+              className={`${ghostInput} [color-scheme:dark] disabled:opacity-40`}
+              title={
+                client.stage !== 'ganado'
+                  ? 'Solo se rellena cuando el cliente está cerrado'
+                  : 'Día en que pagó: es lo que cuenta para la tesorería del mes'
+              }
             />
           </Row>
         </div>

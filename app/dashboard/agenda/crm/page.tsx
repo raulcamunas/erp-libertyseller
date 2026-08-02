@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { ClientsCRM, CrmQualifiedAppointment } from '@/components/crm/ClientsCRM'
 import { CrmClientWithDetails } from '@/lib/types/crm'
 import { WorkHourEntry, PayrollRate } from '@/lib/types/payroll'
@@ -57,12 +59,21 @@ export default async function CrmClientsPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3rem)] lg:h-[calc(100vh-4rem)]">
-      <div className="mb-3 flex-shrink-0">
-        <h1 className="heading-medium text-white mb-1">CRM de Clientes</h1>
-        <p className="text-white/50 text-sm">
-          Todos los leads con cita cualificada, su estado y todo lo que hemos
-          hablado con ellos.
-        </p>
+      <div className="mb-3 flex-shrink-0 flex items-start gap-3">
+        <Link
+          href="/dashboard/agenda"
+          className="mt-1 h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-white/60 hover:text-white hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+          title="Volver al calendario"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        <div>
+          <h1 className="heading-medium text-white mb-1">CRM de Clientes</h1>
+          <p className="text-white/50 text-sm">
+            Todos los leads con cita cualificada, su estado y todo lo que hemos
+            hablado con ellos.
+          </p>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0">
