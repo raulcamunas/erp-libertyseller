@@ -6,6 +6,7 @@ import {
   Linkedin,
   Activity,
   Clock,
+  Timer,
   CalendarDays
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
@@ -75,6 +76,15 @@ export const apps: AppConfig[] = [
     route: '/dashboard/commissions-shoes-f',
     status: 'active',
     category: 'core'
+  },
+  {
+    id: 'horas',
+    name: 'Mis Horas',
+    description: 'Apunta tus horas y mira en vivo tu salario y comisiones',
+    icon: Timer,
+    route: '/dashboard/horas',
+    status: 'new',
+    category: 'productivity'
   },
   {
     id: 'users',
