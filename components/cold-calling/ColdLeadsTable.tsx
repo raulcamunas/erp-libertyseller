@@ -108,8 +108,10 @@ export function ColdLeadsTable({
   }
 
   return (
-    <div className="h-full overflow-auto rounded-2xl border border-white/10 bg-white/[0.02]">
-      <table className="w-full border-collapse text-[12px]">
+    // El scroll horizontal vive aquí dentro: la caja no crece, crece la
+    // tabla, así que la barra lateral y el resto de la página no se mueven.
+    <div className="h-full w-full min-w-0 overflow-auto rounded-2xl border border-white/10 bg-white/[0.02]">
+      <table className="border-collapse text-[12px] min-w-max">
         <thead className="sticky top-0 z-20 bg-[#0d0d0d]">
           <tr>
             <th className={`${TH} sticky left-0 z-30 bg-[#0d0d0d] min-w-[190px]`}>

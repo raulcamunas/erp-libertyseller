@@ -217,7 +217,7 @@ export function ColdCallingBoard({
   }
 
   return (
-    <div className="flex flex-col h-full gap-3">
+    <div className="flex flex-col h-full gap-3 min-w-0">
       {/* Métricas */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
         {[
@@ -472,7 +472,7 @@ export function ColdCallingBoard({
       </div>
 
       {view === 'tabla' ? (
-        <div className="flex-1 min-h-0 flex flex-col gap-2">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col gap-2">
           <ColdLeadsTable
             leads={filtered.slice(0, visible)}
             currentUserId={currentUser.id}
@@ -497,7 +497,7 @@ export function ColdCallingBoard({
       ) : (
 
       /* Lista + ficha */
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(300px,380px)_1fr] gap-3">
+      <div className="flex-1 min-h-0 min-w-0 grid grid-cols-1 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] gap-3">
         <div className="flex flex-col min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
           <div className="p-2.5 border-b border-white/[0.06] flex-shrink-0">
             <div className="relative">
