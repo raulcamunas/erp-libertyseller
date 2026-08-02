@@ -330,8 +330,10 @@ export function ColdLeadDetail({
         />
       </Section>
 
-      {/* Seguimiento heredado del Excel */}
-      <Section icon={<FileText className="h-3 w-3" />} title="Notas de seguimiento">
+      {/* Nota viva del lead. El seguimiento original del Excel está además
+          como primera entrada del historial, así que se puede reescribir
+          esto sin perder lo que ya se había apuntado. */}
+      <Section icon={<FileText className="h-3 w-3" />} title="Nota del lead">
         <textarea
           value={followUp}
           onChange={(e) => setFollowUp(e.target.value)}
@@ -344,11 +346,11 @@ export function ColdLeadDetail({
           placeholder="Contexto del lead, lo que se habló, con quién..."
           className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-2.5 py-2 text-[12px] text-white outline-none focus:border-[#FF6600] transition-colors resize-none placeholder:text-white/25 disabled:opacity-60"
         />
-        {lead.action_label && (
-          <p className="text-[10px] text-white/25 mt-1.5">
-            Etiqueta original del Excel: {lead.action_label}
-          </p>
-        )}
+        <p className="text-[10px] text-white/25 mt-1.5">
+          Resumen siempre a la vista. Lo que venía del Excel está también en
+          el historial de arriba, así que puedes reescribir esto sin perderlo.
+          {lead.action_label ? ` · Etiqueta original: ${lead.action_label}` : ''}
+        </p>
       </Section>
     </div>
   )
