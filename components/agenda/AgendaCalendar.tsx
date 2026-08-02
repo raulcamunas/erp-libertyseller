@@ -455,16 +455,16 @@ export function AgendaCalendar({
     }
   }
 
-  function upsertLocal(appt: AppointmentWithPeople) {
-    // Solo se enseña el resumen cuando la cita es nueva: al editar una que
-    // ya existía sería ruido.
-    const isNew = !appointments.some((a) => a.id === appt.id)
+  // `created` lo manda la cajita según su modo. No se puede deducir de si
+  // la cita ya está en la lista: Realtime la mete antes de que termine el
+  // guardado, así que siempre parecería que ya existía.
+  function upsertLocal(appt: AppointmentWithPeople, created = false) {
     setAppointments((prev) => {
       const exists = prev.some((a) => a.id === appt.id)
       return exists ? prev.map((a) => (a.id === appt.id ? appt : a)) : [...prev, appt]
     })
     setSheet(null)
-    if (isNew) setConfirmation(appt)
+    if (created) setConfirmation(appt)
   }
 
   function removeLocal(id: string) {
@@ -958,7 +958,7 @@ export function AgendaCalendar({
             team={team}
             currentUser={currentUser}
             onClose={() => setSheet(null)}
-            onSaved={upsertLocal}
+            onSaved={(appt) => upsertLocal(appt, sheet.mode === 'create')}
             onDeleted={removeLocal}
           />
         )}
