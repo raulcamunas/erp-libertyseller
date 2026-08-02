@@ -18,12 +18,29 @@ export default async function ColdCallingPage() {
   const isAdmin = profile.role === 'admin' || profile.role === 'partner'
 
   // RLS ya limita a cada comercial su cartera; los admins reciben todo.
-  // El límite alto es para que no se corte en las 1000 filas por defecto.
-  const { data: leads } = await supabase
-    .from('cold_leads')
-    .select('*')
-    .order('revenue_monthly', { ascending: false, nullsFirst: false })
-    .limit(5000)
+  //
+  // Hay que pedirlo por tramos: Supabase corta cualquier consulta a 1.000
+  // filas por defecto (ajuste max-rows de PostgREST) y un .limit() mayor
+  // no lo salta, porque el tope lo aplica el servidor. Con casi 4.000
+  // leads, sin esto solo llegaban los 1.000 primeros.
+  const CHUNK = 1000
+  const leads: ColdLead[] = []
+  for (let from = 0; ; from += CHUNK) {
+    const { data, error } = await supabase
+      .from('cold_leads')
+      .select('*')
+      .order('revenue_monthly', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
+      .range(from, from + CHUNK - 1)
+
+    if (error) {
+      console.error('Error cargando leads de cold calling:', error)
+      break
+    }
+    if (!data || data.length === 0) break
+    leads.push(...(data as ColdLead[]))
+    if (data.length < CHUNK) break
+  }
 
   const { data: team } = await supabase
     .from('profiles')
@@ -43,7 +60,7 @@ export default async function ColdCallingPage() {
 
       <div className="flex-1 min-h-0">
         <ColdCallingBoard
-          initialLeads={(leads as ColdLead[]) || []}
+          initialLeads={leads}
           team={(team as CalendarPerson[]) || []}
           currentUser={profile}
           isAdmin={isAdmin}
