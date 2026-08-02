@@ -6,7 +6,17 @@ import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toMadrid } from '@/lib/timezone'
-import { Search, Users, Euro, Trophy, MousePointerClick, Plus } from 'lucide-react'
+import {
+  Search,
+  Users,
+  Euro,
+  Trophy,
+  MousePointerClick,
+  Plus,
+  Wallet,
+  Pencil,
+  Check,
+} from 'lucide-react'
 import {
   CrmClientWithDetails,
   CrmStage,
@@ -16,15 +26,32 @@ import {
   CRM_STAGE_DOTS,
   crmContact,
 } from '@/lib/types/crm'
+import {
+  WorkHourEntry,
+  PayrollRate,
+  cycleKeyForDate,
+  resolveRate,
+} from '@/lib/types/payroll'
 import { CalendarPerson } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { CrmClientDetail } from './CrmClientDetail'
 import { NewLeadDialog } from './NewLeadDialog'
 
+/** Cita cualificada, con lo justo para calcular comisiones */
+export interface CrmQualifiedAppointment {
+  id: string
+  comercial_id: string | null
+  start_time: string
+}
+
 interface ClientsCRMProps {
   initialClients: CrmClientWithDetails[]
   team: CalendarPerson[]
   currentUser: UserProfile
+  workHours: WorkHourEntry[]
+  payrollRates: PayrollRate[]
+  qualifiedAppointments: CrmQualifiedAppointment[]
+  initialUsdEurRate: number
 }
 
 const CLIENT_SELECT = `
@@ -41,7 +68,23 @@ function money(n: number | null | undefined) {
   return `${Number(n).toLocaleString('es-ES')} €`
 }
 
-export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProps) {
+function dollars(n: number) {
+  return `${Math.round(n).toLocaleString('es-ES')} $`
+}
+
+function pad(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+export function ClientsCRM({
+  initialClients,
+  team,
+  currentUser,
+  workHours,
+  payrollRates,
+  qualifiedAppointments,
+  initialUsdEurRate,
+}: ClientsCRMProps) {
   const supabase = createClient()
   const [clients, setClients] = useState<CrmClientWithDetails[]>(initialClients)
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -50,6 +93,15 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<CrmStage | 'all'>('all')
   const [showNewLead, setShowNewLead] = useState(false)
+
+  // Coste del equipo comercial: se recalcula solo cuando alguien apunta
+  // horas, se cualifica una cita o se cambia una tarifa.
+  const [hours, setHours] = useState<WorkHourEntry[]>(workHours)
+  const [rates, setRates] = useState<PayrollRate[]>(payrollRates)
+  const [qualified, setQualified] = useState(qualifiedAppointments)
+  const [usdEur, setUsdEur] = useState(initialUsdEurRate)
+  const [editingFx, setEditingFx] = useState(false)
+  const [fxDraft, setFxDraft] = useState(String(initialUsdEurRate))
 
   // Los dos admins pueden estar trabajando el pipeline a la vez: si uno
   // cualifica una cita o cambia un estado, el otro lo ve al momento.
@@ -81,12 +133,81 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
           })
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'work_hours' },
+        (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const old = payload.old as { id: string }
+            setHours((prev) => prev.filter((h) => h.id !== old.id))
+            return
+          }
+          const row = payload.new as WorkHourEntry
+          setHours((prev) =>
+            prev.some((h) => h.id === row.id)
+              ? prev.map((h) => (h.id === row.id ? row : h))
+              : [...prev, row]
+          )
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'payroll_rates' },
+        (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const old = payload.old as { id: string }
+            setRates((prev) => prev.filter((r) => r.id !== old.id))
+            return
+          }
+          const row = payload.new as PayrollRate
+          setRates((prev) =>
+            prev.some((r) => r.id === row.id)
+              ? prev.map((r) => (r.id === row.id ? row : r))
+              : [...prev, row]
+          )
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments' },
+        async () => {
+          const { data } = await supabase
+            .from('appointments')
+            .select('id, comercial_id, start_time')
+            .eq('status', 'qualified')
+            .eq('is_external', false)
+          if (data) setQualified(data as CrmQualifiedAppointment[])
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'app_settings' },
+        (payload) => {
+          const row = payload.new as { key: string; value: number }
+          if (row?.key === 'usd_eur_rate') setUsdEur(Number(row.value))
+        }
+      )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
   }, [supabase, currentUser.id])
+
+  async function saveFxRate() {
+    const parsed = Number(fxDraft.replace(',', '.'))
+    if (Number.isNaN(parsed) || parsed <= 0) {
+      setFxDraft(String(usdEur))
+      setEditingFx(false)
+      return
+    }
+    setUsdEur(parsed)
+    setEditingFx(false)
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert({ key: 'usd_eur_rate', value: parsed }, { onConflict: 'key' })
+    if (error) console.error('Error guardando el cambio USD/EUR:', error)
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -127,6 +248,40 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
     return { total: clients.length, won: won.length, setupsThisMonth, mrr }
   }, [clients])
 
+  /**
+   * Lo que cuesta el equipo comercial este mes: horas × precio/hora más
+   * citas cualificadas × comisión. Se acota al mes natural para poder
+   * compararlo con la facturación de al lado, aunque las tarifas vayan
+   * por ciclos del 15 al 14 — cada día se paga a la tarifa de SU ciclo.
+   */
+  const teamCost = useMemo(() => {
+    const now = toMadrid(new Date())
+    const monthPrefix = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`
+
+    let salaries = 0
+    for (const h of hours) {
+      if (!h.work_date.startsWith(monthPrefix)) continue
+      const rate = resolveRate(rates, cycleKeyForDate(h.work_date), h.user_id)
+      salaries += Number(h.hours) * rate.hourly
+    }
+
+    let commissions = 0
+    for (const a of qualified) {
+      if (!a.comercial_id) continue
+      const d = toMadrid(a.start_time)
+      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      if (!key.startsWith(monthPrefix)) continue
+      commissions += resolveRate(rates, cycleKeyForDate(key), a.comercial_id).commission
+    }
+
+    return { salaries, commissions, total: salaries + commissions }
+  }, [hours, rates, qualified])
+
+  // Ingresos del mes en euros contra coste del equipo en dólares pasados
+  // a euros: si sale en verde, el equipo se paga solo.
+  const costInEuros = teamCost.total * usdEur
+  const profitable = stats.setupsThisMonth + stats.mrr >= costInEuros
+
   function handlePatched(id: string, patch: Partial<CrmClientWithDetails>) {
     setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
   }
@@ -141,7 +296,7 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
   return (
     <div className="flex flex-col h-full gap-3">
       {/* Métricas de cabecera */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 flex-shrink-0">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
         {[
           { icon: Users, label: 'Clientes en CRM', value: String(stats.total), hint: null },
           { icon: Trophy, label: 'Cerrados', value: String(stats.won), hint: null },
@@ -169,6 +324,67 @@ export function ClientsCRM({ initialClients, team, currentUser }: ClientsCRMProp
             </p>
           </div>
         ))}
+
+        {/* Coste del equipo comercial */}
+        <div
+          className={`rounded-xl border px-3 py-2 ${
+            profitable
+              ? 'border-green-500/25 bg-green-500/[0.05]'
+              : 'border-red-500/25 bg-red-500/[0.05]'
+          }`}
+          title={`Salarios ${dollars(teamCost.salaries)} + comisiones ${dollars(
+            teamCost.commissions
+          )}`}
+        >
+          <p className="text-[10px] uppercase tracking-wider text-white/35 flex items-center gap-1.5">
+            <Wallet className="h-3 w-3" /> Coste comerciales
+          </p>
+          <p className="text-white font-semibold text-[15px] mt-0.5 flex items-baseline gap-1.5 flex-wrap">
+            {dollars(teamCost.total)}
+            {editingFx ? (
+              <span className="inline-flex items-center gap-1">
+                <input
+                  value={fxDraft}
+                  onChange={(e) => setFxDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveFxRate()
+                    if (e.key === 'Escape') {
+                      setFxDraft(String(usdEur))
+                      setEditingFx(false)
+                    }
+                  }}
+                  autoFocus
+                  inputMode="decimal"
+                  className="w-14 bg-white/[0.06] border border-white/15 rounded px-1 py-0.5 text-[11px] font-normal text-white outline-none focus:border-[#FF6600]"
+                />
+                <button
+                  type="button"
+                  onClick={saveFxRate}
+                  className="text-green-400 hover:text-green-300 transition-colors"
+                >
+                  <Check className="h-3 w-3" />
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setFxDraft(String(usdEur))
+                  setEditingFx(true)
+                }}
+                className="group text-[11px] font-normal text-white/35 hover:text-white/70 transition-colors inline-flex items-center gap-1"
+                title="Cambiar el tipo de cambio USD → EUR"
+              >
+                ≈ {money(Math.round(costInEuros))}
+                <Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            )}
+          </p>
+          <p className="text-[9px] text-white/25 mt-0.5">
+            Salarios {dollars(teamCost.salaries)} · Comisiones{' '}
+            {dollars(teamCost.commissions)}
+          </p>
+        </div>
       </div>
 
       {/* Filtros por estado */}

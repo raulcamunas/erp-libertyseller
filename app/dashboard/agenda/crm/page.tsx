@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
-import { ClientsCRM } from '@/components/crm/ClientsCRM'
+import { ClientsCRM, CrmQualifiedAppointment } from '@/components/crm/ClientsCRM'
 import { CrmClientWithDetails } from '@/lib/types/crm'
+import { WorkHourEntry, PayrollRate } from '@/lib/types/payroll'
 import { CalendarPerson } from '@/lib/types/appointments'
 
 export default async function CrmClientsPage() {
@@ -39,6 +40,21 @@ export default async function CrmClientsPage() {
     .eq('is_comercial', true)
     .order('full_name', { ascending: true })
 
+  // Lo necesario para calcular lo que cuesta el equipo comercial este mes
+  const { data: workHours } = await supabase.from('work_hours').select('*')
+  const { data: payrollRates } = await supabase.from('payroll_rates').select('*')
+  const { data: qualified } = await supabase
+    .from('appointments')
+    .select('id, comercial_id, start_time')
+    .eq('status', 'qualified')
+    .eq('is_external', false)
+
+  const { data: fxSetting } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'usd_eur_rate')
+    .maybeSingle()
+
   return (
     <div className="flex flex-col h-[calc(100vh-3rem)] lg:h-[calc(100vh-4rem)]">
       <div className="mb-3 flex-shrink-0">
@@ -54,6 +70,10 @@ export default async function CrmClientsPage() {
           initialClients={(clients as CrmClientWithDetails[]) || []}
           team={(team as CalendarPerson[]) || []}
           currentUser={profile}
+          workHours={(workHours as WorkHourEntry[]) || []}
+          payrollRates={(payrollRates as PayrollRate[]) || []}
+          qualifiedAppointments={(qualified as CrmQualifiedAppointment[]) || []}
+          initialUsdEurRate={Number(fxSetting?.value ?? 0.92)}
         />
       </div>
     </div>

@@ -69,6 +69,24 @@ export function payrollPeriod(offset: number): PayrollPeriod {
   }
 }
 
+/**
+ * A qué ciclo del 15 al 14 pertenece un día suelto ('yyyy-MM-dd').
+ * Devuelve la clave del ciclo, que es siempre un día 15.
+ */
+export function cycleKeyForDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  let yy = y
+  let mm = m
+  if (d < 15) {
+    mm -= 1
+    if (mm === 0) {
+      mm = 12
+      yy -= 1
+    }
+  }
+  return `${yy}-${pad(mm)}-15`
+}
+
 /** Los días del ciclo como 'yyyy-MM-dd', del 15 al 14 del mes siguiente */
 export function periodDays(period: PayrollPeriod): string[] {
   const days: string[] = []
