@@ -26,6 +26,7 @@ import {
   Clock3 as ClockIcon,
 } from 'lucide-react'
 import { AppointmentSheet } from './AppointmentSheet'
+import { AppointmentConfirmation } from './AppointmentConfirmation'
 import { AvailabilitySettings } from './AvailabilitySettings'
 import {
   AppointmentWithPeople,
@@ -99,6 +100,8 @@ export function AgendaCalendar({
     | { mode: 'edit'; appointment: AppointmentWithPeople }
     | null
   >(null)
+  // Resumen que sale tras agendar, para capturarlo y pasarlo al grupo
+  const [confirmation, setConfirmation] = useState<AppointmentWithPeople | null>(null)
   const [hoverSlot, setHoverSlot] = useState<{
     dayIso: string
     hour: number
@@ -453,11 +456,15 @@ export function AgendaCalendar({
   }
 
   function upsertLocal(appt: AppointmentWithPeople) {
+    // Solo se enseña el resumen cuando la cita es nueva: al editar una que
+    // ya existía sería ruido.
+    const isNew = !appointments.some((a) => a.id === appt.id)
     setAppointments((prev) => {
       const exists = prev.some((a) => a.id === appt.id)
       return exists ? prev.map((a) => (a.id === appt.id ? appt : a)) : [...prev, appt]
     })
     setSheet(null)
+    if (isNew) setConfirmation(appt)
   }
 
   function removeLocal(id: string) {
@@ -953,6 +960,15 @@ export function AgendaCalendar({
             onClose={() => setSheet(null)}
             onSaved={upsertLocal}
             onDeleted={removeLocal}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {confirmation && (
+          <AppointmentConfirmation
+            appointment={confirmation}
+            onClose={() => setConfirmation(null)}
           />
         )}
       </AnimatePresence>
