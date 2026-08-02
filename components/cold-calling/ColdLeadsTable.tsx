@@ -114,7 +114,9 @@ export function ColdLeadsTable({
       <table className="border-collapse text-[12px] min-w-max">
         <thead className="sticky top-0 z-20 bg-[#0d0d0d]">
           <tr>
-            <th className={`${TH} sticky left-0 z-30 bg-[#0d0d0d] min-w-[190px]`}>
+            <th
+              className={`${TH} sticky left-0 z-30 bg-[#0d0d0d] min-w-[190px] border-r border-white/[0.07]`}
+            >
               Tienda
             </th>
             <th className={`${TH} min-w-[170px]`}>Empresa</th>
@@ -153,8 +155,15 @@ export function ColdLeadsTable({
                 className="border-b border-white/[0.05] hover:brightness-125 transition-[filter] cursor-pointer align-middle"
               >
                 <td
-                  className="sticky left-0 z-10 px-2 py-1 font-semibold text-white whitespace-nowrap"
-                  style={{ backgroundColor: rowBg === 'transparent' ? '#0d0d0d' : rowBg }}
+                  className="sticky left-0 z-10 px-2 py-1 font-semibold text-white whitespace-nowrap border-r border-white/[0.07]"
+                  style={{
+                    // El tinte del estado es translúcido: sobre una celda
+                    // congelada dejaría ver el resto de la fila pasando por
+                    // debajo. Se pinta encima de un fondo opaco para que
+                    // tape de verdad.
+                    backgroundColor: '#0d0d0d',
+                    backgroundImage: `linear-gradient(${rowBg}, ${rowBg})`,
+                  }}
                 >
                   <span className="flex items-center gap-1.5">
                     <span
