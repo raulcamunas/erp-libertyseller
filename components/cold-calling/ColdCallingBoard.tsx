@@ -3,13 +3,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { Search, MousePointerClick, Phone, Target, TrendingUp, Users } from 'lucide-react'
+import {
+  Search,
+  MousePointerClick,
+  Phone,
+  Target,
+  TrendingUp,
+  Users,
+  Layers,
+  ArrowUpDown,
+} from 'lucide-react'
 import {
   ColdLead,
   ColdLeadStatus,
+  ColdSort,
   COLD_STATUSES,
   COLD_STATUS_LABELS,
   COLD_STATUS_DOTS,
+  COLD_SORT_LABELS,
+  colorForList,
   formatRevenue,
 } from '@/lib/types/cold-leads'
 import { CalendarPerson } from '@/lib/types/appointments'
@@ -38,6 +50,8 @@ export function ColdCallingBoard({
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ColdLeadStatus | 'all'>('all')
   const [ownerFilter, setOwnerFilter] = useState<string>(isAdmin ? 'all' : currentUser.id)
+  const [listFilter, setListFilter] = useState<string>('all')
+  const [sort, setSort] = useState<ColdSort>('due_first')
   const [visible, setVisible] = useState(PAGE)
 
   useEffect(() => {
@@ -71,10 +85,26 @@ export function ColdCallingBoard({
     [leads, ownerFilter]
   )
 
+  /** Listas de origen presentes en la cartera visible, para el desplegable */
+  const availableLists = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const l of scoped) {
+      const key = l.source_list || 'Sin lista'
+      map.set(key, (map.get(key) ?? 0) + 1)
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1])
+  }, [scoped])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
+    const byRevenue = (a: ColdLead, b: ColdLead) =>
+      (Number(b.revenue_monthly) || 0) - (Number(a.revenue_monthly) || 0)
+
     return scoped
       .filter((l) => (statusFilter === 'all' ? true : l.status === statusFilter))
+      .filter((l) =>
+        listFilter === 'all' ? true : (l.source_list || 'Sin lista') === listFilter
+      )
       .filter((l) => {
         if (!q) return true
         return [l.store_name, l.company, l.phone, l.email, l.province, l.category]
@@ -82,21 +112,31 @@ export function ColdCallingBoard({
           .some((v) => String(v).toLowerCase().includes(q))
       })
       .sort((a, b) => {
-        // Lo urgente primero: rellamadas vencidas, luego por facturación,
-        // que es lo que hace a un seller interesante.
+        if (sort === 'revenue_desc') return byRevenue(a, b)
+        if (sort === 'revenue_asc') return -byRevenue(a, b)
+        if (sort === 'name') return a.store_name.localeCompare(b.store_name, 'es')
+        // due_first: rellamadas pendientes arriba y, dentro de eso, los
+        // sellers que más facturan, que es donde está el dinero.
         const ad = a.next_call_date ?? ''
         const bd = b.next_call_date ?? ''
         if (ad && bd && ad !== bd) return ad.localeCompare(bd)
         if (ad && !bd) return -1
         if (!ad && bd) return 1
-        return (Number(b.revenue_monthly) || 0) - (Number(a.revenue_monthly) || 0)
+        return byRevenue(a, b)
       })
-  }, [scoped, search, statusFilter])
+  }, [scoped, search, statusFilter, listFilter, sort])
 
   // Al cambiar de filtro se vuelve al principio de la lista
   useEffect(() => {
     setVisible(PAGE)
-  }, [search, statusFilter, ownerFilter])
+  }, [search, statusFilter, ownerFilter, listFilter, sort])
+
+  // Si al cambiar de comercial la lista elegida ya no existe, se resetea
+  useEffect(() => {
+    if (listFilter !== 'all' && !availableLists.some(([name]) => name === listFilter)) {
+      setListFilter('all')
+    }
+  }, [availableLists, listFilter])
 
   const counts = useMemo(() => {
     const map = new Map<ColdLeadStatus, number>()
@@ -218,22 +258,84 @@ export function ColdCallingBoard({
           )
         })}
 
-        {isAdmin && team.length > 0 && (
+      </div>
+
+      {/* Lista de origen y orden */}
+      <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+        <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
+          <Layers className="h-3 w-3" /> Lista
+        </span>
+        <button
+          type="button"
+          onClick={() => setListFilter('all')}
+          className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+            listFilter === 'all'
+              ? 'border-white/25 bg-white/[0.08] text-white'
+              : 'border-white/10 text-white/40 hover:text-white/80'
+          }`}
+        >
+          Todas ({scoped.length})
+        </button>
+        {availableLists.map(([name, count]) => {
+          const active = listFilter === name
+          const color = colorForList(name)
+          return (
+            <button
+              key={name}
+              type="button"
+              onClick={() => setListFilter(name)}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors flex items-center gap-1.5 ${
+                active
+                  ? 'text-white ring-1 ring-white/20'
+                  : 'border-white/10 text-white/40 hover:text-white/80'
+              }`}
+              style={
+                active
+                  ? { backgroundColor: `${color}26`, borderColor: `${color}80` }
+                  : undefined
+              }
+            >
+              <span
+                className="h-2 w-2 rounded-sm flex-shrink-0"
+                style={{ backgroundColor: color }}
+              />
+              {name} ({count})
+            </button>
+          )
+        })}
+
+        <div className="ml-auto flex items-center gap-2">
+          <ArrowUpDown className="h-3 w-3 text-white/30" />
           <select
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-            className="ml-auto h-7 rounded-full border border-white/10 bg-white/[0.03] px-2.5 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as ColdSort)}
+            title="Ordenar la lista"
+            className="h-7 rounded-full border border-white/10 bg-white/[0.03] pl-2.5 pr-2 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer"
           >
-            <option value="all" className="bg-[#1a1a1a]">
-              Todos los comerciales
-            </option>
-            {team.map((p) => (
-              <option key={p.id} value={p.id} className="bg-[#1a1a1a]">
-                {p.full_name || p.email}
+            {(Object.keys(COLD_SORT_LABELS) as ColdSort[]).map((s) => (
+              <option key={s} value={s} className="bg-[#1a1a1a]">
+                {COLD_SORT_LABELS[s]}
               </option>
             ))}
           </select>
-        )}
+
+          {isAdmin && team.length > 0 && (
+            <select
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+              className="h-7 rounded-full border border-white/10 bg-white/[0.03] px-2.5 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer"
+            >
+              <option value="all" className="bg-[#1a1a1a]">
+                Todos los comerciales
+              </option>
+              {team.map((p) => (
+                <option key={p.id} value={p.id} className="bg-[#1a1a1a]">
+                  {p.full_name || p.email}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       {/* Lista + ficha */}
@@ -290,14 +392,28 @@ export function ColdCallingBoard({
                       <p className="text-[11px] text-white/40 truncate pl-4">
                         {l.company || 'Sin empresa'}
                       </p>
-                      {(l.phone || overdue) && (
-                        <p className="text-[10px] text-white/25 truncate pl-4 mt-0.5 flex items-center gap-1.5">
-                          {l.phone && <span className="truncate">{l.phone}</span>}
-                          {overdue && (
-                            <span className="text-cyan-300 flex-shrink-0">· rellamar</span>
-                          )}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-1.5 pl-4 mt-0.5 min-w-0">
+                        {l.source_list && (
+                          <span
+                            className="text-[9px] font-medium px-1.5 py-0.5 rounded border leading-none whitespace-nowrap flex-shrink-0"
+                            style={{
+                              color: colorForList(l.source_list),
+                              borderColor: `${colorForList(l.source_list)}55`,
+                              backgroundColor: `${colorForList(l.source_list)}1a`,
+                            }}
+                          >
+                            {l.source_list}
+                          </span>
+                        )}
+                        {l.phone && (
+                          <span className="text-[10px] text-white/25 truncate">{l.phone}</span>
+                        )}
+                        {overdue && (
+                          <span className="text-[10px] text-cyan-300 flex-shrink-0">
+                            rellamar
+                          </span>
+                        )}
+                      </div>
                     </button>
                   )
                 })}

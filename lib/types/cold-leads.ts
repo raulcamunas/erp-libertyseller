@@ -31,6 +31,8 @@ export interface ColdLead {
   status: ColdLeadStatus
   follow_up: string | null
   action_label: string | null
+  /** Pestaña del Excel de la que salió: «1a lista», «Alejandro V2»... */
+  source_list: string | null
   next_call_date: string | null
   last_contacted_at: string | null
   call_attempts: number
@@ -131,6 +133,29 @@ export function telHref(phone: string | null): string | null {
   const cleaned = first.replace(/[^\d+]/g, '')
   if (cleaned.replace(/\D/g, '').length < 7) return null
   return cleaned.startsWith('+') ? cleaned : `+34${cleaned}`
+}
+
+/** Criterios de orden de la lista de trabajo */
+export type ColdSort = 'revenue_desc' | 'revenue_asc' | 'due_first' | 'name'
+
+export const COLD_SORT_LABELS: Record<ColdSort, string> = {
+  revenue_desc: 'Más facturación',
+  revenue_asc: 'Menos facturación',
+  due_first: 'Rellamadas primero',
+  name: 'Nombre A-Z',
+}
+
+/**
+ * Color estable por lista de origen, para distinguirlas de un vistazo sin
+ * tener que leer la etiqueta.
+ */
+const LIST_PALETTE = ['#8B5CF6', '#0EA5E9', '#F59E0B', '#EC4899', '#14B8A6', '#64748B']
+
+export function colorForList(name: string | null): string {
+  if (!name) return '#64748B'
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return LIST_PALETTE[Math.abs(hash) % LIST_PALETTE.length]
 }
 
 export function formatRevenue(n: number | null): string {

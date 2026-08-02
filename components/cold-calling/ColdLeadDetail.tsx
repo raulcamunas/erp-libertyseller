@@ -31,6 +31,7 @@ import {
   COLD_STATUS_LABELS,
   COLD_STATUS_HINTS,
   COLD_STATUS_DOTS,
+  colorForList,
   telHref,
   formatRevenue,
 } from '@/lib/types/cold-leads'
@@ -135,7 +136,22 @@ export function ColdLeadDetail({
         className="flex items-start justify-between gap-3"
       >
         <div className="min-w-0">
-          <h2 className="text-white text-lg font-semibold truncate">{lead.store_name}</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-white text-lg font-semibold truncate">{lead.store_name}</h2>
+            {lead.source_list && (
+              <span
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded border leading-none whitespace-nowrap flex-shrink-0"
+                style={{
+                  color: colorForList(lead.source_list),
+                  borderColor: `${colorForList(lead.source_list)}55`,
+                  backgroundColor: `${colorForList(lead.source_list)}1a`,
+                }}
+                title="Lista del Excel de la que viene este lead"
+              >
+                {lead.source_list}
+              </span>
+            )}
+          </div>
           <p className="text-[12px] text-white/40 truncate">
             {lead.company || 'Sin empresa'}
             {lead.revenue_monthly != null

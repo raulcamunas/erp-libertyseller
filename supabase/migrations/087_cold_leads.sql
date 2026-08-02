@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS public.cold_leads (
     )),
   follow_up TEXT,             -- el texto libre de SEGUIMIENTO del Excel
   action_label TEXT,          -- la etiqueta original, por si hace falta consultarla
+  source_list TEXT,           -- pestaña del Excel de la que salió (1a lista, José V2...)
   next_call_date DATE,
   last_contacted_at TIMESTAMPTZ,
   call_attempts INTEGER NOT NULL DEFAULT 0,
