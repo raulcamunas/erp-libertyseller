@@ -23,6 +23,7 @@ import {
   Link2,
   Table2,
   Contact,
+  RefreshCw,
   Clock3 as ClockIcon,
 } from 'lucide-react'
 import { AppointmentSheet } from './AppointmentSheet'
@@ -102,6 +103,7 @@ export function AgendaCalendar({
   >(null)
   // Resumen que sale tras agendar, para capturarlo y pasarlo al grupo
   const [confirmation, setConfirmation] = useState<AppointmentWithPeople | null>(null)
+  const [resyncing, setResyncing] = useState(false)
   const [hoverSlot, setHoverSlot] = useState<{
     dayIso: string
     hour: number
@@ -467,6 +469,44 @@ export function AgendaCalendar({
     if (created) setConfirmation(appt)
   }
 
+  /**
+   * Fuerza la recarga completa desde Google en vez de esperar al ciclo de
+   * cada 4 horas. Al terminar se relee la agenda entera, porque el
+   * resincronizado puede haber borrado huecos que ya no existen.
+   */
+  async function handleResync() {
+    setResyncing(true)
+    try {
+      const res = await fetch('/api/appointments/resync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'No se pudo sincronizar')
+
+      const { data: fresh } = await supabase
+        .from('appointments')
+        .select(`
+          *,
+          comercial:profiles!appointments_comercial_id_fkey(id, full_name, email, role, calendar_color),
+          assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
+        `)
+        .order('start_time', { ascending: true })
+      if (fresh) setAppointments(fresh as AppointmentWithPeople[])
+
+      const partes = [
+        data.imported ? `${data.imported} nuevos` : null,
+        data.updated ? `${data.updated} actualizados` : null,
+        data.pruned ? `${data.pruned} eliminados` : null,
+      ].filter(Boolean)
+      toast.success(
+        partes.length > 0 ? `Sincronizado: ${partes.join(', ')}` : 'Ya estaba todo al día'
+      )
+    } catch (err) {
+      console.error('Error resincronizando:', err)
+      toast.error((err as Error).message)
+    } finally {
+      setResyncing(false)
+    }
+  }
+
   function removeLocal(id: string) {
     setAppointments((prev) => prev.filter((a) => a.id !== id))
     setSheet(null)
@@ -523,6 +563,17 @@ export function AgendaCalendar({
         </div>
 
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              onClick={handleResync}
+              disabled={resyncing}
+              title="Volver a leer Google Calendar entero, sin esperar al ciclo automático"
+              className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${resyncing ? 'animate-spin text-[#FF6600]' : ''}`} />
+              {resyncing ? 'Sincronizando...' : 'Sincronizar'}
+            </button>
+          )}
           {isAdmin && (
             <button
               onClick={() => setShowAvailabilitySettings(true)}
