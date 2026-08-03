@@ -288,3 +288,77 @@
     background-color: transparent !important;
   }
 }
+
+/* =====================================================================
+   TEMA CLARO: capa de traducción
+   =====================================================================
+   El ERP lleva los colores escritos a mano en los componentes —unos
+   4.000 usos de text-white, border-white/10, bg-white/[0.03] y demás—.
+   Migrarlos uno a uno a variables son horas de trabajo y un riesgo de
+   romper algo en cada archivo.
+
+   En su lugar, aquí se reinterpretan esas mismas clases cuando el tema
+   claro está activo. Un `text-white/70` no se toca en el componente:
+   simplemente, bajo `html.light`, deja de ser blanco al 70% y pasa a ser
+   el gris de texto secundario del tema claro.
+
+   Ventaja: el tema claro funciona en todo el ERP de golpe y el oscuro no
+   se toca. Coste: la clase ya no dice literalmente lo que pinta, así que
+   este bloque es la referencia de qué significa cada una.
+   ================================================================== */
+
+/* ---------- Texto ---------- */
+html.light .text-white { color: var(--text-primary); }
+html.light .text-white\/90, html.light .text-white\/85, html.light .text-white\/80, html.light .text-white\/75 { color: #232329; }
+html.light .text-white\/70, html.light .text-white\/65 { color: var(--text-secondary); }
+html.light .text-white\/60, html.light .text-white\/55, html.light .text-white\/50 { color: #5f5f6a; }
+html.light .text-white\/45, html.light .text-white\/40, html.light .text-white\/35 { color: var(--text-tertiary); }
+html.light .text-white\/30, html.light .text-white\/25, html.light .text-white\/20 { color: #9a9aa4; }
+
+/* ---------- Superficies ----------
+   En oscuro las capas se levantan con blanco translúcido; en claro se
+   hunden con negro translúcido, que es como se consigue jerarquía
+   sobre fondo blanco. */
+html.light .bg-white\/\[0\.01\] { background-color: rgba(0, 0, 0, 0.012); }
+html.light .bg-white\/\[0\.02\] { background-color: rgba(0, 0, 0, 0.022); }
+html.light .bg-white\/\[0\.03\] { background-color: rgba(0, 0, 0, 0.032); }
+html.light .bg-white\/\[0\.04\] { background-color: rgba(0, 0, 0, 0.042); }
+html.light .bg-white\/5, html.light .bg-white\/\[0\.05\] { background-color: rgba(0, 0, 0, 0.05); }
+html.light .bg-white\/\[0\.06\] { background-color: rgba(0, 0, 0, 0.06); }
+html.light .bg-white\/\[0\.08\] { background-color: rgba(0, 0, 0, 0.08); }
+html.light .bg-white\/10, html.light .bg-white\/\[0\.1\] { background-color: rgba(0, 0, 0, 0.09); }
+html.light .bg-white\/20 { background-color: rgba(0, 0, 0, 0.16); }
+
+/* Fondos opacos: los negros del diseño pasan a blancos */
+html.light .bg-\[\#080808\] { background-color: var(--bg-color); }
+html.light .bg-\[\#0a0a0a\], html.light .bg-\[\#0a0a0a\]\/95 { background-color: #FAFAFC; }
+html.light .bg-\[\#0d0d0d\] { background-color: var(--surface); }
+html.light .bg-\[\#1a1a1a\] { background-color: #FFFFFF; }
+html.light .bg-black\/25 { background-color: rgba(0, 0, 0, 0.05); }
+
+/* ---------- Bordes ---------- */
+html.light .border-white\/\[0\.04\], html.light .border-white\/\[0\.05\], html.light .border-white\/5 { border-color: rgba(0, 0, 0, 0.06); }
+html.light .border-white\/\[0\.06\], html.light .border-white\/\[0\.07\], html.light .border-white\/\[0\.08\] { border-color: rgba(0, 0, 0, 0.08); }
+html.light .border-white\/10, html.light .border-white\/\[0\.1\] { border-color: var(--border-color); }
+html.light .border-white\/12, html.light .border-white\/15 { border-color: rgba(0, 0, 0, 0.14); }
+html.light .border-white\/20, html.light .border-white\/25 { border-color: rgba(0, 0, 0, 0.18); }
+html.light .border-white\/40 { border-color: rgba(0, 0, 0, 0.3); }
+html.light .divide-white\/\[0\.04\] > * + *, html.light .divide-white\/\[0\.06\] > * + * { border-color: rgba(0, 0, 0, 0.07); }
+
+/* ---------- Estados al pasar por encima ---------- */
+html.light .hover\:bg-white\/\[0\.03\]:hover { background-color: rgba(0, 0, 0, 0.035); }
+html.light .hover\:bg-white\/\[0\.04\]:hover { background-color: rgba(0, 0, 0, 0.045); }
+html.light .hover\:bg-white\/\[0\.05\]:hover { background-color: rgba(0, 0, 0, 0.055); }
+html.light .hover\:bg-white\/\[0\.06\]:hover { background-color: rgba(0, 0, 0, 0.065); }
+html.light .hover\:bg-white\/\[0\.08\]:hover { background-color: rgba(0, 0, 0, 0.085); }
+html.light .hover\:bg-white\/\[0\.12\]:hover { background-color: rgba(0, 0, 0, 0.12); }
+html.light .hover\:text-white:hover { color: var(--text-primary); }
+html.light .hover\:border-white\/20:hover, html.light .hover\:border-white\/25:hover { border-color: rgba(0, 0, 0, 0.2); }
+html.light .focus\:bg-white\/\[0\.06\]:focus { background-color: rgba(0, 0, 0, 0.06); }
+html.light .focus\:bg-white\/\[0\.08\]:focus { background-color: rgba(0, 0, 0, 0.08); }
+html.light .placeholder\:text-white\/20::placeholder,
+html.light .placeholder\:text-white\/25::placeholder { color: #a8a8b2; }
+
+/* Los tonos de color —verde, rojo, naranja de estado— se dejan como
+   están: sobre blanco siguen leyéndose y cambiarlos rompería el código
+   de colores que el equipo ya tiene aprendido. */
