@@ -49,13 +49,14 @@ const numInputBase =
 const numInput = `w-full ${numInputBase}`
 
 export function TreasuryBoard({
-  clients,
+  clients: initialClients,
   initialMonths,
   initialExpenses,
   usdEur,
   partners,
 }: TreasuryBoardProps) {
   const supabase = createClient()
+  const [clients, setClients] = useState(initialClients)
   const [months, setMonths] = useState(initialMonths)
   const [expenses, setExpenses] = useState(initialExpenses)
   const [offset, setOffset] = useState(0)
@@ -156,6 +157,33 @@ export function TreasuryBoard({
       console.error('Error guardando el mes del cliente:', err)
       toast.error('No se pudo guardar')
     }
+  }
+
+  async function saveClient(id: string, patch: Partial<TreasuryClient>) {
+    const { error } = await supabase.from('treasury_clients').update(patch).eq('id', id)
+    if (error) {
+      console.error('Error guardando el cliente:', error)
+      toast.error('No se pudo guardar el cliente')
+      return
+    }
+    setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+  }
+
+  /** Alta rápida: se crea la fila y se rellena en la propia tabla */
+  async function addClient() {
+    const nextPos = Math.max(0, ...clients.map((c) => c.position ?? 0)) + 1
+    const { data, error } = await supabase
+      .from('treasury_clients')
+      .insert({ name: 'Nuevo cliente', is_active: true, position: nextPos })
+      .select('*')
+      .single()
+    if (error) {
+      console.error('Error creando cliente:', error)
+      toast.error('No se pudo crear el cliente')
+      return
+    }
+    setClients((prev) => [...prev, data as TreasuryClient])
+    toast.success('Cliente añadido: ponle nombre y su fee')
   }
 
   async function saveExpense(id: string, patch: Partial<TreasuryExpense>) {
@@ -347,8 +375,16 @@ export function TreasuryBoard({
         {/* Clientes */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col min-h-0 overflow-hidden">
           <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between flex-shrink-0">
-            <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider">
+            <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider flex items-center gap-2">
               Clientes · {periodLabel(period)}
+              <button
+                type="button"
+                onClick={addClient}
+                title="Dar de alta un cliente nuevo"
+                className="normal-case tracking-normal text-[11px] font-medium text-white/45 hover:text-white transition-colors flex items-center gap-1"
+              >
+                <Plus className="h-3 w-3" /> Nuevo
+              </button>
             </h3>
             {income > 0 &&
               (pending > 0 ? (
@@ -394,17 +430,38 @@ export function TreasuryBoard({
                   return (
                     <tr
                       key={c.id}
-                      className={`border-b border-white/[0.04] ${
-                        !c.is_active ? 'opacity-45' : ''
-                      }`}
+                      className="border-b border-white/[0.04] group"
                     >
-                      <td className="px-2.5 py-1 text-white font-medium">
-                        <span className="truncate block max-w-[190px]" title={c.name}>
-                          {c.name}
-                        </span>
+                      <td className="px-1.5 py-1 text-white font-medium">
+                        <input
+                          defaultValue={c.name}
+                          key={`name-${c.id}`}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim()
+                            if (v && v !== c.name) saveClient(c.id, { name: v })
+                          }}
+                          className="w-full bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1.5 py-1 text-[12px] text-white font-medium outline-none transition-colors"
+                        />
                       </td>
-                      <td className="px-1 py-1 text-center text-white/35 text-[11px]">
-                        {c.payment_day ?? '—'}
+                      <td className="px-1 py-1">
+                        <input
+                          defaultValue={c.payment_day != null ? String(c.payment_day) : ''}
+                          key={`day-${c.id}`}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim()
+                            const parsed = v === '' ? null : Math.round(Number(v))
+                            if (parsed !== null && (Number.isNaN(parsed) || parsed < 1 || parsed > 31)) {
+                              toast.error('El día de pago va del 1 al 31')
+                              e.target.value = c.payment_day != null ? String(c.payment_day) : ''
+                              return
+                            }
+                            if ((c.payment_day ?? null) === parsed) return
+                            saveClient(c.id, { payment_day: parsed })
+                          }}
+                          inputMode="numeric"
+                          placeholder="—"
+                          className="w-full bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1 py-1 text-[11px] text-white/60 text-center outline-none transition-colors tabular-nums placeholder:text-white/20"
+                        />
                       </td>
                       <td className="px-1 py-1">
                         <input
