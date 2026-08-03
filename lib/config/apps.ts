@@ -9,6 +9,7 @@ import {
   Timer,
   PhoneCall,
   Landmark,
+  PhoneForwarded,
   CalendarDays
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
@@ -105,6 +106,15 @@ export const apps: AppConfig[] = [
     route: '/dashboard/tesoreria',
     status: 'new',
     category: 'core'
+  },
+  {
+    id: 'telefonos',
+    name: 'Teléfonos',
+    description: 'Números que usamos y para qué es cada uno',
+    icon: PhoneForwarded,
+    route: '/dashboard/telefonos',
+    status: 'new',
+    category: 'productivity'
   },
   {
     id: 'users',
