@@ -350,11 +350,17 @@ export function TreasuryBoard({
             <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider">
               Clientes · {periodLabel(period)}
             </h3>
-            {pending > 0 && (
-              <span className="text-[11px] text-yellow-300">
-                {euros(pending)} pendiente de cobro
-              </span>
-            )}
+            {income > 0 &&
+              (pending > 0 ? (
+                <span className="text-[11px] text-yellow-300 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
+                  {euros(pending)} sin cobrar
+                </span>
+              ) : (
+                <span className="text-[11px] text-green-300/80 flex items-center gap-1.5">
+                  <Check className="h-3 w-3" /> Todo cobrado
+                </span>
+              ))}
           </div>
 
           <div className="flex-1 overflow-auto">
