@@ -215,6 +215,51 @@ export function AgendaCalendar({
     [weekStart]
   )
 
+  // En móvil no caben siete columnas: se enseña un día y las flechas pasan
+  // de día en día en vez de de semana en semana. En escritorio no cambia
+  // nada, sigue siendo la semana entera.
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileDayIndex, setMobileDayIndex] = useState(0)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)')
+    const apply = () => setIsMobile(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+
+  // Al entrar en móvil se abre en el día de hoy si está en la semana
+  useEffect(() => {
+    if (!isMobile) return
+    const idx = days.findIndex((d) => isSameDay(d, toMadrid(new Date())))
+    setMobileDayIndex(idx >= 0 ? idx : 0)
+  }, [isMobile, days])
+
+  const visibleDays = useMemo(
+    () => (isMobile ? [days[Math.min(mobileDayIndex, 6)]] : days),
+    [isMobile, days, mobileDayIndex]
+  )
+
+  /** Un día atrás/adelante en móvil, una semana en escritorio */
+  function step(dir: 1 | -1) {
+    if (!isMobile) {
+      goToWeek(addWeeks(weekStart, dir), dir)
+      return
+    }
+    const next = mobileDayIndex + dir
+    if (next < 0) {
+      goToWeek(addWeeks(weekStart, -1), -1)
+      setMobileDayIndex(6)
+    } else if (next > 6) {
+      goToWeek(addWeeks(weekStart, 1), 1)
+      setMobileDayIndex(0)
+    } else {
+      setDirection(dir)
+      setMobileDayIndex(next)
+    }
+  }
+
   // Anuncia al resto del equipo qué se está rellenando ahora mismo (o
   // deja de anunciarlo al cerrar la cajita).
   useEffect(() => {
@@ -257,11 +302,15 @@ export function AgendaCalendar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheet, days, currentUser])
 
-  const weekLabel = `${format(weekStart, "d 'de' MMM", { locale: es })} – ${format(
-    addDays(weekStart, 6),
-    "d 'de' MMM yyyy",
-    { locale: es }
-  )}`
+  // En móvil el título es el día que se está viendo, no el rango de la
+  // semana: es la única referencia que tiene el usuario de dónde está.
+  const weekLabel = isMobile
+    ? format(visibleDays[0] ?? weekStart, "EEEE d 'de' MMM", { locale: es })
+    : `${format(weekStart, "d 'de' MMM", { locale: es })} – ${format(
+        addDays(weekStart, 6),
+        "d 'de' MMM yyyy",
+        { locale: es }
+      )}`
 
   function goToWeek(newStart: Date, dir: number) {
     setDirection(dir)
@@ -572,7 +621,7 @@ export function AgendaCalendar({
           <div className="flex items-center rounded-full border border-white/10 bg-white/[0.03] p-1">
             <motion.button
               whileTap={{ scale: 0.9 }}
-              onClick={() => goToWeek(addWeeks(weekStart, -1), -1)}
+              onClick={() => step(-1)}
               className="h-8 w-8 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -586,7 +635,7 @@ export function AgendaCalendar({
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.9 }}
-              onClick={() => goToWeek(addWeeks(weekStart, 1), 1)}
+              onClick={() => step(1)}
               className="h-8 w-8 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
             >
               <ChevronRight className="h-4 w-4" />
@@ -693,11 +742,15 @@ export function AgendaCalendar({
           ref={gridRef}
           className="overflow-x-auto overflow-y-auto flex-1 min-h-0"
         >
-          <div className="min-w-[880px]">
+          <div className={isMobile ? '' : 'min-w-[880px]'}>
             {/* Cabecera de días (sticky) */}
-            <div className="sticky top-0 z-20 grid grid-cols-[60px_repeat(7,1fr)] bg-[#0a0a0a]/95 backdrop-blur border-b border-white/10">
+            <div
+              className={`sticky top-0 z-20 grid bg-[#0a0a0a]/95 backdrop-blur border-b border-white/10 ${
+                isMobile ? 'grid-cols-[52px_1fr]' : 'grid-cols-[60px_repeat(7,1fr)]'
+              }`}
+            >
               <div className="p-2" />
-              {days.map((day) => (
+              {visibleDays.map((day) => (
                 <div
                   key={day.toISOString()}
                   className={`py-3 text-center border-l border-white/5 transition-colors ${
@@ -729,7 +782,9 @@ export function AgendaCalendar({
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: direction > 0 ? -24 : 24 }}
                 transition={{ duration: 0.2, ease: 'easeOut' }}
-                className="grid grid-cols-[60px_repeat(7,1fr)]"
+                className={`grid ${
+                  isMobile ? 'grid-cols-[52px_1fr]' : 'grid-cols-[60px_repeat(7,1fr)]'
+                }`}
                 ref={daysGridRef}
               >
                 {/* Columna de horas */}
@@ -746,7 +801,7 @@ export function AgendaCalendar({
                 </div>
 
                 {/* Columnas de días */}
-                {days.map((day) => {
+                {visibleDays.map((day) => {
                   const positioned = layoutForDay(day)
                   const showNowLine = isSameDay(day, now) && nowLineTop !== null
                   const dayIso = day.toISOString()

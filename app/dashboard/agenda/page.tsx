@@ -68,7 +68,7 @@ export default async function AgendaPage() {
     .select('*')
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] lg:h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)]">
       <div className="mb-4 flex-shrink-0">
         <h1 className="heading-medium text-white mb-2">Agenda Comercial</h1>
       </div>

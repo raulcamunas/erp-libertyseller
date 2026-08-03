@@ -60,7 +60,7 @@ export default async function ColdCallingPage() {
     .order('full_name', { ascending: true })
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] lg:h-[calc(100vh-4rem)] min-w-0">
+    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
       <div className="mb-3 flex-shrink-0">
         <h1 className="heading-medium text-white mb-1">Cold Calling</h1>
         <p className="text-white/50 text-sm">

@@ -52,7 +52,7 @@ export default async function HoursPage() {
     .select('*')
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] lg:h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)]">
       <div className="mb-3 flex-shrink-0">
         <h1 className="heading-medium text-white mb-1">Mis Horas</h1>
         <p className="text-white/50 text-sm">

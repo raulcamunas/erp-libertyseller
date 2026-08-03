@@ -17,6 +17,7 @@ import {
   Pencil,
   Check,
   BarChart3,
+  ChevronLeft,
 } from 'lucide-react'
 import {
   CrmClientWithDetails,
@@ -35,6 +36,7 @@ import {
 } from '@/lib/types/payroll'
 import { CalendarPerson } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
+import { useIsMobile } from '@/lib/use-is-mobile'
 import { CrmClientDetail } from './CrmClientDetail'
 import { NewLeadDialog } from './NewLeadDialog'
 import { MonthBreakdown } from './MonthBreakdown'
@@ -96,6 +98,14 @@ export function ClientsCRM({
   const [stageFilter, setStageFilter] = useState<CrmStage | 'all'>('all')
   const [showNewLead, setShowNewLead] = useState(false)
   const [showBreakdown, setShowBreakdown] = useState(false)
+  // En móvil no caben lista y ficha a la vez: se enseña una u otra.
+  const isMobile = useIsMobile()
+
+  // Al entrar desde el móvil se empieza por la lista, no por la ficha del
+  // primero: preseleccionar tapaba la lista nada más abrir.
+  useEffect(() => {
+    if (isMobile) setSelectedId(null)
+  }, [isMobile])
 
   // Coste del equipo comercial: se recalcula solo cuando alguien apunta
   // horas, se cualifica una cita o se cambia una tarifa.
@@ -432,7 +442,11 @@ export function ClientsCRM({
       {/* Master-detail */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(280px,340px)_1fr] gap-3">
         {/* Lista de clientes */}
-        <div className="flex flex-col min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+        <div
+          className={`flex-col min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden ${
+            isMobile && selectedId ? 'hidden' : 'flex'
+          }`}
+        >
           <div className="p-2.5 border-b border-white/[0.06] flex-shrink-0 space-y-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/30" />
@@ -513,7 +527,20 @@ export function ClientsCRM({
         </div>
 
         {/* Ficha del cliente */}
-        <div className="min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+        <div
+          className={`min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden flex-col ${
+            isMobile && !selectedId ? 'hidden' : 'flex'
+          }`}
+        >
+          {isMobile && selectedId && (
+            <button
+              type="button"
+              onClick={() => setSelectedId(null)}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium text-white/60 hover:text-white border-b border-white/[0.06] transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4" /> Volver a la lista
+            </button>
+          )}
           <AnimatePresence mode="wait">
             {selected ? (
               <motion.div

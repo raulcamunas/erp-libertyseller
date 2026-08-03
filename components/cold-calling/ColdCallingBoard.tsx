@@ -16,6 +16,7 @@ import {
   X,
   Table2,
   PanelRight,
+  ChevronLeft,
 } from 'lucide-react'
 import {
   ColdLead,
@@ -30,6 +31,7 @@ import {
 } from '@/lib/types/cold-leads'
 import { CalendarPerson } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
+import { useIsMobile } from '@/lib/use-is-mobile'
 import { ColdLeadDetail } from './ColdLeadDetail'
 import { ColdLeadsTable } from './ColdLeadsTable'
 
@@ -71,6 +73,8 @@ export function ColdCallingBoard({
   // Muchos vienen del Excel y se manejan mejor en tabla; la ficha es para
   // trabajar un lead a fondo.
   const [view, setView] = useState<'ficha' | 'tabla'>('ficha')
+  // En móvil se enseña la lista o la ficha, nunca las dos
+  const isMobile = useIsMobile()
 
   // La sesión de trabajo se recuerda: si Maoli se pasa el día en «+100k,
   // sin contactar, vista tabla», mañana entra exactamente ahí. La clave
@@ -552,7 +556,11 @@ export function ColdCallingBoard({
 
       /* Lista + ficha */
       <div className="flex-1 min-h-0 min-w-0 grid grid-cols-1 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] gap-3">
-        <div className="flex flex-col min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+        <div
+          className={`flex-col min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden ${
+            isMobile && selectedId ? 'hidden' : 'flex'
+          }`}
+        >
           <div className="p-2.5 border-b border-white/[0.06] flex-shrink-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/30" />
@@ -642,7 +650,20 @@ export function ColdCallingBoard({
           </div>
         </div>
 
-        <div className="min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+        <div
+          className={`min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden flex-col ${
+            isMobile && !selectedId ? 'hidden' : 'flex'
+          }`}
+        >
+          {isMobile && selectedId && (
+            <button
+              type="button"
+              onClick={() => setSelectedId(null)}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium text-white/60 hover:text-white border-b border-white/[0.06] transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4" /> Volver a la lista
+            </button>
+          )}
           <AnimatePresence mode="wait">
             {selected ? (
               <motion.div

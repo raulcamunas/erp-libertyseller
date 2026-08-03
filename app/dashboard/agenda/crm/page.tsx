@@ -58,7 +58,7 @@ export default async function CrmClientsPage() {
     .maybeSingle()
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] lg:h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)]">
       <div className="mb-3 flex-shrink-0 flex items-start gap-3">
         <Link
           href="/dashboard/agenda"
