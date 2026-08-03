@@ -115,10 +115,36 @@ CREATE POLICY "Admins manage treasury expenses"
   USING (public.is_admin_or_partner(auth.uid()))
   WITH CHECK (public.is_admin_or_partner(auth.uid()));
 
-ALTER PUBLICATION supabase_realtime ADD TABLE public.treasury_client_months;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.treasury_expenses;
+-- Realtime. Con guardia por la misma razón: añadir una tabla que ya está
+-- en la publicación da error, y eso tumbaría el script entero al reintentar.
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['treasury_client_months', 'treasury_expenses'] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+      WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = t
+    ) THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+    END IF;
+  END LOOP;
+END $$;
 
 -- El reparto entre socios: por defecto a partes iguales, editable.
-INSERT INTO public.app_settings (key, value)
-VALUES ('treasury_partners', 2)
-ON CONFLICT (key) DO NOTHING;
+--
+-- Va dentro de un guardia porque app_settings la crea la migración 086: si
+-- esa no se ha ejecutado, un INSERT suelto reventaría aquí y — como el
+-- editor SQL de Supabase corre el script entero en una transacción — se
+-- desharían también los CREATE TABLE de arriba. Es decir, la migración
+-- parecería aplicada y no habría creado nada.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'app_settings'
+  ) THEN
+    INSERT INTO public.app_settings (key, value)
+    VALUES ('treasury_partners', 2)
+    ON CONFLICT (key) DO NOTHING;
+  END IF;
+END $$;
