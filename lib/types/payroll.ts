@@ -27,6 +27,20 @@ export interface PayrollRate {
   updated_at: string
 }
 
+/** Cita cualificada que un admin suma a mano, fuera de la agenda */
+export interface ManualAppointment {
+  id: string
+  user_id: string
+  lead_name: string
+  /** 'yyyy-MM-dd' */
+  appointment_date: string
+  /** null = se aplica la comisión del periodo */
+  commission: number | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
 function pad(n: number) {
   return String(n).padStart(2, '0')
 }

@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { HoursTracker, QualifiedAppointment } from '@/components/payroll/HoursTracker'
-import { WorkHourEntry, PayrollRate } from '@/lib/types/payroll'
+import { WorkHourEntry, PayrollRate, ManualAppointment } from '@/lib/types/payroll'
 import { CalendarPerson } from '@/lib/types/appointments'
 
 export default async function HoursPage() {
@@ -45,6 +45,12 @@ export default async function HoursPage() {
 
   const { data: qualified } = await qualifiedQuery
 
+  // Citas añadidas a mano por un admin: RLS ya limita a cada comercial
+  // las suyas.
+  const { data: manual } = await supabase
+    .from('payroll_manual_appointments')
+    .select('*')
+
   return (
     <div className="flex flex-col h-[calc(100vh-3rem)] lg:h-[calc(100vh-4rem)]">
       <div className="mb-3 flex-shrink-0">
@@ -59,6 +65,7 @@ export default async function HoursPage() {
         initialHours={(hours as WorkHourEntry[]) || []}
         initialRates={(rates as PayrollRate[]) || []}
         qualifiedAppointments={(qualified as QualifiedAppointment[]) || []}
+        initialManual={(manual as ManualAppointment[]) || []}
         team={(team as CalendarPerson[]) || []}
         currentUser={profile}
         isAdmin={isAdmin}

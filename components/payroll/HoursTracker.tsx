@@ -20,6 +20,7 @@ import {
 import {
   WorkHourEntry,
   PayrollRate,
+  ManualAppointment,
   payrollPeriod,
   periodDays,
   periodLabel,
@@ -44,6 +45,7 @@ interface HoursTrackerProps {
   initialHours: WorkHourEntry[]
   initialRates: PayrollRate[]
   qualifiedAppointments: QualifiedAppointment[]
+  initialManual: ManualAppointment[]
   team: CalendarPerson[]
   currentUser: UserProfile
   isAdmin: boolean
@@ -115,6 +117,7 @@ export function HoursTracker({
   initialHours,
   initialRates,
   qualifiedAppointments,
+  initialManual,
   team,
   currentUser,
   isAdmin,
@@ -123,6 +126,11 @@ export function HoursTracker({
   const [hours, setHours] = useState<WorkHourEntry[]>(initialHours)
   const [rates, setRates] = useState<PayrollRate[]>(initialRates)
   const [appointments, setAppointments] = useState(qualifiedAppointments)
+  const [manual, setManual] = useState<ManualAppointment[]>(initialManual)
+  const [addingManual, setAddingManual] = useState(false)
+  const [manualName, setManualName] = useState('')
+  const [manualDate, setManualDate] = useState('')
+  const [manualCommission, setManualCommission] = useState('')
   const [offset, setOffset] = useState(0)
   const [selectedUserId, setSelectedUserId] = useState(currentUser.id)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
@@ -217,26 +225,100 @@ export function HoursTracker({
     [days, hoursByDay]
   )
 
-  const periodQualified = useMemo(
-    () =>
-      appointments
-        .filter((a) => a.comercial_id === selectedUserId)
-        .filter((a) => {
-          const t = new Date(a.start_time).getTime()
-          return t >= period.start.getTime() && t < period.end.getTime()
-        })
-        .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()),
-    [appointments, selectedUserId, period]
-  )
-
   const rate = resolveRate(rates, period.key, selectedUserId)
+
+  /**
+   * Las citas del periodo, vengan de la agenda o añadidas a mano por un
+   * admin. Se muestran juntas porque para el comercial son lo mismo: dos
+   * comisiones que cobra. La marca `manual` solo sirve para poder quitarla.
+   */
+  const periodQualified = useMemo(() => {
+    const fromAgenda = appointments
+      .filter((a) => a.comercial_id === selectedUserId)
+      .filter((a) => {
+        const t = new Date(a.start_time).getTime()
+        return t >= period.start.getTime() && t < period.end.getTime()
+      })
+      .map((a) => ({
+        id: a.id,
+        name: a.lead_name,
+        company: a.lead_company,
+        at: new Date(a.start_time),
+        commission: rate.commission,
+        manual: false,
+      }))
+
+    const fromManual = manual
+      .filter((m) => m.user_id === selectedUserId)
+      .map((m) => ({
+        id: m.id,
+        name: m.lead_name,
+        company: m.notes,
+        // Mediodía UTC: así el día no se desplaza al comparar con los
+        // límites del ciclo, que son medianoche en España.
+        at: new Date(`${m.appointment_date}T12:00:00Z`),
+        commission: m.commission != null ? Number(m.commission) : rate.commission,
+        manual: true,
+      }))
+      .filter(
+        (m) =>
+          m.at.getTime() >= period.start.getTime() && m.at.getTime() < period.end.getTime()
+      )
+
+    return [...fromAgenda, ...fromManual].sort((a, b) => a.at.getTime() - b.at.getTime())
+  }, [appointments, manual, selectedUserId, period, rate.commission])
+
   const salary = totalHours * rate.hourly
-  const commissions = periodQualified.length * rate.commission
+  const commissions = periodQualified.reduce((sum, a) => sum + a.commission, 0)
   const total = salary + commissions
 
   const animatedTotal = useCountUp(total)
   const animatedSalary = useCountUp(salary)
   const animatedCommissions = useCountUp(commissions)
+
+  /** Suma una cita que no pasó por la agenda al comercial que se está viendo */
+  async function addManualAppointment() {
+    const name = manualName.trim()
+    if (!name || !manualDate) return
+    setSaving(true)
+    try {
+      const parsed = manualCommission.trim() === '' ? null : Number(manualCommission)
+      const { data, error } = await supabase
+        .from('payroll_manual_appointments')
+        .insert({
+          user_id: selectedUserId,
+          lead_name: name,
+          appointment_date: manualDate,
+          commission: parsed !== null && !Number.isNaN(parsed) ? parsed : null,
+          created_by: currentUser.id,
+        })
+        .select('*')
+        .single()
+      if (error) throw error
+      setManual((prev) => [...prev, data as ManualAppointment])
+      setAddingManual(false)
+      toast.success('Cita añadida')
+    } catch (err) {
+      console.error('Error añadiendo cita manual:', err)
+      toast.error('No se pudo añadir la cita')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeManualAppointment(id: string) {
+    try {
+      const { error } = await supabase
+        .from('payroll_manual_appointments')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      setManual((prev) => prev.filter((m) => m.id !== id))
+    } catch (err) {
+      console.error('Error quitando cita manual:', err)
+      toast.error('No se pudo quitar')
+    }
+  }
 
   function openDay(key: string) {
     setSelectedDay(key)
@@ -667,9 +749,89 @@ export function HoursTracker({
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
-            <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <CheckCircle2 className="h-3 w-3" /> Citas cualificadas
-            </h3>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider flex items-center gap-1.5">
+                <CheckCircle2 className="h-3 w-3" /> Citas cualificadas
+              </h3>
+              {isAdmin && !addingManual && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddingManual(true)
+                    setManualName('')
+                    setManualDate(today)
+                    setManualCommission(String(rate.commission))
+                  }}
+                  className="text-[10px] text-white/40 hover:text-white transition-colors flex items-center gap-1"
+                  title="Sumar una cita que no está en la agenda"
+                >
+                  <Plus className="h-3 w-3" /> Añadir
+                </button>
+              )}
+            </div>
+
+            {/* Alta manual: para citas que no pasaron por la agenda */}
+            <AnimatePresence>
+              {addingManual && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="rounded-lg border border-white/12 bg-white/[0.04] p-2.5 mb-2 space-y-2">
+                    <input
+                      value={manualName}
+                      onChange={(e) => setManualName(e.target.value)}
+                      autoFocus
+                      placeholder="Nombre del lead"
+                      className="w-full bg-white/[0.05] border border-white/10 rounded-lg px-2 py-1.5 text-[12px] text-white outline-none focus:border-[#FF6600] transition-colors placeholder:text-white/25"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        value={manualDate}
+                        onChange={(e) => setManualDate(e.target.value)}
+                        title="Día de la cita: decide a qué periodo cuenta"
+                        className="flex-1 min-w-0 bg-white/[0.05] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-white outline-none focus:border-[#FF6600] transition-colors [color-scheme:dark]"
+                      />
+                      <div className="relative w-[86px] flex-shrink-0">
+                        <input
+                          value={manualCommission}
+                          onChange={(e) => setManualCommission(e.target.value)}
+                          inputMode="decimal"
+                          className="w-full bg-white/[0.05] border border-white/10 rounded-lg pl-2 pr-6 py-1.5 text-[11px] text-white outline-none focus:border-[#FF6600] transition-colors tabular-nums"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-white/35 pointer-events-none">
+                          $
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-white/25 flex-1">
+                        Cuenta para {viewedPerson.full_name || 'esta persona'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setAddingManual(false)}
+                        className="text-[11px] text-white/45 hover:text-white transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={addManualAppointment}
+                        disabled={saving || !manualName.trim() || !manualDate}
+                        className="px-2.5 py-1 rounded-lg bg-[#FF6600] text-[11px] font-semibold text-white disabled:opacity-40 transition-opacity"
+                      >
+                        Añadir
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {periodQualified.length === 0 ? (
               <p className="text-[11px] text-white/25">
                 Ninguna todavía en este periodo. En cuanto se marque una cita como
@@ -680,23 +842,39 @@ export function HoursTracker({
                 {periodQualified.map((a) => (
                   <div
                     key={a.id}
-                    className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.02] px-2 py-1.5"
+                    className="group flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.02] px-2 py-1.5"
                   >
                     <span
                       className="h-1.5 w-1.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: colorForAgent(selectedUserId) }}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[12px] text-white truncate">{a.lead_name}</p>
+                      <p className="text-[12px] text-white truncate flex items-center gap-1.5">
+                        {a.name}
+                        {a.manual && (
+                          <span className="text-[8px] uppercase tracking-wider text-white/30 border border-white/15 rounded px-1 leading-[14px] flex-shrink-0">
+                            manual
+                          </span>
+                        )}
+                      </p>
                       <p className="text-[10px] text-white/30 truncate">
-                        {a.lead_company || 'Sin empresa'} ·{' '}
-                        {toMadrid(a.start_time).getDate()}{' '}
-                        {MONTHS_LONG[toMadrid(a.start_time).getMonth()].slice(0, 3)}
+                        {a.company || 'Sin empresa'} · {a.at.getDate()}{' '}
+                        {MONTHS_LONG[a.at.getMonth()].slice(0, 3)}
                       </p>
                     </div>
                     <span className="text-[11px] font-semibold text-green-300 flex-shrink-0">
-                      +{formatDollars(rate.commission)}
+                      +{formatDollars(a.commission)}
                     </span>
+                    {isAdmin && a.manual && (
+                      <button
+                        type="button"
+                        onClick={() => removeManualAppointment(a.id)}
+                        className="text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                        title="Quitar esta cita"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
