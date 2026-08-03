@@ -236,12 +236,28 @@ export function TreasuryBoard({
     setBusy(true)
     try {
       const prevMonths = months.filter((m) => m.period === prev)
-      const newMonths = visibleClients
-        .filter((c) => c.is_active && !monthByClient.has(c.id))
+
+      // Todo cliente activo que facturara el mes pasado entra este mes con
+      // el mismo fee, incluidos los dados de alta hace poco. Se rellenan
+      // también las filas que ya existan vacías: si no, un cliente al que
+      // se le abrió el mes sin importe se quedaba fuera para siempre.
+      // Lo que ya tiene fee puesto no se toca, y las comisiones nunca se
+      // arrastran: cambian cada mes.
+      const newMonths = clients
+        .filter((c) => c.is_active)
         .map((c) => {
-          const before = prevMonths.find((m) => m.client_id === c.id)
-          const fee = before?.fee ?? c.default_fee ?? null
-          return fee != null ? { client_id: c.id, period, fee, commission: null, paid: false } : null
+          const existing = monthByClient.get(c.id)
+          if (existing && existing.fee != null) return null
+          const fee = prevMonths.find((m) => m.client_id === c.id)?.fee ?? c.default_fee ?? null
+          if (fee == null) return null
+          return {
+            ...(existing ? { id: existing.id } : {}),
+            client_id: c.id,
+            period,
+            fee,
+            commission: existing?.commission ?? null,
+            paid: existing?.paid ?? false,
+          }
         })
         .filter(Boolean) as Array<Record<string, unknown>>
 
@@ -251,7 +267,12 @@ export function TreasuryBoard({
           .upsert(newMonths, { onConflict: 'client_id,period' })
           .select('*')
         if (error) throw error
-        setMonths((prev2) => [...prev2, ...((data as TreasuryClientMonth[]) ?? [])])
+        const rows = (data as TreasuryClientMonth[]) ?? []
+        setMonths((prev2) => {
+          const byId = new Map(prev2.map((m) => [m.id, m]))
+          for (const r of rows) byId.set(r.id, r)
+          return [...byId.values()]
+        })
       }
 
       const already = new Set(periodExpenses.map((e) => `${e.category}|${e.concept}`))
