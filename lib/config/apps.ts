@@ -8,6 +8,7 @@ import {
   Clock,
   Timer,
   PhoneCall,
+  Landmark,
   CalendarDays
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
@@ -95,6 +96,15 @@ export const apps: AppConfig[] = [
     route: '/dashboard/horas',
     status: 'new',
     category: 'productivity'
+  },
+  {
+    id: 'tesoreria',
+    name: 'Tesorería',
+    description: 'Ingresos por cliente, gastos y beneficio mes a mes',
+    icon: Landmark,
+    route: '/dashboard/tesoreria',
+    status: 'new',
+    category: 'core'
   },
   {
     id: 'users',
