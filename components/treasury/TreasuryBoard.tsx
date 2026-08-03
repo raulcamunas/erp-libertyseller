@@ -384,8 +384,8 @@ export function TreasuryBoard({
                     <tr
                       key={c.id}
                       className={`border-b border-white/[0.04] ${
-                        total > 0 && !m?.paid ? 'bg-yellow-500/[0.04]' : ''
-                      } ${!c.is_active ? 'opacity-45' : ''}`}
+                        !c.is_active ? 'opacity-45' : ''
+                      }`}
                     >
                       <td className="px-2.5 py-1 text-white font-medium">
                         <span className="truncate block max-w-[190px]" title={c.name}>
