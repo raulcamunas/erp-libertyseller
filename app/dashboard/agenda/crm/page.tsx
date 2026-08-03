@@ -69,7 +69,7 @@ export default async function CrmClientsPage() {
         </Link>
         <div>
           <h1 className="heading-medium text-white mb-1">CRM de Clientes</h1>
-          <p className="text-white/50 text-sm">
+          <p className="hidden sm:block text-white/50 text-sm">
             Todos los leads con cita cualificada, su estado y todo lo que hemos
             hablado con ellos.
           </p>

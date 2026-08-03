@@ -334,12 +334,12 @@ export function ClientsCRM({
         ].map((s) => (
           <div
             key={s.label}
-            className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2"
+            className="rounded-xl border border-white/10 bg-white/[0.02] px-2.5 py-1.5 lg:px-3 lg:py-2"
           >
             <p className="text-[10px] uppercase tracking-wider text-white/35 flex items-center gap-1.5">
               <s.icon className="h-3 w-3" /> {s.label}
             </p>
-            <p className="text-white font-semibold text-[15px] mt-0.5 flex items-baseline gap-1.5 flex-wrap">
+            <p className="text-white font-semibold text-[14px] lg:text-[15px] mt-0.5 flex items-baseline gap-1.5 flex-wrap">
               {s.value}
               {s.hint && (
                 <span className="text-[11px] font-normal text-white/35">{s.hint}</span>
@@ -362,7 +362,7 @@ export function ClientsCRM({
           <p className="text-[10px] uppercase tracking-wider text-white/35 flex items-center gap-1.5">
             <Wallet className="h-3 w-3" /> Coste comerciales
           </p>
-          <p className="text-white font-semibold text-[15px] mt-0.5 flex items-baseline gap-1.5 flex-wrap">
+          <p className="text-white font-semibold text-[14px] lg:text-[15px] mt-0.5 flex items-baseline gap-1.5 flex-wrap">
             {dollars(teamCost.total)}
             {editingFx ? (
               <span className="inline-flex items-center gap-1">
@@ -403,7 +403,7 @@ export function ClientsCRM({
               </button>
             )}
           </p>
-          <p className="text-[9px] text-white/25 mt-0.5">
+          <p className="hidden lg:block text-[9px] text-white/25 mt-0.5">
             Salarios {dollars(teamCost.salaries)} · Comisiones{' '}
             {dollars(teamCost.commissions)}
           </p>
@@ -411,11 +411,11 @@ export function ClientsCRM({
       </div>
 
       {/* Filtros por estado */}
-      <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0">
+      <div className="flex lg:flex-wrap items-center gap-1.5 flex-shrink-0 overflow-x-auto lg:overflow-visible -mx-1 px-1 pb-1 lg:mx-0 lg:px-0 lg:pb-0">
         <button
           type="button"
           onClick={() => setStageFilter('all')}
-          className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+          className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors whitespace-nowrap flex-shrink-0 ${
             stageFilter === 'all'
               ? 'border-white/25 bg-white/[0.08] text-white'
               : 'border-white/10 text-white/40 hover:text-white/80'

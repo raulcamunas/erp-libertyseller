@@ -614,10 +614,10 @@ export function AgendaCalendar({
   })()
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-4">
+    <div className="flex flex-col h-full min-h-0 min-w-0 gap-4">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="flex items-center rounded-full border border-white/10 bg-white/[0.03] p-1">
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -657,13 +657,13 @@ export function AgendaCalendar({
           </AnimatePresence>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           {isAdmin && (
             <button
               onClick={handleResync}
               disabled={resyncing}
               title="Volver a leer Google Calendar entero, sin esperar al ciclo automático"
-              className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors disabled:opacity-50"
+              className="h-9 lg:h-10 px-3 lg:px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[12px] lg:text-sm font-medium flex items-center gap-1.5 lg:gap-2 whitespace-nowrap hover:bg-white/[0.06] hover:border-white/20 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`h-4 w-4 ${resyncing ? 'animate-spin text-[#FF6600]' : ''}`} />
               {resyncing ? 'Sincronizando...' : 'Sincronizar'}
@@ -672,21 +672,21 @@ export function AgendaCalendar({
           {isAdmin && (
             <button
               onClick={() => setShowAvailabilitySettings(true)}
-              className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+              className="h-9 lg:h-10 px-3 lg:px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[12px] lg:text-sm font-medium flex items-center gap-1.5 lg:gap-2 whitespace-nowrap hover:bg-white/[0.06] hover:border-white/20 transition-colors"
             >
               <ClockIcon className="h-4 w-4" /> Mi disponibilidad
             </button>
           )}
           <Link
             href="/dashboard/agenda/desglose"
-            className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+            className="h-9 lg:h-10 px-3 lg:px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[12px] lg:text-sm font-medium flex items-center gap-1.5 lg:gap-2 whitespace-nowrap hover:bg-white/[0.06] hover:border-white/20 transition-colors"
           >
             <Table2 className="h-4 w-4" /> Desglose de citas
           </Link>
           {isAdmin && (
             <Link
               href="/dashboard/agenda/crm"
-              className="h-10 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-sm font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+              className="h-9 lg:h-10 px-3 lg:px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[12px] lg:text-sm font-medium flex items-center gap-1.5 lg:gap-2 whitespace-nowrap hover:bg-white/[0.06] hover:border-white/20 transition-colors"
             >
               <Contact className="h-4 w-4" /> CRM de clientes
             </Link>
@@ -702,7 +702,7 @@ export function AgendaCalendar({
               const end = new Date(start.getTime() + 30 * 60 * 1000)
               setSheet({ mode: 'create', prefill: { start, end } })
             }}
-            className="h-10 px-5 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-sm font-semibold flex items-center gap-2 shadow-[0_4px_16px_-4px_rgba(255,102,0,0.5)]"
+            className="h-9 lg:h-10 px-4 lg:px-5 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[12px] lg:text-sm font-semibold flex items-center gap-1.5 lg:gap-2 whitespace-nowrap shadow-[0_4px_16px_-4px_rgba(255,102,0,0.5)]"
           >
             <Plus className="h-4 w-4" /> Nueva cita
           </motion.button>
