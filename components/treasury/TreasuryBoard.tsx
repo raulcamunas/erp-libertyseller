@@ -451,7 +451,12 @@ export function TreasuryBoard({
                   return (
                     <tr
                       key={c.id}
-                      className="border-b border-white/[0.04] group"
+                      // Verde al marcar cobrado: al repasar el mes se ve de
+                      // un vistazo lo que ya ha entrado sin leer casilla a
+                      // casilla.
+                      className={`border-b border-white/[0.04] group transition-colors ${
+                        m?.paid ? 'bg-green-500/[0.07]' : ''
+                      }`}
                     >
                       <td className="px-1.5 py-1 text-white font-medium">
                         <input
