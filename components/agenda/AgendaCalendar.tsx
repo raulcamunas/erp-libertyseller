@@ -37,7 +37,7 @@ import {
 } from '@/lib/types/appointments'
 import { AvailabilityWindow, parseTimeToHourMinute } from '@/lib/types/availability'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
-import { layoutOverlappingEvents } from '@/lib/calendar-layout'
+import { layoutOverlappingEvents, type LayoutResult } from '@/lib/calendar-layout'
 
 interface AgendaCalendarProps {
   initialAppointments: AppointmentWithPeople[]
@@ -268,13 +268,48 @@ export function AgendaCalendar({
     setWeekStart(newStart)
   }
 
-  function layoutForDay(day: Date) {
-    const dayAppts = appointments.filter((a) => isSameDay(toMadrid(a.start_time), day))
-    return layoutOverlappingEvents(
-      dayAppts,
-      (a) => new Date(a.start_time).getTime(),
-      (a) => new Date(a.end_time).getTime()
-    )
+  /**
+   * Las citas agrupadas por día, y ya colocadas para evitar solapes.
+   *
+   * Antes esto se recalculaba en cada render: por cada uno de los 7 días se
+   * recorrían TODAS las citas convirtiendo su hora a Madrid. Con varios
+   * miles de huecos importados de Google eso son decenas de miles de
+   * conversiones de zona horaria, y el calendario se recalculaba entero
+   * cada vez que el ratón pasaba por encima de un hueco (hoverSlot cambia
+   * el estado). De ahí el lag.
+   *
+   * Ahora se hace una sola pasada por cita y solo cuando cambian las citas
+   * o la semana que se está mirando.
+   */
+  const layoutByDay = useMemo(() => {
+    const dayKeys = days.map((d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`)
+    const buckets = new Map<string, AppointmentWithPeople[]>(dayKeys.map((k) => [k, []]))
+
+    for (const a of appointments) {
+      const start = toMadrid(a.start_time)
+      const key = `${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`
+      const bucket = buckets.get(key)
+      // Solo interesan las de la semana visible: el resto ni se tocan
+      if (bucket) bucket.push(a)
+    }
+
+    const result = new Map<string, LayoutResult<AppointmentWithPeople>[]>()
+    for (const [key, list] of buckets) {
+      result.set(
+        key,
+        layoutOverlappingEvents(
+          list,
+          (a) => new Date(a.start_time).getTime(),
+          (a) => new Date(a.end_time).getTime()
+        )
+      )
+    }
+    return result
+  }, [appointments, days])
+
+  function layoutForDay(day: Date): LayoutResult<AppointmentWithPeople>[] {
+    const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
+    return layoutByDay.get(key) ?? []
   }
 
   function positionFor(a: AppointmentWithPeople) {

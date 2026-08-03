@@ -32,8 +32,21 @@ export default async function AgendaPage() {
   for (let from = 0; ; from += CHUNK) {
     const { data, error } = await supabase
       .from('appointments')
+      // Columnas explícitas en vez de `*`: la transcripción completa de una
+      // llamada son decenas de miles de caracteres, y venían todas en la
+      // carga inicial de la página aunque no se lean nunca. El resumen sí
+      // se queda, que es corto y se enseña en la ficha; el texto largo se
+      // pide solo al desplegarlo.
       .select(`
-        *,
+        id, comercial_id, assigned_closer_id, is_external,
+        lead_name, lead_email, lead_phone, lead_company, lead_source, lead_ref_id,
+        start_time, end_time, status, title, notes, details,
+        revenue_amount, call_date, amazon_link,
+        recording_url, recording_filename,
+        transcription_summary, transcription_status, transcription_error,
+        google_event_id, google_calendar_id, google_html_link, google_meet_link,
+        sync_status, sync_error, last_synced_at, updated_source,
+        created_at, updated_at,
         comercial:profiles!appointments_comercial_id_fkey(id, full_name, email, role, calendar_color),
         assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
       `)
@@ -46,7 +59,7 @@ export default async function AgendaPage() {
       break
     }
     if (!data || data.length === 0) break
-    appointments.push(...(data as AppointmentWithPeople[]))
+    appointments.push(...(data as unknown as AppointmentWithPeople[]))
     if (data.length < CHUNK) break
   }
 

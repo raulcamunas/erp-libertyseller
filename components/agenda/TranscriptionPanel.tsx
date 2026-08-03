@@ -58,6 +58,30 @@ export function TranscriptionPanel({
 }: TranscriptionPanelProps) {
   const [loading, setLoading] = useState(false)
   const [showFull, setShowFull] = useState(false)
+  // El texto completo no viaja en la carga del calendario: se pide aquí la
+  // primera vez que alguien lo despliega.
+  const [fullText, setFullText] = useState<string | null>(transcription)
+  const [loadingFull, setLoadingFull] = useState(false)
+
+  async function toggleFull() {
+    const next = !showFull
+    setShowFull(next)
+    if (!next || fullText != null) return
+    setLoadingFull(true)
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const { data } = await createClient()
+        .from('appointments')
+        .select('transcription')
+        .eq('id', appointmentId)
+        .single()
+      setFullText((data?.transcription as string) ?? '')
+    } catch (err) {
+      console.error('Error cargando la transcripción:', err)
+    } finally {
+      setLoadingFull(false)
+    }
+  }
 
   if (!hasRecording) return null
 
@@ -69,6 +93,9 @@ export function TranscriptionPanel({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error al transcribir')
+      // Recién transcrita ya viene el texto completo en la respuesta: no
+      // hace falta volver a pedirlo al desplegarlo.
+      setFullText(data.transcription ?? null)
       onUpdated({
         transcription: data.transcription ?? null,
         transcription_summary: data.transcription_summary ?? null,
@@ -135,32 +162,30 @@ export function TranscriptionPanel({
         >
           {transcriptionSummary && <SummaryText text={transcriptionSummary} />}
 
-          {transcription && (
-            <div className="pt-1 border-t border-white/[0.06]">
-              <button
-                type="button"
-                onClick={() => setShowFull((v) => !v)}
-                className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white/70 transition-colors mt-1.5"
-              >
-                <ChevronDown
-                  className={`h-3 w-3 transition-transform ${showFull ? 'rotate-180' : ''}`}
-                />
-                {showFull ? 'Ocultar transcripción completa' : 'Ver transcripción completa'}
-              </button>
-              <AnimatePresence>
-                {showFull && (
-                  <motion.p
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="text-[11px] text-white/55 leading-relaxed whitespace-pre-wrap mt-2 max-h-56 overflow-y-auto"
-                  >
-                    {transcription}
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
+          <div className="pt-1 border-t border-white/[0.06]">
+            <button
+              type="button"
+              onClick={toggleFull}
+              className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white/70 transition-colors mt-1.5"
+            >
+              <ChevronDown
+                className={`h-3 w-3 transition-transform ${showFull ? 'rotate-180' : ''}`}
+              />
+              {showFull ? 'Ocultar transcripción completa' : 'Ver transcripción completa'}
+            </button>
+            <AnimatePresence>
+              {showFull && (
+                <motion.p
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="text-[11px] text-white/55 leading-relaxed whitespace-pre-wrap mt-2 max-h-56 overflow-y-auto"
+                >
+                  {loadingFull ? 'Cargando transcripción...' : fullText || 'Sin transcripción'}
+                </motion.p>
+              )}
+            </AnimatePresence>
+          </div>
 
           {canEdit && (
             <button
