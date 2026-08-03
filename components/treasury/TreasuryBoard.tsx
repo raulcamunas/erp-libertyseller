@@ -48,6 +48,12 @@ const numInputBase =
 
 const numInput = `w-full ${numInputBase}`
 
+// Par validado para daltonismo sobre fondo oscuro: verde y rosa se
+// separan por tono Y por luminosidad, no solo por color. Un verde/rojo
+// clasico es justo el par que no distingue un deuteranope.
+const CHART_INCOME = '#34D399'
+const CHART_EXPENSE = '#FB7185'
+
 export function TreasuryBoard({
   clients: initialClients,
   initialMonths,
@@ -666,50 +672,92 @@ export function TreasuryBoard({
       </div>
 
       {/* Evolución */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 flex-shrink-0">
-        <div className="flex items-center justify-between mb-2">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 pt-3 pb-2 flex-shrink-0">
+        <div className="flex items-center justify-between gap-3 mb-3">
           <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider">
             Últimos 12 meses
           </h3>
-          <span className="flex items-center gap-3 text-[10px] text-white/40">
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-sm bg-green-400" /> Ingresos
+          <span className="flex items-center gap-3 text-[10px] text-white/45">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 rounded-[2px]"
+                style={{ backgroundColor: CHART_INCOME }}
+              />
+              Ingresos
             </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-sm bg-red-400" /> Gastos
+            <span className="flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 rounded-[2px]"
+                style={{ backgroundColor: CHART_EXPENSE }}
+              />
+              Gastos
             </span>
           </span>
         </div>
-        <div className="flex items-end gap-1.5 h-[92px]">
-          {evolution.map((e) => {
-            const isCurrent = e.key === period
-            return (
-              <button
-                key={e.key}
-                onClick={() => setOffset((o) => o + (evolution.indexOf(e) - 11))}
-                title={`${periodLabel(e.key)} · ${euros(e.income)} ingresos, ${euros(e.expense)} gastos`}
-                className="flex-1 flex flex-col items-center gap-1 group"
-              >
-                <span className="w-full flex items-end justify-center gap-[2px] h-[72px]">
-                  <span
-                    className="w-1/2 rounded-t bg-green-400/70 group-hover:bg-green-400 transition-colors"
-                    style={{ height: `${Math.max(2, (e.income / evoMax) * 100)}%` }}
-                  />
-                  <span
-                    className="w-1/2 rounded-t bg-red-400/60 group-hover:bg-red-400 transition-colors"
-                    style={{ height: `${Math.max(2, (e.expense / evoMax) * 100)}%` }}
-                  />
-                </span>
-                <span
-                  className={`text-[9px] uppercase ${
-                    isCurrent ? 'text-[#FF6600] font-bold' : 'text-white/25'
-                  }`}
+
+        <div className="relative">
+          {/* Referencia superior y línea base: el ojo necesita contra qué
+              medir la altura de las barras. */}
+          <div className="absolute inset-x-0 top-0 flex items-center gap-2 pointer-events-none">
+            <span className="text-[9px] text-white/25 tabular-nums w-12 flex-shrink-0">
+              {euros(evoMax)}
+            </span>
+            <span className="flex-1 border-t border-dashed border-white/[0.07]" />
+          </div>
+          <div className="absolute inset-x-0 bottom-[18px] border-t border-white/10 pointer-events-none" />
+
+          <div className="flex items-end gap-1 h-[124px] pl-14">
+            {evolution.map((e, i) => {
+              const isCurrent = e.key === period
+              const margin = e.income - e.expense
+              const empty = e.income === 0 && e.expense === 0
+              return (
+                <button
+                  key={e.key}
+                  onClick={() => setOffset((o) => o + (i - 11))}
+                  title={`${periodLabel(e.key)}\nIngresos ${euros(e.income)}\nGastos ${euros(
+                    e.expense
+                  )}\nBeneficio ${euros(margin)}`}
+                  className="group relative flex-1 h-full flex flex-col justify-end items-center rounded-t-md hover:bg-white/[0.03] transition-colors"
                 >
-                  {periodLabel(e.key).slice(0, 3)}
-                </span>
-              </button>
-            )
-          })}
+                  {/* El importe solo en el mes que se está mirando: una cifra
+                      sobre cada barra sería ruido. */}
+                  {isCurrent && !empty && (
+                    <span className="absolute -top-0.5 text-[10px] font-semibold text-white tabular-nums whitespace-nowrap">
+                      {euros(e.income)}
+                    </span>
+                  )}
+
+                  <span className="w-full flex items-end justify-center gap-[2px] h-[92px] px-0.5">
+                    <span
+                      className="w-1/2 max-w-[16px] rounded-t-[4px] transition-opacity group-hover:opacity-100"
+                      style={{
+                        backgroundColor: CHART_INCOME,
+                        opacity: isCurrent ? 1 : 0.75,
+                        height: `${Math.max(e.income > 0 ? 3 : 0, (e.income / evoMax) * 100)}%`,
+                      }}
+                    />
+                    <span
+                      className="w-1/2 max-w-[16px] rounded-t-[4px] transition-opacity group-hover:opacity-100"
+                      style={{
+                        backgroundColor: CHART_EXPENSE,
+                        opacity: isCurrent ? 1 : 0.7,
+                        height: `${Math.max(e.expense > 0 ? 3 : 0, (e.expense / evoMax) * 100)}%`,
+                      }}
+                    />
+                  </span>
+
+                  <span
+                    className={`mt-1.5 text-[9px] uppercase tracking-wider ${
+                      isCurrent ? 'text-white font-bold' : 'text-white/30'
+                    }`}
+                  >
+                    {periodLabel(e.key).slice(0, 3)}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
