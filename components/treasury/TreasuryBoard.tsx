@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -17,7 +16,6 @@ import {
   Check,
   CopyPlus,
   CalendarDays,
-  Send,
 } from 'lucide-react'
 import {
   TreasuryClient,
@@ -353,27 +351,15 @@ export function TreasuryBoard({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={copyFromPrevious}
-            disabled={busy}
-            title="Copiar los fees de los clientes activos y los gastos recurrentes del mes anterior"
-            className="h-9 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[13px] font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors disabled:opacity-50"
-          >
-            <CopyPlus className="h-4 w-4" />
-            {busy ? 'Trayendo...' : 'Traer del mes anterior'}
-          </button>
-
-          {/* Facturación vive en su propio módulo, con Wise y el envío por
-              correo. Se entra desde aquí porque es lo que toca hacer justo
-              después de cuadrar el mes. */}
-          <Link
-            href="/dashboard/invoices"
-            className="h-9 px-4 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[13px] font-semibold flex items-center gap-2 shadow-[0_4px_16px_-6px_rgba(255,102,0,0.5)]"
-          >
-            <Send className="h-4 w-4" /> Enviar facturas
-          </Link>
-        </div>
+        <button
+          onClick={copyFromPrevious}
+          disabled={busy}
+          title="Copiar los fees de los clientes activos y los gastos recurrentes del mes anterior"
+          className="h-9 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[13px] font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors disabled:opacity-50"
+        >
+          <CopyPlus className="h-4 w-4" />
+          {busy ? 'Trayendo...' : 'Traer del mes anterior'}
+        </button>
       </div>
 
       {/* Resultado del mes */}
