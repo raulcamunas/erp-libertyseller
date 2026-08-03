@@ -1,4 +1,4 @@
-export type ExpenseCategory = 'equipo' | 'marketing' | 'software' | 'mentoria' | 'otros'
+export type ExpenseCategory = 'equipo' | 'marketing' | 'software' | 'otros'
 export type Currency = 'EUR' | 'USD'
 
 export interface TreasuryClient {
@@ -42,7 +42,6 @@ export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
   'equipo',
   'marketing',
   'software',
-  'mentoria',
   'otros',
 ]
 
@@ -50,7 +49,6 @@ export const EXPENSE_LABELS: Record<ExpenseCategory, string> = {
   equipo: 'Equipo',
   marketing: 'Marketing',
   software: 'Software',
-  mentoria: 'Mentoría',
   otros: 'Otros gastos',
 }
 
@@ -58,7 +56,6 @@ export const EXPENSE_COLORS: Record<ExpenseCategory, string> = {
   equipo: '#3B82F6',
   marketing: '#A855F7',
   software: '#06B6D4',
-  mentoria: '#EAB308',
   otros: '#64748B',
 }
 
