@@ -84,20 +84,46 @@ function Value({ children }: { children: ReactNode }) {
 }
 
 export function ColdLeadDetail({
-  lead,
+  lead: listLead,
   currentUser,
   canEdit,
   onPatched,
   onNext,
 }: ColdLeadDetailProps) {
   const supabase = createClient()
-  const [followUp, setFollowUp] = useState(lead.follow_up ?? '')
-  const [nextCall, setNextCall] = useState(lead.next_call_date ?? '')
+
+  // La lista solo trae lo justo para pintarse: los campos largos —
+  // directivos, dirección, registro mercantil — se piden al abrir el lead.
+  // Mientras llegan se enseña lo que ya se tiene, así que la ficha aparece
+  // al instante y se completa sola.
+  const [detail, setDetail] = useState<Partial<ColdLead>>({})
+  const lead = { ...listLead, ...detail } as ColdLead
 
   useEffect(() => {
-    setFollowUp(lead.follow_up ?? '')
-    setNextCall(lead.next_call_date ?? '')
-  }, [lead.id, lead.follow_up, lead.next_call_date])
+    let active = true
+    setDetail({})
+    supabase
+      .from('cold_leads')
+      .select(
+        'directors, business_address, mercantile_registry, subcategory, amazon_start, action_label'
+      )
+      .eq('id', listLead.id)
+      .single()
+      .then(({ data }) => {
+        if (active && data) setDetail(data as Partial<ColdLead>)
+      })
+    return () => {
+      active = false
+    }
+  }, [listLead.id, supabase])
+
+  const [followUp, setFollowUp] = useState(listLead.follow_up ?? '')
+  const [nextCall, setNextCall] = useState(listLead.next_call_date ?? '')
+
+  useEffect(() => {
+    setFollowUp(listLead.follow_up ?? '')
+    setNextCall(listLead.next_call_date ?? '')
+  }, [listLead.id, listLead.follow_up, listLead.next_call_date])
 
   async function patch(fields: Partial<ColdLead>) {
     const { error } = await supabase.from('cold_leads').update(fields).eq('id', lead.id)

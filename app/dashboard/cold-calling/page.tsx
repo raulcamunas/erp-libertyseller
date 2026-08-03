@@ -28,7 +28,18 @@ export default async function ColdCallingPage() {
   for (let from = 0; ; from += CHUNK) {
     const { data, error } = await supabase
       .from('cold_leads')
-      .select('*')
+      // Solo lo que se pinta en la lista y lo que se usa para buscar y
+      // filtrar. Los campos largos — directivos, dirección, registro
+      // mercantil, URL del seller — son de la ficha, y con casi 4.000 leads
+      // pesaban más que todo lo demás junto en la carga inicial. Se piden
+      // al abrir el lead.
+      .select(`
+        id, store_name, company, revenue_monthly, phone, email,
+        province, category, seller_url,
+        assigned_to, status, follow_up, next_call_date,
+        last_contacted_at, call_attempts, source_list,
+        created_at, updated_at
+      `)
       .order('revenue_monthly', { ascending: false, nullsFirst: false })
       .order('id', { ascending: true })
       .range(from, from + CHUNK - 1)
@@ -38,7 +49,7 @@ export default async function ColdCallingPage() {
       break
     }
     if (!data || data.length === 0) break
-    leads.push(...(data as ColdLead[]))
+    leads.push(...(data as unknown as ColdLead[]))
     if (data.length < CHUNK) break
   }
 
