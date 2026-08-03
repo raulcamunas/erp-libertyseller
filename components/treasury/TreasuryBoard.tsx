@@ -40,8 +40,13 @@ interface TreasuryBoardProps {
   partners: number
 }
 
-const numInput =
-  'w-full bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1.5 py-1 text-[13px] text-white text-right outline-none transition-colors tabular-nums placeholder:text-white/20'
+// Sin ancho: quien lo use decide. Antes llevaba `w-full` de serie y en la
+// fila de gastos ganaba sobre el `w-[78px]` del importe, dejando el campo
+// del concepto con ancho cero — se veía solo el número.
+const numInputBase =
+  'bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1.5 py-1 text-[13px] text-white text-right outline-none transition-colors tabular-nums placeholder:text-white/20'
+
+const numInput = `w-full ${numInputBase}`
 
 export function TreasuryBoard({
   clients,
@@ -519,7 +524,8 @@ export function TreasuryBoard({
                               const v = ev.target.value.trim()
                               if (v && v !== e.concept) saveExpense(e.id, { concept: v })
                             }}
-                            className="flex-1 min-w-0 bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1.5 py-1 text-[12px] text-white/80 outline-none transition-colors"
+                            placeholder="Concepto"
+                            className="flex-1 min-w-[80px] bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1.5 py-1 text-[12px] text-white/80 outline-none transition-colors placeholder:text-white/20"
                           />
                           <input
                             defaultValue={String(e.amount)}
@@ -528,18 +534,23 @@ export function TreasuryBoard({
                               if (parsed !== Number(e.amount)) saveExpense(e.id, { amount: parsed })
                             }}
                             inputMode="decimal"
-                            className={`${numInput} w-[78px] flex-shrink-0`}
+                            className={`${numInputBase} w-[74px] flex-shrink-0`}
                           />
                           <button
                             type="button"
                             onClick={() =>
                               saveExpense(e.id, { currency: e.currency === 'EUR' ? 'USD' : 'EUR' })
                             }
-                            className="w-8 flex-shrink-0 text-[11px] font-semibold text-white/45 hover:text-white transition-colors"
+                            className="w-6 flex-shrink-0 text-[11px] font-semibold text-white/45 hover:text-white transition-colors"
                             title="Cambiar divisa"
                           >
                             {e.currency === 'USD' ? '$' : '€'}
                           </button>
+                          {/* En dólares se enseña también el equivalente, que es
+                              lo que suma al total del mes */}
+                          <span className="w-[62px] flex-shrink-0 text-right text-[10px] text-white/30 tabular-nums">
+                            {e.currency === 'USD' ? euros(expenseInEuros(e, usdEur)) : ''}
+                          </span>
                           <button
                             type="button"
                             onClick={() => removeExpense(e.id)}
