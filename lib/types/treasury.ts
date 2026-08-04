@@ -23,6 +23,8 @@ export interface TreasuryClientMonth {
   period: string
   fee: number | null
   commission: number | null
+  /** Factura mandada por correo */
+  invoice_sent: boolean
   paid: boolean
   notes: string | null
 }

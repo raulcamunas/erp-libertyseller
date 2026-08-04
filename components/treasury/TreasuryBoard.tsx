@@ -146,6 +146,7 @@ export function TreasuryBoard({
             period,
             fee: existing?.fee ?? null,
             commission: existing?.commission ?? null,
+            invoice_sent: existing?.invoice_sent ?? false,
             paid: existing?.paid ?? false,
             ...patch,
           },
@@ -263,6 +264,7 @@ export function TreasuryBoard({
             period,
             fee,
             commission: existing?.commission ?? null,
+            invoice_sent: existing?.invoice_sent ?? false,
             paid: existing?.paid ?? false,
           }
         })
@@ -446,6 +448,9 @@ export function TreasuryBoard({
                   <th className="text-right px-2 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[92px]">
                     Total
                   </th>
+                  <th className="text-center px-1 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[62px]">
+                    Enviado
+                  </th>
                   <th className="text-center px-1 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[60px]">
                     Cobrado
                   </th>
@@ -462,7 +467,11 @@ export function TreasuryBoard({
                       // un vistazo lo que ya ha entrado sin leer casilla a
                       // casilla.
                       className={`border-b border-white/[0.04] group transition-colors ${
-                        m?.paid ? 'bg-green-500/[0.07]' : ''
+                        m?.paid
+                          ? 'bg-green-500/[0.07]'
+                          : m?.invoice_sent
+                            ? 'bg-yellow-400/[0.06]'
+                            : ''
                       }`}
                     >
                       <td className="px-1.5 py-1 text-white font-medium">
@@ -534,6 +543,20 @@ export function TreasuryBoard({
                       <td className="px-1 py-1 text-center">
                         <button
                           type="button"
+                          onClick={() => saveMonth(c.id, { invoice_sent: !m?.invoice_sent })}
+                          className={`h-5 w-5 rounded border flex items-center justify-center transition-colors mx-auto ${
+                            m?.invoice_sent
+                              ? 'bg-yellow-400/25 border-yellow-400/60 text-yellow-300'
+                              : 'border-white/15 text-transparent hover:border-white/35'
+                          }`}
+                          title={m?.invoice_sent ? 'Factura enviada' : 'Marcar como enviada'}
+                        >
+                          <Check className="h-3 w-3" />
+                        </button>
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        <button
+                          type="button"
                           onClick={() => saveMonth(c.id, { paid: !m?.paid })}
                           className={`h-5 w-5 rounded border flex items-center justify-center transition-colors mx-auto ${
                             m?.paid
@@ -560,6 +583,7 @@ export function TreasuryBoard({
                   <td className="px-2 py-2 text-right text-green-300 font-bold tabular-nums border-t border-white/10">
                     {eurosPrecise(income)}
                   </td>
+                  <td className="border-t border-white/10" />
                   <td className="border-t border-white/10" />
                 </tr>
               </tfoot>
