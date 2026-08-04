@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -68,6 +68,7 @@ export function TreasuryBoard({
   const [expenses, setExpenses] = useState(initialExpenses)
   const [offset, setOffset] = useState(0)
   const [busy, setBusy] = useState(false)
+  const chartScrollRef = useRef<HTMLDivElement>(null)
 
   const period = useMemo(() => periodKey(offset), [offset])
 
@@ -132,6 +133,13 @@ export function TreasuryBoard({
   }, [months, expenses, offset, usdEur])
 
   const evoMax = Math.max(1, ...evolution.flatMap((e) => [e.income, e.expense]))
+
+  // El mes en curso es el último de la serie: se abre mostrándolo, no
+  // enseñando el de hace un año y obligando a desplazarse.
+  useEffect(() => {
+    const el = chartScrollRef.current
+    if (el) el.scrollLeft = el.scrollWidth
+  }, [evolution])
 
   // ---------- Guardado ----------
   async function saveMonth(clientId: string, patch: Partial<TreasuryClientMonth>) {
@@ -720,68 +728,95 @@ export function TreasuryBoard({
           </span>
         </div>
 
-        <div className="relative">
-          {/* Referencia superior y línea base: el ojo necesita contra qué
-              medir la altura de las barras. */}
-          <div className="absolute inset-x-0 top-0 flex items-center gap-2 pointer-events-none">
-            <span className="text-[9px] text-white/25 tabular-nums w-12 flex-shrink-0">
-              {euros(evoMax)}
-            </span>
-            <span className="flex-1 border-t border-dashed border-white/[0.07]" />
-          </div>
-          <div className="absolute inset-x-0 bottom-[18px] border-t border-white/10 pointer-events-none" />
+        {/* Se desplaza en horizontal: con doce meses y las cifras de cada
+            uno debajo no caben todos a la vez en pantallas estrechas. La
+            rueda del ratón mueve de lado, que es lo que se espera aquí. */}
+        <div
+          ref={chartScrollRef}
+          onWheel={(ev) => {
+            const el = ev.currentTarget
+            if (el.scrollWidth <= el.clientWidth) return
+            // Solo se secuestra la rueda vertical; un trackpad que ya
+            // manda desplazamiento lateral se deja en paz.
+            if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) {
+              el.scrollLeft += ev.deltaY
+            }
+          }}
+          className="relative overflow-x-auto pb-1"
+        >
+          <div className="min-w-max">
+            {/* Referencia superior: sin ella no hay contra qué medir alturas */}
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[9px] text-white/25 tabular-nums w-16 flex-shrink-0">
+                {euros(evoMax)}
+              </span>
+              <span className="flex-1 border-t border-dashed border-white/[0.07]" />
+            </div>
 
-          <div className="flex items-end gap-1 h-[124px] pl-14">
-            {evolution.map((e, i) => {
-              const isCurrent = e.key === period
-              const margin = e.income - e.expense
-              const empty = e.income === 0 && e.expense === 0
-              return (
-                <button
-                  key={e.key}
-                  onClick={() => setOffset((o) => o + (i - 11))}
-                  title={`${periodLabel(e.key)}\nIngresos ${eurosPrecise(e.income)}\nGastos ${eurosPrecise(
-                    e.expense
-                  )}\nBeneficio ${eurosPrecise(margin)}`}
-                  className="group relative flex-1 h-full flex flex-col justify-end items-center rounded-t-md hover:bg-white/[0.03] transition-colors"
-                >
-                  {/* El importe solo en el mes que se está mirando: una cifra
-                      sobre cada barra sería ruido. */}
-                  {isCurrent && !empty && (
-                    <span className="absolute -top-0.5 text-[10px] font-semibold text-white tabular-nums whitespace-nowrap">
+            <div className="flex items-end gap-1 h-[104px] pl-16">
+              {evolution.map((e, i) => {
+                const isCurrent = e.key === period
+                return (
+                  <button
+                    key={e.key}
+                    onClick={() => setOffset((o) => o + (i - 11))}
+                    className="group w-[92px] flex-shrink-0 h-full flex flex-col justify-end items-center rounded-t-md hover:bg-white/[0.03] transition-colors"
+                  >
+                    <span className="w-full flex items-end justify-center gap-[3px] h-full px-1">
+                      <span
+                        className="w-1/2 max-w-[18px] rounded-t-[4px] transition-opacity"
+                        style={{
+                          backgroundColor: CHART_INCOME,
+                          opacity: isCurrent ? 1 : 0.75,
+                          height: `${Math.max(e.income > 0 ? 3 : 0, (e.income / evoMax) * 100)}%`,
+                        }}
+                      />
+                      <span
+                        className="w-1/2 max-w-[18px] rounded-t-[4px] transition-opacity"
+                        style={{
+                          backgroundColor: CHART_EXPENSE,
+                          opacity: isCurrent ? 1 : 0.7,
+                          height: `${Math.max(e.expense > 0 ? 3 : 0, (e.expense / evoMax) * 100)}%`,
+                        }}
+                      />
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Línea base y, debajo, las cifras del mes */}
+            <div className="border-t border-white/10 flex gap-1 pl-16 pt-1.5">
+              {evolution.map((e) => {
+                const isCurrent = e.key === period
+                return (
+                  <span
+                    key={e.key}
+                    className="w-[92px] flex-shrink-0 flex flex-col items-center gap-0.5"
+                  >
+                    <span
+                      className={`text-[9px] uppercase tracking-wider ${
+                        isCurrent ? 'text-white font-bold' : 'text-white/30'
+                      }`}
+                    >
+                      {periodLabel(e.key).slice(0, 3)}
+                    </span>
+                    <span
+                      className="text-[10px] font-semibold tabular-nums"
+                      style={{ color: CHART_INCOME, opacity: e.income > 0 ? 1 : 0.3 }}
+                    >
                       {euros(e.income)}
                     </span>
-                  )}
-
-                  <span className="w-full flex items-end justify-center gap-[2px] h-[92px] px-0.5">
                     <span
-                      className="w-1/2 max-w-[16px] rounded-t-[4px] transition-opacity group-hover:opacity-100"
-                      style={{
-                        backgroundColor: CHART_INCOME,
-                        opacity: isCurrent ? 1 : 0.75,
-                        height: `${Math.max(e.income > 0 ? 3 : 0, (e.income / evoMax) * 100)}%`,
-                      }}
-                    />
-                    <span
-                      className="w-1/2 max-w-[16px] rounded-t-[4px] transition-opacity group-hover:opacity-100"
-                      style={{
-                        backgroundColor: CHART_EXPENSE,
-                        opacity: isCurrent ? 1 : 0.7,
-                        height: `${Math.max(e.expense > 0 ? 3 : 0, (e.expense / evoMax) * 100)}%`,
-                      }}
-                    />
+                      className="text-[10px] tabular-nums"
+                      style={{ color: CHART_EXPENSE, opacity: e.expense > 0 ? 0.9 : 0.3 }}
+                    >
+                      {euros(e.expense)}
+                    </span>
                   </span>
-
-                  <span
-                    className={`mt-1.5 text-[9px] uppercase tracking-wider ${
-                      isCurrent ? 'text-white font-bold' : 'text-white/30'
-                    }`}
-                  >
-                    {periodLabel(e.key).slice(0, 3)}
-                  </span>
-                </button>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
         </div>
       </div>
