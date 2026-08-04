@@ -29,6 +29,7 @@ import {
   periodLabel,
   previousPeriod,
   euros,
+  eurosPrecise,
   expenseInEuros,
 } from '@/lib/types/treasury'
 
@@ -371,18 +372,18 @@ export function TreasuryBoard({
       {/* Resultado del mes */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
         {[
-          { icon: TrendingUp, label: 'Ingresos', value: euros(income), tone: 'text-green-300' },
-          { icon: TrendingDown, label: 'Gastos', value: euros(expenseTotal), tone: 'text-red-300' },
+          { icon: TrendingUp, label: 'Ingresos', value: eurosPrecise(income), tone: 'text-green-300' },
+          { icon: TrendingDown, label: 'Gastos', value: eurosPrecise(expenseTotal), tone: 'text-red-300' },
           {
             icon: Wallet,
             label: 'Beneficio',
-            value: euros(profit),
+            value: eurosPrecise(profit),
             tone: profit >= 0 ? 'text-white' : 'text-red-300',
           },
           {
             icon: Users,
             label: `Para cada socio (÷${partners})`,
-            value: euros(perPartner),
+            value: eurosPrecise(perPartner),
             tone: 'text-[#FF6600]',
           },
         ].map((k) => (
@@ -417,7 +418,7 @@ export function TreasuryBoard({
               (pending > 0 ? (
                 <span className="text-[11px] text-yellow-300 flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
-                  {euros(pending)} sin cobrar
+                  {eurosPrecise(pending)} sin cobrar
                 </span>
               ) : (
                 <span className="text-[11px] text-green-300/80 flex items-center gap-1.5">
@@ -528,7 +529,7 @@ export function TreasuryBoard({
                         />
                       </td>
                       <td className="px-2 py-1 text-right text-white font-semibold tabular-nums">
-                        {total > 0 ? euros(total) : <span className="text-white/20">—</span>}
+                        {total > 0 ? eurosPrecise(total) : <span className="text-white/20">—</span>}
                       </td>
                       <td className="px-1 py-1 text-center">
                         <button
@@ -557,7 +558,7 @@ export function TreasuryBoard({
                     Total facturado
                   </td>
                   <td className="px-2 py-2 text-right text-green-300 font-bold tabular-nums border-t border-white/10">
-                    {euros(income)}
+                    {eurosPrecise(income)}
                   </td>
                   <td className="border-t border-white/10" />
                 </tr>
@@ -591,7 +592,7 @@ export function TreasuryBoard({
                     </span>
                     <span className="flex items-center gap-2">
                       <span className="text-[11px] text-white/45 tabular-nums">
-                        {euros(subtotal)}
+                        {eurosPrecise(subtotal)}
                       </span>
                       <button
                         type="button"
@@ -644,7 +645,7 @@ export function TreasuryBoard({
                           {/* En dólares se enseña también el equivalente, que es
                               lo que suma al total del mes */}
                           <span className="w-[62px] flex-shrink-0 text-right text-[10px] text-white/30 tabular-nums">
-                            {e.currency === 'USD' ? euros(expenseInEuros(e, usdEur)) : ''}
+                            {e.currency === 'USD' ? eurosPrecise(expenseInEuros(e, usdEur)) : ''}
                           </span>
                           <button
                             type="button"
@@ -666,7 +667,7 @@ export function TreasuryBoard({
             <span className="text-[11px] uppercase tracking-wider text-white/40">
               Total gastos
             </span>
-            <span className="text-red-300 font-bold tabular-nums">{euros(expenseTotal)}</span>
+            <span className="text-red-300 font-bold tabular-nums">{eurosPrecise(expenseTotal)}</span>
           </div>
         </div>
       </div>
@@ -715,9 +716,9 @@ export function TreasuryBoard({
                 <button
                   key={e.key}
                   onClick={() => setOffset((o) => o + (i - 11))}
-                  title={`${periodLabel(e.key)}\nIngresos ${euros(e.income)}\nGastos ${euros(
+                  title={`${periodLabel(e.key)}\nIngresos ${eurosPrecise(e.income)}\nGastos ${eurosPrecise(
                     e.expense
-                  )}\nBeneficio ${euros(margin)}`}
+                  )}\nBeneficio ${eurosPrecise(margin)}`}
                   className="group relative flex-1 h-full flex flex-col justify-end items-center rounded-t-md hover:bg-white/[0.03] transition-colors"
                 >
                   {/* El importe solo en el mes que se está mirando: una cifra
