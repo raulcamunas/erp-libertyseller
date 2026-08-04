@@ -259,8 +259,11 @@ export function TreasuryBoard({
       // se le abrió el mes sin importe se quedaba fuera para siempre.
       // Lo que ya tiene fee puesto no se toca, y las comisiones nunca se
       // arrastran: cambian cada mes.
+      // No se filtra por «activo»: esa marca viene del Excel y no es de
+      // fiar — hay clientes marcados como inactivos que facturaron el mes
+      // pasado, y se quedaban fuera. Lo que decide es el hecho: si te
+      // facturó el mes anterior, sigue siendo cliente este mes.
       const newMonths = clients
-        .filter((c) => c.is_active)
         .map((c) => {
           const existing = monthByClient.get(c.id)
           if (existing && existing.fee != null) return null
