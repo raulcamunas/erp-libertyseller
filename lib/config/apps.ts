@@ -9,6 +9,7 @@ import {
   Timer,
   PhoneCall,
   Landmark,
+  Megaphone,
   PhoneForwarded,
   CalendarDays
 } from 'lucide-react'
@@ -104,6 +105,18 @@ export const apps: AppConfig[] = [
     description: 'Ingresos por cliente, gastos y beneficio mes a mes',
     icon: Landmark,
     route: '/dashboard/tesoreria',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // El id no es 'marketing' a propósito: esa app quedó retirada del menú y
+    // reutilizar su id le daría acceso a este módulo a quien tuviera aquel
+    // permiso suelto en user_app_permissions.
+    id: 'marketing-ads',
+    name: 'Marketing',
+    description: 'Revisión semanal de las campañas de Amazon Ads',
+    icon: Megaphone,
+    route: '/dashboard/marketing-ads',
     status: 'new',
     category: 'core'
   },
