@@ -8,6 +8,7 @@ import {
   MarketingCampaignType,
   CAMPAIGN_TYPES,
   CAMPAIGN_TYPE_LABELS,
+  CAMPAIGN_TYPE_HINTS,
   CAMPAIGN_TYPE_COLORS,
   CAMPAIGN_STATUSES,
   CAMPAIGN_STATUS_LABELS,
@@ -235,6 +236,7 @@ export function CampaignsTable({
                         }
                         style={{ color: CAMPAIGN_TYPE_COLORS[c.campaign_type] }}
                         className={`${selectInput} w-full`}
+                        title={CAMPAIGN_TYPE_HINTS[c.campaign_type]}
                       >
                         {CAMPAIGN_TYPES.map((t) => (
                           <option key={t} value={t} className={optionClass}>

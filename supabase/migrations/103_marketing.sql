@@ -70,8 +70,12 @@ CREATE TABLE IF NOT EXISTS public.marketing_campaigns (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   week_id UUID NOT NULL REFERENCES public.marketing_weeks(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  campaign_type TEXT NOT NULL DEFAULT 'sp_auto'
-    CHECK (campaign_type IN ('sp_auto', 'sp_manual_exacta', 'sp_manual_frase', 'sp_manual_amplia', 'sb', 'sd')),
+  -- Los seis tipos de la estrategia de Liberty Seller, en orden de embudo:
+  -- las tres primeras son «fábricas» que descubren términos, las dos
+  -- siguientes recogen lo ya cosechado y rentable, y la última es defensa
+  -- de marca.
+  campaign_type TEXT NOT NULL DEFAULT 'auto'
+    CHECK (campaign_type IN ('auto', 'frase_h10', 'asin_h10', 'exacta', 'asin_exacta', 'brand_defend')),
   status TEXT NOT NULL DEFAULT 'activa'
     CHECK (status IN ('activa', 'pausada', 'archivada')),
   daily_budget NUMERIC,

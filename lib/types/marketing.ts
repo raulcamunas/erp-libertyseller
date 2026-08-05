@@ -1,10 +1,10 @@
 export type MarketingCampaignType =
-  | 'sp_auto'
-  | 'sp_manual_exacta'
-  | 'sp_manual_frase'
-  | 'sp_manual_amplia'
-  | 'sb'
-  | 'sd'
+  | 'auto'
+  | 'frase_h10'
+  | 'asin_h10'
+  | 'exacta'
+  | 'asin_exacta'
+  | 'brand_defend'
 
 export type MarketingCampaignStatus = 'activa' | 'pausada' | 'archivada'
 export type MarketingReviewStatus = 'pendiente' | 'hecho'
@@ -114,31 +114,50 @@ export interface MarketingChange {
   created_at: string
 }
 
+/**
+ * Los seis tipos que usa Liberty Seller, en el orden del embudo: primero
+ * las «fábricas», que descubren términos, y luego las de cosecha, donde se
+ * meten los que ya han demostrado ser rentables.
+ */
 export const CAMPAIGN_TYPES: MarketingCampaignType[] = [
-  'sp_auto',
-  'sp_manual_exacta',
-  'sp_manual_frase',
-  'sp_manual_amplia',
-  'sb',
-  'sd',
+  'auto',
+  'frase_h10',
+  'asin_h10',
+  'exacta',
+  'asin_exacta',
+  'brand_defend',
 ]
 
 export const CAMPAIGN_TYPE_LABELS: Record<MarketingCampaignType, string> = {
-  sp_auto: 'SP Automática',
-  sp_manual_exacta: 'SP Exacta',
-  sp_manual_frase: 'SP Frase',
-  sp_manual_amplia: 'SP Amplia',
-  sb: 'Sponsored Brands',
-  sd: 'Sponsored Display',
+  auto: 'Auto',
+  frase_h10: 'Manual Frase H10',
+  asin_h10: 'Manual ASIN H10',
+  exacta: 'Manual Exacta',
+  asin_exacta: 'Manual ASIN Exacta',
+  brand_defend: 'Manual Brand Defend',
 }
 
+/** Qué papel juega cada tipo, para que no haga falta tenerlo en la cabeza */
+export const CAMPAIGN_TYPE_HINTS: Record<MarketingCampaignType, string> = {
+  auto: 'Campaña automática, fábrica de keywords',
+  frase_h10: 'Fábrica de keywords extraídas de H10',
+  asin_h10: 'Fábrica de ASINs extraídos de H10',
+  exacta: 'Exactas cosechadas y rentables',
+  asin_exacta: 'ASINs cosechados y rentables',
+  brand_defend: 'Estrategia de defensa de marca',
+}
+
+/**
+ * Mismo código de color que el documento de estrategia: ámbar las
+ * fábricas, verde lo cosechado y rentable, naranja la defensa de marca.
+ */
 export const CAMPAIGN_TYPE_COLORS: Record<MarketingCampaignType, string> = {
-  sp_auto: '#06B6D4',
-  sp_manual_exacta: '#34D399',
-  sp_manual_frase: '#FBBF24',
-  sp_manual_amplia: '#A855F7',
-  sb: '#FF6600',
-  sd: '#FB7185',
+  auto: '#FBBF24',
+  frase_h10: '#FBBF24',
+  asin_h10: '#FBBF24',
+  exacta: '#34D399',
+  asin_exacta: '#34D399',
+  brand_defend: '#FF6600',
 }
 
 export const CAMPAIGN_STATUSES: MarketingCampaignStatus[] = ['activa', 'pausada', 'archivada']
