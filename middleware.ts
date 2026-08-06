@@ -97,6 +97,20 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/empleados - Solo admin
+      // Aquí está el sueldo de cada persona del equipo. A diferencia de
+      // Tesorería, un partner tampoco entra: le basta con el total del mes,
+      // que ya recibe por /api/employees/monthly-cost. El filtro de verdad son
+      // las políticas RLS de la migración 111 (is_erp_admin); esto evita el
+      // viaje y la pantalla vacía.
+      if (pathname === '/dashboard/empleados') {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Protección para partners: solo pueden acceder a /dashboard/clients si son miembros
       if (userRole === 'partner' && pathname.startsWith('/dashboard/clients')) {
         const { data: memberClients } = await supabase

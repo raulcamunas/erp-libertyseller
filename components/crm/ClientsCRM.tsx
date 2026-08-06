@@ -28,12 +28,8 @@ import {
   CRM_STAGE_DOTS,
   crmContact,
 } from '@/lib/types/crm'
-import {
-  WorkHourEntry,
-  PayrollRate,
-  cycleKeyForDate,
-  resolveRate,
-} from '@/lib/types/payroll'
+import { WorkHourEntry, PayrollRate } from '@/lib/types/payroll'
+import { monthCostTotal } from '@/lib/payroll/cost'
 import { CalendarPerson } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { useIsMobile } from '@/lib/use-is-mobile'
@@ -269,25 +265,15 @@ export function ClientsCRM({
    */
   const teamCost = useMemo(() => {
     const now = toMadrid(new Date())
-    const monthPrefix = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`
-
-    let salaries = 0
-    for (const h of hours) {
-      if (!h.work_date.startsWith(monthPrefix)) continue
-      const rate = resolveRate(rates, cycleKeyForDate(h.work_date), h.user_id)
-      salaries += Number(h.hours) * rate.hourly
-    }
-
-    let commissions = 0
-    for (const a of qualified) {
-      if (!a.comercial_id) continue
-      const d = toMadrid(a.start_time)
-      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-      if (!key.startsWith(monthPrefix)) continue
-      commissions += resolveRate(rates, cycleKeyForDate(key), a.comercial_id).commission
-    }
-
-    return { salaries, commissions, total: salaries + commissions }
+    const month = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`
+    // Mismo motor que el desglose del mes y que el módulo de empleados:
+    // lib/payroll/cost.ts. Aquí se usa el total «de todo el mundo», que
+    // cuenta las horas de cualquiera que las haya apuntado aunque no esté
+    // marcado como comercial — que es lo que hacía este bloque y sigue
+    // haciendo, aunque no coincida con el desglose de al lado, que sí
+    // filtra por comerciales.
+    const c = monthCostTotal({ month, hours, rates, qualified })
+    return { salaries: c.salary, commissions: c.commissions, total: c.total }
   }, [hours, rates, qualified])
 
   // Ingresos del mes en euros contra coste del equipo en dólares pasados

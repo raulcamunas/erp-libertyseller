@@ -60,7 +60,14 @@ export default async function DashboardPage() {
     if (app.id === 'users') {
       return profile.role === 'admin' && profile.email === 'raulcamunas369@gmail.com'
     }
-    
+
+    // Control empleados solo para admin: son los sueldos de todo el equipo.
+    // Se comprueba antes del "para admins, acceso a todo" de abajo para que
+    // ni un employee con el permiso suelto en user_app_permissions lo vea.
+    if (app.id === 'empleados') {
+      return profile.role === 'admin'
+    }
+
     // Para admins, acceso a todo
     if (profile.role === 'admin') return true
     

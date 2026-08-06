@@ -15,12 +15,8 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { CrmClientWithDetails, crmContact } from '@/lib/types/crm'
-import {
-  WorkHourEntry,
-  PayrollRate,
-  cycleKeyForDate,
-  resolveRate,
-} from '@/lib/types/payroll'
+import { WorkHourEntry, PayrollRate } from '@/lib/types/payroll'
+import { monthCostForUser } from '@/lib/payroll/cost'
 import { CalendarPerson, colorForAgent } from '@/lib/types/appointments'
 
 export interface BreakdownAppointment {
@@ -94,30 +90,30 @@ export function MonthBreakdown({
   }, [clients, monthKey])
 
   // ---------- Costes por comercial ----------
+  // El cálculo vive en lib/payroll/cost.ts, no aquí. Estaba escrito tres
+  // veces (este desglose, la cabecera del CRM y «Mis Horas») y las copias
+  // ya habían empezado a separarse; ahora que Tesorería va a enseñar la
+  // misma cifra, o hay un solo motor o la misma pregunta tiene respuestas
+  // distintas en cada pantalla.
+  //
+  // No se le pasan las citas manuales (payroll_manual_appointments) porque
+  // la página del CRM no las consulta, así que este desglose enseña menos
+  // comisiones que «Mis Horas». Es el comportamiento que ya había: se
+  // mantiene tal cual para no cambiar cifras en el mismo cambio que mueve
+  // el cálculo de sitio. Se arregla pasándolas por props desde
+  // app/dashboard/agenda/crm/page.tsx.
   const costs = useMemo(() => {
+    const input = { month: monthKey, hours, rates, qualified }
     const rows = team.map((p) => {
-      let personHours = 0
-      let salary = 0
-      for (const h of hours) {
-        if (h.user_id !== p.id) continue
-        if (!h.work_date.startsWith(monthKey)) continue
-        const rate = resolveRate(rates, cycleKeyForDate(h.work_date), p.id)
-        personHours += Number(h.hours)
-        salary += Number(h.hours) * rate.hourly
+      const c = monthCostForUser(p.id, input)
+      return {
+        person: p,
+        hours: c.hours,
+        salary: c.salary,
+        appts: c.appointments,
+        commissions: c.commissions,
+        total: c.total,
       }
-
-      let appts = 0
-      let commissions = 0
-      for (const a of qualified) {
-        if (a.comercial_id !== p.id) continue
-        const d = toMadrid(a.start_time)
-        const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-        if (!key.startsWith(monthKey)) continue
-        appts += 1
-        commissions += resolveRate(rates, cycleKeyForDate(key), p.id).commission
-      }
-
-      return { person: p, hours: personHours, salary, appts, commissions, total: salary + commissions }
     })
 
     const totalUsd = rows.reduce((s, r) => s + r.total, 0)

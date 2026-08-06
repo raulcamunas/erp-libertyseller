@@ -1,0 +1,211 @@
+import { createServiceClient } from '@/lib/supabase/service'
+import { monthCostForUser, type CostAppointment, type PersonCost } from '@/lib/payroll/cost'
+import type { WorkHourEntry, PayrollRate, ManualAppointment } from '@/lib/types/payroll'
+import {
+  employeeMonth,
+  employeesMonthTotal,
+  type Employee,
+  type EmployeeMonthRecord,
+  type EmployeeSalaryStep,
+  type EmployeesDataset,
+} from '@/lib/types/employees'
+import type { EmployeesCostResponse } from '@/lib/employees/payload'
+
+/**
+ * DE DÓNDE SALEN LOS DATOS DEL MÓDULO DE EMPLEADOS
+ * ================================================
+ * SOLO SERVIDOR: importa el cliente de service_role. Un componente de cliente
+ * que importe esto se lleva la clave al navegador. Los tipos que necesita la
+ * interfaz están en lib/employees/payload.ts, que no importa nada de aquí.
+ *
+ * Tres pantallas piden lo mismo —la ruta /api/employees/monthly-cost, la
+ * página de Control empleados y el bloque «Empleados al mes» de Tesorería— y
+ * si cada una montara su propia consulta acabarían discrepando en cuanto
+ * alguien tocara una. Este fichero es la única carga.
+ *
+ * Se lee con service_role a propósito, no por comodidad: las tablas de
+ * empleados son solo de admin, pero Tesorería la ve también un partner y
+ * necesita que le cuadre el total de gastos. Bajo RLS, un partner recibiría
+ * cero filas SIN ERROR y su Tesorería enseñaría ~2.300 € menos de gasto al
+ * mes con el beneficio inflado en la misma cantidad. Lo que se controla es
+ * qué se le DEVUELVE —eso lo decide `detail` en cada llamada, a partir de su
+ * rol—, nunca lo que se lee.
+ */
+
+/** Supabase corta cualquier consulta a 1000 filas y un .limit() mayor no lo salta */
+const PAGE = 1000
+
+/**
+ * Consulta paginada. El orden lo fija quien llama y siempre termina en una
+ * columna única, porque .range() sobre un orden con empates puede repetir o
+ * saltarse filas entre tramos.
+ *
+ * Exportada porque la página del módulo carga las notas por su cuenta —van con
+ * el autor y ese JOIN solo lo sabe hacer la consulta— y sin paginar se comería
+ * en silencio todo lo que pase de mil notas. Recibe el constructor de la
+ * consulta, así que sirve igual con el cliente de service_role de aquí que con
+ * el cliente con sesión de la página.
+ */
+export async function fetchAll<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>
+): Promise<T[]> {
+  const out: T[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1)
+    if (error) {
+      // Aquí no se hace `break`: quedarse a medias no daría error visible,
+      // devolvería un coste más bajo del real. Un gasto que falta es justo lo
+      // que nadie detecta mirando la pantalla.
+      throw error
+    }
+    const chunk = (data as T[]) ?? []
+    out.push(...chunk)
+    if (chunk.length < PAGE) break
+  }
+  return out
+}
+
+export interface EmployeesServerData {
+  employees: Employee[]
+  steps: EmployeeSalaryStep[]
+  records: EmployeeMonthRecord[]
+  /** Tipo de cambio de app_settings ('usd_eur_rate'). No se inventa otro */
+  usdEur: number
+  /**
+   * Coste de «Mis Horas» con su desglose (horas, comisiones, citas), indexado
+   * por id de EMPLEADO —no de perfil— y mes. La pantalla lo necesita entero
+   * para poder enseñar las horas REALES al lado de las contratadas.
+   */
+  hoursDetail: Record<string, Record<string, PersonCost>>
+  /** Lo mismo reducido al importe, que es lo que consume el cálculo del dominio */
+  dataset: EmployeesDataset
+}
+
+/**
+ * Todo lo que hace falta para pintar cualquier vista del módulo, para los
+ * meses que se pidan.
+ *
+ * `periods` son claves 'yyyy-MM-01'. El coste por horas se calcula mes a mes
+ * y solo para quien cobra así: si algún día no queda nadie por horas, ni
+ * siquiera se consultan las tablas de payroll.
+ */
+export async function loadEmployeesData(periods: string[]): Promise<EmployeesServerData> {
+  const service = createServiceClient()
+
+  const [employees, steps, records, settings] = await Promise.all([
+    fetchAll<Employee>((a, b) =>
+      service
+        .from('employees')
+        .select('*')
+        .order('position', { ascending: true, nullsFirst: false })
+        .order('id')
+        .range(a, b)
+    ),
+    fetchAll<EmployeeSalaryStep>((a, b) =>
+      service
+        .from('employee_salary_steps')
+        .select('*')
+        .order('effective_from', { ascending: true })
+        .order('id')
+        .range(a, b)
+    ),
+    fetchAll<EmployeeMonthRecord>((a, b) =>
+      service.from('employee_month_records').select('*').order('period').order('id').range(a, b)
+    ),
+    service.from('app_settings').select('key, value').eq('key', 'usd_eur_rate').maybeSingle(),
+  ])
+
+  const usdEur = Number(settings.data?.value ?? 0.92)
+
+  const hourly = employees.filter((e) => e.pay_model === 'horas' && e.user_id)
+  const hoursDetail: Record<string, Record<string, PersonCost>> = {}
+  const hoursCost: Record<string, Record<string, number>> = {}
+
+  if (hourly.length > 0 && periods.length > 0) {
+    const [workHours, rates, qualified, manual] = await Promise.all([
+      fetchAll<WorkHourEntry>((a, b) =>
+        service.from('work_hours').select('*').order('id').range(a, b)
+      ),
+      fetchAll<PayrollRate>((a, b) =>
+        service.from('payroll_rates').select('*').order('id').range(a, b)
+      ),
+      fetchAll<CostAppointment>((a, b) =>
+        service
+          .from('appointments')
+          .select('comercial_id, start_time')
+          .eq('status', 'qualified')
+          .eq('is_external', false)
+          .order('id')
+          .range(a, b)
+      ),
+      fetchAll<ManualAppointment>((a, b) =>
+        service.from('payroll_manual_appointments').select('*').order('id').range(a, b)
+      ),
+    ])
+
+    for (const e of hourly) {
+      const byPeriod: Record<string, PersonCost> = {}
+      const totals: Record<string, number> = {}
+      for (const p of periods) {
+        const cost = monthCostForUser(e.user_id!, {
+          month: p,
+          hours: workHours,
+          rates,
+          qualified,
+          manual,
+        })
+        byPeriod[p] = cost
+        totals[p] = cost.total
+      }
+      hoursDetail[e.id] = byPeriod
+      hoursCost[e.id] = totals
+    }
+  }
+
+  return {
+    employees,
+    steps,
+    records,
+    usdEur,
+    hoursDetail,
+    dataset: { employees, steps, records, hoursCost },
+  }
+}
+
+/**
+ * La respuesta que consume la interfaz: totales por mes y, si quien pregunta
+ * es admin, el desglose por persona.
+ *
+ * `detail` NO se deduce aquí de nada que venga del cliente: lo pasa quien ya
+ * ha comprobado el rol contra la sesión.
+ */
+export function buildCostResponse(
+  data: EmployeesServerData,
+  periods: string[],
+  detail: boolean
+): EmployeesCostResponse {
+  const totals = periods.map((p) => {
+    const t = employeesMonthTotal(p, data.dataset, data.usdEur)
+    return {
+      period: p,
+      eur: t.eur,
+      usd: t.usd,
+      headcount: t.headcount,
+      warnings: t.warnings,
+      accruing: t.accruing,
+    }
+  })
+
+  if (!detail) {
+    return { periods, usdEur: data.usdEur, detail: false, totals }
+  }
+
+  const rows = data.employees.map((e) => ({
+    employeeId: e.id,
+    name: e.name,
+    payModel: e.pay_model,
+    months: periods.map((p) => employeeMonth(e, p, data.dataset)),
+  }))
+
+  return { periods, usdEur: data.usdEur, detail: true, totals, rows }
+}

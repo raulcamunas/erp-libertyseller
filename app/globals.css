@@ -362,3 +362,27 @@ html.light .placeholder\:text-white\/25::placeholder { color: #a8a8b2; }
 /* Los tonos de color —verde, rojo, naranja de estado— se dejan como
    están: sobre blanco siguen leyéndose y cambiarlos rompería el código
    de colores que el equipo ya tiene aprendido. */
+
+/* ---------- Salvo el ÁMBAR ----------
+   El amarillo es el código de aviso de todo el ERP —«sin registrar», «sin
+   cobrar», descuadres— y es el único tono que sobre claro NO se lee: un
+   text-yellow-300 al 70 % sobre el #F0F0F2 del tema claro da del orden de
+   1,15:1 de contraste. En Control empleados eso significa que un mes que
+   nadie llegó a apuntar se ve exactamente igual que uno normal, y ese aviso
+   es justo el motivo del módulo. Se baja a yellow-700/800, que se lee sobre
+   claro y sigue siendo el mismo ámbar de siempre. Los fondos de aviso, que
+   en oscuro van al 5-12 % de blanco sobre negro, se suben para que se noten
+   sobre blanco. */
+html.light .text-yellow-200,
+html.light .text-yellow-300,
+html.light .text-yellow-300\/70,
+html.light .text-yellow-300\/80,
+html.light .text-yellow-400,
+html.light .text-yellow-400\/90,
+html.light .text-yellow-400\/70 { color: #A16207; }
+html.light .text-yellow-500, html.light .text-yellow-600 { color: #854D0E; }
+
+html.light .bg-yellow-400\/\[0\.05\] { background-color: rgba(202, 138, 4, 0.13); }
+html.light .bg-yellow-400\/\[0\.06\] { background-color: rgba(202, 138, 4, 0.14); }
+html.light .bg-yellow-400\/\[0\.09\] { background-color: rgba(202, 138, 4, 0.16); }
+html.light .bg-yellow-400\/\[0\.12\] { background-color: rgba(202, 138, 4, 0.18); }

@@ -130,6 +130,12 @@ export function AppSidebar() {
     if (app.id === 'users') {
       return userRole === 'admin' && userEmail === 'raulcamunas369@gmail.com'
     }
+    // Control empleados solo para admin: son los sueldos de todo el equipo.
+    // Va antes del "si aún no se ha cargado el rol, mostrar todas" de abajo
+    // para que no aparezca ni un instante mientras se resuelve el perfil.
+    if (app.id === 'empleados') {
+      return userRole === 'admin'
+    }
     // Si aún no se ha cargado el rol, mostrar todas temporalmente (evita parpadeo)
     if (userRole === null) return true
     // Para admins, acceso a todo

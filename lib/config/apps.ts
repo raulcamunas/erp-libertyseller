@@ -12,7 +12,8 @@ import {
   Megaphone,
   PhoneForwarded,
   CalendarDays,
-  Boxes
+  Boxes,
+  HandCoins
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -106,6 +107,22 @@ export const apps: AppConfig[] = [
     description: 'Ingresos por cliente, gastos y beneficio mes a mes',
     icon: Landmark,
     route: '/dashboard/tesoreria',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // 'empleados' no lo usa ninguna otra app. El id tiene que coincidir letra
+    // por letra aquí, en el mapa de middleware.ts y en la columna app_id de
+    // user_app_permissions: si baila en uno de los tres, el módulo queda
+    // invisible sin dar ningún error.
+    // Icono distinto de Users (gestión de usuarios) y de Activity (Employee
+    // Tracker): tres apps con gente dentro y en el menú se distinguen por el
+    // dibujo antes que por el texto.
+    id: 'empleados',
+    name: 'Control empleados',
+    description: 'Horas contratadas, sueldos y subidas mes a mes',
+    icon: HandCoins,
+    route: '/dashboard/empleados',
     status: 'new',
     category: 'core'
   },
