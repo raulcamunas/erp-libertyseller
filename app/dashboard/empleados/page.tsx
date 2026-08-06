@@ -22,6 +22,50 @@ import {
 const MONTHS_BACK = 12
 const MONTHS_FORWARD = 12
 
+/** Los ficheros que hay que pegar en el editor SQL de Supabase, en este orden */
+const MIGRATIONS = [
+  { file: '111_employees.sql', what: 'crea las tablas y los permisos' },
+  { file: '112_employees_import.sql', what: 'trae los sueldos que ya estaban en Tesorería' },
+  { file: '113_employees_permissions.sql', what: 'deja el módulo solo para admin' },
+  { file: '115_employees_name_norm.sql', what: 'evita fichas duplicadas de la misma persona' },
+]
+
+function PendingMigrations() {
+  return (
+    <div className="max-w-2xl">
+      <h1 className="heading-medium text-white mb-1">Control empleados</h1>
+      <p className="text-white/50 text-sm mb-5">
+        El módulo está desplegado pero sus tablas todavía no existen en la base de datos.
+      </p>
+
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5">
+        <p className="text-white/80 text-sm mb-4">
+          Abre el editor SQL de Supabase y pega estos cuatro ficheros de{' '}
+          <code className="text-white/60">supabase/migrations/</code>,{' '}
+          <strong className="text-white">en este orden</strong>:
+        </p>
+
+        <ol className="space-y-2 mb-4">
+          {MIGRATIONS.map((m, i) => (
+            <li key={m.file} className="flex gap-3 text-sm">
+              <span className="text-amber-400/70 tabular-nums">{i + 1}.</span>
+              <span className="min-w-0">
+                <code className="text-amber-200">{m.file}</code>
+                <span className="text-white/45"> — {m.what}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <p className="text-white/45 text-xs leading-relaxed">
+          Cada uno se ejecuta entero en una transacción: si algo falla, no se queda a medias.
+          Mientras tanto Tesorería funciona con normalidad, solo que sin el bloque de empleados.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default async function EmployeesPage() {
   const supabase = await createClient()
   const {
@@ -45,6 +89,14 @@ export default async function EmployeesPage() {
   )
 
   const data = await loadEmployeesData(periods)
+
+  // Las tablas del módulo se crean con migraciones que se lanzan a mano en el
+  // editor SQL de Supabase, así que el código puede llegar desplegado antes que
+  // ellas. Antes eso reventaba con una pantalla negra y un número de digest, que
+  // no dice qué hacer; ahora se explica.
+  if (data.missingTables) {
+    return <PendingMigrations />
+  }
 
   // Los perfiles del ERP, para poder enlazar desde la ficha a quien cobra por
   // horas. Sin ese enlace su coste sale 0 en Tesorería todos los meses, y

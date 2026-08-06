@@ -47,6 +47,15 @@ export interface EmployeesCostResponse {
    * interfaz tiene que saber que no le falta un dato: es que no le toca.
    */
   detail: boolean
+  /**
+   * Las tablas del módulo aún no existen (migraciones 111-115 sin lanzar).
+   *
+   * Va en la respuesta porque un cero sin explicar es peor que un hueco: el
+   * bloque diría «nadie en nómina este mes», que es falso —la gente cobra
+   * igual— y encima el total de gastos del mes sale corto sin que nada lo
+   * cuente. Con esto, se dice lo que pasa.
+   */
+  pendingSetup?: boolean
   totals: EmployeesMonthTotalWire[]
   rows?: EmployeesMonthRowWire[]
 }

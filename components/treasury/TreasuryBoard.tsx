@@ -842,6 +842,7 @@ export function TreasuryBoard({
               detail={employeeDetail}
               usdEur={usdEur}
               loading={employeesLoading}
+              pendingSetup={initialEmployeeCost.pendingSetup}
             />
 
             {/* Filas con una categoría que esta pantalla ya no pinta —las

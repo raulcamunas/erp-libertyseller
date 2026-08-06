@@ -65,10 +65,38 @@ export async function fetchAll<T>(
   return out
 }
 
+/**
+ * ¿Es «esa tabla no existe» y no otra cosa?
+ *
+ * PGRST205 lo devuelve PostgREST cuando el nombre no está en su caché de
+ * esquema, y 42P01 es el `undefined_table` de Postgres. Solo esos dos: un
+ * fallo de permisos, de red o de sintaxis TIENE que seguir reventando. Si se
+ * tragara cualquier error y devolviera cero filas, Tesorería enseñaría el mes
+ * sin los sueldos —unos 2.300 € menos de gasto y el beneficio inflado en la
+ * misma cantidad— sin una sola señal en pantalla. Un gasto que falta no lo
+ * detecta nadie mirando; una página que no carga, sí.
+ */
+function isMissingTable(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code
+  return code === 'PGRST205' || code === '42P01'
+}
+
 export interface EmployeesServerData {
   employees: Employee[]
   steps: EmployeeSalaryStep[]
   records: EmployeeMonthRecord[]
+  /**
+   * Las tablas del módulo todavía no están creadas: faltan por lanzar las
+   * migraciones 111, 112, 113 y 115.
+   *
+   * Se devuelve como dato en vez de lanzar porque hay dos pantallas detrás y
+   * quieren cosas distintas: Control empleados lo explica y dice qué hay que
+   * ejecutar, mientras que Tesorería —que funcionaba de sobra antes de que
+   * este módulo existiera— se limita a no pintar el bloque de empleados. Que
+   * una migración pendiente tire abajo una pantalla que ayer iba bien es un
+   * fallo por sí mismo.
+   */
+  missingTables: boolean
   /** Tipo de cambio de app_settings ('usd_eur_rate'). No se inventa otro */
   usdEur: number
   /**
@@ -92,6 +120,28 @@ export interface EmployeesServerData {
 export async function loadEmployeesData(periods: string[]): Promise<EmployeesServerData> {
   const service = createServiceClient()
 
+  try {
+    return await loadFromTables(service, periods)
+  } catch (error) {
+    if (!isMissingTable(error)) throw error
+    // Sin tablas no hay nada que enseñar, pero tampoco hay nada que ocultar:
+    // el coste de empleados es cero de verdad mientras el módulo no exista.
+    return {
+      employees: [],
+      steps: [],
+      records: [],
+      missingTables: true,
+      usdEur: 0.92,
+      hoursDetail: {},
+      dataset: { employees: [], steps: [], records: [], hoursCost: {} },
+    }
+  }
+}
+
+async function loadFromTables(
+  service: ReturnType<typeof createServiceClient>,
+  periods: string[]
+): Promise<EmployeesServerData> {
   const [employees, steps, records, settings] = await Promise.all([
     fetchAll<Employee>((a, b) =>
       service
@@ -166,6 +216,7 @@ export async function loadEmployeesData(periods: string[]): Promise<EmployeesSer
     employees,
     steps,
     records,
+    missingTables: false,
     usdEur,
     hoursDetail,
     dataset: { employees, steps, records, hoursCost },
@@ -197,7 +248,7 @@ export function buildCostResponse(
   })
 
   if (!detail) {
-    return { periods, usdEur: data.usdEur, detail: false, totals }
+    return { periods, usdEur: data.usdEur, detail: false, pendingSetup: data.missingTables, totals }
   }
 
   const rows = data.employees.map((e) => ({
@@ -207,5 +258,5 @@ export function buildCostResponse(
     months: periods.map((p) => employeeMonth(e, p, data.dataset)),
   }))
 
-  return { periods, usdEur: data.usdEur, detail: true, totals, rows }
+  return { periods, usdEur: data.usdEur, detail: true, pendingSetup: data.missingTables, totals, rows }
 }

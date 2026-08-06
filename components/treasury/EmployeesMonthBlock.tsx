@@ -23,6 +23,15 @@ export interface EmployeesMonthBlockProps {
   usdEur: number
   /** Se están pidiendo meses que no venían cargados */
   loading: boolean
+  /**
+   * El módulo de empleados está desplegado pero sus tablas todavía no existen.
+   *
+   * Sin esto el bloque diría «nadie en nómina este mes», que es falso: la gente
+   * cobra igual, lo que falta es lanzar las migraciones. Y como además los
+   * sueldos siguen entonces en las filas viejas de gasto —que ya no cuentan en
+   * el total—, el mes sale corto: hay que decirlo, no dejar un cero limpio.
+   */
+  pendingSetup?: boolean
 }
 
 /**
@@ -50,6 +59,7 @@ export function EmployeesMonthBlock({
   detail,
   usdEur,
   loading,
+  pendingSetup,
 }: EmployeesMonthBlockProps) {
   const current = currentMonthKey()
   const isFuture = period > current
@@ -94,7 +104,16 @@ export function EmployeesMonthBlock({
         </span>
       </div>
 
-      {!total ? (
+      {pendingSetup ? (
+        /* El cero de aquí no significa que nadie cobre, significa que el módulo
+           no está instalado. Decirlo es lo único honesto: con las migraciones
+           sin lanzar, los sueldos están todavía en las filas viejas de gasto,
+           que ya no cuentan en el total, así que el mes se queda corto. */
+        <p className="text-[10px] text-amber-300/70 pl-3.5 leading-relaxed">
+          Control empleados aún no está instalado, así que los sueldos no entran en el total de
+          este mes. Ejecuta las migraciones 111 a 115 y volverán a contar.
+        </p>
+      ) : !total ? (
         <p className="text-[10px] text-white/20 pl-3.5">Calculando el coste del equipo...</p>
       ) : !detail ? (
         /* Un partner ve el total —lo necesita para que le cuadre su parte—
