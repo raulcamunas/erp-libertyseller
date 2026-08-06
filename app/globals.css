@@ -359,9 +359,44 @@ html.light .focus\:bg-white\/\[0\.08\]:focus { background-color: rgba(0, 0, 0, 0
 html.light .placeholder\:text-white\/20::placeholder,
 html.light .placeholder\:text-white\/25::placeholder { color: #a8a8b2; }
 
-/* Los tonos de color —verde, rojo, naranja de estado— se dejan como
-   están: sobre blanco siguen leyéndose y cambiarlos rompería el código
-   de colores que el equipo ya tiene aprendido. */
+/* ---------- Los tonos CLAROS de verde, rojo y gris ----------
+   Los tonos medios y oscuros (green-500, red-500, red-600…) se dejan como
+   están: sobre blanco se leen bien y cambiarlos rompería el código de
+   colores que el equipo ya tiene aprendido.
+
+   Los tonos 300/400 son otra cosa. Están pensados para leerse sobre negro
+   y sobre el fondo claro desaparecen — medido sobre la tarjeta estándar
+   (bg-white/[0.02] en claro, o sea casi blanco):
+
+     text-green-300  #86EFAC  ->  1,33:1
+     text-red-300    #FCA5A5  ->  1,71:1
+     text-red-400    #F87171  ->  2,63:1
+     text-zinc-300   #D4D4D8  ->  1,00:1 sobre su píldora bg-zinc-600/25
+
+   Y no son adornos: el verde es el número de días de vacaciones ya
+   canjeados, el rojo es «se pisan con otra petición» y «te has pasado del
+   saldo», y el zinc es la píldora «Cancelada», que a 1,00:1 sencillamente
+   no existe. Con el tema claro puesto, de los cuatro números que se pidió
+   ver solo se distinguían tres.
+
+   Se bajan al 700, igual que ya se hace con el ámbar aquí arriba: mismo
+   código de colores, legible sobre claro (4,2:1 – 7,1:1 según el fondo). */
+html.light .text-green-300,
+html.light .text-green-300\/70,
+html.light .text-green-300\/80,
+html.light .text-green-300\/90,
+html.light .text-green-400,
+html.light .text-green-400\/70,
+html.light .text-green-400\/80 { color: #15803D; }
+
+html.light .text-red-300,
+html.light .text-red-300\/90,
+html.light .text-red-400,
+html.light .text-red-400\/70,
+html.light .text-red-400\/80,
+html.light .text-red-400\/90 { color: #B91C1C; }
+
+html.light .text-zinc-300 { color: #3F3F46; }
 
 /* ---------- Salvo el ÁMBAR ----------
    El amarillo es el código de aviso de todo el ERP —«sin registrar», «sin

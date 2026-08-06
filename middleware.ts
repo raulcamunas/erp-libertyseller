@@ -156,6 +156,11 @@ export async function middleware(request: NextRequest) {
           '/dashboard/stock-sync': 'stock-sync',
           '/dashboard/reports': 'reports',
           '/dashboard/documents': 'documents',
+          // Vacaciones va aquí y no en el bloque de solo-admin de arriba: es la
+          // pantalla del equipo, cada uno ve SU saldo y SUS peticiones y no
+          // lleva ningún dato salarial. El permiso lo reparte la migración 116
+          // a admins y employees; el filtro de verdad son sus políticas RLS.
+          '/dashboard/vacaciones': 'vacaciones',
         }
 
         const appId = routeToAppId[pathname]

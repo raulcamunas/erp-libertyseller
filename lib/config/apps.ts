@@ -13,7 +13,8 @@ import {
   PhoneForwarded,
   CalendarDays,
   Boxes,
-  HandCoins
+  HandCoins,
+  Palmtree
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -125,6 +126,23 @@ export const apps: AppConfig[] = [
     route: '/dashboard/empleados',
     status: 'new',
     category: 'core'
+  },
+  {
+    // Al contrario que 'empleados', esta SÍ la ve el equipo: cada uno su
+    // calendario y su saldo, sin un solo dato salarial. Por eso es una ruta
+    // aparte y no una pestaña dentro de Control empleados, que está cerrada a
+    // admin porque enseña los sueldos.
+    // El id tiene que coincidir letra por letra aquí, en el mapa de
+    // middleware.ts y en la columna app_id de user_app_permissions (lo reparte
+    // la migración 116). Si baila en uno de los tres, la app queda invisible
+    // sin dar ningún error.
+    id: 'vacaciones',
+    name: 'Mis vacaciones',
+    description: 'Días generados, los que has cogido y los que puedes pedir',
+    icon: Palmtree,
+    route: '/dashboard/vacaciones',
+    status: 'new',
+    category: 'productivity'
   },
   {
     // El id no es 'marketing' a propósito: esa app quedó retirada del menú y

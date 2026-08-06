@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/lib/use-is-mobile'
-import { AlertTriangle, CalendarClock, TrendingUp, Users, Wallet } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Palmtree, TrendingUp, Users, Wallet } from 'lucide-react'
 import {
   employeesMonthTotal,
   formatMoney,
@@ -23,10 +23,12 @@ import {
 } from '@/lib/types/employees'
 import type { PersonCost } from '@/lib/payroll/cost'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
+import type { VacationsView } from '@/lib/vacations/client'
 import { EmployeesList } from './EmployeesList'
 import { SalaryMatrix } from './SalaryMatrix'
 import { EmployeeDetail } from './EmployeeDetail'
 import { CellEditor } from './CellEditor'
+import { VacacionesPanel } from '@/components/vacaciones/VacacionesPanel'
 
 export interface EmployeesBoardProps {
   currentUser: UserProfile
@@ -46,6 +48,13 @@ export interface EmployeesBoardProps {
   periods: string[]
   currentPeriod: string
   usdEur: number
+  /**
+   * Vacaciones de todo el equipo. Va aparte del resto del dataset a propósito:
+   * el coste mensual lo consume también Tesorería y no tiene por qué cargar con
+   * esto. Su `missingTables` es independiente, así que desplegar antes de
+   * lanzar la migración 116 no tumba la pantalla de sueldos.
+   */
+  initialVacations: VacationsView
 }
 
 type MobileView = 'plantilla' | 'meses'
@@ -73,6 +82,7 @@ export function EmployeesBoard({
   periods,
   currentPeriod,
   usdEur,
+  initialVacations,
 }: EmployeesBoardProps) {
   const supabase = createClient()
   const router = useRouter()
@@ -86,6 +96,12 @@ export function EmployeesBoard({
   const [openId, setOpenId] = useState<string | null>(null)
   const [cell, setCell] = useState<{ employeeId: string; period: string } | null>(null)
   const [mobileView, setMobileView] = useState<MobileView>('meses')
+  // El estado de vacaciones vive aquí, igual que el resto: cada aprobación
+  // devuelve la vista entera recargada y el panel solo avisa hacia arriba.
+  const [vacations, setVacations] = useState(initialVacations)
+  const [vacationsOpen, setVacationsOpen] = useState(false)
+
+  const pendingVacations = vacations.requests.filter((r) => r.status === 'pendiente').length
 
   // ---------- El conjunto de datos que consume todo el cálculo ----------
   const hoursCost = useMemo(() => {
@@ -104,6 +120,35 @@ export function EmployeesBoard({
         (a, b) => (a.position ?? 9999) - (b.position ?? 9999) || a.name.localeCompare(b.name, 'es')
       ),
     [employees]
+  )
+
+  /**
+   * La vista de vacaciones que consume el panel.
+   *
+   * Las peticiones vienen del servidor y se refrescan con cada aprobación,
+   * pero las FICHAS se derivan de la lista de esta pantalla: aquí es donde se
+   * corrigen la fecha de alta y los días por mes, y el saldo de esa persona
+   * cuelga entero de esas dos cosas. Con dos copias, tocar el alta en la ficha
+   * dejaría el panel enseñando el saldo viejo hasta recargar.
+   *
+   * Se recorta a los campos de VacationEmployee a mano, y no se pasa el objeto
+   * entero aunque encaje: así el sueldo no puede llegar a un componente de
+   * vacaciones ni por accidente el día que alguno se reutilice fuera de aquí.
+   */
+  const vacationsView: VacationsView = useMemo(
+    () => ({
+      ...vacations,
+      employees: sorted.map((e) => ({
+        id: e.id,
+        name: e.name,
+        user_id: e.user_id,
+        started_on: e.started_on,
+        ended_on: e.ended_on,
+        is_active: e.is_active,
+        vacation_days_per_month: e.vacation_days_per_month,
+      })),
+    }),
+    [vacations, sorted]
   )
 
   const data: EmployeesDataset = useMemo(
@@ -300,6 +345,46 @@ export function EmployeesBoard({
 
   return (
     <div className="flex flex-col h-full gap-3 min-w-0">
+      {/* Fila de acciones. Hasta ahora esta pantalla no tenía ninguna: el
+          botón de vacaciones es lo primero que se pone a la derecha, y de paso
+          le pone título a la tira de KPIs de debajo. */}
+      <div className="flex items-center justify-between gap-2 flex-shrink-0">
+        <p className="text-[10px] uppercase tracking-wider text-white/35 truncate">
+          Resultado de {monthLongLabel(currentPeriod)}
+        </p>
+
+        <button
+          type="button"
+          onClick={() => setVacationsOpen(true)}
+          disabled={vacations.missingTables}
+          title={
+            vacations.missingTables
+              ? 'Falta lanzar la migración 116_vacations.sql en Supabase'
+              : pendingVacations > 0
+                ? `${pendingVacations} ${pendingVacations === 1 ? 'petición' : 'peticiones'} esperando respuesta`
+                : 'Saldos del equipo y peticiones de vacaciones'
+          }
+          className={`h-8 pl-3 pr-2.5 rounded-full border text-[12px] font-medium flex items-center gap-2 flex-shrink-0 transition-colors disabled:opacity-40 ${
+            pendingVacations > 0
+              ? 'border-[#FF6600]/50 bg-[#FF6600]/[0.12] text-white hover:bg-[#FF6600]/[0.18]'
+              : 'border-white/10 bg-white/[0.03] text-white/75 hover:bg-white/[0.06] hover:border-white/20'
+          }`}
+        >
+          <Palmtree
+            className={`h-3.5 w-3.5 flex-shrink-0 ${pendingVacations > 0 ? 'text-[#FF6600]' : ''}`}
+          />
+          <span className="hidden sm:inline">Vacaciones</span>
+          {/* EL NÚMERO VA EN EL PROPIO BOTÓN. Una cola que hay que abrir para
+              saber que existe no la mira nadie: si hay algo esperando, se ve
+              desde fuera. */}
+          {pendingVacations > 0 && (
+            <span className="h-5 min-w-[20px] px-1 rounded-full bg-[#FF6600] text-white text-[11px] font-bold flex items-center justify-center tabular-nums">
+              {pendingVacations > 9 ? '9+' : pendingVacations}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Resultado del mes */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
         {kpis.map((k) => (
@@ -396,6 +481,22 @@ export function EmployeesBoard({
           onNotesChange={(list) =>
             setNotes((prev) => [...prev.filter((n) => n.employee_id !== openEmployee.id), ...list])
           }
+        />
+      )}
+
+      {vacationsOpen && (
+        <VacacionesPanel
+          data={vacationsView}
+          onData={setVacations}
+          onClose={() => setVacationsOpen(false)}
+          // Todo el saldo cuelga de la fecha de alta, y en varias fichas esa
+          // fecha la dedujo la migración 112 de la primera factura de
+          // Tesorería. Desde el panel se salta a la ficha a corregirla, que es
+          // el único sitio donde se puede.
+          onOpenFicha={(employeeId) => {
+            setVacationsOpen(false)
+            setOpenId(employeeId)
+          }}
         />
       )}
 

@@ -3,6 +3,7 @@ import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { EmployeesBoard } from '@/components/empleados/EmployeesBoard'
 import { fetchAll, loadEmployeesData } from '@/lib/employees/data'
+import { loadVacationsData } from '@/lib/employees/vacations'
 import {
   addMonths,
   currentMonthKey,
@@ -28,6 +29,8 @@ const MIGRATIONS = [
   { file: '112_employees_import.sql', what: 'trae los sueldos que ya estaban en Tesorería' },
   { file: '113_employees_permissions.sql', what: 'deja el módulo solo para admin' },
   { file: '115_employees_name_norm.sql', what: 'evita fichas duplicadas de la misma persona' },
+  { file: '116_vacations.sql', what: 'las vacaciones: quién genera, cuántas y las peticiones' },
+  { file: '117_employees_betty_y_enlaces.sql', what: 'enlaza las cuentas del equipo con su ficha' },
 ]
 
 function PendingMigrations() {
@@ -40,7 +43,7 @@ function PendingMigrations() {
 
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5">
         <p className="text-white/80 text-sm mb-4">
-          Abre el editor SQL de Supabase y pega estos cuatro ficheros de{' '}
+          Abre el editor SQL de Supabase y pega estos ficheros de{' '}
           <code className="text-white/60">supabase/migrations/</code>,{' '}
           <strong className="text-white">en este orden</strong>:
         </p>
@@ -88,7 +91,16 @@ export default async function EmployeesPage() {
     MONTHS_BACK + MONTHS_FORWARD + 1
   )
 
-  const data = await loadEmployeesData(periods)
+  // Las dos cargas van en paralelo y por separado. Vacaciones NO entra en
+  // loadEmployeesData: aquel Promise.all alimenta el coste que consume
+  // Tesorería —que ve también un partner— y no tiene por qué cargar con esto.
+  // Su `missingTables` también es independiente, así que desplegar antes de
+  // lanzar la 116 deja el botón de vacaciones apagado pero no tira la pantalla
+  // de sueldos, que hoy funciona.
+  const [data, vacations] = await Promise.all([
+    loadEmployeesData(periods),
+    loadVacationsData(),
+  ])
 
   // Las tablas del módulo se crean con migraciones que se lanzan a mano en el
   // editor SQL de Supabase, así que el código puede llegar desplegado antes que
@@ -154,6 +166,7 @@ export default async function EmployeesPage() {
           periods={periods}
           currentPeriod={currentPeriod}
           usdEur={data.usdEur}
+          initialVacations={vacations}
         />
       </div>
     </div>

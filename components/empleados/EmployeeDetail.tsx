@@ -428,6 +428,45 @@ export function EmployeeDetail({
               </Field>
             </div>
 
+            {/**
+             * EL DERECHO A VACACIONES ES UN CAMPO, NO UNA LISTA DE NOMBRES.
+             *
+             * Hoy generan vacaciones dos personas, y aun así en el código no
+             * hay escrito ni un nombre propio: está aquí, en la ficha. Añadir
+             * mañana a una tercera es teclear 1,83 en esta casilla. Un
+             * `if (nombre === 'Yasury')` en el cálculo habría funcionado igual
+             * de bien hoy y sería una bomba de relojería en enero.
+             *
+             * Vacío (NULL) NO es cero: cero sería «genera cero días», y vacío
+             * es «esta persona no participa en el módulo». La diferencia se ve
+             * en pantalla —quien no genera ni siquiera aparece en la lista de
+             * saldos, en vez de salir a cero como si se las hubiera gastado—.
+             */}
+            <Field label="Vacaciones que genera (días por mes)">
+              <input
+                key={`vac-${employee.id}`}
+                defaultValue={
+                  employee.vacation_days_per_month != null
+                    ? String(employee.vacation_days_per_month)
+                    : ''
+                }
+                onBlur={(e) => {
+                  const parsed = parseDecimal(e.target.value)
+                  if (parsed === undefined) return
+                  if (parsed !== null && parsed < 0) return
+                  if ((employee.vacation_days_per_month ?? null) === parsed) return
+                  onPatch({ vacation_days_per_month: parsed })
+                }}
+                inputMode="decimal"
+                placeholder="Vacío = no genera vacaciones"
+                className={`${fieldInput} text-right tabular-nums`}
+              />
+              <p className="mt-1 text-[10px] text-white/30 leading-relaxed">
+                Se cuentan meses completos desde el alta, y solo de lunes a viernes. Con la
+                casilla vacía esta persona no aparece en el módulo de vacaciones.
+              </p>
+            </Field>
+
             <Field label="Nota rápida">
               <input
                 key={`notes-${employee.id}`}

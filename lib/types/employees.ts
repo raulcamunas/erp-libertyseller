@@ -57,6 +57,15 @@ export interface Employee {
   is_active: boolean
   position: number | null
   notes: string | null
+  /**
+   * Días de vacaciones que genera por cada mes COMPLETO trabajado (1,83 en
+   * quien lo tiene pactado). null = esta persona no genera vacaciones aquí.
+   *
+   * Es un campo y no una lista de nombres en el código a propósito: hoy son
+   * dos personas, y el día que sean tres tiene que bastar con teclear un
+   * número en su ficha. Lo consume lib/types/vacations.ts.
+   */
+  vacation_days_per_month: number | null
   created_at: string
   updated_at: string
 }
@@ -203,17 +212,18 @@ export const MONTH_SOURCE_LABELS: Record<MonthAmountSource, string> = {
 // Meses
 // ---------------------------------------------------------------------------
 
-const MONTHS_SHORT = [
+/** Exportados para que lib/types/vacations.ts no los duplique */
+export const MONTHS_SHORT = [
   'ene', 'feb', 'mar', 'abr', 'may', 'jun',
   'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
 ]
 
-const MONTHS_LONG = [
+export const MONTHS_LONG = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ]
 
-function pad(n: number) {
+export function pad(n: number) {
   return String(n).padStart(2, '0')
 }
 
