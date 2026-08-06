@@ -31,17 +31,22 @@ export const codeInput = `w-full ${cellShell} text-[12px] text-white tabular-num
  * obligaría a volver a subir dos ficheros de 2 MB y a repetir el cruce, que
  * dejaría una segunda entrada falsa en el historial.
  */
-export function downloadBase64(base64: string, filename: string): void {
+export const MIME_XLSX =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/**
+ * El .xlsm de la plantilla de Amazon. NO vale el MIME de .xlsx: declarado así,
+ * algún navegador le cambia la extensión al guardarlo y Seller Central rechaza
+ * el fichero sin decir por qué.
+ */
+export const MIME_XLSM = 'application/vnd.ms-excel.sheet.macroEnabled.12'
+
+export function downloadBase64(base64: string, filename: string, mime = MIME_XLSX): void {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
 
-  downloadBlob(
-    new Blob([bytes], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    }),
-    filename
-  )
+  downloadBlob(new Blob([bytes], { type: mime }), filename)
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
@@ -208,19 +213,52 @@ export interface ProcessFile {
   base64: string
 }
 
+/** La plantilla de Amazon rellenada, cuando se ha subido una */
+export interface ProcessTemplateFile extends ProcessFile {
+  /** Va explícito porque es .xlsm y no .xlsx (ver MIME_XLSM) */
+  mime: string
+  rows: number
+  /**
+   * Las columnas donde se ha escrito de verdad, resueltas por el nombre técnico
+   * de la fila de atributos. Se enseñan en pantalla porque son la prueba de que
+   * el stock no ha ido a parar a la columna de al lado.
+   */
+  colSku: string
+  colCantidad: string
+  colCanal: string | null
+  /**
+   * El texto que se ha escrito en la columna del canal, en el idioma de la
+   * plantilla («Logística por parte del vendedor (predeterminado)»). En la
+   * celda va la etiqueta y no el código: es Amazon quien la traduce.
+   */
+  canalEtiqueta: string | null
+  /** Versión de la plantilla según su propia configuración, p. ej. «2026.0806» */
+  version: string | null
+  /**
+   * La cuenta de vendedor para la que Amazon generó la plantilla
+   * («amzn1.cr.o.…»). Es lo único que distingue la plantilla de un cliente de
+   * la de otro, así que es lo que hay que mirar cuando se sospecha que se ha
+   * subido la equivocada.
+   */
+  contributorId: string | null
+}
+
 /** Lo que devuelve /api/stock-sync/process con format=json */
 export interface ProcessResult {
   runId: string | null
   client: { id: string; name: string }
   stockFilename: string | null
   eanFilename: string | null
+  templateFilename: string | null
   includeZero: boolean
+  withChannel: boolean
   zeroedRows: number
   stats: ProcessStats
   warnings: string[]
   unmatched: UnmatchedItem[]
   file: ProcessFile
   unmatchedFile: ProcessFile | null
+  templateFile: ProcessTemplateFile | null
 }
 
 /** Resultado de /api/stock-sync/import-mappings */
