@@ -11,7 +11,8 @@ import {
   Landmark,
   Megaphone,
   PhoneForwarded,
-  CalendarDays
+  CalendarDays,
+  Boxes
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -117,6 +118,15 @@ export const apps: AppConfig[] = [
     description: 'Revisión semanal de las campañas de Amazon Ads',
     icon: Megaphone,
     route: '/dashboard/marketing-ads',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    id: 'stock-sync',
+    name: 'Sincronismo de stock',
+    description: 'Del volcado del ERP del cliente al fichero de stock de Amazon',
+    icon: Boxes,
+    route: '/dashboard/stock-sync',
     status: 'new',
     category: 'core'
   },

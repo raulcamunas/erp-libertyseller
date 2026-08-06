@@ -139,6 +139,7 @@ export async function middleware(request: NextRequest) {
           '/dashboard/horas': 'horas',
           '/dashboard/cold-calling': 'cold-calling',
           '/dashboard/marketing-ads': 'marketing-ads',
+          '/dashboard/stock-sync': 'stock-sync',
           '/dashboard/reports': 'reports',
           '/dashboard/documents': 'documents',
         }
