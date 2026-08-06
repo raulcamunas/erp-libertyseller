@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import {
   StockMapping,
+  exactCode,
   formatInt,
   normalizeCode,
   normalizeEan,
@@ -175,7 +176,9 @@ export function MappingsTable({
     setSaving(true)
     const ok = await onCreate({
       sku_amazon: sku,
-      ref_erp: normalizeCode(draft.ref_erp) || null,
+      // Tal cual se escribe, ceros a la izquierda incluidos: son parte del
+      // código en el ERP del cliente (ver el onBlur de la columna REF_ERP).
+      ref_erp: exactCode(draft.ref_erp) || null,
       asin: cleanSkuText(draft.asin ?? '').toUpperCase() || null,
       ean_final: normalizeEan(draft.ean_final) || null,
     })
@@ -385,16 +388,19 @@ export function MappingsTable({
                         defaultValue={row.ref_erp ?? ''}
                         placeholder="—"
                         onBlur={(e) => {
-                          // Se guarda normalizada y se reescribe en el campo con
-                          // esa forma: si se guardara «0004000342» y en pantalla
-                          // se viera lo tecleado, la línea dejaría de casar sin
-                          // que nada lo delatara.
-                          const v = normalizeCode(e.target.value) || null
+                          // Se guarda TAL CUAL se escribe, con sus ceros a la
+                          // izquierda: en el ERP del cliente «0080997933» y
+                          // «080997933» son dos artículos distintos, y quitar
+                          // los ceros aquí borraba el único dato capaz de
+                          // distinguirlos. El cruce sigue encontrando las
+                          // referencias escritas sin relleno, pero por su vía
+                          // de respaldo. Solo se le quita el «.0» de Excel.
+                          const v = exactCode(e.target.value) || null
                           e.target.value = v ?? ''
                           if (v !== (row.ref_erp ?? null)) onPatch(row, { ref_erp: v })
                         }}
                         className={`${codeInput} font-medium`}
-                        title="Referencia del artículo en el ERP del cliente. Se guarda sin ceros a la izquierda"
+                        title="Referencia del artículo en el ERP del cliente. Se guarda tal cual: si el volcado la escribe con ceros a la izquierda, escríbelos"
                       />
                     </td>
 
@@ -445,7 +451,7 @@ export function MappingsTable({
                       rev={rev}
                       field="ean_erp"
                       onPatch={onPatch}
-                      title="EAN habitual del artículo en el ERP del cliente"
+                      title="EAN del artículo en el ERP del cliente"
                     />
                     <EanCell
                       row={row}

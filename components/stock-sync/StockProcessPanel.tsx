@@ -14,7 +14,13 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { formatInt, matchMethodColor } from '@/lib/types/stock-sync'
+import {
+  STOCK_MATCH_METHOD_HINTS,
+  STOCK_MATCH_METHOD_LABELS,
+  STOCK_MATCH_VIAS,
+  formatInt,
+  matchMethodColor,
+} from '@/lib/types/stock-sync'
 import {
   ProcessResult,
   downloadBase64,
@@ -190,7 +196,7 @@ export function StockProcessPanel({
           <DropZone
             slot="ean"
             title="Fichero de EAN"
-            hint="ARTICULOS_EAN · opcional, mejora el cruce"
+            hint="ARTICULOS_EAN · opcional, desempata las referencias que se pisan"
             required={false}
             file={eanFile}
             onFile={setEanFile}
@@ -458,26 +464,15 @@ function Summary({ result }: { result: ProcessResult }) {
     },
   ]
 
-  const vias: { key: string; label: string; value: number; hint: string }[] = [
-    {
-      key: 'ref',
-      label: 'Por referencia',
-      value: stats.byVia.ref ?? 0,
-      hint: 'La referencia del ERP coincide con el artículo del volcado. Es la vía fiable',
-    },
-    {
-      key: 'ean_habitual',
-      label: 'Por EAN habitual',
-      value: stats.byVia.ean_habitual ?? 0,
-      hint: 'Casó por el código de barras principal del artículo en el ERP',
-    },
-    {
-      key: 'ean_lista',
-      label: 'Por EAN secundario',
-      value: stats.byVia.ean_lista ?? 0,
-      hint: 'Casó por un código de barras que no es el habitual del artículo: conviene revisar estas filas',
-    },
-  ]
+  // Las vías salen de STOCK_MATCH_VIAS y no de una lista escrita aquí: son
+  // las mismas que prueba el motor y en el mismo orden, así que el día que se
+  // añada o se quite una, esta tira no se queda con un contador muerto.
+  const vias = STOCK_MATCH_VIAS.map((key) => ({
+    key,
+    label: STOCK_MATCH_METHOD_LABELS[key],
+    value: stats.byVia[key] ?? 0,
+    hint: STOCK_MATCH_METHOD_HINTS[key],
+  }))
 
   return (
     <div className="flex flex-col gap-2 min-w-0">

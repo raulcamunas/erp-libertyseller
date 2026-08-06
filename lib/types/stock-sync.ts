@@ -2,12 +2,20 @@
  * Sincronización de stock: del volcado del ERP del cliente al fichero que
  * se sube a Amazon.
  *
- * Lo importante de este fichero no son las interfaces, son las tres
- * funciones de normalización. El cruce entre los dos mundos se hace por
- * códigos que vienen escritos de forma distinta en cada fichero, y un
- * cruce que falla no da error: deja el SKU fuera del envío (Amazon lo
- * queda con el stock viejo) o, peor, lo casa con el artículo equivocado.
- * Por eso son puras y sin dependencias: se pueden probar solas.
+ * Lo importante de este fichero no son las interfaces, son las funciones
+ * de códigos. El cruce entre los dos mundos se hace por códigos que vienen
+ * escritos de forma distinta en cada fichero, y un cruce que falla no da
+ * error: deja el SKU fuera del envío (Amazon se queda con el stock viejo)
+ * o, peor, lo casa con el artículo equivocado. Por eso son puras y sin
+ * dependencias: se pueden probar solas.
+ *
+ * Hay DOS formas de un código y no se pueden confundir:
+ *   - exactCode()     es la IDENTIDAD del artículo, tal cual lo escribe el
+ *                     cliente, con sus ceros a la izquierda;
+ *   - normalizeCode() es solo una CLAVE DE BÚSQUEDA de respaldo, para poder
+ *                     encontrar «0050119247» cuando el mapeo dice «50119247».
+ * El porqué, con los datos que lo demuestran, está en crossStock()
+ * (lib/stock-sync/engine.ts).
  */
 
 export interface StockClient {
@@ -25,14 +33,18 @@ export interface StockClient {
 export interface StockMapping {
   id: string
   client_id: string
-  /** Referencia del artículo en el ERP del cliente, ya normalizada */
+  /**
+   * Referencia del artículo en el ERP del cliente, tal cual se escribe allí.
+   * Se guarda con sus ceros a la izquierda cuando se conocen: son parte del
+   * código, no relleno (ver exactCode()).
+   */
   ref_erp: string | null
   /** SKU del listing en Amazon; es la clave del fichero que se sube */
   sku_amazon: string
   asin: string | null
   /** EAN que publica Amazon en el listing */
   ean_amazon: string | null
-  /** EAN habitual del artículo en el ERP */
+  /** EAN del artículo en el ERP */
   ean_erp: string | null
   /** El que se da por bueno de los dos anteriores */
   ean_final: string | null
@@ -44,7 +56,12 @@ export interface StockMapping {
   sku_coincide: string | null
   /** Diagnóstico del EAN, texto libre */
   ean_coincide: string | null
-  /** Todos los códigos de barras del artículo en el ERP, separados por coma */
+  /**
+   * Todos los códigos del artículo en el ERP separados por coma, tal cual
+   * salen de allí: códigos de barras y también la referencia con sus ceros a
+   * la izquierda. Se guarda sin tocar porque es lo único que conserva la
+   * forma exacta de la referencia (ver parseCodeList()).
+   */
   todos_ean_erp: string | null
   /** 'Normal' / 'Preferente' / 'Obsoleto' en el ERP */
   situacion_erp: string | null
@@ -78,35 +95,62 @@ export interface StockRun {
  * Se guarda para poder auditar un stock mal subido: sin esto, cuando un
  * producto sale con las unidades de otro no hay forma de saber si el fallo
  * fue de la referencia o de un EAN compartido entre dos artículos.
+ *
+ * No hay vía «por EAN habitual» a propósito. La hubo, y casaba CERO filas:
+ * en el ERP de este cliente el código marcado como Habitual = «Si» no es el
+ * EAN-13 sino un código interno de Tipo 2 («0080997933.01»), y todos los
+ * EAN-13 buenos vienen con Habitual = «No». Un contador que siempre marca
+ * cero no informa, engaña al leer las estadísticas.
  */
-export type StockMatchMethod = 'ref' | 'ean_habitual' | 'ean_lista' | 'sin_casar'
+export type StockMatchMethod =
+  | 'ref_exacta'
+  | 'ean_erp'
+  | 'ref_padding'
+  | 'ean_listing'
+  | 'sin_casar'
 
 export const STOCK_MATCH_METHODS: StockMatchMethod[] = [
-  'ref',
-  'ean_habitual',
-  'ean_lista',
+  'ref_exacta',
+  'ean_erp',
+  'ref_padding',
+  'ean_listing',
   'sin_casar',
 ]
 
+/** Las vías por las que una fila SÍ casa, en el mismo orden en que las prueba el motor */
+export const STOCK_MATCH_VIAS: StockMatchMethod[] = [
+  'ref_exacta',
+  'ean_erp',
+  'ref_padding',
+  'ean_listing',
+]
+
 export const STOCK_MATCH_METHOD_LABELS: Record<StockMatchMethod, string> = {
-  ref: 'Por referencia',
-  ean_habitual: 'Por EAN habitual',
-  ean_lista: 'Por EAN secundario',
+  ref_exacta: 'Por referencia exacta',
+  ean_erp: 'Por EAN del ERP',
+  ref_padding: 'Por referencia sin ceros',
+  ean_listing: 'Por EAN del listing',
   sin_casar: 'Sin casar',
 }
 
 export const STOCK_MATCH_METHOD_HINTS: Record<StockMatchMethod, string> = {
-  ref: 'La referencia del ERP coincide con el artículo del volcado',
-  ean_habitual: 'Casó por el EAN marcado como habitual en el ERP',
-  ean_lista: 'Casó por uno de los EAN secundarios del artículo; conviene revisarlo',
+  ref_exacta:
+    'El código del mapeo coincide letra por letra con el del volcado, ceros a la izquierda incluidos. No hay forma de que sea otro artículo',
+  ean_erp:
+    'Un EAN-13 sacado del propio ERP del cliente lleva a un único artículo. Es lo que desempata dos referencias que solo se diferencian en un cero',
+  ref_padding:
+    'La referencia solo casa después de quitarle los ceros a la izquierda, y así lleva a un único artículo del volcado',
+  ean_listing:
+    'El único vínculo es el EAN que figura en el listing de Amazon, no en el ERP. Suele ser correcto, pero identifica el producto del catálogo de Amazon, no necesariamente el artículo que el cliente tiene en su almacén',
   sin_casar: 'No se encontró el artículo; este SKU no se sube a Amazon',
 }
 
-/** Verde lo que casó por referencia, ámbar lo que casó por un EAN dudoso, rojo lo que se queda fuera */
+/** Verde la identidad exacta, cian el EAN del ERP, ámbar lo que depende de la normalización, naranja el EAN del listing, rojo lo que se queda fuera */
 export const STOCK_MATCH_METHOD_COLORS: Record<StockMatchMethod, string> = {
-  ref: '#34D399',
-  ean_habitual: '#06B6D4',
-  ean_lista: '#FBBF24',
+  ref_exacta: '#34D399',
+  ean_erp: '#06B6D4',
+  ref_padding: '#FBBF24',
+  ean_listing: '#FB923C',
   sin_casar: '#EF4444',
 }
 
@@ -120,9 +164,40 @@ export function matchMethodColor(m: string): string {
 }
 
 /**
+ * Deja un código de artículo LISTO PARA COMPARAR SIN PERDER SU IDENTIDAD:
+ * quita los espacios y el «.0» que mete Excel al leerlo como número, y nada
+ * más. '0080997933' sigue siendo '0080997933'.
+ *
+ * Esta es la forma que identifica un artículo. Los ceros a la izquierda son
+ * significativos en el ERP del cliente: '0080997933' (LED PLAFON 17W) y
+ * '080997933' (LED PLS 2P G23) son dos productos distintos, con EAN distinto
+ * y stock distinto. Cualquier cosa que se compare como IDENTIDAD —el índice
+ * del volcado, el del fichero de EAN, la referencia del mapeo— se compara en
+ * esta forma, nunca en la normalizada.
+ *
+ * Se pasa a mayúsculas porque hay artículos con letra ('0004000342.PZ') y el
+ * mismo código escrito en minúscula tiene que casar; el punto y el guion se
+ * respetan, que forman parte del código.
+ */
+export function exactCode(v: unknown): string {
+  return toRawString(v)
+    .replace(/\.0+$/, '')
+    .replace(/\s+/g, '')
+    .toUpperCase()
+}
+
+/**
  * Pasa cualquier código (referencia del ERP, SKU de Amazon) a la forma
- * canónica con la que se compara. '0004000342', '4000342.0' y ' 4000342 '
+ * canónica con la que se BUSCA. '0004000342', '4000342.0' y ' 4000342 '
  * dan los tres '4000342'.
+ *
+ * OJO, y esto es lo que alguien deshace sin querer dentro de seis meses:
+ * esta forma es una CLAVE DE BÚSQUEDA DE RESPALDO, no la identidad del
+ * artículo. Sirve para encontrar en el volcado ('0050119247') la referencia
+ * que el mapeo escribe sin relleno ('50119247') —sin ella se quedarían sin
+ * casar 281 de las 392 líneas—, pero dos códigos que dan la misma forma
+ * normalizada pueden ser dos artículos completamente distintos. Para eso
+ * está exactCode(), justo aquí arriba.
  *
  * Hace falta porque cada fichero escribe el mismo código de otra manera:
  *   - el volcado del cliente trae ceros a la izquierda ('0004000342'),
@@ -176,13 +251,13 @@ export function normalizeEan(v: unknown): string {
 }
 
 /**
- * Parte la lista 'TODOS_EAN_ERP' ('0050119247, 4050300646077, ') en códigos
- * ya normalizados, sin vacíos ni repetidos.
+ * Parte la lista 'TODOS_EAN_ERP' ('0050119247, 4050300646077, ') quedándose
+ * solo con lo que parece un código de barras, ya normalizado, sin vacíos ni
+ * repetidos.
  *
- * Es la última vía del cruce: un artículo del ERP puede tener varios
- * códigos de barras y el que Amazon publica no siempre es el habitual. Los
- * repetidos se quitan para que un mismo EAN no cuente dos veces al decidir
- * por qué vía casó la fila.
+ * Un artículo del ERP puede tener varios códigos de barras y el que Amazon
+ * publica no siempre es el primero. Los repetidos se quitan para que un
+ * mismo EAN no cuente dos veces al decidir por qué vía casó la fila.
  */
 export function parseEanList(v: unknown): string[] {
   const raw = toRawString(v)
@@ -192,6 +267,31 @@ export function parseEanList(v: unknown): string[] {
   for (const part of raw.split(/[,;\n]/)) {
     const ean = normalizeEan(part)
     if (ean && !out.includes(ean)) out.push(ean)
+  }
+  return out
+}
+
+/**
+ * Parte la misma lista 'TODOS_EAN_ERP' pero SIN normalizar nada: devuelve los
+ * códigos tal cual, con sus ceros a la izquierda.
+ *
+ * La columna no trae solo EAN pese al nombre: mezcla los códigos de barras
+ * del artículo con su referencia del ERP CON el relleno original
+ * ('0008099793301, 0080997933, 5410288431161'). Esa referencia con ceros es,
+ * en muchas filas, el único sitio del mapeo donde sobrevive la forma exacta:
+ * la columna REF_ERP viene de un Excel que guardó el código como número y
+ * llegó ya sin ellos ('80997933.0'). Por eso el motor prueba estos valores
+ * como código exacto del volcado, y por eso la importación tiene que
+ * guardarlos tal cual y no reescritos desde su forma normalizada.
+ */
+export function parseCodeList(v: unknown): string[] {
+  const raw = toRawString(v)
+  if (!raw) return []
+
+  const out: string[] = []
+  for (const part of raw.split(/[,;\n]/)) {
+    const code = exactCode(part)
+    if (code && !out.includes(code)) out.push(code)
   }
   return out
 }

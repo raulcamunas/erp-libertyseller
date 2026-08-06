@@ -93,9 +93,11 @@ export async function POST(request: NextRequest) {
     // ---------- Ficheros ----------
     const stockLines = parseStockWorkbook(await readUpload(stockFile, 'El fichero de stock'))
 
-    // El de EAN es opcional: sin él se pierden las vías 2 y 3 del cruce, pero
-    // la vía 1 (referencia contra artículo) es la que resuelve la inmensa
-    // mayoría y no tiene sentido bloquear el envío del día por no tenerlo.
+    // El de EAN es opcional: sin él se pierde la vía por EAN, que es la que
+    // desempata las referencias que solo se diferencian en los ceros a la
+    // izquierda. Las dos por referencia resuelven la inmensa mayoría, así que
+    // no tiene sentido bloquear el envío del día por no tenerlo; lo que pasa
+    // es que ese día se quedan fuera los pocos SKU ambiguos.
     let eanIndex: EanIndex | null = null
     if (eanFile) {
       eanIndex = parseEanWorkbook(await readUpload(eanFile, 'El fichero de EAN'))
@@ -229,9 +231,13 @@ export async function POST(request: NextRequest) {
         // Distinto de X-Rows-Zero, que son los que casaron y tienen 0 de
         // verdad en el almacén del cliente.
         'X-Rows-Zeroed': String(zeroed.length),
-        'X-Via-Ref': String(stats.byVia.ref),
-        'X-Via-Ean-Habitual': String(stats.byVia.ean_habitual),
-        'X-Via-Ean-Lista': String(stats.byVia.ean_lista),
+        // Las cuatro vías por las que una línea puede casar, de más fiable a
+        // menos: código exacto, EAN del ERP, referencia sin ceros a la
+        // izquierda y, ya en último lugar, el EAN que figura en el listing.
+        'X-Via-Ref-Exacta': String(stats.byVia.ref_exacta),
+        'X-Via-Ean-Erp': String(stats.byVia.ean_erp),
+        'X-Via-Ref-Padding': String(stats.byVia.ref_padding),
+        'X-Via-Ean-Listing': String(stats.byVia.ean_listing),
         // Por qué se quedó fuera cada SKU, agrupado: «sin_articulo=69,
         // ref_ambigua=1». Es lo que convierte «86 sin casar» en algo
         // accionable, y los códigos son ASCII (las frases de UNMATCHED_REASON_
@@ -244,7 +250,7 @@ export async function POST(request: NextRequest) {
         // cuanto el ERP se sirva detrás de otro dominio las X-* dejarían de
         // leerse desde JavaScript sin avisar de nada.
         'Access-Control-Expose-Headers':
-          'Content-Disposition, X-Rows-Input, X-Rows-Matched, X-Rows-Unmatched, X-Total-Units, X-Rows-Zero, X-Rows-Zeroed, X-Via-Ref, X-Via-Ean-Habitual, X-Via-Ean-Lista, X-Unmatched-Reasons, X-Warnings, X-Run-Id',
+          'Content-Disposition, X-Rows-Input, X-Rows-Matched, X-Rows-Unmatched, X-Total-Units, X-Rows-Zero, X-Rows-Zeroed, X-Via-Ref-Exacta, X-Via-Ean, X-Via-Ref-Padding, X-Unmatched-Reasons, X-Warnings, X-Run-Id',
       },
     })
   } catch (error) {
@@ -267,7 +273,9 @@ async function fetchMappings(supabase: StockSupabase, clientId: string): Promise
   return await fetchAll<CrossMapping>((from, to) =>
     supabase
       .from('stock_mappings')
-      .select('sku_amazon, ref_erp, asin, ean_amazon, ean_erp, ean_final, todos_ean_erp')
+      .select(
+        'sku_amazon, ref_erp, asin, ean_amazon, ean_erp, ean_final, todos_ean_erp, origen_ean'
+      )
       .eq('client_id', clientId)
       .eq('is_active', true)
       .order('id', { ascending: true })
@@ -291,8 +299,8 @@ function countByReason(unmatched: UnmatchedRow[]): string {
  *
  * Se guarda el desglose por vía y no solo los totales porque es lo que
  * permite ver de un vistazo si el mapeo se está degradando: el día que las
- * que casan «por EAN secundario» crecen de golpe, alguien ha cambiado
- * referencias en el ERP del cliente.
+ * que casan «por referencia sin ceros» crecen de golpe a costa de las que
+ * casaban por EAN, alguien ha tocado los códigos en el ERP del cliente.
  */
 function runNotes(
   byVia: Record<string, number>,
@@ -300,8 +308,9 @@ function runNotes(
   zeroed: number
 ): string {
   let resumen =
-    `Por referencia: ${byVia.ref}. Por EAN habitual: ${byVia.ean_habitual}. ` +
-    `Por EAN secundario: ${byVia.ean_lista}. Sin casar: ${byVia.sin_casar}.`
+    `Por referencia exacta: ${byVia.ref_exacta}. Por EAN del ERP: ${byVia.ean_erp}. ` +
+    `Por referencia sin ceros: ${byVia.ref_padding}. Por EAN del listing: ${byVia.ean_listing}. ` +
+    `Sin casar: ${byVia.sin_casar}.`
 
   // Que se encendió el interruptor queda escrito: es el primer dato que hay
   // que mirar el día que un listing aparezca a cero en Amazon sin motivo.

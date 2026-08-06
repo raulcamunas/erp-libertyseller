@@ -16,7 +16,7 @@ import {
   requireClient,
   requireStockTeam,
 } from '@/lib/stock-sync/api'
-import { normalizeCode, normalizeEan, parseEanList } from '@/lib/types/stock-sync'
+import { exactCode, normalizeEan, parseCodeList } from '@/lib/types/stock-sync'
 
 /**
  * Cómo se nutre la tabla de mapeo con producto nuevo.
@@ -223,12 +223,19 @@ interface SkipGroup {
 /**
  * Pasa la tabla leída a filas listas para stock_mappings.
  *
- * Aquí es donde se aplica la normalización, y es lo que decide si el cruce de
- * los lunes va a encontrar el artículo o no:
- *   - la referencia del ERP se guarda SIN ceros a la izquierda y sin el «.0»
- *     que mete Excel, igual que hace public.stock_normalize_code() en la
- *     base de datos;
- *   - los EAN se quedan solo con los dígitos y sin el relleno del GTIN-14;
+ * Lo que se toca y lo que no decide si el cruce de los lunes va a encontrar
+ * el artículo o no:
+ *   - la referencia del ERP se guarda TAL CUAL, con sus ceros a la izquierda
+ *     y solo sin el «.0» que mete Excel. Los ceros son parte del código: en
+ *     el volcado del cliente «0080997933» y «080997933» son dos artículos
+ *     distintos. El cruce sigue encontrando las referencias que llegan sin
+ *     relleno, pero por su vía de respaldo (ver crossStock);
+ *   - la lista TODOS_EAN_ERP, por lo mismo, se guarda con sus códigos tal
+ *     cual y no reescrita desde su forma normalizada: es el único sitio del
+ *     mapeo donde sobrevive la referencia con el relleno original, porque la
+ *     columna REF_ERP viene de un Excel que la guardó como número;
+ *   - los EAN sí se normalizan: se quedan solo con los dígitos y sin el
+ *     relleno del GTIN-14, porque ahí el cero de más es formato y no código;
  *   - el SKU y el ASIN se guardan tal cual, solo sin el «.0». Son cadenas
  *     opacas («05-NDKE-740Z») y normalizarlas generaría un fichero que Amazon
  *     rechaza porque ese SKU no existiría en la cuenta.
@@ -272,16 +279,19 @@ function buildRows(
 
     if (bySku.has(sku)) note('repetida', sku)
 
-    // Los EAN se reescriben desde su forma normalizada, así que la lista
-    // TODOS_EAN_ERP se vuelve a montar en vez de guardarse tal cual: si no,
-    // en la base de datos convivirían «0050119247, 4050300646077, » y
-    // «50119247,4050300646077» diciendo lo mismo.
-    const todos = parseEanList(cell(row, 'todos_ean_erp'))
+    // La lista se vuelve a montar solo para dejarla con un separador
+    // uniforme y sin huecos («0050119247, 4050300646077, » y
+    // «0050119247,4050300646077» decían lo mismo), pero cada código se queda
+    // con la forma que traía. Normalizarlos aquí, como se hacía antes,
+    // borraba las referencias con ceros que esta columna arrastra, que son
+    // justo lo que permite al cruce distinguir dos artículos que solo se
+    // diferencian en el relleno.
+    const todos = parseCodeList(cell(row, 'todos_ean_erp'))
 
     bySku.set(sku, {
       client_id: clientId,
       sku_amazon: sku,
-      ref_erp: normalizeCode(cell(row, 'ref_erp')) || null,
+      ref_erp: exactCode(cell(row, 'ref_erp')) || null,
       asin: cleanSku(cell(row, 'asin')).toUpperCase() || null,
       ean_amazon: normalizeEan(cell(row, 'ean_amazon')) || null,
       ean_erp: normalizeEan(cell(row, 'ean_erp')) || null,

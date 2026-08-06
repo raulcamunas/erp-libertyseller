@@ -99,9 +99,8 @@ export function formatDay(iso: string | null | undefined): string {
  * sobre por qué está copiado y no importado).
  *
  * El SKU y el ASIN se dejan tal cual, solo sin el «.0» que mete Excel al leer
- * un código como número. NO se les quitan ceros ni guiones como a las
- * referencias: la mitad son cadenas opacas («05-NDKE-740Z») y tocarlas
- * generaría un fichero con SKU que no existen en la cuenta de Amazon.
+ * un código como número: la mitad son cadenas opacas («05-NDKE-740Z») y
+ * tocarlas generaría un fichero con SKU que no existen en la cuenta de Amazon.
  */
 export function cleanSkuText(value: string): string {
   return value.trim().replace(/\.0+$/, '')
@@ -137,9 +136,9 @@ export const UNMATCHED_ACTIONS: Record<UnmatchedReason, string> = {
   sin_articulo:
     'La referencia existe en el mapeo pero no aparece en el volcado de hoy. O el cliente ha dado de baja el artículo —entonces toca retirar el listing— o el volcado llegó incompleto: míralo antes de dar el producto por agotado.',
   ref_ambigua:
-    'La referencia lleva a varios artículos del ERP con stock distinto y no se puede elegir a ojo. Pregunta al cliente cuál es el bueno y afina la REF_ERP en el mapeo.',
+    'Su referencia solo casa después de quitarle los ceros a la izquierda, y así vale para varios artículos del ERP con stock distinto. Lo que lo arregla es rellenar el EAN_FINAL de esta fila: el EAN identifica el artículo sin discusión y el cruce lo prueba antes de recurrir a los ceros. Si el artículo no tiene EAN, escribe la REF_ERP tal cual sale en el volcado, con los ceros incluidos.',
   ean_ambiguo:
-    'Ese EAN está repetido en varios artículos del ERP. Rellena la REF_ERP de esta fila para que el cruce deje de depender del código de barras.',
+    'Ese EAN está repetido en varios artículos del ERP con stock distinto, así que tampoco desempata. Escribe la REF_ERP de esta fila tal cual sale en el volcado, con sus ceros a la izquierda, para que el cruce no dependa del código de barras.',
   sku_vacio:
     'La fila del mapeo se quedó sin SKU de Amazon. Complétalo o desactiva la fila: sin SKU no hay listing que actualizar.',
 }
@@ -168,7 +167,7 @@ export function unmatchedColor(reason: string): string {
 export const UNMATCHED_SHORT: Record<UnmatchedReason, string> = {
   sin_referencia: 'Sin referencia',
   sin_articulo: 'No está en el volcado',
-  ref_ambigua: 'Referencia ambigua',
+  ref_ambigua: 'Referencia sin desempatar',
   ean_ambiguo: 'EAN ambiguo',
   sku_vacio: 'Sin SKU',
 }
