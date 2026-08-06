@@ -3,22 +3,20 @@
 -- =====================================================
 -- Se dan de alta en el ERP tres cuentas que antes no existían:
 --
---   daniela@libertyseller.com   -> la ficha «Daniella»
+--   daniella@libertyseller.com  -> la ficha «Daniella»
 --   yasury@libertyseller.com    -> la ficha «Yasury»
 --   betty@libertyseller.com     -> ficha nueva, marketing de PPC
 --
--- OJO CON EL CORREO DE DANIELLA, que es la razón de que esta migración
--- exista. La 112 enlazaba derivando el correo del nombre:
+-- El enlace va como tabla explícita de nombre a correo y no derivando el
+-- correo del nombre, que es lo que hacía la 112:
 --
 --     p.email = lower(e.name) || '@libertyseller.com'
 --
--- y su ficha se llama «Daniella», con dos eles, mientras que el correo que se
--- ha dado de alta es «daniela», con una. Esa regla NO los junta. Y el fallo no
--- avisa: la ficha se quedaría con user_id a NULL, o sea sin acceso a pedir sus
--- vacaciones y sin poder verse nada suyo, con la pantalla mostrándose normal.
--- Por eso aquí el enlace es una tabla explícita de nombre a correo en vez de
--- una regla: los correos de la gente no siempre se deducen de su nombre, y
--- descubrirlo por las malas es descubrirlo tarde.
+-- Hoy las tres cuadrarían con esa regla, pero basta una ficha escrita con un
+-- acento, un apellido o una abreviatura para que deje de cuadrar, y el fallo
+-- no avisa: la ficha se queda con user_id a NULL —sin acceso a pedir sus
+-- vacaciones y sin poder verse nada suyo— y la pantalla se muestra normal.
+-- Escribir a mano las tres parejas cuesta menos que enterarse por las malas.
 --
 -- Idempotente: se puede lanzar las veces que haga falta.
 -- Se lanza DESPUÉS de crear las tres cuentas en Gestión de Usuarios; si
@@ -42,18 +40,18 @@ ON CONFLICT (name) DO UPDATE
 -- ---------- Enlace de fichas con cuentas ----------
 DO $$
 DECLARE
-  par   RECORD;
-  uid   UUID;
+  par    RECORD;
+  uid    UUID;
   faltan TEXT := '';
 BEGIN
   FOR par IN
     SELECT * FROM (VALUES
-      ('Daniella', 'daniela@libertyseller.com'),
+      ('Daniella', 'daniella@libertyseller.com'),
       ('Yasury',   'yasury@libertyseller.com'),
       ('Betty',    'betty@libertyseller.com')
     ) AS t(nombre, correo)
   LOOP
-    SELECT id INTO uid FROM public.profiles WHERE lower(email) = par.correo;
+    SELECT id INTO uid FROM public.profiles WHERE lower(btrim(email)) = par.correo;
 
     IF uid IS NULL THEN
       faltan := faltan || ' ' || par.correo;
