@@ -8,6 +8,8 @@ import {
   MarketingChange,
   MarketingClient,
   MarketingKeyword,
+  MarketingProduct,
+  MarketingProductWeek,
   MarketingWeek,
   currentWeekStart,
   shiftWeek,
@@ -132,6 +134,34 @@ export default async function MarketingAdsPage() {
           .range(from, to)
       )
 
+  // El catálogo es del cliente y no de la semana: se carga entero para poder
+  // dar de alta productos aunque la semana todavía no esté abierta.
+  const products = !initialClientId
+    ? []
+    : await fetchAll<MarketingProduct>((from, to) =>
+        supabase
+          .from('marketing_products')
+          .select('*')
+          .eq('client_id', initialClientId)
+          .order('asin', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to)
+      )
+
+  // Las dos semanas, igual que las campañas: el KPI de TACoS compara con la
+  // anterior y necesita sus ventas totales, no solo las de esta.
+  const productWeeks =
+    weekIds.length === 0
+      ? []
+      : await fetchAll<MarketingProductWeek>((from, to) =>
+          supabase
+            .from('marketing_product_weeks')
+            .select('*')
+            .in('week_id', weekIds)
+            .order('id', { ascending: true })
+            .range(from, to)
+        )
+
   const { data: team } = await supabase
     .from('profiles')
     .select('id, full_name, email')
@@ -157,6 +187,8 @@ export default async function MarketingAdsPage() {
           initialCampaigns={campaigns}
           initialKeywords={keywords}
           initialChanges={changes}
+          initialProducts={products}
+          initialProductWeeks={productWeeks}
           team={(team as MarketingAuthor[]) || []}
           currentUserId={profile.id}
         />

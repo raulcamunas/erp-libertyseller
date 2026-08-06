@@ -55,7 +55,6 @@ export interface MetricRow {
   orders: number | null
   spend: number | null
   sales: number | null
-  tacos?: number | null
 }
 
 export interface MarketingTotals {
@@ -67,7 +66,6 @@ export interface MarketingTotals {
   ctr: number | null
   cvr: number | null
   acos: number | null
-  tacos: number | null
 }
 
 /**
@@ -77,9 +75,11 @@ export interface MarketingTotals {
  * el ACoS de la cuenta, porque una campaña de 3 € pesaría lo mismo que otra de
  * 300 €. Se recalculan desde las sumas de gasto y ventas.
  *
- * El TACoS es la excepción y sí se suma: cada campaña lo mide contra la MISMA
- * facturación total de la cuenta, así que las partes suman el todo. Queda en
- * null si ninguna fila lo trae, para no enseñar un 0 % que parecería un dato.
+ * Aquí ya no sale ningún TACoS. Antes se sumaba fila a fila dando por hecho que
+ * cada campaña lo medía contra la misma facturación, y eso era falso: el
+ * denominador son las ventas totales del PRODUCTO, así que un producto con
+ * cinco campañas contaba sus ventas cinco veces. El TACoS bueno se calcula con
+ * productWeekStats() / clientTacos(), que agrupan por producto antes de dividir.
  */
 type RawTotals = Pick<
   MarketingTotals,
@@ -98,18 +98,29 @@ export function sumMetrics(rows: MetricRow[]): MarketingTotals {
     { impressions: 0, clicks: 0, orders: 0, spend: 0, sales: 0 }
   )
 
-  const withTacos = rows.filter((r) => r.tacos != null)
-
   return {
     ...totals,
     ctr: ctr(totals.clicks, totals.impressions),
     cvr: cvr(totals.orders, totals.clicks),
     acos: acos(totals.spend, totals.sales),
-    tacos: withTacos.length
-      ? withTacos.reduce((s, r) => s + Number(r.tacos), 0)
-      : null,
   }
 }
+
+// ---------- Producto y semana ----------
+// El cálculo del TACoS se mudó a lib/types/marketing.ts y aquí solo se
+// reexporta: la route del Excel lo necesita y no puede importar un módulo de
+// components/ —le bastaría con que alguien le pusiera un 'use client' a este
+// fichero para romper la exportación—. Se reexporta para que los componentes
+// sigan tirando de './shared' y el módulo tenga una sola puerta de entrada.
+export {
+  productWeekStats,
+  clientTacos,
+} from '@/lib/types/marketing'
+export type {
+  CampaignSpendRow,
+  ProductWeekStats,
+  ClientTacos,
+} from '@/lib/types/marketing'
 
 // ---------- Diario de cambios ----------
 

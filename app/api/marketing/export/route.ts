@@ -3,11 +3,15 @@ import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/server'
 import { toMadrid } from '@/lib/timezone'
 import {
+  ClientTacos,
   MarketingCampaign,
   MarketingChange,
   MarketingClient,
   MarketingKeyword,
+  MarketingProduct,
+  MarketingProductWeek,
   MarketingWeek,
+  ProductWeekStats,
   BID_ACTION_LABELS,
   CAMPAIGN_STATUS_LABELS,
   CAMPAIGN_TYPE_LABELS,
@@ -16,19 +20,27 @@ import {
   WEEK_STATUS_LABELS,
   acos,
   changeTypeLabel,
+  clientTacos,
   ctr,
   cvr,
   isoWeekNumber,
+  productWeekStats,
   weekLabel,
 } from '@/lib/types/marketing'
 
 /**
- * Vuelca el módulo de marketing entero a un .xlsx de cuatro hojas.
+ * Vuelca el módulo de marketing entero a un .xlsx de cinco hojas.
  *
  * No es un informe: es la base de datos aplanada para poder dársela a un
  * modelo y que redacte el informe del cliente. De ahí las decisiones de
  * formato: fechas ISO, números como números y los UUID de cada fila al final
- * de cada hoja, que son los que permiten cruzar las cuatro hojas entre sí.
+ * de cada hoja, que son los que permiten cruzar las cinco hojas entre sí.
+ *
+ * El TACoS que sale aquí es el de PRODUCTO —gasto de todas sus campañas sobre
+ * las ventas totales de Sellerboard— y se calcula con las mismas funciones que
+ * pinta el tablero (productWeekStats/clientTacos). Es deliberado: si la hoja
+ * lo sumara por su cuenta, el informe del cliente acabaría diciendo un número
+ * distinto del que se ve en pantalla.
  */
 
 const ROLES_PERMITIDOS = new Set(['admin', 'partner', 'employee'])
@@ -232,11 +244,13 @@ function columnWidths(headers: readonly string[]): { wch: number }[] {
       header === 'Antes' ||
       header === 'Después' ||
       header === 'Palabra clave' ||
-      header === 'Etiqueta'
+      header === 'Etiqueta' ||
+      header === 'Producto'
     ) {
       return { wch: 30 }
     }
     if (header === 'Cliente' || header === 'Campaña' || header === 'Autor') return { wch: 26 }
+    if (header === 'ASIN' || header === 'SKU') return { wch: 14 }
     return { wch: Math.max(11, header.length + 2) }
   })
 }
@@ -358,7 +372,11 @@ const SUMMARY_HEADERS = [
   'Gasto (€)',
   'Ventas (€)',
   'ACoS (%)',
+  'Ventas totales Sellerboard (€)',
   'TACoS (%)',
+  'Gasto sin TACoS (€)',
+  'Productos sin ventas volcadas',
+  'Campañas sin producto',
   'Semana anterior (inicio)',
   'Δ Impresiones (%)',
   'Δ Clics (%)',
@@ -378,6 +396,9 @@ const CAMPAIGN_HEADERS = [
   'Semana (fin)',
   'Semana ISO',
   'Campaña',
+  'ASIN',
+  'SKU',
+  'Producto',
   'Tipo',
   'Estado',
   'Presupuesto diario (€)',
@@ -389,11 +410,46 @@ const CAMPAIGN_HEADERS = [
   'Gasto (€)',
   'Ventas (€)',
   'ACoS (%)',
-  'TACoS (%)',
+  'TACoS producto (%)',
+  'TACoS campaña histórico (%)',
   'Revisión',
   'Palabras clave',
   'Notas',
+  'ID producto',
   'ID campaña',
+  'ID semana',
+  'ID cliente',
+] as const
+
+// Una fila por producto y semana: es la hoja que relaciona lo invertido, lo
+// vendido y lo que cuesta el producto, y por tanto la que sostiene el informe.
+//
+// El TACoS solo puede vivir aquí. En la hoja de campañas el gasto está partido
+// entre las campañas de un mismo producto, pero las ventas totales de
+// Sellerboard son del producto entero: dividir una cosa entre la otra a nivel
+// de campaña contaría las mismas ventas tantas veces como campañas tenga.
+const PRODUCT_HEADERS = [
+  'Cliente',
+  'Semana (inicio)',
+  'Semana (fin)',
+  'Semana ISO',
+  'ASIN',
+  'SKU',
+  'Producto',
+  'Activo',
+  'Campañas',
+  'Gasto publicitario (€)',
+  'Ventas atribuidas (€)',
+  'Ventas totales Sellerboard (€)',
+  'Ventas no atribuidas (€)',
+  'ACoS producto (%)',
+  'TACoS (%)',
+  'Unidades vendidas',
+  'Coste unitario (€)',
+  'Coste total (€)',
+  'Margen bruto (€)',
+  'Notas',
+  'ID producto',
   'ID semana',
   'ID cliente',
 ] as const
@@ -448,6 +504,7 @@ const CHANGE_HEADERS = [
 
 type SummaryRow = Record<(typeof SUMMARY_HEADERS)[number], CellValue>
 type CampaignRow = Record<(typeof CAMPAIGN_HEADERS)[number], CellValue>
+type ProductRow = Record<(typeof PRODUCT_HEADERS)[number], CellValue>
 type KeywordRow = Record<(typeof KEYWORD_HEADERS)[number], CellValue>
 type ChangeRow = Record<(typeof CHANGE_HEADERS)[number], CellValue>
 
@@ -518,6 +575,22 @@ export async function GET(request: NextRequest) {
       weeks.map((w) => w.id)
     )
 
+    // El catálogo cuelga del cliente y las cifras de Sellerboard de la semana:
+    // son las dos mitades del TACoS, así que se traen aunque el cliente todavía
+    // no haya dado de alta ningún producto (entonces la hoja sale vacía).
+    const products = await fetchAllIn<MarketingProduct>(
+      supabase,
+      'marketing_products',
+      'client_id',
+      clients.map((c) => c.id)
+    )
+    const productWeeks = await fetchAllIn<MarketingProductWeek>(
+      supabase,
+      'marketing_product_weeks',
+      'week_id',
+      weeks.map((w) => w.id)
+    )
+
     const authorIds = Array.from(
       new Set(changes.map((c) => c.author_id).filter((id): id is string => Boolean(id)))
     )
@@ -550,6 +623,22 @@ export async function GET(request: NextRequest) {
       else keywordsByCampaign.set(keyword.campaign_id, [keyword])
     }
 
+    const productById = new Map(products.map((p) => [p.id, p]))
+
+    const productsByClient = new Map<string, MarketingProduct[]>()
+    for (const product of products) {
+      const list = productsByClient.get(product.client_id)
+      if (list) list.push(product)
+      else productsByClient.set(product.client_id, [product])
+    }
+
+    const productWeeksByWeek = new Map<string, MarketingProductWeek[]>()
+    for (const row of productWeeks) {
+      const list = productWeeksByWeek.get(row.week_id)
+      if (list) list.push(row)
+      else productWeeksByWeek.set(row.week_id, [row])
+    }
+
     // ---------- Orden de presentación ----------
     const clientName = (id: string | null | undefined): string =>
       (id && clientById.get(id)?.name) || ''
@@ -575,6 +664,44 @@ export async function GET(request: NextRequest) {
           a.created_at.localeCompare(b.created_at)
       )
 
+    // ---------- Producto × semana ----------
+    // Se calcula una sola vez y lo consumen las tres hojas que hablan de TACoS
+    // (resumen, campañas y productos), para que ninguna pueda discrepar de otra.
+    const statsByWeek = new Map<string, ProductWeekStats[]>()
+    const statsByWeekProduct = new Map<string, Map<string, ProductWeekStats>>()
+    // Ventas que Amazon Ads atribuye a la publicidad del producto, sumando sus
+    // campañas. No es lo mismo que las ventas totales de Sellerboard: es el
+    // numerador del ACoS, no el denominador del TACoS.
+    const attributedByWeekProduct = new Map<string, Map<string, number | null>>()
+
+    for (const client of orderedClients) {
+      const catalog = productsByClient.get(client.id) ?? []
+
+      for (const week of weeksByClient.get(client.id) ?? []) {
+        const weekCampaigns = campaignsByWeek.get(week.id) ?? []
+        const stats = productWeekStats(
+          catalog,
+          productWeeksByWeek.get(week.id) ?? [],
+          weekCampaigns
+        )
+
+        statsByWeek.set(week.id, stats)
+        statsByWeekProduct.set(week.id, new Map(stats.map((s) => [s.product.id, s])))
+
+        const attributed = new Map<string, number | null>()
+        for (const stat of stats) {
+          attributed.set(
+            stat.product.id,
+            sumOrNull(
+              weekCampaigns.filter((c) => c.product_id === stat.product.id),
+              (c) => c.sales
+            )
+          )
+        }
+        attributedByWeekProduct.set(week.id, attributed)
+      }
+    }
+
     // ---------- Hoja 1: resumen semanal ----------
     const summaryRows: SummaryRow[] = []
 
@@ -588,7 +715,9 @@ export async function GET(request: NextRequest) {
       let previous: ReturnType<typeof aggregateWeek> | null = null
 
       for (const week of clientWeeks) {
-        const current = aggregateWeek(orderedCampaigns(week.id))
+        const weekCampaigns = orderedCampaigns(week.id)
+        const stats = statsByWeek.get(week.id) ?? []
+        const current = aggregateWeek(weekCampaigns, stats, clientTacos(stats, weekCampaigns))
 
         summaryRows.push({
           Cliente: client.name,
@@ -607,7 +736,15 @@ export async function GET(request: NextRequest) {
           'Gasto (€)': num(current.spend),
           'Ventas (€)': num(current.sales),
           'ACoS (%)': num(current.acos),
+          'Ventas totales Sellerboard (€)': num(current.totalSales),
           'TACoS (%)': num(current.tacos),
+          // Estas tres columnas dicen hasta dónde llega el TACoS de al lado. Si
+          // traen algo distinto de cero, la cifra es real pero solo cubre parte
+          // de la cuenta y el informe no debería presentarla como el TACoS
+          // global sin decirlo.
+          'Gasto sin TACoS (€)': num(current.uncoveredSpend),
+          'Productos sin ventas volcadas': current.blindProducts,
+          'Campañas sin producto': current.unlinkedCampaigns,
           'Semana anterior (inicio)': previous ? isoDay(previous.weekStart) : null,
           'Δ Impresiones (%)': num(pctChange(current.impressions, previous?.impressions ?? null)),
           'Δ Clics (%)': num(pctChange(current.clicks, previous?.clicks ?? null)),
@@ -615,7 +752,13 @@ export async function GET(request: NextRequest) {
           'Δ Gasto (%)': num(pctChange(current.spend, previous?.spend ?? null)),
           'Δ Ventas (%)': num(pctChange(current.sales, previous?.sales ?? null)),
           'Δ ACoS (p.p.)': num(ppChange(current.acos, previous?.acos ?? null)),
-          'Δ TACoS (p.p.)': num(ppChange(current.tacos, previous?.tacos ?? null)),
+          // Sin comparación cuando cualquiera de las dos semanas tiene el TACoS
+          // parcial: restar un TACoS que cubre medio catálogo de otro que cubre
+          // el catálogo entero inventa una tendencia que no ha pasado.
+          'Δ TACoS (p.p.)':
+            current.partialTacos || previous?.partialTacos
+              ? null
+              : num(ppChange(current.tacos, previous?.tacos ?? null)),
           Notas: week.notes,
           'ID semana': week.id,
           'ID cliente': client.id,
@@ -631,12 +774,22 @@ export async function GET(request: NextRequest) {
     for (const client of orderedClients) {
       for (const week of weeksByClient.get(client.id) ?? []) {
         for (const campaign of orderedCampaigns(week.id)) {
+          // product_id es ON DELETE SET NULL y además puede no haberse enlazado
+          // nunca: una campaña cuyo nombre no empieza por ASIN se queda suelta.
+          const product = campaign.product_id ? productById.get(campaign.product_id) : undefined
+          const stat = campaign.product_id
+            ? statsByWeekProduct.get(week.id)?.get(campaign.product_id)
+            : undefined
+
           campaignRows.push({
             Cliente: client.name,
             'Semana (inicio)': isoDay(week.week_start),
             'Semana (fin)': isoDay(week.week_end),
             'Semana ISO': isoWeekNumber(week.week_start),
             Campaña: campaign.name,
+            ASIN: product?.asin ?? null,
+            SKU: product?.sku ?? null,
+            Producto: product?.name ?? null,
             Tipo: CAMPAIGN_TYPE_LABELS[campaign.campaign_type] ?? campaign.campaign_type,
             Estado: CAMPAIGN_STATUS_LABELS[campaign.status] ?? campaign.status,
             'Presupuesto diario (€)': num(campaign.daily_budget),
@@ -648,10 +801,18 @@ export async function GET(request: NextRequest) {
             'Gasto (€)': num(campaign.spend),
             'Ventas (€)': num(campaign.sales),
             'ACoS (%)': pctOf(campaign.acos, acos(campaign.spend, campaign.sales)),
-            'TACoS (%)': num(campaign.tacos),
+            // Se repite en todas las campañas del mismo producto porque es del
+            // producto, no de la fila: NO se suma por columna ni se compara con
+            // el ACoS de al lado, que sí es de esta campaña.
+            'TACoS producto (%)': num(stat?.tacos ?? null),
+            // Lo que se tecleaba a mano antes de que el TACoS pasara a ser del
+            // producto. Se conserva como histórico porque no hay forma de
+            // recalcularlo hacia atrás, pero ya no se rellena ni se edita.
+            'TACoS campaña histórico (%)': num(campaign.tacos),
             Revisión: REVIEW_STATUS_LABELS[campaign.review_status] ?? campaign.review_status,
             'Palabras clave': keywordsByCampaign.get(campaign.id)?.length ?? 0,
             Notas: campaign.notes,
+            'ID producto': campaign.product_id,
             'ID campaña': campaign.id,
             'ID semana': week.id,
             'ID cliente': client.id,
@@ -660,7 +821,66 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ---------- Hoja 3: palabras clave ----------
+    // ---------- Hoja 3: productos ----------
+    const productRows: ProductRow[] = []
+
+    for (const client of orderedClients) {
+      for (const week of weeksByClient.get(client.id) ?? []) {
+        const attributed = attributedByWeekProduct.get(week.id)
+
+        // Solo los productos que esa semana tienen algo que contar: cifras
+        // volcadas o campañas gastando. El catálogo entero por cada semana
+        // llenaría la hoja de filas vacías y escondería las que importan.
+        const stats = (statsByWeek.get(week.id) ?? []).filter(
+          (s) => s.row !== null || s.campaigns > 0
+        )
+
+        for (const stat of stats) {
+          const adSales = attributed?.get(stat.product.id) ?? null
+          const totalCost =
+            stat.unitCost == null || stat.unitsSold == null
+              ? null
+              : stat.unitCost * stat.unitsSold
+
+          productRows.push({
+            Cliente: client.name,
+            'Semana (inicio)': isoDay(week.week_start),
+            'Semana (fin)': isoDay(week.week_end),
+            'Semana ISO': isoWeekNumber(week.week_start),
+            ASIN: stat.product.asin,
+            SKU: stat.product.sku,
+            Producto: stat.product.name,
+            Activo: stat.product.is_active ? 'Sí' : 'No',
+            Campañas: stat.campaigns,
+            // Suma del gasto de TODAS las campañas del producto esa semana: es
+            // el numerador del TACoS de la columna de más allá.
+            'Gasto publicitario (€)': num(stat.adSpend),
+            'Ventas atribuidas (€)': num(adSales),
+            'Ventas totales Sellerboard (€)': num(stat.totalSales),
+            // Lo que se vendió sin que la publicidad se lo apunte. Puede salir
+            // en negativo y no es un error: Amazon Ads atribuye una venta a la
+            // fecha del clic y Sellerboard la cuenta en la del pedido, así que
+            // en los bordes de la semana los dos números no cuadran.
+            'Ventas no atribuidas (€)':
+              stat.totalSales == null || adSales == null ? null : num(stat.totalSales - adSales),
+            'ACoS producto (%)': num(acos(stat.adSpend, adSales)),
+            'TACoS (%)': num(stat.tacos),
+            'Unidades vendidas': int(stat.unitsSold),
+            'Coste unitario (€)': num(stat.unitCost),
+            'Coste total (€)': num(totalCost),
+            // Bruto de verdad: ventas menos coste de producto. No descuenta ni
+            // la publicidad ni las comisiones de Amazon.
+            'Margen bruto (€)': num(stat.margin),
+            Notas: stat.row?.notes ?? stat.product.notes,
+            'ID producto': stat.product.id,
+            'ID semana': week.id,
+            'ID cliente': client.id,
+          })
+        }
+      }
+    }
+
+    // ---------- Hoja 4: palabras clave ----------
     const keywordRows: KeywordRow[] = []
 
     for (const client of orderedClients) {
@@ -706,7 +926,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ---------- Hoja 4: diario de cambios ----------
+    // ---------- Hoja 5: diario de cambios ----------
     // Cliente, luego semana, luego instante ascendente: el diario se lee como
     // el relato de lo que se fue haciendo en la cuenta, que es justo lo que
     // hay que contarle al cliente. El autofiltro deja reordenarlo por fecha.
@@ -755,6 +975,7 @@ export async function GET(request: NextRequest) {
     const workbook = XLSX.utils.book_new()
     addSheet(workbook, 'Resumen semanal', SUMMARY_HEADERS, summaryRows)
     addSheet(workbook, 'Campañas', CAMPAIGN_HEADERS, campaignRows)
+    addSheet(workbook, 'Productos', PRODUCT_HEADERS, productRows)
     addSheet(workbook, 'Palabras clave', KEYWORD_HEADERS, keywordRows)
     addSheet(workbook, 'Cambios', CHANGE_HEADERS, changeRows)
 
@@ -801,26 +1022,42 @@ interface WeekAggregate {
   cvr: number | null
   acos: number | null
   tacos: number | null
+  totalSales: number | null
+  uncoveredSpend: number
+  blindProducts: number
+  unlinkedCampaigns: number
+  partialTacos: boolean
   weekStart?: string
 }
 
 /**
- * Totales de una semana a partir de sus campañas.
+ * Totales de una semana a partir de sus campañas y de sus productos.
  *
  * Los porcentajes NO se promedian: la media de los ACoS de cinco campañas no
  * es el ACoS de la cuenta, porque una campaña de 3 € pesaría lo mismo que otra
  * de 300 €. Se recalculan sobre las sumas.
  *
- * El TACoS es la excepción y sí se suma, porque cada campaña lo mide contra la
- * MISMA facturación total de la cuenta y las partes suman el todo. Es el mismo
- * criterio que usa el tablero, para que la hoja cuadre con lo que se ve en el ERP.
+ * El TACoS ya no se saca de las campañas. Antes se sumaba el de cada una dando
+ * por hecho que todas medían contra la misma facturación, y era falso: el
+ * denominador son las ventas totales de CADA producto, así que un producto con
+ * cinco campañas metía sus ventas cinco veces. Ahora lo agrupa por producto
+ * clientTacos(), la misma función que pinta el KPI del tablero.
  */
-function aggregateWeek(campaigns: MarketingCampaign[]): WeekAggregate {
+function aggregateWeek(
+  campaigns: MarketingCampaign[],
+  stats: ProductWeekStats[],
+  tacos: ClientTacos
+): WeekAggregate {
   const impressions = sumOrNull(campaigns, (c) => c.impressions)
   const clicks = sumOrNull(campaigns, (c) => c.clicks)
   const orders = sumOrNull(campaigns, (c) => c.orders)
   const spend = sumOrNull(campaigns, (c) => c.spend)
   const sales = sumOrNull(campaigns, (c) => c.sales)
+
+  // clientTacos() devuelve 0 cuando no entra ningún producto en el cálculo, y
+  // un 0 en la hoja se leería como «no vendió nada» en vez de como «nadie ha
+  // volcado Sellerboard todavía».
+  const anySales = stats.some((s) => s.totalSales != null)
 
   return {
     total: campaigns.length,
@@ -833,6 +1070,11 @@ function aggregateWeek(campaigns: MarketingCampaign[]): WeekAggregate {
     ctr: ctr(clicks, impressions),
     cvr: cvr(orders, clicks),
     acos: acos(spend, sales),
-    tacos: sumOrNull(campaigns, (c) => c.tacos),
+    tacos: tacos.tacos,
+    totalSales: anySales ? tacos.totalSales : null,
+    uncoveredSpend: tacos.uncoveredSpend,
+    blindProducts: tacos.blindProducts,
+    unlinkedCampaigns: tacos.unlinkedCampaigns,
+    partialTacos: tacos.partial,
   }
 }

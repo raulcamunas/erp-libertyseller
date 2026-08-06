@@ -1,11 +1,12 @@
 'use client'
 
 import { useMemo } from 'react'
-import { Plus, Trash2, Check, KeyRound, CalendarPlus } from 'lucide-react'
+import { Plus, Trash2, Check, KeyRound, CalendarPlus, History } from 'lucide-react'
 import {
   MarketingCampaign,
   MarketingCampaignStatus,
   MarketingCampaignType,
+  MarketingProduct,
   CAMPAIGN_TYPES,
   CAMPAIGN_TYPE_LABELS,
   CAMPAIGN_TYPE_HINTS,
@@ -16,11 +17,13 @@ import {
   acos,
   ctr,
   cvr,
+  extractAsin,
   formatEuros,
   formatInt,
   formatPct,
 } from '@/lib/types/marketing'
 import {
+  ProductWeekStats,
   inputValue,
   numInput,
   optionClass,
@@ -37,11 +40,20 @@ export interface CampaignKeywordCount {
   pending: number
 }
 
+/** Valor del selector de producto que no es un producto, sino «dalo de alta ahora» */
+const CREATE_OPTION = '__crear__'
+
 export interface CampaignsTableProps {
   campaigns: MarketingCampaign[]
   /** Las mismas campañas la semana anterior, cruzadas por nombre para el delta de ACoS */
   previousCampaigns: MarketingCampaign[]
   keywordCounts: Map<string, CampaignKeywordCount>
+  /** Catálogo del cliente, para el selector de producto */
+  products: MarketingProduct[]
+  /** TACoS y gasto ya agregados por producto, indexados por product_id */
+  productStats: Map<string, ProductWeekStats>
+  /** Alta al vuelo del ASIN que se lee del nombre de la campaña, sin salir de la tabla */
+  onCreateProduct: (asin: string, campaign: MarketingCampaign) => void
   selectedId: string | null
   onSelect: (id: string) => void
   onPatch: (campaign: MarketingCampaign, patch: Partial<MarketingCampaign>) => void
@@ -69,10 +81,20 @@ function derived(c: MarketingCampaign) {
 const th =
   'text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 py-1.5 whitespace-nowrap'
 
+/** Etiqueta corta para el selector: el ASIN manda, el nombre solo acompaña */
+function productLabel(p: MarketingProduct): string {
+  const rest = p.name || p.sku || ''
+  const archived = p.is_active ? '' : ' · archivado'
+  return rest ? `${p.asin} · ${rest}${archived}` : `${p.asin}${archived}`
+}
+
 export function CampaignsTable({
   campaigns,
   previousCampaigns,
   keywordCounts,
+  products,
+  productStats,
+  onCreateProduct,
   selectedId,
   onSelect,
   onPatch,
@@ -83,6 +105,18 @@ export function CampaignsTable({
   className = '',
 }: CampaignsTableProps) {
   const totals = useMemo(() => sumMetrics(campaigns), [campaigns])
+
+  // Los activos primero y luego por ASIN: el desplegable se usa a diario y el
+  // orden de llegada del catálogo no ayuda a encontrar nada.
+  const sortedProducts = useMemo(
+    () =>
+      [...products].sort(
+        (a, b) => Number(b.is_active) - Number(a.is_active) || a.asin.localeCompare(b.asin)
+      ),
+    [products]
+  )
+
+  const knownAsins = useMemo(() => new Set(products.map((p) => p.asin)), [products])
 
   // El nombre es lo único que se repite entre semanas: la fila de la semana
   // pasada es otra fila distinta con el mismo nombre.
@@ -138,10 +172,16 @@ export function CampaignsTable({
         </div>
       ) : (
         <div className="flex-1 overflow-auto min-w-0">
-          <table className="w-full min-w-[1180px] text-[12px] border-collapse">
+          <table className="w-full min-w-[1330px] text-[12px] border-collapse">
             <thead className="sticky top-0 bg-[#0d0d0d] z-10">
               <tr>
                 <th className={`${th} text-left px-2.5 min-w-[190px]`}>Campaña</th>
+                <th
+                  className={`${th} text-left px-1 w-[150px]`}
+                  title="Producto que anuncia. Se propone solo con el ASIN con el que empieza el nombre de la campaña"
+                >
+                  Producto
+                </th>
                 <th className={`${th} text-left px-1 w-[124px]`}>Tipo</th>
                 <th className={`${th} text-left px-1 w-[92px]`}>Estado</th>
                 <th className={`${th} text-right px-1 w-[76px]`}>Presup./día</th>
@@ -153,7 +193,12 @@ export function CampaignsTable({
                 <th className={`${th} text-right px-1 w-[82px]`}>Gasto</th>
                 <th className={`${th} text-right px-1 w-[88px]`}>Ventas</th>
                 <th className={`${th} text-right px-1 w-[96px]`}>ACoS</th>
-                <th className={`${th} text-right px-1 w-[76px]`}>TACoS</th>
+                <th
+                  className={`${th} text-right px-1 w-[92px]`}
+                  title="TACoS del producto entero, no de esta campaña: gasto de todas sus campañas entre las ventas totales de Sellerboard. Por eso no es comparable con el ACoS de la fila"
+                >
+                  TACoS prod.
+                </th>
                 <th className={`${th} text-center px-1 w-[58px]`}>Revisada</th>
                 <th className={`${th} w-[30px]`} />
               </tr>
@@ -171,6 +216,11 @@ export function CampaignsTable({
                     : null
                 const counts = keywordCounts.get(c.id)
                 const selected = c.id === selectedId
+                const stat = c.product_id ? productStats.get(c.product_id) : undefined
+                // Solo se ofrece crear cuando el nombre trae un ASIN que no está
+                // dado de alta: si ya existe, basta con elegirlo de la lista.
+                const suggested = c.product_id ? null : extractAsin(c.name)
+                const missingAsin = suggested && !knownAsins.has(suggested) ? suggested : null
 
                 return (
                   <tr
@@ -223,6 +273,51 @@ export function CampaignsTable({
                           </span>
                         )}
                       </div>
+                    </td>
+
+                    {/* El gasto de una campaña sin producto no entra en ningún
+                        TACoS, así que el hueco se marca en naranja en vez de
+                        pasar por un desplegable más sin rellenar. */}
+                    <td className="px-1 py-1">
+                      <select
+                        value={c.product_id ?? ''}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === CREATE_OPTION) {
+                            if (missingAsin) onCreateProduct(missingAsin, c)
+                            return
+                          }
+                          onPatch(c, { product_id: v || null })
+                        }}
+                        style={{ color: c.product_id ? '#34D399' : '#FF6600' }}
+                        className={`${selectInput} w-full ${
+                          c.product_id ? '' : 'bg-[#FF6600]/[0.08]'
+                        }`}
+                        title={
+                          c.product_id
+                            ? stat
+                              ? `${productLabel(stat.product)} · ${stat.campaigns} ${
+                                  stat.campaigns === 1 ? 'campaña' : 'campañas'
+                                } esta semana`
+                              : undefined
+                            : 'Sin producto: su gasto no cuenta para ningún TACoS'
+                        }
+                      >
+                        <option value="" className={optionClass}>
+                          Sin producto
+                        </option>
+                        {sortedProducts.map((p) => (
+                          <option key={p.id} value={p.id} className={optionClass}>
+                            {productLabel(p)}
+                          </option>
+                        ))}
+                        {missingAsin && (
+                          <option value={CREATE_OPTION} className={optionClass}>
+                            + Dar de alta {missingAsin}
+                          </option>
+                        )}
+                      </select>
                     </td>
 
                     <td className="px-1 py-1">
@@ -411,29 +506,67 @@ export function CampaignsTable({
                       </span>
                     </td>
 
-                    {/* El TACoS es el único porcentaje que no se puede derivar
-                        aquí: su denominador es la facturación total de la
-                        cuenta, que este módulo no guarda. Se teclea. */}
-                    <td className="px-1 py-1">
-                      <input
-                        defaultValue={inputValue(c.tacos)}
-                        key={`tacos-${c.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        onBlur={(e) => {
-                          const parsed = parseDecimal(e.target.value)
-                          if (parsed === undefined) {
-                            e.target.value = inputValue(c.tacos)
-                            return
-                          }
-                          if ((c.tacos ?? null) === parsed) return
-                          onPatch(c, { tacos: parsed })
-                        }}
-                        inputMode="decimal"
-                        placeholder="—"
-                        title="Gasto de la campaña sobre la facturación total de la cuenta"
-                        className={numInput}
-                        style={{ color: 'rgba(255,255,255,0.6)' }}
-                      />
+                    {/* Ya no se teclea ni es de la campaña: se lee del producto
+                        que anuncia. Se deja en esta tabla porque es donde se
+                        decide subir o bajar una puja, pero en gris y con el
+                        cálculo en el title, para que nadie lo compare con el
+                        ACoS de la fila: ese mide la campaña, este el producto
+                        entero. El valor viejo tecleado a mano sobrevive detrás
+                        del reloj, como histórico. */}
+                    <td className="px-1.5 py-1 text-right tabular-nums">
+                      <span className="inline-flex items-center gap-1 justify-end">
+                        {!c.product_id ? (
+                          <span
+                            className="text-white/20"
+                            title="Sin producto enlazado no hay ventas totales contra las que medir"
+                          >
+                            —
+                          </span>
+                        ) : stat && stat.tacos != null ? (
+                          <span
+                            className="text-white/60"
+                            title={`${productLabel(stat.product)}: ${formatEuros(
+                              stat.adSpend
+                            )} de gasto en ${stat.campaigns} ${
+                              stat.campaigns === 1 ? 'campaña' : 'campañas'
+                            } entre ${formatEuros(
+                              stat.totalSales
+                            )} de ventas totales. Es del producto entero, no de esta campaña`}
+                          >
+                            {formatPct(stat.tacos)}
+                          </span>
+                        ) : stat && stat.totalSales != null ? (
+                          // Ventas a cero es un dato, no un hueco: no hay TACoS
+                          // porque no se divide entre cero, y decir «falta»
+                          // mandaría a buscar en Sellerboard algo que ya está.
+                          <span
+                            className="text-white/20"
+                            title="El producto no vendió nada esta semana: no hay TACoS que calcular"
+                          >
+                            —
+                          </span>
+                        ) : (
+                          <span
+                            className="text-[#FBBF24] text-[11px]"
+                            title="Falta volcar las ventas totales de Sellerboard del producto, en la pestaña Productos"
+                          >
+                            falta
+                          </span>
+                        )}
+                        {/* El dato viejo no se borra, pero tampoco se enseña
+                            como si valiera: se tecleaba a mano contra la
+                            facturación de toda la cuenta. */}
+                        {c.tacos != null && (
+                          <span
+                            className="flex-shrink-0 text-white/25"
+                            title={`Histórico: ${formatPct(
+                              c.tacos
+                            )} tecleado a mano antes de calcular el TACoS por producto. Ya no se edita`}
+                          >
+                            <History className="h-2.5 w-2.5" />
+                          </span>
+                        )}
+                      </span>
                     </td>
 
                     <td className="px-1 py-1 text-center">
@@ -477,7 +610,7 @@ export function CampaignsTable({
             <tfoot className="sticky bottom-0 bg-[#0d0d0d]">
               <tr className="text-[11px]">
                 <td
-                  colSpan={4}
+                  colSpan={5}
                   className="px-2.5 py-2 uppercase tracking-wider text-white/40 border-t border-white/10"
                 >
                   Total semana
@@ -506,8 +639,15 @@ export function CampaignsTable({
                 <td className="px-1.5 py-2 text-right tabular-nums text-white font-bold border-t border-white/10">
                   {formatPct(totals.acos)}
                 </td>
-                <td className="px-1.5 py-2 text-right tabular-nums text-white/70 border-t border-white/10">
-                  {formatPct(totals.tacos)}
+                {/* Sumar los TACoS de las filas contaría varias veces las
+                    ventas del producto que tiene más de una campaña. El
+                    agregado bueno está en el KPI de cabecera, que además avisa
+                    cuando le falta cobertura. */}
+                <td
+                  className="px-1.5 py-2 text-right tabular-nums text-white/25 border-t border-white/10"
+                  title="El TACoS no se suma entre campañas: el agregado de la semana está en la cabecera y el de cada producto, en Productos"
+                >
+                  —
                 </td>
                 <td className="border-t border-white/10" colSpan={2} />
               </tr>

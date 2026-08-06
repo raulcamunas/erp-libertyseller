@@ -56,9 +56,39 @@ export interface MarketingWeek {
   updated_at: string
 }
 
+export interface MarketingProduct {
+  id: string
+  client_id: string
+  /** Clave de enlace con las campañas. Un trigger lo normaliza a mayúsculas y sin espacios */
+  asin: string
+  sku: string | null
+  name: string | null
+  is_active: boolean
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Las cifras del producto en una semana de revisión: lo que se vuelca de Sellerboard */
+export interface MarketingProductWeek {
+  id: string
+  product_id: string
+  week_id: string
+  /** Ventas totales del producto, orgánicas + publicidad. NULL = aún no volcado, 0 = cero real */
+  total_sales: number | null
+  units_sold: number | null
+  /** Coste del producto esa semana, por unidad */
+  unit_cost: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface MarketingCampaign {
   id: string
   week_id: string
+  /** Producto que anuncia; se propone con extractAsin() sobre el nombre y se puede corregir a mano */
+  product_id: string | null
   name: string
   campaign_type: MarketingCampaignType
   status: MarketingCampaignStatus
@@ -72,6 +102,10 @@ export interface MarketingCampaign {
   ctr: number | null
   cvr: number | null
   acos: number | null
+  /**
+   * @deprecated Histórico de solo lectura. El TACoS no es de la campaña sino del
+   * producto: se calcula con productTacos() sobre MarketingProductWeek.total_sales.
+   */
   tacos: number | null
   review_status: MarketingReviewStatus
   notes: string | null
@@ -375,9 +409,64 @@ export function acos(spend: Metric, sales: Metric): number | null {
   return ratio(spend, sales)
 }
 
-/** Gasto sobre la facturación total de la cuenta, en % */
+/**
+ * Gasto sobre la facturación total, en %.
+ * @deprecated A nivel de campaña no significa nada; usa productTacos().
+ */
 export function tacos(spend: Metric, totalSales: Metric): number | null {
   return ratio(spend, totalSales)
+}
+
+// Las campañas se nombran «ASIN | SKU | RESUMEN TITULO | TIPO DE CAMPAÑA», así
+// que el ASIN de cabeza dice qué producto anuncian.
+//
+// Se exige que el ASIN acabe en algo no alfanumérico (el « |», un espacio) o en
+// fin de cadena para no morder los diez primeros caracteres de un código más
+// largo y dar por bueno un ASIN que no existe. El segundo patrón es el ISBN-10,
+// cuyo dígito de control puede ser una X.
+const CAMPAIGN_ASIN = /^(B[0-9A-Z]{9}|[0-9]{9}[0-9X])([^0-9A-Z]|$)/
+
+/**
+ * ASIN con el que empieza el nombre de una campaña, para proponer con qué
+ * producto enlazarla. `null` si el nombre no sigue la convención.
+ *
+ * OJO: es la misma regla que la función SQL `public.marketing_campaign_asin`
+ * (migración 109), que es la que enlaza de verdad en base de datos. Las dos
+ * implementaciones tienen que mantenerse idénticas: si divergen, la interfaz
+ * propondrá un producto distinto del que acabará guardado.
+ */
+export function extractAsin(campaignName: string): string | null {
+  if (!campaignName) return null
+  const match = CAMPAIGN_ASIN.exec(campaignName.trim().toUpperCase())
+  return match ? match[1] : null
+}
+
+/**
+ * TACoS del producto, en %: gasto publicitario de TODAS sus campañas de la
+ * semana sobre las ventas totales de Sellerboard (orgánicas + publicidad).
+ *
+ * A diferencia del ACoS, no se puede calcular por campaña: las ventas totales
+ * son del producto entero y repartirlas entre sus campañas las contaría varias
+ * veces.
+ */
+export function productTacos(adSpend: Metric, totalSales: Metric): number | null {
+  return ratio(adSpend, totalSales)
+}
+
+/**
+ * Margen bruto de la semana en euros: ventas totales menos el coste de las
+ * unidades vendidas. `null` si falta cualquiera de los tres datos.
+ *
+ * Es bruto de verdad: no descuenta ni la publicidad ni las comisiones de
+ * Amazon, solo el coste del producto que se documenta semana a semana.
+ */
+export function grossMargin(totalSales: Metric, unitCost: Metric, unitsSold: Metric): number | null {
+  if (totalSales == null || unitCost == null || unitsSold == null) return null
+  const sales = Number(totalSales)
+  const cost = Number(unitCost)
+  const units = Number(unitsSold)
+  if (!Number.isFinite(sales) || !Number.isFinite(cost) || !Number.isFinite(units)) return null
+  return sales - cost * units
 }
 
 /** Porcentaje en formato español, «—» si no hay dato */
@@ -402,4 +491,147 @@ export function formatEuros(value: Metric, decimals = 2): string {
 export function formatInt(value: Metric): string {
   if (value == null || !Number.isFinite(Number(value))) return '—'
   return Math.round(Number(value)).toLocaleString('es-ES')
+}
+
+// =====================================================
+// Agregados de producto y semana
+// =====================================================
+// Vive aquí y no junto a la tabla porque ya son tres los sitios que pintan el
+// TACoS —la tabla de productos, el KPI de cabecera y la hoja de Excel— y el
+// informe del cliente no puede decir un número distinto del que se ve en
+// pantalla. `lib/types` es lo único que importan a la vez el componente de
+// cliente, el server component y la route: dejarlo en components/ obligaría a
+// la API a importar un módulo de interfaz.
+
+/** Lo que hace falta de una campaña para repartir su gasto entre productos */
+export interface CampaignSpendRow {
+  product_id: string | null
+  spend: number | null
+}
+
+export interface ProductWeekStats {
+  product: MarketingProduct
+  /** Fila de cifras de Sellerboard; null mientras nadie la haya abierto esa semana */
+  row: MarketingProductWeek | null
+  /** Gasto sumado de TODAS las campañas de la semana enlazadas a este producto */
+  adSpend: number
+  /** Cuántas campañas de la semana lo anuncian */
+  campaigns: number
+  totalSales: number | null
+  unitsSold: number | null
+  unitCost: number | null
+  tacos: number | null
+  margin: number | null
+  /**
+   * Se está gastando dinero en él y nadie ha volcado sus ventas totales: es
+   * justo el producto que deja el TACoS de la semana a ciegas.
+   */
+  blind: boolean
+}
+
+/**
+ * Cruza el catálogo de productos con sus cifras de la semana y con el gasto de
+ * las campañas que los anuncian.
+ *
+ * `campaigns` tienen que ser SOLO las de la semana que se está mirando: el
+ * gasto de otra semana entraría en el numerador contra unas ventas que no le
+ * corresponden.
+ */
+export function productWeekStats(
+  products: MarketingProduct[],
+  rows: MarketingProductWeek[],
+  campaigns: CampaignSpendRow[]
+): ProductWeekStats[] {
+  const byProduct = new Map<string, MarketingProductWeek>()
+  for (const r of rows) byProduct.set(r.product_id, r)
+
+  const spend = new Map<string, { spend: number; campaigns: number }>()
+  for (const c of campaigns) {
+    if (!c.product_id) continue
+    const entry = spend.get(c.product_id) ?? { spend: 0, campaigns: 0 }
+    entry.spend += Number(c.spend) || 0
+    entry.campaigns += 1
+    spend.set(c.product_id, entry)
+  }
+
+  return products.map((product) => {
+    const row = byProduct.get(product.id) ?? null
+    const ads = spend.get(product.id) ?? { spend: 0, campaigns: 0 }
+    const totalSales = row?.total_sales ?? null
+
+    return {
+      product,
+      row,
+      adSpend: ads.spend,
+      campaigns: ads.campaigns,
+      totalSales,
+      unitsSold: row?.units_sold ?? null,
+      unitCost: row?.unit_cost ?? null,
+      tacos: productTacos(ads.spend, totalSales),
+      margin: grossMargin(totalSales, row?.unit_cost ?? null, row?.units_sold ?? null),
+      blind: totalSales == null && ads.spend > 0,
+    }
+  })
+}
+
+export interface ClientTacos {
+  /** TACoS de los productos que SÍ tienen ventas volcadas; null si no hay ninguno */
+  tacos: number | null
+  /** Gasto que entra en el numerador */
+  spend: number
+  /** Ventas totales que entran en el denominador */
+  totalSales: number
+  /** Gasto de la semana que se queda fuera del cálculo */
+  uncoveredSpend: number
+  /** Productos con gasto y sin ventas totales volcadas */
+  blindProducts: number
+  /** Campañas con gasto y sin producto enlazado */
+  unlinkedCampaigns: number
+  /** El número es real pero no cubre toda la cuenta: hay que decirlo */
+  partial: boolean
+}
+
+/**
+ * TACoS agregado del cliente en la semana.
+ *
+ * Numerador y denominador se restringen a los MISMOS productos: solo entran los
+ * que tienen ventas totales volcadas. Meter todo el gasto de la semana sobre las
+ * ventas de la mitad de los productos daría un TACoS inflado con pinta de dato
+ * bueno, que es peor que no dar ninguno. Lo que queda fuera se devuelve aparte
+ * para poder avisar de que la cifra es parcial.
+ */
+export function clientTacos(
+  stats: ProductWeekStats[],
+  campaigns: CampaignSpendRow[]
+): ClientTacos {
+  let spend = 0
+  let totalSales = 0
+  let blindProducts = 0
+
+  for (const s of stats) {
+    if (s.totalSales == null) {
+      if (s.blind) blindProducts += 1
+      continue
+    }
+    spend += s.adSpend
+    totalSales += Number(s.totalSales) || 0
+  }
+
+  const weekSpend = campaigns.reduce((acc, c) => acc + (Number(c.spend) || 0), 0)
+  const unlinkedCampaigns = campaigns.filter(
+    (c) => !c.product_id && (Number(c.spend) || 0) > 0
+  ).length
+
+  // Céntimo arriba o abajo por el redondeo de los flotantes no es un agujero.
+  const uncoveredSpend = Math.max(0, weekSpend - spend)
+
+  return {
+    tacos: productTacos(spend, totalSales),
+    spend,
+    totalSales,
+    uncoveredSpend: uncoveredSpend < 0.005 ? 0 : uncoveredSpend,
+    blindProducts,
+    unlinkedCampaigns,
+    partial: blindProducts > 0 || unlinkedCampaigns > 0,
+  }
 }
