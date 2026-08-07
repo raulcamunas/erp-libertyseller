@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
-import { AlertTriangle, ChevronRight, Plug, Settings2 } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Plug, Settings2, Workflow } from 'lucide-react'
 import {
   AMAZON_MAX_AUTHORIZATIONS,
   AMAZON_REGIONS,
@@ -11,11 +11,12 @@ import {
   type AmazonConnection,
   type AmazonConnectionStatus,
 } from '@/lib/types/amazon'
-import type { AmazonView } from '@/lib/amazon/client'
+import type { AmazonView, PerfilesVista } from '@/lib/amazon/client'
 import { useIsMobile } from '@/lib/use-is-mobile'
 import { CatalogoPanel } from './CatalogoPanel'
 import { ConexionesBoard } from './ConexionesBoard'
 import { Dialogo } from './Dialogo'
+import { PerfilesPanel } from './PerfilesPanel'
 import {
   cardShell,
   errorBox,
@@ -42,10 +43,23 @@ import {
  */
 export function AmazonBoard({
   initialData,
+  perfiles,
   configError,
   appDraft,
 }: {
   initialData: AmazonView
+  /**
+   * Los perfiles de lectura, para la vista de automatización.
+   *
+   * Llegan cargados desde el servidor como el resto de la pantalla: sus tablas
+   * tampoco se pueden leer desde el navegador, y además así la pestaña se abre
+   * pintada en vez de con un cargador girando.
+   *
+   * `null` = no se han podido cargar. La pestaña lo dice y las demás siguen
+   * funcionando: un fallo en las tablas de la automatización no puede llevarse
+   * por delante el catálogo ni la edición a mano.
+   */
+  perfiles: PerfilesVista | null
   /** Qué variable de entorno falta, si falta alguna. Solo el nombre, nunca el valor */
   configError: string | null
   /**
@@ -62,7 +76,15 @@ export function AmazonBoard({
 }) {
   const [data, setData] = useState<AmazonView>(initialData)
   const [connectionId, setConnectionId] = useState<string | null>(null)
-  const [gestionando, setGestionando] = useState(false)
+  /**
+   * Qué se está mirando.
+   *
+   * Un solo estado con tres valores y no dos booleanos: con dos booleanos existe
+   * el estado imposible «en conexiones y en automatización a la vez», y quien
+   * lo escriba por error se encuentra las dos pantallas montadas una encima de
+   * la otra.
+   */
+  const [vista, setVista] = useState<'catalogo' | 'conexiones' | 'automatizacion'>('catalogo')
   /**
    * Lo que se iba a hacer cuando se descubrió que había cambios sin enviar.
    *
@@ -146,6 +168,23 @@ export function AmazonBoard({
     salirDelCatalogo(() => setConnectionId(destino))
   }
 
+  /**
+   * Cambia de vista, preguntando antes si hay ediciones sin enviar.
+   *
+   * Se pasa por salirDelCatalogo SIEMPRE que se abandone el catálogo, y no solo
+   * al cambiar de cliente: las dos formas de perder las ediciones tienen que
+   * pasar por la misma pregunta. Cuando solo lo hacía una, el panel se
+   * desmontaba y los cambios desaparecían sin decir nada.
+   */
+  function irAVista(destino: 'catalogo' | 'conexiones' | 'automatizacion') {
+    if (destino === vista) return
+    if (vista === 'catalogo') {
+      salirDelCatalogo(() => setVista(destino))
+      return
+    }
+    setVista(destino)
+  }
+
   function confirmarSalida() {
     const accion = salidaBloqueada?.accion
     setSalidaBloqueada(null)
@@ -190,19 +229,27 @@ export function AmazonBoard({
           )}
         </p>
 
-        <button
-          type="button"
-          onClick={() =>
-            gestionando
-              ? setGestionando(false)
-              : salirDelCatalogo(() => setGestionando(true))
-          }
-          aria-pressed={gestionando}
-          className={gestionando ? primaryButton : ghostButton}
-        >
-          <Settings2 className="h-3.5 w-3.5" />
-          {gestionando ? 'Volver al catálogo' : 'Conexiones y accesos'}
-        </button>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => irAVista(vista === 'automatizacion' ? 'catalogo' : 'automatizacion')}
+            aria-pressed={vista === 'automatizacion'}
+            className={vista === 'automatizacion' ? primaryButton : ghostButton}
+          >
+            <Workflow className="h-3.5 w-3.5" />
+            {vista === 'automatizacion' ? 'Volver al catálogo' : 'Automatización'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => irAVista(vista === 'conexiones' ? 'catalogo' : 'conexiones')}
+            aria-pressed={vista === 'conexiones'}
+            className={vista === 'conexiones' ? primaryButton : ghostButton}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            {vista === 'conexiones' ? 'Volver al catálogo' : 'Conexiones y accesos'}
+          </button>
+        </div>
       </div>
 
       {configError && (
@@ -212,7 +259,7 @@ export function AmazonBoard({
         </div>
       )}
 
-      {gestionando ? (
+      {vista === 'conexiones' ? (
         <div className="flex-1 min-h-0 min-w-0 overflow-auto">
           <ConexionesBoard
             data={data}
@@ -220,6 +267,22 @@ export function AmazonBoard({
             configError={configError}
             appDraft={appDraft}
           />
+        </div>
+      ) : vista === 'automatizacion' ? (
+        <div className="flex-1 min-h-0 min-w-0 overflow-auto">
+          {perfiles ? (
+            <PerfilesPanel initialData={perfiles} />
+          ) : (
+            <div className={`${cardShell} p-8 text-center`}>
+              <p className="text-white/70 text-sm">
+                No se ha podido cargar la automatización.
+              </p>
+              <p className="text-white/45 text-[12px] mt-1.5 leading-relaxed">
+                Sus tablas no han contestado. El catálogo y los envíos a mano funcionan igual:
+                vuelve a cargar la página y, si sigue igual, mira los registros del servidor.
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         <>

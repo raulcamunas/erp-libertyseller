@@ -419,5 +419,14 @@ html.light .text-yellow-500, html.light .text-yellow-600 { color: #854D0E; }
 
 html.light .bg-yellow-400\/\[0\.05\] { background-color: rgba(202, 138, 4, 0.13); }
 html.light .bg-yellow-400\/\[0\.06\] { background-color: rgba(202, 138, 4, 0.14); }
+html.light .bg-yellow-400\/\[0\.08\] { background-color: rgba(202, 138, 4, 0.15); }
 html.light .bg-yellow-400\/\[0\.09\] { background-color: rgba(202, 138, 4, 0.16); }
 html.light .bg-yellow-400\/\[0\.12\] { background-color: rgba(202, 138, 4, 0.18); }
+
+/* La tarjeta de «columna encontrada» de la pantalla de perfiles y la insignia
+   AUTO: sin estas tres entradas se quedaban con el fondo del tema oscuro y en
+   claro no se distinguía una columna encontrada de una que no. */
+html.light .text-yellow-300\/90,
+html.light .text-yellow-300\/80 { color: #A16207; }
+html.light .border-green-400\/25 { border-color: rgba(21, 128, 61, 0.35); }
+html.light .bg-green-400\/\[0\.05\] { background-color: rgba(21, 128, 61, 0.1); }

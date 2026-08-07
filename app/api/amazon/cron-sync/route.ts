@@ -2,9 +2,10 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { syncAllConnections } from '@/lib/amazon/data'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
+import { ejecutarCicloStock } from '@/lib/stock-sync/ciclo'
 
 /**
- * EL REFRESCO DE CADA QUINCE MINUTOS.
+ * EL REFRESCO DE CADA QUINCE MINUTOS, Y EL CICLO DE STOCK DETRÁS.
  *
  * Lo llama el cron del propio contenedor (scripts/amazon-sync.sh, línea del
  * crontab en el Dockerfile), no el navegador. Es lo que hace que el catálogo
@@ -15,6 +16,22 @@ import { isAmazonConfigured } from '@/lib/amazon/lwa'
  * Quince minutos sobran de largo. Con unos 400 SKU por cliente, un catálogo
  * entero son unas 20 llamadas paginadas a cinco por segundo: cuatro segundos
  * por cliente y marketplace.
+ *
+ *
+ * POR QUÉ EL CICLO DE STOCK VA AQUÍ Y NO EN SU PROPIA LÍNEA DEL CRON
+ * =================================================================
+ * Por el ORDEN, que en este caso es el fondo del asunto y no una comodidad. El
+ * ciclo de stock decide qué mandar CONTRASTANDO contra el espejo del catálogo:
+ * cuántos SKU cambian de verdad, cuántos se irían a cero, cuántos ya están
+ * igual. Si corriera por su cuenta, compararía contra la foto de hace un cuarto
+ * de hora y propondría otra vez cambios que ya se mandaron —y los volvería a
+ * mandar—. Detrás del refresco, compara contra lo que Amazon acaba de decir que
+ * tiene.
+ *
+ * Encadenarlos es seguro en los dos sentidos: syncAllConnections() no lanza
+ * nunca, así que el paso nuevo no se puede quedar sin ejecutar por un fallo del
+ * anterior; y el ciclo va dentro de su propio try, así que un fallo suyo no
+ * puede convertir en un 500 un refresco que sí funcionó.
  *
  *
  * POR QUÉ EL SECRETO SE COMPRUEBA AL REVÉS QUE EN EL RESTO DEL ERP
@@ -35,6 +52,15 @@ import { isAmazonConfigured } from '@/lib/amazon/lwa'
  * infinitamente más barato que una ruta abierta que nadie sabe que existe.
  */
 export const dynamic = 'force-dynamic'
+
+/**
+ * El refresco del catálogo son segundos, pero el ciclo de stock lee ficheros de
+ * 20.000 líneas y puede acabar mandando cientos de cambios a cinco por segundo.
+ * Su propio presupuesto interno lo corta en nueve minutos —antes de que entre la
+ * pasada siguiente—, y este número está por encima para no cortarlo por fuera y
+ * dejar un envío a medias sin saber por dónde iba.
+ */
+export const maxDuration = 600
 
 export async function POST(request: NextRequest) {
   const secret = process.env.CRON_SECRET
@@ -60,12 +86,65 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ ok: true, ...stats })
+    const stock = await cicloDeStock()
+
+    return NextResponse.json({ ok: true, ...stats, stock })
   } catch (error) {
     console.error('Error en el refresco periódico de Amazon:', error)
     return NextResponse.json(
       { ok: false, error: 'El refresco periódico ha fallado' },
       { status: 500 }
     )
+  }
+}
+
+/**
+ * El ciclo de stock, con su propia red debajo.
+ *
+ * El try no es de adorno: si esto lanzara, el refresco del catálogo —que ya ha
+ * terminado bien— saldría como un 500 y el cron lo daría por fallido. Son dos
+ * trabajos distintos que comparten disparador, y el segundo no puede desacreditar
+ * al primero.
+ *
+ * Lo que sale por consola es una línea por pasada con lo que ha pasado, más una
+ * por cada perfil que no haya ido bien. Es el rastro que se mira cuando alguien
+ * pregunta por qué un cliente lleva tres días con el stock viejo, antes incluso
+ * de abrir la pantalla.
+ */
+async function cicloDeStock(): Promise<Record<string, unknown>> {
+  try {
+    const ciclo = await ejecutarCicloStock()
+
+    if (ciclo.omitido) {
+      console.log(`[stock-sync] ciclo omitido: ${ciclo.omitido}`)
+      return { omitido: ciclo.omitido }
+    }
+
+    console.log(
+      `[stock-sync] ${ciclo.mirados} perfiles mirados · ${ciclo.procesados} procesados · ` +
+        `${ciclo.enviados} enviados · ${ciclo.frenados} frenados · ${ciclo.errores} con error · ` +
+        `${Math.round(ciclo.duracionMs / 1000)}s`
+    )
+
+    for (const p of ciclo.perfiles) {
+      if (p.desenlace === 'error' || p.desenlace === 'frenado') {
+        console.error(`[stock-sync] «${p.perfil}» ${p.desenlace}: ${p.detalle}`)
+      }
+    }
+
+    // El detalle por perfil NO viaja en la respuesta: la lee un `curl -o
+    // /dev/null` del cron y en el historial de la pantalla está entero.
+    return {
+      mirados: ciclo.mirados,
+      procesados: ciclo.procesados,
+      saltados: ciclo.saltados,
+      enviados: ciclo.enviados,
+      frenados: ciclo.frenados,
+      errores: ciclo.errores,
+      duracionMs: ciclo.duracionMs,
+    }
+  } catch (error) {
+    console.error('[stock-sync] el ciclo automático ha fallado entero:', error)
+    return { error: 'El ciclo de stock ha fallado' }
   }
 }

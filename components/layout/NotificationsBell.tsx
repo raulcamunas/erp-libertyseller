@@ -143,7 +143,15 @@ export function NotificationsBell() {
     if (notification.type === 'web_lead') {
       return '/dashboard/web-leads'
     }
-    
+
+    // Un envío detenido o un fichero que no se ha podido procesar: lleva a la
+    // pantalla donde está el historial con el motivo. Un aviso que dice que algo
+    // se ha parado y no dice dónde mirarlo obliga a buscarlo, y entonces se
+    // termina no mirando.
+    if (notification.type === 'freno_stock' || notification.type === 'fallo_stock') {
+      return '/dashboard/amazon-api'
+    }
+
     if (notification.related_client_id && notification.related_task_id) {
       return `/dashboard/clients/${notification.related_client_id}`
     }

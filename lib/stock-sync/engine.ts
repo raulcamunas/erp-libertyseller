@@ -1138,7 +1138,14 @@ function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   }
 }
 
-function readWorkbook(input: WorkbookInput): XLSX.WorkBook {
+/**
+ * Exportada para que el lector configurable (lib/stock-sync/lector.ts) abra
+ * los ficheros EXACTAMENTE igual que los parsers de aquí. Si cada uno los
+ * abriera a su manera, un mismo Excel podría leerse distinto según por qué
+ * camino entrara, y esa clase de diferencia no se ve hasta que un cliente
+ * publica el stock de otro artículo.
+ */
+export function readWorkbook(input: WorkbookInput): XLSX.WorkBook {
   const bytes = toUint8Array(input)
   if (bytes.length === 0) throw new StockSyncError('El fichero está vacío')
 
@@ -1146,7 +1153,16 @@ function readWorkbook(input: WorkbookInput): XLSX.WorkBook {
     // cellDates false y raw a la hora de volcar: aquí no hay ninguna columna
     // de fecha y sí muchos códigos que Excel guarda como número; convertirlos
     // a Date por si acaso solo puede estropearlos.
-    return XLSX.read(bytes, { type: 'array', cellDates: false, codepage: 65001 })
+    //
+    // raw:true ES LO QUE SALVA LOS CSV, y no es un detalle de rendimiento.
+    // En un .xlsx cada celda ya viene tipada del fichero y esta opción no
+    // cambia nada. En un CSV no hay tipos, así que la librería los adivina CON
+    // CRITERIO ANGLOSAJÓN: «62,72» lo lee como 6272 y «0001» como 1. Los
+    // números salen multiplicados por cien y las referencias pierden sus ceros
+    // a la izquierda, todo sin dar un solo error. Con raw:true las celdas del
+    // CSV llegan como TEXTO y las interpreta parseUnits(), que sí sabe leer el
+    // formato español, que es la única pieza que debe decidirlo.
+    return XLSX.read(bytes, { type: 'array', cellDates: false, codepage: 65001, raw: true })
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'formato no reconocido'
     throw new StockSyncError(

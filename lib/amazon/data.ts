@@ -12,7 +12,7 @@ import {
   type AmazonSubmission,
   type AmazonSubmissionField,
 } from '@/lib/types/amazon'
-import { marketplaceDeEntrada, marketplacesCubiertos } from './catalogo'
+import { MAX_PRICE, MAX_QUANTITY, marketplaceDeEntrada, marketplacesCubiertos } from './catalogo'
 import { encryptToken, hasTokenKey, safeEqual } from './crypto'
 import { AmazonApiError, humanMessageOf } from './errors'
 import { clearAccessToken, exchangeAuthorizationCode, isAmazonConfigured } from './lwa'
@@ -1548,6 +1548,40 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
 
   if (input.source === 'fichero' && !input.sourceRef) {
     throw new Error('Un cambio que viene de un fichero tiene que decir de qué fichero')
+  }
+
+  /**
+   * LA COTA DE CORDURA, AQUÍ Y NO SOLO EN LA RUTA HTTP.
+   *
+   * validateIncomingChange() (lib/amazon/catalogo.ts) ya comprueba esto, pero
+   * es la puerta de la petición del navegador: el ciclo automático llama a
+   * sendChanges() directamente y no la atraviesa. Un precio de 0,00 € o un
+   * stock negativo llegado por ahí se publicaba sin que nada lo mirara.
+   *
+   * Se comprueba el LOTE ENTERO y se rechaza entero, igual que un freno: si un
+   * solo valor es imposible, lo que está mal es el cálculo que lo produjo, y
+   * mandar los otros 394 «porque esos sí valen» es exactamente cómo se publica
+   * media verdad.
+   */
+  for (const c of input.changes) {
+    if (typeof c.newValue !== 'number' || !Number.isFinite(c.newValue)) {
+      throw new Error(`El valor que se quiere poner en el SKU ${c.sku} no es un número`)
+    }
+    if (c.field === 'precio' && (c.newValue <= 0 || c.newValue > MAX_PRICE)) {
+      throw new Error(
+        `El precio ${c.newValue} del SKU ${c.sku} está fuera de lo que se puede enviar ` +
+          `(mayor que 0 y hasta ${MAX_PRICE}). No se manda nada del lote.`
+      )
+    }
+    if (
+      c.field === 'cantidad' &&
+      (!Number.isInteger(c.newValue) || c.newValue < 0 || c.newValue > MAX_QUANTITY)
+    ) {
+      throw new Error(
+        `El stock ${c.newValue} del SKU ${c.sku} no es un número entero de unidades entre 0 y ` +
+          `${MAX_QUANTITY}. No se manda nada del lote.`
+      )
+    }
   }
 
   const batchId = input.batchId ?? randomUUID()

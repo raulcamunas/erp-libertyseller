@@ -90,6 +90,235 @@ export interface StockRun {
   created_at: string
 }
 
+// =====================================================
+// Perfiles de lectura (migración 120)
+// =====================================================
+
+/**
+ * De dónde sale el fichero. 'sftp' y 'correo' están declarados sin estar
+ * construidos a propósito: todavía no se sabe qué podrá dar cada cliente, y
+ * descubrirlo no puede obligar a una migración ni a cambiar este tipo.
+ */
+export type StockProfileOrigin = 'manual' | 'drive' | 'sftp' | 'correo'
+
+export const STOCK_PROFILE_ORIGIN_LABELS: Record<StockProfileOrigin, string> = {
+  manual: 'Subida a mano',
+  drive: 'Carpeta de Google Drive',
+  sftp: 'SFTP',
+  correo: 'Correo',
+}
+
+/** 'stock' es el volcado principal; 'ean' el índice de códigos de barras del ERP */
+export type StockProfileKind = 'stock' | 'ean'
+
+export type StockProfileFormat = 'auto' | 'xlsx' | 'xls' | 'csv'
+
+/** De dónde sale el precio que se publica */
+export type StockPriceMode = 'ninguno' | 'columna' | 'margen'
+
+export const STOCK_PRICE_MODE_LABELS: Record<StockPriceMode, string> = {
+  ninguno: 'No se manda precio',
+  columna: 'De una columna del fichero',
+  margen: 'Del coste, aplicando margen',
+}
+
+/**
+ * Los frenos que pueden detener un envío. El código es el mismo aquí, en el
+ * CHECK de stock_profile_runs.freno y en lib/stock-sync/frenos.ts: si baila en
+ * uno de los tres, la fila no se puede guardar y el envío se pierde entero.
+ */
+export type StockBrakeCode =
+  | 'pct_a_cero'
+  | 'variacion_precio'
+  | 'caida_lineas'
+  | 'caida_unidades'
+  | 'max_cambios'
+
+export const STOCK_BRAKE_LABELS: Record<StockBrakeCode, string> = {
+  pct_a_cero: 'Demasiadas referencias se irían a cero',
+  variacion_precio: 'Un precio cambia demasiado de golpe',
+  caida_lineas: 'El fichero trae muchas menos líneas de lo habitual',
+  caida_unidades: 'Se hunden las unidades publicadas',
+  max_cambios: 'Demasiados SKU cambian a la vez',
+}
+
+/** Cómo acabó una ejecución */
+export type StockProfileRunState = 'sin_cambios' | 'simulacro' | 'frenado' | 'enviado' | 'error'
+
+export const STOCK_RUN_STATE_LABELS: Record<StockProfileRunState, string> = {
+  sin_cambios: 'Sin cambios',
+  simulacro: 'Simulacro',
+  frenado: 'Frenado',
+  enviado: 'Enviado',
+  error: 'Error',
+}
+
+/**
+ * El color de cada estado, con las clases completas del dominio.
+ *
+ * 'simulacro' va en gris y no en verde a conciencia: es el estado de un cliente
+ * que NO está mandando nada, y pintarlo de «todo bien» es cómo se pasan tres
+ * semanas creyendo que la automatización está en marcha. Las mismas clases que
+ * usa el módulo de Amazon, que son las que el tema claro sabe reinterpretar.
+ */
+export const STOCK_RUN_STATE_COLORS: Record<StockProfileRunState, string> = {
+  sin_cambios: 'bg-zinc-600/25 text-zinc-300 border-zinc-500/30',
+  simulacro: 'bg-zinc-600/25 text-zinc-300 border-zinc-500/30',
+  frenado: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+  enviado: 'bg-green-500/20 text-green-300 border-green-500/30',
+  error: 'bg-red-500/20 text-red-300 border-red-500/30',
+}
+
+/**
+ * La fila de public.stock_read_profiles: cómo se lee e interpreta el fichero de
+ * UN cliente. Es la única pieza del proceso que cambia de un cliente a otro.
+ */
+export interface StockReadProfile {
+  id: string
+  client_id: string
+  name: string
+  slug: string
+  tipo: StockProfileKind
+
+  origen: StockProfileOrigin
+  /** Configuración propia del conector. Nunca contraseñas ni tokens */
+  origen_config: Record<string, unknown>
+
+  formato: StockProfileFormat
+  csv_separador: string | null
+  csv_codificacion: string | null
+
+  hoja: string | null
+  /** 1-based */
+  hoja_indice: number | null
+  fila_cabecera: number | null
+  fila_datos: number | null
+
+  /** Nombres aceptados para cada columna, en orden de preferencia */
+  col_referencia: string[]
+  col_stock: string[]
+  col_precio: string[]
+  col_precio_respaldo: string[]
+  col_coste: string[]
+  col_ean: string[]
+  col_descripcion: string[]
+  col_familia: string[]
+  col_tipo: string[]
+  ean_solo_tipo: number | null
+
+  reserva_unidades: number
+  stock_minimo: number
+  precio_modo: StockPriceMode
+  margen_porcentaje: number | null
+  iva_porcentaje: number | null
+  precio_minimo: number | null
+  precio_maximo: number | null
+  moneda: string
+  familias_excluidas: string[]
+  referencias_excluidas: string[]
+  enviar_stock: boolean
+  enviar_precio: boolean
+
+  connection_id: string | null
+  marketplace_id: string | null
+
+  freno_pct_a_cero: number | null
+  freno_variacion_precio_pct: number | null
+  freno_caida_lineas_pct: number | null
+  freno_caida_unidades_pct: number | null
+  freno_max_cambios: number | null
+  lineas_referencia: number | null
+
+  /** Nace apagado y hay que encenderlo a conciencia */
+  envio_automatico: boolean
+  cadencia_minutos: number
+
+  last_run_at: string | null
+  last_ok_at: string | null
+  last_error: string | null
+  /**
+   * Huella DEL CONTENIDO del último fichero que procesó el ciclo automático.
+   * La escribe solo el ciclo: un simulacro lanzado a mano no la toca, porque si
+   * no, probar un fichero desde la pantalla haría que el ciclo se lo saltara y
+   * ese fichero no llegaría nunca a Amazon.
+   */
+  last_file_fingerprint: string | null
+
+  /** Cerrojo del ciclo: cuándo empezó la ejecución que lo tiene tomado. NULL = libre */
+  running_since: string | null
+  /** Quién lo tiene tomado, para que solo su dueño lo suelte */
+  running_token: string | null
+  /** Última pasada del ciclo que miró el origen y no tuvo nada que hacer */
+  last_skipped_at: string | null
+  /** Por qué no hizo nada, en español: «el fichero no ha cambiado desde la última vez» */
+  last_skip_reason: string | null
+
+  is_active: boolean
+  position: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** La fila de public.stock_profile_runs: una por lectura de fichero, se mande o no */
+export interface StockProfileRun {
+  id: string
+  profile_id: string
+  client_id: string
+  created_by: string | null
+
+  origen: StockProfileOrigin
+  fichero_nombre: string | null
+  fichero_id_externo: string | null
+  fichero_huella: string | null
+  fichero_bytes: number | null
+  fichero_modificado_at: string | null
+
+  estado: StockProfileRunState
+
+  /** null = no se calculó, 0 = cero de verdad */
+  lineas_leidas: number | null
+  lineas_utiles: number | null
+  lineas_excluidas: number | null
+  sku_casados: number | null
+  sku_sin_casar: number | null
+  unidades_total: number | null
+  cambios_stock: number | null
+  cambios_precio: number | null
+  sku_a_cero: number | null
+  sku_suben: number | null
+  sku_bajan: number | null
+
+  reglas_detalle: Record<string, unknown> | null
+
+  freno: StockBrakeCode | null
+  /** La frase entera, ya redactada, tal cual se le enseña a una persona */
+  freno_detalle: string | null
+  frenos: unknown[] | null
+  /**
+   * Los avisos del simulacro, ya redactados en español.
+   *
+   * Se guardan porque son la única constancia de cosas que no frenan pero
+   * explican un resultado raro: el espejo del catálogo vacío, el fichero de
+   * códigos de barras que no se pudo leer, una columna que casó por parecido.
+   * Sin esta columna se redactaban, se enseñaban una vez en la pantalla del
+   * simulacro y se perdían — y en el ciclo automático, que no tiene a nadie
+   * delante, se perdían siempre.
+   */
+  avisos: string[] | null
+
+  batch_id: string | null
+  /** Cambios que Amazon aceptó. null = no se llegó a enviar; 0 = no entró ninguno */
+  enviados_ok: number | null
+  enviados_error: number | null
+  /** Por qué se cortó el lote antes de terminar (autorización revocada, permisos) */
+  envio_abortado: string | null
+  duracion_ms: number | null
+  error_message: string | null
+  notes: string | null
+  created_at: string
+}
+
 /**
  * Por qué vía casó una fila en el último proceso, de más fiable a menos.
  * Se guarda para poder auditar un stock mal subido: sin esto, cuando un

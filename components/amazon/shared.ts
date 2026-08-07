@@ -49,12 +49,21 @@ export const fieldInput =
 
 export const cardShell = 'rounded-2xl border border-white/10 bg-white/[0.02]'
 
-/** Aviso amarillo: el código de «ojo con esto» de todo el ERP */
+/**
+ * Aviso amarillo: el código de «ojo con esto» de todo el ERP.
+ *
+ * `whitespace-pre-line` NO es cosmético: los mensajes del conector de Drive se
+ * redactan a varias líneas a propósito, con el correo de la cuenta de servicio
+ * sangrado en su propia línea, porque ese correo es EL dato que hay que copiar
+ * para arreglar el problema. Sin esta clase salía todo seguido dentro de una
+ * celda estrecha, con el correo pegado a la frase siguiente — y es justo el
+ * texto que se viene a buscar cuando el aviso de la campana trae aquí.
+ */
 export const warnBox =
-  'rounded-lg border border-yellow-500/25 bg-yellow-400/[0.06] px-2.5 py-2 text-[11px] text-yellow-300 leading-relaxed'
+  'rounded-lg border border-yellow-500/25 bg-yellow-400/[0.06] px-2.5 py-2 text-[11px] text-yellow-300 leading-relaxed whitespace-pre-line'
 
 export const errorBox =
-  'rounded-lg border border-red-500/30 bg-red-500/[0.08] px-2.5 py-2 text-[11px] text-red-300 leading-relaxed'
+  'rounded-lg border border-red-500/30 bg-red-500/[0.08] px-2.5 py-2 text-[11px] text-red-300 leading-relaxed whitespace-pre-line'
 
 export const infoBox =
   'rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] text-white/55 leading-relaxed'
@@ -178,4 +187,26 @@ export function formatExact(iso: string | null): string {
 
 export function formatInt(n: number): string {
   return n.toLocaleString('es-ES')
+}
+
+/**
+ * Importe en castellano con la divisa que corresponda; «—» cuando no hay dato.
+ *
+ * Vive aquí y no en una pantalla concreta porque la usan las tres, y porque un
+ * precio pintado con punto decimal en una pantalla y con coma en otra es
+ * exactamente lo que hace dudar de si el fichero se ha leído bien: la tabla de
+ * «Probar» se compara celda a celda contra el Excel del cliente, que está en
+ * formato español.
+ */
+export function formatImporte(valor: number | null, moneda: string | null | undefined): string {
+  if (valor === null || valor === undefined || !Number.isFinite(valor)) return '—'
+  const texto = valor.toLocaleString('es-ES', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+  const m = (moneda ?? '').trim().toUpperCase()
+  if (m === 'EUR') return `${texto} €`
+  if (m === 'GBP') return `${texto} £`
+  if (m === 'USD') return `${texto} $`
+  return m ? `${texto} ${m}` : texto
 }

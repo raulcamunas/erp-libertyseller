@@ -1,10 +1,14 @@
 import type { AmazonServerData, SendChangesResult, SyncResult } from '@/lib/amazon/data'
+import type { EstadoOrigen } from '@/lib/stock-sync/origenes/tipos'
+import type { PerfilesView } from '@/lib/stock-sync/perfiles'
+import type { PruebaPerfil, ResultadoProceso } from '@/lib/stock-sync/proceso'
 import type {
   AmazonClient,
   AmazonConnection,
   AmazonListing,
   AmazonSubmission,
 } from '@/lib/types/amazon'
+import type { StockProfileRun, StockReadProfile } from '@/lib/types/stock-sync'
 
 /**
  * LO QUE HABLA LA PANTALLA CON /api/amazon.
@@ -84,6 +88,54 @@ export interface HistoryResponse {
   limit: number
 }
 
+/* ------------------------------------------------------------------ */
+/* Perfiles de lectura (la automatización)                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La vista de la pantalla de automatización.
+ *
+ * Igual que AmazonView: el tipo se toma prestado del módulo de servidor con
+ * `import type`, que TypeScript borra al compilar. No queda ni un require de
+ * lib/stock-sync/perfiles —que usa service_role— en el paquete del navegador, y
+ * a cambio la pantalla no puede desviarse de lo que la ruta devuelve de verdad.
+ */
+export type PerfilesVista = PerfilesView
+
+export interface PruebaResponse {
+  prueba: PruebaPerfil
+}
+
+/**
+ * El resultado del simulacro, con las listas ya recortadas por el servidor.
+ * `recortado` dice cuáles se han quedado a medias: los totales del resumen son
+ * siempre los de verdad, así que sin esta bandera una tabla cortada parecería
+ * un catálogo pequeño.
+ */
+export interface SimulacroResponse extends ResultadoProceso {
+  recortado: { filas: boolean; huerfanos: boolean; sinCasar: boolean }
+}
+
+export interface OrigenResponse {
+  estado: EstadoOrigen
+}
+
+/**
+ * El historial de un perfil.
+ *
+ * Trae el perfil RECIÉN LEÍDO además de las ejecuciones, y no es relleno: el
+ * cerrojo, la hora de la última pasada y el «el fichero no ha cambiado» se
+ * mueven solos cada quince minutos, así que si el perfil viniera de la vista
+ * cargada al abrir la pantalla, la cabecera diría una cosa y la tabla de debajo
+ * otra.
+ */
+export interface EjecucionesResponse {
+  perfil: StockReadProfile
+  runs: StockProfileRun[]
+  /** Cuántas se han pedido: si vuelven justo esas, hay más sin enseñar */
+  limite: number
+}
+
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
 /**
@@ -102,6 +154,67 @@ export async function postAmazon<T>(url: string, body?: unknown): Promise<ApiRes
       body: JSON.stringify(body ?? {}),
     })
 
+    const payload = (await res.json().catch(() => null)) as (T & { error?: string }) | null
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          payload?.error ??
+          'No se ha podido completar la operación. Vuelve a intentarlo y avisa si sigue fallando.',
+      }
+    }
+    return { ok: true, data: payload as T }
+  } catch {
+    return { ok: false, error: 'No hay conexión con el servidor. Inténtalo otra vez.' }
+  }
+}
+
+/**
+ * Las otras tres formas de llamar, con el mismo contrato: NUNCA lanzan y
+ * devuelven un resultado discriminado.
+ *
+ * Están escritas aparte y no como un parámetro `method` de postAmazon porque la
+ * de subir ficheros tiene una diferencia que no se puede olvidar (ver abajo), y
+ * un parámetro opcional invita justo a olvidarla.
+ */
+export async function patchAmazon<T>(url: string, body: unknown): Promise<ApiResult<T>> {
+  return peticion<T>(url, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(body) })
+}
+
+/**
+ * Una lectura.
+ *
+ * `cache: 'no-store'` no es opcional: sin él, refrescar el historial de un
+ * perfil devolvería la respuesta que el navegador guardó hace diez minutos y la
+ * pantalla enseñaría como «última ejecución» una que ya no lo es. Es
+ * exactamente el dato que se está yendo a mirar.
+ */
+export async function getAmazon<T>(url: string): Promise<ApiResult<T>> {
+  return peticion<T>(url, { method: 'GET', cache: 'no-store' })
+}
+
+export async function deleteAmazon<T>(url: string): Promise<ApiResult<T>> {
+  return peticion<T>(url, { method: 'DELETE' })
+}
+
+/**
+ * Sube ficheros con FormData.
+ *
+ * NO SE PONE Content-Type A MANO, y es lo único importante de esta función: el
+ * navegador tiene que ponerlo él para incluir el `boundary` que separa las
+ * partes. Fijándolo a 'multipart/form-data' a secas, el servidor recibe un
+ * cuerpo que no sabe partir y contesta que no ha llegado ningún fichero.
+ */
+export async function subirAmazon<T>(url: string, form: FormData): Promise<ApiResult<T>> {
+  return peticion<T>(url, { method: 'POST', body: form })
+}
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+async function peticion<T>(url: string, init: RequestInit): Promise<ApiResult<T>> {
+  try {
+    const res = await fetch(url, init)
     const payload = (await res.json().catch(() => null)) as (T & { error?: string }) | null
 
     if (!res.ok) {

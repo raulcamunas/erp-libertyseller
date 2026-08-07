@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { loadAmazonData } from '@/lib/amazon/data'
+import { loadPerfiles } from '@/lib/stock-sync/perfiles'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { humanMessageOf } from '@/lib/amazon/errors'
 import { appIsDraft, lwaConfig } from '@/lib/amazon/lwa'
@@ -117,6 +118,24 @@ export default async function AmazonApiPage() {
   // reventar con una pantalla negra y un número de digest.
   if (data.missingTables) return <PendingMigrations />
 
+  /**
+   * La 120 se comprueba aparte y NO corta la pantalla: sin ella el catálogo y
+   * los envíos a mano funcionan igual, y lo único que falta es la pestaña de
+   * automatización, que lo explica por su cuenta. Cortar aquí dejaría sin
+   * módulo a quien solo quiere mirar precios.
+   *
+   * Y EL try/catch NO SOBRA. loadPerfiles solo atrapa por su cuenta el caso «la
+   * tabla no existe»; cualquier otro fallo de esas cuatro consultas —un
+   * permiso, un timeout de PostgREST— se propagaba y se llevaba por delante la
+   * pantalla entera, incluidos el catálogo y la edición a mano, que antes no
+   * tocaban ninguna de estas tablas. Un problema en lo nuevo no puede romper lo
+   * que ya funcionaba.
+   */
+  const perfiles = await loadPerfiles().catch((error) => {
+    console.error('No se han podido cargar los perfiles de automatización:', error)
+    return null
+  })
+
   return (
     // El alto fijo con scroll interno es el patrón de las pantallas con tabla
     // del ERP (Control empleados, Sincronismo de stock). Sin él, la tabla del
@@ -137,6 +156,7 @@ export default async function AmazonApiPage() {
       <div className="flex-1 min-h-0 min-w-0">
         <AmazonBoard
           initialData={data}
+          perfiles={perfiles}
           configError={configError()}
           // Se resuelve AQUÍ, en el servidor: appIsDraft() lee una variable de
           // entorno y en el navegador no existe. De esto depende que la

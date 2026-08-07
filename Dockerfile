@@ -29,7 +29,12 @@ RUN npm run build
 RUN chmod +x /app/docker-entrypoint.sh /app/scripts/supabase-ping.sh /app/scripts/google-calendar-sync.sh /app/scripts/amazon-sync.sh
 
 # Cron: ping a Supabase cada día a las 08:00 UTC + sync de Google Calendar cada
-# 3 min + refresco del catálogo de Amazon cada 15 min
+# 3 min + refresco del catálogo de Amazon y ciclo de stock cada 15 min.
+#
+# El ciclo de stock NO tiene línea propia: va detrás del refresco del catálogo,
+# dentro de la misma llamada, porque decide qué mandar contrastando contra ese
+# espejo. Con línea propia compararía contra la foto de hace un cuarto de hora y
+# volvería a proponer cambios ya enviados. Ver scripts/amazon-sync.sh.
 RUN { \
       echo "0 8 * * * /app/scripts/supabase-ping.sh"; \
       echo "*/3 * * * * /app/scripts/google-calendar-sync.sh"; \
