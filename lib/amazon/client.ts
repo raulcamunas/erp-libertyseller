@@ -42,6 +42,8 @@ export interface AmazonMutation extends AmazonView {
 export interface ConsentLinkResponse {
   url: string
   expiresAt: string
+  /** La URI de vuelta que espera el ERP, para cotejarla con la del portal de Amazon */
+  redirectUri: string | null
 }
 
 /**

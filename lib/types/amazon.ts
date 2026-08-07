@@ -98,7 +98,45 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
   { id: 'APJ6JRA9NG5V4', label: 'Italia', countryCode: 'IT', region: 'eu', currency: 'EUR' },
   { id: 'A1PA6795UKMFR9', label: 'Alemania', countryCode: 'DE', region: 'eu', currency: 'EUR' },
   { id: 'ATVPDKIKX0DER', label: 'Estados Unidos', countryCode: 'US', region: 'na', currency: 'USD' },
+
+  // El resto no sale en el selector (ver SELECTABLE_MARKETPLACE_IDS), pero
+  // tienen que estar para poder PONERLES NOMBRE. Amazon devuelve en las
+  // participaciones todos los países en los que la cuenta está dada de alta,
+  // y los que no estén aquí se pintan como «A1AM78C64UM0Y8» en la pantalla que
+  // ve el cliente al conectar. Paso de mostrar códigos en bruto a alguien de
+  // fuera de la agencia.
+  { id: 'A2EUQ1WTGCTBG2', label: 'Canadá', countryCode: 'CA', region: 'na', currency: 'CAD' },
+  { id: 'A1AM78C64UM0Y8', label: 'México', countryCode: 'MX', region: 'na', currency: 'MXN' },
+  { id: 'A2Q3Y263D00KWC', label: 'Brasil', countryCode: 'BR', region: 'na', currency: 'BRL' },
+  { id: 'A1F83G8C2ARO7P', label: 'Reino Unido', countryCode: 'GB', region: 'eu', currency: 'GBP' },
+  { id: 'A1C3SOZRARQ6R3', label: 'Polonia', countryCode: 'PL', region: 'eu', currency: 'PLN' },
+  { id: 'A2NODRKZP88ZB9', label: 'Suecia', countryCode: 'SE', region: 'eu', currency: 'SEK' },
+  { id: 'AMEN7PMS3EDWL', label: 'Bélgica', countryCode: 'BE', region: 'eu', currency: 'EUR' },
+  { id: 'A1805IZSGTT6HS', label: 'Países Bajos', countryCode: 'NL', region: 'eu', currency: 'EUR' },
+  { id: 'ARBP9OOSHTCHU', label: 'Egipto', countryCode: 'EG', region: 'eu', currency: 'EGP' },
+  { id: 'A33AVAJ2PDY3EV', label: 'Turquía', countryCode: 'TR', region: 'eu', currency: 'TRY' },
+  { id: 'A17E79C6D8DWNP', label: 'Arabia Saudí', countryCode: 'SA', region: 'eu', currency: 'SAR' },
+  { id: 'A2VIGQ35RCS4UG', label: 'Emiratos Árabes', countryCode: 'AE', region: 'eu', currency: 'AED' },
+  { id: 'A21TJRUUN4KGV', label: 'India', countryCode: 'IN', region: 'eu', currency: 'INR' },
+  { id: 'A19VAU5U5O7RUS', label: 'Singapur', countryCode: 'SG', region: 'fe', currency: 'SGD' },
+  { id: 'A39IBJ37TRP1C6', label: 'Australia', countryCode: 'AU', region: 'fe', currency: 'AUD' },
+  { id: 'A1VC38T7YXB528', label: 'Japón', countryCode: 'JP', region: 'fe', currency: 'JPY' },
 ]
+
+/**
+ * Los que salen en el selector al generar un enlace.
+ *
+ * La lista de arriba tiene que ser larga para poder poner nombres, pero un
+ * desplegable con veinte países en los que no vende nadie de la cartera solo
+ * consigue que cueste encontrar España. Añadir uno aquí es una línea.
+ */
+export const SELECTABLE_MARKETPLACE_IDS = new Set([
+  'A1RKKUPIHCS9HS',
+  'A13V1IB3VIYZZH',
+  'APJ6JRA9NG5V4',
+  'A1PA6795UKMFR9',
+  'ATVPDKIKX0DER',
+])
 
 const MARKETPLACES_BY_ID = new Map(AMAZON_MARKETPLACES.map((m) => [m.id, m]))
 
@@ -121,6 +159,21 @@ export function marketplaceLabel(id: string | null | undefined): string {
 
 export function marketplacesForRegion(region: AmazonRegion): AmazonMarketplace[] {
   return AMAZON_MARKETPLACES.filter((m) => m.region === region)
+}
+
+/**
+ * Los mercados de una región que se nombran en pantalla.
+ *
+ * La lista completa existe para poder PONER NOMBRE a lo que devuelva Amazon,
+ * no para recitarla: «Una sola autorización cubre España, Francia, Italia,
+ * Alemania, Reino Unido, Polonia, Suecia, Bélgica, Países Bajos, Egipto,
+ * Turquía, Arabia Saudí, Emiratos Árabes e India» no lo lee nadie y esconde
+ * justo el dato que importa, que es si está España.
+ */
+export function marketplacesPrincipales(region: AmazonRegion): AmazonMarketplace[] {
+  return AMAZON_MARKETPLACES.filter(
+    (m) => m.region === region && SELECTABLE_MARKETPLACE_IDS.has(m.id)
+  )
 }
 
 /** A qué región pertenece un marketplace, o null si no se conoce */

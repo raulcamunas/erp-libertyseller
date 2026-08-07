@@ -168,6 +168,18 @@ export interface ConsentLink {
   url: string
   /** Cuándo deja de valer, para poder decirlo en pantalla */
   expiresAt: string
+  /**
+   * La URI de redirección que el ERP espera, para poder enseñarla al lado del
+   * enlace y compararla de un vistazo con la del portal de Amazon.
+   *
+   * Existe porque este dato NO lo controla el ERP: la ruta de vuelta la decide
+   * lo que haya escrito en Developer Central, y si no coincide con esta, el
+   * cliente autoriza correctamente y acaba en un 404, que es el peor sitio
+   * donde descubrirlo. Ya pasó dos veces con «/callbackas» y «/callbacks», y
+   * las dos veces hizo falta mirar la barra de direcciones para verlo: una
+   * letra de más no se ve leyendo.
+   */
+  redirectUri: string | null
 }
 
 /**
@@ -190,7 +202,11 @@ export async function createConsentLink(params: {
 
   // buildConsentUrl añade version=beta mientras la aplicación esté en borrador.
   // Sin eso, Amazon contesta MD1000 con el cliente delante.
-  return { url: buildConsentUrl({ region: params.region, state }), expiresAt }
+  return {
+    url: buildConsentUrl({ region: params.region, state }),
+    expiresAt,
+    redirectUri: process.env.AMAZON_OAUTH_REDIRECT_URI ?? null,
+  }
 }
 
 /* ------------------------------------------------------------------ */

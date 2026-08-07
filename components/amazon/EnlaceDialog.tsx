@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import {
   AMAZON_REGIONS,
   AMAZON_REGION_IDS,
-  marketplacesForRegion,
+  marketplacesPrincipales,
   type AmazonClient,
   type AmazonRegion,
 } from '@/lib/types/amazon'
@@ -141,7 +141,7 @@ export function EnlaceDialog({
             </select>
             <p className="text-[11px] text-white/35 mt-1 leading-relaxed">
               Una sola autorización cubre{' '}
-              {marketplacesForRegion(region)
+              {marketplacesPrincipales(region)
                 .map((m) => m.label)
                 .join(', ')}
               . Si el cliente vende además en otra región, necesita un enlace aparte para esa.
@@ -189,6 +189,26 @@ export function EnlaceDialog({
             onFocus={(e) => e.currentTarget.select()}
             className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-2 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors break-all resize-none"
           />
+
+          {/* La ruta de vuelta NO la decide el ERP, la decide lo que haya
+              escrito en Developer Central. Si no coinciden, el cliente autoriza
+              bien y acaba en un 404 — y una letra de más no se ve leyendo:
+              «/callbacks» y «/callbackas» pasaron las dos por aquí sin que
+              nadie las notara hasta mirar la barra de direcciones. Enseñarla
+              aquí al lado convierte eso en una comparación de dos segundos. */}
+          {link.redirectUri && (
+            <div className={infoBox}>
+              <p className="mb-1.5">
+                En Developer Central, la <span className="text-white/80">URI de redirección</span>{' '}
+                tiene que ser exactamente esta:
+              </p>
+              <code className="block text-[11px] text-[#FF6600] break-all">{link.redirectUri}</code>
+              <p className="mt-1.5 text-white/40">
+                Si sobra o falta una letra, el cliente autoriza bien pero acaba en una página de
+                error.
+              </p>
+            </div>
+          )}
 
           <div className={warnBox}>
             Caduca el{' '}
