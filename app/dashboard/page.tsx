@@ -4,7 +4,6 @@ import { redirect } from 'next/navigation'
 import { apps } from '@/lib/config/apps'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -96,8 +95,7 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredApps.map((app) => {
           const Icon = app.icon
-          const isActive = app.status === 'active'
-          
+
           return (
             <Link
               key={app.id}
@@ -105,20 +103,14 @@ export default async function DashboardPage() {
               className="group"
             >
               <div className="glass-card p-6 h-full transition-all duration-300 hover:scale-[1.02] hover:border-[#FF6600]/30 cursor-pointer relative overflow-hidden">
-                {/* Status Indicator */}
-                {isActive && (
-                  <div className="absolute top-4 right-4">
-                    <div className="w-2 h-2 bg-[#FF6600] rounded-full animate-pulse" />
-                  </div>
-                )}
-
-                {/* Icon */}
-                <div className={cn(
-                  "w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors",
-                  isActive 
-                    ? "bg-[#FF6600]/[0.1] text-[#FF6600]" 
-                    : "bg-white/[0.05] text-white/50"
-                )}>
+                {/* Todos los iconos en naranja, sin punto de estado.
+                    Antes el color y un punto parpadeante salían de app.status:
+                    naranja los 'active' y gris apagado los 'new'. Como 'new' se
+                    le pone a cada módulo recién hecho y nadie se lo quita
+                    después, el efecto acababa siendo el contrario del que se
+                    buscaba: lo más nuevo parecía lo apagado, y media rejilla
+                    quedaba en gris sin que eso significara nada. */}
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 bg-[#FF6600]/[0.1] text-[#FF6600] transition-colors">
                   <Icon className="h-6 w-6" />
                 </div>
 
