@@ -3,9 +3,10 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { CalendarOff, Palmtree, TrendingUp } from 'lucide-react'
+import { AlarmClock, CalendarOff, Palmtree, TrendingUp } from 'lucide-react'
 import { monthKeyOf } from '@/lib/types/employees'
 import {
+  formatDayLong,
   formatDays,
   vacationBalance,
   type VacationEmployee,
@@ -155,20 +156,48 @@ export function MisVacaciones({ employee, initialData }: MisVacacionesProps) {
         ) : (
           <div className="relative">
             <p className="text-[10px] uppercase tracking-[0.14em] text-white/40 flex items-center gap-1.5">
-              <TrendingUp className="h-3 w-3" /> Puedes pedir
+              <TrendingUp className="h-3 w-3" /> Puedes pedir en {balance.year}
             </p>
             <p className="text-white font-bold text-[34px] sm:text-[44px] leading-none mt-1.5 tabular-nums">
               {formatDays(balance.available)}
             </p>
             <p className="text-[11px] text-white/45 mt-1.5 max-w-lg leading-relaxed">
               Generas {formatDays(ficha.vacation_days_per_month ?? 0)} por cada mes completo que
-              trabajas. Solo cuentan de lunes a viernes, y hay que avisar con un mes de antelación.
+              trabajas, y el período es el año natural: del 1 de enero al 31 de diciembre. Solo
+              cuentan de lunes a viernes, y hay que avisar con un mes de antelación.
             </p>
+
+            {/* LO QUE SE CADUCA, EN EL SITIO MÁS VISIBLE DE LA PANTALLA.
+                Enterarse en abril de que se han perdido cinco días no sirve de
+                nada: el aviso tiene que estar donde se mira el saldo, con la
+                fecha delante y mientras todavía se pueda hacer algo. */}
+            {/* En AMARILLO y no en ámbar: el amarillo es el código de aviso de
+                todo el ERP y es el único tono que la capa `html.light` de
+                globals.css sabe traducir. El ámbar no está ahí, así que en tema
+                claro este aviso —el más importante de la pantalla— salía a
+                1,10:1 de contraste, es decir, invisible. */}
+            {balance.carriedLeft > 0 && (
+              <p className="mt-2.5 inline-flex items-start gap-1.5 rounded-lg border border-yellow-500/25 bg-yellow-400/[0.06] px-2.5 py-1.5 text-[11px] text-yellow-300 leading-snug max-w-lg">
+                <AlarmClock className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                <span>
+                  <strong className="font-semibold">
+                    {formatDays(balance.carriedLeft)} te caducan el{' '}
+                    {formatDayLong(balance.carriedExpiresOn)}
+                  </strong>
+                  : son los que te sobraron de {balance.year - 1}. Se gastan antes que los de este
+                  año, así que todo lo que pidas hasta esa fecha sale de ahí. Lo que quede el 1 de
+                  abril se pierde.
+                </span>
+              </p>
+            )}
           </div>
         )}
       </motion.div>
 
-      <BalanceResumen employee={ficha} balance={balance} size="amplio" />
+      {/* El aviso de caducidad ya va arriba, en el héroe. Sin `sinAvisoCaducidad`
+          BalanceResumen pintaba el suyo justo debajo: el mismo párrafo dos veces
+          seguidas, y un aviso repetido deja de leerse. */}
+      <BalanceResumen employee={ficha} balance={balance} size="amplio" sinAvisoCaducidad />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-w-0">
         {/* Pedir días */}

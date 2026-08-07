@@ -9,8 +9,8 @@ import { toMadrid } from '@/lib/timezone'
  * API, y es lo que permite que la pantalla enseñe «te va a costar 4 días»
  * mientras se arrastra el ratón por el calendario, antes de que exista fila.
  *
- * LAS CUATRO COSAS QUE HAY QUE ENTENDER ANTES DE TOCAR ESTO
- * --------------------------------------------------------
+ * LAS CINCO COSAS QUE HAY QUE ENTENDER ANTES DE TOCAR ESTO
+ * -------------------------------------------------------
  * 1) EL DERECHO ES UN CAMPO DE LA FICHA, NO UNA LISTA DE NOMBRES.
  *    `vacation_days_per_month` a NULL significa «esta persona no genera
  *    vacaciones», que NO es lo mismo que cero. Aquí no hay ni un nombre
@@ -29,6 +29,13 @@ import { toMadrid } from '@/lib/timezone'
  *    Se generan días por mes COMPLETO trabajado. El mes a medias se devuelve
  *    aparte (`inProgress`) para que la pantalla lo enseñe como «en curso», no
  *    sumado.
+ *
+ * 5) EL PERÍODO ES EL AÑO NATURAL, Y LO QUE SOBRA CADUCA EL 31 DE MARZO.
+ *    Cada saldo habla SIEMPRE de un año concreto (1 de enero – 31 de
+ *    diciembre). Lo que queda al cerrarlo se arrastra al siguiente y vive
+ *    hasta el 31 de marzo; a partir del 1 de abril desaparece. Y el arrastre
+ *    se gasta ANTES que el devengo del año nuevo. La explicación larga está
+ *    en la sección «El período: EL AÑO NATURAL», más abajo.
  *
  * EL DESFASE DE UN DÍA — LO QUE MÁS FÁCIL SE ROMPE AQUÍ
  * ----------------------------------------------------
@@ -349,75 +356,171 @@ export function workingDaysBetween(from: string, to: string, holidays?: Holidays
 }
 
 // ---------------------------------------------------------------------------
-// Devengo: cuántos días ha generado
+// El período: EL AÑO NATURAL
 // ---------------------------------------------------------------------------
 
 /**
- * El aniversario mensual del alta: `startedOn` desplazado n meses.
+ * EL DEVENGO SE CUENTA POR AÑO NATURAL, DEL 1 DE ENERO AL 31 DE DICIEMBRE.
  *
- * Se ajusta al último día del mes cuando hace falta, y ese detalle importa:
- * quien entró un 31 de enero cumple su primer mes el 28 de febrero, no el 3
- * de marzo. Sin el ajuste, a esa persona se le retrasarían tres días el
- * devengo de cada mes corto.
+ * Antes se contaba de corrido desde la fecha de alta de cada persona y no
+ * caducaba nunca. Se cambió por tres motivos, y conviene que estén escritos
+ * porque nada de lo de abajo se entiende sin ellos:
+ *
+ *   1) CADA PERSONA TENÍA SU PROPIO CALENDARIO. Daniella entró en marzo y
+ *      Yasury en junio: eran dos períodos distintos conviviendo, y con cada
+ *      alta habría uno más. Con el año natural el período es el mismo para
+ *      todo el equipo y se puede hablar de «las vacaciones de 2027».
+ *
+ *   2) LA TARIFA YA ESTABA PENSADA PARA UN AÑO NATURAL: 1,83 × 12 = 21,96 ≈ 22
+ *      días laborables, que es justo el mínimo legal español de 30 días
+ *      naturales. Contando de corrido ese número no cuadraba con nada.
+ *
+ *   3) UN SALDO QUE NO CADUCA NUNCA NO ES UN SALDO. Lo que sobra al acabar el
+ *      año se arrastra hasta el 31 DE MARZO del siguiente y ahí se pierde, que
+ *      es lo habitual en España y evita que un diciembre cargado le cueste los
+ *      días a alguien.
+ *
+ * EL PRIMER AÑO VA PROPORCIONAL: quien entra en marzo devenga de marzo a
+ * diciembre, no doce meses.
+ *
+ * Y EL ARRASTRE SE GASTA PRIMERO. Si en febrero se piden días, salen del
+ * arrastre antes que del devengo del año nuevo, porque el arrastre caduca en
+ * marzo y el otro no. Al revés, alguien perdería días teniéndolos gastados y
+ * sin que nada lo dijera. Está en `carriedInto` y en `vacationBalance`, no es
+ * una convención de la pantalla.
+ *
+ * EL MES DE DEVENGO ES EL MES DE CALENDARIO, NO EL ANIVERSARIO DEL ALTA.
+ * Aquí había un `monthAnniversary` que contaba ciclos del 15 al 15, y se ha
+ * quitado a propósito: NO PUEDE HABER DOS NOCIONES DE «MES COMPLETO» EN ESTE
+ * FICHERO. Con ciclos de aniversario, un año natural entero da once meses y
+ * pico —el ciclo que arranca en diciembre se cierra en enero—, la cuenta de
+ * 1,83 × 12 deja de salir, y cuántos meses cae en cada año depende del día del
+ * mes en que entró cada persona. Con meses de calendario, un año completo son
+ * doce y punto.
+ *
+ * Un mes cuenta si se ha trabajado ENTERO: quien entra el 15 de marzo no
+ * devenga marzo —su primer mes es abril—, igual que el mes en curso no suma
+ * hasta que termina. Es la regla de siempre («solo meses completos»), solo que
+ * el mes ahora empieza el día 1. Para las tres fichas reales no cambia ni un
+ * decimal: las tres altas son día 1.
  */
-export function monthAnniversary(startedOn: string, n: number): string {
-  const [y, m, d] = dayKeyOf(startedOn).split('-').map(Number)
-  const total = m - 1 + n
-  const yy = y + Math.floor(total / 12)
-  const mm = (((total % 12) + 12) % 12) + 1
-  return `${yy}-${pad(mm)}-${pad(Math.min(d, daysInMonth(yy, mm)))}`
+
+/** El año de una clave de día. Sigue siendo texto: ni un Date, ni un huso */
+export function yearOf(key: string): number {
+  return Number(dayKeyOf(key).slice(0, 4))
+}
+
+export function firstDayOfYear(year: number): string {
+  return `${year}-01-01`
+}
+
+export function lastDayOfYear(year: number): string {
+  return `${year}-12-31`
 }
 
 /**
- * MESES COMPLETOS TRABAJADOS entre el alta y la fecha de referencia.
- *
- * Completos: quien entró el 15 de abril tiene su primer mes el 15 de mayo. El
- * 14 de mayo lleva CERO meses, no medio. Es lo que hace que el mes en curso
- * se enseñe aparte en vez de sumar.
- *
- * `endedOn` corta la cuenta: quien se fue en junio no sigue generando días en
- * agosto. Y se cuenta contra la fecha de baja aunque sea futura, porque a
- * partir de ahí ya no devenga.
+ * El día 1 de un mes. `month` puede valer 13: devuelve el 1 de enero del año
+ * siguiente, que es lo que hace falta para preguntar «¿ha terminado ya
+ * diciembre?» sin un caso especial.
  */
-export function completedMonthsWorked(
-  startedOn: string | null,
-  reference: string,
-  endedOn?: string | null
-): number {
-  if (!startedOn) return 0
-
-  const start = dayKeyOf(startedOn)
-  let end = dayKeyOf(reference)
-  if (endedOn && dayKeyOf(endedOn) < end) end = dayKeyOf(endedOn)
-  if (end < start) return 0
-
-  const [y1, m1, d1] = start.split('-').map(Number)
-  const [y2, m2, d2] = end.split('-').map(Number)
-
-  let months = (y2 - y1) * 12 + (m2 - m1)
-  // El aniversario de ESE mes, con el ajuste de fin de mes: si entró un 31 y
-  // el mes de destino tiene 30 días, cumple el 30.
-  const anniversary = Math.min(d1, daysInMonth(y2, m2))
-  if (d2 < anniversary) months -= 1
-
-  return Math.max(0, months)
+export function firstDayOfMonth(year: number, month: number): string {
+  const total = month - 1
+  const y = year + Math.floor(total / 12)
+  const m = (((total % 12) + 12) % 12) + 1
+  return `${y}-${pad(m)}-01`
 }
 
-/** El tramo mensual que todavía no se ha completado. Nunca suma al saldo */
+/**
+ * HASTA CUÁNDO VIVE EL ARRASTRE DEL AÑO ANTERIOR: el 31 de marzo, incluido.
+ * Del 1 de abril en adelante, lo que quede de él desaparece.
+ */
+export function carryOverDeadline(year: number): string {
+  return `${year}-03-31`
+}
+
+/** ¿Sigue vivo, a fecha de `reference`, el arrastre que entró en `year`? */
+export function carryOverAlive(year: number, reference: string): boolean {
+  return dayKeyOf(reference) <= carryOverDeadline(year)
+}
+
+// ---------------------------------------------------------------------------
+// Devengo: cuántos días genera dentro de un año
+// ---------------------------------------------------------------------------
+
+/**
+ * LOS MESES DE `year` QUE ESA PERSONA HA TRABAJADO ENTEROS.
+ *
+ * Un mes de calendario cuenta si se cumplen tres cosas:
+ *   - entró el día 1 o antes (quien entra el 15 no devenga ese mes),
+ *   - no se había ido antes de que el mes se cerrara,
+ *   - y el mes ya se ha cerrado a fecha de `reference`.
+ *
+ * `reference` a null quita la tercera condición, y eso es la PROYECCIÓN: «los
+ * meses que este año llegará a devengar». La pantalla enseña las dos cifras,
+ * lo devengado y lo que sumará al terminar el año.
+ *
+ * `ended_on` se lee igual que siempre —«deja de generar a partir de aquí»—, o
+ * sea que el mes cuenta solo si la baja es posterior al día en que el mes se
+ * cierra. Es la misma semántica que tenía el cálculo continuo.
+ *
+ * EL 31 DE DICIEMBRE, DICIEMBRE TODAVÍA NO CUENTA, Y ES A PROPÓSITO. Un mes se
+ * cierra el día 1 del siguiente, así que ese día Daniella marca 16,47 y no
+ * 18,30: aún le queda por trabajar el 31. Es exactamente la misma regla que
+ * hace que hoy, 7 de agosto, agosto no sume —y la que da los 9,15 y 3,66 que se
+ * validaron contra producción—, así que adelantar el cierre al último día del
+ * mes para que el 31 de diciembre cuadre rompería la regla en los otros once.
+ * La pantalla ya enseña las dos cifras (`generated` y `yearTotal`), el desfase
+ * dura un día y se corrige solo el 1 de enero. QUEDA DECIDIDO ASÍ.
+ *
+ * Doce vueltas y comparaciones de texto: ni un Date, ni un huso horario.
+ */
+export function accrualMonthsInYear(
+  startedOn: string | null,
+  endedOn: string | null,
+  year: number,
+  reference?: string | null
+): number {
+  if (!startedOn) return 0
+  const start = dayKeyOf(startedOn)
+  const leaves = endedOn ? dayKeyOf(endedOn) : null
+  const today = reference ? dayKeyOf(reference) : null
+
+  let months = 0
+  for (let m = 1; m <= 12; m += 1) {
+    const opens = firstDayOfMonth(year, m)
+    const closes = firstDayOfMonth(year, m + 1)
+    if (start > opens) continue
+    if (leaves && leaves < closes) continue
+    if (today && today < closes) continue
+    months += 1
+  }
+  return months
+}
+
+/** El mes de calendario en curso. Nunca suma al saldo hasta que se cierra */
 export interface VacationAccrualInProgress {
-  /** Día en que empezó este tramo ('yyyy-MM-dd') */
+  /** Día 1 del mes en curso ('yyyy-MM-dd') */
   from: string
-  /** Día en que se completará y se cobrarán los días ('yyyy-MM-dd') */
+  /** El día en que se cierra y se cobran los días: el 1 del mes siguiente */
   completesOn: string
-  /** Días naturales ya transcurridos del tramo */
+  /** Días naturales ya transcurridos del mes */
   daysElapsed: number
-  /** Días naturales que dura el tramo entero */
+  /** Días naturales que dura el mes entero */
   daysInCycle: number
-  /** Lo que se añadirá al saldo al completarlo */
+  /** Lo que añadirá al saldo al cerrarse. 0 si ese mes no va a contar */
   willAdd: number
+  /**
+   * `false` cuando ese mes NO va a contar: es el mes en que entró (ya
+   * empezado) o el mes en que se va. Se devuelve en vez de omitirlo para que
+   * la pantalla pueda decir «este mes no cuenta, entraste el día 15» en lugar
+   * de callarse y parecer que se ha perdido un mes por el camino.
+   */
+  counts: boolean
 }
 
 export interface VacationAccrual {
+  /** El AÑO NATURAL del que habla este devengo */
+  year: number
   /**
    * La fecha de alta con la que se ha contado. Va en el resultado a propósito:
    * en varias fichas `started_on` lo dedujo la migración 112 del primer mes en
@@ -430,11 +533,17 @@ export interface VacationAccrual {
   endedOn: string | null
   /** Tarifa de la ficha. null = esta persona no genera vacaciones */
   perMonth: number | null
-  /** Meses COMPLETOS trabajados hasta la fecha de referencia */
+  /** Meses de ESE AÑO ya trabajados enteros a fecha de referencia */
   monthsCompleted: number
-  /** Días generados = meses completos × tarifa */
+  /** Días devengados en el año = meses cerrados × tarifa */
   generated: number
-  /** El mes a medias. null si aún no ha empezado, si ya está de baja o si no genera */
+  /** Meses de ese año que llegará a devengar (alta y baja incluidas) */
+  monthsInYear: number
+  /** Lo que devengará el año ENTERO = monthsInYear × tarifa */
+  yearTotal: number
+  /** yearTotal − generated: lo que le queda por devengar antes de fin de año */
+  remaining: number
+  /** El mes a medias. null si el año no es el de hoy, si aún no ha empezado o si está de baja */
   inProgress: VacationAccrualInProgress | null
   /** No genera vacaciones (la ficha no tiene tarifa) */
   accrues: boolean
@@ -448,15 +557,19 @@ export function round2(n: number): number {
 }
 
 /**
- * CUÁNTAS VACACIONES HA GENERADO, y de qué fecha se está contando.
+ * CUÁNTAS VACACIONES DEVENGA EN ESE AÑO, y de qué fecha se está contando.
  *
- * Meses completos × tarifa. El mes en curso se devuelve aparte en
- * `inProgress` y NO está sumado en `generated`: aún no se ha completado, y un
+ * Meses de calendario cerrados × tarifa. El mes en curso se devuelve aparte en
+ * `inProgress` y NO está sumado en `generated`: aún no se ha cerrado, y un
  * saldo que se lo apuntara dejaría gastar días que todavía no existen.
+ *
+ * `year` por defecto es el año de `reference`, que es el caso normal. Se puede
+ * pedir otro para mirar un año cerrado o para proyectar el que viene.
  */
 export function vacationAccrual(
   employee: VacationEmployee,
-  reference: string
+  reference: string,
+  year: number = yearOf(reference)
 ): VacationAccrual {
   const perMonth =
     employee.vacation_days_per_month == null ? null : Number(employee.vacation_days_per_month)
@@ -465,11 +578,15 @@ export function vacationAccrual(
   const accrues = perMonth != null && Number.isFinite(perMonth)
 
   const base: VacationAccrual = {
+    year,
     startedOn,
     endedOn,
     perMonth: accrues ? perMonth : null,
     monthsCompleted: 0,
     generated: 0,
+    monthsInYear: 0,
+    yearTotal: 0,
+    remaining: 0,
     inProgress: null,
     accrues,
     missingStartDate: accrues && !startedOn,
@@ -478,55 +595,368 @@ export function vacationAccrual(
   if (!accrues || !startedOn) return base
 
   const today = dayKeyOf(reference)
-  const monthsCompleted = completedMonthsWorked(startedOn, today, endedOn)
-  const generated = round2(monthsCompleted * (perMonth as number))
+  const rate = perMonth as number
 
-  // El tramo en curso solo existe si la persona ya ha empezado y no ha
-  // terminado. Quien tiene fecha de baja pasada ya no devenga nada más.
+  const monthsCompleted = accrualMonthsInYear(startedOn, endedOn, year, today)
+  const monthsInYear = accrualMonthsInYear(startedOn, endedOn, year, null)
+  const generated = round2(monthsCompleted * rate)
+  const yearTotal = round2(monthsInYear * rate)
+
+  // El mes a medias solo existe DENTRO DEL AÑO EN CURSO: un año ya cerrado no
+  // tiene mes a medias, y uno futuro no ha empezado. Y solo si la persona ya
+  // ha entrado y no se ha ido.
   let inProgress: VacationAccrualInProgress | null = null
   const stillAccruing = today >= startedOn && (!endedOn || today < endedOn)
-  if (stillAccruing) {
-    const from = monthAnniversary(startedOn, monthsCompleted)
-    const completesOn = monthAnniversary(startedOn, monthsCompleted + 1)
+  if (stillAccruing && year === yearOf(today)) {
+    const month = Number(today.slice(5, 7))
+    const from = firstDayOfMonth(year, month)
+    const completesOn = firstDayOfMonth(year, month + 1)
+    const counts = startedOn <= from && (!endedOn || endedOn >= completesOn)
     inProgress = {
       from,
       completesOn,
       daysElapsed: Math.max(0, daysBetween(from, today)),
       daysInCycle: Math.max(1, daysBetween(from, completesOn)),
-      willAdd: round2(perMonth as number),
+      willAdd: counts ? round2(rate) : 0,
+      counts,
     }
   }
 
-  return { ...base, monthsCompleted, generated, inProgress }
+  return {
+    ...base,
+    monthsCompleted,
+    generated,
+    monthsInYear,
+    yearTotal,
+    remaining: round2(yearTotal - generated),
+    inProgress,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Repartir una petición entre años
+// ---------------------------------------------------------------------------
+
+/**
+ * LA PETICIÓN A CABALLO ENTRE DOS AÑOS —del 28 de diciembre al 4 de enero—.
+ *
+ * Es el caso que nadie prueba y el que descuadra el saldo en enero, así que
+ * queda decidido y escrito:
+ *
+ *   LOS DÍAS SE IMPUTAN AL AÑO EN QUE CAEN LAS FECHAS DISFRUTADAS, DÍA A DÍA.
+ *   Del 28 de diciembre al 4 de enero son 4 días laborables de un año y 2 del
+ *   otro. No 6 del año en que se pidió, ni 6 del año en que empieza el rango,
+ *   ni 6 del año en que acaba. La fecha en que se TECLEÓ la petición no
+ *   aparece en esta cuenta por ningún lado: una petición hecha en diciembre
+ *   para enero gasta días de enero.
+ *
+ *   Y EL ÚLTIMO AÑO DEL RANGO SE QUEDA CON EL RESTO, no con lo que salga de
+ *   recontarlo. `working_days` está CONGELADO en la fila desde que se pidió
+ *   (migración 116: es lo que se descontó del saldo, y un calendario de
+ *   festivos futuro no puede reescribir el pasado). Si al repartirlo el
+ *   calendario de hoy no diera esa misma cifra, la diferencia va al ÚLTIMO
+ *   año, que es el que sigue abierto y en el que todavía se puede hacer algo;
+ *   los años anteriores se quedan con su cuenta de calendario, que ya está
+ *   cerrada y no puede moverse sola. Así la suma de los trozos es SIEMPRE
+ *   exactamente `working_days`: repartir no crea ni destruye días de nadie.
+ *
+ * Es la misma técnica que ya usaban `taken` y `booked`, que se deducen uno del
+ * otro contra el total guardado en vez de recalcularse por separado.
+ */
+function cumulativeWorkingDays(
+  start: string,
+  end: string,
+  total: number,
+  day: string,
+  holidays?: Holidays
+): number {
+  if (day < start) return 0
+  // Pasado el último día del rango ya se ha consumido TODO el total congelado.
+  // Este escalón es lo que hace que los trozos sumen la cifra guardada.
+  if (day >= end) return total
+  return Math.min(total, workingDaysBetween(start, day, holidays))
+}
+
+export interface VacationYearDays {
+  year: number
+  days: number
+}
+
+/**
+ * Reparte por año natural los días laborables de un rango.
+ * `total` es la cifra que manda: la suma de los trozos la respeta siempre.
+ */
+export function workingDaysByYear(
+  startDate: string,
+  endDate: string,
+  total: number,
+  holidays?: Holidays
+): VacationYearDays[] {
+  const start = dayKeyOf(startDate)
+  const end = dayKeyOf(endDate)
+  if (end < start) return []
+
+  const from = yearOf(start)
+  const to = yearOf(end)
+
+  // Un rango de más de cinco años es un dedazo en el año, no unas vacaciones
+  // (mismo tope que `dayRange`). Se imputa entero al año en que empieza en vez
+  // de recorrer siglos de años vacíos.
+  if (daysBetween(start, end) + 1 > MAX_RANGE_DAYS) {
+    return [{ year: from, days: round2(total) }]
+  }
+
+  const out: VacationYearDays[] = []
+  let previous = 0
+  for (let y = from; y <= to; y += 1) {
+    const upTo = cumulativeWorkingDays(start, end, total, lastDayOfYear(y), holidays)
+    out.push({ year: y, days: round2(upTo - previous) })
+    previous = upTo
+  }
+  return out
+}
+
+/** Lo mismo para una petición ya guardada, con su `working_days` congelado */
+export function requestDaysByYear(
+  request: VacationRequest,
+  holidays?: Holidays
+): VacationYearDays[] {
+  return workingDaysByYear(
+    request.start_date,
+    request.end_date,
+    Number(request.working_days) || 0,
+    holidays
+  )
 }
 
 // ---------------------------------------------------------------------------
 // El saldo
 // ---------------------------------------------------------------------------
 
+/** Lo que una persona compromete DENTRO de un año, ya repartido por fechas */
+interface YearConsumption {
+  approved: number
+  pending: number
+  pendingCount: number
+  /** De lo aprobado, lo que ya se ha disfrutado a fecha de hoy */
+  taken: number
+  /** De todo lo comprometido (aprobado + pendiente), lo que cae hasta el 31 de marzo */
+  untilDeadline: number
+  /** Y lo que cae del 1 de abril en adelante */
+  afterDeadline: number
+}
+
+/**
+ * Todo lo que esa persona compromete en `year`, con las peticiones ya
+ * repartidas por fechas. Las rechazadas y las canceladas no reservan nada.
+ */
+function consumptionInYear(
+  requests: VacationRequest[],
+  employeeId: string,
+  year: number,
+  today: string,
+  holidays?: Holidays
+): YearConsumption {
+  const yearStart = firstDayOfYear(year)
+  const yearEnd = lastDayOfYear(year)
+  const previousEnd = lastDayOfYear(year - 1)
+  const deadline = carryOverDeadline(year)
+  // Lo disfrutado es lo laborable ANTERIOR a hoy, topado al año que se mira:
+  // en un año ya cerrado está todo disfrutado, y en uno futuro no hay nada.
+  const enjoyedUntil = addDays(dayKeyOf(today), -1) < yearEnd ? addDays(dayKeyOf(today), -1) : yearEnd
+
+  const out: YearConsumption = {
+    approved: 0,
+    pending: 0,
+    pendingCount: 0,
+    taken: 0,
+    untilDeadline: 0,
+    afterDeadline: 0,
+  }
+
+  for (const r of requests) {
+    if (r.employee_id !== employeeId) continue
+    if (!BLOCKING_STATUSES.includes(r.status)) continue
+
+    const start = dayKeyOf(r.start_date)
+    const end = dayKeyOf(r.end_date)
+    // Una fila con el rango del revés se salta en vez de restar días negativos.
+    if (end < start) continue
+    if (end < yearStart || start > yearEnd) continue
+
+    const total = Number(r.working_days) || 0
+    const upToPrevious = cumulativeWorkingDays(start, end, total, previousEnd, holidays)
+    const upToDeadline = cumulativeWorkingDays(start, end, total, deadline, holidays)
+    const upToYearEnd = cumulativeWorkingDays(start, end, total, yearEnd, holidays)
+
+    const inYear = Math.max(0, upToYearEnd - upToPrevious)
+    if (inYear === 0) continue
+
+    out.untilDeadline += Math.max(0, upToDeadline - upToPrevious)
+    out.afterDeadline += Math.max(0, upToYearEnd - upToDeadline)
+
+    if (r.status === 'pendiente') {
+      out.pending += inYear
+      out.pendingCount += 1
+      continue
+    }
+
+    out.approved += inYear
+    const upToToday = cumulativeWorkingDays(start, end, total, enjoyedUntil, holidays)
+    out.taken += Math.max(0, upToToday - upToPrevious)
+  }
+
+  return out
+}
+
+/**
+ * Tope de años que se encadenan hacia atrás al calcular el arrastre. Existe
+ * por lo mismo que MAX_RANGE_DAYS: un `started_on` con un dedazo en el año
+ * (0202 en vez de 2026) no puede convertir un `useMemo` en un bucle de dos mil
+ * vueltas por empleado.
+ */
+const MAX_CARRY_YEARS = 50
+
+/**
+ * LO QUE SE ARRASTRA AL EMPEZAR `year`: el saldo con el que se cerró el
+ * anterior. POSITIVO son días que sobraron; NEGATIVO, días que se gastaron de
+ * más.
+ *
+ * Se ENCADENA año a año desde el alta en vez de mirar solo el anterior, y hace
+ * falta: el arrastre caduca, así que no basta con «lo que sobró», hay que
+ * saber cuánto de ello se llegó a gastar antes del 31 de marzo. Cada vuelta
+ * del bucle cierra un año con las mismas reglas con las que se vive el año en
+ * curso, de modo que no hay dos cuentas distintas que puedan discrepar.
+ *
+ * ES UN DATO CALCULADO Y NO UNA COLUMNA, A PROPÓSITO: sale entero de
+ * `started_on`, de la tarifa y de las peticiones, que ya están guardadas. Una
+ * columna «arrastre» habría que mantenerla al día con un proceso de fin de año
+ * y se desincronizaría en cuanto alguien corrigiera una fecha de alta o
+ * anulara unas vacaciones viejas. Por eso NO hay migración 118.
+ *
+ * EL AÑO SE CIERRA ENTERO: aquí no entra la fecha de hoy. Un año pasado
+ * devengó sus doce meses, y para proyectar el arrastre del año que viene hay
+ * que contar el año en curso completo, no hasta hoy.
+ *
+ * LA DEUDA NO CADUCA. Si alguien gastó de más —el módulo avisa pero no lo
+ * impide—, esos días lastran el año siguiente en vez de perdonarse solos el 1
+ * de enero. Solo lo que SOBRA caduca; regalar lo que falta sería premiar
+ * pasarse.
+ *
+ * PENDIENTE DE DECIDIR, Y NO SE TOCA HASTA QUE SE DECIDA: A QUIEN CAUSA BAJA
+ * SE LE SIGUE CADUCANDO EL SALDO EL 31 DE MARZO SIGUIENTE. El bucle cierra
+ * años después de `ended_on` como si la persona siguiera en plantilla, así que
+ * los días devengados y no disfrutados el día que se fue desaparecen del ERP
+ * en el siguiente 31 de marzo (alta 2025-01-01 y baja 2026-07-01: los 10,98
+ * que le quedaban se esfuman el 2027-03-31). Para un finiquito eso es justo lo
+ * contrario de lo que hace falta —los días no disfrutados de quien se va se
+ * PAGAN, no caducan—, pero «cuánto se liquida y cómo se enseña» es una
+ * decisión de dirección, no del código, y no estaba en el encargo del año
+ * natural. Cambiarlo por nuestra cuenta movería el saldo de las bajas sin que
+ * nadie lo hubiera pedido. Hay que resolverlo ANTES de que haya una baja de
+ * verdad: lo mínimo sería congelar `leftover` en cuanto `ended_on` quede por
+ * detrás del año que se cierra y marcar esa cifra como «pendiente de liquidar»
+ * en vez de sumarla al disponible.
+ */
+export function carriedInto(
+  employee: VacationEmployee,
+  requests: VacationRequest[],
+  year: number,
+  holidays?: Holidays
+): number {
+  const perMonth =
+    employee.vacation_days_per_month == null ? null : Number(employee.vacation_days_per_month)
+  if (perMonth == null || !Number.isFinite(perMonth)) return 0
+
+  const startedOn = employee.started_on ? dayKeyOf(employee.started_on) : null
+  if (!startedOn) return 0
+
+  const endedOn = employee.ended_on ? dayKeyOf(employee.ended_on) : null
+
+  /**
+   * EL ENCADENADO ARRANCA EN EL PRIMER AÑO CON ACTIVIDAD, QUE NO SIEMPRE ES EL
+   * DEL ALTA. Si hay peticiones con fechas ANTERIORES a `started_on` —alguien a
+   * quien se da de alta cuando ya venía disfrutando días, o una fecha de alta
+   * corregida hacia adelante después de haber metido peticiones—, esos días se
+   * gastaron igual y la deuda que dejaron tiene que lastrar los años siguientes
+   * como cualquier otra. Cortando en el año del alta, el consumo de esos años
+   * se quedaba fuera del encadenado y la deuda SE PERDONABA SOLA, en contra de
+   * la regla de aquí abajo.
+   */
+  let firstYear = yearOf(startedOn)
+  for (const r of requests) {
+    if (r.employee_id !== employee.id) continue
+    if (!BLOCKING_STATUSES.includes(r.status)) continue
+    const y = yearOf(r.start_date)
+    if (y < firstYear) firstYear = y
+  }
+  // El primer año con actividad no arrastra nada de antes: ahí empieza todo.
+  if (year <= firstYear) return 0
+
+  let leftover = 0
+  for (let y = Math.max(firstYear, year - MAX_CARRY_YEARS); y < year; y += 1) {
+    const usable = Math.max(0, leftover)
+    const debt = Math.max(0, -leftover)
+    // El «hoy» que se le pasa es el fin de ese año: se está cerrando entero.
+    const c = consumptionInYear(requests, employee.id, y, lastDayOfYear(y), holidays)
+    // EL ARRASTRE SE GASTA PRIMERO: lo disfrutado antes del 31 de marzo sale
+    // del arrastre mientras quede, y solo el exceso toca el devengo del año.
+    const fromOwnYear = Math.max(0, c.untilDeadline - usable) + c.afterDeadline
+    const accrued = round2(accrualMonthsInYear(startedOn, endedOn, y) * perMonth)
+    leftover = round2(accrued - debt - fromOwnYear)
+  }
+  return leftover
+}
+
 export interface VacationBalance {
   employeeId: string
-  /** Días generados por meses completos trabajados */
+  /** EL AÑO NATURAL del que habla este saldo */
+  year: number
+  /** Días devengados en el año, a fecha de hoy */
   generated: number
-  /** Días ya concedidos: los «canjeados» */
+  /** Lo que devengará el año ENTERO */
+  yearTotal: number
+  /** yearTotal − generated: lo que aún sumará antes de que acabe el año */
+  remaining: number
+  /** Lo que sobró del año anterior y entró en este */
+  carriedIn: number
+  /** De ese arrastre, lo ya comprometido: se gasta antes que el devengo nuevo */
+  carriedUsed: number
+  /** Lo que queda vivo del arrastre. CADUCA el 31 de marzo */
+  carriedLeft: number
+  /** Lo que se perdió por llegar el 1 de abril sin usarlo */
+  carriedExpired: number
+  /** 'yyyy-03-31': el día en que caduca el arrastre de este año */
+  carriedExpiresOn: string
+  /** El arrastre todavía se puede gastar */
+  carriedAlive: boolean
+  /** Días de más gastados el año anterior. Lastran este año y NO caducan */
+  debt: number
+  /** Días ya concedidos con fechas DE ESTE AÑO: los «canjeados» */
   approved: number
-  /** Días de peticiones sin resolver. RESTAN, ver cabecera */
+  /** Días de peticiones sin resolver con fechas de este año. RESTAN */
   pending: number
-  /** generated − approved − pending. Lo que puede pedir hoy */
+  /** generated + carriedIn − carriedExpired − debt − approved − pending */
   available: number
   /**
-   * De los aprobados, los que ya se han disfrutado (fecha pasada). Es la
-   * diferencia entre lo gastado y lo reservado: `taken + booked === approved`.
+   * De los aprobados de este año, los que ya se han disfrutado (fecha pasada).
+   * Es la diferencia entre lo gastado y lo reservado: `taken + booked === approved`.
    */
   taken: number
   /** De los aprobados, los que todavía no han llegado o están en curso */
   booked: number
-  /** Cuántas peticiones esperan respuesta */
+  /** Cuántas peticiones de este año esperan respuesta */
   pendingCount: number
   /** El devengo con su detalle, para poder enseñar de qué fecha se cuenta */
   accrual: VacationAccrual
-  /** true si `available` ha salido negativo: hay más días pedidos que generados */
+  /** true si `available` ha salido negativo: hay más días pedidos que disponibles */
   overdrawn: boolean
+}
+
+export interface VacationBalanceOptions {
+  holidays?: Holidays
+  /** El año natural del que se pregunta. Por defecto, el año de `today` */
+  year?: number
 }
 
 /** Las peticiones de una persona, en orden de calendario */
@@ -537,12 +967,25 @@ export function requestsOf(requests: VacationRequest[], employeeId: string): Vac
 }
 
 /**
- * EL SALDO DE UNA PERSONA. Cuatro números que hay que poder distinguir:
+ * EL SALDO DE UNA PERSONA EN UN AÑO NATURAL.
  *
- *   generados    meses completos × tarifa
- *   aprobados    días ya concedidos (los «canjeados»)
- *   pendientes   días de peticiones sin resolver
- *   disponibles  generados − aprobados − pendientes
+ *   devengado    meses de ESE AÑO ya cerrados × tarifa
+ *   arrastrado   lo que sobró del año anterior; caduca el 31 de marzo
+ *   aprobados    días concedidos cuyas FECHAS caen en ese año
+ *   pendientes   días de peticiones sin resolver con fechas de ese año
+ *   disponibles  devengado + arrastrado − caducado − deuda − aprobados − pendientes
+ *
+ * LA FÓRMULA DEL DISPONIBLE, QUE ES LA PARTE QUE SE LEE MAL SI NO SE EXPLICA:
+ * el arrastre entra ENTERO y luego se resta lo que CADUCÓ SIN GASTARSE. No se
+ * resta el arrastre ya usado, porque ese ya está descontado dentro de
+ * `approved`/`pending`. Restar el arrastre neto Y el consumo entero lo
+ * descontaría dos veces.
+ *
+ *   arrastrado = usado + vivo + caducado
+ *
+ * y de esos tres, el único que no se puede aprovechar es el caducado. Antes
+ * del 31 de marzo caducado es 0 y el arrastre suma entero; después, lo que no
+ * se gastó desaparece y lo que sí se gastó sigue cubriendo su consumo.
  *
  * Lo PENDIENTE resta. Si no restara se podrían pedir los mismos días dos
  * veces y las dos peticiones parecerían caber; cuando el admin aprobara la
@@ -558,58 +1001,54 @@ export function vacationBalance(
   employee: VacationEmployee,
   requests: VacationRequest[],
   today: string,
-  holidays?: Holidays
+  options: VacationBalanceOptions = {}
 ): VacationBalance {
-  const accrual = vacationAccrual(employee, today)
   const day = dayKeyOf(today)
+  const year = options.year ?? yearOf(day)
+  const holidays = options.holidays
 
-  let approved = 0
-  let pending = 0
-  let taken = 0
-  let booked = 0
-  let pendingCount = 0
+  const accrual = vacationAccrual(employee, day, year)
+  const consumption = consumptionInYear(requests, employee.id, year, day, holidays)
 
-  for (const r of requestsOf(requests, employee.id)) {
-    const days = Number(r.working_days) || 0
+  const carry = carriedInto(employee, requests, year, holidays)
+  const carriedIn = round2(Math.max(0, carry))
+  const debt = round2(Math.max(0, -carry))
 
-    if (r.status === 'pendiente') {
-      pending += days
-      pendingCount += 1
-      continue
-    }
-    if (r.status !== 'aprobada') continue
+  // El arrastre se gasta ANTES que el devengo del año: de lo disfrutado hasta
+  // el 31 de marzo, lo que quepa sale de aquí.
+  const carriedUsed = round2(Math.min(consumption.untilDeadline, carriedIn))
+  const carriedAlive = carryOverAlive(year, day)
+  const unused = round2(carriedIn - carriedUsed)
+  const carriedLeft = carriedAlive ? unused : 0
+  const carriedExpired = carriedAlive ? 0 : unused
 
-    approved += days
+  const approved = round2(consumption.approved)
+  const pending = round2(consumption.pending)
+  const taken = round2(Math.min(consumption.taken, approved))
 
-    if (r.end_date < day) {
-      // Entera en el pasado: disfrutada.
-      taken += days
-      continue
-    }
-    if (r.start_date > day) {
-      // Entera en el futuro: reservada.
-      booked += days
-      continue
-    }
-    // En curso. Se cuenta lo laborable que ya ha pasado, y el resto se
-    // deduce del total GUARDADO para que las dos cifras sumen exactamente
-    // `approved` aunque los festivos de entonces no fueran los de ahora.
-    const alreadyTaken = Math.min(days, workingDaysBetween(r.start_date, addDays(day, -1), holidays))
-    taken += alreadyTaken
-    booked += days - alreadyTaken
-  }
-
-  const available = round2(accrual.generated - approved - pending)
+  const available = round2(
+    accrual.generated + carriedIn - carriedExpired - debt - approved - pending
+  )
 
   return {
     employeeId: employee.id,
+    year,
     generated: accrual.generated,
-    approved: round2(approved),
-    pending: round2(pending),
+    yearTotal: accrual.yearTotal,
+    remaining: accrual.remaining,
+    carriedIn,
+    carriedUsed,
+    carriedLeft,
+    carriedExpired,
+    carriedExpiresOn: carryOverDeadline(year),
+    carriedAlive,
+    debt,
+    approved,
+    pending,
     available,
-    taken: round2(taken),
-    booked: round2(booked),
-    pendingCount,
+    taken,
+    booked: round2(approved - taken),
+    pendingCount: consumption.pendingCount,
     accrual,
     overdrawn: available < 0,
   }
@@ -744,6 +1183,41 @@ export interface VacationRequestInput {
   /** Para no chocar consigo misma al reeditar o al reaprobar */
   excludeId?: string | null
   holidays?: Holidays
+  /**
+   * LAS PIDE LA PROPIA PERSONA, así que los avisos le hablan de tú.
+   *
+   * El mismo formulario lo usan la empleada (en «Mis vacaciones», donde todo lo
+   * demás tutea: «Has elegido», «Puedes pedir en 2026») y un admin registrando
+   * la petición por otra persona. Sin esta bandera, los avisos que salen de
+   * aquí se pintaban tal cual y le hablaban de usted a la propia interesada.
+   */
+  propio?: boolean
+}
+
+/** Lo que esta petición le cuesta a UN año concreto */
+export interface VacationRequestYear {
+  year: number
+  /** Días laborables de la petición que caen en ese año */
+  days: number
+  /**
+   * EL DÍA CON EL QUE SE HA MEDIDO EL SALDO DE ESTE TRAMO, que NO es hoy: es el
+   * día en que esos días se van a disfrutar. Va en el resultado para que se
+   * pueda ver de cuándo habla el número. La explicación larga, en `medidoEn`.
+   */
+  measuredOn: string
+  /** Disponible de ese año SIN esta petición, medido en `measuredOn` */
+  availableBefore: number
+  /** Cómo le quedaría ese año si se aprobara, medido en `measuredOn` */
+  availableAfter: number
+  /** De `days`, cuántos salen del ARRASTRE del año anterior (se gasta primero) */
+  fromCarry: number
+  /**
+   * Arrastre de ese año que CADUCARÁ IGUALMENTE pese a esta petición. Se mide
+   * con la fecha de HOY, no con `measuredOn`: ver `checkVacationRequest`.
+   */
+  carryLeftAfter: number
+  /** 'yyyy-03-31': el día en que caduca el arrastre de ese año */
+  carryExpiresOn: string
 }
 
 export interface VacationRequestCheck {
@@ -757,8 +1231,18 @@ export interface VacationRequestCheck {
   lateNotice: boolean
   /** Peticiones vivas de esa persona que se pisan con estas fechas */
   overlapping: VacationRequest[]
-  /** El saldo tal y como quedaría si esta petición se aprobara */
+  /**
+   * El saldo tal y como quedaría si esta petición se aprobara, MEDIDO EL DÍA EN
+   * QUE SE DISFRUTAN LOS DÍAS y no hoy (ver `medidoEn`). Cuando el rango cruza
+   * el fin de año es EL PEOR de los años que toca: es el que decide si se pasa,
+   * y enseñar el otro escondería justo el problema.
+   */
   balanceAfter: number
+  /**
+   * El desglose por año natural. Con un solo elemento en el caso normal; con
+   * dos cuando la petición cruza el 31 de diciembre.
+   */
+  byYear: VacationRequestYear[]
   /** Motivos por los que NO se puede guardar. Frases para enseñar tal cual */
   errors: string[]
   /** Cosas que hay que decir pero que no impiden guardar */
@@ -791,6 +1275,21 @@ export function checkVacationRequest(input: VacationRequestInput): VacationReque
   const errors: string[] = []
   const warnings: string[] = []
 
+  /**
+   * DE TÚ O DE USTED. Estos avisos se pintan tal cual en el formulario, que es
+   * el mismo para la empleada y para el admin que registra por ella; y también
+   * salen por toast desde la ruta de API. En «Mis vacaciones» todo lo demás
+   * tutea, así que un «le quedan 12,30 días» ahí desentona y se lee como si
+   * hablara de otra persona.
+   */
+  const propio = input.propio ?? false
+  const sePasa = propio ? 'Te pasas' : 'Se pasa'
+  const leQuedan = propio ? 'te quedan' : 'le quedan'
+  const leGastan = propio ? 'te gastan' : 'le gastan'
+  const leCaducan = propio ? 'te caducan' : 'le caducan'
+  const LeCaducan = propio ? 'Te caducan' : 'Le caducan'
+  const suFecha = propio ? 'tu fecha' : 'su fecha'
+
   const validFormat = isDayKey(startDate) && isDayKey(endDate)
   if (!validFormat) {
     return {
@@ -800,6 +1299,7 @@ export function checkVacationRequest(input: VacationRequestInput): VacationReque
       lateNotice: false,
       overlapping: [],
       balanceAfter: 0,
+      byYear: [],
       errors: ['Las fechas no son válidas'],
       warnings,
     }
@@ -861,34 +1361,187 @@ export function checkVacationRequest(input: VacationRequestInput): VacationReque
     )
   }
 
-  const balance = vacationBalance(employee, requests, today, holidays)
-  // Si se está reeditando/reaprobando una petición que ya cuenta en el saldo,
-  // sus días no se pueden descontar dos veces.
-  const alreadyCounted = input.excludeId
-    ? requests.find(
-        (r) => r.id === input.excludeId && BLOCKING_STATUSES.includes(r.status)
-      )
-    : undefined
-  const balanceAfter = round2(
-    balance.available + Number(alreadyCounted?.working_days ?? 0) - workingDays
-  )
+  /**
+   * EL SALDO SE MIRA AÑO POR AÑO, y no una sola vez.
+   *
+   * Una petición del 28 de diciembre al 4 de enero gasta de dos bolsas
+   * distintas: unos días de un año y otros del siguiente. Con un único saldo
+   * —el del año de hoy— la pantalla diría que cabe de sobra mientras deja el
+   * año que viene en negativo, y nadie se enteraría hasta enero.
+   *
+   * Y EL «DESPUÉS» SE CALCULA METIENDO LA PETICIÓN EN LA LISTA Y VOLVIENDO A
+   * PEDIR EL SALDO, en vez de restarle los días al «antes». No es lo mismo, y
+   * la diferencia es justo la del caso que nos ocupa: los 4 días que se gastan
+   * en diciembre salen del saldo de 2026, así que reducen en 4 lo que 2026
+   * ARRASTRA a 2027. Restando a mano, 2027 saldría 4 días más alto de lo que
+   * va a estar de verdad. Recalcular deja que `carriedInto` encadene el efecto
+   * él solo, que es lo que hará en enero cuando la petición sea real.
+   *
+   * De paso resuelve gratis el caso de reeditar o reaprobar: la petición que
+   * se está tocando se saca de la foto «antes», así que sus días no se
+   * descuentan dos veces sin tener que compensarlos a mano.
+   */
+  const sinEsta = input.excludeId ? requests.filter((r) => r.id !== input.excludeId) : requests
+  // La petición como si ya existiera. Nace 'pendiente' porque es lo que va a
+  // ser al guardarse, y lo pendiente ya reserva días igual que lo aprobado.
+  const comoSiExistiera: VacationRequest[] = [
+    ...sinEsta,
+    {
+      id: '__simulada__',
+      employee_id: employee.id,
+      start_date: startDate,
+      end_date: endDate,
+      working_days: workingDays,
+      status: 'pendiente',
+      reason: null,
+      created_by: null,
+      resolved_by: null,
+      resolved_at: null,
+      rejection_reason: null,
+      cancelled_by: null,
+      cancelled_at: null,
+      late_notice: false,
+      created_at: '',
+      updated_at: '',
+    },
+  ]
+
+  /**
+   * CON QUÉ DÍA SE MIDE EL SALDO DE CADA TRAMO. NO CON HOY.
+   *
+   * El devengo corre mes a mes, así que unas vacaciones de agosto pedidas en
+   * abril se disfrutan con cuatro meses más de saldo del que hay hoy. Midiendo
+   * a hoy, el aviso de «se pasa del saldo» saltaba en falso en CASI TODAS las
+   * vacaciones de verano —justo las que se planifican con antelación— y el
+   * formulario las pintaba en rojo: desde que el contador se pone a cero cada 1
+   * de enero, de abril a agosto casi todo el mundo tiene devengado menos de lo
+   * que pide para el verano.
+   *
+   * Se mide con el ÚLTIMO día del tramo de ese año —`min(fin, 31 de
+   * diciembre)`—, que es cuando ya se han disfrutado todos.
+   *
+   * Y NUNCA ANTES DE HOY: un tramo que ya pasó se mide a hoy. Si no, el devengo
+   * de hace meses haría bajar un saldo que ya está cobrado y el aviso saltaría
+   * en falso otra vez, ahora al revés.
+   */
+  function medidoEn(year: number): string {
+    const finDelTramo = endDate < lastDayOfYear(year) ? endDate : lastDayOfYear(year)
+    return finDelTramo > today ? finDelTramo : today
+  }
+
+  const byYear: VacationRequestYear[] = workingDaysByYear(
+    startDate,
+    endDate,
+    workingDays,
+    holidays
+  ).map(({ year, days }) => {
+    const measuredOn = medidoEn(year)
+    const antes = vacationBalance(employee, sinEsta, measuredOn, { holidays, year })
+    const conEsta = vacationBalance(employee, comoSiExistiera, measuredOn, { holidays, year })
+
+    /**
+     * EL ARRASTRE VIVO SE MIDE CON HOY, NO CON `measuredOn`.
+     *
+     * La pregunta que contesta el aviso es «¿le quedan días del año pasado sin
+     * gastar AHORA?», y medida en una fecha posterior al 31 de marzo la
+     * respuesta es siempre que no —para entonces ya caducaron—, que es justo lo
+     * que haría que no avisara nunca. `carriedIn` y `carriedUsed` no dependen de
+     * la fecha de referencia (salen de la tarifa y de las fechas de las
+     * peticiones); el «sigue vivo», sí. Así que se recompone a mano en vez de
+     * pedir un saldo más.
+     */
+    const vivoHoy = carryOverAlive(year, today)
+
+    return {
+      year,
+      days,
+      measuredOn,
+      availableBefore: antes.available,
+      availableAfter: conEsta.available,
+      // Lo que ESTA petición se lleva del arrastre: lo que sube el arrastre
+      // usado al meterla en la foto.
+      fromCarry: round2(Math.max(0, conEsta.carriedUsed - antes.carriedUsed)),
+      carryLeftAfter: vivoHoy ? round2(conEsta.carriedIn - conEsta.carriedUsed) : 0,
+      carryExpiresOn: conEsta.carriedExpiresOn,
+    }
+  })
+
+  const currentYear = vacationBalance(employee, sinEsta, today, { holidays })
+  const balanceAfter =
+    byYear.length === 0
+      ? round2(currentYear.available)
+      : Math.min(...byYear.map((y) => y.availableAfter))
+
+  if (byYear.length > 1) {
+    warnings.push(
+      `Estas fechas cruzan el fin de año: ${byYear
+        .map((y) => `${formatDays(y.days)} de ${y.year}`)
+        .join(' y ')}. Cada trozo sale del saldo de su año, no todo del primero.`
+    )
+  }
+
   // Mismo motivo que arriba: con la tarifa a 0 el falsy se tragaba el aviso de
   // «se pasa del saldo», que es justo el caso en que más falta hace.
   if (balanceAfter < 0 && employee.vacation_days_per_month != null) {
+    const worst = byYear.find((y) => y.availableAfter === balanceAfter)
     warnings.push(
-      `Se pasa del saldo: le quedan ${formatDays(balance.available)} y pide ${formatDays(workingDays)}`
+      worst
+        ? `${sePasa} del saldo de ${worst.year}: ${leQuedan} ${formatDays(
+            worst.availableBefore
+          )} de ese año y estas fechas ${leGastan} ${formatDays(worst.days)}`
+        : `${sePasa} del saldo: ${leQuedan} ${formatDays(currentYear.available)} y pide ${formatDays(workingDays)}`
+    )
+  }
+
+  /**
+   * EL ARRASTRE QUE SE VA A CADUCAR. Es el aviso que más falta hace y el que
+   * nadie ve venir: quien tiene días del año pasado y pide sus vacaciones para
+   * junio los pierde el 31 de marzo sin que nada se lo dijera.
+   *
+   * SE MIRA EL ARRASTRE DEL AÑO DE LAS FECHAS, NO EL DEL AÑO DE HOY. Antes se
+   * leía del saldo del año en curso, y eso lo dejaba mudo justo cuando hace
+   * falta: del 1 de abril al 31 de diciembre el arrastre de ESE año ya caducó,
+   * así que ninguna petición hecha en esos nueve meses avisaba nunca, ni
+   * siquiera las del año siguiente, que son las que pierden días. Y al revés,
+   * entre enero y marzo una petición para el año que viene sacaba el aviso
+   * nombrando un arrastre y una fecha de caducidad que no eran los suyos.
+   *
+   * Y SE COMPARA CONTRA LO QUE LA PETICIÓN RESCATA, no contra su fecha de
+   * inicio. La condición anterior solo saltaba si el rango ENTERO caía después
+   * del 31 de marzo, con el argumento de que «si ya está gastando el arrastre
+   * no hay nada que avisar». Eso solo vale si se lo gasta ENTERO: unas
+   * vacaciones del 25 de marzo al 10 de abril salvaban 5 días de los 21,96 y
+   * los otros 16,96 se perdían en silencio. `carryLeftAfter` ya es lo que queda
+   * sin salvar con esta petición dentro, así que basta con que sea mayor que 0.
+   */
+  for (const y of byYear) {
+    if (y.carryLeftAfter <= 0) continue
+    warnings.push(
+      y.fromCarry > 0
+        ? `De estas fechas, ${formatDays(y.fromCarry)} salen del arrastre de ${
+            y.year - 1
+          }, pero ${leCaducan} igualmente ${formatDays(y.carryLeftAfter)} el ${formatDayLong(
+            y.carryExpiresOn
+          )}`
+        : `${LeCaducan} ${formatDays(y.carryLeftAfter)} arrastrados de ${
+            y.year - 1
+          } el ${formatDayLong(
+            y.carryExpiresOn
+          )}, y estas fechas no salen de ahí: esos días se pierden`
     )
   }
 
   if (employee.started_on && startDate < dayKeyOf(employee.started_on)) {
-    warnings.push('Esas fechas son anteriores a su fecha de alta')
+    warnings.push(`Esas fechas son anteriores a ${suFecha} de alta`)
   }
   if (employee.ended_on && endDate > dayKeyOf(employee.ended_on)) {
-    warnings.push('Esas fechas son posteriores a su fecha de baja')
+    warnings.push(`Esas fechas son posteriores a ${suFecha} de baja`)
   }
-  if (balance.accrual.missingStartDate) {
+  if (currentYear.accrual.missingStartDate) {
     warnings.push(
-      `${employee.name} no tiene fecha de alta, así que su saldo sale a cero: ponla en su ficha`
+      propio
+        ? 'No tienes fecha de alta en tu ficha, así que tu saldo sale a cero: pídele a dirección que la ponga'
+        : `${employee.name} no tiene fecha de alta, así que su saldo sale a cero: ponla en su ficha`
     )
   }
 
@@ -899,6 +1552,7 @@ export function checkVacationRequest(input: VacationRequestInput): VacationReque
     lateNotice,
     overlapping,
     balanceAfter,
+    byYear,
     errors,
     warnings,
   }

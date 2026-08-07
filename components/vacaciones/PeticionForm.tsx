@@ -2,13 +2,15 @@
 
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, Eraser, Loader2, Send, UserX } from 'lucide-react'
+import { AlarmClock, AlertTriangle, Eraser, Loader2, Send, UserX } from 'lucide-react'
 import { monthKeyOf } from '@/lib/types/employees'
 import {
   NOTICE_DAYS,
   checkVacationRequest,
+  formatDayLong,
   formatDayRange,
   formatDays,
+  round2,
   type VacationEmployee,
   type VacationRequest,
 } from '@/lib/types/vacations'
@@ -64,8 +66,24 @@ export function PeticionForm({
       endDate: selection.end,
       requests,
       today,
+      // Los avisos los lee la propia persona salvo que sea un admin
+      // registrando por ella: de ahí que tuteen o no.
+      propio: !onBehalf,
     })
-  }, [selection, employee, requests, today])
+  }, [selection, employee, requests, today, onBehalf])
+
+  /**
+   * DE QUÉ BOLSA SALEN LOS DÍAS ELEGIDOS.
+   *
+   * La regla nueva con más consecuencias es que EL ARRASTRE SE GASTA PRIMERO y
+   * caduca el 31 de marzo. Sin esta línea, quien pide cinco días en febrero no
+   * podía saber si estaba salvando su arrastre o gastando el devengo del año
+   * nuevo, que es justo la decisión que le hace perder o no perder días.
+   */
+  const delArrastre = useMemo(
+    () => check?.byYear.filter((y) => y.fromCarry > 0) ?? [],
+    [check]
+  )
 
   async function submit() {
     if (!selection || !check?.ok || sending) return
@@ -143,6 +161,7 @@ export function PeticionForm({
               <div className="text-right">
                 <p className="text-[10px] uppercase tracking-wider text-white/40">
                   Saldo si se aprueba
+                  {check.byYear.length === 1 && ` (${check.byYear[0].year})`}
                 </p>
                 <p
                   className={`text-[15px] font-semibold tabular-nums leading-tight ${
@@ -158,6 +177,65 @@ export function PeticionForm({
                 </p>
               </div>
             </div>
+
+            {/* EL RANGO QUE CRUZA EL FIN DE AÑO, DESGLOSADO.
+                Los días se imputan al año en que caen las fechas, así que unas
+                vacaciones del 28 de diciembre al 4 de enero gastan de dos
+                bolsas distintas. Con un solo número —el del año de hoy— el
+                resumen diría que caben de sobra mientras deja el año que viene
+                en negativo, y eso no se descubriría hasta enero. */}
+            {check.byYear.length > 1 && (
+              <div className="mt-2 pt-2 border-t border-white/10 space-y-1">
+                <p className="text-[10px] uppercase tracking-wider text-white/40">
+                  Estas fechas cruzan el fin de año
+                </p>
+                {check.byYear.map((y) => (
+                  <div
+                    key={y.year}
+                    className="flex items-baseline justify-between gap-2 text-[11px]"
+                  >
+                    <span className="text-white/60">
+                      {formatDays(y.days)} de <span className="text-white">{y.year}</span>
+                    </span>
+                    <span
+                      className={`tabular-nums ${
+                        y.availableAfter < 0 ? 'text-red-400' : 'text-white/45'
+                      }`}
+                    >
+                      {onBehalf ? 'le quedarían' : 'te quedarían'} {formatDays(y.availableAfter)} de{' '}
+                      {y.year}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* DE QUÉ BOLSA SALEN. El arrastre se gasta antes que el devengo del
+                año, y es el único de los dos que caduca: quien lo ve puede
+                decidir con conocimiento. */}
+            {delArrastre.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-white/10 space-y-1">
+                {delArrastre.map((y) => (
+                  <p
+                    key={y.year}
+                    className="flex items-start gap-1.5 text-[11px] text-white/55 leading-snug"
+                  >
+                    <AlarmClock className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                    <span>
+                      <span className="text-white">{formatDays(y.fromCarry)}</span> salen del
+                      arrastre de {y.year - 1}, que caduca el{' '}
+                      {formatDayLong(y.carryExpiresOn)}
+                      {y.days > y.fromCarry && (
+                        <>
+                          , y {formatDays(round2(y.days - y.fromCarry))} del devengo de {y.year}
+                        </>
+                      )}
+                      . El arrastre se gasta primero a propósito: es el único que se pierde.
+                    </span>
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
 
           {check.errors.map((e) => (

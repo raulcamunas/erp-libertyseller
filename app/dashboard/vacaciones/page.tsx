@@ -61,8 +61,9 @@ export default async function VacacionesPage() {
       <div className="mb-4">
         <h1 className="heading-medium text-white mb-1">Mis vacaciones</h1>
         <p className="text-white/50 text-sm">
-          Los días que llevas generados, los que ya has cogido y los que puedes pedir. Elige las
-          fechas en el calendario y dirección las aprueba.
+          Los días que llevas generados este año, los que ya has cogido y los que puedes pedir.
+          Elige las fechas en el calendario y dirección las aprueba. El período es el año natural:
+          lo que sobre se arrastra y caduca el 31 de marzo del año siguiente.
         </p>
       </div>
 

@@ -3,8 +3,15 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { Inbox, Palmtree, UserX, X } from 'lucide-react'
-import { formatDays, vacationBalance, type VacationEmployee } from '@/lib/types/vacations'
+import { AlarmClock, Inbox, Palmtree, UserX, X } from 'lucide-react'
+import {
+  formatDayLong,
+  formatDays,
+  vacationBalance,
+  yearOf,
+  type VacationEmployee,
+  type VacationRequest,
+} from '@/lib/types/vacations'
 import { postVacations, type VacationsMutation, type VacationsView } from '@/lib/vacations/client'
 import { BalanceResumen } from './BalanceResumen'
 import { PeticionCard } from './PeticionCard'
@@ -99,6 +106,31 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
     return map
   }, [balances])
 
+  /**
+   * EL SALDO DEL AÑO DE LAS FECHAS DE ESA PETICIÓN, que no siempre es el de hoy.
+   *
+   * La tarjeta escribe «Le quedarían X días» y aquí se le pasaba SIEMPRE el
+   * saldo del año en curso. Con una petición del 4 de enero al 19 de febrero de
+   * 2027 tecleada en diciembre de 2026, la cola de aprobación decía «Le
+   * quedarían 10,98 días» cuando el saldo real de 2027 al aprobarla se queda en
+   * −22,19. El formulario sí lo avisaba, pero quien aprueba no ve el
+   * formulario: ve la tarjeta.
+   */
+  const balanceParaPeticion = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof vacationBalance>>()
+    return (r: VacationRequest) => {
+      const employee = byId.get(r.employee_id)
+      if (!employee || employee.vacation_days_per_month == null) return null
+      const year = yearOf(r.start_date)
+      const clave = `${r.employee_id}:${year}`
+      const guardado = cache.get(clave)
+      if (guardado) return guardado
+      const fresco = vacationBalance(employee, data.requests, data.today, { year })
+      cache.set(clave, fresco)
+      return fresco
+    }
+  }, [byId, data.requests, data.today])
+
   const pendientes = useMemo(
     () =>
       data.requests
@@ -124,7 +156,22 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
 
   const sinCuenta = conDerecho.filter((e) => !e.user_id)
 
+  /**
+   * A QUIÉN LE VAN A CADUCAR DÍAS EL 31 DE MARZO.
+   *
+   * Va arriba del todo de «Saldos» y no escondido en la tarjeta de cada uno:
+   * quien tiene que hacer algo con esto es dirección —repartir el trabajo para
+   * que esos días se puedan coger—, y para eso hace falta verlo de un vistazo,
+   * no persona por persona. Las que no tienen cuenta en el ERP ni siquiera
+   * pueden mirarlo ellas.
+   */
+  const caducan = useMemo(
+    () => balances.filter(({ balance }) => balance.carriedLeft > 0),
+    [balances]
+  )
+
   const persona = byId.get(personId) ?? conDerecho[0] ?? null
+  const anyo = yearOf(data.today)
 
   async function resolve(url: string, id: string, body?: unknown) {
     setBusyId(id)
@@ -141,9 +188,18 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
     }
   }
 
-  const tabs: { id: Tab; label: string; count?: number }[] = [
+  /**
+   * EL CONTADOR DE CADUCIDAD, EN LA PESTAÑA QUE NO SE ABRE.
+   *
+   * El panel arranca en «Por aprobar», que es la única que se mira a diario. El
+   * aviso de a quién le caducan días vive en «Saldos», así que dirección podía
+   * pasarse enero, febrero y marzo resolviendo peticiones sin ver ni una vez
+   * que a alguien se le van 18,30 días el 31 de marzo. Con la píldora en la
+   * pestaña, el aviso se ve desde la que sí se abre.
+   */
+  const tabs: { id: Tab; label: string; count?: number; caducan?: number }[] = [
     { id: 'cola', label: 'Por aprobar', count: pendientes.length },
-    { id: 'saldos', label: 'Saldos', count: conDerecho.length },
+    { id: 'saldos', label: 'Saldos', count: conDerecho.length, caducan: caducan.length },
     { id: 'historial', label: 'Historial', count: historial.length },
     { id: 'registrar', label: 'Registrar petición' },
   ]
@@ -167,11 +223,12 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
           <div className="min-w-0">
             <h3 className="text-[16px] font-semibold text-white flex items-center gap-2">
               <Palmtree className="h-4 w-4 text-[#FF6600] flex-shrink-0" />
-              Vacaciones del equipo
+              Vacaciones del equipo · {anyo}
             </h3>
             <p className="text-[11px] text-white/40 mt-0.5">
-              Solo de lunes a viernes. Hay que avisar con un mes, y las peticiones pendientes ya
-              descuentan del saldo.
+              El período es el año natural. Solo de lunes a viernes, hay que avisar con un mes, y
+              las peticiones pendientes ya descuentan del saldo. Lo que sobre de {anyo} se arrastra
+              y caduca el 31 de marzo de {anyo + 1}.
             </p>
           </div>
           <button
@@ -207,6 +264,11 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
                   {t.count}
                 </span>
               )}
+              {t.caducan != null && t.caducan > 0 && (
+                <span className="tabular-nums rounded-full px-1.5 text-[10px] border border-yellow-500/40 bg-yellow-400/[0.12] text-yellow-300">
+                  {t.caducan} caducan
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -239,7 +301,7 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
                         request={r}
                         employee={employee}
                         people={data.people}
-                        balance={balanceOf.get(r.employee_id) ?? null}
+                        balance={balanceParaPeticion(r)}
                         today={data.today}
                         showName
                         isAdmin
@@ -258,6 +320,32 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
             {/* ---------- Saldos ---------- */}
             {tab === 'saldos' && (
               <div className="space-y-3">
+                {/* Amarillo y no ámbar: es el código de aviso del ERP y el único
+                    que la capa `html.light` de globals.css traduce. En ámbar
+                    este resumen salía a 1,20:1 sobre tema claro. */}
+                {caducan.length > 0 && (
+                  <div className="rounded-lg border border-yellow-500/25 bg-yellow-400/[0.06] px-2.5 py-2 text-[11px] text-yellow-300 leading-relaxed">
+                    <p className="flex items-start gap-1.5">
+                      <AlarmClock className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                      <span>
+                        <strong className="font-semibold">
+                          Caducan días el {formatDayLong(caducan[0].balance.carriedExpiresOn)}
+                        </strong>
+                        : lo que sobró de {anyo - 1} solo se puede coger hasta esa fecha. El 1 de
+                        abril se pierde.
+                      </span>
+                    </p>
+                    <ul className="mt-1 ml-5 space-y-0.5">
+                      {caducan.map(({ employee, balance }) => (
+                        <li key={employee.id} className="tabular-nums">
+                          {employee.name}: {formatDays(balance.carriedLeft)}
+                          {!employee.user_id && ' (sin cuenta: no puede verlo)'}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {sinCuenta.length > 0 && (
                   <p className="flex items-start gap-1.5 text-[11px] text-white/45 leading-snug">
                     <UserX className="h-3 w-3 flex-shrink-0 mt-0.5" />
@@ -295,9 +383,13 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
                           </span>
                         )}
                       </div>
+                      {/* El resumen de caducidad de arriba ya lista a todo el
+                          mundo con su cifra: repetirlo dentro de cada ficha
+                          llenaba el modal de copias del mismo párrafo. */}
                       <BalanceResumen
                         employee={employee}
                         balance={balance}
+                        sinAvisoCaducidad={caducan.length > 0}
                         onEditFicha={onOpenFicha ? () => onOpenFicha(employee.id) : undefined}
                       />
                     </div>
@@ -329,7 +421,7 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
                         request={r}
                         employee={employee}
                         people={data.people}
-                        balance={balanceOf.get(r.employee_id) ?? null}
+                        balance={balanceParaPeticion(r)}
                         today={data.today}
                         showName
                         isAdmin
@@ -393,9 +485,14 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
 
                     {persona && (
                       <>
+                        {/* Esta cifra es la de HOY. En cuanto se eligen fechas,
+                            el resumen del formulario da la del año de ESAS
+                            fechas, que puede ser otro: sin la coletilla, los dos
+                            números quedaban uno encima del otro y se leían como
+                            una contradicción. */}
                         <div className={`${cardShell} px-2.5 py-2`}>
                           <p className="text-[10px] uppercase tracking-wider text-white/35 mb-1">
-                            Saldo de {persona.name}
+                            Saldo de {persona.name} en {anyo}
                           </p>
                           <p className="text-[12px] text-white/60 tabular-nums">
                             {formatDays(
@@ -403,6 +500,10 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
                                 vacationBalance(persona, data.requests, data.today).available
                             )}{' '}
                             disponibles
+                          </p>
+                          <p className="text-[10px] text-white/30 mt-1 leading-snug">
+                            Es el saldo de {anyo}. Si eliges fechas de otro año, el resumen de abajo
+                            manda: cada día sale del saldo del año en que cae.
                           </p>
                         </div>
 

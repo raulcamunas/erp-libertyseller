@@ -88,6 +88,11 @@ export async function POST(request: NextRequest) {
       endDate,
       requests: (existing ?? []) as VacationRequest[],
       today,
+      // Estos avisos vuelven al navegador y se enseñan por toast a quien acaba
+      // de pedirlas. Si las pide para sí misma se le habla de tú, igual que el
+      // resto de «Mis vacaciones»; si es un admin registrando por otra persona,
+      // de ella.
+      propio: employee.user_id != null && employee.user_id === session.userId,
     })
     if (!check.ok) {
       return NextResponse.json(

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { AlertTriangle, Check, Loader2, UserX, X } from 'lucide-react'
 import {
@@ -8,6 +8,8 @@ import {
   formatDayRange,
   formatDays,
   noticeDaysAhead,
+  requestDaysByYear,
+  yearOf,
   type VacationBalance,
   type VacationEmployee,
   type VacationRequest,
@@ -44,7 +46,12 @@ export interface PeticionCardProps {
   employee: VacationEmployee
   /** Nombre de cada perfil citado en created_by / resolved_by */
   people: Record<string, string>
-  /** El saldo de esa persona, para poder decir cómo queda si se aprueba */
+  /**
+   * El saldo de esa persona EN EL AÑO DE ESTAS FECHAS, no en el año en curso.
+   * Quien lo pasa tiene que calcularlo con `year: yearOf(request.start_date)`:
+   * una petición de enero contra el saldo de diciembre enseña un número que no
+   * tiene nada que ver con lo que se está aprobando.
+   */
   balance?: VacationBalance | null
   today: string
   /** Enseña el nombre de la persona (cola del admin). En «Mis vacaciones» sobra */
@@ -77,6 +84,23 @@ export function PeticionCard({
   const resolver = resolvedBy(request, people)
   const canceller = cancelledBy(request, people)
   const notice = noticeDaysAhead(request.start_date, today)
+
+  /**
+   * Los días imputados a cada año.
+   *
+   * Se pinta en DOS casos, y el segundo se escapaba:
+   *   - el rango cruza el 31 de diciembre, y entonces «6 días laborables»
+   *     encima de unas fechas de diciembre invita a pensar que salen del saldo
+   *     de diciembre cuando la mitad salen del año siguiente;
+   *   - las fechas son de OTRO AÑO que el de hoy. Aquí el reparto tiene un solo
+   *     tramo, así que esta línea no salía, y la tarjeta enseñaba el saldo de un
+   *     año distinto del que se va a gastar sin decirlo en ningún sitio.
+   */
+  const porAnyo = useMemo(() => {
+    const split = requestDaysByYear(request)
+    if (split.length > 1) return split
+    return split.length === 1 && split[0].year !== yearOf(today) ? split : null
+  }, [request, today])
 
   // Quien la pidió solo puede retirarla mientras espera respuesta; un admin
   // también puede anular unas ya aprobadas, porque los planes cambian y si no
@@ -125,19 +149,36 @@ export function PeticionCard({
           {formatDays(request.working_days)} laborables
         </span>
 
+        {/* EL AÑO VA ESCRITO SIEMPRE. Sin él, «Le quedarían 10,98 días» sobre
+            una petición de enero se lee como el saldo que se va a gastar, y es
+            el de otro año. */}
         {pendiente && balance && (
           <span
             className={balance.available < 0 ? 'text-red-400' : 'text-white/45'}
-            title="Las peticiones pendientes ya restan del saldo, así que aprobarla no cambia este número"
+            title={`Saldo de ${balance.year}, que es el año de estas fechas. Las peticiones pendientes ya restan, así que aprobarla no cambia este número`}
           >
             {balance.available < 0
-              ? `Se pasa: le faltan ${formatDays(Math.abs(balance.available))}`
-              : `Le quedarían ${formatDays(balance.available)}`}
+              ? `Se pasa de ${balance.year}: le faltan ${formatDays(Math.abs(balance.available))}`
+              : `Le quedarían ${formatDays(balance.available)} de ${balance.year}`}
           </span>
         )}
 
         {author && <span>Registrada por {author}</span>}
       </div>
+
+      {porAnyo && (
+        <p className="mt-1.5 text-[10px] text-white/40 leading-snug">
+          {porAnyo.length > 1 ? 'Cruza el fin de año: ' : 'Son días de otro año: '}
+          {porAnyo.map((y, i) => (
+            <span key={y.year}>
+              {i > 0 && ' y '}
+              <span className="text-white/60 tabular-nums">{formatDays(y.days)}</span> del saldo de{' '}
+              {y.year}
+            </span>
+          ))}
+          .
+        </p>
+      )}
 
       {/* FUERA DE PLAZO: avisa, nunca bloquea. La regla existe para poder
           organizar el trabajo, no para que una urgencia familiar no se pueda
