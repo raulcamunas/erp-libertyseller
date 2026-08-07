@@ -3,10 +3,8 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { 
-  Home, 
-  Users, 
-  Settings, 
+import {
+  Users,
   LogOut,
   Menu,
   X,
@@ -30,10 +28,17 @@ export function AppSidebar() {
   const router = useRouter()
   const supabase = createClient()
 
+  // Una sola vez al montar: el perfil y los permisos no cambian mientras la
+  // pestaña esté abierta.
   useEffect(() => {
     loadUserPermissions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Solo depende del rol, y a propósito. `supabase` sale de createClient() en
+  // cada render, así que meterlo en las dependencias volvería a suscribir el
+  // canal de realtime cada vez que se repinta la barra; y loadWebLeadsCount se
+  // redefine igual en cada render. Añadirlos no arregla nada y rompe esto.
   useEffect(() => {
     if (userRole === 'admin') {
       loadWebLeadsCount()
@@ -58,6 +63,7 @@ export function AppSidebar() {
         supabase.removeChannel(channel)
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole])
 
   const loadWebLeadsCount = async () => {
@@ -134,6 +140,13 @@ export function AppSidebar() {
     // Va antes del "si aún no se ha cargado el rol, mostrar todas" de abajo
     // para que no aparezca ni un instante mientras se resuelve el perfil.
     if (app.id === 'empleados') {
+      return userRole === 'admin'
+    }
+    // Amazon API solo para admin: desde ahí se cambian precios y stock en las
+    // tiendas de los clientes. Igual que el de arriba, va antes del "si aún no
+    // se ha cargado el rol, mostrar todas" para que no aparezca ni un instante
+    // mientras se resuelve el perfil.
+    if (app.id === 'amazon-api') {
       return userRole === 'admin'
     }
     // Si aún no se ha cargado el rol, mostrar todas temporalmente (evita parpadeo)

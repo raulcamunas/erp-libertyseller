@@ -67,6 +67,14 @@ export default async function DashboardPage() {
       return profile.role === 'admin'
     }
 
+    // Amazon API solo para admin: desde ahí se cambian precios y stock en las
+    // tiendas de los clientes. Mismo motivo que el de arriba para ir antes del
+    // "para admins, acceso a todo": ni un employee con el permiso suelto en
+    // user_app_permissions puede verlo.
+    if (app.id === 'amazon-api') {
+      return profile.role === 'admin'
+    }
+
     // Para admins, acceso a todo
     if (profile.role === 'admin') return true
     

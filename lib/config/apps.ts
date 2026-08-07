@@ -14,7 +14,8 @@ import {
   CalendarDays,
   Boxes,
   HandCoins,
-  Palmtree
+  Palmtree,
+  Plug
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -162,6 +163,29 @@ export const apps: AppConfig[] = [
     description: 'Del volcado del ERP del cliente al fichero de stock de Amazon',
     icon: Boxes,
     route: '/dashboard/stock-sync',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // SOLO ADMIN, y por la misma razón que 'empleados': desde aquí se cambian
+    // precios y stock en las tiendas de los clientes, y se guardan las llaves
+    // de acceso a esas tiendas. Está cerrado en cuatro sitios —middleware.ts,
+    // el filtro de esta lista en app/dashboard/page.tsx, el de
+    // components/layout/AppSidebar.tsx y las políticas RLS de la migración
+    // 118—, y el que manda de verdad es el último.
+    //
+    // Convive con 'stock-sync' a propósito: aquel hace lo mismo por fichero y
+    // se ha decidido que los dos sigan. Icono distinto (Plug: se enchufa a
+    // Amazon) para que en el menú no se confundan.
+    //
+    // El id tiene que coincidir letra por letra aquí, en middleware.ts y en la
+    // columna app_id de user_app_permissions (lo reparte la migración 118). Si
+    // baila en uno de los tres, el módulo queda invisible sin dar ningún error.
+    id: 'amazon-api',
+    name: 'Amazon API',
+    description: 'Catálogo, precios y stock de los clientes, directo contra Amazon',
+    icon: Plug,
+    route: '/dashboard/amazon-api',
     status: 'new',
     category: 'core'
   },

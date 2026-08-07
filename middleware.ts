@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -14,8 +14,11 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+        // CookieOptions, el tipo real de @supabase/ssr, en vez del `any` que
+        // había: `options` lleva la caducidad, el dominio y los flags de la
+        // cookie de sesión, y son justo los que hay que pasar tal cual.
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({
             request,
           })
@@ -38,7 +41,15 @@ export async function middleware(request: NextRequest) {
                        pathname.startsWith('/auth/') ||
                        pathname.startsWith('/api/') ||
                        pathname.startsWith('/report/commissions/') ||
-                       pathname.startsWith('/audit/share/')
+                       pathname.startsWith('/audit/share/') ||
+                       // OAuth de Amazon. Quien llega a estas dos direcciones es
+                       // el CLIENTE desde su Seller Central, sin sesión en el
+                       // ERP: mandarle al login rompe el flujo a mitad y él no
+                       // tiene forma de saber qué ha pasado. Las dos URI están
+                       // registradas en el portal de desarrollador de Amazon y
+                       // no se pueden cambiar sin volver a pasar por allí.
+                       pathname === '/connect' ||
+                       pathname === '/callback'
 
   // Si no hay usuario y no es ruta pública, redirigir a login
   if (!user && !isPublicRoute) {
@@ -104,6 +115,30 @@ export async function middleware(request: NextRequest) {
       // las políticas RLS de la migración 111 (is_erp_admin); esto evita el
       // viaje y la pantalla vacía.
       if (pathname === '/dashboard/empleados') {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
+      // Ruta /dashboard/amazon-api - Solo admin
+      // Desde aquí se cambian precios y stock en las tiendas de los CLIENTES, y
+      // se guardan las llaves de acceso a esas tiendas. El listón es el mismo
+      // que en Control empleados: ni employees ni partners. El filtro de verdad
+      // son las políticas RLS de la migración 118 (is_erp_admin, y la tabla de
+      // conexiones sin ningún permiso para `authenticated`); esto evita el viaje
+      // y la pantalla vacía.
+      //
+      // startsWith y no una comparación exacta: cualquier subruta que se añada
+      // después queda cerrada desde el primer día, sin tener que acordarse.
+      //
+      // No hace falta en el mapa routeToAppId de más abajo —ese bloque solo se
+      // evalúa para `employee`, y un employee ya no ha llegado hasta aquí—,
+      // igual que pasa con 'empleados'. El id 'amazon-api' sí tiene que
+      // coincidir letra por letra con lib/config/apps.ts y con el INSERT de la
+      // migración 118.
+      if (pathname.startsWith('/dashboard/amazon-api')) {
         if (userRole !== 'admin') {
           const url = request.nextUrl.clone()
           url.pathname = '/dashboard'
