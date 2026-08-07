@@ -117,25 +117,23 @@ export async function POST(request: NextRequest) {
     const includeZero = isTrue(form.get('include_zero'))
 
     /**
-     * Rellenar también la columna del canal de logística de la plantilla.
+     * El canal de logística se rellena SIEMPRE que haya plantilla, ya no es
+     * opcional.
      *
-     * Apagado por defecto porque es la petición literal del usuario (solo SKU y
-     * cantidad) y porque tiene consecuencias: la hoja de instrucciones de Amazon
-     * avisa de que escribir una cantidad sobre un SKU gestionado por Amazon
-     * (FBA) lo convierte en gestionado por el vendedor. La otra cara es que sin
-     * canal declarado Amazon puede no aplicar la cantidad, de ahí que exista el
-     * interruptor. La pantalla explica las dos cosas antes de dejar encenderlo.
+     * Nació como interruptor apagado porque lo pedido eran solo el SKU y las
+     * unidades, pero la propia hoja de instrucciones de Amazon dice que hay que
+     * declarar el canal para poder cambiar la cantidad: sin él, el fichero se
+     * sube sin errores y el stock puede no llegar a aplicarse, que es la peor
+     * de las combinaciones — parece que ha funcionado.
+     *
+     * Dejarlo apagado tampoco protegía de nada. Lo que saca un SKU de FBA es
+     * escribir una cantidad, y la cantidad va siempre; el aviso de la pantalla
+     * lo explica y no depende de esto.
      */
-    const withChannel = isTrue(form.get('with_channel'))
+    const withChannel = templateFile !== null
 
     if (wantsTemplateBinary && !templateFile) {
       return fail(400, 'Has pedido la plantilla de Amazon rellenada pero no has subido ninguna plantilla')
-    }
-    if (withChannel && !templateFile) {
-      return fail(
-        400,
-        'El canal de logística solo se puede rellenar en la plantilla de Amazon, y no has subido ninguna'
-      )
     }
 
     // ---------- Ficheros ----------

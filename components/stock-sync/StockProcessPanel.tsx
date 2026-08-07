@@ -105,11 +105,6 @@ export function StockProcessPanel({
   // Apagado por defecto y con el riesgo escrito al lado: encenderlo convierte
   // «no sé cuánto stock tiene» en «no tiene stock» para todo lo que no case.
   const [includeZero, setIncludeZero] = useState(false)
-  // También apagado por defecto, pero por otro motivo: es la petición literal
-  // del usuario (solo SKU y cantidad). Lo de FBA no depende de este
-  // interruptor —lo provoca la columna de cantidad, que va siempre— y por eso
-  // ese aviso se pinta aparte, encima, y no aquí dentro.
-  const [withChannel, setWithChannel] = useState(false)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<ProcessResult | null>(null)
   const resultRef = useRef<HTMLDivElement>(null)
@@ -125,9 +120,6 @@ export function StockProcessPanel({
       if (eanFile) form.append('ean', eanFile)
       if (templateFile) form.append('plantilla', templateFile)
       form.append('include_zero', includeZero ? 'true' : 'false')
-      // Sin plantilla no hay columna que rellenar: se manda apagado aunque el
-      // interruptor se quedara encendido de una vez anterior.
-      form.append('with_channel', templateFile && withChannel ? 'true' : 'false')
       // El cuerpo es JSON y no el Excel: la pantalla necesita la lista de
       // listings sin resolver, que es el trabajo pendiente de la semana. Los
       // dos ficheros vienen dentro, en base64.
@@ -180,7 +172,6 @@ export function StockProcessPanel({
   const staleSwitch =
     result !== null &&
     (result.includeZero !== includeZero ||
-      result.withChannel !== (templateFile !== null && withChannel) ||
       (result.templateFile !== null) !== (templateFile !== null))
 
   return (
@@ -336,39 +327,6 @@ export function StockProcessPanel({
           listings que sí tenían producto. Enciéndelo solo cuando te conste que el
           fichero del cliente viene completo.
         </SwitchRow>
-
-        {/* Interruptor del canal de logística: solo tiene sentido con plantilla */}
-        <AnimatePresence initial={false}>
-          {templateFile && (
-            <motion.div
-              key="canal"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.15 }}
-              className="overflow-hidden min-w-0"
-            >
-              <SwitchRow
-                checked={withChannel}
-                onChange={() => setWithChannel((v) => !v)}
-                disabled={running}
-                tone="ambar"
-                title="Rellenar también el canal de logística de la plantilla"
-              >
-                Apagado, la plantilla sale solo con el SKU y las unidades, que es lo
-                pedido. Encendido, cada fila lleva además «Logística por parte del
-                vendedor», declarando que ese SKU lo envía {clientName}.
-                <span className="block mt-1 text-amber-200/70">
-                  Las instrucciones de Amazon dicen que hay que indicar el canal de
-                  logística para poder cambiar la cantidad, así que apagado corres el
-                  riesgo de que el stock no llegue a aplicarse. Encendido no añade
-                  ningún riesgo sobre el que ya trae la columna de cantidad (el aviso
-                  de arriba): solo lo deja escrito.
-                </span>
-              </SwitchRow>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         <button
           type="button"
