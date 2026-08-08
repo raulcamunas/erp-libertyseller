@@ -15,6 +15,7 @@ import {
   Boxes,
   HandCoins,
   Palmtree,
+  Palette,
   Plug
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
@@ -223,6 +224,31 @@ export const apps: AppConfig[] = [
     icon: Clock,
     route: '/dashboard/usos-horarios',
     status: 'active',
+    category: 'productivity'
+  },
+  {
+    // SOLO ADMIN, por dos motivos. Uno: es una pantalla de DECISIÓN y la
+    // decisión la toman los socios — enseñarle al equipo tres ERP posibles antes
+    // de que haya uno elegido es sembrar tres expectativas y defraudar dos. Dos:
+    // las maquetas usan nombres reales de cuentas y clientes de la agencia, con
+    // cifras y estados inventados, porque con relleno no se puede juzgar una
+    // tabla.
+    //
+    // Cerrada en tres sitios: middleware.ts, el redirect del propio
+    // app/dashboard/disenos/page.tsx (el que manda, porque corre en servidor) y
+    // el filtro de esta lista, replicado en app/dashboard/page.tsx y en
+    // components/layout/AppSidebar.tsx. No hay migración ni políticas RLS porque
+    // el módulo no consulta ninguna tabla: lo que protege esos nombres es el
+    // control de rol, no la base de datos.
+    //
+    // A diferencia de 'empleados' y 'amazon-api', el id no aparece en
+    // user_app_permissions: no se puede conceder a nadie suelto, es admin o nada.
+    id: 'disenos',
+    name: 'Diseños del ERP',
+    description: 'Tres propuestas de cambio de imagen sobre las pantallas reales, para elegir una',
+    icon: Palette,
+    route: '/dashboard/disenos',
+    status: 'new',
     category: 'productivity'
   }
 ]

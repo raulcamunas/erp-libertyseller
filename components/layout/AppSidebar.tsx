@@ -149,6 +149,13 @@ export function AppSidebar() {
     if (app.id === 'amazon-api') {
       return userRole === 'admin'
     }
+    // Diseños del ERP solo para admin. Igual que los dos de arriba, va antes del
+    // "si aún no se ha cargado el rol, mostrar todas" para que no aparezca ni un
+    // instante mientras se resuelve el perfil. La elección del diseño la toman
+    // los socios, y además las maquetas llevan nombres reales de clientes.
+    if (app.id === 'disenos') {
+      return userRole === 'admin'
+    }
     // Si aún no se ha cargado el rol, mostrar todas temporalmente (evita parpadeo)
     if (userRole === null) return true
     // Para admins, acceso a todo

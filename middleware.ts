@@ -146,6 +146,26 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/disenos - Solo admin
+      // El comparador de propuestas de rediseño. Dos motivos para cerrarlo, no
+      // uno: la elección del diseño la toman los socios —enseñar tres ERP
+      // posibles antes de que haya uno elegido siembra tres expectativas para
+      // defraudar dos—, y además las maquetas llevan nombres reales de cuentas y
+      // clientes de la agencia (con cifras y estados inventados), que es lo que
+      // hace que se pueda juzgar una tabla de verdad.
+      //
+      // No entra en el mapa routeToAppId de más abajo ni en
+      // user_app_permissions: no se puede conceder suelto, es admin o nada.
+      // El filtro de verdad es el redirect del propio page.tsx, que corre en el
+      // servidor; esto evita el viaje.
+      if (pathname.startsWith('/dashboard/disenos')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Protección para partners: solo pueden acceder a /dashboard/clients si son miembros
       if (userRole === 'partner' && pathname.startsWith('/dashboard/clients')) {
         const { data: memberClients } = await supabase

@@ -75,6 +75,13 @@ export default async function DashboardPage() {
       return profile.role === 'admin'
     }
 
+    // Diseños del ERP solo para admin: es una pantalla de decisión —enseñar tres
+    // ERP posibles antes de que haya uno elegido siembra tres expectativas— y
+    // además las maquetas llevan nombres reales de clientes de la agencia.
+    if (app.id === 'disenos') {
+      return profile.role === 'admin'
+    }
+
     // Para admins, acceso a todo
     if (profile.role === 'admin') return true
     
