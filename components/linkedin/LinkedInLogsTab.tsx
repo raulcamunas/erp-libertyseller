@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAll } from '@/lib/supabase/paginacion'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { format, parseISO } from 'date-fns'
@@ -29,25 +30,42 @@ export function LinkedInLogsTab() {
   const loadLogs = async () => {
     setLoading(true)
     try {
-      // Obtener empresas con sus fechas de creación y actualización
-      const { data: companies, error: companiesError } = await supabase
-        .from('target_companies')
-        .select('id, name, created_at')
-        .order('created_at', { ascending: false })
-
-      if (companiesError) throw companiesError
-
-      // Obtener prospectos con sus fechas de creación y actualización
-      const { data: prospects, error: prospectsError } = await supabase
-        .from('company_prospects')
-        .select('id, full_name, company_id, created_at, updated_at')
-        .order('created_at', { ascending: false })
-
-      if (prospectsError) throw prospectsError
+      // PAGINADAS Y EN PARALELO. Este panel es un histórico: sin `.range()`,
+      // PostgREST corta a 1000 filas sin dar error y el histórico empezaría a
+      // mentir por abajo en cuanto se pasara del millar (hoy 463 empresas y
+      // 512 prospectos). El `.order('id')` de desempate hace falta para
+      // paginar y está comprobado contra la base real que no altera el orden
+      // actual: no hay ni un created_at repetido en ninguna de las dos tablas.
+      // `fetchAll` lanza si falla un tramo, igual que hacía el `throw` de
+      // antes, así que el try/catch de esta función lo sigue recogiendo igual.
+      const [companies, prospects] = await Promise.all([
+        fetchAll<{ id: string; name: string; created_at: string }>((desde, hasta) =>
+          supabase
+            .from('target_companies')
+            .select('id, name, created_at')
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(desde, hasta)
+        ),
+        fetchAll<{
+          id: string
+          full_name: string
+          company_id: string
+          created_at: string
+          updated_at: string
+        }>((desde, hasta) =>
+          supabase
+            .from('company_prospects')
+            .select('id, full_name, company_id, created_at, updated_at')
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(desde, hasta)
+        ),
+      ])
 
       // Obtener nombres de empresas para los prospectos
       const companyMap = new Map(
-        (companies || []).map(c => [c.id, c.name])
+        companies.map(c => [c.id, c.name])
       )
 
       // Combinar todos los logs

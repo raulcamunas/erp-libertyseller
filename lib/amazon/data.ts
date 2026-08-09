@@ -1158,16 +1158,36 @@ export async function syncConnectionCatalog(
       // Un token que ya no vale no es un fallo pasajero: la conexión se marca y
       // deja de intentarse hasta que el cliente vuelva a autorizar. Si no, cada
       // quince minutos se repetiría el mismo error para siempre.
+      //
+      // SE COMPRUEBA EL ERROR A PROPÓSITO. supabase-js NO lanza cuando una
+      // escritura falla: devuelve `{ error }` y sigue. Justo aquí eso importa
+      // más que en ningún otro sitio de este fichero, porque esta escritura es
+      // EL FRENO: si se pierde en silencio, la conexión se queda en 'activa' y
+      // el cron vuelve a intentarlo cada quince minutos contra un token
+      // revocado, para siempre y sin que quede rastro de por qué. Registrar no
+      // cambia lo que se devuelve ni lo que ve nadie en pantalla.
       if (error instanceof AmazonApiError && error.kind === 'auth') {
-        await service
+        const { error: errorMarca } = await service
           .from('amazon_connections')
           .update({ status: 'revocada', status_detail: error.humanMessage })
           .eq('id', connectionId)
+        if (errorMarca) {
+          console.error(
+            `[amazon] no se pudo marcar como revocada la conexión ${connectionId}; el cron va a seguir reintentándola cada 15 minutos:`,
+            errorMarca
+          )
+        }
       } else if (error instanceof AmazonApiError && error.kind === 'permisos') {
-        await service
+        const { error: errorMarca } = await service
           .from('amazon_connections')
           .update({ status: 'error', status_detail: error.humanMessage })
           .eq('id', connectionId)
+        if (errorMarca) {
+          console.error(
+            `[amazon] no se pudo marcar con error de permisos la conexión ${connectionId}; el cron va a seguir reintentándola cada 15 minutos:`,
+            errorMarca
+          )
+        }
       }
     }
   }
@@ -1182,7 +1202,12 @@ export async function syncConnectionCatalog(
   const truncado = results.some((r) => r.truncated)
   const declarado = results.reduce((sum, r) => sum + r.declared, 0)
 
-  await service
+  // SE COMPRUEBA EL ERROR A PROPÓSITO: supabase-js no lanza si falla. Esta
+  // escritura es la que deja constancia de que el catálogo se quedó corto
+  // (`last_sync_truncated`), que es lo que evita que la pantalla presente 1.000
+  // referencias como si fueran todas. Perderla en silencio devuelve justo el
+  // problema que ese campo existe para evitar.
+  const { error: errorResumen } = await service
     .from('amazon_connections')
     .update(
       fallo
@@ -1196,6 +1221,12 @@ export async function syncConnectionCatalog(
           }
     )
     .eq('id', connectionId)
+  if (errorResumen) {
+    console.error(
+      `[amazon] el refresco de la conexión ${connectionId} terminó pero no se pudo anotar su resultado:`,
+      errorResumen
+    )
+  }
 
   return results
 }
@@ -1428,20 +1459,31 @@ async function confirmSubmissions(
   marketplaceId: string,
   items: AmazonCatalogItem[]
 ): Promise<number> {
-  const { data, error } = await service
-    .from('amazon_submissions')
-    .select('id, sku, field, new_value')
-    .eq('connection_id', connectionId)
-    .eq('marketplace_id', marketplaceId)
-    .in('status', ['pendiente', 'aceptado'])
-  if (error) throw error
-
-  const pendientes = (data ?? []) as Array<{
+  // PAGINADO A PROPÓSITO. Antes esto era un select suelto: PostgREST lo habría
+  // cortado a 1000 filas SIN dar error, y lo que cae fuera del corte no se
+  // confirma NUNCA. Este módulo es el que va a empujar precio y stock de 13.700
+  // referencias, así que en cuanto se use para lo que está hecho, un envío
+  // masivo dejaría miles de cambios eternamente en «aceptado» aunque Amazon ya
+  // los hubiera aplicado. Hoy la tabla tiene 3 filas y devuelve las mismas 3.
+  //
+  // El `.order('id')` es imprescindible, no decorativo: sin ORDER BY, qué 1000
+  // filas vuelven en cada tramo lo decide el planificador de Postgres, así que
+  // paginar sin orden repite unas filas y se salta otras para siempre.
+  const pendientes = await fetchAll<{
     id: string
     sku: string
     field: AmazonSubmissionField
     new_value: string
-  }>
+  }>((desde, hasta) =>
+    service
+      .from('amazon_submissions')
+      .select('id, sku, field, new_value')
+      .eq('connection_id', connectionId)
+      .eq('marketplace_id', marketplaceId)
+      .in('status', ['pendiente', 'aceptado'])
+      .order('id', { ascending: true })
+      .range(desde, hasta)
+  )
   if (pendientes.length === 0) return 0
 
   const porSku = new Map(items.map((i) => [i.sku, i]))
@@ -1759,7 +1801,17 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
         }
 
         if (submissionId) {
-          await service
+          // SE COMPRUEBA EL ERROR A PROPÓSITO. supabase-js NO lanza cuando una
+          // escritura falla: devuelve `{ error }` y sigue. Comprobado contra la
+          // base real que un `.update()` contra una columna inexistente NO tira
+          // excepción, solo trae PGRST204 dentro de `error`.
+          //
+          // Esta escritura concreta ocurre DESPUÉS de que el precio o el stock
+          // ya hayan salido hacia la tienda del cliente. Si se pierde en
+          // silencio, el cambio está aplicado en Amazon y aquí sigue constando
+          // como pendiente: el siguiente refresco lo vuelve a mandar. Registrar
+          // no cambia lo que se le devuelve a la pantalla; solo deja rastro.
+          const { error: errorSubmission } = await service
             .from('amazon_submissions')
             .update({
               status: res.status,
@@ -1776,11 +1828,20 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
               attempts: res.attempts,
             })
             .eq('id', submissionId)
+          if (errorSubmission) {
+            console.error(
+              `[amazon] el cambio de ${change.field} en ${change.sku} salió hacia Amazon con estado "${res.status}" pero NO se pudo anotar en amazon_submissions ${submissionId}:`,
+              errorSubmission
+            )
+          }
         }
       } catch (error) {
         outcome.message = humanMessageOf(error)
         if (submissionId) {
-          await service
+          // Mismo motivo que arriba: supabase-js no lanza si la escritura falla.
+          // Perder ESTA en silencio deja el cambio marcado como pendiente
+          // cuando en realidad ya se intentó y falló.
+          const { error: errorSubmission } = await service
             .from('amazon_submissions')
             .update({
               status: 'error',
@@ -1791,6 +1852,12 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
               attempts: error instanceof AmazonApiError ? error.attempts : 1,
             })
             .eq('id', submissionId)
+          if (errorSubmission) {
+            console.error(
+              `[amazon] no se pudo anotar el fallo del cambio de ${change.field} en ${change.sku} en amazon_submissions ${submissionId}:`,
+              errorSubmission
+            )
+          }
         }
 
         // UN FALLO DE LA CONEXIÓN NO ES UN FALLO DE ESTE CAMBIO.

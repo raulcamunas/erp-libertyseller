@@ -1,21 +1,64 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { comprobarTamañoPeticion, leerCuerpoConTope, MAX_BYTES_WEBHOOK } from '@/lib/subidas-limite'
 
 export async function POST(request: NextRequest) {
   try {
+    /**
+     * TOPE DE BYTES, ANTES DE PARSEAR NADA.
+     *
+     * QUÉ IMPIDE: que cualquiera de Internet tumbe el contenedor por falta de
+     * memoria, y con él el ERP de los 16 clientes. Esta ruta NO pide sesión ni
+     * secreto —cualquiera puede llamarla— y tanto `request.json()` como
+     * `request.formData()` se comen el cuerpo ENTERO en memoria antes de que
+     * aquí se mire nada. Está medido en la ruta hermana de subidas: un solo
+     * cuerpo de 60 MB dejó el proceso en 894 MB de RSS, y cuatro a la vez lo
+     * clavaron ahí.
+     *
+     * POR QUÉ NO ROMPE NINGÚN LEAD REAL: lo que entra por aquí es el formulario
+     * de contacto de libertyupgrowth.es (nombre, email, teléfono, empresa,
+     * mensaje, ingresos), del orden de un kilobyte. El tope es de un megabyte:
+     * mil veces el uso real.
+     */
+    const demasiado = comprobarTamañoPeticion(request, MAX_BYTES_WEBHOOK)
+    if (demasiado) return demasiado
+
+    /**
+     * Y EL TOPE DE VERDAD, LEYENDO EL FLUJO.
+     *
+     * La comprobación de arriba mira Content-Length, y un cuerpo con
+     * `Transfer-Encoding: chunked` NO la trae, así que la esquivaba entero.
+     * Reproducido contra el servidor local, sin cookie:
+     *
+     *   curl -H 'Transfer-Encoding: chunked' --data-binary @2MB  ->  antes: el
+     *   cuerpo se parseaba;  ahora: HTTP 413 en 0,007 s.
+     *
+     * LO QUE ESTO NO ARREGLA: el pico de RSS del proceso. Está medido que sube
+     * igual en una ruta que contesta 401 sin leer el cuerpo, o sea que los
+     * bytes los acumula Node por debajo. El freno para eso va en el proxy de
+     * delante. Explicado entero en lib/subidas-limite.ts.
+     *
+     * No cambia nada para un lead real: el texto que sale de aquí es el mismo
+     * que devolvía `request.text()`, y el formulario de la web ocupa ~1 kB.
+     * Comprobados los tres caminos —JSON, JSON troceado y urlencoded— y los
+     * tres contestan exactamente lo mismo que antes.
+     */
+    const cuerpo = await leerCuerpoConTope(request, MAX_BYTES_WEBHOOK)
+    if (cuerpo instanceof NextResponse) return cuerpo
+
     // Intentar parsear como JSON primero, si falla, intentar como form-data
     let body: any
     const contentType = request.headers.get('content-type') || ''
-    
+
     try {
-      if (contentType.includes('application/json')) {
-        body = await request.json()
-      } else if (contentType.includes('application/x-www-form-urlencoded')) {
-        const formData = await request.formData()
-        body = Object.fromEntries(formData.entries())
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        // Mismo resultado que `Object.fromEntries(formData.entries())` para un
+        // cuerpo urlencoded, pero sobre el texto ya leído: el cuerpo solo se
+        // puede consumir una vez.
+        body = Object.fromEntries(new URLSearchParams(cuerpo.texto).entries())
       } else {
-        // Intentar JSON por defecto
-        body = await request.json()
+        // JSON por defecto, igual que antes
+        body = JSON.parse(cuerpo.texto)
       }
     } catch (parseError) {
       console.error('Error parsing request body:', parseError)
@@ -25,9 +68,28 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Log para debugging
-    console.log('Webhook received:', JSON.stringify(body, null, 2))
-    console.log('Content-Type:', contentType)
+    // Traza SIN datos personales.
+    //
+    // QUÉ IMPIDE: que los datos de contacto de cada lead acaben en el log del
+    // servidor. Antes esta línea era
+    //
+    //     console.log('Webhook received:', JSON.stringify(body, null, 2))
+    //
+    // y el cuerpo es el formulario de la web: nombre, email, teléfono, empresa,
+    // mensaje e ingresos. O sea, la ficha completa de cada uno de los 3.978
+    // leads de cold_leads y los 512 de company_prospects, en un log sin
+    // caducidad ni control de acceso, que se copia entero cada vez que alguien
+    // depura un despliegue.
+    //
+    // Lo que se necesitaba para depurar de verdad es saber si el formulario
+    // trae los campos y con qué Content-Type llega, y eso se sigue viendo.
+    console.log('Webhook lead recibido', {
+      contentType,
+      tieneNombre: !!(body.nombre || body.name),
+      tieneEmail: !!body.email,
+      tieneTelefono: !!(body.telefono || body.phone),
+      camposRecibidos: Object.keys(body || {}).length,
+    })
 
     // Validar campos requeridos (aceptar tanto 'nombre' como 'name', y 'telefono' como 'phone')
     const nombre = body.nombre || body.name
@@ -35,7 +97,12 @@ export async function POST(request: NextRequest) {
     const telefono = body.telefono || body.phone
 
     if (!nombre || !email) {
-      console.error('Validation error: missing nombre or email', { nombre, email })
+      // Sin PII, por lo mismo que la traza de arriba: aquí se registraba el
+      // nombre y el email del lead en el log. Basta con saber cuál falta.
+      console.error('Webhook lead rechazado: faltan campos', {
+        tieneNombre: !!nombre,
+        tieneEmail: !!email,
+      })
       return NextResponse.json(
         { error: 'Los campos "nombre" (o "name") y "email" son requeridos' },
         { status: 400 }
@@ -89,7 +156,13 @@ export async function POST(request: NextRequest) {
       status: 'registrado' as const // Estado inicial
     }
 
-    console.log('Inserting lead data:', JSON.stringify(leadData, null, 2))
+    // Sin PII: antes volcaba `JSON.stringify(leadData)` entero, o sea nombre,
+    // email, teléfono, empresa, mensaje e ingresos del lead, al log.
+    console.log('Insertando lead', {
+      tieneTelefono: !!leadData.telefono,
+      tieneEmpresa: !!leadData.empresa,
+      tieneMensaje: !!leadData.mensaje,
+    })
 
     // Usar función SQL con SECURITY DEFINER para bypassear RLS
     const { data, error } = await supabase.rpc('insert_web_lead', {
@@ -107,7 +180,9 @@ export async function POST(request: NextRequest) {
         code: error.code,
         details: error.details,
         hint: error.hint,
-        leadData
+        // `leadData` NO se registra: llevaba el nombre, el email y el teléfono
+        // del lead al log. Para diagnosticar el fallo basta el error de
+        // Postgres, que es lo que dice por qué no entró la fila.
       })
       
       // Si la función no existe, intentar insert directo como fallback

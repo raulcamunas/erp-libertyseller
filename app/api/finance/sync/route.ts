@@ -2,13 +2,37 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getTransactions } from '@/lib/wise'
 import { format, subDays } from 'date-fns'
+import { requireAppAccess } from '@/lib/auth/api'
 
 /**
  * Endpoint para sincronizar transacciones de Wise con la base de datos
  * POST /api/finance/sync
+ *
+ * QUÉ IMPIDE EL requireAppAccess() DE ABAJO
+ * -----------------------------------------
+ * Lo mismo que en /api/finance/balance, que está reproducido allí con curl:
+ * la ruta no comprobaba nada y middleware.ts (línea 41) declara pública toda
+ * /api/, así que un POST anónimo bastaba para que el servidor saliera a hablar
+ * con la API de Wise con la clave de la empresa y se trajera el extracto de
+ * movimientos del mes que pidiera quien llamara —el `year`/`month` van en el
+ * cuerpo—. Además escribe en finance_periods y finance_payments.
+ *
+ * Esta NO la disparé para no dejar filas de sincronización en producción; el
+ * agujero es el mismo que el de /balance y la ausencia de comprobación era
+ * literal (no había ni un `auth.getUser()` en el fichero).
+ *
+ * POR QUÉ NO CAMBIA NADA PARA QUIEN LA USA: el único llamante es
+ * components/finances/FinanceDashboard.tsx, en /dashboard/finances, que
+ * middleware ya cierra con el mismo criterio que se pide aquí.
  */
 export async function POST(request: NextRequest) {
   try {
+    const sesion = await requireAppAccess(
+      'finances',
+      'No tienes acceso a Tesorería'
+    )
+    if (sesion instanceof NextResponse) return sesion
+
     const supabase = await createClient()
 
     // Verificar que la variable de entorno esté configurada

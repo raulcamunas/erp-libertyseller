@@ -1,8 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin } from '@/lib/auth/api'
+
+/**
+ * BORRAR UN USUARIO DEL ERP. SOLO ADMIN.
+ *
+ * QUÉ IMPIDE EL requireAdmin() DE ABAJO
+ * -------------------------------------
+ * Igual que su hermana /api/users/update: no comprobaba nada, y middleware.ts
+ * (línea 41) declara pública toda /api/. Reproducido sin cookie:
+ *
+ *     $ curl -X POST http://SERVIDOR/api/users/delete \
+ *            -H 'Content-Type: application/json' -d '{}'
+ *     {"error":"User ID es requerido"}      <- HTTP 400, NUNCA 401
+ *
+ * El 400 es de su propia validación: la petición anónima ya había entrado. Con
+ * un `userId` de verdad, `auth.admin.deleteUser()` con SUPABASE_SERVICE_ROLE_KEY
+ * borra la cuenta. Un solo curl repetido diez veces deja el ERP sin usuarios y
+ * a la agencia fuera de su propia herramienta.
+ *
+ * POR QUÉ NO CAMBIA NADA PARA QUIEN LA USA: el único llamante es
+ * components/users/UsersManagement.tsx (/dashboard/users), que ya está cerrada
+ * a un admin en middleware.ts y manda cookie.
+ */
 
 export async function POST(request: NextRequest) {
   try {
+    const sesion = await requireAdmin(
+      'Solo un administrador puede eliminar usuarios del ERP'
+    )
+    if (sesion instanceof NextResponse) return sesion
+
     const body = await request.json()
     const { userId } = body
 

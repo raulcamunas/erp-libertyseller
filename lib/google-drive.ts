@@ -30,6 +30,7 @@
  */
 
 import { auth as googleAuth } from '@googleapis/calendar'
+import { ESPERA_DESCARGA_MS, ESPERA_JSON_MS } from '@/lib/tiempos-espera'
 
 /** Solo lectura. Es el scope más estrecho que permite listar y descargar */
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
@@ -263,6 +264,9 @@ export async function listarCarpeta(
   const res = await fetch(`${DRIVE_FILES}?${params.toString()}`, {
     headers: { Authorization: `Bearer ${await token()}` },
     cache: 'no-store',
+    // Tope de tiempo: listar una carpeta es una llamada de control con
+    // respuesta pequeña. Ver lib/tiempos-espera.ts.
+    signal: AbortSignal.timeout(ESPERA_JSON_MS),
   })
 
   if (!res.ok) throw await fallo(res, id, 'leer la carpeta de Google Drive')
@@ -332,6 +336,9 @@ export async function descargar(
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${await token()}` },
     cache: 'no-store',
+    // Tope holgado: esto baja el contenido del fichero, no un JSON de
+    // control. Ver lib/tiempos-espera.ts.
+    signal: AbortSignal.timeout(ESPERA_DESCARGA_MS),
   })
 
   if (!res.ok) {

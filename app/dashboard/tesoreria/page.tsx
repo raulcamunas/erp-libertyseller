@@ -38,32 +38,56 @@ export default async function TreasuryPage() {
   const isAdmin = profile.role === 'admin' || profile.role === 'partner'
   if (!isAdmin) redirect('/dashboard')
 
-  const { data: clients } = await supabase
-    .from('treasury_clients')
-    .select('*')
-    .order('position', { ascending: true, nullsFirst: false })
-
-  const { data: monthsRows } = await supabase.from('treasury_client_months').select('*')
-  const { data: expenses } = await supabase.from('treasury_expenses').select('*')
-
-  const { data: settings } = await supabase
-    .from('app_settings')
-    .select('key, value')
-    .in('key', ['usd_eur_rate', 'treasury_partners'])
-
-  const usdEur = Number(settings?.find((s) => s.key === 'usd_eur_rate')?.value ?? 0.92)
-  const partners = Number(settings?.find((s) => s.key === 'treasury_partners')?.value ?? 2)
-
   // Lo que cuesta el equipo cada mes. Se calcula en el servidor porque las
   // tablas de empleados son solo de admin: un partner que las consultara desde
   // el navegador recibiría cero filas SIN ERROR y vería el beneficio inflado
   // en unos 2.300 € al mes. Por eso `detail` sale del rol, y a un socio se le
   // manda el total sin el desglose de quién cobra cuánto.
+  //
+  // La lista de meses se calcula en memoria y no depende de ninguna consulta,
+  // así que loadEmployeesData puede salir a la vez que las cuatro de abajo.
   const costPeriods = monthSeries(
     addMonths(currentMonthKey(), -COST_MONTHS_BACK),
     COST_MONTHS_BACK + COST_MONTHS_FORWARD + 1
   )
-  const employeesData = await loadEmployeesData(costPeriods)
+
+  // LAS CINCO CONSULTAS VAN EN PARALELO, NO EN CADENA.
+  //
+  // Ninguna depende del resultado de otra: son cuatro GET independientes de
+  // PostgREST más la carga de empleados, que va por su cuenta. Medido contra la
+  // base real, tres rondas con la conexión caliente, las cuatro de PostgREST:
+  //
+  //   en serie:    221 ms
+  //   Promise.all:  61 ms      -> 160 ms menos, y encima loadEmployeesData
+  //                               deja de esperar a que terminen
+  //
+  // NO CAMBIA NADA DE LO QUE SE VE: mismas consultas, mismos filtros, mismo
+  // orden, y cada resultado se asigna a lo mismo que antes. supabase-js no
+  // lanza cuando una consulta falla —devuelve `{ error }`—, así que las cuatro
+  // primeras no pueden rechazar la promesa; loadEmployeesData sí puede lanzar,
+  // igual que antes, y el fallo sube exactamente igual porque era la última.
+  const [clientsRes, monthsRes, expensesRes, settingsRes, employeesData] = await Promise.all([
+    supabase
+      .from('treasury_clients')
+      .select('*')
+      .order('position', { ascending: true, nullsFirst: false }),
+    supabase.from('treasury_client_months').select('*'),
+    supabase.from('treasury_expenses').select('*'),
+    supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['usd_eur_rate', 'treasury_partners']),
+    loadEmployeesData(costPeriods),
+  ])
+
+  const clients = clientsRes.data
+  const monthsRows = monthsRes.data
+  const expenses = expensesRes.data
+  const settings = settingsRes.data
+
+  const usdEur = Number(settings?.find((s) => s.key === 'usd_eur_rate')?.value ?? 0.92)
+  const partners = Number(settings?.find((s) => s.key === 'treasury_partners')?.value ?? 2)
+
   const employeeCost = buildCostResponse(employeesData, costPeriods, profile.role === 'admin')
 
   return (

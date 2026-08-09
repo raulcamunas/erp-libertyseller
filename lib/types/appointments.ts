@@ -47,13 +47,32 @@ export interface Appointment {
   transcription_error: string | null
 
   google_event_id: string | null
-  google_calendar_id: string | null
-  google_html_link: string | null
   google_meet_link: string | null
   sync_status: SyncStatus
-  sync_error: string | null
-  last_synced_at: string | null
-  updated_source: 'erp' | 'google'
+
+  /**
+   * FONTANERÍA DE LA SINCRONIZACIÓN CON GOOGLE, OPCIONALES A PROPÓSITO.
+   *
+   * Las escribe lib/appointments-sync.ts y no las lee NINGUNA pantalla
+   * (comprobado por búsqueda en components/ y app/dashboard/: cero usos de
+   * las cuatro). Por eso app/dashboard/agenda/page.tsx dejó de pedirlas: eran
+   * 1719 kB de los 6566 kB que se mandaban al navegador en cada carga de la
+   * agenda, solo en columnas que no mira nadie.
+   *
+   * Van con `?` para que el tipo no MIENTA: quien lee una cita traída por esa
+   * página no las tiene. Las rutas que hacen `select('*')` sí las reciben, y
+   * un opcional también describe bien ese caso. Si algún día hay que pintar
+   * alguna, se vuelve a añadir al select de la agenda y ya está.
+   *
+   * OJO: `google_meet_link` NO está aquí y no debe moverse. Sí se pinta, en
+   * AgendaCalendar.tsx:1005, AppointmentSheet.tsx:379 y
+   * AppointmentConfirmation.tsx:183.
+   */
+  google_calendar_id?: string | null
+  google_html_link?: string | null
+  sync_error?: string | null
+  last_synced_at?: string | null
+  updated_source?: 'erp' | 'google'
 
   created_at: string
   updated_at: string
@@ -73,6 +92,39 @@ export interface AppointmentWithPeople extends Appointment {
   comercial?: CalendarPerson | null
   assigned_closer?: CalendarPerson | null
 }
+
+/**
+ * LAS COLUMNAS QUE PIDE LA AGENDA, EN UN SOLO SITIO.
+ *
+ * Existe porque ya se habían separado: app/dashboard/agenda/page.tsx dejó de
+ * pedir `*` a propósito —medido, 6566 kB -> 4847 kB al quitar cinco columnas de
+ * fontanería de la sincronización con Google y el texto largo de las
+ * transcripciones— y el botón «Resincronizar» de AgendaCalendar seguía
+ * recargando con `select('*')`, o sea que en cuanto alguien lo pulsaba el
+ * navegador se volvía a tragar los 6,5 MB y el estado quedaba además con
+ * objetos de otra forma que los que había puesto el servidor.
+ *
+ * QUÉ NO SE PUEDE QUITAR DE AQUÍ: `google_meet_link`, que se pinta en
+ * AgendaCalendar, AppointmentSheet y AppointmentConfirmation. Las cinco que no
+ * están —google_html_link, google_calendar_id, last_synced_at, sync_error,
+ * updated_source— las escribe lib/appointments-sync.ts y no las lee ninguna
+ * pantalla (cero usos en components/ y app/dashboard/).
+ *
+ * El texto largo de la transcripción tampoco está: se pide aparte al
+ * desplegarlo. El resumen sí, que es corto y se enseña en la ficha.
+ */
+export const COLUMNAS_AGENDA = `
+  id, comercial_id, assigned_closer_id, is_external,
+  lead_name, lead_email, lead_phone, lead_company, lead_source, lead_ref_id,
+  start_time, end_time, status, title, notes, details,
+  revenue_amount, call_date, amazon_link,
+  recording_url, recording_filename,
+  transcription_summary, transcription_status, transcription_error,
+  google_event_id, google_meet_link, sync_status,
+  created_at, updated_at,
+  comercial:profiles!appointments_comercial_id_fkey(id, full_name, email, role, calendar_color),
+  assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
+`
 
 export interface CreateAppointmentPayload {
   comercial_id?: string

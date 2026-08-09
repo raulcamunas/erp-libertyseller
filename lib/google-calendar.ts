@@ -1,4 +1,5 @@
 import { calendar, calendar_v3, auth as googleAuth } from '@googleapis/calendar'
+import { ESPERA_JSON_MS } from '@/lib/tiempos-espera'
 
 /**
  * Cliente de Google Calendar autenticado con la service account
@@ -23,7 +24,22 @@ function getCalendarClient(): calendar_v3.Calendar {
     subject, // impersonación (domain-wide delegation)
   })
 
-  return calendar({ version: 'v3', auth: authClient })
+  // `timeout` NO es decorativo y hay que pasarlo AQUÍ.
+  //
+  // QUÉ IMPIDE: que una llamada a Google Calendar que no contesta deje colgada
+  // la sincronización. Google Calendar no va por `fetch` sino por gaxios, y
+  // gaxios SOLO arma el AbortSignal si se le pasa `timeout`
+  // (node_modules/gaxios/build/cjs/src/gaxios.js:432 -> `if (opts.timeout)`).
+  // Sin esta línea no había ningún reloj: comprobado que este fichero no
+  // pasaba `timeout` en ningún sitio.
+  //
+  // Esto importa especialmente porque scripts/google-calendar-sync.sh llama con
+  // `curl -sf` SIN --max-time y el cron entra cada 3 minutos: una pasada colgada
+  // seguía viva cuando entraba la siguiente.
+  //
+  // Las opciones que se pasan al constructor se mezclan en CADA petición
+  // (googleapis-common/build/src/apirequest.js:62, `parameters.context._options`).
+  return calendar({ version: 'v3', auth: authClient, timeout: ESPERA_JSON_MS })
 }
 
 export function getCalendarId(): string {

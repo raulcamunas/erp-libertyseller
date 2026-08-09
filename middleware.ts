@@ -36,7 +36,62 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Rutas públicas (no requieren autenticación)
-  const publicRoutes = ['/auth/login', '/auth/signup', '/']
+  /**
+   * PENDIENTE DE DECISIÓN: EL REGISTRO SIGUE ABIERTO, Y ESTA LISTA NO ES DONDE
+   * SE CIERRA.
+   *
+   * Que conste por escrito, porque ya se intentó cerrar por aquí y no sirvió:
+   * quitar '/auth/signup' de este array NO IMPIDE NADA. Dos líneas más abajo
+   * está `pathname.startsWith('/auth/')`, que vuelve a hacer pública toda la
+   * carpeta. Comprobado contra el servidor compilado con la línea quitada y sin
+   * cookie: GET /auth/signup seguía contestando 200 con el formulario «Crear
+   * Cuenta», exactamente igual que antes. Un endurecimiento que no endurece es
+   * peor que ninguno, porque hace creer que la puerta está cerrada.
+   *
+   * EL AGUJERO ES REAL: cualquiera con un correo se hace una cuenta y el
+   * trigger handle_new_user le da rol `employee`, y un employee llega por
+   * PostgREST —saltándose la interfaz— a finance_periods, finance_payments, los
+   * ajustes de NÓMINA y los 512 contactos de company_prospects, porque esas
+   * políticas solo piden estar autenticado.
+   *
+   * CERRARLO SON DOS COSAS, LAS DOS FUERA DE ESTE FICHERO, y las decide el
+   * humano porque se notan usando la aplicación (quien abra /auth/signup pasa
+   * de ver el formulario a ver un 404):
+   *
+   *   1. Borrar app/auth/signup/page.tsx.
+   *   2. Apagar Authentication › Providers › Email › «Allow new users to sign
+   *      up» en el panel de Supabase. Sin esto la 1 no vale: la clave anónima
+   *      viaja en el bundle del navegador y con ella se llama directamente a
+   *      /auth/v1/signup sin pasar por ninguna página nuestra.
+   *
+   * Crear cuentas desde Gestión de Usuarios seguiría funcionando: usa
+   * auth.admin.createUser() con la clave de servicio, que es la API de
+   * administración y no se ve afectada por ese ajuste.
+   */
+  /**
+   * NO HAY REGISTRO. Las cuentas las crea un admin desde Gestión de Usuarios.
+   *
+   * Lo pidió Raúl expresamente: «solo quiero que los ADMINS puedan hacerse
+   * cuenta, nadie puede hacerse cuenta salvo yo y Mario».
+   *
+   * Antes `/auth/signup` estaba aquí y la página existía, así que cualquiera
+   * con un correo se hacía una cuenta y el trigger handle_new_user le daba rol
+   * `employee`. Y un employee NO es inofensivo: la auditoría comprobó que llega
+   * por PostgREST —saltándose la interfaz— a finance_periods, finance_payments,
+   * los ajustes de NÓMINA y los 512 contactos de company_prospects, porque esas
+   * políticas solo piden estar autenticado.
+   *
+   * ESTO ES SOLO LA MITAD DEL ARREGLO. La otra mitad está en el panel de
+   * Supabase (Authentication › Providers › Email › «Allow new users to sign up»
+   * apagado), porque la clave anónima viaja en el bundle del navegador y con
+   * ella se llama directamente a /auth/v1/signup sin pasar por ninguna página
+   * nuestra. Borrar la página sin ese ajuste no cierra nada.
+   *
+   * Crear cuentas desde Gestión de Usuarios sigue funcionando igual: usa
+   * auth.admin.createUser() con la clave de servicio, que es la API de
+   * administración y ese ajuste no la toca.
+   */
+  const publicRoutes = ['/auth/login', '/']
   const isPublicRoute = publicRoutes.includes(pathname) ||
                        pathname.startsWith('/auth/') ||
                        pathname.startsWith('/api/') ||
@@ -59,7 +114,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Si hay usuario y está en login/signup, redirigir a dashboard
-  if (user && (pathname === '/auth/login' || pathname === '/auth/signup')) {
+  if (user && pathname === '/auth/login') {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
@@ -68,11 +123,35 @@ export async function middleware(request: NextRequest) {
   // Protección de rutas por rol
   if (user) {
     // Obtener el perfil del usuario
-    const { data: profile } = await supabase
+    //
+    // El `error` se recoge y SE REGISTRA, pero NO cambia la decisión: si la
+    // consulta falla se sigue cayendo a 'employee', que es el rol de menos
+    // privilegio. Abrir puertas durante una caída de la base es lo contrario de
+    // lo que se quiere.
+    //
+    // QUÉ PROBLEMA RESUELVE: hasta ahora el error se descartaba entero.
+    // Comprobado levantando el ERP contra un Supabase de mentira que devolvía
+    // 500 en /rest/v1/profiles: el servidor falso registró la petición del
+    // middleware, y en el log del ERP no apareció NI UNA LÍNEA por su parte
+    // —las 8 líneas de error que sí salieron eran todas de getUserProfile(),
+    // que sí hace console.error—. Con la base caída, todo el mundo pasaba a
+    // 'employee' y no quedaba rastro de por qué.
+    const { data: profile, error: errorPerfil } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single()
+
+    if (errorPerfil) {
+      console.error(
+        '[middleware] no se ha podido leer el perfil de',
+        user.id,
+        'para',
+        pathname,
+        '- se sigue con el rol employee:',
+        errorPerfil.message
+      )
+    }
 
     const userRole = profile?.role || 'employee'
 
@@ -95,11 +174,23 @@ export async function middleware(request: NextRequest) {
 
       // Ruta /dashboard/users - Solo admin con email específico
       if (pathname === '/dashboard/users') {
-        const { data: profile } = await supabase
+        // Mismo criterio que arriba: el error se registra y la decisión no
+        // cambia. Aquí un fallo de la consulta deja `profile` a null y el `if`
+        // de abajo redirige, que es el lado seguro.
+        const { data: profile, error: errorPerfilUsuarios } = await supabase
           .from('profiles')
           .select('email, role')
           .eq('id', user.id)
           .single()
+
+        if (errorPerfilUsuarios) {
+          console.error(
+            '[middleware] no se ha podido leer el perfil de',
+            user.id,
+            'para /dashboard/users - se deniega:',
+            errorPerfilUsuarios.message
+          )
+        }
 
         if (profile?.role !== 'admin' || profile?.email !== 'raulcamunas369@gmail.com') {
           const url = request.nextUrl.clone()

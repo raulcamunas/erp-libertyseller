@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/api'
 import OpenAI from 'openai'
 
 // Lazy initialization - solo se crea cuando se necesita
@@ -85,6 +86,22 @@ ESTRUCTURA DE RESPUESTA REQUERIDA:
 
 export async function POST(request: NextRequest) {
   try {
+    // QUÉ IMPIDE: que esta ruta le conteste a cualquiera de internet. No
+    // comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/,
+    // así que bastaba un curl SIN cookie para dispararla. Ver lib/auth/api.ts,
+    // donde está reproducido con el curl exacto.
+    //
+    // Manda a OpenAI el contexto del cliente de PPC con la clave de la empresa.
+    // Sin sesión, cualquiera de internet tenía una pasarela gratis contra
+    // OPENAI_API_KEY, a cargo de la agencia. La llama
+    // components/ppc/AIInsightsPanel.tsx, con sesión.
+    //
+    // Se pide SESIÓN y nada más —ni rol ni permiso de módulo— a propósito: hoy
+    // esta pantalla la abre cualquiera con sesión, y exigir un permiso que hoy
+    // no se exige dejaría fuera a alguien que trabaja.
+    const sesion = await requireSession()
+    if (sesion instanceof NextResponse) return sesion
+
     const body: AIInsightsRequest = await request.json()
 
     // Validar que tenemos los datos necesarios

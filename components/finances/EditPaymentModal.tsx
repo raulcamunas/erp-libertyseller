@@ -60,12 +60,29 @@ export function EditPaymentModal({ payment, onClose, onPaymentUpdated }: EditPay
           .from('finance-attachments')
           .remove([fileName])
 
-        // Eliminar de la base de datos
-        await supabase
+        // Eliminar de la base de datos.
+        //
+        // SE COMPRUEBA EL ERROR A PROPÓSITO: supabase-js no lanza cuando una
+        // escritura falla, devuelve `{ error }` y sigue, así que el catch de
+        // abajo nunca saltaba por un fallo de la base. El fichero desaparecía
+        // de la pantalla —la línea siguiente lo quita de la lista— y la fila
+        // seguía en finance_attachments apuntando a un fichero que ya no está
+        // en el storage, porque el borrado del storage sí había ocurrido.
+        //
+        // NO SE TOCA LO QUE VE LA PERSONA: se sigue quitando de la lista igual
+        // que hoy y no se añade ningún aviso. Solo queda rastro.
+        const { error: errorBorrado } = await supabase
           .from('finance_attachments')
           .delete()
           .eq('id', attachmentId)
-        
+
+        if (errorBorrado) {
+          console.error(
+            `El fichero ${fileName} se borró del storage pero su fila ${attachmentId} sigue en finance_attachments:`,
+            errorBorrado
+          )
+        }
+
         // Actualizar la lista de attachments localmente
         setCurrentAttachments(prev => prev.filter(a => a.id !== attachmentId))
       }
@@ -115,7 +132,13 @@ export function EditPaymentModal({ payment, onClose, onPaymentUpdated }: EditPay
               .from('finance-attachments')
               .getPublicUrl(fileName)
 
-            await supabase
+            // SE COMPRUEBA EL ERROR A PROPÓSITO: supabase-js no lanza si la
+            // escritura falla. El fichero ya está subido al storage en este
+            // punto, así que perder esta fila en silencio deja un adjunto que
+            // existe y que ninguna pantalla vuelve a enseñar jamás, porque la
+            // lista se pinta desde finance_attachments. No se cambia el flujo
+            // —se sigue adelante igual—, solo queda rastro.
+            const { error: errorAdjunto } = await supabase
               .from('finance_attachments')
               .insert([
                 {
@@ -126,6 +149,13 @@ export function EditPaymentModal({ payment, onClose, onPaymentUpdated }: EditPay
                   file_size: file.size
                 }
               ])
+
+            if (errorAdjunto) {
+              console.error(
+                `El fichero ${fileName} se subió al storage pero no se pudo anotar en finance_attachments:`,
+                errorAdjunto
+              )
+            }
           }
         }
       }

@@ -59,6 +59,7 @@
  */
 
 import { auth as googleAuth } from '@googleapis/calendar'
+import { ESPERA_DESCARGA_MS } from '@/lib/tiempos-espera'
 import { DriveError, type DriveFile } from '@/lib/google-drive'
 
 /** Solo lectura. Es el scope más estrecho que permite listar y descargar */
@@ -208,6 +209,9 @@ async function pedir(
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${await token(identidad)}` },
     cache: 'no-store',
+    // Tope holgado: por aquí pasan tanto listados como descargas de fichero.
+    // Ver lib/tiempos-espera.ts.
+    signal: AbortSignal.timeout(ESPERA_DESCARGA_MS),
   })
   if (res.ok) return res
 

@@ -50,7 +50,7 @@
     "sonner": "^2.0.7",
     "ssh2-sftp-client": "^12.1.1",
     "tailwind-merge": "^2.5.4",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

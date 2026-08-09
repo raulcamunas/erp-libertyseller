@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/api'
 import * as XLSX from 'xlsx'
+import { comprobarTamañoPeticion, comprobarTamañoFichero } from '@/lib/subidas-limite'
 
 /**
  * Normaliza las claves de un objeto eliminando espacios al inicio y final
@@ -104,8 +106,31 @@ function parseAmazonNumber(value: any): number {
 
 export async function POST(request: NextRequest) {
   try {
+    // QUÉ IMPIDE: que esta ruta le conteste a cualquiera de internet. No
+    // comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/,
+    // así que bastaba un curl SIN cookie para dispararla. Ver lib/auth/api.ts,
+    // donde está reproducido con el curl exacto.
+    //
+    // La llama components/ppc/OptimizerTool.tsx, con sesión.
+    //
+    // Se pide SESIÓN y nada más —ni rol ni permiso de módulo— a propósito: hoy
+    // esta pantalla la abre cualquiera con sesión, y exigir un permiso que hoy
+    // no se exige dejaría fuera a alguien que trabaja.
+    const sesion = await requireSession()
+    if (sesion instanceof NextResponse) return sesion
+
+    // Tope de bytes ANTES de formData(): formData() bufferiza el cuerpo entero.
+    // Sin esto, una subida sin sesión de 60 MB entraba tal cual y 4 a la vez
+    // dejaban el proceso en 874 MB de RSS. Ver lib/subidas-limite.ts.
+    const demasiado = comprobarTamañoPeticion(request)
+    if (demasiado) return demasiado
+
     const formData = await request.formData()
     const bulkFile = formData.get('bulkFile') as File
+
+    // Segundo filtro, por si el cuerpo vino sin Content-Length (chunked).
+    const bulkGrande = comprobarTamañoFichero(bulkFile, 'El Bulk File')
+    if (bulkGrande) return bulkGrande
 
     if (!bulkFile) {
       return NextResponse.json(

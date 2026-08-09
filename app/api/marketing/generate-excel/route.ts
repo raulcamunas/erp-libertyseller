@@ -1,8 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/api'
 import * as XLSX from 'xlsx'
+import { comprobarTamañoPeticion } from '@/lib/subidas-limite'
 
 export async function POST(request: NextRequest) {
   try {
+    // QUÉ IMPIDE: que esta ruta le conteste a cualquiera de internet. No
+    // comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/,
+    // así que bastaba un curl SIN cookie para dispararla. Ver lib/auth/api.ts,
+    // donde está reproducido con el curl exacto.
+    //
+    // La llaman components/ppc/ChangesReview.tsx y OptimizerTool.tsx, con sesión.
+    //
+    // Se pide SESIÓN y nada más —ni rol ni permiso de módulo— a propósito: hoy
+    // esta pantalla la abre cualquiera con sesión, y exigir un permiso que hoy
+    // no se exige dejaría fuera a alguien que trabaja.
+    const sesion = await requireSession()
+    if (sesion instanceof NextResponse) return sesion
+
+    // Tope de bytes ANTES de formData(): formData() bufferiza el cuerpo entero.
+    // Esta ruta no recibe ficheros, solo el JSON de cambios, pero sin tope
+    // aceptaba igual un cuerpo de 60 MB sin sesión. Ver lib/subidas-limite.ts.
+    const demasiado = comprobarTamañoPeticion(request)
+    if (demasiado) return demasiado
+
     const formData = await request.formData()
     const changesJson = formData.get('changes') as string
 

@@ -1,8 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin } from '@/lib/auth/api'
+
+/**
+ * EDITAR UN USUARIO DEL ERP. SOLO ADMIN.
+ *
+ * QUÉ IMPIDE EL requireAdmin() DE ABAJO
+ * -------------------------------------
+ * Hasta ahora esta ruta no comprobaba NADA. Y como middleware.ts (línea 41)
+ * declara pública toda /api/, contestaba a cualquiera de internet. Reproducido
+ * contra el código real, sin una sola cookie:
+ *
+ *     $ curl -X POST http://SERVIDOR/api/users/update \
+ *            -H 'Content-Type: application/json' -d '{}'
+ *     {"error":"ID de usuario es requerido"}        <- HTTP 400, NUNCA 401
+ *
+ * Ese 400 es de su propia validación, tres líneas más abajo: la petición
+ * anónima YA HABÍA PASADO LA PUERTA. Con el cuerpo bueno, lo que hacía era:
+ *
+ *     {"userId":"<uid>","role":"admin"}      -> ascender a quien fuera
+ *     {"userId":"<uid>","password":"loquesea"} -> cambiarle la contraseña a
+ *                                                 cualquiera, socios incluidos
+ *
+ * y lo hacía con SUPABASE_SERVICE_ROLE_KEY contra la API de administración de
+ * Supabase de PRODUCCIÓN, que se salta todas las políticas RLS. Desde una
+ * cuenta admin se llega a los refresh tokens de Amazon de los 16 clientes, a
+ * los sueldos y a la tesorería.
+ *
+ * POR QUÉ NO CAMBIA NADA PARA QUIEN LA USA
+ * ----------------------------------------
+ * El único llamante es components/users/UsersManagement.tsx, que vive en
+ * /dashboard/users. Esa pantalla ya está cerrada en middleware.ts a un admin
+ * con un correo concreto, así que quien la usa hoy manda cookie de admin y
+ * pasa. Lo que deja de pasar es el `curl` de arriba.
+ *
+ * El rol se lee de la base de datos con la sesión de quien llama (ver
+ * lib/auth/api.ts). El `role` del CUERPO se sigue usando para decir qué rol se
+ * le pone al usuario editado —eso es la función de la pantalla—, pero no
+ * decide quién puede llamar.
+ */
 
 export async function POST(request: NextRequest) {
   try {
+    const sesion = await requireAdmin(
+      'Solo un administrador puede editar usuarios del ERP'
+    )
+    if (sesion instanceof NextResponse) return sesion
+
     const body = await request.json()
     const { userId, email, full_name, password, role, permissions } = body
 

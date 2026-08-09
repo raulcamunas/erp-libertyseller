@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/api'
 import * as XLSX from 'xlsx'
 import { parseCSV, getVal, parseNum } from '@/lib/utils/csv-parser'
+import { comprobarTamañoPeticion, comprobarTamañoFichero } from '@/lib/subidas-limite'
 
 function vpLog(...args: any[]) {
   // Debug intencional para depurar mapeos de columnas y matches por EAN.
@@ -104,6 +106,26 @@ function readXlsxAsRowsWithHeaderRowIndex(buffer: ArrayBuffer, headerRowIndex0: 
 
 export async function POST(request: NextRequest) {
   try {
+    // QUÉ IMPIDE: que esta ruta le conteste a cualquiera de internet. No
+    // comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/,
+    // así que bastaba un curl SIN cookie para dispararla. Ver lib/auth/api.ts,
+    // donde está reproducido con el curl exacto.
+    //
+    // Sube ficheros de catálogo. La llama
+    // app/dashboard/visualizador-productos/page.tsx, con sesión.
+    //
+    // Se pide SESIÓN y nada más —ni rol ni permiso de módulo— a propósito: hoy
+    // esta pantalla la abre cualquiera con sesión, y exigir un permiso que hoy
+    // no se exige dejaría fuera a alguien que trabaja.
+    const sesion = await requireSession()
+    if (sesion instanceof NextResponse) return sesion
+
+    // Tope de bytes ANTES de formData(): formData() bufferiza el cuerpo entero.
+    // Sin esto, una subida sin sesión de 60 MB entraba tal cual y 4 a la vez
+    // dejaban el proceso en 874 MB de RSS. Ver lib/subidas-limite.ts.
+    const demasiado = comprobarTamañoPeticion(request)
+    if (demasiado) return demasiado
+
     const formData = await request.formData()
 
     const keepaFile = formData.get('keepa_file') as File | null
@@ -112,6 +134,16 @@ export async function POST(request: NextRequest) {
 
     if (!keepaFile || !filtradoFile || !compraFile) {
       return NextResponse.json({ error: 'Faltan archivos requeridos' }, { status: 400 })
+    }
+
+    // Segundo filtro, por si el cuerpo vino sin Content-Length (chunked).
+    for (const [fichero, etiqueta] of [
+      [keepaFile, 'El fichero de Keepa'],
+      [filtradoFile, 'El fichero filtrado'],
+      [compraFile, 'El fichero de compra'],
+    ] as const) {
+      const grande = comprobarTamañoFichero(fichero, etiqueta)
+      if (grande) return grande
     }
 
     vpLog('Incoming files', {

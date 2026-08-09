@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/api'
 import { createClient } from '@/lib/supabase/server'
 import OpenAI from 'openai'
 import { nanoid } from 'nanoid'
@@ -82,6 +83,21 @@ El reporte debe explicar:
 
 export async function POST(request: NextRequest) {
   try {
+    // QUÉ IMPIDE: que esta ruta le conteste a cualquiera de internet. No
+    // comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/,
+    // así que bastaba un curl SIN cookie para dispararla. Ver lib/auth/api.ts,
+    // donde está reproducido con el curl exacto.
+    //
+    // Llama a OpenAI con la clave de la empresa y ESCRIBE en
+    // ppc_optimization_reports. La llaman components/ppc/AIInsightsPanel.tsx y
+    // OptimizerTool.tsx, con sesión.
+    //
+    // Se pide SESIÓN y nada más —ni rol ni permiso de módulo— a propósito: hoy
+    // esta pantalla la abre cualquiera con sesión, y exigir un permiso que hoy
+    // no se exige dejaría fuera a alguien que trabaja.
+    const sesion = await requireSession()
+    if (sesion instanceof NextResponse) return sesion
+
     const body: GenerateReportRequest = await request.json()
 
     if (!body.clientId || !body.changes || body.changes.length === 0) {

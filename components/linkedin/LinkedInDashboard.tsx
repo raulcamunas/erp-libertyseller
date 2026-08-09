@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Plus, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAll } from '@/lib/supabase/paginacion'
 import { toast } from 'sonner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
@@ -50,6 +51,62 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
   } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const supabase = createClient()
+
+  /**
+   * LAS DOS RECARGAS DEL TABLERO, PAGINADAS.
+   *
+   * QUÉ PROBLEMA RESUELVEN: PostgREST corta cualquier consulta a 1000 filas y
+   * NO da error — devuelve 1000 y se queda tan ancho. Estas dos consultas
+   * estaban escritas cuatro veces cada una a lo largo del fichero
+   * (handleProspectUpdate, handleCompanyAdded, handleProspectAdded y
+   * handleCompanyUpdated), todas sin `.range()`. Hoy hay 463 empresas y 512
+   * prospectos, así que aún no muerde; el día que la tabla cruce el millar
+   * desaparece media lista del tablero y lo que desaparece es un prospecto al
+   * que ya no vuelve a llamar nadie.
+   *
+   * El `.order('id')` de desempate es obligatorio para paginar (sin él,
+   * `.range()` sobre un orden con empates repite unas filas y se salta otras).
+   * Comprobado contra la base real que NO cambia el orden de hoy: ninguna de
+   * las dos tablas tiene un solo `created_at` repetido.
+   *
+   * Devuelven `null` si falla, EXACTAMENTE como hacía antes el `{ data }` de
+   * supabase-js: las cuatro funciones de abajo comprueban `if (data && data)`
+   * antes de tocar el estado, y si esto lanzara en vez de devolver null se
+   * quedarían con una promesa rechazada sin capturar. El comportamiento del
+   * camino de error se deja igual que estaba.
+   */
+  const cargarEmpresas = async (): Promise<CompanyWithProspects[] | null> => {
+    try {
+      return await fetchAll<CompanyWithProspects>((desde, hasta) =>
+        supabase
+          .from('target_companies')
+          .select('*')
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: true })
+          .range(desde, hasta)
+      )
+    } catch (error) {
+      console.error('Error recargando empresas:', error)
+      return null
+    }
+  }
+
+  const cargarProspectos = async (): Promise<CompanyProspect[] | null> => {
+    try {
+      return await fetchAll<CompanyProspect>((desde, hasta) =>
+        supabase
+          .from('company_prospects')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: true })
+          .range(desde, hasta)
+      )
+    } catch (error) {
+      console.error('Error recargando prospectos:', error)
+      return null
+    }
+  }
 
   const handleProspectClick = (prospectId: string) => {
     // Buscar el prospecto en todas las empresas
@@ -108,17 +165,13 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
   }
 
   const handleProspectUpdate = async () => {
-    // Recargar datos
-    const { data: companiesData } = await supabase
-      .from('target_companies')
-      .select('*')
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
-
-    const { data: prospectsData } = await supabase
-      .from('company_prospects')
-      .select('*')
-      .order('created_at', { ascending: false })
+    // Recargar datos. Las dos consultas son independientes, así que van en
+    // paralelo en vez de una detrás de otra (116 + 119 ms medidos -> el máximo
+    // de las dos). No cambia lo que se pinta: el agrupado de abajo es el mismo.
+    const [companiesData, prospectsData] = await Promise.all([
+      cargarEmpresas(),
+      cargarProspectos(),
+    ])
 
     if (companiesData && prospectsData) {
       const updatedCompanies = companiesData.map((company) => ({
@@ -130,17 +183,11 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
   }
 
   const handleCompanyAdded = async () => {
-    // Recargar empresas
-    const { data: companiesData } = await supabase
-      .from('target_companies')
-      .select('*')
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
-
-    const { data: prospectsData } = await supabase
-      .from('company_prospects')
-      .select('*')
-      .order('created_at', { ascending: false })
+    // Recargar empresas (ver cargarEmpresas/cargarProspectos: paginadas)
+    const [companiesData, prospectsData] = await Promise.all([
+      cargarEmpresas(),
+      cargarProspectos(),
+    ])
 
     if (companiesData && prospectsData) {
       const updatedCompanies = companiesData.map((company) => ({
@@ -153,11 +200,8 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
   }
 
   const handleProspectAdded = async () => {
-    // Recargar prospectos
-    const { data: prospectsData } = await supabase
-      .from('company_prospects')
-      .select('*')
-      .order('created_at', { ascending: false })
+    // Recargar prospectos (ver cargarProspectos: paginada)
+    const prospectsData = await cargarProspectos()
 
     if (prospectsData) {
       setCompanies((prev) =>
@@ -198,17 +242,11 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
   }
 
   const handleCompanyUpdated = async () => {
-    // Recargar empresas
-    const { data: companiesData } = await supabase
-      .from('target_companies')
-      .select('*')
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
-
-    const { data: prospectsData } = await supabase
-      .from('company_prospects')
-      .select('*')
-      .order('created_at', { ascending: false })
+    // Recargar empresas (ver cargarEmpresas/cargarProspectos: paginadas)
+    const [companiesData, prospectsData] = await Promise.all([
+      cargarEmpresas(),
+      cargarProspectos(),
+    ])
 
     if (companiesData && prospectsData) {
       const updatedCompanies = companiesData.map((company) => ({

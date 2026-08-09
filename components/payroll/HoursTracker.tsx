@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAll } from '@/lib/supabase/paginacion'
 import { toast } from 'sonner'
 import {
   ChevronLeft,
@@ -191,13 +192,37 @@ export function HoursTracker({
         { event: '*', schema: 'public', table: 'appointments' },
         async () => {
           // Cualquier cambio de cita puede alterar el recuento de
-          // cualificadas: se relee la lista, que es pequeña.
-          const { data } = await supabase
-            .from('appointments')
-            .select('id, comercial_id, start_time, lead_name, lead_company')
-            .eq('status', 'qualified')
-            .eq('is_external', false)
-          if (data) setAppointments(data as QualifiedAppointment[])
+          // cualificadas: se relee la lista.
+          //
+          // PAGINADA, igual que la carga inicial de app/dashboard/horas/page.tsx.
+          // Sin esto, la página entraba con la lista COMPLETA y en cuanto
+          // llegaba el primer cambio por realtime la sustituía por una recortada
+          // a las 1000 primeras filas, porque PostgREST corta ahí y NO da error.
+          // Hoy el filtro deja 3 citas y `appointments` tiene 5853 filas, así
+          // que devuelve exactamente lo mismo que antes; pero cada cita
+          // cualificada es una comisión que se paga, y las que cayeran fuera del
+          // corte dejarían de contarse sin que nadie viera nada raro.
+          try {
+            const filas = await fetchAll<QualifiedAppointment>((desde, hasta) =>
+              supabase
+                .from('appointments')
+                .select('id, comercial_id, start_time, lead_name, lead_company')
+                .eq('status', 'qualified')
+                .eq('is_external', false)
+                // Orden por columna única: paginar sin él repite unas filas y se
+                // salta otras. No cambia nada de lo que se pinta, porque esta
+                // lista se agrupa y se ordena después en la propia pantalla.
+                .order('id', { ascending: true })
+                .range(desde, hasta)
+            )
+            setAppointments(filas)
+          } catch (error) {
+            // Se traga igual que antes: el `{ data }` de supabase-js tampoco
+            // lanzaba y, si venía vacío, la lista se quedaba como estaba. Un
+            // rechazo sin capturar aquí dejaría una promesa colgando dentro del
+            // canal de realtime.
+            console.error('No se pudieron releer las citas cualificadas:', error)
+          }
         }
       )
       .subscribe()

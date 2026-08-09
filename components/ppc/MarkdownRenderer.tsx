@@ -59,7 +59,28 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           currentList = []
           inList = false
         }
-        const boldText = trimmed.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
+        // Se escapa ANTES de meter las negritas, porque el resultado va a un
+        // dangerouslySetInnerHTML (línea de abajo) y el texto NO es nuestro.
+        //
+        // QUÉ IMPIDE: un XSS con el texto que devuelve /api/marketing/ai-insights,
+        // que incorpora términos de búsqueda y nombres de campaña sacados de los
+        // CSV de Amazon Ads que se suben. Ese texto el ERP no lo controla.
+        //
+        // LO QUE COLABA ANTES (reproducido en node con la transformación literal
+        // de esta línea): con la entrada
+        //     **Resumen** <img src=x onerror=alert(document.cookie)>
+        // el __html de salida conservaba el `<img onerror>` INTACTO, porque el
+        // replace solo toca los `**`. La cookie de sesión de @supabase/ssr es
+        // httpOnly:false, así que el script se la lleva.
+        //
+        // POR QUÉ NO CAMBIA NADA VISIBLE: se sigue viendo negrita donde había
+        // `**` y texto plano en el resto. Lo único que cambia es que un `<` se
+        // pinta como `<` en vez de abrir una etiqueta.
+        const seguro = trimmed
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+        const boldText = seguro.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
         elements.push(
           <p
             key={`bold-${index}`}

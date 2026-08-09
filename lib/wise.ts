@@ -3,6 +3,8 @@
  * Documentación: https://api-docs.transferwise.com/
  */
 
+import { ESPERA_JSON_MS } from '@/lib/tiempos-espera'
+
 interface WiseBalance {
   id: number
   currency: string
@@ -84,7 +86,10 @@ export async function getBusinessProfileId(): Promise<number> {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
-      }
+      },
+      // Tope de tiempo: sin él una llamada a Wise que no contesta dejaba este
+      // await colgado ~300 s. Ver lib/tiempos-espera.ts.
+      signal: AbortSignal.timeout(ESPERA_JSON_MS),
     })
 
     if (!response.ok) {
@@ -138,7 +143,10 @@ export async function getBalances(): Promise<Array<{ currency: string; amount: n
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
-      }
+      },
+      // Tope de tiempo: sin él una llamada a Wise que no contesta dejaba este
+      // await colgado ~300 s. Ver lib/tiempos-espera.ts.
+      signal: AbortSignal.timeout(ESPERA_JSON_MS),
     })
 
     if (!response.ok) {
@@ -244,7 +252,10 @@ export async function getTransactions(
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
-          }
+          },
+          // Tope de tiempo: sin él una llamada a Wise que no contesta dejaba
+          // este await colgado ~300 s. Ver lib/tiempos-espera.ts.
+          signal: AbortSignal.timeout(ESPERA_JSON_MS),
         }
       )
 
@@ -418,7 +429,10 @@ export async function getTransactions(
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
-          }
+          },
+          // Tope de tiempo: sin él una llamada a Wise que no contesta dejaba
+          // este await colgado ~300 s. Ver lib/tiempos-espera.ts.
+          signal: AbortSignal.timeout(ESPERA_JSON_MS),
         }
       )
 
@@ -655,6 +669,9 @@ export async function createWiseInvoice(opts: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
+        // Tope de tiempo: sin él una llamada a Wise que no contesta dejaba este
+        // await colgado ~300 s. Ver lib/tiempos-espera.ts.
+        signal: AbortSignal.timeout(ESPERA_JSON_MS),
       }
     )
 
@@ -679,7 +696,12 @@ export async function createWiseInvoice(opts: {
   try {
     const profileRes = await fetch(
       `https://api.transferwise.com/v1/profiles/${profileId}`,
-      { headers: { Authorization: `Bearer ${apiKey}` } }
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        // Tope de tiempo: sin él una llamada a Wise que no contesta dejaba este
+        // await colgado ~300 s. Ver lib/tiempos-espera.ts.
+        signal: AbortSignal.timeout(ESPERA_JSON_MS),
+      }
     )
     if (profileRes.ok) {
       const profileData = await profileRes.json()
@@ -689,7 +711,20 @@ export async function createWiseInvoice(opts: {
         profileData?.handle ||
         ''
     }
-  } catch {}
+  } catch (error) {
+    // QUÉ PROBLEMA RESUELVE: este catch estaba COMPLETAMENTE VACÍO. Envuelve
+    // la petición a api.transferwise.com/v1/profiles/{id} que saca el `handle`
+    // con el que se construye el enlace de pago personalizado. Si falla, el
+    // catch se lo comía entero y el código caía al «último recurso» de abajo:
+    // un enlace genérico wise.com/pay?amount=... DISTINTO del que debería
+    // llevar la factura. Al cliente le llegaba un enlace que no es el suyo y
+    // nadie se enteraba de que hubo un fallo.
+    //
+    // La caída al enlace genérico se deja TAL CUAL: es un respaldo deliberado
+    // y quitarlo sí cambiaría lo que recibe el cliente. Lo único que cambia es
+    // que ahora queda rastro de por qué se acabó usando el respaldo.
+    console.error('No se pudo leer el handle del perfil de Wise; se usa el enlace genérico:', error)
+  }
 
   if (!handle) {
     // Último recurso: link genérico de Wise con amount en query param
@@ -721,7 +756,10 @@ export async function getProfile(): Promise<WiseProfile> {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
-      }
+      },
+      // Tope de tiempo: sin él una llamada a Wise que no contesta dejaba este
+      // await colgado ~300 s. Ver lib/tiempos-espera.ts.
+      signal: AbortSignal.timeout(ESPERA_JSON_MS),
     })
 
     if (!response.ok) {

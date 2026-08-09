@@ -45,6 +45,7 @@
 
 import { gunzipSync } from 'zlib'
 import { AmazonApiError } from '@/lib/amazon/errors'
+import { ESPERA_DESCARGA_MS } from '@/lib/tiempos-espera'
 import { spApiRequest, type AmazonCredentials } from '@/lib/amazon/sp-api'
 
 /** El censo del catálogo. Roles: nos vale con «Listing de producto», que ya está concedido */
@@ -240,7 +241,13 @@ export async function descargarInforme(
   // deje de cuadrar.
   let respuesta: Response
   try {
-    respuesta = await fetch(data.url, { cache: 'no-store' })
+    // Tope de tiempo holgado: esto descarga el fichero del informe (hasta
+    // MAX_BYTES = 100 MB), así que el reloj mide una descarga entera, no una
+    // llamada de control. Ver lib/tiempos-espera.ts.
+    respuesta = await fetch(data.url, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(ESPERA_DESCARGA_MS),
+    })
   } catch (error) {
     throw new AmazonApiError({
       kind: 'red',

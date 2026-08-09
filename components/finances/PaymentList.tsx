@@ -26,11 +26,34 @@ export function PaymentList({ payments, periodId, onPaymentDeleted, onPaymentUpd
 
     setDeletingId(paymentId)
     try {
-      await supabase
+      // SE COMPRUEBA EL ERROR A PROPÓSITO.
+      //
+      // QUÉ PROBLEMA RESUELVE: supabase-js NO LANZA cuando una escritura falla.
+      // Devuelve `{ error }` y sigue. Comprobado contra la base real: un
+      // `.update()` contra una tabla que no existe no tira excepción, el fallo
+      // solo aparece si se desestructura `{ error }`.
+      //
+      // O sea que el `catch` de abajo NUNCA se ejecutaba por un fallo de la
+      // base: si el borrado no salía —una política RLS que no deja, la fila ya
+      // no está, la red— se llamaba a onPaymentDeleted() igual, sin un mensaje
+      // y sin una línea en ningún log. Esto es tesorería: el pago sigue en la
+      // base y nadie se entera de que el borrado no ocurrió.
+      //
+      // NO SE TOCA LO QUE VE LA PERSONA: no se añade ningún aviso nuevo y se
+      // sigue llamando a onPaymentDeleted() pase lo que pase, que es lo que
+      // hace hoy (y como esa recarga vuelve a leer de la base, el pago que no
+      // se borró reaparece solo). Lo único que cambia es que ahora queda
+      // rastro. Cortar el flujo o avisar en pantalla sí sería un cambio
+      // visible, y eso lo decide una persona.
+      const { error } = await supabase
         .from('finance_payments')
         .delete()
         .eq('id', paymentId)
-      
+
+      if (error) {
+        console.error(`No se pudo borrar el pago ${paymentId} de finance_payments:`, error)
+      }
+
       onPaymentDeleted()
     } catch (error) {
       console.error('Error deleting payment:', error)

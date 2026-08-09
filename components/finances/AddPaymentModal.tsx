@@ -72,7 +72,14 @@ export function AddPaymentModal({ periodId, onClose, onPaymentAdded }: AddPaymen
               .from('finance-attachments')
               .getPublicUrl(fileName)
 
-            await supabase
+            // SE COMPRUEBA EL ERROR A PROPÓSITO: supabase-js no lanza si la
+            // escritura falla, devuelve `{ error }` y sigue. El fichero ya está
+            // subido al storage en este punto, así que perder esta fila en
+            // silencio deja un justificante de tesorería que existe pero que
+            // ninguna pantalla vuelve a enseñar, porque la lista de adjuntos se
+            // pinta desde finance_attachments. No se cambia el flujo —el pago
+            // se crea igual y se sigue adelante—, solo queda rastro.
+            const { error: errorAdjunto } = await supabase
               .from('finance_attachments')
               .insert([
                 {
@@ -83,6 +90,13 @@ export function AddPaymentModal({ periodId, onClose, onPaymentAdded }: AddPaymen
                   file_size: file.size
                 }
               ])
+
+            if (errorAdjunto) {
+              console.error(
+                `El fichero ${fileName} se subió al storage pero no se pudo anotar en finance_attachments:`,
+                errorAdjunto
+              )
+            }
           }
         }
       }

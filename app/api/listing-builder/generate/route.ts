@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/api'
 import OpenAI from 'openai'
 import { parseCSV, getVal, parseNum } from '@/lib/utils/csv-parser'
 
@@ -104,6 +105,20 @@ function extractTopKeywordsFromCerebro(csvText: string, max = 40): Array<{ keywo
 
 export async function POST(request: NextRequest) {
   try {
+    // QUÉ IMPIDE: que esta ruta le conteste a cualquiera de internet. No
+    // comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/,
+    // así que bastaba un curl SIN cookie para dispararla. Ver lib/auth/api.ts,
+    // donde está reproducido con el curl exacto.
+    //
+    // Sube ficheros Y llama a OpenAI con la clave de la empresa. La llama
+    // app/dashboard/listing-builder/builder/page.tsx, con sesión.
+    //
+    // Se pide SESIÓN y nada más —ni rol ni permiso de módulo— a propósito: hoy
+    // esta pantalla la abre cualquiera con sesión, y exigir un permiso que hoy
+    // no se exige dejaría fuera a alguien que trabaja.
+    const sesion = await requireSession()
+    if (sesion instanceof NextResponse) return sesion
+
     const formData = await request.formData()
 
     const brandName = String(formData.get('brand_name') || '').trim()

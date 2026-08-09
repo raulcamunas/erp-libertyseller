@@ -1,3 +1,4 @@
+import { ESPERA_SP_API_MS } from '@/lib/tiempos-espera'
 import {
   AMAZON_REGIONS,
   MFN_CHANNEL_CODE,
@@ -168,6 +169,11 @@ export async function spApiRequest<T>(
         },
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
         cache: 'no-store',
+        // Tope de tiempo. Sin él, un extremo que acepta la conexión y no
+        // contesta dejaba este await colgado ~300 s por intento (el
+        // headersTimeout de undici), y con los reintentos de arriba eso son
+        // unos 20 minutos por operación. Ver lib/tiempos-espera.ts.
+        signal: AbortSignal.timeout(ESPERA_SP_API_MS),
       })
     } catch (error) {
       const fallo = describeNetworkError(error, operation).withAttempts(attempt)

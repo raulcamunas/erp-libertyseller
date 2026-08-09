@@ -144,7 +144,19 @@ export function InvoiceBuilder({ clients }: { clients: Client[] }) {
                 : '🔗 Link de pago Wise generado'
             )
           }
-        } catch {}
+        } catch (error) {
+          // QUÉ PROBLEMA RESUELVE: este catch estaba COMPLETAMENTE VACÍO, así
+          // que si la generación del enlace de pago de Wise fallaba —red caída,
+          // la ruta devolviendo 500, un JSON mal formado— no quedaba ni una
+          // línea en ningún sitio. La factura se creaba igual (por eso el flujo
+          // se deja EXACTAMENTE como está: no se corta ni se avisa al usuario,
+          // que es lo que hace hoy), pero se iba sin enlace de pago y nadie se
+          // enteraba hasta que el cliente preguntaba cómo pagar.
+          //
+          // Registrar no cambia nada de lo que ve la persona: no hay toast
+          // nuevo, no se interrumpe la navegación, la factura sigue creada.
+          console.error('No se pudo generar el enlace de pago de Wise:', error)
+        }
       }
 
       if (sendAfter) {

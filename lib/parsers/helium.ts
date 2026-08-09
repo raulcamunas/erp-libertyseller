@@ -146,17 +146,54 @@ export function parseHeliumCerebro(csvContent: string): ParsedCerebroData {
 }
 
 /**
- * Genera un token público único para compartir reportes
+ * Genera un token público único para compartir reportes.
+ *
+ * QUÉ IMPIDE USAR crypto EN VEZ DE Math.random: que alguien adivine o enumere
+ * los enlaces de auditoría de otros. `Math.random()` NO es criptográfico: es un
+ * generador de secuencia predecible, así que a partir de unos cuantos tokens
+ * observados —y los enlaces de auditoría se reparten a clientes potenciales por
+ * definición— se puede reconstruir el estado del generador y calcular los
+ * siguientes. Con 8 caracteres de [a-z0-9] el espacio es además pequeño
+ * (36^8), o sea que también es enumerable a base de fuerza bruta.
+ *
+ * ESTO SOLO VALE CON LA PUERTA GRANDE CERRADA. Mientras la política de la
+ * migración 052 estuvo puesta —`FOR SELECT TO anon USING (true)`— la tabla
+ * audit_reports se pedía entera con la clave anónima y el token no protegía
+ * nada: no había ni que adivinarlo. Eso lo quita
+ * supabase/migrations/136_audit_reports_sin_lectura_anonima.sql, y a partir de
+ * ahí el token pasa a ser la ÚNICA puerta del informe, así que su calidad es lo
+ * único que queda. Si algún día vuelve a abrirse esa RLS, esto vuelve a ser
+ * decorativo.
+ *
+ * NO CAMBIA NADA VISIBLE: se mantienen el prefijo `aud_` y la longitud de 8
+ * caracteres del mismo alfabeto, así que los enlaces se ven igual. Y solo
+ * afecta a los tokens NUEVOS: los ya repartidos siguen en la base y se leen
+ * exactamente igual que antes.
  */
 export function generatePublicToken(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
   const length = 8
   let token = 'aud_'
-  
-  for (let i = 0; i < length; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length))
+
+  // Web Crypto (`globalThis.crypto`), no el módulo 'crypto' de Node: existe
+  // igual en Node 20 y en el navegador, así que este fichero se puede seguir
+  // importando desde donde sea sin romper el empaquetado.
+  //
+  // Se descartan los bytes >= 252 antes del módulo. Sin ese descarte, 256 no es
+  // múltiplo de 36 y los cuatro primeros caracteres del alfabeto saldrían algo
+  // más a menudo que el resto: un sesgo pequeño, pero es sesgo, y es gratis
+  // quitarlo. 252 = 36 * 7.
+  const LIMITE = 252
+  while (token.length < 'aud_'.length + length) {
+    const bytes = new Uint8Array(length)
+    globalThis.crypto.getRandomValues(bytes)
+    for (const b of Array.from(bytes)) {
+      if (b >= LIMITE) continue
+      if (token.length >= 'aud_'.length + length) break
+      token += chars.charAt(b % chars.length)
+    }
   }
-  
+
   return token
 }
 

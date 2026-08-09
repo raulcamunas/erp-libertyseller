@@ -1,4 +1,5 @@
 import { AMAZON_REGIONS, type AmazonRegion } from '@/lib/types/amazon'
+import { ESPERA_JSON_MS } from '@/lib/tiempos-espera'
 import { AmazonApiError, missingConfig } from './errors'
 import { tokenFingerprint } from './crypto'
 
@@ -189,6 +190,10 @@ async function lwaPost(body: Record<string, string>, contexto: string): Promise<
       // Sin caché: es un intercambio de credenciales, y una respuesta cacheada
       // aquí sería un token de otro.
       cache: 'no-store',
+      // Tope de tiempo: sin él este canje se quedaba colgado ~300 s por intento
+      // si Login with Amazon acepta la conexión y no contesta, y sin token no
+      // avanza NINGUNA llamada a la SP-API. Ver lib/tiempos-espera.ts.
+      signal: AbortSignal.timeout(ESPERA_JSON_MS),
     })
   } catch (error) {
     throw new AmazonApiError({

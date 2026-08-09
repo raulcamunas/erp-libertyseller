@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
+import { fetchAllTolerante } from '@/lib/supabase/paginacion'
 import { redirect } from 'next/navigation'
 import { AppointmentsBreakdown } from '@/components/agenda/AppointmentsBreakdown'
 import { AppointmentWithPeople, CalendarPerson } from '@/lib/types/appointments'
@@ -34,21 +35,32 @@ export default async function AgendaBreakdownPage() {
   // Solo citas gestionadas por el ERP (se excluyen los "Hueco no disponible").
   // Si no tiene acceso total, se filtra en el propio query a sus propias
   // citas: no basta con ocultarlo en el cliente.
-  let query = supabase
-    .from('appointments')
-    .select(`
-      *,
-      comercial:profiles!appointments_comercial_id_fkey(id, full_name, email, role, calendar_color),
-      assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
-    `)
-    .eq('is_external', false)
-    .order('start_time', { ascending: true })
+  // PAGINADO: `appointments` tiene ya 5853 filas y PostgREST corta a 1000 SIN
+  // dar error. Hoy este filtro deja 7 citas del ERP (las otras 5846 son huecos
+  // externos importados de Google), así que aún no muerde; pero es la tabla
+  // que crece con el negocio y este desglose es de lo que se cobra. El
+  // `.order('id')` de desempate hace falta para paginar y está comprobado
+  // contra la base real que no cambia el orden de hoy: no hay ni un start_time
+  // repetido entre las 7.
+  const appointments = await fetchAllTolerante<AppointmentWithPeople>('appointments (desglose)', (desde, hasta) => {
+    let query = supabase
+      .from('appointments')
+      .select(`
+        *,
+        comercial:profiles!appointments_comercial_id_fkey(id, full_name, email, role, calendar_color),
+        assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
+      `)
+      .eq('is_external', false)
 
-  if (!hasFullAccess) {
-    query = query.eq('comercial_id', user.id)
-  }
+    if (!hasFullAccess) {
+      query = query.eq('comercial_id', user.id)
+    }
 
-  const { data: appointments } = await query
+    return query
+      .order('start_time', { ascending: true })
+      .order('id', { ascending: true })
+      .range(desde, hasta)
+  })
 
   return (
     <div className="space-y-6">
@@ -62,7 +74,7 @@ export default async function AgendaBreakdownPage() {
       </div>
 
       <AppointmentsBreakdown
-        initialAppointments={(appointments as AppointmentWithPeople[]) || []}
+        initialAppointments={appointments}
         team={(team as CalendarPerson[]) || []}
         currentUser={profile}
         restrictToOwn={!hasFullAccess}

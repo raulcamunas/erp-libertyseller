@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { urlBaseApp } from '@/lib/url-app'
 
 export async function GET(
   request: NextRequest,
@@ -17,10 +18,37 @@ export async function GET(
       )
     }
 
-    // Usar cliente anónimo para acceso público
+    /**
+     * LA LECTURA VA CON LA CLAVE DE SERVICIO, DESDE EL SERVIDOR.
+     *
+     * QUÉ IMPIDE: que la tabla `audit_reports` ENTERA se pueda pedir con la
+     * clave anónima, que viaja en el bundle de JavaScript de cualquier
+     * visitante. La política de supabase/migrations/052 es
+     *
+     *     FOR SELECT TO anon, authenticated USING (true)
+     *
+     * o sea `true` para todo el mundo, y RLS no puede ver el `.eq('public_token',
+     * …)` de aquí abajo: filtrar en el cliente no acota nada. Con esa política,
+     * un `GET /rest/v1/audit_reports?select=*` sin sesión se llevaba los
+     * informes de auditoría de todos los clientes potenciales —seller_url y
+     * métricas— sin necesidad de adivinar ni un token. Por eso generar el token
+     * con crypto en vez de Math.random() no protegía nada por sí solo: no hacía
+     * falta adivinarlo.
+     *
+     * La migración 136 quita esa política. Este cambio va DELANTE de ella a
+     * propósito: la clave de servicio se salta RLS, así que los enlaces de
+     * auditoría ya repartidos siguen abriendo igual antes y después de aplicar
+     * la migración. El filtro por token sigue siendo el mismo y lo hace el
+     * servidor, que es donde no se puede quitar desde fuera.
+     *
+     * Si SUPABASE_SERVICE_ROLE_KEY no estuviera puesta se cae a la clave
+     * anónima, que es exactamente lo que había hasta hoy: sin la migración
+     * aplicada funciona igual, y así un despliegue sin la variable no deja los
+     * enlaces muertos.
+     */
     const supabase = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
     // Buscar reporte por public_token
@@ -93,11 +121,11 @@ export async function GET(
     let aiAnalysis = report.ai_analysis
     if (!aiAnalysis && computedMetrics && report.business_model) {
       try {
-        // Construir URL base
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-                       request.headers.get('origin') || 
-                       `https://${request.headers.get('host')}`
-        
+        // URL base fijada por el servidor. NO se deriva de las cabeceras
+        // `Origin`/`Host` de la petición: eso era un SSRF de lectura sin sesión
+        // (el atacante elegía el destino y recibía el cuerpo). Ver lib/url-app.ts.
+        const baseUrl = urlBaseApp()
+
         const analyzeResponse = await fetch(`${baseUrl}/api/auditor/analyze`, {
           method: 'POST',
           headers: {
@@ -112,9 +140,29 @@ export async function GET(
 
         if (analyzeResponse.ok) {
           aiAnalysis = await analyzeResponse.json()
-          
-          // Guardar el análisis en la DB
-          await supabase
+
+          /**
+           * ESTE GUARDADO SIGUE HACIÉNDOSE CON LA CLAVE ANÓNIMA A PROPÓSITO, Y
+           * POR TANTO SIGUE SIN GUARDAR NADA.
+           *
+           * La política de UPDATE de `audit_reports` (migración 050) pide
+           * `auth.role() = 'authenticated'`, así que con la clave anónima
+           * afecta a cero filas y no da error: hoy `ai_analysis` NUNCA se
+           * persiste desde aquí y el análisis se vuelve a generar en cada
+           * visita del enlace.
+           *
+           * Pasarlo a la clave de servicio —que es la que ya usa la lectura de
+           * arriba— haría que empezara a guardarse, y eso SÍ se nota usando la
+           * aplicación: el texto del informe dejaría de regenerarse y quedaría
+           * congelado el de la primera visita. Puede que sea lo que se quería,
+           * pero es un cambio de comportamiento y lo decide el humano, no esta
+           * pasada de endurecimiento. Se deja como estaba.
+           */
+          const supabaseEscritura = createSupabaseClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          )
+          await supabaseEscritura
             .from('audit_reports')
             .update({ ai_analysis: aiAnalysis })
             .eq('id', report.id)

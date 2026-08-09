@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { parseHeliumXray, parseHeliumCerebro, generatePublicToken, BusinessModel } from '@/lib/parsers/helium'
+import { urlBaseApp } from '@/lib/url-app'
+import { comprobarTamañoPeticion, comprobarTamañoFichero } from '@/lib/subidas-limite'
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,8 +17,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Tope de bytes ANTES de formData(), que bufferiza el cuerpo entero. Aquí sí
+    // hace falta sesión (el getUser de arriba), así que esto no frena a un
+    // anónimo: frena a que una cuenta del ERP tumbe el contenedor por memoria.
+    // Ver lib/subidas-limite.ts.
+    const demasiado = comprobarTamañoPeticion(request)
+    if (demasiado) return demasiado
+
     const formData = await request.formData()
-    
+
     // Obtener datos del formulario
     const seller_url = formData.get('seller_url') as string
     const xrayFile = formData.get('xray_file') as File
@@ -28,6 +37,12 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Segundo filtro, por si el cuerpo vino sin Content-Length (chunked).
+    const xrayGrande = comprobarTamañoFichero(xrayFile, 'El CSV de Xray')
+    if (xrayGrande) return xrayGrande
+    const cerebroGrande = comprobarTamañoFichero(cerebroFile, 'El CSV de Cerebro')
+    if (cerebroGrande) return cerebroGrande
 
     // Leer contenido de los archivos
     const xrayContent = await xrayFile.text()
@@ -159,10 +174,11 @@ export async function POST(request: NextRequest) {
 
     // Generar análisis IA en background (no bloqueamos la respuesta)
     if (computedMetrics) {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-                     request.headers.get('origin') || 
-                     `https://${request.headers.get('host')}`
-      
+      // URL base fijada por el servidor. NO se deriva de `Origin`/`Host`: es el
+      // mismo SSRF que el de /api/auditor/share/[token], solo que aquí hace
+      // falta sesión. Ver lib/url-app.ts para la reproducción.
+      const baseUrl = urlBaseApp()
+
       fetch(`${baseUrl}/api/auditor/analyze`, {
         method: 'POST',
         headers: {

@@ -8,6 +8,39 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# ---------------------------------------------------------------------------
+# DATOS DE CLIENTES Y CREDENCIALES FUERA DE LA IMAGEN DE PRODUCCION
+# ---------------------------------------------------------------------------
+#
+# QUE IMPIDE: que ficheros con datos de clientes viajen dentro de cada capa de
+# la imagen Docker, donde los ve cualquiera que pueda descargarla o entrar al
+# contenedor.
+#
+# LO QUE PASABA ANTES: el Dockerfile hace `COPY . .` y este fichero no excluia
+# nada de esto, asi que la imagen llevaba dentro (verificado con git ls-files):
+#
+#   uploads/TARIFA URIAGE 2026.xlsx        tarifas de compra de un cliente
+#   uploads/URIAGE FILTRADO.xlsx           catalogo filtrado de un cliente
+#   uploads/KeepaExport-2026-04-21-...csv  exportacion de catalogo
+#   uploads/sellerboard*.csv               ventas y margenes
+#   uploads/taxreport.csv                  informe fiscal
+#   excels/bulk-a1sttj23j6rnwo-...xlsx     bulk de Amazon Ads de un cliente
+#   CREAR_USUARIO_ALEJANDRO.sql            una contrasena en texto claro
+#
+# Esto roza el compromiso firmado con Amazon: los datos de un vendedor se usan
+# solo para operar SU cuenta, y no tienen por que estar en una imagen que se
+# despliega y se copia.
+#
+# COMPROBADO QUE NO ROMPE NADA: ningun fichero de app/, lib/, components/ ni
+# middleware.ts lee uploads/ ni excels/ en tiempo de ejecucion (grep -> 0
+# coincidencias). Y uploads/ cuelga de la raiz, no de public/, asi que Next
+# tampoco los sirve como estaticos. Son material de trabajo, no del programa.
+#
+# OJO: esto los saca de la IMAGEN, no del HISTORIAL DE GIT, donde siguen. Sacarlos
+# de ahi reescribe historial y lo decide un humano.
+uploads/
+excels/
 
-
-
+# Scripts SQL sueltos de la raiz: se ejecutan a mano contra Supabase y alguno ha
+# llevado credenciales escritas. En el contenedor no pintan nada.
+/*.sql

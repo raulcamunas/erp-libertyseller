@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/api'
 import OpenAI from 'openai'
 import { parseCSV, parseNum, getVal } from '@/lib/utils/csv-parser'
+import { comprobarTamañoPeticion, comprobarTamañoFichero } from '@/lib/subidas-limite'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -60,8 +62,28 @@ interface CalculationResult {
 
 export async function POST(request: NextRequest) {
   try {
+    // QUÉ IMPIDE: que esta ruta le conteste a cualquiera de internet. No
+    // comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/,
+    // así que bastaba un curl SIN cookie para dispararla. Ver lib/auth/api.ts,
+    // donde está reproducido con el curl exacto.
+    //
+    // Sube ficheros Y llama a OpenAI con la clave de la empresa. La llama
+    // app/dashboard/validator/new/page.tsx, con sesión.
+    //
+    // Se pide SESIÓN y nada más —ni rol ni permiso de módulo— a propósito: hoy
+    // esta pantalla la abre cualquiera con sesión, y exigir un permiso que hoy
+    // no se exige dejaría fuera a alguien que trabaja.
+    const sesion = await requireSession()
+    if (sesion instanceof NextResponse) return sesion
+
+    // Tope de bytes ANTES de formData(): formData() bufferiza el cuerpo entero.
+    // Sin esto, 4 subidas simultáneas de 60 MB sin sesión dejaban el proceso en
+    // 874 MB de RSS. Ver lib/subidas-limite.ts.
+    const demasiado = comprobarTamañoPeticion(request)
+    if (demasiado) return demasiado
+
     const formData = await request.formData()
-    
+
     // Datos del proveedor
     const product_name = formData.get('product_name') as string
     const target_price = parseFloat(formData.get('target_price') as string)
@@ -79,6 +101,12 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Segundo filtro, por si el cuerpo vino sin Content-Length (chunked).
+    const xrayGrande = comprobarTamañoFichero(xrayFile, 'El CSV de Xray')
+    if (xrayGrande) return xrayGrande
+    const cerebroGrande = comprobarTamañoFichero(cerebroFile, 'El CSV de Cerebro')
+    if (cerebroGrande) return cerebroGrande
 
     // Parsear CSVs
     const xrayContent = await xrayFile.text()

@@ -1,15 +1,49 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/api'
 import { parseCSV, parseNum, getVal } from '@/lib/utils/csv-parser'
 import { CommissionCalculationData, CommissionRow } from '@/lib/types/commissions'
 import * as XLSX from 'xlsx'
+import { comprobarTamañoPeticion, comprobarTamañoFichero } from '@/lib/subidas-limite'
 
 export async function POST(request: NextRequest) {
   try {
+    // QUÉ IMPIDE: que esta ruta le conteste a cualquiera de internet. No
+    // comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/,
+    // así que bastaba un curl SIN cookie para dispararla. Ver lib/auth/api.ts,
+    // donde está reproducido con el curl exacto.
+    //
+    // Lee la tabla `clients` y `commission_exceptions` de la agencia y devuelve
+    // el cálculo de comisiones de un cliente. La llaman
+    // components/commissions/CommissionsCalculator.tsx y su gemela de Shoes F,
+    // las dos con sesión.
+    //
+    // Se pide SESIÓN y nada más —ni rol ni permiso de módulo— a propósito: hoy
+    // esta pantalla la abre cualquiera con sesión, y exigir un permiso que hoy
+    // no se exige dejaría fuera a alguien que trabaja.
+    const sesion = await requireSession()
+    if (sesion instanceof NextResponse) return sesion
+
+    // Tope de bytes ANTES de formData(): formData() bufferiza el cuerpo entero.
+    // Sin esto, una subida sin sesión de 60 MB entraba tal cual y 4 a la vez
+    // dejaban el proceso en 874 MB de RSS. Ver lib/subidas-limite.ts.
+    const demasiado = comprobarTamañoPeticion(request)
+    if (demasiado) return demasiado
+
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     const filePreviousYear = formData.get('filePreviousYear') as File | null
     const fileCurrentYear = formData.get('fileCurrentYear') as File | null
+
+    // Segundo filtro, por si el cuerpo vino sin Content-Length (chunked).
+    for (const [fichero, etiqueta] of [
+      [file, 'El fichero de comisiones'],
+      [filePreviousYear, 'El fichero del año anterior'],
+      [fileCurrentYear, 'El fichero del año actual'],
+    ] as const) {
+      const grande = comprobarTamañoFichero(fichero, etiqueta)
+      if (grande) return grande
+    }
     const clientId = formData.get('clientId') as string
     const manualCommissionRateRaw = formData.get('manualCommissionRate') as string | null
 

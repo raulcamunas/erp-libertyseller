@@ -22,6 +22,15 @@
 #
 # Sin CRON_SECRET la ruta contesta 401 y esto no hace nada: es a propósito, está
 # explicado en la propia ruta.
-curl -sf --max-time 280 -X POST "http://localhost:3000/api/amazon/cron-jobs" \
+#
+# Y si contesta 401, QUE SE VEA. Mismo motivo y misma forma que
+# scripts/amazon-sync.sh: con el `-f` que había antes, un 401 por una variable
+# borrada dejaba el motor de trabajos parado sin dejar ni una línea.
+CODIGO=$(curl -s --max-time 280 -X POST "http://localhost:3000/api/amazon/cron-jobs" \
   -H "x-cron-secret: ${CRON_SECRET}" \
-  -o /dev/null
+  -o /dev/null -w '%{http_code}')
+
+if [ "$CODIGO" != "200" ]; then
+  echo "[amazon-jobs] la ruta ha contestado HTTP ${CODIGO} (000 = no contestó a tiempo)" \
+    >> /proc/1/fd/2 2>/dev/null || true
+fi

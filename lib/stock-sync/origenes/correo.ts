@@ -58,6 +58,7 @@
  */
 
 import { auth as googleAuth } from '@googleapis/calendar'
+import { ESPERA_DESCARGA_MS } from '@/lib/tiempos-espera'
 import {
   OrigenError,
   encajaPatron,
@@ -392,6 +393,9 @@ async function pedir(cfg: ConfigCorreo, ruta: string): Promise<Response> {
   const res = await fetch(`${GMAIL}${ruta}`, {
     headers: { Authorization: `Bearer ${await token(cfg.buzon)}` },
     cache: 'no-store',
+    // Tope holgado: por aquí pasan tanto los listados de mensajes como la
+    // descarga de adjuntos. Ver lib/tiempos-espera.ts.
+    signal: AbortSignal.timeout(ESPERA_DESCARGA_MS),
   })
   if (res.ok) return res
 

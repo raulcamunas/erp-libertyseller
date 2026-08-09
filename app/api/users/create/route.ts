@@ -1,8 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin } from '@/lib/auth/api'
+
+/**
+ * CREAR UN USUARIO DEL ERP. SOLO ADMIN.
+ *
+ * QUÉ IMPIDE EL requireAdmin() DE ABAJO
+ * -------------------------------------
+ * No comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/.
+ * Reproducido sin cookie contra el código real:
+ *
+ *     $ curl -X POST http://SERVIDOR/api/users/create \
+ *            -H 'Content-Type: application/json' -d '{}'
+ *     {"error":"Email, contraseña y nombre completo son requeridos"}
+ *                                            <- HTTP 400, NUNCA 401
+ *
+ * El 400 es de su propia validación: la petición anónima ya estaba dentro. Con
+ * el cuerpo bueno —email, password, full_name y `"role":"admin"`— cualquiera de
+ * internet se creaba una cuenta de administrador del ERP, con
+ * SUPABASE_SERVICE_ROLE_KEY y `email_confirm: true`, o sea sin pasar por ningún
+ * correo de confirmación. Desde una cuenta admin se llega a los refresh tokens
+ * de Amazon de los 16 clientes, a los sueldos y a la tesorería.
+ *
+ * Y encima acepta `permissions`, así que la cuenta nacía ya con los módulos
+ * puestos.
+ *
+ * POR QUÉ NO CAMBIA NADA PARA QUIEN LA USA: el único llamante es
+ * components/users/UsersManagement.tsx (/dashboard/users), pantalla que
+ * middleware.ts ya cierra a un admin con un correo concreto.
+ */
 
 export async function POST(request: NextRequest) {
   try {
+    const sesion = await requireAdmin(
+      'Solo un administrador puede crear usuarios del ERP'
+    )
+    if (sesion instanceof NextResponse) return sesion
+
     console.log('[CREATE USER] Starting user creation process...')
     const body = await request.json()
     const { email, password, full_name, role, permissions } = body
