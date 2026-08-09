@@ -50,6 +50,9 @@ export type AmazonOperation =
   | 'createReport'
   | 'getReport'
   | 'getReportDocument'
+  // ---------- Las que añadió el monitor de Buy Box (A2) ----------
+  | 'getListingOffersBatch'
+  | 'getFeaturedOfferExpectedPriceBatch'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -105,6 +108,29 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   // propio cubo, igual de lento que createReport, y lo comparte con cualquier
   // otro informe que se descargue de ese mismo vendedor.
   getReportDocument: { rate: 0.016, burst: 15 },
+
+  /* ---------- Precios y Buy Box (A2) ---------- */
+  // MEDIA PETICIÓN POR SEGUNDO: una llamada cada dos segundos, 20 SKU cada una.
+  // 13.700 referencias son 685 llamadas = 22 min 50 s por cliente y país.
+  //
+  // Y EL DATO QUE HAY QUE SABER ANTES DE TOCAR ESTA LÍNEA: la operación gemela
+  // `getItemOffersBatch` devuelve EXACTAMENTE EL MISMO payload y va a 0,1 —una
+  // llamada cada diez segundos—, o sea 1 h 54 min para el mismo catálogo. La
+  // especificación pide la lenta; el ERP usa la rápida. Ver la cabecera de
+  // lib/plataforma/buybox/api.ts.
+  getListingOffersBatch: { rate: 0.5, burst: 1 },
+
+  // 0,033: UNA PETICIÓN CADA TREINTA SEGUNDOS Y PICO. No es una errata y es la
+  // operación más lenta de toda la plataforma, seis veces más lenta que crear un
+  // informe. Admite 40 SKU por llamada, así que 13.700 referencias son 343
+  // llamadas = 2 h 53 min por cliente y país: el 79 % del tiempo de un barrido
+  // completo.
+  //
+  // Por eso el FOEP NO se pide todas las noches sobre todo el catálogo, sino por
+  // rotación más una cola de los SKU que acaban de perder la oferta destacada.
+  // El plan de cupo de esta operación además es DINÁMICO: una cuenta concreta
+  // puede tener más, y el cubo lo recoge solo por la cabecera de respuesta.
+  getFeaturedOfferExpectedPriceBatch: { rate: 0.033, burst: 1 },
 }
 
 export function sleep(ms: number): Promise<void> {

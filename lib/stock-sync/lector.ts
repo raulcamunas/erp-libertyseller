@@ -57,7 +57,15 @@ import {
  * «Cód.Artículo» ya casan solas y la lista es para los nombres realmente
  * distintos: «St. Real» y «Stock disponible».
  */
-export interface ColumnasPerfil {
+/**
+ * Es un `type` y no un `interface` A PROPÓSITO: solo los alias de tipo reciben
+ * la firma de índice implícita que hace falta para pasarlos como
+ * `Record<string, string[] | undefined>` a los ayudantes genéricos de abajo
+ * (ver EspecLectura). Con un `interface`, TypeScript lo rechaza y habría que
+ * meter un `as` en cada llamada. No cambia nada más: `keyof ColumnasPerfil`
+ * sigue siendo lo mismo y quien lo usa no se entera.
+ */
+export type ColumnasPerfil = {
   /** OBLIGATORIA siempre: el código del artículo en el ERP del cliente */
   referencia: string[]
   /** OBLIGATORIA en los perfiles de stock */
@@ -75,6 +83,44 @@ export interface ColumnasPerfil {
   familia?: string[]
   /** Solo en ficheros de EAN que mezclan tipos de código */
   tipo?: string[]
+}
+
+/**
+ * LO QUE EL LECTOR NECESITA SABER PARA ABRIR UN FICHERO, SIN SABER DE QUÉ VA.
+ *
+ * Nace con A5 (costes de producto), y el motivo de que exista está en la
+ * cabecera de este fichero: A5 lee ficheros que traen coste de compra, coste de
+ * envío, almacenamiento y flete —campos que un perfil de stock no tiene y que no
+ * pintan nada en `ColumnasPerfil`— pero necesita EXACTAMENTE la misma máquina
+ * para elegir la hoja, encontrar la cabecera y resolver las columnas con
+ * exclusión mutua. Escribir un segundo lector para eso sería tener dos sitios
+ * donde arreglar el mismo fallo, y uno de los dos se quedaría sin arreglar.
+ *
+ * Así que la máquina se quedó donde estaba y lo que se parametrizó fue el
+ * VOCABULARIO: qué campos hay (`columnas`), en qué orden se resuelven (`orden`)
+ * y cómo se llaman en castellano cuando hay que explicar un error
+ * (`etiquetas`). Los perfiles de stock y de EAN pasan por especDePerfil() con
+ * los mismos ORDEN_CAMPOS y ETIQUETA_CAMPO de siempre: su comportamiento no
+ * cambia ni un carácter, y eso está comprobado con un A/B de catorce casos.
+ */
+export interface EspecLectura {
+  /** Para los mensajes de error: es lo primero que lee quien da de alta un cliente */
+  nombre: string
+  columnas: Record<string, string[] | undefined>
+  /**
+   * Orden de resolución, y ES SIGNIFICATIVO: se resuelven de arriba abajo con
+   * exclusión mutua, así que el campo con el alias más específico va antes. Ver
+   * el comentario largo de ORDEN_CAMPOS.
+   */
+  orden: string[]
+  /** Campo -> cómo se llama en castellano llano en un mensaje de error */
+  etiquetas: Record<string, string>
+  hoja?: string | null
+  hojaIndice?: number | null
+  filaCabecera?: number | null
+  filaDatos?: number | null
+  csvSeparador?: string | null
+  csvCodificacion?: string | null
 }
 
 export type TipoPerfil = 'stock' | 'ean'
@@ -298,9 +344,9 @@ function filaVacia(fila: unknown[] | undefined): boolean {
  * fichero que se interpretara distinto según el camino daría diferencias que
  * no se ven hasta que un cliente publica el stock de otro artículo.
  */
-function abrirLibro(input: WorkbookInput, perfil: PerfilLectura): XLSX.WorkBook {
-  const separador = perfil.csvSeparador?.trim()
-  const codepage = codepageDe(perfil.csvCodificacion)
+function abrirLibro(input: WorkbookInput, espec: EspecLectura): XLSX.WorkBook {
+  const separador = espec.csvSeparador?.trim()
+  const codepage = codepageDe(espec.csvCodificacion)
 
   if (!separador && codepage === null) return readWorkbook(input)
 
@@ -353,7 +399,7 @@ function codepageDe(nombre: string | null | undefined): number | null {
  * pantalla aún tiene oportunidad de reconocerse por sus columnas. Es lo mismo
  * que hace readTable() y por la misma razón.
  */
-function candidatas(libro: XLSX.WorkBook, perfil: PerfilLectura): Candidatas {
+function candidatas(libro: XLSX.WorkBook, espec: EspecLectura): Candidatas {
   if (libro.SheetNames.length === 0) {
     throw new StockSyncError('El fichero no tiene ninguna hoja con datos')
   }
@@ -361,8 +407,8 @@ function candidatas(libro: XLSX.WorkBook, perfil: PerfilLectura): Candidatas {
   const avisos: string[] = []
 
   const preferidas: string[] = []
-  if (perfil.hoja) {
-    const buscada = normalizeHeader(perfil.hoja)
+  if (espec.hoja) {
+    const buscada = normalizeHeader(espec.hoja)
     preferidas.push(...libro.SheetNames.filter((n) => normalizeHeader(n) === buscada))
     // LA HOJA PEDIDA NO EXISTE, Y ESO NO PUEDE PASAR EN SILENCIO. Sin este
     // aviso se cae al orden del libro y se lee OTRA hoja con otros números: en
@@ -372,14 +418,14 @@ function candidatas(libro: XLSX.WorkBook, perfil: PerfilLectura): Candidatas {
     // hoja por sus columnas sigue siendo mejor que no leer nada.
     if (preferidas.length === 0) {
       avisos.push(
-        `El perfil pide la hoja «${perfil.hoja}» y el fichero no la tiene. ` +
+        `El perfil pide la hoja «${espec.hoja}» y el fichero no la tiene. ` +
           `Sus hojas son: ${libro.SheetNames.join(', ')}. ` +
           'Se ha leído la primera cuyas columnas encajan: comprueba que es la que querías.'
       )
     }
   }
-  if (preferidas.length === 0 && perfil.hojaIndice && perfil.hojaIndice >= 1) {
-    const porPosicion = libro.SheetNames[perfil.hojaIndice - 1]
+  if (preferidas.length === 0 && espec.hojaIndice && espec.hojaIndice >= 1) {
+    const porPosicion = libro.SheetNames[espec.hojaIndice - 1]
     if (porPosicion) preferidas.push(porPosicion)
   }
   const orden = [...preferidas, ...libro.SheetNames.filter((n) => !preferidas.includes(n))]
@@ -428,17 +474,17 @@ function candidatas(libro: XLSX.WorkBook, perfil: PerfilLectura): Candidatas {
     // Cabecera fijada en el perfil: se usa esa y no se busca. Si el cliente
     // manda un fichero con dos filas de título en vez de una, es mejor que
     // falle diciendo qué columnas ha encontrado que ponerse a adivinar.
-    if (perfil.filaCabecera && perfil.filaCabecera >= 1) {
-      const indice = posicionDe(perfil.filaCabecera)
+    if (espec.filaCabecera && espec.filaCabecera >= 1) {
+      const indice = posicionDe(espec.filaCabecera)
       if (indice < 0 || indice >= rejilla.length) continue
       const cabeceras = texto(rejilla[indice])
       const desde = Math.max(
-        perfil.filaDatos ? posicionDe(perfil.filaDatos) : indice + 1,
+        espec.filaDatos ? posicionDe(espec.filaDatos) : indice + 1,
         indice + 1
       )
       out.push({
         hoja: nombre,
-        filaCabecera: perfil.filaCabecera,
+        filaCabecera: espec.filaCabecera,
         cabeceras,
         filas: rejilla.slice(desde),
         primeraFilaDatos: filaExcelDe(desde),
@@ -453,7 +499,7 @@ function candidatas(libro: XLSX.WorkBook, perfil: PerfilLectura): Candidatas {
     for (let i = 0; i < limite; i++) {
       const cabeceras = texto(rejilla[i])
       if (cabeceras.filter(Boolean).length < 2) continue
-      const desde = Math.max(perfil.filaDatos ? posicionDe(perfil.filaDatos) : i + 1, i + 1)
+      const desde = Math.max(espec.filaDatos ? posicionDe(espec.filaDatos) : i + 1, i + 1)
       out.push({
         hoja: nombre,
         filaCabecera: filaExcelDe(i),
@@ -470,8 +516,8 @@ function candidatas(libro: XLSX.WorkBook, perfil: PerfilLectura): Candidatas {
 }
 
 /** A qué columna del fichero corresponde cada campo del perfil, o -1 */
-function resolverColumnas(cabeceras: string[], columnas: ColumnasPerfil): IndiceColumnas {
-  return resolverColumnasDetalle(cabeceras, columnas).indice
+function resolverColumnas(cabeceras: string[], espec: EspecLectura): Record<string, number> {
+  return resolverColumnasDetalle(cabeceras, espec).indice
 }
 
 /**
@@ -491,14 +537,14 @@ function resolverColumnas(cabeceras: string[], columnas: ColumnasPerfil): Indice
  */
 function resolverColumnasDetalle(
   cabeceras: string[],
-  columnas: ColumnasPerfil
-): { indice: IndiceColumnas; porPrefijo: (keyof ColumnasPerfil)[] } {
-  const indice = {} as IndiceColumnas
+  espec: EspecLectura
+): { indice: Record<string, number>; porPrefijo: string[] } {
+  const indice: Record<string, number> = {}
   const ocupadas = new Set<number>()
-  const porPrefijo: (keyof ColumnasPerfil)[] = []
+  const porPrefijo: string[] = []
 
-  for (const campo of ORDEN_CAMPOS) {
-    const alias = columnas[campo] ?? []
+  for (const campo of espec.orden) {
+    const alias = espec.columnas[campo] ?? []
     const encontrada = alias.length === 0 ? -1 : findColumn(cabeceras, [...alias], ocupadas)
     indice[campo] = encontrada
     if (encontrada !== -1) {
@@ -513,13 +559,14 @@ function resolverColumnasDetalle(
 
 /** La frase que se le enseña a una persona cuando una columna casó por prefijo */
 function avisoPorPrefijo(
-  campo: keyof ColumnasPerfil,
+  campo: string,
+  espec: EspecLectura,
   cabeceras: string[],
   indice: number,
   alias: string[]
 ): string {
   return (
-    `Para ${ETIQUETA_CAMPO[campo]} se ha usado la columna «${cabeceras[indice]}», ` +
+    `Para ${espec.etiquetas[campo] ?? campo} se ha usado la columna «${cabeceras[indice]}», ` +
     `que NO es ninguno de los nombres apuntados en el perfil ` +
     `(${alias.map((a) => `«${a}»`).join(', ')}) sino una que empieza igual. ` +
     'Compruébalo: si el fichero trae otra columna parecida, se puede estar leyendo la que no es.'
@@ -535,18 +582,18 @@ function avisoPorPrefijo(
  * QUÉ nombres se han buscado y QUÉ columnas trae de verdad el fichero.
  */
 function errorColumnas(
-  perfil: PerfilLectura,
+  espec: EspecLectura,
   candidata: Candidata,
-  faltan: (keyof ColumnasPerfil)[],
+  faltan: string[],
   avisosHoja: string[] = []
 ): StockSyncError {
   const detalle = faltan
     .map((campo) => {
-      const alias = perfil.columnas[campo] ?? []
+      const alias = espec.columnas[campo] ?? []
       const buscados = alias.length
         ? alias.map((a) => `«${a}»`).join(', ')
         : '(el perfil no tiene ningún nombre apuntado para esta columna)'
-      return `  · Falta ${ETIQUETA_CAMPO[campo]}. Nombres buscados: ${buscados}`
+      return `  · Falta ${espec.etiquetas[campo] ?? campo}. Nombres buscados: ${buscados}`
     })
     .join('\n')
 
@@ -558,7 +605,7 @@ function errorColumnas(
       : ''
 
   return new StockSyncError(
-    `El fichero no encaja con el perfil «${perfil.nombre}».\n` +
+    `El fichero no encaja con el perfil «${espec.nombre}».\n` +
       `${detalle}\n` +
       // Si además la hoja que pedía el perfil no existía, esa es casi siempre
       // LA causa y tiene que salir en el mismo mensaje: sin ella se lee un
@@ -574,13 +621,13 @@ function errorColumnas(
 /** Elige la primera hoja cuyas columnas obligatorias resuelvan todas */
 function elegirHoja(
   libro: XLSX.WorkBook,
-  perfil: PerfilLectura,
-  obligatorias: (keyof ColumnasPerfil)[]
-): { candidata: Candidata; columnas: IndiceColumnas; avisos: string[] } {
-  const { lista, avisos } = candidatas(libro, perfil)
+  espec: EspecLectura,
+  obligatorias: string[]
+): { candidata: Candidata; columnas: Record<string, number>; avisos: string[] } {
+  const { lista, avisos } = candidatas(libro, espec)
 
   for (const candidata of lista) {
-    const { indice, porPrefijo } = resolverColumnasDetalle(candidata.cabeceras, perfil.columnas)
+    const { indice, porPrefijo } = resolverColumnasDetalle(candidata.cabeceras, espec)
     if (obligatorias.every((campo) => indice[campo] !== -1)) {
       return {
         candidata,
@@ -588,7 +635,13 @@ function elegirHoja(
         avisos: [
           ...avisos,
           ...porPrefijo.map((campo) =>
-            avisoPorPrefijo(campo, candidata.cabeceras, indice[campo], perfil.columnas[campo] ?? [])
+            avisoPorPrefijo(
+              campo,
+              espec,
+              candidata.cabeceras,
+              indice[campo],
+              espec.columnas[campo] ?? []
+            )
           ),
         ],
       }
@@ -599,9 +652,108 @@ function elegirHoja(
   // el perfil señalaba. Enseñar las columnas de la última hoja del libro sería
   // exacto y a la vez inútil.
   const primera = lista[0]
-  const columnas = resolverColumnas(primera.cabeceras, perfil.columnas)
+  const columnas = resolverColumnas(primera.cabeceras, espec)
   const faltan = obligatorias.filter((campo) => columnas[campo] === -1)
-  throw errorColumnas(perfil, primera, faltan, avisos)
+  throw errorColumnas(espec, primera, faltan, avisos)
+}
+
+/**
+ * De un perfil de stock o de EAN a la especificación genérica.
+ *
+ * Los valores son EXACTAMENTE los de siempre —ORDEN_CAMPOS y ETIQUETA_CAMPO— así
+ * que leerStock() y leerEan() se comportan igual que antes de que esto existiera.
+ */
+function especDePerfil(perfil: PerfilLectura): EspecLectura {
+  return {
+    nombre: perfil.nombre,
+    columnas: perfil.columnas,
+    orden: ORDEN_CAMPOS,
+    etiquetas: ETIQUETA_CAMPO,
+    hoja: perfil.hoja,
+    hojaIndice: perfil.hojaIndice,
+    filaCabecera: perfil.filaCabecera,
+    filaDatos: perfil.filaDatos,
+    csvSeparador: perfil.csvSeparador,
+    csvCodificacion: perfil.csvCodificacion,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Lectura genérica: la que usa A5                                     */
+/* ------------------------------------------------------------------ */
+
+/** Una fila del fichero, con su número tal y como lo ve Excel (1-based) */
+export interface FilaTabla {
+  fila: number
+  celdas: unknown[]
+}
+
+export interface LecturaTabla {
+  perfil: string
+  hoja: string
+  filaCabecera: number
+  cabeceras: string[]
+  /** Campo -> índice de columna. -1 = el fichero no la traía */
+  columnas: Record<string, number>
+  filas: FilaTabla[]
+  avisos: string[]
+}
+
+/**
+ * Abre el fichero, elige la hoja, encuentra la cabecera y resuelve las columnas.
+ * Nada más: no interpreta ni una celda.
+ *
+ * ES LA MITAD DE ABAJO DE leerStock(), SIN LA PARTE QUE SABE DE STOCK. Existe
+ * para que A5 (costes de producto) lea los ficheros de sus clientes con esta
+ * misma máquina en vez de con otra parecida —el porqué está en EspecLectura—, y
+ * para que cualquier lector futuro pueda hacer lo mismo.
+ *
+ * `opcionalesConAviso` son los campos que el perfil apunta y que, si no
+ * aparecen, no impiden leer pero SÍ se dicen: una regla que dependa de esa
+ * columna se va a comportar como si el fichero no la trajera, y eso desde fuera
+ * parece un fallo. Es el mismo criterio que ya aplica leerStock().
+ *
+ * Las filas del todo vacías se saltan SIN contarlas y sin romper la numeración:
+ * `fila` es el número que se ve en Excel, que es lo único que puede buscar quien
+ * tiene el fichero del cliente abierto delante.
+ */
+export function leerTabla(
+  input: WorkbookInput,
+  espec: EspecLectura,
+  obligatorias: string[],
+  opcionalesConAviso: string[] = []
+): LecturaTabla {
+  const libro = abrirLibro(input, espec)
+  const { candidata, columnas, avisos: avisosHoja } = elegirHoja(libro, espec, obligatorias)
+
+  const avisos = [...avisosHoja]
+  for (const campo of opcionalesConAviso) {
+    const alias = espec.columnas[campo] ?? []
+    if (alias.length > 0 && columnas[campo] === -1) {
+      avisos.push(
+        `El perfil espera ${espec.etiquetas[campo] ?? campo} ` +
+          `(${alias.map((a) => `«${a}»`).join(', ')}) y el fichero no la trae. ` +
+          'Las reglas que dependan de ese dato no se podrán aplicar.'
+      )
+    }
+  }
+
+  const filas: FilaTabla[] = []
+  for (let i = 0; i < candidata.filas.length; i++) {
+    const celdas = candidata.filas[i]
+    if (filaVacia(celdas)) continue
+    filas.push({ fila: candidata.primeraFilaDatos + i, celdas: celdas ?? [] })
+  }
+
+  return {
+    perfil: espec.nombre,
+    hoja: candidata.hoja,
+    filaCabecera: candidata.filaCabecera,
+    cabeceras: candidata.cabeceras,
+    columnas,
+    filas,
+    avisos,
+  }
 }
 
 /**
@@ -618,11 +770,16 @@ export function leerStock(input: WorkbookInput, perfil: PerfilLectura): LecturaS
     )
   }
 
-  const libro = abrirLibro(input, perfil)
-  const { candidata, columnas, avisos: avisosHoja } = elegirHoja(libro, perfil, [
+  const espec = especDePerfil(perfil)
+  const libro = abrirLibro(input, espec)
+  const { candidata, columnas: resueltas, avisos: avisosHoja } = elegirHoja(libro, espec, [
     'referencia',
     'stock',
   ])
+  // El cast es seguro y no tapa nada: la especificación se ha construido con
+  // ORDEN_CAMPOS, así que el resolutor ha puesto TODOS los campos de
+  // ColumnasPerfil en el índice, los que casaron y los que valen -1.
+  const columnas = resueltas as IndiceColumnas
 
   const avisos: string[] = [...avisosHoja]
   for (const campo of ['precio', 'coste', 'ean', 'familia'] as const) {
@@ -739,11 +896,13 @@ export function leerEan(input: WorkbookInput, perfil: PerfilLectura): LecturaEan
     )
   }
 
-  const libro = abrirLibro(input, perfil)
-  const { candidata, columnas, avisos: avisosHoja } = elegirHoja(libro, perfil, [
+  const espec = especDePerfil(perfil)
+  const libro = abrirLibro(input, espec)
+  const { candidata, columnas: resueltas, avisos: avisosHoja } = elegirHoja(libro, espec, [
     'referencia',
     'ean',
   ])
+  const columnas = resueltas as IndiceColumnas
 
   const avisos: string[] = [...avisosHoja]
   if (perfil.eanSoloTipo !== null && perfil.eanSoloTipo !== undefined && columnas.tipo === -1) {

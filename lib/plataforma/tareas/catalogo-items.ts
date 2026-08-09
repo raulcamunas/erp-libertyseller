@@ -82,6 +82,9 @@ function ambitoDe(ctx: ContextoTarea, config: Config): AmbitoCatalogo {
   return {
     skusFiltro: ctx.job.skus_filtro,
     soloActivos: typeof pedido === 'boolean' ? pedido : config.soloActivosPorDefecto,
+    // Lo pone el planificador cuando el cliente es MIXTO: en ese caso el BSR
+    // solo tiene sentido sobre sus propias marcas. Ver modelo-negocio.ts.
+    soloMarcaPropia: parametros.soloMarcaPropia === true,
   }
 }
 

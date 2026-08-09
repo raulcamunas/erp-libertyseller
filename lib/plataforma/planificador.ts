@@ -42,7 +42,14 @@
 
 import { registrarEvento } from './eventos'
 import { crearJob, isMissingSchema } from './jobs'
+import { marketplaceById } from '@/lib/types/amazon'
 import { conexionesDeCliente, unidadesDe } from './datos'
+import {
+  cadenciaBsr,
+  porQueSinBsr,
+  type ModeloNegocio,
+  type PoliticaBsr,
+} from './modelo-negocio'
 import {
   CADENCIA_HORAS,
   VENTANA_NOCTURNA,
@@ -182,6 +189,8 @@ export interface OpcionesPlan {
 interface ClienteFila {
   id: string
   name: string
+  modelo_negocio: string | null
+  bsr_politica: string | null
 }
 
 /**
@@ -227,10 +236,87 @@ export async function planificarRefrescos(
     // por cliente y por pasada, cada cinco minutos, para leer lo mismo.
     const ultimos = await ultimosTerminados(cliente.id)
     const conexiones = await conexionesDeCliente(cliente.id)
-    const unidades = unidadesDe(conexiones)
+    /**
+     * SOLO LOS MARKETPLACES QUE SABEMOS NOMBRAR.
+     *
+     * `getMarketplaceParticipations` devuelve con `isParticipating: true` cosas
+     * que no son tiendas de verdad —marketplaces de sandbox, entradas internas
+     * de Amazon—, y el filtro de participación no las quita. En la cuenta
+     * piloto eran cuatro de ocho: la mitad de la cola eran trabajos contra
+     * sitios donde el cliente no vende nada, gastando cupo que sí hace falta
+     * en los otros cuatro.
+     *
+     * NO SE SALTAN EN SILENCIO. Se listan con su motivo, porque la otra
+     * posibilidad es que sea una tienda real que falta en el catálogo de
+     * lib/types/amazon.ts, y entonces el que se está quedando sin ingesta es un
+     * cliente de verdad. Un hueco que se ve se arregla; uno que no, no.
+     */
+    const todas = unidadesDe(conexiones)
+    const unidades = todas.filter((u) => marketplaceById(u.marketplaceId))
+
+    for (const desconocida of todas.filter((u) => !marketplaceById(u.marketplaceId))) {
+      entradas.push({
+        tipo: 'censo_catalogo',
+        clientId: cliente.id,
+        cliente: cliente.name,
+        connectionId: desconocida.connectionId,
+        marketplaceId: desconocida.marketplaceId,
+        creado: false,
+        jobId: null,
+        motivo:
+          `El marketplace ${desconocida.marketplaceId} no está en el catálogo del ERP, así que no se ` +
+          'programa nada contra él. Suele ser uno de sandbox. Si es una tienda real donde el cliente ' +
+          'vende, hay que añadirlo en lib/types/amazon.ts o se queda sin ingesta.',
+      })
+    }
 
     for (const refresco of REFRESCOS) {
       if (creados >= maxNuevos) break
+
+      /**
+       * EL BSR NO SE LE PIDE A TODO EL MUNDO, y es lo que hace que la ventana
+       * nocturna quepa.
+       *
+       * En reventa el BSR es del ASIN de otro: mide cómo se vende EL PRODUCTO,
+       * no cómo lo hace este cliente. Puede mejorar mientras él pierde todas
+       * sus ventas por no tener la Buy Box. Y son justo los catálogos enormes
+       * —ShoesF ~13.700 SKU, Keslem hasta 30.000—, así que barrerlos a diario
+       * son unas seis horas de cupo midiendo catálogo ajeno.
+       *
+       * Se salta el DIARIO, no la medición: el trabajo se puede lanzar a mano
+       * desde «Lanzar un trabajo» sobre los SKU que se estén evaluando. Sin esa
+       * puerta, A4 se quedaría sin ninguna señal de rotación, que es lo único
+       * que tenemos mientras no llegue el rol de Análisis de marcas.
+       *
+       * `mix` se resuelve SKU a SKU dentro de la tarea; aquí solo se descarta
+       * el cliente que NO tiene ni un SKU de marca propia.
+       */
+      if (refresco.tipo === 'snapshot_bsr' && !opciones.forzar) {
+        const cadencia = cadenciaBsr({
+          modelo: (cliente.modelo_negocio ?? 'mix') as ModeloNegocio,
+          politica: (cliente.bsr_politica ?? 'auto') as PoliticaBsr,
+          // En 'mix' decide la tarea SKU a SKU, así que aquí se deja pasar.
+          esMarcaPropia: (cliente.modelo_negocio ?? 'mix') === 'mix',
+        })
+        if (cadencia !== 'diario') {
+          entradas.push({
+            tipo: refresco.tipo,
+            clientId: cliente.id,
+            cliente: cliente.name,
+            connectionId: null,
+            marketplaceId: null,
+            creado: false,
+            jobId: null,
+            motivo:
+              porQueSinBsr({
+                modelo: (cliente.modelo_negocio ?? 'mix') as ModeloNegocio,
+                politica: (cliente.bsr_politica ?? 'auto') as PoliticaBsr,
+                esMarcaPropia: false,
+              }) ?? 'Este cliente no mide el BSR a diario.',
+          })
+          continue
+        }
+      }
 
       const destinos: Array<{ connectionId: string | null; marketplaceId: string | null }> =
         refresco.porUnidad
@@ -271,7 +357,13 @@ export async function planificarRefrescos(
           connectionId: destino.connectionId,
           marketplaceId: destino.marketplaceId,
           prioridad: refresco.prioridad,
-          parametros: refresco.parametros,
+          parametros:
+            refresco.tipo === 'snapshot_bsr' && (cliente.modelo_negocio ?? 'mix') === 'mix'
+              ? // Cliente MIXTO: revende y además tiene marca suya. El barrido
+                // diario de BSR se queda solo con lo suyo, que es lo único de
+                // lo que ese ranking dice algo sobre su cuenta.
+                { ...refresco.parametros, soloMarcaPropia: true }
+              : refresco.parametros,
           // null a propósito: lo ha creado el planificador, que no es nadie. Es
           // lo que hace que la campana avise si algo falla — un trabajo lanzado
           // por una persona no suena, porque esa persona está mirando.
@@ -324,7 +416,10 @@ export async function planificarRefrescos(
 
 async function clientesActivos(clientId: string | null): Promise<ClienteFila[]> {
   const service = createServiceClient()
-  let consulta = service.from('amazon_clients').select('id, name').eq('is_active', true)
+  let consulta = service
+    .from('amazon_clients')
+    .select('id, name, modelo_negocio, bsr_politica')
+    .eq('is_active', true)
   if (clientId) consulta = consulta.eq('id', clientId)
   const { data, error } = await consulta
     .order('position', { ascending: true })

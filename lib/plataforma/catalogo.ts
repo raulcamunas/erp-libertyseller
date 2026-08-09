@@ -64,6 +64,15 @@ export interface AmbitoCatalogo {
   skusFiltro?: string[] | null
   /** Solo los que están en seguimiento diario */
   soloActivos?: boolean
+  /**
+   * Solo las referencias marcadas como marca propia del cliente.
+   *
+   * Es lo que hace que un cliente MIXTO —revende y además tiene marca suya—
+   * mida el BSR solo de lo suyo. En su catálogo el ranking de un producto de
+   * tercero es del producto, no de él, así que medirlo a diario es gastar cupo
+   * en información que no dice nada de su cuenta. Ver lib/plataforma/modelo-negocio.ts.
+   */
+  soloMarcaPropia?: boolean
 }
 
 /* ------------------------------------------------------------------ */
@@ -255,6 +264,7 @@ export async function siguientesAsins(
     consulta = consulta.in('sku', ambito.skusFiltro)
   }
   if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
+  if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
 
   const { data, error } = await consulta
     .order('asin', { ascending: true })
@@ -456,6 +466,9 @@ export async function listingsDeAsins(
         consulta = consulta.in('sku', ambito.skusFiltro)
       }
       if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
+    if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
+      if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
+  if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
       return consulta.order('sku', { ascending: true }).range(desde, hasta)
     })
     salida.push(...filas)
@@ -480,6 +493,8 @@ export async function listingsDeUnidadIngesta(
       consulta = consulta.in('sku', ambito.skusFiltro)
     }
     if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
+    if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
+  if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
     // El SKU es único dentro de (conexión, marketplace): el orden ya termina en
     // columna única y .range() no repite ni se salta filas.
     return consulta.order('sku', { ascending: true }).range(desde, hasta)
@@ -508,6 +523,7 @@ export async function contarListings(
     consulta = consulta.in('sku', ambito.skusFiltro)
   }
   if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
+  if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
 
   const { count, error } = await consulta
   if (error) throw error
