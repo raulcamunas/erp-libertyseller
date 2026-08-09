@@ -93,8 +93,28 @@ export async function POST(request: NextRequest) {
    * la extensión mandando la cabecera, y después poner la variable en Easypanel.
    * Al revés se pierden las horas de las jornadas que haya en medio.
    */
+  /**
+   * LA LLAVE VA ECHADA, y ya no depende de que alguien ponga la variable.
+   *
+   * Arriba se explicaba por qué nacía apagada: encenderla sin publicar antes la
+   * extensión perdería las horas de las jornadas de en medio. Raúl decidió que
+   * ese riesgo le da igual —«lo del tracker me la pela, es más quítalo si
+   * quieres»—, así que se cierra del todo, que es lo que quita el agujero.
+   *
+   * QUÉ IMPIDE: que cualquiera de Internet inserte horas de trabajo a nombre de
+   * quien quiera. El `employee_id` es adivinable (los nombres del equipo), y
+   * esta ruta escribe con la clave de servicio, o sea saltándose RLS.
+   *
+   *     $ curl -X POST https://SERVIDOR/api/tracker/ingest \
+   *            -d '{"employee_id":"Alejandro","logs":[...]}'
+   *     -> antes: 200 y las horas dentro.  ahora: 401 sin tocar la base.
+   *
+   * PARA VOLVER A ABRIRLO: poner TRACKER_INGEST_SECRET en Easypanel y publicar
+   * la extensión mandando `x-tracker-secret`. En ese orden no se pierde nada,
+   * porque hasta que exista la variable esto contesta 401 igual.
+   */
   const secretoIngesta = process.env.TRACKER_INGEST_SECRET
-  if (secretoIngesta && request.headers.get('x-tracker-secret') !== secretoIngesta) {
+  if (!secretoIngesta || request.headers.get('x-tracker-secret') !== secretoIngesta) {
     return NextResponse.json(
       { success: false, error: 'No autorizado' },
       { status: 401, headers }
