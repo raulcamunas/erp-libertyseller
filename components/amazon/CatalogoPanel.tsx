@@ -429,11 +429,15 @@ export function CatalogoPanel({
           </span>
         )}
 
+        {/* UN CONTADOR, NO UNA ALARMA.
+            Antes esto se ponía en amarillo pasados 15 minutos, o sea casi
+            siempre que alguien abría la pantalla: una alerta que salta
+            siempre es una alerta que nadie lee, y de paso le quitaba
+            credibilidad a las que sí importan (un token caído, un feed
+            rechazado). Se queda como lo que es: cuándo se leyó esto. */}
         <span
           title={formatExact(connection.last_sync_at)}
-          className={`text-[11px] whitespace-nowrap ${
-            estadoFrescura === 'fresco' ? 'text-white/35' : 'text-yellow-300'
-          }`}
+          className="text-[11px] whitespace-nowrap text-white/35"
         >
           Refrescado <Momento iso={connection.last_sync_at} />
         </span>
@@ -530,11 +534,16 @@ export function CatalogoPanel({
           </div>
         )}
 
-        {estadoFrescura !== 'fresco' && conexionViva && !connection.last_sync_error && (
+        {/* Solo el catálogo que NO SE HA LEÍDO NUNCA, que es lo único
+            accionable: hay un botón que lo arregla. El aviso de «lleva más de
+            15 minutos» se quitó a propósito — saltaba en cuanto pasaba el
+            cuarto de hora, o sea prácticamente siempre, y con la pantalla
+            abierta el contador de arriba ya dice lo mismo sin gritar. Si el
+            proceso del servidor deja de correr, eso se ve donde tiene que
+            verse: en las incidencias de Plataforma. */}
+        {estadoFrescura === 'nunca' && conexionViva && !connection.last_sync_error && (
           <div className={warnBox}>
-            {estadoFrescura === 'nunca'
-              ? 'Este catálogo no se ha leído nunca. Pulsa «Refrescar» para traerlo de Amazon.'
-              : `Hace más de ${AMAZON_REFRESH_MINUTES} minutos que no se refresca. Debería hacerlo solo cada ${AMAZON_REFRESH_MINUTES}: si esto persiste, el proceso automático del servidor no está corriendo.`}
+            Este catálogo no se ha leído nunca. Pulsa «Refrescar» para traerlo de Amazon.
           </div>
         )}
 

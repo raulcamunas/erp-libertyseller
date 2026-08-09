@@ -934,12 +934,16 @@ export function validateIncomingChange(
 /* ------------------------------------------------------------------ */
 
 /**
- * A partir de cuántos minutos sin refrescar se avisa.
+ * A partir de cuántos minutos se considera viejo un catálogo.
  *
- * El ciclo son quince, así que veinte deja margen para que un barrido tarde
- * algo sin que salte el aviso, y sigue siendo lo bastante pronto como para
- * enterarse de que el cron no está corriendo ANTES de mandar un precio
- * calculado sobre un catálogo de ayer.
+ * YA NO SALTA NINGÚN AVISO POR ESTO en la pantalla de Amazon API: saltaba en
+ * cuanto pasaba el cuarto de hora, o sea prácticamente cada vez que alguien
+ * abría el módulo, y una alerta que salta siempre no la lee nadie —además de
+ * restarle credibilidad a las que sí importan, como un token que dejó de
+ * refrescar—. Ahí quedó un contador de «refrescado hace X», sin color.
+ *
+ * El estado sigue calculándose porque distinguir «viejo» de «nunca leído» es
+ * lo que decide si se ofrece el botón de traerlo por primera vez.
  */
 export const STALE_MINUTES = 20
 

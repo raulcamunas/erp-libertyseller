@@ -259,6 +259,57 @@ export function evaluarCoste(
 }
 
 /**
+ * El mismo coste juzgado para VARIOS canales a la vez.
+ *
+ * Hace falta porque un SKU puede estar en FBA en un país y salir de nuestro
+ * almacén en otro —pasa en cuanto un cliente abre un segundo marketplace sin
+ * mandar inventario allí— y entonces necesita las patas de los dos: el porte del
+ * país donde enviamos nosotros Y el almacenamiento del país donde está en FBA.
+ *
+ * Se queda con el veredicto MÁS ESTRICTO y junta lo que falta sin repetirlo. El
+ * `total` solo sale cuando los dos canales lo dan, y cuando los dos dan número y
+ * son distintos, se devuelve null: un coste unitario único para dos canales con
+ * costes distintos sería una media que no significa nada. Quien necesite el
+ * número de un canal concreto llama a evaluarCoste() con ese canal, que es lo
+ * que hará A4 cuando compare FBM contra FBA.
+ */
+export function evaluarCosteEnCanales(
+  coste: CosteEvaluable | null,
+  canales: CanalCoste[],
+  exigencias: Exigencias = EXIGENCIAS_ESTRICTAS
+): VeredictoCoste {
+  if (canales.length === 0) return evaluarCoste(coste, 'propio', exigencias)
+  if (canales.length === 1) return evaluarCoste(coste, canales[0], exigencias)
+
+  const veredictos = canales.map((canal) => evaluarCoste(coste, canal, exigencias))
+  const peor = veredictos.find((v) => v.estado === 'sin_coste') ??
+    veredictos.find((v) => v.estado === 'incompleto')
+
+  if (peor) {
+    const vistos = new Set<string>()
+    const faltan: FaltaCoste[] = []
+    for (const veredicto of veredictos) {
+      for (const falta of veredicto.faltan) {
+        if (vistos.has(falta.campo)) continue
+        vistos.add(falta.campo)
+        faltan.push(falta)
+      }
+    }
+    return { ...peor, faltan }
+  }
+
+  const totales = new Set(veredictos.map((v) => Math.round((v.total as number) * 1e6)))
+  return {
+    ...veredictos[0],
+    total: totales.size === 1 ? veredictos[0].total : null,
+    motivo:
+      totales.size === 1
+        ? veredictos[0].motivo
+        : 'Este SKU se vende por los dos canales y su coste total no es el mismo en cada uno. Mira el margen por canal, no en conjunto.',
+  }
+}
+
+/**
  * La frase que hay que enseñar donde iría un margen que no se puede calcular.
  *
  * Existe por la misma razón que porQueSinBsr() en modelo-negocio.ts: un hueco

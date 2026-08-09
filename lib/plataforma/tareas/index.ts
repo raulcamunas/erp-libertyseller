@@ -43,6 +43,9 @@ import { tareaCensoCatalogo } from './censo-catalogo'
 import { tareaEnriquecerCatalogo, tareaSnapshotBsr } from './catalogo-items'
 import { tareaInventarioFba } from './inventario-fba'
 import { tareaRecalcularActivos } from './recalcular-activos'
+// A2 · el monitor de Buy Box. Vive en lib/plataforma/buybox/** y se enchufa aquí
+// igual que las de A1: su tipo ya estaba declarado en el CHECK de amazon_jobs.
+import { tareaSnapshotPrecios } from '../buybox/tarea'
 
 const TAREAS: Tarea[] = [
   tareaRecalcularActivos,
@@ -50,6 +53,7 @@ const TAREAS: Tarea[] = [
   tareaEnriquecerCatalogo,
   tareaSnapshotBsr,
   tareaInventarioFba,
+  tareaSnapshotPrecios,
 ]
 
 export function registrarTareas(): void {
