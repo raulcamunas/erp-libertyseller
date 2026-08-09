@@ -143,6 +143,30 @@ export const SELECTABLE_MARKETPLACE_IDS = new Set([
 const MARKETPLACES_BY_ID = new Map(AMAZON_MARKETPLACES.map((m) => [m.id, m]))
 
 /** El marketplace, o null si Amazon devuelve uno que no está en la lista */
+/**
+ * LOS MERCADOS DE UNA CUENTA EN LOS QUE DE VERDAD SE TRABAJA.
+ *
+ * Es lo que tienen que pintar TODOS los desplegables de país del ERP, y no
+ * `marketplace_ids` a pelo. Esa columna es lo que dice Amazon; la elección está
+ * en `marketplaces_activos` y se hace en Amazon API · Cuentas.
+ *
+ * VACÍO = todos los que sepamos nombrar. Los que no sabemos nombrar quedan
+ * siempre fuera: son de sandbox, no hay datos que traer de ellos y ofrecerlos en
+ * un desplegable solo sirve para que alguien elija una pantalla vacía.
+ *
+ * Sin esto pasaba lo que se vio: un cliente con España elegida y diez países
+ * tachados seguía ofreciendo Francia en el desplegable de Buy Box.
+ */
+export function mercadosDeConexion(conn: {
+  marketplace_ids: string[]
+  marketplaces_activos?: string[] | null
+}): string[] {
+  const conocidos = conn.marketplace_ids.filter((id) => marketplaceById(id) !== null)
+  const elegidos = conn.marketplaces_activos ?? []
+  if (elegidos.length === 0) return conocidos
+  return conocidos.filter((id) => elegidos.includes(id))
+}
+
 export function marketplaceById(id: string | null | undefined): AmazonMarketplace | null {
   if (!id) return null
   return MARKETPLACES_BY_ID.get(id) ?? null

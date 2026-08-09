@@ -19,7 +19,7 @@ import {
   TIPO,
   TITULO,
 } from '@/lib/estilo/denso'
-import { marketplaceLabel } from '@/lib/types/amazon'
+import { marketplaceLabel, mercadosDeConexion } from '@/lib/types/amazon'
 import { Aviso, Cargando, Vacio, cifra, fechaCorta, hace } from '@/components/plataforma/comun'
 import { Serie, type Punto } from '@/components/plataforma/Serie'
 import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
@@ -94,10 +94,12 @@ export function PanelBsr({ data, conexionId, onConexionId }: PropsPanel) {
       setMarketplaceId('')
       return
     }
+    // Solo entre los que se trabajan: el por defecto puede estar desactivado.
+    const disponibles = mercadosDeConexion(conexion)
     setMarketplaceId(
-      conexion.default_marketplace_id && conexion.marketplace_ids.includes(conexion.default_marketplace_id)
+      conexion.default_marketplace_id && disponibles.includes(conexion.default_marketplace_id)
         ? conexion.default_marketplace_id
-        : (conexion.marketplace_ids[0] ?? '')
+        : (disponibles[0] ?? '')
     )
   }, [conexion])
 
@@ -131,14 +133,14 @@ export function PanelBsr({ data, conexionId, onConexionId }: PropsPanel) {
           ))}
         </select>
 
-        {conexion && conexion.marketplace_ids.length > 0 && (
+        {conexion && mercadosDeConexion(conexion).length > 0 && (
           <select
             value={marketplaceId}
             onChange={(e) => setMarketplaceId(e.target.value)}
             className={`${CAMPO.input} ${ANCHO_PAIS}`}
             aria-label="País"
           >
-            {conexion.marketplace_ids.map((m) => (
+            {mercadosDeConexion(conexion).map((m) => (
               <option key={m} value={m}>
                 {marketplaceLabel(m)}
               </option>

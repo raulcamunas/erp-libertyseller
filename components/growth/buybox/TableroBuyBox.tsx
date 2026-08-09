@@ -31,6 +31,7 @@ import {
   TEXTO,
   TIPO,
 } from '@/lib/estilo/denso'
+import { useRecordado } from '@/lib/estilo/recordar'
 import { VEREDICTOS, type Veredicto } from '@/lib/plataforma/buybox/tipos'
 import {
   Aviso,
@@ -134,7 +135,17 @@ export function TableroBuyBox({
   const [cargando, setCargando] = useState(true)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
-  const [unidad, setUnidad] = useState<ClaveUnidad | null>(null)
+  /**
+   * La cuenta y el país elegidos se RECUERDAN, por cliente.
+   *
+   * El desplegable se sembraba con el primero de la lista y la lista va
+   * alfabética: un cliente con once mercados abría siempre en Francia aunque
+   * solo se trabaje España, y había que corregirlo cada vez que se entraba.
+   *
+   * La clave lleva el cliente dentro para que cambiar de cliente no arrastre la
+   * elección del anterior, que sería peor que no recordar nada.
+   */
+  const [unidad, setUnidad] = useRecordado<ClaveUnidad | ''>(`buybox:${clientId}`, '')
   const [vista, setVista] = useState<Grupo>('perdida')
   const [elegidos, setElegidos] = useState<Veredicto[]>([])
   const [escrito, setEscrito] = useState('')
@@ -192,13 +203,17 @@ export function TableroBuyBox({
   // con la primera a secas: una cuenta con cero referencias enseñaría una
   // pantalla vacía que parece una avería.
   useEffect(() => {
-    if (unidad !== null || !datos || datos.resumen.length === 0) return
+    if (!datos || datos.resumen.length === 0) return
+    // Lo recordado manda, PERO solo si sigue existiendo: una cuenta que se
+    // desconectó o un país que se ha desactivado en Amazon API dejarían la
+    // pantalla vacía sin decir por qué. Si ya no está, se siembra como antes.
+    if (unidad && datos.resumen.some((r) => claveDe(r) === unidad)) return
     const conCatalogo =
       datos.resumen.find((r) => r.diagnosticados > 0) ??
       datos.resumen.find((r) => r.skus_en_seguimiento > 0) ??
       datos.resumen[0]
     setUnidad(claveDe(conCatalogo))
-  }, [datos, unidad])
+  }, [datos, unidad, setUnidad])
 
   if (cargando && !datos) return <Cargando texto="Leyendo el monitor de Buy Box…" />
   if (error && !datos) {

@@ -1,5 +1,6 @@
 'use client'
 
+import { useRecordado } from '@/lib/estilo/recordar'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
@@ -100,7 +101,8 @@ export function TableroFbmFba({
   const [cargando, setCargando] = useState(true)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
-  const [unidad, setUnidad] = useState<string | null>(null)
+  /** Se recuerda por cliente. Ver lib/estilo/recordar.ts */
+  const [unidad, setUnidad] = useRecordado<string>(`fbmfba:${clientId}`, '')
   const [vista, setVista] = useState<Vista>('accionable')
   const [escrito, setEscrito] = useState('')
   const [busqueda, setBusqueda] = useState('')
@@ -150,9 +152,9 @@ export function TableroFbmFba({
   }, [cargar])
 
   useEffect(() => {
-    if (unidad !== null || !datos || !datos.unidad) return
+    if (unidad || !datos || !datos.unidad) return
     setUnidad(`${datos.unidad.connectionId}|${datos.unidad.marketplaceId}`)
-  }, [datos, unidad])
+  }, [datos, unidad, setUnidad])
 
   if (cargando && !datos) return <Cargando texto="Comparando los dos escenarios…" />
   if (error && !datos) {

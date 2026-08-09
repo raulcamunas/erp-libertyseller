@@ -12,6 +12,7 @@ import {
   Tags,
 } from 'lucide-react'
 import { getAmazon, patchAmazon, postAmazon } from '@/lib/amazon/client'
+import { mercadosDeConexion } from '@/lib/types/amazon'
 import type { JobRespuesta } from '@/lib/plataforma/cliente'
 import type {
   FiltroReferencias,
@@ -224,7 +225,13 @@ export function PanelMarcas({ data, conexionId, onConexionId }: PropsPanel) {
 
   async function lanzar(tipo: 'censo_catalogo' | 'enriquecer_catalogo') {
     if (!clienteId || !conexion || lanzando) return
-    const marketplaceId = conexion.default_marketplace_id ?? conexion.marketplace_ids[0] ?? null
+    // Entre los que se trabajan: el por defecto puede estar desactivado en
+    // Amazon API · Cuentas, y entonces no hay datos que mirar ahí.
+    const disponibles = mercadosDeConexion(conexion)
+    const marketplaceId =
+      (conexion.default_marketplace_id && disponibles.includes(conexion.default_marketplace_id)
+        ? conexion.default_marketplace_id
+        : disponibles[0]) ?? null
     if (!marketplaceId) {
       setError('Esa cuenta no tiene ningún país asociado, así que no se le puede pedir el catálogo.')
       return

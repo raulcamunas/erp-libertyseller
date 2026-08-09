@@ -1,10 +1,12 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { CAMPO, PANTALLA, TEXTO, TIPO, TITULO, BOTON } from '@/lib/estilo/denso'
 import { BotonInfo, ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
 import type { ClienteGrowth } from '@/lib/growth/clientes'
+import { useRecordado } from '@/lib/estilo/recordar'
 import { MODULOS, PARAM_CLIENTE, PARAM_MODULO, type ModuloId } from './modulos'
 
 /**
@@ -75,6 +77,40 @@ export function Carcasa({
   children: React.ReactNode
 }) {
   const router = useRouter()
+
+  /**
+   * DÓNDE ESTABAS LA ÚLTIMA VEZ.
+   *
+   * El submódulo y el cliente viajan en la URL, y eso ya hace que cambiar de uno
+   * a otro no olvide sobre quién trabajabas. Lo que no resolvía es entrar a
+   * Growth Partner DESDE EL MENÚ, que llega sin parámetros: caía siempre en el
+   * primer submódulo y el primer cliente alfabético.
+   *
+   * Se guarda lo último y se restaura solo cuando la dirección viene pelada. Si
+   * trae parámetros —un enlace pegado por un compañero, el botón de atrás— manda
+   * la dirección, que si no un enlace compartido llevaría a sitios distintos
+   * según quién lo abra.
+   */
+  const [ultimo, setUltimo] = useRecordado<string>('growth:ultimo', '')
+  const restaurado = useRef(false)
+
+  useEffect(() => {
+    if (restaurado.current) return
+    restaurado.current = true
+    // La dirección se lee del navegador y NO con useSearchParams: ese hook
+    // obliga a envolver la pantalla en <Suspense> o `next build` falla, y aquí
+    // no hace falta porque esto solo corre después de montar.
+    const params = new URLSearchParams(window.location.search)
+    const pelada = !params.get(PARAM_MODULO) && !params.get(PARAM_CLIENTE)
+    if (pelada && ultimo) router.replace(`/dashboard/growth?${ultimo}`, { scroll: false })
+  }, [ultimo, router])
+
+  useEffect(() => {
+    const url = new URLSearchParams()
+    url.set(PARAM_MODULO, modulo)
+    if (cliente) url.set(PARAM_CLIENTE, cliente.slug)
+    setUltimo(url.toString())
+  }, [modulo, cliente, setUltimo])
 
   function irACliente(slug: string) {
     const url = new URLSearchParams()

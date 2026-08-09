@@ -23,7 +23,7 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '../eventos'
-import { conexionesDeCliente, unidadesDe } from '../datos'
+import { conexionesDeCliente, filtroMercadosActivos, unidadesDe } from '../datos'
 import {
   CONFIG_BUYBOX_DEFECTO,
   configDeCliente,
@@ -83,9 +83,17 @@ export async function resumenBuyBox(clientId: string): Promise<ResumenBuyBox[]> 
   const filas = (data ?? []) as Array<Record<string, unknown>>
   const salida: ResumenBuyBox[] = []
 
+  /**
+   * La función SQL expande cuenta × mercado sin saber nada de lo que se ha
+   * elegido en Amazon API · Cuentas, así que el recorte se hace aquí. Sin él, un
+   * cliente con solo España activa seguía ofreciendo Francia en el desplegable.
+   */
+  const seTrabaja = filtroMercadosActivos(await conexionesDeCliente(clientId))
+
   for (const fila of filas) {
     const connectionId = String(fila.connection_id)
     const marketplaceId = String(fila.marketplace_id ?? '')
+    if (!seTrabaja(connectionId, marketplaceId)) continue
     salida.push({
       connection_id: connectionId,
       connection_name: String(fila.connection_name ?? ''),

@@ -151,6 +151,38 @@ export function unidadesDe(
   return unidades
 }
 
+/**
+ * ¿SE TRABAJA EN ESTE MERCADO DE ESTA CUENTA?
+ *
+ * Existe porque media plataforma NO pasa por `unidadesDe()`: las pantallas
+ * grandes —el resumen de Buy Box, el de FBM→FBA, la cobertura— se resuelven con
+ * funciones SQL que expanden cuenta × mercado dentro de Postgres. Filtrarlas
+ * allí obligaría a otra migración; filtrarlas aquí vale igual y entra hoy.
+ *
+ * Sin esto pasaba lo que se vio en pantalla: un cliente con España elegida y los
+ * otros diez países tachados en Amazon API seguía ofreciendo Francia en el
+ * desplegable de Buy Box. La elección se respetaba al ENCOLAR trabajos pero no
+ * al MIRAR datos, que es donde el usuario la había hecho.
+ *
+ * Vacío = todos, igual que en unidadesDe(). Ver la migración 134.
+ */
+export function filtroMercadosActivos(
+  conexiones: ConexionPlataforma[]
+): (connectionId: string, marketplaceId: string) => boolean {
+  const porConexion = new Map<string, Set<string>>()
+  for (const c of conexiones) {
+    const elegidos = c.marketplaces_activos ?? []
+    if (elegidos.length > 0) porConexion.set(c.id, new Set(elegidos))
+  }
+
+  return (connectionId, marketplaceId) => {
+    const elegidos = porConexion.get(connectionId)
+    // Sin elección hecha para esa conexión, pasa todo: es lo que había antes.
+    if (!elegidos) return true
+    return elegidos.has(marketplaceId)
+  }
+}
+
 export function claveUnidad(unidad: UnidadDeTrabajo): string {
   return `${unidad.connectionId}|${unidad.marketplaceId}`
 }
