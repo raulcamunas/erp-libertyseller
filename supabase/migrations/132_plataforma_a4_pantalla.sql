@@ -54,7 +54,7 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'amazon_fees_estimados' AND column_name = 'canal'
   ) THEN
     RAISE EXCEPTION
-      'Falta amazon_fees_estimados.canal. Lanza antes 129_plataforma_a4_fbm_fba.sql: sin el canal, una tarifa sin logística de Amazon significa a la vez "se pidió como envío propio" y "se pidió como FBA y no vino", y A4 compararía el escenario de hoy contra sí mismo.';
+      'Falta amazon_fees_estimados.canal. Lanza antes 131_plataforma_a4_fbm_fba.sql: sin el canal, una tarifa sin logística de Amazon significa a la vez "se pidió como envío propio" y "se pidió como FBA y no vino", y A4 compararía el escenario de hoy contra sí mismo.';
   END IF;
 
   IF NOT EXISTS (
@@ -62,7 +62,7 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'amazon_buybox_diagnostico'
   ) THEN
     RAISE EXCEPTION
-      'No existe public.amazon_buybox_diagnostico. Lanza antes 126_plataforma_a2_buybox.sql: sin saber quién tiene hoy la oferta destacada, el precio de referencia de Amazon no se puede interpretar y A4 calcularía el margen al precio equivocado.';
+      'No existe public.amazon_buybox_diagnostico. Lanza antes 130_plataforma_a2_buybox.sql: sin saber quién tiene hoy la oferta destacada, el precio de referencia de Amazon no se puede interpretar y A4 calcularía el margen al precio equivocado.';
   END IF;
 END $$;
 

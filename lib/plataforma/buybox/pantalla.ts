@@ -36,7 +36,7 @@ import type { EstadoBuyBox, Veredicto } from './tipos'
 export { isMissingSchema as faltaEsquema }
 
 export const FALTAN_MIGRACIONES =
-  'Faltan las tablas del monitor de Buy Box: lanza 126_plataforma_a2_buybox.sql en el editor SQL de Supabase.'
+  'Faltan las tablas del monitor de Buy Box: lanza 130_plataforma_a2_buybox.sql en el editor SQL de Supabase.'
 
 /**
  * Cuántos días vale un diagnóstico.

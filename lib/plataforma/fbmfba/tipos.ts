@@ -491,8 +491,8 @@ export const COLCHON_SUGERIDO = { min: 10, max: 12 }
 /* ------------------------------------------------------------------ */
 
 export const FALTAN_MIGRACIONES_A4 =
-  'Faltan las tablas del análisis FBM → FBA: lanza 129_plataforma_a4_fbm_fba.sql y después ' +
-  '130_plataforma_a4_pantalla.sql en el editor SQL de Supabase, en ese orden. La 129 trae los ' +
+  'Faltan las tablas del análisis FBM → FBA: lanza 131_plataforma_a4_fbm_fba.sql y después ' +
+  '132_plataforma_a4_pantalla.sql en el editor SQL de Supabase, en ese orden. La 129 trae los ' +
   'umbrales del cliente y los parámetros de impuesto por marketplace —sin el impuesto no hay ' +
   'margen que calcular—; la 130 trae plataforma_fbmfba_datos, que es de donde lee esta pantalla. ' +
-  'Las dos leen amazon_buybox_diagnostico, así que 126_plataforma_a2_buybox.sql va antes.'
+  'Las dos leen amazon_buybox_diagnostico, así que 130_plataforma_a2_buybox.sql va antes.'

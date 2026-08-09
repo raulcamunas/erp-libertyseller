@@ -77,7 +77,7 @@ export type CosteA5 = CosteProducto & CosteProductoExtra
  * siguiente. Por eso A5 tiene el suyo y dice su número.
  */
 export const FALTAN_MIGRACIONES_COSTES =
-  'Falta la migración del módulo de costes: lanza 126_plataforma_a5_costes.sql en el editor SQL ' +
+  'Falta la migración del módulo de costes: lanza 129_plataforma_a5_costes.sql en el editor SQL ' +
   'de Supabase. Sin ella no existen los perfiles de importación, ni la política del cliente, ni ' +
   'el rastro de cambios, ni la cuenta de cobertura.'
 
