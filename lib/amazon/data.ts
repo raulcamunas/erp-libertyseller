@@ -103,7 +103,8 @@ function isMissingSchema(error: unknown): boolean {
  * ninguna razón para salir del servidor.
  */
 const CONNECTION_FIELDS =
-  'id, client_id, name, selling_partner_id, region, marketplace_ids, default_marketplace_id, ' +
+  'id, client_id, name, selling_partner_id, region, marketplace_ids, marketplaces_activos, ' +
+  'default_marketplace_id, ' +
   'status, status_detail, authorized_at, authorized_by, last_sync_at, last_sync_items, ' +
   'last_sync_attempt_at, last_sync_error, last_sync_truncated, last_sync_declared, ' +
   'is_active, notes, created_at, updated_at'

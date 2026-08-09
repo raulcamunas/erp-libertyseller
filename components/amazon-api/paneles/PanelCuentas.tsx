@@ -805,13 +805,25 @@ function FilaConexion({
  * arregla; uno que no, no.
  */
 function Marketplaces({ conn }: { conn: AmazonConnection }) {
+  const [guardando, setGuardando] = useState(false)
+
+  /**
+   * La elección se guarda AQUÍ y no se sube al estado de la pantalla.
+   *
+   * Nada más de esta pantalla depende de `marketplaces_activos`: no cambia el
+   * recuento de referencias, ni el estado de la conexión, ni el cupo. Subirlo
+   * obligaría a enhebrar un callback por tres componentes para que ninguno lo
+   * use. Se siembra del servidor y a partir de ahí manda lo local.
+   */
+  const [elegidos, setElegidos] = useState<string[]>(conn.marketplaces_activos ?? [])
+
   /**
    * Los que sabemos nombrar PRIMERO, y los demás detrás.
    *
-   * No es cosmética: la cuenta conectada hoy tiene ocho mercados y cinco no están
-   * en el catálogo del ERP. Intercalados, los tres países donde el cliente vende
-   * de verdad quedaban escondidos entre identificadores en bruto de catorce
-   * caracteres. El orden en que los devuelve Amazon no significa nada.
+   * No es cosmética: la cuenta conectada hoy tiene ocho mercados y cuatro no
+   * están en el catálogo del ERP. Intercalados, los países donde el cliente
+   * vende de verdad quedaban escondidos entre identificadores en bruto de
+   * catorce caracteres. El orden en que los devuelve Amazon no significa nada.
    */
   const ordenados = useMemo(() => {
     const conocidos = conn.marketplace_ids.filter((id) => marketplaceById(id) !== null)
@@ -819,10 +831,58 @@ function Marketplaces({ conn }: { conn: AmazonConnection }) {
     return [...conocidos, ...resto]
   }, [conn.marketplace_ids])
 
+  /**
+   * VACÍO SIGNIFICA TODOS, no ninguno.
+   *
+   * Es lo que hace que la migración 134 no cambiara nada de lo que ya
+   * funcionaba: hasta que alguien elige, se trabaja en todos. Aquí eso se
+   * traduce en que, sin elección hecha, TODAS las casillas salen marcadas —que
+   * es lo que de verdad está pasando— en vez de todas vacías, que haría pensar
+   * que no se está trabajando en ninguna.
+   */
+  const activos = useMemo(() => {
+    if (elegidos.length > 0) return new Set(elegidos)
+    return new Set(conn.marketplace_ids.filter((id) => marketplaceById(id) !== null))
+  }, [elegidos, conn.marketplace_ids])
+
+  async function alternar(id: string) {
+    if (guardando) return
+    const siguiente = new Set(activos)
+    if (siguiente.has(id)) siguiente.delete(id)
+    else siguiente.add(id)
+
+    const conocidos = conn.marketplace_ids.filter((m) => marketplaceById(m) !== null)
+    // Si quedan marcados TODOS los que sabemos nombrar, se guarda la lista
+    // vacía: es la misma cosa dicha de la forma que no envejece. Si mañana el
+    // cliente abre un país nuevo, con la lista vacía entra solo; con la lista
+    // completa de hoy se quedaría fuera sin que nadie se entere.
+    const todos = conocidos.length > 0 && conocidos.every((m) => siguiente.has(m))
+    const mercados = todos ? [] : [...siguiente]
+
+    setGuardando(true)
+    try {
+      const res = await fetch(`/api/amazon/connections/${conn.id}/mercados`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mercados }),
+      })
+      const datos = await res.json()
+      if (!res.ok) throw new Error(datos?.error ?? 'No se ha podido guardar')
+      setElegidos(datos.conexion?.marketplaces_activos ?? mercados)
+      toast.success(
+        mercados.length === 0
+          ? 'Se trabaja en todos sus mercados'
+          : `${mercados.length} ${mercados.length === 1 ? 'mercado' : 'mercados'} en uso`
+      )
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se ha podido guardar')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   if (conn.marketplace_ids.length === 0) {
-    return (
-      <span className={`${TIPO.s} ${TEXTO.t4} shrink-0`}>Países todavía sin leer</span>
-    )
+    return <span className={`${TIPO.s} ${TEXTO.t4} shrink-0`}>Países todavía sin leer</span>
   }
 
   return (
@@ -831,6 +891,13 @@ function Marketplaces({ conn }: { conn: AmazonConnection }) {
         const conocido = marketplaceById(id) !== null
         const porDefecto = id === conn.default_marketplace_id
 
+        /**
+         * Los de sandbox NO se pueden marcar, y no es un descuido: el
+         * planificador se los salta igualmente porque no sabe nombrarlos, así
+         * que una casilla que no cambia nada sería mentir. Se quedan a la vista
+         * con su aviso, porque si alguno resultara ser una tienda real que falta
+         * en el catálogo, el que se queda sin datos es un cliente.
+         */
         if (!conocido) {
           return (
             <span
@@ -845,18 +912,30 @@ function Marketplaces({ conn }: { conn: AmazonConnection }) {
           )
         }
 
+        const activo = activos.has(id)
+
         return (
-          <span
+          <button
             key={id}
-            title={porDefecto ? 'Con este se abre el catálogo' : undefined}
-            className={`inline-flex h-[17px] shrink-0 items-center ${RADIO.r1} border px-[5px] text-[10.5px] ${
-              porDefecto
-                ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-t1)]'
-                : `${LINEA.normal} bg-[var(--ls-sup2)] ${TEXTO.t3}`
+            type="button"
+            disabled={guardando}
+            onClick={() => alternar(id)}
+            aria-pressed={activo}
+            title={
+              activo
+                ? `Se trabaja en ${marketplaceLabel(id)}. Pulsa para dejar de traer sus datos${porDefecto ? ' (con este se abre el catálogo)' : ''}`
+                : `No se traen datos de ${marketplaceLabel(id)}. Pulsa para empezar`
+            }
+            className={`inline-flex h-[17px] shrink-0 items-center ${RADIO.r1} border px-[5px] text-[10.5px] transition-colors disabled:opacity-60 ${
+              activo
+                ? porDefecto
+                  ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-t1)]'
+                  : `${LINEA.normal} bg-[var(--ls-sup2)] ${TEXTO.t3} hover:border-[var(--ls-linea2)]`
+                : `border-dashed ${LINEA.normal} ${TEXTO.t4} line-through hover:${TEXTO.t3}`
             }`}
           >
             {marketplaceLabel(id)}
-          </span>
+          </button>
         )
       })}
     </span>

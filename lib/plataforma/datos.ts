@@ -64,13 +64,24 @@ export interface ConexionPlataforma {
   name: string
   selling_partner_id: string
   marketplace_ids: string[]
+  /**
+   * En cuáles de esos mercados se trabaja de verdad. VACÍO = en todos los que
+   * el ERP sepa nombrar, que es como se comportaba antes de existir la columna
+   * (migración 134).
+   *
+   * Existe porque `marketplace_ids` es lo que dice AMAZON, y dice de más: en la
+   * cuenta piloto devuelve ocho, y cuatro son de sandbox. Además un cliente
+   * puede vender en cuatro países y a nosotros interesarnos solo uno.
+   */
+  marketplaces_activos: string[]
   default_marketplace_id: string | null
   status: string
   is_active: boolean
 }
 
 const CONEXION_FIELDS =
-  'id, client_id, name, selling_partner_id, marketplace_ids, default_marketplace_id, status, is_active'
+  'id, client_id, name, selling_partner_id, marketplace_ids, marketplaces_activos, ' +
+  'default_marketplace_id, status, is_active'
 
 /** Las conexiones vivas de un cliente. Las rotas quedan fuera: insistir contra
     una cuenta que nos ha retirado el acceso no la recupera */
@@ -108,7 +119,20 @@ export function unidadesDe(
   const filtro = new Set(marketplacesPermitidos)
   const unidades: UnidadDeTrabajo[] = []
   for (const conexion of conexiones) {
+    /**
+     * LO QUE HA ELEGIDO EL USUARIO MANDA SOBRE LO QUE DICE AMAZON.
+     *
+     * `marketplace_ids` son todos los que Amazon devuelve como participantes, y
+     * devuelve de más: en la cuenta piloto son ocho y cuatro son de sandbox.
+     * `marketplaces_activos` es la elección hecha en Amazon API · Cuentas.
+     *
+     * Vacío = todos, que es como se comportaba antes de la migración 134. Así
+     * pegar el fichero no cambia el comportamiento de ninguna conexión que ya
+     * estuviera funcionando; solo manda cuando alguien elige.
+     */
+    const elegidos = new Set(conexion.marketplaces_activos ?? [])
     for (const marketplaceId of conexion.marketplace_ids) {
+      if (elegidos.size > 0 && !elegidos.has(marketplaceId)) continue
       if (filtro.size > 0 && !filtro.has(marketplaceId)) continue
       unidades.push({
         connectionId: conexion.id,

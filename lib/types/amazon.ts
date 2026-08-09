@@ -423,6 +423,10 @@ export interface AmazonConnection {
   selling_partner_id: string
   region: AmazonRegion
   marketplace_ids: string[]
+  /** En cuáles se trabaja. VACÍO = en todos los que el ERP sepa nombrar, que es
+      como se comportaba antes de la migración 134. Se elige en Amazon API ·
+      Cuentas y lo consume unidadesDe() del planificador */
+  marketplaces_activos: string[]
   default_marketplace_id: string | null
   status: AmazonConnectionStatus
   status_detail: string | null
