@@ -17,7 +17,7 @@ import {
   type AmazonIssue,
 } from './errors'
 import { clearAccessToken, getAccessToken } from './lwa'
-import { backoffDelay, bucketFor, sleep, type AmazonOperation } from './throttle'
+import { backoffDelay, bucketFor, retryAfterMs, sleep, type AmazonOperation } from './throttle'
 
 /**
  * EL CLIENTE DE LA SELLING PARTNER API
@@ -215,7 +215,10 @@ export async function spApiRequest<T>(
     if (!puedeReintentar || attempt === maxAttempts) throw fallo
 
     ultimoError = fallo
-    await sleep(backoffDelay(attempt))
+    // Si Amazon dice cuándo volver, se le hace caso; si no, espera creciente con
+    // ruido. Ver retryAfterMs(): la cabecera no viene casi nunca, pero cuando
+    // viene es el dato bueno y adivinar por encima de él solo gasta intentos.
+    await sleep(retryAfterMs(response.headers.get('retry-after')) ?? backoffDelay(attempt))
   }
 
   // Inalcanzable salvo que maxAttempts sea 0, pero el compilador quiere una

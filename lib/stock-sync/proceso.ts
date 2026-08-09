@@ -215,6 +215,10 @@ export async function traerFichero(
   const fichero = await conector.traer({
     config: (perfil.origen_config ?? {}) as Record<string, unknown>,
     perfil: perfil.name,
+    // El id, no solo el nombre: es la llave de la credencial cifrada del origen
+    // (stock_origen_credenciales, migración 124). Sin él, un perfil de SFTP no
+    // encuentra su contraseña y el ciclo automático no podría leer nada.
+    perfilId: perfil.id,
     maxBytes: MAX_FICHERO_BYTES,
     subida: subida ? { nombre: subida.nombre, bytes: subida.bytes, tamano: subida.tamano } : null,
   })
@@ -684,6 +688,9 @@ async function construirEanIndex(
     const fichero = await conector.traer({
       config: (perfilEan.origen_config ?? {}) as Record<string, unknown>,
       perfil: perfilEan.name,
+      // Igual que arriba: el fichero de códigos de barras también puede venir
+      // por SFTP, y su credencial cuelga de SU perfil, no del de stock.
+      perfilId: perfilEan.id,
       maxBytes: MAX_FICHERO_BYTES,
       subida: subidaEan
         ? { nombre: subidaEan.nombre, bytes: subidaEan.bytes, tamano: subidaEan.tamano }

@@ -116,10 +116,6 @@ export interface SimulacroResponse extends ResultadoProceso {
   recortado: { filas: boolean; huerfanos: boolean; sinCasar: boolean }
 }
 
-export interface OrigenResponse {
-  estado: EstadoOrigen
-}
-
 /**
  * El historial de un perfil.
  *

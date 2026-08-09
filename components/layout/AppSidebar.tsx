@@ -149,6 +149,12 @@ export function AppSidebar() {
     if (app.id === 'amazon-api') {
       return userRole === 'admin'
     }
+    // Plataforma Amazon (módulo A1) solo para admin: enseña el catálogo entero
+    // de las tiendas de los clientes y desde ahí se gasta su cupo de la API.
+    // Mismo sitio y mismo motivo que el de arriba.
+    if (app.id === 'plataforma') {
+      return userRole === 'admin'
+    }
     // Diseños del ERP solo para admin. Igual que los dos de arriba, va antes del
     // "si aún no se ha cargado el rol, mostrar todas" para que no aparezca ni un
     // instante mientras se resuelve el perfil. La elección del diseño la toman

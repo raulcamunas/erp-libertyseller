@@ -1,0 +1,27 @@
+#!/bin/sh
+
+# Cargar variables de entorno (necesario para crond en Alpine)
+. /etc/environment
+
+# EL MOTOR DE TRABAJOS DE LA PLATAFORMA (módulo A1).
+#
+# Cada cinco minutos coge el trabajo más prioritario que esté libre, procesa
+# lotes hasta agotar su presupuesto de cuatro minutos, guarda por dónde iba y se
+# va. La pasada siguiente lo recoge donde estaba.
+#
+# Por qué no va detrás del refresco del catálogo, como sí hace el ciclo de
+# stock: aquel necesita contrastar contra un espejo recién actualizado y este no,
+# y un barrido de horas debajo de un ciclo con nueve minutos de presupuesto haría
+# que el refresco del catálogo llegara tarde. Está explicado entero en
+# app/api/amazon/cron-jobs/route.ts.
+#
+# --max-time es lo que impide que se acumule un curl colgado por cada pasada si
+# el servidor deja de contestar. Está por encima del presupuesto del motor a
+# propósito: cortar por aquí no pararía el trabajo del servidor, solo dejaría de
+# escuchar la respuesta.
+#
+# Sin CRON_SECRET la ruta contesta 401 y esto no hace nada: es a propósito, está
+# explicado en la propia ruta.
+curl -sf --max-time 280 -X POST "http://localhost:3000/api/amazon/cron-jobs" \
+  -H "x-cron-secret: ${CRON_SECRET}" \
+  -o /dev/null

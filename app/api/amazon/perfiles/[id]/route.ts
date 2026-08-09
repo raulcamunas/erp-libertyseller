@@ -1,6 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
-import { actualizarPerfil, borrarPerfil, filtrarCampos, loadPerfiles } from '@/lib/stock-sync/perfiles'
+import { conectorDe } from '@/lib/stock-sync/origenes'
+import { borrarCredencial } from '@/lib/stock-sync/origenes/credenciales'
+import {
+  actualizarPerfil,
+  borrarPerfil,
+  filtrarCampos,
+  loadPerfil,
+  loadPerfiles,
+} from '@/lib/stock-sync/perfiles'
 
 /**
  * GUARDA O BORRA UN PERFIL DE LECTURA.
@@ -59,8 +67,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
      */
     patch.last_file_fingerprint = null
 
+    // Se lee ANTES de escribir: hace falta el destino anterior para saber si se
+    // ha movido. Ver moverElDestinoBorraLaCredencial().
+    const antes = await loadPerfil(params.id)
+    if (!antes) return fail(404, 'Ese perfil ya no existe')
+
     const perfil = await actualizarPerfil(params.id, patch)
     if (!perfil) return fail(404, 'Ese perfil ya no existe')
+
+    if (moverElDestinoBorraLaCredencial(antes, perfil)) await borrarCredencial(params.id)
 
     const data = await loadPerfiles()
     return NextResponse.json(data)
@@ -89,6 +104,44 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
   } catch (error) {
     return errorResponse(error, 'Error borrando un perfil de lectura')
   }
+}
+
+/**
+ * MOVER EL DESTINO DE UN PERFIL BORRA SU CREDENCIAL GUARDADA.
+ *
+ * La contraseña que un cliente nos confía es de un servidor, un puerto y un
+ * usuario CONCRETOS: en cuanto cualquiera de los tres cambia, esa contraseña ya
+ * no vale para el sitio nuevo, y seguir guardándola solo sirve para que un día
+ * viaje a un servidor que no es el suyo. credenciales.ts promete que una
+ * credencial guardada no se puede volver a ver, solo sustituir; esto es lo que
+ * impide sortear esa promesa cambiando el servidor del perfil y pulsando
+ * «Conectar».
+ *
+ * Se borra también al cambiar de origen: la contraseña de un SFTP no significa
+ * nada en un perfil que ahora lee de Drive.
+ *
+ * Qué campos son «el destino» lo dice cada conector en `clavesDestino`, no esta
+ * ruta: aquí no se sabe —ni hace falta saber— qué es un host.
+ */
+function moverElDestinoBorraLaCredencial(
+  antes: { origen: string; origen_config: unknown },
+  despues: { origen: string; origen_config: unknown }
+): boolean {
+  if (antes.origen !== despues.origen) return true
+
+  const conector = conectorDe(despues.origen as Parameters<typeof conectorDe>[0])
+  if (!conector.secreto) return false
+
+  const a = (antes.origen_config ?? {}) as Record<string, unknown>
+  const b = (despues.origen_config ?? {}) as Record<string, unknown>
+  return (conector.clavesDestino ?? []).some((clave) => texto(a[clave]) !== texto(b[clave]))
+}
+
+/** El mismo criterio de comparación que usa la ruta del explorador */
+function texto(v: unknown): string {
+  if (typeof v === 'string') return v.trim()
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  return ''
 }
 
 /**

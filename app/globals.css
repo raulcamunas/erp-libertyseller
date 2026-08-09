@@ -5,38 +5,127 @@
 @tailwind utilities;
 
 @layer base {
-  /* Tema oscuro: el de siempre y el que se sirve por defecto */
+  /* ==================================================================
+     TOKENS DE «DENSO Y SOBRIO» — tema oscuro (el que se sirve por defecto)
+     ==================================================================
+     Los valores salen tal cual de components/disenos/denso/estilos.ts
+     (§1 y §2) y de su ficha medida en denso/memoria.ts. Van con prefijo
+     `--ls-` y NO con `--dz-` a propósito: el comparador declara sus
+     `--dz-` dentro de `.dz-raiz`, y si estos se llamaran igual, el
+     comparador dejaría de ser una réplica congelada para pasar a heredar
+     lo que se cambie aquí.
+
+     Regla de oro de la paleta: CUATRO niveles de texto y superficies
+     OPACAS ESCALONADAS. Ni el texto se levanta con alfas ni las capas se
+     apilan con blanco al 2 %: cada superficie tiene su color, y por eso
+     el contraste de una celda no depende de cuántas cajas la envuelvan.
+     ================================================================== */
   :root {
+    /* --- Superficies. Nunca negro puro: el negro puro contra texto casi
+           blanco es el par de más halo, y aquí se miran ocho horas. --- */
+    --ls-fondo: #0F1114;   /* la página */
+    --ls-sup:   #15171B;   /* la tabla, la tarjeta, el panel */
+    --ls-sup2:  #1A1D22;   /* elevación: cabecera de tabla, barra lateral */
+    --ls-sup3:  #1F232A;   /* la fila bajo el ratón, el control activo */
+    --ls-sel:   #2A1F14;   /* la fila en la que estás */
+    --ls-linea: #262A31;   /* el separador de siempre */
+    --ls-linea2:#343941;   /* el separador que sí tiene que verse */
+
+    /* --- Texto. CUATRO niveles. Ni uno más. --- */
+    --ls-t1: #F4F5F7;      /* el dato */
+    --ls-t2: #CBD0D8;      /* el dato de al lado */
+    --ls-t3: #A2A9B4;      /* el contexto */
+    --ls-t4: #8A929E;      /* el rótulo */
+
+    /* --- Marca. En oscuro el naranja de siempre sirve tal cual: 6,11:1. --- */
+    --ls-acc:          #FF6600;  /* naranja de TEXTO y de línea */
+    --ls-acc-graf:     #FF6600;  /* naranja de barra, raíl y foco */
+    --ls-acc-relleno:  #FF6600;  /* naranja de RELLENO del botón primario */
+    --ls-acc-tinta:    #14161A;  /* lo que se escribe encima de ese relleno */
+    --ls-acc-borde:    transparent;
+    --ls-acc-suave:    rgba(255, 102, 0, 0.14);
+
+    /* --- Estados. LOS TONOS NO CAMBIAN DE FAMILIA, solo de luminancia:
+           un verde sigue leyéndose verde. Ver §D del contrato en
+           lib/estilo/denso.ts, que es de donde tiene que copiarlos quien
+           escriba una pantalla nueva. --- */
+    --ls-e-gris:    #9AA2AE;
+    --ls-e-ambar:   #E0B341;
+    --ls-e-cian:    #3AC8DE;
+    --ls-e-magenta: #E879F9;
+    --ls-e-naranja: #FB923C;
+    --ls-e-verde:   #4ADE80;
+    --ls-e-rojo:    #F87171;
+    --ls-e-azul:    #7DB1FF;
+    --ls-e-violeta: #C4A6FF;
+
+    /* --- Las variables de siempre, ahora apuntando a los tokens nuevos.
+           Se conservan los nombres porque hay componentes que las leen
+           con var(--surface), var(--text-primary)… --- */
     --brand-color: #FF6600;
-    --bg-color: #080808;
-    --surface: #0d0d0d;
-    --surface-raised: rgba(255, 255, 255, 0.02);
-    --glass-bg: rgba(255, 255, 255, 0.03);
-    --border-color: rgba(255, 255, 255, 0.1);
-    --text-primary: #FFFFFF;
-    --text-secondary: #a0a0b0;
-    --text-tertiary: #999;
+    --bg-color: var(--ls-fondo);
+    --surface: var(--ls-sup);
+    --surface-raised: var(--ls-sup2);
+    --glass-bg: var(--ls-sup2);
+    --border-color: var(--ls-linea);
+    --text-primary: var(--ls-t1);
+    --text-secondary: var(--ls-t2);
+    --text-tertiary: var(--ls-t4);
     --glow-1: rgba(255, 102, 0, 0.12);
     --glow-2: rgba(255, 102, 0, 0.06);
   }
 
-  /* Tema claro. No es una inversión automática del oscuro: cada valor está
-     elegido para mantener el contraste del texto sobre su superficie. */
+  /* ==================================================================
+     TEMA CLARO — diseñado, no traducido.
+     ==================================================================
+     No es una inversión del oscuro: son veinte valores elegidos uno a uno.
+     El naranja cambia de papel: como RELLENO sigue siendo #FF6600 exacto
+     (con tinta oscura encima, 6,17:1), y solo cuando hace de TEXTO baja a
+     #B84900, porque #FF6600 sobre blanco da 2,94:1 y no pasa ni el umbral
+     de texto grande.
+     ================================================================== */
   html.light {
-    --bg-color: #F5F5F7;
-    --surface: #FFFFFF;
-    --surface-raised: rgba(0, 0, 0, 0.02);
-    --glass-bg: rgba(0, 0, 0, 0.03);
-    --border-color: rgba(0, 0, 0, 0.1);
-    --text-primary: #101014;
-    --text-secondary: #55555f;
-    --text-tertiary: #74747e;
+    --ls-fondo: #F3F4F6;
+    --ls-sup:   #FFFFFF;
+    --ls-sup2:  #F7F8FA;
+    --ls-sup3:  #EFF1F4;
+    --ls-sel:   #FFF1E5;
+    --ls-linea: #E3E6EA;
+    --ls-linea2:#CDD2D9;
+
+    --ls-t1: #14161A;
+    --ls-t2: #383E48;
+    --ls-t3: #525A67;
+    --ls-t4: #666D79;
+
+    --ls-acc:          #B84900;
+    --ls-acc-graf:     #D25400;
+    --ls-acc-relleno:  #FF6600;
+    --ls-acc-tinta:    #14161A;
+    --ls-acc-borde:    #D25400;
+    --ls-acc-suave:    rgba(210, 84, 0, 0.10);
+
+    --ls-e-gris:    #5B6270;
+    --ls-e-ambar:   #7A5A00;
+    --ls-e-cian:    #0E6E80;
+    --ls-e-magenta: #A21CAF;
+    --ls-e-naranja: #9A4A00;
+    --ls-e-verde:   #116B36;
+    --ls-e-rojo:    #B3261E;
+    --ls-e-azul:    #1D4ED8;
+    --ls-e-violeta: #6D28D9;
+
     --glow-1: rgba(255, 102, 0, 0.10);
     --glow-2: rgba(255, 102, 0, 0.04);
   }
 
+  /* El borde por defecto de Tailwind era rgba(255,255,255,.1) grabado en
+     tailwind.config.ts, o sea blanco también en tema claro. Ahora sigue al
+     token, que es lo que hace que un `border` sin color se vea en los dos
+     temas. Especificidad (0,0,0), igual que antes: cualquier clase de
+     borde lo pisa. */
   * {
-    @apply border-border;
+    border-color: var(--ls-linea);
   }
 
   body {
@@ -290,143 +379,506 @@
 }
 
 /* =====================================================================
-   TEMA CLARO: capa de traducción
+   CAPA BASE DE LA ESTÉTICA NUEVA — legibilidad y superficies
    =====================================================================
-   El ERP lleva los colores escritos a mano en los componentes —unos
-   4.000 usos de text-white, border-white/10, bg-white/[0.03] y demás—.
-   Migrarlos uno a uno a variables son horas de trabajo y un riesgo de
-   romper algo en cada archivo.
+   QUÉ ES ESTO, EN UNA FRASE: aquí no se cambia ni un componente; se cambia
+   el SIGNIFICADO de las clases que los componentes ya escriben.
 
-   En su lugar, aquí se reinterpretan esas mismas clases cuando el tema
-   claro está activo. Un `text-white/70` no se toca en el componente:
-   simplemente, bajo `html.light`, deja de ser blanco al 70% y pasa a ser
-   el gris de texto secundario del tema claro.
+   POR QUÉ. El ERP lleva los colores escritos a mano: 2.217 usos de
+   `text-white/XX` repartidos en DIECISÉIS niveles de opacidad, 614
+   `border-white/10`, 122 `bg-white/[0.03]`… Migrarlos uno a uno son horas
+   de trabajo en 176 ficheros y un riesgo de romper algo en cada uno. Aquí
+   se reinterpretan de golpe: un `text-white/40` no se toca en el
+   componente, simplemente deja de ser blanco al 40 % —3,80:1, el texto de
+   menos contraste del ERP puesto justo en la cabecera de todas las
+   tablas— y pasa a ser el nivel «rótulo» de la escala, 5,71:1.
 
-   Ventaja: el tema claro funciona en todo el ERP de golpe y el oscuro no
-   se toca. Coste: la clase ya no dice literalmente lo que pinta, así que
-   este bloque es la referencia de qué significa cada una.
-   ================================================================== */
+   Esto ya existía, pero SOLO para el tema claro (`html.light .text-white`).
+   Ahora es una sola tabla que sirve a los dos temas, porque los valores
+   viven en los tokens `--ls-*` de arriba y son los tokens los que cambian
+   con el tema, no las reglas.
 
-/* ---------- Texto ---------- */
-html.light .text-white { color: var(--text-primary); }
-html.light .text-white\/90, html.light .text-white\/85, html.light .text-white\/80, html.light .text-white\/75 { color: #232329; }
-html.light .text-white\/70, html.light .text-white\/65 { color: var(--text-secondary); }
-html.light .text-white\/60, html.light .text-white\/55, html.light .text-white\/50 { color: #5f5f6a; }
-html.light .text-white\/45, html.light .text-white\/40, html.light .text-white\/35 { color: var(--text-tertiary); }
-html.light .text-white\/30, html.light .text-white\/25, html.light .text-white\/20 { color: #9a9aa4; }
+   CÓMO SE DESHACE: borrando este bloque y los tokens `--ls-*`. No hay nada
+   repartido por los componentes.
 
-/* ---------- Superficies ----------
-   En oscuro las capas se levantan con blanco translúcido; en claro se
-   hunden con negro translúcido, que es como se consigue jerarquía
-   sobre fondo blanco. */
-html.light .bg-white\/\[0\.01\] { background-color: rgba(0, 0, 0, 0.012); }
-html.light .bg-white\/\[0\.02\] { background-color: rgba(0, 0, 0, 0.022); }
-html.light .bg-white\/\[0\.03\] { background-color: rgba(0, 0, 0, 0.032); }
-html.light .bg-white\/\[0\.04\] { background-color: rgba(0, 0, 0, 0.042); }
-html.light .bg-white\/5, html.light .bg-white\/\[0\.05\] { background-color: rgba(0, 0, 0, 0.05); }
-html.light .bg-white\/\[0\.06\] { background-color: rgba(0, 0, 0, 0.06); }
-html.light .bg-white\/\[0\.08\] { background-color: rgba(0, 0, 0, 0.08); }
-html.light .bg-white\/10, html.light .bg-white\/\[0\.1\] { background-color: rgba(0, 0, 0, 0.09); }
-html.light .bg-white\/20 { background-color: rgba(0, 0, 0, 0.16); }
+   LO QUE ESTE BLOQUE NO HACE, A PROPÓSITO: no toca ni un espaciado, ni un
+   gap, ni un alto de fila. Eso es la migración de densidad, va módulo a
+   módulo y no es esto. Si alguien añade aquí un `padding`, se ha salido.
 
-/* Fondos opacos: los negros del diseño pasan a blancos */
-html.light .bg-\[\#080808\] { background-color: var(--bg-color); }
-html.light .bg-\[\#0a0a0a\], html.light .bg-\[\#0a0a0a\]\/95 { background-color: #FAFAFC; }
-html.light .bg-\[\#0d0d0d\] { background-color: var(--surface); }
-html.light .bg-\[\#1a1a1a\] { background-color: #FFFFFF; }
-html.light .bg-black\/25 { background-color: rgba(0, 0, 0, 0.05); }
+   ---------------------------------------------------------------------
+   EL MAPA COMPLETO — DIECISÉIS NIVELES DE TEXTO SOBRE CUATRO
+   ---------------------------------------------------------------------
+   Los cortes no son arbitrarios: son los mismos grupos que ya hacía la
+   capa de traducción del tema claro, con el último par fundido porque la
+   escala de denso tiene cuatro peldaños y no cinco.
 
-/* ---------- Bordes ---------- */
-html.light .border-white\/\[0\.04\], html.light .border-white\/\[0\.05\], html.light .border-white\/5 { border-color: rgba(0, 0, 0, 0.06); }
-html.light .border-white\/\[0\.06\], html.light .border-white\/\[0\.07\], html.light .border-white\/\[0\.08\] { border-color: rgba(0, 0, 0, 0.08); }
-html.light .border-white\/10, html.light .border-white\/\[0\.1\] { border-color: var(--border-color); }
-html.light .border-white\/12, html.light .border-white\/15 { border-color: rgba(0, 0, 0, 0.14); }
-html.light .border-white\/20, html.light .border-white\/25 { border-color: rgba(0, 0, 0, 0.18); }
-html.light .border-white\/40 { border-color: rgba(0, 0, 0, 0.3); }
-html.light .divide-white\/\[0\.04\] > * + *, html.light .divide-white\/\[0\.06\] > * + * { border-color: rgba(0, 0, 0, 0.07); }
+     NIVEL          CLASES QUE CAEN AQUÍ          USOS   OSCURO   CLARO
+     ------------------------------------------------------------------
+     L1 «el dato»   text-white, /90, /85, /80     1.149  #F4F5F7  #14161A
+     L2 «el de al   /75, /70, /65, /60              826  #CBD0D8  #383E48
+        lado»
+     L3 «contexto»  /55, /50, /45                   505  #A2A9B4  #525A67
+     L4 «el rótulo» /40, /35, /30, /25, /20, /15    711  #8A929E  #666D79
 
-/* ---------- Estados al pasar por encima ---------- */
-html.light .hover\:bg-white\/\[0\.03\]:hover { background-color: rgba(0, 0, 0, 0.035); }
-html.light .hover\:bg-white\/\[0\.04\]:hover { background-color: rgba(0, 0, 0, 0.045); }
-html.light .hover\:bg-white\/\[0\.05\]:hover { background-color: rgba(0, 0, 0, 0.055); }
-html.light .hover\:bg-white\/\[0\.06\]:hover { background-color: rgba(0, 0, 0, 0.065); }
-html.light .hover\:bg-white\/\[0\.08\]:hover { background-color: rgba(0, 0, 0, 0.085); }
-html.light .hover\:bg-white\/\[0\.12\]:hover { background-color: rgba(0, 0, 0, 0.12); }
-html.light .hover\:text-white:hover { color: var(--text-primary); }
-html.light .hover\:border-white\/20:hover, html.light .hover\:border-white\/25:hover { border-color: rgba(0, 0, 0, 0.2); }
-html.light .focus\:bg-white\/\[0\.06\]:focus { background-color: rgba(0, 0, 0, 0.06); }
-html.light .focus\:bg-white\/\[0\.08\]:focus { background-color: rgba(0, 0, 0, 0.08); }
-html.light .placeholder\:text-white\/20::placeholder,
-html.light .placeholder\:text-white\/25::placeholder { color: #a8a8b2; }
+   Lo que arregla cada corte, medido en navegador sobre la tarjeta:
+     · /40 (257 usos) es LA CABECERA DE TODAS LAS TABLAS: 3,75 → 5,71.
+     · /35 (139 usos) son las ~50 etiquetas y notas del perfil de stock,
+       las que explican qué hace cada campo: 3,11 → 5,71.
+     · /30 (145) el precio de un listing FBA no editable: 2,57 → 5,71.
+     · /20 (66) el guion de «no hay dato»: 1,74 → 5,71.
+     · /15 (7) NO estaba en la tabla del tema claro: era blanco sobre
+       blanco, 1,14:1. Ahora está.
 
-/* ---------- Los tonos CLAROS de verde, rojo y gris ----------
-   Los tonos medios y oscuros (green-500, red-500, red-600…) se dejan como
-   están: sobre blanco se leen bien y cambiarlos rompería el código de
-   colores que el equipo ya tiene aprendido.
+   ---------------------------------------------------------------------
+   EL MAPA DE SUPERFICIES — TRANSLÚCIDAS SOBRE OPACAS ESCALONADAS
+   ---------------------------------------------------------------------
+   Hoy el fondo es #080808 —negro casi puro— con capas de blanco al 2 %
+   encima. Medido en navegador: `bg-white/[0.02]`, `/[0.03]`, `/[0.05]`,
+   `/[0.06]` y `glass-card` componían LAS CINCO el mismo #080808. O sea que
+   el ERP no tenía cinco superficies: tenía una, y de ahí viene lo plano.
+   La referencia que se eligió (Larkon) usa gris azulado con superficies
+   opacas escalonadas; esto es esa idea con la paleta de denso.
 
-   Los tonos 300/400 son otra cosa. Están pensados para leerse sobre negro
-   y sobre el fondo claro desaparecen — medido sobre la tarjeta estándar
-   (bg-white/[0.02] en claro, o sea casi blanco):
+     bg-white/[0.01] · /2 · /[0.02]                  → --ls-sup     (tarjeta)
+     bg-white/[0.03] · /[0.04] · /[0.05] · /5        → --ls-sup2    (elevada)
+     bg-white/[0.06] · /[0.08]                       → --ls-sup3    (activa)
+     bg-white/10 · /[0.1] · /[0.12]                  → --ls-linea2  (regla, raíl)
+     bg-white/20 · /[0.2]                            → --ls-e-gris  (punto de estado)
+     bg-[#080808] · bg-[#0a0a0a]                     → --ls-fondo
+     bg-[#0d0d0d]                                    → --ls-sup
+     bg-[#1a1a1a]                                    → --ls-sup2
+     glass-card                                      → --ls-sup + --ls-linea
+     glass-card-light / -medium                      → --ls-sup2 / --ls-sup3
 
-     text-green-300  #86EFAC  ->  1,33:1
-     text-red-300    #FCA5A5  ->  1,71:1
-     text-red-400    #F87171  ->  2,63:1
-     text-zinc-300   #D4D4D8  ->  1,00:1 sobre su píldora bg-zinc-600/25
+     border-white/[0.02]…/[0.08] · /5 · /10 · /12 · /15 → --ls-linea
+     border-white/20 · /25 · /30 · /35 · /40 · /[0.12]  → --ls-linea2
+     divide-white/[0.04] · /[0.06] · /10                → --ls-linea
 
-   Y no son adornos: el verde es el número de días de vacaciones ya
-   canjeados, el rojo es «se pisan con otra petición» y «te has pasado del
-   saldo», y el zinc es la píldora «Cancelada», que a 1,00:1 sencillamente
-   no existe. Con el tema claro puesto, de los cuatro números que se pidió
-   ver solo se distinguían tres.
+   `bg-white` a secas (33 usos) NO se toca: es blanco de verdad —el punto
+   de un avatar, las tarjetas blancas a propósito de biweekly-reports— y
+   convertirlo en superficie rompería esas pantallas. Lo mismo con toda la
+   familia `slate-*`, que es la paleta de esas mismas tarjetas blancas.
 
-   Se bajan al 700, igual que ya se hace con el ámbar aquí arriba: mismo
-   código de colores, legible sobre claro (4,2:1 – 7,1:1 según el fondo). */
+   ---------------------------------------------------------------------
+   ESPECIFICIDAD — LO ÚNICO DELICADO DE ESTE FICHERO. LÉELO ANTES DE EDITAR.
+   ---------------------------------------------------------------------
+   Todos los selectores de aquí van prefijados con `html`. NO es decoración:
+   está medido en el navegador y sin ese prefijo la mitad del bloque no
+   pinta nada.
+
+   El motivo: Tailwind NO emite sus utilidades en el punto donde está
+   `@tailwind utilities` y ya. Emite primero las utilidades planas y
+   DESPUÉS las que llevan variante. Medido sobre la hoja compilada de este
+   proyecto (1.424 reglas):
+
+     · `.bg-white\/[0.02]` plana          → regla 714
+     · `.text-white` plana                → regla 972
+     · ESTE BLOQUE                        → reglas 1.097-1.154
+     · `.hover\:bg-white\/[0.06]:hover`   → regla 1.227
+     · `.hover\:text-white:hover`         → regla 1.248
+
+   O sea que las reglas planas de aquí ganan por ir después, pero las de
+   variante PERDÍAN: mismo peso (0,2,0) y Tailwind va detrás. Se comprobó
+   pasando el ratón por encima de una fila: el fondo salía
+   rgba(255,255,255,0.06), el valor crudo de Tailwind, no el token.
+
+   Con `html` delante, una regla plana pesa (0,1,1) y una de variante
+   (0,2,1): ganan las dos por peso y no por orden, que es lo único que no
+   depende de cómo compile Tailwind mañana.
+
+   Lo que este peso NO pisa, y está comprobado en navegador:
+     · `text-[#FF6600]`, `text-green-400`, `text-red-400`… siguen mandando
+       donde se han puesto solos.
+     · Un `style={{ color }}` en línea gana siempre.
+     · Las variantes de Tailwind sobre un color puesto a propósito
+       —`text-white/40 hover:text-red-400`, 58 usos en el ERP— pesan
+       (0,2,0) y ganan a la regla plana de aquí, que pesa (0,1,1).
+     · Las maquetas de /dashboard/disenos llevan prefijo propio
+       (`.dz-`, `.hoy-`, `.lsd-`, `.ctx-`, `.cmp-`) y NO usan ninguna de
+       estas clases: se comprobó montando el comparador y recorriendo su
+       DOM con las clases de este bloque una a una — CERO coincidencias, y
+       la maqueta «como está hoy» seguía midiendo lo suyo (cabecera de
+       columna a rgba(255,255,255,0.4) y 10 px, fila de 37,5 px, barra
+       lateral a rgba(255,255,255,0.03)). Esa pantalla es la referencia y
+       tiene que seguir enseñando lo de antes.
+   ===================================================================== */
+
+/* ---------- 1. TEXTO: dieciséis niveles sobre cuatro ---------- */
+
+/* L1 · el dato */
+html .text-white,
+html .text-white\/90,
+html .text-white\/85,
+html .text-white\/80        { color: var(--ls-t1); }
+
+/* L2 · el dato de al lado */
+html .text-white\/75,
+html .text-white\/70,
+html .text-white\/65,
+html .text-white\/60        { color: var(--ls-t2); }
+
+/* L3 · el contexto */
+html .text-white\/55,
+html .text-white\/50,
+html .text-white\/45        { color: var(--ls-t3); }
+
+/* L4 · el rótulo */
+html .text-white\/40,
+html .text-white\/35,
+html .text-white\/30,
+html .text-white\/25,
+html .text-white\/20,
+html .text-white\/15        { color: var(--ls-t4); }
+
+/* Variantes de texto. Clases distintas, reglas distintas. */
+html .hover\:text-white:hover,
+html .hover\:text-white\/85:hover           { color: var(--ls-t1); }
+html .hover\:text-white\/80:hover,
+html .hover\:text-white\/70:hover,
+html .hover\:text-white\/60:hover           { color: var(--ls-t2); }
+html .hover\:text-white\/40:hover           { color: var(--ls-t3); }
+html .group:hover .group-hover\:text-white\/40 { color: var(--ls-t3); }
+html .data-\[placeholder\]\:text-white\/50[data-placeholder] { color: var(--ls-t4); }
+
+/* El texto de marcador de posición no es dato: se queda en el rótulo, que
+   es el nivel más bajo que existe, pero legible (5,71:1 y 5,21:1). Hoy va
+   a blanco al 20-25 %, o sea 1,74:1. */
+html .placeholder\:text-white\/50::placeholder,
+html .placeholder\:text-white\/25::placeholder,
+html .placeholder\:text-white\/20::placeholder { color: var(--ls-t4); }
+
+/* ---------- 2. SUPERFICIES: translúcidas sobre opacas escalonadas ---------- */
+
+html .bg-white\/\[0\.01\],
+html .bg-white\/2,
+html .bg-white\/\[0\.02\]   { background-color: var(--ls-sup); }
+
+html .bg-white\/\[0\.03\],
+html .bg-white\/\[0\.04\],
+html .bg-white\/\[0\.05\],
+html .bg-white\/5           { background-color: var(--ls-sup2); }
+
+html .bg-white\/\[0\.06\],
+html .bg-white\/\[0\.08\]   { background-color: var(--ls-sup3); }
+
+html .bg-white\/10,
+html .bg-white\/\[0\.1\],
+html .bg-white\/\[0\.12\]   { background-color: var(--ls-linea2); }
+
+/* Estos dos son el punto de estado «gris» de LinkedIn y hermanos: no son
+   una superficie, son un glifo de 8 px. A blanco al 20 % sobre la tarjeta
+   nueva no se vería; con el gris de estado, sí. */
+html .bg-white\/20,
+html .bg-white\/\[0\.2\]    { background-color: var(--ls-e-gris); }
+
+/* Los negros literales del diseño de hoy */
+html .bg-\[\#080808\],
+html .bg-\[\#0a0a0a\],
+html .bg-\[\#0a0a0a\]\/95   { background-color: var(--ls-fondo); }
+html .bg-\[\#0d0d0d\]       { background-color: var(--ls-sup); }
+html .bg-\[\#1a1a1a\]       { background-color: var(--ls-sup2); }
+
+/* Variantes de superficie */
+html .hover\:bg-white\/2:hover,
+html .hover\:bg-white\/\[0\.02\]:hover,
+html .hover\:bg-white\/\[0\.03\]:hover,
+html .hover\:bg-white\/\[0\.04\]:hover      { background-color: var(--ls-sup2); }
+html .hover\:bg-white\/\[0\.05\]:hover,
+html .hover\:bg-white\/5:hover,
+html .hover\:bg-white\/\[0\.06\]:hover,
+html .hover\:bg-white\/\[0\.08\]:hover      { background-color: var(--ls-sup3); }
+html .hover\:bg-white\/10:hover,
+html .hover\:bg-white\/\[0\.1\]:hover,
+html .hover\:bg-white\/\[0\.12\]:hover,
+html .hover\:bg-white\/\[0\.2\]:hover       { background-color: var(--ls-linea2); }
+html .focus\:bg-white\/\[0\.06\]:focus,
+html .focus\:bg-white\/\[0\.08\]:focus      { background-color: var(--ls-sup3); }
+/* La fila en la que estás: fondo cálido, igual que en denso. */
+html .data-\[state\=selected\]\:bg-white\/10[data-state="selected"] { background-color: var(--ls-sel); }
+
+/* ---------- 3. LÍNEAS: dieciséis niveles de borde sobre dos ---------- */
+
+html .border-white\/\[0\.02\],
+html .border-white\/\[0\.04\],
+html .border-white\/\[0\.05\],
+html .border-white\/5,
+html .border-white\/\[0\.06\],
+html .border-white\/\[0\.07\],
+html .border-white\/\[0\.08\],
+html .border-white\/10,
+html .border-white\/\[0\.1\],
+html .border-white\/12,
+html .border-white\/15      { border-color: var(--ls-linea); }
+
+html .border-white\/\[0\.12\],
+html .border-white\/20,
+html .border-white\/25,
+html .border-white\/30,
+html .border-white\/35,
+html .border-white\/40      { border-color: var(--ls-linea2); }
+
+html .hover\:border-white\/10:hover,
+html .hover\:border-white\/20:hover,
+html .hover\:border-white\/25:hover,
+html .hover\:border-white\/30:hover,
+html .hover\:border-white\/35:hover,
+html .hover\:border-white\/40:hover         { border-color: var(--ls-linea2); }
+html .focus\:border-white\/15:focus         { border-color: var(--ls-acc-graf); }
+
+/* El separador de `divide-*` va con LA MISMA FORMA de selector que genera
+   Tailwind y no con `> * + *`. No es capricho: `:not([hidden])` cuenta como
+   selector de atributo, así que el de Tailwind pesa (0,3,0) y un `> * + *`
+   se queda en (0,1,1) y pierde. Comprobado en la hoja compilada. */
+html .divide-white\/\[0\.04\] > :not([hidden]) ~ :not([hidden]),
+html .divide-white\/\[0\.06\] > :not([hidden]) ~ :not([hidden]),
+html .divide-white\/10 > :not([hidden]) ~ :not([hidden])   { border-color: var(--ls-linea); }
+
+/* El anillo de foco y los estados deshabilitados */
+html .ring-white\/20,
+html .ring-white\/25 { --tw-ring-color: var(--ls-linea2); }
+html .disabled\:hover\:bg-white\/\[0\.03\]:hover:disabled   { background-color: var(--ls-sup2); }
+html .disabled\:hover\:border-white\/10:hover:disabled      { border-color: var(--ls-linea); }
+
+/* --- LOS AVISOS EMERGENTES (sonner) ---
+   Van con variantes de grupo propias y son justo lo que la plataforma usa
+   para no fallar en silencio: si un feed se rechaza o un token deja de
+   refrescar, esto es lo que lo dice. Tenía que entrar sí o sí.
+
+   PERO EL TOAST NO SIGUE EL TEMA DEL ERP, y por eso su tinta tampoco puede.
+   components/ui/sonner.tsx fuerza theme="dark" y el layout lo monta con
+   richColors, así que el cuerpo del aviso es SIEMPRE oscuro (#080808, o
+   granate en uno de error) esté el ERP en claro o en oscuro. Mandar su texto
+   a --ls-t1 lo dejaba en tinta oscura sobre fondo oscuro: 1,02:1 medido, o
+   sea un «feed rechazado» que aparece y se va sin que se lea una palabra.
+   Justo el fallo silencioso que estas reglas existían para evitar.
+
+   Por eso van acotadas a oscuro con `html:not(.light)`. En claro se quedan
+   con el blanco de Tailwind, que sobre ese fondo da 18:1. */
+html:not(.light) .group.toast .group-\[\.toast\]\:text-white,
+html:not(.light) .group.toaster .group-\[\.toaster\]\:text-white  { color: var(--ls-t1); }
+html:not(.light) .group.toast .group-\[\.toast\]\:text-white\/70  { color: var(--ls-t2); }
+html .group.toast .group-\[\.toast\]\:bg-white\/10    { background-color: var(--ls-sup3); }
+html .group.toaster .group-\[\.toaster\]\:border-white\/10 { border-color: var(--ls-linea); }
+
+/* El botón de acción del aviso, que iba blanco sobre blanco en oscuro (1,06:1).
+   Se le da su color en vez de excluirlo de la regla: así además recupera el
+   naranja de marca, que sonner llevaba pisando desde antes de todo esto. */
+html .group.toast [data-button] {
+  background: var(--ls-acc-relleno);
+  color: var(--ls-acc-tinta);
+}
+
+/* ---------- 4. LAS UTILIDADES PROPIAS DEL ERP ----------
+   `glass-card` (207 usos) y compañía no llevan las clases de arriba: son
+   una sola clase con las declaraciones dentro, así que hay que
+   redefinirlas aquí. Y falta hacía: en tema claro `glass-card` era blanco
+   puro sobre #F5F5F7 —1,09:1 de superficie y 1,01:1 de borde—, o sea que
+   la tarjeta no existía. El `backdrop-filter: blur(50px) saturate(180%)
+   brightness(1.1)` se va con ella: era lo que saturaba a blanco, y en una
+   pantalla con treinta tarjetas es además el mayor coste de pintado. */
+html .glass-card {
+  background: var(--ls-sup);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--ls-linea);
+}
+html .glass-card-light {
+  background: var(--ls-sup2);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html .glass-card-medium {
+  background: var(--ls-sup3);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html .input-glass {
+  background: var(--ls-sup2);
+  border-color: var(--ls-linea);
+  color: var(--ls-t1);
+}
+html .input-glass:hover  { border-color: var(--ls-linea2); }
+html .input-glass:focus  { background: var(--ls-sup2); border-color: var(--ls-acc-graf); }
+html .input-glass::placeholder { color: var(--ls-t4); }
+
+html .btn-glass {
+  background: var(--ls-sup2);
+  border-color: var(--ls-linea);
+  color: var(--ls-t2);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html .btn-glass:hover { background: var(--ls-sup3); color: var(--ls-t1); border-color: var(--ls-acc-graf); }
+
+/* El botón primario tenía el texto blanco sobre #FF6600: 2,94:1, y es el
+   control más importante de cada pantalla. Tinta oscura encima del mismo
+   naranja de marca, sin tocarlo: 6,17:1. */
+html .btn-primary { color: var(--ls-acc-tinta); }
+
+/* ---------- 5. EL FONDO ANIMADO ----------
+   `body::before` es un elemento fijo a pantalla completa con blur(120px)
+   y una animación infinita de 25 s que sube el suelo de la página de
+   #080808 a #231207 en los picos. Con superficies translúcidas eso
+   significaba que dos celdas idénticas no tenían el mismo contraste según
+   dónde cayeran ni a qué segundo. Ahora las superficies son opacas, así
+   que solo asoma en los márgenes — pero se congela igualmente para que
+   los ratios de este fichero sean los que se ven y no una media. Se queda
+   el halo, se va el movimiento. */
+body::before {
+  animation: none;
+  opacity: 0.5;
+}
+
+/* =====================================================================
+   6. COLORES SEMÁNTICOS
+   =====================================================================
+   Los colores que SIGNIFICAN algo no cambian de familia: si un estado hoy
+   se lee verde, tiene que seguir leyéndose verde. Lo único que se ajusta
+   es la luminancia de los que no llegan a 4,5:1 sobre las superficies
+   nuevas. Los valores salen de la misma tabla de estados que usa
+   lib/estilo/denso.ts, que es de donde tiene que copiarlos quien escriba
+   una pantalla nueva.
+
+   En OSCURO casi toda la paleta 300/400 de Tailwind sigue pasando de
+   sobra sobre las superficies nuevas (medido: verde 10,30 · rojo 6,49 ·
+   amarillo 13,61 · azul 7,06 · naranja 7,93 · morado 6,79). Solo falla la
+   pareja 500/600, que está pensada para fondo claro: red-500 da 4,19 y
+   red-600 3,26.
+
+   En CLARO falla toda la familia 300/400 por definición —está pensada
+   para leerse sobre negro—, y la traducción que había cubría solo verde,
+   rojo, ámbar y zinc. Aquí se completa con azul, morado, naranja, cian,
+   esmeralda, ámbar claro, cielo, fucsia, lima y los grises, y se aprietan
+   verde y amarillo, que se quedaban en 4,43 y 4,35 sobre la fila
+   seleccionada.
+
+   NO SE TOCA la familia `slate-*` ni `text-red-600` ni `text-violet-600`
+   a secas: viven en las tarjetas blancas a propósito de biweekly-reports
+   y ahí ya se leen. Remapearlos arreglaría un módulo y rompería otro.
+   ===================================================================== */
+
+/* --- Oscuro: la pareja 500/600 del rojo, que solo se usa en Tracker y
+       siempre sobre el cromo oscuro del ERP. --- */
+html .text-red-500                  { color: var(--ls-e-rojo); }
+/* Los alfas del rojo se quedaban en 3,77:1: el alfa se aplica sobre el color
+   ya remapeado y lo devuelve por debajo del mínimo. Se les quita el alfa y se
+   conserva el tono, que es el mismo #F87171 opaco. Sube a 6,49:1. */
+html .text-red-400\/70,
+html .text-red-400\/80,
+html .text-red-400\/90             { color: var(--ls-e-rojo); }
+html .hover\:text-red-600:hover     { color: #FCA5A5; }
+
+/* --- EL NARANJA DE MARCA COMO TINTA DEL BOTÓN PRIMARIO ---
+   47 botones del ERP llevan `bg-[#FF6600] text-white`: blanco sobre el
+   naranja de marca son 2,94:1, y es el control más importante de cada
+   pantalla. Con la tinta oscura de denso encima del MISMO naranja, sin
+   retocarlo, son 6,17:1 en los dos temas (medido).
+   Los degradados naranjas (4 usos de `from-[#FF6600]`) se quedan como
+   están: ahí el fondo varía a lo largo del botón y una tinta fija no vale. */
+html .bg-\[\#FF6600\].text-white,
+html .bg-\[\#FF6600\].text-white\/90 { color: var(--ls-acc-tinta); }
+
+/* --- Claro: la familia 300/400 completa, por tonos. --- */
+html.light .text-green-200,
 html.light .text-green-300,
 html.light .text-green-300\/70,
 html.light .text-green-300\/80,
 html.light .text-green-300\/90,
 html.light .text-green-400,
 html.light .text-green-400\/70,
-html.light .text-green-400\/80 { color: #15803D; }
+html.light .text-green-400\/80,
+html.light .text-green-500,
+html.light .text-green-600,
+html.light .text-emerald-200,
+html.light .text-emerald-300,
+html.light .text-emerald-400,
+html.light .text-emerald-600   { color: var(--ls-e-verde); }
 
+/* Las variantes con alfa de ámbar, rojo y verde se quedaban entre 1,10:1 y
+   1,66:1 en claro —invisibles— porque los grupos de abajo solo recogían las
+   clases sin alfa. Mismo criterio: fuera el alfa, el tono se queda. */
+html.light .text-amber-100\/90,
+html.light .text-amber-200\/70,
+html.light .text-amber-200\/80,
+html.light .text-amber-200\/85,
+html.light .text-amber-300\/70,
+html.light .text-amber-300\/80,
+html.light .text-amber-400\/70,
+html.light .text-amber-400\/90,
+html.light .text-yellow-300\/75     { color: var(--ls-e-ambar); }
+html.light .text-emerald-300\/80,
+html.light .text-emerald-400\/70    { color: var(--ls-e-verde); }
+
+html.light .text-red-200,
 html.light .text-red-300,
 html.light .text-red-300\/90,
 html.light .text-red-400,
 html.light .text-red-400\/70,
 html.light .text-red-400\/80,
-html.light .text-red-400\/90 { color: #B91C1C; }
+html.light .text-red-400\/90,
+html.light .text-red-500       { color: var(--ls-e-rojo); }
+html.light .hover\:text-red-600:hover { color: var(--ls-e-rojo); }
 
-html.light .text-zinc-300 { color: #3F3F46; }
-
-/* ---------- Salvo el ÁMBAR ----------
-   El amarillo es el código de aviso de todo el ERP —«sin registrar», «sin
-   cobrar», descuadres— y es el único tono que sobre claro NO se lee: un
-   text-yellow-300 al 70 % sobre el #F0F0F2 del tema claro da del orden de
-   1,15:1 de contraste. En Control empleados eso significa que un mes que
-   nadie llegó a apuntar se ve exactamente igual que uno normal, y ese aviso
-   es justo el motivo del módulo. Se baja a yellow-700/800, que se lee sobre
-   claro y sigue siendo el mismo ámbar de siempre. Los fondos de aviso, que
-   en oscuro van al 5-12 % de blanco sobre negro, se suben para que se noten
-   sobre blanco. */
 html.light .text-yellow-200,
 html.light .text-yellow-300,
 html.light .text-yellow-300\/70,
 html.light .text-yellow-300\/80,
+html.light .text-yellow-300\/90,
 html.light .text-yellow-400,
+html.light .text-yellow-400\/70,
 html.light .text-yellow-400\/90,
-html.light .text-yellow-400\/70 { color: #A16207; }
-html.light .text-yellow-500, html.light .text-yellow-600 { color: #854D0E; }
+html.light .text-yellow-500,
+html.light .text-yellow-600,
+html.light .text-amber-100,
+html.light .text-amber-200,
+html.light .text-amber-300,
+html.light .text-amber-400,
+html.light .text-lime-300      { color: var(--ls-e-ambar); }
 
+html.light .text-blue-300,
+html.light .text-blue-400,
+html.light .text-sky-300       { color: var(--ls-e-azul); }
+
+html.light .text-cyan-300,
+html.light .text-cyan-400      { color: var(--ls-e-cian); }
+
+html.light .text-purple-300,
+html.light .text-purple-400,
+html.light .text-fuchsia-300   { color: var(--ls-e-magenta); }
+
+html.light .text-orange-300,
+html.light .text-orange-400    { color: var(--ls-e-naranja); }
+
+html.light .text-zinc-300,
+html.light .text-gray-300      { color: var(--ls-t2); }
+html.light .text-gray-400      { color: var(--ls-t3); }
+
+/* --- Los colores escritos a pelo en hexadecimal ---
+   224 usos de `text-[#FF6600]`. Sobre la superficie blanca del tema claro
+   son 2,94:1: no pasan ni el umbral de texto grande. En claro el naranja
+   cambia de papel —como RELLENO sigue siendo #FF6600 exacto, y solo como
+   TEXTO baja a #B84900—, que es el mismo tono un escalón más oscuro. En
+   oscuro no se tocan: #FF6600 sobre la tarjeta da 6,11:1 (medido). */
+html.light .text-\[\#FF6600\],
+html.light .text-\[\#FF8533\]          { color: var(--ls-acc); }
+html.light .hover\:text-\[\#FF6600\]:hover,
+html.light .hover\:text-\[\#FF8533\]:hover,
+html.light .focus\:text-\[\#FF6600\]:focus { color: var(--ls-acc); }
+html.light .group:hover .group-hover\:text-\[\#FF6600\] { color: var(--ls-acc); }
+html.light .text-\[\#FBBF24\]          { color: var(--ls-e-ambar); }
+html.light .text-\[\#00B9FF\]          { color: var(--ls-e-cian); }
+html.light .hover\:text-\[\#00B9FF\]:hover { color: var(--ls-e-cian); }
+html.light .text-\[\#34D399\],
+html.light .text-\[\#22C55E\]          { color: var(--ls-e-verde); }
+
+/* Los fondos de aviso en ámbar: en oscuro van al 5-12 % de blanco sobre
+   negro, y sobre blanco no se notaban. */
 html.light .bg-yellow-400\/\[0\.05\] { background-color: rgba(202, 138, 4, 0.13); }
 html.light .bg-yellow-400\/\[0\.06\] { background-color: rgba(202, 138, 4, 0.14); }
 html.light .bg-yellow-400\/\[0\.08\] { background-color: rgba(202, 138, 4, 0.15); }
 html.light .bg-yellow-400\/\[0\.09\] { background-color: rgba(202, 138, 4, 0.16); }
 html.light .bg-yellow-400\/\[0\.12\] { background-color: rgba(202, 138, 4, 0.18); }
-
-/* La tarjeta de «columna encontrada» de la pantalla de perfiles y la insignia
-   AUTO: sin estas tres entradas se quedaban con el fondo del tema oscuro y en
-   claro no se distinguía una columna encontrada de una que no. */
-html.light .text-yellow-300\/90,
-html.light .text-yellow-300\/80 { color: #A16207; }
-html.light .border-green-400\/25 { border-color: rgba(21, 128, 61, 0.35); }
-html.light .bg-green-400\/\[0\.05\] { background-color: rgba(21, 128, 61, 0.1); }
+html.light .border-green-400\/25     { border-color: rgba(17, 107, 54, 0.35); }
+html.light .bg-green-400\/\[0\.05\]  { background-color: rgba(17, 107, 54, 0.10); }
+html.light .bg-black\/25             { background-color: rgba(0, 0, 0, 0.05); }

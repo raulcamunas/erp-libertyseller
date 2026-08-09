@@ -138,6 +138,59 @@ export interface ResultadoCiclo {
  */
 let enMarcha = false
 
+/**
+ * Lo que puede durar UN perfil como mucho.
+ *
+ * Dos minutos: cabe de sobra una descarga lenta (el tope de la descarga en
+ * sftp.ts es de 60 segundos) y siguen entrando varios perfiles en el
+ * presupuesto de 9 minutos de la pasada.
+ */
+const TOPE_POR_PERFIL_MS = 2 * 60 * 1000
+
+/**
+ * EL SEGURO DEL CANDADO, y hace falta aunque cada origen tenga ya su tope.
+ *
+ * El presupuesto de la pasada se mira ENTRE perfiles, nunca dentro de uno. Si
+ * `mirarPerfil` devuelve una promesa que no resuelve jamás —un socket que se
+ * queda esperando, una librería sin tiempo máximo—, el `await` de arriba no
+ * vuelve, el `finally` que pone `enMarcha` a false NO SE EJECUTA, y a partir de
+ * ahí todas las pasadas del cron contestan «ya había un ciclo en marcha».
+ * O sea: deja de sincronizarse el stock de TODOS los clientes, no solo el del
+ * origen colgado, hasta que alguien reinicie el contenedor. Y sin un error en
+ * ninguna parte, porque esa respuesta es informativa.
+ *
+ * Los topes de cada origen son la primera defensa y la que da un mensaje útil.
+ * Este es el que garantiza que ningún fallo futuro —un origen nuevo, una
+ * librería que cambie— pueda volver a dejar el candado echado para siempre.
+ */
+async function conTopePorPerfil(
+  faena: Promise<ResultadoPerfilCiclo>,
+  perfil: StockReadProfile
+): Promise<ResultadoPerfilCiclo> {
+  let reloj: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      faena,
+      new Promise<ResultadoPerfilCiclo>((resolver) => {
+        reloj = setTimeout(
+          () =>
+            resolver(
+              nota(
+                perfil,
+                'error',
+                `El origen no ha contestado en ${Math.round(TOPE_POR_PERFIL_MS / 60000)} minutos y se ha ` +
+                  'dejado para no bloquear a los demás clientes de la tanda. Comprueba el origen de este perfil.'
+              )
+            ),
+          TOPE_POR_PERFIL_MS
+        )
+      }),
+    ])
+  } finally {
+    if (reloj) clearTimeout(reloj)
+  }
+}
+
 export async function ejecutarCicloStock(
   opciones: { ahora?: Date; presupuestoMs?: number } = {}
 ): Promise<ResultadoCiclo> {
@@ -191,7 +244,7 @@ export async function ejecutarCicloStock(
       }
 
       try {
-        salida.push(await mirarPerfil(perfil, reloj()))
+        salida.push(await conTopePorPerfil(mirarPerfil(perfil, reloj()), perfil))
       } catch (error) {
         if (isMissingSchema(error)) {
           salida.push(

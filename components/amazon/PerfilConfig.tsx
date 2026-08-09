@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   FlaskConical,
-  FolderSearch,
   Loader2,
   Upload,
   XCircle,
@@ -13,12 +12,11 @@ import {
 import { toast } from 'sonner'
 import {
   subirAmazon,
-  type OrigenResponse,
   type PerfilesVista,
   type PruebaResponse,
 } from '@/lib/amazon/client'
-import { postAmazon } from '@/lib/amazon/client'
 import { marketplaceLabel } from '@/lib/types/amazon'
+import { PanelOrigen } from './ExploradorOrigen'
 import {
   STOCK_PRICE_MODE_LABELS,
   type StockPriceMode,
@@ -818,6 +816,37 @@ function Origen({
               )
             }
 
+            /**
+             * Botonera en vez de cajetín. La usa el Drive para elegir DE QUIÉN
+             * es la carpeta, que es una decisión de dos valores: escrita a mano
+             * se escribe mal, y elegir mal ahí da un «no existe la carpeta»
+             * para una carpeta que se ve perfectamente en el navegador.
+             *
+             * La primera opción es la de fábrica: un perfil que todavía no ha
+             * guardado nada tiene que verse igual que se comporta.
+             */
+            if (campo.tipo === 'opcion' && campo.opciones && campo.opciones.length > 0) {
+              const elegida =
+                typeof actual === 'string' && actual ? actual : campo.opciones[0].valor
+              return (
+                <Campo key={campo.clave} label={campo.etiqueta}>
+                  <Opciones
+                    valor={elegida}
+                    opciones={campo.opciones.map((o) => ({
+                      valor: o.valor,
+                      etiqueta: o.etiqueta,
+                    }))}
+                    onChange={(v) => {
+                      const siguiente = { ...borrador, [campo.clave]: v }
+                      setBorrador(siguiente)
+                      onPatch({ origen_config: siguiente })
+                    }}
+                  />
+                  <Nota>{campo.ayuda}</Nota>
+                </Campo>
+              )
+            }
+
             return (
               <Campo key={campo.clave} label={campo.etiqueta + (campo.requerido ? ' *' : '')}>
                 <input
@@ -839,109 +868,33 @@ function Origen({
         </div>
       )}
 
-      {perfil.origen === 'drive' && (
-        <ComprobarOrigen perfil={perfil} data={data} config={borrador} />
+      {/**
+        * EL EXPLORADOR, PINTADO POR LO QUE EL CONECTOR DECLARA.
+        *
+        * Aquí había un `perfil.origen === 'drive'` escrito a mano, y con tres
+        * conectores más ese `if` habría sido una lista de orígenes que hay que
+        * acordarse de ampliar. Ahora el conector dice si sabe enseñar lo que hay
+        * dentro (`explorador`) y si necesita contraseña (`secreto`), y esta
+        * pantalla se limita a obedecer: un origen nuevo no la toca.
+        *
+        * 'manual' se queda fuera por definición: no hay nada que explorar en un
+        * fichero que sube una persona desde su ordenador.
+        */}
+      {conector && conector.construido && perfil.origen !== 'manual' && (
+        <PanelOrigen
+          perfil={perfil}
+          conector={conector}
+          config={borrador}
+          driveEmail={data.driveEmail}
+          driveConfigurado={data.driveConfigurado}
+          onElegirCarpeta={(clave, valor) => {
+            const siguiente = { ...borrador, [clave]: valor }
+            setBorrador(siguiente)
+            onPatch({ origen_config: siguiente })
+          }}
+        />
       )}
     </Seccion>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Comprobar el origen                                                 */
-/* ------------------------------------------------------------------ */
-
-/**
- * El botón que contesta «¿llegamos al fichero?».
- *
- * Va aparte de «Probar» porque son dos fallos distintos con dos arreglos
- * distintos: no llegar a la carpeta se arregla en Drive, y no entender el
- * fichero se arregla en las columnas de aquí arriba. Mezclarlos obliga a
- * adivinar cuál de los dos ha pasado.
- */
-function ComprobarOrigen({
-  perfil,
-  data,
-  config,
-}: {
-  perfil: StockReadProfile
-  data: PerfilesVista
-  /** Lo que hay EN PANTALLA, que puede no estar guardado todavía */
-  config: Record<string, unknown>
-}) {
-  const [estado, setEstado] = useState<OrigenResponse['estado'] | null>(null)
-  const [cargando, setCargando] = useState(false)
-
-  // El resultado se limpia en cuanto cambia la configuración: dejar en pantalla
-  // la respuesta a una pregunta que ya no es la que se está haciendo es como se
-  // corrige un identificador de carpeta y se sigue leyendo el error de antes.
-  useEffect(() => {
-    setEstado(null)
-  }, [config])
-
-  async function comprobar() {
-    setCargando(true)
-    setEstado(null)
-    // Se manda lo que hay en los campos, no lo que hay en la base: es lo que
-    // permite pegar el identificador y pulsar «Comprobar» sin haber guardado.
-    const res = await postAmazon<OrigenResponse>(`/api/amazon/perfiles/${perfil.id}/origen`, {
-      config: { ...((perfil.origen_config ?? {}) as Record<string, unknown>), ...config },
-    })
-    setCargando(false)
-    if (!res.ok) {
-      toast.error(res.error)
-      return
-    }
-    setEstado(res.data.estado)
-  }
-
-  return (
-    <div className="space-y-2">
-      {data.driveEmail && (
-        <div className={infoBox}>
-          El cliente tiene que compartir la carpeta con este correo, con permiso de{' '}
-          <strong className="text-white/75">Lector</strong>:
-          <br />
-          <code className="text-[11px] text-[#FF6600] break-all">{data.driveEmail}</code>
-        </div>
-      )}
-      {!data.driveConfigurado && (
-        <div className={warnBox}>
-          El servidor no tiene configurada la cuenta de servicio de Google
-          (GOOGLE_SA_CLIENT_EMAIL y GOOGLE_SA_PRIVATE_KEY). Sin ella no se puede leer ninguna
-          carpeta de Drive.
-        </div>
-      )}
-
-      <button type="button" onClick={comprobar} disabled={cargando} className={ghostButton}>
-        {cargando ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <FolderSearch className="h-3.5 w-3.5" />
-        )}
-        Comprobar el acceso a la carpeta
-      </button>
-
-      {estado && (
-        <div className={estado.ok ? infoBox : warnBox}>
-          <p className="whitespace-pre-line">{estado.mensaje}</p>
-          {estado.candidatos.length > 0 && (
-            <ul className="mt-1.5 space-y-0.5">
-              {estado.candidatos.slice(0, 12).map((c) => (
-                <li key={c.idExterno ?? c.nombre} className="flex items-start gap-1.5">
-                  <span className={c.elegido ? 'text-green-400' : 'text-white/30'}>
-                    {c.elegido ? '●' : '○'}
-                  </span>
-                  <span className="min-w-0">
-                    <span className={c.elegido ? 'text-white' : 'text-white/50'}>{c.nombre}</span>
-                    {c.descarte && <span className="text-white/35"> — {c.descarte}</span>}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
   )
 }
 

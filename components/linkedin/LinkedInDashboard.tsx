@@ -594,7 +594,7 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
                     <YAxis stroke="#ffffff60" />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#080808',
+                        backgroundColor: 'var(--ls-fondo)',
                         border: '1px solid rgba(255,255,255,0.1)',
                         borderRadius: 8,
                         color: '#fff',
@@ -621,7 +621,7 @@ export function LinkedInDashboard({ initialCompanies, userRole = 'employee' }: L
                     <YAxis stroke="#ffffff60" />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#080808',
+                        backgroundColor: 'var(--ls-fondo)',
                         border: '1px solid rgba(255,255,255,0.1)',
                         borderRadius: 8,
                         color: '#fff',

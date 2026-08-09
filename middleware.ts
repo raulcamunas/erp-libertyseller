@@ -146,6 +146,24 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/plataforma - Solo admin
+      // Es el módulo A1: la ingesta del catálogo de las tiendas de los CLIENTES
+      // y el histórico que se construye con él. Desde ahí se ven catálogos
+      // enteros ajenos y se lanzan barridos que gastan el cupo de Amazon de esas
+      // cuentas, así que el listón es el mismo que en Amazon API.
+      //
+      // Como allí, el filtro de verdad son las políticas RLS de la 123 y el
+      // requireAmazonAdmin() de cada ruta de /api/plataforma: esto evita el
+      // viaje y la pantalla vacía. startsWith para que cualquier subruta que se
+      // añada después quede cerrada desde el primer día.
+      if (pathname.startsWith('/dashboard/plataforma')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/disenos - Solo admin
       // El comparador de propuestas de rediseño. Dos motivos para cerrarlo, no
       // uno: la elección del diseño la toman los socios —enseñar tres ERP

@@ -16,7 +16,8 @@ import {
   HandCoins,
   Palmtree,
   Palette,
-  Plug
+  Plug,
+  Database
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -189,6 +190,28 @@ export const apps: AppConfig[] = [
     route: '/dashboard/amazon-api',
     status: 'new',
     category: 'core'
+  },
+  {
+    // Módulo A1 de la plataforma: la capa de datos de la que cuelga todo lo
+    // demás (Buy Box, auditoría de repricing, FBM→FBA, costes).
+    //
+    // Va aparte de 'amazon-api' y no como una pestaña suya a propósito: aquel es
+    // la operativa —cambiar un precio, mandar stock, conectar una cuenta— y este
+    // es la ingesta y el histórico, que SOLO LEE. Son dos trabajos distintos con
+    // dos ritmos distintos, y meterlos en la misma pantalla obligaría a
+    // atravesar el catálogo de precios para mirar si el censo de anoche corrió.
+    //
+    // SOLO ADMIN, igual que Amazon API. El id tiene que coincidir letra por
+    // letra aquí, en middleware.ts y en los filtros de app/dashboard/page.tsx y
+    // components/layout/AppSidebar.tsx. Si baila en uno, el módulo queda
+    // invisible sin dar ningún error.
+    id: 'plataforma',
+    name: 'Plataforma Amazon',
+    description: 'Ingesta del catálogo, cobertura de datos e histórico por SKU',
+    icon: Database,
+    route: '/dashboard/plataforma',
+    status: 'new',
+    category: 'analytics'
   },
   {
     id: 'telefonos',

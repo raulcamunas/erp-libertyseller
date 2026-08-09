@@ -14,9 +14,10 @@
  */
 
 import type { StockProfileOrigin } from '@/lib/types/stock-sync'
+import { conectorCorreo } from './correo'
 import { conectorDrive } from './drive'
 import { conectorManual } from './manual'
-import { conectorCorreo, conectorSftp } from './pendientes'
+import { conectorSftp } from './sftp'
 import type { ConectorOrigen } from './tipos'
 
 const REGISTRO: Record<StockProfileOrigin, ConectorOrigen> = {
@@ -50,6 +51,17 @@ export interface ConectorPublico {
   descripcion: string
   construido: boolean
   campos: ConectorOrigen['campos']
+  /**
+   * Si el conector sabe enseñar lo que hay dentro, y con qué palabra. La
+   * pantalla pinta el explorador MIRANDO ESTO, no con un `if` por origen: así,
+   * el día que exista un conector nuevo con explorador, el formulario no se
+   * entera de nada.
+   */
+  explorador: ConectorOrigen['explorador']
+  /** Si el conector necesita una contraseña, y de qué formas la acepta */
+  secreto: ConectorOrigen['secreto']
+  /** En qué campo escribe el explorador la carpeta elegida */
+  campoRuta: string | null
 }
 
 export function conectoresPublicos(): ConectorPublico[] {
@@ -59,6 +71,9 @@ export function conectoresPublicos(): ConectorPublico[] {
     descripcion: c.descripcion,
     construido: c.construido,
     campos: c.campos,
+    explorador: c.explorador,
+    secreto: c.secreto,
+    campoRuta: c.campoRuta ?? null,
   }))
 }
 

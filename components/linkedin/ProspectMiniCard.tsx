@@ -98,7 +98,7 @@ export function ProspectMiniCard({ prospect, onClick }: ProspectMiniCardProps) {
       style={{
         borderWidth: '2px',
         borderStyle: 'solid',
-        ...(prospect.status === 'identified' && { borderColor: 'rgba(255, 255, 255, 0.2)' }),
+        ...(prospect.status === 'identified' && { borderColor: 'var(--ls-linea2)' }),
         ...(prospect.status === 'connected' && { borderColor: 'rgba(255, 102, 0, 0.7)' }), // orange
         ...(prospect.status === 'messaged' && { borderColor: 'rgba(255, 102, 0, 0.7)' }), // orange
         ...(prospect.status === 'third_contact' && { borderColor: 'rgba(248, 113, 113, 0.7)' }), // red-400

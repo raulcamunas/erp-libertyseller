@@ -75,6 +75,13 @@ export default async function DashboardPage() {
       return profile.role === 'admin'
     }
 
+    // Plataforma Amazon (módulo A1) solo para admin: enseña el catálogo entero
+    // de las tiendas de los clientes y desde ahí se gasta su cupo de la API.
+    // Mismo sitio y mismo motivo que el de arriba.
+    if (app.id === 'plataforma') {
+      return profile.role === 'admin'
+    }
+
     // Diseños del ERP solo para admin: es una pantalla de decisión —enseñar tres
     // ERP posibles antes de que haya uno elegido siembra tres expectativas— y
     // además las maquetas llevan nombres reales de clientes de la agencia.

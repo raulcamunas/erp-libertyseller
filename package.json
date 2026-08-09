@@ -48,6 +48,7 @@
     "recharts": "^2.12.7",
     "sharp": "^0.33.0",
     "sonner": "^2.0.7",
+    "ssh2-sftp-client": "^12.1.1",
     "tailwind-merge": "^2.5.4",
     "xlsx": "^0.18.5"
   },

@@ -7,6 +7,28 @@ const config = {
     './components/**/*.{ts,tsx}',
     './app/**/*.{ts,tsx}',
     './src/**/*.{ts,tsx}',
+    /**
+     * LIB TAMBIÉN, Y NO ES UN EXTRA.
+     *
+     * Tailwind solo genera las clases que ENCUENTRA ESCRITAS en los ficheros de
+     * esta lista. Lo que no aparece aquí, no existe en el CSS — y no da ningún
+     * error: el elemento se queda con lo que herede.
+     *
+     * En lib/ viven dos cosas que son puras cadenas de clases:
+     *   · lib/estilo/denso.ts, el contrato de estilo de las pantallas nuevas.
+     *   · los mapas de color de estado de lib/types/** (nueve).
+     *
+     * MEDIDO, no supuesto: sin esta línea, `text-[12.5px]` —el tamaño de texto
+     * de trabajo de toda la estética nueva— no se emitía, y el explorador de
+     * orígenes se pintaba a 16 px con el color heredado. Las clases que sí se
+     * veían bien eran las que POR CASUALIDAD alguien había escrito también en
+     * components/ (`text-[11px]`, `h-7`), que es la peor forma de que algo
+     * funcione: parece que va, hasta que se usa un valor nuevo.
+     *
+     * Añadir ficheros a esta lista solo puede AÑADIR clases al CSS, nunca
+     * quitarlas: no hay forma de que esto rompa una pantalla que hoy va bien.
+     */
+    './lib/**/*.{ts,tsx}',
   ],
   prefix: "",
   theme: {

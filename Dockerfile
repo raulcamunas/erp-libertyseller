@@ -26,19 +26,27 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 RUN npm run build
 
 # Configurar scripts del entrypoint y cron
-RUN chmod +x /app/docker-entrypoint.sh /app/scripts/supabase-ping.sh /app/scripts/google-calendar-sync.sh /app/scripts/amazon-sync.sh
+RUN chmod +x /app/docker-entrypoint.sh /app/scripts/supabase-ping.sh /app/scripts/google-calendar-sync.sh /app/scripts/amazon-sync.sh /app/scripts/amazon-jobs.sh
 
 # Cron: ping a Supabase cada día a las 08:00 UTC + sync de Google Calendar cada
-# 3 min + refresco del catálogo de Amazon y ciclo de stock cada 15 min.
+# 3 min + refresco del catálogo de Amazon y ciclo de stock cada 15 min + motor de
+# trabajos de la plataforma cada 5 min.
 #
 # El ciclo de stock NO tiene línea propia: va detrás del refresco del catálogo,
 # dentro de la misma llamada, porque decide qué mandar contrastando contra ese
 # espejo. Con línea propia compararía contra la foto de hace un cuarto de hora y
 # volvería a proponer cambios ya enviados. Ver scripts/amazon-sync.sh.
+#
+# El motor de trabajos SÍ tiene línea propia, y al revés que el ciclo de stock:
+# no depende del refresco del catálogo, y un barrido que puede durar horas debajo
+# de un ciclo con nueve minutos de presupuesto haría que el refresco llegara
+# tarde. Cada pasada se corta sola a los cuatro minutos y guarda por dónde iba.
+# Ver app/api/amazon/cron-jobs/route.ts.
 RUN { \
       echo "0 8 * * * /app/scripts/supabase-ping.sh"; \
       echo "*/3 * * * * /app/scripts/google-calendar-sync.sh"; \
       echo "*/15 * * * * /app/scripts/amazon-sync.sh"; \
+      echo "*/5 * * * * /app/scripts/amazon-jobs.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto

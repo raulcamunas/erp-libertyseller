@@ -159,7 +159,7 @@ export function ColdLeadsTable({
                     // congelada dejaría ver el resto de la fila pasando por
                     // debajo. Se pinta encima de un fondo opaco para que
                     // tape de verdad.
-                    backgroundColor: '#0d0d0d',
+                    backgroundColor: 'var(--ls-sup)',
                     backgroundImage: `linear-gradient(${rowBg}, ${rowBg})`,
                   }}
                 >

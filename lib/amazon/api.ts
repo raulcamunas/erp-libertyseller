@@ -42,11 +42,27 @@ export function fail(status: number, message: string): NextResponse {
 /**
  * Convierte cualquier fallo en una respuesta que se pueda leer.
  *
- * Los AmazonApiError salen con su mensaje: están escritos en español, dicen qué
- * hacer y NUNCA llevan dentro el token ni las credenciales — eso está cuidado
- * en lib/amazon/errors.ts. Todo lo demás (un error de Postgres, por ejemplo)
- * se registra y sale como un 500 genérico: su texto no le dice nada a nadie y a
- * veces lleva nombres de columnas.
+ * LO QUE SALE A LA PANTALLA, EXACTAMENTE, Y EN ESTE ORDEN:
+ *
+ *   1. Un AmazonApiError sale con su `humanMessage`: está escrito en español,
+ *      dice qué hacer y NUNCA lleva dentro el token ni las credenciales — eso
+ *      está cuidado en lib/amazon/errors.ts.
+ *
+ *   2. CUALQUIER OTRO `Error` SALE CON SU `message` TAL CUAL, en un 400. Esto
+ *      es deliberado y hay medio ERP apoyado en ello: las validaciones de
+ *      negocio se escriben como `throw new Error('Hay que decir por qué se
+ *      cancela el trabajo')` y llegan a la pantalla por aquí. Quitarlo
+ *      convertiría una docena de mensajes útiles en «vuelve a intentarlo».
+ *
+ *   3. Lo que no es un `Error` —los errores de PostgREST, que son objetos
+ *      planos— se registra y sale como un 500 genérico.
+ *
+ * DE AHÍ SE SIGUE UNA REGLA: una ruta cuyo cuerpo o cuyo proceso maneje una
+ * CONTRASEÑA de un cliente NO PUEDE TERMINAR AQUÍ su caso genérico, porque el
+ * punto 2 reenviaría el texto de un error de `ssh2` o de la librería de cifrado
+ * sin que nadie lo haya tachado. Esas rutas ponen su propio `console.error` y su
+ * propia frase fija: ver app/api/stock-sync/perfiles/[id]/credencial y
+ * .../explorar.
  */
 export function errorResponse(error: unknown, context: string): NextResponse {
   console.error(`${context}:`, error)

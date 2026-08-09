@@ -15,6 +15,31 @@
  * nada, y quien está dando de alta al cliente se queda mirando un identificador.
  * Por eso el error de este conector dice literalmente qué pasa y CON QUÉ CORREO
  * hay que compartir la carpeta (ver errorDeCompartir en lib/google-drive.ts).
+ *
+ *
+ * ============ LO QUE AÑADIÓ EL EXPLORADOR: DÓNDE ESTÁ LA CARPETA ============
+ *
+ * Hasta ahora solo había un sitio posible: una carpeta del cliente compartida
+ * con la cuenta de servicio, y el único dato que hacía falta era su
+ * identificador, copiado a mano de la URL. Ahora hay dos sitios, y el perfil
+ * guarda cuál (`identidad` en origen_config):
+ *
+ *   'servicio' — LO DE SIEMPRE, y sigue siendo lo de fábrica. La cuenta de
+ *                servicio actúa como ella misma y ve lo que el cliente le
+ *                comparte. Los perfiles que ya funcionan no tienen ese campo
+ *                puesto, y sin campo se lee 'servicio': se comportan igual que
+ *                antes, byte por byte.
+ *
+ *   'propia'    — NUESTRO Drive, en nombre de GOOGLE_IMPERSONATE_SUBJECT
+ *                (delegación de dominio). Es lo que pidió el encargo: «que en
+ *                una interfaz podamos ver nuestro drive y seleccionar la
+ *                carpeta que va a mirar cada x momento».
+ *
+ * LAS DOS NO VEN LO MISMO, y por eso la identidad se guarda con la carpeta y no
+ * se decide en cada llamada: una carpeta de NUESTRO Drive no está compartida con
+ * la cuenta de servicio, así que leerla con la identidad equivocada da un 404 y
+ * un mensaje que pide compartir con nosotros mismos. Está explicado entero en
+ * ./drive-navegar.ts.
  */
 
 import {
@@ -26,6 +51,16 @@ import {
   type DriveFile,
 } from '@/lib/google-drive'
 import {
+  correoCuentaServicio,
+  descargarConIdentidad,
+  listarFicheros,
+  listarSubcarpetas,
+  migaDePan,
+  raices,
+  usuarioDelegado,
+  type IdentidadDrive,
+} from './drive-navegar'
+import {
   OrigenError,
   booleanoConfig,
   encajaPatron,
@@ -36,23 +71,40 @@ import {
   type ContextoOrigen,
   type EstadoOrigen,
   type FicheroOrigen,
+  type ListadoOrigen,
 } from './tipos'
 
 export const conectorDrive: ConectorOrigen = {
   id: 'drive',
   etiqueta: 'Carpeta de Google Drive',
   descripcion:
-    'El cliente comparte una carpeta con la cuenta de servicio del ERP y deja ahí su volcado. Se coge el fichero más reciente que encaje con el patrón.',
+    'Una carpeta de Drive —del cliente, compartida con el ERP, o nuestra— donde se deja el volcado. Se coge el fichero más reciente que encaje con el patrón.',
   construido: true,
+  explorador: 'carpetas',
+  campoRuta: 'folder_id',
 
   campos: [
+    {
+      clave: 'identidad',
+      etiqueta: 'De quién es la carpeta',
+      tipo: 'opcion',
+      requerido: false,
+      // La primera es la de fábrica, y es la de siempre: un perfil que ya
+      // funciona no tiene este campo puesto y tiene que seguir leyendo igual.
+      opciones: [
+        { valor: 'servicio', etiqueta: 'Del cliente, compartida con el ERP' },
+        { valor: 'propia', etiqueta: 'Nuestra, en el Drive de la agencia' },
+      ],
+      ayuda:
+        'Cambia CON QUÉ OJOS mira el ERP, y las dos vistas no ven lo mismo. «Del cliente»: la cuenta de servicio ve lo que le hayan compartido a su correo. «Nuestra»: se navega el Drive de la agencia. Elegir mal da un «no existe la carpeta» para una carpeta que se ve perfectamente en el navegador.',
+    },
     {
       clave: 'folder_id',
       etiqueta: 'Identificador de la carpeta',
       tipo: 'texto',
       requerido: true,
       ayuda:
-        'Es el trozo final de la URL de la carpeta en Drive: en drive.google.com/drive/folders/1A2B3C… el identificador es 1A2B3C…',
+        'Se rellena solo al elegir la carpeta en el explorador de aquí abajo. A mano, es el trozo final de la URL: en drive.google.com/drive/folders/1A2B3C… el identificador es 1A2B3C…',
       ejemplo: '1A2B3c4D5e6F7g8H9i0JkLmNoPqRsTuV',
     },
     {
@@ -94,16 +146,16 @@ export const conectorDrive: ConectorOrigen = {
     }
 
     try {
-      const ficheros = await listarCarpeta(cfg.folderId, {
-        unidadCompartida: cfg.unidadCompartida,
-      })
+      const ficheros = await listar(cfg)
       const { elegido, candidatos } = clasificar(ficheros, cfg.patron)
 
       if (ficheros.length === 0) {
         return {
           ok: false,
           mensaje:
-            'Se llega a la carpeta y está vacía. Si el cliente ve ficheros dentro, es que la carpeta está en una unidad compartida: marca esa casilla.',
+            cfg.identidad === 'propia'
+              ? `Se llega a la carpeta con la cuenta ${usuarioDelegado() ?? 'delegada'} y está vacía.`
+              : 'Se llega a la carpeta y está vacía. Si el cliente ve ficheros dentro, es que la carpeta está en una unidad compartida: marca esa casilla.',
           candidatos: [],
         }
       }
@@ -145,7 +197,7 @@ export const conectorDrive: ConectorOrigen = {
 
     let ficheros: DriveFile[]
     try {
-      ficheros = await listarCarpeta(cfg.folderId, { unidadCompartida: cfg.unidadCompartida })
+      ficheros = await listar(cfg)
     } catch (error) {
       throw traducir(error)
     }
@@ -166,10 +218,7 @@ export const conectorDrive: ConectorOrigen = {
     }
 
     try {
-      const { file, bytes, exportado } = await descargar(elegido, {
-        unidadCompartida: cfg.unidadCompartida,
-        maxBytes: ctx.maxBytes,
-      })
+      const { file, bytes, exportado } = await bajar(cfg, elegido, ctx.maxBytes)
 
       return {
         // Una hoja nativa de Google no lleva extensión en el nombre y sale
@@ -190,6 +239,72 @@ export const conectorDrive: ConectorOrigen = {
       throw traducir(error)
     }
   },
+
+  /* ---------------- Navegar ---------------- */
+
+  /**
+   * QUÉ HAY DENTRO DE ESTA CARPETA.
+   *
+   * `ruta` es el identificador de la carpeta, y vacío significa «enséñame por
+   * dónde se empieza»: en nuestro Drive, «Mi unidad» y las unidades compartidas;
+   * en la identidad de servicio, lo que los clientes le han compartido. Esa
+   * segunda lista es la que contesta, sin llamar a nadie, la pregunta de si el
+   * cliente ya ha compartido su carpeta o todavía no.
+   */
+  async explorar(ctx: ContextoOrigen, ruta: string): Promise<ListadoOrigen> {
+    const cfg = leerConfig(ctx)
+
+    if (!isDriveConfigured()) {
+      throw new OrigenError(
+        'Falta configurar la cuenta de servicio de Google en el servidor ' +
+          '(GOOGLE_SA_CLIENT_EMAIL y GOOGLE_SA_PRIVATE_KEY).'
+      )
+    }
+
+    const carpeta = ruta.trim()
+
+    try {
+      if (!carpeta) {
+        const inicio = await raices(cfg.identidad)
+        return {
+          ruta: '',
+          migas: [{ nombre: raizEtiqueta(cfg.identidad), ruta: '' }],
+          carpetas: inicio.map((c) => ({
+            nombre: c.nombre,
+            ruta: c.id,
+            detalle: c.esUnidad ? 'unidad compartida' : null,
+          })),
+          ficheros: [],
+          // El nivel raíz NO se puede elegir: «Mi unidad» entera como carpeta de
+          // volcado sería leer todo lo que la agencia tenga en Drive.
+          seleccionable: false,
+          aviso: avisoDeIdentidad(cfg.identidad, inicio.length),
+        }
+      }
+
+      const [subcarpetas, ficheros, migas] = await Promise.all([
+        listarSubcarpetas(cfg.identidad, carpeta, { unidadCompartida: cfg.unidadCompartida }),
+        listarFicheros(cfg.identidad, carpeta, { unidadCompartida: cfg.unidadCompartida }),
+        migaDePan(cfg.identidad, carpeta, { unidadCompartida: cfg.unidadCompartida }),
+      ])
+
+      const { candidatos } = clasificar(ficheros, cfg.patron)
+
+      return {
+        ruta: carpeta,
+        migas: [
+          { nombre: raizEtiqueta(cfg.identidad), ruta: '' },
+          ...migas.map((m) => ({ nombre: m.nombre, ruta: m.id })),
+        ],
+        carpetas: subcarpetas.map((c) => ({ nombre: c.nombre, ruta: c.id, detalle: null })),
+        ficheros: candidatos,
+        seleccionable: true,
+        aviso: null,
+      }
+    } catch (error) {
+      throw traducir(error)
+    }
+  },
 }
 
 /* ------------------------------------------------------------------ */
@@ -198,6 +313,7 @@ interface ConfigDrive {
   folderId: string
   patron: string
   unidadCompartida: boolean
+  identidad: IdentidadDrive
 }
 
 function leerConfig(ctx: ContextoOrigen): ConfigDrive {
@@ -205,7 +321,70 @@ function leerConfig(ctx: ContextoOrigen): ConfigDrive {
     folderId: textoConfig(ctx.config, 'folder_id'),
     patron: textoConfig(ctx.config, 'patron'),
     unidadCompartida: booleanoConfig(ctx.config, 'unidad_compartida'),
+    // Sin campo, 'servicio': es lo que tienen los perfiles que ya funcionan y
+    // tienen que seguir comportándose exactamente igual.
+    identidad: textoConfig(ctx.config, 'identidad') === 'propia' ? 'propia' : 'servicio',
   }
+}
+
+/**
+ * Listar y descargar con la identidad que toque.
+ *
+ * La rama 'servicio' llama a lib/google-drive.ts, EXACTAMENTE lo mismo que hacía
+ * antes de que existiera este fichero. Es a propósito: lo único que hoy funciona
+ * en producción es esa rama, y una reescritura «para unificar» que la rompa
+ * cuesta el volcado de un cliente. La rama nueva va aparte y no la toca.
+ */
+async function listar(cfg: ConfigDrive): Promise<DriveFile[]> {
+  if (cfg.identidad === 'propia') {
+    return listarFicheros('propia', cfg.folderId, { unidadCompartida: cfg.unidadCompartida })
+  }
+  return listarCarpeta(cfg.folderId, { unidadCompartida: cfg.unidadCompartida })
+}
+
+async function bajar(
+  cfg: ConfigDrive,
+  file: DriveFile,
+  maxBytes: number
+): Promise<{ file: DriveFile; bytes: ArrayBuffer; exportado: boolean }> {
+  if (cfg.identidad === 'propia') {
+    const { bytes, exportado } = await descargarConIdentidad('propia', file, {
+      unidadCompartida: cfg.unidadCompartida,
+      maxBytes,
+    })
+    return { file, bytes, exportado }
+  }
+  return descargar(file, { unidadCompartida: cfg.unidadCompartida, maxBytes })
+}
+
+function raizEtiqueta(identidad: IdentidadDrive): string {
+  return identidad === 'propia' ? 'Drive de la agencia' : 'Compartido con el ERP'
+}
+
+/**
+ * El aviso de arriba del explorador.
+ *
+ * En la identidad de servicio y con la lista vacía dice LO ÚNICO que hay que
+ * hacer para que deje de estar vacía, con el correo delante: es el 100% de los
+ * casos en que esto falla dando de alta a un cliente.
+ */
+function avisoDeIdentidad(identidad: IdentidadDrive, cuantas: number): string | null {
+  if (identidad === 'propia') {
+    return (
+      `Estás mirando el Drive de la agencia con la cuenta ${usuarioDelegado() ?? 'delegada'}. ` +
+      'Una carpeta de aquí solo la puede leer esa cuenta: si el fichero lo va a dejar el cliente, ' +
+      'lo suyo es que él comparta SU carpeta y usar la otra opción.'
+    )
+  }
+  if (cuantas === 0) {
+    return (
+      'La cuenta de servicio del ERP todavía no tiene ninguna carpeta compartida.\n' +
+      'El cliente tiene que abrir su carpeta en Drive, pulsar «Compartir» y añadir este correo con permiso de Lector:\n\n' +
+      `    ${correoCuentaServicio() ?? '(el correo de la cuenta de servicio)'}\n\n` +
+      'En cuanto lo haga, aparecerá aquí sin hacer nada más.'
+    )
+  }
+  return null
 }
 
 /**

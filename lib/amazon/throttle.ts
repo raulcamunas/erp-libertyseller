@@ -31,13 +31,25 @@
  * porque el arreglo (un limitador compartido) no es trivial.
  */
 
-/** Las operaciones que usa este módulo. Cada una tiene su propio cubo */
+/**
+ * Las operaciones que usa el ERP. Cada una tiene su propio cubo.
+ *
+ * La unión es CERRADA y AMAZON_RATE_LIMITS es un Record sobre ella a propósito:
+ * añadir una operación sin declarar su cupo no compila. Si fuera un índice
+ * suelto, bucketFor() construiría un cubo con `rate: undefined`, el cálculo de
+ * la espera daría NaN y las peticiones saldrían sin freno hasta el primer 429.
+ */
 export type AmazonOperation =
   | 'searchListingsItems'
   | 'getListingsItem'
   | 'patchListingsItem'
   | 'getInventorySummaries'
   | 'getMarketplaceParticipations'
+  // ---------- Las que añadió la ingesta de la plataforma (A1) ----------
+  | 'searchCatalogItems'
+  | 'createReport'
+  | 'getReport'
+  | 'getReportDocument'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -67,6 +79,32 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   // Una cada minuto largo, con ráfaga de 15. Por eso se llama al autorizar y se
   // guarda el resultado en la conexión, nunca en cada refresco.
   getMarketplaceParticipations: { rate: 0.016, burst: 15 },
+
+  /* ---------- Catálogo enriquecido (marca, medidas, BSR) ---------- */
+  // 2 por segundo y por par cuenta-aplicación, con un techo aparte de 500 por
+  // segundo para toda la aplicación que con dieciséis clientes ni se roza. Cada
+  // llamada admite 20 ASIN, así que 13.700 referencias son 685 llamadas: unos
+  // seis minutos por cliente y marketplace. Con getCatalogItem, que es de uno en
+  // uno, serían casi dos horas.
+  searchCatalogItems: { rate: 2, burst: 2 },
+
+  /* ---------- Informes ---------- */
+  // UNA LLAMADA CADA SESENTA SEGUNDOS. No es una errata: 0,0167 por segundo.
+  //
+  // Y el cupo es POR CUENTA DE VENDEDOR, no por marketplace: un cliente que
+  // vende en España, Alemania, Francia e Italia necesita CUATRO informes —este
+  // tipo solo acepta el primer marketplaceId de la lista— y los cuatro salen del
+  // mismo cubo. Cuatro fichas de las quince de ráfaga, y cada una tarda un
+  // minuto en volver. Por eso el censo va en un trabajo por unidad y no en un
+  // bucle que los pida todos seguidos.
+  createReport: { rate: 0.016, burst: 15 },
+  // Consultar si ya está es barato: es lo que se hace en bucle mientras Amazon
+  // genera el fichero.
+  getReport: { rate: 2, burst: 15 },
+  // El cuello de botella real de «cuántos informes al día por cliente»: tiene su
+  // propio cubo, igual de lento que createReport, y lo comparte con cualquier
+  // otro informe que se descargue de ese mismo vendedor.
+  getReportDocument: { rate: 0.016, burst: 15 },
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -230,4 +268,44 @@ export function backoffDelay(attempt: number, random: () => number = Math.random
   const base = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** Math.max(0, attempt - 1))
   // Entre el 50 % y el 100 % de la espera calculada.
   return Math.round(base * (0.5 + random() * 0.5))
+}
+
+/** Techo de lo que se acepta de un `Retry-After`. Ver retryAfterMs() */
+const RETRY_AFTER_MAX_MS = 60_000
+
+/**
+ * Cuánto pide Amazon que esperemos, si es que lo pide.
+ *
+ * `Retry-After` no viene en todos los 429 de la Selling Partner API —de hecho no
+ * viene en la mayoría—, pero cuando viene es un dato mejor que cualquier
+ * estimación nuestra: es el propio Amazon diciendo cuándo vuelve a haber cupo.
+ * Adivinar con la espera creciente mientras el servidor te está diciendo el
+ * número exacto es gastar intentos para nada.
+ *
+ * Se admiten las dos formas del estándar (segundos, o una fecha HTTP) y se
+ * ACOTA A UN MINUTO: un `Retry-After: 3600` dejaría una petición dormida una
+ * hora dentro de una pasada que tiene cuatro minutos de presupuesto, y lo que
+ * hay que hacer con eso no es esperar, es abandonar el intento y volver en la
+ * pasada siguiente. Devuelve null cuando no hay cabecera o no se entiende, y
+ * entonces manda backoffDelay().
+ */
+export function retryAfterMs(value: string | null, ahora: number = Date.now()): number | null {
+  if (!value) return null
+  const texto = value.trim()
+  if (texto === '') return null
+
+  // Forma 1: segundos.
+  const segundos = Number(texto)
+  if (Number.isFinite(segundos)) {
+    if (segundos < 0) return null
+    return Math.min(RETRY_AFTER_MAX_MS, Math.round(segundos * 1000))
+  }
+
+  // Forma 2: fecha HTTP. Un reloj desfasado puede dar un número negativo o
+  // absurdo, así que se acota igual.
+  const fecha = Date.parse(texto)
+  if (!Number.isFinite(fecha)) return null
+  const espera = fecha - ahora
+  if (espera <= 0) return 0
+  return Math.min(RETRY_AFTER_MAX_MS, espera)
 }
