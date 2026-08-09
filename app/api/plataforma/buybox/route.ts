@@ -4,8 +4,10 @@ import { contarSkus } from '@/lib/plataforma/buybox/datos'
 import {
   DIAS_VIGENCIA,
   FALTAN_MIGRACIONES,
+  LECTURAS_PARA_SERIE,
   configPantalla,
   faltaEsquema,
+  historicoDisponible,
   listadoBuyBox,
   resumenBuyBox,
 } from '@/lib/plataforma/buybox/pantalla'
@@ -93,6 +95,13 @@ export async function GET(request: NextRequest) {
       desde,
       limite,
       config: await configPantalla(clientId, skusAmbito),
+      // Cuánto histórico hay de verdad. Va SIEMPRE, y no solo cuando hay: es lo
+      // único que separa «la serie sale plana» de «todavía no hay serie», y ese
+      // segundo caso es el estado normal de este módulo durante sus primeras
+      // semanas. Confundirlos dice que vamos perfectos justo cuando no se sabe
+      // nada.
+      historico: await historicoDisponible(clientId),
+      lecturasParaSerie: LECTURAS_PARA_SERIE,
       etiquetas: VEREDICTO_LABELS,
       diasVigencia: DIAS_VIGENCIA,
       leidoAt: new Date().toISOString(),

@@ -146,16 +146,55 @@ export async function middleware(request: NextRequest) {
         }
       }
 
-      // Ruta /dashboard/plataforma - Solo admin
-      // Es el módulo A1: la ingesta del catálogo de las tiendas de los CLIENTES
-      // y el histórico que se construye con él. Desde ahí se ven catálogos
-      // enteros ajenos y se lanzan barridos que gastan el cupo de Amazon de esas
-      // cuentas, así que el listón es el mismo que en Amazon API.
+      // Ruta /dashboard/growth - Solo admin
+      // Growth Partner: el trabajo sobre la cuenta de un cliente —sincronismo
+      // de stock, Buy Box, FBM→FBA—. Desde ahí se ven los catálogos y los
+      // precios de las tiendas de los CLIENTES y se gasta su cupo de la API de
+      // Amazon, así que el listón es el mismo que en Amazon API: ni employees
+      // ni partners.
       //
-      // Como allí, el filtro de verdad son las políticas RLS de la 123 y el
+      // Como allí, el filtro de verdad son las políticas RLS y el
       // requireAmazonAdmin() de cada ruta de /api/plataforma: esto evita el
-      // viaje y la pantalla vacía. startsWith para que cualquier subruta que se
-      // añada después quede cerrada desde el primer día.
+      // viaje y la pantalla vacía. startsWith para que cualquier submódulo que
+      // se añada después quede cerrado desde el primer día, sin acordarse.
+      //
+      // El id 'growth' tiene que coincidir letra por letra con lib/config/apps.ts
+      // y con APPS_SOLO_ADMIN. Si baila en uno, el módulo queda invisible sin
+      // dar ningún error.
+      //
+      // CON UNA EXCEPCIÓN, Y SOLO UNA: quien tenga el permiso suelto
+      // 'stock-sync' entra, y la página le enseña ÚNICAMENTE ese submódulo (ver
+      // lib/growth/acceso.ts). Es la persona de operaciones, que sube el stock
+      // dos veces por semana y que hasta la mudanza entraba por
+      // /dashboard/stock-sync. No se le abre nada nuevo: se le devuelve la
+      // pantalla que ya usaba. Sin esto se quedaba sin ninguna puerta y sin
+      // ningún mensaje, con el permiso todavía puesto en la pantalla de
+      // usuarios.
+      if (pathname.startsWith('/dashboard/growth')) {
+        let puedeEntrar = userRole === 'admin'
+
+        if (!puedeEntrar && userRole === 'employee') {
+          const { data: permisoStock } = await supabase
+            .from('user_app_permissions')
+            .select('can_access')
+            .eq('user_id', user.id)
+            .eq('app_id', 'stock-sync')
+            .single()
+          puedeEntrar = permisoStock?.can_access === true
+        }
+
+        if (!puedeEntrar) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
+      // Ruta /dashboard/plataforma - Solo admin
+      // Ya no es un módulo: la página redirige a la pestaña «Ingesta» de Amazon
+      // API, que está cerrada igual. El gate se queda porque la dirección sigue
+      // viva en marcadores y no tiene sentido dejar que un employee llegue a un
+      // redirect que va a rebotarle de todas formas.
       if (pathname.startsWith('/dashboard/plataforma')) {
         if (userRole !== 'admin') {
           const url = request.nextUrl.clone()
@@ -226,6 +265,17 @@ export async function middleware(request: NextRequest) {
           '/dashboard/horas': 'horas',
           '/dashboard/cold-calling': 'cold-calling',
           '/dashboard/marketing-ads': 'marketing-ads',
+          // Sincronismo de stock ya no es una app del menú: su pantalla vive
+          // dentro de Growth Partner. Esta dirección sigue existiendo y
+          // redirige, así que la entrada se queda para que un employee sin el
+          // permiso siga rebotando aquí y no en el destino.
+          //
+          // OJO: Growth Partner es SOLO ADMIN, así que un employee CON el
+          // permiso 'stock-sync' pasa este filtro y rebota en el gate de
+          // /dashboard/growth. Es la consecuencia de mover el módulo, está
+          // dicha en el informe y hay que decidirla: hoy quien sube el stock a
+          // Amazon dos veces por semana es la persona de operaciones, y su rol
+          // es 'employee'.
           '/dashboard/stock-sync': 'stock-sync',
           '/dashboard/reports': 'reports',
           '/dashboard/documents': 'documents',

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, readText, requireAmazonAdmin } from '@/lib/amazon/api'
-import { FALTAN_MIGRACIONES, faltaEsquema } from '@/lib/plataforma/pantallas'
+import { faltaEsquema } from '@/lib/plataforma/pantallas'
+import { FALTAN_MIGRACIONES_COSTES } from '@/lib/plataforma/costes/tipos'
 import {
   clientesDeStock,
   crearPerfil,
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ perfiles, politica, importaciones, stockClientes })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error cargando los perfiles de costes')
   }
 }
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     )
     return NextResponse.json({ perfil })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     // El UNIQUE (client_id, slug) es el caso que más se va a dar: dos perfiles
     // con el mismo nombre. Se contesta con una frase, no con un 23505.
     if ((error as { code?: string } | null)?.code === '23505') {

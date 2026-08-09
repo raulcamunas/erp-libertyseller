@@ -19,6 +19,8 @@
  *      el cambio sale, Amazon lo ignora, y en pantalla parece aplicado.
  */
 
+import type { ModeloNegocio, PoliticaBsr } from '@/lib/plataforma/modelo-negocio'
+
 /* ------------------------------------------------------------------ */
 /* Regiones y marketplaces                                             */
 /* ------------------------------------------------------------------ */
@@ -365,6 +367,42 @@ export interface AmazonClient {
   is_active: boolean
   position: number | null
   notes: string | null
+
+  /**
+   * CÓMO VENDE ESTE CLIENTE, y con ello si se le mide el BSR a diario.
+   *
+   * Las tres columnas de aquí abajo existen en la base desde la migración 123
+   * (las dos primeras) y la 128 (la tercera), y `loadAmazonData()` las trae ya
+   * —hace `select('*')`—: lo que faltaba era declararlas, así que la pantalla no
+   * podía leerlas sin castear.
+   *
+   * OPCIONALES AUNQUE EN LA BASE SEAN NOT NULL, y es deliberado: las migraciones
+   * de este módulo se lanzan a mano en el editor SQL de Supabase, así que el
+   * código puede estar desplegado antes que ellas y un `select('*')` devolver la
+   * fila SIN estas columnas. Con el tipo mintiendo, la pantalla haría
+   * `MODELO_NEGOCIO_LABELS[cliente.modelo_negocio]` sobre un `undefined` y se
+   * caería entera en vez de caer al valor por defecto. Quien las lee lo hace con
+   * `?? 'mix'` y `?? 'auto'`, que es lo que ya venía haciendo
+   * lib/plataforma/planificador.ts.
+   *
+   * Opcionales y NO anulables: en cuanto la columna existe, el NOT NULL y el
+   * CHECK de la migración 123 garantizan que hay un valor válido. `undefined`
+   * significa una cosa muy concreta —«esta columna todavía no existe»— y meter
+   * `null` en la unión la volvería un «no sé» de dos clases.
+   */
+  modelo_negocio?: ModeloNegocio
+  bsr_politica?: PoliticaBsr
+  /**
+   * Cuándo se confirmó a mano esa clasificación. Migración 128.
+   *
+   * OPCIONAL, y ahí está toda la gracia: `undefined` significa «la columna
+   * todavía no existe» y `null` significa «existe y nadie se ha pronunciado».
+   * Sin esa distinción no se puede saber si un cliente en 'mix' lo está porque
+   * alguien lo decidió o porque es el valor por defecto de la 123 — ver
+   * clienteSinClasificar() en lib/plataforma/modelo-negocio.ts.
+   */
+  modelo_negocio_at?: string | null
+
   created_at: string
   updated_at: string
 }

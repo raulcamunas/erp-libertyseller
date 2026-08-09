@@ -102,7 +102,7 @@ export function PanelCobertura({
 
   if (conCatalogo.length === 0) {
     return (
-      <Vacio icono={Inbox} titulo="El espejo del catálogo de este cliente está vacío">
+      <Vacio icono={<Inbox />} titulo="El espejo del catálogo de este cliente está vacío">
         Todavía no hay ni un SKU del que hablar, así que no hay cobertura que medir. El primer
         trabajo que hay que lanzar es <span className={TEXTO.t1}>«Censo del catálogo»</span> desde la
         pestaña de Ingesta: pide a Amazon el informe completo y descubre los SKU y los ASIN. Todo lo
@@ -122,10 +122,11 @@ export function PanelCobertura({
         />
       ))}
 
-      <p className={`${TIPO.s} ${TEXTO.t4} px-1`}>
-        Leído {hace(datos.leidoAt)}. Los recuentos se calculan en la base de datos, no aquí: contar
-        «cuántos SKU tienen ranking» en el navegador obligaría a traerse la serie entera.
-      </p>
+      {/* La hora de la lectura sí es dato: dice si lo que se está mirando es de
+          hace un momento o de hace media hora. El detalle técnico —que los
+          recuentos los hace la base y no el navegador— se ha ido al botón de
+          información. */}
+      <p className={`${TIPO.s} ${TEXTO.t4} px-1`}>Leído {hace(datos.leidoAt)}.</p>
     </div>
   )
 }
@@ -297,12 +298,13 @@ function UnidadCobertura({
           </p>
         </form>
 
+        {/* Accionable, y por eso se queda: hay algo concreto que lanzar. Lo que
+            se ha ido al botón de información es la consecuencia —qué módulos se
+            quedan cojos sin ranking—, que no cambia nada de lo que hay que hacer. */}
         {unidad.con_bsr === 0 && unidad.en_seguimiento > 0 && (
           <Aviso tono="ambar" icono={Info}>
-            No hay ni un ranking guardado en los últimos {ventanas.bsrDias} días. Hasta que corra
-            «Ranking de ventas (BSR)» —lo encola el planificador de madrugada, o se lanza a mano
-            desde Ingesta—, la ficha de SKU no va a tener serie que pintar y el filtro de rotación
-            de A4 se quedará sin uno de sus dos datos.
+            Ningún ranking guardado en {ventanas.bsrDias} días. Lanza «Ranking de ventas (BSR)» desde
+            Ingesta.
           </Aviso>
         )}
       </div>
@@ -325,16 +327,25 @@ function FilaCobertura({
   tono: TonoEstado
   nota?: string
 }) {
+  /**
+   * LA NOTA VA AL `title`, NO DEBAJO DEL NOMBRE.
+   *
+   * Eran ocho párrafos de dos líneas encima de las ocho barras: la tabla medía
+   * cincuenta píxeles por fila en vez de veintiocho y había que bajar la vista
+   * para ver la mitad de los datos, en la pantalla que existe justo para mirar
+   * ocho cifras de un golpe. Es exactamente el texto explicativo de en medio que
+   * se ha pedido quitar.
+   *
+   * NO SE PIERDE NADA: el texto entero está detrás del botón de información de
+   * la cabecera, y aquí sigue al alcance del ratón. Mismo patrón que Cajon, unas
+   * líneas más abajo, que ya lo hacía así.
+   *
+   * `title` y no `aria-label`: aria-label SUSTITUIRÍA el nombre de la fila para
+   * un lector de pantalla, y el nombre es lo que hay que leer primero.
+   */
   return (
-    <tr className="align-middle">
-      <td className={`${TIPO.m} ${TEXTO.t2} h-7 pr-3 whitespace-nowrap`}>
-        {nombre}
-        {nota && (
-          <span className={`${TIPO.s} ${TEXTO.t4} block whitespace-normal leading-[1.4]`}>
-            {nota}
-          </span>
-        )}
-      </td>
+    <tr className="align-middle" title={nota}>
+      <td className={`${TIPO.m} ${TEXTO.t2} h-7 pr-3 whitespace-nowrap`}>{nombre}</td>
       <td className="h-7 w-[220px]">
         <Barra valor={valor} total={total} tono={tono} />
       </td>

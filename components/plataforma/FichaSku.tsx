@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CircleAlert, Hand, Info, PackageSearch } from 'lucide-react'
+import { AlertTriangle, CircleAlert, Hand } from 'lucide-react'
 import { getAmazon } from '@/lib/amazon/client'
 import type { ClienteConIngesta, SkuRespuesta } from '@/lib/plataforma/cliente'
 import {
@@ -251,11 +251,13 @@ function Contenido({
       <section className={`${RADIO.r2} border ${LINEA.normal} ${SUPERFICIE.sup} px-[10px] py-[9px]`}>
         <h3 className={`${TITULO.seccion} mb-[3px]`}>Ranking de ventas</h3>
         {seriesBsr.length === 0 ? (
+          /* Empty state: dice QUÉ FALTA y de qué depende, que es lo que separa
+             «esto está roto» de «esto todavía no ha corrido». Lo que se ha ido
+             al botón de información es el porqué —que el ranking no se puede
+             reconstruir hacia atrás—, que no cambia nada de lo que hay que hacer. */
           <p className={`${TIPO.s} ${TEXTO.t3}`}>
-            Ninguna observación en esta ventana. El ranking lo guarda el trabajo «Ranking de ventas
-            (BSR)», que solo pasa por los SKU en seguimiento: si este no lo está, no va a tener
-            serie. Es el dato que <span className={TEXTO.t1}>no se puede reconstruir hacia atrás</span>,
-            así que el día que no se guarda se pierde.
+            Ninguna observación en esta ventana. Lo guarda el trabajo «Ranking de ventas (BSR)», que
+            solo pasa por los SKU en seguimiento.
           </p>
         ) : (
           <div className="space-y-[9px]">
@@ -325,12 +327,10 @@ function Contenido({
         )}
       </section>
 
-      {/* -------- Lo que falta y lo trae el módulo siguiente -------- */}
-      <Aviso tono="azul" icono={Info}>
-        Precio histórico, Buy Box, competidores y tarifas todavía no se guardan: los llena el módulo
-        A2 (monitor de Buy Box). La tabla ya existe y está vacía, así que esta ficha crecerá sola en
-        cuanto A2 corra por primera vez.
-      </Aviso>
+      {/* Aquí vivía un aviso azul permanente explicando que el precio histórico y
+          la Buy Box todavía no se guardan. No era accionable —no había nada que
+          hacer al respecto— y ocupaba el mismo sitio todos los días: se ha ido al
+          botón de información de la cabecera, en InfoIngesta. */}
 
       {/* -------- Los datos del listing -------- */}
       <section className={`${RADIO.r2} border ${LINEA.normal} ${SUPERFICIE.sup} px-[10px] py-[9px]`}>
@@ -402,11 +402,10 @@ function Contenido({
         </section>
       )}
 
-      <p className={`${TIPO.s} ${TEXTO.t4} flex items-center gap-[5px]`}>
-        <PackageSearch className="h-3 w-3" />
-        Las series se buscan por vendedor, país y SKU, no por el identificador de la fila: es lo que
-        hace que el histórico sobreviva a que Amazon deje de devolver un listing y luego vuelva.
-      </p>
+      {/* Aquí iba una nota al pie explicando que las series se buscan por
+          vendedor, país y SKU y no por el identificador de la fila. Es una
+          decisión de diseño de la base, no algo que quien mira una ficha pueda
+          hacer nada al respecto: está en el botón de información. */}
     </div>
   )
 }

@@ -1178,23 +1178,41 @@ function Seccion({
   hint?: string
   children: React.ReactNode
 }) {
+  /**
+   * EL SUBTÍTULO NO SE PINTA: va al `title` de la sección.
+   *
+   * Eran once renglones de contexto —«Qué fichero es y de qué cliente», «El
+   * conector», «Hoja, cabecera y formato»— repitiendo con otras palabras lo que
+   * ya decía el título de encima, en un formulario que ya es largo de por sí. Es
+   * el texto de en medio que se ha pedido quitar, y el que menos cuesta: no
+   * informa de nada que no esté a la vista.
+   *
+   * La explicación de fondo —qué hace cada origen, por qué existen los frenos,
+   * qué pasa si un cliente deja de sincronizar— está detrás del botón de
+   * información de la cabecera, en InfoOrigen.
+   */
   return (
-    <section className={`${cardShell} p-3 space-y-2.5 min-w-0`}>
-      <div className="min-w-0">
-        <h3 className="text-[12px] font-semibold text-white">{titulo}</h3>
-        {hint && <p className="text-[10px] text-white/35 mt-px">{hint}</p>}
-      </div>
+    <section className={`${cardShell} p-3 space-y-2.5 min-w-0`} title={hint}>
+      <h3 className="text-[12px] font-semibold text-white min-w-0">{titulo}</h3>
       {children}
     </section>
   )
 }
 
+/**
+ * La etiqueta de un campo.
+ *
+ * En caja normal y no en `uppercase tracking-wider`: a diez píxeles las
+ * mayúsculas espaciadas son la forma más lenta de leer una palabra, y estos son
+ * los nombres de los cincuenta campos que hay que rellenar para que a un cliente
+ * no se le vacíe el inventario. Mismo criterio que CAMPO.etiqueta de denso.ts,
+ * escrito aquí con los tokens de este módulo para no mezclar dos sistemas dentro
+ * del mismo formulario.
+ */
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <label className="block text-[10px] uppercase tracking-wider text-white/35 mb-1">
-        {label}
-      </label>
+      <label className="block text-[11px] font-semibold text-white/45 mb-1">{label}</label>
       {children}
     </div>
   )
@@ -1336,7 +1354,7 @@ function Alias({
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean)
-          if (lista.join(' ') === actual.join(' ')) return
+          if (lista.join('\x00') === actual.join('\x00')) return
           onPatch({ [campo]: lista })
         }}
         className={fieldInput}
@@ -1373,7 +1391,7 @@ function ListaTexto({
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean)
-          if (lista.join(' ') === actual.join(' ')) return
+          if (lista.join('\x00') === actual.join('\x00')) return
           onPatch({ [campo]: lista })
         }}
         className={fieldInput}

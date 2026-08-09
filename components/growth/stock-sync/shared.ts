@@ -85,17 +85,8 @@ export function formatDateTime(iso: string | null | undefined): string {
   })
 }
 
-/** Solo el día, para las tarjetas de cliente donde la hora no aporta */
-export function formatDay(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleDateString('es-ES', {
-    timeZone: APP_TIMEZONE,
-    day: '2-digit',
-    month: 'short',
-  })
-}
+// Aquí vivía formatDay(), que solo usaba la lista de clientes del tablero. Esa
+// lista se fue al selector de cliente de Growth Partner y con ella la función.
 
 // ---------- Códigos ----------
 

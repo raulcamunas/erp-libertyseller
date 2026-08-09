@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
-import { FALTAN_MIGRACIONES, faltaEsquema } from '@/lib/plataforma/pantallas'
+import { faltaEsquema } from '@/lib/plataforma/pantallas'
+import { FALTAN_MIGRACIONES_COSTES } from '@/lib/plataforma/costes/tipos'
 import {
   actualizarPerfil,
   borrarPerfil,
@@ -38,7 +39,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (!perfil) return fail(404, 'Ese perfil ya no existe')
     return NextResponse.json({ perfil })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     if ((error as { code?: string } | null)?.code === '23505') {
       return fail(400, 'Ya hay un perfil con ese nombre para este cliente')
     }
@@ -69,7 +70,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     return NextResponse.json({ borrado: true, nombre: perfil?.name ?? null })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error borrando el perfil de costes')
   }
 }

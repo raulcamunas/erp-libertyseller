@@ -55,8 +55,6 @@ export interface MappingsTableProps {
    * siguiente celda se comería lo escrito.
    */
   revisions: Record<string, number>
-  showBack: boolean
-  onBack: () => void
   className?: string
 }
 
@@ -111,8 +109,6 @@ export function MappingsTable({
   onImported,
   canDelete,
   revisions,
-  showBack,
-  onBack,
   className = '',
 }: MappingsTableProps) {
   const [query, setQuery] = useState('')
@@ -193,15 +189,6 @@ export function MappingsTable({
       {/* Cabecera */}
       <div className="px-3 py-2 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-2 flex-shrink-0 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
-          {showBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex items-center gap-1 text-[12px] font-medium text-white/60 hover:text-white transition-colors flex-shrink-0"
-            >
-              <ChevronLeft className="h-4 w-4" /> Volver
-            </button>
-          )}
           <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider truncate">
             Base de datos actual
             <span
@@ -315,18 +302,11 @@ export function MappingsTable({
           <p className="text-[13px] text-white/35">
             {clientName} todavía no tiene tabla de mapeo.
           </p>
-          <p className="text-[11px] text-white/25 max-w-[320px]">
-            Importa el Excel de siempre («Base de datos.xlsx») con el botón de
-            arriba, o da de alta las líneas a mano.
-          </p>
+          <p className="text-[11px] text-white/25">Impórtala o añade las líneas a mano.</p>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
+        <div className="flex-1 flex items-center justify-center px-6 text-center">
           <p className="text-[13px] text-white/35">Ninguna línea coincide con «{query}».</p>
-          <p className="text-[11px] text-white/25">
-            Si el producto existe en Amazon pero no está aquí, hay que darlo de alta:
-            sin su fila no se le actualiza el stock.
-          </p>
         </div>
       ) : (
         <div ref={scrollRef} className="flex-1 overflow-auto min-w-0">
@@ -673,16 +653,14 @@ function ImportButton({ clientId, onImported }: { clientId: string; onImported: 
                 className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-white outline-none focus:border-[#FF6600] placeholder:text-white/25"
               />
               <p className="text-[11px] text-white/30 mt-1 leading-snug">
-                En blanco coge la primera hoja que tenga una columna de SKU. El
-                Excel de trabajo trae dos («Ahora» y «Antes»): escribe cuál si no
-                quieres dejarlo al azar.
+                En blanco, la primera hoja que tenga columna de SKU.
               </p>
             </div>
 
-            <p className="text-[11px] text-white/45 leading-snug rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2">
-              Los SKU que ya existan se actualizan con lo que traiga el fichero;
-              los nuevos se dan de alta. Nada se borra, así que las correcciones
-              hechas a mano en columnas que el fichero no traiga se conservan.
+            {/* La consecuencia, en una línea. Se queda aquí y no detrás del
+                botón de información porque es lo que se está confirmando. */}
+            <p className="text-[11px] text-white/45 leading-snug">
+              Los SKU que ya existan se actualizan y los nuevos se dan de alta. No se borra nada.
             </p>
 
             <div className="flex items-center justify-end gap-2">

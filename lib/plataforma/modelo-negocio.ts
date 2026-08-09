@@ -62,6 +62,42 @@ export const MODELO_NEGOCIO_LABELS: Record<ModeloNegocio, string> = {
   mix: 'Mixto',
 }
 
+/**
+ * Los tres, en el orden en el que se ofrecen en pantalla.
+ *
+ * Existe para que ni el desplegable de la pestaña Cuentas ni la validación de la
+ * ruta de API tengan que volver a escribir la lista: un cuarto modelo mañana se
+ * añade aquí y aparece en los dos sitios. `Object.keys()` sobre el mapa de
+ * etiquetas no vale — no garantiza el orden y devuelve `string[]`.
+ */
+export const MODELOS_NEGOCIO: readonly ModeloNegocio[] = [
+  'marca_propia',
+  'arbitraje',
+  'mix',
+] as const
+
+export const POLITICAS_BSR: readonly PoliticaBsr[] = [
+  'auto',
+  'diario',
+  'bajo_demanda',
+  'nunca',
+] as const
+
+/**
+ * ¿Es un modelo de verdad?
+ *
+ * Para la ruta de API: el cuerpo llega del navegador, y sin esto un
+ * `{"modelo_negocio":"loquesea"}` viaja hasta el CHECK de Postgres y vuelve como
+ * un error de restricción que no le dice nada a nadie.
+ */
+export function esModeloNegocio(valor: unknown): valor is ModeloNegocio {
+  return typeof valor === 'string' && (MODELOS_NEGOCIO as readonly string[]).includes(valor)
+}
+
+export function esPoliticaBsr(valor: unknown): valor is PoliticaBsr {
+  return typeof valor === 'string' && (POLITICAS_BSR as readonly string[]).includes(valor)
+}
+
 export const MODELO_NEGOCIO_AYUDA: Record<ModeloNegocio, string> = {
   marca_propia:
     'Los ASIN son suyos. El BSR es su termómetro y se mide a diario. Suelen ser catálogos cortos.',
@@ -105,6 +141,73 @@ export function cadenciaBsr(params: {
       // booleano en la ficha del cliente.
       return params.esMarcaPropia ? 'diario' : 'bajo_demanda'
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Lo mismo, pero a nivel de CLIENTE                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Lo que se puede contestar SIN mirar ninguna referencia.
+ *
+ * Es `CadenciaBsr` más un cuarto valor, y ese cuarto valor es el que hace falta:
+ * en un cliente MIX con la política en automático, la pregunta «¿se le mide el
+ * BSR?» NO TIENE RESPUESTA a nivel de cliente — depende de si cada referencia
+ * está marcada como marca propia. Enseñar ahí «bajo demanda» o «a diario» sería
+ * elegir una de las dos mitades y llamarla el todo.
+ */
+export type CadenciaCliente = CadenciaBsr | 'por_sku'
+
+export const CADENCIA_CLIENTE_LABELS: Record<CadenciaCliente, string> = {
+  diario: 'BSR a diario',
+  bajo_demanda: 'Solo bajo demanda',
+  nunca: 'No se mide',
+  por_sku: 'Según cada referencia',
+}
+
+/**
+ * QUÉ SE LE VA A MEDIR A ESTE CLIENTE, para poder enseñarlo al lado de los dos
+ * desplegables que lo deciden.
+ *
+ * Se apoya en cadenciaBsr() y no repite sus reglas: el orden —la política
+ * explícita gana, y solo si es `auto` se mira el modelo— vive en un sitio y
+ * nada más. Lo único propio de aquí es el caso `mix`, que se para en seco
+ * porque su respuesta está una capa más abajo.
+ */
+export function cadenciaBsrCliente(params: {
+  modelo: ModeloNegocio
+  politica: PoliticaBsr
+}): CadenciaCliente {
+  if (params.politica !== 'auto') return params.politica
+  if (params.modelo === 'mix') return 'por_sku'
+  // Ni marca propia ni arbitraje miran `esMarcaPropia` cuando la política es
+  // automática, así que el valor que se pase aquí da igual: ver cadenciaBsr().
+  return cadenciaBsr({ ...params, esMarcaPropia: false })
+}
+
+/**
+ * ¿NADIE SE HA PRONUNCIADO TODAVÍA SOBRE ESTE CLIENTE?
+ *
+ * La columna `modelo_negocio` nace en 'mix' por defecto (migración 123), así que
+ * su valor solo no distingue «este cliente es mixto» —una decisión— de «nadie ha
+ * mirado esto» —un hueco—. Y la diferencia son horas de ventana nocturna:
+ * mientras un catálogo de reventa siga en el valor por defecto, se le pide el
+ * BSR a diario para nada.
+ *
+ * Lo que lo distingue es `modelo_negocio_at`, que solo se escribe cuando alguien
+ * guarda desde la pantalla (migración 128). El parámetro admite `undefined`
+ * ADEMÁS de `null` a propósito, y no es lo mismo:
+ *
+ *     undefined -> la columna no existe todavía en la base. Se cae al único
+ *                  criterio que queda, que es el valor por defecto.
+ *     null      -> la columna existe y está vacía: nadie se ha pronunciado.
+ */
+export function clienteSinClasificar(params: {
+  modelo: ModeloNegocio
+  clasificadoAt: string | null | undefined
+}): boolean {
+  if (params.clasificadoAt === undefined) return params.modelo === 'mix'
+  return params.clasificadoAt === null
 }
 
 /**

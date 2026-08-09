@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, readText, requireAmazonAdmin } from '@/lib/amazon/api'
-import { FALTAN_MIGRACIONES, faltaEsquema } from '@/lib/plataforma/pantallas'
+import { faltaEsquema } from '@/lib/plataforma/pantallas'
+import { FALTAN_MIGRACIONES_COSTES } from '@/lib/plataforma/costes/tipos'
 import { borrarTramo } from '@/lib/plataforma/costes/datos'
 import { fichaDeSku } from '@/lib/plataforma/costes/pantalla'
 import { esFechaIso } from '@/lib/plataforma/costes/vigencia'
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     const ficha = await fichaDeSku(clientId, sku, fecha ?? undefined)
     return NextResponse.json({ ficha })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error cargando la ficha de costes')
   }
 }
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ borrado: true })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error borrando el tramo de coste')
   }
 }

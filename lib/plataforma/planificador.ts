@@ -114,6 +114,24 @@ const REFRESCOS: Refresco[] = [
     parametros: { soloActivos: true },
   },
   {
+    // ---------- A2 · Precios y Buy Box ----------
+    // Va DETRÁS del inventario y del BSR y no es indiferente: su tercera fase
+    // diagnostica «sin stock», y para eso necesita la lectura de existencias de
+    // esta misma noche. Con el orden al revés, el diagnóstico usaría el stock de
+    // ayer y un SKU que se agotó anoche saldría como problema de precio.
+    //
+    // Lo caro de aquí dentro es el FOEP: una petición cada treinta segundos. Por
+    // eso el trabajo NO lo pide para todo el catálogo cada noche, sino por
+    // rotación más la cola de los que acaban de perder la oferta destacada. Ver
+    // lib/plataforma/buybox/rotacion.ts.
+    tipo: 'snapshot_precios',
+    velocidad: 'diario',
+    prioridad: 70,
+    ventana: VENTANA_NOCTURNA,
+    porUnidad: true,
+    parametros: { soloActivos: true },
+  },
+  {
     // El censo va antes que los atributos: los atributos se piden POR ASIN, y
     // los ASIN los descubre el censo.
     tipo: 'censo_catalogo',

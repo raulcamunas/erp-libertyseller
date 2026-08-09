@@ -66,4 +66,5 @@ export {
   tareaEnriquecerCatalogo,
   tareaSnapshotBsr,
   tareaInventarioFba,
+  tareaSnapshotPrecios,
 }

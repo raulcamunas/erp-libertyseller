@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { getAmazon } from '@/lib/amazon/client'
 import type { ClienteConIngesta, ClientesRespuesta } from '@/lib/plataforma/cliente'
 import { BOTON, CAMPO, INSIGNIA, PANTALLA, TEXTO, TIPO } from '@/lib/estilo/denso'
+import { PARAM_PESTANA } from '@/components/amazon-api/pestanas'
 import { Aviso, Cargando, Vacio } from './comun'
 import { FichaSku } from './FichaSku'
 import { PanelCobertura } from './PanelCobertura'
@@ -108,10 +109,19 @@ export function PlataformaBoard() {
 
   if (!clientes || clientes.length === 0) {
     return (
-      <Vacio icono={Users} titulo="Todavía no hay ningún cliente dado de alta">
-        Los clientes y sus cuentas de Amazon se dan de alta en el módulo{' '}
-        <span className={TEXTO.t1}>Amazon API</span>. En cuanto uno autorice su cuenta, aparece aquí
-        y se le puede lanzar el primer censo del catálogo.
+      <Vacio
+        icono={<Users />}
+        titulo="Todavía no hay ningún cliente dado de alta"
+        accion={
+          <a
+            href={`/dashboard/amazon-api?${PARAM_PESTANA}=cuentas`}
+            className={`${BOTON.base} ${BOTON.secundario}`}
+          >
+            Ir a Cuentas
+          </a>
+        }
+      >
+        Se dan de alta en la pestaña <span className={TEXTO.t1}>Cuentas</span>.
       </Vacio>
     )
   }
@@ -183,11 +193,23 @@ export function PlataformaBoard() {
 
       {/* -------- El cliente elegido, sin cuenta conectada -------- */}
       {cliente && cliente.conexiones.length === 0 ? (
-        <Vacio icono={Link2Off} titulo={`${cliente.name} no tiene ninguna cuenta de Amazon conectada`}>
-          A1 solo LEE de Amazon, y para leer hace falta que el cliente autorice la aplicación. Se
-          hace desde el módulo <span className={TEXTO.t1}>Amazon API</span>: se genera un enlace de
-          consentimiento, el cliente entra con su usuario de Seller Central y acepta. Hasta
-          entonces esta pantalla no tiene nada que enseñar de él.
+        // El destino, corto y CORRECTO: esta pantalla ya está DENTRO de Amazon
+        // API, así que mandar «al módulo Amazon API» era dar vueltas. El porqué
+        // —qué es el consentimiento y qué pasa hasta que llega— está en el botón
+        // de información, que es su sitio.
+        <Vacio
+          icono={<Link2Off />}
+          titulo={`${cliente.name} no tiene ninguna cuenta de Amazon conectada`}
+          accion={
+            <a
+              href={`/dashboard/amazon-api?${PARAM_PESTANA}=cuentas`}
+              className={`${BOTON.base} ${BOTON.secundario}`}
+            >
+              Conectarla en Cuentas
+            </a>
+          }
+        >
+          Se conecta en la pestaña <span className={TEXTO.t1}>Cuentas</span>.
         </Vacio>
       ) : (
         cliente && (

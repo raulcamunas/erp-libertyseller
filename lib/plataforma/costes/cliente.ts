@@ -16,7 +16,7 @@
 import type { EstadoCoste, ResumenCobertura } from './completitud'
 import type { StockClienteBreve } from './datos'
 import type { InformeImportacion } from './importar'
-import type { FichaCoste, FилаCosteAlias, FiltroEstado, VistaCobertura, VistaCostes } from './pantalla'
+import type { FichaCoste, FilaCoste, FiltroEstado, VistaCobertura, VistaCostes } from './pantalla'
 import type {
   AuditoriaCoste,
   CosteA5,
@@ -31,6 +31,7 @@ export type {
   CosteA5,
   EstadoCoste,
   FichaCoste,
+  FilaCoste,
   FiltroEstado,
   ImportacionCostes,
   InformeImportacion,

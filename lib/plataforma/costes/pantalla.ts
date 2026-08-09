@@ -38,7 +38,13 @@ import {
   auditoriaDeSku,
   type ListingCoste,
 } from './datos'
-import { canalDeListing, type CanalCoste, type CosteA5, type PoliticaCostes } from './tipos'
+import {
+  canalDeListing,
+  type CanalCoste,
+  type CosteA5,
+  type FiltroEstado,
+  type PoliticaCostes,
+} from './tipos'
 import {
   costesVigentesPorSku,
   estadoVigencia,
@@ -51,15 +57,16 @@ import {
 /* La tabla de costes                                                  */
 /* ------------------------------------------------------------------ */
 
-export type FiltroEstado = 'todos' | 'sin_coste' | 'incompleto' | 'completo' | 'caducado'
-
-export const FILTRO_ESTADO_LABELS: Record<FiltroEstado, string> = {
-  todos: 'Todos',
-  sin_coste: 'Sin coste',
-  incompleto: 'Incompleto',
-  completo: 'Completo',
-  caducado: 'Caducado',
-}
+/**
+ * El filtro se ha mudado a tipos.ts, que es un módulo puro.
+ *
+ * Aquí se re-exporta porque la ruta de API lo importa de este fichero desde el
+ * primer día y no hay ninguna razón para hacerle cambiar el `import`. La
+ * mudanza tiene motivo: la PANTALLA necesita las etiquetas, y este fichero
+ * arrastra datos.ts y con él el cliente de `service_role`.
+ */
+export { FILTRO_ESTADO_LABELS } from './tipos'
+export type { FiltroEstado } from './tipos'
 
 export interface ConsultaCostes {
   clientId: string

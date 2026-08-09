@@ -79,6 +79,45 @@ export interface CandidatoActivo {
   motivoManual: string | null
 }
 
+/**
+ * POR QUÉ SE HA DECIDIDO ESO, EN UNA PALABRA AGRUPABLE.
+ *
+ * El `motivo` de al lado está redactado para una persona y lleva dentro el SKU,
+ * la marca o el tope, así que dos filas que se caen por lo mismo tienen dos
+ * textos distintos y no se pueden contar juntas. Esto sí: es lo que permite
+ * decir «se caen 9.412 por no estar a la venta y 61 por marca excluida» antes de
+ * guardar un criterio, en vez de enseñar nueve mil frases casi iguales.
+ *
+ * Se añadió para el simulacro de la pestaña Seguimiento. Quien solo escribe la
+ * decisión en la base (escribirActivos) no lo mira, así que añadirlo no cambia
+ * nada de lo que ya funcionaba.
+ */
+export type CausaActivo =
+  | 'manual'
+  | 'forzado'
+  | 'sku_excluido'
+  | 'marca_excluida'
+  | 'variacion_padre'
+  | 'no_a_la_venta'
+  | 'sin_precio'
+  | 'sin_via'
+  | 'tope'
+  | 'entra'
+
+/** El rótulo de cada causa, para agrupar en pantalla */
+export const CAUSA_ACTIVO_LABELS: Record<CausaActivo, string> = {
+  manual: 'Lo decidió una persona',
+  forzado: 'Está en la lista de «siempre dentro»',
+  sku_excluido: 'SKU excluido a mano',
+  marca_excluida: 'Marca excluida',
+  variacion_padre: 'Variación padre',
+  no_a_la_venta: 'No está a la venta',
+  sin_precio: 'Sin precio',
+  sin_via: 'No entra por ninguna vía del criterio',
+  tope: 'Recortado por el tope',
+  entra: 'Entra por el criterio',
+}
+
 export interface DecisionActivo {
   sku: string
   marketplaceId: string
@@ -87,6 +126,8 @@ export interface DecisionActivo {
   motivo: string
   /** true si la decisión la tomó una persona y no la regla */
   manual: boolean
+  /** La misma decisión, en una palabra que se puede contar. Ver CausaActivo */
+  causa: CausaActivo
 }
 
 export interface ResultadoActivos {
@@ -214,6 +255,7 @@ export function resolverActivos(
             ? 'Lo marcó una persona para que se siga a diario.'
             : 'Lo marcó una persona para que no se siga.'),
         manual: true,
+        causa: 'manual',
       })
       continue
     }
@@ -231,19 +273,26 @@ export function resolverActivos(
         activo: true,
         motivo: 'Está en la lista de SKU que se siguen siempre, sea cual sea el criterio.',
         manual: false,
+        causa: 'forzado',
       })
       continue
     }
 
     // ---------- 3) Exclusiones ----------
     if (excluidos.has(skuNorm)) {
-      decisiones.push(fuera(c, 'Está en la lista de SKU excluidos del criterio de este cliente.'))
+      decisiones.push(
+        fuera(c, 'sku_excluido', 'Está en la lista de SKU excluidos del criterio de este cliente.')
+      )
       continue
     }
 
     if (marcasFuera.size > 0 && marcasFuera.has(normalizar(c.marca))) {
       decisiones.push(
-        fuera(c, `La marca «${c.marca ?? '—'}» está excluida del criterio de este cliente.`)
+        fuera(
+          c,
+          'marca_excluida',
+          `La marca «${c.marca ?? '—'}» está excluida del criterio de este cliente.`
+        )
       )
       continue
     }
@@ -253,6 +302,7 @@ export function resolverActivos(
       decisiones.push(
         fuera(
           c,
+          'variacion_padre',
           'Es la variación padre que agrupa a las demás: no se compra ni se vende, así que seguirla no aporta nada.'
         )
       )
@@ -263,6 +313,7 @@ export function resolverActivos(
       decisiones.push(
         fuera(
           c,
+          'no_a_la_venta',
           'El listing no está a la venta en Amazon, así que no hay Buy Box que perder ni precio que vigilar.'
         )
       )
@@ -271,7 +322,11 @@ export function resolverActivos(
 
     if (criterio.excluir_sin_precio && (c.precio === null || c.precio <= 0)) {
       decisiones.push(
-        fuera(c, 'No tiene precio en este marketplace: no hay margen que calcular ni oferta que comparar.')
+        fuera(
+          c,
+          'sin_precio',
+          'No tiene precio en este marketplace: no hay margen que calcular ni oferta que comparar.'
+        )
       )
       continue
     }
@@ -302,7 +357,7 @@ export function resolverActivos(
     }
 
     if (motivos.length === 0) {
-      decisiones.push(fuera(c, motivoDeNoEntrar(criterio, c)))
+      decisiones.push(fuera(c, 'sin_via', motivoDeNoEntrar(criterio, c)))
       continue
     }
 
@@ -313,6 +368,7 @@ export function resolverActivos(
       activo: true,
       motivo: `En seguimiento porque ${motivos.join('; y porque ')}.`,
       manual: false,
+      causa: 'entra',
     })
   }
 
@@ -335,6 +391,7 @@ export function resolverActivos(
       if (!d.activo || d.manual) continue
       if (!fueraDelTope.has(claveDe(d.marketplaceId, d.sku))) continue
       d.activo = false
+      d.causa = 'tope'
       d.motivo =
         `Cumple el criterio, pero se ha alcanzado el tope de ${criterio.tope_skus} SKU en ` +
         `seguimiento diario de este cliente y ha quedado por debajo del corte ` +
@@ -375,8 +432,8 @@ export function resolverActivos(
   }
 }
 
-function fuera(c: CandidatoActivo, motivo: string): DecisionActivo {
-  return { sku: c.sku, marketplaceId: c.marketplaceId, activo: false, motivo, manual: false }
+function fuera(c: CandidatoActivo, causa: CausaActivo, motivo: string): DecisionActivo {
+  return { sku: c.sku, marketplaceId: c.marketplaceId, activo: false, motivo, manual: false, causa }
 }
 
 export function claveDe(marketplaceId: string, sku: string): string {

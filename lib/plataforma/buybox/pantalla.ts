@@ -23,6 +23,7 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '../eventos'
+import { conexionesDeCliente, unidadesDe } from '../datos'
 import {
   CONFIG_BUYBOX_DEFECTO,
   configDeCliente,
@@ -435,6 +436,122 @@ export function decisionesPendientes(config: ConfigBuyBox): DecisionPendiente[] 
   }
 
   return pendientes
+}
+
+/* ------------------------------------------------------------------ */
+/* 4 bis. CUÁNTO HISTÓRICO HAY DE VERDAD                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ============ POR QUÉ ESTO EXISTE, Y POR QUÉ VA A LA PANTALLA ============
+ *
+ * Este módulo es el que GENERA el histórico que sustituye a Keepa para nuestras
+ * referencias. O sea que el día que se enciende NO HAY NINGUNO, y va a seguir
+ * sin haberlo durante semanas.
+ *
+ * Ese estado —«todavía no hay serie»— se parece muchísimo a otro que significa
+ * lo contrario: «la serie está y sale plana». Y la pantalla que los confunde
+ * miente hacia el lado caro: un 0 % de referencias perdidas con cero lecturas se
+ * lee como «vamos perfectos». Por eso todo lo que dependa de la serie —el
+ * porcentaje del tiempo con la oferta destacada, la evolución del número de
+ * competidores, hasta dónde ha bajado cada uno— se enseña SIEMPRE junto a
+ * cuántas lecturas lo sostienen, y cuando no hay ninguna se dice, no se pinta un
+ * cero ni un gráfico vacío.
+ */
+
+/**
+ * A partir de cuántas lecturas con juicio el porcentaje del tiempo con oferta
+ * destacada se puede enseñar sin coletilla.
+ *
+ * NO ES UN UMBRAL DE NEGOCIO —los umbrales de negocio de este módulo están todos
+ * a `null` en la configuración del cliente y los pone una persona—: es un
+ * criterio de LECTURA del dato, igual que DIAS_VIGENCIA de más arriba. Siete son
+ * una semana de barridos nocturnos, y el motivo es aritmético: con N lecturas,
+ * cada una pesa 100/N puntos del porcentaje. Con tres lecturas una sola noche
+ * mueve el número 33 puntos, así que ese porcentaje no describe el mes: describe
+ * la última subasta.
+ *
+ * La pantalla enseña además ese peso (100/N) al lado, que es el dato que de
+ * verdad dice cuánto fiarse y no depende de ninguna constante.
+ */
+export const LECTURAS_PARA_SERIE = 7
+
+export interface HistoricoDisponible {
+  connection_id: string
+  marketplace_id: string
+  /** El diagnóstico más antiguo guardado. null = nunca se ha diagnosticado */
+  primera: string | null
+  ultima: string | null
+  /** Días transcurridos desde la primera lectura. null cuando no hay ninguna */
+  dias: number | null
+  /**
+   * Barridos de precios TERMINADOS sobre esta cuenta.
+   *
+   * Se cuenta por conexión y no por conexión + país porque un barrido recorre
+   * todos los países de la cuenta en la misma pasada: contarlo por país
+   * multiplicaría el mismo trabajo por cuatro y diría que hay cuatro veces más
+   * histórico del que hay.
+   */
+  barridos: number
+}
+
+/**
+ * Cuánto histórico hay, por cuenta y país.
+ *
+ * Tres consultas por unidad, las tres por índice: el diagnóstico más antiguo y
+ * el más nuevo van por idx_amazon_buybox_diag_unidad (connection_id,
+ * marketplace_id, fecha DESC), y el recuento de barridos va sobre amazon_jobs,
+ * que tiene una fila por pasada y no una por referencia.
+ *
+ * NO se cuenta «cuántas noches distintas hay en los snapshots»: eso es un
+ * DISTINCT sobre la tabla que crece para siempre —13.700 referencias por noche—
+ * y es la clase de consulta que funciona el primer mes y revienta justo cuando
+ * el histórico empieza a servir para algo.
+ */
+export async function historicoDisponible(clientId: string): Promise<HistoricoDisponible[]> {
+  const service = createServiceClient()
+  const unidades = unidadesDe(await conexionesDeCliente(clientId))
+  const ahora = Date.now()
+  const salida: HistoricoDisponible[] = []
+
+  for (const unidad of unidades) {
+    const base = () =>
+      service
+        .from('amazon_buybox_diagnostico')
+        .select('fecha')
+        .eq('connection_id', unidad.connectionId)
+        .eq('marketplace_id', unidad.marketplaceId)
+
+    const [antigua, reciente, barridos] = await Promise.all([
+      base().order('fecha', { ascending: true }).limit(1),
+      base().order('fecha', { ascending: false }).limit(1),
+      service
+        .from('amazon_jobs')
+        .select('id', { count: 'exact', head: true })
+        .eq('tipo', 'snapshot_precios')
+        .eq('connection_id', unidad.connectionId)
+        .eq('estado', 'terminado'),
+    ])
+
+    if (antigua.error) throw antigua.error
+    if (reciente.error) throw reciente.error
+    if (barridos.error) throw barridos.error
+
+    const primera = (antigua.data ?? [])[0]?.fecha ? String((antigua.data ?? [])[0].fecha) : null
+    const ultima = (reciente.data ?? [])[0]?.fecha ? String((reciente.data ?? [])[0].fecha) : null
+    const t = primera ? Date.parse(primera) : NaN
+
+    salida.push({
+      connection_id: unidad.connectionId,
+      marketplace_id: unidad.marketplaceId,
+      primera,
+      ultima,
+      dias: Number.isFinite(t) ? Math.max(0, Math.floor((ahora - t) / 86400000)) : null,
+      barridos: barridos.count ?? 0,
+    })
+  }
+
+  return salida
 }
 
 /* ------------------------------------------------------------------ */

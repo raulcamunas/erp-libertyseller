@@ -19,6 +19,7 @@ import type {
   ConfigPantalla,
   DecisionPendiente,
   FilaBuyBox,
+  HistoricoDisponible,
   HistoricoSku,
   PuntoSerie,
   ResumenBuyBox,
@@ -31,6 +32,7 @@ export type {
   ConfigPantalla,
   DecisionPendiente,
   FilaBuyBox,
+  HistoricoDisponible,
   HistoricoSku,
   PuntoSerie,
   ResumenBuyBox,
@@ -43,6 +45,19 @@ export interface BuyBoxRespuesta {
   desde: number
   limite: number
   config: ConfigPantalla
+  /**
+   * Cuánto histórico hay por cuenta y país.
+   *
+   * Viaja SIEMPRE, incluso vacío, porque es lo que permite que la pantalla
+   * distinga «no hay serie todavía» de «la serie sale plana». Los dos se
+   * pintarían igual, y el primero leído como el segundo dice que vamos
+   * perfectos justo cuando no sabemos nada.
+   */
+  historico: HistoricoDisponible[]
+  /** A partir de cuántas lecturas el porcentaje del tiempo se puede leer solo */
+  lecturasParaSerie: number
+  /** Cuántos días se considera vigente un diagnóstico */
+  diasVigencia: number
   /** Los veredictos por los que se puede filtrar, con su etiqueta */
   etiquetas: Record<Veredicto, string>
   leidoAt: string

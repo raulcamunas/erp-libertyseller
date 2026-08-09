@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 import { LogoutButton } from '@/components/auth/logout-button'
-import { apps } from '@/lib/config/apps'
+import { apps, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -136,31 +136,19 @@ export function AppSidebar() {
     if (app.id === 'users') {
       return userRole === 'admin' && userEmail === 'raulcamunas369@gmail.com'
     }
-    // Control empleados solo para admin: son los sueldos de todo el equipo.
-    // Va antes del "si aún no se ha cargado el rol, mostrar todas" de abajo
-    // para que no aparezca ni un instante mientras se resuelve el perfil.
-    if (app.id === 'empleados') {
+    // Las apps de solo-admin, con el motivo de cada una escrito junto a la
+    // lista en lib/config/apps.ts. Va ANTES del "si aún no se ha cargado el
+    // rol, mostrar todas" de abajo: si no, aparecen un instante en el menú de
+    // cualquiera mientras se resuelve el perfil.
+    if (APPS_SOLO_ADMIN.has(app.id)) {
       return userRole === 'admin'
     }
-    // Amazon API solo para admin: desde ahí se cambian precios y stock en las
-    // tiendas de los clientes. Igual que el de arriba, va antes del "si aún no
-    // se ha cargado el rol, mostrar todas" para que no aparezca ni un instante
-    // mientras se resuelve el perfil.
-    if (app.id === 'amazon-api') {
-      return userRole === 'admin'
-    }
-    // Plataforma Amazon (módulo A1) solo para admin: enseña el catálogo entero
-    // de las tiendas de los clientes y desde ahí se gasta su cupo de la API.
-    // Mismo sitio y mismo motivo que el de arriba.
-    if (app.id === 'plataforma') {
-      return userRole === 'admin'
-    }
-    // Diseños del ERP solo para admin. Igual que los dos de arriba, va antes del
-    // "si aún no se ha cargado el rol, mostrar todas" para que no aparezca ni un
-    // instante mientras se resuelve el perfil. La elección del diseño la toman
-    // los socios, y además las maquetas llevan nombres reales de clientes.
-    if (app.id === 'disenos') {
-      return userRole === 'admin'
+    // Growth Partner: admin, más quien tenga el permiso suelto 'stock-sync', que
+    // dentro solo ve el sincronismo. Ver lib/growth/acceso.ts. Va aquí, antes
+    // del "si aún no se ha cargado el rol", por el mismo motivo que la lista de
+    // arriba: si no, parpadea en el menú de cualquiera.
+    if (app.id === APP_GROWTH) {
+      return puedeVerGrowth(userRole, userPermissions)
     }
     // Si aún no se ha cargado el rol, mostrar todas temporalmente (evita parpadeo)
     if (userRole === null) return true

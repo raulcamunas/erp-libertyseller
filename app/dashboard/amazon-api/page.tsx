@@ -6,24 +6,39 @@ import { loadPerfiles } from '@/lib/stock-sync/perfiles'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { humanMessageOf } from '@/lib/amazon/errors'
 import { appIsDraft, lwaConfig } from '@/lib/amazon/lwa'
-import { AmazonBoard } from '@/components/amazon/AmazonBoard'
+import { Carcasa } from '@/components/amazon-api/Carcasa'
+import { PARAM_PESTANA, pestanaDesdeUrl } from '@/components/amazon-api/pestanas'
 
 /**
- * /dashboard/amazon-api — SOLO ADMIN.
+ * /dashboard/amazon-api — LAS TRIPAS. SOLO ADMIN.
  *
- * Desde este módulo se cambian precios y stock en las tiendas de los CLIENTES
- * de la agencia, y aquí se guardan las llaves de acceso a esas tiendas. El
- * listón es el mismo que en Control empleados: ni employees ni partners.
+ * Ocho pestañas sobre una sola idea: aquí se configura con qué va a trabajar la
+ * agencia en la cuenta de cada cliente, y aquí se ve toda la información que
+ * guardamos de sus productos y sus cuentas. El TRABAJO sobre esa cuenta
+ * —sincronizar el stock, vigilar la Buy Box, decidir un FBM→FBA— es el otro
+ * módulo: Growth Partner, en /dashboard/growth.
  *
- * Está cerrado en cuatro sitios, y solo el último es el que manda de verdad:
+ * Aquí dentro vive ahora lo que antes era el módulo «Plataforma Amazon», en la
+ * pestaña Ingesta. Aquella dirección redirige.
+ *
+ *
+ * ============ POR QUÉ SOLO ADMIN ============
+ *
+ * Desde este módulo se cambian precios y stock en las tiendas de los CLIENTES de
+ * la agencia, y aquí se guardan las llaves de acceso a esas tiendas. El listón es
+ * el mismo que en Control empleados: ni employees ni partners.
+ *
+ * Está cerrado en cuatro sitios, y solo el último manda de verdad:
  *   1. middleware.ts, que evita el viaje.
- *   2. El filtro de app/dashboard/page.tsx, para que no salga en la rejilla.
- *   3. El de components/layout/AppSidebar.tsx, para que no salga en el menú.
+ *   2. APPS_SOLO_ADMIN en lib/config/apps.ts, que lo quita de la rejilla de
+ *      /dashboard y del menú lateral de una vez (antes eran cuatro `if` escritos
+ *      a mano en dos ficheros).
+ *   3. El redirect de esta misma función, que corre en el servidor.
  *   4. Las políticas RLS de la migración 118. `authenticated` no tiene NINGÚN
  *      permiso sobre amazon_connections —ni SELECT—, así que la tabla de los
  *      tokens no se puede leer desde el navegador ni siendo admin. Todo lo que
- *      se pinta aquí viene del servidor, con service_role y una lista de
- *      columnas explícita que no incluye el token.
+ *      se pinta aquí viene del servidor, con service_role y una lista de columnas
+ *      explícita que no incluye el token.
  */
 
 export const dynamic = 'force-dynamic'
@@ -69,7 +84,7 @@ function PendingMigrations() {
         <p className="text-white/45 text-xs leading-relaxed">
           Se ejecutan enteros en una transacción cada uno: si algo falla, no se queda a medias. Los
           dos son idempotentes, así que se pueden lanzar aunque uno ya estuviera aplicado. El resto
-          del ERP, Sincronismo de stock incluido, funciona con normalidad mientras tanto.
+          del ERP funciona con normalidad mientras tanto.
         </p>
       </div>
     </div>
@@ -97,7 +112,11 @@ function configError(): string | null {
   return partes.length > 0 ? partes.join(' ') : null
 }
 
-export default async function AmazonApiPage() {
+export default async function AmazonApiPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | string[] | undefined>
+}) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -119,52 +138,48 @@ export default async function AmazonApiPage() {
   if (data.missingTables) return <PendingMigrations />
 
   /**
-   * La 120 se comprueba aparte y NO corta la pantalla: sin ella el catálogo y
-   * los envíos a mano funcionan igual, y lo único que falta es la pestaña de
-   * automatización, que lo explica por su cuenta. Cortar aquí dejaría sin
-   * módulo a quien solo quiere mirar precios.
+   * Los orígenes se cargan aparte y NO cortan la pantalla: sin ellos el catálogo
+   * y los envíos a mano funcionan igual, y lo único que falta es la pestaña
+   * Origen, que lo explica por su cuenta. Cortar aquí dejaría sin módulo a quien
+   * solo quiere mirar precios.
    *
    * Y EL try/catch NO SOBRA. loadPerfiles solo atrapa por su cuenta el caso «la
-   * tabla no existe»; cualquier otro fallo de esas cuatro consultas —un
-   * permiso, un timeout de PostgREST— se propagaba y se llevaba por delante la
-   * pantalla entera, incluidos el catálogo y la edición a mano, que antes no
-   * tocaban ninguna de estas tablas. Un problema en lo nuevo no puede romper lo
-   * que ya funcionaba.
+   * tabla no existe»; cualquier otro fallo de esas cuatro consultas —un permiso,
+   * un timeout de PostgREST— se propagaba y se llevaba por delante la pantalla
+   * entera, incluidos el catálogo y la edición a mano, que no tocan ninguna de
+   * estas tablas. Un problema en lo nuevo no puede romper lo que ya funcionaba.
    */
   const perfiles = await loadPerfiles().catch((error) => {
-    console.error('No se han podido cargar los perfiles de automatización:', error)
+    console.error('No se han podido cargar los orígenes de fichero:', error)
     return null
   })
 
+  /**
+   * La pestaña sale de la URL y se valida AQUÍ, en el servidor.
+   *
+   * Un `?p=` inventado, un enlace mal copiado o una dirección vieja caen en la
+   * pestaña por defecto, que es una pantalla útil. Nunca en blanco.
+   */
+  const bruto = searchParams[PARAM_PESTANA]
+  const pestanaInicial = pestanaDesdeUrl(Array.isArray(bruto) ? bruto[0] : bruto)
+
   return (
     // El alto fijo con scroll interno es el patrón de las pantallas con tabla
-    // del ERP (Control empleados, Sincronismo de stock). Sin él, la tabla del
-    // catálogo crece hasta donde le dé la gana y el buscador y los filtros se
-    // van por arriba en cuanto se baja. El `min-w-0` es el eslabón de esta
-    // pantalla en la cadena que mantiene el scroll horizontal DENTRO de la
-    // tabla: sin los tres, siete columnas arrastran la página de lado y se
-    // llevan la barra lateral por delante.
+    // del ERP. El `min-w-0` es el eslabón de esta pantalla en la cadena que
+    // mantiene el scroll horizontal DENTRO de la tabla: sin él, siete columnas
+    // arrastran la página de lado y se llevan la barra lateral por delante.
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
-      <div className="mb-3 flex-shrink-0">
-        <h1 className="heading-medium text-white mb-1">Amazon API</h1>
-        <p className="text-white/50 text-sm leading-relaxed">
-          El catálogo de los clientes que nos han dado acceso a su cuenta de Amazon: precios y
-          stock, con los cambios que salgan de aquí registrados uno a uno.
-        </p>
-      </div>
-
-      <div className="flex-1 min-h-0 min-w-0">
-        <AmazonBoard
-          initialData={data}
-          perfiles={perfiles}
-          configError={configError()}
-          // Se resuelve AQUÍ, en el servidor: appIsDraft() lee una variable de
-          // entorno y en el navegador no existe. De esto depende que la
-          // pantalla hable o no del tope de 25 autorizaciones, que solo existe
-          // mientras la aplicación no esté publicada en el Appstore.
-          appDraft={appIsDraft()}
-        />
-      </div>
+      {/* El <h1> y las pestañas van DENTRO de la carcasa, en la misma fila, y la
+          explicación del módulo detrás del botón de información. Aquí ya no hay
+          entradilla: el párrafo que vivía encima de los controles es justo lo
+          que se ha pedido quitar de en medio de la pantalla. */}
+      <Carcasa
+        initialData={data}
+        perfiles={perfiles}
+        configError={configError()}
+        appDraft={appIsDraft()}
+        pestanaInicial={pestanaInicial}
+      />
     </div>
   )
 }

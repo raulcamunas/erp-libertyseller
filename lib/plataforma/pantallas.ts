@@ -41,11 +41,15 @@ import type {
 export { isMissingSchema }
 
 /**
- * Las funciones de la migración 125 se piden por RPC, y cuando no están
- * PostgREST NO contesta con el código de «tabla que falta» (que es lo que mira
- * isMissingSchema) sino con PGRST202, «no encuentro esa función». Sin
- * distinguirlo, una migración sin lanzar sale como un 500 genérico y quien lo
- * vea se pone a buscar el fallo en el sitio equivocado.
+ * ¿El fallo es «esa FUNCIÓN no existe»? PostgREST contesta PGRST202 y Postgres
+ * 42883.
+ *
+ * Desde que isMissingSchema mira también estos dos códigos, esto es un
+ * subconjunto suyo y `faltaEsquema` de abajo da lo mismo que él. Se deja porque
+ * nombra el caso, no porque haga falta: el módulo de Buy Box y el de FBM → FBA
+ * aliasaban el isMissingSchema CRUDO y se comían un 500 genérico donde Marcas y
+ * Costes decían qué fichero pegar. La lección es que el sitio donde se arregla
+ * esto es eventos.ts, no una copia por módulo.
  */
 export function faltaFuncion(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
-import { apps } from '@/lib/config/apps'
+import { apps, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 
@@ -60,33 +60,18 @@ export default async function DashboardPage() {
       return profile.role === 'admin' && profile.email === 'raulcamunas369@gmail.com'
     }
 
-    // Control empleados solo para admin: son los sueldos de todo el equipo.
-    // Se comprueba antes del "para admins, acceso a todo" de abajo para que
-    // ni un employee con el permiso suelto en user_app_permissions lo vea.
-    if (app.id === 'empleados') {
+    // Las apps de solo-admin, con el motivo de cada una escrito junto a la
+    // lista en lib/config/apps.ts. Se comprueba ANTES del "para admins, acceso
+    // a todo" de abajo para que ni un employee con el permiso suelto en
+    // user_app_permissions las vea.
+    if (APPS_SOLO_ADMIN.has(app.id)) {
       return profile.role === 'admin'
     }
 
-    // Amazon API solo para admin: desde ahí se cambian precios y stock en las
-    // tiendas de los clientes. Mismo motivo que el de arriba para ir antes del
-    // "para admins, acceso a todo": ni un employee con el permiso suelto en
-    // user_app_permissions puede verlo.
-    if (app.id === 'amazon-api') {
-      return profile.role === 'admin'
-    }
-
-    // Plataforma Amazon (módulo A1) solo para admin: enseña el catálogo entero
-    // de las tiendas de los clientes y desde ahí se gasta su cupo de la API.
-    // Mismo sitio y mismo motivo que el de arriba.
-    if (app.id === 'plataforma') {
-      return profile.role === 'admin'
-    }
-
-    // Diseños del ERP solo para admin: es una pantalla de decisión —enseñar tres
-    // ERP posibles antes de que haya uno elegido siembra tres expectativas— y
-    // además las maquetas llevan nombres reales de clientes de la agencia.
-    if (app.id === 'disenos') {
-      return profile.role === 'admin'
+    // Growth Partner: admin, más quien tenga el permiso suelto 'stock-sync', que
+    // dentro solo ve el sincronismo. Ver lib/growth/acceso.ts.
+    if (app.id === APP_GROWTH) {
+      return puedeVerGrowth(profile.role, userPermissions)
     }
 
     // Para admins, acceso a todo

@@ -877,10 +877,10 @@ function DialogoLanzar({
                 </option>
               ))}
             </select>
-            <p className={CAMPO.nota}>
-              El cupo de Amazon se cuenta por cuenta de vendedor: dos clientes distintos pueden ir a
-              la vez, dos trabajos de la misma cuenta no.
-            </p>
+            {/* Una línea: dos trabajos de la misma cuenta no van a la vez, y sin
+                eso el desplegable no explica por qué falla. El porqué —el cupo se
+                cuenta por vendedor— está en el botón de información. */}
+            <p className={CAMPO.nota}>Dos trabajos de la misma cuenta no van a la vez.</p>
           </div>
         )}
       </div>
@@ -897,11 +897,10 @@ function DialogoLanzar({
           placeholder="Un SKU por línea, o separados por comas. En blanco = todo el ámbito del trabajo."
           className={`${CAMPO.input} h-auto py-[5px] leading-[1.5] resize-y`}
         />
+        {/* Se queda lo que cambia el resultado —que no cuenta como barrido
+            completo— y el límite. El resto, en el botón de información. */}
         <p className={CAMPO.nota}>
-          Es como se prueba un barrido sin gastar una noche de cupo. Un trabajo con subconjunto{' '}
-          <span className={TEXTO.t1}>no cuenta como barrido completo</span>: el planificador lo
-          ignora al calcular la cadencia, así que no hace que el de verdad se salte un día. Máximo{' '}
-          {MAX_SKUS}.
+          <span className={TEXTO.t1}>No cuenta como barrido completo</span>. Máximo {MAX_SKUS}.
         </p>
       </div>
 
@@ -991,10 +990,7 @@ function DialogoCancelar({
           placeholder="Se lanzó sin querer sobre el catálogo entero"
           autoFocus
         />
-        <p className={CAMPO.nota}>
-          Obligatorio, y también lo exige la base. Un trabajo cancelado sin explicación deja a quien
-          lo mire mañana sin saber si hay que relanzarlo.
-        </p>
+        <p className={CAMPO.nota}>Obligatorio.</p>
       </div>
     </Dialogo>
   )

@@ -28,6 +28,73 @@ export interface StockClient {
   notes: string | null
   created_at: string
   updated_at: string
+
+  /**
+   * CUÁNDO SE DECIDIÓ QUE A ESTE CLIENTE NO SE LE SINCRONIZA EL STOCK.
+   *
+   * `null` = nadie lo ha decidido. Si además no tiene perfil de lectura, está
+   * PENDIENTE DE CONFIGURAR, que es trabajo por hacer y no una decisión.
+   *
+   * Es una fecha y no un booleano a propósito: con `false` no se distingue
+   * «hemos decidido que sí» de «nadie ha mirado esto nunca», que es justo la
+   * ambigüedad que esta columna viene a matar. Y la fecha contesta la pregunta
+   * que se hace de verdad medio año después: ¿desde cuándo no le mandamos stock?
+   *
+   * Opcional en el tipo (`?`) y no solo anulable porque la migración 127 se
+   * lanza a mano en el editor de Supabase: hasta que alguien la pegue, estas
+   * tres claves no vienen en la fila. `undefined` y `null` significan lo mismo
+   * aquí —nadie lo ha decidido— y quien lo lea tiene que tratarlos igual.
+   */
+  no_sincroniza_desde?: string | null
+  /** Por qué no. Opcional: obligarlo llevaría a que se rellenara con un punto */
+  no_sincroniza_motivo?: string | null
+  /** Quién lo decidió (profiles.id). El nombre se resuelve aparte */
+  no_sincroniza_por?: string | null
+}
+
+/**
+ * En qué situación está un cliente respecto a la sincronización de stock.
+ *
+ * SON TRES Y NO DOS, y esa es toda la idea:
+ *
+ *   · `sincroniza`   — tiene al menos un perfil de stock activo. Entra en el
+ *                      ciclo automático.
+ *   · `no_sincroniza`— alguien decidió expresamente que no. Deja de contar como
+ *                      pendiente.
+ *   · `pendiente`    — ni lo uno ni lo otro: nadie lo ha configurado y nadie ha
+ *                      dicho que no haga falta. ESTO es lo que hay que atender.
+ *
+ * Hasta ahora los dos últimos se veían igual —cero perfiles— y por eso la lista
+ * de «clientes sin perfil» no se podía usar para nada.
+ */
+export type EstadoSincronizacion = 'sincroniza' | 'no_sincroniza' | 'pendiente'
+
+/**
+ * El estado de un cliente, a partir de la fila y de sus perfiles.
+ *
+ * Una sola función para que la pantalla, el ciclo y cualquier informe futuro
+ * contesten lo mismo. `perfilesDeStockActivos` es el recuento de perfiles de
+ * `tipo: 'stock'` con `is_active`, que son los únicos que mandan algo a Amazon:
+ * el de códigos de barras alimenta el cruce y no sincroniza nada por su cuenta.
+ *
+ * EL ORDEN DE LAS PREGUNTAS IMPORTA. La decisión explícita gana sobre tener
+ * perfiles: un cliente al que se le ha dicho que no, no sincroniza aunque su
+ * configuración siga guardada. Al revés, un cliente marcado se leería como
+ * activo por el simple hecho de conservar su configuración, que es justo lo que
+ * la migración 127 evita destruir.
+ */
+export function estadoSincronizacion(
+  cliente: Pick<StockClient, 'no_sincroniza_desde'>,
+  perfilesDeStockActivos: number
+): EstadoSincronizacion {
+  if (cliente.no_sincroniza_desde) return 'no_sincroniza'
+  return perfilesDeStockActivos > 0 ? 'sincroniza' : 'pendiente'
+}
+
+export const ESTADO_SINCRONIZACION_LABELS: Record<EstadoSincronizacion, string> = {
+  sincroniza: 'Sincroniza',
+  no_sincroniza: 'No sincroniza',
+  pendiente: 'Sin configurar',
 }
 
 export interface StockMapping {

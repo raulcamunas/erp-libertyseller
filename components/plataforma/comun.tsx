@@ -69,14 +69,27 @@ export function Aviso({
  * un cliente recién conectado va a tener todas estas pantallas vacías durante la
  * primera noche entera y la diferencia entre «esto está roto» y «esto todavía no
  * ha corrido» son estas tres líneas.
+ *
+ * El icono se recibe YA CONSTRUIDO —`icono={<Inbox />}`, no `icono={Inbox}`—.
+ * No es capricho: este fichero es 'use client' y media
+ * pantalla vacía se pinta desde componentes de SERVIDOR. Un icono de lucide es
+ * un objeto de forwardRef con una función `render` dentro, y una función no
+ * cruza la frontera servidor→cliente: React corta el render con «Functions
+ * cannot be passed directly to Client Components» y la página entera responde
+ * 500. Ni `tsc` ni `next build` lo ven, porque el tipo era correcto: solo
+ * reventaba al pintar. Con `React.ReactNode` el elemento ya está creado y viaja
+ * serializado, y de paso el compilador rechaza la forma vieja.
+ *
+ * El tamaño y el color se quedan aquí para que las treinta pantallas vacías no
+ * los repitan (y no los repitan mal).
  */
 export function Vacio({
-  icono: Icono,
+  icono,
   titulo,
   children,
   accion,
 }: {
-  icono: LucideIcon
+  icono: React.ReactNode
   titulo: string
   children?: React.ReactNode
   accion?: React.ReactNode
@@ -85,7 +98,7 @@ export function Vacio({
     <div
       className={`flex flex-col items-center justify-center gap-2 px-6 py-10 text-center ${RADIO.r2} border ${LINEA.normal} ${SUPERFICIE.sup}`}
     >
-      <Icono className="h-5 w-5 text-[var(--ls-t4)]" />
+      <span className="text-[var(--ls-t4)] [&>svg]:h-5 [&>svg]:w-5">{icono}</span>
       <p className={TITULO.seccion}>{titulo}</p>
       {children && <div className={`${TIPO.s} ${TEXTO.t3} max-w-[52ch]`}>{children}</div>}
       {accion}

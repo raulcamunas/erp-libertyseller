@@ -81,10 +81,38 @@ export interface DestinoAmazon {
 const DESTINO_FIELDS =
   'id, client_id, name, marketplace_ids, default_marketplace_id, status, is_active'
 
+/**
+ * UN CLIENTE QUE ESTÁ EN AMAZON PERO TODAVÍA NO EN EL SINCRONISMO.
+ *
+ * No tiene fila en `stock_clients`, así que no tiene id de sincronismo: lo único
+ * que se puede usar para identificarlo es el SLUG, que es lo que comparten las
+ * dos tablas (la 118 dice literalmente «misma forma que stock_clients.slug»).
+ *
+ * Existe porque la pestaña Origen tiene que poder decir «a este cliente NO le
+ * hace falta sincronizar», y antes no podía: la lista salía solo de
+ * `stock_clients`, así que un cliente que únicamente estaba en Amazon no
+ * aparecía. Y a la vez Growth Partner le enlazaba aquí —«si el suyo tiene que
+ * llegar, se dice en Amazon API · Origen»—, o sea que el enlace llevaba a una
+ * lista donde ese cliente no estaba. Callejón sin salida.
+ */
+export interface ClienteSinAlta {
+  slug: string
+  name: string
+  is_active: boolean
+}
+
 export interface PerfilesView {
   perfiles: StockReadProfile[]
   /** Los clientes del módulo de sincronismo; el perfil cuelga de uno */
   clientes: StockClient[]
+  /**
+   * Los que están en `amazon_clients` y NO en `stock_clients`.
+   *
+   * Se devuelven aparte y no mezclados en `clientes` a propósito: no tienen id
+   * de sincronismo, y meterlos con un id inventado haría que la pantalla les
+   * ofreciera botones que escriben contra una fila que no existe.
+   */
+  clientesSinAlta: ClienteSinAlta[]
   conexiones: DestinoAmazon[]
   conectores: ConectorPublico[]
   /** Últimas ejecuciones, para la pestaña de historial */
@@ -98,6 +126,25 @@ export interface PerfilesView {
    */
   driveEmail: string | null
   driveConfigurado: boolean
+  /**
+   * QUIÉN DECIDIÓ QUE UN CLIENTE NO SINCRONIZA: id de perfil -> nombre.
+   *
+   * Se resuelve aquí y no con un JOIN porque `profiles` no tiene relación
+   * declarada con `stock_clients` en PostgREST, y son dos o tres nombres.
+   *
+   * Un id que no esté en este mapa NO es un error: es alguien que ya no está en
+   * el ERP. La clave ajena es ON DELETE SET NULL, así que en ese caso la fecha y
+   * el motivo —que es lo que de verdad se consulta— siguen ahí.
+   */
+  decididoPor: Record<string, string>
+  /**
+   * Falta lanzar la migración 127, la de «este cliente no sincroniza».
+   *
+   * Va aparte de `missingTables` porque el módulo funciona entero sin ella: lo
+   * único que no se puede es tomar esa decisión. Cortar la pantalla por esto
+   * dejaría sin orígenes a quien solo quiere tocar un perfil.
+   */
+  faltaMigracionNoSincroniza: boolean
 }
 
 const RUNS_RECIENTES = 40
@@ -108,12 +155,15 @@ export async function loadPerfiles(): Promise<PerfilesView> {
   const vacio: PerfilesView = {
     perfiles: [],
     clientes: [],
+    clientesSinAlta: [],
     conexiones: [],
     conectores: conectoresPublicos(),
     runs: [],
     missingTables: true,
     driveEmail: driveServiceAccountEmail(),
     driveConfigurado: isDriveConfigured(),
+    decididoPor: {},
+    faltaMigracionNoSincroniza: false,
   }
 
   try {
@@ -154,15 +204,54 @@ export async function loadPerfiles(): Promise<PerfilesView> {
       .limit(RUNS_RECIENTES)
     if (errorRuns) throw errorRuns
 
+    /**
+     * ¿Está la 127 lanzada?
+     *
+     * Se mira en la FILA y no con una consulta al catálogo de Postgres: el
+     * `select('*')` de arriba trae las columnas que existan, así que si la clave
+     * no viene en ninguna fila es que la migración no está. Sin clientes no se
+     * puede saber, y da igual: sin clientes no hay nada que marcar.
+     */
+    const faltaMigracionNoSincroniza =
+      clientes.length > 0 && !('no_sincroniza_desde' in (clientes[0] as object))
+
+    /**
+     * Los clientes que solo están en Amazon, cruzados POR SLUG.
+     *
+     * Que `amazon_clients` no exista todavía no es un fallo de esta pantalla:
+     * son dos módulos distintos con dos migraciones distintas, y el sincronismo
+     * funcionaba antes de que existiera Amazon API. Si la tabla no está, esta
+     * lista sale vacía y todo lo demás sigue igual.
+     */
+    const yaDadosDeAlta = new Set(clientes.map((c) => c.slug))
+    let clientesSinAlta: ClienteSinAlta[] = []
+    try {
+      const deAmazon = await fetchAll<{ name: string; slug: string; is_active: boolean }>((a, b) =>
+        service
+          .from('amazon_clients')
+          .select('name, slug, is_active')
+          .order('name', { ascending: true })
+          .range(a, b)
+      )
+      clientesSinAlta = deAmazon
+        .filter((c) => !yaDadosDeAlta.has(c.slug))
+        .map((c) => ({ slug: c.slug, name: c.name, is_active: c.is_active }))
+    } catch (error) {
+      if (!isMissingSchema(error)) throw error
+    }
+
     return {
       perfiles,
       clientes,
+      clientesSinAlta,
       conexiones,
       conectores: conectoresPublicos(),
       runs: (runs ?? []) as StockProfileRun[],
       missingTables: false,
       driveEmail: vacio.driveEmail,
       driveConfigurado: vacio.driveConfigurado,
+      decididoPor: await nombresDeQuienDecidio(clientes),
+      faltaMigracionNoSincroniza,
     }
   } catch (error) {
     // La migración se lanza a mano en el editor SQL de Supabase, así que el
@@ -172,6 +261,150 @@ export async function loadPerfiles(): Promise<PerfilesView> {
     if (isMissingSchema(error)) return vacio
     throw error
   }
+}
+
+/**
+ * Los nombres de quien decidió que un cliente no sincroniza.
+ *
+ * Gemela de loadSubmissionAuthors() de lib/amazon/data.ts, y copiada en vez de
+ * importada por lo mismo que el resto de este fichero no importa de allí: aquel
+ * módulo arrastra el cliente de la SP-API entero y este no tiene por qué
+ * depender de él para resolver dos nombres.
+ *
+ * NUNCA LANZA. Que no se pueda leer un nombre no puede tumbar la pantalla de
+ * orígenes: sin el nombre la decisión se sigue leyendo —queda la fecha y el
+ * motivo— y con una excepción no se lee nada.
+ */
+async function nombresDeQuienDecidio(clientes: StockClient[]): Promise<Record<string, string>> {
+  const ids = Array.from(
+    new Set(
+      clientes.map((c) => c.no_sincroniza_por).filter((v): v is string => typeof v === 'string')
+    )
+  )
+  if (ids.length === 0) return {}
+
+  try {
+    const service = createServiceClient()
+    const { data, error } = await service
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', ids)
+    if (error) throw error
+
+    const out: Record<string, string> = {}
+    for (const p of (data ?? []) as Array<{
+      id: string
+      full_name: string | null
+      email: string | null
+    }>) {
+      // Mismo orden de preferencia que en el historial de cambios y en
+      // vacaciones: el nombre y, si no hay, el correo. Nunca el UUID.
+      out[p.id] = p.full_name || p.email || 'Alguien que ya no está en el ERP'
+    }
+    return out
+  } catch (error) {
+    console.error('No se han podido resolver los nombres de las decisiones de sincronización:', error)
+    return {}
+  }
+}
+
+/**
+ * MARCA O DESMARCA «ESTE CLIENTE NO HACE SINCRONIZACIÓN DE STOCK».
+ *
+ * Las tres columnas se escriben SIEMPRE JUNTAS, incluso al desmarcar, y no es
+ * celo: la migración 127 lleva un CHECK que exige que motivo y autor solo
+ * existan si hay fecha. Escribir la fecha a null y dejarse el motivo deja un
+ * texto —«no tiene ERP»— colgado de un cliente que sí sincroniza, y ese texto se
+ * lee meses después como si siguiera vigente. El CHECK lo impediría con un error
+ * de Postgres; hacerlo bien aquí evita tener que traducirlo.
+ *
+ * LOS PERFILES DEL CLIENTE NO SE TOCAN. Un cliente puede dejar de sincronizar
+ * tres meses y volver; tirar su configuración de columnas para ahorrar una fila
+ * es un mal negocio. Quien se los salta es el ciclo (perfilesDelCiclo).
+ */
+export async function marcarNoSincroniza(
+  clientId: string,
+  opciones: {
+    /** true = no se le sincroniza; false = vuelve a la normalidad */
+    noSincroniza: boolean
+    /** Por qué. Solo se guarda al marcar */
+    motivo: string | null
+    /** Quién lo decide. profiles.id de quien ha hecho la llamada */
+    porUsuario: string | null
+  }
+): Promise<void> {
+  const service = createServiceClient()
+
+  const cambios = opciones.noSincroniza
+    ? {
+        no_sincroniza_desde: new Date().toISOString(),
+        no_sincroniza_motivo: opciones.motivo,
+        no_sincroniza_por: opciones.porUsuario,
+      }
+    : { no_sincroniza_desde: null, no_sincroniza_motivo: null, no_sincroniza_por: null }
+
+  const { error } = await service.from('stock_clients').update(cambios).eq('id', clientId)
+
+  if (error) {
+    // El caso frecuente el primer día: el código desplegado y la migración sin
+    // pegar en el editor de Supabase. El error de PostgREST dice «column does
+    // not exist», que no le sirve a nadie.
+    if (isMissingSchema(error)) {
+      throw new Error(
+        'Falta lanzar 127_origenes_no_sincroniza.sql en el editor SQL de Supabase: sin esas columnas no hay dónde apuntar la decisión.'
+      )
+    }
+    throw error
+  }
+}
+
+/**
+ * DA DE ALTA EN EL SINCRONISMO A UN CLIENTE QUE SOLO ESTABA EN AMAZON.
+ *
+ * Devuelve el id de su fila en `stock_clients`, creándola si no la había.
+ *
+ * ============ POR QUÉ SE CREA LA FILA Y NO SE PIDE QUE LA CREEN ANTES ============
+ *
+ * Porque la decisión que se quiere tomar es «a este cliente NO le hace falta
+ * sincronizar», y obligar a darlo de alta en el sincronismo para poder decir que
+ * no sincroniza es pedirle a alguien que haga justo lo contrario de lo que ha
+ * decidido. La fila no significa «le mandamos stock»: significa «alguien ha
+ * mirado esto». Lo que significa que sí se le manda es tener un perfil activo.
+ *
+ * NO SE INVENTA NADA: el nombre y el slug se copian de `amazon_clients`, que es
+ * la misma identidad —las dos tablas comparten la forma del slug a propósito— y
+ * el cruce por slug es el que ya usa Growth Partner. Si la fila ya existe, no se
+ * toca: esto es idempotente y no pisa un nombre que alguien haya corregido a
+ * mano en el sincronismo.
+ */
+export async function altaDesdeAmazon(slug: string): Promise<string> {
+  const service = createServiceClient()
+
+  const { data: yaEsta, error: errorBusca } = await service
+    .from('stock_clients')
+    .select('id')
+    .eq('slug', slug)
+    .maybeSingle()
+  if (errorBusca) throw errorBusca
+  if (yaEsta) return yaEsta.id
+
+  const { data: enAmazon, error: errorAmazon } = await service
+    .from('amazon_clients')
+    .select('name, slug, is_active')
+    .eq('slug', slug)
+    .maybeSingle()
+  if (errorAmazon) throw errorAmazon
+  if (!enAmazon) {
+    throw new Error('Ese cliente no existe en Amazon API, así que no hay identidad que copiar.')
+  }
+
+  const { data: creado, error: errorCrea } = await service
+    .from('stock_clients')
+    .insert({ name: enAmazon.name, slug: enAmazon.slug, is_active: enAmazon.is_active })
+    .select('id')
+    .single()
+  if (errorCrea) throw errorCrea
+  return creado.id
 }
 
 /** Un perfil suelto. null si ya no existe */
@@ -583,10 +816,17 @@ export async function soltarCerrojo(profileId: string, token: string): Promise<v
  * más tiempo sin mirarse va delante. Con eso, si una pasada se queda sin tiempo
  * y deja perfiles sin tocar, la siguiente empieza por ellos y ninguno se queda
  * atrás indefinidamente.
+ *
+ * Y QUEDAN FUERA LOS CLIENTES MARCADOS COMO «NO SINCRONIZA» (migración 127). Es
+ * lo que convierte esa marca en una decisión de verdad y no en una etiqueta de
+ * pantalla: sin este filtro, marcar un cliente cuya configuración se conserva
+ * —que es lo que se conserva a propósito— seguiría mandándole stock a Amazon
+ * cada cuarto de hora mientras la pantalla dice que no.
  */
 export async function perfilesDelCiclo(): Promise<StockReadProfile[]> {
   const service = createServiceClient()
-  return fetchAll<StockReadProfile>((a, b) =>
+
+  const perfiles = await fetchAll<StockReadProfile>((a, b) =>
     service
       .from('stock_read_profiles')
       .select('*')
@@ -597,4 +837,46 @@ export async function perfilesDelCiclo(): Promise<StockReadProfile[]> {
       .order('id')
       .range(a, b)
   )
+  if (perfiles.length === 0) return perfiles
+
+  const excluidos = await clientesQueNoSincronizan()
+  return excluidos.size === 0 ? perfiles : perfiles.filter((p) => !excluidos.has(p.client_id))
+}
+
+/**
+ * Los clientes a los que se ha decidido no sincronizarles el stock.
+ *
+ * SI FALLA, DEVUELVE EL CONJUNTO VACÍO Y LO DEJA DICHO EN EL REGISTRO. La
+ * alternativa —propagar— dejaría el ciclo entero parado cada cuarto de hora
+ * porque la migración 127 todavía no está pegada, y eso son dieciséis clientes
+ * sin stock por una columna que solo afecta a los que se hubieran marcado, que
+ * mientras la migración no exista son cero.
+ *
+ * Es un fallo hacia el lado seguro EN ESTE CASO CONCRETO, y conviene saber por
+ * qué: hasta que la 127 esté lanzada nadie ha podido marcar a nadie, así que la
+ * respuesta honesta y la respuesta vacía coinciden. Con la migración puesta, un
+ * fallo de esta consulta ya no es «no hay marcados» y por eso deja rastro.
+ */
+async function clientesQueNoSincronizan(): Promise<Set<string>> {
+  try {
+    const service = createServiceClient()
+    const { data, error } = await service
+      .from('stock_clients')
+      .select('id')
+      .not('no_sincroniza_desde', 'is', null)
+    if (error) throw error
+    return new Set((data ?? []).map((c) => (c as { id: string }).id))
+  } catch (error) {
+    if (isMissingSchema(error)) {
+      // Sin la 127 no hay nadie marcado. Ni una línea de registro: sería un
+      // error cada quince minutos de algo que ya se sabe, y un error repetido
+      // acaba tapando los de verdad.
+      return new Set()
+    }
+    console.error(
+      '[stock-sync] no se ha podido leer qué clientes están excluidos de la sincronización; esta pasada los trata a todos como incluidos:',
+      error
+    )
+    return new Set()
+  }
 }

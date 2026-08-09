@@ -1,16 +1,17 @@
 'use client'
 
 import { useMemo, useRef, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
-  ChevronLeft,
   Download,
   FileSpreadsheet,
   Loader2,
   Play,
   RotateCcw,
+  Settings2,
   Upload,
   X,
 } from 'lucide-react'
@@ -36,12 +37,20 @@ export interface StockProcessPanelProps {
   /** Cuántas líneas de mapeo tiene el cliente; con cero no hay nada que cruzar */
   mappingCount: number
   /** Avisa al tablero de que hay un proceso nuevo, para que refresque el historial */
-  onProcessed: (result: ProcessResult) => void
-  /** En móvil el panel ocupa toda la pantalla y hace falta volver a la lista de clientes */
-  showBack: boolean
-  onBack: () => void
+  onProcessed: () => void
   className?: string
 }
+
+/**
+ * DÓNDE SE CONFIGURA DE DÓNDE SALE EL FICHERO.
+ *
+ * Aquí se sube a mano, que es lo que se hace dos veces por semana. Cómo llega el
+ * volcado de cada cliente —SFTP, una carpeta de Drive, un buzón de correo, o que
+ * este cliente no sincronice— se configura en Amazon API, y esos controles NO se
+ * duplican aquí: se enlaza. Dos sitios donde tocar lo mismo acaban diciendo cosas
+ * distintas, y el que se mira menos es el que miente.
+ */
+const RUTA_ORIGEN = '/dashboard/amazon-api?p=origen'
 
 /** Los tres huecos de subida. El tipo obliga a repasar los tres al tocar cualquiera */
 type DropSlot = 'stock' | 'ean' | 'plantilla'
@@ -93,8 +102,6 @@ export function StockProcessPanel({
   clientName,
   mappingCount,
   onProcessed,
-  showBack,
-  onBack,
   className = '',
 }: StockProcessPanelProps) {
   const [stockFile, setStockFile] = useState<File | null>(null)
@@ -133,7 +140,7 @@ export function StockProcessPanel({
 
       const data = (await res.json()) as ProcessResult
       setResult(data)
-      onProcessed(data)
+      onProcessed()
 
       // El resumen y el botón de descarga nacen por debajo del formulario, y
       // en una pantalla de portátil eso los deja fuera de la vista: quien
@@ -179,38 +186,41 @@ export function StockProcessPanel({
       className={`rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col min-h-0 overflow-hidden ${className}`}
     >
       <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between gap-2 flex-shrink-0 min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
-          {showBack && (
+        <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider truncate min-w-0">
+          Actualizar stock
+          {/* El nombre del cliente se queda aunque ya esté en el selector de
+              arriba: es la última confirmación de a qué cuenta va este fichero
+              y el error que evita —subir el volcado de uno a la cuenta de
+              otro— no tiene vuelta atrás. */}
+          <span className="text-white/70 normal-case tracking-normal"> · {clientName}</span>
+        </h3>
+
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {(stockFile || eanFile || templateFile || result) && (
             <button
               type="button"
-              onClick={onBack}
-              className="flex items-center gap-1 text-[12px] font-medium text-white/60 hover:text-white transition-colors flex-shrink-0"
+              onClick={reset}
+              className="text-[11px] font-medium text-white/40 hover:text-white transition-colors flex items-center gap-1"
             >
-              <ChevronLeft className="h-4 w-4" /> Clientes
+              <RotateCcw className="h-3 w-3" /> Empezar de nuevo
             </button>
           )}
-          <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider truncate">
-            Actualizar stock
-            <span className="text-white/70 normal-case tracking-normal"> · {clientName}</span>
-          </h3>
-        </div>
-        {(stockFile || eanFile || templateFile || result) && (
-          <button
-            type="button"
-            onClick={reset}
-            className="text-[11px] font-medium text-white/40 hover:text-white transition-colors flex items-center gap-1 flex-shrink-0"
+          <Link
+            href={RUTA_ORIGEN}
+            title="Configurar de dónde sale el fichero de este cliente: SFTP, Drive, correo, a mano o que no sincronice"
+            className="text-[11px] font-medium text-white/40 hover:text-white transition-colors flex items-center gap-1"
           >
-            <RotateCcw className="h-3 w-3" /> Empezar de nuevo
-          </button>
-        )}
+            <Settings2 className="h-3 w-3" /> Origen
+          </Link>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto min-w-0 p-3 flex flex-col gap-3">
+        {/* Se queda en pantalla y no detrás del botón de información: no es una
+            explicación, es lo que bloquea el botón de procesar hoy. */}
         {mappingCount === 0 && (
           <p className="rounded-xl border border-[#FF6600]/30 bg-[#FF6600]/[0.07] px-3 py-2 text-[12px] text-white/75">
-            {clientName} todavía no tiene tabla de mapeo. Impórtala desde «Base de
-            datos actual» antes de procesar: sin ella no hay forma de saber qué SKU
-            de Amazon le toca a cada referencia del ERP.
+            {clientName} no tiene tabla de mapeo. Impórtala en «Base de datos actual».
           </p>
         )}
 
@@ -249,67 +259,19 @@ export function StockProcessPanel({
           </div>
         </div>
 
-        {/* De dónde sale la plantilla y por qué tiene que ser la del cliente. El
-            segundo párrafo se queda puesto aunque ya se haya subido una: el
-            error que hay que evitar es reutilizar la de otro cliente, y ese solo
-            se ve cuando el fichero ya está en el hueco. */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 flex items-start gap-2.5 min-w-0">
-          <FileSpreadsheet className="h-4 w-4 text-white/30 flex-shrink-0 mt-0.5" />
-          <div className="min-w-0">
-            <p className="text-[12px] font-medium text-white/80">
-              {templateFile
-                ? `Comprueba que esa plantilla es la de ${clientName}`
-                : 'La plantilla de Amazon es opcional'}
-            </p>
-            {!templateFile && (
-              <p className="text-[11px] text-white/40 leading-snug mt-0.5">
-                Sin ella sale el Excel de tres columnas de siempre. Si la subes, se te
-                devuelve además esa misma plantilla rellenada: el SKU en la columna
-                del SKU y las unidades en la de cantidad, lista para subirla a Seller
-                Central sin tocar nada.
-              </p>
-            )}
-            <p className="text-[11px] text-white/40 leading-snug mt-1.5">
-              Descárgala de Seller Central{' '}
-              <span className="text-white/60">del propio {clientName}</span>, en la carga
-              masiva de inventario, eligiendo «Precio y cantidad». Lleva grabada dentro la
-              cuenta de vendedor: la plantilla de otro cliente se rellena igual de bien y
-              el fallo no se ve hasta que Seller Central devuelve un error por cada SKU,
-              porque ninguno existe en esa cuenta.
-            </p>
-            <p className="text-[11px] text-white/30 leading-snug mt-1">
-              Que sea de otra semana no es problema: Amazon convierte solo las
-              desactualizadas a la versión del día. Bajar la última evita arrastrar
-              validaciones viejas, pero no es lo que rompe una carga.
-            </p>
-          </div>
-        </div>
-
-        {/* El riesgo de FBA. Va aquí, fuera del interruptor del canal, porque no
-            depende de él: la columna de cantidad se escribe siempre y es esa la
-            que saca un producto de FBA. Metido dentro del interruptor, la
-            lectura natural era «si lo dejo apagado no pasa nada», que es
-            justamente lo contrario de lo que ocurre. */}
+        {/* Las dos cosas que hay que comprobar CON LA PLANTILLA YA PUESTA, y solo
+            entonces. El porqué de cada una está en el botón de información;
+            aquí se queda el aviso porque los dos fallos son irreversibles y solo
+            se pueden evitar antes de pulsar procesar: subir la plantilla de otro
+            cliente, y sacar de FBA un listing que estaba en FBA. */}
         {templateFile && (
           <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 flex items-start gap-2.5 min-w-0">
             <AlertTriangle className="h-4 w-4 text-amber-300/80 flex-shrink-0 mt-0.5" />
-            <div className="min-w-0">
-              <p className="text-[12px] font-medium text-amber-100/90">
-                Los SKU que hoy gestione Amazon (FBA) dejarán de estarlo
-              </p>
-              <p className="text-[11px] text-amber-200/70 leading-snug mt-0.5">
-                La plantilla lleva una cantidad para cada SKU que case, y Amazon avisa en
-                sus instrucciones de que indicar cantidad en un SKU gestionado por él lo
-                convierte en gestionado por el vendedor. Ocurre igual con el interruptor
-                de abajo encendido o apagado: lo provoca la columna de cantidad, que va
-                siempre.
-              </p>
-              <p className="text-[11px] text-amber-200/70 leading-snug mt-1">
-                El mapeo de {clientName} no distingue qué listings están en FBA, así que
-                la única forma de proteger uno es que su SKU no salga en el fichero:
-                desactívalo en «Base de datos actual» antes de procesar.
-              </p>
-            </div>
+            <p className="text-[11px] text-amber-200/80 leading-snug min-w-0">
+              Comprueba que la plantilla es la de{' '}
+              <span className="font-medium text-amber-100/90">{clientName}</span>. Los SKU que hoy
+              gestione Amazon (FBA) dejarán de estarlo.
+            </p>
           </div>
         )}
 
@@ -318,14 +280,9 @@ export function StockProcessPanel({
           checked={includeZero}
           onChange={() => setIncludeZero((v) => !v)}
           disabled={running}
-          tone="rojo"
           title="Enviar a 0 los listings que no se resuelvan"
         >
-          Apagado, lo que no casa se queda fuera del fichero y Amazon conserva el
-          stock que ya tenía. Encendido, todo lo que el volcado no explique se
-          publica con 0 unidades: si el volcado llega incompleto un día, tumba
-          listings que sí tenían producto. Enciéndelo solo cuando te conste que el
-          fichero del cliente viene completo.
+          Apagado, lo que no case se queda fuera del fichero y Amazon conserva su stock.
         </SwitchRow>
 
         <button
@@ -454,35 +411,28 @@ export function StockProcessPanel({
 // =====================================================
 
 /**
- * Los dos interruptores del panel tienen la misma pinta y el mismo peso: los
- * dos están apagados por defecto y los dos hacen algo que hay que entender
- * antes de encenderlo. Compartir el componente evita que uno se quede con el
- * texto pequeño y el otro no, que es como se dejan de leer los avisos.
+ * El interruptor con su etiqueta y UNA línea corta debajo.
+ *
+ * La línea no explica el interruptor entero a propósito: lo que pasa si se
+ * enciende, y por qué está apagado por defecto, vive en el botón de información
+ * de arriba. Encendido se pinta ROJO porque es el único control de esta pantalla
+ * capaz de publicar ceros en listings que sí tienen producto.
  */
 function SwitchRow({
   checked,
   onChange,
   disabled,
-  tone,
   title,
   children,
 }: {
   checked: boolean
   onChange: () => void
   disabled: boolean
-  /** Rojo, lo que puede vaciar stock; ámbar, lo que cambia cómo se envía el producto */
-  tone: 'rojo' | 'ambar'
   title: string
   children: ReactNode
 }) {
-  const encendido = tone === 'rojo' ? 'bg-red-500/70' : 'bg-amber-400/70'
-  const borde =
-    checked && tone === 'ambar' ? 'border-amber-400/25 bg-amber-400/[0.05]' : 'border-white/10 bg-white/[0.02]'
-
   return (
-    <div
-      className={`rounded-xl border px-3 py-2 flex items-start gap-3 min-w-0 transition-colors ${borde}`}
-    >
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 flex items-start gap-3 min-w-0 transition-colors">
       <button
         type="button"
         role="switch"
@@ -491,7 +441,7 @@ function SwitchRow({
         onClick={onChange}
         disabled={disabled}
         className={`mt-0.5 h-5 w-9 rounded-full flex-shrink-0 transition-colors relative ${
-          checked ? encendido : 'bg-white/[0.12]'
+          checked ? 'bg-red-500/70' : 'bg-white/[0.12]'
         } disabled:opacity-40`}
       >
         <motion.span
@@ -767,7 +717,12 @@ function UnmatchedTable({
 
   if (rows.length === 0) {
     return (
-      <p className="rounded-xl border border-green-400/25 bg-green-400/[0.05] px-3 py-2 text-[12px] text-green-200/80">
+      // Sin el `/80`: la capa de traducción de app/globals.css remapea
+      // `.text-green-200` en tema claro, pero NO su variante con alfa, y verde
+      // pálido al 80 % sobre el fondo verde de al lado se quedaba en 1,04:1
+      // —ilegible—. Es el mensaje de buenas noticias de la pantalla que se usa
+      // dos veces por semana.
+      <p className="rounded-xl border border-green-400/25 bg-green-400/[0.05] px-3 py-2 text-[12px] text-green-200">
         Todos los listings del mapeo han encontrado su stock. No hay nada pendiente.
       </p>
     )
@@ -780,18 +735,12 @@ function UnmatchedTable({
         <span className="text-[12px] font-medium text-white/80">
           {rows.length === 1 ? 'listing sin resolver' : 'listings sin resolver'}
         </span>
+        {/* Qué se ha hecho con ellos, que es lo que cambia el fichero que te
+            vas a descargar. El porqué está en el botón de información. */}
         <span className="text-[11px] text-white/45 min-w-0">
-          {includeZero
-            ? '· Van en el fichero con 0 unidades porque el interruptor está encendido. Revísalos antes de subirlo.'
-            : '· No van en el fichero: Amazon les conserva el stock que ya tenía. Ninguno se ha puesto a 0.'}
+          {includeZero ? '· Van en el fichero con 0 unidades' : '· No van en el fichero'}
         </span>
       </div>
-
-      <p className="px-3 py-2 text-[11px] text-white/45 leading-snug">
-        Esto es el trabajo pendiente: cada fila es un producto publicado del que
-        hoy no sabemos las unidades. Arreglar su línea en «Base de datos actual»
-        hace que el lunes que viene ya case sola.
-      </p>
 
       {groups.map((group) => (
         <div key={group.reason} className="border-t border-red-400/10 min-w-0">

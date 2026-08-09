@@ -44,6 +44,32 @@
 -- conectado esa columna está vacía y la lista de marcas sale vacía: no es un
 -- fallo, es que todavía no se ha enriquecido. La pantalla lo dice.
 
+-- ---------- Guardia previa ----------
+-- El editor SQL de Supabase corre el fichero entero en UNA transacción, así que
+-- cualquier fallo de aquí abajo deja la base EXACTAMENTE como estaba. Eso es lo
+-- que se quiere, pero tiene un efecto feo: un rollback silencioso es
+-- indistinguible de «no he pegado el fichero todavía». Por eso se comprueba
+-- antes lo que hace falta y se dice qué migración lo trae.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'amazon_clients'
+  ) THEN
+    RAISE EXCEPTION
+      'No existe amazon_clients. Lanza antes 118_amazon_api.sql.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'is_erp_admin'
+  ) THEN
+    RAISE EXCEPTION
+      'Falta public.is_erp_admin(uuid), que la crea 111_employees.sql. Sin ella la política RLS de abajo dejaría esta tabla abierta a cualquiera, y aquí está la clasificación de marcas de tiendas ajenas.';
+  END IF;
+END $$;
+
 -- ---------- La lista ----------
 CREATE TABLE IF NOT EXISTS public.amazon_marcas_propias (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -108,7 +134,39 @@ BEGIN
     SELECT 1 FROM pg_policies
     WHERE tablename = 'amazon_marcas_propias' AND policyname = 'amazon_marcas_propias_admin'
   ) THEN
+    -- is_erp_admin SIEMPRE con auth.uid(). La función solo existe como
+    -- is_erp_admin(uid UUID) (111_employees.sql:231) y NO tiene DEFAULT: la
+    -- llamada sin argumentos no compila —«function public.is_erp_admin() does
+    -- not exist»— y, como todo esto va en una sola transacción, se llevaba por
+    -- delante la tabla y la columna de arriba sin dejar ni rastro.
     CREATE POLICY amazon_marcas_propias_admin ON public.amazon_marcas_propias
-      FOR ALL USING (public.is_erp_admin()) WITH CHECK (public.is_erp_admin());
+      FOR ALL USING (public.is_erp_admin(auth.uid()))
+      WITH CHECK (public.is_erp_admin(auth.uid()));
+  END IF;
+END $$;
+
+-- ---------- Comprobación final ----------
+-- Que un rollback no vuelva a parecer «no lo he pegado». Si algo de arriba no
+-- ha cuajado, esto lo dice por su nombre en vez de dejar la pantalla de Marcas
+-- respondiendo 503 para siempre.
+DO $$
+BEGIN
+  IF to_regclass('public.amazon_marcas_propias') IS NULL THEN
+    RAISE EXCEPTION 'La tabla amazon_marcas_propias no se ha creado.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'amazon_listings'
+      AND column_name = 'marca_propia_origen'
+  ) THEN
+    RAISE EXCEPTION 'Falta amazon_listings.marca_propia_origen.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'amazon_marcas_propias' AND policyname = 'amazon_marcas_propias_admin'
+  ) THEN
+    RAISE EXCEPTION 'La política amazon_marcas_propias_admin no se ha creado.';
   END IF;
 END $$;

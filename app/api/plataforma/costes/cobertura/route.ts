@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
-import { FALTAN_MIGRACIONES, faltaEsquema } from '@/lib/plataforma/pantallas'
+import { faltaEsquema } from '@/lib/plataforma/pantallas'
+import { FALTAN_MIGRACIONES_COSTES } from '@/lib/plataforma/costes/tipos'
 import { coberturaDe } from '@/lib/plataforma/costes/pantalla'
 import { esFechaIso } from '@/lib/plataforma/costes/vigencia'
 
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     const cobertura = await coberturaDe(clientId, fecha ?? undefined)
     return NextResponse.json({ ...cobertura, leidoAt: new Date().toISOString() })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error calculando la cobertura de costes')
   }
 }

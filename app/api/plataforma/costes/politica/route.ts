@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, readText, requireAmazonAdmin } from '@/lib/amazon/api'
-import { FALTAN_MIGRACIONES, faltaEsquema } from '@/lib/plataforma/pantallas'
+import { faltaEsquema } from '@/lib/plataforma/pantallas'
+import { FALTAN_MIGRACIONES_COSTES } from '@/lib/plataforma/costes/tipos'
 import { guardarPolitica, politicaDe } from '@/lib/plataforma/costes/datos'
 
 /**
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ politica: await politicaDe(clientId) })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error cargando la política de costes')
   }
 }
@@ -77,7 +78,7 @@ export async function PATCH(request: NextRequest) {
     const politica = await guardarPolitica(clientId, patch, session.userId)
     return NextResponse.json({ politica })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error guardando la política de costes')
   }
 }

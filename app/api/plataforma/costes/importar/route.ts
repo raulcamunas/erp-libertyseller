@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, readText, requireAmazonAdmin } from '@/lib/amazon/api'
-import { FALTAN_MIGRACIONES, faltaEsquema } from '@/lib/plataforma/pantallas'
+import { faltaEsquema } from '@/lib/plataforma/pantallas'
+import { FALTAN_MIGRACIONES_COSTES } from '@/lib/plataforma/costes/tipos'
 import { perfilDe } from '@/lib/plataforma/costes/datos'
 import { importarCostes } from '@/lib/plataforma/costes/importar'
 import { esFechaIso, hoyIso } from '@/lib/plataforma/costes/vigencia'
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ informe })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     // Los errores de lectura de fichero (StockSyncError) son `Error` con mensaje
     // en español y salen tal cual en un 400: «la hoja Tarifas no existe, las del
     // fichero son…» se arregla solo. Ver errorResponse().

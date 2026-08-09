@@ -7,9 +7,7 @@ import {
   ChevronRight,
   Hand,
   Inbox,
-  Info,
   RotateCcw,
-  Save,
   Search,
   Settings2,
 } from 'lucide-react'
@@ -21,7 +19,6 @@ import type {
   FilaCatalogo,
   FiltroSeguimiento,
   MarcarRespuesta,
-  ReglaActivos,
   ReglaRespuesta,
 } from '@/lib/plataforma/cliente'
 import type { OrdenTope } from '@/lib/plataforma/tipos'
@@ -30,15 +27,12 @@ import {
   CAMPO,
   COLOR_ESTADO,
   ESTADO,
-  LINEA,
   PANTALLA,
-  RADIO,
-  SUPERFICIE,
   TABLA,
   TEXTO,
   TIPO,
-  TITULO,
 } from '@/lib/estilo/denso'
+import { PARAM_PESTANA } from '@/components/amazon-api/pestanas'
 import type { SkuAbierto } from './PlataformaBoard'
 import { Aviso, Cargando, Dialogo, Panel, Vacio, cifra, dinero, nombreMarketplace } from './comun'
 
@@ -84,7 +78,6 @@ export function PanelSeguimiento({
   onAbrirSku: (sku: SkuAbierto) => void
 }) {
   const [regla, setRegla] = useState<ReglaRespuesta | null>(null)
-  const [editandoRegla, setEditandoRegla] = useState(false)
 
   const [catalogo, setCatalogo] = useState<CatalogoRespuesta | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -163,18 +156,24 @@ export function PanelSeguimiento({
 
   return (
     <div className="flex flex-col gap-2 pb-4">
-      {/* -------- La regla -------- */}
+      {/* -------- La regla: SOLO LECTURA. Se edita en la pestaña Seguimiento --------
+
+          Aquí había un segundo editor del MISMO criterio: dos pantallas dentro
+          de Amazon API con la palabra «Seguimiento», las dos haciendo PATCH a
+          /api/plataforma/reglas y sin avisarse entre ellas, así que quien
+          cambiara el criterio en una veía el viejo en la otra hasta recargar.
+          El de la pestaña es estrictamente mayor —tiene además el simulacro— y
+          es el que se ha quedado. Esto enseña lo que hay y manda allí. */}
       <Panel
         titulo="Criterio de SKU en seguimiento"
         derecha={
-          <button
-            type="button"
-            onClick={() => setEditandoRegla(true)}
+          <a
+            href={`/dashboard/amazon-api?${PARAM_PESTANA}=seguimiento`}
             className={`${BOTON.base} ${BOTON.secundario}`}
           >
             <Settings2 className="h-3 w-3" />
-            {regla?.regla ? 'Cambiar' : 'Crear'}
-          </button>
+            Cambiarlo en Seguimiento
+          </a>
         }
       >
         {regla ? (
@@ -311,19 +310,6 @@ export function PanelSeguimiento({
             onIr={setDesde}
           />
         </>
-      )}
-
-      {editandoRegla && regla && (
-        <DialogoRegla
-          cliente={cliente}
-          regla={regla.regla}
-          unidades={unidades}
-          onCerrar={() => setEditandoRegla(false)}
-          onGuardado={() => {
-            setEditandoRegla(false)
-            recargar()
-          }}
-        />
       )}
 
       {marcando && (
@@ -529,14 +515,14 @@ function Paginacion({
 function VacioCatalogo({ hayFiltro }: { hayFiltro: boolean }) {
   if (hayFiltro) {
     return (
-      <Vacio icono={Search} titulo="Ningún SKU encaja con esto">
+      <Vacio icono={<Search />} titulo="Ningún SKU encaja con esto">
         Prueba a quitar el filtro o a buscar otra cosa. La búsqueda mira en el SKU, el ASIN y el
         título, y no distingue mayúsculas.
       </Vacio>
     )
   }
   return (
-    <Vacio icono={Inbox} titulo="El espejo del catálogo está vacío">
+    <Vacio icono={<Inbox />} titulo="El espejo del catálogo está vacío">
       Todavía no se ha traído ni un SKU de Amazon. Lanza{' '}
       <span className={TEXTO.t1}>«Censo del catálogo»</span> desde la pestaña de Ingesta: es el
       trabajo que descubre los SKU y los ASIN, y de él cuelga todo lo demás. Mientras el catálogo
@@ -650,10 +636,9 @@ function DialogoMarcar({
           placeholder="Candidato a FBA: lo vigilamos aunque hoy venda poco"
           autoFocus
         />
-        <p className={CAMPO.nota}>
-          Obligatorio, y también lo exige la base. Es lo que contesta dentro de tres meses «¿por qué
-          este producto no se refresca?» sin que nadie tenga que reconstruir la decisión.
-        </p>
+        {/* El «para qué sirve» está en el botón de información; aquí solo lo que
+            hace falta para rellenar el campo. */}
+        <p className={CAMPO.nota}>Obligatorio.</p>
       </div>
     </Dialogo>
   )
@@ -670,380 +655,16 @@ const ETIQUETA_ORDEN: Record<OrdenTope, string> = {
   sku: 'SKU',
 }
 
-function DialogoRegla({
-  cliente,
-  regla,
-  unidades,
-  onCerrar,
-  onGuardado,
-}: {
-  cliente: ClienteConIngesta
-  regla: ReglaActivos | null
-  unidades: Array<{ clave: string; conexion: string; marketplaceId: string }>
-  onCerrar: () => void
-  onGuardado: () => void
-}) {
-  const [f, setF] = useState({
-    name: regla?.name ?? 'Criterio del cliente',
-    marketplace_ids: regla?.marketplace_ids ?? [],
-    incluir_fba: regla?.incluir_fba ?? true,
-    incluir_fbm: regla?.incluir_fbm ?? false,
-    incluir_marca_propia: regla?.incluir_marca_propia ?? true,
-    min_unidades: regla?.min_unidades ?? null,
-    ventana_dias: regla?.ventana_dias ?? 30,
-    solo_listados_activos: regla?.solo_listados_activos ?? true,
-    excluir_sin_precio: regla?.excluir_sin_precio ?? true,
-    excluir_variacion_padre: regla?.excluir_variacion_padre ?? true,
-    marcas_excluidas: (regla?.marcas_excluidas ?? []).join('\n'),
-    skus_excluidos: (regla?.skus_excluidos ?? []).join('\n'),
-    skus_incluidos: (regla?.skus_incluidos ?? []).join('\n'),
-    tope_skus: regla?.tope_skus ?? 2000,
-    orden_tope: (regla?.orden_tope ?? 'ventas') as OrdenTope,
-    notes: regla?.notes ?? '',
-  })
-  const [enviando, setEnviando] = useState(false)
-
-  /** Los países del cliente, sin repetir. Vacío = todos */
-  const marketplaces = useMemo(
-    () => [...new Set(unidades.map((u) => u.marketplaceId))],
-    [unidades]
-  )
-
-  async function guardar() {
-    setEnviando(true)
-    const res = await patchAmazon<ReglaRespuesta>('/api/plataforma/reglas', {
-      clientId: cliente.id,
-      ...f,
-      marcas_excluidas: enLineas(f.marcas_excluidas),
-      skus_excluidos: enLineas(f.skus_excluidos),
-      skus_incluidos: enLineas(f.skus_incluidos),
-    })
-    setEnviando(false)
-    if (!res.ok) {
-      toast.error(res.error)
-      return
-    }
-    toast.success(res.data.mensaje ?? 'Criterio guardado')
-    onGuardado()
-  }
-
-  return (
-    <Dialogo
-      titulo="Criterio de SKU en seguimiento"
-      ancho="max-w-[720px]"
-      entradilla={
-        <>
-          Decide de qué SKU nos ocupamos <span className={TEXTO.t1}>cada noche</span>. Demasiado
-          ancho revienta el cupo de Amazon de esa cuenta; demasiado estrecho deja SKU sin histórico,
-          y el histórico no se recupera hacia atrás.
-        </>
-      }
-      onCerrar={onCerrar}
-      pie={
-        <>
-          <button type="button" onClick={onCerrar} className={`${BOTON.base} ${BOTON.secundario}`}>
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={() => void guardar()}
-            disabled={enviando}
-            className={`${BOTON.base} ${BOTON.primario}`}
-          >
-            <Save className="h-3 w-3" />
-            {enviando ? 'Guardando…' : 'Guardar'}
-          </button>
-        </>
-      }
-    >
-      <div className="space-y-[9px]">
-        <Grupo titulo="Qué entra">
-          <Interruptor
-            valor={f.incluir_fba}
-            onCambio={(v) => setF({ ...f, incluir_fba: v })}
-            nombre="Todo lo de FBA"
-            nota="Si está en un almacén de Amazon, cuesta dinero cada día y hay que mirarlo."
-          />
-          <Interruptor
-            valor={f.incluir_fbm}
-            onCambio={(v) => setF({ ...f, incluir_fbm: v })}
-            nombre="Todo lo de FBM"
-            nota="Con catálogos grandes esto lo mete casi todo: en ShoesF son 13.700 referencias en la ventana nocturna. Para FBM la puerta suele ser la rotación, no el canal."
-            aviso={f.incluir_fbm}
-          />
-          <Interruptor
-            valor={f.incluir_marca_propia}
-            onCambio={(v) => setF({ ...f, incluir_marca_propia: v })}
-            nombre="La marca propia del cliente"
-            nota="Si es suya, se mira aunque venda poco."
-          />
-        </Grupo>
-
-        <Grupo titulo="Rotación">
-          <div className={CAMPO.rejilla}>
-            <div className={CAMPO.contenedor}>
-              <label className={CAMPO.etiqueta} htmlFor="min-unidades">
-                Mínimo de unidades
-              </label>
-              <input
-                id="min-unidades"
-                type="number"
-                min={0}
-                value={f.min_unidades ?? ''}
-                onChange={(e) =>
-                  setF({ ...f, min_unidades: e.target.value === '' ? null : Number(e.target.value) })
-                }
-                className={`${CAMPO.input} ${CAMPO.numero}`}
-                placeholder="apagado"
-              />
-              <p className={CAMPO.nota}>
-                En blanco = esta vía está apagada. Un SKU sin datos de ventas{' '}
-                <span className={TEXTO.t1}>no se descarta</span> por esto: no se le castiga por un
-                dato que nos falta a nosotros.
-              </p>
-            </div>
-            <div className={CAMPO.contenedor}>
-              <label className={CAMPO.etiqueta} htmlFor="ventana-dias">
-                En los últimos … días
-              </label>
-              <input
-                id="ventana-dias"
-                type="number"
-                min={1}
-                max={365}
-                value={f.ventana_dias}
-                onChange={(e) => setF({ ...f, ventana_dias: Number(e.target.value) })}
-                className={`${CAMPO.input} ${CAMPO.numero}`}
-              />
-              <p className={CAMPO.nota}>
-                Las unidades salen de las ventas importadas. Hasta que llegue el rol de Análisis de
-                marcas, eso es un CSV de Sellerboard o de Business Reports.
-              </p>
-            </div>
-          </div>
-        </Grupo>
-
-        <Grupo titulo="Qué se cae">
-          <Interruptor
-            valor={f.solo_listados_activos}
-            onCambio={(v) => setF({ ...f, solo_listados_activos: v })}
-            nombre="Solo lo que está a la venta"
-            nota="Un listing que no se puede comprar no tiene Buy Box que perder."
-          />
-          <Interruptor
-            valor={f.excluir_sin_precio}
-            onCambio={(v) => setF({ ...f, excluir_sin_precio: v })}
-            nombre="Fuera lo que no tiene precio"
-            nota="Sin precio no hay margen que calcular."
-          />
-          <Interruptor
-            valor={f.excluir_variacion_padre}
-            onCambio={(v) => setF({ ...f, excluir_variacion_padre: v })}
-            nombre="Fuera las variaciones padre"
-            nota="El nodo que agrupa las tallas no se compra ni se vende."
-          />
-        </Grupo>
-
-        <Grupo titulo="El freno">
-          <div className={CAMPO.rejilla}>
-            <div className={CAMPO.contenedor}>
-              <label className={CAMPO.etiqueta} htmlFor="tope-skus">
-                Tope de SKU en seguimiento <span className={CAMPO.obligatorio}>*</span>
-              </label>
-              <input
-                id="tope-skus"
-                type="number"
-                min={1}
-                value={f.tope_skus}
-                onChange={(e) => setF({ ...f, tope_skus: Number(e.target.value) })}
-                className={`${CAMPO.input} ${CAMPO.numero}`}
-              />
-              <p className={CAMPO.nota}>
-                No es una preferencia: es la protección del cupo. Al alcanzarlo se recorta y se
-                levanta un aviso ruidoso, porque quedarse callado convertiría el freno en una
-                pérdida silenciosa de cobertura.
-              </p>
-            </div>
-            <div className={CAMPO.contenedor}>
-              <label className={CAMPO.etiqueta} htmlFor="orden-tope">
-                A quién se corta primero
-              </label>
-              <select
-                id="orden-tope"
-                value={f.orden_tope}
-                onChange={(e) => setF({ ...f, orden_tope: e.target.value as OrdenTope })}
-                className={CAMPO.input}
-              >
-                {(Object.keys(ETIQUETA_ORDEN) as OrdenTope[]).map((o) => (
-                  <option key={o} value={o}>
-                    Se ordena por {ETIQUETA_ORDEN[o]}
-                  </option>
-                ))}
-              </select>
-              <p className={CAMPO.nota}>
-                Con desempate final por SKU, para que dos recálculos seguidos den exactamente la
-                misma lista. Sin él, un SKU entraría y saldría cada noche y su serie quedaría llena
-                de huecos inexplicables.
-              </p>
-            </div>
-          </div>
-        </Grupo>
-
-        <Grupo titulo="Excepciones">
-          <div className={CAMPO.rejilla}>
-            <ListaTexto
-              id="skus-incluidos"
-              etiqueta="SKU que se siguen siempre"
-              valor={f.skus_incluidos}
-              onCambio={(v) => setF({ ...f, skus_incluidos: v })}
-              nota="Entran aunque no cumplan nada. Es como se vigila un candidato antes de que tenga historia."
-            />
-            <ListaTexto
-              id="skus-excluidos"
-              etiqueta="SKU excluidos"
-              valor={f.skus_excluidos}
-              onCambio={(v) => setF({ ...f, skus_excluidos: v })}
-              nota="No entran por ninguna vía."
-            />
-            <ListaTexto
-              id="marcas-excluidas"
-              etiqueta="Marcas excluidas"
-              valor={f.marcas_excluidas}
-              onCambio={(v) => setF({ ...f, marcas_excluidas: v })}
-              nota="No distingue mayúsculas. Una marca excluida no entra ni siendo FBA."
-            />
-          </div>
-        </Grupo>
-
-        {marketplaces.length > 1 && (
-          <Grupo titulo="Países">
-            <div className="flex flex-wrap gap-[6px]">
-              {marketplaces.map((m) => {
-                const puesto = f.marketplace_ids.includes(m)
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() =>
-                      setF({
-                        ...f,
-                        marketplace_ids: puesto
-                          ? f.marketplace_ids.filter((x) => x !== m)
-                          : [...f.marketplace_ids, m],
-                      })
-                    }
-                    className={`${BOTON.chip} ${puesto ? BOTON.chipEncendido : ''}`}
-                  >
-                    {nombreMarketplace(m)}
-                  </button>
-                )
-              })}
-            </div>
-            <p className={CAMPO.nota}>
-              Ninguno marcado = vale para todos los países del cliente. Existe porque un cliente
-              puede tener cuarenta referencias en Estados Unidos y trece mil en España: el criterio
-              que sirve para uno arruina el otro.
-            </p>
-          </Grupo>
-        )}
-
-        <Aviso tono="azul" icono={Info}>
-          Guardar cambia el criterio, <span className={TEXTO.t1}>no el conjunto de SKU</span>. Eso se
-          mueve en el próximo «Recalcular SKU en seguimiento»: lánzalo desde la pestaña de Ingesta
-          si quieres verlo aplicado ahora. No gasta ni una llamada a Amazon.
-        </Aviso>
-      </div>
-    </Dialogo>
-  )
-}
+/* El editor del criterio VIVÍA AQUÍ y se ha ido a la pestaña «Seguimiento»
+   (components/amazon-api/paneles/PanelSeguimiento.tsx). Eran dos editores de
+   la misma regla dentro del mismo módulo, sin avisarse entre ellos. El que se
+   quedó es el de la pestaña: hace lo mismo y además simula el resultado antes
+   de guardar. Esta pantalla enseña el criterio y enlaza allí. */
 
 /* ------------------------------------------------------------------ */
 /* Piezas del formulario                                               */
 /* ------------------------------------------------------------------ */
 
-function Grupo({ titulo, children }: { titulo: string; children: React.ReactNode }) {
-  return (
-    <fieldset className={`${RADIO.r2} border ${LINEA.normal} ${SUPERFICIE.sup2} px-[9px] py-[7px]`}>
-      <legend className={`${TITULO.rotulo} px-[4px]`}>{titulo}</legend>
-      <div className="space-y-[6px]">{children}</div>
-    </fieldset>
-  )
-}
 
-function Interruptor({
-  valor,
-  onCambio,
-  nombre,
-  nota,
-  aviso,
-}: {
-  valor: boolean
-  onCambio: (v: boolean) => void
-  nombre: string
-  nota: string
-  aviso?: boolean
-}) {
-  return (
-    <label className="flex items-start gap-[6px]">
-      <input
-        type="checkbox"
-        checked={valor}
-        onChange={(e) => onCambio(e.target.checked)}
-        className="mt-[2px] h-[13px] w-[13px] shrink-0 accent-[var(--ls-acc-relleno)]"
-      />
-      <span className="min-w-0">
-        <span className={`${TIPO.m} ${TEXTO.t1}`}>{nombre}</span>
-        <span
-          className={`${TIPO.s} block leading-[1.5]`}
-          style={aviso ? { color: COLOR_ESTADO.ambar } : undefined}
-        >
-          <span className={aviso ? '' : TEXTO.t3}>{nota}</span>
-        </span>
-      </span>
-    </label>
-  )
-}
 
-function ListaTexto({
-  id,
-  etiqueta,
-  valor,
-  onCambio,
-  nota,
-}: {
-  id: string
-  etiqueta: string
-  valor: string
-  onCambio: (v: string) => void
-  nota: string
-}) {
-  const cuantos = enLineas(valor).length
-  return (
-    <div className={CAMPO.contenedor}>
-      <label className={CAMPO.etiqueta} htmlFor={id}>
-        {etiqueta} {cuantos > 0 && <span className={TEXTO.acento}>· {cuantos}</span>}
-      </label>
-      <textarea
-        id={id}
-        value={valor}
-        onChange={(e) => onCambio(e.target.value)}
-        rows={3}
-        className={`${CAMPO.input} h-auto py-[5px] leading-[1.5] resize-y`}
-        placeholder="Uno por línea"
-      />
-      <p className={CAMPO.nota}>{nota}</p>
-    </div>
-  )
-}
 
-/** Una lista escrita a mano, admitiendo saltos de línea, comas y punto y coma */
-function enLineas(texto: string): string[] {
-  return [
-    ...new Set(
-      texto
-        .split(/[\n,;\t]+/)
-        .map((s) => s.trim())
-        .filter((s) => s !== '')
-    ),
-  ]
-}

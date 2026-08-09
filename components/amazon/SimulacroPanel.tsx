@@ -177,12 +177,12 @@ export function SimulacroPanel({ perfil }: { perfil: StockReadProfile }) {
           </button>
         </div>
 
-        <p className="text-[10px] text-white/35 leading-relaxed">
-          {!manual && 'El fichero de stock se cogerá del origen configurado. '}
-          El de EAN es opcional pero cambia mucho el resultado: sin él el cruce pierde la vía por
-          código de barras del ERP, que es la que desempata las referencias que solo se diferencian
-          en los ceros a la izquierda. Si el cliente tiene su propio perfil de códigos de barras, se
-          usa ese y no hace falta subir nada aquí.
+        {/* Una línea. El porqué —que sin el fichero de EAN el cruce pierde la vía
+            por código de barras, que resuelve 245 de 395 referencias con los
+            datos reales— está detrás del botón de información de la cabecera. */}
+        <p className="text-[11px] text-white/45 leading-relaxed">
+          {!manual && 'El de stock se coge del origen configurado. '}
+          El de EAN es opcional y cambia mucho el resultado.
         </p>
 
         {error && (

@@ -33,14 +33,27 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import type { AmazonEvento, EventoSeveridad, ResolucionEvento } from './tipos'
 
-/** Distingue «la migración 123 no está lanzada» de cualquier otro error */
+/**
+ * Distingue «la migración 123 no está lanzada» de cualquier otro error.
+ *
+ * Las FUNCIONES cuentan igual que las tablas. Media plataforma se lee por RPC
+ * —plataforma_buybox_resumen, plataforma_fbmfba_datos, plataforma_cobertura_costes—
+ * y cuando esa función no existe PostgREST no contesta con un código de tabla
+ * sino con PGRST202, «no encuentro esa función». Sin los dos códigos de abajo,
+ * una migración sin pegar salía como un 500 genérico —«vuelve a intentarlo»—,
+ * que además es un consejo falso: por mucho que se reintente, la función no va a
+ * aparecer sola. Dos pantallas del mismo módulo decían qué fichero lanzar y una
+ * tercera mandaba a avisar a alguien.
+ */
 export function isMissingSchema(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code
   return (
     code === 'PGRST205' || // PostgREST: la tabla no está en su caché de esquema
     code === '42P01' || //    Postgres: undefined_table
     code === 'PGRST204' || // PostgREST: la columna no está en su caché
-    code === '42703' //       Postgres: undefined_column
+    code === '42703' || //    Postgres: undefined_column
+    code === 'PGRST202' || // PostgREST: la función no está en su caché
+    code === '42883' //       Postgres: undefined_function
   )
 }
 

@@ -1,16 +1,15 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ChevronLeft, History, Loader2 } from 'lucide-react'
+import { History, Loader2 } from 'lucide-react'
 import { StockRun, formatInt } from '@/lib/types/stock-sync'
 import { formatDateTime } from './shared'
 
 export interface StockRunsHistoryProps {
   /** Últimos procesos del cliente, del más reciente al más antiguo */
   runs: StockRun[]
+  /** El tablero está releyendo del servidor: tras procesar o tras importar */
   loading?: boolean
-  showBack: boolean
-  onBack: () => void
   className?: string
 }
 
@@ -20,8 +19,6 @@ const th =
 export function StockRunsHistory({
   runs,
   loading = false,
-  showBack,
-  onBack,
   className = '',
 }: StockRunsHistoryProps) {
   /**
@@ -49,36 +46,20 @@ export function StockRunsHistory({
     <div
       className={`rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col min-h-0 overflow-hidden ${className}`}
     >
-      <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between gap-2 flex-shrink-0 min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
-          {showBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex items-center gap-1 text-[12px] font-medium text-white/60 hover:text-white transition-colors flex-shrink-0"
-            >
-              <ChevronLeft className="h-4 w-4" /> Volver
-            </button>
+      <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-2 flex-shrink-0 min-w-0">
+        <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider flex items-center gap-2 truncate">
+          {loading ? (
+            <Loader2 className="h-3 w-3 text-[#FF6600] animate-spin flex-shrink-0" />
+          ) : (
+            <History className="h-3 w-3 flex-shrink-0" />
           )}
-          <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider flex items-center gap-2 truncate">
-            {loading ? (
-              <Loader2 className="h-3 w-3 text-[#FF6600] animate-spin flex-shrink-0" />
-            ) : (
-              <History className="h-3 w-3 flex-shrink-0" />
-            )}
-            Historial de procesos
-          </h3>
-        </div>
+          Historial de procesos
+        </h3>
       </div>
 
       {runs.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center py-6">
+        <div className="flex-1 flex items-center justify-center px-6 text-center py-6">
           <p className="text-[13px] text-white/35">Todavía no se ha procesado ningún volcado.</p>
-          <p className="text-[11px] text-white/25 max-w-[300px]">
-            Aquí queda anotado qué fichero se cruzó cada día y qué se subió a
-            Amazon. Es lo que permite responder a un «¿por qué mi producto salió
-            a cero?».
-          </p>
         </div>
       ) : (
         <div className="flex-1 overflow-auto min-w-0">

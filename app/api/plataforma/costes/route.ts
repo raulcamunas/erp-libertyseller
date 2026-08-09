@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, readText, requireAmazonAdmin } from '@/lib/amazon/api'
-import { FALTAN_MIGRACIONES, faltaEsquema } from '@/lib/plataforma/pantallas'
+import { faltaEsquema } from '@/lib/plataforma/pantallas'
+import { FALTAN_MIGRACIONES_COSTES } from '@/lib/plataforma/costes/tipos'
 import { aplicarPlan, costesEnFechas } from '@/lib/plataforma/costes/datos'
 import { planificarEscritura, type CosteAEscribir } from '@/lib/plataforma/costes/plan'
 import { tablaDeCostes, type FiltroEstado } from '@/lib/plataforma/costes/pantalla'
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ ...vista, leidoAt: new Date().toISOString() })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error cargando los costes')
   }
 }
@@ -152,7 +153,7 @@ export async function POST(request: NextRequest) {
       cambios: plan.correcciones[0]?.campos ?? [],
     })
   } catch (error) {
-    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES)
+    if (faltaEsquema(error)) return fail(503, FALTAN_MIGRACIONES_COSTES)
     return errorResponse(error, 'Error guardando el coste')
   }
 }

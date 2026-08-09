@@ -60,6 +60,28 @@ export interface CosteProductoExtra {
 export type CosteA5 = CosteProducto & CosteProductoExtra
 
 /* ------------------------------------------------------------------ */
+/* Cuando el esquema todavía no está                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * EL 503 DE A5, QUE NO ES EL DE A1.
+ *
+ * `FALTAN_MIGRACIONES` de pantallas.ts nombra la 123 y la 125, que son las de
+ * A1, y esas ya pueden estar aplicadas mientras las tablas de costes no existen
+ * — que es exactamente lo que pasa hoy en la base de la agencia. Con el mensaje
+ * genérico, la pantalla de costes manda a lanzar dos ficheros que no arreglan
+ * nada y no menciona el que sí.
+ *
+ * Un aviso accionable que señala el fichero equivocado es peor que no darlo: se
+ * lanza lo que dice, no cambia nada, y a partir de ahí nadie se cree el
+ * siguiente. Por eso A5 tiene el suyo y dice su número.
+ */
+export const FALTAN_MIGRACIONES_COSTES =
+  'Falta la migración del módulo de costes: lanza 126_plataforma_a5_costes.sql en el editor SQL ' +
+  'de Supabase. Sin ella no existen los perfiles de importación, ni la política del cliente, ni ' +
+  'el rastro de cambios, ni la cuenta de cobertura.'
+
+/* ------------------------------------------------------------------ */
 /* El canal, a efectos de coste                                        */
 /* ------------------------------------------------------------------ */
 
@@ -86,6 +108,50 @@ export const CANAL_COSTE_LABELS: Record<CanalCoste, string> = {
 /** Del espejo del catálogo al canal a efectos de coste */
 export function canalDeListing(listing: { is_fba: boolean }): CanalCoste {
   return listing.is_fba ? 'fba' : 'propio'
+}
+
+/**
+ * El canal escrito para una fila de la tabla. Un SKU puede tener los dos.
+ *
+ * Se dice «Envío propio» y no «FBM» a propósito: el mismo texto vale para SFP,
+ * que a efectos de coste es el mismo caso —el porte lo pagamos nosotros— y
+ * llamarlo FBM haría dudar a quien tenga un cliente con Seller Fulfilled Prime.
+ */
+export function canalesEnPantalla(canales: CanalCoste[]): string {
+  if (canales.length === 0) return '—'
+  if (canales.length > 1) return 'FBA y propio'
+  return canales[0] === 'fba' ? 'FBA' : 'Propio'
+}
+
+/* ------------------------------------------------------------------ */
+/* El filtro de la tabla                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POR QUÉ ESTO VIVE AQUÍ Y NO EN pantalla.ts, QUE ES DONDE SE USA.
+ *
+ * Porque pantalla.ts importa datos.ts, y datos.ts abre el cliente de
+ * `service_role`. Un componente de navegador que importara de allí la ETIQUETA
+ * de un filtro se llevaría esa cadena de módulos al paquete del cliente. Los
+ * tipos no —`import type` los borra TypeScript— pero `FILTRO_ESTADO_LABELS` es
+ * un valor de verdad y sí viajaría.
+ *
+ * Este fichero es justo el sitio: «filas de la base, enumeraciones y etiquetas,
+ * sin React, sin Supabase y sin fetch». pantalla.ts los re-exporta para que
+ * nada de lo que ya los importaba de allí tenga que cambiar.
+ *
+ * `caducado` NO es un estado de coste, es uno de VIGENCIA, y aun así está en la
+ * misma lista: quien mira esta tabla busca «de qué no me puedo fiar», y ahí
+ * caben tanto el coste que falta como el que lleva año y medio sin tocarse.
+ */
+export type FiltroEstado = 'todos' | 'sin_coste' | 'incompleto' | 'completo' | 'caducado'
+
+export const FILTRO_ESTADO_LABELS: Record<FiltroEstado, string> = {
+  todos: 'Todos',
+  sin_coste: 'Sin coste',
+  incompleto: 'Incompleto',
+  completo: 'Completo',
+  caducado: 'Caducado',
 }
 
 /* ------------------------------------------------------------------ */

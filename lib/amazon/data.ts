@@ -12,6 +12,7 @@ import {
   type AmazonSubmission,
   type AmazonSubmissionField,
 } from '@/lib/types/amazon'
+import type { ModeloNegocio, PoliticaBsr } from '@/lib/plataforma/modelo-negocio'
 import { MAX_PRICE, MAX_QUANTITY, marketplaceDeEntrada, marketplacesCubiertos } from './catalogo'
 import { encryptToken, hasTokenKey, safeEqual } from './crypto'
 import { AmazonApiError, humanMessageOf } from './errors'
@@ -869,6 +870,60 @@ export async function createAmazonClient(params: {
   }
 
   throw new Error('No se ha podido generar un identificador libre para ese nombre')
+}
+
+/**
+ * GUARDA EL MODELO DE NEGOCIO Y LA POLÍTICA DE BSR DE UN CLIENTE.
+ *
+ * Es la escritura más barata del módulo y la que más cupo ahorra: decide si al
+ * catálogo de ese cliente se le pide el ranking cada noche. En un catálogo de
+ * reventa de 13.700 SKU eso son ~44.000 llamadas a dos por segundo, o sea unas
+ * seis horas de ventana nocturna midiendo el producto de otro.
+ *
+ * ESCRIBE TRES COLUMNAS, NO DOS. La tercera —`modelo_negocio_at`— es la que
+ * convierte «este cliente es mixto» en una decisión y no en el valor por defecto
+ * de la migración 123, y sin ella el contador de «sin clasificar» de la pantalla
+ * no puede llegar nunca a cero. Ver clienteSinClasificar().
+ *
+ * EL REINTENTO SIN LA TERCERA COLUMNA NO ES DEFENSA A CIEGAS. Las migraciones de
+ * este módulo se lanzan a mano en el editor SQL de Supabase, así que este código
+ * puede estar desplegado antes que la 128. Si falta esa columna, lo que hay que
+ * hacer es guardar igualmente el modelo y la política —que es lo que de verdad
+ * cambia el comportamiento del planificador— y devolver el aviso, no negarse a
+ * clasificar a nadie hasta que alguien pegue un fichero SQL. Si lo que faltan
+ * son las otras dos, ahí sí se corta: no hay nada que guardar.
+ */
+export async function actualizarClasificacionCliente(params: {
+  clientId: string
+  modelo: ModeloNegocio
+  politica: PoliticaBsr
+}): Promise<{ client: AmazonClient; sinColumnaFecha: boolean }> {
+  const service = createServiceClient()
+  const base = { modelo_negocio: params.modelo, bsr_politica: params.politica }
+
+  const escribir = async (patch: Record<string, unknown>) =>
+    service.from('amazon_clients').update(patch).eq('id', params.clientId).select('*').single()
+
+  let sinColumnaFecha = false
+  let { data, error } = await escribir({ ...base, modelo_negocio_at: new Date().toISOString() })
+
+  if (error && isMissingSchema(error)) {
+    sinColumnaFecha = true
+    ;({ data, error } = await escribir(base))
+  }
+
+  if (error) {
+    if (isMissingSchema(error)) {
+      throw new Error(
+        'Falta lanzar la migración 123_plataforma_a1.sql en el editor SQL de Supabase: sin ella ' +
+          'no existen las columnas del modelo de negocio ni de la política de BSR.'
+      )
+    }
+    throw error
+  }
+  if (!data) throw new Error('Ese cliente ya no existe')
+
+  return { client: data as AmazonClient, sinColumnaFecha }
 }
 
 /**
