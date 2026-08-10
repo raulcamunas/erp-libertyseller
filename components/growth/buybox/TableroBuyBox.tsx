@@ -718,9 +718,23 @@ const COLUMNAS: Record<Grupo, Columna[]> = {
     },
     {
       clave: 'canal',
-      cabecera: 'Cómo entrega',
-      pista: 'FBA lo envía Amazon; SFP es Prime del propio vendedor; FBM lo envía el vendedor sin Prime. SFP NO es FBM: confundirlos hace recomendar pasar a FBA algo que ya entrega con Prime.',
-      render: (f) => <Canal canal={datosDe(f).canalGanador ?? null} />,
+      cabecera: 'Entrega · nosotros / quien la tiene',
+      pista:
+        'Los DOS canales, y por eso son dos: el hueco entre ellos explica la mitad de las Buy Box ' +
+        'perdidas. Con la destacada en FBA y la nuestra en FBM, bajar el precio puede no servir de ' +
+        'nada — el problema no es el número, es el canal. FBA lo envía Amazon; SFP es Prime del ' +
+        'propio vendedor; FBM lo envía el vendedor sin Prime. SFP NO es FBM: confundirlos hace ' +
+        'recomendar pasar a FBA algo que ya entrega con Prime.',
+      render: (f) => {
+        const d = datosDe(f)
+        return (
+          <span className="flex items-center gap-[4px]">
+            <Canal canal={d.canalPropio ?? null} />
+            <span className={TEXTO.t4}>/</span>
+            <Canal canal={d.canalGanador ?? null} />
+          </span>
+        )
+      },
     },
     {
       clave: 'competidores',
