@@ -212,11 +212,27 @@ async function entornoDe(ctx: ContextoTarea): Promise<Entorno> {
     config,
     ambito: {
       skusFiltro: ctx.job.skus_filtro,
-      // Por defecto SOLO EL SUBCONJUNTO EN SEGUIMIENTO. Es lo que decide A1 con
-      // el criterio configurable de cada cliente, y lo que hace que la ventana
-      // nocturna quepa: barrer las 13.700 referencias de un cliente cuando solo
-      // 2.000 están en seguimiento gasta el cupo de las otras 11.700 para nada.
-      soloActivos: typeof pedido === 'boolean' ? pedido : true,
+      /**
+       * TODO EL CATÁLOGO CON STOCK, no el subconjunto en seguimiento.
+       *
+       * Antes esto iba a `soloActivos: true` por miedo al cupo, y el miedo
+       * estaba mal calibrado: la fase 1 —que es la que contesta «¿gano la Buy
+       * Box?»— usa getListingOffersBatch, que va a 20 SKU cada dos segundos.
+       * Son 4 min 22 s para las 2.620 referencias de Shoplamp y 22 min para las
+       * 13.700 de ShoesF. Cabe de sobra cada cuarto de hora.
+       *
+       * Lo caro de este trabajo es el FOEP —una petición cada treinta
+       * segundos—, y ese NO barre el ámbito: va por cola y rotación con su
+       * propio tope. O sea que abrir el ámbito abarata nada y cubre todo.
+       *
+       * `soloConStock` en vez de `soloActivos` porque un SKU sin existencias no
+       * es elegible para la oferta destacada: preguntar si la gana es preguntar
+       * por algo que no puede pasar. El seguimiento sigue mandando cuando el
+       * trabajo lo pide expresamente (`soloActivos` en los parámetros), que es
+       * lo que hace el lanzamiento a mano sobre un subconjunto.
+       */
+      soloActivos: typeof pedido === 'boolean' ? pedido : false,
+      soloConStock: parametros.soloConStock !== false,
     },
   }
   entornos.set(ctx.job.id, entorno)

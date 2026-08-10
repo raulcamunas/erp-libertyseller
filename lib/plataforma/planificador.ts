@@ -129,7 +129,18 @@ const REFRESCOS: Refresco[] = [
     prioridad: 70,
     ventana: VENTANA_NOCTURNA,
     porUnidad: true,
-    parametros: { soloActivos: true },
+    /**
+     * TODO EL CATÁLOGO CON STOCK, y no el subconjunto en seguimiento.
+     *
+     * La fase que contesta «¿gano la Buy Box?» cuesta 4 min 22 s para 2.620
+     * referencias: cabe cada cuarto de hora. Lo caro es el FOEP, y ese no barre
+     * el ámbito —va por cola y rotación con su tope—, así que abrir esto no
+     * encarece la parte cara. Ver la cabecera de buybox/tarea.ts.
+     *
+     * Sin stock no se puede ganar la oferta destacada, así que preguntarlo sería
+     * gastar cupo en algo que no puede pasar.
+     */
+    parametros: { soloActivos: false, soloConStock: true },
   },
   {
     // El censo va antes que los atributos: los atributos se piden POR ASIN, y

@@ -79,12 +79,13 @@ export interface ConfigRefresco {
  * medio millón de filas al día para dibujar la misma línea que dibujan 5.000.
  */
 export const REFRESCO_POR_DEFECTO: Record<string, { minutos: number; noche: boolean }> = {
-  recalcular_activos: { minutos: 1200, noche: false }, //  20 h
-  inventario_fba: { minutos: 1200, noche: false }, //      20 h · histórico, no el stock vivo
-  snapshot_bsr: { minutos: 1200, noche: false }, //        20 h · un punto al día de la serie
-  snapshot_precios: { minutos: 1200, noche: false }, //    20 h
-  censo_catalogo: { minutos: 60, noche: false }, //         1 h
-  enriquecer_catalogo: { minutos: 8640, noche: false }, // 144 h
+  //                                    minutos          por qué
+  snapshot_precios: { minutos: 15, noche: false }, //     ¿gano la Buy Box? Se mueve por minutos
+  censo_catalogo: { minutos: 60, noche: false }, //       referencias nuevas. Amazon cachea 1-6 h
+  recalcular_activos: { minutos: 1200, noche: false }, // 20 h
+  inventario_fba: { minutos: 1200, noche: false }, //     20 h · histórico, no el stock vivo
+  snapshot_bsr: { minutos: 1200, noche: false }, //       20 h · un punto al día de la serie
+  enriquecer_catalogo: { minutos: 1200, noche: false }, //20 h · marca, categoría y medidas
 }
 
 export const MIN_MINUTOS = 15

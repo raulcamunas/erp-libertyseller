@@ -73,7 +73,48 @@ export interface AmbitoCatalogo {
    * en información que no dice nada de su cuenta. Ver lib/plataforma/modelo-negocio.ts.
    */
   soloMarcaPropia?: boolean
+  /**
+   * Solo las referencias con existencias.
+   *
+   * Es lo que hace que el monitor de Buy Box pueda cubrir el catálogo ENTERO sin
+   * gastar de más: un SKU sin stock no es elegible para la oferta destacada, así
+   * que preguntar si la gana es preguntar por algo que no puede pasar.
+   *
+   * `quantity` es la cantidad del espejo del catálogo, que refresca el ciclo de
+   * quince minutos. Un null NO cuenta como cero: significa que no lo sabemos —el
+   * caso típico es un FBM cuyo canal no declara cantidad— y descartarlo sería
+   * dejar fuera productos que sí están a la venta.
+   */
+  soloConStock?: boolean
 }
+
+/**
+ * Aplica el ámbito a una consulta sobre `amazon_listings`.
+ *
+ * ESTABA COPIADO EN CUATRO SITIOS, y ya se notaba: dos de ellos habían acabado
+ * con la línea de `soloMarcaPropia` repetida tres veces. Es inofensivo —filtrar
+ * dos veces por lo mismo da igual— pero es la señal de que añadir un filtro
+ * nuevo aquí significaba acordarse de cuatro sitios, y de que olvidarse de uno
+ * no rompe nada: solo hace que ese trabajo barra de más, en silencio.
+ *
+ * `skusFiltro` no entra aquí: unos sitios filtran por SKU y otros por ASIN, y
+ * meterlo obligaría a un parámetro que solo usa la mitad.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function aplicarAmbito<T extends { eq: (c: string, v: any) => any; gt: (c: string, v: any) => any; or: (f: string) => any }>(
+  consulta: T,
+  ambito: AmbitoCatalogo
+): T {
+  let q: any = consulta
+  if (ambito.soloActivos) q = soloEnSeguimiento(q)
+  if (ambito.soloMarcaPropia) q = q.eq('es_marca_propia', true)
+  // `quantity > 0`. Un NULL no pasa el `gt`, que es lo que se quiere: null es
+  // «no lo sabemos», no un cero, pero tampoco es una existencia confirmada y
+  // este filtro existe para no gastar cupo en lo que no puede ganar la oferta.
+  if (ambito.soloConStock) q = q.gt('quantity', 0)
+  return q as T
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /* ------------------------------------------------------------------ */
 /* Volcar el censo                                                     */
@@ -263,8 +304,7 @@ export async function siguientesAsins(
   if (ambito.skusFiltro && ambito.skusFiltro.length > 0) {
     consulta = consulta.in('sku', ambito.skusFiltro)
   }
-  if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
-  if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
+  consulta = aplicarAmbito(consulta, ambito)
 
   const { data, error } = await consulta
     .order('asin', { ascending: true })
@@ -465,10 +505,7 @@ export async function listingsDeAsins(
       if (ambito.skusFiltro && ambito.skusFiltro.length > 0) {
         consulta = consulta.in('sku', ambito.skusFiltro)
       }
-      if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
-    if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
-      if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
-  if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
+      consulta = aplicarAmbito(consulta, ambito)
       return consulta.order('sku', { ascending: true }).range(desde, hasta)
     })
     salida.push(...filas)
@@ -492,9 +529,7 @@ export async function listingsDeUnidadIngesta(
     if (ambito.skusFiltro && ambito.skusFiltro.length > 0) {
       consulta = consulta.in('sku', ambito.skusFiltro)
     }
-    if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
-    if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
-  if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
+    consulta = aplicarAmbito(consulta, ambito)
     // El SKU es único dentro de (conexión, marketplace): el orden ya termina en
     // columna única y .range() no repite ni se salta filas.
     return consulta.order('sku', { ascending: true }).range(desde, hasta)
@@ -522,8 +557,7 @@ export async function contarListings(
   if (ambito.skusFiltro && ambito.skusFiltro.length > 0) {
     consulta = consulta.in('sku', ambito.skusFiltro)
   }
-  if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
-  if (ambito.soloMarcaPropia) consulta = consulta.eq('es_marca_propia', true)
+  consulta = aplicarAmbito(consulta, ambito)
 
   const { count, error } = await consulta
   if (error) throw error
