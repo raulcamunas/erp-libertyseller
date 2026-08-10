@@ -3,6 +3,7 @@ import {
   canEditPrice,
   canEditQuantity,
   isMfnChannel,
+  marketplaceById,
   marketplacesForRegion,
   pendingChangeKey,
   resolveMarketplace,
@@ -325,6 +326,26 @@ export function marketplacesCubiertos(
     const validos = elegidos.filter((m) => suyos.has(m))
     if (validos.length > 0) return validos
   }
+
+  /**
+   * FUERA LOS QUE EL ERP NO SABE NOMBRAR, aunque no se haya elegido nada.
+   *
+   * Amazon los devuelve con `isParticipating: true` pero NO son tiendas de esta
+   * aplicación: al pedirles el catálogo contestan 403 «falta el permiso
+   * necesario». Y ese 403 marcaba la CONEXIÓN ENTERA como rota —status 'error'—
+   * aunque Estados Unidos fuera perfectamente.
+   *
+   * Eso es lo que hacía que la cuenta apareciera «Con problemas» a todas horas,
+   * que refrescar a mano pareciera arreglarlo y que desvincular y volver a
+   * vincular no sirviera de nada: nunca fue un problema de la autorización.
+   *
+   * No se puede pedir el catálogo de un marketplace que no está en
+   * lib/types/amazon.ts, así que dejarlos fuera no pierde ningún dato. Si alguno
+   * resultara ser una tienda real, se ve en Cuentas —salen listados con su aviso
+   * ámbar— y lo que hay que hacer es darlo de alta ahí.
+   */
+  const conocidos = conn.marketplace_ids.filter((id) => marketplaceById(id) !== null)
+  if (conocidos.length > 0) return conocidos
   if (conn.marketplace_ids.length > 0) return conn.marketplace_ids
   return marketplacesForRegion(conn.region).map((m) => m.id)
 }
