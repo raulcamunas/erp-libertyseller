@@ -16,6 +16,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { marketplaceById } from '@/lib/types/amazon'
 import type { DecisionActivo } from './activos'
 import { isMissingSchema } from './eventos'
 import type { CosteProducto, ReglaActivos } from './tipos'
@@ -176,8 +177,23 @@ export function filtroMercadosActivos(
   }
 
   return (connectionId, marketplaceId) => {
+    /**
+     * Los que el ERP no sabe nombrar quedan fuera SIEMPRE, se haya elegido algo
+     * o no.
+     *
+     * Son de sandbox: no son tiendas de esta aplicación, contestan 403 al
+     * pedirles nada y no se les va a programar un trabajo jamás. Listarlos con
+     * un «nunca ha corrido» al lado no es informar, es mentir — no es que no
+     * hayan corrido todavía.
+     *
+     * Se ven, con su aviso, en Amazon API · Cuentas, que es donde tiene sentido
+     * mirarlos y donde se daría de alta uno que resultara ser real.
+     */
+    if (!marketplaceById(marketplaceId)) return false
+
     const elegidos = porConexion.get(connectionId)
-    // Sin elección hecha para esa conexión, pasa todo: es lo que había antes.
+    // Sin elección hecha para esa conexión, pasa todo lo demás: es lo que había
+    // antes de la migración 134.
     if (!elegidos) return true
     return elegidos.has(marketplaceId)
   }
