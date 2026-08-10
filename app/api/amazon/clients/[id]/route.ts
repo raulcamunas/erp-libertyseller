@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
-import { actualizarClasificacionCliente } from '@/lib/amazon/data'
+import {
+  actualizarClasificacionCliente,
+  eliminarCliente,
+  loadAmazonData,
+  queSePierdeAlBorrarCliente,
+} from '@/lib/amazon/data'
 import { esModeloNegocio, esPoliticaBsr } from '@/lib/plataforma/modelo-negocio'
 
 /**
@@ -34,6 +39,71 @@ import { esModeloNegocio, esPoliticaBsr } from '@/lib/plataforma/modelo-negocio'
  * no le dice nada a nadie. Aquí se contesta en español y con un 400.
  */
 export const dynamic = 'force-dynamic'
+
+/**
+ * QUÉ SE PERDERÍA AL BORRAR A ESTE CLIENTE.
+ *
+ * Lo pide el diálogo de borrado ANTES de enseñar el botón. Todo lo del cliente
+ * está en CASCADE, así que hace falta poder decir el número —«2.620 referencias
+ * y 41.000 observaciones de BSR»— en vez de un «¿seguro?» que nadie lee.
+ */
+export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const session = await requireAmazonAdmin()
+    if (session instanceof NextResponse) return session
+    if (!UUID.test(params.id)) return fail(400, 'Ese cliente no existe')
+
+    return NextResponse.json({ perdido: await queSePierdeAlBorrarCliente(params.id) })
+  } catch (error) {
+    return errorResponse(error, 'No se ha podido calcular qué se perdería')
+  }
+}
+
+/**
+ * BORRA UN CLIENTE. NO SE PUEDE DESHACER.
+ *
+ * Dos frenos, y los dos están en lib/amazon/data.ts para que valgan también si
+ * algún día se llama desde otro sitio:
+ *
+ *   · si todavía tiene una cuenta de Amazon conectada, se niega. Esa fila
+ *     guarda el refresh token del vendedor y está en CASCADE: borrar el cliente
+ *     destruiría la llave sin que nadie haya pulsado «Desconectar».
+ *   · hay que escribir el nombre exacto.
+ *
+ * Devuelve la vista entera recargada, como el resto de escrituras del módulo.
+ */
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const session = await requireAmazonAdmin()
+    if (session instanceof NextResponse) return session
+    if (!UUID.test(params.id)) return fail(400, 'Ese cliente no existe')
+
+    const body = (await request.json().catch(() => ({}))) as { nombre?: unknown }
+    const nombreEscrito = typeof body.nombre === 'string' ? body.nombre : ''
+
+    const { nombre, perdido } = await eliminarCliente({
+      clientId: params.id,
+      nombreEscrito,
+    })
+    const data = await loadAmazonData()
+
+    const trozos: string[] = []
+    if (perdido.referencias > 0) trozos.push(`${perdido.referencias} referencias`)
+    if (perdido.observacionesBsr > 0) {
+      trozos.push(`${perdido.observacionesBsr} observaciones de BSR`)
+    }
+
+    return NextResponse.json({
+      ...data,
+      message:
+        trozos.length > 0
+          ? `«${nombre}» borrado, con ${trozos.join(' y ')}`
+          : `«${nombre}» borrado`,
+    })
+  } catch (error) {
+    return errorResponse(error, 'Error borrando un cliente de Amazon')
+  }
+}
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {

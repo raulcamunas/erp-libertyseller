@@ -873,6 +873,104 @@ export async function createAmazonClient(params: {
   throw new Error('No se ha podido generar un identificador libre para ese nombre')
 }
 
+export interface QueSePierde {
+  conexiones: number
+  referencias: number
+  observacionesBsr: number
+  trabajos: number
+}
+
+/**
+ * QUÉ SE LLEVA POR DELANTE BORRAR A ESTE CLIENTE.
+ *
+ * Todo lo que cuelga de `amazon_clients` está en ON DELETE CASCADE, así que
+ * borrar la fila del cliente borra su catálogo, sus trabajos, sus costes, su
+ * configuración de Buy Box y SU HISTÓRICO DE BSR. Ese último es el que importa:
+ * los demás se vuelven a leer de Amazon en una noche, y el BSR no —es una serie
+ * que se construye día a día y que Amazon no sirve hacia atrás—.
+ *
+ * Se cuenta ANTES de borrar y se enseña en el diálogo. Un «¿seguro?» a secas no
+ * es una confirmación: es un botón de «vale» con un paso más.
+ *
+ * Los recuentos van con `head: true`, o sea que Postgres devuelve el número sin
+ * mandar ni una fila.
+ */
+export async function queSePierdeAlBorrarCliente(clientId: string): Promise<QueSePierde> {
+  const service = createServiceClient()
+
+  const contar = async (tabla: string): Promise<number> => {
+    try {
+      const { count, error } = await service
+        .from(tabla)
+        .select('id', { count: 'exact', head: true })
+        .eq('client_id', clientId)
+      if (error) throw error
+      return count ?? 0
+    } catch {
+      // Una tabla que todavía no existe —las migraciones se lanzan a mano— no
+      // puede impedir que se cuente el resto ni bloquear el borrado.
+      return 0
+    }
+  }
+
+  const [conexiones, referencias, observacionesBsr, trabajos] = await Promise.all([
+    contar('amazon_connections'),
+    contar('amazon_listings'),
+    contar('amazon_snapshots_bsr'),
+    contar('amazon_jobs'),
+  ])
+
+  return { conexiones, referencias, observacionesBsr, trabajos }
+}
+
+/**
+ * BORRA UN CLIENTE. NO SE PUEDE DESHACER.
+ *
+ * SE NIEGA SI TODAVÍA TIENE UNA CUENTA DE AMAZON CONECTADA, y no por prudencia
+ * genérica: la conexión guarda el refresh token del vendedor y está en CASCADE,
+ * así que borrar el cliente destruiría esa llave de paso sin que nadie haya
+ * pulsado «Desconectar». Son dos actos distintos —romper la autorización de un
+ * cliente y darlo de baja— y mezclarlos hace que uno ocurra sin querer.
+ *
+ * El nombre tiene que venir escrito tal cual. Es lo que separa un borrado de un
+ * clic mal dado en una lista, y es barato: quien de verdad quiere borrar a un
+ * cliente lo teclea sin pensarlo.
+ */
+export async function eliminarCliente(params: {
+  clientId: string
+  nombreEscrito: string
+}): Promise<{ nombre: string; perdido: QueSePierde }> {
+  const service = createServiceClient()
+
+  const { data: cliente, error: errorLectura } = await service
+    .from('amazon_clients')
+    .select('id, name')
+    .eq('id', params.clientId)
+    .maybeSingle()
+  if (errorLectura) throw errorLectura
+  if (!cliente) throw new Error('Ese cliente ya no existe')
+
+  const nombre = (cliente as { name: string }).name
+  if (params.nombreEscrito.trim() !== nombre.trim()) {
+    throw new Error(
+      `Para borrarlo hay que escribir su nombre exacto: «${nombre}». Así no se borra a nadie de un clic mal dado.`
+    )
+  }
+
+  const perdido = await queSePierdeAlBorrarCliente(params.clientId)
+  if (perdido.conexiones > 0) {
+    throw new Error(
+      `«${nombre}» todavía tiene ${perdido.conexiones === 1 ? 'una cuenta de Amazon conectada' : `${perdido.conexiones} cuentas de Amazon conectadas`}. ` +
+        'Desconéctala primero: ahí es donde se destruye la llave de acceso a su tienda, y eso tiene que ser una decisión aparte.'
+    )
+  }
+
+  const { error } = await service.from('amazon_clients').delete().eq('id', params.clientId)
+  if (error) throw error
+
+  return { nombre, perdido }
+}
+
 /**
  * GUARDA EL MODELO DE NEGOCIO Y LA POLÍTICA DE BSR DE UN CLIENTE.
  *

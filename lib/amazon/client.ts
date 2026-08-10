@@ -190,8 +190,21 @@ export async function getAmazon<T>(url: string): Promise<ApiResult<T>> {
   return peticion<T>(url, { method: 'GET', cache: 'no-store' })
 }
 
-export async function deleteAmazon<T>(url: string): Promise<ApiResult<T>> {
-  return peticion<T>(url, { method: 'DELETE' })
+/**
+ * Un borrado, con cuerpo opcional.
+ *
+ * El cuerpo existe para las confirmaciones escritas: borrar un cliente exige
+ * mandar su nombre tecleado. Va en el cuerpo y no en la URL porque un nombre con
+ * espacios y acentos en una query string es una invitación a que el freno se
+ * caiga por una codificación, y el freno es justo lo que no puede fallar.
+ */
+export async function deleteAmazon<T>(url: string, body?: unknown): Promise<ApiResult<T>> {
+  return peticion<T>(
+    url,
+    body === undefined
+      ? { method: 'DELETE' }
+      : { method: 'DELETE', headers: JSON_HEADERS, body: JSON.stringify(body) }
+  )
 }
 
 /**

@@ -15,6 +15,7 @@ import {
   Plug,
   RefreshCw,
   Tags,
+  Trash2,
   Unplug,
   UserPlus,
   type LucideIcon,
@@ -63,6 +64,7 @@ import {
 import { Aviso, Vacio, cifra, fechaHora, hace } from '@/components/plataforma/comun'
 import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
 import { AltaClienteDialog } from '@/components/amazon/AltaClienteDialog'
+import { BorrarClienteDialog } from '@/components/amazon/BorrarClienteDialog'
 import { DesconectarDialog } from '@/components/amazon/DesconectarDialog'
 import { EnlaceDialog } from '@/components/amazon/EnlaceDialog'
 import type { PropsPanel } from '../tipos'
@@ -171,6 +173,7 @@ export function PanelCuentas({ data, onData, configError, appDraft }: PropsPanel
   const [alta, setAlta] = useState(false)
   const [enlace, setEnlace] = useState<{ clientId?: string } | null>(null)
   const [desconectar, setDesconectar] = useState<AmazonConnection | null>(null)
+  const [borrando, setBorrando] = useState<AmazonClient | null>(null)
   /** Qué conexión se está reintentando, para el spinner de su botón */
   const [reintentando, setReintentando] = useState<string | null>(null)
   /** Qué cliente se está guardando, para bloquear sus dos desplegables */
@@ -456,6 +459,7 @@ export function PanelCuentas({ data, onData, configError, appDraft }: PropsPanel
                   reintentando={reintentando}
                   onClasificar={(cambio) => clasificar(cliente, cambio)}
                   onConectar={() => setEnlace({ clientId: cliente.id })}
+                  onBorrar={() => setBorrando(cliente)}
                   onDesconectar={setDesconectar}
                   onReintentar={reintentar}
                 />
@@ -485,6 +489,16 @@ export function PanelCuentas({ data, onData, configError, appDraft }: PropsPanel
             clients={data.clients}
             presetClientId={enlace.clientId}
             onClose={() => setEnlace(null)}
+          />
+        )}
+
+        {borrando && (
+          <BorrarClienteDialog
+            key="borrar"
+            cliente={borrando}
+            conexiones={(porCliente.get(borrando.id) ?? []).length}
+            onClose={() => setBorrando(null)}
+            onDone={onData}
           />
         )}
 
@@ -518,6 +532,7 @@ function FilasCliente({
   reintentando,
   onClasificar,
   onConectar,
+  onBorrar,
   onDesconectar,
   onReintentar,
 }: {
@@ -530,6 +545,7 @@ function FilasCliente({
   reintentando: string | null
   onClasificar: (cambio: { modelo?: ModeloNegocio; politica?: PoliticaBsr }) => void
   onConectar: () => void
+  onBorrar: () => void
   onDesconectar: (conn: AmazonConnection) => void
   onReintentar: (conn: AmazonConnection) => void
 }) {
@@ -613,20 +629,39 @@ function FilasCliente({
         </td>
 
         <td className={`${celdaCliente} ${TABLA.derecha}`}>
-          <button
-            type="button"
-            onClick={onConectar}
-            disabled={!puedeConectar}
-            title={
-              puedeConectar
-                ? 'Genera el enlace de consentimiento de este cliente'
-                : 'Falta configurar el servidor'
-            }
-            className={`${BOTON.base} ${BOTON.secundario}`}
-          >
-            <Link2 className="h-[13px] w-[13px]" />
-            {conexiones.length === 0 ? 'Conectar' : 'Otra región'}
-          </button>
+          <span className="flex items-center justify-end gap-[4px]">
+            <button
+              type="button"
+              onClick={onConectar}
+              disabled={!puedeConectar}
+              title={
+                puedeConectar
+                  ? 'Genera el enlace de consentimiento de este cliente'
+                  : 'Falta configurar el servidor'
+              }
+              className={`${BOTON.base} ${BOTON.secundario}`}
+            >
+              <Link2 className="h-[13px] w-[13px]" />
+              {conexiones.length === 0 ? 'Conectar' : 'Otra región'}
+            </button>
+            {/* Se ofrece SIEMPRE, también con cuentas conectadas, pero el
+                servidor lo rechaza mientras las haya y lo dice. Esconder el
+                botón dejaría la pregunta «¿y este cliente cómo se quita?» sin
+                respuesta en pantalla; enseñarlo con su motivo la contesta. */}
+            <button
+              type="button"
+              onClick={onBorrar}
+              title={
+                conexiones.length > 0
+                  ? 'Hay que desconectar antes su cuenta de Amazon: ahí es donde se destruye la llave de acceso a su tienda'
+                  : 'Borrar este cliente y todo lo suyo. No se puede deshacer'
+              }
+              className={BOTON.icono}
+            >
+              <Trash2 className="h-[13px] w-[13px]" />
+              <span className="sr-only">Borrar cliente</span>
+            </button>
+          </span>
         </td>
       </tr>
 
