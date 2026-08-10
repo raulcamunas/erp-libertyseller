@@ -1171,6 +1171,75 @@ function tonoSeveridad(severidad: string): TonoEstado {
  * cuál de los dos se estaba mirando. Por eso aquí sale el número, y al lado
  * cuántas veces al día sale eso.
  */
+/**
+ * QUÉ ES CADA REFRESCO EN CRISTIANO, Y A QUÉ RITMO CAMBIA ESE DATO.
+ *
+ * La tabla se llamaba por los nombres internos del motor —«Recalcular SKU en
+ * seguimiento», «Censo del catálogo»— y eso obligaba a saberse el motor para
+ * elegir un número. Aquí manda EL DATO; el nombre técnico va debajo en pequeño
+ * porque es el que aparece en la cola de trabajos y en «Al día», y dos
+ * vocabularios distintos para lo mismo es justo el lío que esto viene a cerrar.
+ *
+ * `cambia` contesta la única pregunta que importa al elegir la cadencia: cada
+ * cuánto cambia el dato DE VERDAD. Pedirlo más a menudo que eso no trae nada
+ * nuevo.
+ */
+const QUE_ES: Record<string, { dato: string; cambia: string; serie?: boolean }> = {
+  snapshot_precios: {
+    dato: 'Quién gana la Buy Box',
+    cambia: 'minutos · los competidores mueven precios todo el día',
+  },
+  censo_catalogo: {
+    dato: 'Referencias nuevas y retiradas',
+    cambia: 'horas · Amazon cachea el informe entre 1 y 6 h',
+  },
+  inventario_fba: {
+    dato: 'Histórico de existencias',
+    cambia: '1 vez al día · el stock que se ve en pantalla ya va cada 15 min',
+    serie: true,
+  },
+  snapshot_bsr: {
+    dato: 'Ranking de ventas (BSR)',
+    cambia: '1 vez al día · Amazon no lo recalcula más a menudo',
+    serie: true,
+  },
+  enriquecer_catalogo: {
+    dato: 'Marca, categoría y medidas',
+    cambia: 'casi nunca · un producto no cambia de marca',
+  },
+  recalcular_activos: {
+    dato: 'Qué SKU están en seguimiento',
+    cambia: 'cuando cambias el criterio · no pide nada a Amazon',
+  },
+}
+
+/**
+ * A partir de cuándo una SERIE se está guardando a sí misma en bucle.
+ *
+ * El BSR y el inventario no son «el dato de ahora»: son histórico, una fila por
+ * SKU y pasada. A cuatro horas ya son seis puntos diarios de algo que cambia una
+ * vez al día. Por debajo, lo que crece es la factura de la base y no la
+ * información: la línea del gráfico sale idéntica.
+ */
+const SERIE_DEMASIADO_RAPIDO = 240
+
+/**
+ * El orden es POR RITMO, del más vivo al más quieto, y no el del planificador.
+ *
+ * Puesto por prioridad de ejecución, «Marca y medidas» salía en medio de cosas
+ * que van cada hora y no había forma de leer la tabla de un vistazo. Así la
+ * columna «cambia cada» baja sola y el número de al lado tiene que acompañarla:
+ * cuando no lo hace, se ve.
+ */
+const ORDEN_POR_RITMO = [
+  'snapshot_precios',
+  'censo_catalogo',
+  'inventario_fba',
+  'snapshot_bsr',
+  'recalcular_activos',
+  'enriquecer_catalogo',
+]
+
 function PanelHorarios({
   horarios,
   etiquetas,
@@ -1210,32 +1279,51 @@ function PanelHorarios({
           «cada día» aquí parecen contradecirse. No se contradicen: son el
           reloj del motor y el reloj de los datos. */}
       <div className={`px-[10px] pt-[8px] ${TIPO.s} ${TEXTO.t3}`}>
-        Cada cuánto se vuelve a traer cada dato de Amazon. No confundir con{' '}
+        La regla es una:{' '}
+        <strong className={TEXTO.t2}>pon la cadencia al ritmo al que cambia el dato</strong>, no al
+        ritmo al que quieres mirarlo — pedirlo más a menudo no trae nada nuevo. No confundir con{' '}
         <strong className={TEXTO.t2}>Sistema</strong>, que es cada cuánto se despierta el motor a
-        mirar si hay algo que hacer — el motor entra cada 5 minutos, pero lo que trae cada vez lo
-        deciden estos números.
+        mirar si hay algo que hacer.
       </div>
       <div className="overflow-x-auto">
         <table className={TABLA.tabla}>
           <thead>
             <tr>
-              <th className={`${TABLA.cabecera} ${TABLA.cabeceraFija}`}>Refresco</th>
-              <th className={TABLA.cabecera}>Cada</th>
-              <th className={TABLA.cabecera}>Sale a</th>
-              <th className={TABLA.cabecera}>Cuándo puede arrancar</th>
+              <th className={`${TABLA.cabecera} ${TABLA.cabeceraFija}`}>Dato</th>
+              <th className={TABLA.cabecera}>Cambia cada</th>
+              <th className={TABLA.cabecera}>Se trae cada</th>
+              <th className={TABLA.cabecera}>O sea</th>
+              <th className={TABLA.cabecera}>Puede arrancar</th>
               <th className={TABLA.cabecera}></th>
             </tr>
           </thead>
           <tbody>
-            {horarios.map((h) => (
-              <FilaHorario
-                key={h.tipo}
-                horario={h}
-                etiqueta={etiquetas[h.tipo] ?? h.tipo}
-                guardando={guardando === h.tipo}
-                onGuardar={(cambios) => void guardar(h.tipo, cambios)}
-              />
-            ))}
+            {/* La fila que NO se configura aquí, y justo por eso está: es el dato
+                que más se mira y el que más veces se ha preguntado dónde se
+                toca. Sin ella, la tabla parecía decir que el precio se trae una
+                vez al día. */}
+            <tr className={TABLA.fila}>
+              <td className={`${TABLA.celda} ${TABLA.celdaFija}`}>
+                <span className={TEXTO.t1}>Precio, stock y estado de los listings</span>
+                <span className={`block ${TIPO.s} ${TEXTO.t4}`}>ciclo de catálogo</span>
+              </td>
+              <td className={`${TABLA.celda} ${TEXTO.t3}`}>minutos</td>
+              <td className={`${TABLA.celda} ${TEXTO.t3}`}>cada 15 minutos</td>
+              <td className={`${TABLA.celda} ${TEXTO.t3}`}>96 veces al día</td>
+              <td className={`${TABLA.celda} ${TEXTO.t3}`}>a cualquier hora</td>
+              <td className={`${TABLA.celda} ${TEXTO.t4} ${TIPO.s}`}>se cambia en Sistema</td>
+            </tr>
+            {[...horarios]
+              .sort((a, b) => ORDEN_POR_RITMO.indexOf(a.tipo) - ORDEN_POR_RITMO.indexOf(b.tipo))
+              .map((h) => (
+                <FilaHorario
+                  key={h.tipo}
+                  horario={h}
+                  etiqueta={etiquetas[h.tipo] ?? h.tipo}
+                  guardando={guardando === h.tipo}
+                  onGuardar={(cambios) => void guardar(h.tipo, cambios)}
+                />
+              ))}
           </tbody>
         </table>
       </div>
@@ -1281,9 +1369,29 @@ function FilaHorario({
    */
   const aviso = avisoDeVentana(horario.cada_minutos, horario.solo_de_noche)
 
+  const queEs = QUE_ES[horario.tipo]
+
+  /**
+   * Aviso propio de las SERIES, que es un problema distinto al del cupo.
+   *
+   * El BSR y el inventario guardan una fila por SKU y pasada. Pedirlos cada
+   * quince minutos no da una línea con más detalle: da LA MISMA línea con el
+   * mismo número repetido noventa y seis veces, y una base de datos que crece en
+   * cientos de miles de filas al día.
+   */
+  const serieMuyRapida = queEs?.serie === true && horario.cada_minutos < SERIE_DEMASIADO_RAPIDO
+
   return (
     <tr className={TABLA.fila}>
-      <td className={`${TABLA.celda} ${TABLA.celdaFija} ${TEXTO.t1}`}>{etiqueta}</td>
+      {/* El DATO manda y el nombre técnico va debajo en pequeño: ese es el que
+          sale en la cola de trabajos y en «Al día», y hacen falta los dos para
+          que no acaben siendo dos vocabularios distintos para lo mismo. */}
+      <td className={`${TABLA.celda} ${TABLA.celdaFija}`}>
+        <span className={TEXTO.t1}>{queEs?.dato ?? etiqueta}</span>
+        <span className={`block ${TIPO.s} ${TEXTO.t4}`}>{etiqueta}</span>
+      </td>
+
+      <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[240px]`}>{queEs?.cambia ?? '—'}</td>
 
       <td className={TABLA.celda}>
         <span className="flex items-center gap-[5px]">
@@ -1327,6 +1435,12 @@ function FilaHorario({
 
       <td className={`${TABLA.celda} ${TEXTO.t3}`}>
         {salidaReal(horario.cada_minutos, horario.solo_de_noche)}
+        {serieMuyRapida && (
+          <span className={`${TIPO.s} block max-w-[240px]`} style={{ color: COLOR_ESTADO.ambar }}>
+            Es un histórico: a este ritmo se guarda el mismo número muchas veces al día y la gráfica
+            sale idéntica.
+          </span>
+        )}
       </td>
 
       <td className={TABLA.celda}>
