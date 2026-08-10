@@ -100,7 +100,7 @@ export interface ClienteConIngesta extends ResumenIngesta {
 // incluidos los de sandbox, con un «nunca ha corrido» al lado de cada uno.
 const CONEXION_FIELDS =
   'id, client_id, name, selling_partner_id, marketplace_ids, marketplaces_activos, ' +
-  'default_marketplace_id, status, is_active'
+  'default_marketplace_id, status, is_active, last_sync_at, last_sync_items'
 
 const RESUMEN_VACIO: ResumenIngesta = {
   pendientes: 0,

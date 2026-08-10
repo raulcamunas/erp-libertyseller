@@ -54,6 +54,23 @@ export interface ClientesRespuesta {
 }
 
 export interface IngestaRespuesta {
+  /**
+   * El ciclo de catalogo por conexion, y el ultimo FOEP por cuenta y pais.
+   *
+   * Ninguno de los dos sale de amazon_jobs —el primero lo mueve el cron y deja
+   * su marca en la conexion, el segundo es una FASE dentro de «Precios y Buy
+   * Box»— y aun asi tienen que salir en la rejilla de «Al dia»: si no, arriba se
+   * dice cada cuanto se piden y abajo no hay forma de comprobar si se piden.
+   */
+  catalogo?: Array<{
+    connectionId: string
+    nombre: string
+    ultimo: string | null
+    items: number | null
+  }>
+  /** «connectionId|marketplaceId» -> fecha del ultimo FOEP */
+  foep?: Record<string, string>
+
   refrescos: UltimoRefresco[]
   jobs: AmazonJob[]
   eventos: AmazonEvento[]

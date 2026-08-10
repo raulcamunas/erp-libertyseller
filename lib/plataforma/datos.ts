@@ -78,11 +78,21 @@ export interface ConexionPlataforma {
   default_marketplace_id: string | null
   status: string
   is_active: boolean
+  /**
+   * Cuándo terminó bien el ciclo de catálogo y cuántas referencias trajo.
+   *
+   * El ciclo de catálogo —precio, stock y estado de los listings, cada quince
+   * minutos— NO es un trabajo de la plataforma: lo mueve el cron y deja su marca
+   * aquí. Sin estos dos campos, la rejilla de «Al día» no podía enseñar la única
+   * fila que la gente mira todos los días.
+   */
+  last_sync_at: string | null
+  last_sync_items: number | null
 }
 
 const CONEXION_FIELDS =
   'id, client_id, name, selling_partner_id, marketplace_ids, marketplaces_activos, ' +
-  'default_marketplace_id, status, is_active'
+  'default_marketplace_id, status, is_active, last_sync_at, last_sync_items'
 
 /** Las conexiones vivas de un cliente. Las rotas quedan fuera: insistir contra
     una cuenta que nos ha retirado el acceso no la recupera */

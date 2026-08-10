@@ -803,6 +803,50 @@ export async function skusConFoepDesde(
   return new Set(filas.map((f) => f.sku))
 }
 
+/**
+ * CUÁNDO SE PIDIÓ EL FOEP POR ÚLTIMA VEZ EN CADA CUENTA Y PAÍS.
+ *
+ * El FOEP NO es un trabajo: es una fase dentro de «Precios y Buy Box». Por eso
+ * no sale en `plataforma_ultimos_refrescos`, que mira amazon_jobs, y por eso
+ * hace falta esto para poder enseñarlo en la rejilla de «Al día» al lado de los
+ * demás. Sin él, la fila de arriba dice cada cuánto se pide y abajo no hay forma
+ * de comprobar si se está pidiendo de verdad — que es el fallo que toda esta
+ * pantalla existe para evitar.
+ *
+ * Una consulta por unidad, con `limit(1)`: es un salto al índice parcial
+ * `idx_amazon_snap_precio_foep`, que está ordenado justo por esto. Con once
+ * países son once saltos.
+ */
+export async function ultimoFoepPorUnidad(
+  unidades: UnidadDeTrabajo[]
+): Promise<Record<string, string>> {
+  const service = createServiceClient()
+  const salida: Record<string, string> = {}
+
+  await Promise.all(
+    unidades.map(async (u) => {
+      try {
+        const { data, error } = await service
+          .from('amazon_snapshots_precio')
+          .select('fecha')
+          .eq('connection_id', u.connectionId)
+          .eq('marketplace_id', u.marketplaceId)
+          .neq('foep_estado', 'no_consultado')
+          .order('fecha', { ascending: false })
+          .limit(1)
+        if (error) throw error
+        const fecha = (data ?? [])[0]?.fecha
+        if (fecha) salida[`${u.connectionId}|${u.marketplaceId}`] = String(fecha)
+      } catch {
+        // Sin la tabla —migración sin lanzar— no hay fecha y la fila dirá
+        // «nunca». Es la verdad: no se ha pedido ninguno.
+      }
+    })
+  )
+
+  return salida
+}
+
 /** Los SKU que esperan FOEP, del más antiguo al más nuevo */
 export async function colaFoepPendiente(
   unidad: UnidadDeTrabajo,

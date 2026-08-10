@@ -120,6 +120,9 @@ export function PanelIngesta({
   /** Cada cuánto le toca a cada refresco. Vive aparte de `datos` porque no
       depende del cliente elegido: el horario es del ERP entero */
   const [horarios, setHorarios] = useState<ConfigRefresco[]>([])
+  /** El reloj del FOEP de ESTE cliente. Lo usan la tabla de horarios y la
+      rejilla de «Al día», así que vive aquí y no dentro de una de las dos */
+  const [foep, setFoep] = useState<RelojFoep | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -347,6 +350,8 @@ export function PanelIngesta({
         etiquetas={datos.etiquetas.tipos}
         clienteId={cliente.id}
         clienteNombre={cliente.name}
+        foep={foep}
+        onFoep={setFoep}
         onGuardado={setHorarios}
       />
 
@@ -355,6 +360,7 @@ export function PanelIngesta({
         unidades={unidades}
         tieneConexiones={cliente.conexiones.length > 0}
         horarios={horarios}
+        foep={foep}
       />
 
       {/* -------- 2. ¿Se está moviendo? -------- */}
@@ -479,11 +485,13 @@ function RejillaRefrescos({
   unidades,
   tieneConexiones,
   horarios,
+  foep,
 }: {
   datos: IngestaRespuesta
   unidades: Unidad[]
   tieneConexiones: boolean
   horarios: ConfigRefresco[]
+  foep: RelojFoep | null
 }) {
   /**
    * La cadencia sale del SERVIDOR, no de una copia escrita aquí.
@@ -509,6 +517,62 @@ function RejillaRefrescos({
     horas: number
     apagado: boolean
   }> = []
+
+  /**
+   * LAS DOS FILAS QUE NO SALEN DE amazon_jobs Y AUN ASÍ TIENEN QUE ESTAR.
+   *
+   * El ciclo de catálogo lo mueve el cron y deja su marca en la conexión; el
+   * FOEP es una FASE dentro de «Precios y Buy Box», no un trabajo. Ninguno de
+   * los dos aparece en `plataforma_ultimos_refrescos`.
+   *
+   * Sin ellas, la tabla de arriba dice cada cuánto se piden y aquí abajo no hay
+   * forma de comprobar si se están pidiendo. Que es exactamente el fallo que
+   * esta pantalla existe para evitar: los tres crones llevaban meses muertos y
+   * ninguna pantalla lo decía.
+   */
+  const extras: Array<{
+    clave: string
+    dato: string
+    tecnico: string
+    destino: string
+    cadencia: string
+    ultimo: string | null
+    procesados: number | null
+    resumen: string | null
+    horas: number
+  }> = []
+
+  for (const c of datos.catalogo ?? []) {
+    extras.push({
+      clave: `catalogo|${c.connectionId}`,
+      dato: 'Precio, stock y estado de los listings',
+      tecnico: 'ciclo de catálogo',
+      destino: c.nombre,
+      cadencia: 'cada 15 minutos',
+      ultimo: c.ultimo,
+      procesados: c.items,
+      resumen: c.items === null ? null : `${cifra(c.items)} referencias leídas de Amazon.`,
+      horas: 0.25,
+    })
+  }
+
+  const relojFoep = foep?.foepMinutos ?? null
+  if (relojFoep !== null) {
+    for (const u of unidades) {
+      const clave = `${u.connectionId}|${u.marketplaceId}`
+      extras.push({
+        clave: `foep|${clave}`,
+        dato: 'A qué precio ganaríamos la Buy Box',
+        tecnico: 'FOEP',
+        destino: `${u.conexion} · ${nombreMarketplace(u.marketplaceId)}`,
+        cadencia: textoIntervalo(relojFoep),
+        ultimo: datos.foep?.[clave] ?? null,
+        procesados: null,
+        resumen: null,
+        horas: relojFoep / 60,
+      })
+    }
+  }
 
   for (const horario of horarios) {
     const tipo = horario.tipo
@@ -539,7 +603,7 @@ function RejillaRefrescos({
     }
   }
 
-  if (!tieneConexiones || filas.length === 0) return null
+  if (!tieneConexiones || (filas.length === 0 && extras.length === 0)) return null
 
   return (
     <Panel titulo="Al día" sinCuerpo>
@@ -557,6 +621,47 @@ function RejillaRefrescos({
             </tr>
           </thead>
           <tbody>
+            {extras.map((e) => {
+              const horas = e.ultimo
+                ? (Date.now() - new Date(e.ultimo).getTime()) / 3600000
+                : null
+              const tono: TonoEstado =
+                horas === null ? 'gris' : horas <= e.horas * 3 ? 'verde' : 'ambar'
+              return (
+                <tr key={e.clave} className={TABLA.fila}>
+                  <td className={`${TABLA.celda} ${TABLA.celdaFija}`}>
+                    <span className={TEXTO.t1}>{e.dato}</span>
+                    <span className={`block ${TIPO.s} ${TEXTO.t4}`}>{e.tecnico}</span>
+                  </td>
+                  <td className={TABLA.celda}>{e.destino}</td>
+                  <td className={TABLA.celda}>{e.cadencia}</td>
+                  <td className={TABLA.celda}>
+                    <span className={ESTADO.linea}>
+                      <span style={{ color: COLOR_ESTADO[tono] }} aria-hidden>
+                        {horas === null ? '○' : horas <= e.horas * 3 ? '●' : '◐'}
+                      </span>
+                      {e.ultimo ? (
+                        <>
+                          {hace(e.ultimo)}
+                          <span className={TEXTO.t4}>· {fechaHora(e.ultimo)}</span>
+                        </>
+                      ) : (
+                        <span className={TEXTO.t4}>nunca ha corrido</span>
+                      )}
+                    </span>
+                  </td>
+                  <td className={`${TABLA.celda} ${TEXTO.t3} whitespace-nowrap`}>
+                    {proxima(e.ultimo, e.horas * 60)}
+                  </td>
+                  <td className={`${TABLA.celda} ${TABLA.numero}`}>
+                    {e.procesados === null ? '—' : cifra(e.procesados)}
+                  </td>
+                  <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[380px]`}>
+                    <span className={TABLA.corta}>{e.resumen ?? '—'}</span>
+                  </td>
+                </tr>
+              )
+            })}
             {filas.map((f) => {
               const ultimo = porClave.get(f.clave) ?? null
               const horas = ultimo
@@ -1309,12 +1414,16 @@ function PanelHorarios({
   etiquetas,
   clienteId,
   clienteNombre,
+  foep,
+  onFoep,
   onGuardado,
 }: {
   horarios: ConfigRefresco[]
   etiquetas: Record<AmazonJobTipo, string>
   clienteId: string
   clienteNombre: string
+  foep: RelojFoep | null
+  onFoep: (reloj: RelojFoep | null) => void
   onGuardado: (config: ConfigRefresco[]) => void
 }) {
   const [guardando, setGuardando] = useState<string | null>(null)
@@ -1333,19 +1442,21 @@ function PanelHorarios({
    * actualiza algo, y tenerlo en otra pantalla es tenerlo escondido. Lo que hace
    * falta es que se vea que es de ESTE cliente y no de todos.
    */
-  const [foep, setFoep] = useState<RelojFoep | null>(null)
   const [guardandoFoep, setGuardandoFoep] = useState(false)
 
   const leerFoep = useCallback(async () => {
     const res = await getAmazon<{ config: { coste?: RelojFoep } }>(
       `/api/plataforma/buybox/config?clientId=${clienteId}`
     )
-    if (res.ok && res.data.config?.coste) setFoep(res.data.config.coste)
+    if (res.ok && res.data.config?.coste) onFoep(res.data.config.coste)
   }, [clienteId])
 
   useEffect(() => {
-    setFoep(null)
+    onFoep(null)
     void leerFoep()
+    // `onFoep` fuera de las dependencias a propósito: es un setState y cambiar
+    // de identidad en cada render volvería a pedir la configuración en bucle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leerFoep])
 
   /** `null` = automático: que lo calcule el ERP con las referencias con stock */
@@ -1360,7 +1471,7 @@ function PanelHorarios({
       toast.error(res.error, { duration: 10_000 })
       return
     }
-    if (res.data.config?.coste) setFoep(res.data.config.coste)
+    if (res.data.config?.coste) onFoep(res.data.config.coste)
     toast.success(
       cadaMinutos === null
         ? 'El FOEP vuelve a calcularse solo con el catálogo de este cliente.'
