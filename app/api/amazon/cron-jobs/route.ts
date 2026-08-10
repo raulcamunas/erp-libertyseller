@@ -1,4 +1,4 @@
-import { conRegistro } from '@/lib/sistema/cron'
+import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { NextResponse, type NextRequest } from 'next/server'
 import { ejecutarJobs } from '@/lib/plataforma/motor'
 import { planificarRefrescos } from '@/lib/plataforma/planificador'
@@ -58,6 +58,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  /**
+   * ¿TOCA?
+   *
+   * El crontab del contenedor llama a esta ruta CADA MINUTO; el intervalo de
+   * verdad está en la tabla cron_config y lo decide tocaAhora(). Así se cambia
+   * desde la pantalla de Sistema en vez de editando el Dockerfile.
+   *
+   * `?forzar=1` se lo pone el botón «Lanzar ahora», que es el único que tiene
+   * que saltarse el reloj.
+   */
+  if (request.nextUrl.searchParams.get('forzar') !== '1') {
+    const veredicto = await tocaAhora('amazon-jobs')
+    if (!veredicto.toca) return NextResponse.json({ ok: true, saltado: veredicto.motivo })
+  }
+
   // Idempotente. Ver el comentario de lib/plataforma/tareas/index.ts.
   registrarTareas()
 
@@ -88,7 +103,7 @@ export async function POST(request: NextRequest) {
     // Ver lib/sistema/cron.ts: deja una fila con cuánto tardó y cómo acabó. El
     // planificador de arriba queda fuera a propósito —tiene su propio try y no
     // debe hacer fallar la pasada—, así que lo que se mide es el motor.
-    const resultado = await conRegistro('amazon-jobs', null, () => ejecutarJobs())
+    const resultado = await conRegistro('amazon-jobs', lanzadoPorDe(request.headers), () => ejecutarJobs())
 
     if (resultado.omitido) {
       console.log(`[plataforma] pasada omitida: ${resultado.omitido}`)

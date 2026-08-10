@@ -94,8 +94,13 @@ export interface ClienteConIngesta extends ResumenIngesta {
   conexiones: ConexionPlataforma[]
 }
 
+// `marketplaces_activos` va aquí porque la pantalla de Ingesta construye sus
+// filas con mercadosDeConexion(), y sin esta columna esa función no vería
+// ninguna elección hecha: listaría los once mercados que devuelve Amazon,
+// incluidos los de sandbox, con un «nunca ha corrido» al lado de cada uno.
 const CONEXION_FIELDS =
-  'id, client_id, name, selling_partner_id, marketplace_ids, default_marketplace_id, status, is_active'
+  'id, client_id, name, selling_partner_id, marketplace_ids, marketplaces_activos, ' +
+  'default_marketplace_id, status, is_active'
 
 const RESUMEN_VACIO: ResumenIngesta = {
   pendientes: 0,

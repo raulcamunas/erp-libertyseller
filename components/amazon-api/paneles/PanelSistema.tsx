@@ -1,7 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, Play, RotateCcw } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  PauseCircle,
+  Play,
+  PlayCircle,
+  RotateCcw,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   BOTON,
@@ -71,9 +79,50 @@ interface Proceso {
   nombre: string
   ruta: string
   cadaMinutos: number
+  activo: boolean
+  /** El horario todavía sale del código: falta lanzar la migración 138 */
+  horarioPorDefecto: boolean
   que: string
   ultima: Ejecucion | null
   ultimaAutomatica: Ejecucion | null
+}
+
+/* ------------------------------------------------------------------ */
+/* El horario                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * El intervalo se guarda SIEMPRE en minutos, y aquí se enseña en la unidad que
+ * toque.
+ *
+ * Una sola columna en la base y una sola comparación en tocaAhora(); la unidad
+ * es cosa de la pantalla. Guardar «2 semanas» como número y unidad obligaría a
+ * convertir en cada comprobación, sesenta veces por hora, para no ganar nada.
+ */
+const UNIDADES = [
+  { id: 'min', label: 'minutos', minutos: 1 },
+  { id: 'h', label: 'horas', minutos: 60 },
+  { id: 'd', label: 'días', minutos: 1440 },
+] as const
+
+type Unidad = (typeof UNIDADES)[number]['id']
+
+/** La unidad más grande en la que el intervalo es un número redondo */
+function descomponer(minutos: number): { valor: number; unidad: Unidad } {
+  for (const u of [...UNIDADES].reverse()) {
+    if (minutos % u.minutos === 0) return { valor: minutos / u.minutos, unidad: u.id }
+  }
+  return { valor: minutos, unidad: 'min' }
+}
+
+function aMinutos(valor: number, unidad: Unidad): number {
+  return valor * (UNIDADES.find((u) => u.id === unidad)?.minutos ?? 1)
+}
+
+function textoIntervalo(minutos: number): string {
+  const { valor, unidad } = descomponer(minutos)
+  const label = UNIDADES.find((u) => u.id === unidad)!.label
+  return `cada ${valor} ${valor === 1 ? label.replace(/s$/, '') : label}`
 }
 
 export function PanelSistema() {
@@ -87,6 +136,7 @@ export function PanelSistema() {
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const [lanzando, setLanzando] = useState<string | null>(null)
+  const [guardando, setGuardando] = useState<string | null>(null)
 
   const cargar = useCallback(async () => {
     try {
@@ -113,6 +163,36 @@ export function PanelSistema() {
     const t = setInterval(() => void cargar(), 60_000)
     return () => clearInterval(t)
   }, [cargar])
+
+  /**
+   * Guarda el horario de un proceso.
+   *
+   * Se recarga entero después en vez de tocar el estado a mano: lo que decide
+   * si un proceso «está parado» depende del intervalo, así que cambiarlo cambia
+   * también los avisos de arriba. Reconstruirlo aquí sería repetir esa cuenta en
+   * dos sitios.
+   */
+  async function guardarHorario(id: string, cambios: { cadaMinutos?: number; activo?: boolean }) {
+    setGuardando(id)
+    try {
+      const res = await fetch('/api/sistema/cron', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tarea: id, ...cambios }),
+      })
+      const datos = await res.json()
+      if (!res.ok) throw new Error(datos?.error ?? 'No se ha podido guardar')
+      toast.success('Horario guardado. Tiene efecto en el minuto siguiente.')
+      await cargar()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se ha podido guardar el horario')
+      // Se recarga también al fallar: si no, el campo se queda enseñando un
+      // número que no está guardado y parece que sí.
+      await cargar()
+    } finally {
+      setGuardando(null)
+    }
+  }
 
   async function lanzar(id: string, nombre: string) {
     setLanzando(id)
@@ -175,7 +255,12 @@ export function PanelSistema() {
                   <div className="flex items-center gap-[6px]">
                     <Icono className="h-[13px] w-[13px] shrink-0" style={{ color: COLOR_ESTADO[tono] }} />
                     <span className={`${TITULO.seccion} ${TEXTO.t1}`}>{p.nombre}</span>
-                    <span className={`${TIPO.s} ${TEXTO.t4}`}>· cada {p.cadaMinutos} min</span>
+                    <span className={`${TIPO.s} ${TEXTO.t4}`}>· {textoIntervalo(p.cadaMinutos)}</span>
+                    {!p.activo && (
+                      <span className={`${TIPO.s}`} style={{ color: COLOR_ESTADO.ambar }}>
+                        · apagado
+                      </span>
+                    )}
                   </div>
                   <p className={`mt-[3px] ${TIPO.s} ${TEXTO.t3} leading-[1.45]`}>{p.que}</p>
 
@@ -208,6 +293,12 @@ export function PanelSistema() {
                       {p.ultimaAutomatica.error}
                     </p>
                   )}
+
+                  <EditorHorario
+                    proceso={p}
+                    guardando={guardando === p.id}
+                    onGuardar={(cambios) => void guardarHorario(p.id, cambios)}
+                  />
                 </div>
 
                 <button
@@ -445,5 +536,119 @@ export function InfoSistema() {
         </p>
       </SeccionInfo>
     </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Cada cuánto corre                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * EL HORARIO DE UN PROCESO, EDITABLE AQUÍ MISMO.
+ *
+ * Antes vivía en el crontab del Dockerfile: para pasar de 15 a 30 minutos había
+ * que editar un fichero, hacer commit y esperar un despliegue entero — y desde
+ * el ERP no se veía siquiera cuál era el intervalo. Ahora el crontab despierta
+ * las rutas cada minuto y el número está en la base (migración 138), así que
+ * cambiarlo tiene efecto en el minuto siguiente.
+ *
+ * NO SE GUARDA AL TECLEAR. El campo es local hasta que se pulsa «Guardar»: con
+ * un guardado automático, teclear «30» sobre un «5» pasa por «3», y ese estado
+ * intermedio sería un intervalo real de tres minutos aplicado de verdad. Aquí
+ * eso significa disparar barridos del catálogo de todos los clientes.
+ */
+function EditorHorario({
+  proceso,
+  guardando,
+  onGuardar,
+}: {
+  proceso: Proceso
+  guardando: boolean
+  onGuardar: (cambios: { cadaMinutos?: number; activo?: boolean }) => void
+}) {
+  const inicial = descomponer(proceso.cadaMinutos)
+  const [valor, setValor] = useState(String(inicial.valor))
+  const [unidad, setUnidad] = useState<Unidad>(inicial.unidad)
+
+  // Si el horario cambia por fuera —otra pestaña, o la recarga de cada minuto—
+  // el campo tiene que seguirlo. Sin esto se quedaría enseñando lo de antes y
+  // el siguiente «Guardar» revertiría el cambio de la otra pestaña.
+  useEffect(() => {
+    const d = descomponer(proceso.cadaMinutos)
+    setValor(String(d.valor))
+    setUnidad(d.unidad)
+  }, [proceso.cadaMinutos])
+
+  const minutos = aMinutos(Number(valor) || 0, unidad)
+  const valido = Number.isFinite(minutos) && minutos >= 1 && minutos <= 43_200
+  const cambiado = minutos !== proceso.cadaMinutos
+
+  return (
+    <div className={`mt-[8px] flex flex-wrap items-center gap-[6px] ${TIPO.s}`}>
+      <span className={TEXTO.t3}>Correr cada</span>
+      <input
+        type="number"
+        min={1}
+        value={valor}
+        onChange={(e) => setValor(e.target.value)}
+        className={`${CAMPO.input} !h-6 !w-[64px] ${TIPO.num}`}
+        aria-label={`Cada cuánto corre ${proceso.nombre}`}
+      />
+      <select
+        value={unidad}
+        onChange={(e) => setUnidad(e.target.value as Unidad)}
+        className={`${CAMPO.input} !h-6 !w-auto`}
+        aria-label="Unidad"
+      >
+        {UNIDADES.map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.label}
+          </option>
+        ))}
+      </select>
+
+      {cambiado && (
+        <button
+          type="button"
+          disabled={!valido || guardando}
+          onClick={() => onGuardar({ cadaMinutos: minutos })}
+          className={`${BOTON.base} ${BOTON.primario}`}
+        >
+          {guardando ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          Guardar
+        </button>
+      )}
+
+      {/* El interruptor NO para el cron: la línea del crontab sigue llamando cada
+          minuto y recibe un «no toca». Así un proceso apagado sigue demostrando
+          que el camino funciona, y volver a encenderlo es un clic. */}
+      <button
+        type="button"
+        disabled={guardando}
+        onClick={() => onGuardar({ activo: !proceso.activo })}
+        className={`${BOTON.base} ${BOTON.secundario}`}
+        title={
+          proceso.activo
+            ? 'Deja de ejecutarse hasta que se vuelva a encender. El botón de «Lanzar ahora» sigue funcionando'
+            : 'Vuelve a ejecutarse en su intervalo'
+        }
+      >
+        {proceso.activo ? <PauseCircle className="h-3 w-3" /> : <PlayCircle className="h-3 w-3" />}
+        {proceso.activo ? 'Apagar' : 'Encender'}
+      </button>
+
+      {!valido && (
+        <span style={{ color: COLOR_ESTADO.rojo }}>Entre 1 minuto y 30 días</span>
+      )}
+
+      {/* Sin la migración lanzada el número que se ve es el del código y el
+          botón de guardar contesta un 503. Decirlo aquí evita el «le doy y no
+          pasa nada» de siempre. */}
+      {proceso.horarioPorDefecto && (
+        <span className={TEXTO.t4}>
+          · valor del código: lanza 138_cron_config.sql para poder cambiarlo
+        </span>
+      )}
+    </div>
   )
 }

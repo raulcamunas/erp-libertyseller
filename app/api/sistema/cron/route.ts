@@ -2,7 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
-import { FALTA_MIGRACION_CRON, TAREAS_CRON, tareaCron } from '@/lib/sistema/cron'
+import {
+  FALTA_MIGRACION_CRON,
+  TAREAS_CRON,
+  guardarConfigCron,
+  leerConfigCron,
+  tareaCron,
+} from '@/lib/sistema/cron'
 
 /**
  * EL ESTADO DE LOS PROCESOS AUTOMÁTICOS, Y EL BOTÓN PARA LANZARLOS.
@@ -66,12 +72,22 @@ export async function GET() {
 
     const filas = (data ?? []) as FilaEjecucion[]
 
+    // El intervalo sale de cron_config, no del código: es lo que se puede
+    // cambiar desde la pantalla. `cadaMinutos` de TAREAS_CRON queda como valor
+    // por defecto para cuando la 138 todavía no está lanzada.
+    const config = await leerConfigCron()
+
     const procesos = TAREAS_CRON.map((t) => {
       const suyas = filas.filter((f) => f.tarea === t.id)
       // La última que lanzó EL CRON, no una de prueba. Ver la cabecera.
       const ultimaSola = suyas.find((f) => f.lanzado_por === null) ?? null
+      const suya = config.find((c) => c.tarea === t.id)
       return {
         ...t,
+        cadaMinutos: suya?.cada_minutos ?? t.cadaMinutos,
+        activo: suya?.activo ?? true,
+        /** true = el horario todavía sale del código porque falta la 138 */
+        horarioPorDefecto: suya?.pordefecto ?? true,
         ultima: suyas[0] ?? null,
         ultimaAutomatica: ultimaSola,
       }
@@ -119,6 +135,50 @@ export async function GET() {
   }
 }
 
+/**
+ * CAMBIA CADA CUÁNTO CORRE UN PROCESO.
+ *
+ * Tiene efecto en el minuto siguiente y sin desplegar: el crontab del contenedor
+ * llama a las tres rutas cada minuto y es cada ruta la que mira `cron_config`
+ * para decidir si le toca. Ver el Dockerfile y tocaAhora() en lib/sistema/cron.
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const session = await requireAmazonAdmin()
+    if (session instanceof NextResponse) return session
+
+    const body = (await request.json().catch(() => ({}))) as {
+      tarea?: unknown
+      cadaMinutos?: unknown
+      activo?: unknown
+    }
+    const id = typeof body.tarea === 'string' ? body.tarea : ''
+    if (!tareaCron(id)) {
+      return fail(400, `No existe el proceso «${id}». Los que hay: ${TAREAS_CRON.map((t) => t.id).join(', ')}`)
+    }
+
+    const config = await guardarConfigCron(
+      id,
+      {
+        cadaMinutos: typeof body.cadaMinutos === 'number' ? body.cadaMinutos : undefined,
+        activo: typeof body.activo === 'boolean' ? body.activo : undefined,
+      },
+      session.userId
+    )
+
+    return NextResponse.json({ ok: true, config })
+  } catch (error) {
+    if (isMissingSchema(error)) {
+      return fail(
+        503,
+        'Falta la tabla de horarios: lanza 138_cron_config.sql en el editor SQL de Supabase. ' +
+          'Mientras tanto los procesos corren con los intervalos de siempre.'
+      )
+    }
+    return errorResponse(error, 'No se ha podido guardar el horario')
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await requireAmazonAdmin()
@@ -157,9 +217,34 @@ export async function POST(request: NextRequest) {
     let codigo = 0
     let cuerpo = ''
     try {
-      const res = await fetch(`http://localhost:${puerto}${tarea.ruta}`, {
+      /**
+       * `?forzar=1` SALTA LA COMPROBACIÓN DE HORARIO, y solo aquí.
+       *
+       * Desde que el crontab entra cada minuto, la ruta contesta «todavía no»
+       * casi siempre. Sin este parámetro, el botón «Lanzar ahora» diría que ha
+       * ido bien —HTTP 200— sin haber hecho nada, que es la peor respuesta
+       * posible en la pantalla que existe para comprobar si algo corre.
+       *
+       * Y la pasada sigue registrándose con `lanzado_por`, así que tampoco
+       * cuenta como automática ni retrasa el reloj del cron.
+       */
+      const res = await fetch(`http://localhost:${puerto}${tarea.ruta}?forzar=1`, {
         method: 'POST',
-        headers: { 'x-cron-secret': secret },
+        headers: {
+          'x-cron-secret': secret,
+          /**
+           * QUIÉN LO HA LANZADO, para que la ruta lo registre como pasada A MANO.
+           *
+           * Sin esta cabecera la ruta escribía `lanzado_por: null` siempre —no
+           * tiene forma de saberlo—, así que pulsar este botón contaba como
+           * pasada automática. Con eso, la pantalla que existe para descubrir un
+           * cron muerto se lo tapaba a sí misma en cuanto alguien comprobaba el
+           * proceso, que es exactamente la trampa de la agenda otra vez.
+           *
+           * Va detrás del secreto, así que solo puede ponerla el propio servidor.
+           */
+          'x-lanzado-por': session.userId,
+        },
         // Un tope propio: sin esto, un proceso colgado deja esta petición
         // esperando y la pantalla parece rota en vez de decir qué pasa.
         signal: AbortSignal.timeout(120_000),

@@ -3,7 +3,7 @@ import { syncAllConnections } from '@/lib/amazon/data'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { ejecutarCicloStock } from '@/lib/stock-sync/ciclo'
-import { conRegistro } from '@/lib/sistema/cron'
+import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 
 /**
  * EL REFRESCO DE CADA QUINCE MINUTOS, Y EL CICLO DE STOCK DETRÁS.
@@ -69,6 +69,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  /**
+   * ¿TOCA?
+   *
+   * El crontab del contenedor llama a esta ruta CADA MINUTO; el intervalo de
+   * verdad está en cron_config y lo decide tocaAhora(). Así se cambia desde la
+   * pantalla de Sistema en vez de editando el Dockerfile y esperando un
+   * despliegue.
+   *
+   * Va lo primero, antes incluso de mirar si Amazon está configurado: si no
+   * toca, no hay que hacer NADA, y desde luego no leer variables de entorno
+   * sesenta veces por hora para acabar contestando lo mismo.
+   *
+   * `?forzar=1` se lo pone el botón «Lanzar ahora».
+   */
+  if (request.nextUrl.searchParams.get('forzar') !== '1') {
+    const veredicto = await tocaAhora('amazon-sync')
+    if (!veredicto.toca) return NextResponse.json({ ok: true, saltado: veredicto.motivo })
+  }
+
   // Sin credenciales o sin clave de cifrado no hay nada que refrescar, y desde
   // luego no hay que dejar un error cada cuarto de hora en el registro.
   if (!isAmazonConfigured() || !hasTokenKey()) {
@@ -79,7 +98,7 @@ export async function POST(request: NextRequest) {
     // Envuelto para que quede una fila en cron_ejecuciones con cuánto tardó y
     // cómo acabó. Ver lib/sistema/cron.ts: sin esto, un cron muerto no se
     // distingue de uno que corre y no encuentra nada que hacer.
-    const salida = await conRegistro('amazon-sync', null, async () => {
+    const salida = await conRegistro('amazon-sync', lanzadoPorDe(request.headers), async () => {
     const stats = await syncAllConnections()
 
     // Los fallos se registran uno a uno: son el rastro de que la conexión de un

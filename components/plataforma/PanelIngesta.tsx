@@ -10,6 +10,7 @@ import {
   Play,
   Square,
   Timer,
+  Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getAmazon, patchAmazon, postAmazon } from '@/lib/amazon/client'
@@ -26,6 +27,7 @@ import {
   progresoDeJob,
   type AmazonJobTipo,
 } from '@/lib/plataforma/tipos'
+import { mercadosDeConexion } from '@/lib/types/amazon'
 import {
   BOTON,
   CAMPO,
@@ -84,6 +86,7 @@ export function PanelIngesta({
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const [lanzando, setLanzando] = useState(false)
+  const [procesando, setProcesando] = useState(false)
   const [cancelando, setCancelando] = useState<AmazonJob | null>(null)
 
   // El id vive en una referencia además de en las props porque el temporizador
@@ -128,11 +131,20 @@ export function PanelIngesta({
     onCambio()
   }, [cargar, cliente.id, onCambio])
 
-  /** Las unidades de trabajo: una por conexión y país. Es el grano de los datos */
+  /**
+   * Las unidades de trabajo: una por conexión y país. Es el grano de los datos.
+   *
+   * Pasa por mercadosDeConexion() y NO por `marketplace_ids` a pelo. Esa columna
+   * es lo que dice Amazon, y dice de más: en la cuenta de Shoplamp devuelve once
+   * mercados y uno es de sandbox. Listarlo aquí con un «nunca ha corrido» al lado
+   * no es informar — no es que no haya corrido todavía, es que no se le va a
+   * programar un trabajo jamás. Y de paso respeta la elección de países hecha en
+   * Amazon API · Cuentas.
+   */
   const unidades = useMemo(
     () =>
       cliente.conexiones.flatMap((c) =>
-        c.marketplace_ids.map((m) => ({
+        mercadosDeConexion(c).map((m) => ({
           connectionId: c.id,
           conexion: c.name,
           marketplaceId: m,
@@ -152,6 +164,39 @@ export function PanelIngesta({
     }
     toast.success(res.data.mensaje)
     recargar()
+  }
+
+  /**
+   * PROCESA LA COLA AHORA MISMO, sin esperar al cron.
+   *
+   * «Planificar» y «Forzar todos» solo ENCOLAN: dejan trabajos en «pendiente» y
+   * quien los trabaja es el motor, que entra cada pocos minutos. Eso hacía que
+   * pulsar «Forzar todos» pareciera no hacer nada durante minutos, que es lo
+   * contrario de lo que promete un botón que dice «forzar».
+   *
+   * Llama a la MISMA ruta que llama el cron —la de Sistema, que reenvía a
+   * /api/amazon/cron-jobs con el secreto y con `?forzar=1`—, no a una copia. Si
+   * el camino del cron está roto, este botón tiene que romperse igual: un atajo
+   * que funcionara aquí y no en el cron taparía justo el fallo que se busca.
+   */
+  async function procesarAhora() {
+    setProcesando(true)
+    try {
+      const res = await fetch('/api/sistema/cron', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tarea: 'amazon-jobs' }),
+      })
+      const datos = await res.json()
+      if (!res.ok) throw new Error(datos?.error ?? 'No se ha podido procesar la cola')
+      if (datos.ok) toast.success(datos.mensaje ?? 'La cola ha avanzado')
+      else toast.error(datos.mensaje, { duration: 12_000 })
+      recargar()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se ha podido procesar la cola')
+    } finally {
+      setProcesando(false)
+    }
   }
 
   async function accionSobreJob(job: AmazonJob, accion: 'pausar' | 'reanudar') {
@@ -238,6 +283,18 @@ export function PanelIngesta({
         >
           <Timer className="h-3 w-3" />
           Forzar todos
+        </button>
+        {/* Los dos de arriba ENCOLAN; este EJECUTA. Sin él había que esperar al
+            motor, y «Forzar todos» parecía no hacer nada durante minutos. */}
+        <button
+          type="button"
+          onClick={() => void procesarAhora()}
+          disabled={procesando}
+          className={`${BOTON.base} ${BOTON.secundario}`}
+          title="Hace correr el motor de trabajos ahora mismo en vez de esperar a su próxima pasada. Es la misma llamada que hace el cron"
+        >
+          <Zap className="h-3 w-3" />
+          {procesando ? 'Procesando…' : 'Procesar la cola ahora'}
         </button>
       </div>
 

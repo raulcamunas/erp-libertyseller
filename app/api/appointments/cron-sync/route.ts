@@ -1,4 +1,4 @@
-import { conRegistro } from '@/lib/sistema/cron'
+import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isGoogleConfigured } from '@/lib/google-calendar'
@@ -18,12 +18,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  /**
+   * ¿TOCA?
+   *
+   * El crontab del contenedor llama aquí CADA MINUTO; el intervalo de verdad
+   * está en cron_config y lo decide tocaAhora(), para poder cambiarlo desde la
+   * pantalla de Sistema. `?forzar=1` lo pone el botón «Lanzar ahora».
+   */
+  if (request.nextUrl.searchParams.get('forzar') !== '1') {
+    const veredicto = await tocaAhora('calendario')
+    if (!veredicto.toca) return NextResponse.json({ ok: true, saltado: veredicto.motivo })
+  }
+
   if (!isGoogleConfigured()) {
     return NextResponse.json({ ok: true, skipped: 'Google no configurado' })
   }
 
   try {
-    const stats = await conRegistro('calendario', null, () =>
+    const stats = await conRegistro('calendario', lanzadoPorDe(request.headers), () =>
       runSyncCycle(createServiceClient())
     )
     return NextResponse.json({ ok: true, ...stats })
