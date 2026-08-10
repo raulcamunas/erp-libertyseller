@@ -8,7 +8,9 @@ import {
   CirclePause,
   CirclePlay,
   Play,
+  Moon,
   Square,
+  Sun,
   Timer,
   Zap,
 } from 'lucide-react'
@@ -28,6 +30,15 @@ import {
   type AmazonJobTipo,
 } from '@/lib/plataforma/tipos'
 import { mercadosDeConexion } from '@/lib/types/amazon'
+import type { ConfigRefresco } from '@/lib/plataforma/refresco-config'
+import {
+  UNIDADES,
+  aMinutos,
+  descomponer,
+  textoIntervalo,
+  vecesAlDia,
+  type Unidad as UnidadTiempo,
+} from '@/lib/sistema/intervalo'
 import {
   BOTON,
   CAMPO,
@@ -87,6 +98,16 @@ export function PanelIngesta({
   const [cargando, setCargando] = useState(true)
   const [lanzando, setLanzando] = useState(false)
   const [procesando, setProcesando] = useState(false)
+  /** Cada cuánto le toca a cada refresco. Vive aparte de `datos` porque no
+      depende del cliente elegido: el horario es del ERP entero */
+  const [horarios, setHorarios] = useState<ConfigRefresco[]>([])
+
+  useEffect(() => {
+    void (async () => {
+      const res = await getAmazon<{ config: ConfigRefresco[] }>('/api/plataforma/refrescos')
+      if (res.ok) setHorarios(res.data.config)
+    })()
+  }, [])
   const [cancelando, setCancelando] = useState<AmazonJob | null>(null)
 
   // El id vive en una referencia además de en las props porque el temporizador
@@ -299,10 +320,20 @@ export function PanelIngesta({
       </div>
 
       {/* -------- 1. ¿Está al día? -------- */}
+      {/* Los horarios van ANTES de la rejilla: es lo que explica lo que se ve
+          debajo. Con la rejilla sola, «semanal» no dice si eso son seis días o
+          quince minutos, y esa duda ya costó una tarde. */}
+      <PanelHorarios
+        horarios={horarios}
+        etiquetas={datos.etiquetas.tipos}
+        onGuardado={setHorarios}
+      />
+
       <RejillaRefrescos
         datos={datos}
         unidades={unidades}
         tieneConexiones={cliente.conexiones.length > 0}
+        horarios={horarios}
       />
 
       {/* -------- 2. ¿Se está moviendo? -------- */}
@@ -426,23 +457,24 @@ function RejillaRefrescos({
   datos,
   unidades,
   tieneConexiones,
+  horarios,
 }: {
   datos: IngestaRespuesta
   unidades: Unidad[]
   tieneConexiones: boolean
+  horarios: ConfigRefresco[]
 }) {
-  /** Cuántas horas puede llevar cada cosa sin correr antes de estar vieja.
-      Los números son los del planificador (lib/plataforma/refresco.ts): veinte
-      horas para lo diario, ciento cuarenta y cuatro para lo semanal, con holgura
-      para que un barrido que ayer empezó a las 02:00 y hoy a las 01:58 no cuente
-      como saltado */
-  const CADENCIA: Partial<Record<AmazonJobTipo, { horas: number; velocidad: string }>> = {
-    recalcular_activos: { horas: 20, velocidad: 'diario' },
-    inventario_fba: { horas: 20, velocidad: 'diario' },
-    snapshot_bsr: { horas: 20, velocidad: 'diario' },
-    censo_catalogo: { horas: 144, velocidad: 'semanal' },
-    enriquecer_catalogo: { horas: 144, velocidad: 'semanal' },
-  }
+  /**
+   * La cadencia sale del SERVIDOR, no de una copia escrita aquí.
+   *
+   * Aquí había un mapa con «diario: 20 h» y «semanal: 144 h» a mano. Dos
+   * problemas: era una segunda fuente de la verdad que se desincronizaba en
+   * cuanto alguien cambiaba el planificador, y ponía «diario»/«semanal» sin
+   * número — con lo que era imposible saber si «diario» quería decir cada 20
+   * horas o cada 15 minutos, que es lo que se acabó creyendo.
+   */
+  const cadenciaDe = (tipo: AmazonJobTipo) =>
+    horarios.find((h) => h.tipo === tipo) ?? null
 
   const porClave = new Map(
     datos.refrescos.map((r) => [`${r.tipo}|${r.connection_id ?? ''}|${r.marketplace_id ?? ''}`, r])
@@ -456,28 +488,23 @@ function RejillaRefrescos({
     horas: number
   }> = []
 
-  for (const [tipo, cadencia] of Object.entries(CADENCIA) as Array<
-    [AmazonJobTipo, { horas: number; velocidad: string }]
-  >) {
+  for (const horario of horarios) {
+    const tipo = horario.tipo
     if (!datos.tiposEjecutables.includes(tipo)) continue
+    const velocidad = horario.activo ? textoIntervalo(horario.cada_minutos) : 'apagado'
+    const horas = horario.cada_minutos / 60
     if (jobNecesitaConexion(tipo)) {
       for (const u of unidades) {
         filas.push({
           clave: `${tipo}|${u.connectionId}|${u.marketplaceId}`,
           tipo,
           destino: `${u.conexion} · ${nombreMarketplace(u.marketplaceId)}`,
-          velocidad: cadencia.velocidad,
-          horas: cadencia.horas,
+          velocidad,
+          horas,
         })
       }
     } else {
-      filas.push({
-        clave: `${tipo}||`,
-        tipo,
-        destino: 'Todo el cliente',
-        velocidad: cadencia.velocidad,
-        horas: cadencia.horas,
-      })
+      filas.push({ clave: `${tipo}||`, tipo, destino: 'Todo el cliente', velocidad, horas })
     }
   }
 
@@ -1123,3 +1150,213 @@ function tonoSeveridad(severidad: string): TonoEstado {
   }
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Cada cuánto le toca a cada refresco                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LOS HORARIOS DE LOS REFRESCOS.
+ *
+ * CUIDADO CON NO CONFUNDIR LOS DOS RELOJES DE ESTE ERP, porque ya se ha
+ * confundido:
+ *
+ *   · Amazon API · Sistema  → cada cuánto se DESPIERTA el motor. Minutos.
+ *   · esto                  → cada cuánto le TOCA a cada refresco. Horas o días.
+ *
+ * Que el motor entre cada 5 minutos no significa que se relea el catálogo cada 5
+ * minutos: significa que cada 5 minutos se comprueba si a alguien le toca. La
+ * columna de la rejilla ponía «diario» y «semanal» a secas y era imposible saber
+ * cuál de los dos se estaba mirando. Por eso aquí sale el número, y al lado
+ * cuántas veces al día sale eso.
+ */
+function PanelHorarios({
+  horarios,
+  etiquetas,
+  onGuardado,
+}: {
+  horarios: ConfigRefresco[]
+  etiquetas: Record<AmazonJobTipo, string>
+  onGuardado: (config: ConfigRefresco[]) => void
+}) {
+  const [guardando, setGuardando] = useState<string | null>(null)
+
+  async function guardar(
+    tipo: AmazonJobTipo,
+    cambios: { cadaMinutos?: number; soloDeNoche?: boolean; activo?: boolean }
+  ) {
+    setGuardando(tipo)
+    const res = await patchAmazon<{ config: ConfigRefresco[] }>('/api/plataforma/refrescos', {
+      tipo,
+      ...cambios,
+    })
+    setGuardando(null)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    onGuardado(res.data.config)
+    toast.success('Horario guardado. Se aplica en la próxima pasada del planificador.')
+  }
+
+  if (horarios.length === 0) return null
+
+  return (
+    <Panel titulo="Cada cuánto se refresca" sinCuerpo>
+      <div className="overflow-x-auto">
+        <table className={TABLA.tabla}>
+          <thead>
+            <tr>
+              <th className={`${TABLA.cabecera} ${TABLA.cabeceraFija}`}>Refresco</th>
+              <th className={TABLA.cabecera}>Cada</th>
+              <th className={TABLA.cabecera}>Sale a</th>
+              <th className={TABLA.cabecera}>Cuándo puede arrancar</th>
+              <th className={TABLA.cabecera}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {horarios.map((h) => (
+              <FilaHorario
+                key={h.tipo}
+                horario={h}
+                etiqueta={etiquetas[h.tipo] ?? h.tipo}
+                guardando={guardando === h.tipo}
+                onGuardar={(cambios) => void guardar(h.tipo, cambios)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  )
+}
+
+function FilaHorario({
+  horario,
+  etiqueta,
+  guardando,
+  onGuardar,
+}: {
+  horario: ConfigRefresco
+  etiqueta: string
+  guardando: boolean
+  onGuardar: (cambios: { cadaMinutos?: number; soloDeNoche?: boolean; activo?: boolean }) => void
+}) {
+  const inicial = descomponer(horario.cada_minutos)
+  const [valor, setValor] = useState(String(inicial.valor))
+  const [unidad, setUnidad] = useState<UnidadTiempo>(inicial.unidad)
+
+  // Si cambia por fuera —otra pestaña— el campo tiene que seguirlo, o el
+  // siguiente «Guardar» revertiría el cambio del otro sitio.
+  useEffect(() => {
+    const d = descomponer(horario.cada_minutos)
+    setValor(String(d.valor))
+    setUnidad(d.unidad)
+  }, [horario.cada_minutos])
+
+  const minutos = aMinutos(Number(valor) || 0, unidad)
+  const valido = Number.isFinite(minutos) && minutos >= 15 && minutos <= 259_200
+  const cambiado = minutos !== horario.cada_minutos
+
+  /**
+   * «Cada 4 horas» + «solo de noche» es una contradicción, y silenciosa.
+   *
+   * La ventana nocturna es de 23:00 a 06:00: con siete horas de margen, una
+   * cadencia por debajo de las 24 h no se cumple —arrancaría una o dos veces por
+   * noche y ninguna de día— y no daría ningún error. El número diría una cosa y
+   * el comportamiento sería otro.
+   */
+  const contradice = horario.solo_de_noche && horario.cada_minutos < 1440
+
+  return (
+    <tr className={TABLA.fila}>
+      <td className={`${TABLA.celda} ${TABLA.celdaFija} ${TEXTO.t1}`}>{etiqueta}</td>
+
+      <td className={TABLA.celda}>
+        <span className="flex items-center gap-[5px]">
+          <input
+            type="number"
+            min={1}
+            value={valor}
+            onChange={(e) => setValor(e.target.value)}
+            className={`${CAMPO.input} !h-6 !w-[62px] ${TIPO.num}`}
+            aria-label={`Cada cuánto se refresca ${etiqueta}`}
+          />
+          <select
+            value={unidad}
+            onChange={(e) => setUnidad(e.target.value as UnidadTiempo)}
+            className={`${CAMPO.input} !h-6 !w-auto`}
+            aria-label="Unidad"
+          >
+            {UNIDADES.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.label}
+              </option>
+            ))}
+          </select>
+          {cambiado && (
+            <button
+              type="button"
+              disabled={!valido || guardando}
+              onClick={() => onGuardar({ cadaMinutos: minutos })}
+              className={`${BOTON.base} ${BOTON.primario}`}
+            >
+              Guardar
+            </button>
+          )}
+        </span>
+        {!valido && (
+          <span className={TIPO.s} style={{ color: COLOR_ESTADO.rojo }}>
+            Entre 15 minutos y 180 días
+          </span>
+        )}
+      </td>
+
+      <td className={`${TABLA.celda} ${TEXTO.t3}`}>{vecesAlDia(horario.cada_minutos)}</td>
+
+      <td className={TABLA.celda}>
+        <button
+          type="button"
+          disabled={guardando}
+          onClick={() => onGuardar({ soloDeNoche: !horario.solo_de_noche })}
+          className={`${BOTON.base} ${BOTON.secundario}`}
+          title={
+            horario.solo_de_noche
+              ? 'Solo puede ARRANCAR entre las 23:00 y las 06:00. Uno que empieza a las 05:50 y tarda dos horas no se corta: cortarlo dejaría el catálogo a medias'
+              : 'Puede arrancar a cualquier hora'
+          }
+        >
+          {horario.solo_de_noche ? <Moon className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
+          {horario.solo_de_noche ? 'Solo de noche' : 'A cualquier hora'}
+        </button>
+        {contradice && (
+          <span className={`${TIPO.s} block`} style={{ color: COLOR_ESTADO.ambar }}>
+            Con la ventana nocturna esto no se cumple: solo podría arrancar de 23:00 a 06:00
+          </span>
+        )}
+      </td>
+
+      <td className={TABLA.celda}>
+        <button
+          type="button"
+          disabled={guardando}
+          onClick={() => onGuardar({ activo: !horario.activo })}
+          className={`${BOTON.base} ${BOTON.secundario}`}
+          title={
+            horario.activo
+              ? 'Deja de encolarse solo. Se puede seguir lanzando desde «Lanzar un trabajo»'
+              : 'Vuelve a encolarse en su cadencia'
+          }
+        >
+          {horario.activo ? <CirclePause className="h-3 w-3" /> : <CirclePlay className="h-3 w-3" />}
+          {horario.activo ? 'Apagar' : 'Encender'}
+        </button>
+        {horario.pordefecto && (
+          <span className={`${TIPO.s} block ${TEXTO.t4}`}>
+            valor del código: lanza 139_refresco_config.sql
+          </span>
+        )}
+      </td>
+    </tr>
+  )
+}

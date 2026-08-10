@@ -28,6 +28,14 @@ import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
 import { Aviso, Cargando, hace, nombreMarketplace } from '@/components/plataforma/comun'
 import { AMAZON_JOB_TIPO_LABELS } from '@/lib/plataforma/tipos'
 import { TAREAS_CRON, estaParada } from '@/lib/sistema/cron'
+import {
+  UNIDADES,
+  aMinutos,
+  descomponer,
+  textoIntervalo,
+  vecesAlDia,
+  type Unidad,
+} from '@/lib/sistema/intervalo'
 
 /**
  * ¿ESTÁN CORRIENDO LOS PROCESOS AUTOMÁTICOS?
@@ -85,44 +93,6 @@ interface Proceso {
   que: string
   ultima: Ejecucion | null
   ultimaAutomatica: Ejecucion | null
-}
-
-/* ------------------------------------------------------------------ */
-/* El horario                                                          */
-/* ------------------------------------------------------------------ */
-
-/**
- * El intervalo se guarda SIEMPRE en minutos, y aquí se enseña en la unidad que
- * toque.
- *
- * Una sola columna en la base y una sola comparación en tocaAhora(); la unidad
- * es cosa de la pantalla. Guardar «2 semanas» como número y unidad obligaría a
- * convertir en cada comprobación, sesenta veces por hora, para no ganar nada.
- */
-const UNIDADES = [
-  { id: 'min', label: 'minutos', minutos: 1 },
-  { id: 'h', label: 'horas', minutos: 60 },
-  { id: 'd', label: 'días', minutos: 1440 },
-] as const
-
-type Unidad = (typeof UNIDADES)[number]['id']
-
-/** La unidad más grande en la que el intervalo es un número redondo */
-function descomponer(minutos: number): { valor: number; unidad: Unidad } {
-  for (const u of [...UNIDADES].reverse()) {
-    if (minutos % u.minutos === 0) return { valor: minutos / u.minutos, unidad: u.id }
-  }
-  return { valor: minutos, unidad: 'min' }
-}
-
-function aMinutos(valor: number, unidad: Unidad): number {
-  return valor * (UNIDADES.find((u) => u.id === unidad)?.minutos ?? 1)
-}
-
-function textoIntervalo(minutos: number): string {
-  const { valor, unidad } = descomponer(minutos)
-  const label = UNIDADES.find((u) => u.id === unidad)!.label
-  return `cada ${valor} ${valor === 1 ? label.replace(/s$/, '') : label}`
 }
 
 export function PanelSistema() {
@@ -255,7 +225,12 @@ export function PanelSistema() {
                   <div className="flex items-center gap-[6px]">
                     <Icono className="h-[13px] w-[13px] shrink-0" style={{ color: COLOR_ESTADO[tono] }} />
                     <span className={`${TITULO.seccion} ${TEXTO.t1}`}>{p.nombre}</span>
-                    <span className={`${TIPO.s} ${TEXTO.t4}`}>· {textoIntervalo(p.cadaMinutos)}</span>
+                    {/* El intervalo Y cuántas veces al día. Es el mismo dato y no
+                        la misma información: la pregunta que uno se hace aquí es
+                        cuántas veces pasa algo, no cada cuánto. */}
+                    <span className={`${TIPO.s} ${TEXTO.t4}`}>
+                      · {textoIntervalo(p.cadaMinutos)} · {vecesAlDia(p.cadaMinutos)}
+                    </span>
                     {!p.activo && (
                       <span className={`${TIPO.s}`} style={{ color: COLOR_ESTADO.ambar }}>
                         · apagado

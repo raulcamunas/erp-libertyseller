@@ -51,12 +51,12 @@ import {
   type PoliticaBsr,
 } from './modelo-negocio'
 import {
-  CADENCIA_HORAS,
   VENTANA_NOCTURNA,
   ventanaDeRefresco,
   type VelocidadRefresco,
   type VentanaHoraria,
 } from './refresco'
+import { configPorDefecto, leerConfigRefrescos, ventanaDe } from './refresco-config'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { AmazonJobTipo } from './tipos'
 
@@ -243,6 +243,17 @@ export async function planificarRefrescos(
     throw error
   }
 
+  /**
+   * El horario de cada refresco, de la base y no del código.
+   *
+   * Se lee UNA VEZ por pasada y no por cliente: son seis filas y hay dieciséis
+   * clientes, así que leerlo dentro del bucle serían noventa y seis consultas
+   * para obtener siempre lo mismo.
+   */
+  const horarios = await leerConfigRefrescos(REFRESCOS.map((r) => r.tipo))
+  const horarioDe = (tipo: AmazonJobTipo) =>
+    horarios.find((h) => h.tipo === tipo) ?? configPorDefecto(tipo)
+
   let creados = 0
   let yaVivos = 0
 
@@ -290,6 +301,28 @@ export async function planificarRefrescos(
 
     for (const refresco of REFRESCOS) {
       if (creados >= maxNuevos) break
+
+      /**
+       * Un refresco apagado desde la pantalla no se encola.
+       *
+       * NO se salta cuando se fuerza: «Forzar todos» ignora el reloj, no la
+       * decisión de que esto no debe correr solo. Para lanzar uno apagado está
+       * «Lanzar un trabajo», que es explícito y sobre lo que tú elijas.
+       */
+      const horario = horarioDe(refresco.tipo)
+      if (!horario.activo) {
+        entradas.push({
+          tipo: refresco.tipo,
+          clientId: cliente.id,
+          cliente: cliente.name,
+          connectionId: null,
+          marketplaceId: null,
+          creado: false,
+          jobId: null,
+          motivo: 'Apagado en la configuración de refrescos.',
+        })
+        continue
+      }
 
       /**
        * EL BSR NO SE LE PIDE A TODO EL MUNDO, y es lo que hace que la ventana
@@ -347,12 +380,21 @@ export async function planificarRefrescos(
         const clave = claveUltimo(refresco.tipo, destino.connectionId, destino.marketplaceId)
         const ultimo = ultimos.get(clave) ?? null
 
+        /**
+         * La cadencia y la ventana salen de refresco_config, no del código.
+         *
+         * `refresco.velocidad` sigue existiendo porque decide OTRAS cosas —el
+         * ámbito del trabajo, si barre el catálogo entero o solo el subconjunto
+         * activo— pero ya no decide cuándo. Eran la misma constante haciendo dos
+         * trabajos distintos, y por eso bajar el censo a 4 horas obligaba a
+         * bajar también el de atributos.
+         */
         const plan = ventanaDeRefresco({
           velocidad: refresco.velocidad,
           ahora,
           ultimo,
-          cadenciaHoras: opciones.forzar ? 0 : CADENCIA_HORAS[refresco.velocidad],
-          ventana: opciones.forzar ? null : refresco.ventana,
+          cadenciaHoras: opciones.forzar ? 0 : horario.cada_minutos / 60,
+          ventana: opciones.forzar ? null : ventanaDe(horario),
         })
 
         if (!plan.leToca) {
