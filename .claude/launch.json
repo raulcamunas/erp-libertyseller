@@ -4,7 +4,10 @@
     {
       "name": "erp",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000
     },
     {
@@ -20,6 +23,20 @@
         "3001"
       ],
       "port": 3001
+    },
+    {
+      "name": "liberty-seller-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "/Users/raulcamunas/Desktop/Liberty Seller Web",
+        "--",
+        "-p",
+        "3300"
+      ],
+      "port": 3300
     }
   ]
 }

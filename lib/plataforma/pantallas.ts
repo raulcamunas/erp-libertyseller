@@ -28,7 +28,12 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
-import { fetchAll, type ConexionPlataforma } from './datos'
+import {
+  conexionesDeCliente,
+  fetchAll,
+  filtroMercadosActivos,
+  type ConexionPlataforma,
+} from './datos'
 import { isMissingSchema } from './eventos'
 import type {
   AmazonJobTipo,
@@ -198,12 +203,35 @@ export async function ultimosRefrescos(clientId: string): Promise<UltimoRefresco
     p_client_id: clientId,
   })
   if (error) throw error
-  return ((data ?? []) as UltimoRefresco[]).map((fila) => ({
-    ...fila,
-    procesados: Number(fila.procesados) || 0,
-    omitidos: Number(fila.omitidos) || 0,
-    errores: Number(fila.errores) || 0,
-  }))
+
+  /**
+   * SE RECORTAN LOS MERCADOS QUE NO SE TRABAJAN.
+   *
+   * La función SQL expande cuenta × mercado dentro de Postgres y no sabe nada
+   * de `marketplaces_activos` (migración 134). Sin este filtro, un cliente con
+   * solo España elegida seguía viendo aquí sus once países —incluidos los de
+   * sandbox— con un «nunca ha corrido» al lado, que además es mentira: no es
+   * que no haya corrido todavía, es que no se va a programar nunca.
+   *
+   * Mismo recorte que ya hace resumenBuyBox(). Va en TypeScript y no en el SQL
+   * porque filtrarlo allí obligaría a otra migración que lanzar a mano.
+   */
+  const seTrabaja = filtroMercadosActivos(await conexionesDeCliente(clientId))
+
+  return ((data ?? []) as UltimoRefresco[])
+    // Un refresco SIN marketplace es de cliente entero —«Recalcular SKU en
+    // seguimiento»— y no se recorta: no va contra ningún país en concreto.
+    .filter((fila) =>
+      !fila.connection_id || !fila.marketplace_id
+        ? true
+        : seTrabaja(fila.connection_id, fila.marketplace_id)
+    )
+    .map((fila) => ({
+      ...fila,
+      procesados: Number(fila.procesados) || 0,
+      omitidos: Number(fila.omitidos) || 0,
+      errores: Number(fila.errores) || 0,
+    }))
 }
 
 /* ------------------------------------------------------------------ */
@@ -267,10 +295,19 @@ export async function coberturaDe(clientId: string): Promise<CoberturaUnidad[]> 
   })
   if (error) throw error
 
+  // Mismo recorte que en ultimosRefrescos(): la función SQL no sabe de
+  // `marketplaces_activos`, así que sin esto la cobertura salía con una fila por
+  // cada país que Amazon devuelve, incluidos los de sandbox, todas a cero. Y una
+  // cobertura del 0 % en un país donde no se trabaja no es un agujero: es ruido
+  // que hace parecer rota una cuenta que está bien.
+  const seTrabaja = filtroMercadosActivos(await conexionesDeCliente(clientId))
+
   // Postgres devuelve los `count(*)` como BIGINT, y supabase-js los entrega como
   // string. Sin este paso, `a + b` en la pantalla concatena en vez de sumar y
   // una cobertura de 12 sobre 100 se pinta como «12100».
-  return ((data ?? []) as Array<Record<string, unknown>>).map((fila) => ({
+  return ((data ?? []) as Array<Record<string, unknown>>)
+    .filter((fila) => seTrabaja(String(fila.connection_id), String(fila.marketplace_id ?? '')))
+    .map((fila) => ({
     connection_id: String(fila.connection_id),
     connection_name: String(fila.connection_name ?? ''),
     selling_partner_id: String(fila.selling_partner_id ?? ''),
