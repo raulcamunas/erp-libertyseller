@@ -36,7 +36,7 @@ import {
   TIPO,
   TITULO,
 } from '@/lib/estilo/denso'
-import { marketplaceLabel } from '@/lib/types/amazon'
+import { marketplaceLabel, mercadosDeConexion } from '@/lib/types/amazon'
 import { Aviso, Cargando, Vacio, cifra } from '@/components/plataforma/comun'
 import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
 import type { PropsPanel } from '../tipos'
@@ -165,7 +165,13 @@ export function PanelSeguimiento({ data, conexionId, onConexionId }: PropsPanel)
           clientId={clientId}
           connectionId={conexionId}
           marketplaceId={marketplaceId}
-          marketplacesDeLaCuenta={conexion?.marketplace_ids ?? []}
+          // mercadosDeConexion() y no `marketplace_ids` a pelo: esa columna es lo
+          // que dice Amazon, y devuelve cuatro mercados de sandbox que aquí
+          // salían como chips con el identificador en crudo por nombre. Ofrecer
+          // «A1MQXOICRS2Z7M» como país al que aplicar el criterio no es que sea
+          // feo: es que marcarlo dejaría la regla apuntando a un sitio del que
+          // no se va a leer nada nunca.
+          marketplacesDeLaCuenta={conexion ? mercadosDeConexion(conexion) : []}
         />
       ) : (
         <Vacio icono={<Eye />} titulo="Elige una cuenta">
