@@ -52,6 +52,7 @@ import type { ContextoTarea, CuentasJob, Lote, ResultadoLote, Tarea } from '../m
 import { MAX_SKUS_FOEP, MAX_SKUS_OFERTAS, leerFoep, leerOfertas } from './api'
 import {
   colaFoepPendiente,
+  skusConFoepDesde,
   configDelMotor,
   configDeCliente,
   contarSkus,
@@ -172,6 +173,12 @@ interface Entorno {
   nombreConexion: string
   config: ConfigBuyBox
   ambito: AmbitoCatalogo
+  /**
+   * A quién se le ha pedido ya el FOEP hoy. Se llena la primera vez que hace
+   * falta y se guarda con el día para el que vale, porque el entorno sobrevive
+   * a la medianoche si el trabajo dura.
+   */
+  foepDeHoy?: { dia: number; skus: Set<string> }
 }
 
 /**
@@ -372,6 +379,29 @@ export const tareaSnapshotPrecios: Tarea = {
       /* --- 2b. La rotación --- */
       const dia = diaDeRotacion(ctx.ahora)
       const rotacion = foepCompleto(ctx) ? 1 : entorno.config.foepRotacionDias
+
+      /**
+       * A QUIÉN SE LE HA PEDIDO YA HOY.
+       *
+       * La rotación reparte por DÍA, no por «cuándo se le preguntó»: mientras
+       * este trabajo corría una vez por noche daba igual, pero a cada quince
+       * minutos la misma tanda salía elegida 96 veces y a cada SKU se le pedía
+       * el FOEP 96 veces. Es la operación más cara que existe aquí —una
+       * petición cada treinta segundos— y no habría dado ningún error: el cubo
+       * de fichas habría puesto a esperar al resto de trabajos de todos los
+       * clientes y la cola se habría llenado sin decir por qué.
+       *
+       * Se lee UNA VEZ por pasada y se guarda en el entorno, con el día para el
+       * que vale: un trabajo largo puede cruzar la medianoche.
+       */
+      if (entorno.foepDeHoy?.dia !== dia) {
+        const inicioDelDia = new Date(dia * 86_400_000).toISOString()
+        entorno.foepDeHoy = {
+          dia,
+          skus: await skusConFoepDesde(entorno.unidad, inicioDelDia),
+        }
+      }
+      const yaHoy = entorno.foepDeHoy.skus
       const elegidos: string[] = []
       let clave = cursor.clave
       let escaneados = 0
@@ -392,7 +422,10 @@ export const tareaSnapshotPrecios: Tarea = {
         for (const listing of tramo.listings) {
           if (elegidos.length >= cabe) break
           clave = listing.sku
-          if (leTocaFoep(listing.sku, dia, rotacion)) elegidos.push(listing.sku)
+          // Le toca hoy Y no se le ha preguntado ya hoy. Ver arriba.
+          if (leTocaFoep(listing.sku, dia, rotacion) && !yaHoy.has(listing.sku)) {
+            elegidos.push(listing.sku)
+          }
         }
         // Si el lote se ha llenado a mitad de página, `clave` se ha quedado en el
         // último SKU MIRADO, no en el último de la página: por ahí sigue el

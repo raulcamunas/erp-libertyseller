@@ -75,7 +75,22 @@ export const CONFIG_BUYBOX_DEFECTO: Omit<ConfigBuyBox, 'clientId'> = {
   id: null,
   condicion: 'New',
   segmento: 'Consumer',
-  foepRotacionDias: 7,
+  /**
+   * TODOS LOS DÍAS, no uno de cada siete.
+   *
+   * Los 7 días venían de cuando el FOEP barría el catálogo ENTERO: las 13.700
+   * referencias de ShoesF son 2 h 53 min, y repartirlas en siete noches las
+   * dejaba en 25 minutos.
+   *
+   * Desde que el ámbito es solo lo que tiene existencias, ese cliente baja a
+   * ~2.500 referencias: 63 llamadas, 31 minutos, cabe en un día. Y tiene sentido
+   * que quepa — un techo de precio de hace seis días no sirve para decidir hoy.
+   *
+   * El número sigue siendo por cliente: el día que entre un catálogo con 30.000
+   * referencias CON STOCK habrá que repartirlo otra vez. La cuenta está en
+   * minutosDeFoep() de rotacion.ts, y la pantalla la enseña al configurarlo.
+   */
+  foepRotacionDias: 1,
   foepMaxPorNoche: null,
   foepColaActiva: true,
   ofertasGuardadas: 10,
@@ -722,6 +737,47 @@ export async function encolarFoep(
     escritas += tramo.length
   }
   return escritas
+}
+
+/**
+ * LOS SKU A LOS QUE YA SE LES HA PEDIDO EL FOEP DESDE UNA FECHA.
+ *
+ * EXISTE PARA QUE LA FRECUENCIA DEL TRABAJO NO MULTIPLIQUE EL COSTE DEL FOEP.
+ *
+ * La rotación decide de quién es el turno con el DÍA (`leTocaFoep`), no con
+ * cuándo se le preguntó por última vez. Mientras el trabajo corría una vez por
+ * noche eso daba igual: mismo día, misma tanda, una vez. Al subir «Precios y Buy
+ * Box» a cada quince minutos, la misma tanda salía elegida 96 veces al día y a
+ * cada SKU se le pedía el FOEP 96 veces — la operación más cara de la
+ * plataforma, una petición cada treinta segundos.
+ *
+ * No habría dado ningún error: el cubo de fichas simplemente habría puesto a
+ * esperar al resto de trabajos de todos los clientes, y la cola se habría ido
+ * llenando sin que nada dijera por qué.
+ *
+ * Sale del índice parcial `idx_amazon_snap_precio_foep`, que existe justo para
+ * esta pregunta.
+ */
+export async function skusConFoepDesde(
+  unidad: UnidadDeTrabajo,
+  desdeIso: string
+): Promise<Set<string>> {
+  const service = createServiceClient()
+  const filas = await fetchAll<{ sku: string }>((desde, hasta) =>
+    service
+      .from('amazon_snapshots_precio')
+      .select('sku')
+      .eq('connection_id', unidad.connectionId)
+      .eq('marketplace_id', unidad.marketplaceId)
+      .neq('foep_estado', 'no_consultado')
+      .gte('fecha', desdeIso)
+      // El orden termina en columna única dentro de la unidad, que es lo que
+      // exige fetchAll() para que `.range()` no repita ni se salte filas.
+      .order('fecha', { ascending: true })
+      .order('sku', { ascending: true })
+      .range(desde, hasta)
+  )
+  return new Set(filas.map((f) => f.sku))
 }
 
 /** Los SKU que esperan FOEP, del más antiguo al más nuevo */
