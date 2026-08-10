@@ -79,21 +79,32 @@ COMMENT ON TABLE public.refresco_config IS
 
 -- ---------- Los valores ----------
 -- Todos son los que ya estaban en el codigo (20 h lo diario, 144 h lo semanal)
--- MENOS el censo, que baja de 144 h a 4 h y sale de la ventana nocturna.
+-- MENOS el censo, que baja de 144 h a 1 h y sale de la ventana nocturna.
 --
--- El censo es quien DESCUBRE los SKU nuevos y los listings suprimidos: con
--- cadencia semanal, un producto que el cliente da de alta el lunes no existe
--- para el ERP hasta el domingo. Y no es caro en cupo — createReport se repone
--- una vez por minuto y aqui son unos catorce informes por pasada.
+-- POR QUE EL CENSO CADA HORA. No es solo por descubrir referencias nuevas: el
+-- ciclo de quince minutos NO VE EL CATALOGO ENTERO de los clientes grandes. Usa
+-- searchListingsItems, que no puede paginar mas alla de 1.000 SKU, y no da error
+-- al quedarse corto. Con las 2.620 referencias de Shoplamp, cada cuarto de hora
+-- se refrescan las primeras 1.000 por orden de SKU y las otras 1.620 no las toca
+-- nadie. El censo va por informe y si enumera el catalogo completo: es lo UNICO
+-- que refresca esas 1.620.
+--
+-- El cupo aguanta: createReport se repone una vez por minuto (1.440 al dia) y
+-- aqui son unos catorce informes por pasada, unos 336 al dia.
 --
 -- OJO con bajarlo mas: Amazon cachea este informe entre 1 y 6 horas, asi que por
--- debajo de esas 4 h habria pasadas que reciben exactamente la misma foto.
+-- debajo de la hora se estaria pidiendo otra vez algo que ni ha cambiado.
+--
+-- El inventario se queda en diario A PROPOSITO: esa tarea no es el stock actual
+-- —ese ya lo refresca el ciclo de quince minutos— sino una serie de solo
+-- insercion, o sea historico. Cada quince minutos serian 96 observaciones al dia
+-- por SKU y pais para dibujar la misma linea.
 INSERT INTO public.refresco_config (tipo, cada_minutos, solo_de_noche) VALUES
   ('recalcular_activos',   1200, true),   -- 20 h
-  ('inventario_fba',       1200, true),   -- 20 h
-  ('snapshot_bsr',         1200, true),   -- 20 h
+  ('inventario_fba',       1200, true),   -- 20 h · historico, no el stock vivo
+  ('snapshot_bsr',         1200, true),   -- 20 h · una vez por noche
   ('snapshot_precios',     1200, true),   -- 20 h
-  ('censo_catalogo',        240, false),  -- 4 h, y de dia tambien
+  ('censo_catalogo',         60, false),  -- 1 h, y de dia tambien
   ('enriquecer_catalogo',  8640, true)    -- 144 h = 6 dias
 ON CONFLICT (tipo) DO NOTHING;
 

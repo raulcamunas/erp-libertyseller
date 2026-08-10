@@ -39,21 +39,44 @@ export interface ConfigRefresco {
 /**
  * Los valores de partida.
  *
- * El censo va a 4 h y SIN ventana nocturna, y las dos cosas van juntas a
- * propósito: con la ventana puesta, «cada 4 horas» solo podría arrancar dos
- * veces por noche y ninguna en todo el día. El número guardado diría una cosa y
- * el comportamiento sería otro, sin ningún error por medio.
  *
- * Es quien descubre los SKU nuevos y los listings suprimidos: con cadencia
- * semanal, un producto dado de alta el lunes no existía para el ERP hasta el
- * domingo.
+ * EL CENSO VA CADA HORA, Y NO ES POR DESCUBRIR REFERENCIAS NUEVAS
+ * --------------------------------------------------------------
+ * O no solo. El motivo de peso es que el ciclo de quince minutos NO VE EL
+ * CATÁLOGO ENTERO de los clientes grandes: usa `searchListingsItems`, que no
+ * puede paginar más allá de 1.000 SKU, y no da error al quedarse corto. Con las
+ * 2.620 referencias de Shoplamp, cada cuarto de hora se refrescan las primeras
+ * 1.000 por orden de SKU y las otras 1.620 no las toca nadie.
+ *
+ * El censo —que va por informe y sí enumera el catálogo completo— es lo ÚNICO
+ * que refresca esas 1.620. Con cadencia semanal llevaban hasta seis días con el
+ * precio y el stock viejos.
+ *
+ * Y SIN ventana nocturna, que va junto: con la ventana puesta, «cada hora» solo
+ * podría arrancar entre las 23:00 y las 06:00. El número diría una cosa y el
+ * comportamiento sería otro, sin ningún error por medio.
+ *
+ * OJO CON BAJARLO MÁS: Amazon cachea este informe entre 1 y 6 horas, así que por
+ * debajo de la hora se pediría otra vez algo que ni siquiera ha cambiado.
+ *
+ *
+ * EL INVENTARIO SE QUEDA EN DIARIO A PROPÓSITO
+ * --------------------------------------------
+ * Esta tarea NO es el stock actual: escribe una observación por SKU en una serie
+ * de solo inserción, o sea HISTÓRICO. El stock que se ve en pantalla ya lo
+ * refresca el ciclo de quince minutos, que pide getInventorySummaries en la
+ * misma pasada y lo escribe en el espejo.
+ *
+ * Ponerla cada quince minutos serían 96 observaciones diarias por SKU y país:
+ * con el subconjunto activo de Shoplamp por sus diez mercados, del orden de
+ * medio millón de filas al día para dibujar la misma línea que dibujan 5.000.
  */
 export const REFRESCO_POR_DEFECTO: Record<string, { minutos: number; noche: boolean }> = {
   recalcular_activos: { minutos: 1200, noche: true }, //  20 h
-  inventario_fba: { minutos: 1200, noche: true }, //      20 h
-  snapshot_bsr: { minutos: 1200, noche: true }, //        20 h
+  inventario_fba: { minutos: 1200, noche: true }, //      20 h · histórico, no el stock vivo
+  snapshot_bsr: { minutos: 1200, noche: true }, //        20 h · una vez por noche
   snapshot_precios: { minutos: 1200, noche: true }, //    20 h
-  censo_catalogo: { minutos: 240, noche: false }, //       4 h, y de día también
+  censo_catalogo: { minutos: 60, noche: false }, //        1 h, y de día también
   enriquecer_catalogo: { minutos: 8640, noche: true }, // 144 h
 }
 
