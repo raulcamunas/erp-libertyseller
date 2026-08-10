@@ -1,3 +1,4 @@
+import { conRegistro } from '@/lib/sistema/cron'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isGoogleConfigured } from '@/lib/google-calendar'
@@ -22,7 +23,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const stats = await runSyncCycle(createServiceClient())
+    const stats = await conRegistro('calendario', null, () =>
+      runSyncCycle(createServiceClient())
+    )
     return NextResponse.json({ ok: true, ...stats })
   } catch (err) {
     console.error('Error en cron-sync:', err)

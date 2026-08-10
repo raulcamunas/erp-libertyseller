@@ -4,6 +4,7 @@ import {
   Database,
   Eye,
   FolderInput,
+  HeartPulse,
   Plug,
   Store,
   Tags,
@@ -48,6 +49,7 @@ export type PestanaId =
   | 'origen'
   | 'bsr'
   | 'ingesta'
+  | 'sistema'
 
 export interface Pestana {
   id: PestanaId
@@ -106,6 +108,12 @@ export const PESTANAS: readonly Pestana[] = [
     nombre: 'Ingesta',
     icono: Database,
     pista: 'Trabajos contra Amazon, cobertura de datos y ficha de cada SKU',
+  },
+  {
+    id: 'sistema',
+    nombre: 'Sistema',
+    icono: HeartPulse,
+    pista: 'Si los procesos automáticos están corriendo, y el botón para lanzarlos a mano',
   },
 ] as const
 

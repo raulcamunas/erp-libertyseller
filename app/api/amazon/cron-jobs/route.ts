@@ -1,3 +1,4 @@
+import { conRegistro } from '@/lib/sistema/cron'
 import { NextResponse, type NextRequest } from 'next/server'
 import { ejecutarJobs } from '@/lib/plataforma/motor'
 import { planificarRefrescos } from '@/lib/plataforma/planificador'
@@ -84,7 +85,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const resultado = await ejecutarJobs()
+    // Ver lib/sistema/cron.ts: deja una fila con cuánto tardó y cómo acabó. El
+    // planificador de arriba queda fuera a propósito —tiene su propio try y no
+    // debe hacer fallar la pasada—, así que lo que se mide es el motor.
+    const resultado = await conRegistro('amazon-jobs', null, () => ejecutarJobs())
 
     if (resultado.omitido) {
       console.log(`[plataforma] pasada omitida: ${resultado.omitido}`)

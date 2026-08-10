@@ -19,6 +19,7 @@ import { PanelCatalogo, InfoCatalogo } from './paneles/PanelCatalogo'
 import { PanelCostes, InfoCostes } from './paneles/PanelCostes'
 import { PanelCuentas, InfoCuentas } from './paneles/PanelCuentas'
 import { PanelIngesta, InfoIngesta } from './paneles/PanelIngesta'
+import { PanelSistema, InfoSistema } from './paneles/PanelSistema'
 import { PanelMarcas, InfoMarcas } from './paneles/PanelMarcas'
 import { PanelOrigen, InfoOrigen } from './paneles/PanelOrigen'
 import { PanelSeguimiento, InfoSeguimiento } from './paneles/PanelSeguimiento'
@@ -82,6 +83,7 @@ const PANELES: Record<
   origen: { Panel: PanelOrigen, Info: InfoOrigen },
   bsr: { Panel: PanelBsr, Info: InfoBsr },
   ingesta: { Panel: PanelIngesta, Info: InfoIngesta },
+  sistema: { Panel: PanelSistema, Info: InfoSistema },
 }
 
 export function Carcasa({

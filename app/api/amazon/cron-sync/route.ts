@@ -3,6 +3,7 @@ import { syncAllConnections } from '@/lib/amazon/data'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { ejecutarCicloStock } from '@/lib/stock-sync/ciclo'
+import { conRegistro } from '@/lib/sistema/cron'
 
 /**
  * EL REFRESCO DE CADA QUINCE MINUTOS, Y EL CICLO DE STOCK DETRÁS.
@@ -75,6 +76,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Envuelto para que quede una fila en cron_ejecuciones con cuánto tardó y
+    // cómo acabó. Ver lib/sistema/cron.ts: sin esto, un cron muerto no se
+    // distingue de uno que corre y no encuentra nada que hacer.
+    const salida = await conRegistro('amazon-sync', null, async () => {
     const stats = await syncAllConnections()
 
     // Los fallos se registran uno a uno: son el rastro de que la conexión de un
@@ -88,7 +93,10 @@ export async function POST(request: NextRequest) {
 
     const stock = await cicloDeStock()
 
-    return NextResponse.json({ ok: true, ...stats, stock })
+    return { ok: true, ...stats, stock }
+    })
+
+    return NextResponse.json(salida)
   } catch (error) {
     console.error('Error en el refresco periódico de Amazon:', error)
     return NextResponse.json(
