@@ -347,3 +347,52 @@ export function diasDesde(iso: string | null | undefined): number | null {
   if (Number.isNaN(d.getTime())) return null
   return Math.floor((Date.now() - d.getTime()) / 86400000)
 }
+
+/**
+ * Cuánto ha durado algo, en la unidad que se lea de un vistazo.
+ *
+ * `fin` a null significa que sigue en marcha, y entonces se cuenta hasta ahora:
+ * un trabajo que lleva cuarenta minutos corriendo tiene una duración, y no
+ * enseñarla es justo lo que hace imposible distinguir «va lento» de «está
+ * colgado».
+ */
+export function duracion(inicio: string | null | undefined, fin?: string | null): string {
+  if (!inicio) return '—'
+  const a = new Date(inicio).getTime()
+  if (Number.isNaN(a)) return '—'
+  const b = fin ? new Date(fin).getTime() : Date.now()
+  if (Number.isNaN(b)) return '—'
+
+  const seg = Math.max(0, Math.round((b - a) / 1000))
+  // Por debajo del minuto con un decimal: la diferencia entre 0,1 s y 14,4 s es
+  // la que dice si una pasada ha hecho algo o ha contestado «no toca».
+  if (seg < 60) return `${((b - a) / 1000).toFixed(1)} s`
+  if (seg < 3600) {
+    const m = Math.floor(seg / 60)
+    const s = seg % 60
+    return s === 0 ? `${m} min` : `${m} min ${s} s`
+  }
+  const h = Math.floor(seg / 3600)
+  const m = Math.floor((seg % 3600) / 60)
+  return m === 0 ? `${h} h` : `${h} h ${m} min`
+}
+
+/**
+ * Cuándo le toca otra vez, dada la última vez y cada cuánto.
+ *
+ * Devuelve «le toca ya» cuando la fecha ya ha pasado, y no una cuenta atrás en
+ * negativo: un «hace -3 min» no lo lee nadie, y lo que se quiere saber es si
+ * está pendiente o no.
+ */
+export function proxima(ultimo: string | null | undefined, cadaMinutos: number): string {
+  if (!ultimo) return 'en cuanto pueda'
+  const t = new Date(ultimo).getTime()
+  if (Number.isNaN(t)) return '—'
+  const cuando = t + cadaMinutos * 60_000
+  const faltan = Math.round((cuando - Date.now()) / 60_000)
+  if (faltan <= 0) return 'le toca ya'
+  if (faltan < 60) return `en ${faltan} min`
+  const horas = Math.round(faltan / 60)
+  if (horas < 48) return `en ${horas} h`
+  return `en ${Math.round(horas / 24)} días`
+}

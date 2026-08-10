@@ -52,7 +52,18 @@ import {
   TIPO,
   type TonoEstado,
 } from '@/lib/estilo/denso'
-import { Aviso, Cargando, Dialogo, Panel, cifra, fechaHora, hace, nombreMarketplace } from './comun'
+import {
+  Aviso,
+  Cargando,
+  Dialogo,
+  Panel,
+  cifra,
+  duracion,
+  fechaHora,
+  hace,
+  nombreMarketplace,
+  proxima,
+} from './comun'
 
 /**
  * ESTADO DE LA INGESTA DE UN CLIENTE.
@@ -487,6 +498,7 @@ function RejillaRefrescos({
     destino: string
     velocidad: string
     horas: number
+    apagado: boolean
   }> = []
 
   for (const horario of horarios) {
@@ -494,6 +506,7 @@ function RejillaRefrescos({
     if (!datos.tiposEjecutables.includes(tipo)) continue
     const velocidad = horario.activo ? textoIntervalo(horario.cada_minutos) : 'apagado'
     const horas = horario.cada_minutos / 60
+    const apagado = !horario.activo
     if (jobNecesitaConexion(tipo)) {
       for (const u of unidades) {
         filas.push({
@@ -502,10 +515,18 @@ function RejillaRefrescos({
           destino: `${u.conexion} · ${nombreMarketplace(u.marketplaceId)}`,
           velocidad,
           horas,
+          apagado,
         })
       }
     } else {
-      filas.push({ clave: `${tipo}||`, tipo, destino: 'Todo el cliente', velocidad, horas })
+      filas.push({
+        clave: `${tipo}||`,
+        tipo,
+        destino: 'Todo el cliente',
+        velocidad,
+        horas,
+        apagado,
+      })
     }
   }
 
@@ -521,6 +542,7 @@ function RejillaRefrescos({
               <th className={TABLA.cabecera}>Cuenta y país</th>
               <th className={TABLA.cabecera}>Cadencia</th>
               <th className={TABLA.cabecera}>Última vez que terminó bien</th>
+              <th className={TABLA.cabecera}>Le toca</th>
               <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Procesados</th>
               <th className={TABLA.cabecera}>Resumen</th>
             </tr>
@@ -554,6 +576,18 @@ function RejillaRefrescos({
                         <span className={TEXTO.t4}>nunca ha corrido</span>
                       )}
                     </span>
+                  </td>
+                  {/* CUÁNDO LE TOCA OTRA VEZ, que es la mitad que faltaba: la
+                      columna de al lado dice cuándo fue la última y la cadencia
+                      dice cada cuánto, pero juntar las dos de cabeza para saber
+                      si algo está pendiente no lo hace nadie. Si está apagado se
+                      dice, porque entonces no le toca nunca. */}
+                  <td className={`${TABLA.celda} ${TEXTO.t3} whitespace-nowrap`}>
+                    {f.apagado ? (
+                      <span className={TEXTO.t4}>apagado</span>
+                    ) : (
+                      proxima(ultimo?.terminado_at ?? null, f.horas * 60)
+                    )}
                   </td>
                   <td className={`${TABLA.celda} ${TABLA.numero}`}>
                     {ultimo ? cifra(ultimo.procesados) : '—'}
@@ -602,6 +636,8 @@ function TablaJobs({
             <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Errores</th>
             <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Pasadas</th>
             <th className={TABLA.cabecera}>Empezó</th>
+            <th className={TABLA.cabecera}>Terminó</th>
+            <th className={TABLA.cabecera}>Duró</th>
             <th className={TABLA.cabecera}>Qué pasó</th>
             <th className={TABLA.cabecera} />
           </tr>
@@ -673,7 +709,26 @@ function TablaJobs({
                   )}
                 </td>
                 <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t3}`}>{job.pasadas}</td>
-                <td className={`${TABLA.celda} ${TEXTO.t3}`}>{fechaHora(job.iniciado_at)}</td>
+                <td className={`${TABLA.celda} ${TEXTO.t3} whitespace-nowrap`}>
+                  {fechaHora(job.iniciado_at)}
+                </td>
+                {/* Un trabajo vivo NO tiene hora de fin, y poner un guion ahí lo
+                    haría indistinguible de uno que reventó sin cerrar. Se dice
+                    que sigue, y la duración cuenta hasta ahora: eso es lo que
+                    separa «va lento» de «está colgado». */}
+                <td className={`${TABLA.celda} ${TEXTO.t3} whitespace-nowrap`}>
+                  {job.terminado_at ? (
+                    fechaHora(job.terminado_at)
+                  ) : vivo ? (
+                    <span className={TEXTO.t4}>en marcha</span>
+                  ) : (
+                    <span className={TEXTO.t4}>sin cerrar</span>
+                  )}
+                </td>
+                <td className={`${TABLA.celda} ${TEXTO.t3} tabular-nums whitespace-nowrap`}>
+                  {job.iniciado_at ? duracion(job.iniciado_at, job.terminado_at) : '—'}
+                  {!job.terminado_at && vivo && <span className={TEXTO.t4}> y sigue</span>}
+                </td>
                 <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[420px]`}>
                   <span className={TABLA.corta} title={job.error_message ?? job.resumen ?? ''}>
                     {job.error_message ? (
