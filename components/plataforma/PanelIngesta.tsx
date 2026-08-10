@@ -338,6 +338,8 @@ export function PanelIngesta({
       <PanelHorarios
         horarios={horarios}
         etiquetas={datos.etiquetas.tipos}
+        clienteId={cliente.id}
+        clienteNombre={cliente.name}
         onGuardado={setHorarios}
       />
 
@@ -1298,13 +1300,59 @@ const ORDEN_POR_RITMO = [
 function PanelHorarios({
   horarios,
   etiquetas,
+  clienteId,
+  clienteNombre,
   onGuardado,
 }: {
   horarios: ConfigRefresco[]
   etiquetas: Record<AmazonJobTipo, string>
+  clienteId: string
+  clienteNombre: string
   onGuardado: (config: ConfigRefresco[]) => void
 }) {
   const [guardando, setGuardando] = useState<string | null>(null)
+
+  /**
+   * El FOEP tiene su propio reloj y NO vive en refresco_config.
+   *
+   * Es el único de esta tabla que se configura POR CLIENTE, y no por capricho:
+   * su precio depende del tamaño del catálogo de cada uno. 40 SKU por llamada y
+   * una llamada cada treinta segundos son 4.800 SKU/hora de techo, con el cupo
+   * compartido entre todos los países del mismo vendedor. Un cliente de 500
+   * referencias con stock puede pedirlo cada hora; uno de 2.500 en cuatro
+   * países tarda dos horas en dar una vuelta.
+   *
+   * Sale aquí igualmente porque es donde alguien viene a mirar cada cuánto se
+   * actualiza algo, y tenerlo en otra pantalla es tenerlo escondido. Lo que hace
+   * falta es que se vea que es de ESTE cliente y no de todos.
+   */
+  const [foepMin, setFoepMin] = useState<number | null>(null)
+  const [guardandoFoep, setGuardandoFoep] = useState(false)
+
+  useEffect(() => {
+    setFoepMin(null)
+    void (async () => {
+      const res = await getAmazon<{ config: { config: { foepCadaMinutos?: number } } }>(
+        `/api/plataforma/buybox/config?clientId=${clienteId}`
+      )
+      if (res.ok) setFoepMin(res.data.config?.config?.foepCadaMinutos ?? 1440)
+    })()
+  }, [clienteId])
+
+  async function guardarFoep(cadaMinutos: number) {
+    setGuardandoFoep(true)
+    const res = await patchAmazon<{ config: { config: { foepCadaMinutos?: number } } }>(
+      '/api/plataforma/buybox/config',
+      { clientId: clienteId, foepCadaMinutos: cadaMinutos }
+    )
+    setGuardandoFoep(false)
+    if (!res.ok) {
+      toast.error(res.error, { duration: 10_000 })
+      return
+    }
+    setFoepMin(res.data.config?.config?.foepCadaMinutos ?? cadaMinutos)
+    toast.success('Horario del FOEP guardado para este cliente.')
+  }
 
   async function guardar(
     tipo: AmazonJobTipo,
@@ -1379,6 +1427,15 @@ function PanelHorarios({
                   onGuardar={(cambios) => void guardar(h.tipo, cambios)}
                 />
               ))}
+            {/* El FOEP, que es de ESTE cliente. Ver la nota de arriba */}
+            {foepMin !== null && (
+              <FilaFoep
+                minutos={foepMin}
+                cliente={clienteNombre}
+                guardando={guardandoFoep}
+                onGuardar={(m) => void guardarFoep(m)}
+              />
+            )}
           </tbody>
         </table>
       </div>
@@ -1541,6 +1598,124 @@ function FilaHorario({
           </span>
         )}
       </td>
+    </tr>
+  )
+}
+
+/**
+ * CADA CUÁNTO SE PIDE EL TECHO DE PRECIO (FOEP) DE ESTE CLIENTE.
+ *
+ * La única fila de esta tabla que NO es global. Vive en la configuración de Buy
+ * Box del cliente porque su precio depende del tamaño de SU catálogo:
+ *
+ *   getFeaturedOfferExpectedPriceBatch → 40 SKU por llamada, una cada 30 s.
+ *   Techo: 4.800 SKU a la hora, y ese cupo lo comparten TODOS los países del
+ *   mismo vendedor.
+ *
+ *     500 SKU con stock →  13 llamadas →  7 min  → cada hora sobra
+ *   2.500 SKU con stock →  63 llamadas → 31 min  → cada hora, justo
+ *   2.500 × 4 países    → 250 llamadas →  2 h 05 → cada hora imposible
+ *
+ * Por eso NO hay un botón de «a cualquier hora» ni de apagar: apagarlo se hace
+ * en la configuración de Buy Box, donde está el resto de decisiones de ese
+ * módulo, y aquí solo se toca el reloj.
+ */
+function FilaFoep({
+  minutos,
+  cliente,
+  guardando,
+  onGuardar,
+}: {
+  minutos: number
+  cliente: string
+  guardando: boolean
+  onGuardar: (minutos: number) => void
+}) {
+  const inicial = descomponer(minutos)
+  const [valor, setValor] = useState(String(inicial.valor))
+  const [unidad, setUnidad] = useState<UnidadTiempo>(inicial.unidad)
+
+  useEffect(() => {
+    const d = descomponer(minutos)
+    setValor(String(d.valor))
+    setUnidad(d.unidad)
+  }, [minutos])
+
+  const nuevos = aMinutos(Number(valor) || 0, unidad)
+  const valido = Number.isFinite(nuevos) && nuevos >= 15 && nuevos <= 43_200
+  const cambiado = nuevos !== minutos
+
+  return (
+    <tr className={TABLA.fila}>
+      <td className={`${TABLA.celda} ${TABLA.celdaFija}`}>
+        <span className={TEXTO.t1}>A qué precio ganaríamos la Buy Box</span>
+        <span className={`block ${TIPO.s} ${TEXTO.t4}`}>
+          FOEP · solo de {cliente}
+        </span>
+      </td>
+
+      <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[240px]`}>
+        minutos · pero es la petición más cara que hay (una cada 30 s)
+      </td>
+
+      <td className={TABLA.celda}>
+        <span className="flex items-center gap-[5px]">
+          <input
+            type="number"
+            min={15}
+            value={valor}
+            onChange={(e) => setValor(e.target.value)}
+            className={`${CAMPO.input} !h-6 !w-[62px] ${TIPO.num}`}
+            aria-label="Cada cuánto se pide el FOEP"
+          />
+          <select
+            value={unidad}
+            onChange={(e) => setUnidad(e.target.value as UnidadTiempo)}
+            className={`${CAMPO.input} !h-6 !w-auto`}
+            aria-label="Unidad"
+          >
+            {UNIDADES.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.label}
+              </option>
+            ))}
+          </select>
+          {cambiado && (
+            <button
+              type="button"
+              disabled={!valido || guardando}
+              onClick={() => onGuardar(nuevos)}
+              className={`${BOTON.base} ${BOTON.primario}`}
+            >
+              Guardar
+            </button>
+          )}
+        </span>
+        {!valido && (
+          <span className={TIPO.s} style={{ color: COLOR_ESTADO.rojo }}>
+            Entre 15 minutos y 30 días
+          </span>
+        )}
+      </td>
+
+      <td className={`${TABLA.celda} ${TEXTO.t3}`}>
+        {/* `false` porque el FOEP no tiene ventana nocturna: puede arrancar a
+            cualquier hora, así que las veces al día son las que salen del reloj
+            y no hay que descontar nada. */}
+        {salidaReal(minutos, false)}
+        {/* 4.800 SKU/hora es el techo del cupo. Decirlo aquí evita que alguien
+            ponga «cada 15 minutos» y se quede esperando un dato que no puede
+            llegar a tiempo. */}
+        {minutos < 60 && (
+          <span className={`${TIPO.s} block max-w-[240px]`} style={{ color: COLOR_ESTADO.ambar }}>
+            Por debajo de una hora solo cabe en catálogos muy cortos: el techo son 4.800 referencias
+            a la hora, y lo comparten todos los países de este vendedor.
+          </span>
+        )}
+      </td>
+
+      <td className={`${TABLA.celda} ${TEXTO.t3}`}>a cualquier hora</td>
+      <td className={`${TABLA.celda} ${TEXTO.t4} ${TIPO.s}`}>de este cliente</td>
     </tr>
   )
 }
