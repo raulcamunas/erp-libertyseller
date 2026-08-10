@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Loader2, Play, RotateCcw } from 'lucide-re
 import { toast } from 'sonner'
 import {
   BOTON,
+  CAMPO,
   COLOR_ESTADO,
   LINEA,
   PANTALLA,
@@ -16,7 +17,8 @@ import {
   TITULO,
 } from '@/lib/estilo/denso'
 import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
-import { Aviso, Cargando, hace } from '@/components/plataforma/comun'
+import { Aviso, Cargando, hace, nombreMarketplace } from '@/components/plataforma/comun'
+import { AMAZON_JOB_TIPO_LABELS } from '@/lib/plataforma/tipos'
 import { TAREAS_CRON, estaParada } from '@/lib/sistema/cron'
 
 /**
@@ -44,6 +46,26 @@ interface Ejecucion {
   lanzado_por: string | null
 }
 
+interface Trabajo {
+  id: string
+  tipo: string
+  client_id: string
+  marketplace_id: string | null
+  estado: string
+  iniciado_at: string | null
+  terminado_at: string | null
+  procesados: number
+  errores: number
+  pasadas: number
+  resumen: string | null
+  error_message: string | null
+}
+
+interface Cliente {
+  id: string
+  name: string
+}
+
 interface Proceso {
   id: string
   nombre: string
@@ -57,6 +79,11 @@ interface Proceso {
 export function PanelSistema() {
   const [procesos, setProcesos] = useState<Proceso[] | null>(null)
   const [ejecuciones, setEjecuciones] = useState<Ejecucion[]>([])
+  const [trabajos, setTrabajos] = useState<Trabajo[]>([])
+  const [clientes, setClientes] = useState<Cliente[]>([])
+  /** Vacío = todos. El desglose por cliente contesta otra pregunta que los tres
+      procesos de arriba: si el motor está vivo, qué ha hecho por ESTA cuenta */
+  const [clienteId, setClienteId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const [lanzando, setLanzando] = useState<string | null>(null)
@@ -68,6 +95,8 @@ export function PanelSistema() {
       if (!res.ok) throw new Error(datos?.error ?? 'No se ha podido leer el estado')
       setProcesos(datos.procesos)
       setEjecuciones(datos.ejecuciones ?? [])
+      setTrabajos(datos.trabajos ?? [])
+      setClientes(datos.clientes ?? [])
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se ha podido leer el estado')
@@ -118,6 +147,7 @@ export function PanelSistema() {
   if (!procesos) return null
 
   const parados = procesos.filter((p) => estaParada(p.cadaMinutos, p.ultimaAutomatica?.iniciado_at ?? null))
+  const trabajosVisibles = clienteId ? trabajos.filter((t) => t.client_id === clienteId) : trabajos
 
   return (
     <div className={`${PANTALLA.cuerpo} h-full overflow-auto`}>
@@ -184,7 +214,7 @@ export function PanelSistema() {
                   type="button"
                   onClick={() => void lanzar(p.id, p.nombre)}
                   disabled={lanzando !== null}
-                  className={`${BOTON.secundario} shrink-0`}
+                  className={`${BOTON.base} ${BOTON.secundario} shrink-0`}
                 >
                   {lanzando === p.id ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -199,9 +229,101 @@ export function PanelSistema() {
         })}
       </div>
 
+      {/* -------- Qué ha corrido por cliente -------- */}
+      <div className="mt-[16px] flex flex-wrap items-center gap-[8px]">
+        <span className={`${TITULO.seccion} ${TEXTO.t1}`}>Trabajos por cliente</span>
+        <select
+          value={clienteId}
+          onChange={(e) => setClienteId(e.target.value)}
+          className={`${CAMPO.input} !h-6 !w-auto max-w-[220px]`}
+          aria-label="Cliente"
+        >
+          <option value="">Todos los clientes</option>
+          {clientes.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Sale de amazon_jobs y no del registro de pasadas: una pasada del cron
+          avanza un tramo de VARIOS clientes, así que el grano de «qué le ha
+          pasado a este» es el trabajo, no la pasada. */}
+      {trabajosVisibles.length === 0 ? (
+        <p className={`mt-[8px] ${TIPO.s} ${TEXTO.t3}`}>
+          {clienteId
+            ? 'A este cliente no le ha corrido ningún trabajo todavía. Si su cola tiene cosas pendientes, es que aún no le ha tocado.'
+            : 'Todavía no ha corrido ningún trabajo.'}
+        </p>
+      ) : (
+        <div className={`mt-[8px] overflow-auto ${RADIO.r2} border ${LINEA.normal}`}>
+          <table className={TABLA.tabla}>
+            <thead>
+              <tr>
+                {!clienteId && <th className={TABLA.cabecera}>Cliente</th>}
+                <th className={TABLA.cabecera}>Trabajo</th>
+                <th className={TABLA.cabecera}>País</th>
+                <th className={TABLA.cabecera}>Empezó</th>
+                <th className={TABLA.cabecera}>Tardó</th>
+                <th className={TABLA.cabecera}>Procesados</th>
+                <th className={TABLA.cabecera}>Cómo acabó</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trabajosVisibles.map((t) => {
+                const dur =
+                  t.iniciado_at && t.terminado_at
+                    ? (new Date(t.terminado_at).getTime() - new Date(t.iniciado_at).getTime()) / 1000
+                    : null
+                const tono =
+                  t.estado === 'terminado'
+                    ? ('verde' as const)
+                    : t.estado === 'error'
+                      ? ('rojo' as const)
+                      : ('ambar' as const)
+                return (
+                  <tr key={t.id} className={TABLA.fila}>
+                    {!clienteId && (
+                      <td className={`${TABLA.celda} ${TEXTO.t3}`}>
+                        {clientes.find((c) => c.id === t.client_id)?.name ?? '—'}
+                      </td>
+                    )}
+                    <td className={TABLA.celda}>
+                      {AMAZON_JOB_TIPO_LABELS[t.tipo as keyof typeof AMAZON_JOB_TIPO_LABELS] ?? t.tipo}
+                    </td>
+                    <td className={`${TABLA.celda} ${TEXTO.t3}`}>
+                      {t.marketplace_id ? nombreMarketplace(t.marketplace_id) : 'Todo el cliente'}
+                    </td>
+                    <td className={`${TABLA.celda} ${TEXTO.t3}`}>{hace(t.iniciado_at)}</td>
+                    {/* Un trabajo sin terminar no tiene duración, y poner un 0
+                        seria decir que fue instantaneo. Se dice que sigue. */}
+                    <td className={`${TABLA.celda} ${TIPO.num} ${TEXTO.t3}`}>
+                      {dur != null ? `${dur.toFixed(1)} s` : t.estado === 'en_curso' ? 'sigue' : '—'}
+                    </td>
+                    <td className={`${TABLA.celda} ${TIPO.num} ${TEXTO.t3}`}>
+                      {t.procesados}
+                      {t.errores > 0 && (
+                        <span style={{ color: COLOR_ESTADO.rojo }}> · {t.errores} err</span>
+                      )}
+                    </td>
+                    <td className={TABLA.celda}>
+                      <span style={{ color: COLOR_ESTADO[tono] }}>{t.estado}</span>
+                      {t.error_message && (
+                        <span className={`ml-[6px] ${TEXTO.t3} ${TIPO.s}`}>{t.error_message}</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="mt-[14px] flex items-center justify-between">
         <span className={`${TITULO.seccion} ${TEXTO.t1}`}>Últimas pasadas</span>
-        <button type="button" onClick={() => void cargar()} className={BOTON.secundario}>
+        <button type="button" onClick={() => void cargar()} className={`${BOTON.base} ${BOTON.secundario}`}>
           <RotateCcw className="h-3.5 w-3.5" />
           Actualizar
         </button>

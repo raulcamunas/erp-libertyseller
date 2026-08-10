@@ -77,7 +77,42 @@ export async function GET() {
       }
     })
 
-    return NextResponse.json({ procesos, ejecuciones: filas })
+    /**
+     * Y lo que ha corrido POR CLIENTE.
+     *
+     * Los tres procesos de arriba dicen si el motor está vivo; esto dice qué ha
+     * hecho por cada cuenta. Son preguntas distintas: el cron puede estar
+     * corriendo perfectamente y un cliente concreto llevar días sin que le toque
+     * nada porque su cola está vacía o sus trabajos fallan.
+     *
+     * Sale de amazon_jobs y no de cron_ejecuciones: una pasada del cron avanza
+     * un tramo de VARIOS clientes, así que el grano de «qué le ha pasado a este»
+     * es el trabajo, no la pasada.
+     */
+    const { data: trabajos, error: errorTrabajos } = await service
+      .from('amazon_jobs')
+      .select(
+        'id, tipo, client_id, marketplace_id, estado, iniciado_at, terminado_at, ' +
+          'procesados, errores, pasadas, resumen, error_message'
+      )
+      .not('iniciado_at', 'is', null)
+      .order('iniciado_at', { ascending: false })
+      .limit(120)
+    if (errorTrabajos) throw errorTrabajos
+
+    const { data: clientes, error: errorClientes } = await service
+      .from('amazon_clients')
+      .select('id, name')
+      .eq('is_active', true)
+      .order('name', { ascending: true })
+    if (errorClientes) throw errorClientes
+
+    return NextResponse.json({
+      procesos,
+      ejecuciones: filas,
+      trabajos: trabajos ?? [],
+      clientes: clientes ?? [],
+    })
   } catch (error) {
     if (isMissingSchema(error)) return fail(503, FALTA_MIGRACION_CRON)
     return errorResponse(error, 'No se ha podido leer el estado de los procesos')
