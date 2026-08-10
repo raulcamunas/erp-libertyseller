@@ -45,6 +45,15 @@ export interface ConfigBuyBox {
   condicion: string
   segmento: string
   foepRotacionDias: number
+  /**
+   * Cada cuántos minutos se le vuelve a pedir el FOEP a un mismo SKU.
+   *
+   * 1440 = una vez al día. Es lo que decide cuánto cuesta este trabajo, porque
+   * el FOEP va a 40 SKU por llamada y una llamada cada treinta segundos: 4.800
+   * SKU a la hora como techo, con el cupo compartido entre todos los países del
+   * mismo vendedor.
+   */
+  foepCadaMinutos: number
   foepMaxPorNoche: number | null
   foepColaActiva: boolean
   ofertasGuardadas: number
@@ -91,6 +100,8 @@ export const CONFIG_BUYBOX_DEFECTO: Omit<ConfigBuyBox, 'clientId'> = {
    * minutosDeFoep() de rotacion.ts, y la pantalla la enseña al configurarlo.
    */
   foepRotacionDias: 1,
+  /** Una vez al día. Es el único que cabe con cualquier catálogo; ver la 143 */
+  foepCadaMinutos: 1440,
   foepMaxPorNoche: null,
   foepColaActiva: true,
   ofertasGuardadas: 10,
@@ -133,7 +144,11 @@ export async function configDeCliente(clientId: string): Promise<ConfigBuyBox> {
     clientId,
     condicion: texto(fila.condicion) ?? 'New',
     segmento: texto(fila.segmento) ?? 'Consumer',
-    foepRotacionDias: entero(fila.foep_rotacion_dias) ?? 7,
+    foepRotacionDias: entero(fila.foep_rotacion_dias) ?? 1,
+    // `?? 1440` y no un fallo: la 143 se lanza a mano, así que el código puede
+    // estar desplegado antes que la columna. Sin columna, una vez al día, que es
+    // lo que hacía hasta ahora.
+    foepCadaMinutos: entero(fila.foep_cada_minutos) ?? 1440,
     foepMaxPorNoche: entero(fila.foep_max_por_noche),
     foepColaActiva: fila.foep_cola_activa !== false,
     ofertasGuardadas: entero(fila.ofertas_guardadas) ?? 10,
@@ -181,6 +196,7 @@ export async function guardarConfig(
   if (cambios.condicion !== undefined) fila.condicion = cambios.condicion
   if (cambios.segmento !== undefined) fila.segmento = cambios.segmento
   if (cambios.foepRotacionDias !== undefined) fila.foep_rotacion_dias = cambios.foepRotacionDias
+  if (cambios.foepCadaMinutos !== undefined) fila.foep_cada_minutos = cambios.foepCadaMinutos
   if (cambios.foepMaxPorNoche !== undefined) fila.foep_max_por_noche = cambios.foepMaxPorNoche
   if (cambios.foepColaActiva !== undefined) fila.foep_cola_activa = cambios.foepColaActiva
   if (cambios.ofertasGuardadas !== undefined) fila.ofertas_guardadas = cambios.ofertasGuardadas

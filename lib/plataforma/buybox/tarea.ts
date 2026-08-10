@@ -174,11 +174,12 @@ interface Entorno {
   config: ConfigBuyBox
   ambito: AmbitoCatalogo
   /**
-   * A quién se le ha pedido ya el FOEP hoy. Se llena la primera vez que hace
-   * falta y se guarda con el día para el que vale, porque el entorno sobrevive
-   * a la medianoche si el trabajo dura.
+   * A quién se le ha pedido ya el FOEP dentro de su ventana.
+   *
+   * `hasta` es el instante en que esta lista deja de valer: se recalcula al
+   * pasar, porque un trabajo largo sigue vivo mientras la ventana avanza.
    */
-  foepDeHoy?: { dia: number; skus: Set<string> }
+  foepReciente?: { hasta: number; skus: Set<string> }
 }
 
 /**
@@ -378,30 +379,50 @@ export const tareaSnapshotPrecios: Tarea = {
 
       /* --- 2b. La rotación --- */
       const dia = diaDeRotacion(ctx.ahora)
-      const rotacion = foepCompleto(ctx) ? 1 : entorno.config.foepRotacionDias
 
       /**
-       * A QUIÉN SE LE HA PEDIDO YA HOY.
+       * A QUIÉN SE LE HA PEDIDO YA DENTRO DE SU VENTANA.
        *
-       * La rotación reparte por DÍA, no por «cuándo se le preguntó»: mientras
-       * este trabajo corría una vez por noche daba igual, pero a cada quince
-       * minutos la misma tanda salía elegida 96 veces y a cada SKU se le pedía
-       * el FOEP 96 veces. Es la operación más cara que existe aquí —una
-       * petición cada treinta segundos— y no habría dado ningún error: el cubo
-       * de fichas habría puesto a esperar al resto de trabajos de todos los
-       * clientes y la cola se habría llenado sin decir por qué.
+       * ES EL FRENO QUE HACE QUE LA FRECUENCIA DEL TRABAJO NO MULTIPLIQUE EL
+       * COSTE DEL FOEP. La rotación de abajo reparte por DÍA, no por «cuándo se
+       * le preguntó»: mientras este trabajo corría una vez por noche daba
+       * igual, pero desde que corre cada quince minutos la misma tanda sale
+       * elegida 96 veces al día. Sin esto, a cada SKU se le pediría el FOEP 96
+       * veces — la operación más cara que existe aquí, una petición cada treinta
+       * segundos.
        *
-       * Se lee UNA VEZ por pasada y se guarda en el entorno, con el día para el
-       * que vale: un trabajo largo puede cruzar la medianoche.
+       * Y no daría ningún error: el cubo de fichas pondría a esperar al resto de
+       * trabajos de todos los clientes y la cola se llenaría sin decir por qué.
+       *
+       * La ventana es `foepCadaMinutos` y es POR CLIENTE porque su precio
+       * depende del tamaño del catálogo: 4.800 SKU a la hora es el techo, y el
+       * cupo lo comparten todos los países del mismo vendedor. Un cliente de 500
+       * referencias con stock puede permitirse cada hora; uno de 2.500 en cuatro
+       * países, no.
        */
-      if (entorno.foepDeHoy?.dia !== dia) {
-        const inicioDelDia = new Date(dia * 86_400_000).toISOString()
-        entorno.foepDeHoy = {
-          dia,
-          skus: await skusConFoepDesde(entorno.unidad, inicioDelDia),
+      const ventanaMs = Math.max(1, entorno.config.foepCadaMinutos) * 60_000
+      const ahoraMs = ctx.ahora.getTime()
+      if (!entorno.foepReciente || entorno.foepReciente.hasta <= ahoraMs) {
+        entorno.foepReciente = {
+          hasta: ahoraMs + ventanaMs,
+          skus: await skusConFoepDesde(entorno.unidad, new Date(ahoraMs - ventanaMs).toISOString()),
         }
       }
-      const yaHoy = entorno.foepDeHoy.skus
+      const yaHoy = entorno.foepReciente.skus
+
+      /**
+       * Con ventana corta, la rotación por días sobra.
+       *
+       * Son dos formas de espaciar lo mismo y aplicarlas juntas multiplica: pedir
+       * «cada hora» con una rotación de siete días daría cada hora... a un
+       * séptimo del catálogo, y los otros seis séptimos no lo verían nunca. El
+       * freno de arriba ya espacia; la rotación se queda solo para el caso que
+       * la justifica, que es no caber en un día.
+       */
+      const rotacion =
+        foepCompleto(ctx) || entorno.config.foepCadaMinutos < 1440
+          ? 1
+          : entorno.config.foepRotacionDias
       const elegidos: string[] = []
       let clave = cursor.clave
       let escaneados = 0

@@ -71,6 +71,28 @@ export async function PATCH(request: NextRequest) {
       }
       cambios.foepRotacionDias = v
     }
+    /**
+     * Cada cuánto se le vuelve a pedir el FOEP a un mismo SKU.
+     *
+     * El suelo son 15 minutos y no es arbitrario: un barrido corto ya son 7, así
+     * que por debajo se estaría pidiendo otra vez algo que la pasada anterior
+     * todavía está trayendo. El techo son 30 días.
+     *
+     * Lo caro está aquí: 40 SKU por llamada y una llamada cada treinta segundos
+     * son 4.800 SKU a la hora como techo, y ese cupo lo comparten TODOS los
+     * países del mismo vendedor. Por eso es por cliente.
+     */
+    if ('foepCadaMinutos' in body) {
+      const v = entero(body.foepCadaMinutos)
+      if (v === null || v < 15 || v > 43_200) {
+        return fail(
+          400,
+          'Cada cuánto se pide el FOEP va de 15 minutos a 30 días. Por debajo del cuarto de hora se ' +
+            'estaría volviendo a pedir algo que la pasada anterior todavía está trayendo.'
+        )
+      }
+      cambios.foepCadaMinutos = v
+    }
     if ('foepMaxPorNoche' in body) {
       const v = enteroOpcional(body.foepMaxPorNoche)
       if (v !== null && v < 1) return fail(400, 'El tope de FOEP por noche tiene que ser al menos 1')

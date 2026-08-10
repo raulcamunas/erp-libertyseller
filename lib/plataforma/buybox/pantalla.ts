@@ -376,8 +376,18 @@ export async function configPantalla(
       skus: skusEnSeguimiento,
       minutosOfertas: minutosDeOfertas(skusEnSeguimiento),
       minutosFoepCompleto: minutosDeFoep(skusEnSeguimiento),
+      /**
+       * Lo que cuesta un barrido de FOEP con la configuración de hoy.
+       *
+       * Con ventana corta la rotación por días ya no reparte nada —el freno de
+       * `foepCadaMinutos` la sustituye, ver buybox/tarea.ts—, así que dividir
+       * por ella daría un coste que no es el real. El número que se enseña tiene
+       * que ser el que se va a pagar.
+       */
       minutosFoepPorNoche: minutosDeFoep(
-        Math.ceil(skusEnSeguimiento / Math.max(1, config.foepRotacionDias))
+        config.foepCadaMinutos < 1440
+          ? skusEnSeguimiento
+          : Math.ceil(skusEnSeguimiento / Math.max(1, config.foepRotacionDias))
       ),
     },
   }
