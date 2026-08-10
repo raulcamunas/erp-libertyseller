@@ -133,6 +133,17 @@ export function unidadesDe(
      */
     const elegidos = new Set(conexion.marketplaces_activos ?? [])
     for (const marketplaceId of conexion.marketplace_ids) {
+      /**
+       * Y fuera los que el ERP no sabe nombrar, se haya elegido algo o no.
+       *
+       * Mismo criterio que filtroMercadosActivos() unas líneas más abajo, y hay
+       * que repetirlo aquí porque son dos preguntas distintas: aquella decide
+       * qué se ENSEÑA, esta decide para qué se ENCOLA TRABAJO. Sin esta línea la
+       * elección se respetaba, pero una cuenta sin elegir nada —que es el caso
+       * por defecto— programaba trabajos contra los cuatro mercados de sandbox,
+       * que contestan 403 a todo.
+       */
+      if (!marketplaceById(marketplaceId)) continue
       if (elegidos.size > 0 && !elegidos.has(marketplaceId)) continue
       if (filtro.size > 0 && !filtro.has(marketplaceId)) continue
       unidades.push({

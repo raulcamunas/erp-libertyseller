@@ -1078,17 +1078,38 @@ export async function syncConnectionCatalog(
   }
   const { connection, credentials } = resolved
 
-  // Sin país concreto se barren todos los suyos. Y si todavía no sabemos
-  // cuáles son —la lista se rellena al autorizar y puede quedarse vacía si esa
-  // llamada falló— se barre UNO solo, el de entrada, en vez de los cuatro de la
-  // región: multiplicar por cuatro las peticiones de cada cuarto de hora contra
-  // países en los que probablemente no vende es un precio alto por una lista
-  // que se va a rellenar sola. Desde la pantalla se puede elegir cualquier otro
-  // y refrescarlo a mano.
+  /**
+   * Sin país concreto se barren los suyos, PASADOS POR marketplacesCubiertos().
+   *
+   * NO se usa `connection.marketplace_ids` en crudo, y este es el punto entero:
+   * Amazon devuelve ahí mercados que no son tiendas de esta aplicación —cuatro
+   * de sandbox en la cuenta de Norteamérica— y al pedirles el catálogo
+   * contestan 403 «falta el permiso necesario». Ese 403 caía en el `catch` de
+   * abajo y marcaba la CONEXIÓN ENTERA como «con problemas» aunque Estados
+   * Unidos hubiera ido perfecto.
+   *
+   * De ahí los tres síntomas que se veían a la vez y parecían tres problemas:
+   *   · la cuenta salía «Con problemas» cada cuarto de hora;
+   *   · «Reintentar» la arreglaba —esa ruta llama a getMarketplaceParticipations,
+   *     una sola vez y sin país, así que nunca tocaba el mercado que fallaba—;
+   *   · y decía «refrescado nunca» para siempre, porque `last_sync_at` solo se
+   *     escribe si NO falló ninguno, y siempre fallaba alguno.
+   *
+   * Es además la misma lista que ya respetan Ingesta, Cobertura y la pantalla
+   * del catálogo, así que incluye la elección de países hecha en Cuentas: lo
+   * que no se ha marcado, no se pide.
+   *
+   * Si todavía no sabemos cuáles son —la lista se rellena al autorizar y puede
+   * quedarse vacía si esa llamada falló— se barre UNO solo, el de entrada, en
+   * vez de los cuatro de la región: multiplicar por cuatro las peticiones de
+   * cada cuarto de hora contra países en los que probablemente no vende es un
+   * precio alto por una lista que se va a rellenar sola. Desde la pantalla se
+   * puede elegir cualquier otro y refrescarlo a mano.
+   */
   const marketplaces = options.marketplaceId
     ? [options.marketplaceId]
     : connection.marketplace_ids.length > 0
-      ? connection.marketplace_ids
+      ? marketplacesCubiertos(connection)
       : [marketplaceDeEntrada(connection)].filter((m): m is string => Boolean(m))
 
   const results: SyncResult[] = []
