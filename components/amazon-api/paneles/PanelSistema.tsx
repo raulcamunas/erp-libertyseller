@@ -212,6 +212,18 @@ export function PanelSistema() {
         </Aviso>
       )}
 
+      {/* ESTA LÍNEA EXISTE PORQUE LA PANTALLA CONFUNDÍA, Y CON RAZÓN.
+          Hay dos horarios en el ERP con controles calcados en pestañas
+          distintas. Sin decir cuál es cuál, «cada 5 minutos» aquí y «cada día»
+          en Ingesta parecen contradecirse. No se contradicen: esto es el latido
+          del motor, aquello es la frescura de cada dato. */}
+      <p className={`mb-[10px] ${TIPO.s} ${TEXTO.t3} leading-[1.5]`}>
+        Cada cuánto se <strong className={TEXTO.t2}>despierta</strong> cada proceso a mirar si hay
+        algo que hacer. <strong className={TEXTO.t2}>No</strong> es cada cuánto se actualizan los
+        datos: eso se configura en Ingesta → «Cada cuánto se actualiza cada dato». Que el motor
+        entre cada 5 minutos no significa que se relea el catálogo cada 5 minutos.
+      </p>
+
       <div className="flex flex-col gap-[10px]">
         {procesos.map((p) => {
           const parado = estaParada(p.cadaMinutos, p.ultimaAutomatica?.iniciado_at ?? null)
@@ -560,7 +572,7 @@ function EditorHorario({
 
   return (
     <div className={`mt-[8px] flex flex-wrap items-center gap-[6px] ${TIPO.s}`}>
-      <span className={TEXTO.t3}>Correr cada</span>
+      <span className={TEXTO.t3}>Despertar cada</span>
       <input
         type="number"
         min={1}

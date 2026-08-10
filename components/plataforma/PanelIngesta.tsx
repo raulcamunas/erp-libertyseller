@@ -36,7 +36,8 @@ import {
   aMinutos,
   descomponer,
   textoIntervalo,
-  vecesAlDia,
+  avisoDeVentana,
+  salidaReal,
   type Unidad as UnidadTiempo,
 } from '@/lib/sistema/intervalo'
 import {
@@ -1202,7 +1203,18 @@ function PanelHorarios({
   if (horarios.length === 0) return null
 
   return (
-    <Panel titulo="Cada cuánto se refresca" sinCuerpo>
+    <Panel titulo="Cada cuánto se actualiza cada dato" sinCuerpo>
+      {/* ESTA LÍNEA EXISTE PORQUE LA PANTALLA CONFUNDÍA, Y CON RAZÓN.
+          Hay dos horarios en el ERP con controles calcados en pestañas
+          distintas, y sin decir cuál es cuál, «cada 5 minutos» en Sistema y
+          «cada día» aquí parecen contradecirse. No se contradicen: son el
+          reloj del motor y el reloj de los datos. */}
+      <div className={`px-[10px] pt-[8px] ${TIPO.s} ${TEXTO.t3}`}>
+        Cada cuánto se vuelve a traer cada dato de Amazon. No confundir con{' '}
+        <strong className={TEXTO.t2}>Sistema</strong>, que es cada cuánto se despierta el motor a
+        mirar si hay algo que hacer — el motor entra cada 5 minutos, pero lo que trae cada vez lo
+        deciden estos números.
+      </div>
       <div className="overflow-x-auto">
         <table className={TABLA.tabla}>
           <thead>
@@ -1259,14 +1271,15 @@ function FilaHorario({
   const cambiado = minutos !== horario.cada_minutos
 
   /**
-   * «Cada 4 horas» + «solo de noche» es una contradicción, y silenciosa.
+   * Lo que hay que avisar de esta combinación de cadencia y ventana.
    *
-   * La ventana nocturna es de 23:00 a 06:00: con siete horas de margen, una
-   * cadencia por debajo de las 24 h no se cumple —arrancaría una o dos veces por
-   * noche y ninguna de día— y no daría ningún error. El número diría una cosa y
-   * el comportamiento sería otro.
+   * Antes esto era `solo_de_noche && cada_minutos < 1440`, y ESO ERA FALSO: con
+   * 20 horas y ventana nocturna saltaba un aviso diciendo que no se cumplía,
+   * cuando 20 h de noche significa exactamente una vez por noche, que es lo que
+   * se quiere. Un aviso que salta cuando no pasa nada se aprende a ignorar, y
+   * entonces tampoco se lee el día que sí pasa algo.
    */
-  const contradice = horario.solo_de_noche && horario.cada_minutos < 1440
+  const aviso = avisoDeVentana(horario.cada_minutos, horario.solo_de_noche)
 
   return (
     <tr className={TABLA.fila}>
@@ -1312,7 +1325,9 @@ function FilaHorario({
         )}
       </td>
 
-      <td className={`${TABLA.celda} ${TEXTO.t3}`}>{vecesAlDia(horario.cada_minutos)}</td>
+      <td className={`${TABLA.celda} ${TEXTO.t3}`}>
+        {salidaReal(horario.cada_minutos, horario.solo_de_noche)}
+      </td>
 
       <td className={TABLA.celda}>
         <button
@@ -1329,9 +1344,9 @@ function FilaHorario({
           {horario.solo_de_noche ? <Moon className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
           {horario.solo_de_noche ? 'Solo de noche' : 'A cualquier hora'}
         </button>
-        {contradice && (
+        {aviso && (
           <span className={`${TIPO.s} block`} style={{ color: COLOR_ESTADO.ambar }}>
-            Con la ventana nocturna esto no se cumple: solo podría arrancar de 23:00 a 06:00
+            {aviso}
           </span>
         )}
       </td>
