@@ -3,6 +3,10 @@
 # Cargar variables de entorno (necesario para crond en Alpine)
 . /etc/environment
 
+# El puerto NO se escribe a mano: el Dockerfile pone 3000 y Easypanel lo pisa
+# con el 80. Con el 3000 fijo, esto pedía a un puerto vacío y contestaba 000.
+: "${PORT:=3000}"
+
 # Dos trabajos encadenados, y en este orden:
 #
 #   1. Refresca el espejo del catálogo de todos los clientes conectados a la
@@ -41,7 +45,7 @@
 # salida de error del contenedor (PID 1), que es la que se ve en los registros
 # de Easypanel. La salida de crond va a syslog, que en este contenedor no
 # recoge nadie, así que escribir ahí no serviría de nada.
-CODIGO=$(curl -s --max-time 780 -X POST "http://localhost:3000/api/amazon/cron-sync" \
+CODIGO=$(curl -s --max-time 780 -X POST "http://localhost:${PORT:-3000}/api/amazon/cron-sync" \
   -H "x-cron-secret: ${CRON_SECRET}" \
   -o /dev/null -w '%{http_code}')
 

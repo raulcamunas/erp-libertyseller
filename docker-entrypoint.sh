@@ -24,6 +24,7 @@
 # Así que aquí se escribe SOLO lo que los tres scripts del crontab usan de
 # verdad, y con el fichero cerrado a 600:
 #   CRON_SECRET                    -> amazon-sync.sh, google-calendar-sync.sh
+#   PORT                           -> los tres, para saber A QUÉ PUERTO llamar
 #   NEXT_PUBLIC_SUPABASE_URL       -> supabase-ping.sh
 #   NEXT_PUBLIC_SUPABASE_ANON_KEY  -> supabase-ping.sh (es pública por diseño)
 #
@@ -45,6 +46,11 @@ escribir_var() {
 }
 
 escribir_var CRON_SECRET
+# NO es un secreto, pero sin él los scripts llamaban a localhost:3000 a pelo. El
+# Dockerfile pone PORT=3000 y Easypanel lo PISA con el 80, así que los tres crones
+# llevaban desde siempre pidiendo a un puerto donde no escucha nadie: HTTP 000 en
+# cada pasada, el catálogo sin refrescar y los trabajos con 0 pasadas.
+escribir_var PORT
 escribir_var NEXT_PUBLIC_SUPABASE_URL
 escribir_var NEXT_PUBLIC_SUPABASE_ANON_KEY
 

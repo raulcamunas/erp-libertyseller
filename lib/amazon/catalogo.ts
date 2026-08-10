@@ -298,15 +298,43 @@ export function puedeEditar(listing: AmazonListing, field: AmazonSubmissionField
  * escribir donde no toca.
  */
 export function marketplacesCubiertos(
-  conn: Pick<AmazonConnection, 'marketplace_ids' | 'region'>
+  conn: Pick<AmazonConnection, 'marketplace_ids' | 'marketplaces_activos' | 'region'>
 ): string[] {
+  /**
+   * MANDA LO QUE SE HA ELEGIDO EN AMAZON API · CUENTAS.
+   *
+   * `marketplace_ids` es lo que dice Amazon, y dice de más: en la cuenta de
+   * Shoplamp devuelve ONCE mercados y cuatro son de sandbox. Barrerlos todos son
+   * once vueltas al catálogo por cada refresco, contra un límite de peticiones
+   * que no perdona.
+   *
+   * Y no era solo cupo malgastado: con 530 referencias por once mercados, la
+   * pasada se pasaba de los 13 minutos que espera scripts/amazon-sync.sh, el
+   * `curl` cortaba, y el refresco quedaba a medias sin actualizar `last_sync_at`
+   * — que es lo que se veía en pantalla como «refrescado hace 17 horas» con el
+   * cron aparentemente funcionando.
+   *
+   * Vacío = todos, igual que en el resto del ERP (migración 134).
+   */
+  const elegidos = conn.marketplaces_activos ?? []
+  if (elegidos.length > 0) {
+    // Se cruza contra los que Amazon reconoce para esta cuenta: una elección
+    // vieja que se refiera a un mercado que el cliente ya no tiene no debe
+    // colarse en el barrido.
+    const suyos = new Set(conn.marketplace_ids)
+    const validos = elegidos.filter((m) => suyos.has(m))
+    if (validos.length > 0) return validos
+  }
   if (conn.marketplace_ids.length > 0) return conn.marketplace_ids
   return marketplacesForRegion(conn.region).map((m) => m.id)
 }
 
 /** Con qué país se abre el catálogo de una conexión */
 export function marketplaceDeEntrada(
-  conn: Pick<AmazonConnection, 'marketplace_ids' | 'region' | 'default_marketplace_id'>
+  conn: Pick<
+    AmazonConnection,
+    'marketplace_ids' | 'marketplaces_activos' | 'region' | 'default_marketplace_id'
+  >
 ): string | null {
   return resolveMarketplace(conn) ?? marketplacesCubiertos(conn)[0] ?? null
 }

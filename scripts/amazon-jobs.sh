@@ -3,6 +3,10 @@
 # Cargar variables de entorno (necesario para crond en Alpine)
 . /etc/environment
 
+# El puerto NO se escribe a mano: el Dockerfile pone 3000 y Easypanel lo pisa
+# con el 80. Con el 3000 fijo, esto pedía a un puerto vacío y contestaba 000.
+: "${PORT:=3000}"
+
 # EL MOTOR DE TRABAJOS DE LA PLATAFORMA (módulo A1).
 #
 # Cada cinco minutos coge el trabajo más prioritario que esté libre, procesa
@@ -26,7 +30,7 @@
 # Y si contesta 401, QUE SE VEA. Mismo motivo y misma forma que
 # scripts/amazon-sync.sh: con el `-f` que había antes, un 401 por una variable
 # borrada dejaba el motor de trabajos parado sin dejar ni una línea.
-CODIGO=$(curl -s --max-time 280 -X POST "http://localhost:3000/api/amazon/cron-jobs" \
+CODIGO=$(curl -s --max-time 280 -X POST "http://localhost:${PORT:-3000}/api/amazon/cron-jobs" \
   -H "x-cron-secret: ${CRON_SECRET}" \
   -o /dev/null -w '%{http_code}')
 
