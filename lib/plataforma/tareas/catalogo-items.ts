@@ -24,9 +24,12 @@
  * searchCatalogItems NO AVISA de los ASIN que no encuentra: pides veinte,
  * existen dieciocho, te llegan dieciocho, HTTP 200. Si nadie compara lo pedido
  * con lo devuelto, un ASIN que Amazon retira deja de refrescarse y su histórico
- * se congela sin que nadie lo note. Aquí se comparan y se cuentan como omitidos,
- * con un evento agrupado —no uno por SKU, que sería ruido— cuando pasan de unos
- * pocos.
+ * se congela sin que nadie lo note. Aquí se comparan y se cuentan como omitidos.
+ *
+ * El aviso sale UNA VEZ POR PASADA, no uno por lote ni uno por SKU. Y es una
+ * lección pagada: la primera versión avisaba por lote, y un trabajo de 530
+ * referencias dejó veintitantas incidencias palabra por palabra idénticas. El
+ * total definitivo va en el resumen del trabajo, que se escribe una sola vez.
  *
  *
  * POR QUÉ EL LOTE SON ASIN Y NO SKU
@@ -65,6 +68,19 @@ import type { AmazonJobTipo } from '../tipos'
  * catálogo está desfasado o se está preguntando por el país equivocado.
  */
 const AUSENTES_QUE_PREOCUPAN = 5
+
+/**
+ * Claves del bloc de notas de la pasada (ver `memoria` en motor.ts).
+ *
+ * Los dos avisos de abajo salen UNA VEZ POR PASADA, no una por lote. El aviso
+ * era correcto y la agrupación estaba en el sitio equivocado: cuando el problema
+ * afecta a todos los lotes —y suele afectar a todos, porque son problemas de la
+ * llamada, no del ASIN— la cola se llenaba de veintitantas filas idénticas. El
+ * número definitivo no hace falta repetirlo: ya va en el resumen del trabajo.
+ */
+const AVISADO_AUSENTES = 'catalogo:ausentes'
+const AVISADO_TRUNCADO = 'catalogo:truncado'
+const AVISADO_MEDIDAS = 'catalogo:medidas'
 
 interface Config {
   tipo: AmazonJobTipo
@@ -152,31 +168,59 @@ function crearTarea(config: Config): Tarea {
         bloques: config.bloques,
       })
 
+      // ---------- La respuesta viene cortada ----------
+      /**
+       * Esto NO es que falten ASIN: es que falta media respuesta, y por eso va
+       * como error y no como aviso. Mientras pase, este trabajo está escribiendo
+       * el catálogo a medias en cada pasada.
+       *
+       * Con `pageSize` puesto no debería saltar nunca. Está aquí porque la vez
+       * que pasó —el parámetro no se enviaba— se leyó como «Amazon ha retirado
+       * la mitad del catálogo», que es la conclusión contraria a la verdadera.
+       */
+      if (lectura.truncado && !ctx.memoria.has(AVISADO_TRUNCADO)) {
+        ctx.memoria.set(AVISADO_TRUNCADO, true)
+        await ctx.evento({
+          tipo: 'catalogo_paginado',
+          severidad: 'error',
+          mensaje:
+            `Amazon ha contestado a la consulta del catálogo en ${unidad.marketplaceId} con una ` +
+            'página cortada y dice que hay más. Los ASIN que faltan NO están retirados: es que no ' +
+            'han llegado, así que este trabajo está refrescando el catálogo a medias. Hay que ' +
+            'revisar el tamaño de página con el que se pide.',
+          requestId: lectura.requestId,
+        })
+      }
+
       // ---------- Los ASIN que Amazon no ha devuelto ----------
-      if (lectura.ausentes.length >= AUSENTES_QUE_PREOCUPAN) {
+      if (lectura.ausentes.length >= AUSENTES_QUE_PREOCUPAN && !ctx.memoria.has(AVISADO_AUSENTES)) {
+        ctx.memoria.set(AVISADO_AUSENTES, true)
         await ctx.evento({
           tipo: 'asins_no_encontrados',
           severidad: 'aviso',
           mensaje:
             `Amazon no ha devuelto ${lectura.ausentes.length} de los ${lote.claves.length} ASIN de ` +
-            `este lote en ${unidad.marketplaceId}. No da error: sencillamente se los salta. Puede ` +
+            `un lote en ${unidad.marketplaceId}. No da error: sencillamente se los salta. Puede ` +
             'ser que ya no existan en ese país, que el listing se haya recreado con otro tipo de ' +
             'producto, o que nuestro catálogo esté desfasado. Esos SKU se quedan con los datos que ' +
-            'tenían, no se ponen a cero.',
+            'tenían, no se ponen a cero. Este aviso sale una sola vez por pasada aunque se repita ' +
+            'en más lotes; el total está en el resumen del trabajo.',
           detalle: { ausentes: lectura.ausentes.slice(0, 20) },
           requestId: lectura.requestId,
         })
       }
 
       const medidasRaras = lectura.items.filter((i) => i.medidasIncoherentes)
-      if (medidasRaras.length > 0) {
+      if (medidasRaras.length > 0 && !ctx.memoria.has(AVISADO_MEDIDAS)) {
+        ctx.memoria.set(AVISADO_MEDIDAS, true)
         await ctx.evento({
           tipo: 'medidas_incoherentes',
           severidad: 'aviso',
           mensaje:
-            `${medidasRaras.length} productos traen sus tres medidas en unidades distintas, así que ` +
-            'se han descartado en vez de convertirlas a ojo. Sin dimensiones fiables, la tarifa de ' +
-            'FBA de esos SKU es una estimación que no se puede usar para decidir.',
+            `${medidasRaras.length} productos de un lote traen sus tres medidas en unidades ` +
+            'distintas, así que se han descartado en vez de convertirlas a ojo. Sin dimensiones ' +
+            'fiables, la tarifa de FBA de esos SKU es una estimación que no se puede usar para ' +
+            'decidir. Este aviso sale una sola vez por pasada aunque se repita en más lotes.',
           detalle: { asins: medidasRaras.slice(0, 20).map((i) => i.asin) },
         })
       }

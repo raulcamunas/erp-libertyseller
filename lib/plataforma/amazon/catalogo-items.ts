@@ -30,6 +30,18 @@
  * eso quien llama TIENE que contarlo.
  *
  *
+ * Y LA SEGUNDA TRAMPA, QUE SE COMIÓ A LA PRIMERA
+ * ----------------------------------------------
+ * La misma operación PAGINA DE DIEZ EN DIEZ si no le dices `pageSize`. Con
+ * veinte identificadores devolvía diez, y el detector de arriba daba los otros
+ * diez por retirados: un aviso idéntico por lote —«no ha devuelto 10 de los
+ * 20»— y media escritura del catálogo perdida en cada pasada. El aviso decía la
+ * verdad de lo que veía; lo que veía era nuestro propio parámetro sin poner.
+ *
+ * De ahí que ahora se distinga «no ha venido» de «viene cortado»: son la misma
+ * ausencia y dos problemas opuestos.
+ *
+ *
  * Y UN AVISO SOBRE LAS UNIDADES
  * -----------------------------
  * En el ejemplo oficial de la documentación, el MISMO paquete viene medido en
@@ -44,6 +56,23 @@ import type { ClasificacionItem } from '../tipos'
 
 /** Máximo de identificadores por llamada. Es el número mágico de toda la SP-API */
 export const MAX_ASINS_POR_LLAMADA = 20
+
+/**
+ * CUÁNTOS RESULTADOS POR PÁGINA. NO ES OPCIONAL AUNQUE LA API DIGA QUE LO ES.
+ *
+ * searchCatalogItems pagina POR DEFECTO DE DIEZ EN DIEZ. Si le pides veinte
+ * identificadores y no dices nada, contesta HTTP 200 con los DIEZ PRIMEROS y un
+ * `nextToken`. Los otros diez no dan error, no dejan hueco, no avisan: no
+ * vienen.
+ *
+ * Y como esta función compara lo pedido con lo devuelto para cazar los ASIN que
+ * Amazon retira —que es justo para lo que existe—, sin esta línea la mitad de
+ * cada lote se contaba como «producto retirado». Dos consecuencias, y la
+ * segunda es la cara: la cola de incidencias se llenó de un aviso idéntico por
+ * lote («no ha devuelto 10 de los 20», veintitantas veces seguidas), y la mitad
+ * del catálogo se quedaba sin refrescar en cada pasada semanal.
+ */
+const RESULTADOS_POR_PAGINA = MAX_ASINS_POR_LLAMADA
 
 /** Bloques de datos que sabemos leer. `vendorDetails` no: somos sellers, no vendors */
 export type BloqueCatalogo = 'summaries' | 'dimensions' | 'salesRanks' | 'identifiers'
@@ -112,6 +141,16 @@ export interface LecturaCatalogo {
   items: ItemCatalogo[]
   /** ASIN que se pidieron y Amazon no ha devuelto. Ver la cabecera */
   ausentes: string[]
+  /**
+   * Amazon ha contestado con una página y dice que hay más.
+   *
+   * NO ES LO MISMO QUE `ausentes`, y confundirlos es exactamente el fallo que
+   * costó semanas: en `ausentes` faltan porque no existen; aquí faltan porque la
+   * respuesta viene cortada. Con `pageSize` puesto esto no debería pasar nunca —
+   * si pasa, la API ha cambiado y hay que enterarse por un aviso propio y no
+   * dando por retirados ASIN que están perfectamente.
+   */
+  truncado: boolean
   requestId: string | null
 }
 
@@ -121,6 +160,8 @@ export interface LecturaCatalogo {
 
 interface RespuestaBusqueda {
   numberOfResults?: number
+  /** Si trae `nextToken`, la respuesta viene cortada. Ver RESULTADOS_POR_PAGINA */
+  pagination?: { nextToken?: string }
   items?: ItemCrudo[]
 }
 
@@ -174,7 +215,7 @@ export async function leerCatalogoItems(
   }
 ): Promise<LecturaCatalogo> {
   const pedidos = [...new Set(params.asins.map((a) => a.trim()).filter((a) => a !== ''))]
-  if (pedidos.length === 0) return { items: [], ausentes: [], requestId: null }
+  if (pedidos.length === 0) return { items: [], ausentes: [], truncado: false, requestId: null }
   if (pedidos.length > MAX_ASINS_POR_LLAMADA) {
     throw new Error(
       `searchCatalogItems admite ${MAX_ASINS_POR_LLAMADA} identificadores por llamada y se le han pasado ${pedidos.length}`
@@ -189,6 +230,8 @@ export async function leerCatalogoItems(
       identifiersType: 'ASIN',
       marketplaceIds: [params.marketplaceId],
       includedData: params.bloques,
+      // Sin esto la respuesta llega partida por la mitad. Ver la constante.
+      pageSize: RESULTADOS_POR_PAGINA,
     },
   })
 
@@ -204,6 +247,10 @@ export async function leerCatalogoItems(
   return {
     items,
     ausentes: pedidos.filter((a) => !devueltos.has(a)),
+    // Solo el token, y no comparar contra `numberOfResults`: ese número no
+    // significa lo mismo en una búsqueda por identificadores que por palabras
+    // clave, y un aviso que salta cuando no pasa nada se aprende a ignorar.
+    truncado: Boolean(data.pagination?.nextToken),
     requestId,
   }
 }

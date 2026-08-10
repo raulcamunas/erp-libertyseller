@@ -91,6 +91,20 @@ export interface ContextoTarea {
   tiempoRestanteMs(): number
   /** Deja constancia. Ya lleva puestos el cliente, la conexión y el trabajo */
   evento(evento: EventoDeTarea): Promise<void>
+  /**
+   * Bloc de notas de ESTA pasada. Para que una tarea no repita el mismo aviso
+   * en cada lote.
+   *
+   * Un trabajo de 13.700 referencias son 685 lotes: si algo le pasa a todos,
+   * un evento por lote son 685 incidencias idénticas, y 685 incidencias
+   * idénticas no informan de nada — tapan las que sí. Es la misma razón por la
+   * que existe la huella en eventos.ts, pero una pasada por debajo: la huella
+   * calla la campana, esto evita escribir la fila.
+   *
+   * Se crea vacío en cada pasada y no se guarda en ningún sitio: sirve para
+   * agrupar, no para recordar.
+   */
+  memoria: Map<string, unknown>
 }
 
 export interface Lote {
@@ -369,6 +383,7 @@ async function conCerrojo(
     job,
     ahora,
     tiempoRestanteMs: () => presupuestoMs - (Date.now() - arranquePasada),
+    memoria: new Map(),
     evento: async (evento) => {
       await registrarEvento({
         ...evento,
