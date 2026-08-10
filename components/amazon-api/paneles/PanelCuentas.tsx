@@ -806,6 +806,8 @@ function FilaConexion({
  */
 function Marketplaces({ conn }: { conn: AmazonConnection }) {
   const [guardando, setGuardando] = useState(false)
+  /** Plegado por defecto: la fila enseña dónde se trabaja, no dónde no */
+  const [verTodos, setVerTodos] = useState(false)
 
   /**
    * La elección se guarda AQUÍ y no se sube al estado de la pantalla.
@@ -885,59 +887,82 @@ function Marketplaces({ conn }: { conn: AmazonConnection }) {
     return <span className={`${TIPO.s} ${TEXTO.t4} shrink-0`}>Países todavía sin leer</span>
   }
 
+  const conocidos = ordenados.filter((id) => marketplaceById(id) !== null)
+  const desconocidos = ordenados.filter((id) => marketplaceById(id) === null)
+  const encendidos = conocidos.filter((id) => activos.has(id))
+  const apagados = conocidos.filter((id) => !activos.has(id))
+  const ocultos = apagados.length + desconocidos.length
+
+  function chip(id: string) {
+    const porDefecto = id === conn.default_marketplace_id
+    const activo = activos.has(id)
+    return (
+      <button
+        key={id}
+        type="button"
+        disabled={guardando}
+        onClick={() => alternar(id)}
+        aria-pressed={activo}
+        title={
+          activo
+            ? `Se trabaja en ${marketplaceLabel(id)}. Pulsa para dejar de traer sus datos${porDefecto ? ' (con este se abre el catálogo)' : ''}`
+            : `No se traen datos de ${marketplaceLabel(id)}. Pulsa para empezar`
+        }
+        className={`inline-flex h-[17px] shrink-0 items-center ${RADIO.r1} border px-[5px] text-[10.5px] transition-colors disabled:opacity-60 ${
+          activo
+            ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-t1)]'
+            : `border-dashed ${LINEA.normal} ${TEXTO.t4} hover:${TEXTO.t3}`
+        }`}
+      >
+        {marketplaceLabel(id)}
+      </button>
+    )
+  }
+
   return (
     <span className="flex flex-wrap items-center gap-[3px] min-w-0">
-      {ordenados.map((id) => {
-        const conocido = marketplaceById(id) !== null
-        const porDefecto = id === conn.default_marketplace_id
+      {/* SOLO DONDE SE TRABAJA, y todos en naranja.
+          Antes salían también los apagados tachados y los de sandbox en ámbar:
+          en la cuenta piloto eran ONCE etiquetas para decir que se trabaja en
+          UNA. La fila contaba lo que NO se hace, que es la información que no
+          se necesita a diario. */}
+      {encendidos.map(chip)}
 
-        /**
-         * Los de sandbox NO se pueden marcar, y no es un descuido: el
-         * planificador se los salta igualmente porque no sabe nombrarlos, así
-         * que una casilla que no cambia nada sería mentir. Se quedan a la vista
-         * con su aviso, porque si alguno resultara ser una tienda real que falta
-         * en el catálogo, el que se queda sin datos es un cliente.
-         */
-        if (!conocido) {
-          return (
-            <span
-              key={id}
-              className={`inline-flex h-[17px] shrink-0 items-center gap-[3px] ${RADIO.r1} border px-[5px] text-[10.5px] ${TIPO.num}`}
-              style={{ borderColor: COLOR_ESTADO.ambar, color: COLOR_ESTADO.ambar }}
-              title="Este mercado no está en el catálogo del ERP, así que la ingesta no programa nada contra él. Suele ser uno de sandbox"
-            >
-              <AlertTriangle className="h-[11px] w-[11px]" />
-              {id}
-            </span>
-          )
-        }
+      {encendidos.length === 0 && (
+        <span className={`${TIPO.s}`} style={{ color: COLOR_ESTADO.ambar }}>
+          Sin ningún mercado activo
+        </span>
+      )}
 
-        const activo = activos.has(id)
+      {/* Los apagados y los de sandbox NO desaparecen, se pliegan. Si se
+          borraran de la vista no habría forma de volver a encender un país, y
+          un mercado de sandbox que en realidad fuera una tienda de verdad que
+          falta en el catálogo dejaría a un cliente sin datos en silencio. */}
+      {ocultos > 0 && (
+        <button
+          type="button"
+          onClick={() => setVerTodos((v) => !v)}
+          className={`inline-flex h-[17px] shrink-0 items-center ${RADIO.r1} border border-dashed ${LINEA.normal} px-[5px] text-[10.5px] ${TEXTO.t4} transition-colors hover:${TEXTO.t3}`}
+          title={verTodos ? 'Ocultar los que no se usan' : 'Ver y cambiar los mercados apagados'}
+        >
+          {verTodos ? 'ocultar' : `+${ocultos}`}
+        </button>
+      )}
 
-        return (
-          <button
+      {verTodos && apagados.map(chip)}
+
+      {verTodos &&
+        desconocidos.map((id) => (
+          <span
             key={id}
-            type="button"
-            disabled={guardando}
-            onClick={() => alternar(id)}
-            aria-pressed={activo}
-            title={
-              activo
-                ? `Se trabaja en ${marketplaceLabel(id)}. Pulsa para dejar de traer sus datos${porDefecto ? ' (con este se abre el catálogo)' : ''}`
-                : `No se traen datos de ${marketplaceLabel(id)}. Pulsa para empezar`
-            }
-            className={`inline-flex h-[17px] shrink-0 items-center ${RADIO.r1} border px-[5px] text-[10.5px] transition-colors disabled:opacity-60 ${
-              activo
-                ? porDefecto
-                  ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-t1)]'
-                  : `${LINEA.normal} bg-[var(--ls-sup2)] ${TEXTO.t3} hover:border-[var(--ls-linea2)]`
-                : `border-dashed ${LINEA.normal} ${TEXTO.t4} line-through hover:${TEXTO.t3}`
-            }`}
+            className={`inline-flex h-[17px] shrink-0 items-center gap-[3px] ${RADIO.r1} border px-[5px] text-[10.5px] ${TIPO.num}`}
+            style={{ borderColor: COLOR_ESTADO.ambar, color: COLOR_ESTADO.ambar }}
+            title="Este mercado no está en el catálogo del ERP, así que no se programa nada contra él. Suele ser uno de sandbox. Si resultara ser una tienda real donde el cliente vende, hay que darlo de alta o se queda sin datos"
           >
-            {marketplaceLabel(id)}
-          </button>
-        )
-      })}
+            <AlertTriangle className="h-[11px] w-[11px]" />
+            {id}
+          </span>
+        ))}
     </span>
   )
 }
