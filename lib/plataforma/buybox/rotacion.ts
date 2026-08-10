@@ -146,7 +146,19 @@ export function cadenciaFoepAutomatica(skusConStock: number): number {
  */
 export function porQueEsaCadencia(skusConStock: number): string {
   if (skusConStock <= 0) {
-    return 'No hay ninguna referencia con stock, así que no hay nada que preguntar.'
+    /**
+     * Se dice DÓNDE mirar, no solo que salió cero.
+     *
+     * Un cero aquí casi nunca significa que el cliente no tenga existencias:
+     * significa que el catálogo no se ha leído todavía, o que la cuenta se quedó
+     * mirando la población equivocada —que es lo que pasó—. Un mensaje que
+     * afirma «no hay stock» delante de una pantalla con medio catálogo con
+     * existencias no es un aviso, es un desmentido de lo que se está viendo.
+     */
+    return (
+      'Ninguna referencia con existencias en el espejo del catálogo, así que no hay nada que ' +
+      'preguntar. Si el cliente sí tiene stock, es que el censo todavía no ha corrido.'
+    )
   }
   const llamadas = Math.ceil(skusConStock / 40)
   const barrido = minutosDeFoep(skusConStock)

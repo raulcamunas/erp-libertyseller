@@ -360,7 +360,15 @@ export interface ConfigPantalla {
    * vea que falta, no que parezca decidido.
    */
   pendientes: DecisionPendiente[]
-  /** Lo que cuesta el barrido de este cliente, en minutos, con su catálogo real */
+  /**
+   * Lo que cuesta el barrido de este cliente, en minutos, con su catálogo real.
+   *
+   * `skus` son los que tienen EXISTENCIAS, que es el ámbito del monitor desde
+   * que la fase de ofertas dejó de limitarse al subconjunto en seguimiento. No
+   * es un detalle: contando el subconjunto, un cliente con el criterio a cero
+   * daba 0 y la cadencia automática se iba al máximo teniendo medio catálogo
+   * con stock.
+   */
   coste: {
     skus: number
     minutosOfertas: number
@@ -377,16 +385,16 @@ export interface ConfigPantalla {
 
 export async function configPantalla(
   clientId: string,
-  skusEnSeguimiento: number
+  skusDelMonitor: number
 ): Promise<ConfigPantalla> {
   const config = await configDeCliente(clientId)
   return {
     config,
     pendientes: decisionesPendientes(config),
     coste: {
-      skus: skusEnSeguimiento,
-      minutosOfertas: minutosDeOfertas(skusEnSeguimiento),
-      minutosFoepCompleto: minutosDeFoep(skusEnSeguimiento),
+      skus: skusDelMonitor,
+      minutosOfertas: minutosDeOfertas(skusDelMonitor),
+      minutosFoepCompleto: minutosDeFoep(skusDelMonitor),
       /**
        * Lo que cuesta un barrido de FOEP con la configuración de hoy.
        *
@@ -396,9 +404,9 @@ export async function configPantalla(
        * que ser el que se va a pagar.
        */
       minutosFoepPorNoche: minutosDeFoep(
-        (config.foepCadaMinutos ?? cadenciaFoepAutomatica(skusEnSeguimiento)) < 1440
-          ? skusEnSeguimiento
-          : Math.ceil(skusEnSeguimiento / Math.max(1, config.foepRotacionDias))
+        (config.foepCadaMinutos ?? cadenciaFoepAutomatica(skusDelMonitor)) < 1440
+          ? skusDelMonitor
+          : Math.ceil(skusDelMonitor / Math.max(1, config.foepRotacionDias))
       ),
       /**
        * El reloj que va a usar el motor, ya resuelto, y de dónde sale.
@@ -407,11 +415,11 @@ export async function configPantalla(
        * decide sin decir por qué se desactiva la primera vez que alguien no
        * entiende un número. La cuenta cabe en una frase, así que se enseña.
        */
-      foepMinutos: config.foepCadaMinutos ?? cadenciaFoepAutomatica(skusEnSeguimiento),
+      foepMinutos: config.foepCadaMinutos ?? cadenciaFoepAutomatica(skusDelMonitor),
       foepAutomatico: config.foepCadaMinutos === null,
       foepPorQue:
         config.foepCadaMinutos === null
-          ? porQueEsaCadencia(skusEnSeguimiento)
+          ? porQueEsaCadencia(skusDelMonitor)
           : 'Fijado a mano en la configuración de Buy Box.',
     },
   }

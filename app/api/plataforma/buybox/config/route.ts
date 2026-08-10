@@ -205,15 +205,29 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-/** Los SKU en seguimiento del cliente, para poder decir cuánto cuesta su barrido */
+/**
+ * LOS SKU SOBRE LOS QUE TRABAJA EL MONITOR, para poder decir lo que cuesta.
+ *
+ * `soloConStock` Y NO `soloActivos`, y este es justo el fallo que hubo aquí: el
+ * ámbito del trabajo pasó a ser «todo lo que tenga existencias» y este recuento
+ * se quedó contando «lo que está en seguimiento». En un cliente con el criterio
+ * de seguimiento a cero —FBA marcado y catálogo FBM, que es el caso de la
+ * cartera— el resultado era CERO, y con cero la cadencia automática se iba al
+ * máximo y la pantalla decía «no hay ninguna referencia con stock» teniendo
+ * medio catálogo con existencias.
+ *
+ * El motor nunca se equivocó: relojFoep() en buybox/tarea.ts cuenta con el
+ * ámbito de verdad. Se equivocaba LA PANTALLA, que es peor de lo que suena —es
+ * la que se mira para decidir.
+ *
+ * Se cuenta en TODOS los países del cliente: el cupo del FOEP es por cuenta de
+ * vendedor y todos comen del mismo plato.
+ */
 async function skusDe(clientId: string): Promise<number> {
   const conexiones = await conexionesDeCliente(clientId)
   const unidades = unidadesDe(conexiones)
-  let total = 0
-  for (const unidad of unidades) {
-    total += await contarSkus(unidad, { soloActivos: true })
-  }
-  return total
+  const cuentas = await Promise.all(unidades.map((u) => contarSkus(u, { soloConStock: true })))
+  return cuentas.reduce((suma, n) => suma + n, 0)
 }
 
 function texto(valor: unknown): string | null {
