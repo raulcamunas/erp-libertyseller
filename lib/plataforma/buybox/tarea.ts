@@ -47,7 +47,7 @@
 
 import { conexionDeTrabajo, marketplaceDeTrabajo } from '../amazon/conexion'
 import { type AmbitoCatalogo } from '../catalogo'
-import type { UnidadDeTrabajo } from '../datos'
+import { conexionesDeCliente, unidadesDe, type UnidadDeTrabajo } from '../datos'
 import type { ContextoTarea, CuentasJob, Lote, ResultadoLote, Tarea } from '../motor'
 import { MAX_SKUS_FOEP, MAX_SKUS_OFERTAS, leerFoep, leerOfertas } from './api'
 import {
@@ -78,7 +78,12 @@ import {
   type MargenAlFoep,
 } from './diagnostico'
 import { leerLoteFoep, leerLoteOfertas, type FalloElemento } from './lectura'
-import { diaDeRotacion, leTocaFoep } from './rotacion'
+import {
+  cadenciaFoepAutomatica,
+  diaDeRotacion,
+  leTocaFoep,
+  porQueEsaCadencia,
+} from './rotacion'
 import { STOCK_DESCONOCIDO, type CanalOferta, type EstadoStock } from './tipos'
 
 /* ------------------------------------------------------------------ */
@@ -174,6 +179,14 @@ interface Entorno {
   config: ConfigBuyBox
   ambito: AmbitoCatalogo
   /**
+   * Cada cuántos minutos se le vuelve a pedir el FOEP a un mismo SKU, YA
+   * RESUELTO: si la configuración dice automático, aquí está el número que ha
+   * salido de contar las referencias con stock.
+   */
+  foepMinutos: number
+  /** De dónde sale ese número. Solo para el registro y la pantalla */
+  foepPorQue: string
+  /**
    * A quién se le ha pedido ya el FOEP dentro de su ventana.
    *
    * `hasta` es el instante en que esta lista deja de valer: se recalcula al
@@ -242,9 +255,67 @@ async function entornoDe(ctx: ContextoTarea): Promise<Entorno> {
       soloActivos: typeof pedido === 'boolean' ? pedido : false,
       soloConStock: parametros.soloConStock !== false,
     },
+    // Se rellenan justo debajo: necesitan el ámbito de arriba para contar.
+    foepMinutos: 0,
+    foepPorQue: '',
   }
+
+  const reloj = await relojFoep(ctx.job.client_id, config, entorno.ambito)
+  entorno.foepMinutos = reloj.minutos
+  entorno.foepPorQue = reloj.porQue
+
   entornos.set(ctx.job.id, entorno)
   return entorno
+}
+
+/**
+ * CADA CUÁNTO PEDIR EL FOEP, RESUELTO.
+ *
+ * Con un número en la configuración, ese. Con `null` —lo normal— se calcula, y
+ * el cálculo necesita saber CUÁNTAS REFERENCIAS CON STOCK tiene el cliente EN
+ * TODOS SUS PAÍSES, no solo en el de este trabajo: el cupo del FOEP es por
+ * cuenta de vendedor y todos los marketplaces del mismo cliente comen del mismo
+ * plato. Contar solo España en un cliente que vende en cuatro países daría una
+ * cadencia cuatro veces más corta de lo que cabe.
+ *
+ * Son unas pocas consultas de recuento —`head: true`, sin traer filas— y el
+ * resultado se queda en el entorno, que vive lo que dura el trabajo.
+ *
+ * Si algo falla contando, se cae al día. Un guardián del reloj no puede impedir
+ * que el trabajo corra: equivocarse por pedir de menos cuesta frescura, y
+ * quedarse sin cadencia deja el módulo parado.
+ */
+async function relojFoep(
+  clientId: string,
+  config: ConfigBuyBox,
+  ambito: AmbitoCatalogo
+): Promise<{ minutos: number; porQue: string }> {
+  if (config.foepCadaMinutos !== null) {
+    return {
+      minutos: config.foepCadaMinutos,
+      porQue: 'Fijado a mano en la configuración de Buy Box.',
+    }
+  }
+
+  try {
+    const conexiones = await conexionesDeCliente(clientId)
+    const unidades = unidadesDe(conexiones)
+    const cuentas = await Promise.all(
+      // Sin `skusFiltro`: el reloj lo marca el catálogo del cliente, no el
+      // subconjunto de un lanzamiento de prueba.
+      unidades.map((u) => contarSkus(u, { ...ambito, skusFiltro: null }))
+    )
+    const total = cuentas.reduce((suma, n) => suma + n, 0)
+    return {
+      minutos: cadenciaFoepAutomatica(total),
+      porQue: porQueEsaCadencia(total),
+    }
+  } catch {
+    return {
+      minutos: 1440,
+      porQue: 'No se ha podido contar el catálogo, así que se usa una vez al día.',
+    }
+  }
 }
 
 /** ¿Se ha pedido saltarse el FOEP en este trabajo? */
@@ -400,7 +471,7 @@ export const tareaSnapshotPrecios: Tarea = {
        * referencias con stock puede permitirse cada hora; uno de 2.500 en cuatro
        * países, no.
        */
-      const ventanaMs = Math.max(1, entorno.config.foepCadaMinutos) * 60_000
+      const ventanaMs = Math.max(1, entorno.foepMinutos) * 60_000
       const ahoraMs = ctx.ahora.getTime()
       if (!entorno.foepReciente || entorno.foepReciente.hasta <= ahoraMs) {
         entorno.foepReciente = {
@@ -420,9 +491,7 @@ export const tareaSnapshotPrecios: Tarea = {
        * la justifica, que es no caber en un día.
        */
       const rotacion =
-        foepCompleto(ctx) || entorno.config.foepCadaMinutos < 1440
-          ? 1
-          : entorno.config.foepRotacionDias
+        foepCompleto(ctx) || entorno.foepMinutos < 1440 ? 1 : entorno.config.foepRotacionDias
       const elegidos: string[] = []
       let clave = cursor.clave
       let escaneados = 0

@@ -31,6 +31,13 @@ import {
 } from '@/lib/plataforma/tipos'
 import { mercadosDeConexion } from '@/lib/types/amazon'
 import type { ConfigRefresco } from '@/lib/plataforma/refresco-config'
+
+/** El reloj del FOEP ya resuelto, tal como lo devuelve la configuración de Buy Box */
+interface RelojFoep {
+  foepMinutos: number
+  foepAutomatico: boolean
+  foepPorQue: string
+}
 import {
   UNIDADES,
   aMinutos,
@@ -1326,22 +1333,25 @@ function PanelHorarios({
    * actualiza algo, y tenerlo en otra pantalla es tenerlo escondido. Lo que hace
    * falta es que se vea que es de ESTE cliente y no de todos.
    */
-  const [foepMin, setFoepMin] = useState<number | null>(null)
+  const [foep, setFoep] = useState<RelojFoep | null>(null)
   const [guardandoFoep, setGuardandoFoep] = useState(false)
 
-  useEffect(() => {
-    setFoepMin(null)
-    void (async () => {
-      const res = await getAmazon<{ config: { config: { foepCadaMinutos?: number } } }>(
-        `/api/plataforma/buybox/config?clientId=${clienteId}`
-      )
-      if (res.ok) setFoepMin(res.data.config?.config?.foepCadaMinutos ?? 1440)
-    })()
+  const leerFoep = useCallback(async () => {
+    const res = await getAmazon<{ config: { coste?: RelojFoep } }>(
+      `/api/plataforma/buybox/config?clientId=${clienteId}`
+    )
+    if (res.ok && res.data.config?.coste) setFoep(res.data.config.coste)
   }, [clienteId])
 
-  async function guardarFoep(cadaMinutos: number) {
+  useEffect(() => {
+    setFoep(null)
+    void leerFoep()
+  }, [leerFoep])
+
+  /** `null` = automático: que lo calcule el ERP con las referencias con stock */
+  async function guardarFoep(cadaMinutos: number | null) {
     setGuardandoFoep(true)
-    const res = await patchAmazon<{ config: { config: { foepCadaMinutos?: number } } }>(
+    const res = await patchAmazon<{ config: { coste?: RelojFoep } }>(
       '/api/plataforma/buybox/config',
       { clientId: clienteId, foepCadaMinutos: cadaMinutos }
     )
@@ -1350,8 +1360,12 @@ function PanelHorarios({
       toast.error(res.error, { duration: 10_000 })
       return
     }
-    setFoepMin(res.data.config?.config?.foepCadaMinutos ?? cadaMinutos)
-    toast.success('Horario del FOEP guardado para este cliente.')
+    if (res.data.config?.coste) setFoep(res.data.config.coste)
+    toast.success(
+      cadaMinutos === null
+        ? 'El FOEP vuelve a calcularse solo con el catálogo de este cliente.'
+        : 'Horario del FOEP fijado a mano para este cliente.'
+    )
   }
 
   async function guardar(
@@ -1428,9 +1442,9 @@ function PanelHorarios({
                 />
               ))}
             {/* El FOEP, que es de ESTE cliente. Ver la nota de arriba */}
-            {foepMin !== null && (
+            {foep && (
               <FilaFoep
-                minutos={foepMin}
+                reloj={foep}
                 cliente={clienteNombre}
                 guardando={guardandoFoep}
                 onGuardar={(m) => void guardarFoep(m)}
@@ -1621,77 +1635,85 @@ function FilaHorario({
  * módulo, y aquí solo se toca el reloj.
  */
 function FilaFoep({
-  minutos,
+  reloj,
   cliente,
   guardando,
   onGuardar,
 }: {
-  minutos: number
+  reloj: RelojFoep
   cliente: string
   guardando: boolean
-  onGuardar: (minutos: number) => void
+  onGuardar: (minutos: number | null) => void
 }) {
-  const inicial = descomponer(minutos)
+  const inicial = descomponer(reloj.foepMinutos)
   const [valor, setValor] = useState(String(inicial.valor))
   const [unidad, setUnidad] = useState<UnidadTiempo>(inicial.unidad)
 
   useEffect(() => {
-    const d = descomponer(minutos)
+    const d = descomponer(reloj.foepMinutos)
     setValor(String(d.valor))
     setUnidad(d.unidad)
-  }, [minutos])
+  }, [reloj.foepMinutos])
 
   const nuevos = aMinutos(Number(valor) || 0, unidad)
   const valido = Number.isFinite(nuevos) && nuevos >= 15 && nuevos <= 43_200
-  const cambiado = nuevos !== minutos
+  const cambiado = nuevos !== reloj.foepMinutos
 
   return (
     <tr className={TABLA.fila}>
       <td className={`${TABLA.celda} ${TABLA.celdaFija}`}>
         <span className={TEXTO.t1}>A qué precio ganaríamos la Buy Box</span>
-        <span className={`block ${TIPO.s} ${TEXTO.t4}`}>
-          FOEP · solo de {cliente}
-        </span>
+        <span className={`block ${TIPO.s} ${TEXTO.t4}`}>FOEP · solo de {cliente}</span>
       </td>
 
-      <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[240px]`}>
-        minutos · pero es la petición más cara que hay (una cada 30 s)
-      </td>
+      {/* LA CUENTA, A LA VISTA. Un automatismo que decide sin decir por qué se
+          desactiva la primera vez que alguien no entiende el número; esta cabe
+          en una frase, así que se enseña y deja de ser magia. */}
+      <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[300px]`}>{reloj.foepPorQue}</td>
 
       <td className={TABLA.celda}>
         <span className="flex items-center gap-[5px]">
-          <input
-            type="number"
-            min={15}
-            value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            className={`${CAMPO.input} !h-6 !w-[62px] ${TIPO.num}`}
-            aria-label="Cada cuánto se pide el FOEP"
-          />
-          <select
-            value={unidad}
-            onChange={(e) => setUnidad(e.target.value as UnidadTiempo)}
-            className={`${CAMPO.input} !h-6 !w-auto`}
-            aria-label="Unidad"
-          >
-            {UNIDADES.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.label}
-              </option>
-            ))}
-          </select>
-          {cambiado && (
-            <button
-              type="button"
-              disabled={!valido || guardando}
-              onClick={() => onGuardar(nuevos)}
-              className={`${BOTON.base} ${BOTON.primario}`}
-            >
-              Guardar
-            </button>
+          {reloj.foepAutomatico ? (
+            <>
+              <span className={`${TIPO.num} ${TEXTO.t1}`}>{textoIntervalo(reloj.foepMinutos)}</span>
+              <span className={`${TIPO.s} ${TEXTO.t4}`}>· calculado</span>
+            </>
+          ) : (
+            <>
+              <input
+                type="number"
+                min={15}
+                value={valor}
+                onChange={(e) => setValor(e.target.value)}
+                className={`${CAMPO.input} !h-6 !w-[62px] ${TIPO.num}`}
+                aria-label="Cada cuánto se pide el FOEP"
+              />
+              <select
+                value={unidad}
+                onChange={(e) => setUnidad(e.target.value as UnidadTiempo)}
+                className={`${CAMPO.input} !h-6 !w-auto`}
+                aria-label="Unidad"
+              >
+                {UNIDADES.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+              {cambiado && (
+                <button
+                  type="button"
+                  disabled={!valido || guardando}
+                  onClick={() => onGuardar(nuevos)}
+                  className={`${BOTON.base} ${BOTON.primario}`}
+                >
+                  Guardar
+                </button>
+              )}
+            </>
           )}
         </span>
-        {!valido && (
+        {!reloj.foepAutomatico && !valido && (
           <span className={TIPO.s} style={{ color: COLOR_ESTADO.rojo }}>
             Entre 15 minutos y 30 días
           </span>
@@ -1700,22 +1722,31 @@ function FilaFoep({
 
       <td className={`${TABLA.celda} ${TEXTO.t3}`}>
         {/* `false` porque el FOEP no tiene ventana nocturna: puede arrancar a
-            cualquier hora, así que las veces al día son las que salen del reloj
-            y no hay que descontar nada. */}
-        {salidaReal(minutos, false)}
-        {/* 4.800 SKU/hora es el techo del cupo. Decirlo aquí evita que alguien
-            ponga «cada 15 minutos» y se quede esperando un dato que no puede
-            llegar a tiempo. */}
-        {minutos < 60 && (
-          <span className={`${TIPO.s} block max-w-[240px]`} style={{ color: COLOR_ESTADO.ambar }}>
-            Por debajo de una hora solo cabe en catálogos muy cortos: el techo son 4.800 referencias
-            a la hora, y lo comparten todos los países de este vendedor.
-          </span>
-        )}
+            cualquier hora, así que las veces al día son las del reloj. */}
+        {salidaReal(reloj.foepMinutos, false)}
       </td>
 
       <td className={`${TABLA.celda} ${TEXTO.t3}`}>a cualquier hora</td>
-      <td className={`${TABLA.celda} ${TEXTO.t4} ${TIPO.s}`}>de este cliente</td>
+
+      <td className={TABLA.celda}>
+        {/* Volver a automático tiene que ser un clic. Si fijarlo a mano no
+            tuviera vuelta atrás, el número que alguien puso una tarde para
+            probar se quedaría ahí para siempre — y el stock se mueve. */}
+        <button
+          type="button"
+          disabled={guardando}
+          onClick={() => onGuardar(reloj.foepAutomatico ? reloj.foepMinutos : null)}
+          className={`${BOTON.base} ${BOTON.secundario}`}
+          title={
+            reloj.foepAutomatico
+              ? 'Fijarlo a mano. Deja de ajustarse cuando cambie el stock del cliente'
+              : 'Que lo calcule el ERP a partir de las referencias con stock'
+          }
+        >
+          {reloj.foepAutomatico ? 'Fijar a mano' : 'Automático'}
+        </button>
+        <span className={`block ${TIPO.s} ${TEXTO.t4}`}>de este cliente</span>
+      </td>
     </tr>
   )
 }

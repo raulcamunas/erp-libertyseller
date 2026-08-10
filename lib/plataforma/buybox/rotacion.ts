@@ -95,3 +95,64 @@ export function minutosDeOfertas(skus: number): number {
   if (skus <= 0) return 0
   return Math.round((Math.ceil(skus / 20) * 2) / 60)
 }
+
+/* ------------------------------------------------------------------ */
+/* La cadencia automática                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Los saltos a los que se redondea.
+ *
+ * Se enseña en pantalla y se lee en voz alta, así que «cada 64 minutos» no vale:
+ * nadie razona con ese número. Se sube al siguiente escalón de esta lista, que
+ * son todos divisores o múltiplos cómodos del día.
+ */
+const ESCALONES = [15, 30, 60, 120, 180, 240, 360, 480, 720, 1440, 2880, 4320]
+
+/** Nunca por debajo de esto, aunque el catálogo sea de cuatro referencias */
+export const FOEP_MINUTOS_SUELO = 15
+
+/**
+ * CADA CUÁNTO PEDIR EL FOEP, CALCULADO A PARTIR DE CUÁNTAS REFERENCIAS HAY.
+ *
+ * La regla es una: **la cadencia tiene que ser mayor que lo que tarda un
+ * barrido**. Si son iguales, la pasada siguiente arranca antes de que termine la
+ * anterior y el trabajo no alcanza nunca — no daría error, simplemente iría
+ * acumulando retraso para siempre.
+ *
+ * Se usa el DOBLE del barrido, y ese factor no es prudencia genérica: la otra
+ * mitad del tiempo la necesita LA COLA. Cuando el barrido de ofertas ve que un
+ * SKU ha perdido la oferta destacada, ese SKU pide FOEP inmediatamente y se
+ * salta la rotación. Sin holgura, la cola y el barrido se pelean por el mismo
+ * cupo y el que pierde es el que corre urgente.
+ *
+ * El cálculo entra por parámetro y sale un número: sin reloj, sin base y sin
+ * red. Con 2.500 referencias con stock son 63 llamadas → 32 minutos de barrido →
+ * cadencia de 64 → escalón de 120.
+ */
+export function cadenciaFoepAutomatica(skusConStock: number): number {
+  if (skusConStock <= 0) return ESCALONES[ESCALONES.length - 1]
+  const barrido = minutosDeFoep(skusConStock)
+  const conHolgura = Math.max(FOEP_MINUTOS_SUELO, barrido * 2)
+  return ESCALONES.find((e) => e >= conHolgura) ?? ESCALONES[ESCALONES.length - 1]
+}
+
+/**
+ * Por qué ha salido ese número, en una frase para la pantalla.
+ *
+ * Un automatismo que decide sin decir por qué se desactiva a la primera vez que
+ * alguien no entiende un número: aquí la cuenta cabe en una línea, así que se
+ * enseña y deja de ser magia.
+ */
+export function porQueEsaCadencia(skusConStock: number): string {
+  if (skusConStock <= 0) {
+    return 'No hay ninguna referencia con stock, así que no hay nada que preguntar.'
+  }
+  const llamadas = Math.ceil(skusConStock / 40)
+  const barrido = minutosDeFoep(skusConStock)
+  return (
+    `${skusConStock} referencias con stock son ${llamadas} llamadas a una cada 30 s: ` +
+    `${barrido} min por barrido. Se deja el doble para que quepa también la cola de los que ` +
+    'acaban de perder la Buy Box.'
+  )
+}

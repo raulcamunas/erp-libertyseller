@@ -30,7 +30,12 @@ import {
   contarColaFoep,
   type ConfigBuyBox,
 } from './datos'
-import { minutosDeFoep, minutosDeOfertas } from './rotacion'
+import {
+  cadenciaFoepAutomatica,
+  minutosDeFoep,
+  minutosDeOfertas,
+  porQueEsaCadencia,
+} from './rotacion'
 import type { EstadoBuyBox, Veredicto } from './tipos'
 
 export { isMissingSchema as faltaEsquema }
@@ -361,6 +366,12 @@ export interface ConfigPantalla {
     minutosOfertas: number
     minutosFoepCompleto: number
     minutosFoepPorNoche: number
+    /** El reloj del FOEP que va a usar el motor, ya resuelto */
+    foepMinutos: number
+    /** true = lo calcula el ERP; false = alguien lo fijó a mano */
+    foepAutomatico: boolean
+    /** La cuenta, en una frase. Un automatismo mudo se acaba desactivando */
+    foepPorQue: string
   }
 }
 
@@ -385,10 +396,23 @@ export async function configPantalla(
        * que ser el que se va a pagar.
        */
       minutosFoepPorNoche: minutosDeFoep(
-        config.foepCadaMinutos < 1440
+        (config.foepCadaMinutos ?? cadenciaFoepAutomatica(skusEnSeguimiento)) < 1440
           ? skusEnSeguimiento
           : Math.ceil(skusEnSeguimiento / Math.max(1, config.foepRotacionDias))
       ),
+      /**
+       * El reloj que va a usar el motor, ya resuelto, y de dónde sale.
+       *
+       * `null` en la configuración significa automático, y un automatismo que
+       * decide sin decir por qué se desactiva la primera vez que alguien no
+       * entiende un número. La cuenta cabe en una frase, así que se enseña.
+       */
+      foepMinutos: config.foepCadaMinutos ?? cadenciaFoepAutomatica(skusEnSeguimiento),
+      foepAutomatico: config.foepCadaMinutos === null,
+      foepPorQue:
+        config.foepCadaMinutos === null
+          ? porQueEsaCadencia(skusEnSeguimiento)
+          : 'Fijado a mano en la configuración de Buy Box.',
     },
   }
 }

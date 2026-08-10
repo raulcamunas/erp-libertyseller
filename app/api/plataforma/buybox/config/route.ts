@@ -83,12 +83,16 @@ export async function PATCH(request: NextRequest) {
      * países del mismo vendedor. Por eso es por cliente.
      */
     if ('foepCadaMinutos' in body) {
-      const v = entero(body.foepCadaMinutos)
-      if (v === null || v < 15 || v > 43_200) {
+      // `null` NO es «sin valor»: es «calcúlalo tú», y es el estado normal. Se
+      // saca de las referencias con stock del cliente al doble de lo que tarda
+      // un barrido. Ver cadenciaFoepAutomatica() en buybox/rotacion.ts.
+      const v = enteroOpcional(body.foepCadaMinutos)
+      if (v !== null && (v < 15 || v > 43_200)) {
         return fail(
           400,
-          'Cada cuánto se pide el FOEP va de 15 minutos a 30 días. Por debajo del cuarto de hora se ' +
-            'estaría volviendo a pedir algo que la pasada anterior todavía está trayendo.'
+          'Cada cuánto se pide el FOEP va de 15 minutos a 30 días, o vacío para que lo calcule el ERP. ' +
+            'Por debajo del cuarto de hora se estaría volviendo a pedir algo que la pasada anterior ' +
+            'todavía está trayendo.'
         )
       }
       cambios.foepCadaMinutos = v

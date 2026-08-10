@@ -48,12 +48,18 @@ export interface ConfigBuyBox {
   /**
    * Cada cuántos minutos se le vuelve a pedir el FOEP a un mismo SKU.
    *
-   * 1440 = una vez al día. Es lo que decide cuánto cuesta este trabajo, porque
-   * el FOEP va a 40 SKU por llamada y una llamada cada treinta segundos: 4.800
-   * SKU a la hora como techo, con el cupo compartido entre todos los países del
-   * mismo vendedor.
+   * NULL = AUTOMÁTICO, y es lo normal: se calcula con las referencias CON STOCK
+   * del cliente, al doble de lo que tarda un barrido. Ver cadenciaFoepAutomatica()
+   * en rotacion.ts.
+   *
+   * El motivo de que sea automático es que el número bueno depende del stock, y
+   * el stock se mueve solo: un cliente con 2.500 referencias con existencias hoy
+   * puede tener 900 el mes que viene, y con el número a mano se queda pidiendo
+   * cada dos horas algo que ya cabe en veinte minutos. Nadie revisa eso.
+   *
+   * Un número fija el reloj a mano. NULL no es «sin valor»: es «calcúlalo tú».
    */
-  foepCadaMinutos: number
+  foepCadaMinutos: number | null
   foepMaxPorNoche: number | null
   foepColaActiva: boolean
   ofertasGuardadas: number
@@ -100,8 +106,8 @@ export const CONFIG_BUYBOX_DEFECTO: Omit<ConfigBuyBox, 'clientId'> = {
    * minutosDeFoep() de rotacion.ts, y la pantalla la enseña al configurarlo.
    */
   foepRotacionDias: 1,
-  /** Una vez al día. Es el único que cabe con cualquier catálogo; ver la 143 */
-  foepCadaMinutos: 1440,
+  /** Automático: lo calcula el ERP con las referencias con stock. Ver la 144 */
+  foepCadaMinutos: null,
   foepMaxPorNoche: null,
   foepColaActiva: true,
   ofertasGuardadas: 10,
@@ -145,10 +151,11 @@ export async function configDeCliente(clientId: string): Promise<ConfigBuyBox> {
     condicion: texto(fila.condicion) ?? 'New',
     segmento: texto(fila.segmento) ?? 'Consumer',
     foepRotacionDias: entero(fila.foep_rotacion_dias) ?? 1,
-    // `?? 1440` y no un fallo: la 143 se lanza a mano, así que el código puede
-    // estar desplegado antes que la columna. Sin columna, una vez al día, que es
-    // lo que hacía hasta ahora.
-    foepCadaMinutos: entero(fila.foep_cada_minutos) ?? 1440,
+    // null = automático, y también es lo que sale si la columna todavía no
+    // existe: las migraciones se lanzan a mano, así que el código puede llegar
+    // antes. Que el valor por defecto de un hueco sea «calcúlalo» y no un número
+    // fijo es lo correcto — un número inventado se queda ahí para siempre.
+    foepCadaMinutos: entero(fila.foep_cada_minutos),
     foepMaxPorNoche: entero(fila.foep_max_por_noche),
     foepColaActiva: fila.foep_cola_activa !== false,
     ofertasGuardadas: entero(fila.ofertas_guardadas) ?? 10,
