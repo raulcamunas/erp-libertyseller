@@ -22,9 +22,11 @@
 -- ejecutaría dos veces por noche y ni una en todo el día: el número guardado
 -- diría una cosa y el comportamiento sería otro, sin ningún error por medio.
 --
--- La ventana sigue teniendo sentido para lo caro —un barrido de 13.700 SKU no
--- puede competir de día con las operaciones que sí importan—, así que se queda,
--- pero como decisión por refresco y no como ley.
+-- La ventana existe como columna, pero YA NO SE USA POR DEFECTO: la quita la
+-- 140. El cupo de la SP-API es por operación, así que un barrido de atributos no
+-- le quita fichas al refresco del catálogo, y la competencia que la ventana
+-- evitaba era mucho menor de lo que parecía. Se puede volver a encender por
+-- refresco desde Ingesta.
 
 DO $$
 BEGIN
@@ -79,7 +81,7 @@ COMMENT ON TABLE public.refresco_config IS
 
 -- ---------- Los valores ----------
 -- Todos son los que ya estaban en el codigo (20 h lo diario, 144 h lo semanal)
--- MENOS el censo, que baja de 144 h a 1 h y sale de la ventana nocturna.
+-- MENOS el censo, que baja de 144 h a 1 h.
 --
 -- POR QUE EL CENSO CADA HORA. No es solo por descubrir referencias nuevas: el
 -- ciclo de quince minutos NO VE EL CATALOGO ENTERO de los clientes grandes. Usa
@@ -99,13 +101,17 @@ COMMENT ON TABLE public.refresco_config IS
 -- —ese ya lo refresca el ciclo de quince minutos— sino una serie de solo
 -- insercion, o sea historico. Cada quince minutos serian 96 observaciones al dia
 -- por SKU y pais para dibujar la misma linea.
+-- Ninguno con ventana nocturna: ver 140_refrescos_sin_ventana.sql. El cupo de
+-- la SP-API es por operacion, asi que un barrido de atributos no le quita
+-- fichas al refresco del catalogo — la competencia que la ventana evitaba era
+-- mucho menor de lo que parecia, y a cambio nada podia ponerse al dia de dia.
 INSERT INTO public.refresco_config (tipo, cada_minutos, solo_de_noche) VALUES
-  ('recalcular_activos',   1200, true),   -- 20 h
-  ('inventario_fba',       1200, true),   -- 20 h · historico, no el stock vivo
-  ('snapshot_bsr',         1200, true),   -- 20 h · una vez por noche
-  ('snapshot_precios',     1200, true),   -- 20 h
-  ('censo_catalogo',         60, false),  -- 1 h, y de dia tambien
-  ('enriquecer_catalogo',  8640, true)    -- 144 h = 6 dias
+  ('recalcular_activos',   1200, false),  -- 20 h
+  ('inventario_fba',       1200, false),  -- 20 h · historico, no el stock vivo
+  ('snapshot_bsr',         1200, false),  -- 20 h · un punto al dia de la serie
+  ('snapshot_precios',     1200, false),  -- 20 h
+  ('censo_catalogo',         60, false),  -- 1 h
+  ('enriquecer_catalogo',  8640, false)   -- 144 h = 6 dias
 ON CONFLICT (tipo) DO NOTHING;
 
 -- ---------- Permisos ----------

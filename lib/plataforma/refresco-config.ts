@@ -52,12 +52,19 @@ export interface ConfigRefresco {
  * que refresca esas 1.620. Con cadencia semanal llevaban hasta seis días con el
  * precio y el stock viejos.
  *
- * Y SIN ventana nocturna, que va junto: con la ventana puesta, «cada hora» solo
- * podría arrancar entre las 23:00 y las 06:00. El número diría una cosa y el
- * comportamiento sería otro, sin ningún error por medio.
- *
  * OJO CON BAJARLO MÁS: Amazon cachea este informe entre 1 y 6 horas, así que por
  * debajo de la hora se pediría otra vez algo que ni siquiera ha cambiado.
+ *
+ *
+ * YA NO HAY VENTANA NOCTURNA (migración 140)
+ * ------------------------------------------
+ * Venía de que un barrido de 13.700 SKU no debe competir de día con lo que sí
+ * importa. Pero el cupo de la Selling Partner API es POR OPERACIÓN: un barrido
+ * de atributos no le quita fichas al refresco del catálogo ni al envío de
+ * precios, porque son cubos distintos. La competencia que la ventana evitaba era
+ * mucho menor de lo que parecía, y a cambio nada podía ponerse al día de día.
+ *
+ * Sigue siendo una columna: se vuelve a encender por refresco desde Ingesta.
  *
  *
  * EL INVENTARIO SE QUEDA EN DIARIO A PROPÓSITO
@@ -72,12 +79,12 @@ export interface ConfigRefresco {
  * medio millón de filas al día para dibujar la misma línea que dibujan 5.000.
  */
 export const REFRESCO_POR_DEFECTO: Record<string, { minutos: number; noche: boolean }> = {
-  recalcular_activos: { minutos: 1200, noche: true }, //  20 h
-  inventario_fba: { minutos: 1200, noche: true }, //      20 h · histórico, no el stock vivo
-  snapshot_bsr: { minutos: 1200, noche: true }, //        20 h · una vez por noche
-  snapshot_precios: { minutos: 1200, noche: true }, //    20 h
-  censo_catalogo: { minutos: 60, noche: false }, //        1 h, y de día también
-  enriquecer_catalogo: { minutos: 8640, noche: true }, // 144 h
+  recalcular_activos: { minutos: 1200, noche: false }, //  20 h
+  inventario_fba: { minutos: 1200, noche: false }, //      20 h · histórico, no el stock vivo
+  snapshot_bsr: { minutos: 1200, noche: false }, //        20 h · un punto al día de la serie
+  snapshot_precios: { minutos: 1200, noche: false }, //    20 h
+  censo_catalogo: { minutos: 60, noche: false }, //         1 h
+  enriquecer_catalogo: { minutos: 8640, noche: false }, // 144 h
 }
 
 export const MIN_MINUTOS = 15
