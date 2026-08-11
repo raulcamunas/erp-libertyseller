@@ -53,7 +53,20 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
     const perfil = await loadPerfil(params.id)
     if (!perfil) return fail(404, 'Ese perfil ya no existe')
 
-    const fichero = await traerFichero(perfil)
+    /**
+     * SE LO LLEVA AUNQUE ESTÉ ROTO, y esa es la única razón de este parámetro.
+     *
+     * El conector comprueba que el fichero haya llegado entero y corta si no.
+     * Está bien para el ciclo —un .xlsx a medias no puede acabar publicando
+     * stock— pero aplicado aquí rompía este botón EXACTAMENTE en el caso para
+     * el que se hizo: cuando el fichero está mal y hay que abrirlo para saber
+     * de quién es el problema. Pasó de verdad, con un stockOcio.xlsx de 212.355
+     * bytes sin el final del zip.
+     *
+     * Aquí no se procesa nada: los bytes salen hacia el navegador y ahí acaba
+     * el viaje. Un fichero roto sigue sin poder llegar a Amazon por este camino.
+     */
+    const fichero = await traerFichero(perfil, null, { aunqueEsteRoto: true })
     const bytes = fichero.bytes instanceof Uint8Array ? fichero.bytes : new Uint8Array()
 
     if (bytes.byteLength === 0) {

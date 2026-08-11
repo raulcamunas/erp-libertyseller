@@ -132,6 +132,21 @@ export interface ContextoOrigen {
    * de la tabla cifrada.
    */
   secretoEnPantalla?: SecretoOrigen | null
+  /**
+   * TRAE LOS BYTES AUNQUE ESTÉN ROTOS.
+   *
+   * Lo pone SOLO la ruta de descarga, y existe porque comprobar la integridad
+   * en el conector tenía un efecto que no vi al escribirlo: el botón
+   * «Descargar el del origen» dejaba de funcionar exactamente en el caso para
+   * el que se hizo. Un fichero incompleto es justo el que hay que poder mirar
+   * —para saber si el problema es la red o el ERP del cliente— y el conector lo
+   * estaba bloqueando antes de dejarlo salir.
+   *
+   * Con esto puesto NO se procesa nada: los bytes van al navegador y ahí acaba
+   * el viaje. El ciclo y el simulacro nunca lo ponen, así que un fichero a
+   * medias sigue sin llegar jamás a Amazon.
+   */
+  aunqueEsteRoto?: boolean
 }
 
 /**

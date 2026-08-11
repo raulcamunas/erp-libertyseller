@@ -642,7 +642,7 @@ export const conectorFtps: ConectorOrigen = {
        * separa los dos culpables posibles sin tener que adivinar, que es todo lo
        * que hacía falta aquí desde el principio.
        */
-      if (seQuedoCorto(bytes, anunciado)) {
+      if (seQuedoCorto(bytes, anunciado) && !ctx.aunqueEsteRoto) {
         throw new OrigenError(
           `«${elegido.name}» llega cortado dos veces seguidas: el servidor dice que ocupa ` +
             `${anunciado.toLocaleString('es-ES')} bytes y han llegado ${bytes.byteLength.toLocaleString('es-ES')}. ` +
@@ -662,7 +662,14 @@ export const conectorFtps: ConectorOrigen = {
        * la versión anterior de esta comprobación, que daba por buena la descarga
        * cuando el listado no traía el tamaño.
        */
-      if (zipIncompleto(bytes) && anunciado > 0 && bytes.byteLength === anunciado) {
+      if (
+        zipIncompleto(bytes) &&
+        anunciado > 0 &&
+        bytes.byteLength === anunciado &&
+        // La descarga a mano SÍ se lo lleva roto: es la única forma de mirarlo.
+        // Ver `aunqueEsteRoto` en tipos.ts.
+        !ctx.aunqueEsteRoto
+      ) {
         throw new OrigenError(
           `«${elegido.name}» está a medias EN EL SERVIDOR del cliente: ocupa ` +
             `${bytes.byteLength.toLocaleString('es-ES')} bytes, que son exactamente los que el servidor ` +

@@ -218,12 +218,20 @@ export interface ResultadoProceso {
  */
 export async function traerFichero(
   perfil: StockReadProfile,
-  subida?: SubidaManual | null
+  subida?: SubidaManual | null,
+  /**
+   * Solo la ruta de descarga a mano. Trae los bytes aunque el fichero esté
+   * roto, porque mirarlo es justo lo que hace falta cuando lo está. Nada de lo
+   * que se trae así se procesa: va al navegador y ahí acaba. Ver
+   * `aunqueEsteRoto` en origenes/tipos.ts.
+   */
+  opciones?: { aunqueEsteRoto?: boolean }
 ): Promise<FicheroTraido> {
   const conector = conectorDe(perfil.origen)
   const fichero = await conector.traer({
     config: (perfil.origen_config ?? {}) as Record<string, unknown>,
     perfil: perfil.name,
+    aunqueEsteRoto: opciones?.aunqueEsteRoto === true,
     // El id, no solo el nombre: es la llave de la credencial cifrada del origen
     // (stock_origen_credenciales, migración 124). Sin él, un perfil de SFTP no
     // encuentra su contraseña y el ciclo automático no podría leer nada.
