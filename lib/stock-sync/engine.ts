@@ -1235,9 +1235,22 @@ export function porQueNoAbre(bytes: Uint8Array, error: unknown): string {
  * fichero que no se puede diagnosticar después, porque no hay después.
  */
 export function comprobarQueEstaEntero(bytes: Uint8Array): void {
-  if (empiezaComoZip(bytes) && !terminaComoZip(bytes)) {
+  if (zipIncompleto(bytes)) {
     throw new StockSyncError(zipAMedias(bytes, 'le falta el índice del final'))
   }
+}
+
+/**
+ * true si esto es un .xlsx al que le falta el final.
+ *
+ * Se exporta para los CONECTORES, que pueden decir bastante más que esto: ellos
+ * saben cuántos bytes anunciaba el servidor y cuántos han llegado, así que
+ * pueden separar «se cortó por el camino» de «el fichero está a medias en el
+ * servidor del cliente». Son dos problemas de dos personas distintas y aquí
+ * abajo no hay forma de distinguirlos.
+ */
+export function zipIncompleto(bytes: Uint8Array): boolean {
+  return empiezaComoZip(bytes) && !terminaComoZip(bytes)
 }
 
 /** El aviso del fichero cortado. Se dice igual se detecte antes o después */

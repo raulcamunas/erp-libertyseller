@@ -47,6 +47,7 @@
 
 import { Client as FtpClient, type FileInfo } from 'basic-ftp'
 import { Writable } from 'node:stream'
+import { zipIncompleto } from '../engine'
 import { leerCredencial } from './credenciales'
 import {
   OrigenError,
@@ -187,6 +188,80 @@ async function conTope<T>(tarea: Promise<T>, ms: number, queHacia: string): Prom
   } finally {
     if (reloj) clearTimeout(reloj)
   }
+}
+
+/**
+ * Cuánto ocupa el fichero, de verdad.
+ *
+ * Se prefiere `SIZE` —una orden del protocolo que contesta un número— al
+ * tamaño del listado, que es texto libre y cada servidor escribe a su manera.
+ * El de un cliente real no lo trae, y ese hueco fue el que dejó pasar una
+ * descarga cortada como si estuviera bien.
+ *
+ * Si el servidor no admite `SIZE` se cae al del listado, y si tampoco lo hay se
+ * devuelve 0. Cero significa NO SE SABE, y quien llama tiene que tratarlo como
+ * tal: es justo la confusión que hay que evitar aquí.
+ */
+async function tamanoReal(cliente: FtpClient, ruta: string, delListado: number): Promise<number> {
+  try {
+    const n = await conTope(cliente.size(ruta), ESPERA_MS, 'preguntar el tamaño')
+    if (Number.isFinite(n) && n > 0) return n
+  } catch {
+    // Servidor que no admite SIZE (500/502) o que lo contesta raro. No es un
+    // fallo: es un dato que no se puede tener.
+  }
+  return Number.isFinite(delListado) && delListado > 0 ? delListado : 0
+}
+
+/** true solo si SE SABE el tamaño y han llegado menos bytes. Ver tamanoReal() */
+function seQuedoCorto(bytes: Buffer, anunciado: number): boolean {
+  return anunciado > 0 && bytes.byteLength < anunciado
+}
+
+/**
+ * Una descarga a memoria.
+ *
+ * `basic-ftp` solo sabe escribir a un stream o a un fichero, y en este
+ * contenedor no hay disco donde dejar nada. El tope se comprueba MIENTRAS
+ * llega: un servidor que anuncia 2 MB y manda 400 no puede llenar la memoria
+ * del proceso solo porque el listado mintiera.
+ */
+async function descargar(
+  cliente: FtpClient,
+  ruta: string,
+  maxBytes: number,
+  nombre: string
+): Promise<Buffer> {
+  const trozos: Buffer[] = []
+  let recibidos = 0
+  let excedido = false
+
+  const destino = new Writable({
+    write(trozo: Buffer, _codificacion, siguiente) {
+      recibidos += trozo.byteLength
+      if (recibidos > maxBytes) {
+        excedido = true
+        siguiente(new Error('tope de tamaño superado'))
+        return
+      }
+      trozos.push(trozo)
+      siguiente()
+    },
+  })
+
+  try {
+    await conTope(cliente.downloadTo(destino, ruta), ESPERA_DESCARGA_MS, 'descargar el fichero')
+  } catch (error) {
+    if (excedido) {
+      throw new OrigenError(
+        `El fichero «${nombre}» pasa de ${mb(maxBytes)} MB mientras se descargaba, así que se ha ` +
+          'cortado. El listado del servidor decía otro tamaño.'
+      )
+    }
+    throw error
+  }
+
+  return Buffer.concat(trozos)
 }
 
 function cerrar(cliente: FtpClient): void {
@@ -505,56 +580,52 @@ export const conectorFtps: ConectorOrigen = {
         )
       }
 
+      const ruta = unir(cfg.ruta, elegido.name)
+
+      /**
+       * CUÁNTO OCUPA, PREGUNTADO CON `SIZE` Y NO SACADO DEL LISTADO.
+       *
+       * Y esto costó un día entero de mirar donde no era. El listado de FTP es
+       * texto libre —cada servidor lo escribe a su manera— y hay servidores que
+       * no ponen el tamaño. El de este cliente es uno: `elegido.size` llega a 0
+       * y la comprobación de «han llegado todos los bytes» estaba escrita como
+       * `size > 0 && ...`, o sea que NO SE EJECUTABA. Con el dato ausente, el
+       * ERP daba por buena una descarga que se había cortado y el fallo salía
+       * cuarenta líneas después, al abrir el Excel, como si el fichero fuera
+       * malo. Un dato que falta no puede leerse como un dato que cuadra.
+       *
+       * `SIZE` es una orden aparte del protocolo y contesta un número. No todos
+       * los servidores la admiten —de ahí el catch— pero el que la admita ya no
+       * puede escaquearse de la comprobación.
+       */
+      const anunciado = await tamanoReal(cliente, ruta, elegido.size)
+
       // El tamaño se mira ANTES de descargar. Traerse 300 MB para descartarlos
       // después se come la memoria del contenedor, que es la del ERP entero.
-      if (elegido.size > ctx.maxBytes) {
+      if (anunciado > ctx.maxBytes) {
         throw new OrigenError(
-          `El fichero «${elegido.name}» ocupa ${mb(elegido.size)} MB y el máximo son ${mb(ctx.maxBytes)} MB.`
+          `El fichero «${elegido.name}» ocupa ${mb(anunciado)} MB y el máximo son ${mb(ctx.maxBytes)} MB.`
         )
       }
 
       /**
-       * Se descarga a MEMORIA con un stream de escritura propio.
+       * SE DESCARGA HASTA DOS VECES, y no es por si acaso.
        *
-       * `basic-ftp` solo sabe escribir a un stream o a un fichero, y en este
-       * contenedor no hay disco donde dejar nada. El tope se comprueba mientras
-       * llega: un servidor que anuncia 2 MB y manda 400 no puede llenar la
-       * memoria del proceso solo porque el listado mintiera.
+       * En FTPS los datos van por una SEGUNDA conexión, también cifrada, que el
+       * servidor abre en otro puerto. Cuando esa conexión se cierra sin el aviso
+       * de fin de TLS —cosa que hacen bastantes servidores— Node ve un final
+       * legítimo y la biblioteca da la transferencia por terminada aunque falte
+       * la cola del fichero. No hay error que capturar: hay menos bytes.
+       *
+       * Por eso, si el primer intento se queda corto, se repite. Es un fallo de
+       * transporte, no del fichero: el segundo intento suele traerlo entero, y
+       * el ciclo automático no puede permitirse perder una pasada por esto.
        */
-      const trozos: Buffer[] = []
-      let recibidos = 0
-      let excedido = false
+      let bytes = await descargar(cliente, ruta, ctx.maxBytes, elegido.name)
 
-      const destino = new Writable({
-        write(trozo: Buffer, _codificacion, siguiente) {
-          recibidos += trozo.byteLength
-          if (recibidos > ctx.maxBytes) {
-            excedido = true
-            siguiente(new Error('tope de tamaño superado'))
-            return
-          }
-          trozos.push(trozo)
-          siguiente()
-        },
-      })
-
-      try {
-        await conTope(
-          cliente.downloadTo(destino, unir(cfg.ruta, elegido.name)),
-          ESPERA_DESCARGA_MS,
-          'descargar el fichero'
-        )
-      } catch (error) {
-        if (excedido) {
-          throw new OrigenError(
-            `El fichero «${elegido.name}» pasa de ${mb(ctx.maxBytes)} MB mientras se descargaba, ` +
-              'así que se ha cortado. El listado del servidor decía otro tamaño.'
-          )
-        }
-        throw error
+      if (seQuedoCorto(bytes, anunciado)) {
+        bytes = await descargar(cliente, ruta, ctx.maxBytes, elegido.name)
       }
-
-      const bytes = Buffer.concat(trozos)
 
       if (bytes.byteLength === 0) {
         throw new OrigenError(
@@ -565,27 +636,40 @@ export const conectorFtps: ConectorOrigen = {
       }
 
       /**
-       * ¿HA LLEGADO ENTERO? El listado dice cuánto ocupa; se comprueba.
+       * DESPUÉS DEL SEGUNDO INTENTO, SI SIGUE CORTO, SE DICE CON LOS NÚMEROS.
        *
-       * Esto no era paranoia teórica. En FTP la transferencia va por una
-       * SEGUNDA conexión —la de datos, que en modo pasivo abre el servidor en
-       * otro puerto— y esa conexión se puede cerrar antes de tiempo mientras la
-       * de control sigue contestando «226 transferencia completa» tan tranquila.
-       * El resultado es medio fichero sin un solo error, y el fallo aparece
-       * cuarenta líneas después como «Bad compressed size», que manda a quien lo
-       * lee a mirar el Excel del cliente en vez de la red.
-       *
-       * Se compara solo si el servidor dio un tamaño: algunos listados de FTP no
-       * lo traen (size 0 o -1) y ahí no hay nada contra qué comparar. Que falte
-       * el dato no puede convertirse en un error inventado.
+       * Con `anunciado` de verdad —`SIZE` casi siempre contesta— este mensaje
+       * separa los dos culpables posibles sin tener que adivinar, que es todo lo
+       * que hacía falta aquí desde el principio.
        */
-      if (elegido.size > 0 && bytes.byteLength !== elegido.size) {
+      if (seQuedoCorto(bytes, anunciado)) {
         throw new OrigenError(
-          `«${elegido.name}» ha llegado a medias: el servidor decía ${elegido.size.toLocaleString('es-ES')} ` +
-            `bytes y han llegado ${bytes.byteLength.toLocaleString('es-ES')}. En FTP la transferencia va ` +
-            'por una conexión aparte y se puede cortar sin avisar. No hay nada que configurar: se vuelve ' +
-            'a intentar en la siguiente pasada. Si pasa siempre, es el cortafuegos del cliente cerrando ' +
-            'el modo pasivo a medias.'
+          `«${elegido.name}» llega cortado dos veces seguidas: el servidor dice que ocupa ` +
+            `${anunciado.toLocaleString('es-ES')} bytes y han llegado ${bytes.byteLength.toLocaleString('es-ES')}. ` +
+            'Eso es la conexión de datos de FTPS cerrándose antes de tiempo, no el fichero. Suele ser el ' +
+            'cortafuegos del cliente cortando el modo pasivo. Si el cliente puede dar un SFTP (puerto 22), ' +
+            'ese va por una sola conexión y no tiene este problema.'
+        )
+      }
+
+      /**
+       * ENTERO EN BYTES Y AUN ASÍ EL .XLSX ESTÁ A MEDIAS.
+       *
+       * Aquí sí se puede decir de quién es el problema, y por eso se dice aquí y
+       * no en el lector: el lector solo ve bytes, no sabe cuántos tenía que
+       * haber, y tiene que nombrar las dos posibilidades. En este punto la
+       * primera está descartada — CON EL DATO DELANTE, que es la diferencia con
+       * la versión anterior de esta comprobación, que daba por buena la descarga
+       * cuando el listado no traía el tamaño.
+       */
+      if (zipIncompleto(bytes) && anunciado > 0 && bytes.byteLength === anunciado) {
+        throw new OrigenError(
+          `«${elegido.name}» está a medias EN EL SERVIDOR del cliente: ocupa ` +
+            `${bytes.byteLength.toLocaleString('es-ES')} bytes, que son exactamente los que el servidor ` +
+            'dice que tiene, y aun así le falta el final. O sea que no se ha cortado por el camino: el ' +
+            'fichero ya estaba así. O su ERP lo está escribiendo ahora mismo —y en la siguiente pasada ' +
+            'estará entero— o se quedó a medio generar. Compruébalo con «Descargar el del origen». Si se ' +
+            'repite, pídele que lo escriba con otro nombre y lo renombre al terminar.'
         )
       }
 
