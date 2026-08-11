@@ -144,6 +144,22 @@ const REFRESCOS: Refresco[] = [
     parametros: { soloActivos: false, soloConStock: true },
   },
   {
+    /**
+     * ---------- Tarifas de Amazon ----------
+     * DETRÁS de «precios y Buy Box», y no es indiferente: la tarifa se pide al
+     * PRECIO DE EVALUACIÓN, que sale de cruzar el precio actual con el FOEP, y
+     * el FOEP lo trae el trabajo anterior. Con el orden al revés se pediría la
+     * tarifa al precio de ayer y `margen()` la descartaría por estar fuera de
+     * tolerancia — con la tabla llena, que es el peor de los dos fallos.
+     */
+    tipo: 'tarifas',
+    velocidad: 'diario',
+    prioridad: 75,
+    ventana: VENTANA_NOCTURNA,
+    porUnidad: true,
+    parametros: { soloActivos: false, soloConStock: true },
+  },
+  {
     // El censo va antes que los atributos: los atributos se piden POR ASIN, y
     // los ASIN los descubre el censo.
     tipo: 'censo_catalogo',

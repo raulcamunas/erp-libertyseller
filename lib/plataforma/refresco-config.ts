@@ -82,6 +82,7 @@ export const REFRESCO_POR_DEFECTO: Record<string, { minutos: number; noche: bool
   //                                    minutos          por qué
   snapshot_precios: { minutos: 15, noche: false }, //     ¿gano la Buy Box? Se mueve por minutos
   censo_catalogo: { minutos: 60, noche: false }, //       referencias nuevas. Amazon cachea 1-6 h
+  tarifas: { minutos: 1200, noche: false }, //           20 h · las comisiones no cambian a diario
   recalcular_activos: { minutos: 1200, noche: false }, // 20 h
   inventario_fba: { minutos: 1200, noche: false }, //     20 h · histórico, no el stock vivo
   snapshot_bsr: { minutos: 1200, noche: false }, //       20 h · un punto al día de la serie

@@ -1266,6 +1266,8 @@ function explicacionTipo(tipo: AmazonJobTipo): string {
       return 'Existencias en los almacenes de Amazon: disponible, reservado y lo que va de camino. Los SKU que gestiona el vendedor no salen en esa respuesta y se guardan como «no aplica», nunca como cero.'
     case 'recalcular_activos':
       return 'Aplica el criterio del cliente y decide qué SKU se refrescan a diario. No gasta ni una llamada a Amazon, así que se puede lanzar las veces que haga falta.'
+    case 'tarifas':
+      return 'Lo que Amazon cobra por vender cada referencia: comisión y, si la gestiona Amazon, tarifa de logística. Se pide a DOS precios distintos —el canal de hoy y el de Amazon— porque para una referencia FBM esa es la única forma de saber cuánto costaría en FBA. Sin esto no hay margen que calcular en ningún módulo.'
     default:
       return 'Este trabajo lo construye un módulo posterior.'
   }
@@ -1376,6 +1378,10 @@ const QUE_ES: Record<string, { dato: string; cambia: string; serie?: boolean }> 
     dato: 'Marca, categoría y medidas',
     cambia: 'casi nunca · un producto no cambia de marca',
   },
+  tarifas: {
+    dato: 'Lo que se lleva Amazon por cada venta',
+    cambia: 'casi nunca · las comisiones las cambia Amazon, no el mercado',
+  },
   recalcular_activos: {
     dato: 'Qué SKU están en seguimiento',
     cambia: 'cuando cambias el criterio · no pide nada a Amazon',
@@ -1406,6 +1412,7 @@ const ORDEN_POR_RITMO = [
   'inventario_fba',
   'snapshot_bsr',
   'recalcular_activos',
+  'tarifas',
   'enriquecer_catalogo',
 ]
 

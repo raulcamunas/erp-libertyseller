@@ -30,8 +30,8 @@
  *   inventario_fba       — getInventorySummaries a la serie de inventario, con
  *                          los tres estados (conocido / no aplica / desconocido).
  *
- * Las tres que faltan —precios y Buy Box (A2), tarifas (A4), importaciones
- * (A5)— están declaradas en la base y NO tienen tarea todavía. Eso no falla en
+ * Ya tienen tarea A2 (precios y Buy Box) y las TARIFAS. La que falta son las
+ * importaciones (A5): está declarada en la base y NO tiene tarea todavía. Eso no falla en
  * silencio: un trabajo de un tipo sin tarea se cierra con error y levanta un
  * evento que suena en la campana (ver conCerrojo() en motor.ts). Es a propósito:
  * un trabajo esperando para siempre a alguien que lo procese es indistinguible
@@ -46,6 +46,9 @@ import { tareaRecalcularActivos } from './recalcular-activos'
 // A2 · el monitor de Buy Box. Vive en lib/plataforma/buybox/** y se enchufa aquí
 // igual que las de A1: su tipo ya estaba declarado en el CHECK de amazon_jobs.
 import { tareaSnapshotPrecios } from '../buybox/tarea'
+// A4/A5 · las tarifas de Amazon. Sin ellas no hay margen que calcular en
+// ningun modulo: margen() contesta «hace falta una estimacion de tarifas».
+import { tareaTarifas } from './tarifas'
 
 const TAREAS: Tarea[] = [
   tareaRecalcularActivos,
@@ -54,6 +57,7 @@ const TAREAS: Tarea[] = [
   tareaSnapshotBsr,
   tareaInventarioFba,
   tareaSnapshotPrecios,
+  tareaTarifas,
 ]
 
 export function registrarTareas(): void {
