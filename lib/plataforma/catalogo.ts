@@ -543,6 +543,39 @@ export async function listingsDeUnidadIngesta(
  * la barra de progreso, y traerse trece mil filas para saber que son trece mil
  * sería el viaje más caro del trabajo.
  */
+/**
+ * ¿HAY ALGO EN EL ESPEJO DE ESTA CUENTA Y PAÍS?
+ *
+ * Existe para distinguir los DOS CEROS, que hoy se confunden y cuestan un día
+ * entero de histórico:
+ *
+ *   · «no había nada que hacer» — el espejo tiene filas y el ámbito las
+ *     descarta: sin stock, fuera de seguimiento, sin marca propia. Es legítimo y
+ *     el trabajo hizo su trabajo.
+ *   · «el dato no había llegado» — el espejo está literalmente a cero filas
+ *     porque el censo o el ciclo de catálogo todavía no han corrido. El trabajo
+ *     no pudo mirar nada.
+ *
+ * Los dos acaban en «0 procesados» y terminan en verde, y el segundo además
+ * consume la cadencia: eso es lo que dejó a un cliente sin BSR ni inventario
+ * durante veinte horas por haber corrido un minuto antes que su catálogo.
+ *
+ * `limit(1)` y NO un `count`: es una pregunta de existencia, y con las 13.700
+ * referencias de un cliente grande un recuento exacto recorre el índice entero
+ * para contestar algo que se sabe con la primera fila.
+ */
+export async function hayEspejo(unidad: UnidadDeTrabajo): Promise<boolean> {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('amazon_listings')
+    .select('id')
+    .eq('connection_id', unidad.connectionId)
+    .eq('marketplace_id', unidad.marketplaceId)
+    .limit(1)
+  if (error) throw error
+  return (data ?? []).length > 0
+}
+
 export async function contarListings(
   unidad: UnidadDeTrabajo,
   ambito: AmbitoCatalogo & { soloConAsin?: boolean } = {}

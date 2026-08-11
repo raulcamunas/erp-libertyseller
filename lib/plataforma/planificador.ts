@@ -43,7 +43,8 @@
 import { registrarEvento } from './eventos'
 import { crearJob, isMissingSchema } from './jobs'
 import { marketplaceById } from '@/lib/types/amazon'
-import { conexionesDeCliente, unidadesDe } from './datos'
+import { hayEspejo } from './catalogo'
+import { conexionesDeCliente, unidadesDe, type UnidadDeTrabajo } from './datos'
 import {
   cadenciaBsr,
   porQueSinBsr,
@@ -229,6 +230,35 @@ interface ClienteFila {
  * cliente no tenga conexiones o que su tabla no esté todavía no puede impedir
  * que se planifiquen los otros quince.
  */
+/**
+ * ¿Tiene espejo esta unidad? Con memoria dentro de la pasada.
+ *
+ * Se pregunta una vez por unidad y no una por refresco: son cinco refrescos que
+ * leen el espejo, así que sin la memoria serían cinco consultas idénticas por
+ * cada cuenta y país, por cada cliente y en cada pasada del planificador.
+ *
+ * Un fallo al preguntar NO bloquea: se contesta que sí. Un guardián que decide
+ * si algo se ejecuta tiene que fallar del lado de que se ejecute — equivocarse
+ * por encolar de más cuesta un trabajo que procesa 0, y equivocarse por no
+ * encolar deja al cliente sin refrescos y sin ninguna señal de por qué.
+ */
+async function espejoDe(
+  unidad: UnidadDeTrabajo,
+  memoria: Map<string, boolean>
+): Promise<boolean> {
+  const clave = `${unidad.connectionId}|${unidad.marketplaceId}`
+  const guardado = memoria.get(clave)
+  if (guardado !== undefined) return guardado
+  try {
+    const hay = await hayEspejo(unidad)
+    memoria.set(clave, hay)
+    return hay
+  } catch {
+    memoria.set(clave, true)
+    return true
+  }
+}
+
 export async function planificarRefrescos(
   opciones: OpcionesPlan = {}
 ): Promise<ResultadoPlan> {
@@ -261,6 +291,9 @@ export async function planificarRefrescos(
    * clientes, así que leerlo dentro del bucle serían noventa y seis consultas
    * para obtener siempre lo mismo.
    */
+  /** Memoria de «¿tiene espejo?» durante esta pasada. Ver espejoDe() */
+  const espejos = new Map<string, boolean>()
+
   const horarios = await leerConfigRefrescos(REFRESCOS.map((r) => r.tipo))
   const horarioDe = (tipo: AmazonJobTipo) =>
     horarios.find((h) => h.tipo === tipo) ?? configPorDefecto(tipo)
@@ -387,6 +420,53 @@ export async function planificarRefrescos(
 
       for (const destino of destinos) {
         if (creados >= maxNuevos) break
+
+        /**
+         * NO SE ENCOLA UN TRABAJO QUE VA A MIRAR UN ESPEJO VACÍO.
+         *
+         * El caso real: un cliente recién conectado. Los trabajos diarios
+         * corrieron a las 13:42 y el ciclo de catálogo trajo sus 775
+         * referencias a las 13:43. Miraron un espejo vacío, procesaron 0,
+         * terminaron EN VERDE y —lo caro— marcaron su cadencia como cumplida:
+         * el BSR y el inventario de ese cliente no volvían a mirar hasta veinte
+         * horas después. Un día entero de histórico perdido sin un solo error.
+         *
+         * Se ataca en el ORIGEN y no en el cierre: el trabajo que no puede hacer
+         * nada no llega a existir, así que no hay fila «terminado» que consuma
+         * cadencia. No hace falta migración, no se toca la máquina de estados y
+         * no puede pintar nada en rojo.
+         *
+         * Y SE CURA SOLO: en cuanto el censo o el ciclo de quince minutos meten
+         * la primera fila, el refresco se vuelve a programar en la pasada
+         * siguiente, porque su cadencia sigue vencida.
+         *
+         * EL CENSO QUEDA FUERA a propósito: es justamente el que LLENA el
+         * espejo. Excluirlo de esta comprobación es lo único que impide un
+         * bloqueo mutuo en el que nadie corre porque nadie ha traído nada.
+         */
+        if (refresco.tipo !== 'censo_catalogo' && destino.connectionId && destino.marketplaceId) {
+          const unidad = unidades.find(
+            (u) =>
+              u.connectionId === destino.connectionId &&
+              u.marketplaceId === destino.marketplaceId
+          )
+          if (unidad && !(await espejoDe(unidad, espejos))) {
+            entradas.push({
+              tipo: refresco.tipo,
+              clientId: cliente.id,
+              cliente: cliente.name,
+              connectionId: destino.connectionId,
+              marketplaceId: destino.marketplaceId,
+              creado: false,
+              jobId: null,
+              motivo:
+                'El espejo del catálogo de esta cuenta y país está vacío: no hay nada que ' +
+                'refrescar todavía. Se espera al censo o al ciclo de quince minutos, y en cuanto ' +
+                'traigan la primera referencia este refresco se programa solo.',
+            })
+            continue
+          }
+        }
 
         const clave = claveUltimo(refresco.tipo, destino.connectionId, destino.marketplaceId)
         const ultimo = ultimos.get(clave) ?? null

@@ -120,6 +120,25 @@ export interface TarifaEstimadaNueva extends IdentidadSerie {
   fba: number | null
   otras: number | null
   total: number | null
+  /**
+   * A QUÉ ESCENARIO SE PIDIÓ, Y NO ES OPCIONAL AUNQUE LA COLUMNA ADMITA NULL.
+   *
+   *   'propio' → se pidió con el canal que HOY tiene el SKU.
+   *   'fba'    → se pidió forzando el canal de Amazon (IsAmazonFulfilled), que
+   *              es la única forma de que venga la tarifa de logística de una
+   *              referencia que hoy envía el cliente.
+   *
+   * SIN ESTO LA FILA ES INVISIBLE. Las dos LATERAL de la migración 132 —de donde
+   * salen los números de FBM→FBA— filtran por `f.canal = 'propio'` y
+   * `f.canal = 'fba'`, así que una fila con NULL no la encuentra ninguna de las
+   * dos: se guardaría, ocuparía sitio y no la leería nadie jamás.
+   *
+   * Y el NULL tampoco es neutro en el dato: con la columna vacía, un `fba_fee`
+   * nulo significa a la vez «se pidió como envío propio, por eso no viene» y
+   * «se pidió como FBA y Amazon no la devolvió». Un caso normal y un dato que
+   * falta, indistinguibles. Es literalmente lo que explica el COMMENT de la 131.
+   */
+  canal: 'fba' | 'propio'
   /** estimado_api / fee_preview / liquidacion. Ver el comentario de la 123 */
   origen?: string
 }
@@ -154,6 +173,10 @@ export async function insertarTarifas(filas: TarifaEstimadaNueva[]): Promise<num
       fba_fee: f.fba,
       otras_fees: f.otras,
       total_fees: f.total,
+      // Ver la nota de `canal` arriba: sin esta línea la fila no la encuentra
+      // ninguna de las dos LATERAL de la 132 y el módulo A4 no ve una sola
+      // tarifa por mucho que la tabla se llene.
+      canal: f.canal,
       origen: f.origen ?? 'estimado_api',
       request_id: f.requestId,
       job_id: f.jobId,
