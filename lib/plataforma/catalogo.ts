@@ -101,7 +101,7 @@ export interface AmbitoCatalogo {
  * meterlo obligaría a un parámetro que solo usa la mitad.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function aplicarAmbito<T extends { eq: (c: string, v: any) => any; gt: (c: string, v: any) => any; or: (f: string) => any }>(
+export function aplicarAmbito<T extends { eq: (c: string, v: any) => any; gt: (c: string, v: any) => any; or: (f: string) => any }>(
   consulta: T,
   ambito: AmbitoCatalogo
 ): T {

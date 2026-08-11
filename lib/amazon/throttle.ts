@@ -53,6 +53,8 @@ export type AmazonOperation =
   // ---------- Las que añadió el monitor de Buy Box (A2) ----------
   | 'getListingOffersBatch'
   | 'getFeaturedOfferExpectedPriceBatch'
+  // ---------- La que añadieron las tarifas (A4/A5) ----------
+  | 'getMyFeesEstimates'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -131,6 +133,15 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   // El plan de cupo de esta operación además es DINÁMICO: una cuenta concreta
   // puede tener más, y el cubo lo recoge solo por la cabecera de respuesta.
   getFeaturedOfferExpectedPriceBatch: { rate: 0.033, burst: 1 },
+
+  /* ---------- Tarifas de Amazon ---------- */
+  // Media petición por segundo, 20 SKU cada una: 10 SKU/s. Las 2.500 referencias
+  // con stock de un cliente grande son 125 llamadas, unos cuatro minutos.
+  //
+  // Barato comparado con lo que aporta: sin esto no hay margen, y sin margen el
+  // monitor de Buy Box puede decir a qué precio se gana la oferta destacada pero
+  // no si ganarla sale a cuenta.
+  getMyFeesEstimates: { rate: 0.5, burst: 1 },
 }
 
 export function sleep(ms: number): Promise<void> {

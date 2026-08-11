@@ -480,11 +480,20 @@ function queFalta(cfg: ConfigSftp): string | null {
  */
 function avisoFtpSinCifrar(cfg: ConfigSftp): string | null {
   if (cfg.puerto !== 21) return null
+  /**
+   * Desde que existe el conector de FTPS, este aviso tiene que decir A DÓNDE ir.
+   *
+   * Antes terminaba en «pídele SFTP o FTPS», y eso mandaba a pedirle algo al
+   * cliente cuando lo que solía pasar era que el cliente YA daba FTPS y el ERP
+   * no sabía hablarlo. Un aviso correcto que manda a hacer la gestión
+   * equivocada cuesta más que uno que no dice nada.
+   */
   return (
-    'El puerto 21 es el del FTP clásico, que NO va cifrado: manda el usuario y la contraseña del cliente ' +
-    'en claro por la red, y esa contraseña es suya, no nuestra.\n' +
-    'Este conector habla SFTP (SSH), que normalmente es el puerto 22.\n' +
-    'Si el cliente solo tiene FTP a secas, pídele SFTP o FTPS antes de guardar aquí su contraseña.'
+    'El puerto 21 es el de FTP, y este conector habla SFTP (SSH), que normalmente es el 22.\n' +
+    'Si el cliente te ha dado el 21, casi seguro es FTPS: cámbiate al conector «FTPS» de arriba, que ' +
+    'sí lo habla y exige el cifrado antes de mandar nada.\n' +
+    'Solo si su servidor no admite FTPS habría que pedirle SFTP: el FTP a secas manda el usuario y la ' +
+    'contraseña en claro por la red, y esa contraseña es suya, no nuestra.'
   )
 }
 

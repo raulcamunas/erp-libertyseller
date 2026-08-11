@@ -166,12 +166,13 @@ export interface StockRun {
  * construidos a propósito: todavía no se sabe qué podrá dar cada cliente, y
  * descubrirlo no puede obligar a una migración ni a cambiar este tipo.
  */
-export type StockProfileOrigin = 'manual' | 'drive' | 'sftp' | 'correo'
+export type StockProfileOrigin = 'manual' | 'drive' | 'sftp' | 'ftps' | 'correo'
 
 export const STOCK_PROFILE_ORIGIN_LABELS: Record<StockProfileOrigin, string> = {
   manual: 'Subida a mano',
   drive: 'Carpeta de Google Drive',
   sftp: 'SFTP',
+  ftps: 'FTPS',
   correo: 'Correo',
 }
 

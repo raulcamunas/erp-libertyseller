@@ -13,7 +13,7 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll, type UnidadDeTrabajo } from '../datos'
-import { soloEnSeguimiento, type AmbitoCatalogo } from '../catalogo'
+import { aplicarAmbito, type AmbitoCatalogo } from '../catalogo'
 import type { ConfigDiagnostico } from './diagnostico'
 import type {
   EstadoAmazonRetail,
@@ -290,7 +290,7 @@ export async function siguientesSkus(
   if (ambito.skusFiltro && ambito.skusFiltro.length > 0) {
     consulta = consulta.in('sku', ambito.skusFiltro)
   }
-  if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
+  consulta = aplicarAmbito(consulta, ambito)
 
   const { data, error } = await consulta
     .order('sku', { ascending: true })
@@ -347,7 +347,7 @@ export async function contarSkus(
   if (ambito.skusFiltro && ambito.skusFiltro.length > 0) {
     consulta = consulta.in('sku', ambito.skusFiltro)
   }
-  if (ambito.soloActivos) consulta = soloEnSeguimiento(consulta)
+  consulta = aplicarAmbito(consulta, ambito)
   const { count, error } = await consulta
   if (error) throw error
   return count ?? 0

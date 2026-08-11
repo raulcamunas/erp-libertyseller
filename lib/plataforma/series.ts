@@ -101,6 +101,73 @@ export async function insertarBsr(filas: SnapshotBsrNuevo[]): Promise<number> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Tarifas de Amazon                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Una estimación de lo que Amazon cobra por vender un SKU a UN PRECIO CONCRETO.
+ *
+ * `precioReferencia` no es metadato: es parte del dato. La comisión de
+ * referencia es un porcentaje con mínimos y la de logística depende del tramo de
+ * tamaño, así que la tarifa calculada para 30 € no vale para evaluar una venta a
+ * 18 €. Guardarla sin su precio la convierte en un número que parece útil y no
+ * lo es — y el margen saldría siempre mejor del real, que es el lado peligroso.
+ */
+export interface TarifaEstimadaNueva extends IdentidadSerie {
+  precioReferencia: number
+  moneda: string
+  referral: number | null
+  fba: number | null
+  otras: number | null
+  total: number | null
+  /** estimado_api / fee_preview / liquidacion. Ver el comentario de la 123 */
+  origen?: string
+}
+
+export async function insertarTarifas(filas: TarifaEstimadaNueva[]): Promise<number> {
+  if (filas.length === 0) return 0
+
+  const payload = filas
+    // El CHECK de la migración exige precio >= 0 e importes >= 0. Una fila que
+    // no lo cumpla tumbaría el lote ENTERO, así que se queda fuera aquí: es
+    // preferible perder una tarifa rara a perder las diecinueve buenas.
+    .filter(
+      (f) =>
+        Number.isFinite(f.precioReferencia) &&
+        f.precioReferencia >= 0 &&
+        f.moneda.trim() !== '' &&
+        noNegativo(f.referral) &&
+        noNegativo(f.fba) &&
+        noNegativo(f.otras) &&
+        noNegativo(f.total)
+    )
+    .map((f) => ({
+      listing_id: f.listingId,
+      connection_id: f.connectionId,
+      selling_partner_id: f.sellingPartnerId,
+      marketplace_id: f.marketplaceId,
+      sku: f.sku,
+      asin: f.asin,
+      precio_referencia: f.precioReferencia,
+      moneda: f.moneda,
+      referral_fee: f.referral,
+      fba_fee: f.fba,
+      otras_fees: f.otras,
+      total_fees: f.total,
+      origen: f.origen ?? 'estimado_api',
+      request_id: f.requestId,
+      job_id: f.jobId,
+    }))
+
+  return insertarEnLotes('amazon_fees_estimados', payload)
+}
+
+/** null pasa: es «no lo sabemos». Un negativo no: es un dato roto */
+function noNegativo(valor: number | null): boolean {
+  return valor === null || (Number.isFinite(valor) && valor >= 0)
+}
+
+/* ------------------------------------------------------------------ */
 /* Inventario                                                          */
 /* ------------------------------------------------------------------ */
 

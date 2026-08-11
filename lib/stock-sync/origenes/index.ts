@@ -17,6 +17,7 @@ import type { StockProfileOrigin } from '@/lib/types/stock-sync'
 import { conectorCorreo } from './correo'
 import { conectorDrive } from './drive'
 import { conectorManual } from './manual'
+import { conectorFtps } from './ftps'
 import { conectorSftp } from './sftp'
 import type { ConectorOrigen } from './tipos'
 
@@ -24,6 +25,7 @@ const REGISTRO: Record<StockProfileOrigin, ConectorOrigen> = {
   manual: conectorManual,
   drive: conectorDrive,
   sftp: conectorSftp,
+  ftps: conectorFtps,
   correo: conectorCorreo,
 }
 
@@ -34,7 +36,7 @@ export function conectorDe(origen: StockProfileOrigin): ConectorOrigen {
 
 /** Todos, en el orden en que se enseñan: primero los que funcionan */
 export function conectores(): ConectorOrigen[] {
-  return [conectorManual, conectorDrive, conectorSftp, conectorCorreo]
+  return [conectorManual, conectorDrive, conectorSftp, conectorFtps, conectorCorreo]
 }
 
 /**
