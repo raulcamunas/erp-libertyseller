@@ -190,6 +190,23 @@ export interface LecturaStock {
   cabeceras: string[]
   columnas: IndiceColumnas
   lineas: LineaLeida[]
+  /**
+   * LAS PRIMERAS FILAS DEL FICHERO TAL CUAL, sin interpretar.
+   *
+   * Existe para la pantalla de configuración, y resuelve una duda concreta que
+   * ya costó una tarde: la muestra interpretada enseña «stock leído: 0» y no hay
+   * forma de saber si la columna elegida trae ceros o si se está leyendo la
+   * columna equivocada. Con las celdas en crudo al lado de sus cabeceras eso se
+   * ve de un vistazo.
+   *
+   * Sale de ESTA hoja y de ESTAS filas, las mismas que se han interpretado
+   * arriba. Leer el fichero por segunda vez con otra función sería arriesgarse a
+   * que eligiera otra hoja —elegirHoja() se queda con la primera que cumpla las
+   * obligatorias, y con la lista vacía eso es «la primera del libro»— y entonces
+   * la vista previa enseñaría algo distinto de lo que se procesa, que es peor
+   * que no enseñar nada.
+   */
+  muestraCruda: FilaTabla[]
   /** Filas descartadas por no traer código de artículo (pies de página, totales) */
   filasSinCodigo: number
   /** En español y sin bloquear: cosas que conviene mirar pero no impiden seguir */
@@ -763,6 +780,15 @@ export function leerTabla(
  * campos que consume el cruce se calculan exactamente igual que en
  * parseStockWorkbook(), con las mismas funciones y en el mismo orden.
  */
+/**
+ * Cuántas filas del fichero se guardan sin interpretar para la vista previa.
+ *
+ * Quince: las suficientes para reconocer el fichero y ver si la columna que se
+ * ha elegido trae lo que se espera. Más serían kilobytes en cada respuesta de
+ * una pantalla que se abre a menudo, y nadie mira la fila cuarenta.
+ */
+const FILAS_MUESTRA_CRUDA = 15
+
 export function leerStock(input: WorkbookInput, perfil: PerfilLectura): LecturaStock {
   if (perfil.tipo !== 'stock') {
     throw new StockSyncError(
@@ -796,6 +822,7 @@ export function leerStock(input: WorkbookInput, perfil: PerfilLectura): LecturaS
   }
 
   const lineas: LineaLeida[] = []
+  const muestraCruda: FilaTabla[] = []
   let filasSinCodigo = 0
   let stockAmbiguo = 0
 
@@ -806,6 +833,20 @@ export function leerStock(input: WorkbookInput, perfil: PerfilLectura): LecturaS
     // meterlas en `filasSinCodigo` convertiría ese contador —que existe para
     // detectar un fichero raro— en el número de líneas de separación.
     if (filaVacia(fila)) continue
+
+    /**
+     * La muestra en crudo se toma AQUÍ, antes de descartar por falta de código.
+     *
+     * Si se tomara después, una fila que el ERP descarta —un pie de página, un
+     * total— no aparecería en la vista previa, y esa fila es justo la que
+     * explica por qué el recuento no cuadra. Se enseña lo que hay en el fichero,
+     * no lo que el ERP se queda.
+     */
+    if (muestraCruda.length < FILAS_MUESTRA_CRUDA) {
+      // El número de fila TAL Y COMO LO VE EXCEL, igual que en LineaLeida: es lo
+      // que permite decirle a alguien «mira la fila 214 de tu fichero».
+      muestraCruda.push({ fila: candidata.filaCabecera + i + 1, celdas: [...fila] })
+    }
 
     // exactCode() y no plainText(): el código se guarda con sus ceros a la
     // izquierda porque son parte de la identidad del artículo, y solo se le
@@ -875,6 +916,7 @@ export function leerStock(input: WorkbookInput, perfil: PerfilLectura): LecturaS
     cabeceras: candidata.cabeceras,
     columnas,
     lineas,
+    muestraCruda,
     filasSinCodigo,
     avisos,
   }

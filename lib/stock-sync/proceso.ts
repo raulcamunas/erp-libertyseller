@@ -140,7 +140,16 @@ export interface DestinoProceso {
 }
 
 /** De dónde se leyó: hoja, fila de cabecera y qué columna se usó para cada campo */
-export type ResumenLectura = Omit<LecturaStock, 'lineas'>
+/**
+ * Lo que se guarda de una lectura en el historial de la ejecución.
+ *
+ * Fuera `lineas` —el catálogo entero no cabe— y fuera `muestraCruda`: esas
+ * quince filas en crudo son DATOS DEL CLIENTE y existen solo para la pantalla de
+ * configuración, donde alguien las está mirando en ese momento. Guardarlas en
+ * cada ejecución sería dejar trozos del fichero de un cliente en una tabla que
+ * crece para siempre, para nada.
+ */
+export type ResumenLectura = Omit<LecturaStock, 'lineas' | 'muestraCruda'>
 
 /** Qué hicieron las reglas, con la lista de descartadas ya recortada */
 export interface ResumenReglas
@@ -516,6 +525,16 @@ export interface PruebaPerfil {
   filaCabecera: number
   /** Todas las cabeceras del fichero, para poder copiar el nombre exacto que falta */
   cabeceras: string[]
+  /**
+   * LAS PRIMERAS FILAS SIN INTERPRETAR, alineadas con `cabeceras`.
+   *
+   * La muestra de abajo enseña lo que el ERP ha ENTENDIDO; esto enseña lo que el
+   * fichero TRAE. Hacen falta las dos y no es redundancia: con solo la
+   * interpretada, un «stock leído: 0» en todas las filas es indistinguible de
+   * «la columna elegida está vacía» y de «se está leyendo la columna
+   * equivocada», y son dos problemas opuestos.
+   */
+  muestraCruda: Array<{ fila: number; celdas: string[] }>
   columnas: ColumnaEncontrada[]
   muestra: FilaMuestra[]
   /** Muestra de artículo -> códigos de barras, solo en los perfiles de EAN */
@@ -524,6 +543,23 @@ export interface PruebaPerfil {
   /** Artículos con EAN indexados, solo en los perfiles de EAN */
   totalArticulos: number
   avisos: string[]
+}
+
+/**
+ * Una celda de Excel, como texto para pintar.
+ *
+ * Sin inventar formatos: un número se enseña tal cual —incluidos los códigos de
+ * barras, que Excel guarda como número y muestra en notación científica pero que
+ * por dentro son el entero entero— y una fecha en ISO recortada. Lo que no se
+ * sepa convertir sale vacío antes que salir como «[object Object]».
+ */
+function textoDeCelda(valor: unknown): string {
+  if (valor === null || valor === undefined) return ''
+  if (typeof valor === 'string') return valor
+  if (typeof valor === 'number') return Number.isFinite(valor) ? String(valor) : ''
+  if (typeof valor === 'boolean') return valor ? 'true' : 'false'
+  if (valor instanceof Date) return valor.toISOString().slice(0, 10)
+  return ''
 }
 
 /** Cuántas filas se devuelven de muestra. Suficiente para reconocer el fichero */
@@ -571,6 +607,9 @@ export async function probarPerfil(opciones: {
       hoja: lectura.hoja,
       filaCabecera: lectura.filaCabecera,
       cabeceras: lectura.cabeceras,
+      // El lector de EAN es otro y no captura la muestra en crudo: ese fichero
+      // es un índice de dos columnas y no tiene la ambigüedad que esto resuelve.
+      muestraCruda: [],
       columnas: columnasEncontradas(lectura.columnas, perfilLectura.columnas, lectura.cabeceras),
       muestra: [],
       muestraEan: Array.from(lectura.indice.entries())
@@ -614,6 +653,14 @@ export async function probarPerfil(opciones: {
     hoja: lectura.hoja,
     filaCabecera: lectura.filaCabecera,
     cabeceras: lectura.cabeceras,
+    // A texto plano aquí: lo que viaja a la pantalla es para MIRARLO, y un
+    // `unknown` de Excel (una fecha, un número con notación científica) no se
+    // puede pintar tal cual. Se enseña lo mismo que vería alguien abriendo el
+    // fichero.
+    muestraCruda: lectura.muestraCruda.map((f) => ({
+      fila: f.fila,
+      celdas: f.celdas.map((c) => textoDeCelda(c)),
+    })),
     columnas: columnasEncontradas(lectura.columnas, perfilLectura.columnas, lectura.cabeceras),
     muestra,
     muestraEan: [],

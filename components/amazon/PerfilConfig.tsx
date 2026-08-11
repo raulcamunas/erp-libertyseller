@@ -1532,10 +1532,64 @@ function AsignarColumnas({
       </div>
 
       <p className="text-[11px] text-white/50 leading-relaxed">
-        Estas son las columnas que trae el fichero de verdad. Elegir una deja{' '}
+        Arriba, las primeras filas del fichero <strong className="text-white/75">tal cual</strong>,
+        con la columna que se lleva cada campo marcada en naranja. Abajo se cambia: elegir una deja{' '}
         <strong className="text-white/75">solo esa</strong> y borra las demás alternativas de ese
-        campo: con el fichero delante, el nombre exacto vale más que seis intentos.
+        campo, porque con el fichero delante el nombre exacto vale más que seis intentos.
       </p>
+
+      {/* EL FICHERO TAL CUAL, que es lo que resuelve la duda de verdad.
+
+          La tabla de abajo enseña lo INTERPRETADO, y con ella sola un «stock
+          leído: 0» en todas las filas es indistinguible de tres cosas
+          distintas: que la columna venga vacía, que se esté leyendo la
+          columna equivocada, o que el cliente haya mandado el fichero a cero.
+          Con las celdas al lado de su cabecera, se ve cuál de las tres es. */}
+      {prueba.muestraCruda.length > 0 && (
+        <div className="overflow-x-auto min-w-0 rounded-lg border border-white/10">
+          <table className="w-full text-[11px] border-collapse">
+            <thead>
+              <tr className="bg-white/[0.04]">
+                <th className="px-2 py-1 text-left font-normal text-white/35">Fila</th>
+                {prueba.cabeceras.map((cab) => {
+                  // Qué campo se lleva HOY esta columna, para poder marcarla.
+                  const asignada = prueba.columnas.find((c) => c.cabecera === cab)
+                  return (
+                    <th
+                      key={cab}
+                      className={`px-2 py-1 text-left font-normal whitespace-nowrap ${
+                        asignada ? 'text-white' : 'text-white/45'
+                      }`}
+                    >
+                      {cab}
+                      {asignada && (
+                        <span className="block text-[10px] text-orange-300/80">
+                          {asignada.etiqueta}
+                        </span>
+                      )}
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {prueba.muestraCruda.map((f) => (
+                <tr key={f.fila} className="border-t border-white/[0.06]">
+                  <td className="px-2 py-1 text-white/30 tabular-nums">{f.fila}</td>
+                  {prueba.cabeceras.map((cab, i) => (
+                    <td
+                      key={cab}
+                      className="px-2 py-1 text-white/65 whitespace-nowrap max-w-[240px] truncate"
+                    >
+                      {f.celdas[i] ?? ''}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
         {prueba.columnas.map((c) => {
