@@ -1149,6 +1149,21 @@ export function readWorkbook(input: WorkbookInput): XLSX.WorkBook {
   const bytes = toUint8Array(input)
   if (bytes.length === 0) throw new StockSyncError('El fichero está vacío')
 
+  /**
+   * EL ZIP SE MIRA ANTES DE ABRIRLO, y no solo cuando la librería se queja.
+   *
+   * Porque con un .xlsx cortado muy pronto la librería NO se queja: SE CUELGA.
+   * Comprobado con los primeros 400 bytes del fichero de un cliente — el
+   * proceso se queda dando vueltas y hay que matarlo. Dentro del ERP eso no es
+   * un error que se lee y se arregla: es la petición colgada hasta que salta el
+   * tope de la ruta, con el cerrojo del perfil cogido mientras tanto.
+   *
+   * Así que la comprobación estructural va DELANTE. Cuesta recorrer unos pocos
+   * bytes del final y evita el único fallo de este fichero que no se puede
+   * contar después, porque no hay después.
+   */
+  comprobarQueEstaEntero(bytes)
+
   try {
     // cellDates false y raw a la hora de volcar: aquí no hay ninguna columna
     // de fecha y sí muchos códigos que Excel guarda como número; convertirlos
@@ -1164,11 +1179,110 @@ export function readWorkbook(input: WorkbookInput): XLSX.WorkBook {
     // formato español, que es la única pieza que debe decidirlo.
     return XLSX.read(bytes, { type: 'array', cellDates: false, codepage: 65001, raw: true })
   } catch (error) {
-    const detail = error instanceof Error ? error.message : 'formato no reconocido'
-    throw new StockSyncError(
-      `No se ha podido leer el fichero (${detail}). Tiene que ser un .xlsx, .xls o .csv`
-    )
+    throw new StockSyncError(porQueNoAbre(bytes, error))
   }
+}
+
+/**
+ * POR QUÉ NO ABRE, mirando el fichero en vez de repetir la excusa de siempre.
+ *
+ * El mensaje era uno para todos: «no se ha podido leer (lo que dijera la
+ * librería). Tiene que ser un .xlsx, .xls o .csv». Y con un .xlsx de verdad
+ * delante —el del cliente lo es— esa frase manda a quien la lee a comprobar la
+ * extensión, que es lo único que seguro no falla. El caso real fue «Bad
+ * compressed size: 0 != 350» sobre un stockOcio.xlsx que ese mismo día se había
+ * leído entero.
+ *
+ * Un .xlsx es un ZIP, y un ZIP se puede mirar sin descomprimirlo:
+ *
+ *   · Empieza por «PK\x03\x04»          -> es un zip, o sea un .xlsx de verdad.
+ *   · Termina por «PK\x05\x06» (+cola)  -> está ENTERO. Ese registro es el
+ *     índice y va al final del todo, así que un fichero cortado a medias —una
+ *     transferencia interrumpida, un volcado que el ERP del cliente estaba
+ *     escribiendo justo entonces— no lo tiene.
+ *
+ * Con esas dos preguntas se separan tres cosas que hoy daban el mismo aviso: no
+ * es un Excel · es un Excel a medias · es un Excel entero pero roto por dentro.
+ * Y solo la primera se arregla mirando la extensión.
+ */
+export function porQueNoAbre(bytes: Uint8Array, error: unknown): string {
+  const detalle = error instanceof Error ? error.message : 'formato no reconocido'
+  const kb = (bytes.byteLength / 1024).toFixed(1)
+
+  if (!empiezaComoZip(bytes)) {
+    return `No se ha podido leer el fichero (${detalle}). Tiene que ser un .xlsx, .xls o .csv`
+  }
+
+  if (!terminaComoZip(bytes)) return zipAMedias(bytes, detalle)
+
+  return (
+    `El fichero es un .xlsx completo (${kb} KB) pero su contenido está dañado: «${detalle}». ` +
+    'Bájalo con «Descargar el del origen» y ábrelo en Excel: si a ti también te da error, el ' +
+    'fichero sale así del ERP del cliente y hay que decírselo.'
+  )
+}
+
+/**
+ * Corta el paso a un .xlsx que llegó cortado, ANTES de dárselo a la librería.
+ *
+ * Porque con un .xlsx cortado muy pronto la librería NO da error: SE CUELGA.
+ * Comprobado con los primeros 400 bytes de un fichero real — el proceso se
+ * queda dando vueltas y hay que matarlo. Dentro del ERP eso no es un error que
+ * se lee y se arregla: es la petición colgada hasta que salta el tope de la
+ * ruta, con el cerrojo del perfil cogido todo ese rato.
+ *
+ * Cuesta recorrer unos pocos bytes del final y evita el único fallo de este
+ * fichero que no se puede diagnosticar después, porque no hay después.
+ */
+export function comprobarQueEstaEntero(bytes: Uint8Array): void {
+  if (empiezaComoZip(bytes) && !terminaComoZip(bytes)) {
+    throw new StockSyncError(zipAMedias(bytes, 'le falta el índice del final'))
+  }
+}
+
+/** El aviso del fichero cortado. Se dice igual se detecte antes o después */
+function zipAMedias(bytes: Uint8Array, detalle: string): string {
+  return (
+    `El fichero es un .xlsx pero está A MEDIAS (${(bytes.byteLength / 1024).toFixed(1)} KB, ` +
+    `${detalle}). Casi siempre es una de dos: la transferencia se cortó, o el ERP del cliente lo ` +
+    'estaba escribiendo justo cuando hemos entrado a leerlo. No hay nada que configurar; en la ' +
+    'siguiente pasada se coge entero. Si pasa una y otra vez, pídele al cliente que lo escriba ' +
+    'con otro nombre y lo renombre al terminar, que es lo que evita que se lea a medio hacer.'
+  )
+}
+
+/** «PK\x03\x04»: la cabecera de la primera entrada de cualquier zip */
+function empiezaComoZip(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04
+  )
+}
+
+/**
+ * Busca «PK\x05\x06», el registro que cierra el zip.
+ *
+ * Va al final, pero no necesariamente en los últimos cuatro bytes: detrás
+ * puede llevar un comentario de hasta 65.535 caracteres. De ahí la ventana:
+ * 22 bytes del registro + ese máximo. Se recorre hacia atrás porque lo normal
+ * es que esté justo al final y así se acaba en cuatro comparaciones.
+ */
+function terminaComoZip(bytes: Uint8Array): boolean {
+  const ventana = Math.min(bytes.length, 22 + 0xffff)
+  for (let i = bytes.length - 4; i >= bytes.length - ventana && i >= 0; i--) {
+    if (
+      bytes[i] === 0x50 &&
+      bytes[i + 1] === 0x4b &&
+      bytes[i + 2] === 0x05 &&
+      bytes[i + 3] === 0x06
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 function toUint8Array(input: WorkbookInput): Uint8Array {

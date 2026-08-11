@@ -35,7 +35,9 @@ import {
   findColumn,
   normalizeHeader,
   parseUnits,
+  comprobarQueEstaEntero,
   plainText,
+  porQueNoAbre,
   readWorkbook,
   sanitizeUnits,
 } from './engine'
@@ -369,6 +371,11 @@ function abrirLibro(input: WorkbookInput, espec: EspecLectura): XLSX.WorkBook {
 
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
   if (bytes.length === 0) throw new StockSyncError('El fichero está vacío')
+  // La misma guarda que readWorkbook(), y por el mismo motivo: un .xlsx cortado
+  // muy pronto no da error, cuelga el proceso. Que este camino la lleve o no
+  // depende de si el perfil tiene separador de CSV configurado, que no es un
+  // criterio para decidir si el ERP se queda colgado.
+  comprobarQueEstaEntero(bytes)
 
   try {
     return XLSX.read(bytes, {
@@ -382,10 +389,10 @@ function abrirLibro(input: WorkbookInput, espec: EspecLectura): XLSX.WorkBook {
       ...(separador ? { FS: separador } : {}),
     })
   } catch (error) {
-    const detalle = error instanceof Error ? error.message : 'formato no reconocido'
-    throw new StockSyncError(
-      `No se ha podido leer el fichero (${detalle}). Tiene que ser un .xlsx, .xls o .csv`
-    )
+    // El mismo diagnóstico que readWorkbook(): un .xlsx a medias tiene que
+    // decirlo igual entre por donde entre, o el aviso depende de si el perfil
+    // lleva separador de CSV configurado, que no tiene nada que ver.
+    throw new StockSyncError(porQueNoAbre(bytes, error))
   }
 }
 

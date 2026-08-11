@@ -564,6 +564,31 @@ export const conectorFtps: ConectorOrigen = {
         )
       }
 
+      /**
+       * ¿HA LLEGADO ENTERO? El listado dice cuánto ocupa; se comprueba.
+       *
+       * Esto no era paranoia teórica. En FTP la transferencia va por una
+       * SEGUNDA conexión —la de datos, que en modo pasivo abre el servidor en
+       * otro puerto— y esa conexión se puede cerrar antes de tiempo mientras la
+       * de control sigue contestando «226 transferencia completa» tan tranquila.
+       * El resultado es medio fichero sin un solo error, y el fallo aparece
+       * cuarenta líneas después como «Bad compressed size», que manda a quien lo
+       * lee a mirar el Excel del cliente en vez de la red.
+       *
+       * Se compara solo si el servidor dio un tamaño: algunos listados de FTP no
+       * lo traen (size 0 o -1) y ahí no hay nada contra qué comparar. Que falte
+       * el dato no puede convertirse en un error inventado.
+       */
+      if (elegido.size > 0 && bytes.byteLength !== elegido.size) {
+        throw new OrigenError(
+          `«${elegido.name}» ha llegado a medias: el servidor decía ${elegido.size.toLocaleString('es-ES')} ` +
+            `bytes y han llegado ${bytes.byteLength.toLocaleString('es-ES')}. En FTP la transferencia va ` +
+            'por una conexión aparte y se puede cortar sin avisar. No hay nada que configurar: se vuelve ' +
+            'a intentar en la siguiente pasada. Si pasa siempre, es el cortafuegos del cliente cerrando ' +
+            'el modo pasivo a medias.'
+        )
+      }
+
       return {
         nombre: elegido.name,
         // Un Buffer ES un Uint8Array. Se envuelve y no se pasa `.buffer`: un
