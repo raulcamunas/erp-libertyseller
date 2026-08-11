@@ -708,7 +708,7 @@ export function PerfilConfig({
       )}
 
       {/* ---------------- Probar ---------------- */}
-      <Probar perfil={perfil} />
+      <Probar perfil={perfil} onPatch={onPatch} />
     </div>
   )
 }
@@ -902,7 +902,15 @@ function Origen({
 /* Probar                                                              */
 /* ------------------------------------------------------------------ */
 
-function Probar({ perfil }: { perfil: StockReadProfile }) {
+function Probar({
+  perfil,
+  onPatch,
+}: {
+  perfil: StockReadProfile
+  /** Hace falta para poder ASIGNAR columnas desde el resultado de la prueba:
+      es la única pantalla donde se ven las cabeceras reales del fichero */
+  onPatch: (patch: Record<string, unknown>) => void
+}) {
   const [fichero, setFichero] = useState<File | null>(null)
   const [prueba, setPrueba] = useState<PruebaResponse['prueba'] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -986,7 +994,14 @@ function Probar({ perfil }: { perfil: StockReadProfile }) {
         </div>
       )}
 
-      {prueba && <ResultadoPrueba prueba={prueba} moneda={perfil.moneda} />}
+      {prueba && (
+        <ResultadoPrueba
+          prueba={prueba}
+          moneda={perfil.moneda}
+          perfil={perfil}
+          onPatch={onPatch}
+        />
+      )}
     </Seccion>
   )
 }
@@ -994,10 +1009,14 @@ function Probar({ perfil }: { perfil: StockReadProfile }) {
 function ResultadoPrueba({
   prueba,
   moneda,
+  perfil,
+  onPatch,
 }: {
   prueba: PruebaResponse['prueba']
   /** La del perfil: la tabla se compara contra el Excel del cliente, que va en formato español */
   moneda: string
+  perfil: StockReadProfile
+  onPatch: (patch: Record<string, unknown>) => void
 }) {
   return (
     <div className="space-y-2.5">
@@ -1075,6 +1094,8 @@ function ResultadoPrueba({
           </div>
         ))}
       </div>
+
+      <AsignarColumnas prueba={prueba} perfil={perfil} onPatch={onPatch} />
 
       {prueba.avisos.length > 0 && (
         <div className={warnBox}>
@@ -1439,4 +1460,136 @@ function guardarEntero(
   if (parsed !== null && (parsed < 0 || !Number.isInteger(parsed))) return
   if ((actual ?? null) === parsed) return
   guardar(parsed)
+}
+
+/* ------------------------------------------------------------------ */
+/* Asignar columnas haciendo clic, con el fichero delante              */
+/* ------------------------------------------------------------------ */
+
+/** Qué campo del perfil guarda cada columna de la prueba */
+const CAMPO_DE: Record<string, keyof StockReadProfile> = {
+  referencia: 'col_referencia',
+  stock: 'col_stock',
+  precio: 'col_precio',
+  precioRespaldo: 'col_precio_respaldo',
+  coste: 'col_coste',
+  ean: 'col_ean',
+  descripcion: 'col_descripcion',
+  familia: 'col_familia',
+  tipo: 'col_tipo',
+}
+
+/**
+ * ELEGIR LA COLUMNA DE UNA LISTA, EN VEZ DE ESCRIBIR EL NOMBRE A CIEGAS.
+ *
+ * ============ POR QUÉ ESTO CAMBIA LA CONFIGURACIÓN ENTERA ============
+ *
+ * Hasta ahora los alias se teclean sin ver el fichero, y se nota en los perfiles
+ * reales: un cliente de la cartera tiene puesto
+ *
+ *     «St. Real, St.Real, Stock real, Stock, Existencias, Unidades»
+ *
+ * en el campo de unidades. Seis nombres para una columna. Eso no es configurar:
+ * es disparar a ciegas y esperar que alguno acierte. Y el día que acierta el
+ * equivocado —«Stock value», que es un importe en euros— el catálogo entero se
+ * manda a cero sin un solo error.
+ *
+ * Aquí la lista sale del FICHERO DE VERDAD (`prueba.cabeceras`), que ya venía en
+ * la respuesta de la prueba y no la pintaba nadie. Se elige y se acabó.
+ *
+ *
+ * ============ SUSTITUYE, NO AÑADE ============
+ *
+ * Elegir una columna DEJA ESA Y BORRA LAS DEMÁS alternativas de ese campo, a
+ * propósito. Los alias múltiples existen para cubrirse cuando no se puede mirar
+ * el fichero; en cuanto se ha mirado, el nombre exacto es mejor que seis
+ * intentos —entre otras cosas porque los seis intentos siguen ahí el día que el
+ * cliente añade una columna que empieza igual—.
+ *
+ * Se dice en pantalla antes de tocar nada, porque borrar lo que alguien escribió
+ * sin avisar es peor que no ofrecer el botón.
+ */
+function AsignarColumnas({
+  prueba,
+  perfil,
+  onPatch,
+}: {
+  prueba: PruebaResponse['prueba']
+  perfil: StockReadProfile
+  onPatch: (patch: Record<string, unknown>) => void
+}) {
+  if (prueba.cabeceras.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5 space-y-2">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <p className="text-[11px] uppercase tracking-wider text-white/45">
+          Asignar columnas del fichero
+        </p>
+        <p className="text-[11px] text-white/40">
+          {prueba.cabeceras.length} columnas en «{prueba.hoja}»
+        </p>
+      </div>
+
+      <p className="text-[11px] text-white/50 leading-relaxed">
+        Estas son las columnas que trae el fichero de verdad. Elegir una deja{' '}
+        <strong className="text-white/75">solo esa</strong> y borra las demás alternativas de ese
+        campo: con el fichero delante, el nombre exacto vale más que seis intentos.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {prueba.columnas.map((c) => {
+          const campo = CAMPO_DE[c.campo]
+          if (!campo) return null
+          const actual = c.cabecera ?? ''
+          return (
+            <label key={c.campo} className="block">
+              <span className="block text-[11px] text-white/55 mb-0.5 truncate">
+                {c.etiqueta}
+                {/* El acierto por prefijo se marca AQUÍ también: es donde se
+                    puede corregir, y es el estado que más caro sale. */}
+                {c.indice >= 0 && !c.exacta && (
+                  <span className="text-yellow-300/90"> · casó por prefijo, revísala</span>
+                )}
+              </span>
+              <select
+                value={actual}
+                onChange={(e) => {
+                  const elegida = e.target.value
+                  // Vacío = quitar la asignación. Un campo sin columna es un
+                  // estado legítimo: el precio puede no venir del fichero.
+                  onPatch({ [campo]: elegida === '' ? [] : [elegida] })
+                }}
+                className={`${fieldInput} ${
+                  c.indice < 0
+                    ? 'border-red-500/30'
+                    : c.exacta
+                      ? 'border-green-400/25'
+                      : 'border-yellow-500/30'
+                }`}
+              >
+                <option value="">— sin asignar —</option>
+                {prueba.cabeceras.map((cab) => (
+                  <option key={cab} value={cab}>
+                    {cab}
+                  </option>
+                ))}
+                {/* Si lo que hay guardado no está entre las cabeceras de ESTE
+                    fichero, se ofrece igual: puede ser un alias correcto para el
+                    volcado de mañana y borrarlo por no verlo hoy sería perderlo. */}
+                {actual !== '' && !prueba.cabeceras.includes(actual) && (
+                  <option value={actual}>{actual} (no está en este fichero)</option>
+                )}
+              </select>
+            </label>
+          )
+        })}
+      </div>
+
+      <p className="text-[11px] text-white/35">
+        Guarda solo. Después vuelve a pulsar «Probar» para ver las filas ya interpretadas con la
+        asignación nueva.
+      </p>
+    </div>
+  )
 }
