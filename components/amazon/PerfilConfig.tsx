@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   Download,
   FlaskConical,
   Loader2,
+  Search,
   Upload,
   XCircle,
 } from 'lucide-react'
@@ -15,6 +17,7 @@ import {
   subirAmazon,
   type PerfilesVista,
   type PruebaResponse,
+  type SimulacroResponse,
 } from '@/lib/amazon/client'
 import { marketplaceLabel } from '@/lib/types/amazon'
 import { PanelOrigen } from './ExploradorOrigen'
@@ -914,8 +917,10 @@ function Probar({
 }) {
   const [fichero, setFichero] = useState<File | null>(null)
   const [prueba, setPrueba] = useState<PruebaResponse['prueba'] | null>(null)
+  const [cotejo, setCotejo] = useState<SimulacroResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(false)
+  const [cotejando, setCotejando] = useState(false)
 
   const manual = perfil.origen === 'manual'
 
@@ -927,6 +932,9 @@ function Probar({
     setCargando(true)
     setError(null)
     setPrueba(null)
+    // El cotejo viejo se tira: describe el fichero anterior y dejarlo debajo del
+    // nuevo resultado es la forma más fácil de leer los números que no son.
+    setCotejo(null)
 
     const form = new FormData()
     if (fichero) form.append('fichero', fichero)
@@ -944,6 +952,46 @@ function Probar({
     setPrueba(res.data.prueba)
     toast.success(
       `Leídas ${res.data.prueba.totalLineas.toLocaleString('es-ES')} líneas de la hoja «${res.data.prueba.hoja}»`
+    )
+  }
+
+  /**
+   * El cotejo contra Amazon: qué pasaría de verdad, SIN mandar nada.
+   *
+   * «Probar» solo mira el fichero: dice qué columna se ha llevado cada campo y
+   * qué unidades lee. Con eso se configura el perfil, pero no se responde la
+   * pregunta que de verdad importa —QUÉ LE VA A PASAR AL CATÁLOGO— porque para
+   * eso hace falta el otro lado: el SKU que el cliente tiene publicado, el stock
+   * que Amazon enseña ahora y con qué referencia del fichero empareja cada uno.
+   *
+   * La ruta de simulacro no manda nada por ningún camino (ver su cabecera).
+   */
+  async function cotejar() {
+    if (manual && !fichero) {
+      toast.error('Elige el fichero del cliente para poder cotejarlo')
+      return
+    }
+    setCotejando(true)
+    setError(null)
+
+    const form = new FormData()
+    if (fichero) form.append('fichero', fichero)
+
+    const res = await subirAmazon<SimulacroResponse>(
+      `/api/amazon/perfiles/${perfil.id}/simulacro`,
+      form
+    )
+    setCotejando(false)
+
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    setCotejo(res.data)
+    const r = res.data.simulacro.resumen
+    toast.success(
+      `${r.skuGestionados.toLocaleString('es-ES')} de ${r.skuEnAmazon.toLocaleString('es-ES')} SKU emparejados · ` +
+        `${r.skuCambian.toLocaleString('es-ES')} cambiarían`
     )
   }
 
@@ -980,6 +1028,27 @@ function Probar({
             <FlaskConical className="h-3.5 w-3.5" />
           )}
           Probar
+        </button>
+
+        {/* SIN CONEXIÓN NO HAY CONTRA QUÉ COTEJAR, y es mejor decirlo en el
+            botón que dejar pulsarlo para contestar con un aviso. */}
+        <button
+          type="button"
+          onClick={cotejar}
+          disabled={cotejando || !perfil.connection_id}
+          className={ghostButton}
+          title={
+            perfil.connection_id
+              ? 'Trae el catálogo de Amazon y enseña SKU a SKU qué cambiaría. No manda nada'
+              : 'Este perfil todavía no apunta a ninguna conexión de Amazon'
+          }
+        >
+          {cotejando ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <ArrowRight className="h-3.5 w-3.5" />
+          )}
+          Cotejar con Amazon
         </button>
 
         {/* BAJARSE EL FICHERO QUE EL ERP LEE, no el que te pasó el cliente.
@@ -1021,7 +1090,374 @@ function Probar({
           onPatch={onPatch}
         />
       )}
+
+      {cotejo && <Cotejo resultado={cotejo} moneda={perfil.moneda} />}
     </Seccion>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* El cotejo: el catálogo de Amazon, SKU a SKU, contra el fichero      */
+/* ------------------------------------------------------------------ */
+
+/** Una fila de la tabla: un SKU del catálogo, haya casado o no */
+interface FilaCotejo {
+  sku: string
+  asin: string | null
+  titulo: string | null
+  /** Referencia del fichero con la que ha emparejado. null = no ha emparejado */
+  articulo: string | null
+  /** Por qué vía casó, o el motivo de no casar */
+  como: string
+  esFba: boolean
+  /** Unidades publicadas en Amazon ahora mismo */
+  stockAhora: number | null
+  /** Unidades que se publicarían. null = este SKU no se toca */
+  stockNuevo: number | null
+  estado: 'cambia' | 'igual' | 'bloqueado' | 'sin_emparejar' | 'sin_envio'
+  /** La frase que explica el estado, para el título de la fila */
+  nota: string | null
+}
+
+const ESTADO_COTEJO: Record<FilaCotejo['estado'], { texto: string; clase: string }> = {
+  cambia: { texto: 'Cambia', clase: 'text-yellow-300' },
+  igual: { texto: 'Ya está igual', clase: 'text-white/35' },
+  bloqueado: { texto: 'No se puede escribir', clase: 'text-orange-300' },
+  sin_emparejar: { texto: 'Sin emparejar', clase: 'text-red-300' },
+  sin_envio: { texto: 'No se manda', clase: 'text-white/35' },
+}
+
+/**
+ * TODO EL CATÁLOGO EN UNA TABLA, no solo lo que ha casado.
+ *
+ *
+ * ============ POR QUÉ SE ENSEÑAN TAMBIÉN LOS QUE NO CASAN ============
+ *
+ * Enseñar solo los emparejados convierte esta pantalla en una que siempre da
+ * buenas noticias: cuanto peor va el cruce, menos filas salen y mejor pinta.
+ * La discrepancia que hay que cazar es justo la contraria — un SKU que el
+ * cliente vende y el fichero no menciona—, y ese solo se ve si aparece.
+ *
+ * Y hay un caso que duele de verdad: un SKU sin emparejar SIGUE VENDIENDO con
+ * el stock del último envío que sí lo incluyó, para siempre, sin dar un error
+ * ni salir en ningún contador. Por eso los que no casan Y tienen unidades van
+ * los primeros de la tabla.
+ *
+ *
+ * ============ EL ORDEN NO ES ALFABÉTICO A PROPÓSITO ============
+ *
+ *   1. Sin emparejar CON unidades  — venden con un stock que ya nadie actualiza
+ *   2. Los que se van a cero       — el cambio que más duele si está mal
+ *   3. El resto de los que cambian
+ *   4. Sin emparejar sin unidades
+ *   5. Los que se quedan igual
+ *
+ * Un orden alfabético pone lo importante en la página siete.
+ */
+function Cotejo({ resultado, moneda }: { resultado: SimulacroResponse; moneda: string }) {
+  const [filtro, setFiltro] = useState<'todos' | FilaCotejo['estado']>('todos')
+  const [busqueda, setBusqueda] = useState('')
+
+  const { simulacro, destino, recortado } = resultado
+  const { resumen } = simulacro
+
+  const filas = useMemo<FilaCotejo[]>(() => {
+    const out: FilaCotejo[] = []
+
+    for (const f of simulacro.filas) {
+      // 'sin_listing' se queda fuera: es un SKU que el fichero resolvió y que NO
+      // está en el catálogo, o sea que no es una fila del catálogo. Sale en su
+      // propio contador de arriba.
+      if (f.estado === 'sin_listing') continue
+      out.push({
+        sku: f.sku,
+        asin: f.asin,
+        titulo: f.titulo,
+        articulo: f.articulo,
+        como: VIA_LABELS[f.via] ?? f.via,
+        esFba: f.esFba,
+        stockAhora: f.stock.amazon,
+        stockNuevo: f.stock.nuevo,
+        estado:
+          f.estado === 'cambia'
+            ? 'cambia'
+            : f.estado === 'bloqueado'
+              ? 'bloqueado'
+              : f.estado === 'sin_envio'
+                ? 'sin_envio'
+                : 'igual',
+        nota: f.motivo,
+      })
+    }
+
+    for (const h of simulacro.huerfanos) {
+      out.push({
+        sku: h.sku,
+        asin: h.asin,
+        titulo: h.titulo,
+        articulo: null,
+        como: '—',
+        esFba: h.esFba,
+        stockAhora: h.stock,
+        // NULL Y NO CERO, y es la distinción entera de esta pantalla: a un SKU
+        // sin emparejar no se le manda nada. Poner 0 aquí haría creer que el
+        // ERP está a punto de tirarle el stock, que es lo contrario de lo que
+        // pasa: se queda con el que tiene, sin actualizar, vendiendo.
+        stockNuevo: null,
+        estado: 'sin_emparejar',
+        nota: MOTIVO_HUERFANO[h.motivo] ?? null,
+      })
+    }
+
+    return out.sort((a, b) => peso(a) - peso(b) || a.sku.localeCompare(b.sku, 'es'))
+  }, [simulacro])
+
+  const visibles = useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
+    return filas.filter((f) => {
+      if (filtro !== 'todos' && f.estado !== filtro) return false
+      if (!q) return true
+      return (
+        f.sku.toLowerCase().includes(q) ||
+        (f.articulo ?? '').toLowerCase().includes(q) ||
+        (f.titulo ?? '').toLowerCase().includes(q) ||
+        (f.asin ?? '').toLowerCase().includes(q)
+      )
+    })
+  }, [filas, filtro, busqueda])
+
+  const cuenta = useMemo(() => {
+    const c: Record<FilaCotejo['estado'], number> = {
+      cambia: 0,
+      igual: 0,
+      bloqueado: 0,
+      sin_emparejar: 0,
+      sin_envio: 0,
+    }
+    for (const f of filas) c[f.estado]++
+    return c
+  }, [filas])
+
+  return (
+    <div className="space-y-2.5 pt-1">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-white/55">
+        <span className="text-white/70">
+          Catálogo de{' '}
+          <strong className="text-white">{destino?.connectionName ?? 'este cliente'}</strong>
+          {destino ? ` · ${marketplaceLabel(destino.marketplaceId)}` : ''}
+        </span>
+        <span>
+          <strong className="text-white tabular-nums">
+            {resumen.skuEnAmazon.toLocaleString('es-ES')}
+          </strong>{' '}
+          SKU publicados
+        </span>
+        <span>
+          <strong className="text-white tabular-nums">
+            {resumen.skuGestionados.toLocaleString('es-ES')}
+          </strong>{' '}
+          emparejados
+        </span>
+        <span>
+          Unidades{' '}
+          <strong className="text-white tabular-nums">
+            {formatInt(resumen.unidadesEnAmazon)}
+          </strong>{' '}
+          <ArrowRight className="inline h-3 w-3 -mt-0.5" />{' '}
+          <strong
+            className={`tabular-nums ${
+              resumen.unidadesTotal < resumen.unidadesEnAmazon ? 'text-yellow-300' : 'text-white'
+            }`}
+          >
+            {formatInt(resumen.unidadesTotal)}
+          </strong>
+        </span>
+      </div>
+
+      {/* NADA SE HA MANDADO, y se dice arriba del todo. Una tabla con flechas de
+          «antes → después» se lee como un registro de lo ya hecho. */}
+      <div className={infoBox}>
+        Esto es una previsualización: <strong className="text-white/75">no se ha mandado nada</strong> a
+        Amazon. Las unidades de la derecha son las que se publicarían.
+      </div>
+
+      {simulacro.avisos.length > 0 && (
+        <div className={warnBox}>
+          <ul className="space-y-1">
+            {simulacro.avisos.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Filtros y buscador */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Chip activo={filtro === 'todos'} onClick={() => setFiltro('todos')}>
+          Todos <span className="tabular-nums opacity-60">{filas.length}</span>
+        </Chip>
+        {(Object.keys(ESTADO_COTEJO) as FilaCotejo['estado'][])
+          .filter((e) => cuenta[e] > 0)
+          .map((e) => (
+            <Chip key={e} activo={filtro === e} onClick={() => setFiltro(e)}>
+              {ESTADO_COTEJO[e].texto} <span className="tabular-nums opacity-60">{cuenta[e]}</span>
+            </Chip>
+          ))}
+
+        <div className="relative ml-auto">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-white/30" />
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="SKU, referencia, ASIN o título"
+            className={`${fieldInput} pl-7 w-[240px]`}
+          />
+        </div>
+      </div>
+
+      <div className="overflow-x-auto min-w-0 rounded-xl border border-white/10">
+        <table className="w-full min-w-[860px] text-[11px] border-collapse">
+          <thead>
+            <tr className="bg-white/[0.03]">
+              <Th>SKU en Amazon</Th>
+              <Th>Producto</Th>
+              <Th>Referencia del fichero</Th>
+              <Th>Cómo empareja</Th>
+              <Th className="text-right">Stock en Amazon</Th>
+              <Th className="text-right">Se publicaría</Th>
+              <Th>Estado</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibles.map((f) => {
+              const baja =
+                f.stockNuevo !== null &&
+                f.stockAhora !== null &&
+                f.stockNuevo < f.stockAhora
+              const aCero = f.stockNuevo === 0 && (f.stockAhora ?? 0) > 0
+              return (
+                <tr
+                  key={f.sku}
+                  className="border-t border-white/[0.06]"
+                  title={f.nota ?? undefined}
+                >
+                  <Td className="text-white font-medium">
+                    {f.sku}
+                    {f.esFba && (
+                      <span className="ml-1.5 text-[9px] uppercase tracking-wide text-blue-300/70">
+                        FBA
+                      </span>
+                    )}
+                  </Td>
+                  <Td className="text-white/55 max-w-[240px] truncate">{f.titulo || '—'}</Td>
+                  <Td
+                    className={
+                      f.articulo ? 'text-white/75 font-medium' : 'text-red-300/70'
+                    }
+                  >
+                    {f.articulo ?? 'no está en el fichero'}
+                  </Td>
+                  <Td className="text-white/40">{f.como}</Td>
+                  <Td className="text-right tabular-nums text-white/55">
+                    {f.stockAhora === null ? '—' : formatInt(f.stockAhora)}
+                  </Td>
+                  <Td
+                    className={`text-right tabular-nums font-semibold ${
+                      f.stockNuevo === null
+                        ? 'text-white/25'
+                        : aCero
+                          ? 'text-red-300'
+                          : baja
+                            ? 'text-yellow-300'
+                            : 'text-white'
+                    }`}
+                  >
+                    {/* «sin tocar» y no un guion: el guion se lee como «no hay
+                        dato» y aquí sí lo hay — el dato es que no se toca. */}
+                    {f.stockNuevo === null ? 'sin tocar' : formatInt(f.stockNuevo)}
+                  </Td>
+                  <Td className={ESTADO_COTEJO[f.estado].clase}>
+                    {ESTADO_COTEJO[f.estado].texto}
+                  </Td>
+                </tr>
+              )
+            })}
+            {visibles.length === 0 && (
+              <tr className="border-t border-white/[0.06]">
+                <Td className="text-white/40">Ningún SKU con ese filtro.</Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* EL RECORTE SE DICE. Sin esto, un catálogo de 40.000 referencias enseña
+          3.500 filas y parece que están todas. */}
+      {(recortado.filas || recortado.huerfanos) && (
+        <div className={warnBox}>
+          El catálogo es más grande de lo que cabe en una respuesta, así que la tabla no los trae
+          todos: los contadores de arriba sí son los de verdad. Usa el buscador para el SKU concreto
+          que quieras comprobar.
+        </div>
+      )}
+
+      <p className="text-[10px] text-white/35">
+        Una fila por SKU publicado en Amazon. «Sin emparejar» significa que ese SKU no se toca y se
+        queda con el stock que ya tiene — sigue vendiendo con él. Pasa el ratón por encima de una
+        fila para ver el motivo. Moneda: {moneda}.
+      </p>
+    </div>
+  )
+}
+
+/** El orden de la tabla. Menos es más arriba. Ver la cabecera de Cotejo() */
+function peso(f: FilaCotejo): number {
+  if (f.estado === 'sin_emparejar') return (f.stockAhora ?? 0) > 0 ? 0 : 3
+  if (f.estado === 'cambia') return f.stockNuevo === 0 && (f.stockAhora ?? 0) > 0 ? 1 : 2
+  if (f.estado === 'bloqueado') return 2.5
+  return 4
+}
+
+const VIA_LABELS: Record<string, string> = {
+  ref_exacta: 'referencia exacta',
+  ref_padding: 'referencia, sin los ceros',
+  ean_erp: 'EAN del ERP',
+  ean_listing: 'EAN de la ficha de Amazon',
+}
+
+const MOTIVO_HUERFANO: Record<string, string> = {
+  sin_mapeo: 'Este SKU no está en el diccionario de referencias del cliente',
+  no_casa:
+    'Su referencia no aparece en el fichero, o la han descartado las reglas del perfil',
+}
+
+function Chip({
+  activo,
+  onClick,
+  children,
+}: {
+  activo: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+        activo
+          ? 'border-white/25 bg-white/10 text-white'
+          : 'border-white/10 text-white/55 hover:text-white/80'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 

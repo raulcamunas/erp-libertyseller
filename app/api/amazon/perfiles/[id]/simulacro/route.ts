@@ -38,7 +38,16 @@ export const maxDuration = 120
  * servidor en calcularla — y la tabla se mira filtrada, no entera.
  */
 const MAX_FILAS = 3000
-const MAX_HUERFANOS = 500
+/**
+ * Los huérfanos van al mismo tope que las filas, y no a uno más bajo.
+ *
+ * Eran 500 cuando esta lista era un apéndice. Ahora es la mitad de la tabla de
+ * cotejo —una fila por SKU publicado, haya casado o no— y recortarla antes que
+ * la otra sesga justo hacia el lado equivocado: los que faltan son los que
+ * siguen vendiendo con un stock que ya no actualiza nadie, o sea la razón de
+ * ser de esa pantalla.
+ */
+const MAX_HUERFANOS = 3000
 const MAX_SIN_CASAR = 500
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
