@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   FlaskConical,
   Loader2,
   Upload,
@@ -980,6 +981,24 @@ function Probar({
           )}
           Probar
         </button>
+
+        {/* BAJARSE EL FICHERO QUE EL ERP LEE, no el que te pasó el cliente.
+
+            No es lo mismo: el del cliente puede ser de otro día, de otra
+            carpeta o directamente otro fichero. Cuando la pantalla y el Excel
+            que tienes en el escritorio no cuadran, esto es lo único que zanja
+            la discusión. Sale solo en los orígenes remotos: en «subida a mano»
+            el fichero ya lo tienes tú. */}
+        {!manual && (
+          <a
+            href={`/api/amazon/perfiles/${perfil.id}/descargar`}
+            className={ghostButton}
+            title="Trae del origen el mismo fichero que cogería el ciclo y lo descarga"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Descargar el del origen
+          </a>
+        )}
 
         {!manual && (
           <span className="text-[11px] text-white/40">
