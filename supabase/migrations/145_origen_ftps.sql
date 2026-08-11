@@ -19,6 +19,11 @@
 -- es. La diferencia esta en si el servidor acepta AUTH TLS al conectar. El
 -- conector lo EXIGE: si el servidor no lo acepta, corta antes de mandar nada.
 --
+-- OJO CON EL NOMBRE DE LA TABLA: es `stock_read_profiles`, no `stock_profiles`.
+-- El fichero que la crea se llama 120_stock_profiles.sql y la tabla NO, y esa
+-- discrepancia ya costo un intento: la comprobacion de aqui abajo fallo diciendo
+-- que faltaba una tabla que si estaba, solo que con otro nombre.
+--
 -- El caso real: un cliente entrega su volcado de stock en «FTP y puerto FTPS
 -- explicito: 21». La pantalla lo rechazaba con un aviso que era correcto para
 -- FTP a secas y equivocado para este: el servidor si cifra, lo que faltaba era
@@ -30,7 +35,7 @@ BEGIN
   -- Las dos tablas que lo llevan: el perfil y su historial de ejecuciones. Los
   -- nombres de la restriccion los pone Postgres, asi que se buscan por columna
   -- en vez de darlos por sabidos.
-  FOREACH t IN ARRAY ARRAY['stock_profiles', 'stock_profile_runs'] LOOP
+  FOREACH t IN ARRAY ARRAY['stock_read_profiles', 'stock_profile_runs'] LOOP
     IF to_regclass('public.' || t) IS NULL THEN
       RAISE EXCEPTION 'Falta public.%: lanza antes 120_stock_profiles.sql.', t;
     END IF;
@@ -46,7 +51,7 @@ BEGIN
       JOIN pg_class     t ON t.oid = c.conrelid
       JOIN pg_namespace n ON n.oid = t.relnamespace
      WHERE n.nspname = 'public'
-       AND t.relname IN ('stock_profiles', 'stock_profile_runs')
+       AND t.relname IN ('stock_read_profiles', 'stock_profile_runs')
        AND c.contype = 'c'
        AND pg_get_constraintdef(c.oid) ILIKE '%origen%'
        AND pg_get_constraintdef(c.oid) ILIKE '%sftp%'
@@ -71,7 +76,7 @@ BEGIN
     JOIN pg_class     t ON t.oid = c.conrelid
     JOIN pg_namespace n ON n.oid = t.relnamespace
    WHERE n.nspname = 'public'
-     AND t.relname IN ('stock_profiles', 'stock_profile_runs')
+     AND t.relname IN ('stock_read_profiles', 'stock_profile_runs')
      AND c.contype = 'c'
      AND pg_get_constraintdef(c.oid) ILIKE '%origen%'
      AND pg_get_constraintdef(c.oid) NOT ILIKE '%ftps%';
