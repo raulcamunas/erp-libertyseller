@@ -825,6 +825,7 @@ export function leerStock(input: WorkbookInput, perfil: PerfilLectura): LecturaS
   const muestraCruda: FilaTabla[] = []
   let filasSinCodigo = 0
   let stockAmbiguo = 0
+  let stockNegativo = 0
 
   for (let i = 0; i < candidata.filas.length; i++) {
     const fila = candidata.filas[i]
@@ -870,6 +871,19 @@ export function leerStock(input: WorkbookInput, perfil: PerfilLectura): LecturaS
     // abajo —parseUnits lo lee como decimal y sanitizeUnits lo trunca— y se
     // AVISA. Publicar de menos se arregla mañana; vender lo que no hay, no.
     if (esAmbiguoDeMillares(celdaStock)) stockAmbiguo++
+    /**
+     * UN NEGATIVO SE PUBLICA COMO CERO, Y ESO SE CUENTA.
+     *
+     * sanitizeUnits() lo convierte en 0 —Amazon no admite negativos, y un
+     * negativo en un ERP significa que se ha servido más de lo que había: lo
+     * que queda físicamente es nada—. Pero después de esa conversión un −56 y
+     * un 0 de verdad son indistinguibles, y no son lo mismo: el negativo dice
+     * que ese artículo está sobrevendido AHORA MISMO en el almacén del cliente.
+     *
+     * Se cuenta aquí, sobre el valor leído, porque es el único punto donde
+     * todavía existe el signo.
+     */
+    if (unidades !== null && unidades < 0) stockNegativo++
 
     lineas.push({
       articulo,
@@ -888,6 +902,16 @@ export function leerStock(input: WorkbookInput, perfil: PerfilLectura): LecturaS
       familia: columnas.familia === -1 ? '' : plainText(fila[columnas.familia]),
       fila: candidata.primeraFilaDatos + i,
     })
+  }
+
+  if (stockNegativo > 0) {
+    avisos.push(
+      `${stockNegativo} ${stockNegativo === 1 ? 'artículo viene' : 'artículos vienen'} con stock ` +
+        `NEGATIVO en «${candidata.cabeceras[columnas.stock]}». Se ${stockNegativo === 1 ? 'publica' : 'publican'} ` +
+        'como 0, que es lo correcto: Amazon no admite negativos y un negativo significa que ya se ha ' +
+        'servido más de lo que había. No hay nada que arreglar aquí, pero conviene saberlo porque en el ' +
+        'almacén del cliente esos artículos están sobrevendidos.'
+    )
   }
 
   if (stockAmbiguo > 0) {

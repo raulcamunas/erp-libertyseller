@@ -286,30 +286,33 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
     // ---------- 4) Los códigos de barras, si los hay ----------
     const ean = await construirEanIndex(perfil, opciones.subidaEan ?? null)
 
-    // ---------- 5) El cruce, que no se ha tocado ----------
-    const mappings = await cargarMapeo(perfil.client_id)
+    // ---------- 5) El espejo del catálogo de Amazon ----------
+    // Va ANTES del cruce porque cuando el cliente no tiene tabla de mapeo es el
+    // propio catálogo el que hace de diccionario. Ver resolverMapeo().
+    const { destino, listings, refrescadoEn } = await cargarEspejo(perfil)
+
+    // ---------- 6) El cruce ----------
+    const mapeo = resolverMapeo(await cargarMapeo(perfil.client_id), listings)
     const cruce = crossStock({
-      mappings,
+      mappings: mapeo.filas,
       // LineaAplicada ES una StockLine: los cuatro campos que consume el cruce
       // están en su sitio y en su forma. No se convierte nada.
       stockLines: aplicadas.lineas,
       eanIndex: ean.indice,
     })
 
-    // ---------- 6) El espejo del catálogo de Amazon ----------
-    const { destino, listings, refrescadoEn } = await cargarEspejo(perfil)
-
     // ---------- 7) El simulacro ----------
     const simulacro = simular({
       lineas: aplicadas.lineas,
       cruce,
       listings,
-      skusDelMapeo: new Set(mappings.map((m) => m.sku_amazon)),
+      skusDelMapeo: new Set(mapeo.filas.map((m) => m.sku_amazon)),
       reglas,
       moneda: perfil.moneda,
       umbrales: umbralesDesdeFila(perfil),
       envioAutomatico: perfil.envio_automatico,
-      filasDeMapeo: mappings.length,
+      filasDeMapeo: mapeo.filas.length,
+      mapeoAutomatico: mapeo.origen === 'catalogo',
       espejoRefrescadoEn: refrescadoEn,
       conDestino: Boolean(destino),
       lineasLeidas: lectura.lineas.length,
@@ -774,6 +777,83 @@ async function construirEanIndex(
       ],
     }
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* El diccionario referencia del cliente -> SKU de Amazon              */
+/* ------------------------------------------------------------------ */
+
+export interface MapeoResuelto {
+  filas: CrossMapping[]
+  /** 'tabla' = stock_mappings; 'catalogo' = generado a partir del espejo */
+  origen: 'tabla' | 'catalogo'
+}
+
+/**
+ * DE DÓNDE SALE EL DICCIONARIO, Y POR QUÉ HAY DOS SITIOS.
+ *
+ * El cruce necesita saber qué SKU de Amazon le toca a cada referencia del
+ * fichero. Hay dos formas de saberlo y el ERP soporta las dos:
+ *
+ *   1. LA TABLA (`stock_mappings`). Un diccionario hecho a mano, fila a fila,
+ *      que se importa desde un Excel. Es lo que hace falta cuando el SKU de
+ *      Amazon NO se parece a la referencia del ERP —lo normal en un catálogo
+ *      montado por una agencia años después que el almacén—. Manda siempre que
+ *      exista: es un dato que alguien ha decidido a mano, y ninguna deducción
+ *      automática puede pasarle por encima.
+ *
+ *   2. EL PROPIO CATÁLOGO DE AMAZON. Cuando no hay tabla, cada listing del
+ *      espejo se convierte en una fila de mapeo cuya «referencia del ERP» es
+ *      su propio SKU. Es el caso del cliente que da de alta sus productos en
+ *      Amazon usando la referencia de su ERP como SKU, que es mayoría en los
+ *      catálogos pequeños y medianos.
+ *
+ *
+ * ============ LO QUE ESTO RESUELVE ============
+ *
+ * El volcado de un cliente trae SU ALMACÉN ENTERO: 4.774 referencias de las
+ * que en Amazon hay unos cientos. El cruce recorre el DICCIONARIO y busca cada
+ * entrada en el fichero, nunca al revés, así que las referencias del fichero
+ * que no están en Amazon no tocan nada: no se publica lo que no existe y no se
+ * crea nada. Lo que sobra del fichero simplemente no se mira.
+ *
+ * Y en el otro sentido: un listing de Amazon que no aparezca en el fichero sale
+ * en la pantalla como huérfano con motivo 'sin_articulo' —que es distinto de
+ * «no tiene mapeo»— y NO se le manda un 0. Publicar cero porque una referencia
+ * no venía en el volcado es la forma más rápida de tirar las ventas de un
+ * cliente por un fichero recortado.
+ *
+ *
+ * ============ POR QUÉ NO SE GUARDA LO QUE SE DEDUCE ============
+ *
+ * Se genera en cada pasada y no se escribe en `stock_mappings`. Guardarlo
+ * convertiría una deducción en un dato: al día siguiente nadie sabría si esa
+ * fila la puso una persona mirando el catálogo o la dedujo el ERP solo, y la
+ * regla de arriba —la tabla manda— dejaría de significar nada. Cuesta un map
+ * sobre unos cientos de filas que ya están en memoria.
+ */
+export function resolverMapeo(
+  tabla: CrossMapping[],
+  listings: AmazonListing[]
+): MapeoResuelto {
+  if (tabla.length > 0) return { filas: tabla, origen: 'tabla' }
+
+  const filas: CrossMapping[] = []
+  for (const listing of listings) {
+    const sku = (listing.sku ?? '').trim()
+    if (!sku) continue
+    filas.push({
+      sku_amazon: sku,
+      // El SKU HACE de referencia del ERP. crossStock lo prueba primero por
+      // igualdad exacta y después quitando ceros a la izquierda, que es justo
+      // lo que hace falta cuando el almacén escribe «0050119247» y Amazon
+      // guarda «50119247».
+      ref_erp: sku,
+      asin: listing.asin,
+    })
+  }
+
+  return { filas, origen: 'catalogo' }
 }
 
 /** Las filas de mapeo activas del cliente, que es el diccionario referencia -> SKU */

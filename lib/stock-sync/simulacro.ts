@@ -75,6 +75,16 @@ export interface EntradaSimulacro {
    * que dan el mismo simulacro vacío y tienen arreglos opuestos.
    */
   filasDeMapeo: number
+  /**
+   * true si esas filas NO salen de stock_mappings sino del propio catálogo de
+   * Amazon, cruzando la referencia del fichero contra el SKU. Ver
+   * resolverMapeo() en proceso.ts.
+   *
+   * Cambia lo que hay que decirle a quien mira la pantalla: con la tabla, un
+   * SKU sin casar se arregla completando el mapeo; sin ella, se arregla en el
+   * SKU de Amazon o en la referencia del cliente, que son sitios distintos.
+   */
+  mapeoAutomatico?: boolean
   /** Cuándo se refrescó por última vez el espejo del catálogo. null = nunca */
   espejoRefrescadoEn?: string | null
   /** true si el perfil apunta a una conexión de Amazon: sin ella el espejo vacío es normal */
@@ -746,11 +756,34 @@ function avisosDe(params: {
    * de importar el mapeo, o sea el orden natural de quien entra por aquí.
    */
   const sinMapeo = entrada.filasDeMapeo === 0
-  if (sinMapeo) {
+  if (sinMapeo && !entrada.mapeoAutomatico) {
     avisos.push(
       'Este cliente no tiene ninguna fila de mapeo activa en Sincronismo de stock, así que no hay forma de ' +
         'saber qué SKU de Amazon le corresponde a cada referencia del fichero. Impórtalo antes de dar nada por bueno: ' +
         'hasta entonces este simulacro no puede decir nada.'
+    )
+  }
+
+  /**
+   * SE HA CRUZADO CONTRA EL CATÁLOGO Y HAY QUE DECIRLO.
+   *
+   * No es un fallo —es el modo normal del cliente que usa su referencia como
+   * SKU en Amazon— pero sí es una SUPOSICIÓN, y quien mire esta pantalla tiene
+   * que saber sobre qué se ha decidido. Va con los números delante porque el
+   * único dato que importa aquí es cuántos han casado: si de 300 listings casan
+   * 4, la suposición es falsa y este cliente necesita su tabla de mapeo.
+   */
+  if (entrada.mapeoAutomatico && entrada.filasDeMapeo > 0) {
+    const casados = resumen.skuEnFichero
+    const pct = Math.round((casados / entrada.filasDeMapeo) * 100)
+    avisos.push(
+      `Este cliente no tiene tabla de mapeo, así que se ha cruzado la REFERENCIA del fichero contra el ` +
+        `SKU de Amazon tal cual: han casado ${casados} de los ${entrada.filasDeMapeo} SKU del catálogo (${pct} %). ` +
+        'El resto del fichero —las referencias que este cliente no vende en Amazon— no se toca. ' +
+        (pct < 25
+          ? 'Ese porcentaje es bajo: lo más probable es que sus SKU de Amazon no sean su referencia del ERP, ' +
+            'y entonces hace falta importar el mapeo en Sincronismo de stock antes de mandar nada.'
+          : 'Los que no casan salen abajo como huérfanos, con el motivo de cada uno.')
     )
   }
 
