@@ -443,6 +443,7 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
       last_run_at: ahora.toISOString(),
       ...(fallo || sinContraste ? {} : { last_ok_at: ahora.toISOString() }),
       last_error: fallo ?? sinContraste,
+      ...(await referenciaAlDia(perfil, lectura.lineas.length, estado, simulacro)),
     })
 
     return {
@@ -785,6 +786,113 @@ async function construirEanIndex(
       ],
     }
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* «Cuántas líneas trae este fichero un día normal», sin teclearlo      */
+/* ------------------------------------------------------------------ */
+
+/** Cuántas ejecuciones buenas se miran para saber qué es «normal» */
+const RUNS_PARA_LA_REFERENCIA = 10
+
+/**
+ * MANTIENE SOLA LA REFERENCIA DEL FRENO DE CAÍDA.
+ *
+ * Ese número era lo peor de la pantalla de frenos: había que teclearlo a mano,
+ * se quedaba viejo en cuanto el cliente crecía, y no tenerlo impedía encender el
+ * envío automático. Un cliente que un mes manda 244 referencias y al siguiente
+ * repone y manda 350 obligaba a volver a la pantalla a corregir un número — y
+ * nadie vuelve.
+ *
+ *
+ * ============ LAS TRES REGLAS, Y LAS TRES IMPORTAN ============
+ *
+ * 1. SOLO APRENDE DE EJECUCIONES QUE FUERON BIEN. Si un fichero a medias
+ *    pudiera fijar la referencia, el freno aprendería del desastre: mañana
+ *    «lo normal» serían las 120 líneas del volcado roto de hoy, y el freno que
+ *    existe para cazar volcados a medias dejaría de saltar para siempre. Es el
+ *    fallo clásico de cualquier umbral que se calibra solo.
+ *
+ * 2. SE USA LA MEDIANA, no la media ni el último valor. Un día que el fichero
+ *    venga duplicado no puede mover la referencia: la mediana de diez lo ignora
+ *    y la media no.
+ *
+ * 3. SOLO SUBE, NUNCA BAJA SOLA. Y esto es lo que hace que sea seguro:
+ *
+ *      · Subirla es ESTRECHAR el freno. Si el cliente ha crecido a 350, una
+ *        caída al día siguiente a 200 debe saltar, y con la referencia vieja de
+ *        260 no saltaría.
+ *      · Bajarla es AFLOJARLO. Un catálogo que mengua poco a poco —cada día un
+ *        30%, por debajo del límite— arrastraría la referencia hacia abajo con
+ *        él y el freno no saltaría nunca. Eso se llama deriva y es como se
+ *        vacía un inventario sin que salte nada.
+ *
+ *    Así que bajar sigue siendo una decisión de una persona, en la casilla de
+ *    siempre. Subir se hace solo, porque siempre protege más.
+ */
+async function referenciaAlDia(
+  perfil: StockReadProfile,
+  lineasLeidas: number,
+  estado: StockProfileRunState,
+  simulacro: Simulacro
+): Promise<{ lineas_referencia?: number }> {
+  // Regla 1: solo de ejecuciones buenas. Frenada, con error o sin una sola
+  // línea no enseñan nada sobre qué es normal en este cliente.
+  const buena =
+    lineasLeidas > 0 &&
+    estado !== 'error' &&
+    estado !== 'frenado' &&
+    simulacro.frenos.primero === null
+
+  if (!buena) return {}
+
+  const actual = perfil.lineas_referencia ?? null
+
+  // Primera vez: se fija con lo que traiga esta ejecución, que ya ha pasado
+  // todos los frenos. Es exactamente lo que se pedía hacer a mano —«rellénalo
+  // con las líneas de una ejecución que hayas dado por buena»— pero sin que
+  // haya que acordarse.
+  if (actual === null) return { lineas_referencia: lineasLeidas }
+
+  const historico = await lineasDeEjecucionesBuenas(perfil.id)
+  const muestra = [...historico, lineasLeidas]
+  // Con menos de tres no hay mediana que valga: una sola ejecución rara movería
+  // la referencia igual que una tendencia.
+  if (muestra.length < 3) return {}
+
+  const mediana = medianaDe(muestra)
+  // Regla 3: solo hacia arriba.
+  return mediana > actual ? { lineas_referencia: mediana } : {}
+}
+
+/** Las líneas leídas en las últimas ejecuciones que NO frenaron ni fallaron */
+async function lineasDeEjecucionesBuenas(perfilId: string): Promise<number[]> {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('stock_profile_runs')
+    .select('lineas_leidas')
+    .eq('profile_id', perfilId)
+    .in('estado', ['enviado', 'sin_cambios', 'simulacro'])
+    .not('lineas_leidas', 'is', null)
+    .gt('lineas_leidas', 0)
+    .order('created_at', { ascending: false })
+    .limit(RUNS_PARA_LA_REFERENCIA)
+
+  if (error) {
+    // Que no se pueda leer el histórico no puede tumbar una ejecución que ya ha
+    // terminado bien: se deja la referencia como estaba.
+    console.error('No se ha podido leer el histórico para la referencia de líneas:', error)
+    return []
+  }
+  return (data ?? []).map((f) => Number(f.lineas_leidas)).filter((n) => Number.isFinite(n))
+}
+
+function medianaDe(valores: number[]): number {
+  const orden = [...valores].sort((a, b) => a - b)
+  const medio = Math.floor(orden.length / 2)
+  return orden.length % 2 === 1
+    ? orden[medio]
+    : Math.round((orden[medio - 1] + orden[medio]) / 2)
 }
 
 /* ------------------------------------------------------------------ */

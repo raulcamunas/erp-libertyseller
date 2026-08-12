@@ -697,9 +697,11 @@ export function PerfilConfig({
                   className={`${fieldInput} text-right tabular-nums`}
                 />
                 <Nota>
-                  Es la referencia del freno de caída. Mientras esté vacío, ese freno queda
-                  declarado pero NO PUEDE SALTAR: no hay con qué comparar. Rellénalo con el número
-                  de líneas de una ejecución que hayas dado por buena.
+                  <strong className="text-white/70">Se mantiene solo</strong>: lo fija la primera
+                  ejecución que va bien y después sube con el cliente —si repone y pasa de 244 a 350
+                  referencias, sube—. Nunca baja solo: bajarlo afloja el freno, y un catálogo que
+                  mengua poco a poco se llevaría la referencia con él sin que saltara nada. Para
+                  bajarlo, escríbelo aquí a mano.
                 </Nota>
               </Campo>
             </div>
