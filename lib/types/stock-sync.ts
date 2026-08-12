@@ -276,6 +276,8 @@ export interface StockReadProfile {
 
   reserva_unidades: number
   stock_minimo: number
+  /** Tope de unidades por producto. null = sin tope (migración 146) */
+  max_unidades: number | null
   precio_modo: StockPriceMode
   margen_porcentaje: number | null
   iva_porcentaje: number | null

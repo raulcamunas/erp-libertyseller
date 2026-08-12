@@ -91,6 +91,9 @@ const eanIndex = leerEan(readFileSync(rutaEan), PERFIL_SHOPLAMP_EAN).indice
 const reglasNeutras: ReglasNegocio = {
   reservaUnidades: 0,
   stockMinimo: 0,
+  // null = sin tope, que es lo neutro. Un número aquí recortaría el stock de la
+  // comprobación y las diferencias parecerían del contraste.
+  maxUnidades: null,
   precioModo: 'ninguno',
   margenPorcentaje: null,
   ivaPorcentaje: null,

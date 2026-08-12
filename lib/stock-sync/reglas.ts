@@ -44,6 +44,18 @@ export interface ReglasNegocio {
    * una rotura de stock, que en Amazon se paga con la métrica de cuenta».
    */
   stockMinimo: number
+  /**
+   * TOPE DE UNIDADES POR PRODUCTO. null = sin tope.
+   *
+   * «Aunque tenga 115 en el almacén, en Amazon publica 15 y ni una más». Lo
+   * pidió un cliente por escrito y es una política suya, no un cálculo: no
+   * quiere exponer todo su stock en Amazon.
+   *
+   * Es un TECHO, no una cantidad fija: un artículo con 8 unidades publica 8, no
+   * 15. Y no es lo mismo que la reserva —esa APARTA unidades y baja el número
+   * siempre—; el tope solo actúa cuando hay de sobra.
+   */
+  maxUnidades: number | null
 
   precioModo: StockPriceMode
   /** Tanto por ciento sobre el coste: 35 => coste * 1,35 */
@@ -124,6 +136,8 @@ export interface ResultadoReglas {
   cortadasPorUmbral: number
   /** Cuántas perdieron unidades por la reserva */
   tocadasPorReserva: number
+  /** Cuántas se han recortado al tope de unidades por producto */
+  recortadasPorTope: number
   avisos: string[]
   /** Momento en que se aplicaron, tal cual lo dio quien llamó */
   aplicadoEn: string
@@ -144,11 +158,34 @@ export interface ResultadoReglas {
  */
 export function stockPublicable(
   stockLeido: number,
-  reglas: Pick<ReglasNegocio, 'reservaUnidades' | 'stockMinimo'>
+  reglas: Pick<ReglasNegocio, 'reservaUnidades' | 'stockMinimo' | 'maxUnidades'>
 ): number {
   const disponible = trasReserva(stockLeido, reglas.reservaUnidades)
   if (disponible < Math.max(0, reglas.stockMinimo)) return 0
-  return disponible
+  return conTope(disponible, reglas.maxUnidades)
+}
+
+/**
+ * El tope de unidades por producto, y va EL ÚLTIMO de los tres. No es un
+ * detalle de orden.
+ *
+ * Con reserva 2, tope 15 y 115 unidades en el fichero:
+ *
+ *   correcto (tope al final):  115 − 2 = 113 → tope → 15
+ *   al revés (tope primero):   115 → 15 → −2  → 13   ← MAL
+ *
+ * La reserva son unidades que se apartan DEL ALMACÉN, y con 115 en el almacén
+ * esas dos ya están cubiertas de sobra por las 100 que no se publican. Restarla
+ * después del tope la cobra dos veces y publica menos de lo que el cliente ha
+ * pedido, sin que nada lo delate: 13 y 15 son los dos números plausibles.
+ *
+ * Y va después del umbral por lo mismo: el umbral decide SI se sale a vender
+ * mirando lo que hay de verdad; el tope solo decide CUÁNTO se enseña.
+ */
+export function conTope(unidades: number, maxUnidades: number | null): number {
+  if (maxUnidades == null) return unidades
+  const tope = Math.max(0, Math.floor(maxUnidades))
+  return Math.min(unidades, tope)
 }
 
 /**
@@ -325,6 +362,7 @@ export function aplicarReglas(
   const avisos: string[] = []
   let cortadasPorUmbral = 0
   let tocadasPorReserva = 0
+  let recortadasPorTope = 0
 
   for (const linea of lineas) {
     const exclusion = motivoExclusion(linea, excluidas)
@@ -380,6 +418,9 @@ export function aplicarReglas(
     const disponible = trasReserva(linea.stock, reglas.reservaUnidades)
     if (disponible < linea.stock) tocadasPorReserva++
     if (disponible > 0 && stock === 0) cortadasPorUmbral++
+    // El tope solo cuenta cuando ha recortado de verdad. Una línea que se queda
+    // a cero por el umbral no es «recortada por el tope» aunque el tope exista.
+    if (stock > 0 && stock < disponible) recortadasPorTope++
 
     out.push({
       ...linea,
@@ -387,6 +428,23 @@ export function aplicarReglas(
       stock,
       precioFinal: motivo ? null : precio,
     })
+  }
+
+  /**
+   * El tope se DICE cuando actúa, y no solo se cuenta.
+   *
+   * Es la regla más fácil de dejarse puesta sin querer —un número en una casilla
+   * que recorta el catálogo entero— y la más difícil de detectar mirando el
+   * resultado: 15 unidades publicadas es un número perfectamente normal. Sin
+   * este aviso, un tope tecleado por error en el cliente equivocado no se nota
+   * hasta que alguien compara con el almacén.
+   */
+  if (recortadasPorTope > 0 && reglas.maxUnidades != null) {
+    avisos.push(
+      `${formatInt(recortadasPorTope)} ${recortadasPorTope === 1 ? 'artículo tenía' : 'artículos tenían'} ` +
+        `más de ${formatInt(reglas.maxUnidades)} unidades y se ${recortadasPorTope === 1 ? 'publica' : 'publican'} ` +
+        `con ${formatInt(reglas.maxUnidades)}, que es el tope por producto de este cliente.`
+    )
   }
 
   if (out.length === 0 && lineas.length > 0) {
@@ -425,6 +483,7 @@ export function aplicarReglas(
     porMotivo,
     cortadasPorUmbral,
     tocadasPorReserva,
+    recortadasPorTope,
     avisos,
     aplicadoEn: ahora.toISOString(),
   }
@@ -445,6 +504,10 @@ export function reglasDesdeFila(fila: StockReadProfile): ReglasNegocio {
   return {
     reservaUnidades: fila.reserva_unidades ?? 0,
     stockMinimo: fila.stock_minimo ?? 0,
+    // null = sin tope, y por eso NO lleva `?? 0`: un 0 aquí significaría
+    // «publica cero unidades de todo», que es la diferencia entre no tener la
+    // regla puesta y retirar el catálogo entero de la venta.
+    maxUnidades: numeroONull(fila.max_unidades),
     precioModo: fila.precio_modo,
     margenPorcentaje: numeroONull(fila.margen_porcentaje),
     ivaPorcentaje: numeroONull(fila.iva_porcentaje),

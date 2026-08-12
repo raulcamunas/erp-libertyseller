@@ -1037,6 +1037,7 @@ function quitarLineasReglas(r: ResultadoReglas): ResumenReglas {
     porMotivo: r.porMotivo,
     cortadasPorUmbral: r.cortadasPorUmbral,
     tocadasPorReserva: r.tocadasPorReserva,
+    recortadasPorTope: r.recortadasPorTope,
     avisos: r.avisos,
     aplicadoEn: r.aplicadoEn,
   }

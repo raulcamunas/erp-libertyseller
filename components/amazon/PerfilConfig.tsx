@@ -375,6 +375,38 @@ export function PerfilConfig({
                 </Nota>
               </Campo>
 
+              {/* EL TOPE VA EN SU PROPIA FILA, ancho completo.
+                  Es la regla que más se confunde con las dos de arriba —las tres
+                  son «un número de unidades»— y la única que puede recortar el
+                  stock publicado de TODO el catálogo de golpe. Merece el sitio y
+                  merece que la nota diga qué pasa con lo que ya está publicado. */}
+              <div className="sm:col-span-2">
+                <Campo label="Máximo de unidades por producto">
+                  <input
+                    key={`max-${perfil.id}`}
+                    defaultValue={perfil.max_unidades ?? ''}
+                    inputMode="numeric"
+                    placeholder="sin tope"
+                    onBlur={(e) =>
+                      guardarEntero(e.target.value, perfil.max_unidades ?? null, (v) =>
+                        // Vacío -> null, que es «sin tope». Un 0 sería «publica
+                        // cero de todo», así que el campo lo rechaza: la base
+                        // exige 1 o más y aquí se evita el viaje.
+                        onPatch({ max_unidades: v && v >= 1 ? v : null })
+                      )
+                    }
+                    className={`${fieldInput} text-right tabular-nums`}
+                  />
+                  <Nota>
+                    Es un <strong className="text-white/70">techo</strong>, no una cantidad fija: si
+                    el fichero trae 115 unidades y aquí pone 15, se publican 15; si trae 8, se
+                    publican 8. Los listings que hoy tengan más en Amazon bajan al tope en la
+                    siguiente pasada, siempre que su referencia venga en el fichero. Déjalo vacío
+                    para no poner tope.
+                  </Nota>
+                </Campo>
+              </div>
+
               <div className="sm:col-span-2">
                 <Campo label="De dónde sale el precio">
                   <Opciones
