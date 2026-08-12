@@ -17,6 +17,8 @@ import {
   Table2,
   PanelRight,
   ChevronLeft,
+  CalendarClock,
+  AlertTriangle,
 } from 'lucide-react'
 import {
   ColdLead,
@@ -45,6 +47,41 @@ interface ColdCallingBoardProps {
 /** Cuántas filas se pintan de golpe: la lista completa son miles */
 const PAGE = 400
 
+/**
+ * El día de HOY en el calendario de quien está mirando la pantalla.
+ *
+ * Y no `new Date().toISOString().slice(0, 10)`, que es lo que había y da el día
+ * en UTC. En España vamos por delante de UTC —dos horas en verano— así que
+ * entre las 00:00 y las 02:00 el «hoy» de UTC todavía es ayer: las rellamadas
+ * de hoy no aparecían hasta las dos de la madrugada. Poca gente llama a esa
+ * hora, pero una lista de rellamadas que se equivoca de día no sirve para nada
+ * y el arreglo son cuatro líneas.
+ *
+ * `next_call_date` se escribe con un <input type="date">, que da días del
+ * calendario del usuario. Comparar contra UTC es comparar dos cosas distintas.
+ */
+function diaLocal(fecha: Date = new Date()): string {
+  const y = fecha.getFullYear()
+  const m = String(fecha.getMonth() + 1).padStart(2, '0')
+  const d = String(fecha.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/** «12 de agosto», para los títulos. El input ya enseña la fecha en corto */
+function diaLargo(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  return new Date(y, m - 1, d).toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'long',
+  })
+}
+
+function sumarDias(iso: string, dias: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return diaLocal(new Date(y, m - 1, d + dias))
+}
+
 /** Atajos del filtro de facturación, en euros al mes */
 const REVENUE_PRESETS: Array<{ label: string; min: string; max: string }> = [
   { label: '+ de 100k', min: '100000', max: '' },
@@ -71,8 +108,30 @@ export function ColdCallingBoard({
   const [sort, setSort] = useState<ColdSort>('due_first')
   const [visible, setVisible] = useState(PAGE)
   // Muchos vienen del Excel y se manejan mejor en tabla; la ficha es para
-  // trabajar un lead a fondo.
-  const [view, setView] = useState<'ficha' | 'tabla'>('ficha')
+  // trabajar un lead a fondo; «rellamadas» es la agenda del día y NO se parece
+  // a las otras dos: ver más abajo por qué se salta los filtros.
+  const [view, setView] = useState<'ficha' | 'tabla' | 'rellamadas'>('ficha')
+
+  /**
+   * El día que se está mirando en la vista de rellamadas.
+   *
+   * NO SE GUARDA EN LAS PREFERENCIAS a propósito, al revés que el resto. Una
+   * fecha recordada de ayer abriría la pantalla en un día que ya pasó, con la
+   * lista vacía y sin ninguna pista de por qué. Aquí lo útil es siempre volver
+   * a hoy; mirar otro día es una decisión del momento.
+   */
+  const [diaRellamadas, setDiaRellamadas] = useState(() => diaLocal())
+
+  /**
+   * Si además se enseñan las que se pasaron de fecha.
+   *
+   * Apagado por defecto: la vista es «las rellamadas de este día» y meter las
+   * de días anteriores la convertiría en otra cosa. Pero el interruptor existe
+   * —y con su número al lado— porque una rellamada que se quedó sin hacer no
+   * desaparece del trabajo pendiente, solo de la pantalla, y esa es justo la
+   * forma de perder un cliente sin enterarse.
+   */
+  const [conAtrasadas, setConAtrasadas] = useState(false)
   // En móvil se enseña la lista o la ficha, nunca las dos
   const isMobile = useIsMobile()
 
@@ -87,7 +146,9 @@ export function ColdCallingBoard({
       const raw = window.localStorage.getItem(prefsKey)
       if (raw) {
         const p = JSON.parse(raw)
-        if (p.view === 'tabla' || p.view === 'ficha') setView(p.view)
+        if (p.view === 'tabla' || p.view === 'ficha' || p.view === 'rellamadas') {
+          setView(p.view)
+        }
         if (typeof p.statusFilter === 'string') setStatusFilter(p.statusFilter)
         if (typeof p.listFilter === 'string') setListFilter(p.listFilter)
         if (typeof p.minRev === 'string') setMinRev(p.minRev)
@@ -230,10 +291,78 @@ export function ColdCallingBoard({
     return map
   }, [scoped])
 
+  /**
+   * LAS RELLAMADAS SALEN DE `scoped`, NO DE `filtered`. ESO ES TODO EL PUNTO.
+   *
+   * `filtered` lleva encima el rango de facturación, el estado, la lista de
+   * origen y la búsqueda, y esos filtros son de PROSPECTAR: sirven para decidir
+   * a quién llamar de una cartera de miles. Una rellamada ya no es eso — es un
+   * compromiso con una persona concreta a la que se le dijo «te llamo el
+   * martes» —, y filtrarla por facturación la haría desaparecer sin avisar.
+   *
+   * El caso que lo motiva es literal: con el filtro puesto en +6.000 €/mes, una
+   * rellamada apalabrada con un seller de 4.000 no sale en pantalla. La llamada
+   * no se hace, nadie se entera, y el fallo es invisible porque la pantalla
+   * enseña exactamente lo que se le ha pedido.
+   *
+   * Lo único que SÍ se respeta es de quién es el lead (`scoped`), que no es un
+   * filtro sino a quién pertenece el trabajo: un comercial no tiene por qué ver
+   * la agenda de otro.
+   *
+   * Se descartan los 'no_interesa' porque un lead cerrado en falso puede
+   * arrastrar una fecha vieja, y esa fecha ya no significa nada.
+   */
+  const rellamadas = useMemo(() => {
+    const hoy = diaLocal()
+    const pendientes = scoped.filter((l) => l.next_call_date && l.status !== 'no_interesa')
+
+    const porFacturacion = (a: ColdLead, b: ColdLead) =>
+      (Number(b.revenue_monthly) || 0) - (Number(a.revenue_monthly) || 0)
+
+    const delDia = pendientes
+      .filter((l) => l.next_call_date === diaRellamadas)
+      .sort(porFacturacion)
+
+    // Atrasadas = se pasó el día y siguen ahí. Solo tiene sentido hablar de
+    // ellas cuando se mira HOY: puestos a mirar el jueves que viene, «atrasado»
+    // no quiere decir nada.
+    const atrasadas =
+      diaRellamadas === hoy
+        ? pendientes
+            .filter((l) => l.next_call_date! < hoy)
+            // Las más viejas primero: son las que llevan más tiempo cayéndose.
+            .sort((a, b) => a.next_call_date!.localeCompare(b.next_call_date!))
+        : []
+
+    return { delDia, atrasadas, hoy }
+  }, [scoped, diaRellamadas])
+
+  /** Lo que se pinta: el día elegido y, si se pide, las atrasadas delante */
+  const rellamadasVisibles = useMemo(
+    () =>
+      conAtrasadas ? [...rellamadas.atrasadas, ...rellamadas.delDia] : rellamadas.delDia,
+    [conAtrasadas, rellamadas]
+  )
+
+  /**
+   * El número del botón: SIEMPRE las de hoy, mire el usuario el día que mire.
+   *
+   * Si contara el día seleccionado, ponerse a mirar el viernes cambiaría el
+   * contador y el botón dejaría de responder a lo que dice que cuenta.
+   */
+  const rellamadasHoy = useMemo(() => {
+    const hoy = diaLocal()
+    return scoped.filter(
+      (l) => l.next_call_date === hoy && l.status !== 'no_interesa'
+    ).length
+  }, [scoped])
+
   const stats = useMemo(() => {
     const worked = scoped.filter((l) => l.status !== 'pendiente').length
     const qualified = scoped.filter((l) => l.status === 'cita_cualificada').length
-    const today = new Date().toISOString().slice(0, 10)
+    // diaLocal() y no toISOString(): ver la nota de esa función. Aquí es «hoy y
+    // lo que se pasó», que es la cifra de trabajo pendiente.
+    const today = diaLocal()
     const dueToday = scoped.filter(
       (l) => l.next_call_date && l.next_call_date <= today && l.status !== 'no_interesa'
     ).length
@@ -303,7 +432,11 @@ export function ColdCallingBoard({
         ))}
       </div>
 
-      {/* Filtros por estado, con los colores del Excel */}
+      {/* Filtros por estado, con los colores del Excel.
+          En la agenda de rellamadas NO se enseñan, y no es por ahorrar sitio:
+          si se vieran puestos y no hicieran nada, cualquiera diría que la
+          pantalla está rota. Se esconden porque ahí no se aplican. */}
+      {view !== 'rellamadas' && (
       <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0">
         <button
           type="button"
@@ -345,9 +478,12 @@ export function ColdCallingBoard({
         })}
 
       </div>
+      )}
 
       {/* Lista de origen y orden */}
       <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+        {view !== 'rellamadas' && (
+        <>
         <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
           <Layers className="h-3 w-3" /> Lista
         </span>
@@ -389,18 +525,37 @@ export function ColdCallingBoard({
             </button>
           )
         })}
+        </>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Cambio de vista: ficha o tabla estilo Excel */}
+          {/* Cambio de vista: ficha, tabla estilo Excel o la agenda del día */}
           <div className="flex items-center rounded-full border border-white/10 bg-white/[0.03] p-0.5">
+            {/* `badge: null` en las dos primeras y no ausente: con la propiedad
+                opcional, TypeScript ve `number | undefined` en toda la lista y
+                el `in` no lo estrecha dentro del map. */}
             {([
-              { id: 'ficha' as const, icon: PanelRight, label: 'Ficha' },
-              { id: 'tabla' as const, icon: Table2, label: 'Tabla' },
+              { id: 'ficha' as const, icon: PanelRight, label: 'Ficha', badge: null },
+              { id: 'tabla' as const, icon: Table2, label: 'Tabla', badge: null },
+              {
+                id: 'rellamadas' as const,
+                icon: CalendarClock,
+                label: 'Rellamadas de hoy',
+                // El número va SIEMPRE, incluso a cero: un botón que solo
+                // aparece cuando hay trabajo es un botón que nadie busca
+                // cuando no lo ve, y «0» es una respuesta, no un hueco.
+                badge: rellamadasHoy as number | null,
+              },
             ]).map((v) => (
               <button
                 key={v.id}
                 type="button"
-                onClick={() => setView(v.id)}
+                onClick={() => {
+                  setView(v.id)
+                  // Entrar en la agenda siempre te deja en HOY. Ver el
+                  // comentario de diaRellamadas.
+                  if (v.id === 'rellamadas') setDiaRellamadas(diaLocal())
+                }}
                 className={`h-6 px-2.5 rounded-full text-[11px] font-medium flex items-center gap-1.5 transition-colors ${
                   view === v.id
                     ? 'bg-[#FF6600] text-white'
@@ -409,25 +564,47 @@ export function ColdCallingBoard({
               >
                 <v.icon className="h-3 w-3" />
                 {v.label}
+                {v.badge !== null && (
+                  <span
+                    className={`tabular-nums rounded-full px-1.5 leading-[16px] text-[10px] font-semibold ${
+                      view === v.id
+                        ? 'bg-white/25 text-white'
+                        : v.badge > 0
+                          ? 'bg-[#FF6600]/25 text-[#FF9A4D]'
+                          : 'bg-white/[0.06] text-white/30'
+                    }`}
+                  >
+                    {v.badge}
+                  </span>
+                )}
               </button>
             ))}
           </div>
 
-          <ArrowUpDown className="h-3 w-3 text-white/30" />
+          {/* El orden tampoco aplica en la agenda: ahí manda la fecha y, a
+              igualdad de día, quién más factura. */}
+          {view !== 'rellamadas' && (
+            <>
+              <ArrowUpDown className="h-3 w-3 text-white/30" />
 
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as ColdSort)}
-            title="Ordenar la lista"
-            className="h-7 rounded-full border border-white/10 bg-white/[0.03] pl-2.5 pr-2 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer"
-          >
-            {(Object.keys(COLD_SORT_LABELS) as ColdSort[]).map((s) => (
-              <option key={s} value={s} className="bg-[#1a1a1a]">
-                {COLD_SORT_LABELS[s]}
-              </option>
-            ))}
-          </select>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as ColdSort)}
+                title="Ordenar la lista"
+                className="h-7 rounded-full border border-white/10 bg-white/[0.03] pl-2.5 pr-2 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer"
+              >
+                {(Object.keys(COLD_SORT_LABELS) as ColdSort[]).map((s) => (
+                  <option key={s} value={s} className="bg-[#1a1a1a]">
+                    {COLD_SORT_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
 
+          {/* El comercial SÍ se mantiene: no es un filtro de prospección sino
+              de quién es el trabajo, y un admin necesita poder mirar la agenda
+              de cada uno. */}
           {isAdmin && team.length > 0 && (
             <select
               value={ownerFilter}
@@ -447,7 +624,11 @@ export function ColdCallingBoard({
         </div>
       </div>
 
-      {/* Rango de facturación */}
+      {/* Rango de facturación. EL FILTRO QUE MÁS DAÑO HACÍA EN LAS RELLAMADAS:
+          con «desde 6.000» puesto, una rellamada apalabrada con un seller de
+          4.000 desaparecía de la pantalla y la llamada no se hacía. Por eso en
+          esa vista ni se enseña ni se aplica. */}
+      {view !== 'rellamadas' && (
       <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
         <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
           <Euro className="h-3 w-3" /> Facturación
@@ -528,8 +709,99 @@ export function ColdCallingBoard({
           </button>
         )}
       </div>
+      )}
 
-      {view === 'tabla' ? (
+      {view === 'rellamadas' ? (
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col gap-2">
+          {/* La barra del día */}
+          <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+            {[
+              { etiqueta: 'Hoy', dia: rellamadas.hoy },
+              { etiqueta: 'Mañana', dia: sumarDias(rellamadas.hoy, 1) },
+            ].map((d) => (
+              <button
+                key={d.etiqueta}
+                type="button"
+                onClick={() => setDiaRellamadas(d.dia)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                  diaRellamadas === d.dia
+                    ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
+                    : 'border-white/10 text-white/40 hover:text-white/80'
+                }`}
+              >
+                {d.etiqueta}
+              </button>
+            ))}
+
+            <input
+              type="date"
+              value={diaRellamadas}
+              onChange={(e) => setDiaRellamadas(e.target.value || rellamadas.hoy)}
+              title="Mirar las rellamadas de otro día"
+              className="h-7 rounded-full border border-white/10 bg-white/[0.03] px-2.5 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer [color-scheme:dark]"
+            />
+
+            <span className="text-[11px] text-white/45">
+              <strong className="text-white tabular-nums">{rellamadas.delDia.length}</strong>{' '}
+              {rellamadas.delDia.length === 1 ? 'rellamada' : 'rellamadas'} para el{' '}
+              {diaLargo(diaRellamadas)}
+            </span>
+
+            {/* Las que se pasaron de fecha. Solo sale el interruptor si las hay:
+                un aviso permanente en cero deja de leerse a la semana. */}
+            {rellamadas.atrasadas.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setConAtrasadas((v) => !v)}
+                title="Rellamadas de días anteriores que siguen sin hacerse"
+                className={`ml-auto px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors flex items-center gap-1.5 ${
+                  conAtrasadas
+                    ? 'border-amber-400/60 bg-amber-400/15 text-white'
+                    : 'border-amber-400/25 text-amber-300/80 hover:text-amber-200'
+                }`}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                {rellamadas.atrasadas.length}{' '}
+                {rellamadas.atrasadas.length === 1 ? 'atrasada' : 'atrasadas'}
+                <span className="text-white/40 font-normal">
+                  {conAtrasadas ? '· quitar' : '· ver'}
+                </span>
+              </button>
+            )}
+          </div>
+
+          {rellamadasVisibles.length === 0 ? (
+            <div className="flex-1 min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <CalendarClock className="h-6 w-6 text-white/20" />
+              <p className="text-[13px] text-white/35">
+                {diaRellamadas === rellamadas.hoy
+                  ? 'No hay ninguna rellamada apuntada para hoy.'
+                  : `No hay ninguna rellamada apuntada para el ${diaLargo(diaRellamadas)}.`}
+              </p>
+              <p className="text-[11px] text-white/25 max-w-[420px]">
+                Aquí sale todo lo que tenga fecha en «Rellamar el», sin importar la
+                facturación ni ningún otro filtro.
+              </p>
+            </div>
+          ) : (
+            /* La misma tabla que la vista de Excel, y a propósito: la fecha de
+               «Rellamar el» y el estado se editan ahí mismo, que es justo lo que
+               el comercial hace al colgar — apuntar el día siguiente. */
+            <ColdLeadsTable
+              leads={rellamadasVisibles}
+              currentUserId={currentUser.id}
+              isAdmin={isAdmin}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onOpenDetail={(id) => {
+                setSelectedId(id)
+                setView('ficha')
+              }}
+              onPatched={handlePatched}
+            />
+          )}
+        </div>
+      ) : view === 'tabla' ? (
         <div className="flex-1 min-h-0 min-w-0 flex flex-col gap-2">
           <ColdLeadsTable
             leads={filtered.slice(0, visible)}
@@ -582,8 +854,7 @@ export function ColdCallingBoard({
               <>
                 {filtered.slice(0, visible).map((l) => {
                   const active = l.id === selectedId
-                  const overdue =
-                    l.next_call_date && l.next_call_date <= new Date().toISOString().slice(0, 10)
+                  const overdue = l.next_call_date && l.next_call_date <= diaLocal()
                   return (
                     <button
                       key={l.id}
