@@ -2,6 +2,9 @@ import Link from 'next/link'
 import { Link2Off } from '@/components/ui/iconos'
 import { createClient } from '@/lib/supabase/server'
 import { StockSyncBoard } from '@/components/growth/stock-sync/StockSyncBoard'
+import { PanelEjecuciones } from '@/components/growth/stock-sync/PanelEjecuciones'
+import { PestanasStockSync } from '@/components/growth/stock-sync/PestanasStockSync'
+import { ejecucionesDeCliente, tieneMapeoManual } from '@/lib/growth/ejecuciones'
 import type { StockMapping, StockRun } from '@/lib/types/stock-sync'
 import { Vacio } from '@/components/plataforma/comun'
 import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
@@ -112,6 +115,43 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
     .single()
   const canDelete = perfil?.role === 'admin' || perfil?.role === 'partner'
 
+  /**
+   * LO QUE VE TODO EL MUNDO ES EL HISTORIAL DE EJECUCIONES.
+   *
+   * Antes esta pantalla abría en el formulario de SUBIR EL VOLCADO A MANO, con
+   * su tabla de mapeo al lado, para todos los clientes. Eso describe cómo se
+   * trabajaba cuando el stock se subía dos veces por semana pulsando un botón, y
+   * cómo trabaja HOY un solo cliente. Para el resto el ciclo entra cada quince
+   * minutos y lo hace solo, así que la pantalla enseñaba un botón para hacer
+   * algo que ya se estaba haciendo — y no contestaba la única pregunta que
+   * importa: qué le ha hecho el ERP a esta cuenta.
+   *
+   * La subida manual no se borra: se convierte en una segunda pestaña QUE SOLO
+   * SALE si el cliente tiene mapeo importado. Se decide por el dato y no por el
+   * nombre del cliente, para que no haya que tocar código cuando eso cambie.
+   */
+  const [ejecuciones, conMapeo] = await Promise.all([
+    ejecucionesDeCliente(clienteId),
+    tieneMapeoManual(clienteId),
+  ])
+
+  const panelEjecuciones = (
+    <PanelEjecuciones
+      key={cliente.slug}
+      clientId={clienteId}
+      clientName={cliente.nombre}
+      ejecuciones={ejecuciones}
+      className="flex-1 min-h-0 min-w-0"
+    />
+  )
+
+  // Sin mapeo no hay segunda pestaña, y tampoco se cargan sus datos: el mapeo de
+  // un cliente grande son miles de filas paginadas de mil en mil. La consulta
+  // que no hace falta es la que no se hace.
+  if (!conMapeo) {
+    return <div className="flex flex-col h-full min-w-0">{panelEjecuciones}</div>
+  }
+
   const [mappings, runs] = await Promise.all([
     fetchAll<StockMapping>((from, to) =>
       supabase
@@ -132,19 +172,24 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
   ])
 
   return (
-    <StockSyncBoard
-      // Cambiar de cliente arriba tiene que REMONTAR el tablero. Sin la llave,
-      // React reutiliza el componente y su estado interno —los ficheros que
-      // había elegidos, el resultado del último proceso con su botón de
-      // descarga— sobrevive a la navegación: se vería el nombre nuevo arriba y
-      // el fichero del anterior listo para bajar.
-      key={cliente.slug}
-      clientId={clienteId}
-      clientName={cliente.nombre}
-      initialMappings={mappings}
-      initialRuns={(runs.data as StockRun[]) || []}
-      currentUserId={user.id}
-      canDelete={canDelete}
+    <PestanasStockSync
+      ejecuciones={panelEjecuciones}
+      manual={
+        <StockSyncBoard
+          // Cambiar de cliente arriba tiene que REMONTAR el tablero. Sin la llave,
+          // React reutiliza el componente y su estado interno —los ficheros que
+          // había elegidos, el resultado del último proceso con su botón de
+          // descarga— sobrevive a la navegación: se vería el nombre nuevo arriba y
+          // el fichero del anterior listo para bajar.
+          key={cliente.slug}
+          clientId={clienteId}
+          clientName={cliente.nombre}
+          initialMappings={mappings}
+          initialRuns={(runs.data as StockRun[]) || []}
+          currentUserId={user.id}
+          canDelete={canDelete}
+        />
+      }
     />
   )
 }
