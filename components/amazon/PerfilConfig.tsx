@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  ChevronRight,
   Download,
   FlaskConical,
   Loader2,
@@ -85,16 +86,24 @@ export function PerfilConfig({
   ].filter((x): x is string => typeof x === 'string')
 
   return (
-    <div className="space-y-3 pb-6">
+    /**
+     * DOS COLUMNAS EN PANTALLA ANCHA.
+     *
+     * Una sola columna de tarjetas a todo lo ancho desperdicia media pantalla en
+     * un monitor de 2.000 píxeles y a cambio hace el formulario el doble de
+     * largo. `items-start` es lo que evita que las tarjetas de una fila se
+     * estiren a la altura de la más alta: cada una ocupa lo suyo.
+     */
+    <div className="grid xl:grid-cols-2 gap-2.5 items-start pb-6">
       {guardando && (
-        <p className="text-[11px] text-white/40 flex items-center gap-1.5">
+        <p className="xl:col-span-2 text-[11px] text-white/40 flex items-center gap-1.5">
           <Loader2 className="h-3 w-3 animate-spin" />
           Guardando…
         </p>
       )}
 
       {/* ---------------- Identidad ---------------- */}
-      <Seccion titulo="El perfil" hint="Qué fichero es y de qué cliente">
+      <Seccion titulo="El perfil" hint="Qué fichero es y de qué cliente" cerrada>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <Campo label="Nombre">
             <input
@@ -140,6 +149,7 @@ export function PerfilConfig({
       <Seccion
         titulo="Dónde están los datos dentro del fichero"
         hint="Hoja, cabecera y formato"
+        cerrada
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <Campo label="Hoja (por nombre)">
@@ -241,6 +251,7 @@ export function PerfilConfig({
       <Seccion
         titulo="Las columnas"
         hint="Por nombre, nunca por posición"
+        cerrada
       >
         <div className={infoBox}>
           Se busca <strong className="text-white/75">por nombre</strong> y se aceptan varias
@@ -524,7 +535,7 @@ export function PerfilConfig({
           </Seccion>
 
           {/* ---------------- Destino ---------------- */}
-          <Seccion titulo="A qué cuenta de Amazon" hint="El puente entre los dos mundos">
+          <Seccion titulo="A qué cuenta de Amazon" hint="El puente entre los dos mundos" cerrada>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <Campo label="Conexión">
                 <select
@@ -587,6 +598,7 @@ export function PerfilConfig({
           <Seccion
             titulo="Frenos"
             hint="Si salta uno, no se manda nada"
+            ancha
           >
             <div className={infoBox}>
               Un fichero mal exportado un martes por la noche{' '}
@@ -823,7 +835,7 @@ function Origen({
   }, [guardada, perfil.id])
 
   return (
-    <Seccion titulo="De dónde sale el fichero" hint="El conector">
+    <Seccion titulo="De dónde sale el fichero" hint="El conector" cerrada ancha>
       <div className="flex flex-wrap gap-1.5">
         {data.conectores.map((c) => (
           <button
@@ -1054,7 +1066,7 @@ function Probar({
   }
 
   return (
-    <Seccion titulo="Probar" hint="Qué entiende el perfil con este fichero">
+    <Seccion titulo="Probar" hint="Qué entiende el perfil con este fichero" ancha>
       <div className="flex flex-wrap items-center gap-2">
         <label
           className={`${ghostButton} cursor-pointer ${cargando ? 'opacity-50' : ''}`}
@@ -1707,11 +1719,34 @@ function Seccion({
   titulo,
   hint,
   children,
+  cerrada,
+  ancha,
 }: {
   titulo: string
   hint?: string
   children: React.ReactNode
+  /** Nace plegada. Las que se tocan una vez al dar de alta un cliente */
+  cerrada?: boolean
+  /** Ocupa las dos columnas en pantallas anchas: tablas y resultados */
+  ancha?: boolean
 }) {
+  /**
+   * PLEGABLES, Y CASI TODAS PLEGADAS DE ENTRADA.
+   *
+   * Nueve secciones abiertas a la vez son dos mil píxeles de formulario en los
+   * que hay que hacer scroll para encontrar la casilla que se viene a cambiar.
+   * Y la mayoría —el conector, la hoja, las columnas— se tocan UNA VEZ, al dar
+   * de alta al cliente, y no se vuelven a mirar nunca.
+   *
+   * Se quedan abiertas las dos que se usan de verdad después del alta: las
+   * reglas de negocio y el botón de probar. El resto está a un clic, con su
+   * título siempre visible, que es lo que permite encontrarlas.
+   *
+   * Se pliega con estado y no con <details>: dentro hay campos que guardan al
+   * salir del foco, y el navegador no garantiza el orden entre cerrar el
+   * desplegable y disparar el blur.
+   */
+  const [abierta, setAbierta] = useState(!cerrada)
   /**
    * EL SUBTÍTULO NO SE PINTA: va al `title` de la sección.
    *
@@ -1726,9 +1761,23 @@ function Seccion({
    * información de la cabecera, en InfoOrigen.
    */
   return (
-    <section className={`${cardShell} p-3 space-y-2.5 min-w-0`} title={hint}>
-      <h3 className="text-[12px] font-semibold text-white min-w-0">{titulo}</h3>
-      {children}
+    <section
+      className={`${cardShell} px-3 py-2 min-w-0 self-start ${ancha ? 'xl:col-span-2' : ''}`}
+      title={hint}
+    >
+      <button
+        type="button"
+        onClick={() => setAbierta((v) => !v)}
+        className="w-full flex items-center gap-1.5 text-left min-w-0 group"
+      >
+        <ChevronRight
+          className={`h-3 w-3 flex-shrink-0 text-white/30 transition-transform ${abierta ? 'rotate-90' : ''}`}
+        />
+        <h3 className="text-[12px] font-semibold text-white/85 group-hover:text-white min-w-0 truncate">
+          {titulo}
+        </h3>
+      </button>
+      {abierta && <div className="space-y-2 mt-2">{children}</div>}
     </section>
   )
 }
