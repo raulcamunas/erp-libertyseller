@@ -278,6 +278,11 @@ export interface StockReadProfile {
   stock_minimo: number
   /** Tope de unidades por producto. null = sin tope (migración 146) */
   max_unidades: number | null
+  /**
+   * true = el fichero trae SOLO lo que ha cambiado, no el catálogo entero.
+   * Apaga los tres frenos de volumen (migración 147). Ver frenos.ts.
+   */
+  fichero_parcial: boolean
   precio_modo: StockPriceMode
   margen_porcentaje: number | null
   iva_porcentaje: number | null

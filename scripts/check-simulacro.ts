@@ -120,6 +120,9 @@ const sinUmbrales: UmbralesFreno = {
   maxCaidaUnidadesPct: null,
   maxCambios: null,
   lineasReferencia: null,
+  // false: la comprobación se hace sobre un volcado completo, que es el caso
+  // que estos ficheros de prueba representan.
+  ficheroParcial: false,
 }
 
 /**

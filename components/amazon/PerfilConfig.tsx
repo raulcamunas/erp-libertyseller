@@ -65,14 +65,23 @@ export function PerfilConfig({
 }) {
   const conexion = data.conexiones.find((c) => c.id === perfil.connection_id)
 
-  /** Los frenos que este cliente tiene sin límite: sin él, ese freno no existe */
+  /**
+   * Los frenos que este cliente tiene sin límite: sin él, ese freno no existe.
+   *
+   * CON EL FICHERO PARCIAL, LOS TRES DE VOLUMEN NO CUENTAN. No es que estén sin
+   * rellenar: es que no aplican, y ya lo dice el interruptor de arriba. Seguir
+   * enumerándolos aquí convertiría este aviso en una lista de deberes
+   * imposibles —campos que el usuario ha decidido a conciencia no usar— y es
+   * exactamente el ruido que hace que nadie lea los avisos.
+   */
+  const parcial = perfil.fichero_parcial === true
   const frenosVacios = [
-    perfil.freno_pct_a_cero === null && 'referencias a cero',
+    !parcial && perfil.freno_pct_a_cero === null && 'referencias a cero',
     perfil.freno_variacion_precio_pct === null && 'variación de precio',
-    perfil.freno_caida_lineas_pct === null && 'caída de líneas',
-    perfil.freno_caida_unidades_pct === null && 'caída de unidades',
+    !parcial && perfil.freno_caida_lineas_pct === null && 'caída de líneas',
+    !parcial && perfil.freno_caida_unidades_pct === null && 'caída de unidades',
     perfil.freno_max_cambios === null && 'máximo de cambios',
-    perfil.lineas_referencia === null && 'líneas de un día normal',
+    !parcial && perfil.lineas_referencia === null && 'líneas de un día normal',
   ].filter((x): x is string => typeof x === 'string')
 
   return (
@@ -587,6 +596,21 @@ export function PerfilConfig({
               sin que nadie lo vea. Los límites son por cliente: uno con 400 referencias y otro con
               40.000 no toleran lo mismo.
             </div>
+
+            {/* EL INTERRUPTOR VA ANTES QUE LAS CASILLAS, no después.
+                Encendido, tres de las seis dejan de tener sentido y se
+                atenúan. Ponerlo debajo obligaría a leer y descartar unos
+                campos para enterarse después de que no aplicaban. */}
+            <Interruptor
+              etiqueta="El fichero solo trae lo que ha cambiado"
+              valor={perfil.fichero_parcial === true}
+              onChange={(v) => onPatch({ fichero_parcial: v })}
+              nota={
+                perfil.fichero_parcial
+                  ? 'Los tres frenos de volumen están apagados: en un fichero que un día trae 100 líneas y otro 500, «lo habitual» no existe y saltarían casi a diario. Siguen activos los dos que no dependen del tamaño: variación de precio y máximo de cambios.'
+                  : 'Enciéndelo si el cliente no manda su catálogo entero sino solo las referencias cuyo stock ha cambiado. Apaga los tres frenos que miden volumen, que en un fichero así saltan sin que pase nada.'
+              }
+            />
 
             {/*
               Dejar una casilla vacía apaga ese freno, y hasta ahora eso no lo

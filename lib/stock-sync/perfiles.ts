@@ -524,6 +524,7 @@ const CAMPOS_EDITABLES = new Set([
   'reserva_unidades',
   'stock_minimo',
   'max_unidades',
+  'fichero_parcial',
   'precio_modo',
   'margen_porcentaje',
   'iva_porcentaje',

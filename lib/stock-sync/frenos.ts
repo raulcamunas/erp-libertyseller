@@ -50,6 +50,44 @@ export interface UmbralesFreno {
   /** Número máximo de SKU que pueden cambiar de golpe */
   maxCambios: number | null
   /**
+   * EL FICHERO DE ESTE CLIENTE NO ES UN VOLCADO COMPLETO, ES UN DELTA.
+   *
+   * Trae solo las referencias cuyo stock ha cambiado, sacadas de un maestro
+   * mucho mayor: hoy 100 líneas, mañana 500, pasado 300. Ese vaivén es su
+   * funcionamiento NORMAL.
+   *
+   *
+   * ============ POR QUÉ ESTO APAGA TRES FRENOS ============
+   *
+   * Porque los tres miden VOLUMEN contra «lo habitual», y con un delta «lo
+   * habitual» no existe:
+   *
+   *   caída de líneas   -> 100 líneas donde ayer hubo 500 es un martes normal.
+   *   % que se va a cero-> el denominador son los SKU que el fichero resuelve.
+   *                        Con un delta de 3, dos a cero es el 67 %.
+   *   caída de unidades -> lo mismo: se mide sobre lo que toca este lote, y un
+   *                        lote de tres artículos no dice nada del catálogo.
+   *
+   * Los tres saltarían casi todos los días sin que pase nada malo. Y un freno
+   * que salta cuando todo va bien no protege: enseña a ignorarlo, y el día que
+   * salte de verdad nadie lo va a mirar. Eso es peor que no tenerlo.
+   *
+   *
+   * ============ LO QUE SIGUE PROTEGIENDO ============
+   *
+   * Los otros dos NO dependen del tamaño del fichero y se quedan:
+   *
+   *   variación de precio -> un precio que se mueve un 90 % está mal venga en
+   *                          un fichero de 3 líneas o de 3.000.
+   *   máximo de cambios   -> es un número absoluto. Si el delta normal mueve 30
+   *                          SKU y un día mueve 600, eso sí es una anomalía.
+   *
+   * Y el daño de un delta es pequeño por construcción: solo puede estropear las
+   * referencias que trae. Un volcado completo mal exportado vacía el catálogo
+   * entero; este, como mucho, se equivoca en las tres que menciona.
+   */
+  ficheroParcial: boolean
+  /**
    * Cuántas líneas trae este fichero un día normal. Sin esto el freno de caída
    * no puede saltar, porque no hay contra qué comparar: un perfil recién creado
    * no sabe todavía qué es «lo habitual» para ese cliente.
@@ -252,7 +290,15 @@ export function evaluarFrenos(entrada: EntradaFrenos): ResultadoFrenos {
  */
 function frenoCaidaLineas(entrada: EntradaFrenos): FrenoEvaluado {
   const codigo: StockBrakeCode = 'caida_lineas'
-  const { maxCaidaLineasPct, lineasReferencia } = entrada.umbrales
+  const { maxCaidaLineasPct, lineasReferencia, ficheroParcial } = entrada.umbrales
+
+  if (ficheroParcial) {
+    return noAplica(
+      codigo,
+      'el fichero de este cliente trae solo las referencias que han cambiado, así que el número ' +
+        'de líneas varía todos los días y no hay «lo habitual» contra lo que comparar'
+    )
+  }
 
   if (maxCaidaLineasPct === null) {
     return sinUmbral(codigo, 'este cliente no tiene puesto un límite de caída de líneas')
@@ -297,7 +343,15 @@ function frenoCaidaLineas(entrada: EntradaFrenos): FrenoEvaluado {
  */
 function frenoPctACero(entrada: EntradaFrenos): FrenoEvaluado {
   const codigo: StockBrakeCode = 'pct_a_cero'
-  const { maxPctACero } = entrada.umbrales
+  const { maxPctACero, ficheroParcial } = entrada.umbrales
+
+  if (ficheroParcial) {
+    return noAplica(
+      codigo,
+      'el fichero solo trae lo que ha cambiado, así que el porcentaje se calcularía sobre las pocas ' +
+        'referencias de este lote y no sobre el catálogo: dos de tres serían el 67 %'
+    )
+  }
 
   if (maxPctACero === null) {
     return sinUmbral(codigo, 'este cliente no tiene puesto un límite de referencias a cero')
@@ -360,7 +414,15 @@ function frenoPctACero(entrada: EntradaFrenos): FrenoEvaluado {
  */
 function frenoCaidaUnidades(entrada: EntradaFrenos): FrenoEvaluado {
   const codigo: StockBrakeCode = 'caida_unidades'
-  const { maxCaidaUnidadesPct } = entrada.umbrales
+  const { maxCaidaUnidadesPct, ficheroParcial } = entrada.umbrales
+
+  if (ficheroParcial) {
+    return noAplica(
+      codigo,
+      'el fichero solo trae lo que ha cambiado, así que la caída se mediría sobre los pocos SKU de ' +
+        'este lote y no dice nada del catálogo'
+    )
+  }
 
   if (maxCaidaUnidadesPct === null) {
     return sinUmbral(codigo, 'este cliente no tiene puesto un límite de caída de unidades')
@@ -648,6 +710,7 @@ export function umbralesDesdeFila(fila: StockReadProfile): UmbralesFreno {
     maxCaidaUnidadesPct: numeroONull(fila.freno_caida_unidades_pct),
     maxCambios: numeroONull(fila.freno_max_cambios),
     lineasReferencia: numeroONull(fila.lineas_referencia),
+    ficheroParcial: fila.fichero_parcial === true,
   }
 }
 
