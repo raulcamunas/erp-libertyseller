@@ -10,10 +10,11 @@ import { History, Upload } from 'lucide-react'
  * hecho el ERP en la cuenta de este cliente y qué valor cambió en cada SKU.
  *
  * «Subida manual» es la pantalla de antes —el volcado a mano y la tabla de
- * mapeo— y solo aparece para los clientes que tienen mapeo importado. Hoy eso
- * es uno. No se decide por su nombre sino por si el dato existe: el día que otro
- * importe su mapeo le sale sola, y el día que ese deje de usarla desaparece sin
- * tocar código.
+ * mapeo— y está SIEMPRE, para todos los clientes. Estuvo condicionada a que el
+ * cliente ya tuviera mapeo y era un agujero: el botón de importarlo vive ahí
+ * dentro, así que el que no tenía no podía crearlo. Y además es la salida
+ * mientras el sincronismo automático de un cliente no esté fino: con un cliente
+ * vendiendo no se puede esperar a que el conector funcione para trabajar.
  *
  * Este componente NO renderiza nada de las dos pantallas: las recibe ya
  * montadas por el servidor y solo enseña una. Así el panel de ejecuciones sigue

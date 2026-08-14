@@ -130,9 +130,10 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
    * algo que ya se estaba haciendo — y no contestaba la única pregunta que
    * importa: qué le ha hecho el ERP a esta cuenta.
    *
-   * La subida manual no se borra: se convierte en una segunda pestaña QUE SOLO
-   * SALE si el cliente tiene mapeo importado. Se decide por el dato y no por el
-   * nombre del cliente, para que no haya que tocar código cuando eso cambie.
+   * La subida manual NO SE BORRA y NO SE ESCONDE: pasa a ser la segunda pestaña,
+   * disponible para todos los clientes. Es la salida mientras el sincronismo
+   * automático de un cliente no esté fino, y con un cliente vendiendo no se
+   * puede esperar a que el conector funcione para poder trabajar.
    */
   const [ejecuciones, perfiles, conMapeo] = await Promise.all([
     ejecucionesDeCliente(clienteId),
@@ -154,23 +155,36 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
     />
   )
 
-  // Sin mapeo no hay segunda pestaña, y tampoco se cargan sus datos: el mapeo de
-  // un cliente grande son miles de filas paginadas de mil en mil. La consulta
-  // que no hace falta es la que no se hace.
-  if (!conMapeo) {
-    return <div className="flex flex-col h-full min-w-0">{panelEjecuciones}</div>
-  }
-
+  /**
+   * LA PESTAÑA DE SUBIDA MANUAL ESTÁ SIEMPRE. Nunca condicionada.
+   *
+   * Estuvo condicionada a que el cliente YA tuviera mapeo, y era un agujero:
+   * el botón de importar el mapeo vive dentro de esa pestaña, así que un cliente
+   * sin mapeo no tenía forma de crear el suyo. Justo el que más lo necesita —el
+   * que hoy cruza por referencia y casa el 27 %— era el que no podía.
+   *
+   * Y hay una segunda razón, que es la que la mantiene aquí a largo plazo:
+   * mientras el sincronismo automático de un cliente no esté fino, subir el
+   * fichero a mano es la salida. Quitarla obliga a esperar a que el conector
+   * funcione para poder trabajar, y eso no es una opción con un cliente
+   * vendiendo.
+   *
+   * Lo que SÍ sigue siendo condicional es CARGAR el mapeo: son miles de filas
+   * paginadas de mil en mil. Si el cliente no tiene, se pasa vacío y la tabla
+   * sale con su botón de importar, que es exactamente lo que hace falta.
+   */
   const [mappings, runs] = await Promise.all([
-    fetchAll<StockMapping>((from, to) =>
-      supabase
-        .from('stock_mappings')
-        .select('*')
-        .eq('client_id', clienteId)
-        .order('sku_amazon')
-        .order('id')
-        .range(from, to)
-    ),
+    conMapeo
+      ? fetchAll<StockMapping>((from, to) =>
+          supabase
+            .from('stock_mappings')
+            .select('*')
+            .eq('client_id', clienteId)
+            .order('sku_amazon')
+            .order('id')
+            .range(from, to)
+        )
+      : Promise.resolve([] as StockMapping[]),
     supabase
       .from('stock_runs')
       .select('*')
