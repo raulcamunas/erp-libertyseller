@@ -140,6 +140,48 @@ export async function cambiosDeEjecucion(
   return (data ?? []) as AmazonSubmission[]
 }
 
+/** El estado VIVO de un perfil: qué está pasando ahora, no qué pasó */
+export interface EstadoPerfil {
+  id: string
+  name: string
+  is_active: boolean
+  envio_automatico: boolean
+  cadencia_minutos: number | null
+  last_run_at: string | null
+  last_ok_at: string | null
+  last_error: string | null
+  last_skipped_at: string | null
+  last_skip_reason: string | null
+}
+
+/**
+ * QUÉ ESTÁ PASANDO AHORA MISMO, que no es lo mismo que el historial.
+ *
+ * Y hace falta por un motivo concreto que costó una confusión: cuando un fallo
+ * SE REPITE IGUAL, el ciclo lo reintenta en cada pasada pero NO escribe una fila
+ * nueva —si no, con cadencia de quince minutos serían 96 filas idénticas al día
+ * y el historial no contendría otra cosa—. Correcto para el historial, pero deja
+ * la pantalla en un estado ambiguo: «no salen filas nuevas» y «se ha parado» se
+ * ven exactamente igual, y lo primero que piensa quien lo mira es lo segundo.
+ *
+ * Estas columnas del perfil son las que sí se mueven en cada pasada, y son la
+ * prueba de que el ciclo sigue entrando.
+ */
+export async function estadoDePerfiles(clientId: string): Promise<EstadoPerfil[]> {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('stock_read_profiles')
+    .select(
+      'id, name, is_active, envio_automatico, cadencia_minutos, last_run_at, last_ok_at, last_error, last_skipped_at, last_skip_reason'
+    )
+    .eq('client_id', clientId)
+    .eq('tipo', 'stock')
+    .order('name')
+
+  if (error) throw error
+  return (data ?? []) as EstadoPerfil[]
+}
+
 /**
  * Si este cliente tiene tabla de mapeo importada a mano.
  *

@@ -4,7 +4,11 @@ import { createClient } from '@/lib/supabase/server'
 import { StockSyncBoard } from '@/components/growth/stock-sync/StockSyncBoard'
 import { PanelEjecuciones } from '@/components/growth/stock-sync/PanelEjecuciones'
 import { PestanasStockSync } from '@/components/growth/stock-sync/PestanasStockSync'
-import { ejecucionesDeCliente, tieneMapeoManual } from '@/lib/growth/ejecuciones'
+import {
+  ejecucionesDeCliente,
+  estadoDePerfiles,
+  tieneMapeoManual,
+} from '@/lib/growth/ejecuciones'
 import type { StockMapping, StockRun } from '@/lib/types/stock-sync'
 import { Vacio } from '@/components/plataforma/comun'
 import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
@@ -130,8 +134,12 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
    * SALE si el cliente tiene mapeo importado. Se decide por el dato y no por el
    * nombre del cliente, para que no haya que tocar código cuando eso cambie.
    */
-  const [ejecuciones, conMapeo] = await Promise.all([
+  const [ejecuciones, perfiles, conMapeo] = await Promise.all([
     ejecucionesDeCliente(clienteId),
+    // El estado VIVO de cada perfil. No es lo mismo que el historial: cuando un
+    // fallo se repite igual, el ciclo lo reintenta pero no escribe fila, y sin
+    // esto la pantalla parece parada. Ver estadoDePerfiles().
+    estadoDePerfiles(clienteId),
     tieneMapeoManual(clienteId),
   ])
 
@@ -141,6 +149,7 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
       clientId={clienteId}
       clientName={cliente.nombre}
       ejecuciones={ejecuciones}
+      perfiles={perfiles}
       className="flex-1 min-h-0 min-w-0"
     />
   )

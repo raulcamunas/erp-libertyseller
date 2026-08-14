@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   History,
   Loader2,
+  RefreshCw,
   Search,
 } from 'lucide-react'
 import {
@@ -59,7 +60,20 @@ export interface PanelEjecucionesProps {
   clientId: string
   clientName: string
   ejecuciones: EjecucionVista[]
+  /** El estado VIVO de cada perfil. Ver la nota de EstadoAhora() */
+  perfiles?: EstadoPerfilVista[]
   className?: string
+}
+
+export interface EstadoPerfilVista {
+  id: string
+  name: string
+  is_active: boolean
+  envio_automatico: boolean
+  cadencia_minutos: number | null
+  last_run_at: string | null
+  last_error: string | null
+  last_skip_reason: string | null
 }
 
 /** Lo que esta pantalla necesita de una fila de stock_profile_runs */
@@ -102,6 +116,96 @@ const ESTADO_SUBMISSION_COLOR: Record<AmazonSubmissionStatus, string> = {
   error: 'text-red-300',
 }
 
+/** «hace 4 min», «hace 2 h». null si nunca */
+function hace(iso: string | null): string | null {
+  if (!iso) return null
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000))
+  if (min < 1) return 'hace nada'
+  if (min < 60) return `hace ${min} min`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `hace ${h} h`
+  return `hace ${Math.floor(h / 24)} días`
+}
+
+/**
+ * LA FRANJA QUE DICE QUE ESTO SIGUE VIVO.
+ *
+ * Existe por una confusión concreta y muy razonable: cuando un fallo SE REPITE
+ * IGUAL, el ciclo lo reintenta en cada pasada pero NO escribe una fila nueva —si
+ * no, con cadencia de quince minutos serían 96 filas idénticas al día y el
+ * historial no contendría otra cosa—. Visto desde la pantalla, «no salen filas
+ * nuevas» y «se ha parado» son indistinguibles, y lo primero que piensa
+ * cualquiera es lo segundo.
+ *
+ * Así que se dice con todas las letras: última pasada, cada cuánto entra, y si
+ * está reintentando algo. El dato sale de las columnas del perfil, que sí se
+ * mueven en cada pasada aunque no se escriba historial.
+ */
+function EstadoAhora({ perfiles }: { perfiles: EstadoPerfilVista[] }) {
+  if (perfiles.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-1.5 flex-shrink-0">
+      {perfiles.map((p) => {
+        const ultima = hace(p.last_run_at)
+        const reintentando = Boolean(p.last_error)
+        return (
+          <div
+            key={p.id}
+            className={`rounded-xl border px-3 py-2 text-[11px] ${
+              !p.is_active
+                ? 'border-white/10 bg-white/[0.02]'
+                : reintentando
+                  ? 'border-yellow-500/25 bg-yellow-400/[0.05]'
+                  : 'border-green-400/20 bg-green-400/[0.04]'
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="flex items-center gap-1.5 text-white/80 font-medium">
+                {!p.is_active ? (
+                  <Ban className="h-3 w-3 text-white/30" />
+                ) : reintentando ? (
+                  <RefreshCw className="h-3 w-3 text-yellow-400" />
+                ) : (
+                  <CheckCircle2 className="h-3 w-3 text-green-400" />
+                )}
+                {p.name}
+              </span>
+
+              {!p.is_active ? (
+                <span className="text-white/40">Perfil apagado: no se lee ni se procesa.</span>
+              ) : (
+                <>
+                  <span className="text-white/50">
+                    {ultima ? `Última pasada ${ultima}` : 'Todavía no ha entrado ninguna pasada'}
+                  </span>
+                  {p.cadencia_minutos && (
+                    <span className="text-white/40">· entra cada {p.cadencia_minutos} min</span>
+                  )}
+                  <span className={p.envio_automatico ? 'text-white/40' : 'text-white/40'}>
+                    · {p.envio_automatico ? 'envía solo' : 'solo simulacro, no envía'}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* EL MENSAJE COMPLETO, no cortado. Es el que dice qué hay que
+                hacer, y esconderlo detrás de puntos suspensivos obliga a ir a
+                buscarlo a otra pantalla. */}
+            {p.is_active && reintentando && (
+              <p className="mt-1 text-yellow-200/80 leading-relaxed">
+                <strong className="text-yellow-200">Sigue reintentando</strong> en cada pasada. No
+                se escribe una fila nueva mientras el fallo sea el mismo, para que el historial no
+                se llene de la misma línea. El último fue: {p.last_error}
+              </p>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /** «1,4 s» o «2 min 10 s». Un número en milisegundos no lo lee nadie */
 function duracion(ms: number | null): string {
   if (ms == null) return '—'
@@ -129,6 +233,7 @@ export function PanelEjecuciones({
   clientId,
   clientName,
   ejecuciones,
+  perfiles = [],
   className = '',
 }: PanelEjecucionesProps) {
   // La primera de la lista viene abierta: es la que se viene a mirar.
@@ -221,9 +326,9 @@ export function PanelEjecuciones({
 
   if (ejecuciones.length === 0) {
     return (
-      <div
-        className={`rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col items-center justify-center gap-2 px-6 text-center ${className}`}
-      >
+      <div className={`flex flex-col gap-2 min-h-0 ${className}`}>
+        <EstadoAhora perfiles={perfiles} />
+        <div className="flex-1 rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col items-center justify-center gap-2 px-6 text-center">
         <History className="h-6 w-6 text-white/20" />
         <p className="text-[13px] text-white/40">
           Todavía no hay ninguna ejecución de {clientName}.
@@ -232,12 +337,15 @@ export function PanelEjecuciones({
           El ciclo entra cada quince minutos. Si lleva tiempo sin aparecer nada, mira que su origen
           esté configurado y activo en Amazon API · Origen.
         </p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className={`flex flex-col min-h-0 gap-2 ${className}`}>
+      <EstadoAhora perfiles={perfiles} />
+
       {/* Control de un vistazo */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
         {[
