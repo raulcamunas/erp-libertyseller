@@ -45,6 +45,8 @@ import {
   type LecturaStock,
 } from './lector'
 import { conectorDe, OrigenError, type FicheroOrigen } from './origenes'
+import { textoConfig } from './origenes/tipos'
+import { segundoAdjunto } from './origenes/correo'
 import { loadPerfilEan, marcarPerfil, registrarRun } from './perfiles'
 import { aplicarReglas, reglasDesdeFila, type ResultadoReglas } from './reglas'
 import { umbralesDesdeFila } from './frenos'
@@ -292,7 +294,7 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
     const aplicadas = aplicarReglas(lectura.lineas, reglas, ahora)
 
     // ---------- 4) Los códigos de barras, si los hay ----------
-    const ean = await construirEanIndex(perfil, opciones.subidaEan ?? null)
+    const ean = await construirEanIndex(perfil, opciones.subidaEan ?? null, fichero.idExterno)
 
     // ---------- 5) El espejo del catálogo de Amazon ----------
     // Va ANTES del cruce porque cuando el cliente no tiene tabla de mapeo es el
@@ -728,9 +730,64 @@ function columnasEncontradas(
  */
 async function construirEanIndex(
   perfil: StockReadProfile,
-  subidaEan: SubidaManual | null
+  subidaEan: SubidaManual | null,
+  /** El correo del que salió el volcado, si vino de un buzón. Ver abajo */
+  correoId: string | null
 ): Promise<{ indice: EanIndex | null; avisos: string[] }> {
+  /**
+   * PRIMERO: ¿VIENEN LOS DOS EN EL MISMO CORREO?
+   *
+   * Es el caso de un cliente que manda el volcado de stock y el de códigos de
+   * barras adjuntos al mismo mensaje, tres veces por semana. Se resuelve aquí y
+   * no con un segundo perfil por un motivo que no es de comodidad: con dos
+   * perfiles, cada uno busca su correo por su cuenta y pueden acabar cogiendo
+   * mensajes de DÍAS DISTINTOS. Cruzar el stock del lunes con los EAN del
+   * viernes casa referencias que ya no se corresponden, y no lo delata nada.
+   *
+   * Con el id del correo delante eso es imposible: los dos adjuntos salen del
+   * mismo mensaje o no sale ninguno.
+   *
+   * Una subida a mano manda sobre esto: si alguien ha traído el fichero de EAN
+   * desde la pantalla, es el que quiere usar.
+   */
+  const patronEan = textoConfig(
+    (perfil.origen_config ?? {}) as Record<string, unknown>,
+    'adjunto_ean'
+  )
+  if (perfil.origen === 'correo' && patronEan && correoId && !subidaEan) {
+    try {
+      const adjunto = await segundoAdjunto(
+        (perfil.origen_config ?? {}) as Record<string, unknown>,
+        correoId,
+        patronEan,
+        MAX_FICHERO_BYTES
+      )
+      if (adjunto) {
+        const lectura = leerEan(adjunto.bytes, perfilDesdeFila(perfilEanDelMismoCorreo(perfil)))
+        return { indice: lectura.indice, avisos: lectura.avisos }
+      }
+      return {
+        indice: null,
+        avisos: [
+          `El correo del que ha salido el volcado no trae ningún adjunto que encaje con ` +
+            `«${patronEan}», así que el cruce va SIN la vía por EAN del ERP. Comprueba que el ` +
+            'cliente sigue mandando los dos ficheros en el mismo mensaje.',
+        ],
+      }
+    } catch (error) {
+      const motivo = error instanceof Error ? error.message : 'error desconocido'
+      return {
+        indice: null,
+        avisos: [
+          `No se ha podido leer el adjunto de códigos de barras del mismo correo (${motivo.split('\n')[0]}). ` +
+            'El cruce ha ido SIN la vía por EAN del ERP.',
+        ],
+      }
+    }
+  }
+
   const perfilEan = await loadPerfilEan(perfil.client_id)
+
   if (!perfilEan) {
     return {
       indice: null,
@@ -786,6 +843,23 @@ async function construirEanIndex(
       ],
     }
   }
+}
+
+/**
+ * El MISMO perfil, leído como si fuera el de códigos de barras.
+ *
+ * Cuando los dos ficheros vienen en el mismo correo no hay un segundo perfil de
+ * donde sacar la configuración, así que se usa la de este: las columnas de EAN
+ * y de Tipo ya son campos suyos —están en la tabla desde el principio, aunque
+ * un perfil de stock no las use— y las de referencia sirven para los dos, que
+ * en la práctica es la misma columna del ERP del cliente.
+ *
+ * LA HOJA SE VACÍA A PROPÓSITO. Es lo único que casi seguro difiere entre los
+ * dos ficheros, y con el nombre puesto el segundo no abriría. Vacío significa
+ * «búscala por las columnas», que es lo que se recomienda de todas formas.
+ */
+function perfilEanDelMismoCorreo(perfil: StockReadProfile): StockReadProfile {
+  return { ...perfil, tipo: 'ean', hoja: null, hoja_indice: null }
 }
 
 /* ------------------------------------------------------------------ */

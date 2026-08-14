@@ -134,6 +134,15 @@ export const conectorCorreo: ConectorOrigen = {
       ejemplo: 'STOCK_*.csv',
     },
     {
+      clave: 'adjunto_ean',
+      etiqueta: 'Patrón del segundo adjunto (códigos de barras)',
+      tipo: 'texto',
+      requerido: false,
+      ayuda:
+        'Solo si el cliente manda LOS DOS ficheros EN EL MISMO CORREO. Con esto, el de códigos de barras se saca de ese mismo mensaje y no hace falta un segundo perfil. Vacío = el fichero de EAN se busca donde diga su propio perfil, o no se usa.',
+      ejemplo: 'ARTICULOS_EAN*',
+    },
+    {
       clave: 'dias',
       etiqueta: 'Días hacia atrás',
       tipo: 'texto',
@@ -650,6 +659,55 @@ function filaDe(
     elegido,
     descarte,
   }
+}
+
+/**
+ * EL SEGUNDO ADJUNTO DEL MISMO CORREO.
+ *
+ * Un cliente manda los dos ficheros —el volcado de stock y el de códigos de
+ * barras— EN EL MISMO MENSAJE, tres veces por semana. Con dos perfiles cada uno
+ * buscaría su correo por su cuenta, y ahí hay un fallo que no da ningún error:
+ * pueden acabar cogiendo mensajes de DÍAS DISTINTOS. El stock del lunes cruzado
+ * con los EAN del viernes casa referencias que ya no son las mismas, y no lo
+ * delata nada.
+ *
+ * Pasando el id del correo del que salió el fichero de stock, esto es imposible
+ * por construcción: los dos adjuntos vienen del mismo mensaje o no vienen.
+ *
+ * Devuelve null cuando ese correo no trae ningún adjunto que encaje. No es un
+ * error: quien llama sigue sin la vía por EAN y lo dice en los avisos, igual que
+ * cuando el cliente no tiene fichero de códigos de barras.
+ */
+export async function segundoAdjunto(
+  config: Record<string, unknown>,
+  correoId: string,
+  patron: string,
+  maxBytes: number
+): Promise<{ nombre: string; bytes: Uint8Array } | null> {
+  if (!configurado() || !correoId || !patron.trim()) return null
+
+  const cfg = leerConfig({ config, perfil: '', maxBytes })
+  const correo = await leerCorreo(cfg, correoId)
+  if (!correo) return null
+
+  const candidatos = correo.adjuntos.filter(
+    (a) => encajaPatron(a.nombre, patron) && extensionValida(a.nombre)
+  )
+  // El más reciente no significa nada dentro de un correo, así que se coge el
+  // primero que encaje: si hay dos que encajan, el patrón está mal escrito y
+  // elegir por tamaño o por orden sería adivinar.
+  const elegido = candidatos[0]
+  if (!elegido) return null
+
+  if (elegido.tamano > maxBytes) {
+    throw new OrigenError(
+      `El adjunto de códigos de barras «${elegido.nombre}» ocupa ${mb(elegido.tamano)} MB y el máximo son ${mb(maxBytes)} MB.`
+    )
+  }
+
+  const bytes = new Uint8Array(await bajarAdjunto(cfg, correoId, elegido.id))
+  if (bytes.byteLength === 0) return null
+  return { nombre: elegido.nombre, bytes }
 }
 
 async function bajarAdjunto(
