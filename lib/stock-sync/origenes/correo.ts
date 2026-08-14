@@ -329,6 +329,8 @@ interface ConfigCorreo {
   remitente: string
   asunto: string
   adjunto: string
+  /** Patrón del SEGUNDO adjunto: el de códigos de barras. '' = no hay */
+  adjuntoEan: string
   dias: number
 }
 
@@ -342,6 +344,7 @@ function leerConfig(ctx: ContextoOrigen): ConfigCorreo {
     remitente: textoConfig(ctx.config, 'remitente'),
     asunto: textoConfig(ctx.config, 'asunto'),
     adjunto: textoConfig(ctx.config, 'adjunto'),
+    adjuntoEan: textoConfig(ctx.config, 'adjunto_ean'),
     dias: Number.isFinite(dias) && dias > 0 && dias <= 90 ? dias : DIAS_POR_OMISION,
   }
 }
@@ -595,6 +598,30 @@ function clasificar(
     for (const adjunto of correo.adjuntos) {
       let descarte: string | null = null
 
+      /**
+       * EL SEGUNDO ADJUNTO TAMBIÉN SE COGE, Y LA LISTA TIENE QUE DECIRLO.
+       *
+       * Esta comprobación va la PRIMERA de todas porque, sin ella, el fichero
+       * de códigos de barras aparecía marcado como «No encaja con el patrón
+       * ARTICULOS_STOCK*» — o sea, la pantalla decía justo lo contrario de lo
+       * que iba a pasar: ese adjunto SÍ se coge, por el otro patrón. Una vista
+       * previa que contradice al motor es peor que no tener vista previa,
+       * porque manda a corregir algo que está bien.
+       */
+      const esElSegundo =
+        remitenteOk &&
+        asuntoOk &&
+        cfg.adjuntoEan !== '' &&
+        encajaPatron(adjunto.nombre, cfg.adjuntoEan) &&
+        extensionValida(adjunto.nombre)
+
+      if (esElSegundo) {
+        candidatos.push(
+          filaDe(correo, adjunto.nombre, adjunto.tamano, null, true, 'códigos de barras')
+        )
+        continue
+      }
+
       if (!remitenteOk) {
         descarte = `Lo mandó ${direccionDe(correo.de) || correo.de}, no «${cfg.remitente}»`
       } else if (!asuntoOk) {
@@ -614,7 +641,8 @@ function clasificar(
           adjunto.nombre,
           adjunto.tamano,
           descarte ?? (bueno ? null : 'Hay otro correo más reciente que también encaja'),
-          bueno
+          bueno,
+          bueno && cfg.adjuntoEan !== '' ? 'stock' : null
         )
       )
     }
@@ -644,7 +672,9 @@ function filaDe(
   nombre: string,
   tamano: number | null,
   descarte: string | null,
-  elegido = false
+  elegido = false,
+  /** Para qué se coge: 'stock' o 'códigos de barras'. Solo cuando hay dos */
+  papel: string | null = null
 ): CandidatoOrigen {
   return {
     // EL REMITENTE VA EN LA FILA porque en un buzón el fichero solo se entiende
@@ -658,6 +688,9 @@ function filaDe(
     tamano,
     elegido,
     descarte,
+    // Con dos adjuntos elegidos, «se cogería este» a secas no distingue cuál es
+    // cuál. La nota dice el papel de cada uno.
+    nota: papel ? `se coge como el fichero de ${papel}` : null,
   }
 }
 
