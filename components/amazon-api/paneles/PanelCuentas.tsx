@@ -11,6 +11,7 @@ import {
   CircleSlash,
   Link2,
   Loader2,
+  Megaphone,
   MousePointerClick,
   Plug,
   RefreshCw,
@@ -169,7 +170,58 @@ interface RespuestaClasificacion {
   avisoMigracion?: string
 }
 
+/** Lo que esta pantalla necesita saber de la conexión de publicidad de un cliente */
+interface AdsDeCliente {
+  conectada: boolean
+  perfiles: number
+  sinAsignar: number
+}
+
 export function PanelCuentas({ data, onData, configError, appDraft }: PropsPanel) {
+  /**
+   * EL ESTADO DE PUBLICIDAD, PEDIDO APARTE.
+   *
+   * Son dos autorizaciones distintas del mismo cliente —Selling Partner para el
+   * catálogo y Advertising para las campañas— con aplicaciones, permisos y
+   * ciclos de vida independientes. Aquí se juntan en la misma fila porque para
+   * quien trabaja son «las conexiones de este cliente», que es justo lo que
+   * faltaba: dar de alta un cliente una vez y conectarle lo que haga falta.
+   *
+   * Se pide en una llamada suya y no se mete en `AmazonView`: ese objeto lo
+   * carga la carcasa en CADA visita a Amazon API para las nueve pestañas, y las
+   * otras ocho no lo usan.
+   */
+  const [ads, setAds] = useState<Record<string, AdsDeCliente>>({})
+
+  useEffect(() => {
+    let cancelado = false
+    fetch('/api/ads/estado')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((payload) => {
+        if (cancelado || !payload?.clientes) return
+        const mapa: Record<string, AdsDeCliente> = {}
+        for (const c of payload.clientes as Array<{
+          id: string
+          conexion: unknown | null
+          perfiles: Array<{ en_uso: boolean; cliente_id: string | null }>
+        }>) {
+          mapa[c.id] = {
+            conectada: c.conexion !== null,
+            perfiles: c.perfiles.length,
+            sinAsignar: c.perfiles.filter((p) => p.cliente_id === null).length,
+          }
+        }
+        setAds(mapa)
+      })
+      .catch(() => {
+        // Que no se pueda leer el estado de publicidad no puede tumbar la
+        // pantalla de cuentas, que es la que de verdad se viene a usar.
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [])
+
   const [alta, setAlta] = useState(false)
   const [enlace, setEnlace] = useState<{ clientId?: string } | null>(null)
   const [desconectar, setDesconectar] = useState<AmazonConnection | null>(null)
@@ -458,6 +510,7 @@ export function PanelCuentas({ data, onData, configError, appDraft }: PropsPanel
                   puedeConectar={!sinConfigurar}
                   reintentando={reintentando}
                   onClasificar={(cambio) => clasificar(cliente, cambio)}
+                  ads={ads[cliente.id] ?? null}
                   onConectar={() => setEnlace({ clientId: cliente.id })}
                   onBorrar={() => setBorrando(cliente)}
                   onDesconectar={setDesconectar}
@@ -530,6 +583,7 @@ function FilasCliente({
   guardando,
   puedeConectar,
   reintentando,
+  ads,
   onClasificar,
   onConectar,
   onBorrar,
@@ -543,6 +597,8 @@ function FilasCliente({
   guardando: boolean
   puedeConectar: boolean
   reintentando: string | null
+  /** null mientras se carga o si no se ha podido leer */
+  ads: AdsDeCliente | null
   onClasificar: (cambio: { modelo?: ModeloNegocio; politica?: PoliticaBsr }) => void
   onConectar: () => void
   onBorrar: () => void
@@ -686,6 +742,50 @@ function FilasCliente({
           />
         ))
       )}
+
+      {/* PUBLICIDAD, en su propia línea y siempre visible.
+          Un cliente sin Ads conectada tiene que verlo aquí, en la misma fila
+          donde ve lo demás: es la pregunta «¿qué le falta a este cliente?», y
+          esconderla en otra pestaña la deja sin contestar. */}
+      <tr>
+        <td colSpan={5} className={`${TABLA.celda} pl-[18px] ${TEXTO.t4}`}>
+          <span className={ESTADO.linea}>
+            <Megaphone
+              className={ESTADO.icono}
+              style={{ color: ads?.conectada ? COLOR_ESTADO.verde : COLOR_ESTADO.gris }}
+            />
+            {!ads ? (
+              'Publicidad · comprobando…'
+            ) : !ads.conectada ? (
+              <>
+                Publicidad · sin conectar
+                <a
+                  href="/dashboard/amazon-api?p=publicidad"
+                  className="underline underline-offset-2 hover:text-[var(--ls-t1)]"
+                >
+                  Conectar Amazon Ads
+                </a>
+              </>
+            ) : (
+              <>
+                Publicidad · {ads.perfiles}{' '}
+                {ads.perfiles === 1 ? 'cuenta de anunciante' : 'cuentas de anunciante'}
+                {ads.sinAsignar > 0 && (
+                  <span style={{ color: COLOR_ESTADO.ambar }}>
+                    · {ads.sinAsignar} sin asignar a ningún cliente
+                  </span>
+                )}
+                <a
+                  href="/dashboard/amazon-api?p=publicidad"
+                  className="underline underline-offset-2 hover:text-[var(--ls-t1)]"
+                >
+                  Gestionar
+                </a>
+              </>
+            )}
+          </span>
+        </td>
+      </tr>
     </Fragment>
   )
 }
