@@ -276,11 +276,11 @@ export function MarketingApiBoard({
                               ámbar cuando falta. */}
                           <td className="py-1">
                             <select
-                              value={p.marketing_client_id ?? ''}
+                              value={p.cliente_id ?? ''}
                               onChange={(e) => asignar(p, e.target.value)}
                               title={p.tipo ? `Cuenta de tipo ${p.tipo}` : undefined}
                               className={`h-6 rounded-md border bg-white/[0.03] px-1.5 text-[11px] outline-none focus:border-[#FF6600] transition-colors cursor-pointer max-w-[150px] ${
-                                p.marketing_client_id
+                                p.cliente_id
                                   ? 'border-white/10 text-white/80'
                                   : 'border-yellow-500/40 text-yellow-300/80'
                               }`}
