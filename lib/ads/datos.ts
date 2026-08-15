@@ -419,3 +419,71 @@ export async function perfilParaLlamar(
     enUso: data.en_uso === true,
   }
 }
+
+/** Una cuenta de anunciante lista para trabajar: encendida y con cliente */
+export interface CuentaDeTrabajo {
+  perfilId: string
+  conexionId: string
+  profileId: number
+  nombre: string
+  pais: string | null
+  moneda: string | null
+  region: RegionAds
+  clienteId: string
+  clienteNombre: string
+}
+
+/**
+ * LAS CUENTAS SOBRE LAS QUE SE PUEDE TRABAJAR.
+ *
+ * Los DOS filtros son obligatorios y cada uno tapa un agujero distinto:
+ *
+ *   en_uso     -> alguien ha dicho que esta cuenta se trabaja. Sin esto saldrían
+ *                 también las de encargos viejos a los que el correo autorizado
+ *                 sigue llegando.
+ *   cliente_id -> se sabe de quién es. Sin esto, el gasto de un anunciante se
+ *                 enseñaría bajo el cliente donde se pulsó «Conectar», que puede
+ *                 ser otro — y eso es lo que el acuerdo con Amazon prohíbe.
+ *
+ * Una cuenta que no cumpla las dos no aparece en ningún sitio de Marketing. No
+ * es que se vea vacía: no se ofrece.
+ */
+export async function cuentasDeTrabajo(): Promise<CuentaDeTrabajo[]> {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('ads_profiles')
+    .select(
+      'id, profile_id, nombre, pais, moneda, connection_id, cliente_id, ' +
+        'ads_connections!inner(region), clientes!inner(nombre)'
+    )
+    .eq('en_uso', true)
+    .not('cliente_id', 'is', null)
+    .order('pais')
+
+  if (error) throw error
+
+  // Doble conversión: con el `!inner` del select, los tipos generados de
+  // Supabase no saben resolver la forma de la relación y la marcan como error.
+  // El dato es correcto — lo que no sabe es describirlo.
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((f) => {
+    // PostgREST devuelve el objeto o un array de uno según cómo interprete la
+    // relación, y eso ha cambiado entre versiones. Se aceptan las dos formas.
+    const uno = <T,>(v: unknown): T | null =>
+      Array.isArray(v) ? ((v[0] as T) ?? null) : ((v as T) ?? null)
+
+    const conn = uno<{ region: RegionAds }>(f.ads_connections)
+    const cli = uno<{ nombre: string }>(f.clientes)
+
+    return {
+      perfilId: f.id as string,
+      conexionId: f.connection_id as string,
+      profileId: Number(f.profile_id),
+      nombre: (f.nombre as string | null) ?? String(f.profile_id),
+      pais: (f.pais as string | null) ?? null,
+      moneda: (f.moneda as string | null) ?? null,
+      region: conn?.region ?? 'eu',
+      clienteId: f.cliente_id as string,
+      clienteNombre: cli?.nombre ?? '—',
+    }
+  })
+}
