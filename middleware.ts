@@ -237,6 +237,26 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/marketing-api - Solo admin
+      //
+      // Desde aquí se autoriza el acceso a la cuenta de PUBLICIDAD de un
+      // cliente y se guardan sus refresh tokens. El mismo listón que Amazon
+      // API: ni employees ni partners. El filtro de verdad son las políticas
+      // RLS de la migración 148 —ads_connections no tiene NINGUNA, así que con
+      // la clave anónima no se lee ni una fila— y el redirect del propio
+      // page.tsx, que corre en el servidor. Esto evita el viaje.
+      //
+      // El id 'marketing-api' tiene que coincidir letra por letra con
+      // lib/config/apps.ts y con APPS_SOLO_ADMIN. Si baila en uno, el módulo
+      // queda invisible sin dar ningún error.
+      if (pathname.startsWith('/dashboard/marketing-api')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/growth - Solo admin
       // Growth Partner: el trabajo sobre la cuenta de un cliente —sincronismo
       // de stock, Buy Box, FBM→FBA—. Desde ahí se ven los catálogos y los
