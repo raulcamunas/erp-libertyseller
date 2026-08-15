@@ -15,7 +15,7 @@
  * ============ EL `state` NO ES BUROCRACIA ============
  *
  * Es lo único que garantiza que la vuelta corresponde a una ida NUESTRA. Sin
- * comprobarlo, cualquiera puede llamar a `/api/ads/callback` con un `code`
+ * comprobarlo, cualquiera puede llamar a `/api/ads/oauth/callback` con un `code`
  * conseguido por su cuenta y dejar SU cuenta de anunciante conectada al cliente
  * que elija. A partir de ahí, todo lo que el ERP creyera estar haciendo sobre la
  * cuenta de ese cliente lo estaría haciendo sobre la del atacante.

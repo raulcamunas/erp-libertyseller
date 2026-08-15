@@ -78,7 +78,11 @@ export const SCOPE_ADS = 'advertising::campaign_management'
 export function urlDeVuelta(): string {
   return (
     process.env.AMAZON_ADS_REDIRECT_URI?.trim() ||
-    'https://app.libertyseller.com/api/ads/callback'
+    // El `/oauth/` del medio no es capricho: es la que ya está registrada en la
+    // consola de Login with Amazon. La ruta del ERP se movió para encajar con
+    // ella en vez de al revés — cambiar la de Amazon obliga a esperar a que se
+    // propague, y esa espera se confunde con «sigue sin funcionar».
+    'https://app.libertyseller.com/api/ads/oauth/callback'
   )
 }
 
