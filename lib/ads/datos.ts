@@ -96,27 +96,44 @@ export async function guardarConexion(params: {
   return data.id as string
 }
 
-export async function leerConexion(clienteId: string): Promise<ConexionAds | null> {
+/**
+ * TODAS las conexiones de un cliente, UNA POR REGIÓN.
+ *
+ * Y son varias de verdad, no una posibilidad teórica: las cuentas de anunciante
+ * de Europa y las de Norteamérica viven en SERVIDORES DISTINTOS de Amazon
+ * —advertising-api-eu y advertising-api— y cada uno pide su propia
+ * autorización. Un token europeo no lee las cuentas de Estados Unidos.
+ *
+ * Se vio con el primer cliente real: en la consola de Amazon tenía diez cuentas
+ * y el ERP traía tres. No faltaba ninguna — las otras siete eran de la región
+ * americana, que no se había conectado.
+ *
+ * Esto devolvía UNA sola conexión y por eso ese cliente parecía tenerlo todo
+ * cuando le faltaban dos tercios.
+ */
+export async function leerConexiones(clienteId: string): Promise<ConexionAds[]> {
   const service = createServiceClient()
   const { data, error } = await service
     .from('ads_connections')
     .select('id, client_id, region, estado, ultimo_error, conectado_at, ultimo_uso_at')
     .eq('client_id', clienteId)
-    .order('conectado_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .order('region')
 
   if (error) throw error
-  if (!data) return null
-  return {
-    id: data.id as string,
-    clientId: data.client_id as string,
-    region: (data.region as RegionAds) ?? 'eu',
-    estado: data.estado as ConexionAds['estado'],
-    ultimoError: (data.ultimo_error as string | null) ?? null,
-    conectadoAt: data.conectado_at as string,
-    ultimoUsoAt: (data.ultimo_uso_at as string | null) ?? null,
-  }
+  return ((data ?? []) as Array<Record<string, unknown>>).map((d) => ({
+    id: d.id as string,
+    clientId: d.client_id as string,
+    region: (d.region as RegionAds) ?? 'eu',
+    estado: d.estado as ConexionAds['estado'],
+    ultimoError: (d.ultimo_error as string | null) ?? null,
+    conectadoAt: d.conectado_at as string,
+    ultimoUsoAt: (d.ultimo_uso_at as string | null) ?? null,
+  }))
+}
+
+/** La primera que haya. Solo para quien de verdad no necesita saber la región */
+export async function leerConexion(clienteId: string): Promise<ConexionAds | null> {
+  return (await leerConexiones(clienteId))[0] ?? null
 }
 
 /* ------------------------------------------------------------------ */

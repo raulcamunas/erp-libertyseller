@@ -4,7 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { faltaConfigurar, urlDeVuelta } from '@/lib/ads/config'
 import {
   clientesDeMarketing,
-  leerConexion,
+  leerConexiones,
   listarPerfiles,
   type ConexionAds,
   type PerfilAds,
@@ -36,14 +36,17 @@ export async function GET() {
     const clientes: Array<{
       id: string
       nombre: string
-      conexion: ConexionAds | null
-      perfiles: PerfilAds[]
+      /** UNA POR REGIÓN. Europa y Norteamérica son autorizaciones distintas */
+      conexiones: Array<ConexionAds & { perfiles: PerfilAds[] }>
     }> = []
 
     for (const fila of (filas ?? []) as Array<{ id: string; name: string }>) {
-      const conexion = await leerConexion(fila.id)
-      const perfiles = conexion ? await listarPerfiles(conexion.id) : []
-      clientes.push({ id: fila.id, nombre: fila.name, conexion, perfiles })
+      const conexiones = await leerConexiones(fila.id)
+      const conPerfiles = []
+      for (const c of conexiones) {
+        conPerfiles.push({ ...c, perfiles: await listarPerfiles(c.id) })
+      }
+      clientes.push({ id: fila.id, nombre: fila.name, conexiones: conPerfiles })
     }
 
     return NextResponse.json({

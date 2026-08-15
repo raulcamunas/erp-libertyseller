@@ -173,6 +173,8 @@ interface RespuestaClasificacion {
 /** Lo que esta pantalla necesita saber de la conexión de publicidad de un cliente */
 interface AdsDeCliente {
   conectada: boolean
+  /** Cuántas regiones tiene autorizadas. Europa y Norteamérica van aparte */
+  regiones: number
   perfiles: number
   sinAsignar: number
 }
@@ -202,13 +204,16 @@ export function PanelCuentas({ data, onData, configError, appDraft }: PropsPanel
         const mapa: Record<string, AdsDeCliente> = {}
         for (const c of payload.clientes as Array<{
           id: string
-          conexion: unknown | null
-          perfiles: Array<{ en_uso: boolean; cliente_id: string | null }>
+          conexiones: Array<{ perfiles: Array<{ cliente_id: string | null }> }>
         }>) {
+          const perfiles = c.conexiones.flatMap((x) => x.perfiles)
           mapa[c.id] = {
-            conectada: c.conexion !== null,
-            perfiles: c.perfiles.length,
-            sinAsignar: c.perfiles.filter((p) => p.cliente_id === null).length,
+            // Una por región: Europa y Norteamérica son autorizaciones distintas
+            // y un token de una no lee las cuentas de la otra.
+            conectada: c.conexiones.length > 0,
+            regiones: c.conexiones.length,
+            perfiles: perfiles.length,
+            sinAsignar: perfiles.filter((p) => p.cliente_id === null).length,
           }
         }
         setAds(mapa)
@@ -770,6 +775,7 @@ function FilasCliente({
               <>
                 Publicidad · {ads.perfiles}{' '}
                 {ads.perfiles === 1 ? 'cuenta de anunciante' : 'cuentas de anunciante'}
+                {ads.regiones === 1 && ' · solo una región conectada'}
                 {ads.sinAsignar > 0 && (
                   <span style={{ color: COLOR_ESTADO.ambar }}>
                     · {ads.sinAsignar} sin asignar a ningún cliente

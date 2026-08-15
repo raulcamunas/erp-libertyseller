@@ -10,9 +10,27 @@ import type { ClienteMarketing, ConexionAds, PerfilAds } from '@/lib/ads/datos'
 export interface ClienteAds {
   id: string
   nombre: string
-  conexion: ConexionAds | null
-  perfiles: PerfilAds[]
+  /** UNA POR REGIÓN: Europa y Norteamérica son autorizaciones distintas */
+  conexiones: Array<ConexionAds & { perfiles: PerfilAds[] }>
 }
+
+/**
+ * LAS REGIONES, Y POR QUÉ SE CONECTAN POR SEPARADO.
+ *
+ * Las cuentas de anunciante de Europa y las de Norteamérica viven en servidores
+ * distintos de Amazon, y cada uno exige su propia autorización: un token europeo
+ * NO lee las cuentas de Estados Unidos.
+ *
+ * Se vio con el primer cliente real — en la consola de Amazon tenía diez cuentas
+ * y aquí salían tres. No faltaba ninguna: las otras siete eran americanas y esa
+ * región no se había conectado. Por eso ahora la pantalla enseña las tres y dice
+ * cuáles faltan, en vez de dar una por «la» conexión.
+ */
+const REGIONES = [
+  { id: 'eu' as const, nombre: 'Europa', paises: 'España, Francia, Italia, Alemania, Reino Unido…' },
+  { id: 'na' as const, nombre: 'Norteamérica', paises: 'Estados Unidos, Canadá, México, Brasil' },
+  { id: 'fe' as const, nombre: 'Extremo Oriente', paises: 'Japón, Australia, Singapur' },
+]
 
 /**
  * MARKETING API — CONECTAR Y VER, NADA MÁS.
@@ -57,11 +75,11 @@ export function MarketingApiBoard({
     window.history.replaceState({}, '', window.location.pathname)
   }, [params])
 
-  async function conectar(cliente: ClienteAds) {
+  async function conectar(cliente: ClienteAds, region: string) {
     setTrabajando(cliente.id)
     const res = await postAmazon<{ url: string }>('/api/ads/conectar', {
       clienteId: cliente.id,
-      region: 'eu',
+      region,
     })
     setTrabajando(null)
 
@@ -159,9 +177,9 @@ export function MarketingApiBoard({
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5 items-start">
         {clientes.map((c) => {
-          const conectado = c.conexion?.estado === 'activa'
-          const conProblema = c.conexion?.estado === 'error' || c.conexion?.estado === 'revocada'
           const ocupado = trabajando === c.id
+          const conectadas = new Set(c.conexiones.map((x) => x.region))
+          const total = c.conexiones.reduce((n, x) => n + x.perfiles.length, 0)
 
           return (
             <div
@@ -169,32 +187,20 @@ export function MarketingApiBoard({
               className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2.5 space-y-2"
             >
               <div className="flex items-center gap-2 min-w-0">
-                {conectado ? (
+                {c.conexiones.length > 0 ? (
                   <CheckCircle2 className="h-3.5 w-3.5 text-green-400 flex-shrink-0" />
-                ) : conProblema ? (
-                  <AlertTriangle className="h-3.5 w-3.5 text-yellow-400 flex-shrink-0" />
                 ) : (
                   <Plug className="h-3.5 w-3.5 text-white/25 flex-shrink-0" />
                 )}
                 <span className="text-[13px] font-semibold text-white truncate flex-1 min-w-0">
                   {c.nombre}
                 </span>
-
-                <button
-                  type="button"
-                  onClick={() => conectar(c)}
-                  disabled={ocupado}
-                  className="px-2.5 py-1 rounded-full border border-white/10 text-[11px] font-medium text-white/60 hover:text-white hover:border-white/25 transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {ocupado ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <ExternalLink className="h-3 w-3" />
-                  )}
-                  {c.conexion ? 'Reconectar' : 'Conectar'}
-                </button>
-
-                {c.conexion && (
+                {total > 0 && (
+                  <span className="text-[11px] text-white/35">
+                    {total} {total === 1 ? 'cuenta' : 'cuentas'}
+                  </span>
+                )}
+                {c.conexiones.length > 0 && (
                   <button
                     type="button"
                     onClick={() => refrescarPerfiles(c)}
@@ -207,20 +213,68 @@ export function MarketingApiBoard({
                 )}
               </div>
 
-              {c.conexion?.ultimoError && (
-                <p className="text-[11px] text-yellow-200/80">{c.conexion.ultimoError}</p>
+              {/* UNA LÍNEA POR REGIÓN, TAMBIÉN LAS QUE FALTAN.
+                  Es la corrección de fondo: antes se enseñaba «la» conexión y un
+                  cliente con tres cuentas europeas parecía completo cuando tenía
+                  siete americanas sin conectar. Lo que falta solo se ve si se
+                  nombra. */}
+              <div className="space-y-1">
+                {REGIONES.map((r) => {
+                  const conn = c.conexiones.find((x) => x.region === r.id)
+                  if (!conn && r.id === 'fe' && !conectadas.has('fe')) {
+                    // Extremo Oriente solo se ofrece si ya se usa: ofrecer tres
+                    // botones a quien solo vende en Europa es ruido.
+                    return null
+                  }
+                  return (
+                    <div
+                      key={r.id}
+                      className="flex items-center gap-2 text-[11px] rounded-lg border border-white/[0.06] px-2 py-1"
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${
+                          conn ? 'bg-green-400' : 'bg-white/20'
+                        }`}
+                      />
+                      <span className={conn ? 'text-white/75' : 'text-white/40'}>{r.nombre}</span>
+                      {conn ? (
+                        <span className="text-white/35">
+                          {conn.perfiles.length}{' '}
+                          {conn.perfiles.length === 1 ? 'cuenta' : 'cuentas'}
+                        </span>
+                      ) : (
+                        <span className="text-white/25 truncate hidden sm:inline">{r.paises}</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => conectar(c, r.id)}
+                        disabled={ocupado}
+                        className="ml-auto px-2 py-0.5 rounded-full border border-white/10 text-[10px] font-medium text-white/55 hover:text-white hover:border-white/25 transition-colors flex items-center gap-1 disabled:opacity-50 flex-shrink-0"
+                      >
+                        {ocupado ? (
+                          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                        ) : (
+                          <ExternalLink className="h-2.5 w-2.5" />
+                        )}
+                        {conn ? 'Reconectar' : 'Conectar'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {c.conexiones.map((conn) =>
+                conn.ultimoError ? (
+                  <p key={conn.id} className="text-[11px] text-yellow-200/80">
+                    {REGIONES.find((r) => r.id === conn.region)?.nombre}: {conn.ultimoError}
+                  </p>
+                ) : null
               )}
 
-              {!c.conexion ? (
+              {total === 0 ? (
                 <p className="text-[11px] text-white/30">
-                  Sin conectar. Al pulsar «Conectar» se abre Amazon para que el dueño de la cuenta
-                  autorice el acceso.
-                </p>
-              ) : c.perfiles.length === 0 ? (
-                <p className="text-[11px] text-white/35">
-                  Conectada, pero sin perfiles de anunciante. Puede ser que esa cuenta de Amazon no
-                  tenga publicidad dada de alta. Pulsa el botón de refrescar para volver a
-                  preguntar.
+                  Sin cuentas de anunciante. Conecta la región donde este cliente anuncie: cada una
+                  es una autorización aparte y un token de una NO lee las cuentas de la otra.
                 </p>
               ) : (
                 <div className="overflow-x-auto min-w-0">
@@ -235,74 +289,65 @@ export function MarketingApiBoard({
                       </tr>
                     </thead>
                     <tbody>
-                      {c.perfiles.map((p) => (
-                        <tr
-                          key={p.id}
-                          className={`border-t border-white/[0.05] ${p.en_uso ? '' : 'opacity-45'}`}
-                        >
-                          {/* El interruptor va PRIMERO, antes que el nombre.
-                              Con varias cuentas de encargos distintos, lo que se
-                              viene a hacer a esta tabla es elegir, no leer. */}
-                          <td className="py-1">
-                            <button
-                              type="button"
-                              onClick={() => cambiarUso(p)}
-                              title={
-                                p.en_uso
-                                  ? 'Se le piden informes y se guardan sus datos. Pulsa para dejar de trabajarla'
-                                  : 'No se toca. Pulsa para empezar a trabajar esta cuenta'
-                              }
-                              className={`h-4 w-8 rounded-full transition-colors relative ${
-                                p.en_uso ? 'bg-[#FF6600]' : 'bg-white/15'
-                              }`}
-                            >
-                              <span
-                                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${
-                                  p.en_uso ? 'left-[18px]' : 'left-0.5'
+                      {c.conexiones.flatMap((conn) =>
+                        conn.perfiles.map((p) => (
+                          <tr
+                            key={p.id}
+                            className={`border-t border-white/[0.05] ${p.en_uso ? '' : 'opacity-45'}`}
+                          >
+                            <td className="py-1">
+                              <button
+                                type="button"
+                                onClick={() => cambiarUso(p)}
+                                title={
+                                  p.en_uso
+                                    ? 'Se le piden informes y se guardan sus datos. Pulsa para dejar de trabajarla'
+                                    : 'No se toca. Pulsa para empezar a trabajar esta cuenta'
+                                }
+                                className={`h-4 w-8 rounded-full transition-colors relative ${
+                                  p.en_uso ? 'bg-[#FF6600]' : 'bg-white/15'
                                 }`}
-                              />
-                            </button>
-                          </td>
-                          <td className="py-1 text-white/80 truncate max-w-[200px]">
-                            {p.nombre || p.id_externo || '—'}
-                          </td>
-                          <td className="py-1 text-white/50">
-                            {p.pais || '—'}
-                            {p.moneda ? ` · ${p.moneda}` : ''}
-                          </td>
-                          {/* SIN CLIENTE NO SE TRABAJA, aunque esté encendida:
-                              no habría dónde guardar sus datos sin mezclarlos
-                              con los de otro anunciante. Por eso se pinta en
-                              ámbar cuando falta. */}
-                          <td className="py-1">
-                            <select
-                              value={p.cliente_id ?? ''}
-                              onChange={(e) => asignar(p, e.target.value)}
-                              title={p.tipo ? `Cuenta de tipo ${p.tipo}` : undefined}
-                              className={`h-6 rounded-md border bg-white/[0.03] px-1.5 text-[11px] outline-none focus:border-[#FF6600] transition-colors cursor-pointer max-w-[150px] ${
-                                p.cliente_id
-                                  ? 'border-white/10 text-white/80'
-                                  : 'border-yellow-500/40 text-yellow-300/80'
-                              }`}
-                            >
-                              <option value="" className="bg-[#1a1a1a]">
-                                Sin asignar
-                              </option>
-                              {clientesMarketing.map((cm) => (
-                                <option key={cm.id} value={cm.id} className="bg-[#1a1a1a]">
-                                  {cm.name}
+                              >
+                                <span
+                                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${
+                                    p.en_uso ? 'left-[18px]' : 'left-0.5'
+                                  }`}
+                                />
+                              </button>
+                            </td>
+                            <td className="py-1 text-white/80 truncate max-w-[180px]">
+                              {p.nombre || p.id_externo || '—'}
+                            </td>
+                            <td className="py-1 text-white/50 whitespace-nowrap">
+                              {p.pais || '—'}
+                              {p.moneda ? ` · ${p.moneda}` : ''}
+                            </td>
+                            <td className="py-1">
+                              <select
+                                value={p.cliente_id ?? ''}
+                                onChange={(e) => asignar(p, e.target.value)}
+                                className={`h-6 rounded-md border bg-white/[0.03] px-1.5 text-[11px] outline-none focus:border-[#FF6600] transition-colors cursor-pointer max-w-[140px] ${
+                                  p.cliente_id
+                                    ? 'border-white/10 text-white/80'
+                                    : 'border-yellow-500/40 text-yellow-300/80'
+                                }`}
+                              >
+                                <option value="" className="bg-[#1a1a1a]">
+                                  Sin asignar
                                 </option>
-                              ))}
-                            </select>
-                          </td>
-                          {/* El profileId se enseña y se puede seleccionar: es
-                              lo que hay que pegar en cualquier prueba contra la
-                              API, porque va en la cabecera de todas. */}
-                          <td className="py-1 text-right text-white/40 tabular-nums select-all">
-                            {p.profile_id}
-                          </td>
-                        </tr>
-                      ))}
+                                {clientesMarketing.map((cm) => (
+                                  <option key={cm.id} value={cm.id} className="bg-[#1a1a1a]">
+                                    {cm.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="py-1 text-right text-white/40 tabular-nums select-all">
+                              {p.profile_id}
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                   <p className="text-[10px] text-white/30 mt-1.5">
