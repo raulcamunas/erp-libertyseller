@@ -146,19 +146,10 @@ export const apps: AppConfig[] = [
     status: 'new',
     category: 'productivity'
   },
-  {
-    // La CONEXIÓN con Amazon Ads, que no es lo mismo que 'marketing-ads': aquel
-    // es la revisión semanal que se rellena a mano, y este es el conector con la
-    // API. Se dejan separados hasta que este traiga datos de verdad y se pueda
-    // decidir si el otro pasa a beber de aquí o se fusionan.
-    id: 'marketing-api',
-    name: 'Marketing API',
-    description: 'La conexión con Amazon Ads: cuentas autorizadas y sus perfiles de anunciante',
-    icon: Megaphone,
-    route: '/dashboard/marketing-api',
-    status: 'new',
-    category: 'core'
-  },
+  // 'marketing-api' YA NO ES UNA APP DEL MENÚ. Su contenido —la conexión con
+  // Amazon Ads y qué cuentas de anunciante se trabajan— es la pestaña
+  // «Publicidad» de Amazon API, porque CONFIGURAR va allí y TRABAJAR va en
+  // Growth Partner. /dashboard/marketing-api sigue existiendo y redirige.
   {
     // El id no es 'marketing' a propósito: esa app quedó retirada del menú y
     // reutilizar su id le daría acceso a este módulo a quien tuviera aquel
@@ -329,9 +320,6 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'amazon-api',
   // Una pantalla de decisión, con nombres reales de clientes en las maquetas.
   'disenos',
-  // Desde aquí se autoriza el acceso a la cuenta de PUBLICIDAD de un cliente, y
-  // se guardan sus refresh tokens. Mismo listón que amazon-api.
-  'marketing-api',
 ])
 
 /**

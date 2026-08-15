@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Plug, RefreshCw } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
-import type { ConexionAds, PerfilAds } from '@/lib/ads/datos'
+import type { ClienteMarketing, ConexionAds, PerfilAds } from '@/lib/ads/datos'
 
 export interface ClienteAds {
   id: string
@@ -28,10 +28,13 @@ export interface ClienteAds {
  */
 export function MarketingApiBoard({
   clientes,
+  clientesMarketing,
   urlDeVuelta,
   aviso,
 }: {
   clientes: ClienteAds[]
+  /** Los clientes de PUBLICIDAD, que no son los de SP-API. Ver la migración 150 */
+  clientesMarketing: ClienteMarketing[]
   urlDeVuelta: string
   aviso: string | null
 }) {
@@ -84,6 +87,25 @@ export function MarketingApiBoard({
     const res = await postAmazon<{ ok: true }>('/api/ads/perfiles/uso', {
       perfilId: perfil.id,
       enUso: !perfil.en_uso,
+    })
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    window.location.reload()
+  }
+
+  /**
+   * A qué cliente de publicidad pertenece esta cuenta.
+   *
+   * Es lo que impide que el gasto de un anunciante acabe contabilizado en otro:
+   * la autorización es de NUESTRA cuenta de agencia y bajo ella aparecen los
+   * perfiles de todos los clientes que nos dan acceso.
+   */
+  async function asignar(perfil: PerfilAds, clienteId: string) {
+    const res = await postAmazon<{ ok: true }>('/api/ads/perfiles/cliente', {
+      perfilId: perfil.id,
+      clienteId: clienteId || null,
     })
     if (!res.ok) {
       toast.error(res.error)
@@ -208,7 +230,7 @@ export function MarketingApiBoard({
                         <th className="text-left font-medium py-1 w-[70px]">Se usa</th>
                         <th className="text-left font-medium py-1">Cuenta</th>
                         <th className="text-left font-medium py-1">País</th>
-                        <th className="text-left font-medium py-1">Tipo</th>
+                        <th className="text-left font-medium py-1">Cliente</th>
                         <th className="text-right font-medium py-1">profileId</th>
                       </tr>
                     </thead>
@@ -248,7 +270,31 @@ export function MarketingApiBoard({
                             {p.pais || '—'}
                             {p.moneda ? ` · ${p.moneda}` : ''}
                           </td>
-                          <td className="py-1 text-white/50">{p.tipo || '—'}</td>
+                          {/* SIN CLIENTE NO SE TRABAJA, aunque esté encendida:
+                              no habría dónde guardar sus datos sin mezclarlos
+                              con los de otro anunciante. Por eso se pinta en
+                              ámbar cuando falta. */}
+                          <td className="py-1">
+                            <select
+                              value={p.marketing_client_id ?? ''}
+                              onChange={(e) => asignar(p, e.target.value)}
+                              title={p.tipo ? `Cuenta de tipo ${p.tipo}` : undefined}
+                              className={`h-6 rounded-md border bg-white/[0.03] px-1.5 text-[11px] outline-none focus:border-[#FF6600] transition-colors cursor-pointer max-w-[150px] ${
+                                p.marketing_client_id
+                                  ? 'border-white/10 text-white/80'
+                                  : 'border-yellow-500/40 text-yellow-300/80'
+                              }`}
+                            >
+                              <option value="" className="bg-[#1a1a1a]">
+                                Sin asignar
+                              </option>
+                              {clientesMarketing.map((cm) => (
+                                <option key={cm.id} value={cm.id} className="bg-[#1a1a1a]">
+                                  {cm.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
                           {/* El profileId se enseña y se puede seleccionar: es
                               lo que hay que pegar en cualquier prueba contra la
                               API, porque va en la cabecera de todas. */}
@@ -261,8 +307,9 @@ export function MarketingApiBoard({
                   </table>
                   <p className="text-[10px] text-white/30 mt-1.5">
                     Amazon devuelve todas las cuentas a las que llega el correo que autorizó,
-                    incluidas las de encargos antiguos. Enciende solo las que se trabajan: de las
-                    apagadas no se pide ni se guarda nada.
+                    incluidas las de encargos antiguos. Enciende solo las que se trabajan y dile de
+                    qué cliente es cada una: de las apagadas o sin asignar no se pide ni se guarda
+                    nada.
                   </p>
                 </div>
               )}

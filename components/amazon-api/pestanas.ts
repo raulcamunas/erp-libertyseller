@@ -5,6 +5,7 @@ import {
   Eye,
   FolderInput,
   HeartPulse,
+  Megaphone,
   Plug,
   Store,
   Tags,
@@ -48,6 +49,7 @@ export type PestanaId =
   | 'costes'
   | 'origen'
   | 'bsr'
+  | 'publicidad'
   | 'ingesta'
   | 'sistema'
 
@@ -102,6 +104,14 @@ export const PESTANAS: readonly Pestana[] = [
     nombre: 'BSR',
     icono: BarChart3,
     pista: 'Rankings de los productos y su evolución',
+  },
+  {
+    // Va después de BSR y antes de Ingesta: es configuración de un cliente
+    // —igual que Origen o Marcas— y no información de lo que ya guardamos.
+    id: 'publicidad',
+    nombre: 'Publicidad',
+    icono: Megaphone,
+    pista: 'La conexión con Amazon Ads y qué cuentas de anunciante se trabajan',
   },
   {
     id: 'ingesta',

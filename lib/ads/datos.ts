@@ -34,7 +34,16 @@ export interface PerfilAds {
   id_externo: string | null
   /** true = esta cuenta se trabaja. Nace en false: ver la migración 149 */
   en_uso: boolean
+  /** De qué cliente de PUBLICIDAD es. null = sin asignar, y sin asignar no se trabaja */
+  marketing_client_id: string | null
   visto_at: string
+}
+
+/** Un cliente de publicidad, para el desplegable de asignación */
+export interface ClienteMarketing {
+  id: string
+  name: string
+  color: string
 }
 
 /* ------------------------------------------------------------------ */
@@ -287,7 +296,9 @@ export async function listarPerfiles(conexionId: string): Promise<PerfilAds[]> {
   const service = createServiceClient()
   const { data, error } = await service
     .from('ads_profiles')
-    .select('id, profile_id, pais, moneda, zona_horaria, tipo, nombre, id_externo, en_uso, visto_at')
+    .select(
+      'id, profile_id, pais, moneda, zona_horaria, tipo, nombre, id_externo, en_uso, marketing_client_id, visto_at'
+    )
     .eq('connection_id', conexionId)
     .order('pais')
     .order('profile_id')
@@ -310,4 +321,35 @@ export async function marcarPerfilEnUso(perfilId: string, enUso: boolean): Promi
     .update({ en_uso: enUso })
     .eq('id', perfilId)
   if (error) throw error
+}
+
+/**
+ * A qué cliente de publicidad pertenece una cuenta de anunciante.
+ *
+ * Es la asignación que impide que el gasto de un anunciante acabe contabilizado
+ * en otro cliente. Sin ella el perfil no se trabaja, aunque esté encendido: ver
+ * la migración 150.
+ */
+export async function asignarCliente(
+  perfilId: string,
+  marketingClientId: string | null
+): Promise<void> {
+  const service = createServiceClient()
+  const { error } = await service
+    .from('ads_profiles')
+    .update({ marketing_client_id: marketingClientId })
+    .eq('id', perfilId)
+  if (error) throw error
+}
+
+/** Los clientes de PUBLICIDAD, que no son los mismos que los de SP-API */
+export async function clientesDeMarketing(): Promise<ClienteMarketing[]> {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('marketing_clients')
+    .select('id, name, color')
+    .eq('is_active', true)
+    .order('name')
+  if (error) throw error
+  return (data ?? []) as ClienteMarketing[]
 }

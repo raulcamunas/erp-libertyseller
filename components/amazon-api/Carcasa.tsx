@@ -23,6 +23,7 @@ import { PanelSistema, InfoSistema } from './paneles/PanelSistema'
 import { PanelMarcas, InfoMarcas } from './paneles/PanelMarcas'
 import { PanelOrigen, InfoOrigen } from './paneles/PanelOrigen'
 import { PanelSeguimiento, InfoSeguimiento } from './paneles/PanelSeguimiento'
+import { PanelPublicidad, InfoPublicidad } from './paneles/PanelPublicidad'
 
 /**
  * LA CARCASA DE AMAZON API — LAS TRIPAS DE TODO.
@@ -82,6 +83,7 @@ const PANELES: Record<
   costes: { Panel: PanelCostes, Info: InfoCostes },
   origen: { Panel: PanelOrigen, Info: InfoOrigen },
   bsr: { Panel: PanelBsr, Info: InfoBsr },
+  publicidad: { Panel: PanelPublicidad, Info: InfoPublicidad },
   ingesta: { Panel: PanelIngesta, Info: InfoIngesta },
   sistema: { Panel: PanelSistema, Info: InfoSistema },
 }
