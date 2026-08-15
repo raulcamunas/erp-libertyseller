@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Plug, RefreshCw } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
 import type { ClienteMarketing, ConexionAds, PerfilAds } from '@/lib/ads/datos'
+import { Laboratorio } from './Laboratorio'
 
 export interface ClienteAds {
   id: string
@@ -368,6 +369,12 @@ export function MarketingApiBoard({
           </p>
         )}
       </div>
+
+      {/* MARKETING V2 · el banco de pruebas.
+          Va debajo y no en otra pestaña porque solo tiene sentido con las
+          cuentas encendidas delante: lo primero que hay que mirar cuando algo
+          no sale es si esa cuenta está en uso. */}
+      <Laboratorio clientes={clientes} />
     </div>
   )
 }

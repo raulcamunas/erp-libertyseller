@@ -200,7 +200,21 @@ async function accessTokenDe(conexionId: string): Promise<{ token: string; regio
 export async function llamarAds<T>(
   conexionId: string,
   ruta: string,
-  opciones: { perfilId?: number | string; metodo?: string; cuerpo?: unknown } = {}
+  opciones: {
+    perfilId?: number | string
+    metodo?: string
+    cuerpo?: unknown
+    /**
+     * Cabeceras propias del endpoint.
+     *
+     * La v3 de Ads NO usa application/json: cada recurso tiene su propio tipo
+     * —`application/vnd.spCampaign.v3+json` para campañas,
+     * `vnd.spKeyword.v3+json` para keywords— y va TANTO en Accept COMO en
+     * Content-Type. Con el genérico, Amazon contesta 415 sin decir cuál
+     * esperaba, y es imposible adivinarlo desde el error.
+     */
+    cabeceras?: Record<string, string>
+  } = {}
 ): Promise<T> {
   const cred = credenciales()
   if (!cred) throw new AdsError('Faltan las credenciales de Amazon Ads en el servidor.')
@@ -211,6 +225,7 @@ export async function llamarAds<T>(
     Authorization: `Bearer ${token}`,
     'Amazon-Advertising-API-ClientId': cred.clientId,
     'Content-Type': 'application/json',
+    ...(opciones.cabeceras ?? {}),
   }
   if (opciones.perfilId != null) {
     cabeceras['Amazon-Advertising-API-Scope'] = String(opciones.perfilId)
@@ -383,4 +398,24 @@ export async function clientesDeMarketing(): Promise<ClienteMarketing[]> {
     name: c.nombre,
     color: c.color,
   }))
+}
+
+/** La conexión y el profileId de una cuenta de anunciante, para poder llamarla */
+export async function perfilParaLlamar(
+  perfilId: string
+): Promise<{ conexionId: string; profileId: number; nombre: string; enUso: boolean } | null> {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('ads_profiles')
+    .select('connection_id, profile_id, nombre, en_uso')
+    .eq('id', perfilId)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  return {
+    conexionId: data.connection_id as string,
+    profileId: Number(data.profile_id),
+    nombre: (data.nombre as string | null) ?? String(data.profile_id),
+    enUso: data.en_uso === true,
+  }
 }
