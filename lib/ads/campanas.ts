@@ -34,6 +34,17 @@ export interface Campana {
   presupuestoTipo: string | null
   /** LEGACY_FOR_SALES | AUTO_FOR_SALES | MANUAL | RULE_BASED */
   estrategiaPuja: string | null
+  /**
+   * El ajuste de puja para el TOP DE BÚSQUEDAS, en tanto por ciento.
+   *
+   * Es el multiplicador que Amazon aplica cuando el anuncio va a salir arriba
+   * del todo de los resultados: con 50, se puja un 50 % más por esa posición.
+   * Es la palanca que más mueve el ACOS de una campaña y la que casi nadie
+   * toca, porque en Seller Central está a tres clics de profundidad.
+   *
+   * null = no está puesto, que Amazon trata como 0.
+   */
+  topDeBusquedas: number | null
   inicio: string | null
   fin: string | null
   /** Lo que trae Amazon sin tocar, para lo que todavía no se sabe que hará falta */
@@ -101,7 +112,17 @@ export async function campanasDe(
  */
 function interpretar(c: Record<string, unknown>): Campana {
   const presupuesto = c.budget as { budget?: number; budgetType?: string } | undefined
-  const puja = c.dynamicBidding as { strategy?: string } | undefined
+  const puja = c.dynamicBidding as
+    | {
+        strategy?: string
+        placementBidding?: Array<{ placement?: string; percentage?: number }>
+      }
+    | undefined
+
+  // PLACEMENT_TOP es el top de búsquedas. Hay más —PLACEMENT_PRODUCT_PAGE,
+  // PLACEMENT_REST_OF_SEARCH— y vienen en la misma lista, así que hay que
+  // buscarlo por nombre y no coger el primero.
+  const top = puja?.placementBidding?.find((p) => p.placement === 'PLACEMENT_TOP')
 
   return {
     campaignId: String(c.campaignId ?? ''),
@@ -111,8 +132,46 @@ function interpretar(c: Record<string, unknown>): Campana {
     presupuesto: typeof presupuesto?.budget === 'number' ? presupuesto.budget : null,
     presupuestoTipo: presupuesto?.budgetType ?? null,
     estrategiaPuja: puja?.strategy ?? null,
+    topDeBusquedas: typeof top?.percentage === 'number' ? top.percentage : null,
     inicio: (c.startDate as string) ?? null,
     fin: (c.endDate as string) ?? null,
     crudo: c,
   }
+}
+
+/**
+ * Cambia el ajuste de puja del top de búsquedas de una campaña.
+ *
+ * ESTO ESCRIBE EN LA CUENTA DEL CLIENTE Y GASTA SU DINERO. Subir este porcentaje
+ * hace que cada clic desde la primera posición cueste más, y eso se ve en la
+ * factura del mismo día.
+ *
+ * Se manda SOLO ese placement y no la lista entera de `placementBidding`: si se
+ * mandara completa habría que reconstruir los otros ajustes —página de producto,
+ * resto de la búsqueda— y cualquier despiste los pondría a cero sin que nadie lo
+ * pidiera. Amazon acepta el ajuste suelto y deja los demás como estaban.
+ */
+export async function cambiarTopDeBusquedas(
+  conexionId: string,
+  profileId: number,
+  campaignId: string,
+  porcentaje: number
+): Promise<void> {
+  await llamarAds(conexionId, '/sp/campaigns', {
+    perfilId: profileId,
+    metodo: 'PUT',
+    cabeceras: { Accept: TIPO_CAMPANA, 'Content-Type': TIPO_CAMPANA },
+    cuerpo: {
+      campaigns: [
+        {
+          campaignId,
+          dynamicBidding: {
+            placementBidding: [
+              { placement: 'PLACEMENT_TOP', percentage: Math.round(porcentaje) },
+            ],
+          },
+        },
+      ],
+    },
+  })
 }

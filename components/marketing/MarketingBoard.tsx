@@ -3,45 +3,38 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Loader2, Megaphone, RefreshCw, Search } from 'lucide-react'
-import { postAmazon } from '@/lib/amazon/client'
+import { patchAmazon, postAmazon } from '@/lib/amazon/client'
 import type { CuentaDeTrabajo } from '@/lib/ads/datos'
 import type { Campana, EstadoCampana } from '@/lib/ads/campanas'
+import type { FilaInforme } from '@/lib/ads/informes'
+import { TablaCampanas } from './TablaCampanas'
 
 /**
- * MARKETING · LAS CAMPAÑAS DE UN CLIENTE.
+ * MARKETING · LAS CAMPAÑAS DE UN CLIENTE, CON SU RENDIMIENTO.
  *
- * Arriba las cuentas conectadas; debajo, todas las campañas de la elegida.
+ * Arriba las cuentas conectadas; debajo, todas las campañas de la elegida con
+ * sus cifras.
  *
  *
- * ============ LO QUE ESTA PANTALLA TODAVÍA NO PUEDE ENSEÑAR ============
+ * ============ SON DOS VIAJES A AMAZON Y NO SE PUEDEN JUNTAR ============
  *
- * Impresiones, clics, gasto, ACOS. Y no es que falten por hacer: el endpoint de
- * campañas de Amazon NO DEVUELVE MÉTRICAS. Las métricas salen de los informes,
- * que son asíncronos —se piden, Amazon tarda de segundos a minutos en
- * generarlos, y se descargan de una URL firmada— y por eso son un paso aparte.
+ *   la campaña  -> nombre, estado, presupuesto, ajuste del top. Al instante.
+ *   el informe  -> impresiones, clics, gasto, ventas. Asíncrono: se pide, se
+ *                  pregunta cada pocos segundos y se descarga comprimido.
  *
- * Se dice aquí arriba y se dice en la pantalla, en vez de dejar unas columnas
- * vacías que parezcan un fallo.
+ * El endpoint de campañas NO devuelve métricas: no es una limitación que se
+ * pueda rodear, es cómo está partida la API. Por eso la tabla se pinta entera
+ * con lo primero y las cifras van entrando después. Esperar a tenerlo todo
+ * dejaría la pantalla en blanco durante minutos.
+ *
+ * CTR, CVR, CPC, ACOS y ROAS tampoco vienen: se calculan dividiendo las que sí,
+ * y se calculan en UN solo sitio (TablaCampanas) para que sea imposible que la
+ * tabla enseñe un ACOS que no cuadre con el gasto y las ventas de al lado.
  */
 
-const ESTADOS: Record<EstadoCampana, { texto: string; clase: string }> = {
-  ENABLED: { texto: 'Mostrando', clase: 'bg-green-500/15 text-green-300 border-green-500/25' },
-  PAUSED: { texto: 'En pausa', clase: 'bg-zinc-600/25 text-zinc-300 border-zinc-500/25' },
-  ARCHIVED: { texto: 'Archivada', clase: 'bg-white/[0.04] text-white/30 border-white/10' },
-}
-
-const SEGMENTACION: Record<string, string> = {
-  AUTO: 'Automática',
-  MANUAL: 'Manual',
-}
-
-/** LEGACY_FOR_SALES es «bajar solo», que es el que casi nadie sabe que tiene puesto */
-const ESTRATEGIA: Record<string, string> = {
-  LEGACY_FOR_SALES: 'Bajar solo',
-  AUTO_FOR_SALES: 'Subir y bajar',
-  MANUAL: 'Fija',
-  RULE_BASED: 'Por reglas',
-}
+/* Las etiquetas de estado, segmentación y estrategia viven en TablaCampanas.tsx,
+   que es quien las pinta. Tenerlas aquí también era la vía rápida a que un día
+   dijeran cosas distintas en dos sitios de la misma pantalla. */
 
 export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
   const [cuenta, setCuenta] = useState<CuentaDeTrabajo | null>(cuentas[0] ?? null)
@@ -51,6 +44,65 @@ export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
   const [error, setError] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [verArchivadas, setVerArchivadas] = useState(false)
+
+  /** Las métricas, por campaignId. Llegan DESPUÉS que las campañas */
+  const [metricas, setMetricas] = useState<Record<string, FilaInforme>>({})
+  const [cargandoMetricas, setCargandoMetricas] = useState(false)
+  const [periodo, setPeriodo] = useState<string>('')
+
+  /**
+   * EL INFORME, QUE ES OTRO VIAJE Y MÁS LARGO.
+   *
+   * Amazon lo genera en segundo plano: se pide, se pregunta cada pocos segundos
+   * y cuando está se descarga. De diez segundos a varios minutos según el rango.
+   *
+   * Por eso la tabla se pinta ya con las campañas y estas cifras van entrando
+   * después. Esperar a tenerlas todas dejaría la pantalla en blanco durante
+   * minutos por unas columnas que no siempre se miran.
+   */
+  async function traerMetricas(c: CuentaDeTrabajo) {
+    setCargandoMetricas(true)
+    setMetricas({})
+
+    const pedido = await postAmazon<{ reportId: string; desde: string; hasta: string }>(
+      '/api/ads/informe',
+      { perfilId: c.perfilId }
+    )
+    if (!pedido.ok) {
+      setCargandoMetricas(false)
+      toast.error(pedido.error)
+      return
+    }
+    setPeriodo(`${pedido.data.desde} → ${pedido.data.hasta}`)
+
+    // Hasta dos minutos preguntando. Pasado eso se deja: el informe seguirá
+    // generándose en Amazon y volver a pulsar «Actualizar» lo pedirá de nuevo,
+    // que es más honesto que un reloj girando para siempre.
+    const hasta = Date.now() + 120_000
+    while (Date.now() < hasta) {
+      await new Promise((r) => setTimeout(r, 5000))
+
+      const res = await patchAmazon<{ listo: boolean; filas?: FilaInforme[] }>(
+        '/api/ads/informe',
+        { perfilId: c.perfilId, reportId: pedido.data.reportId }
+      )
+      if (!res.ok) {
+        setCargandoMetricas(false)
+        toast.error(res.error)
+        return
+      }
+      if (res.data.listo && res.data.filas) {
+        const mapa: Record<string, FilaInforme> = {}
+        for (const f of res.data.filas) mapa[f.campaignId] = f
+        setMetricas(mapa)
+        setCargandoMetricas(false)
+        return
+      }
+    }
+
+    setCargandoMetricas(false)
+    toast.error('Amazon está tardando más de dos minutos con el informe. Vuelve a darle a Actualizar.')
+  }
 
   async function traer(c: CuentaDeTrabajo) {
     setCargando(true)
@@ -69,6 +121,9 @@ export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
     }
     setCampanas(res.data.campanas)
     setTruncado(res.data.truncado)
+
+    // El informe se pide DESPUÉS y sin esperarlo: la tabla ya se puede pintar.
+    void traerMetricas(c)
   }
 
   // Al entrar y al cambiar de cuenta. `cuenta.perfilId` y no el objeto: una
@@ -227,96 +282,45 @@ export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
             </div>
           )}
 
-          <div className="overflow-x-auto min-w-0 rounded-2xl border border-white/10">
-            <table className="w-full min-w-[860px] text-[12px] border-collapse">
-              <thead className="bg-white/[0.03]">
-                <tr>
-                  {['Campaña', 'Estado', 'Segmentación', 'Pujas', 'Presupuesto', 'Desde'].map(
-                    (t, i) => (
-                      <th
-                        key={t}
-                        className={`text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 py-1.5 px-2.5 whitespace-nowrap ${
-                          i === 4 ? 'text-right' : 'text-left'
-                        }`}
-                      >
-                        {t}
-                      </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {cargando ? (
-                  <tr>
-                    <td colSpan={6} className="py-10 text-center text-white/35">
-                      <Loader2 className="h-4 w-4 animate-spin text-[#FF6600] inline mr-2" />
-                      Pidiéndoselas a Amazon…
-                    </td>
-                  </tr>
-                ) : visibles.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-10 text-center text-[12px] text-white/30">
-                      {campanas.length === 0
-                        ? 'Esta cuenta no tiene ninguna campaña de Sponsored Products.'
-                        : 'Ninguna campaña con ese filtro.'}
-                    </td>
-                  </tr>
-                ) : (
-                  visibles.map((c) => (
-                    <tr
-                      key={c.campaignId}
-                      className={`border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors ${
-                        c.estado === 'ARCHIVED' ? 'opacity-45' : ''
-                      }`}
-                    >
-                      <td className="px-2.5 py-1.5 text-white/85 max-w-[380px]">
-                        <span className="block truncate" title={c.nombre}>
-                          {c.nombre}
-                        </span>
-                        <span className="block text-[10px] text-white/25 tabular-nums select-all">
-                          {c.campaignId}
-                        </span>
-                      </td>
-                      <td className="px-2.5 py-1.5">
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded border leading-none whitespace-nowrap ${ESTADOS[c.estado]?.clase ?? ''}`}
-                        >
-                          {ESTADOS[c.estado]?.texto ?? c.estado}
-                        </span>
-                      </td>
-                      <td className="px-2.5 py-1.5 text-white/50 whitespace-nowrap">
-                        {c.segmentacion ? (SEGMENTACION[c.segmentacion] ?? c.segmentacion) : '—'}
-                      </td>
-                      <td className="px-2.5 py-1.5 text-white/50 whitespace-nowrap">
-                        {c.estrategiaPuja
-                          ? (ESTRATEGIA[c.estrategiaPuja] ?? c.estrategiaPuja)
-                          : '—'}
-                      </td>
-                      <td className="px-2.5 py-1.5 text-right tabular-nums text-white/80 whitespace-nowrap">
-                        {c.presupuesto == null
-                          ? '—'
-                          : `${c.presupuesto.toLocaleString('es-ES', { maximumFractionDigits: 2 })} ${moneda}`}
-                        {c.presupuestoTipo === 'DAILY' && (
-                          <span className="text-white/30 text-[10px]"> /día</span>
-                        )}
-                      </td>
-                      <td className="px-2.5 py-1.5 text-white/40 tabular-nums whitespace-nowrap">
-                        {c.inicio ?? '—'}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          {cargando ? (
+            <div className="rounded-2xl border border-white/10 py-12 text-center text-white/35">
+              <Loader2 className="h-4 w-4 animate-spin text-[#FF6600] inline mr-2" />
+              Pidiéndoselas a Amazon…
+            </div>
+          ) : visibles.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 py-12 text-center text-[12px] text-white/30">
+              {campanas.length === 0
+                ? 'Esta cuenta no tiene ninguna campaña de Sponsored Products.'
+                : 'Ninguna campaña con ese filtro.'}
+            </div>
+          ) : (
+            <TablaCampanas
+              campanas={visibles}
+              metricas={metricas}
+              perfilId={cuenta.perfilId}
+              moneda={moneda}
+              cargandoMetricas={cargandoMetricas}
+            />
+          )}
 
-          {/* SE DICE LO QUE FALTA. Unas columnas de gasto vacías se leerían como
-              un fallo; escribirlo lo convierte en el paso siguiente. */}
+          {/* DE QUÉ FECHAS SON LAS CIFRAS. Sin esto, un ACOS es un número
+              sin contexto: no es lo mismo el de los últimos treinta días que el
+              de ayer, y la tabla no lo dice por ningún otro sitio. */}
           <p className="text-[10px] text-white/30">
-            Todavía no salen impresiones, clics, gasto ni ACOS: el endpoint de campañas de Amazon no
-            los devuelve. Esas cifras vienen de los informes, que son asíncronos y son el paso
-            siguiente.
+            {cargandoMetricas ? (
+              <>
+                <Loader2 className="h-2.5 w-2.5 animate-spin inline mr-1" />
+                Amazon está generando el informe de rendimiento. Las campañas ya están; las cifras
+                entran en cuanto esté listo.
+              </>
+            ) : periodo ? (
+              <>
+                Rendimiento de {periodo}. La última jornada no se incluye: Amazon no la cierra hasta
+                pasadas unas horas y saldría con el gasto contado y las ventas todavía no.
+              </>
+            ) : null}
           </p>
+
         </>
       )}
     </div>
