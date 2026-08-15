@@ -65,6 +65,44 @@ export async function pedirInformeCampanas(
   desde: string,
   hasta: string
 ): Promise<string> {
+  try {
+    return await crear(conexionId, profileId, desde, hasta)
+  } catch (error) {
+    /**
+     * EL 425 NO ES UN ERROR: ES «ESO YA ME LO HAS PEDIDO».
+     *
+     * Amazon guarda los informes por su configuración, y si se pide otro
+     * idéntico —mismas fechas, mismas columnas— contesta 425 con el
+     * identificador del que YA EXISTE dentro del detalle:
+     *
+     *     {"code":"425","detail":"The Request is a duplicate of : d271463a-…"}
+     *
+     * Y pasa constantemente: recargar la pantalla, cambiar de cuenta y volver, o
+     * pulsar «Actualizar» dos veces bastan. Tratarlo como fallo dejaba la tabla
+     * sin cifras justo cuando el informe ya estaba hecho y esperando.
+     *
+     * Así que se saca el identificador y se sigue con él, que es lo que Amazon
+     * está diciendo que hagas.
+     */
+    const es425 =
+      error instanceof AdsError && (error.estado === 425 || /"425"/.test(error.cuerpo ?? ''))
+
+    if (es425) {
+      const ya = (error as AdsError).cuerpo?.match(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+      )
+      if (ya) return ya[0]
+    }
+    throw error
+  }
+}
+
+async function crear(
+  conexionId: string,
+  profileId: number,
+  desde: string,
+  hasta: string
+): Promise<string> {
   const res = await llamarAds<{ reportId?: string }>(conexionId, '/reporting/reports', {
     perfilId: profileId,
     metodo: 'POST',

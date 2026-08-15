@@ -256,7 +256,11 @@ export async function llamarAds<T>(
     }
     throw new AdsError(
       `Amazon Ads ha contestado ${res.status} a ${ruta}: ${texto.slice(0, 300) || 'sin cuerpo'}`,
-      { esDeAutorizacion: res.status === 401 || res.status === 403 }
+      {
+        esDeAutorizacion: res.status === 401 || res.status === 403,
+        estado: res.status,
+        cuerpo: texto,
+      }
     )
   }
 

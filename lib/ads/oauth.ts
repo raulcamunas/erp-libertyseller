@@ -42,10 +42,27 @@ const MARGEN_CADUCIDAD_MS = 60_000
 
 export class AdsError extends Error {
   readonly esDeAutorizacion: boolean
-  constructor(mensaje: string, opciones: { esDeAutorizacion?: boolean } = {}) {
+  /**
+   * El código HTTP y el cuerpo que devolvió Amazon.
+   *
+   * Se guardan porque hay respuestas de error que NO son errores y traen dentro
+   * lo que hacía falta. El caso que obligó a esto: el 425 de los informes, que
+   * significa «ese informe ya me lo has pedido» y trae el identificador del que
+   * ya existe. Sin estos dos campos, la única forma de aprovecharlo sería buscar
+   * a ciegas dentro del texto del mensaje.
+   */
+  readonly estado?: number
+  readonly cuerpo?: string
+
+  constructor(
+    mensaje: string,
+    opciones: { esDeAutorizacion?: boolean; estado?: number; cuerpo?: string } = {}
+  ) {
     super(mensaje)
     this.name = 'AdsError'
     this.esDeAutorizacion = opciones.esDeAutorizacion === true
+    this.estado = opciones.estado
+    this.cuerpo = opciones.cuerpo
   }
 }
 
