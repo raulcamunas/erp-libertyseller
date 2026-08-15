@@ -32,6 +32,8 @@ export interface PerfilAds {
   tipo: string | null
   nombre: string | null
   id_externo: string | null
+  /** true = esta cuenta se trabaja. Nace en false: ver la migración 149 */
+  en_uso: boolean
   visto_at: string
 }
 
@@ -266,6 +268,9 @@ export async function traerPerfiles(conexionId: string): Promise<PerfilAds[]> {
     id_externo: p.accountInfo?.id ?? null,
     crudo: p as unknown as Record<string, unknown>,
     visto_at: ahora,
+    // `en_uso` NO va en el upsert a proposito: refrescar la lista de cuentas no
+    // puede desmarcar las que ya se estaban trabajando. Al insertar una nueva,
+    // el DEFAULT false de la columna hace su trabajo.
   }))
 
   if (filas.length > 0) {
@@ -282,11 +287,27 @@ export async function listarPerfiles(conexionId: string): Promise<PerfilAds[]> {
   const service = createServiceClient()
   const { data, error } = await service
     .from('ads_profiles')
-    .select('id, profile_id, pais, moneda, zona_horaria, tipo, nombre, id_externo, visto_at')
+    .select('id, profile_id, pais, moneda, zona_horaria, tipo, nombre, id_externo, en_uso, visto_at')
     .eq('connection_id', conexionId)
     .order('pais')
     .order('profile_id')
 
   if (error) throw error
   return (data ?? []) as PerfilAds[]
+}
+
+/**
+ * Marca —o desmarca— una cuenta de anunciante como «se trabaja».
+ *
+ * Es lo único que decide si el ERP le va a pedir informes y guardar sus datos.
+ * Ver la migración 149: nacen todas apagadas porque al conectar salen también
+ * las cuentas de encargos viejos a las que el correo autorizado sigue llegando.
+ */
+export async function marcarPerfilEnUso(perfilId: string, enUso: boolean): Promise<void> {
+  const service = createServiceClient()
+  const { error } = await service
+    .from('ads_profiles')
+    .update({ en_uso: enUso })
+    .eq('id', perfilId)
+  if (error) throw error
 }

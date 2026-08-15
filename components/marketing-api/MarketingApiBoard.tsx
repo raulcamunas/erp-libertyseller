@@ -72,6 +72,26 @@ export function MarketingApiBoard({
     window.location.href = res.data.url
   }
 
+  /**
+   * Encender o apagar una cuenta.
+   *
+   * Se recarga la página en vez de mover el estado a mano: es una lista corta y
+   * que lo que se ve venga siempre del servidor evita el caso peor —la pantalla
+   * diciendo que una cuenta está encendida cuando el guardado falló—. Con datos
+   * que deciden qué se le pide a Amazon, eso importa más que el parpadeo.
+   */
+  async function cambiarUso(perfil: PerfilAds) {
+    const res = await postAmazon<{ ok: true }>('/api/ads/perfiles/uso', {
+      perfilId: perfil.id,
+      enUso: !perfil.en_uso,
+    })
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    window.location.reload()
+  }
+
   async function refrescarPerfiles(cliente: ClienteAds) {
     setTrabajando(cliente.id)
     const res = await postAmazon<{ perfiles: PerfilAds[] }>('/api/ads/perfiles', {
@@ -185,6 +205,7 @@ export function MarketingApiBoard({
                   <table className="w-full text-[11px] border-collapse">
                     <thead>
                       <tr className="text-white/35">
+                        <th className="text-left font-medium py-1 w-[70px]">Se usa</th>
                         <th className="text-left font-medium py-1">Cuenta</th>
                         <th className="text-left font-medium py-1">País</th>
                         <th className="text-left font-medium py-1">Tipo</th>
@@ -193,7 +214,33 @@ export function MarketingApiBoard({
                     </thead>
                     <tbody>
                       {c.perfiles.map((p) => (
-                        <tr key={p.id} className="border-t border-white/[0.05]">
+                        <tr
+                          key={p.id}
+                          className={`border-t border-white/[0.05] ${p.en_uso ? '' : 'opacity-45'}`}
+                        >
+                          {/* El interruptor va PRIMERO, antes que el nombre.
+                              Con varias cuentas de encargos distintos, lo que se
+                              viene a hacer a esta tabla es elegir, no leer. */}
+                          <td className="py-1">
+                            <button
+                              type="button"
+                              onClick={() => cambiarUso(p)}
+                              title={
+                                p.en_uso
+                                  ? 'Se le piden informes y se guardan sus datos. Pulsa para dejar de trabajarla'
+                                  : 'No se toca. Pulsa para empezar a trabajar esta cuenta'
+                              }
+                              className={`h-4 w-8 rounded-full transition-colors relative ${
+                                p.en_uso ? 'bg-[#FF6600]' : 'bg-white/15'
+                              }`}
+                            >
+                              <span
+                                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${
+                                  p.en_uso ? 'left-[18px]' : 'left-0.5'
+                                }`}
+                              />
+                            </button>
+                          </td>
                           <td className="py-1 text-white/80 truncate max-w-[200px]">
                             {p.nombre || p.id_externo || '—'}
                           </td>
@@ -212,6 +259,11 @@ export function MarketingApiBoard({
                       ))}
                     </tbody>
                   </table>
+                  <p className="text-[10px] text-white/30 mt-1.5">
+                    Amazon devuelve todas las cuentas a las que llega el correo que autorizó,
+                    incluidas las de encargos antiguos. Enciende solo las que se trabajan: de las
+                    apagadas no se pide ni se guarda nada.
+                  </p>
                 </div>
               )}
             </div>

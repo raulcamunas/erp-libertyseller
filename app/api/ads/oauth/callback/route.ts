@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { urlDeVuelta } from '@/lib/ads/config'
 import { AdsError, canjearCodigo, consumirEstado } from '@/lib/ads/oauth'
 import { guardarConexion, traerPerfiles } from '@/lib/ads/datos'
 
@@ -38,8 +39,21 @@ export const runtime = 'nodejs'
 
 const PANTALLA = '/dashboard/marketing-api'
 
-function volver(request: NextRequest, params: Record<string, string>): NextResponse {
-  const url = new URL(PANTALLA, request.nextUrl.origin)
+/**
+ * LA VUELTA NO SE CONSTRUYE CON EL ORIGEN DE LA PETICIÓN.
+ *
+ * `request.nextUrl.origin` da `http://localhost:3000` en producción, porque
+ * detrás del proxy de Easypanel la petición que le llega a Next viene de
+ * localhost. El resultado es que la autorización funcionaba, la conexión se
+ * guardaba, y el navegador acababa en una página de «no se puede acceder a este
+ * sitio web» — todo bien menos lo único que se ve.
+ *
+ * Se usa el origen de `urlDeVuelta()`, que es la dirección pública de verdad y
+ * además está VALIDADA POR AMAZON: si no coincidiera con la registrada, no se
+ * habría llegado hasta aquí.
+ */
+function volver(_request: NextRequest, params: Record<string, string>): NextResponse {
+  const url = new URL(PANTALLA, new URL(urlDeVuelta()).origin)
   for (const [clave, valor] of Object.entries(params)) url.searchParams.set(clave, valor)
   return NextResponse.redirect(url)
 }
