@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Loader2, Megaphone, RefreshCw, Search } from 'lucide-react'
 import { patchAmazon, postAmazon } from '@/lib/amazon/client'
@@ -36,6 +36,31 @@ import { TablaCampanas } from './TablaCampanas'
    que es quien las pinta. Tenerlas aquí también era la vía rápida a que un día
    dijeran cosas distintas en dos sitios de la misma pantalla. */
 
+/**
+ * CADA CUÁNTO SE REFRESCA SOLO.
+ *
+ * No hay botón de actualizar a propósito: en una herramienta de trabajo, un
+ * botón así es admitir que lo que hay en pantalla puede estar viejo y que el
+ * problema es tuyo. Se refresca solo y se dice cuándo fue la última vez.
+ *
+ * Quince minutos porque es lo que tardan en importar los cambios de una campaña
+ * —una puja o un presupuesto que se toca ahora no mueve las cifras hasta dentro
+ * de un rato— y porque el cupo de la API de Amazon es por cuenta de anunciante y
+ * lo comparte todo lo demás.
+ */
+const CADA_MS = 15 * 60_000
+
+/** «hace 3 min». null si nunca */
+function hace(t: number | null): string | null {
+  if (!t) return null
+  const min = Math.floor((Date.now() - t) / 60_000)
+  if (min < 1) return 'hace menos de un minuto'
+  if (min === 1) return 'hace 1 minuto'
+  if (min < 60) return `hace ${min} minutos`
+  const h = Math.floor(min / 60)
+  return h === 1 ? 'hace 1 hora' : `hace ${h} horas`
+}
+
 export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
   const [cuenta, setCuenta] = useState<CuentaDeTrabajo | null>(cuentas[0] ?? null)
   const [campanas, setCampanas] = useState<Campana[]>([])
@@ -49,6 +74,21 @@ export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
   const [metricas, setMetricas] = useState<Record<string, FilaInforme>>({})
   const [cargandoMetricas, setCargandoMetricas] = useState(false)
   const [periodo, setPeriodo] = useState<string>('')
+
+  /** Cuándo se trajo lo último. Es lo que sustituye al botón de actualizar */
+  const [actualizado, setActualizado] = useState<number | null>(null)
+  /** Para repintar el «hace X minutos» sin volver a pedir nada */
+  const [, setTic] = useState(0)
+
+  /**
+   * Una pasada a la vez.
+   *
+   * El refresco automático, el cambio de cuenta y la vuelta a la pestaña pueden
+   * coincidir, y dos pasadas solapadas gastarían el doble de cupo de Amazon para
+   * pintar lo mismo — y la que terminara segunda pisaría a la primera aunque
+   * fuera más vieja.
+   */
+  const enMarcha = useRef(false)
 
   /**
    * EL INFORME, QUE ES OTRO VIAJE Y MÁS LARGO.
@@ -104,34 +144,88 @@ export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
     toast.error('Amazon está tardando más de dos minutos con el informe. Vuelve a darle a Actualizar.')
   }
 
-  async function traer(c: CuentaDeTrabajo) {
-    setCargando(true)
-    setError(null)
-    setCampanas([])
+  /**
+   * Trae todo. `primeraVez` decide si se vacía la tabla mientras llega.
+   *
+   * En un refresco automático NO se vacía: la pantalla parpadearía cada quince
+   * minutos delante de alguien que está trabajando, y peor aún, si la llamada
+   * falla se quedaría en blanco habiendo tenido datos buenos. Se sustituye lo
+   * viejo cuando lo nuevo ha llegado, y si no llega se conserva lo que había con
+   * su «actualizado hace X» diciendo la verdad.
+   */
+  const traer = useCallback(
+    async (c: CuentaDeTrabajo, primeraVez: boolean) => {
+      if (enMarcha.current) return
+      enMarcha.current = true
 
-    const res = await postAmazon<{ campanas: Campana[]; total: number; truncado: boolean }>(
-      '/api/ads/campanas',
-      { perfilId: c.perfilId }
-    )
-    setCargando(false)
+      if (primeraVez) {
+        setCargando(true)
+        setCampanas([])
+      }
+      setError(null)
 
-    if (!res.ok) {
-      setError(res.error)
-      return
-    }
-    setCampanas(res.data.campanas)
-    setTruncado(res.data.truncado)
+      const res = await postAmazon<{ campanas: Campana[]; total: number; truncado: boolean }>(
+        '/api/ads/campanas',
+        { perfilId: c.perfilId }
+      )
+      setCargando(false)
 
-    // El informe se pide DESPUÉS y sin esperarlo: la tabla ya se puede pintar.
-    void traerMetricas(c)
-  }
+      if (!res.ok) {
+        enMarcha.current = false
+        // En un refresco de fondo el error NO borra la tabla: se avisa y se deja
+        // lo que había, que sigue siendo lo último bueno que se supo.
+        if (primeraVez) setError(res.error)
+        else toast.error(`No se ha podido refrescar: ${res.error}`)
+        return
+      }
+
+      setCampanas(res.data.campanas)
+      setTruncado(res.data.truncado)
+      setActualizado(Date.now())
+
+      await traerMetricas(c)
+      enMarcha.current = false
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
 
   // Al entrar y al cambiar de cuenta. `cuenta.perfilId` y no el objeto: una
   // referencia nueva con los mismos datos volvería a pedir todo a Amazon.
   useEffect(() => {
-    if (cuenta) void traer(cuenta)
+    if (cuenta) void traer(cuenta, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cuenta?.perfilId])
+
+  /**
+   * EL REFRESCO SOLO, Y LA VUELTA A LA PESTAÑA.
+   *
+   * Las dos cosas hacen falta y no se solapan. El reloj mantiene al día a quien
+   * tiene la pantalla delante; el `visibilitychange` cubre el caso de verdad —la
+   * pestaña abierta desde ayer, que sin esto enseñaría las cifras de anoche
+   * durante los quince minutos siguientes a volver a ella—.
+   */
+  useEffect(() => {
+    if (!cuenta) return
+
+    const reloj = setInterval(() => void traer(cuenta, false), CADA_MS)
+    // Un tic por minuto solo para que el «hace X minutos» no se quede clavado.
+    const tic = setInterval(() => setTic((n) => n + 1), 60_000)
+
+    const alVolver = () => {
+      if (document.visibilityState !== 'visible') return
+      // Solo si lo que hay ya se ha quedado viejo: volver a la pestaña cada dos
+      // minutos no puede convertirse en una llamada a Amazon cada dos minutos.
+      if (!actualizado || Date.now() - actualizado > CADA_MS) void traer(cuenta, false)
+    }
+    document.addEventListener('visibilitychange', alVolver)
+
+    return () => {
+      clearInterval(reloj)
+      clearInterval(tic)
+      document.removeEventListener('visibilitychange', alVolver)
+    }
+  }, [cuenta, actualizado, traer])
 
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
@@ -254,19 +348,24 @@ export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
               Ver archivadas
             </button>
 
-            <button
-              type="button"
-              onClick={() => cuenta && traer(cuenta)}
-              disabled={cargando}
-              className="ml-auto px-2.5 py-1 rounded-full border border-white/10 text-[11px] text-white/45 hover:text-white transition-colors flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {cargando ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
+            {/* NO HAY BOTÓN DE ACTUALIZAR, y es la decisión de esta pantalla.
+                Un botón así es admitir que lo que se ve puede estar viejo y que
+                arreglarlo es cosa tuya. Se refresca solo cada quince minutos y
+                al volver a la pestaña; lo que se enseña es CUÁNDO fue la última
+                vez, que es la pregunta que el botón intentaba tapar. */}
+            <span className="ml-auto text-[11px] text-white/35 flex items-center gap-1.5">
+              {cargando || cargandoMetricas ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin text-[#FF6600]" />
+                  Trayendo de Amazon…
+                </>
               ) : (
-                <RefreshCw className="h-3 w-3" />
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400/70" />
+                  Al día · {hace(actualizado) ?? 'ahora'}
+                </>
               )}
-              Actualizar
-            </button>
+            </span>
           </div>
 
           {error && (
@@ -315,8 +414,11 @@ export function MarketingBoard({ cuentas }: { cuentas: CuentaDeTrabajo[] }) {
               </>
             ) : periodo ? (
               <>
-                Rendimiento de {periodo}. La última jornada no se incluye: Amazon no la cierra hasta
-                pasadas unas horas y saldría con el gasto contado y las ventas todavía no.
+                Rendimiento de {periodo}, hoy incluido. El día de hoy va incompleto —Amazon no lo
+                cierra hasta pasadas unas horas, así que el gasto ya está contado y parte de las
+                ventas no—, por eso el ACOS de una campaña que solo tenga datos de hoy sale más
+                alto de lo que acabará siendo. Las campañas, el presupuesto y el ajuste del top sí
+                son de este momento.
               </>
             ) : null}
           </p>

@@ -53,14 +53,22 @@ export async function POST(request: NextRequest) {
     const perfil = await cuenta(body.perfilId)
 
     /**
-     * AYER Y NO HOY como fecha final, a propósito.
+     * HASTA HOY, INCLUIDO. Y esto cambió a conciencia.
      *
-     * Amazon no cierra el día hasta pasadas unas horas: pedir hasta hoy devuelve
-     * un día a medias que hace que el ACOS de la última jornada salga disparado
-     * —el gasto ya está contado y las ventas todavía no—. Es la clase de cifra
-     * que provoca una llamada de un cliente por un problema que no existe.
+     * Estaba puesto hasta AYER para evitar una jornada a medias: Amazon no
+     * cierra el día hasta pasadas unas horas, así que el gasto de hoy ya está
+     * contado y las ventas todavía no, y el ACOS del último día sale disparado.
+     * El razonamiento era bueno para un informe que se mira una vez a la semana.
+     *
+     * Pero esto es una herramienta de trabajo que se refresca sola: no poder ver
+     * lo que una campaña lleva gastado ESTA MAÑANA es peor que ver un ACOS
+     * provisional. Lo que se hace con el ACOS de una campaña que se está
+     * desbocando es entrar a pararla, y para eso hay que verlo hoy y no mañana.
+     *
+     * El pie de la tabla dice que la última jornada va incompleta. Un número con
+     * su advertencia al lado informa; un número que no está, no.
      */
-    const hasta = body.hasta ?? dia(1)
+    const hasta = body.hasta ?? dia(0)
     const desde = body.desde ?? dia(DIAS)
 
     const reportId = await pedirInformeCampanas(
