@@ -166,7 +166,7 @@ export interface StockRun {
  * construidos a propósito: todavía no se sabe qué podrá dar cada cliente, y
  * descubrirlo no puede obligar a una migración ni a cambiar este tipo.
  */
-export type StockProfileOrigin = 'manual' | 'drive' | 'sftp' | 'ftps' | 'correo'
+export type StockProfileOrigin = 'manual' | 'drive' | 'sftp' | 'ftps' | 'correo' | 'api'
 
 export const STOCK_PROFILE_ORIGIN_LABELS: Record<StockProfileOrigin, string> = {
   manual: 'Subida a mano',
@@ -174,6 +174,7 @@ export const STOCK_PROFILE_ORIGIN_LABELS: Record<StockProfileOrigin, string> = {
   sftp: 'SFTP',
   ftps: 'FTPS',
   correo: 'Correo',
+  api: 'API del proveedor',
 }
 
 /** 'stock' es el volcado principal; 'ean' el índice de códigos de barras del ERP */

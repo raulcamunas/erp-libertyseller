@@ -14,6 +14,7 @@
  */
 
 import type { StockProfileOrigin } from '@/lib/types/stock-sync'
+import { conectorApi } from './api'
 import { conectorCorreo } from './correo'
 import { conectorDrive } from './drive'
 import { conectorManual } from './manual'
@@ -27,6 +28,7 @@ const REGISTRO: Record<StockProfileOrigin, ConectorOrigen> = {
   sftp: conectorSftp,
   ftps: conectorFtps,
   correo: conectorCorreo,
+  api: conectorApi,
 }
 
 /** El conector de un origen. Nunca devuelve undefined: el Record los cubre todos */
@@ -36,7 +38,7 @@ export function conectorDe(origen: StockProfileOrigin): ConectorOrigen {
 
 /** Todos, en el orden en que se enseñan: primero los que funcionan */
 export function conectores(): ConectorOrigen[] {
-  return [conectorManual, conectorDrive, conectorSftp, conectorFtps, conectorCorreo]
+  return [conectorManual, conectorApi, conectorDrive, conectorSftp, conectorFtps, conectorCorreo]
 }
 
 /**
