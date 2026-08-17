@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, Copy, Loader2, Play } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
+import { esProducto, type ProductoEntrais } from '@/lib/entrais/api'
+import { TablaProductos } from './TablaProductos'
 
 /**
  * ENTRAIS TEST · VER QUÉ TRAE LA API DEL PROVEEDOR.
@@ -78,11 +80,28 @@ export function EntraisTest() {
   const [cargando, setCargando] = useState(false)
   const [salida, setSalida] = useState('')
   const [meta, setMeta] = useState('')
+  const [datos, setDatos] = useState<unknown>(null)
+  const [vista, setVista] = useState<'tabla' | 'json'>('tabla')
+
+  /**
+   * Los productos, si es que la respuesta lo son.
+   *
+   * Vale igual para `/Products` —una lista— que para `/Product/38265`, que
+   * devuelve el objeto suelto: se envuelve y se pinta la tabla de una fila. Y si
+   * lo que ha llegado son facturas o RMAs, esto queda vacío y solo se ofrece el
+   * JSON, que es lo honesto: una tabla de SKU y stock sobre una factura no
+   * significa nada.
+   */
+  const productos = useMemo<ProductoEntrais[]>(() => {
+    if (Array.isArray(datos)) return datos.filter(esProducto)
+    return esProducto(datos) ? [datos] : []
+  }, [datos])
 
   async function lanzar() {
     setCargando(true)
     setSalida('')
     setMeta('')
+    setDatos(null)
 
     const res = await postAmazon<{
       entorno: string
@@ -102,7 +121,9 @@ export function EntraisTest() {
       `${res.data.entorno} · ${res.data.ms} ms` +
         (res.data.cuantos !== null ? ` · ${res.data.cuantos.toLocaleString('es-ES')} elementos` : '')
     )
+    setDatos(res.data.datos)
     setSalida(JSON.stringify(res.data.datos, null, 2))
+    setVista('tabla')
   }
 
   return (
@@ -190,6 +211,29 @@ export function EntraisTest() {
       <div className="flex items-center gap-2">
         <span className="text-[10px] uppercase tracking-wider text-white/35">Respuesta</span>
         {meta && <span className="text-[10px] text-white/40">{meta}</span>}
+
+        {/* La tabla solo se ofrece cuando lo que ha llegado son productos. Con
+            una respuesta de facturas o de RMAs el botón ni aparece, en vez de
+            enseñar una tabla de cinco columnas vacías. */}
+        {productos.length > 0 && (
+          <div className="flex gap-1">
+            {(['tabla', 'json'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setVista(v)}
+                className={`px-2 py-0.5 rounded-full border text-[10px] font-medium transition-colors ${
+                  vista === v
+                    ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
+                    : 'border-white/10 text-white/40 hover:text-white/80'
+                }`}
+              >
+                {v === 'tabla' ? 'Tabla' : 'JSON'}
+              </button>
+            ))}
+          </div>
+        )}
+
         {salida && (
           <button
             type="button"
@@ -205,9 +249,13 @@ export function EntraisTest() {
         )}
       </div>
 
-      <pre className="h-[520px] overflow-auto rounded-lg border border-white/10 bg-black/40 p-2 text-[10.5px] text-white/70 font-mono whitespace-pre">
-        {salida || 'Elige una llamada y dale a Lanzar.'}
-      </pre>
+      {productos.length > 0 && vista === 'tabla' ? (
+        <TablaProductos productos={productos} />
+      ) : (
+        <pre className="h-[520px] overflow-auto rounded-lg border border-white/10 bg-black/40 p-2 text-[10.5px] text-white/70 font-mono whitespace-pre">
+          {salida || 'Elige una llamada y dale a Lanzar.'}
+        </pre>
+      )}
 
       <p className="text-[10px] text-white/30">
         Solo lectura. Su API tiene también una llamada para crear reservas de pedido, y desde aquí

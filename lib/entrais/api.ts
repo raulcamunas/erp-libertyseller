@@ -36,6 +36,52 @@
 
 export type EntornoEntrais = 'pruebas' | 'real'
 
+/**
+ * UN PRODUCTO TAL CUAL LO DEVUELVE ELLOS.
+ *
+ * `code` es la pieza importante: es el código interno del proveedor Y es el SKU
+ * con el que el cliente tiene creados sus listings en Amazon. Comprobado contra
+ * Seller Central — el cliente montó las ofertas usando el código del proveedor,
+ * así que no hace falta ninguna tabla de equivalencias entre los dos sistemas.
+ *
+ * Dos avisos sobre los campos:
+ *
+ *   `stock` PUEDE SER NEGATIVO (se han visto -1, -8, -100). Es lo que pasa
+ *   cuando han vendido por encima de lo que tenían. Cualquier cuenta que lo
+ *   trate como «unidades disponibles» sin más se lleva un número por debajo de
+ *   cero a Amazon.
+ *
+ *   `ean` viene vacío en un 8% del catálogo (refurbished, baterías, equipos a
+ *   medida) y `entries` es null casi siempre; cuando trae algo son las entradas
+ *   FUTURAS con fecha y unidades, que es lo que dice si merece la pena esperar
+ *   en vez de despublicar.
+ */
+export interface ProductoEntrais {
+  code: number
+  description: string
+  family: { familyCode: string; description: string } | null
+  brand: { brandCode: string; description: string } | null
+  subfamily: { subfamilyCode: string; description: string } | null
+  ean: string | null
+  partNumber: string | null
+  /** true en licencias y ESD: no tienen stock físico */
+  digital: boolean
+  /** El coste, SIN IVA */
+  price: number
+  /** Canon digital por unidad. Va aparte del precio */
+  digitalCanon: number
+  stock: number
+  entries: { date: string; units: number }[] | null
+  pricesPerQuantity: unknown
+}
+
+/** Si la respuesta trae productos, para saber si se puede pintar la tabla */
+export function esProducto(x: unknown): x is ProductoEntrais {
+  if (typeof x !== 'object' || x === null) return false
+  const p = x as Record<string, unknown>
+  return typeof p.code === 'number' && typeof p.description === 'string'
+}
+
 const BASES: Record<EntornoEntrais, string> = {
   pruebas: 'https://www.aseuropa.com:5003',
   real: 'https://www.aseuropa.com:5002',
