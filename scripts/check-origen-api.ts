@@ -67,7 +67,7 @@ const PRODUCTOS = [
 ] as unknown as ProductoEntrais[]
 
 /* ---- Copia literal de la serialización del conector (no está exportada) ---- */
-const CABECERAS = ['COD_INTERNO', 'EAN', 'STOCK', 'PRECIO', 'CANON', 'DIGITAL', 'NOMBRE']
+const CABECERAS = ['SKU', 'EAN', 'STOCK', 'PRECIO', 'CANON', 'DIGITAL', 'NOMBRE']
 
 function celda(valor: string | number): string {
   const texto = String(valor ?? '').replace(/[\r\n]+/g, ' ').replace(/"/g, '""')
@@ -100,7 +100,7 @@ const PERFIL: PerfilLectura = {
   nombre: 'Entrais · Volcado API',
   tipo: 'stock',
   columnas: {
-    referencia: ['COD_INTERNO'],
+    referencia: ['Articulo', 'Cod.Articulo', 'Codigo articulo', 'Referencia', 'SKU'],
     stock: ['STOCK'],
     precio: ['PRECIO'],
     ean: ['EAN'],

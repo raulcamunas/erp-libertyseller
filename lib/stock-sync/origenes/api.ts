@@ -83,15 +83,21 @@ import { OrigenError, textoConfig, type ConectorOrigen, type ContextoOrigen, typ
 const PROVEEDORES = [{ valor: 'entrais', etiqueta: 'Entrais · aseuropa.com' }]
 
 /**
- * Las cabeceras son LAS DEL FICHERO DE TARIFA DEL PROVEEDOR, a propósito.
+ * LAS CABECERAS SON LOS NOMBRES QUE LOS PERFILES YA BUSCAN.
  *
- * Ese CSV es el que se lleva usando hasta hoy para dar de alta a este cliente a
- * mano, así que un perfil ya configurado contra él sigue funcionando al cambiar
- * el origen a la API sin tocar una sola columna. Inventar nombres nuevos
- * obligaría a reconfigurar cada perfil que se migre, y a hacerlo bien a la
- * primera con el envío automático encendido.
+ * Aquí había «COD_INTERNO», copiado del fichero de tarifa del proveedor, y
+ * estaba mal: un perfil recién creado busca la referencia entre «Articulo»,
+ * «Cod.Articulo», «Codigo articulo», «Referencia» y «SKU», así que el conector
+ * generaba un fichero impecable que el lector rechazaba por no reconocer la
+ * columna. El aviso lo explicaba bien, pero es una configuración de más que no
+ * tiene por qué existir.
+ *
+ * «SKU» además es lo correcto y no una comodidad: el `code` del proveedor ES el
+ * SKU con el que el cliente tiene creados sus listings en Amazon —comprobado
+ * contra Seller Central, cinco de cinco—. Llamarlo de otra forma escondería
+ * justo el hecho del que depende que el cruce funcione.
  */
-const CABECERAS = ['COD_INTERNO', 'EAN', 'STOCK', 'PRECIO', 'CANON', 'DIGITAL', 'NOMBRE'] as const
+const CABECERAS = ['SKU', 'EAN', 'STOCK', 'PRECIO', 'CANON', 'DIGITAL', 'NOMBRE'] as const
 
 function entornoDe(config: Record<string, unknown>): EntornoEntrais {
   // Por omisión, PRUEBAS. Un perfil a medio configurar tiene que apuntar al

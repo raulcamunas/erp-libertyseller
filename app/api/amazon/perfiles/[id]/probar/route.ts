@@ -25,9 +25,20 @@ export const dynamic = 'force-dynamic'
 // El motor usa Buffer y el parser de xlsx, que no existen en el runtime edge.
 export const runtime = 'nodejs'
 
-// Leer un Excel de 21.000 filas son milisegundos de cruce pero varios segundos
-// de parseo en una máquina cargada. El margen es para eso.
-export const maxDuration = 60
+/**
+ * Leer un Excel de 21.000 filas son milisegundos de cruce pero varios segundos
+ * de parseo en una máquina cargada. El margen es para eso.
+ *
+ * Y SON 120 Y NO 60 DESDE QUE HAY ORÍGENES DE API. Aquí lo que tarda ya no es
+ * el parseo: es el servidor del proveedor. El catálogo entero de Entrais son
+ * 6.916 productos y tarda unos 48 segundos en contestar, o sea que con 60 el
+ * botón «Probar» estaba a doce segundos de agotarse — y al agotarse no dice
+ * «el proveedor tarda demasiado», dice un error de red genérico que manda a
+ * buscar el fallo donde no está.
+ *
+ * Es el mismo margen que ya tenía el simulacro, que hace lo mismo y algo más.
+ */
+export const maxDuration = 120
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
