@@ -9,6 +9,7 @@ import {
   Timer,
   PhoneCall,
   Landmark,
+  FlaskConical,
   Megaphone,
   PhoneForwarded,
   CalendarDays,
@@ -145,6 +146,18 @@ export const apps: AppConfig[] = [
     route: '/dashboard/vacaciones',
     status: 'new',
     category: 'productivity'
+  },
+  {
+    // Banco de pruebas de la API del proveedor de un cliente. Se llama «test»
+    // porque lo es: cuando se sepa qué datos merecen guardarse, esto se
+    // convertirá en otra cosa con otro nombre.
+    id: 'entrais-test',
+    name: 'Entrais Test',
+    description: 'La API del proveedor: productos, precios y stock, en crudo',
+    icon: FlaskConical,
+    route: '/dashboard/entrais-test',
+    status: 'new',
+    category: 'analytics'
   },
   // 'marketing-api' YA NO ES UNA APP DEL MENÚ. Su contenido —la conexión con
   // Amazon Ads y qué cuentas de anunciante se trabajan— es la pestaña
@@ -320,6 +333,9 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'amazon-api',
   // Una pantalla de decisión, con nombres reales de clientes en las maquetas.
   'disenos',
+  // Las credenciales de un cliente contra el sistema de su proveedor, y sus
+  // precios de COMPRA, que es de lo más sensible que hay en su negocio.
+  'entrais-test',
 ])
 
 /**

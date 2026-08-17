@@ -237,6 +237,19 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/entrais-test - Solo admin
+      //
+      // Aquí se usan las credenciales de un cliente contra el sistema de su
+      // proveedor, y se ven sus PRECIOS DE COMPRA, que es de lo más sensible que
+      // hay en su negocio. Mismo listón que Amazon API.
+      if (pathname.startsWith('/dashboard/entrais-test')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/marketing-api - Solo admin
       //
       // Desde aquí se autoriza el acceso a la cuenta de PUBLICIDAD de un
