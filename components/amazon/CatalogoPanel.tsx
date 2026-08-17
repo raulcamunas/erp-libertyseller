@@ -33,6 +33,7 @@ import {
   type CatalogFilter,
   type RefreshPreview,
 } from '@/lib/amazon/catalogo'
+import type { JobRespuesta } from '@/lib/plataforma/cliente'
 import {
   postAmazon,
   type CatalogResponse,
@@ -145,6 +146,7 @@ export function CatalogoPanel({
   const [filters, setFilters] = useState<CatalogFilter[]>([])
   const [visible, setVisible] = useState(PAGE)
   const [enviando, setEnviando] = useState(false)
+  const [censando, setCensando] = useState(false)
   const [verHistorial, setVerHistorial] = useState(false)
 
   /**
@@ -268,6 +270,41 @@ export function CatalogoPanel({
     return () => clearInterval(id)
   }, [mirarSiHayNovedades])
 
+  /* ---------------- El censo por informe ---------------- */
+
+  /**
+   * Pide el censo del catálogo, que es lo único capaz de enumerarlo entero.
+   *
+   * NO ESPERA A QUE TERMINE, y no es una simplificación: el informe de Amazon
+   * tarda entre uno y veinte minutos en generarse, y ninguna petición HTTP
+   * aguanta eso. Lo que hace la ruta es encolar el trabajo; el motor lo recoge
+   * en la siguiente pasada y va escribiendo en el mismo espejo del que se pinta
+   * esta tabla. Por eso el aviso dice que se puede cerrar la pantalla.
+   *
+   * Si ya hay uno pendiente no se crea otro —la ruta no duplica— y contesta
+   * diciéndolo, que es la respuesta correcta a pulsar el botón dos veces.
+   */
+  async function pedirCenso() {
+    if (!marketplaceId || censando) return
+    setCensando(true)
+    const res = await postAmazon<JobRespuesta>('/api/plataforma/jobs', {
+      tipo: 'censo_catalogo',
+      clientId: connection.client_id,
+      connectionId: connection.id,
+      marketplaceId,
+    })
+    setCensando(false)
+
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(
+      res.data.mensaje ??
+        'Censo encolado. Cuando termine, el catálogo entero aparecerá aquí sin hacer nada más.'
+    )
+  }
+
   /* ---------------- El botón de refrescar ---------------- */
 
   async function refrescar() {
@@ -301,9 +338,10 @@ export function CatalogoPanel({
     const recortado = res.data.results.find((r) => r.truncated)
     if (recortado) {
       toast.warning(
-        recortado.declared > 0
-          ? `Amazon dice que hay ${formatInt(recortado.declared)} referencias y por esta vía solo se pueden leer 1.000: faltan líneas por traer`
-          : 'Este catálogo pasa de 1000 referencias y Amazon no deja recorrerlo entero por esta vía: faltan líneas por leer'
+        (recortado.declared > 0
+          ? `Amazon declara ${formatInt(recortado.declared)} referencias y este refresco solo puede leer 1.000. `
+          : 'Este catálogo pasa de 1.000 referencias y este refresco no puede recorrerlo entero. ') +
+          'Usa «Leer el catálogo entero» para traerlas todas.'
       )
     }
   }
@@ -510,15 +548,36 @@ export function CatalogoPanel({
             de cada quince minutos, que no tiene a nadie delante. Sin esto, un
             cliente de 1.500 referencias aparece con 1.000, el buscador no
             encuentra las que faltan y la conclusión es que ese producto no está
-            en Amazon. */}
+            en Amazon.
+
+            EL BOTÓN VA AQUÍ Y NO EN «MARCAS», que es donde estaba. El censo por
+            informe es LA respuesta a este aviso, y estaba a dos pestañas de
+            distancia y solo visible para clientes con CERO referencias — o sea,
+            escondido justo en el caso para el que existe. */}
         {connection.last_sync_truncated && (
-          <div className={warnBox}>
-            <span className="font-semibold">Esto no es todo el catálogo.</span>{' '}
-            {connection.last_sync_declared
-              ? `Amazon dice que hay ${formatInt(connection.last_sync_declared)} referencias y por esta vía solo se pueden leer 1.000.`
-              : 'Amazon no deja recorrer por esta vía catálogos de más de 1.000 referencias.'}{' '}
-            Las que faltan no se están refrescando, así que no busques aquí un SKU que no aparezca:
-            puede estar en Amazon igualmente.
+          <div className={`${warnBox} flex flex-wrap items-center gap-x-2 gap-y-1.5`}>
+            <span>
+              <span className="font-semibold">Esto no es todo el catálogo.</span>{' '}
+              {connection.last_sync_declared
+                ? `El refresco de cada ${AMAZON_REFRESH_MINUTES} minutos solo puede leer 1.000 referencias y Amazon declara ${formatInt(connection.last_sync_declared)}.`
+                : `El refresco de cada ${AMAZON_REFRESH_MINUTES} minutos no puede leer más de 1.000 referencias.`}{' '}
+              Para traerlas todas hace falta el censo por informe, que además trae las suprimidas y
+              las inactivas. Tarda entre unos minutos y media hora.
+            </span>
+            <button
+              type="button"
+              onClick={() => void pedirCenso()}
+              disabled={censando || !marketplaceId}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-yellow-500/40 bg-yellow-400/10 px-2 py-1 text-[11px] font-medium text-yellow-200 hover:bg-yellow-400/20 disabled:opacity-50 transition-colors"
+              title="Pide el informe de listings completo. Se hace en segundo plano: puedes cerrar esta pantalla"
+            >
+              {censando ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <PackageSearch className="h-3 w-3" />
+              )}
+              Leer el catálogo entero
+            </button>
           </div>
         )}
 
