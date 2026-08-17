@@ -97,7 +97,7 @@ export function EntraisTest() {
     return esProducto(datos) ? [datos] : []
   }, [datos])
 
-  async function lanzar() {
+  async function lanzar(forzar = false) {
     setCargando(true)
     setSalida('')
     setMeta('')
@@ -107,8 +107,11 @@ export function EntraisTest() {
       entorno: string
       ms: number
       cuantos: number | null
+      deCache: boolean
+      edadMs: number
+      cuota: { limite: number; usadas: number; quedan: number; seLiberaEn: string | null } | null
       datos: unknown
-    }>('/api/entrais/probar', { entorno, ruta })
+    }>('/api/entrais/probar', { entorno, ruta, forzar })
 
     setCargando(false)
 
@@ -117,9 +120,24 @@ export function EntraisTest() {
       setMeta('falló')
       return
     }
+    /**
+     * DE DÓNDE SALE EL DATO Y CUÁNTAS LLAMADAS QUEDAN, siempre.
+     *
+     * Entrais admite cuatro llamadas por hora al catálogo. Sin esto, cuatro
+     * clics aquí dejan sin cuota al ciclo de stock durante el resto de la hora
+     * y nadie se entera hasta que falla una ejecución automática.
+     */
     setMeta(
       `${res.data.entorno} · ${res.data.ms} ms` +
-        (res.data.cuantos !== null ? ` · ${res.data.cuantos.toLocaleString('es-ES')} elementos` : '')
+        (res.data.cuantos !== null
+          ? ` · ${res.data.cuantos.toLocaleString('es-ES')} elementos`
+          : '') +
+        (res.data.deCache
+          ? ` · de la caché (hace ${Math.max(1, Math.round(res.data.edadMs / 60_000))} min)`
+          : '') +
+        (res.data.cuota
+          ? ` · quedan ${res.data.cuota.quedan}/${res.data.cuota.limite} llamadas de esta hora`
+          : '')
     )
     setDatos(res.data.datos)
     setSalida(JSON.stringify(res.data.datos, null, 2))
@@ -199,12 +217,23 @@ export function EntraisTest() {
         />
         <button
           type="button"
-          onClick={lanzar}
+          onClick={() => void lanzar(false)}
           disabled={cargando}
           className="px-3 py-1.5 rounded-full bg-[#FF6600] text-white text-[11px] font-medium flex items-center gap-1.5 disabled:opacity-50"
         >
           {cargando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
           Lanzar
+        </button>
+        {/* Saltarse la caché es una decisión, no el comportamiento por defecto:
+            gasta una de las cuatro llamadas que hay por hora. */}
+        <button
+          type="button"
+          onClick={() => void lanzar(true)}
+          disabled={cargando}
+          className="px-3 py-1.5 rounded-full border border-white/15 text-white/60 hover:text-white text-[11px] font-medium disabled:opacity-50 transition-colors"
+          title="Ignora la caché y llama a Entrais de verdad. Gasta una de las 4 llamadas por hora"
+        >
+          Forzar lectura
         </button>
       </div>
 
@@ -261,6 +290,12 @@ export function EntraisTest() {
         Solo lectura. Su API tiene también una llamada para crear reservas de pedido, y desde aquí
         no se puede usar: eso mueve mercancía de un cliente y tendrá su propia pantalla con
         confirmación y registro.
+      </p>
+      <p className="text-[10px] text-amber-300/50">
+        Entrais solo admite <strong>4 llamadas por hora</strong> a «Todos los productos», y esas
+        cuatro son las mismas que usa el ciclo de stock. Por eso «Lanzar» sirve lo de hace menos de
+        veinte minutos sin llamar a nadie: si gastas las cuatro aquí, el envío automático de stock
+        se queda sin ninguna hasta la hora siguiente.
       </p>
     </div>
   )

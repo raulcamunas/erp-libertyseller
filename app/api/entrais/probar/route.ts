@@ -3,7 +3,7 @@ import { fail, requireAmazonAdmin } from '@/lib/amazon/api'
 import {
   EntraisError,
   faltaConfigurar,
-  llamarEntrais,
+  llamarEntraisDetalle,
   type EntornoEntrais,
 } from '@/lib/entrais/api'
 
@@ -53,6 +53,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       entorno?: string
       ruta?: string
+      /** true = ignora la caché y gasta una llamada de la cuota a propósito */
+      forzar?: boolean
     }
 
     // Por omisión, PRUEBAS. Si alguien no dice contra cuál va, va contra el que
@@ -76,7 +78,23 @@ export async function POST(request: NextRequest) {
     }
 
     const t0 = Date.now()
-    const datos = await llamarEntrais<unknown>(entorno, ruta)
+    /**
+     * ESTE BANCO DE PRUEBAS TAMBIÉN GASTA CUOTA, y ese era el problema.
+     *
+     * Entrais admite CUATRO llamadas por hora a `/api/v1/Products`. Cuatro
+     * clics aquí mirando el JSON dejan sin llamadas al ciclo de stock durante
+     * el resto de la hora, y el ciclo se entera con un 429 en una ejecución
+     * automática que no tiene a nadie delante.
+     *
+     * Así que se llama por la misma puerta que todo lo demás, con su caché y su
+     * contador, y la respuesta dice de dónde ha salido el dato y cuántas
+     * llamadas quedan. Quien quiera una lectura fresca de verdad tiene el
+     * interruptor; lo que no puede pasar es gastarla sin saberlo.
+     */
+    const lectura = await llamarEntraisDetalle<unknown>(entorno, ruta, {
+      frescuraMs: body.forzar === true ? 0 : undefined,
+    })
+    const datos = lectura.datos
 
     return NextResponse.json({
       ok: true,
@@ -85,6 +103,9 @@ export async function POST(request: NextRequest) {
       // Cuántos vienen, para no tener que contarlos a ojo en un JSON de miles
       // de líneas: es el primer dato que se busca al pedir «todos los productos».
       cuantos: Array.isArray(datos) ? datos.length : null,
+      deCache: lectura.deCache,
+      edadMs: lectura.edadMs,
+      cuota: lectura.cuota,
       datos,
     })
   } catch (error) {

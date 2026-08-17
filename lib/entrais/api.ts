@@ -184,23 +184,207 @@ async function token(entorno: EntornoEntrais): Promise<string> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Llamar                                                              */
+/* La cuota                                                            */
 /* ------------------------------------------------------------------ */
 
 /**
- * Una llamada a la API de Entrais, con el token puesto.
+ * CUATRO LLAMADAS POR HORA AL CATÁLOGO. NO ES NEGOCIABLE Y NO LO PONE EN SU
+ * DOCUMENTACIÓN.
+ * ====================================================================
+ *
+ * Se descubrió en producción, con un 429 en la cara:
+ *
+ *     API calls quota exceeded! maximum admitted 4 per 1h
+ *
+ * Cuatro. Y `/api/v1/Products` es la llamada que hace absolutamente todo en
+ * este ERP: el banco de pruebas, el botón de Comprobar, el de Probar, el
+ * simulacro y cada pasada del ciclo de stock. Con la cadencia en quince minutos
+ * el ciclo solo ya se las gasta las cuatro, y entonces nadie puede probar nada
+ * en toda la hora — ni el ciclo reintentar si una falla.
+ *
+ * De ahí las dos piezas de aquí abajo, y ninguna es una optimización:
+ *
+ *   LA CACHÉ evita que probar sea caro. Configurar un perfil es darle a Probar,
+ *   mirar, cambiar una columna y volver a darle. Sin caché eso son cuatro
+ *   llamadas y se acabó la hora. Con ella es UNA, y las tres siguientes salen
+ *   instantáneas de memoria.
+ *
+ *   EL CONTADOR convierte un 429 en una frase que se entiende. «Quedan 0 de 4
+ *   llamadas; la siguiente se libera a las 15:42» se lee y se sabe qué hacer;
+ *   un 429 en mitad de un simulacro manda a mirar el código del ERP, que es
+ *   donde no está el problema.
+ *
+ * El contador vive en memoria, así que un reinicio del contenedor lo pone a
+ * cero y podría colarse una llamada de más. No pasa nada: el 429 sigue estando
+ * manejado y sigue diciendo lo que pasa. Lo que evita el contador es el caso
+ * normal, que es el que ocurre todos los días.
+ */
+interface Cuota {
+  patron: RegExp
+  porHora: number
+  /** Cuánto vale una respuesta antes de volver a pedirla */
+  cacheMs: number
+  nombre: string
+}
+
+const CUOTAS: Cuota[] = [
+  {
+    patron: /^\/api\/v1\/Products\b/i,
+    porHora: 4,
+    // VEINTE MINUTOS, Y ESTÁ ELEGIDO CONTRA LA CADENCIA DEL CICLO, no al azar.
+    // El perfil tiene que ir a 30 minutos (dos llamadas por hora, la mitad de
+    // la cuota). Con la caché a 20, el ciclo SIEMPRE encuentra la caché vencida
+    // y trae datos frescos —que es su trabajo—, y todo lo que haga una persona
+    // en los veinte minutos siguientes sale gratis.
+    cacheMs: 20 * 60_000,
+    nombre: 'el catálogo entero',
+  },
+]
+
+function cuotaDe(ruta: string): Cuota | null {
+  return CUOTAS.find((c) => c.patron.test(ruta)) ?? null
+}
+
+/** Cuándo se llamó, por entorno y ruta con cuota. Solo se guardan las de la última hora */
+const llamadas = new Map<string, number[]>()
+
+function registro(entorno: EntornoEntrais, cuota: Cuota, ahora: number): number[] {
+  const clave = `${entorno}|${cuota.nombre}`
+  const previas = (llamadas.get(clave) ?? []).filter((t) => ahora - t < 3600_000)
+  llamadas.set(clave, previas)
+  return previas
+}
+
+/** Cuántas llamadas quedan de la hora en curso, y cuándo se libera la siguiente */
+export function cuotaRestante(
+  entorno: EntornoEntrais,
+  ruta: string
+): { limite: number; usadas: number; quedan: number; seLiberaEn: Date | null } | null {
+  const cuota = cuotaDe(ruta)
+  if (!cuota) return null
+  const ahora = Date.now()
+  const previas = registro(entorno, cuota, ahora)
+  return {
+    limite: cuota.porHora,
+    usadas: previas.length,
+    quedan: Math.max(0, cuota.porHora - previas.length),
+    // La más antigua de la ventana es la que caduca primero y libera un hueco.
+    seLiberaEn: previas.length > 0 ? new Date(Math.min(...previas) + 3600_000) : null,
+  }
+}
+
+function hora(d: Date): string {
+  return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+}
+
+/* ------------------------------------------------------------------ */
+/* La caché                                                            */
+/* ------------------------------------------------------------------ */
+
+const cache = new Map<string, { valor: unknown; guardadoEn: number }>()
+
+/** Tira la caché de una ruta. Para el botón de «traer esto ahora sí o sí» */
+export function olvidarCache(entorno: EntornoEntrais, ruta: string): void {
+  cache.delete(`${entorno}|${ruta}`)
+}
+
+/* ------------------------------------------------------------------ */
+/* Llamar                                                              */
+/* ------------------------------------------------------------------ */
+
+export interface LecturaEntrais<T> {
+  datos: T
+  /** true si no se ha llamado a nadie: esto salía de memoria */
+  deCache: boolean
+  /** Antigüedad del dato en milisegundos. 0 si se acaba de traer */
+  edadMs: number
+  /** Cómo va la cuota DESPUÉS de esta llamada. null si esta ruta no tiene */
+  cuota: ReturnType<typeof cuotaRestante>
+}
+
+/**
+ * Una llamada a la API de Entrais, con el token puesto, la caché delante y el
+ * contador de cuota detrás.
+ *
+ * `frescura` es el margen que acepta quien llama: 0 obliga a ir a la API. Por
+ * omisión se usa el de la cuota, o nada si la ruta no tiene.
+ */
+export async function llamarEntraisDetalle<T>(
+  entorno: EntornoEntrais,
+  ruta: string,
+  opciones: { frescuraMs?: number } = {}
+): Promise<LecturaEntrais<T>> {
+  const cuota = cuotaDe(ruta)
+  const clave = `${entorno}|${ruta}`
+  const frescuraMs = opciones.frescuraMs ?? cuota?.cacheMs ?? 0
+
+  const guardado = cache.get(clave)
+  if (guardado && frescuraMs > 0 && Date.now() - guardado.guardadoEn < frescuraMs) {
+    return {
+      datos: guardado.valor as T,
+      deCache: true,
+      edadMs: Date.now() - guardado.guardadoEn,
+      cuota: cuotaRestante(entorno, ruta),
+    }
+  }
+
+  if (cuota) {
+    const ahora = Date.now()
+    const previas = registro(entorno, cuota, ahora)
+    if (previas.length >= cuota.porHora) {
+      const libre = new Date(Math.min(...previas) + 3600_000)
+      /**
+       * SE PARA ANTES DE LLAMAR, y con el dato viejo a mano si lo hay.
+       *
+       * Gastar la llamada para recibir un 429 no informa de nada que no se
+       * supiera ya, y encima no deja constancia útil: el mensaje de ellos dice
+       * el límite pero no cuándo se libera, que es lo único que quien está
+       * delante necesita saber.
+       */
+      throw new EntraisError(
+        `Entrais solo deja ${cuota.porHora} llamadas por hora a ${cuota.nombre} y ya se han hecho las ${cuota.porHora}. ` +
+          `La siguiente se libera a las ${hora(libre)}.` +
+          (guardado
+            ? ` Hay una lectura de hace ${Math.round((Date.now() - guardado.guardadoEn) / 60_000)} minutos guardada, ` +
+              'pero se ha pedido una fresca expresamente.'
+            : ''),
+        429
+      )
+    }
+    previas.push(ahora)
+    llamadas.set(`${entorno}|${cuota.nombre}`, previas)
+  }
+
+  const datos = await pedir<T>(entorno, ruta)
+  cache.set(clave, { valor: datos, guardadoEn: Date.now() })
+
+  return { datos, deCache: false, edadMs: 0, cuota: cuotaRestante(entorno, ruta) }
+}
+
+/** Lo de siempre, cuando solo se quieren los datos */
+export async function llamarEntrais<T>(
+  entorno: EntornoEntrais,
+  ruta: string,
+  opciones: { frescuraMs?: number } = {}
+): Promise<T> {
+  return (await llamarEntraisDetalle<T>(entorno, ruta, opciones)).datos
+}
+
+/**
+ * La petición pelada.
  *
  * Si contesta 401 se tira el token guardado y se reintenta UNA vez: es lo que
  * pasa cuando caduca entre dos peticiones, y hacer que el usuario vea un error
  * de sesión por algo que se arregla solo con una llamada más sería absurdo. Una
  * sola vez, para que un 401 de verdad —credencial cambiada— no se convierta en
  * un bucle.
+ *
+ * EL REINTENTO DEL 401 NO CUENTA COMO LLAMADA NUEVA en el contador de cuota, y
+ * es correcto: la primera no llegó a hacer nada porque el token estaba muerto.
+ * Si su servidor la contara igual, el 429 del contador llegaría un poco tarde y
+ * lo cazaría el 429 de ellos, que también está manejado.
  */
-export async function llamarEntrais<T>(
-  entorno: EntornoEntrais,
-  ruta: string,
-  reintento = false
-): Promise<T> {
+async function pedir<T>(entorno: EntornoEntrais, ruta: string, reintento = false): Promise<T> {
   const res = await fetch(`${BASES[entorno]}${ruta}`, {
     headers: {
       Authorization: `Bearer ${await token(entorno)}`,
@@ -210,12 +394,21 @@ export async function llamarEntrais<T>(
 
   if (res.status === 401 && !reintento) {
     tokens.delete(entorno)
-    return await llamarEntrais<T>(entorno, ruta, true)
+    return await pedir<T>(entorno, ruta, true)
   }
 
   const texto = await res.text()
 
   if (!res.ok) {
+    // Su 429 dice el límite pero no cuándo se libera. Se completa con lo que
+    // sabemos, que es la ventana de una hora.
+    if (res.status === 429) {
+      throw new EntraisError(
+        `Entrais ha cortado por cuota: ${texto.slice(0, 200) || 'demasiadas llamadas'}. ` +
+          'La ventana es de una hora desde la primera llamada, así que hay que esperar.',
+        429
+      )
+    }
     throw new EntraisError(
       `Entrais ha contestado ${res.status} a ${ruta}: ${texto.slice(0, 300) || 'sin cuerpo'}`,
       res.status

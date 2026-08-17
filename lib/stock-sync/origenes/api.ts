@@ -76,7 +76,12 @@
  * viven los del SFTP y los del FTPS y donde este debería acabar.
  */
 
-import { EntraisError, llamarEntrais, type EntornoEntrais, type ProductoEntrais } from '@/lib/entrais/api'
+import {
+  EntraisError,
+  llamarEntraisDetalle,
+  type EntornoEntrais,
+  type ProductoEntrais,
+} from '@/lib/entrais/api'
 import { OrigenError, textoConfig, type ConectorOrigen, type ContextoOrigen, type FicheroOrigen } from './tipos'
 
 /** Los proveedores a los que este conector sabe llamar */
@@ -158,10 +163,19 @@ function aCsv(productos: ProductoEntrais[]): { csv: string; negativos: number } 
   return { csv: lineas.join('\n'), negativos }
 }
 
+interface Catalogo {
+  fichero: FicheroOrigen
+  total: number
+  conStock: number
+  negativos: number
+  deCache: boolean
+  edadMs: number
+  quedan: number | null
+  limite: number | null
+}
+
 /** Trae el catálogo y lo deja hecho fichero. Es lo único que llama a la API */
-async function traerCatalogo(
-  ctx: ContextoOrigen
-): Promise<{ fichero: FicheroOrigen; total: number; conStock: number; negativos: number }> {
+async function traerCatalogo(ctx: ContextoOrigen): Promise<Catalogo> {
   const proveedor = textoConfig(ctx.config, 'proveedor') || 'entrais'
   if (proveedor !== 'entrais') {
     throw new OrigenError(
@@ -172,9 +186,20 @@ async function traerCatalogo(
 
   const entorno = entornoDe(ctx.config)
 
-  let productos: ProductoEntrais[]
+  let lectura: Awaited<ReturnType<typeof llamarEntraisDetalle<ProductoEntrais[]>>>
   try {
-    productos = await llamarEntrais<ProductoEntrais[]>(entorno, '/api/v1/Products')
+    /**
+     * SIN FORZAR FRESCURA, y es lo importante de esta línea.
+     *
+     * Entrais deja CUATRO llamadas por hora al catálogo. Se deja decidir a la
+     * caché de lib/entrais/api.ts, que sirve lo de hace menos de veinte minutos
+     * y solo llama cuando el dato ha vencido. Con el perfil a treinta minutos
+     * el ciclo siempre encuentra la caché vencida y trae datos frescos; lo que
+     * se ahorra son las llamadas de quien está configurando el perfil a base de
+     * probar, mirar y volver a probar — que sin esto agota la hora en cuatro
+     * clics.
+     */
+    lectura = await llamarEntraisDetalle<ProductoEntrais[]>(entorno, '/api/v1/Products')
   } catch (error) {
     // Se traduce a OrigenError para que el módulo lo cuente como «no llego al
     // origen» —que es lo que es— y no como «el fichero no encaja con el
@@ -189,6 +214,7 @@ async function traerCatalogo(
     )
   }
 
+  const productos = lectura.datos
   if (!Array.isArray(productos)) {
     throw new OrigenError(
       'Entrais ha contestado algo que no es una lista de productos. Su API ha cambiado de forma o el entorno elegido no es el que toca.'
@@ -220,23 +246,35 @@ async function traerCatalogo(
     )
   }
 
-  const ahora = new Date()
+  /**
+   * LA FECHA ES LA DE LA LECTURA, NO LA DE AHORA.
+   *
+   * Si esto sale de la caché, el dato es de hace un rato y decir que es de
+   * ahora sería mentir en el único sitio donde se mira para saber si el volcado
+   * está fresco: la ficha de la ejecución.
+   */
+  const leidoEn = new Date(Date.now() - lectura.edadMs)
+
   return {
     total: productos.length,
     conStock: productos.filter((p) => p.stock > 0).length,
     negativos,
+    deCache: lectura.deCache,
+    edadMs: lectura.edadMs,
+    quedan: lectura.cuota?.quedan ?? null,
+    limite: lectura.cuota?.limite ?? null,
     fichero: {
       // La fecha va en el NOMBRE y no dentro: así se sabe de cuándo era al
       // mirar una ejecución vieja, y la huella sigue dependiendo solo del
       // contenido.
-      nombre: `entrais-${entorno}-${ahora.toISOString().slice(0, 16).replace('T', '-')}.csv`,
+      nombre: `entrais-${entorno}-${leidoEn.toISOString().slice(0, 16).replace('T', '-')}.csv`,
       bytes,
       idExterno: null,
       // SIN HUELLA PROPIA: una API no tiene md5 ni fecha de modificación que
       // dar. Quien decide si hay novedad es el SHA-256 que `procesarPerfil`
       // calcula sobre estos bytes, y por eso el CSV se genera determinista.
       huella: null,
-      modificadoAt: ahora.toISOString(),
+      modificadoAt: leidoEn.toISOString(),
       tamano: bytes.byteLength,
     },
   }
@@ -250,7 +288,7 @@ export const conectorApi: ConectorOrigen = {
   id: 'api',
   etiqueta: 'API del proveedor',
   descripcion:
-    'Se conecta a la API del proveedor del cliente y arma el volcado en el momento. No hay fichero que nadie tenga que dejar en ningún sitio, así que tampoco hay fichero que se quede viejo sin avisar.',
+    'Se conecta a la API del proveedor del cliente y arma el volcado en el momento. No hay fichero que nadie tenga que dejar en ningún sitio, así que tampoco hay fichero que se quede viejo sin avisar. OJO: Entrais solo admite 4 llamadas por hora a su catálogo, así que la cadencia de este perfil no puede bajar de 30 minutos.',
   construido: true,
 
   campos: [
@@ -283,21 +321,30 @@ export const conectorApi: ConectorOrigen = {
 
   async comprobar(ctx) {
     try {
-      const { total, conStock, negativos, fichero } = await traerCatalogo(ctx)
+      const cat = await traerCatalogo(ctx)
       return {
         ok: true,
         mensaje:
-          `Entrais (${entornoDe(ctx.config)}) ha devuelto ${total.toLocaleString('es-ES')} productos, ` +
-          `${conStock.toLocaleString('es-ES')} con stock` +
-          (negativos > 0
-            ? `, y ${negativos} sobrevendidos (stock negativo), que se publicarán como cero.`
-            : '.'),
+          `Entrais (${entornoDe(ctx.config)}) ha devuelto ${cat.total.toLocaleString('es-ES')} productos, ` +
+          `${cat.conStock.toLocaleString('es-ES')} con stock` +
+          (cat.negativos > 0
+            ? `, y ${cat.negativos} sobrevendidos (stock negativo), que se publicarán como cero. `
+            : '. ') +
+          // LA CUOTA SE DICE SIEMPRE, no solo cuando se agota. Enterarse de que
+          // solo hay cuatro llamadas por hora el día que se acaban es
+          // enterarse tarde.
+          (cat.deCache
+            ? `Sin gastar cuota: es la lectura de hace ${Math.max(1, Math.round(cat.edadMs / 60_000))} minutos.`
+            : 'Llamada nueva.') +
+          (cat.quedan !== null
+            ? ` Quedan ${cat.quedan} de ${cat.limite} llamadas de esta hora.`
+            : ''),
         candidatos: [
           {
-            nombre: fichero.nombre,
+            nombre: cat.fichero.nombre,
             idExterno: null,
-            modificadoAt: fichero.modificadoAt,
-            tamano: fichero.tamano,
+            modificadoAt: cat.fichero.modificadoAt,
+            tamano: cat.fichero.tamano,
             elegido: true,
             descarte: null,
             nota: `Columnas: ${CABECERAS.join(', ')}`,
