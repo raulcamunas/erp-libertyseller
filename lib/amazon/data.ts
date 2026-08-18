@@ -2052,6 +2052,36 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
     }
   }
 
+  /**
+   * ---- 4. ANOTAR EN EL ESPEJO LO QUE SE ACABA DE PONER ----
+   *
+   * Sin esto, el ERP manda un cambio, Amazon lo aplica, y el espejo sigue con
+   * el valor viejo. En la pasada siguiente el sincronismo ve la misma
+   * diferencia y VUELVE A MANDAR EL MISMO CAMBIO. Y otra vez.
+   *
+   * Antes no se notaba porque el refresco de cada quince minutos volvía a leer
+   * el catálogo y corregía el espejo. Pero ese refresco NO PASA DE 1.000 SKU:
+   * en un cliente de 2.700 referencias, todo lo que queda por encima se
+   * reenviaba cada media hora para siempre. Valores correctos, pero miles de
+   * envíos y miles de filas de auditoría al día para no cambiar nada.
+   *
+   * NO SE ESCRIBE `last_seen_at`, y es a propósito: esa columna significa
+   * «Amazon nos devolvió este SKU al barrer», y de ella depende purgar los
+   * listings que ya no existen. Tocarla desde aquí revive un SKU muerto cada
+   * vez que se le manda algo.
+   *
+   * Y solo con `aceptado`. Un cambio inválido o fallido no ha cambiado nada en
+   * la tienda del cliente, así que el espejo tiene que seguir enseñando lo que
+   * de verdad hay.
+   */
+  if (!input.validateOnly) {
+    await anotarEnEspejo(
+      service,
+      input.connectionId,
+      results.filter((r) => r.status === 'aceptado')
+    )
+  }
+
   return {
     batchId,
     results,
@@ -2060,6 +2090,74 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
     abortReason,
   }
 }
+
+/**
+ * Pone en `amazon_listings` los valores que Amazon acaba de aceptar.
+ *
+ * SE AGRUPA POR VALOR y no se hace un UPDATE por SKU: en un envío de stock,
+ * cientos de referencias comparten el mismo número —el tope del cliente, o el
+ * cero— así que ciento treinta cambios suelen ser tres o cuatro consultas.
+ *
+ * Y se usa UPDATE y no UPSERT porque un upsert con las columnas a medias
+ * INSERTARÍA una fila nueva si el SKU no estuviera, y lo que aparecería en el
+ * catálogo sería un listing fantasma sin título, sin ASIN y sin tipo de
+ * producto. Aquí solo se toca lo que ya existe.
+ */
+async function anotarEnEspejo(
+  service: Service,
+  connectionId: string,
+  aceptados: SentChange[]
+): Promise<void> {
+  if (aceptados.length === 0) return
+
+  const grupos = new Map<
+    string,
+    { marketplaceId: string; columna: 'quantity' | 'price'; valor: number; skus: string[] }
+  >()
+
+  for (const c of aceptados) {
+    const columna = c.field === 'cantidad' ? 'quantity' : 'price'
+    const clave = `${c.marketplaceId}|${columna}|${c.newValue}`
+    const grupo = grupos.get(clave)
+    if (grupo) grupo.skus.push(c.sku)
+    else
+      grupos.set(clave, {
+        marketplaceId: c.marketplaceId,
+        columna,
+        valor: c.newValue,
+        skus: [c.sku],
+      })
+  }
+
+  for (const g of grupos.values()) {
+    // El `.in()` viaja en la URL, así que se trocea: con mil SKU de golpe
+    // PostgREST devuelve un 414 que no menciona los SKU por ningún lado.
+    for (let i = 0; i < g.skus.length; i += ESPEJO_CHUNK) {
+      const { error } = await service
+        .from('amazon_listings')
+        .update({ [g.columna]: g.valor })
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', g.marketplaceId)
+        .in('sku', g.skus.slice(i, i + ESPEJO_CHUNK))
+      /**
+       * Se comprueba y se registra, pero NO se lanza. El cambio ya está en la
+       * tienda del cliente: reventar aquí convertiría un envío correcto en un
+       * error en pantalla. Lo que se pierde si esto falla es solo que el
+       * cambio se reenviará en la pasada siguiente, que es exactamente lo que
+       * pasaba antes de que esta función existiera.
+       */
+      if (error) {
+        console.error(
+          `[amazon] no se pudo anotar en el espejo ${g.columna}=${g.valor} de ${g.skus.length} SKU en ${g.marketplaceId}:`,
+          error
+        )
+      }
+    }
+  }
+}
+
+/** Cuántos SKU caben en un `.in()` sin que la URL se vaya de tamaño */
+const ESPEJO_CHUNK = 200
 
 /**
  * Deshace un lote: vuelve a poner los valores anteriores.
