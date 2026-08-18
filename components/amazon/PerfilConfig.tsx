@@ -67,6 +67,22 @@ export function PerfilConfig({
   const conexion = data.conexiones.find((c) => c.id === perfil.connection_id)
 
   /**
+   * ¿Este perfil de stock saca también los códigos de barras del mismo correo?
+   *
+   * Cuando el cliente manda los dos ficheros en el mismo mensaje no hay un
+   * segundo perfil donde configurar el fichero de EAN, así que ESTE hace de los
+   * dos. Y hasta ahora la pantalla no lo sabía: enseñaba las columnas de un
+   * perfil de stock y escondía las del de EAN, con lo que no había manera de
+   * decirle a Shoplamp que de su fichero de códigos de barras solo valen los de
+   * Tipo 1.
+   */
+  const tomaEanDelMismoCorreo =
+    perfil.tipo === 'stock' &&
+    perfil.origen === 'correo' &&
+    typeof (perfil.origen_config as Record<string, unknown> | null)?.adjunto_ean === 'string' &&
+    ((perfil.origen_config as Record<string, unknown>).adjunto_ean as string).trim() !== ''
+
+  /**
    * Los frenos que este cliente tiene sin límite: sin él, ese freno no existe.
    *
    * CON EL FICHERO PARCIAL, LOS TRES DE VOLUMEN NO CUENTAN. No es que estén sin
@@ -317,9 +333,43 @@ export function PerfilConfig({
                 perfil={perfil}
                 campo="col_ean"
                 label="Código de barras"
-                nota="Si el volcado de stock ya lo trae."
+                nota="Si el volcado de stock ya lo trae, o si el de códigos de barras viene en el mismo correo."
                 onPatch={onPatch}
               />
+
+              {/* EL «TIPO», SOLO CUANDO ESTE PERFIL HACE TAMBIÉN DE PERFIL DE EAN.
+                  Cuando el cliente manda los dos ficheros en el mismo mensaje no
+                  hay un segundo perfil donde configurar esto, y sin la casilla no
+                  había forma de decirle a Shoplamp que solo valen los de Tipo 1.
+                  En un perfil de stock normal no pinta nada y no se enseña. */}
+              {tomaEanDelMismoCorreo && (
+                <>
+                  <Alias
+                    perfil={perfil}
+                    campo="col_tipo"
+                    label="Tipo de código"
+                    nota="Del segundo adjunto. Solo si ese fichero mezcla EAN-13 con códigos internos del ERP."
+                    onPatch={onPatch}
+                  />
+                  <Campo label="Quedarse solo con el tipo">
+                    <input
+                      key={`tipo-mismo-correo-${perfil.id}`}
+                      defaultValue={perfil.ean_solo_tipo ?? ''}
+                      inputMode="numeric"
+                      placeholder="Vacío = todos"
+                      onBlur={(e) => guardarEntero(e.target.value, perfil.ean_solo_tipo, (v) =>
+                        onPatch({ ean_solo_tipo: v })
+                      )}
+                      className={`${fieldInput} text-right tabular-nums`}
+                    />
+                    <Nota>
+                      En Shoplamp es 1. Colar códigos internos no es cosmético: dos artículos
+                      distintos pueden casar por un código parecido y el stock acaba en el listing
+                      equivocado.
+                    </Nota>
+                  </Campo>
+                </>
+              )}
             </>
           ) : (
             <>

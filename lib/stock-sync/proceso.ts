@@ -779,8 +779,17 @@ async function construirEanIndex(
       return {
         indice: null,
         avisos: [
-          `No se ha podido leer el adjunto de códigos de barras del mismo correo (${motivo.split('\n')[0]}). ` +
-            'El cruce ha ido SIN la vía por EAN del ERP.',
+          /**
+           * EL MOTIVO ENTERO, NO LA PRIMERA LÍNEA.
+           *
+           * Aquí había un `motivo.split('\n')[0]` y tiraba justo lo que sirve:
+           * el lector explica en las líneas siguientes qué columnas buscaba y
+           * cuáles tiene la hoja, que es lo único con lo que se puede arreglar.
+           * Recortado, el aviso decía «el fichero no encaja con el perfil» y ahí
+           * se acababa la pista.
+           */
+          `No se ha podido leer el adjunto de códigos de barras del mismo correo. El cruce ha ido ` +
+            `SIN la vía por EAN del ERP.\n${motivo}`,
         ],
       }
     }
@@ -835,15 +844,33 @@ async function construirEanIndex(
     return {
       indice: null,
       avisos: [
-        `El fichero de códigos de barras del perfil «${perfilEan.name}» no se ha podido leer ` +
-          `(${motivo.split('\n')[0]}). El cruce ha ido SIN la vía por EAN del ERP, que es la que ` +
-          'desempata las referencias que solo se diferencian en los ceros a la izquierda: las que ' +
-          'normalmente se resuelven por ahí se habrán resuelto quitando ceros, que es la vía ' +
-          'heurística, o no se habrán resuelto.',
+        // Mismo motivo que en la vía del mismo correo: el detalle de qué
+        // columnas buscaba y cuáles hay va en las líneas siguientes, y era
+        // justo lo que se tiraba.
+        `El fichero de códigos de barras del perfil «${perfilEan.name}» no se ha podido leer. ` +
+          'El cruce ha ido SIN la vía por EAN del ERP, que es la que desempata las referencias que ' +
+          'solo se diferencian en los ceros a la izquierda: las que normalmente se resuelven por ahí ' +
+          `se habrán resuelto quitando ceros, que es la vía heurística, o no se habrán resuelto.\n${motivo}`,
       ],
     }
   }
 }
+
+/**
+ * Los nombres con los que se busca la columna del código de barras cuando el
+ * perfil no dice ninguno.
+ *
+ * SIN ESTO, LA VÍA DEL MISMO CORREO NO FUNCIONABA. El perfil de stock trae sus
+ * columnas —Articulo, St. Real, Descrip.Propia— y ninguna de ellas es un EAN,
+ * porque el fichero de stock no lo lleva: lo lleva el OTRO adjunto. Así que el
+ * lector abría el fichero de códigos de barras buscando columnas de stock, no
+ * encontraba nada y contestaba «el fichero no encaja con el perfil», que es
+ * verdad y no ayuda absolutamente nada.
+ *
+ * Son los mismos nombres que ya usaba el lector de siempre para este fichero.
+ */
+const EAN_POR_DEFECTO = ['Codigo de Barras', 'Código de Barras', 'Codigo barras', 'EAN']
+const TIPO_POR_DEFECTO = ['Tipo']
 
 /**
  * El MISMO perfil, leído como si fuera el de códigos de barras.
@@ -857,9 +884,23 @@ async function construirEanIndex(
  * LA HOJA SE VACÍA A PROPÓSITO. Es lo único que casi seguro difiere entre los
  * dos ficheros, y con el nombre puesto el segundo no abriría. Vacío significa
  * «búscala por las columnas», que es lo que se recomienda de todas formas.
+ *
+ * Y SI EL PERFIL NO DICE QUÉ COLUMNA ES EL EAN, se usan los nombres de siempre.
+ * Lo que el perfil declare manda; esto solo evita que la vía entera se caiga por
+ * un campo que la pantalla de un perfil de stock ni siquiera enseñaba.
  */
 function perfilEanDelMismoCorreo(perfil: StockReadProfile): StockReadProfile {
-  return { ...perfil, tipo: 'ean', hoja: null, hoja_indice: null }
+  return {
+    ...perfil,
+    tipo: 'ean',
+    hoja: null,
+    hoja_indice: null,
+    col_ean: perfil.col_ean && perfil.col_ean.length > 0 ? perfil.col_ean : EAN_POR_DEFECTO,
+    // El Tipo no se exige: si el fichero no trae esa columna se queda sin
+    // resolver y no pasa nada. Solo sirve para los ficheros que mezclan EAN-13
+    // con códigos internos del ERP, y ahí es lo que los separa.
+    col_tipo: perfil.col_tipo && perfil.col_tipo.length > 0 ? perfil.col_tipo : TIPO_POR_DEFECTO,
+  }
 }
 
 /* ------------------------------------------------------------------ */
