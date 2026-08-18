@@ -19,6 +19,7 @@
 import { marketplaceById } from '@/lib/types/amazon'
 import { fetchAll, type UnidadDeTrabajo } from './datos'
 import { createServiceClient } from '@/lib/supabase/service'
+import type { AmazonCatalogItem } from '@/lib/amazon/sp-api'
 import type { ItemCatalogo } from './amazon/catalogo-items'
 import type { FilaCenso } from './amazon/informe-listings'
 
@@ -595,4 +596,95 @@ export async function contarListings(
   const { count, error } = await consulta
   if (error) throw error
   return count ?? 0
+}
+
+/* ------------------------------------------------------------------ */
+/* Completar lo que el informe no trae                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LOS SKU DEL ESPEJO QUE NO SE PUEDEN TOCAR.
+ *
+ * `product_type` es obligatorio en cada cambio que se le manda a Amazon, y el
+ * informe de listings no lo trae (ver la nota de volcarCenso). Así que después
+ * de un censo, todo lo que el ciclo de quince minutos no alcance —o sea, todo
+ * lo que pase de la referencia 1.000— se queda en el espejo sin poder editar
+ * precio ni stock.
+ *
+ * En un cliente de 2.700 referencias eso son 1.700 SKU que el simulacro cuenta
+ * como «no se pueden escribir» mientras TODO LO DEMÁS sale en verde. Es
+ * exactamente la forma de fallo que este módulo existe para evitar: no da
+ * error, da un número más pequeño.
+ */
+export async function skusSinTipoDeProducto(
+  unidad: UnidadDeTrabajo,
+  limite: number,
+  /**
+   * Desde qué SKU seguir. AVANZA POR POSICIÓN Y NO POR «LOS QUE SIGAN SIN
+   * TIPO», y esa diferencia es la que hace que el trabajo termine.
+   *
+   * Si un SKU está en nuestro espejo y Amazon no lo reconoce al preguntar por
+   * él —se borró en Seller Central, o el informe lo trajo con un nombre que la
+   * Listings API no acepta— se queda sin tipo para siempre. Sin cursor volvería
+   * a salir el primero en la consulta siguiente, y la siguiente, y el trabajo
+   * daría vueltas sobre los mismos veinte SKU gastando cupo, sin avanzar y sin
+   * dar error nunca.
+   */
+  despuesDe: string | null
+): Promise<string[]> {
+  const service = createServiceClient()
+  let q = service
+    .from('amazon_listings')
+    .select('sku')
+    .eq('connection_id', unidad.connectionId)
+    .eq('marketplace_id', unidad.marketplaceId)
+    .is('product_type', null)
+  if (despuesDe) q = q.gt('sku', despuesDe)
+  const { data, error } = await q.order('sku', { ascending: true }).limit(limite)
+  if (error) throw error
+  return (data ?? []).map((f) => (f as { sku: string }).sku)
+}
+
+/**
+ * Escribe en el espejo lo que ha contestado searchListingsItems por SKU.
+ *
+ * Se escriben TODOS los campos que trae, y no solo `product_type`: la respuesta
+ * es la misma que la del refresco de cada quince minutos, así que dejar el
+ * resto sin tocar sería quedarse a propósito con el precio y la cantidad del
+ * informe, que son más viejos.
+ */
+export async function completarListings(
+  unidad: UnidadDeTrabajo,
+  items: AmazonCatalogItem[],
+  ahora: Date
+): Promise<{ escritas: number; conTipo: number; consultas: number }> {
+  if (items.length === 0) return { escritas: 0, conTipo: 0, consultas: 0 }
+
+  const visto = ahora.toISOString()
+  const filas = items.map((item) => ({
+    connection_id: unidad.connectionId,
+    marketplace_id: unidad.marketplaceId,
+    sku: item.sku,
+    asin: item.asin,
+    title: item.title,
+    product_type: item.productType,
+    condition_type: item.conditionType,
+    listing_status: item.listingStatus,
+    price: item.price,
+    currency: item.currency,
+    quantity: item.quantity,
+    fulfillment_channel_code: item.fulfillmentChannelCode,
+    last_seen_at: visto,
+    amazon_last_updated_at: item.amazonLastUpdatedAt,
+  }))
+
+  const consultas = await upsertLotes(createServiceClient(), filas)
+
+  return {
+    escritas: filas.length,
+    // Cuántos se han quedado igual de intocables que antes. Si esto no baja, el
+    // problema no es que faltara el dato: es que Amazon tampoco lo da.
+    conTipo: items.filter((i) => i.productType).length,
+    consultas,
+  }
 }

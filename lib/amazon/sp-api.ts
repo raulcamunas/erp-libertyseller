@@ -919,3 +919,74 @@ export async function applyChange(
     validateOnly: change.validateOnly,
   })
 }
+
+/* ------------------------------------------------------------------ */
+/* Leer listings SUELTOS, por SKU                                      */
+/* ------------------------------------------------------------------ */
+
+/** Lo que admite `identifiers` en una sola llamada. Lo pone Amazon, no nosotros */
+const MAX_SKUS_POR_LLAMADA = 20
+
+/**
+ * Los listings de unos SKU CONCRETOS.
+ *
+ * ESTO ES LA PUERTA DE ATRÁS AL TOPE DE 1.000, y es el motivo de que exista.
+ *
+ * `fetchCatalog()` recorre el catálogo entero paginando, y searchListingsItems
+ * deja de dar páginas a los 1.000 SKU. Pero pidiendo IDENTIFICADORES CONCRETOS
+ * no hay nada que paginar: se piden veinte, contesta esos veinte. Un catálogo
+ * de 3.000 referencias se puede leer entero en 150 llamadas.
+ *
+ * Para qué hace falta: el censo por informe llena el espejo con el catálogo
+ * completo pero SIN `product_type`, porque el informe de listings no lo trae. Y
+ * sin `product_type` Amazon rechaza cualquier cambio de precio o de stock. O
+ * sea que en un cliente de más de 1.000 referencias, todo lo que pasa de la
+ * milésima queda en el espejo y no se puede tocar — y el ciclo de quince
+ * minutos, que es quien rellenaría ese campo, tampoco llega nunca hasta ahí.
+ *
+ * No sustituye a `fetchCatalog()`: aquella descubre lo que hay, esta completa
+ * lo que ya se sabe que existe.
+ */
+export async function fetchListingsBySku(
+  creds: AmazonCredentials,
+  options: { marketplaceId: string; skus: string[] }
+): Promise<{ items: AmazonCatalogItem[]; noVinieron: string[]; llamadas: number }> {
+  const items: AmazonCatalogItem[] = []
+  const vistos = new Set<string>()
+  let llamadas = 0
+
+  for (let i = 0; i < options.skus.length; i += MAX_SKUS_POR_LLAMADA) {
+    const lote = options.skus.slice(i, i + MAX_SKUS_POR_LLAMADA)
+
+    const { data } = await spApiRequest<ListingsSearchResponse>(creds, 'searchListingsItems', {
+      method: 'GET',
+      path: `/listings/2021-08-01/items/${encodeURIComponent(creds.sellingPartnerId)}`,
+      query: {
+        marketplaceIds: [options.marketplaceId],
+        identifiers: lote,
+        identifiersType: 'SKU',
+        includedData: ['summaries', 'offers', 'fulfillmentAvailability'],
+        issueLocale: ISSUE_LOCALE,
+        pageSize: MAX_SKUS_POR_LLAMADA,
+      },
+    })
+    llamadas += 1
+
+    for (const raw of data.items ?? []) {
+      const item = normalizeListingItem(raw, options.marketplaceId)
+      if (!item) continue
+      items.push(item)
+      vistos.add(item.sku)
+    }
+  }
+
+  /**
+   * LOS QUE NO CONTESTA SE DEVUELVEN, no se ignoran.
+   *
+   * Un SKU que está en nuestro espejo y que Amazon no devuelve al preguntar por
+   * él ya no existe en su catálogo. Callárselo dejaría el trabajo dando vueltas
+   * sobre los mismos SKU en cada pasada: se piden, no vienen, siguen sin
+   * `product_type`, se vuelven a pedir.
+   */
+  return { items, noVinieron: options.skus.filter((s) => !vistos.has(s)), llamadas }
+}

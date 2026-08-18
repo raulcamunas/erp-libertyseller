@@ -50,6 +50,7 @@
  */
 
 import { AmazonApiError } from '@/lib/amazon/errors'
+import { fetchListingsBySku } from '@/lib/amazon/sp-api'
 import { sleep } from '@/lib/amazon/throttle'
 import {
   conexionDeTrabajo,
@@ -65,7 +66,7 @@ import {
   type EstadoInforme,
 } from '../amazon/informes'
 import { InformeIlegible, leerInformeListings } from '../amazon/informe-listings'
-import { volcarCenso } from '../catalogo'
+import { completarListings, skusSinTipoDeProducto, volcarCenso } from '../catalogo'
 import type { UnidadDeTrabajo } from '../datos'
 import type { ContextoTarea, Lote, ResultadoLote, Tarea } from '../motor'
 
@@ -73,7 +74,7 @@ import type { ContextoTarea, Lote, ResultadoLote, Tarea } from '../motor'
 /* El estado de la máquina                                             */
 /* ------------------------------------------------------------------ */
 
-type Fase = 'pedir' | 'esperando' | 'volcando' | 'fin'
+type Fase = 'pedir' | 'esperando' | 'volcando' | 'completando' | 'fin'
 
 interface EstadoCenso {
   fase: Fase
@@ -86,6 +87,14 @@ interface EstadoCenso {
   /** Cómo acabó, para poder redactar el resumen */
   desenlace: 'ok' | 'sin_datos' | null
   filas: number
+  /** SKU a los que se les ha rellenado el tipo de producto tras el volcado */
+  completados: number
+  /** SKU que se pidieron por su nombre y Amazon no devolvió: ya no existen */
+  fantasmas: number
+  /** Por dónde va el barrido de completado. Ver skusSinTipoDeProducto */
+  ultimoSku: string | null
+  /** Unos cuantos de los que Amazon no reconoce, para poder mirarlos */
+  muestraFantasmas: string[]
 }
 
 const NUEVO: EstadoCenso = {
@@ -96,6 +105,10 @@ const NUEVO: EstadoCenso = {
   consultas: 0,
   desenlace: null,
   filas: 0,
+  completados: 0,
+  fantasmas: 0,
+  ultimoSku: null,
+  muestraFantasmas: [],
 }
 
 /**
@@ -150,6 +163,10 @@ function leerEstado(crudo: string | null): EstadoCenso {
       consultas: parseado.consultas ?? 0,
       desenlace: parseado.desenlace ?? null,
       filas: parseado.filas ?? 0,
+      completados: parseado.completados ?? 0,
+      fantasmas: parseado.fantasmas ?? 0,
+      ultimoSku: parseado.ultimoSku ?? null,
+      muestraFantasmas: parseado.muestraFantasmas ?? [],
     }
   } catch {
     // Un cursor que no se entiende no puede parar el trabajo: se empieza otra
@@ -211,6 +228,8 @@ export const tareaCensoCatalogo: Tarea = {
         return faseEsperar(ctx, estado, conexion)
       case 'volcando':
         return faseVolcar(ctx, estado, conexion, unidad)
+      case 'completando':
+        return faseCompletar(ctx, estado, conexion, unidad)
       default:
         return { procesados: 0, cursorExterno: guardar(ctx, estado) }
     }
@@ -225,7 +244,16 @@ export const tareaCensoCatalogo: Tarea = {
         'cuenta no tiene listings en este país. No es un fallo.'
       )
     }
-    return `${cuentas.procesados} referencias leídas del informe y volcadas en el catálogo.`
+    const extra =
+      estado.completados > 0
+        ? ` Y ${estado.completados} tipos de producto rellenados, que el informe no trae y sin los ` +
+          'cuales Amazon rechaza cualquier cambio.'
+        : ''
+    const perdidos =
+      estado.fantasmas > 0
+        ? ` ${estado.fantasmas} SKU están en el catálogo y Amazon no los reconoce.`
+        : ''
+    return `${cuentas.procesados} referencias leídas del informe y volcadas en el catálogo.${extra}${perdidos}`
   },
 }
 
@@ -554,7 +582,10 @@ async function faseVolcar(
       `${documento.comprimido ? ' comprimidos' : ''}`
   )
 
-  estado.fase = 'fin'
+  // Y AHORA LO QUE EL INFORME NO TRAE. Ver faseCompletar: sin `product_type`
+  // el catálogo está en el espejo pero no se puede tocar, que es peor que no
+  // tenerlo, porque parece que sí.
+  estado.fase = 'completando'
   estado.desenlace = 'ok'
   estado.filas = lectura.filas.length
 
@@ -563,4 +594,119 @@ async function faseVolcar(
     omitidos: lectura.descartadas,
     cursorExterno: guardar(ctx, estado),
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Fase 4: completar lo que el informe no trae                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cuántos SKU se completan por lote.
+ *
+ * Son 20 por llamada, así que 200 son 10 llamadas: bastante para avanzar de
+ * verdad en cada vuelta y poco para no comerse el presupuesto de nueve minutos
+ * de la pasada, que este trabajo comparte con todos los demás clientes.
+ */
+const POR_LOTE = 200
+
+/**
+ * RELLENA EL `product_type` QUE EL INFORME NO TRAE.
+ *
+ * Este es el paso sin el cual el censo sirve de menos de lo que parece.
+ *
+ * El informe de listings enumera el catálogo entero —que es su gracia, porque
+ * searchListingsItems se para a los 1.000 SKU— pero NO devuelve el tipo de
+ * producto. Y Amazon exige el tipo de producto en cada cambio de precio o de
+ * stock. Resultado en un cliente de 2.700 referencias: el espejo se llena
+ * entero, el simulacro cruza el 100 %, todos los frenos salen en verde… y 1.700
+ * de los cambios no se pueden mandar. Sin un solo error por ningún lado.
+ *
+ * La salida es pedir esos SKU POR SU NOMBRE. searchListingsItems admite hasta
+ * veinte identificadores por llamada, y pidiendo identificadores concretos no
+ * hay paginación que se agote: el tope de 1.000 no aplica. Mil setecientos SKU
+ * son 85 llamadas repartidas en unas pocas pasadas.
+ *
+ * Se hace DESPUÉS del volcado y no antes por un motivo: el volcado es el que
+ * crea las filas nuevas, y son justo esas las que nacen sin tipo.
+ */
+async function faseCompletar(
+  ctx: ContextoTarea,
+  estado: EstadoCenso,
+  conexion: ConexionResuelta,
+  unidad: UnidadDeTrabajo
+): Promise<ResultadoLote> {
+  const pendientes = await skusSinTipoDeProducto(unidad, POR_LOTE, estado.ultimoSku)
+
+  if (pendientes.length === 0) {
+    estado.fase = 'fin'
+
+    /**
+     * EL AVISO DE LOS FANTASMAS SE DA UNA VEZ, AQUÍ, Y NO EN CADA LOTE.
+     *
+     * Con lotes de doscientos, un catálogo con SKU muertos repartidos soltaría
+     * el mismo aviso nueve veces seguidas. Ya pasó con los lotes del catálogo
+     * (ver catalogo-items.ts) y el resultado fue una cola de incidencias llena
+     * de un mensaje idéntico donde no se distinguía nada.
+     */
+    if (estado.fantasmas > 0) {
+      await ctx.evento({
+        tipo: 'censo_sku_desconocido',
+        severidad: 'aviso',
+        mensaje:
+          `${estado.fantasmas} SKU están en nuestro catálogo y Amazon no los reconoce al preguntar ` +
+          'por ellos uno a uno. O se han borrado en Seller Central, o el informe los trajo con un ' +
+          'nombre que la Listings API no acepta. A esos no se les puede cambiar ni precio ni stock.',
+        detalle: { sku: estado.muestraFantasmas, total: estado.fantasmas },
+      })
+    }
+
+    if (estado.completados > 0 || estado.fantasmas > 0) {
+      console.log(
+        `[plataforma] censo ${unidad.marketplaceId}: completados ${estado.completados} tipos de ` +
+          `producto${estado.fantasmas > 0 ? `, ${estado.fantasmas} SKU ya no existen en Amazon` : ''}`
+      )
+    }
+    return { procesados: 0, cursorExterno: guardar(ctx, estado) }
+  }
+
+  const { items, noVinieron, llamadas } = await fetchListingsBySku(conexion.credenciales, {
+    marketplaceId: unidad.marketplaceId,
+    skus: pendientes,
+  })
+
+  const escrito = await completarListings(unidad, items, ctx.ahora)
+  estado.completados += escrito.conTipo
+
+  /**
+   * LOS QUE AMAZON NO DEVUELVE HAY QUE SACARLOS DE LA COLA O ESTO NO TERMINA.
+   *
+   * Un SKU que está en nuestro espejo y que Amazon no reconoce al preguntar por
+   * él seguiría saliendo en la consulta de «sin tipo de producto» en la pasada
+   * siguiente, y en la siguiente. El trabajo daría vueltas sobre los mismos
+   * veinte SKU para siempre, gastando cupo, sin avanzar y sin dar error.
+   *
+   * El cursor por SKU ya los deja atrás (ver skusSinTipoDeProducto), así que
+   * aquí solo hay que contarlos y avisar: un listing que ya no existe en Amazon
+   * es una noticia, no un detalle técnico.
+   */
+  if (noVinieron.length > 0) {
+    estado.fantasmas += noVinieron.length
+    // Se guardan unos pocos para poder mirarlos. El aviso se da al terminar,
+    // una sola vez, con la cuenta completa.
+    for (const sku of noVinieron) {
+      if (estado.muestraFantasmas.length >= 25) break
+      estado.muestraFantasmas.push(sku)
+    }
+  }
+
+  // El cursor avanza SIEMPRE hasta el último que se pidió, hayan contestado o
+  // no. Es lo que garantiza que esto termina.
+  estado.ultimoSku = pendientes[pendientes.length - 1]
+
+  console.log(
+    `[plataforma] censo ${unidad.marketplaceId}: ${escrito.conTipo}/${pendientes.length} tipos de ` +
+      `producto en ${llamadas} llamadas`
+  )
+
+  return { procesados: escrito.conTipo, cursorExterno: guardar(ctx, estado) }
 }
