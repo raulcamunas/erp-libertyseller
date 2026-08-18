@@ -191,19 +191,43 @@ export function PerfilesPanel({ initialData }: { initialData: PerfilesVista }) {
   }, [estados, data.clientesSinAlta])
 
   /**
-   * Qué clientes con perfil de stock no tienen el de códigos de barras.
+   * Qué clientes con perfil de stock TIENEN códigos de barras, por la vía que sea.
    *
    * Se distingue porque no se nota de ninguna otra forma y no es un detalle: sin
    * ese fichero el cruce pierde la vía por EAN entera, que con los datos reales
    * resuelve 245 de 395 referencias.
+   *
+   * HAY DOS VÍAS Y ANTES SOLO SE MIRABA UNA. Un cliente puede mandar el fichero
+   * de códigos de barras:
+   *
+   *   a) por su cuenta, con su propio perfil de tipo 'ean', o
+   *   b) COMO SEGUNDO ADJUNTO DEL MISMO CORREO que trae el volcado de stock,
+   *      que es lo que configura `origen_config.adjunto_ean`.
+   *
+   * Mirando solo (a), a un cliente que usa (b) —Shoplamp, que manda los dos
+   * ficheros en el mismo mensaje— la barra lateral le ponía «sin fichero de
+   * códigos de barras» teniéndolo. Y la (b) es además la BUENA: con dos perfiles
+   * cada uno busca su correo por su cuenta y pueden acabar cogiendo mensajes de
+   * días distintos; con un solo mensaje eso es imposible.
+   *
+   * Un aviso que salta cuando no pasa nada es peor que no tenerlo, porque el
+   * siguiente que salte —ese sí de verdad— tampoco se va a mirar.
    */
-  const clientesConEan = useMemo(
-    () =>
-      new Set(
-        data.perfiles.filter((p) => p.tipo === 'ean' && p.is_active).map((p) => p.client_id)
-      ),
-    [data.perfiles]
-  )
+  const clientesConEan = useMemo(() => {
+    const out = new Set<string>()
+    for (const p of data.perfiles) {
+      if (!p.is_active) continue
+      if (p.tipo === 'ean') {
+        out.add(p.client_id)
+        continue
+      }
+      const patron = (p.origen_config as Record<string, unknown> | null)?.adjunto_ean
+      if (p.origen === 'correo' && typeof patron === 'string' && patron.trim() !== '') {
+        out.add(p.client_id)
+      }
+    }
+    return out
+  }, [data.perfiles])
 
   /**
    * Guarda un cambio del perfil.
