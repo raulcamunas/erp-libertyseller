@@ -228,7 +228,7 @@ export function CrmClientDetail({
    * `sync_status`; escribiendo a pelo, el ERP y el calendario del comercial se
    * quedarían contando cosas distintas.
    */
-  async function cambiarEstadoCita(estado: 'qualified' | 'not_qualified') {
+  async function cambiarEstadoCita(estado: 'qualified' | 'not_qualified' | 'no_show') {
     if (!appt || cambiandoCita) return
     setCambiandoCita(true)
     const res = await fetch(`/api/appointments/${appt.id}`, {
@@ -242,7 +242,13 @@ export function CrmClientDetail({
       return
     }
     onPatched({ appointment: { ...appt, status: estado } })
-    toast.success(estado === 'qualified' ? 'Cita cualificada' : 'Cita marcada como no cualificada')
+    toast.success(
+      estado === 'qualified'
+        ? 'Cita cualificada'
+        : estado === 'no_show'
+          ? 'Cita marcada como «no asistió»'
+          : 'Cita marcada como no cualificada'
+    )
   }
 
   async function patch(fields: Partial<CrmClientWithDetails>) {
@@ -424,10 +430,18 @@ export function CrmClientDetail({
         ) : (
           <>
             <div className="flex flex-wrap gap-1.5">
+              {/* «No asistió» ES UN DESENLACE, NO UN ESTADO INTERMEDIO.
+                  Antes salía en el texto de «todavía sin decidir», que es
+                  justo lo contrario de lo que significa: la cita ya pasó y no
+                  se presentó nadie. Y la diferencia importa —una cita perdida
+                  por incomparecencia no es lo mismo que una que se celebró y no
+                  valió— porque es el número que dice si el problema está en
+                  cómo se agenda o en a quién se agenda. */}
               {(
                 [
-                  { valor: 'qualified' as const, texto: 'Cita cualificada' },
-                  { valor: 'not_qualified' as const, texto: 'Cita no cualificada' },
+                  { valor: 'qualified' as const, texto: 'Cita cualificada', clase: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200' },
+                  { valor: 'not_qualified' as const, texto: 'Cita no cualificada', clase: 'border-red-500/50 bg-red-500/15 text-red-200' },
+                  { valor: 'no_show' as const, texto: 'No asistió', clase: 'border-amber-500/50 bg-amber-500/15 text-amber-200' },
                 ]
               ).map((opcion) => {
                 const activa = appt.status === opcion.valor
@@ -438,25 +452,24 @@ export function CrmClientDetail({
                     disabled={cambiandoCita}
                     onClick={() => !activa && cambiarEstadoCita(opcion.valor)}
                     className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-50 ${
-                      activa
-                        ? opcion.valor === 'qualified'
-                          ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200'
-                          : 'border-red-500/50 bg-red-500/15 text-red-200'
-                        : 'border-white/10 text-white/45 hover:text-white/80'
+                      activa ? opcion.clase : 'border-white/10 text-white/45 hover:text-white/80'
                     }`}
                   >
                     {opcion.texto}
                   </button>
                 )
               })}
-              {appt.status !== 'qualified' && appt.status !== 'not_qualified' && (
-                <span className="text-[11px] text-white/35 self-center">
-                  Todavía sin decidir · {APPOINTMENT_STATUS_LABELS[appt.status]}
-                </span>
-              )}
+              {appt.status !== 'qualified' &&
+                appt.status !== 'not_qualified' &&
+                appt.status !== 'no_show' && (
+                  <span className="text-[11px] text-white/35 self-center">
+                    Todavía sin decidir · {APPOINTMENT_STATUS_LABELS[appt.status]}
+                  </span>
+                )}
             </div>
             <p className="text-[11px] text-white/30 mt-1.5">
-              Cualificarla genera la comisión del comercial que la agendó, y se ve al momento en el
+              Solo <strong className="text-white/45">Cita cualificada</strong> genera la comisión del
+              comercial que la agendó. Las otras dos no, y las tres se ven al momento en el
               calendario.
             </p>
           </>
