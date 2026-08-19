@@ -348,18 +348,37 @@ export function CrmClientDetail({
                     {contestadas(bloque, preguntas)}/{bloque.preguntas.length}
                   </span>
                 </div>
-                <div className="space-y-1.5">
+                {/* EN REJILLA Y NO APILADAS. Una pregunta por fila dejaba media
+                    pantalla vacía a la derecha y obligaba a bajar veinticinco
+                    veces en mitad de una reunión, que es justo cuando no se
+                    puede estar buscando la siguiente casilla.
+
+                    Se rompe por ancho de VENTANA y no del contenedor porque el
+                    plugin de container queries no está en este proyecto. Los
+                    cortes van corridos a propósito —la ficha vive en un panel
+                    que comparte sitio con la lista de leads y siempre es más
+                    estrecha que la pantalla—: dos columnas a partir de 640 y
+                    tres a partir de 1.280, que es cuando a la ficha le quedan
+                    unos 900 px y tres columnas de 300 se leen bien. */}
+                <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5 items-start">
                   {bloque.preguntas.map((pregunta) => (
                     <div
                       key={pregunta.clave}
                       className={`rounded-lg border p-2 ${
+                        // Las de cierre ocupan la fila entera: son las dos que
+                        // deciden si hay trato, son largas de leer y en una
+                        // columna estrecha se convierten en un párrafo de seis
+                        // líneas que nadie lee entero.
+                        pregunta.cierre ? 'sm:col-span-2 xl:col-span-3 ' : ''
+                      }${
                         pregunta.cierre
                           ? 'border-emerald-500/25 bg-emerald-500/[0.06]'
                           : 'border-white/[0.07] bg-white/[0.02]'
                       }`}
                     >
                       <p
-                        className={`text-[12px] leading-snug mb-1 ${
+                        className={`text-[11.5px] leading-tight mb-1 ${
                           pregunta.cierre ? 'text-emerald-200/90 font-medium' : 'text-white/60'
                         }`}
                       >
@@ -373,10 +392,11 @@ export function CrmClientDetail({
                         onBlur={() => guardarPreguntas()}
                         rows={2}
                         placeholder="Escribe aquí lo que conteste"
-                        className={`${ghostInput} resize-y`}
+                        className={`${ghostInput} resize-y min-h-[38px]`}
                       />
                     </div>
                   ))}
+                  </div>
                 </div>
               </div>
             ))}
