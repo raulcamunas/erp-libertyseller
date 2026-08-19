@@ -28,6 +28,8 @@ import {
   StickyNote,
   Briefcase,
   Loader2,
+  ClipboardList,
+  CalendarCheck,
 } from 'lucide-react'
 import {
   CrmClientWithDetails,
@@ -37,9 +39,15 @@ import {
   CRM_STAGES,
   CRM_STAGE_LABELS,
   CRM_STAGE_COLORS,
+  PREGUNTAS_REUNION,
+  contestadas,
   crmContact,
 } from '@/lib/types/crm'
-import { CalendarPerson, colorForAgent } from '@/lib/types/appointments'
+import {
+  APPOINTMENT_STATUS_LABELS,
+  CalendarPerson,
+  colorForAgent,
+} from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { CrmDocuments } from './CrmDocuments'
 import { CrmInteractions } from './CrmInteractions'
@@ -82,15 +90,20 @@ function Section({
 function Row({
   icon,
   label,
+  compacta,
   children,
 }: {
   icon?: ReactNode
   label: string
+  /** Etiqueta más estrecha, para cuando las filas van a dos columnas */
+  compacta?: boolean
   children: ReactNode
 }) {
   return (
-    <div className="flex items-center gap-2 py-0.5">
-      <div className="w-[110px] flex-shrink-0 flex items-center gap-1.5 text-[12px] text-white/40">
+    <div className="flex items-center gap-2 py-0.5 min-w-0">
+      <div
+        className={`${compacta ? 'w-[76px]' : 'w-[110px]'} flex-shrink-0 flex items-center gap-1.5 text-[12px] text-white/40`}
+      >
         {icon}
         <span className="truncate">{label}</span>
       </div>
@@ -129,6 +142,18 @@ export function CrmClientDetail({
   )
   const [manualAmazonLink, setManualAmazonLink] = useState(client.amazon_link ?? '')
   const [contactRole, setContactRole] = useState(client.contact_role ?? '')
+
+  /**
+   * Las respuestas del guion, en un solo objeto.
+   *
+   * Se guarda ENTERO en cada blur y no pregunta a pregunta: son veinticinco
+   * campos en la misma columna JSONB, y veinticinco escrituras parciales contra
+   * el mismo objeto es la receta para que la última pise a las anteriores en
+   * cuanto alguien tabule rápido entre dos respuestas.
+   */
+  const [preguntas, setPreguntas] = useState<Record<string, string>>(client.preguntas ?? {})
+  const [preguntasAbiertas, setPreguntasAbiertas] = useState(false)
+  const [cambiandoCita, setCambiandoCita] = useState(false)
   const [website, setWebsite] = useState(client.website ?? '')
   const [country, setCountry] = useState(client.country ?? '')
   const [marketplaces, setMarketplaces] = useState(client.marketplaces ?? '')
@@ -182,6 +207,44 @@ export function CrmClientDetail({
     setClosedAt(client.closed_at ? format(toMadrid(client.closed_at), 'yyyy-MM-dd') : '')
   }, [client.closed_at])
 
+  /** Guarda el guion entero. Solo si algo ha cambiado de verdad */
+  async function guardarPreguntas() {
+    const limpio: Record<string, string> = {}
+    for (const [clave, valor] of Object.entries(preguntas)) {
+      const texto = valor.trim()
+      if (texto !== '') limpio[clave] = texto
+    }
+    if (JSON.stringify(limpio) === JSON.stringify(client.preguntas ?? {})) return
+    await patch({ preguntas: limpio })
+    setPreguntas(limpio)
+  }
+
+  /**
+   * Cualificar o descualificar la cita.
+   *
+   * VA POR LA RUTA DE LA AGENDA Y NO POR UN UPDATE DIRECTO, aunque el resto de
+   * esta pantalla escriba directo contra Supabase. Las citas se sincronizan con
+   * Google Calendar y esa ruta es la que lleva el `updated_source` y el
+   * `sync_status`; escribiendo a pelo, el ERP y el calendario del comercial se
+   * quedarían contando cosas distintas.
+   */
+  async function cambiarEstadoCita(estado: 'qualified' | 'not_qualified') {
+    if (!appt || cambiandoCita) return
+    setCambiandoCita(true)
+    const res = await fetch(`/api/appointments/${appt.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: estado }),
+    })
+    setCambiandoCita(false)
+    if (!res.ok) {
+      toast.error('No se pudo cambiar el estado de la cita')
+      return
+    }
+    onPatched({ appointment: { ...appt, status: estado } })
+    toast.success(estado === 'qualified' ? 'Cita cualificada' : 'Cita marcada como no cualificada')
+  }
+
   async function patch(fields: Partial<CrmClientWithDetails>) {
     // Solo se mandan los campos tocados: nunca un update completo, para
     // no pisar lo que el otro admin esté editando a la vez.
@@ -217,6 +280,8 @@ export function CrmClientDetail({
 
   const ownerPerson = team.find((p) => p.id === client.owner_id) ?? null
 
+  const totalContestadas = PREGUNTAS_REUNION.reduce((n, b) => n + contestadas(b, preguntas), 0)
+
   return (
     <div className="h-full overflow-y-auto p-4 space-y-3">
       {/* Cabecera */}
@@ -245,6 +310,138 @@ export function CrmClientDetail({
           </span>
         )}
       </motion.div>
+
+      {/* ---------------- El guion de la reunión ---------------- */}
+      {/* ARRIBA DEL TODO Y PLEGADO. Arriba porque se rellena MIENTRAS se habla
+          con el cliente, y lo que hay que teclear en caliente no puede estar a
+          tres scrolls. Plegado porque son veinticinco preguntas: desplegadas
+          empujarían el resto de la ficha fuera de la pantalla el 95 % del
+          tiempo, que es cuando no hay ninguna reunión en marcha. */}
+      <Section
+        icon={<ClipboardList className="h-3 w-3" />}
+        title="Preguntas de la reunión"
+        right={
+          <button
+            type="button"
+            onClick={() => setPreguntasAbiertas((v) => !v)}
+            className="text-[11px] text-white/40 hover:text-white transition-colors flex items-center gap-1.5"
+          >
+            {totalContestadas > 0 && (
+              <span className="text-[#FF6600]">{totalContestadas} contestadas</span>
+            )}
+            {preguntasAbiertas ? 'Cerrar' : 'Abrir'}
+          </button>
+        }
+      >
+        {!preguntasAbiertas ? (
+          <p className="text-[12px] text-white/35">
+            El guion de la reunión: uno para quien ya vende en Amazon y otro para quien no.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {PREGUNTAS_REUNION.map((bloque) => (
+              <div key={bloque.id}>
+                <div className="flex items-baseline gap-2 mb-1">
+                  <h4 className="text-[12px] font-semibold text-white/70">{bloque.titulo}</h4>
+                  <span className="text-[11px] text-white/30">{bloque.pista}</span>
+                  <span className="ml-auto text-[11px] text-white/30 tabular-nums">
+                    {contestadas(bloque, preguntas)}/{bloque.preguntas.length}
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  {bloque.preguntas.map((pregunta) => (
+                    <div
+                      key={pregunta.clave}
+                      className={`rounded-lg border p-2 ${
+                        pregunta.cierre
+                          ? 'border-emerald-500/25 bg-emerald-500/[0.06]'
+                          : 'border-white/[0.07] bg-white/[0.02]'
+                      }`}
+                    >
+                      <p
+                        className={`text-[12px] leading-snug mb-1 ${
+                          pregunta.cierre ? 'text-emerald-200/90 font-medium' : 'text-white/60'
+                        }`}
+                      >
+                        {pregunta.texto}
+                      </p>
+                      <textarea
+                        value={preguntas[pregunta.clave] ?? ''}
+                        onChange={(e) =>
+                          setPreguntas((prev) => ({ ...prev, [pregunta.clave]: e.target.value }))
+                        }
+                        onBlur={() => guardarPreguntas()}
+                        rows={2}
+                        placeholder="Escribe aquí lo que conteste"
+                        className={`${ghostInput} resize-y`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* ---------------- La cita: cualificada o no ---------------- */}
+      {/* VA ENCIMA DEL ESTADO DEL PIPELINE Y ES OTRA COSA. El estado dice por
+          dónde va la venta; esto dice si la cita valió. Y no es cosmético: la
+          comisión del comercial se devenga EXACTAMENTE por esto, así que la
+          decisión tiene que estar donde se documenta al cliente y no escondida
+          en la cajita del calendario.
+
+          Escribe `appointments.status`, que es donde el ERP guarda esa decisión
+          desde siempre — y por eso el cambio se ve a la vez aquí, en el
+          calendario y en el cálculo de comisiones, sin que nada tenga que
+          copiarse a ningún sitio. */}
+      <Section icon={<CalendarCheck className="h-3 w-3" />} title="La cita">
+        {!appt ? (
+          <p className="text-[12px] text-white/35">
+            Este lead se dio de alta a mano, sin cita en la agenda. No hay nada que cualificar y no
+            genera comisión por cita.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  { valor: 'qualified' as const, texto: 'Cita cualificada' },
+                  { valor: 'not_qualified' as const, texto: 'Cita no cualificada' },
+                ]
+              ).map((opcion) => {
+                const activa = appt.status === opcion.valor
+                return (
+                  <button
+                    key={opcion.valor}
+                    type="button"
+                    disabled={cambiandoCita}
+                    onClick={() => !activa && cambiarEstadoCita(opcion.valor)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-50 ${
+                      activa
+                        ? opcion.valor === 'qualified'
+                          ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200'
+                          : 'border-red-500/50 bg-red-500/15 text-red-200'
+                        : 'border-white/10 text-white/45 hover:text-white/80'
+                    }`}
+                  >
+                    {opcion.texto}
+                  </button>
+                )
+              })}
+              {appt.status !== 'qualified' && appt.status !== 'not_qualified' && (
+                <span className="text-[11px] text-white/35 self-center">
+                  Todavía sin decidir · {APPOINTMENT_STATUS_LABELS[appt.status]}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-white/30 mt-1.5">
+              Cualificarla genera la comisión del comercial que la agendó, y se ve al momento en el
+              calendario.
+            </p>
+          </>
+        )}
+      </Section>
 
       {/* Estado del pipeline */}
       <Section icon={<Target className="h-3 w-3" />} title="Estado del cliente">
@@ -336,8 +533,12 @@ export function CrmClientDetail({
 
       {/* Datos del cliente */}
       <Section icon={<Building2 className="h-3 w-3" />} title="Datos del cliente">
-        <div className="space-y-0.5">
-          <Row icon={<User className="h-3 w-3" />} label="Contacto">
+        {/* A DOS COLUMNAS. Eran diez filas apiladas y la ficha empezaba con un
+              scroll de datos que casi nunca se tocan: web, país, marketplaces.
+              Emparejadas caben de un vistazo y lo de abajo —presupuesto, estado,
+              notas— entra en pantalla sin bajar. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5">
+          <Row compacta icon={<User className="h-3 w-3" />} label="Contacto">
             {isManual ? (
               <input
                 value={leadName}
@@ -350,7 +551,7 @@ export function CrmClientDetail({
               <ReadOnly value={contact.name} />
             )}
           </Row>
-          <Row icon={<Briefcase className="h-3 w-3" />} label="Cargo">
+          <Row compacta icon={<Briefcase className="h-3 w-3" />} label="Cargo">
             <input
               value={contactRole}
               onChange={(e) => setContactRole(e.target.value)}
@@ -359,7 +560,7 @@ export function CrmClientDetail({
               placeholder="CEO, responsable ecommerce..."
             />
           </Row>
-          <Row icon={<Mail className="h-3 w-3" />} label="Email">
+          <Row compacta icon={<Mail className="h-3 w-3" />} label="Email">
             {isManual ? (
               <input
                 value={leadEmail}
@@ -379,7 +580,7 @@ export function CrmClientDetail({
               <ReadOnly value={null} />
             )}
           </Row>
-          <Row icon={<Phone className="h-3 w-3" />} label="Teléfono">
+          <Row compacta icon={<Phone className="h-3 w-3" />} label="Teléfono">
             {isManual ? (
               <input
                 value={leadPhone}
@@ -392,7 +593,7 @@ export function CrmClientDetail({
               <ReadOnly value={contact.phone} />
             )}
           </Row>
-          <Row icon={<Building2 className="h-3 w-3" />} label="Empresa">
+          <Row compacta icon={<Building2 className="h-3 w-3" />} label="Empresa">
             {isManual ? (
               <input
                 value={leadCompany}
@@ -405,7 +606,7 @@ export function CrmClientDetail({
               <ReadOnly value={contact.company} />
             )}
           </Row>
-          <Row icon={<Globe className="h-3 w-3" />} label="Web">
+          <Row compacta icon={<Globe className="h-3 w-3" />} label="Web">
             <input
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
@@ -414,7 +615,7 @@ export function CrmClientDetail({
               placeholder="https://..."
             />
           </Row>
-          <Row icon={<MapPin className="h-3 w-3" />} label="País">
+          <Row compacta icon={<MapPin className="h-3 w-3" />} label="País">
             <input
               value={country}
               onChange={(e) => setCountry(e.target.value)}
@@ -423,7 +624,7 @@ export function CrmClientDetail({
               placeholder="España"
             />
           </Row>
-          <Row icon={<Store className="h-3 w-3" />} label="Marketplaces">
+          <Row compacta icon={<Store className="h-3 w-3" />} label="Marketplaces">
             <input
               value={marketplaces}
               onChange={(e) => setMarketplaces(e.target.value)}
@@ -432,7 +633,7 @@ export function CrmClientDetail({
               placeholder="ES, IT, DE..."
             />
           </Row>
-          <Row icon={<Link2 className="h-3 w-3" />} label="Amazon">
+          <Row compacta icon={<Link2 className="h-3 w-3" />} label="Amazon">
             {isManual ? (
               <input
                 value={manualAmazonLink}
@@ -454,7 +655,7 @@ export function CrmClientDetail({
               <ReadOnly value={null} />
             )}
           </Row>
-          <Row icon={<Euro className="h-3 w-3" />} label="Facturación">
+          <Row compacta icon={<Euro className="h-3 w-3" />} label="Facturación">
             {isManual ? (
               <input
                 value={manualRevenue}

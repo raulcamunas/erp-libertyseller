@@ -50,6 +50,9 @@ export interface CrmClient {
   /** Se sella solo al pasar a "Cliente cerrado"; null en cualquier otro estado */
   closed_at: string | null
 
+  /** Respuestas del guion de la reunión, por clave de pregunta. Ver PREGUNTAS_REUNION */
+  preguntas: Record<string, string>
+
   created_at: string
   updated_at: string
 }
@@ -150,4 +153,149 @@ export const CRM_INTERACTION_LABELS: Record<CrmInteractionKind, string> = {
   reunion: 'Reunión',
   propuesta: 'Propuesta',
   nota: 'Nota',
+}
+
+
+/* ------------------------------------------------------------------ */
+/* El guion de la reunión                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LAS PREGUNTAS DE LA REUNIÓN, QUE VIVEN AQUÍ Y NO EN LA BASE.
+ *
+ * Son dos guiones distintos porque son dos conversaciones distintas: a quien ya
+ * vende en Amazon se le pregunta por lo que tiene, y a quien no, por lo que
+ * quiere. Mezclarlas en una sola lista obliga a quien está en la reunión a ir
+ * saltándose la mitad de las filas, que es como se acaba sin rellenar ninguna.
+ *
+ * Las respuestas se guardan en `crm_clients.preguntas` por CLAVE, no por
+ * posición. Es lo que permite reordenar el guion, reescribir una pregunta o
+ * jubilarla sin que lo ya contestado se descoloque ni se pierda: una respuesta
+ * cuya pregunta ya no está sigue en la base, simplemente deja de pintarse.
+ *
+ * Y las claves llevan prefijo del bloque (`si_`/`no_`) porque hay preguntas casi
+ * iguales en los dos —categorías, propuesta de valor, marca de referencia— y sin
+ * prefijo la respuesta de un guion aparecería en el otro.
+ *
+ * Las dos últimas de cada bloque son las de cierre, y por eso van marcadas: no
+ * son para documentar al cliente, son para saber si hay trato. En el documento
+ * original están en verde.
+ */
+export interface PreguntaReunion {
+  clave: string
+  texto: string
+  /** true en las preguntas de cierre: las que dicen si esto va a alguna parte */
+  cierre?: boolean
+}
+
+export interface BloquePreguntas {
+  id: 'vende' | 'no_vende'
+  titulo: string
+  pista: string
+  preguntas: PreguntaReunion[]
+}
+
+export const PREGUNTAS_REUNION: BloquePreguntas[] = [
+  {
+    id: 'vende',
+    titulo: 'Si venden en Amazon',
+    pista: 'Se pregunta por lo que ya tienen',
+    preguntas: [
+      { clave: 'si_tiempo', texto: '¿Cuánto tiempo llevan vendiendo en Amazon?' },
+      { clave: 'si_referencias', texto: '¿Cuántas referencias gestionan actualmente?' },
+      {
+        clave: 'si_mas_referencias',
+        texto: '¿Tienen pensado añadir más referencias? ¿Cuántas en los próximos 3 meses?',
+      },
+      { clave: 'si_categorias', texto: '¿Qué categorías de productos venden actualmente?' },
+      { clave: 'si_paises', texto: '¿En qué países venden y cuáles les gustaría potenciar?' },
+      {
+        clave: 'si_presupuesto_ads',
+        texto: '¿Cuánto presupuesto están invirtiendo en Amazon Ads mensualmente? ¿Por país?',
+      },
+      {
+        clave: 'si_herramientas',
+        texto: '¿Qué herramientas usan para controlar su inventario, márgenes y ventas?',
+      },
+      { clave: 'si_objetivo', texto: '¿Cuál es el objetivo en 6 meses dentro de Amazon? ¿Y en 12 meses?' },
+      {
+        clave: 'si_parametros',
+        texto: '¿Qué parámetros clave son importantes para ellos? ¿ROAS, ROI, margen, facturación, reseñas?',
+      },
+      {
+        clave: 'si_diferenciacion',
+        texto: '¿Cómo se diferencian sus productos de los de la competencia? Su propuesta de valor',
+      },
+      { clave: 'si_competencia', texto: '¿Cuál es la marca que tienen como referencia o competencia?' },
+      {
+        clave: 'si_como_sentiria',
+        texto:
+          '¿Si tuvieran un equipo o gestor del canal de Amazon que les ayudara a lograr los objetivos en el próximo año, cómo les haría sentir?',
+        cierre: true,
+      },
+      {
+        clave: 'si_compromiso',
+        texto:
+          '¿Estaríais dispuestos a comprometeros a mínimo 6 meses vista para lograr estos resultados si la agencia lo hiciera con vuestros resultados y satisfacción?',
+        cierre: true,
+      },
+    ],
+  },
+  {
+    id: 'no_vende',
+    titulo: 'Si NO venden en Amazon',
+    pista: 'Se pregunta por lo que quieren montar',
+    preguntas: [
+      { clave: 'no_fecha', texto: '¿Cuándo es la fecha aproximada para la que les gustaría estar en Amazon?' },
+      {
+        clave: 'no_referencias',
+        texto:
+          '¿Cuántas referencias quieren empezar trabajando en la plataforma? ¿Y el total que quieren tener subidas en 6 meses?',
+      },
+      { clave: 'no_categorias', texto: '¿Qué categorías de productos venden actualmente?' },
+      {
+        clave: 'no_presupuesto_ads',
+        texto: '¿Cuánto presupuesto pueden orientar solo para la promoción de Amazon Ads?',
+      },
+      {
+        clave: 'no_mercados',
+        texto: '¿En qué mercados quieren empezar a vender? ¿Solo local, Europa, EEUU, otro marketplace?',
+      },
+      { clave: 'no_objetivo', texto: '¿Cuál es el objetivo en los primeros 6 meses vendiendo en Amazon?' },
+      {
+        clave: 'no_parametros',
+        texto: '¿Qué parámetros clave son importantes para vosotros? ¿ROAS, ROI, margen, facturación, reseñas?',
+      },
+      {
+        clave: 'no_diferenciacion',
+        texto: '¿Cómo se diferencian sus productos de los de la competencia? Su propuesta de valor',
+      },
+      {
+        clave: 'no_logistica',
+        texto: '¿Qué tipo de logística van a usar? ¿FBA, FBM? ¿Cuál es la visión estratégica de su elección?',
+      },
+      { clave: 'no_competencia', texto: '¿Cuál es la marca que tienen como referencia o competencia?' },
+      {
+        clave: 'no_como_sentiria',
+        texto:
+          '¿Si tuvieran un equipo o gestor del canal de Amazon que les ayudara a lograr los objetivos en el próximo año, cómo les haría sentir?',
+        cierre: true,
+      },
+      {
+        clave: 'no_compromiso',
+        texto:
+          '¿Estaríais dispuestos a comprometeros a mínimo 6 meses vista para lograr estos resultados si la agencia lo hiciera con vuestros resultados y satisfacción?',
+        cierre: true,
+      },
+    ],
+  },
+]
+
+/** Cuántas preguntas de un bloque tienen algo escrito. Para el contador del título */
+export function contestadas(
+  bloque: BloquePreguntas,
+  respuestas: Record<string, string> | null | undefined
+): number {
+  if (!respuestas) return 0
+  return bloque.preguntas.filter((p) => (respuestas[p.clave] ?? '').trim() !== '').length
 }

@@ -476,7 +476,7 @@ export function ClientsCRM({
             {filtered.length === 0 ? (
               <p className="text-[12px] text-white/30 text-center py-8 px-4">
                 {clients.length === 0
-                  ? 'Todavía no hay clientes. En cuanto marques una cita como "Cita Cualificada" aparecerá aquí automáticamente.'
+                  ? 'Todavía no hay leads. En cuanto se agende una cita aparecerá aquí automáticamente.'
                   : 'Ningún cliente coincide con la búsqueda.'}
               </p>
             ) : (
@@ -502,6 +502,35 @@ export function ClientsCRM({
                       <span className="text-[13px] font-semibold text-white truncate flex-1 min-w-0">
                         {contact.name || 'Sin nombre'}
                       </span>
+                      {/* SI LA CITA ESTÁ CUALIFICADA O NO, EN LA LISTA.
+                          Desde que el CRM enseña todos los leads y no solo los
+                          cualificados, esa distinción es la que separa lo que ya
+                          ha generado comisión de lo que está por decidir. Sin
+                          esto habría que abrir ficha por ficha para saberlo. */}
+                      {c.appointment && (
+                        <span
+                          className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded border leading-none whitespace-nowrap ${
+                            c.appointment.status === 'qualified'
+                              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                              : c.appointment.status === 'not_qualified'
+                                ? 'border-red-500/35 bg-red-500/10 text-red-300/80'
+                                : 'border-white/10 text-white/35'
+                          }`}
+                          title={
+                            c.appointment.status === 'qualified'
+                              ? 'Cita cualificada: genera comisión'
+                              : c.appointment.status === 'not_qualified'
+                                ? 'Cita no cualificada'
+                                : 'La cita todavía no se ha cualificado'
+                          }
+                        >
+                          {c.appointment.status === 'qualified'
+                            ? 'Cualif.'
+                            : c.appointment.status === 'not_qualified'
+                              ? 'No cualif.'
+                              : 'Sin decidir'}
+                        </span>
+                      )}
                     </div>
                     <p className="text-[11px] text-white/45 truncate pl-4">
                       {contact.company || 'Sin empresa'}
