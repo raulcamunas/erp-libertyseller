@@ -279,7 +279,7 @@ export function EntraisTest() {
       </div>
 
       {productos.length > 0 && vista === 'tabla' ? (
-        <TablaProductos productos={productos} />
+        <TablaProductos productos={productos} entorno={entorno} />
       ) : (
         <pre className="h-[520px] overflow-auto rounded-lg border border-white/10 bg-black/40 p-2 text-[10.5px] text-white/70 font-mono whitespace-pre">
           {salida || 'Elige una llamada y dale a Lanzar.'}

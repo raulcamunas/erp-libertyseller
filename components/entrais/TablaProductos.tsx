@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Copy, Search } from 'lucide-react'
+import { Copy, Download, Loader2, Search } from 'lucide-react'
 import type { ProductoEntrais } from '@/lib/entrais/api'
 
 /**
@@ -57,10 +57,18 @@ function euros(v: number): string {
   return v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function TablaProductos({ productos }: { productos: ProductoEntrais[] }) {
+export function TablaProductos({
+  productos,
+  entorno,
+}: {
+  productos: ProductoEntrais[]
+  /** Solo para el nombre del fichero: que no se confunda un volcado de pruebas con uno real */
+  entorno: 'pruebas' | 'real'
+}) {
   const [busca, setBusca] = useState('')
   const [orden, setOrden] = useState<{ por: Columna; asc: boolean } | null>(null)
   const [desde, setDesde] = useState(0)
+  const [descargando, setDescargando] = useState(false)
   const caja = useRef<HTMLDivElement>(null)
 
   const filas = useMemo(() => {
@@ -112,6 +120,59 @@ export function TablaProductos({ productos }: { productos: ProductoEntrais[] }) 
     setDesde(0)
   }
 
+  /**
+   * UN .XLSX DE VERDAD, NO UN CSV RENOMBRADO.
+   *
+   * Con CSV hay que acertar con el separador y con la codificación, y en cuanto
+   * el fichero cruza un ordenador con otra configuración regional los precios
+   * aparecen como texto o partidos en dos columnas. Aquí los números viajan
+   * COMO NÚMEROS: se pueden sumar y ordenar nada más abrirlo.
+   *
+   * La librería se carga al pulsar y no al abrir la pantalla: son cerca de
+   * ochocientos kilobytes que no tiene por qué descargarse quien solo viene a
+   * mirar el JSON.
+   *
+   * Y se exporta LO QUE SE ESTÁ VIENDO —con el filtro y el orden puestos—,
+   * porque es lo que se espera de un botón que está debajo de una tabla
+   * filtrada. Si se exportara siempre el catálogo entero, buscar «TOOQ» y
+   * descargar daría 6.919 filas sin decir por qué.
+   */
+  async function descargar() {
+    if (descargando || filas.length === 0) return
+    setDescargando(true)
+    try {
+      const XLSX = await import('xlsx')
+      const hoja = XLSX.utils.json_to_sheet(
+        filas.map((p) => ({
+          SKU: p.code,
+          DESCRIPCION: p.description,
+          EAN: p.ean ?? '',
+          PRECIO: p.price,
+          CANON: p.digitalCanon ?? 0,
+          STOCK: p.stock,
+        }))
+      )
+      hoja['!cols'] = [
+        { wch: 10 },
+        { wch: 52 },
+        { wch: 16 },
+        { wch: 10 },
+        { wch: 9 },
+        { wch: 8 },
+      ]
+      const libro = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(libro, hoja, 'Productos')
+      const sello = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '')
+      XLSX.writeFile(libro, `entrais-${entorno}-${sello}.xlsx`)
+      toast.success(`${filas.length.toLocaleString('es-ES')} filas descargadas`)
+    } catch (error) {
+      console.error('Error generando el Excel de Entrais:', error)
+      toast.error('No se ha podido generar el Excel')
+    } finally {
+      setDescargando(false)
+    }
+  }
+
   /** Lo que hay en pantalla, tal cual, para pegarlo en una hoja de cálculo */
   function copiar() {
     const tsv = [
@@ -140,6 +201,20 @@ export function TablaProductos({ productos }: { productos: ProductoEntrais[] }) 
             className="w-full h-7 rounded-lg border border-white/10 bg-white/[0.03] pl-7 pr-2 text-[11px] text-white outline-none focus:border-[#FF6600]"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => void descargar()}
+          disabled={descargando || filas.length === 0}
+          className="h-7 px-2.5 rounded-lg bg-[#FF6600] text-white text-[11px] font-medium flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+          title="Descarga lo que se está viendo, con el filtro y el orden puestos"
+        >
+          {descargando ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Download className="h-3 w-3" />
+          )}
+          Descargar Excel
+        </button>
         <button
           type="button"
           onClick={copiar}
