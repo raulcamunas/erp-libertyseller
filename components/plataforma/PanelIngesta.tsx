@@ -738,6 +738,9 @@ function TablaJobs({
   onPausar: (job: AmazonJob) => void
   onReanudar: (job: AmazonJob) => void
 }) {
+  /** Qué fila tiene el mensaje desplegado. Solo una: dos abiertos ya es un muro de texto */
+  const [jobAbierto, setJobAbierto] = useState<string | null>(null)
+
   return (
     <div className="overflow-x-auto">
       <table className={TABLA.tabla}>
@@ -843,14 +846,41 @@ function TablaJobs({
                   {job.iniciado_at ? duracion(job.iniciado_at, job.terminado_at) : '—'}
                   {!job.terminado_at && vivo && <span className={TEXTO.t4}> y sigue</span>}
                 </td>
+                {/* SE PUEDE ABRIR, Y HACÍA FALTA.
+                    Aquí solo cabían unos ochenta caracteres y el resto vivía en
+                    el `title` del navegador — que hay que descubrir, que tarda
+                    un segundo en salir y que en mensajes largos también corta.
+                    El texto que importa de un trabajo fallido está justo
+                    después de «Último error:», o sea al final: recortado por
+                    delante se lee todo menos lo único que sirve. Ya ha pasado
+                    dos veces con dos trabajos distintos. */}
                 <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[420px]`}>
-                  <span className={TABLA.corta} title={job.error_message ?? job.resumen ?? ''}>
-                    {job.error_message ? (
-                      <span style={{ color: COLOR_ESTADO.rojo }}>{job.error_message}</span>
-                    ) : (
-                      (job.resumen ?? (job.cancel_motivo ? `Cancelado: ${job.cancel_motivo}` : '—'))
-                    )}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setJobAbierto((v) => (v === job.id ? null : job.id))}
+                    className="text-left w-full"
+                    title="Pulsa para ver el mensaje entero"
+                  >
+                    <span className={jobAbierto === job.id ? 'block whitespace-pre-wrap' : TABLA.corta}>
+                      {job.error_message ? (
+                        <span style={{ color: COLOR_ESTADO.rojo }}>{job.error_message}</span>
+                      ) : (
+                        (job.resumen ?? (job.cancel_motivo ? `Cancelado: ${job.cancel_motivo}` : '—'))
+                      )}
+                    </span>
+                  </button>
+                  {jobAbierto === job.id && (job.error_message || job.resumen) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(job.error_message ?? job.resumen ?? '')
+                        toast.success('Copiado')
+                      }}
+                      className={`${TIPO.xs} ${TEXTO.t4} hover:text-white mt-1 underline underline-offset-2`}
+                    >
+                      Copiar el mensaje
+                    </button>
+                  )}
                 </td>
                 <td className={`${TABLA.celda} whitespace-nowrap`}>
                   {vivo && (
