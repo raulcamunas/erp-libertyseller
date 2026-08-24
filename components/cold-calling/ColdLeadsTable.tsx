@@ -1,21 +1,27 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Copy, ExternalLink, Maximize2 } from 'lucide-react'
+import { ChevronRight, Copy, ExternalLink, Maximize2 } from 'lucide-react'
 import {
   ColdLead,
   ColdLeadStatus,
+  ColdNoteKind,
   COLD_STATUSES,
   COLD_STATUS_LABELS,
   COLD_STATUS_DOTS,
   colorForList,
 } from '@/lib/types/cold-leads'
+import { UserProfile } from '@/lib/supabase/get-user-profile'
+import { ColdLeadNotes } from './ColdLeadNotes'
 
 interface ColdLeadsTableProps {
   leads: ColdLead[]
   currentUserId: string
+  /** Hace falta entero para poder registrar interacciones sin salir de la tabla */
+  currentUser: UserProfile
   isAdmin: boolean
   selectedId: string | null
   onSelect: (id: string) => void
@@ -88,6 +94,7 @@ const TH =
 export function ColdLeadsTable({
   leads,
   currentUserId,
+  currentUser,
   isAdmin,
   selectedId,
   onSelect,
@@ -95,6 +102,40 @@ export function ColdLeadsTable({
   onPatched,
 }: ColdLeadsTableProps) {
   const supabase = createClient()
+
+  /**
+   * QUÉ FILAS TIENEN EL HISTORIAL ABIERTO.
+   *
+   * Es un conjunto y no un solo id a propósito: en «Rellamadas de hoy» el
+   * comercial baja la lista llamando una detrás de otra, y cerrarle la anterior
+   * cada vez que abre la siguiente le obliga a volver a buscarla si el de
+   * ahora le remite a algo que ya había apuntado.
+   */
+  const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set())
+
+  function alternar(id: string) {
+    setAbiertos((prev) => {
+      const siguiente = new Set(prev)
+      if (siguiente.has(id)) siguiente.delete(id)
+      else siguiente.add(id)
+      return siguiente
+    })
+  }
+
+  /**
+   * Lo mismo que hace la ficha al registrar algo: sella el último contacto y
+   * suma un intento si fue una llamada.
+   *
+   * Se repite aquí —cuatro líneas— en vez de sacarlo a un sitio común porque
+   * sacarlo obligaría a que la tabla y la ficha compartieran también el `patch`
+   * y el estado local del lead, y eso son dos componentes atados por algo que
+   * cabe en un vistazo.
+   */
+  function registrado(id: string, kind: ColdNoteKind, lead: ColdLead) {
+    const fields: Partial<ColdLead> = { last_contacted_at: new Date().toISOString() }
+    if (kind === 'llamada') fields.call_attempts = (lead.call_attempts ?? 0) + 1
+    void patch(id, fields)
+  }
 
   async function patch(id: string, fields: Partial<ColdLead>) {
     const { error } = await supabase.from('cold_leads').update(fields).eq('id', id)
@@ -136,6 +177,7 @@ export function ColdLeadsTable({
             const canEdit = isAdmin || l.assigned_to === currentUserId
             const color = COLD_STATUS_DOTS[l.status]
             const active = l.id === selectedId
+            const abierto = abiertos.has(l.id)
 
             // Fondo teñido con el color del estado: es exactamente lo que
             // hacían en el Excel pintando la fila entera.
@@ -146,8 +188,8 @@ export function ColdLeadsTable({
                 : `${color}14`
 
             return (
+              <Fragment key={l.id}>
               <tr
-                key={l.id}
                 onClick={() => onSelect(l.id)}
                 style={{ backgroundColor: rowBg }}
                 className="border-b border-white/[0.05] hover:brightness-125 transition-[filter] cursor-pointer align-middle"
@@ -164,6 +206,30 @@ export function ColdLeadsTable({
                   }}
                 >
                   <span className="flex items-center gap-1.5">
+                    {/* LA FLECHITA VA DENTRO DE ESTA CELDA Y NO EN UNA COLUMNA
+                        PROPIA. Esta es la única columna congelada de la tabla:
+                        una columna más a su izquierda habría que congelarla
+                        también, con su ancho y su tinte de estado, para ganar
+                        exactamente nada. */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        alternar(l.id)
+                      }}
+                      title={abierto ? 'Cerrar el historial' : 'Ver el historial sin salir de aquí'}
+                      className={`h-5 w-5 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
+                        abierto ? 'text-[#FF6600]' : 'text-white/30 hover:text-white'
+                      }`}
+                    >
+                      <motion.span
+                        animate={{ rotate: abierto ? 90 : 0 }}
+                        transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                        className="flex"
+                      >
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </motion.span>
+                    </button>
                     <span
                       className="h-2 w-2 rounded-full flex-shrink-0"
                       style={{ backgroundColor: color }}
@@ -319,6 +385,46 @@ export function ColdLeadsTable({
                   </span>
                 </td>
               </tr>
+
+              {/* EL HISTORIAL, DEBAJO DE SU FILA.
+                  Es la misma pieza que usa la ficha completa —mismas
+                  interacciones, mismo formulario, mismo guardado—, así que lo
+                  que se apunte aquí y lo que se apunte allí es lo mismo y no
+                  hay dos historiales que puedan desincronizarse.
+
+                  La altura se anima con `height: auto`, que framer-motion sabe
+                  medir; el `overflow-hidden` es lo que evita que el contenido
+                  asome antes de tiempo y dé el tirón feo. */}
+              <AnimatePresence initial={false}>
+                {abierto && (
+                  <motion.tr
+                    key={`${l.id}-historial`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <td colSpan={12} className="p-0 border-b border-white/[0.08]">
+                      <motion.div
+                        initial={{ height: 0 }}
+                        animate={{ height: 'auto' }}
+                        exit={{ height: 0 }}
+                        transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
+                        className="overflow-hidden"
+                      >
+                        <div className="px-3 py-3 bg-black/25">
+                          <ColdLeadNotes
+                            leadId={l.id}
+                            currentUser={currentUser}
+                            onLogged={(kind) => registrado(l.id, kind, l)}
+                          />
+                        </div>
+                      </motion.div>
+                    </td>
+                  </motion.tr>
+                )}
+              </AnimatePresence>
+            </Fragment>
             )
           })}
         </tbody>

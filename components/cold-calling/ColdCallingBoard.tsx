@@ -790,6 +790,7 @@ export function ColdCallingBoard({
             <ColdLeadsTable
               leads={rellamadasVisibles}
               currentUserId={currentUser.id}
+              currentUser={currentUser}
               isAdmin={isAdmin}
               selectedId={selectedId}
               onSelect={setSelectedId}
@@ -806,6 +807,7 @@ export function ColdCallingBoard({
           <ColdLeadsTable
             leads={filtered.slice(0, visible)}
             currentUserId={currentUser.id}
+              currentUser={currentUser}
             isAdmin={isAdmin}
             selectedId={selectedId}
             onSelect={setSelectedId}
