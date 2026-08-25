@@ -116,10 +116,26 @@ interface ResultadoCrudo {
   Error?: { Code?: unknown; Message?: unknown }
 }
 
-interface RespuestaCruda {
-  FeesEstimateResultList?: ResultadoCrudo[]
-  payload?: { FeesEstimateResultList?: ResultadoCrudo[] }
-}
+/**
+ * TRES FORMAS, Y HAY QUE ADMITIR LAS TRES.
+ *
+ * `getMyFeesEstimates` es el endpoint por lotes y devuelve una LISTA PELADA en
+ * la raíz; sus hermanos de un solo SKU envuelven en `payload` o en
+ * `FeesEstimateResultList`. La documentación de Amazon enseña unas u otras según
+ * qué página mires y según la versión del ejemplo.
+ *
+ * Aquí se admitían dos de las tres, y la que faltaba era justo la del endpoint
+ * que usamos. Con la lista en la raíz, `crudo.FeesEstimateResultList` es
+ * `undefined`, `lista` sale vacía, y NO PASA NADA MÁS: cero tarifas, cero
+ * fallos, cero avisos, el trabajo en verde. Que es exactamente lo que llevaba
+ * pasando.
+ */
+type RespuestaCruda =
+  | ResultadoCrudo[]
+  | {
+      FeesEstimateResultList?: ResultadoCrudo[]
+      payload?: { FeesEstimateResultList?: ResultadoCrudo[] }
+    }
 
 /** Los que sabemos clasificar. El resto suma en `otras`. Ver la nota 4 */
 const ES_REFERRAL = new Set(['ReferralFee'])
@@ -203,9 +219,11 @@ export function interpretar(
   const tiposDesconocidos: string[] = []
   const vistos = new Set<string>()
 
-  // Amazon envuelve unas veces en `payload` y otras no. Las dos formas están en
-  // su propia documentación según la versión del ejemplo.
-  const lista = crudo?.FeesEstimateResultList ?? crudo?.payload?.FeesEstimateResultList ?? []
+  // Ver RespuestaCruda: la lista puede venir pelada en la raíz, dentro de
+  // `FeesEstimateResultList` o dentro de `payload`.
+  const lista: ResultadoCrudo[] = Array.isArray(crudo)
+    ? crudo
+    : (crudo?.FeesEstimateResultList ?? crudo?.payload?.FeesEstimateResultList ?? [])
   const porPeticion = new Map(peticiones.map((p) => [p.sku, p]))
 
   for (const resultado of lista) {

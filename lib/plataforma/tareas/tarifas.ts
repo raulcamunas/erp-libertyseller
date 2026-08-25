@@ -306,6 +306,36 @@ export const tareaTarifas: Tarea = {
       })
     }
 
+    /**
+     * LOS QUE NO HAN VUELTO NI CON TARIFA NI CON ERROR.
+     *
+     * `leerTarifas` los calculaba desde el primer día y NO LOS LEÍA NADIE. Y era
+     * el único sitio donde se podía ver el fallo que nos ha costado dos días:
+     * la respuesta de Amazon venía con una forma que el lector no reconocía, la
+     * lista salía vacía, y de ahí en adelante todo estaba «bien» — cero tarifas,
+     * cero rechazos, cero errores, el trabajo terminando en verde con un 0 %.
+     *
+     * Un SKU que se pide y del que Amazon no dice NADA no es un caso raro: es la
+     * señal de que o su API ha cambiado de forma o estamos mandando algo que no
+     * entiende. Las dos cosas hay que mirarlas, y ninguna se mira si no se
+     * cuenta.
+     */
+    const ausentes = [...propio.ausentes, ...(fba?.ausentes ?? [])]
+    if (ausentes.length > 0 && !ctx.memoria.has('tarifas:ausentes')) {
+      ctx.memoria.set('tarifas:ausentes', true)
+      await ctx.evento({
+        tipo: 'tarifas_sin_respuesta',
+        severidad: 'error',
+        mensaje:
+          `Amazon ha contestado sin decir nada de ${ausentes.length} referencias de un lote: ni la ` +
+          'tarifa ni el motivo del rechazo. Eso no es un producto raro, es que la respuesta no se ' +
+          'está entendiendo — o su API ha cambiado de forma, o le estamos mandando algo que no ' +
+          'reconoce. Sin esto el trabajo terminaría en verde con cero tarifas y nadie se enteraría.',
+        detalle: { sku: ausentes.slice(0, 20), total: ausentes.length },
+        requestId: propio.requestId,
+      })
+    }
+
     const desconocidos = [...propio.tiposDesconocidos, ...(fba?.tiposDesconocidos ?? [])]
     if (desconocidos.length > 0 && !ctx.memoria.has('tarifas:tipos')) {
       ctx.memoria.set('tarifas:tipos', true)
