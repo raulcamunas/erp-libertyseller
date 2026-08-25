@@ -150,6 +150,26 @@ export async function leerTarifas(
   const { data, requestId } = await spApiRequest<RespuestaCruda>(creds, 'getMyFeesEstimates', {
     method: 'POST',
     path: '/products/fees/v0/feesEstimate',
+    /**
+     * ES UN POST QUE NO ESCRIBE NADA, Y SIN ESTA LÍNEA NO SE REINTENTABA NUNCA.
+     *
+     * `spApiRequest` solo repite un 429 si la llamada es GET o viene marcada
+     * como repetible —por defecto false, que es lo correcto para las
+     * escrituras—. Esta es una ESTIMACIÓN: pregunta cuánto cobraría Amazon por
+     * vender a un precio dado y no cambia absolutamente nada en la tienda del
+     * cliente. Repetirla es gratis y seguro.
+     *
+     * Lo que costó no marcarlo: el 429 salía del `for` en el primer intento,
+     * sin esperar y sin mirar la cabecera `Retry-After` que Amazon manda con la
+     * respuesta. El lote moría, el trabajo se rendía por esa pasada, y cinco
+     * minutos después volvía a empezar para morir igual. 93 fallos idénticos y
+     * 7 horas y 45 minutos de reloj para traer cero tarifas.
+     *
+     * Con esto, un 429 espera lo que Amazon diga —o el backoff creciente si no
+     * lo dice— y vuelve a intentarlo, que es lo que lleva haciendo el resto del
+     * módulo desde el principio.
+     */
+    repeatable: true,
     body: params.peticiones.map((p) => ({
       FeesEstimateRequest: {
         MarketplaceId: params.marketplaceId,

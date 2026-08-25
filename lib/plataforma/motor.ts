@@ -497,10 +497,24 @@ async function conCerrojo(
     cuentas.omitidos += resultado.omitidos ?? 0
     cuentas.errores += resultado.errores ?? 0
     cuentas.lotes += 1
-    // El lote ha salido bien: la racha de fallos se acaba aquí. Sin esta línea
-    // el contador sería acumulativo y un barrido que falla un lote de cada dos
-    // se abandonaría a mitad de catálogo pese a ir avanzando.
-    cuentas.lotesFallidosSeguidos = 0
+    /**
+     * La racha de fallos se acaba cuando el trabajo AVANZA, no cuando un lote
+     * simplemente no revienta. Sin esta línea el contador sería acumulativo y un
+     * barrido que falla un lote de cada dos se abandonaría a mitad de catálogo
+     * pese a ir avanzando.
+     *
+     * PERO TIENE QUE HABER AVANZADO DE VERDAD, y eso costó siete horas y media
+     * de reloj: «Tarifas estimadas» hizo 132 lotes con 93 errores. Los otros 39
+     * eran lotes en los que ningún SKU tenía precio, así que salían sin llamar a
+     * Amazon y contaban como buenos — y cada uno ponía la racha a cero. El
+     * contador se quedaba clavado en 1, nunca llegaba a los diez que lo habrían
+     * parado, y el trabajo estuvo 94 pasadas reintentando el mismo 429 para
+     * traer exactamente nada.
+     *
+     * Un lote que no procesa ni un elemento no es una prueba de que el trabajo
+     * vaya bien. Si no avanza y encima falla, tiene que rendirse y avisar.
+     */
+    if (resultado.procesados > 0) cuentas.lotesFallidosSeguidos = 0
     cursor = lote.cursorSiguiente
 
     // ---------- EL PROGRESO, DESPUÉS DE CADA LOTE ----------
