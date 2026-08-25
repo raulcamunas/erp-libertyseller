@@ -103,6 +103,8 @@ export async function PATCH(request: NextRequest) {
       cambios.foepMaxPorNoche = v
     }
     if ('foepColaActiva' in body) cambios.foepColaActiva = body.foepColaActiva === true
+    // Apagarlo se salta la fase más cara del trabajo. Ver ConfigBuyBox.foepActivo.
+    if ('foepActivo' in body) cambios.foepActivo = body.foepActivo === true
 
     if ('ofertasGuardadas' in body) {
       const v = entero(body.ofertasGuardadas)

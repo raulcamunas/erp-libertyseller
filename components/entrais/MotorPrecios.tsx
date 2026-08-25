@@ -8,7 +8,6 @@ import { marketplaceLabel } from '@/lib/types/amazon'
 import { leerTarifa } from '@/lib/entrais/tarifa'
 import {
   AVISO_LABELS,
-  MOTIVO_BUYBOX_LABELS,
   type MotivoAviso,
   type MotivoBuybox,
 } from '@/lib/entrais/precios'
@@ -124,7 +123,19 @@ interface Respuesta {
 const ALTO_FILA = 30
 const MARGEN_FILAS = 12
 const ALTO_CAJA = 520
-const REJILLA = '82px 84px 76px 68px 90px 84px 78px 78px 84px 78px 118px 1fr'
+/**
+ * Diez columnas. Eran doce: se han ido las tres del FOEP —el precio, el margen
+ * ahí y «¿se baja?»— y ha entrado una de Buy Box.
+ *
+ * No es por sitio, es porque el FOEP no se pide ya. De 1.446 referencias donde
+ * la tiene otro, en 1.351 bajar a ese precio era VENDER PERDIENDO, y de las 25
+ * que dejaban un 5 % o más, en trece ya estábamos por debajo. Doce productos de
+ * 6.913, a cambio de tres horas de API cada pasada.
+ *
+ * Quién tiene la Buy Box sí se sigue leyendo —esa fase es barata— y es lo que
+ * dice dónde se están perdiendo ventas.
+ */
+const REJILLA = '82px 84px 76px 68px 90px 84px 78px 78px 96px 1fr'
 
 function eur(v: number | null | undefined, dec = 2): string {
   if (v === null || v === undefined) return '—'
@@ -142,6 +153,14 @@ function cuando(iso: string | null): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+/** Se escribe corto porque la columna es estrecha y se lee de un vistazo */
+const BUYBOX_LABELS: Record<string, string> = {
+  nuestra: 'Nuestra',
+  de_otro: 'De otro',
+  nadie: 'Sin competencia',
+  desconocido: '—',
 }
 
 const AVISO_COLOR: Record<string, string> = {
@@ -162,7 +181,7 @@ export function MotorPrecios() {
   const [guardando, setGuardando] = useState(false)
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<
-    'todos' | 'cambian' | 'suben' | 'bajan' | 'problemas' | 'bloqueados'
+    'todos' | 'cambian' | 'suben' | 'bajan' | 'problemas' | 'sin_buybox' | 'bloqueados'
   >('todos')
   const [cargandoTarifa, setCargandoTarifa] = useState(false)
   const [desde, setDesde] = useState(0)
@@ -293,6 +312,8 @@ export function MotorPrecios() {
           return (p.dif_euros ?? 0) < -0.005
         case 'problemas':
           return p.aviso === 'imposible' || p.aviso === 'precio_proveedor_cero'
+        case 'sin_buybox':
+          return p.buybox === 'de_otro'
         case 'bloqueados':
           return p.origen === 'bloqueado'
         default:
@@ -318,7 +339,6 @@ export function MotorPrecios() {
         MARGEN_REAL: p.margen_real,
         PVP_ACTUAL: p.pvp_actual,
         DIFERENCIA: p.dif_euros,
-        FOEP: p.foep,
         BUYBOX: p.buybox,
         ORIGEN: p.origen,
         NO_VENDER: p.origen === 'bloqueado' ? 'SI' : '',
@@ -473,15 +493,18 @@ export function MotorPrecios() {
               <option value="cinco_centimos">Múltiplos de 0,05</option>
             </select>
           </Campo>
-          <Numero
-            label="Suelo Buy Box"
-            valor={cfg.margen_suelo}
-            porcentaje
-            admiteVacio
-            onGuardar={(v) => void guardar({ margen_suelo: v })}
-            pista="Margen mínimo al que se acepta bajar para ganar la oferta destacada. Vacío = no se persigue"
-          />
+          {/* AQUÍ HABÍA UN «SUELO BUY BOX» Y SE HA QUITADO.
+              Servía para decir hasta qué margen se aceptaba bajar para ganar la
+              oferta destacada, y para eso hace falta el FOEP — que ya no se
+              pide. Dejar la casilla habría sido peor que quitarla: se podría
+              rellenar, se guardaría, y no pasaría nada. */}
         </div>
+        <p className="text-[10px] leading-relaxed text-white/25">
+          El precio sale <strong className="text-white/45">solo del margen</strong>. No se persigue
+          la oferta destacada: de 1.446 referencias donde la tiene otro, en 1.351 bajar a su precio
+          era vender perdiendo, y de las 25 que dejaban un 5 % o más, en trece ya estábamos por
+          debajo. Se sigue leyendo QUIÉN la tiene, que es la columna Buy Box de la tabla.
+        </p>
 
         {/* ---------------- Los tramos ---------------- */}
         <div>
@@ -682,6 +705,7 @@ export function MotorPrecios() {
             ['suben', 'Suben'],
             ['bajan', 'Bajan'],
             ['problemas', 'Problemas'],
+            ['sin_buybox', 'Buy Box perdida'],
             ['bloqueados', 'No vender'],
           ] as const
         ).map(([id, texto]) => (
@@ -730,16 +754,14 @@ export function MotorPrecios() {
             ['Ahora', 'Lo que está publicado hoy en Amazon'],
             ['Dif.', 'Cuánto cambiaría'],
             ['Margen real', 'El que queda con el precio ya redondeado'],
-            ['FOEP', 'El precio al que Amazon espera que se gane la oferta destacada'],
-            ['Margen al FOEP', 'El margen que quedaría publicando a ese precio. Se calcula se baje o no'],
-            ['¿Se baja?', 'Si se publica al precio de la Buy Box, y si no, por qué'],
+            ['Buy Box', 'Quién tiene hoy la oferta destacada de este listing'],
             ['Aviso', ''],
           ].map(([texto, pista], i) => (
             <span
               key={texto}
               title={pista}
               className={`px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 ${
-                i >= 1 && i <= 9 ? 'text-right' : 'text-left'
+                i >= 1 && i <= 7 ? 'text-right' : 'text-left'
               }`}
             >
               {texto}
@@ -825,39 +847,21 @@ export function MotorPrecios() {
                     <span className="px-2 text-[11px] text-right tabular-nums text-white/60">
                       {pct(p.margen_real)}
                     </span>
-                    <span className="px-2 text-[11px] text-right tabular-nums text-white/45">
-                      {eur(p.foep)}
-                    </span>
-                    {/* EL MARGEN AL FOEP, EN COLOR SEGÚN EL SUELO.
-                        Verde si aguanta, rojo si no llega, gris si no hay suelo
-                        puesto. Es la columna con la que se elige el suelo:
-                        mirando cuántas filas se pondrían verdes al bajarlo. */}
-                    <span
-                      className={`px-2 text-[11px] text-right tabular-nums ${
-                        p.margen_en_foep === null
-                          ? 'text-white/20'
-                          : cfg.margen_suelo === null
-                            ? 'text-white/50'
-                            : p.margen_en_foep >= cfg.margen_suelo
-                              ? 'text-green-300/80'
-                              : 'text-red-300/70'
-                      }`}
-                    >
-                      {pct(p.margen_en_foep)}
-                    </span>
+                    {/* QUIÉN TIENE LA BUY BOX. Sustituye a las tres columnas del
+                        FOEP: aquélla decía a qué precio se ganaría —que casi
+                        siempre era perdiendo dinero—, ésta dice dónde se están
+                        perdiendo ventas, que es lo accionable. */}
                     <span
                       className={`px-2 text-[10.5px] truncate ${
-                        p.motivo_buybox === 'se_baja'
-                          ? 'text-green-300'
-                          : p.motivo_buybox === 'no_llega_al_suelo'
-                            ? 'text-red-300/70'
-                            : p.motivo_buybox === 'sin_suelo'
-                              ? 'text-amber-300/60'
-                              : 'text-white/30'
+                        p.buybox === 'nuestra'
+                          ? 'text-green-300/80'
+                          : p.buybox === 'de_otro'
+                            ? 'text-amber-300/80'
+                            : 'text-white/25'
                       }`}
-                      title={p.motivo_buybox ? MOTIVO_BUYBOX_LABELS[p.motivo_buybox] : ''}
+                      title={BUYBOX_LABELS[p.buybox ?? 'desconocido'] ?? ''}
                     >
-                      {p.motivo_buybox ? MOTIVO_BUYBOX_LABELS[p.motivo_buybox] : '—'}
+                      {BUYBOX_LABELS[p.buybox ?? 'desconocido'] ?? '—'}
                     </span>
                     <span
                       className={`px-2 text-[10.5px] truncate ${

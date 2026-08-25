@@ -62,6 +62,19 @@ export interface ConfigBuyBox {
   foepCadaMinutos: number | null
   foepMaxPorNoche: number | null
   foepColaActiva: boolean
+  /**
+   * false = NO se le pide a Amazon el precio al que se ganaría la oferta
+   * destacada, y el trabajo se salta esa fase entera.
+   *
+   * Es la fase cara: una llamada cada treinta segundos, cuarenta SKU cada una.
+   * Con 6.900 referencias son casi tres horas; las otras dos fases van a media
+   * llamada por segundo y se despachan en minutos.
+   *
+   * Ya se podía saltar por ejecución con el parámetro `foep: false` del trabajo.
+   * Esto es lo mismo pero permanente y por cliente, que es donde se decide: un
+   * trabajo programado no se acuerda de pasar parámetros.
+   */
+  foepActivo: boolean
   ofertasGuardadas: number
   margenMinimoPct: number | null
   deltaFoep: number | null
@@ -110,6 +123,9 @@ export const CONFIG_BUYBOX_DEFECTO: Omit<ConfigBuyBox, 'clientId'> = {
   foepCadaMinutos: null,
   foepMaxPorNoche: null,
   foepColaActiva: true,
+  // Encendido por defecto: apagarlo es una decisión con datos delante, y quien
+  // no la haya tomado tiene que recibir el dato, no la ausencia de él.
+  foepActivo: true,
   ofertasGuardadas: 10,
   margenMinimoPct: null,
   deltaFoep: null,
@@ -158,6 +174,11 @@ export async function configDeCliente(clientId: string): Promise<ConfigBuyBox> {
     foepCadaMinutos: entero(fila.foep_cada_minutos),
     foepMaxPorNoche: entero(fila.foep_max_por_noche),
     foepColaActiva: fila.foep_cola_activa !== false,
+    // `!== false` y no `=== true`: si la columna todavía no existe —las
+    // migraciones se lanzan a mano y el código puede llegar antes— el valor es
+    // `undefined` y tiene que leerse como encendido, que es el estado de
+    // siempre. Un hueco no puede apagar una fase entera en silencio.
+    foepActivo: fila.foep_activo !== false,
     ofertasGuardadas: entero(fila.ofertas_guardadas) ?? 10,
     margenMinimoPct: numero(fila.margen_minimo_pct),
     deltaFoep: numero(fila.delta_foep),
@@ -206,6 +227,7 @@ export async function guardarConfig(
   if (cambios.foepCadaMinutos !== undefined) fila.foep_cada_minutos = cambios.foepCadaMinutos
   if (cambios.foepMaxPorNoche !== undefined) fila.foep_max_por_noche = cambios.foepMaxPorNoche
   if (cambios.foepColaActiva !== undefined) fila.foep_cola_activa = cambios.foepColaActiva
+  if (cambios.foepActivo !== undefined) fila.foep_activo = cambios.foepActivo
   if (cambios.ofertasGuardadas !== undefined) fila.ofertas_guardadas = cambios.ofertasGuardadas
   if (cambios.margenMinimoPct !== undefined) fila.margen_minimo_pct = cambios.margenMinimoPct
   if (cambios.deltaFoep !== undefined) fila.delta_foep = cambios.deltaFoep

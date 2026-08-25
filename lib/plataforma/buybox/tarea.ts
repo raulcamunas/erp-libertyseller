@@ -319,8 +319,12 @@ async function relojFoep(
 }
 
 /** ¿Se ha pedido saltarse el FOEP en este trabajo? */
-function foepApagado(ctx: ContextoTarea): boolean {
-  return (ctx.job.parametros ?? {}).foep === false
+function foepApagado(ctx: ContextoTarea, config: ConfigBuyBox): boolean {
+  // Dos interruptores y ninguno sobra: el del trabajo es para una pasada suelta
+  // —«esta vez sáltatelo, que corre prisa»— y el de la configuración es la
+  // decisión permanente del cliente. Cualquiera de los dos apaga.
+  if ((ctx.job.parametros ?? {}).foep === false) return true
+  return !config.foepActivo
 }
 
 /** ¿Se ha pedido el FOEP de TODO el ámbito, sin rotación? */
@@ -360,7 +364,7 @@ export const tareaSnapshotPrecios: Tarea = {
     // de las tres fases en el mismo contador. Con solo los SKU, la barra llegaría
     // al 100 % al acabar las ofertas y seguiría trabajando dos fases más, que es
     // peor que una barra que avanza despacio.
-    const conFoep = foepApagado(ctx)
+    const conFoep = foepApagado(ctx, entorno.config)
       ? 0
       : foepCompleto(ctx)
         ? skus
@@ -401,7 +405,7 @@ export const tareaSnapshotPrecios: Tarea = {
 
     /* ---------------- Fase 2 · FOEP ---------------- */
     if (cursor.fase === 'foep') {
-      if (foepApagado(ctx)) {
+      if (foepApagado(ctx, entorno.config)) {
         return {
           claves: [],
           cursorSiguiente: escribirCursor({ ...CURSOR_INICIAL, fase: 'diagnostico' }),
