@@ -254,7 +254,26 @@ export async function leerFoep(
             method: 'GET',
             marketplaceId: opciones.marketplaceId,
             sku,
-            segment: opciones.segmento ? { customerMembership: opciones.segmento } : undefined,
+            /**
+             * EL SEGMENTO SOLO EXISTE PARA PRIME, y mandarlo con cualquier otra
+             * cosa tumba el lote ENTERO.
+             *
+             * `customerMembership` admite «Prime» y nada más. El comprador
+             * normal no es un segmento: es la ausencia de segmento, y se pide
+             * omitiendo el campo. Mandando `{"customerMembership":"Consumer"}`
+             * Amazon contesta:
+             *
+             *     Requested Segment is invalid, unsupported, or does not exist
+             *
+             * y rechaza las cuarenta referencias del lote de golpe. Costó una
+             * tarde: la configuración de Buy Box guarda «Consumer» como forma de
+             * decir «el comprador de a pie», y eso viajaba literal. El resultado
+             * eran 3.171 snapshots con foep_estado «no_consultado» — que se lee
+             * como «no lo hemos preguntado» y era verdad, pero por un motivo que
+             * no estaba a la vista en ninguna parte.
+             */
+            segment:
+              opciones.segmento === 'Prime' ? { customerMembership: 'Prime' } : undefined,
           })),
         },
         repeatable: true,
