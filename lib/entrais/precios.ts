@@ -141,6 +141,20 @@ export interface EntradaPrecio {
   margenPropio: number | null
   /** Precio al que se espera ganar la oferta destacada, con IVA. null = sin dato */
   foep?: number | null
+  /**
+   * QUIÉN TIENE HOY LA OFERTA DESTACADA. Es lo que decide si el FOEP significa
+   * algo o no.
+   *
+   * 'de_otro'      → la tiene la competencia. El FOEP es el techo al que hay que
+   *                  bajar para quitársela. Es el ÚNICO caso en el que se baja.
+   * 'nuestra'      → ya es nuestra. Bajar al FOEP sería regalar margen por algo
+   *                  que ya tenemos.
+   * 'nadie'        → no hay competencia, o seríamos la primera oferta del
+   *                  listing. No hay a quién ganarle: se publica al margen.
+   * 'desconocido'  → no se baja. Regalar margen por una corazonada es peor que
+   *                  no ganar una Buy Box que a lo mejor ya es nuestra.
+   */
+  buybox?: 'nuestra' | 'de_otro' | 'nadie' | 'desconocido'
 }
 
 export type MotivoAviso =
@@ -342,8 +356,27 @@ export function calcularPrecio(entrada: EntradaPrecio, cfg: ConfigPrecios): Resu
    * cliente. Y solo se BAJA: si el FOEP está por encima del precio objetivo, no
    * se sube — subir por encima de lo que hace falta para ganar la Buy Box es
    * regalar ventas sin necesidad.
+   *
+   *
+   * ============ Y SOLO SI HAY A QUIÉN GANARLE ============
+   *
+   * Esta es la parte que no es evidente. El FOEP no significa lo mismo según
+   * quién tenga hoy la oferta destacada:
+   *
+   *   · La tiene OTRO   → el FOEP es el techo al que bajar para quitársela.
+   *                       Aquí sí sale a cuenta cambiar margen por ventas.
+   *   · Ya es NUESTRA   → bajar sería pagar por algo que ya tenemos.
+   *   · No la tiene NADIE → no hay competencia; seríamos la primera oferta del
+   *                       listing. Bajar es regalar margen a cambio de nada.
+   *   · No se sabe      → no se baja. Perder una Buy Box que quizá ya es nuestra
+   *                       es reversible; el margen regalado en cada venta, no.
+   *
+   * Sin esta comprobación, la regla ingenua «precio > FOEP → bajar» recorta el
+   * precio JUSTO en las referencias que van bien — las que ya tienen la oferta
+   * destacada porque nadie les hace sombra.
    */
-  if (cfg.margenSuelo !== null && entrada.foep != null && entrada.foep > 0) {
+  const hayAQuienGanarle = entrada.buybox === 'de_otro'
+  if (hayAQuienGanarle && cfg.margenSuelo !== null && entrada.foep != null && entrada.foep > 0) {
     const candidato = redondear(entrada.foep, cfg.redondeo)
     if (candidato < precio && margenA(candidato, coste, tarifa, cfg) >= cfg.margenSuelo) {
       precio = candidato
