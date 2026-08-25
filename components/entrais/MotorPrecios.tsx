@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Ban, Download, Loader2, Play, Search, Upload } from 'lucide-react'
+import { Ban, Download, Loader2, Play, Search, Send, ShieldCheck, Upload } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
 import { marketplaceLabel } from '@/lib/types/amazon'
 import { leerTarifa } from '@/lib/entrais/tarifa'
@@ -646,6 +646,9 @@ export function MotorPrecios() {
         }}
       />
 
+      {/* ---------------- Publicar ---------------- */}
+      <PublicarPrecios onHecho={() => void traer()} />
+
       {/* ---------------- La última pasada ---------------- */}
       {ultima && (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
@@ -1127,6 +1130,304 @@ function BloqueLosQueNo({
           El CSV que manda el proveedor, tal cual: «tarifa_008262 - …csv»
         </span>
       </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Publicar en Amazon                                                  */
+/* ------------------------------------------------------------------ */
+
+interface FilaPublicable {
+  sku: string
+  precio: number
+  pvpActual: number
+  difEuros: number
+  difPorcentaje: number | null
+  tarifaEstimada: boolean
+}
+
+interface Candidatas {
+  filas: FilaPublicable[]
+  porTramo: number
+  resumen: { total: number; suben: number; bajan: number; conTarifaEstimada: number }
+}
+
+interface ResultadoEnvio {
+  simulado: boolean
+  batchId: string | null
+  aceptados: number
+  fallidos: number
+  resultados: { sku: string; status: string; message: string | null }[]
+  abortReason: string | null
+}
+
+/**
+ * EL ÚNICO SITIO DEL MOTOR QUE TOCA LA TIENDA DEL CLIENTE.
+ *
+ * Todo lo demás calcula y guarda. Esto manda, y el precio que un comprador ve
+ * cambia. La pantalla está escrita alrededor de esa diferencia:
+ *
+ *   · HAY QUE SIMULAR ANTES. El botón de enviar no existe hasta que hay un
+ *     simulacro hecho, y desaparece en cuanto cambia la lista. No es un paso de
+ *     más: `validateOnly` le pregunta a Amazon si aceptaría cada dato sin
+ *     aplicarlo, así que convierte «creo que están bien» en la lista de los que
+ *     va a rechazar — antes, y gratis.
+ *
+ *   · LOS MAYORES SALTOS SE VEN SIN BUSCARLOS. La lista llega ordenada por
+ *     diferencia, así que lo primero que se lee es lo que más cambia. Revisar
+ *     dos mil filas no puede depender de que alguien tenga la paciencia de bajar
+ *     hasta el final.
+ *
+ *   · NO HAY FRENOS AUTOMÁTICOS, y es una decisión tomada: ni tope de salto ni
+ *     tope de cantidad. El freno es que hay alguien delante. Por eso esta
+ *     pantalla no tiene ningún camino que envíe sin pasar por el simulacro, y
+ *     por eso el día que esto se automatice harán falta los frenos que hoy no
+ *     están.
+ */
+function PublicarPrecios({ onHecho }: { onHecho: () => void }) {
+  const [datos, setDatos] = useState<Candidatas | null>(null)
+  const [cargando, setCargando] = useState(false)
+  const [trabajando, setTrabajando] = useState<'simular' | 'enviar' | null>(null)
+  const [progreso, setProgreso] = useState<{ hechos: number; total: number } | null>(null)
+  const [simulacro, setSimulacro] = useState<ResultadoEnvio | null>(null)
+  const [envio, setEnvio] = useState<ResultadoEnvio | null>(null)
+
+  const traer = useCallback(async () => {
+    setCargando(true)
+    const res = await postAmazon<Candidatas>('/api/entrais/publicar', {})
+    setCargando(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    setDatos(res.data)
+    // Un simulacro de otra lista no vale para ésta. Se tira, y con él el botón
+    // de enviar: si no, se podría simular, recalcular y enviar otra cosa.
+    setSimulacro(null)
+    setEnvio(null)
+  }, [])
+
+  async function correr(accion: 'simular' | 'enviar') {
+    if (!datos || datos.filas.length === 0) return
+    setTrabajando(accion)
+    setProgreso({ hechos: 0, total: datos.filas.length })
+
+    const acumulado: ResultadoEnvio = {
+      simulado: accion === 'simular',
+      batchId: null,
+      aceptados: 0,
+      fallidos: 0,
+      resultados: [],
+      abortReason: null,
+    }
+
+    // En tramos, y con el mismo batchId en todos: es lo que hace que las filas
+    // que salieron juntas se reconozcan juntas en el registro. El primero lo
+    // genera el servidor y los siguientes lo reciben.
+    for (let i = 0; i < datos.filas.length; i += datos.porTramo) {
+      const tramo = datos.filas.slice(i, i + datos.porTramo)
+      const res = await postAmazon<ResultadoEnvio>('/api/entrais/publicar', {
+        accion,
+        skus: tramo.map((f) => f.sku),
+        batchId: acumulado.batchId,
+      })
+      if (!res.ok) {
+        toast.error(res.error, { duration: 10_000 })
+        break
+      }
+      acumulado.batchId = res.data.batchId ?? acumulado.batchId
+      acumulado.aceptados += res.data.aceptados
+      acumulado.fallidos += res.data.fallidos
+      acumulado.resultados.push(...res.data.resultados.filter((r) => r.status !== 'aceptado'))
+      setProgreso({ hechos: Math.min(i + tramo.length, datos.filas.length), total: datos.filas.length })
+
+      /**
+       * Si Amazon dice que la conexión no vale, se para el lote entero.
+       *
+       * Seguir mandando los tramos que quedan solo consigue repetir el mismo
+       * error una vez por referencia, y enterrar el motivo real debajo.
+       */
+      if (res.data.abortReason) {
+        acumulado.abortReason = res.data.abortReason
+        break
+      }
+    }
+
+    setTrabajando(null)
+    setProgreso(null)
+    if (accion === 'simular') {
+      setSimulacro(acumulado)
+      toast[acumulado.fallidos > 0 ? 'warning' : 'success'](
+        `Simulacro: Amazon aceptaría ${acumulado.aceptados} y rechazaría ${acumulado.fallidos}. No se ha cambiado nada.`
+      )
+    } else {
+      setEnvio(acumulado)
+      toast.success(`${acumulado.aceptados} precios enviados a Amazon.`)
+      onHecho()
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-[#FF6600]/25 bg-[#FF6600]/[0.03] p-3 space-y-2">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+          <Send className="h-3 w-3" />
+          Publicar en Amazon
+        </h3>
+        <span className="text-[11px] text-amber-300/80">
+          Esto SÍ cambia los precios de la tienda del cliente.
+        </span>
+      </div>
+
+      {!datos ? (
+        <button
+          type="button"
+          onClick={() => void traer()}
+          disabled={cargando}
+          className="h-7 flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-[11px] text-white/70 hover:text-white disabled:opacity-40"
+        >
+          {cargando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+          Ver qué se publicaría
+        </button>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[11px]">
+            <span className="text-white">
+              <strong>{datos.resumen.total.toLocaleString('es-ES')}</strong> referencias cambiarían
+              de precio
+            </span>
+            <Cifra n={datos.resumen.suben} texto="suben" color="text-amber-300/80" />
+            <Cifra n={datos.resumen.bajan} texto="bajan" color="text-sky-300/80" />
+            {datos.resumen.conTarifaEstimada > 0 && (
+              <Cifra
+                n={datos.resumen.conTarifaEstimada}
+                texto="con tarifa estimada"
+                color="text-amber-300/60"
+              />
+            )}
+          </div>
+
+          {datos.filas.length > 0 && (
+            <div className="rounded-lg border border-white/[0.07] bg-black/20 p-2">
+              <p className="mb-1 text-[10px] uppercase tracking-wider text-white/30">
+                Los diez saltos más grandes
+              </p>
+              <div className="space-y-0.5">
+                {datos.filas.slice(0, 10).map((f) => (
+                  <div key={f.sku} className="flex items-baseline gap-2 text-[11px] tabular-nums">
+                    <span className="w-[70px] font-mono text-white/70">{f.sku}</span>
+                    <span className="w-[70px] text-right text-white/35">{eur(f.pvpActual)}</span>
+                    <span className="text-white/25">→</span>
+                    <span className="w-[70px] text-right font-medium text-white">
+                      {eur(f.precio)}
+                    </span>
+                    <span
+                      className={`w-[80px] text-right ${
+                        f.difEuros > 0 ? 'text-amber-300/80' : 'text-sky-300/80'
+                      }`}
+                    >
+                      {f.difEuros > 0 ? '+' : ''}
+                      {eur(f.difEuros)}
+                      {f.difPorcentaje !== null && ` (${pct(f.difPorcentaje, 0)})`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {progreso && (
+            <div className="text-[11px] text-white/50">
+              {progreso.hechos.toLocaleString('es-ES')} de {progreso.total.toLocaleString('es-ES')}
+              <div className="mt-1 h-1 rounded-full bg-white/[0.06]">
+                <div
+                  className="h-1 rounded-full bg-[#FF6600] transition-all"
+                  style={{ width: `${(progreso.hechos / Math.max(1, progreso.total)) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {simulacro && !envio && (
+            <div className="rounded-lg border border-white/10 bg-black/20 p-2 text-[11px]">
+              <p className="text-white/70">
+                Simulacro: Amazon aceptaría{' '}
+                <strong className="text-green-300">{simulacro.aceptados}</strong> y rechazaría{' '}
+                <strong className={simulacro.fallidos > 0 ? 'text-red-300' : 'text-white/40'}>
+                  {simulacro.fallidos}
+                </strong>
+                . No se ha cambiado nada todavía.
+              </p>
+              {simulacro.resultados.slice(0, 6).map((r) => (
+                <p key={r.sku} className="mt-0.5 text-[10.5px] text-red-300/70">
+                  <span className="font-mono">{r.sku}</span> · {r.message ?? r.status}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {envio && (
+            <div className="rounded-lg border border-green-400/20 bg-green-400/[0.05] p-2 text-[11px]">
+              <p className="text-white">
+                Enviados: <strong className="text-green-300">{envio.aceptados}</strong> aceptados,{' '}
+                <strong className={envio.fallidos > 0 ? 'text-red-300' : 'text-white/40'}>
+                  {envio.fallidos}
+                </strong>{' '}
+                fallidos.
+              </p>
+              <p className="mt-0.5 text-[10px] text-white/35">
+                Amazon tarda un rato en aplicarlos. Queda todo en el registro de envíos con su
+                valor anterior.
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void correr('simular')}
+              disabled={trabajando !== null || datos.filas.length === 0}
+              className="h-7 flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-[11px] text-white/70 hover:text-white disabled:opacity-40"
+            >
+              {trabajando === 'simular' ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-3 w-3" />
+              )}
+              Simular
+            </button>
+
+            {/* EL BOTÓN DE ENVIAR SOLO EXISTE DESPUÉS DE UN SIMULACRO.
+                No está deshabilitado: no está. Un botón gris invita a buscar
+                cómo activarlo; uno que aparece cuando toca enseña el orden. */}
+            {simulacro && !envio && (
+              <button
+                type="button"
+                onClick={() => void correr('enviar')}
+                disabled={trabajando !== null || simulacro.aceptados === 0}
+                className="h-7 flex items-center gap-1.5 rounded-lg border border-[#FF6600]/60 bg-[#FF6600]/20 px-2.5 text-[11px] text-white hover:bg-[#FF6600]/30 disabled:opacity-40"
+              >
+                {trabajando === 'enviar' ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3" />
+                )}
+                Enviar {simulacro.aceptados} precios a Amazon
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => void traer()}
+              disabled={trabajando !== null || cargando}
+              className="h-7 rounded-lg border border-white/10 px-2.5 text-[11px] text-white/45 hover:text-white disabled:opacity-40"
+            >
+              Volver a mirar
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
