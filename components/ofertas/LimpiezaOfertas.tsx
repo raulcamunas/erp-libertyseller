@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, Download, Loader2, Play, Search, Send, ShieldCheck } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
+import { marketplaceLabel } from '@/lib/types/amazon'
 
 /**
  * LIMPIEZA DE OFERTAS · PRECIO MÍNIMO, MÁXIMO Y REBAJAS.
@@ -334,7 +335,7 @@ export function LimpiezaOfertas({ conexiones }: { conexiones: Conexion[] }) {
           >
             {mercados.map((m) => (
               <option key={m} value={m}>
-                {m}
+                {marketplaceLabel(m)}
               </option>
             ))}
           </select>

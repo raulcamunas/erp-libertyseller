@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Download, Loader2, Play, Search } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
+import { marketplaceLabel } from '@/lib/types/amazon'
 import {
   AVISO_LABELS,
   MOTIVO_BUYBOX_LABELS,
@@ -333,7 +334,7 @@ export function MotorPrecios() {
               <option value="">—</option>
               {mercados.map((m) => (
                 <option key={m} value={m}>
-                  {m}
+                  {marketplaceLabel(m)}
                 </option>
               ))}
             </select>
