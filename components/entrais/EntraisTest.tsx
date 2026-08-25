@@ -6,6 +6,7 @@ import { AlertTriangle, Copy, Loader2, Play } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
 import { esProducto, type ProductoEntrais } from '@/lib/entrais/api'
 import { TablaProductos } from './TablaProductos'
+import { MotorPrecios } from './MotorPrecios'
 
 /**
  * ENTRAIS TEST · VER QUÉ TRAE LA API DEL PROVEEDOR.
@@ -75,6 +76,15 @@ const LLAMADAS: Llamada[] = [
 ]
 
 export function EntraisTest() {
+  /**
+   * DOS PESTAÑAS, Y EL MOTOR PRIMERO.
+   *
+   * El banco de pruebas fue lo primero que se construyó y durante un tiempo fue
+   * lo único; hoy es la herramienta de diagnóstico y el motor de precios es el
+   * trabajo. Que abra en el motor no es cosmético: es lo que se mira todos los
+   * días.
+   */
+  const [pestana, setPestana] = useState<'motor' | 'api'>('motor')
   const [entorno, setEntorno] = useState<'pruebas' | 'real'>('pruebas')
   const [ruta, setRuta] = useState(LLAMADAS[0].ruta)
   const [cargando, setCargando] = useState(false)
@@ -147,12 +157,39 @@ export function EntraisTest() {
   return (
     <div className="space-y-3 pb-6">
       <div>
-        <h1 className="text-[22px] font-semibold text-white">Entrais Test</h1>
+        <h1 className="text-[22px] font-semibold text-white">Entrais</h1>
         <p className="text-[12px] text-white/45 mt-0.5">
-          La API del proveedor de un cliente. De momento solo se mira qué devuelve: nada se guarda.
+          El precio al que hay que publicar cada referencia, calculado con el coste del proveedor y
+          lo que se lleva Amazon. Nada se publica: se propone.
         </p>
       </div>
 
+      <div className="flex flex-wrap gap-1.5">
+        {(
+          [
+            { id: 'motor' as const, texto: 'Motor de precios' },
+            { id: 'api' as const, texto: 'La API en crudo' },
+          ]
+        ).map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setPestana(p.id)}
+            className={`px-3 py-1.5 rounded-full border text-[12px] font-medium transition-colors ${
+              pestana === p.id
+                ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
+                : 'border-white/10 text-white/45 hover:text-white/80'
+            }`}
+          >
+            {p.texto}
+          </button>
+        ))}
+      </div>
+
+      {pestana === 'motor' && <MotorPrecios />}
+
+      {pestana === 'api' && (
+      <>
       {/* EL ENTORNO, ARRIBA DEL TODO Y CON EL REAL EN ROJO.
           Son dos servidores con dos contraseñas distintas, y el real es el del
           cliente de verdad. Que se vea de un vistazo cuál está seleccionado es
@@ -297,6 +334,8 @@ export function EntraisTest() {
         veinte minutos sin llamar a nadie: si gastas las cuatro aquí, el envío automático de stock
         se queda sin ninguna hasta la hora siguiente.
       </p>
+      </>
+      )}
     </div>
   )
 }
