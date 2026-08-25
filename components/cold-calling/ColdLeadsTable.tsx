@@ -1,10 +1,28 @@
 'use client'
 
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { ChevronRight, Copy, ExternalLink, Maximize2 } from 'lucide-react'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
+import { toMadrid } from '@/lib/timezone'
+import {
+  Building2,
+  CalendarClock,
+  ChevronRight,
+  Copy,
+  Euro,
+  ExternalLink,
+  FileText,
+  History,
+  Mail,
+  MapPin,
+  Maximize2,
+  Phone,
+  Tag,
+  Users,
+} from 'lucide-react'
 import {
   ColdLead,
   ColdLeadStatus,
@@ -13,6 +31,7 @@ import {
   COLD_STATUS_LABELS,
   COLD_STATUS_DOTS,
   colorForList,
+  formatRevenue,
 } from '@/lib/types/cold-leads'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { ColdLeadNotes } from './ColdLeadNotes'
@@ -85,6 +104,155 @@ function EditableCell({
       autoFocus
       className="w-full bg-white/[0.08] border border-[#FF6600] rounded px-2 py-1 text-white outline-none"
     />
+  )
+}
+
+/**
+ * LA EMPRESA, DENTRO DEL DESPLEGABLE.
+ *
+ * La tabla enseña once columnas y no caben en pantalla: en cuanto la ventana no
+ * da de sí, Email, Provincia y Categoría se van por la derecha y hay que hacer
+ * scroll horizontal para verlas. Justo cuando el comercial está al teléfono.
+ *
+ * Aquí está todo junto y sin scroll, incluido lo que NO tiene columna propia
+ * —desde cuándo vende, los directivos, la dirección, el registro mercantil— y
+ * los dos datos que dicen si esta rellamada es la segunda o la sexta.
+ *
+ * Es la misma información que la ficha completa, escrita aparte a propósito: la
+ * ficha es una barra lateral estrecha y va en una columna; esto es una banda
+ * ancha y va en rejilla. Compartir el marcado obligaría a que una de las dos
+ * pasara la disposición como parámetro, que es más enredo que estas líneas.
+ */
+function DatosEmpresa({ lead }: { lead: ColdLead }) {
+  const categoria = [lead.category, lead.subcategory].filter(Boolean).join(' · ')
+
+  return (
+    // Anclada a la izquierda y con ancho tope: la fila desplegada es tan ancha
+    // como la tabla entera, y una rejilla estirada a 1.900 px deja los últimos
+    // campos fuera de la pantalla otra vez.
+    <div className="mb-3 max-w-[940px] rounded-xl border border-white/10 bg-white/[0.02] p-3">
+      <h4 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+        <Building2 className="h-3 w-3" />
+        La empresa
+      </h4>
+
+      <div className="grid gap-x-7 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
+        <Campo icon={<Building2 className="h-3 w-3" />} label="Empresa">
+          {lead.company || '—'}
+        </Campo>
+
+        <Campo icon={<Euro className="h-3 w-3" />} label="Facturación">
+          {lead.revenue_monthly != null ? `${formatRevenue(lead.revenue_monthly)} / mes` : '—'}
+        </Campo>
+
+        <Campo icon={<CalendarClock className="h-3 w-3" />} label="Vende desde">
+          {lead.amazon_start || '—'}
+        </Campo>
+
+        <Campo icon={<Phone className="h-3 w-3" />} label="Teléfono">
+          {lead.phone ? (
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(lead.phone!)
+                toast.success('Teléfono copiado')
+              }}
+              className="inline-flex items-center gap-1 transition-colors hover:text-white"
+              title="Copiar el teléfono"
+            >
+              {lead.phone}
+              <Copy className="h-3 w-3 flex-shrink-0 opacity-40" />
+            </button>
+          ) : (
+            '—'
+          )}
+        </Campo>
+
+        <Campo icon={<Mail className="h-3 w-3" />} label="Email">
+          {lead.email ? (
+            <a
+              href={`mailto:${lead.email.split(/[\s/,;]+/)[0]}`}
+              className="block truncate transition-colors hover:text-[#FF6600]"
+              title={lead.email}
+            >
+              {lead.email}
+            </a>
+          ) : (
+            '—'
+          )}
+        </Campo>
+
+        <Campo icon={<Users className="h-3 w-3" />} label="Directivos">
+          {lead.directors || '—'}
+        </Campo>
+
+        <Campo icon={<MapPin className="h-3 w-3" />} label="Provincia">
+          {lead.province || '—'}
+        </Campo>
+
+        <Campo icon={<Tag className="h-3 w-3" />} label="Categoría">
+          <span className="block truncate" title={categoria || undefined}>
+            {categoria || '—'}
+          </span>
+        </Campo>
+
+        <Campo icon={<FileText className="h-3 w-3" />} label="Reg. mercantil">
+          {lead.mercantile_registry || '—'}
+        </Campo>
+
+        <Campo icon={<MapPin className="h-3 w-3" />} label="Dirección">
+          {lead.business_address || '—'}
+        </Campo>
+
+        {/* Cuántas veces se ha intentado ya. En una pantalla que se llama
+            «Rellamadas» es el dato que decide si esta llamada es insistir o
+            enterrar el lead, y no tiene columna en la tabla. */}
+        <Campo icon={<History className="h-3 w-3" />} label="Intentos">
+          {lead.call_attempts > 0 ? (
+            <>
+              {lead.call_attempts}
+              {lead.last_contacted_at && (
+                <span className="text-white/40">
+                  {' · último '}
+                  {format(toMadrid(lead.last_contacted_at), 'd MMM, HH:mm', { locale: es })}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-white/40">sin llamadas todavía</span>
+          )}
+        </Campo>
+
+        <Campo icon={<ExternalLink className="h-3 w-3" />} label="Perfil seller">
+          {lead.seller_url ? (
+            <a
+              href={lead.seller_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 transition-colors hover:text-[#FF6600]"
+            >
+              Ver en Amazon <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : (
+            '—'
+          )}
+        </Campo>
+      </div>
+    </div>
+  )
+}
+
+/** Una etiqueta y su valor, con la etiqueta a ancho fijo para que las tres
+    columnas de la rejilla queden alineadas entre sí */
+function Campo({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-2 py-0.5">
+      <span className="flex w-[96px] flex-shrink-0 items-center gap-1.5 text-[11px] text-white/35">
+        {icon}
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="min-w-0 flex-1 text-[12px] text-white/80">{children}</span>
+    </div>
   )
 }
 
@@ -413,6 +581,7 @@ export function ColdLeadsTable({
                         className="overflow-hidden"
                       >
                         <div className="px-3 py-3 bg-black/25">
+                          <DatosEmpresa lead={l} />
                           <ColdLeadNotes
                             leadId={l.id}
                             currentUser={currentUser}
