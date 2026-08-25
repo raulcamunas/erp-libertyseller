@@ -155,6 +155,19 @@ export interface EntradaPrecio {
    *                  no ganar una Buy Box que a lo mejor ya es nuestra.
    */
   buybox?: 'nuestra' | 'de_otro' | 'nadie' | 'desconocido'
+  /**
+   * EL PORTE DE ESTE PRODUCTO, YA SIN IVA. null = el de la configuración.
+   *
+   * Se pasa resuelto y no como una regla porque el motor no tiene que saber de
+   * subfamilias ni de tarifas de transportista: recibe un número y lo suma. Quien
+   * decide cuál es ese número está en motor.ts, con las reglas delante.
+   *
+   * SIN IVA, y esa es la parte que se paga cara si se olvida. El coste de
+   * adquisición va sin impuestos porque el IVA de compra se deduce; los portes
+   * que da el cliente para televisores van CON IVA. Meter 35 donde hay un 4 que
+   * significa otra cosa es un 21 % de error que no da ningún síntoma.
+   */
+  porte?: number | null
 }
 
 export type MotivoAviso =
@@ -187,6 +200,8 @@ export interface ResultadoPrecio {
   sku: string
   /** proveedor + canon + porte, sin IVA */
   coste: number
+  /** El que se ha aplicado, sin IVA. Se saca aparte porque ahora puede variar por producto */
+  porte: number
   /** El que se ha aplicado, venga de donde venga */
   margenAplicado: number
   /** De dónde salió: 'propio' | 'tramo N' | 'global' */
@@ -300,7 +315,8 @@ export function margenA(
 }
 
 export function calcularPrecio(entrada: EntradaPrecio, cfg: ConfigPrecios): ResultadoPrecio {
-  const coste = entrada.precioProveedor + entrada.canon + cfg.porte
+  const porte = entrada.porte ?? cfg.porte
+  const coste = entrada.precioProveedor + entrada.canon + porte
 
   const tarifaEstimada = entrada.tarifaReal === null
   const tarifa = entrada.tarifaReal ?? cfg.tarifaPorDefecto
@@ -319,6 +335,7 @@ export function calcularPrecio(entrada: EntradaPrecio, cfg: ConfigPrecios): Resu
   > = {
     sku: entrada.sku,
     coste,
+    porte,
     margenAplicado: margen,
     deDondeElMargen: deDonde,
     tarifaAplicada: tarifa,

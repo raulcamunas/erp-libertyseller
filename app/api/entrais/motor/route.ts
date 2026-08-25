@@ -54,6 +54,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       accion?: string
       config?: Record<string, unknown>
+      regla?: Record<string, unknown>
     }
     const service = createServiceClient()
 
@@ -74,6 +75,18 @@ export async function POST(request: NextRequest) {
       const { error } = await service.from('entrais_config').update(patch).eq('id', config.id)
       if (error) return fail(400, error.message)
       return NextResponse.json({ ok: true, config: await leerConfig() })
+    }
+
+    /* ---------------- Guardar una regla de porte ---------------- */
+    if (body.accion === 'porte') {
+      const r = (body.regla ?? {}) as { id?: string; importe?: number; activa?: boolean }
+      if (!r.id) return fail(400, 'Falta la regla.')
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), updated_by: session.userId }
+      if (typeof r.importe === 'number' && r.importe >= 0) patch.importe = r.importe
+      if (typeof r.activa === 'boolean') patch.activa = r.activa
+      const { error } = await service.from('entrais_portes').update(patch).eq('id', r.id)
+      if (error) return fail(400, error.message)
+      return NextResponse.json({ ok: true })
     }
 
     /* ---------------- Recalcular ---------------- */
@@ -104,6 +117,11 @@ export async function POST(request: NextRequest) {
       .order('empezado_at', { ascending: false })
       .limit(20)
 
+    const { data: portes } = await service
+      .from('entrais_portes')
+      .select('*')
+      .order('orden', { ascending: true })
+
     const { data: propios } = await service
       .from('entrais_margenes_sku')
       .select('sku, margen, motivo')
@@ -124,6 +142,7 @@ export async function POST(request: NextRequest) {
       config,
       precios,
       ejecuciones: ejecuciones ?? [],
+      portes: portes ?? [],
       propios: propios ?? [],
       conexiones: conexiones ?? [],
       faltaCredencial: faltaConfigurar(config.entorno),

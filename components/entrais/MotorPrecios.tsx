@@ -79,8 +79,21 @@ interface Conexion {
   marketplaces_activos: string[] | null
 }
 
+interface ReglaPorte {
+  id: string
+  orden: number
+  nombre: string
+  tipo: 'subfamilia' | 'familia' | 'sku' | 'defecto'
+  patron: string | null
+  importe: number
+  iva_incluido: boolean
+  activa: boolean
+  nota: string | null
+}
+
 interface Respuesta {
   config: Config
+  portes: ReglaPorte[]
   precios: FilaPrecio[]
   ejecuciones: Ejecucion[]
   conexiones: Conexion[]
@@ -162,6 +175,16 @@ export function MotorPrecios() {
       `${res.data.resumen.conPrecio.toLocaleString('es-ES')} precios calculados de ` +
         `${res.data.resumen.productos.toLocaleString('es-ES')} productos`
     )
+    void traer()
+  }
+
+  async function guardarPorte(id: string, patch: { importe?: number; activa?: boolean }) {
+    const res = await postAmazon('/api/entrais/motor', { accion: 'porte', regla: { id, ...patch } })
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success('Regla guardada')
     void traer()
   }
 
@@ -435,6 +458,77 @@ export function MotorPrecios() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* ---------------- El porte ---------------- */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider">
+            El porte
+          </h3>
+          <span className="text-[11px] text-white/30">
+            La primera regla que encaja manda. Se busca por la subfamilia del proveedor, no por el
+            nombre del producto
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
+          {datos.portes.map((r) => (
+            <div
+              key={r.id}
+              className={`rounded-lg border px-2 py-1.5 flex items-start gap-2 ${
+                r.activa ? 'border-white/[0.08] bg-white/[0.02]' : 'border-white/[0.04] opacity-40'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => void guardarPorte(r.id, { activa: !r.activa })}
+                title={r.activa ? 'Desactivar esta regla' : 'Activar esta regla'}
+                className={`mt-0.5 h-3.5 w-3.5 rounded flex-shrink-0 border ${
+                  r.activa ? 'bg-[#FF6600] border-[#FF6600]' : 'border-white/25'
+                }`}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[12px] text-white/85 truncate">{r.nombre}</span>
+                  <span className="text-[10px] text-white/25 truncate">
+                    {r.tipo === 'defecto' ? 'todo lo demás' : `${r.tipo}: ${r.patron}`}
+                  </span>
+                </div>
+                {r.nota && <p className="text-[10px] text-white/30 leading-snug mt-0.5">{r.nota}</p>}
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <input
+                  key={`${r.id}-${r.importe}`}
+                  defaultValue={String(r.importe)}
+                  inputMode="decimal"
+                  onBlur={(e) => {
+                    const v = Number(e.target.value.replace(',', '.'))
+                    if (!Number.isFinite(v) || v < 0 || Math.abs(v - r.importe) < 1e-9) return
+                    void guardarPorte(r.id, { importe: v })
+                  }}
+                  className="w-[54px] h-6 rounded border border-white/10 bg-white/[0.03] px-1 text-[12px] text-white text-right tabular-nums outline-none focus:border-[#FF6600]"
+                />
+                {/* CON IVA O SIN IVA, SIEMPRE A LA VISTA.
+                    Es la diferencia entre 35 € y 28,93 € de coste real, y sin
+                    verlo dos importes de la misma columna significan cosas
+                    distintas. */}
+                <span
+                  className={`text-[10px] w-[52px] ${
+                    r.iva_incluido ? 'text-amber-300/70' : 'text-white/30'
+                  }`}
+                  title={
+                    r.iva_incluido
+                      ? `Lleva IVA: se le quita antes de sumarlo. Coste real ${(r.importe / (1 + cfg.iva_venta)).toFixed(2)} €`
+                      : 'Sin IVA, se suma tal cual'
+                  }
+                >
+                  {r.iva_incluido ? '€ c/IVA' : '€ s/IVA'}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

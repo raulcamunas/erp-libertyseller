@@ -89,6 +89,69 @@ function aConfigPrecios(fila: FilaConfig): ConfigPrecios {
 }
 
 /* ------------------------------------------------------------------ */
+/* El porte, que ya no es un número fijo                               */
+/* ------------------------------------------------------------------ */
+
+export interface ReglaPorte {
+  id: string
+  orden: number
+  nombre: string
+  tipo: 'subfamilia' | 'familia' | 'sku' | 'defecto'
+  patron: string | null
+  importe: number
+  iva_incluido: boolean
+  activa: boolean
+  nota: string | null
+}
+
+/** Sin tildes, sin mayúsculas y sin dobles espacios: «TV 55''-75''» casa igual escrito de tres formas */
+function llano(v: string): string {
+  return v
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Qué porte le toca a un producto, YA SIN IVA.
+ *
+ * La primera regla que encaja manda, por eso van ordenadas. Y la de tipo
+ * `defecto` encaja siempre, así que ningún producto se queda sin porte — un
+ * producto sin porte tendría el coste incompleto y el margen inflado, que es el
+ * error que más caro sale de todos los de esta pantalla.
+ *
+ * EL IVA SE QUITA AQUÍ. Los 4 € de siempre van sin IVA; los portes de televisor
+ * que dio el cliente van con IVA. Sumar 35 donde el resto del cálculo trabaja
+ * sin impuestos es un 21 % de error que no da ningún síntoma: el margen sale
+ * bien en pantalla y mal en la liquidación.
+ */
+export function porteDe(
+  producto: ProductoEntrais,
+  reglas: ReglaPorte[],
+  ivaVenta: number
+): { importe: number; regla: ReglaPorte | null } {
+  const sub = llano(producto.subfamily?.description ?? '')
+  const fam = llano(producto.family?.description ?? '')
+  const sku = String(producto.code)
+
+  for (const r of reglas) {
+    if (!r.activa) continue
+    const patron = llano(r.patron ?? '')
+    const encaja =
+      r.tipo === 'defecto' ||
+      (r.tipo === 'subfamilia' && patron !== '' && sub.includes(patron)) ||
+      (r.tipo === 'familia' && patron !== '' && fam.includes(patron)) ||
+      (r.tipo === 'sku' && patron !== '' && llano(sku) === patron)
+    if (!encaja) continue
+    const bruto = Number(r.importe)
+    return { importe: r.iva_incluido ? bruto / (1 + ivaVenta) : bruto, regla: r }
+  }
+  return { importe: 0, regla: null }
+}
+
+/* ------------------------------------------------------------------ */
 /* Lo que sabe Amazon de cada SKU                                      */
 /* ------------------------------------------------------------------ */
 
@@ -256,6 +319,20 @@ export async function calcularTodo(
         ? await datosDeAmazon(config.connection_id, config.marketplace_id)
         : new Map<string, DatosAmazon>()
 
+    /* ---------- Las reglas de porte ---------- */
+    const { data: reglasCrudas, error: errorReglas } = await service
+      .from('entrais_portes')
+      .select('*')
+      .order('orden', { ascending: true })
+    if (errorReglas) throw errorReglas
+    const reglas = (reglasCrudas ?? []) as unknown as ReglaPorte[]
+    if (!reglas.some((r) => r.tipo === 'defecto' && r.activa)) {
+      throw new Error(
+        'No hay ninguna regla de porte por defecto activa. Sin ella habría productos sin porte, ' +
+          'con el coste incompleto y el margen inflado — y nada lo delataría.'
+      )
+    }
+
     /* ---------- Los márgenes propios ---------- */
     const { data: propios, error: errorPropios } = await service
       .from('entrais_margenes_sku')
@@ -276,8 +353,11 @@ export async function calcularTodo(
         buybox: 'desconocido' as const,
       }
 
+      const { importe: porte } = porteDe(p, reglas, cfg.ivaVenta)
+
       const entrada: EntradaPrecio = {
         sku,
+        porte,
         precioProveedor: Number(p.price) || 0,
         canon: Number(p.digitalCanon) || 0,
         tarifaReal: datos.tarifa,
@@ -296,6 +376,7 @@ export async function calcularTodo(
       precio_proveedor: null as number | null, // se rellena abajo
       canon: null as number | null,
       coste: r.coste,
+      porte: r.porte,
       tarifa_aplicada: r.tarifaAplicada,
       tarifa_estimada: r.tarifaEstimada,
       margen_aplicado: r.margenAplicado,
