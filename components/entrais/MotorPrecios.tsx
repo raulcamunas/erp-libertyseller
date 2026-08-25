@@ -185,18 +185,23 @@ export function MotorPrecios() {
   async function recalcular() {
     if (calculando) return
     setCalculando(true)
-    const res = await postAmazon<{ ms: number; resumen: { productos: number; conPrecio: number } }>(
-      '/api/entrais/motor',
-      { accion: 'calcular' }
-    )
+    const res = await postAmazon<{
+      ms: number
+      resumen: { productos: number; conPrecio: number; bloqueados: number; retirados: number }
+    }>('/api/entrais/motor', { accion: 'calcular' })
     setCalculando(false)
     if (!res.ok) {
       toast.error(res.error)
       return
     }
+    const r = res.data.resumen
     toast.success(
-      `${res.data.resumen.conPrecio.toLocaleString('es-ES')} precios calculados de ` +
-        `${res.data.resumen.productos.toLocaleString('es-ES')} productos`
+      `${r.conPrecio.toLocaleString('es-ES')} precios calculados de ` +
+        `${r.productos.toLocaleString('es-ES')} productos` +
+        (r.bloqueados > 0 ? ` · ${r.bloqueados} sin precio por envío directo` : '') +
+        // Se dice porque es un BORRADO. Que la tabla adelgace de golpe sin
+        // explicación es lo que hace dudar de si ha fallado algo.
+        (r.retirados > 0 ? ` · ${r.retirados} retirados del catálogo` : '')
     )
     void traer()
   }

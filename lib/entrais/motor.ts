@@ -294,6 +294,8 @@ export interface ResumenCalculo {
   porBuybox: number
   /** Artículos que no se pueden vender (envío directo). Salen sin precio */
   bloqueados: number
+  /** Filas que había de una pasada anterior y ya no están en el catálogo */
+  retirados: number
   subirian: number
   bajarian: number
   sinCambio: number
@@ -442,6 +444,30 @@ export async function calcularTodo(
       if (error) throw error
     }
 
+    /**
+     * ---------- LO QUE YA NO ESTÁ EN EL CATÁLOGO SE RETIRA ----------
+     *
+     * El upsert va por SKU: actualiza lo que viene y NO toca lo que no viene.
+     * Sin esta limpieza, un producto que el proveedor deja de vender —o el
+     * catálogo entero de pruebas el día que se pasa a real— se queda en la tabla
+     * para siempre, con su precio, su margen y su fecha de hace semanas, y en
+     * pantalla no hay nada que lo distinga de uno recién calculado.
+     *
+     * Pasó de verdad al cambiar de entorno: 2.324 referencias de pruebas y 6.913
+     * de real conviviendo en la misma tabla, 556 de ellas inventadas.
+     *
+     * `calculado_at` es el sello de ESTA pasada y se pone igual en todas las
+     * filas, así que lo que tenga uno anterior es justo lo que el proveedor ya no
+     * ha mandado. Va después de los upserts a propósito: si alguno falla se
+     * lanza la excepción antes de llegar aquí y no se borra nada.
+     */
+    const { data: retiradas, error: errorRetirar } = await service
+      .from('entrais_precios')
+      .delete()
+      .lt('calculado_at', ahora)
+      .select('sku')
+    if (errorRetirar) throw errorRetirar
+
     /* ---------- El resumen ---------- */
     const conPrecio = resultados.filter((r) => r.precio !== null)
     const margenes = conPrecio.map((r) => r.margenReal ?? 0)
@@ -452,6 +478,7 @@ export async function calcularTodo(
       conTarifaReal: resultados.filter((r) => !r.tarifaEstimada).length,
       porBuybox: resultados.filter((r) => r.origen === 'buybox').length,
       bloqueados: resultados.filter((r) => r.origen === 'bloqueado').length,
+      retirados: retiradas?.length ?? 0,
       // Solo cuentan los que tienen con qué compararse: un producto sin listar
       // no «sube» ni «baja», simplemente todavía no está.
       subirian: resultados.filter((r) => (r.difEuros ?? 0) > 0.005).length,
