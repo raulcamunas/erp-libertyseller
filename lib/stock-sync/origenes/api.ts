@@ -63,6 +63,30 @@
  * un número es el lector, que ya sabe.
  *
  *
+ * ============ CON UNA EXCEPCIÓN: LOS QUE NO SE PUEDEN VENDER ============
+ *
+ * Hay artículos que el proveedor marca con `ENVIO_DIRECTO = SI`: no salen de su
+ * almacén, los manda el fabricante. Esos NO se pueden vender en Amazon, y aquí
+ * salen con stock 0 aunque la API diga que hay cuarenta.
+ *
+ * Eso sí es interpretar, y contradice el párrafo de arriba. La diferencia está
+ * en qué clase de dato es cada uno: un stock negativo es un HECHO del almacén y
+ * caparlo destruye información; un artículo bloqueado es una DECISIÓN de negocio
+ * —este no se vende— y el sitio de aplicarla es el único punto por el que pasa
+ * todo el catálogo antes de llegar a Amazon.
+ *
+ * Y va aquí y no más adelante por una razón concreta: aguas abajo hay reglas,
+ * cruce, simulacro y frenos, y en cualquiera de esos sitios el bloqueo sería una
+ * condición más que puede quedarse fuera de un camino. Un cero en el volcado no
+ * se puede saltar ningún paso.
+ *
+ * LA LISTA NO SALE DE LA API, y esto hay que tenerlo presente: su Swagger no
+ * declara `ENVIO_DIRECTO` por ningún lado. Sale de `entrais_bloqueados`, que se
+ * llena desde el CSV de tarifa que el proveedor manda por correo. Si nadie ha
+ * cargado ese fichero, la lista está vacía y este bloqueo no bloquea nada — por
+ * eso el aviso dice cuántos se han puesto a cero y no solo que se ha mirado.
+ *
+ *
  * ============ LAS CREDENCIALES Y SU LÍMITE DE HOY ============
  *
  * Salen del entorno del servidor (ver lib/entrais/api.ts), no de
@@ -82,6 +106,7 @@ import {
   type EntornoEntrais,
   type ProductoEntrais,
 } from '@/lib/entrais/api'
+import { leerBloqueados } from '@/lib/entrais/bloqueados'
 import { OrigenError, textoConfig, type ConectorOrigen, type ContextoOrigen, type FicheroOrigen } from './tipos'
 
 /** Los proveedores a los que este conector sabe llamar */
@@ -135,8 +160,12 @@ function celda(valor: string | number): string {
  * —«1.499» puede ser mil cuatrocientos noventa y nueve o uno con cuatrocientos
  * noventa y nueve— y con dos decimales fijos ese caso no puede darse.
  */
-function aCsv(productos: ProductoEntrais[]): { csv: string; negativos: number } {
+function aCsv(
+  productos: ProductoEntrais[],
+  bloqueados: Set<string>
+): { csv: string; negativos: number; bloqueadosACero: number } {
   let negativos = 0
+  let bloqueadosACero = 0
 
   // ORDEN FIJO POR CÓDIGO. Ver la nota de la huella arriba: sin esto el fichero
   // sale distinto cada vez aunque el catálogo no se haya movido.
@@ -145,13 +174,20 @@ function aCsv(productos: ProductoEntrais[]): { csv: string; negativos: number } 
   const lineas = [CABECERAS.join(';')]
   for (const p of ordenados) {
     if (p.stock < 0) negativos++
+
+    // Ver la nota de «los que no se pueden vender» arriba. Solo se cuenta
+    // cuando el bloqueo cambia algo: un artículo bloqueado que ya venía a 0 no
+    // es un artículo salvado, y contarlo inflaría el aviso.
+    const bloqueado = bloqueados.has(String(p.code))
+    if (bloqueado && p.stock > 0) bloqueadosACero++
+
     lineas.push(
       [
         celda(p.code),
         celda(p.ean ?? ''),
         // Con su signo. Ver la nota de arriba: el lector lo capa y AVISA, y
         // ese aviso es lo que dice qué artículos están sobrevendidos.
-        celda(Math.trunc(p.stock)),
+        celda(bloqueado ? 0 : Math.trunc(p.stock)),
         celda(p.price.toFixed(2)),
         celda((p.digitalCanon ?? 0).toFixed(2)),
         celda(p.digital ? 'SI' : 'NO'),
@@ -160,7 +196,7 @@ function aCsv(productos: ProductoEntrais[]): { csv: string; negativos: number } 
     )
   }
 
-  return { csv: lineas.join('\n'), negativos }
+  return { csv: lineas.join('\n'), negativos, bloqueadosACero }
 }
 
 interface Catalogo {
@@ -168,6 +204,10 @@ interface Catalogo {
   total: number
   conStock: number
   negativos: number
+  /** Cuántos venían con stock y salen a 0 por estar bloqueados */
+  bloqueadosACero: number
+  /** Cuántos SKU hay en la lista de bloqueados. 0 = nadie ha cargado la tarifa */
+  bloqueadosEnLista: number
   deCache: boolean
   edadMs: number
   quedan: number | null
@@ -236,7 +276,8 @@ async function traerCatalogo(ctx: ContextoOrigen): Promise<Catalogo> {
     )
   }
 
-  const { csv, negativos } = aCsv(productos)
+  const bloqueados = await leerBloqueados()
+  const { csv, negativos, bloqueadosACero } = aCsv(productos, bloqueados)
   const bytes = Buffer.from(csv, 'utf8')
 
   if (bytes.byteLength > ctx.maxBytes) {
@@ -257,8 +298,12 @@ async function traerCatalogo(ctx: ContextoOrigen): Promise<Catalogo> {
 
   return {
     total: productos.length,
-    conStock: productos.filter((p) => p.stock > 0).length,
+    // Los bloqueados no cuentan como «con stock»: en el fichero van a cero, y
+    // este número tiene que decir lo que se manda, no lo que dijo la API.
+    conStock: productos.filter((p) => p.stock > 0 && !bloqueados.has(String(p.code))).length,
     negativos,
+    bloqueadosACero,
+    bloqueadosEnLista: bloqueados.size,
     deCache: lectura.deCache,
     edadMs: lectura.edadMs,
     quedan: lectura.cuota?.quedan ?? null,
@@ -330,6 +375,24 @@ export const conectorApi: ConectorOrigen = {
           (cat.negativos > 0
             ? `, y ${cat.negativos} sobrevendidos (stock negativo), que se publicarán como cero. `
             : '. ') +
+          /**
+           * EL ESTADO DEL BLOQUEO SE DICE SIEMPRE, incluso —sobre todo— cuando
+           * no ha bloqueado nada.
+           *
+           * «0 artículos puestos a cero» y «la lista está vacía porque nadie ha
+           * cargado la tarifa» se ven igual en una pantalla y significan cosas
+           * opuestas: la primera es que todo está en orden, la segunda es que el
+           * freno no existe. Es exactamente la confusión que costó una tarde con
+           * el FOEP —«no consultado» leído como «no hay dato»— y aquí se paga
+           * más caro: vendiendo un portátil de mil euros que no se puede enviar.
+           */
+          (cat.bloqueadosEnLista === 0
+            ? 'AVISO: la lista de artículos que no se pueden vender está VACÍA, así que no se ha ' +
+              'bloqueado ninguno. Se llena cargando el CSV de tarifa del proveedor desde el módulo ' +
+              'de Entrais — su API no trae esa marca. '
+            : cat.bloqueadosACero > 0
+              ? `${cat.bloqueadosACero} de envío directo salen a stock 0 (de ${cat.bloqueadosEnLista} bloqueados). `
+              : `Ninguno de los ${cat.bloqueadosEnLista} bloqueados traía stock. `) +
           // LA CUOTA SE DICE SIEMPRE, no solo cuando se agota. Enterarse de que
           // solo hay cuatro llamadas por hora el día que se acaban es
           // enterarse tarde.

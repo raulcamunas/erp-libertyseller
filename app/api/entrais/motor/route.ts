@@ -4,6 +4,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { EntraisError, faltaConfigurar } from '@/lib/entrais/api'
 import { calcularTodo, leerConfig } from '@/lib/entrais/motor'
+import { cargarTarifa, listarBloqueados } from '@/lib/entrais/bloqueados'
+import type { FilaTarifa } from '@/lib/entrais/tarifa'
 
 /**
  * EL MOTOR DE PRECIOS DE ENTRAIS.
@@ -15,6 +17,7 @@ import { calcularTodo, leerConfig } from '@/lib/entrais/motor'
  *   leer      la configuración, los precios calculados y el historial
  *   guardar   cambiar la configuración del motor
  *   calcular  recalcular el catálogo entero
+ *   tarifa    cargar el CSV del proveedor para saber qué NO se puede vender
  *
  *
  * ============ NINGUNA DE LAS TRES PUBLICA NADA EN AMAZON ============
@@ -53,6 +56,9 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as {
       accion?: string
+      marcados?: unknown
+      leidos?: unknown
+      fecha?: unknown
       config?: Record<string, unknown>
       regla?: Record<string, unknown>
     }
@@ -87,6 +93,42 @@ export async function POST(request: NextRequest) {
       const { error } = await service.from('entrais_portes').update(patch).eq('id', r.id)
       if (error) return fail(400, error.message)
       return NextResponse.json({ ok: true })
+    }
+
+    /* ---------------- La tarifa: qué NO se puede vender ----------------
+     *
+     * Llegan las filas de envío directo ya leídas por la pantalla, no el
+     * fichero: son veinte megas y de sus veinticinco columnas hacen falta
+     * cuatro. Ver `cargarTarifa` para por qué eso obliga a desconfiar de lo que
+     * llega y qué comprobación lo cubre. */
+    if (body.accion === 'tarifa') {
+      const filas = Array.isArray(body.marcados) ? (body.marcados as FilaTarifa[]) : []
+      const leidos = Number(body.leidos)
+      if (!Number.isFinite(leidos) || leidos <= 0) {
+        return fail(400, 'No ha llegado cuántos artículos traía el fichero.')
+      }
+      const limpias: FilaTarifa[] = []
+      for (const f of filas) {
+        const sku = String(f?.sku ?? '').trim()
+        if (!sku) continue
+        limpias.push({
+          sku,
+          nombre: String(f?.nombre ?? '').slice(0, 200),
+          familia: String(f?.familia ?? '').slice(0, 80),
+          precio: Number.isFinite(Number(f?.precio)) ? Number(f.precio) : null,
+          envioDirecto: true,
+        })
+      }
+      try {
+        const r = await cargarTarifa(limpias, {
+          leidos,
+          fecha: typeof body.fecha === 'string' && body.fecha ? body.fecha : null,
+          usuario: session.userId,
+        })
+        return NextResponse.json({ ok: true, carga: r })
+      } catch (error) {
+        return fail(400, error instanceof Error ? error.message : 'No se ha podido cargar la tarifa')
+      }
     }
 
     /* ---------------- Recalcular ---------------- */
@@ -127,6 +169,8 @@ export async function POST(request: NextRequest) {
       .select('sku, margen, motivo')
       .order('sku')
 
+    const bloqueados = await listarBloqueados()
+
     /* ---------------- Con qué cuentas se puede contrastar ---------------- */
     // Para que la pantalla ofrezca elegir cuenta y país sin tener que ir a otra
     // pestaña a mirar cuáles hay.
@@ -144,6 +188,7 @@ export async function POST(request: NextRequest) {
       ejecuciones: ejecuciones ?? [],
       portes: portes ?? [],
       propios: propios ?? [],
+      bloqueados,
       conexiones: conexiones ?? [],
       faltaCredencial: faltaConfigurar(config.entorno),
     })

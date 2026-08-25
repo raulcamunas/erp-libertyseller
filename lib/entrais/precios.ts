@@ -168,10 +168,22 @@ export interface EntradaPrecio {
    * significa otra cosa es un 21 % de error que no da ningún síntoma.
    */
   porte?: number | null
+  /**
+   * ESTE ARTÍCULO NO SE PUEDE VENDER EN AMAZON.
+   *
+   * Envío directo: no sale del almacén del proveedor, lo manda el fabricante.
+   * No hay precio que valga — se corta antes de calcular nada.
+   *
+   * Llega como booleano y no como el motivo porque este fichero no sabe de
+   * proveedores ni de columnas de tarifa: recibe un «no» y lo respeta. Quién
+   * decide ese «no» está en motor.ts, con la lista delante.
+   */
+  bloqueado?: boolean
 }
 
 export type MotivoAviso =
   | 'ok'
+  | 'no_vender'
   | 'imposible'
   | 'precio_proveedor_cero'
   | 'tarifa_estimada'
@@ -181,6 +193,7 @@ export type MotivoAviso =
 
 export const AVISO_LABELS: Record<MotivoAviso, string> = {
   ok: 'OK',
+  no_vender: 'NO VENDER: envío directo, no sale del almacén del proveedor',
   imposible: 'Margen inalcanzable: la tarifa y el margen se comen todo lo que entra',
   precio_proveedor_cero: 'El proveedor lo da a 0 €: revisar antes de publicar',
   tarifa_estimada: 'Tarifa estimada: el producto no está listado y no tenemos la real',
@@ -232,6 +245,8 @@ export type OrigenPrecio =
   | 'margen'
   /** Del FOEP, porque daba margen suficiente y gana la oferta destacada */
   | 'buybox'
+  /** No hay precio: el artículo está bloqueado y no se publica */
+  | 'bloqueado'
 
 export interface ResultadoPrecio {
   sku: string
@@ -367,6 +382,40 @@ export function calcularPrecio(entrada: EntradaPrecio, cfg: ConfigPrecios): Resu
 
   const tarifaEstimada = entrada.tarifaReal === null
   const tarifa = entrada.tarifaReal ?? cfg.tarifaPorDefecto
+
+  /**
+   * BLOQUEADO: SE CORTA AQUÍ, ANTES DE CALCULAR NADA.
+   *
+   * Y antes a propósito, no al final descartando el resultado. Un artículo de
+   * envío directo con un precio calculado al lado —aunque la fila diga «no
+   * vender»— es un número que alguien puede copiar, y basta con que sea una vez.
+   * Sin precio no hay nada que copiar.
+   *
+   * El coste y el margen SÍ se devuelven: sirven para entender por qué está en
+   * la lista sin tener que ir a buscarlo a otro sitio, y no son publicables.
+   */
+  if (entrada.bloqueado) {
+    const { margen, deDonde } = margenDe(entrada, cfg, coste)
+    return {
+      sku: entrada.sku,
+      coste,
+      porte,
+      margenAplicado: margen,
+      deDondeElMargen: deDonde,
+      tarifaAplicada: tarifa,
+      tarifaEstimada,
+      precioObjetivo: null,
+      precio: null,
+      origen: 'bloqueado',
+      beneficio: null,
+      margenReal: null,
+      margenEnFoep: null,
+      motivoBuybox: 'sin_foep',
+      difEuros: null,
+      difPorcentaje: null,
+      aviso: 'no_vender',
+    }
+  }
 
   // Con qué valor se decide el tramo. Ver ConfigPrecios.decidirTramoPor.
   const valorDelTramo =
@@ -509,6 +558,9 @@ function avisoDe(
   tarifaEstimada: boolean,
   difPorcentaje: number | null
 ): MotivoAviso {
+  // Por delante de todo: un artículo que no se puede vender no tiene otros
+  // problemas que merezca la pena contar.
+  if (entrada.bloqueado) return 'no_vender'
   if (entrada.precioProveedor === 0) return 'precio_proveedor_cero'
   if (tarifaEstimada) return 'tarifa_estimada'
   if (difPorcentaje === null) return 'sin_pvp_actual'

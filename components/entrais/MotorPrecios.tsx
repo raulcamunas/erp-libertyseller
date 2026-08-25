@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Download, Loader2, Play, Search } from 'lucide-react'
+import { Ban, Download, Loader2, Play, Search, Upload } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
 import { marketplaceLabel } from '@/lib/types/amazon'
+import { leerTarifa } from '@/lib/entrais/tarifa'
 import {
   AVISO_LABELS,
   MOTIVO_BUYBOX_LABELS,
@@ -73,6 +74,7 @@ interface Ejecucion {
   imposibles: number
   con_tarifa_real: number
   por_buybox: number
+  bloqueados: number | null
   subirian: number
   bajarian: number
   sin_cambio: number
@@ -99,11 +101,22 @@ interface ReglaPorte {
   nota: string | null
 }
 
+interface Bloqueado {
+  sku: string
+  motivo: 'envio_directo' | 'a_mano'
+  nombre: string | null
+  familia: string | null
+  precio_proveedor: number | null
+  tarifa_fecha: string | null
+  nota: string | null
+}
+
 interface Respuesta {
   config: Config
   portes: ReglaPorte[]
   precios: FilaPrecio[]
   ejecuciones: Ejecucion[]
+  bloqueados: Bloqueado[]
   conexiones: Conexion[]
   faltaCredencial: string | null
 }
@@ -133,6 +146,7 @@ function cuando(iso: string | null): string {
 
 const AVISO_COLOR: Record<string, string> = {
   ok: 'text-green-300/70',
+  no_vender: 'text-red-400 font-semibold',
   imposible: 'text-red-300',
   precio_proveedor_cero: 'text-red-300',
   tarifa_estimada: 'text-amber-300/70',
@@ -147,9 +161,10 @@ export function MotorPrecios() {
   const [calculando, setCalculando] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [busca, setBusca] = useState('')
-  const [filtro, setFiltro] = useState<'todos' | 'cambian' | 'suben' | 'bajan' | 'problemas'>(
-    'todos'
-  )
+  const [filtro, setFiltro] = useState<
+    'todos' | 'cambian' | 'suben' | 'bajan' | 'problemas' | 'bloqueados'
+  >('todos')
+  const [cargandoTarifa, setCargandoTarifa] = useState(false)
   const [desde, setDesde] = useState(0)
   const caja = useRef<HTMLDivElement>(null)
 
@@ -184,6 +199,53 @@ export function MotorPrecios() {
         `${res.data.resumen.productos.toLocaleString('es-ES')} productos`
     )
     void traer()
+  }
+
+  /**
+   * EL FICHERO SE LEE AQUÍ Y SE MANDA LO QUE QUEDA.
+   *
+   * Veinte megas, y de sus veinticinco columnas hacen falta cuatro. Subirlo
+   * entero para tirar el 99 % es pedirle a un proxy que lo deje pasar, y ahí es
+   * donde mueren estas cosas: en un límite de tamaño que nadie recuerda haber
+   * puesto y que da un error que no menciona el tamaño.
+   *
+   * Se descodifica como windows-1252 porque así lo manda el proveedor. Leído
+   * como UTF-8 no falla —sale «GARANTÍA» roto— y eso no se nota hasta que
+   * alguien mira la lista dentro de tres semanas.
+   */
+  async function cargarTarifa(fichero: File) {
+    setCargandoTarifa(true)
+    try {
+      const texto = new TextDecoder('windows-1252').decode(await fichero.arrayBuffer())
+      const filasTarifa = leerTarifa(texto)
+      const marcados = filasTarifa.filter((f) => f.envioDirecto)
+
+      const res = await postAmazon<{
+        carga: { leidos: number; marcados: number; nuevos: string[]; desbloqueados: string[] }
+      }>('/api/entrais/motor', {
+        accion: 'tarifa',
+        marcados,
+        leidos: filasTarifa.length,
+        // Del nombre del fichero: «tarifa_008262 - 2026-08-05T121718.690.csv».
+        // Es la fecha del proveedor, que es la que importa, no la de hoy.
+        fecha: /(\d{4}-\d{2}-\d{2})/.exec(fichero.name)?.[1] ?? null,
+      })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      const c = res.data.carga
+      toast.success(
+        `${c.marcados} artículos de envío directo sobre ${c.leidos.toLocaleString('es-ES')}` +
+          (c.nuevos.length > 0 ? ` · ${c.nuevos.length} nuevos` : '') +
+          (c.desbloqueados.length > 0 ? ` · ${c.desbloqueados.length} desbloqueados` : '')
+      )
+      void traer()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se ha podido leer el fichero')
+    } finally {
+      setCargandoTarifa(false)
+    }
   }
 
   async function guardarPorte(id: string, patch: { importe?: number; activa?: boolean }) {
@@ -226,6 +288,8 @@ export function MotorPrecios() {
           return (p.dif_euros ?? 0) < -0.005
         case 'problemas':
           return p.aviso === 'imposible' || p.aviso === 'precio_proveedor_cero'
+        case 'bloqueados':
+          return p.origen === 'bloqueado'
         default:
           return true
       }
@@ -252,6 +316,7 @@ export function MotorPrecios() {
         FOEP: p.foep,
         BUYBOX: p.buybox,
         ORIGEN: p.origen,
+        NO_VENDER: p.origen === 'bloqueado' ? 'SI' : '',
         AVISO: p.aviso ? AVISO_LABELS[p.aviso] : '',
       }))
     )
@@ -540,6 +605,19 @@ export function MotorPrecios() {
         </div>
       </div>
 
+      {/* ---------------- Los que no se pueden vender ---------------- */}
+      <BloqueLosQueNo
+        bloqueados={datos.bloqueados}
+        cargando={cargandoTarifa}
+        onFichero={(f) => void cargarTarifa(f)}
+        onVerlos={() => {
+          setFiltro('bloqueados')
+          setBusca('')
+          caja.current?.scrollTo({ top: 0 })
+          setDesde(0)
+        }}
+      />
+
       {/* ---------------- La última pasada ---------------- */}
       {ultima && (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
@@ -562,6 +640,9 @@ export function MotorPrecios() {
                 )}
                 {ultima.imposibles > 0 && (
                   <Cifra n={ultima.imposibles} texto="imposibles" color="text-red-300" />
+                )}
+                {(ultima.bloqueados ?? 0) > 0 && (
+                  <Cifra n={ultima.bloqueados!} texto="no vender" color="text-red-400" />
                 )}
                 {ultima.margen_medio !== null && (
                   <span className="text-white/60">
@@ -596,6 +677,7 @@ export function MotorPrecios() {
             ['suben', 'Suben'],
             ['bajan', 'Bajan'],
             ['problemas', 'Problemas'],
+            ['bloqueados', 'No vender'],
           ] as const
         ).map(([id, texto]) => (
           <button
@@ -900,5 +982,142 @@ function Cifra({
       {de !== undefined && <span className="text-white/30"> / {de.toLocaleString('es-ES')}</span>}{' '}
       {texto}
     </span>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Los que no se pueden vender                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ENVÍO DIRECTO: el proveedor no los manda desde su almacén, los manda el
+ * fabricante. No se pueden vender en Amazon, así que salen con stock 0 y sin
+ * precio propuesto.
+ *
+ * ESTA CAJA SE ENSEÑA SIEMPRE, INCLUSO CON LA LISTA VACÍA, y es lo único que hay
+ * que respetar al tocarla. «Ninguno bloqueado» y «nadie ha cargado nunca la
+ * tarifa» se ven igual en una pantalla que oculta la sección cuando no hay nada,
+ * y significan cosas opuestas: la primera es que todo está en orden, la segunda
+ * es que el freno no existe.
+ *
+ * Es la misma confusión que costó una tarde con el FOEP —«no consultado» leído
+ * como «Amazon no contesta»— y aquí sale más cara: un portátil de mil euros
+ * vendido y sin forma de enviarlo.
+ */
+function BloqueLosQueNo({
+  bloqueados,
+  cargando,
+  onFichero,
+  onVerlos,
+}: {
+  bloqueados: Bloqueado[]
+  cargando: boolean
+  onFichero: (f: File) => void
+  onVerlos: () => void
+}) {
+  const entrada = useRef<HTMLInputElement>(null)
+  const vacia = bloqueados.length === 0
+  const fecha = bloqueados.find((b) => b.tarifa_fecha)?.tarifa_fecha ?? null
+  const total = bloqueados.reduce((a, b) => a + (b.precio_proveedor ?? 0), 0)
+
+  // Cuántos hay de cada familia, de mayor a menor. Un «51 bloqueados» no dice
+  // nada; «26 portátiles y 11 garantías» se entiende sin abrir la lista.
+  const porFamilia = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const b of bloqueados) m.set(b.familia || '—', (m.get(b.familia || '—') ?? 0) + 1)
+    return [...m].sort((a, b) => b[1] - a[1])
+  }, [bloqueados])
+
+  return (
+    <div
+      className={`rounded-xl border p-3 space-y-2 ${
+        vacia ? 'border-amber-400/30 bg-amber-400/[0.04]' : 'border-white/10 bg-white/[0.02]'
+      }`}
+    >
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+          <Ban className="h-3 w-3" />
+          No se pueden vender
+        </h3>
+        {vacia ? (
+          <span className="text-[11px] text-amber-300">
+            La lista está vacía: no se está bloqueando nada.
+          </span>
+        ) : (
+          <>
+            <span className="text-[12px] text-white">
+              <strong>{bloqueados.length}</strong> artículos de envío directo
+            </span>
+            <span className="text-[11px] text-white/35">
+              {eur(total, 0)} € de coste de proveedor entre todos
+            </span>
+            {fecha && <span className="text-[11px] text-white/30">tarifa del {fecha}</span>}
+          </>
+        )}
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-white/40">
+        Los manda el fabricante, no salen del almacén del proveedor. Salen a{' '}
+        <strong className="text-white/70">stock 0</strong> en el ciclo y{' '}
+        <strong className="text-white/70">sin precio</strong> aquí.{' '}
+        {/* Lo importante de este párrafo es la segunda mitad. Sin ella, la
+            pantalla parece decir que el ERP sabe solo cuáles son. */}
+        La marca <code className="text-white/60">ENVIO_DIRECTO</code> NO viene en la API del
+        proveedor —su Swagger no la declara—, solo en el CSV de tarifa que mandan por correo. Hay
+        que cargarlo aquí cada vez que llegue uno nuevo: mientras no se haga, esta lista no sabe de
+        los artículos dados de alta después.
+      </p>
+
+      {!vacia && (
+        <div className="flex flex-wrap gap-1.5">
+          {porFamilia.map(([familia, n]) => (
+            <span
+              key={familia}
+              className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/50"
+            >
+              {familia} <strong className="text-white/80">{n}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={entrada}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            // Se limpia para que elegir DOS VECES el mismo fichero vuelva a
+            // disparar el change. Sin esto, corregir la tarifa y recargarla con
+            // el mismo nombre no hace nada y parece que la pantalla se ha colgado.
+            e.target.value = ''
+            if (f) onFichero(f)
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => entrada.current?.click()}
+          disabled={cargando}
+          className="h-7 flex items-center gap-1.5 rounded-lg border border-[#FF6600]/50 bg-[#FF6600]/10 px-2.5 text-[11px] text-white transition-colors hover:bg-[#FF6600]/20 disabled:opacity-40"
+        >
+          {cargando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+          Cargar tarifa del proveedor
+        </button>
+        {!vacia && (
+          <button
+            type="button"
+            onClick={onVerlos}
+            className="h-7 rounded-lg border border-white/10 px-2.5 text-[11px] text-white/60 transition-colors hover:text-white"
+          >
+            Ver los {bloqueados.length} en la tabla
+          </button>
+        )}
+        <span className="text-[10px] text-white/25">
+          El CSV que manda el proveedor, tal cual: «tarifa_008262 - …csv»
+        </span>
+      </div>
+    </div>
   )
 }

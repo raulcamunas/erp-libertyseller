@@ -33,6 +33,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { llamarEntrais, type EntornoEntrais, type ProductoEntrais } from './api'
+import { leerBloqueados } from './bloqueados'
 import {
   calcularPrecio,
   type ConfigPrecios,
@@ -291,6 +292,8 @@ export interface ResumenCalculo {
   imposibles: number
   conTarifaReal: number
   porBuybox: number
+  /** Artículos que no se pueden vender (envío directo). Salen sin precio */
+  bloqueados: number
   subirian: number
   bajarian: number
   sinCambio: number
@@ -357,6 +360,17 @@ export async function calcularTodo(
       (propios ?? []).map((m) => [(m as { sku: string }).sku, Number((m as { margen: number }).margen)])
     )
 
+    /* ---------- Los que no se pueden vender ----------
+     *
+     * Envío directo: los manda el fabricante, no salen del almacén del
+     * proveedor. No se les calcula precio.
+     *
+     * OJO CON DE DÓNDE SALE ESTO: del CSV de tarifa que el proveedor manda por
+     * correo, no de su API. Su Swagger no declara el campo por ningún lado, así
+     * que los productos que llegan aquí NO traen la marca y no hay forma de
+     * deducirla. Si la lista está sin cargar, este bloqueo no bloquea nada. */
+    const bloqueados = await leerBloqueados()
+
     /* ---------- Calcular ---------- */
     const resultados: (ResultadoPrecio & { datos: DatosAmazon })[] = []
     for (const p of productos) {
@@ -380,6 +394,7 @@ export async function calcularTodo(
         margenPropio: margenPropio.get(sku) ?? null,
         foep: datos.foep,
         buybox: datos.buybox,
+        bloqueado: bloqueados.has(sku),
       }
       resultados.push({ ...calcularPrecio(entrada, cfg), datos })
     }
@@ -436,6 +451,7 @@ export async function calcularTodo(
       imposibles: resultados.filter((r) => r.aviso === 'imposible').length,
       conTarifaReal: resultados.filter((r) => !r.tarifaEstimada).length,
       porBuybox: resultados.filter((r) => r.origen === 'buybox').length,
+      bloqueados: resultados.filter((r) => r.origen === 'bloqueado').length,
       // Solo cuentan los que tienen con qué compararse: un producto sin listar
       // no «sube» ni «baja», simplemente todavía no está.
       subirian: resultados.filter((r) => (r.difEuros ?? 0) > 0.005).length,
@@ -455,6 +471,7 @@ export async function calcularTodo(
         imposibles: resumen.imposibles,
         con_tarifa_real: resumen.conTarifaReal,
         por_buybox: resumen.porBuybox,
+        bloqueados: resumen.bloqueados,
         subirian: resumen.subirian,
         bajarian: resumen.bajarian,
         sin_cambio: resumen.sinCambio,
