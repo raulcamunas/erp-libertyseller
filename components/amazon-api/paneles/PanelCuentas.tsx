@@ -510,6 +510,7 @@ export function PanelCuentas({ data, onData, configError, appDraft }: PropsPanel
                   cliente={cliente}
                   conexiones={porCliente.get(cliente.id) ?? []}
                   listingCounts={data.listingCounts}
+                  staleCounts={data.staleCounts}
                   pendiente={pendientes.has(cliente.id)}
                   guardando={guardando === cliente.id}
                   puedeConectar={!sinConfigurar}
@@ -584,6 +585,7 @@ function FilasCliente({
   cliente,
   conexiones,
   listingCounts,
+  staleCounts,
   pendiente,
   guardando,
   puedeConectar,
@@ -598,6 +600,7 @@ function FilasCliente({
   cliente: AmazonClient
   conexiones: AmazonConnection[]
   listingCounts: Record<string, number>
+  staleCounts: Record<string, number>
   pendiente: boolean
   guardando: boolean
   puedeConectar: boolean
@@ -741,6 +744,7 @@ function FilasCliente({
             key={conn.id}
             conn={conn}
             listings={listingCounts[conn.id] ?? 0}
+            rancias={staleCounts[conn.id] ?? 0}
             reintentando={reintentando === conn.id}
             onDesconectar={() => onDesconectar(conn)}
             onReintentar={() => onReintentar(conn)}
@@ -803,12 +807,15 @@ function FilasCliente({
 function FilaConexion({
   conn,
   listings,
+  rancias,
   reintentando,
   onDesconectar,
   onReintentar,
 }: {
   conn: AmazonConnection
   listings: number
+  /** Cuántas referencias llevan más de un día sin que Amazon las confirme */
+  rancias: number
   reintentando: boolean
   onDesconectar: () => void
   onReintentar: () => void
@@ -911,12 +918,36 @@ function FilaConexion({
 
         {/* Se pinta aquí y no solo en el catálogo porque el recuento de al lado es
             justo el número que se lee como si fuera el total, y no lo es. */}
-        {conn.last_sync_truncated && (
-          <Linea tono="ambar">
-            {conn.last_sync_declared
-              ? `Catálogo incompleto: Amazon declara ${cifra(conn.last_sync_declared)} referencias y por esta vía solo se leen 1.000.`
-              : 'Catálogo incompleto: pasa de 1.000 referencias y por esta vía no se puede leer entero.'}
+        {/* ============ DOS AVISOS DISTINTOS DONDE ANTES HABÍA UNO ENGAÑOSO ============
+            El de antes decía «Catálogo incompleto: Amazon declara 5.447 y por
+            esta vía solo se leen 1.000». Cierto sobre searchListingsItems y
+            falso sobre el ERP: el censo trae el resto por el informe cada seis
+            horas, así que el espejo está entero. Ese aviso mandaba a buscar una
+            avería que no existía.
+
+            Ahora se separan las dos preguntas. La de arriba es informativa —así
+            funciona esto—; la de abajo es la única que significa que algo va
+            mal, y sale de contar cuántas referencias llevan más de un día sin
+            que Amazon las confirme. */}
+        {rancias > 0 && (
+          <Linea tono="rojo">
+            {cifra(rancias)} referencias llevan más de un día sin que Amazon las confirme. Ni el
+            ciclo ni el censo las están alcanzando: su precio y su stock en el ERP son de hace
+            más de veinticuatro horas.
           </Linea>
+        )}
+
+        {conn.last_sync_truncated && rancias === 0 && (
+          // Sin triángulo y en color de contexto A PROPÓSITO. Esto no es un
+          // aviso, es cómo funciona: ponerle el icono de alerta es lo que hacía
+          // que se leyera como una avería.
+          <p className={`mt-[3px] ${TIPO.s} ${TEXTO.t4} leading-[1.45]`}>
+            El ciclo de 15 minutos alcanza 1.000 referencias por país
+            {conn.last_sync_declared
+              ? ` de las ${cifra(conn.last_sync_declared)} que declara Amazon`
+              : ''}
+            ; del resto se encarga el censo del catálogo cada 6 horas. Todo al día.
+          </p>
         )}
 
         {avisaRenovacion && (

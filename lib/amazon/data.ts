@@ -130,6 +130,18 @@ export interface AmazonServerData {
   /** Cuántas líneas de catálogo tenemos de cada conexión */
   listingCounts: Record<string, number>
   /**
+   * Cuántas referencias del espejo llevan más de un día sin que Amazon las
+   * confirme, por conexión.
+   *
+   * ESTE ES EL NÚMERO QUE MIDE SI ALGO ESTÁ DESINCRONIZADO, y el que faltaba.
+   * Antes la pantalla avisaba de que `searchListingsItems` no puede paginar más
+   * de 1.000 —cierto— y lo presentaba como «catálogo incompleto», que es otra
+   * cosa: el censo trae el resto por el informe cada seis horas, así que el
+   * espejo sí está entero y sí está fresco. El aviso hacía buscar una avería que
+   * no existía.
+   */
+  staleCounts: Record<string, number>
+  /**
    * Cuántos cambios registrados tiene cada conexión.
    *
    * Se trae para que la pantalla pueda decir un número exacto al desconectar:
@@ -163,6 +175,7 @@ export async function loadAmazonData(): Promise<AmazonServerData> {
     clients: [],
     connections: [],
     listingCounts: {},
+    staleCounts: {},
     submissionCounts: {},
     activeConnections: 0,
     remainingAuthorizations: AMAZON_MAX_AUTHORIZATIONS,
@@ -193,13 +206,25 @@ export async function loadAmazonData(): Promise<AmazonServerData> {
     )
 
     const listingCounts: Record<string, number> = {}
+    const staleCounts: Record<string, number> = {}
     const submissionCounts: Record<string, number> = {}
+    // Un día. El censo pasa cada seis horas y el ciclo cada quince minutos, así
+    // que una referencia que lleve veinticuatro horas sin verse se ha librado de
+    // los dos: eso ya no es cadencia, es que algo no la está alcanzando.
+    const haceUnDia = new Date(Date.now() - 86_400_000).toISOString()
     for (const conn of connections) {
       const { count } = await service
         .from('amazon_listings')
         .select('id', { count: 'exact', head: true })
         .eq('connection_id', conn.id)
       listingCounts[conn.id] = count ?? 0
+
+      const { count: rancias } = await service
+        .from('amazon_listings')
+        .select('id', { count: 'exact', head: true })
+        .eq('connection_id', conn.id)
+        .lt('last_seen_at', haceUnDia)
+      staleCounts[conn.id] = rancias ?? 0
 
       const { count: enviados } = await service
         .from('amazon_submissions')
@@ -214,6 +239,7 @@ export async function loadAmazonData(): Promise<AmazonServerData> {
       clients,
       connections,
       listingCounts,
+      staleCounts,
       submissionCounts,
       activeConnections,
       remainingAuthorizations: Math.max(0, AMAZON_MAX_AUTHORIZATIONS - activeConnections),
@@ -1217,6 +1243,48 @@ export async function syncConnectionCatalog(
     .update({ last_sync_attempt_at: ahora })
     .eq('id', connectionId)
 
+  /**
+   * ============ INCREMENTAL CUANDO EL BARRIDO COMPLETO NO CABE ============
+   *
+   * `searchListingsItems` pagina hasta 1.000 por país y ni uno más. Hasta ahora
+   * el ciclo pedía SIEMPRE el catálogo entero, ordenado por SKU ascendente, así
+   * que en un cliente de 5.000 referencias leía noventa y seis veces al día LAS
+   * MISMAS MIL PRIMERAS. Las otras cuatro mil no las tocaba nunca por esta vía.
+   *
+   * No estaban desatendidas —el censo del catálogo las trae enteras por el
+   * informe, cada seis horas— pero esas noventa y seis pasadas no aportaban
+   * nada de lo que no supiéramos ya.
+   *
+   * Con `lastUpdatedAfter` la pasada trae lo que HA CAMBIADO desde la última, y
+   * eso sí cubre el catálogo entero: son unas pocas decenas de referencias en
+   * vez de mil, y son las que importan.
+   *
+   * SOLO SE HACE DONDE EL COMPLETO YA NO CABÍA, y esa condición no es prudencia
+   * de más: donde el catálogo entra en 1.000, el barrido completo funciona y
+   * además es lo único que permite purgar lo que Amazon ha dejado de devolver
+   * (`purgeMissingListings` exige barrido completo). Cambiarlo ahí sería perder
+   * algo a cambio de nada. Donde ya venía truncado, la purga estaba desactivada
+   * de todas formas, así que no se pierde nada y se gana la cobertura.
+   *
+   * EL MARGEN DE DOS HORAS tampoco es al azar. La marca de agua es
+   * `last_sync_at`, que solo se escribe cuando la pasada termina bien; si una
+   * falla, la siguiente arranca desde la última buena. Las dos horas cubren
+   * además el desfase de reloj y el retardo con el que Amazon indexa un cambio
+   * propio — sin ellas, un cambio hecho justo en el corte se pierde para
+   * siempre y nada lo delata.
+   */
+  const MARGEN_MS = 2 * 3600_000
+  const incremental =
+    !options.updatedAfter &&
+    connection.last_sync_truncated === true &&
+    Boolean(connection.last_sync_at)
+
+  const desdeCuando = options.updatedAfter
+    ? options.updatedAfter
+    : incremental
+      ? new Date(Date.parse(connection.last_sync_at as string) - MARGEN_MS).toISOString()
+      : null
+
   for (const marketplaceId of marketplaces) {
     // Se anota ANTES de pedir nada: todo lo que el barrido vea se va a escribir
     // con un last_seen_at posterior a este instante, así que lo que se quede por
@@ -1226,7 +1294,7 @@ export async function syncConnectionCatalog(
     try {
       const catalogo = await fetchCatalog(credentials, {
         marketplaceId,
-        updatedAfter: options.updatedAfter ?? null,
+        updatedAfter: desdeCuando,
       })
 
       // El stock FBA solo se pide si hay algún listing FBA. Es la operación más
@@ -1249,7 +1317,7 @@ export async function syncConnectionCatalog(
         connectionId,
         marketplaceId,
         desde: inicioBarrido,
-        completo: !options.updatedAfter && !catalogo.truncated,
+        completo: !desdeCuando && !catalogo.truncated,
         leidos: catalogo.items.length,
       })
 
@@ -1319,8 +1387,19 @@ export async function syncConnectionCatalog(
   // refresca de verdad es el cron, que no tiene a nadie delante a quien
   // enseñarle un aviso, y sin persistirlo la pantalla presentaba 1.000
   // referencias como si fueran todas.
-  const truncado = results.some((r) => r.truncated)
-  const declarado = results.reduce((sum, r) => sum + r.declared, 0)
+  /**
+   * EN UNA PASADA INCREMENTAL, `declared` ES CUÁNTAS HAN CAMBIADO, NO CUÁNTAS
+   * HAY. Escribirlo encima diría «Amazon declara 12 referencias» en un cliente
+   * de cinco mil, y el aviso de catálogo incompleto desaparecería — no porque
+   * se hubiera arreglado nada, sino porque se habría borrado la única medida de
+   * lo que falta. Se conserva lo que dijo el último barrido completo.
+   */
+  const truncado = incremental
+    ? connection.last_sync_truncated === true
+    : results.some((r) => r.truncated)
+  const declarado = incremental
+    ? (connection.last_sync_declared ?? 0)
+    : results.reduce((sum, r) => sum + r.declared, 0)
 
   // SE COMPRUEBA EL ERROR A PROPÓSITO: supabase-js no lanza si falla. Esta
   // escritura es la que deja constancia de que el catálogo se quedó corto
@@ -1334,7 +1413,9 @@ export async function syncConnectionCatalog(
         ? { last_sync_error: fallo.error }
         : {
             last_sync_at: new Date().toISOString(),
-            last_sync_items: total,
+            // Igual que arriba: en incremental esto son las que se movieron, no
+            // las que hay. El recuento del catálogo sale de amazon_listings.
+            ...(incremental ? {} : { last_sync_items: total }),
             last_sync_error: null,
             last_sync_truncated: truncado,
             last_sync_declared: declarado,
