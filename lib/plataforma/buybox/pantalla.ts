@@ -378,6 +378,8 @@ export interface ConfigPantalla {
     foepMinutos: number
     /** true = lo calcula el ERP; false = alguien lo fijó a mano */
     foepAutomatico: boolean
+    /** false = a este cliente no se le pide el FOEP: el trabajo se salta la fase */
+    foepActivo: boolean
     /** La cuenta, en una frase. Un automatismo mudo se acaba desactivando */
     foepPorQue: string
   }
@@ -417,6 +419,9 @@ export async function configPantalla(
        */
       foepMinutos: config.foepCadaMinutos ?? cadenciaFoepAutomatica(skusDelMonitor),
       foepAutomatico: config.foepCadaMinutos === null,
+      // Si está apagado, el reloj de arriba no se usa. Viaja igual para que la
+      // pantalla pueda enseñar qué cadencia recuperaría al encenderlo.
+      foepActivo: config.foepActivo,
       foepPorQue:
         config.foepCadaMinutos === null
           ? porQueEsaCadencia(skusDelMonitor)

@@ -37,6 +37,8 @@ interface RelojFoep {
   foepMinutos: number
   foepAutomatico: boolean
   foepPorQue: string
+  /** false = a este cliente no se le pide el FOEP y la fase se salta entera */
+  foepActivo: boolean
 }
 import {
   UNIDADES,
@@ -1496,6 +1498,36 @@ function PanelHorarios({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leerFoep])
 
+  /**
+   * ENCENDER O APAGAR EL FOEP DE ESTE CLIENTE.
+   *
+   * Es la fase cara del trabajo: una llamada cada treinta segundos, cuarenta
+   * SKU cada una. Con siete mil referencias son casi tres horas por pasada, y
+   * las otras dos fases se despachan en minutos.
+   *
+   * Apagarlo tiene sentido cuando bajar al precio de la Buy Box no sale a
+   * cuenta —un revendedor que compra al mismo mayorista que su competencia casi
+   * nunca puede—, y entonces son tres horas por un dato que no se usa.
+   */
+  async function activarFoep(activo: boolean) {
+    setGuardandoFoep(true)
+    const res = await patchAmazon<{ config: { coste?: RelojFoep } }>(
+      '/api/plataforma/buybox/config',
+      { clientId: clienteId, foepActivo: activo }
+    )
+    setGuardandoFoep(false)
+    if (!res.ok) {
+      toast.error(res.error, { duration: 10_000 })
+      return
+    }
+    if (res.data.config?.coste) onFoep(res.data.config.coste)
+    toast.success(
+      activo
+        ? 'Se vuelve a pedir el FOEP de este cliente.'
+        : 'El FOEP de este cliente deja de pedirse. El trabajo se salta esa fase.'
+    )
+  }
+
   /** `null` = automático: que lo calcule el ERP con las referencias con stock */
   async function guardarFoep(cadaMinutos: number | null) {
     setGuardandoFoep(true)
@@ -1596,6 +1628,7 @@ function PanelHorarios({
                 cliente={clienteNombre}
                 guardando={guardandoFoep}
                 onGuardar={(m) => void guardarFoep(m)}
+                onActivar={(a) => void activarFoep(a)}
               />
             )}
           </tbody>
@@ -1787,11 +1820,13 @@ function FilaFoep({
   cliente,
   guardando,
   onGuardar,
+  onActivar,
 }: {
   reloj: RelojFoep
   cliente: string
   guardando: boolean
   onGuardar: (minutos: number | null) => void
+  onActivar: (activo: boolean) => void
 }) {
   const inicial = descomponer(reloj.foepMinutos)
   const [valor, setValor] = useState(String(inicial.valor))
@@ -1814,13 +1849,23 @@ function FilaFoep({
         <span className={`block ${TIPO.s} ${TEXTO.t4}`}>FOEP · solo de {cliente}</span>
       </td>
 
-      {/* LA CUENTA, A LA VISTA. Un automatismo que decide sin decir por qué se
-          desactiva la primera vez que alguien no entiende el número; esta cabe
-          en una frase, así que se enseña y deja de ser magia. */}
-      <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[300px]`}>{reloj.foepPorQue}</td>
+      {/* APAGADO SE DICE AQUÍ Y NO EN UNA ESQUINA. Esta columna es la que
+          explica el reloj, y con el FOEP apagado el reloj no significa nada:
+          enseñar «cada 6 horas» sin más es exactamente lo que hace pensar que
+          algo se está pidiendo cuando no. */}
+      <td className={`${TABLA.celda} ${TEXTO.t3} max-w-[300px]`}>
+        {reloj.foepActivo ? (
+          reloj.foepPorQue
+        ) : (
+          <span style={{ color: COLOR_ESTADO.ambar }}>
+            APAGADO para este cliente. No se pide, y el trabajo se salta esa fase — que es la
+            cara: una llamada cada 30 segundos, 40 referencias cada una.
+          </span>
+        )}
+      </td>
 
       <td className={TABLA.celda}>
-        <span className="flex items-center gap-[5px]">
+        <span className="flex items-center gap-[5px]" style={{ opacity: reloj.foepActivo ? 1 : 0.35 }}>
           {reloj.foepAutomatico ? (
             <>
               <span className={`${TIPO.num} ${TEXTO.t1}`}>{textoIntervalo(reloj.foepMinutos)}</span>
@@ -1880,19 +1925,39 @@ function FilaFoep({
         {/* Volver a automático tiene que ser un clic. Si fijarlo a mano no
             tuviera vuelta atrás, el número que alguien puso una tarde para
             probar se quedaría ahí para siempre — y el stock se mueve. */}
-        <button
-          type="button"
-          disabled={guardando}
-          onClick={() => onGuardar(reloj.foepAutomatico ? reloj.foepMinutos : null)}
-          className={`${BOTON.base} ${BOTON.secundario}`}
-          title={
-            reloj.foepAutomatico
-              ? 'Fijarlo a mano. Deja de ajustarse cuando cambie el stock del cliente'
-              : 'Que lo calcule el ERP a partir de las referencias con stock'
-          }
-        >
-          {reloj.foepAutomatico ? 'Fijar a mano' : 'Automático'}
-        </button>
+        <span className="flex items-center gap-[5px]">
+          <button
+            type="button"
+            disabled={guardando}
+            onClick={() => onActivar(!reloj.foepActivo)}
+            className={`${BOTON.base} ${reloj.foepActivo ? BOTON.secundario : BOTON.primario}`}
+            title={
+              reloj.foepActivo
+                ? 'Dejar de pedirle a Amazon a qué precio se ganaría la oferta destacada. Se salta la fase más cara del trabajo'
+                : 'Volver a pedirlo. Cuesta una llamada cada 30 segundos, 40 referencias cada una'
+            }
+          >
+            {reloj.foepActivo ? 'Apagar' : 'Encender'}
+          </button>
+          {/* Cambiar el horario de algo que no se pide es tocar un mando
+              desconectado. Se deshabilita en vez de esconderse: así se ve que
+              existe y que volverá al encenderlo. */}
+          <button
+            type="button"
+            disabled={guardando || !reloj.foepActivo}
+            onClick={() => onGuardar(reloj.foepAutomatico ? reloj.foepMinutos : null)}
+            className={`${BOTON.base} ${BOTON.secundario}`}
+            title={
+              !reloj.foepActivo
+                ? 'El FOEP está apagado: no hay horario que ajustar'
+                : reloj.foepAutomatico
+                  ? 'Fijarlo a mano. Deja de ajustarse cuando cambie el stock del cliente'
+                  : 'Que lo calcule el ERP a partir de las referencias con stock'
+            }
+          >
+            {reloj.foepAutomatico ? 'Fijar a mano' : 'Automático'}
+          </button>
+        </span>
         <span className={`block ${TIPO.s} ${TEXTO.t4}`}>de este cliente</span>
       </td>
     </tr>
