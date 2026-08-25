@@ -386,6 +386,8 @@ export async function calcularTodo(
       origen: r.origen,
       beneficio: r.beneficio,
       margen_real: r.margenReal,
+      margen_en_foep: r.margenEnFoep,
+      motivo_buybox: r.motivoBuybox,
       pvp_actual: r.datos.pvp,
       dif_euros: r.difEuros,
       dif_porcentaje: r.difPorcentaje,

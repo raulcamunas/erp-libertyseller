@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Download, Loader2, Play, Search } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
-import { AVISO_LABELS, type MotivoAviso } from '@/lib/entrais/precios'
+import {
+  AVISO_LABELS,
+  MOTIVO_BUYBOX_LABELS,
+  type MotivoAviso,
+  type MotivoBuybox,
+} from '@/lib/entrais/precios'
 
 /**
  * EL MOTOR DE PRECIOS, EN PANTALLA.
@@ -35,6 +40,8 @@ interface FilaPrecio {
   dif_porcentaje: number | null
   foep: number | null
   buybox: string | null
+  margen_en_foep: number | null
+  motivo_buybox: MotivoBuybox | null
   aviso: MotivoAviso | null
   calculado_at: string
 }
@@ -103,7 +110,7 @@ interface Respuesta {
 const ALTO_FILA = 30
 const MARGEN_FILAS = 12
 const ALTO_CAJA = 520
-const REJILLA = '86px 96px 92px 84px 96px 96px 88px 92px 1fr'
+const REJILLA = '82px 84px 76px 68px 90px 84px 78px 78px 84px 78px 118px 1fr'
 
 function eur(v: number | null | undefined, dec = 2): string {
   if (v === null || v === undefined) return '—'
@@ -441,7 +448,7 @@ export function MotorPrecios() {
                 </div>
                 <input
                   key={`${cfg.id}-${i}`}
-                  defaultValue={(t.margen * 100).toString()}
+                  defaultValue={String(Math.round(t.margen * 1e8) / 1e6)}
                   inputMode="decimal"
                   disabled={!cfg.usar_tramos || guardando}
                   onBlur={(e) => {
@@ -635,13 +642,16 @@ export function MotorPrecios() {
             ['Ahora', 'Lo que está publicado hoy en Amazon'],
             ['Dif.', 'Cuánto cambiaría'],
             ['Margen real', 'El que queda con el precio ya redondeado'],
+            ['FOEP', 'El precio al que Amazon espera que se gane la oferta destacada'],
+            ['Margen al FOEP', 'El margen que quedaría publicando a ese precio. Se calcula se baje o no'],
+            ['¿Se baja?', 'Si se publica al precio de la Buy Box, y si no, por qué'],
             ['Aviso', ''],
           ].map(([texto, pista], i) => (
             <span
               key={texto}
               title={pista}
               className={`px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 ${
-                i >= 1 && i <= 7 ? 'text-right' : 'text-left'
+                i >= 1 && i <= 9 ? 'text-right' : 'text-left'
               }`}
             >
               {texto}
@@ -727,6 +737,40 @@ export function MotorPrecios() {
                     <span className="px-2 text-[11px] text-right tabular-nums text-white/60">
                       {pct(p.margen_real)}
                     </span>
+                    <span className="px-2 text-[11px] text-right tabular-nums text-white/45">
+                      {eur(p.foep)}
+                    </span>
+                    {/* EL MARGEN AL FOEP, EN COLOR SEGÚN EL SUELO.
+                        Verde si aguanta, rojo si no llega, gris si no hay suelo
+                        puesto. Es la columna con la que se elige el suelo:
+                        mirando cuántas filas se pondrían verdes al bajarlo. */}
+                    <span
+                      className={`px-2 text-[11px] text-right tabular-nums ${
+                        p.margen_en_foep === null
+                          ? 'text-white/20'
+                          : cfg.margen_suelo === null
+                            ? 'text-white/50'
+                            : p.margen_en_foep >= cfg.margen_suelo
+                              ? 'text-green-300/80'
+                              : 'text-red-300/70'
+                      }`}
+                    >
+                      {pct(p.margen_en_foep)}
+                    </span>
+                    <span
+                      className={`px-2 text-[10.5px] truncate ${
+                        p.motivo_buybox === 'se_baja'
+                          ? 'text-green-300'
+                          : p.motivo_buybox === 'no_llega_al_suelo'
+                            ? 'text-red-300/70'
+                            : p.motivo_buybox === 'sin_suelo'
+                              ? 'text-amber-300/60'
+                              : 'text-white/30'
+                      }`}
+                      title={p.motivo_buybox ? MOTIVO_BUYBOX_LABELS[p.motivo_buybox] : ''}
+                    >
+                      {p.motivo_buybox ? MOTIVO_BUYBOX_LABELS[p.motivo_buybox] : '—'}
+                    </span>
                     <span
                       className={`px-2 text-[10.5px] truncate ${
                         AVISO_COLOR[p.aviso ?? 'ok'] ?? 'text-white/40'
@@ -797,7 +841,14 @@ function Numero({
   pista?: string
   onGuardar: (v: number | null) => void
 }) {
-  const mostrado = valor === null ? '' : porcentaje ? String(valor * 100) : String(valor)
+  /**
+   * `0.07 * 100` da 7.000000000000001 en coma flotante, y eso salía tal cual en
+   * una casilla. En una pantalla que va de números, un decimal imposible hace
+   * dudar de todos los demás. Se recorta a seis decimales, que es más precisión
+   * de la que ningún margen necesita.
+   */
+  const mostrado =
+    valor === null ? '' : String(porcentaje ? Math.round(valor * 1e8) / 1e6 : valor)
   return (
     <Campo label={label}>
       <div className="relative">

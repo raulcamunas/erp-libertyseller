@@ -189,6 +189,43 @@ export const AVISO_LABELS: Record<MotivoAviso, string> = {
   puede_bajar: 'Se puede bajar el precio: está más de un 5% por encima del objetivo',
 }
 
+/**
+ * POR QUÉ SE HA BAJADO A LA BUY BOX O POR QUÉ NO.
+ *
+ * Siete motivos y no un booleano, porque «no se baja» son cosas muy distintas:
+ * que no haya dato, que no haga falta porque ya es nuestra, o que el margen no
+ * dé. Solo la última es una decisión revisable — las otras dos son información
+ * que falta o un problema que no existe.
+ */
+export type MotivoBuybox =
+  /** No tenemos FOEP de ese producto */
+  | 'sin_foep'
+  /** Hay FOEP pero no se ha puesto suelo: no se persigue la oferta destacada */
+  | 'sin_suelo'
+  /** Ya la tenemos. Bajar sería pagar por algo que ya es nuestro */
+  | 'ya_es_nuestra'
+  /** No la tiene nadie: seríamos la primera oferta. No hay a quién ganarle */
+  | 'sin_competencia'
+  /** No sabemos quién la tiene. No se baja por una corazonada */
+  | 'sin_dato'
+  /** El FOEP está por encima de nuestro precio: no hay nada que bajar */
+  | 'foep_mas_alto'
+  /** La tiene otro, pero a ese precio el margen no llega al suelo */
+  | 'no_llega_al_suelo'
+  /** Se baja: la tiene otro y el margen aguanta */
+  | 'se_baja'
+
+export const MOTIVO_BUYBOX_LABELS: Record<MotivoBuybox, string> = {
+  sin_foep: 'Sin FOEP',
+  sin_suelo: 'Suelo sin poner',
+  ya_es_nuestra: 'Ya es nuestra',
+  sin_competencia: 'Sin competencia',
+  sin_dato: 'Sin saber quién la tiene',
+  foep_mas_alto: 'El FOEP está por encima',
+  no_llega_al_suelo: 'No llega al suelo',
+  se_baja: 'Sí, se baja',
+}
+
 /** De dónde ha salido el precio propuesto */
 export type OrigenPrecio =
   /** Del margen objetivo */
@@ -220,6 +257,16 @@ export interface ResultadoPrecio {
   beneficio: number | null
   /** El de verdad, que con redondeo hacia arriba nunca baja del objetivo */
   margenReal: number | null
+
+  /**
+   * QUÉ MARGEN QUEDARÍA SI SE PUBLICARA AL PRECIO DE LA BUY BOX.
+   *
+   * Se calcula SIEMPRE que haya FOEP, se acabe bajando o no. Es lo que permite
+   * decidir el suelo con datos en vez de a ojo: sin esta columna hay que
+   * elegir un número y ver qué pasa.
+   */
+  margenEnFoep: number | null
+  motivoBuybox: MotivoBuybox
 
   /** Contra el PVP actual. null si no está listado */
   difEuros: number | null
@@ -331,7 +378,15 @@ export function calcularPrecio(entrada: EntradaPrecio, cfg: ConfigPrecios): Resu
 
   const base: Omit<
     ResultadoPrecio,
-    'precioObjetivo' | 'precio' | 'beneficio' | 'margenReal' | 'difEuros' | 'difPorcentaje' | 'aviso'
+    | 'precioObjetivo'
+    | 'precio'
+    | 'beneficio'
+    | 'margenReal'
+    | 'margenEnFoep'
+    | 'motivoBuybox'
+    | 'difEuros'
+    | 'difPorcentaje'
+    | 'aviso'
   > = {
     sku: entrada.sku,
     coste,
@@ -351,6 +406,8 @@ export function calcularPrecio(entrada: EntradaPrecio, cfg: ConfigPrecios): Resu
       precio: null,
       beneficio: null,
       margenReal: null,
+      margenEnFoep: null,
+      motivoBuybox: 'sin_foep',
       difEuros: null,
       difPorcentaje: null,
       aviso: 'imposible',
@@ -392,13 +449,31 @@ export function calcularPrecio(entrada: EntradaPrecio, cfg: ConfigPrecios): Resu
    * precio JUSTO en las referencias que van bien — las que ya tienen la oferta
    * destacada porque nadie les hace sombra.
    */
-  const hayAQuienGanarle = entrada.buybox === 'de_otro'
-  if (hayAQuienGanarle && cfg.margenSuelo !== null && entrada.foep != null && entrada.foep > 0) {
-    const candidato = redondear(entrada.foep, cfg.redondeo)
-    if (candidato < precio && margenA(candidato, coste, tarifa, cfg) >= cfg.margenSuelo) {
-      precio = candidato
-      origen = 'buybox'
-    }
+  const hayFoep = entrada.foep != null && entrada.foep > 0
+  const candidato = hayFoep ? redondear(entrada.foep as number, cfg.redondeo) : null
+  // El margen a ese precio se calcula SIEMPRE que haya FOEP, se baje o no: es lo
+  // que deja decidir el suelo mirando números en vez de eligiendo uno a ojo.
+  const margenEnFoep = candidato === null ? null : margenA(candidato, coste, tarifa, cfg)
+
+  let motivoBuybox: MotivoBuybox
+  if (!hayFoep || candidato === null || margenEnFoep === null) {
+    motivoBuybox = 'sin_foep'
+  } else if (entrada.buybox === 'nuestra') {
+    motivoBuybox = 'ya_es_nuestra'
+  } else if (entrada.buybox === 'nadie') {
+    motivoBuybox = 'sin_competencia'
+  } else if (entrada.buybox !== 'de_otro') {
+    motivoBuybox = 'sin_dato'
+  } else if (candidato >= precio) {
+    motivoBuybox = 'foep_mas_alto'
+  } else if (cfg.margenSuelo === null) {
+    motivoBuybox = 'sin_suelo'
+  } else if (margenEnFoep < cfg.margenSuelo) {
+    motivoBuybox = 'no_llega_al_suelo'
+  } else {
+    motivoBuybox = 'se_baja'
+    precio = candidato
+    origen = 'buybox'
   }
 
   const beneficio = beneficioA(precio, coste, tarifa, cfg)
@@ -415,6 +490,8 @@ export function calcularPrecio(entrada: EntradaPrecio, cfg: ConfigPrecios): Resu
     precio,
     beneficio,
     margenReal,
+    margenEnFoep,
+    motivoBuybox,
     difEuros,
     difPorcentaje,
     aviso: avisoDe(entrada, tarifaEstimada, difPorcentaje),
