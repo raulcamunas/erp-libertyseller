@@ -301,6 +301,18 @@ export const tareaTarifas: Tarea = {
         detalle: {
           codigos: [...new Set(fallos.map((f) => f.codigo))].slice(0, 10),
           skus: fallos.slice(0, 20).map((f) => f.sku),
+          /**
+           * EL MENSAJE, NO SOLO EL CÓDIGO.
+           *
+           * Con `InvalidParameterValue` a secas no se puede hacer nada: dice que
+           * algo de lo que mandamos no vale, y en la petición van el precio, la
+           * divisa, el SKU y el canal. El mensaje de Amazon SÍ dice cuál, y lo
+           * teníamos en `FalloTarifa.mensaje` sin guardarlo.
+           *
+           * Se guardan los distintos y no uno por SKU: veinte referencias
+           * rechazadas por el mismo motivo son un mensaje, no veinte.
+           */
+          mensajes: [...new Set(fallos.map((f) => `${f.codigo}: ${f.mensaje}`))].slice(0, 6),
         },
         requestId: propio.requestId,
       })
