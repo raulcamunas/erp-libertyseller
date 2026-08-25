@@ -17,7 +17,8 @@ import {
   Palmtree,
   Palette,
   Plug,
-  Sprout
+  Sprout,
+  Eraser,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -152,10 +153,22 @@ export const apps: AppConfig[] = [
     // porque lo es: cuando se sepa qué datos merecen guardarse, esto se
     // convertirá en otra cosa con otro nombre.
     id: 'entrais-test',
-    name: 'Entrais Test',
-    description: 'La API del proveedor: productos, precios y stock, en crudo',
+    name: 'Entrais',
+    description: 'El precio al que publicar cada referencia, con el coste del proveedor',
     icon: FlaskConical,
     route: '/dashboard/entrais-test',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
+    // ESTA BORRA COSAS DE LA CUENTA DE UN CLIENTE, y por eso lo dice la
+    // descripción y no solo el aviso de dentro. Quien la ve en el menú tiene
+    // que saber lo que hay al otro lado antes de entrar.
+    id: 'limpieza-ofertas',
+    name: 'Limpieza de ofertas',
+    description: 'Quita precios mínimos, máximos y rebajas de un catálogo entero',
+    icon: Eraser,
+    route: '/dashboard/limpieza-ofertas',
     status: 'new',
     category: 'analytics'
   },
@@ -336,6 +349,7 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   // Las credenciales de un cliente contra el sistema de su proveedor, y sus
   // precios de COMPRA, que es de lo más sensible que hay en su negocio.
   'entrais-test',
+  'limpieza-ofertas',
 ])
 
 /**

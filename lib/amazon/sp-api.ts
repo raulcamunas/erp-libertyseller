@@ -990,3 +990,181 @@ export async function fetchListingsBySku(
    */
   return { items, noVinieron: options.skus.filter((s) => !vistos.has(s)), llamadas }
 }
+
+/* ------------------------------------------------------------------ */
+/* La oferta entera: precio, límites y rebajas                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Lo que un vendedor tiene puesto en `purchasable_offer` de un listing.
+ *
+ * NO ESTÁ EN EL ESPEJO Y NO PUEDE ESTARLO A COSTE CERO: el catálogo se lee con
+ * `includedData=summaries,offers,fulfillmentAvailability`, y los límites y las
+ * rebajas viven en `attributes`, que trae cientos de campos por SKU. Pedirlo
+ * siempre para usarlo en una pantalla que se abre de vez en cuando sería pagar
+ * ese peso 96 veces al día.
+ */
+export interface OfertaListing {
+  sku: string
+  /** El que ve el comprador, con impuestos */
+  precio: number | null
+  moneda: string | null
+  /** Suelo que el vendedor le ha puesto a la fijación automática de precios */
+  precioMinimo: number | null
+  precioMaximo: number | null
+  /** Una rebaja programada, si la hay */
+  rebaja: { importe: number | null; desde: string | null; hasta: string | null } | null
+}
+
+interface OfertaCruda {
+  marketplace_id?: unknown
+  currency?: unknown
+  our_price?: { schedule?: { value_with_tax?: unknown }[] }[]
+  minimum_seller_allowed_price?: { schedule?: { value_with_tax?: unknown }[] }[]
+  maximum_seller_allowed_price?: { schedule?: { value_with_tax?: unknown }[] }[]
+  discounted_price?: {
+    schedule?: { value_with_tax?: unknown; start_at?: unknown; end_at?: unknown }[]
+  }[]
+  audience?: unknown
+}
+
+function primerImporte(bloque: { schedule?: { value_with_tax?: unknown }[] }[] | undefined):
+  | number
+  | null {
+  const v = bloque?.[0]?.schedule?.[0]?.value_with_tax
+  return parseAmazonAmount(v)
+}
+
+/**
+ * Lee la oferta de unos SKU concretos.
+ *
+ * Va por `identifiers`, veinte por llamada, igual que fetchListingsBySku: así no
+ * aplica el tope de 1.000 del paginado y un catálogo de 3.000 referencias se lee
+ * en 150 llamadas.
+ *
+ * DE LAS OFERTAS DEL MISMO MARKETPLACE SE COGE LA B2C. En `purchasable_offer`
+ * conviven la del comprador normal y la de empresas, y mezclarlas enseñaría un
+ * precio que no es el de la ficha — el mismo motivo por el que la lectura del
+ * catálogo filtra por offerType 'B2C'.
+ */
+export async function fetchOfertas(
+  creds: AmazonCredentials,
+  options: { marketplaceId: string; skus: string[] }
+): Promise<{ ofertas: OfertaListing[]; noVinieron: string[]; llamadas: number }> {
+  const ofertas: OfertaListing[] = []
+  const vistos = new Set<string>()
+  let llamadas = 0
+
+  for (let i = 0; i < options.skus.length; i += MAX_SKUS_POR_LLAMADA) {
+    const lote = options.skus.slice(i, i + MAX_SKUS_POR_LLAMADA)
+
+    const { data } = await spApiRequest<{
+      items?: { sku?: string; attributes?: { purchasable_offer?: OfertaCruda[] } }[]
+    }>(creds, 'searchListingsItems', {
+      method: 'GET',
+      path: `/listings/2021-08-01/items/${encodeURIComponent(creds.sellingPartnerId)}`,
+      query: {
+        marketplaceIds: [options.marketplaceId],
+        identifiers: lote,
+        identifiersType: 'SKU',
+        includedData: ['attributes'],
+        issueLocale: ISSUE_LOCALE,
+        pageSize: MAX_SKUS_POR_LLAMADA,
+      },
+    })
+    llamadas += 1
+
+    for (const item of data.items ?? []) {
+      const sku = item.sku
+      if (!sku) continue
+      vistos.add(sku)
+
+      const bloques = (item.attributes?.purchasable_offer ?? []).filter(
+        (o) => o.marketplace_id === options.marketplaceId || o.marketplace_id === undefined
+      )
+      // La de empresas lleva `audience`; la del comprador normal, no.
+      const oferta = bloques.find((o) => o.audience === undefined) ?? bloques[0]
+
+      const rebajaCruda = oferta?.discounted_price?.[0]?.schedule?.[0]
+      ofertas.push({
+        sku,
+        precio: primerImporte(oferta?.our_price),
+        moneda: typeof oferta?.currency === 'string' ? oferta.currency : null,
+        precioMinimo: primerImporte(oferta?.minimum_seller_allowed_price),
+        precioMaximo: primerImporte(oferta?.maximum_seller_allowed_price),
+        rebaja: rebajaCruda
+          ? {
+              importe: parseAmazonAmount(rebajaCruda.value_with_tax),
+              desde: typeof rebajaCruda.start_at === 'string' ? rebajaCruda.start_at : null,
+              hasta: typeof rebajaCruda.end_at === 'string' ? rebajaCruda.end_at : null,
+            }
+          : null,
+      })
+    }
+  }
+
+  return { ofertas, noVinieron: options.skus.filter((s) => !vistos.has(s)), llamadas }
+}
+
+/**
+ * DEJA LA OFERTA CON EL PRECIO Y NADA MÁS: sin mínimo, sin máximo y sin rebaja.
+ *
+ * ESTO USA `replace` Y ESO ES EL PUNTO, no un descuido. `updatePrice` usa
+ * `merge` precisamente para NO tocar los límites ni la rebaja del cliente, y su
+ * comentario avisa de que `replace` se los llevaría por delante sin dar error.
+ *
+ * Aquí se los quiere llevar por delante. Esa es la operación: el vendedor tiene
+ * mínimos y máximos viejos que le frenan la fijación de precios, y rebajas
+ * programadas que ya no vienen a cuento, y quiere el listing limpio.
+ *
+ * De ahí que sea una función aparte con este nombre y no un parámetro de
+ * `updatePrice`. Un booleano `borrarLimites` en la función que usa el
+ * sincronismo de stock sería una bomba a un carácter de distancia del camino
+ * que corre solo cada quince minutos.
+ *
+ * EL PRECIO HAY QUE MANDARLO SIEMPRE, aunque no se quiera cambiar: un
+ * `purchasable_offer` sin `our_price` es una oferta sin precio, y eso Amazon lo
+ * rechaza o lo deja sin publicar. Quien llame se encarga de pasar el que ya
+ * tiene si no lo va a tocar.
+ */
+export async function limpiarOferta(
+  creds: AmazonCredentials,
+  target: ListingTarget,
+  params: {
+    precio: number
+    currency: string
+    /** Se conserva la rebaja pero terminando en esta fecha (ISO). null = se quita */
+    rebajaHasta?: { importe: number; desde: string; hasta: string } | null
+    validateOnly?: boolean
+  }
+): Promise<SubmissionOutcome> {
+  assertEditable(target, 'precio', params.precio)
+
+  const oferta: Record<string, unknown> = {
+    marketplace_id: target.marketplaceId,
+    currency: params.currency,
+    our_price: [{ schedule: [{ value_with_tax: params.precio }] }],
+  }
+  // Si se pide terminar la rebaja en vez de quitarla, se reenvía con la fecha
+  // nueva. Todo lo que no se incluya aquí desaparece, que es lo que se busca.
+  if (params.rebajaHasta) {
+    oferta.discounted_price = [
+      {
+        schedule: [
+          {
+            value_with_tax: params.rebajaHasta.importe,
+            start_at: params.rebajaHasta.desde,
+            end_at: params.rebajaHasta.hasta,
+          },
+        ],
+      },
+    ]
+  }
+
+  return sendPatch(
+    creds,
+    target,
+    [{ op: 'replace', path: '/attributes/purchasable_offer', value: [oferta] }],
+    params.validateOnly ?? false
+  )
+}

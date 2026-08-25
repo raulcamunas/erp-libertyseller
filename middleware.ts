@@ -237,6 +237,19 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/limpieza-ofertas - Solo admin
+      //
+      // Desde ahí se BORRAN los límites de precio y las rebajas que un cliente
+      // puso a mano, de forma masiva y sin deshacer. Es la pantalla con más
+      // capacidad de destrozo del ERP.
+      if (pathname.startsWith('/dashboard/limpieza-ofertas')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/entrais-test - Solo admin
       //
       // Aquí se usan las credenciales de un cliente contra el sistema de su
