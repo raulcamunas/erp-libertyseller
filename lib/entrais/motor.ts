@@ -235,32 +235,47 @@ async function datosDeAmazon(
     fila.tarifa = referral / referencia
   }
 
-  /* ---------- El diagnóstico de Buy Box ---------- */
-  const diagnosticos = await fetchAll<{
+  /* ---------- El FOEP y quién tiene la Buy Box ----------
+   *
+   * SALE DE `amazon_snapshots_precio` Y NO DEL DIAGNÓSTICO, y esa distinción
+   * costó una tarde de «Sin FOEP» en todo el catálogo.
+   *
+   * El trabajo de Buy Box tiene tres fases: ofertas, FOEP y diagnóstico. La que
+   * PIDE el FOEP a Amazon es la segunda, y escribe aquí. El diagnóstico es la
+   * tercera y solo cruza lo que ya hay — así que leyendo de él, el FOEP no
+   * aparece hasta que las tres han terminado. Y la tercera es justo la que se
+   * queda a medias cuando el trabajo se corta por presupuesto, que con 2.600
+   * referencias a una llamada cada treinta segundos es siempre.
+   *
+   * Es tabla de SOLO INSERCIÓN: hay una fila por SKU y pasada, así que se lee
+   * ordenado por fecha y la última de cada SKU se queda con la palabra. */
+  const snapshots = await fetchAll<{
     sku: string
-    datos: { foep?: number | null; foepEstado?: string; buybox?: string } | null
+    foep: number | null
+    foep_estado: string | null
+    buybox_estado: string | null
     fecha: string
   }>((a, b) =>
     service
-      .from('amazon_buybox_diagnostico')
-      .select('sku, datos, fecha')
+      .from('amazon_snapshots_precio')
+      .select('sku, foep, foep_estado, buybox_estado, fecha')
       .eq('connection_id', connectionId)
       .eq('marketplace_id', marketplaceId)
       .order('fecha', { ascending: true })
       .order('id')
       .range(a, b)
   )
-  for (const d of diagnosticos) {
-    const fila = porSku.get(d.sku)
+  for (const snap of snapshots) {
+    const fila = porSku.get(snap.sku)
     if (!fila) continue
-    const datos = d.datos ?? {}
     // El FOEP solo vale si Amazon dijo que lo tenía. `no_disponible` y
     // `no_consultado` NO son cero: son «no lo sabemos», y tratarlos como un
     // precio bajaría el catálogo entero a nada.
-    fila.foep = datos.foepEstado === 'disponible' ? (datos.foep ?? null) : null
-    const bb = datos.buybox
-    fila.buybox =
-      bb === 'nuestra' || bb === 'de_otro' || bb === 'nadie' ? bb : 'desconocido'
+    if (snap.foep_estado === 'disponible' && snap.foep !== null) {
+      fila.foep = Number(snap.foep)
+    }
+    const bb = snap.buybox_estado
+    if (bb === 'nuestra' || bb === 'de_otro' || bb === 'nadie') fila.buybox = bb
   }
 
   return porSku
