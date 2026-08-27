@@ -133,7 +133,23 @@ export async function limpiar(tope = 20_000): Promise<ResultadoLimpieza[]> {
           .delete()
           .in('id', ids.slice(i, i + 1000))
         if (error) {
-          salida.push({ tabla: regla.tabla, borradas, error: error.message })
+          /**
+           * EL CANDADO DE LAS SERIES, DICHO CON SU NOMBRE.
+           *
+           * Las cinco tablas de mediciones tienen desde la 123 un trigger que
+           * corta cualquier borrado, y la 162 es la que lo afina para dejar
+           * pasar la retención. Sin ella esto falla cada minuto con un
+           * `restrict_violation` que no menciona ninguna migración, y a las tres
+           * semanas nadie se acuerda de qué había que aplicar.
+           */
+          const esCandado = /solo insercion|solo inserción|serie temporal/i.test(error.message)
+          salida.push({
+            tabla: regla.tabla,
+            borradas,
+            error: esCandado
+              ? `El candado de series lo impide. Falta aplicar la migración 162 (${error.message.slice(0, 120)})`
+              : error.message,
+          })
           borradas = -1
           break
         }

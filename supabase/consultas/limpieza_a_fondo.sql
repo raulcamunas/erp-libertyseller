@@ -10,8 +10,20 @@
 -- (`amazon_submissions`), los precios calculados de Entrais, los leads, las
 -- citas ni nada de gestion. Aqui solo caen mediciones repetidas y registros.
 --
--- Va en tres bloques y el orden importa. Lanzalos DE UNO EN UNO y mira el
+-- ANTES DE NADA: APLICA LA MIGRACION 162.
+--
+-- Las cinco tablas de mediciones tienen desde la 123 un candado que corta
+-- CUALQUIER borrado — son series de solo insercion y esta bien que lo tengan.
+-- La 162 lo afina: sigue prohibiendo el UPDATE y el TRUNCATE, y deja retirar
+-- filas de hace mas de un dia. Sin ella, el bloque 2 corta con:
+--
+--     ERROR 23001: ... es una serie temporal de SOLO INSERCION
+--
+-- Va en cuatro bloques y el orden importa. Lanzalos DE UNO EN UNO y mira el
 -- resultado de cada uno antes de seguir.
+--
+-- Y los VACUUM FULL, UNO A UNO Y SOLOS: no se pueden ejecutar dentro de una
+-- transaccion, asi que lanzarlos en bloque con lo demas los tumba.
 
 -- ══════════════════ 1 · QUE SE VA A BORRAR (no borra nada) ══════════════════
 SELECT 'amazon_snapshots_bsr'      AS tabla, count(*) AS se_borran FROM public.amazon_snapshots_bsr      WHERE fecha < now() - interval '3 days'
