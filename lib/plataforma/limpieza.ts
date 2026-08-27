@@ -7,10 +7,12 @@
  * exageración, es lo que había el 27 de agosto de 2026 cuando la base se pasó
  * del plan gratis al 177 %:
  *
- *     amazon_snapshots_bsr      335.711 filas en 17 días   ~20.200/día
- *     amazon_snapshots_precio   242.867 filas en 13 días   ~18.800/día
- *     amazon_fees_estimados      40.526 filas en  2 días   ~22.100/día
- *     amazon_eventos             28.460 filas en 18 días    ~1.600/día
+ *     amazon_snapshots_bsr        335.711 filas en 17 días   ~20.200/día
+ *     amazon_snapshots_precio     242.867 filas en 13 días   ~18.800/día
+ *     amazon_buybox_diagnostico   128.494 filas
+ *     amazon_listings             113.746 filas (el espejo; no crece con el tiempo)
+ *     amazon_fees_estimados        40.526 filas en  2 días   ~22.100/día
+ *     amazon_eventos               28.460 filas en 18 días    ~1.600/día
  *
  * Con ese ritmo no se llena el plan gratis: se llena cualquier plan. El de ocho
  * gigas aguantaría unos meses y volvería a pasar exactamente lo mismo.
