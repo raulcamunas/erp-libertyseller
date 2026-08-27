@@ -22,13 +22,28 @@ Para que baje hay que reescribir la tabla, y eso es `VACUUM FULL`.
 
 ## Cómo
 
-Hace falta `psql` y la conexión **directa** (puerto 5432), no el pooler:
+Hace falta `psql` — ya está instalado en este Mac (Homebrew, PostgreSQL 14).
 
-1. En Supabase: **Project Settings → Database → Connection string → URI**
-2. Elige **Session mode / Direct connection**. El pooler en modo transacción no
-   deja lanzar VACUUM tampoco.
-3. Copia esa cadena. Lleva tu contraseña dentro — no la pegues en ningún sitio
-   que no sea tu terminal.
+En Supabase, botón **Connect** (arriba, al lado de «main PRODUCTION»):
+
+### Elige **Session pooler**, NO «Direct connection»
+
+Y esto no es una preferencia, es que la directa **no conecta desde aquí**:
+
+- `db.<ref>.supabase.co` solo tiene registro **AAAA**, o sea solo IPv6. Sin
+  registro A. Es lo que avisa el propio diálogo: «Direct connections use IPv6 by
+  default».
+- Este Mac **no tiene IPv6 global** — ni una dirección enrutable. Así que ni
+  siquiera resuelve el nombre: `getaddrinfo` falla antes de intentar conectar.
+- La alternativa de Supabase para eso es el add-on de IPv4, que es de pago.
+
+El **Session pooler** va por IPv4 y —esto es lo que importa— **sí admite
+VACUUM**, porque en modo sesión cada cliente tiene su conexión dedicada. El
+**Transaction pooler** NO: ahí cada sentencia puede caer en una conexión
+distinta y VACUUM no puede correr así.
+
+Copia la URI del Session pooler. Lleva tu contraseña dentro — no la pegues en
+ningún sitio que no sea tu terminal.
 
 Y entonces, **una tabla por comando**:
 
