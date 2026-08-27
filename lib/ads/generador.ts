@@ -313,8 +313,19 @@ export async function empujar(tope = 6): Promise<Empujon> {
   return salida
 }
 
+/**
+ * El error de Amazon, ENTERO.
+ *
+ * Cortaba a 500 caracteres y eso tiraba justo lo que servía. Cuando la v3
+ * rechaza una columna contesta con la lista COMPLETA de las que sí admite para
+ * ese tipo de informe —cuarenta o cincuenta nombres—, que es exactamente lo que
+ * hace falta para arreglarlo. A 500 se veía «Allowed values: (viewabilityRate,
+ * offAmazonSignUpValueSum, addToListFromViews… » y ahí se acababa.
+ *
+ * Cuatro mil caben de sobra y la columna es TEXT.
+ */
 function mensaje(e: unknown): string {
-  return e instanceof Error ? e.message.slice(0, 500) : 'Error desconocido'
+  return e instanceof Error ? e.message.slice(0, 4000) : 'Error desconocido'
 }
 
 /* ------------------------------------------------------------------ */

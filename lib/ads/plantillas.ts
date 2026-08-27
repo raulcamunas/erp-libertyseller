@@ -250,34 +250,51 @@ export const PLANTILLAS: Plantilla[] = [
   {
     id: 'cuota_impresiones_termino',
     nombre: 'Cuota de impresiones por término',
-    descripcion: 'Cuota de impresiones de los términos de búsqueda.',
+    descripcion: 'Cuota de impresiones de los términos de búsqueda. Solo Sponsored Brands.',
     variantes: [
       {
-        reportTypeId: 'spSearchTerm',
-        adProduct: 'SPONSORED_PRODUCTS',
+        /**
+         * SPONSORED BRANDS Y NO PRODUCTS, y no es un capricho.
+         *
+         * `searchTermImpressionShare` y `searchTermImpressionRank` NO existen en
+         * `spSearchTerm`: Amazon las rechaza con un 400 y su lista de columnas
+         * admitidas no las incluye. Comprobado contra la cuenta real, no
+         * deducido de la documentación.
+         *
+         * Donde sí viven es en el informe de términos de Sponsored Brands. Si la
+         * cuenta no tiene campañas de Brands, esta pestaña sale vacía — que es la
+         * respuesta correcta y se ve en la portada, no un error.
+         */
+        reportTypeId: 'sbSearchTerm',
+        adProduct: 'SPONSORED_BRANDS',
         groupBy: ['searchTerm'],
         columns: [
           'campaignName',
           'searchTerm',
-          'keyword',
           'impressions',
+          'clicks',
+          'cost',
           'searchTermImpressionShare',
           'searchTermImpressionRank',
         ],
-        hoja: 'Cuota término SP',
+        hoja: 'Cuota término SB',
       },
     ],
   },
   {
     id: 'audiencia',
     nombre: 'Audiencia',
-    descripcion: 'Métricas por audiencia.',
+    descripcion: 'Segmentación de Sponsored Display: audiencias y productos.',
     variantes: [
       {
         reportTypeId: 'sdTargeting',
         adProduct: 'SPONSORED_DISPLAY',
         groupBy: ['targeting'],
-        columns: ['campaignName', 'adGroupName', 'targeting', 'impressions', 'clicks', 'cost'],
+        // SIN `targeting`: Amazon la rechaza en este informe («invalid values:
+        // (targeting)»), aunque sea justo el nombre del agrupamiento. Es de las
+        // cosas de esta API que no se pueden deducir — el agrupamiento y la
+        // columna no se llaman igual.
+        columns: ['campaignName', 'adGroupName', 'impressions', 'clicks', 'cost'],
         hoja: 'Audiencia SD',
       },
     ],
