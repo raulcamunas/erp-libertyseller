@@ -75,6 +75,18 @@ export interface ConfigBuyBox {
    * trabajo programado no se acuerda de pasar parámetros.
    */
   foepActivo: boolean
+  /**
+   * false = no se diagnostica por qué se pierde la Buy Box.
+   *
+   * Es la fase 3 del trabajo y la que llena `amazon_buybox_diagnostico`. Se
+   * apagó porque no se usa con los clientes, y porque para saber si se pierde la
+   * oferta N lecturas seguidas hay que GUARDAR N lecturas seguidas — y ese
+   * historial era una de las tablas que reventó la cuota de la base.
+   *
+   * Apagarlo NO quita saber quién tiene la Buy Box: eso es la fase 1, es barata
+   * y sigue encendida.
+   */
+  diagnosticoActivo: boolean
   ofertasGuardadas: number
   margenMinimoPct: number | null
   deltaFoep: number | null
@@ -126,6 +138,7 @@ export const CONFIG_BUYBOX_DEFECTO: Omit<ConfigBuyBox, 'clientId'> = {
   // Encendido por defecto: apagarlo es una decisión con datos delante, y quien
   // no la haya tomado tiene que recibir el dato, no la ausencia de él.
   foepActivo: true,
+  diagnosticoActivo: true,
   ofertasGuardadas: 10,
   margenMinimoPct: null,
   deltaFoep: null,
@@ -179,6 +192,9 @@ export async function configDeCliente(clientId: string): Promise<ConfigBuyBox> {
     // `undefined` y tiene que leerse como encendido, que es el estado de
     // siempre. Un hueco no puede apagar una fase entera en silencio.
     foepActivo: fila.foep_activo !== false,
+    // Mismo criterio que arriba: un hueco se lee como encendido, que es el
+    // estado de siempre. Una columna que no existe no puede apagar una fase.
+    diagnosticoActivo: fila.diagnostico_activo !== false,
     ofertasGuardadas: entero(fila.ofertas_guardadas) ?? 10,
     margenMinimoPct: numero(fila.margen_minimo_pct),
     deltaFoep: numero(fila.delta_foep),
@@ -228,6 +244,8 @@ export async function guardarConfig(
   if (cambios.foepMaxPorNoche !== undefined) fila.foep_max_por_noche = cambios.foepMaxPorNoche
   if (cambios.foepColaActiva !== undefined) fila.foep_cola_activa = cambios.foepColaActiva
   if (cambios.foepActivo !== undefined) fila.foep_activo = cambios.foepActivo
+  if (cambios.diagnosticoActivo !== undefined)
+    fila.diagnostico_activo = cambios.diagnosticoActivo
   if (cambios.ofertasGuardadas !== undefined) fila.ofertas_guardadas = cambios.ofertasGuardadas
   if (cambios.margenMinimoPct !== undefined) fila.margen_minimo_pct = cambios.margenMinimoPct
   if (cambios.deltaFoep !== undefined) fila.delta_foep = cambios.deltaFoep

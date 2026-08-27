@@ -319,6 +319,29 @@ async function relojFoep(
 }
 
 /** ¿Se ha pedido saltarse el FOEP en este trabajo? */
+/**
+ * A dónde se va cuando termina una fase.
+ *
+ * Con el diagnóstico apagado, la fase 3 no existe y el trabajo se acaba aquí
+ * —`cursorSiguiente: null` y `hayMas: false`—. Está en una función y no repetido
+ * en los tres sitios que saltaban a «diagnostico» porque olvidarse de uno
+ * dejaría el trabajo dando vueltas en una fase que no procesa nada.
+ */
+function despuesDelFoep(config: ConfigBuyBox): {
+  claves: string[]
+  cursorSiguiente: string | null
+  hayMas: boolean
+} {
+  if (!config.diagnosticoActivo) {
+    return { claves: [], cursorSiguiente: null, hayMas: false }
+  }
+  return {
+    claves: [],
+    cursorSiguiente: escribirCursor({ ...CURSOR_INICIAL, fase: 'diagnostico' }),
+    hayMas: true,
+  }
+}
+
 function foepApagado(ctx: ContextoTarea, config: ConfigBuyBox): boolean {
   // Dos interruptores y ninguno sobra: el del trabajo es para una pasada suelta
   // —«esta vez sáltatelo, que corre prisa»— y el de la configuración es la
@@ -390,11 +413,15 @@ export const tareaSnapshotPrecios: Tarea = {
         // entiende como «este tramo no tenía nada, sigue por el cursor
         // siguiente»: avanza sin procesar y vuelve a llamar aquí ya en la fase
         // nueva. Es el cambio de fase más barato posible.
-        return {
-          claves: [],
-          cursorSiguiente: escribirCursor({ ...CURSOR_INICIAL, fase: 'foep' }),
-          hayMas: true,
-        }
+        // Con el FOEP apagado, la fase 2 solo sirve para pasar de largo. Se
+        // salta entera y se va a donde toque.
+        return entorno.config.foepActivo
+          ? {
+              claves: [],
+              cursorSiguiente: escribirCursor({ ...CURSOR_INICIAL, fase: 'foep' }),
+              hayMas: true,
+            }
+          : despuesDelFoep(entorno.config)
       }
       return {
         claves: tramo.listings.map((l) => l.sku),
@@ -406,11 +433,7 @@ export const tareaSnapshotPrecios: Tarea = {
     /* ---------------- Fase 2 · FOEP ---------------- */
     if (cursor.fase === 'foep') {
       if (foepApagado(ctx, entorno.config)) {
-        return {
-          claves: [],
-          cursorSiguiente: escribirCursor({ ...CURSOR_INICIAL, fase: 'diagnostico' }),
-          hayMas: true,
-        }
+        return despuesDelFoep(entorno.config)
       }
 
       const tope = entorno.config.foepMaxPorNoche
@@ -423,11 +446,7 @@ export const tareaSnapshotPrecios: Tarea = {
             'este cliente. El resto espera a la rotación siguiente; las lecturas de ofertas y el ' +
             'diagnóstico continúan.',
         })
-        return {
-          claves: [],
-          cursorSiguiente: escribirCursor({ ...CURSOR_INICIAL, fase: 'diagnostico' }),
-          hayMas: true,
-        }
+        return despuesDelFoep(entorno.config)
       }
 
       const cabe =
@@ -532,11 +551,7 @@ export const tareaSnapshotPrecios: Tarea = {
       }
 
       if (elegidos.length === 0 && !quedan) {
-        return {
-          claves: [],
-          cursorSiguiente: escribirCursor({ ...CURSOR_INICIAL, fase: 'diagnostico' }),
-          hayMas: true,
-        }
+        return despuesDelFoep(entorno.config)
       }
 
       if (elegidos.length === 0) {

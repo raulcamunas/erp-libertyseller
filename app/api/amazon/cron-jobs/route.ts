@@ -4,6 +4,7 @@ import { ejecutarJobs } from '@/lib/plataforma/motor'
 import { planificarRefrescos } from '@/lib/plataforma/planificador'
 import { registrarTareas } from '@/lib/plataforma/tareas'
 import { empujar } from '@/lib/ads/generador'
+import { limpiar } from '@/lib/plataforma/limpieza'
 
 /**
  * EL DISPARADOR DEL MOTOR DE TRABAJOS.
@@ -145,6 +146,29 @@ export async function POST(request: NextRequest) {
       console.error('[marketing] el empujón de los informes ha fallado:', error)
     }
 
+    /**
+     * ---------- Y la purga ----------
+     *
+     * Este ERP escribía sesenta mil filas al día y no borraba ninguna, hasta que
+     * la base se pasó del plan al 177 %. Ver lib/plataforma/limpieza.ts para qué
+     * se borra y por qué ese plazo y no otro.
+     *
+     * Va aquí por lo mismo que los informes: el cron ya corre cada minuto y
+     * añadir una línea al crontab obliga a reconstruir la imagen. Y en su propio
+     * try, porque una purga que falle no puede parar el motor.
+     */
+    let purga: Awaited<ReturnType<typeof limpiar>> | null = null
+    try {
+      purga = await limpiar()
+      const total = purga.reduce((a, b) => a + Math.max(0, b.borradas), 0)
+      if (total > 0) console.log(`[limpieza] ${total} filas retiradas`)
+      for (const r of purga) {
+        if (r.error) console.error(`[limpieza] ${r.tabla}: ${r.error}`)
+      }
+    } catch (error) {
+      console.error('[limpieza] la purga ha fallado:', error)
+    }
+
     // El detalle por trabajo NO viaja en la respuesta: la lee un
     // `curl -o /dev/null` del cron, y en la tabla de trabajos está entero.
     return NextResponse.json({
@@ -155,6 +179,7 @@ export async function POST(request: NextRequest) {
       errores: resultado.errores,
       duracionMs: resultado.duracionMs,
       marketing,
+      purga: purga?.filter((r) => r.borradas > 0 || r.error) ?? null,
     })
   } catch (error) {
     console.error('[plataforma] la pasada del motor de trabajos ha fallado entera:', error)
