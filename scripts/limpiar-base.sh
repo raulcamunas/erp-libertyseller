@@ -51,8 +51,13 @@ echo
 echo "  OJO: «Session pooler», no «Direct connection». La directa es solo IPv6"
 echo "  y este Mac no tiene IPv6: no llega a conectar."
 echo
-echo "  Sustituye [YOUR-PASSWORD] por tu contraseña antes de pegarla."
-echo "  No se va a ver mientras la escribes, y no se guarda en ningún sitio."
+echo "  Se pega la cadena ENTERA, no solo la contraseña. Tiene esta pinta:"
+echo
+echo "    postgresql://postgres.pqqrbjuefporiqgglatw:LA_CONTRASEÑA@aws-0-..."
+echo "    ...pooler.supabase.com:5432/postgres"
+echo
+echo "  En la que copies de Supabase, sustituye [YOUR-PASSWORD] por la tuya."
+echo "  No se va a ver mientras la pegas, y no se guarda en ningún sitio."
 echo
 printf "  URI: "
 read -rs URI
@@ -63,6 +68,35 @@ if [ -z "${URI}" ]; then
   echo "  No has pegado nada. Fuera."
   exit 1
 fi
+
+# ES LO QUE FALLA LA PRIMERA VEZ: se pega solo la contraseña.
+#
+# Y psql no ayuda nada — coge lo que le des como NOMBRE DE BASE DE DATOS, se va
+# al socket local, y contesta «database "Wlv0Zg..." does not exist». Ese mensaje
+# no dice en ningún sitio que lo que falta es media cadena, y encima te enseña la
+# contraseña por pantalla.
+case "$URI" in
+  postgresql://*|postgres://*) ;;
+  *)
+    echo "  Eso no es la cadena de conexión."
+    echo
+    echo "  Tiene que EMPEZAR por «postgresql://». Lo que has pegado parece solo"
+    echo "  la contraseña — es la mitad que va después de los dos puntos."
+    echo
+    echo "  En Supabase: Connect → Session pooler → Type: URI → copia el bloque"
+    echo "  entero, y ahí dentro cambia [YOUR-PASSWORD] por la tuya."
+    exit 1
+    ;;
+esac
+
+# Y el otro despiste: pegarla con [YOUR-PASSWORD] tal cual.
+case "$URI" in
+  *"[YOUR-PASSWORD]"*|*"[your-password]"*)
+    echo "  La cadena todavía lleva [YOUR-PASSWORD] dentro."
+    echo "  Sustituye ese trozo —corchetes incluidos— por tu contraseña."
+    exit 1
+    ;;
+esac
 
 # Un aviso que ahorra un cuarto de hora de pelea: el pooler de transacciones no
 # admite VACUUM, y el error que da no menciona el pooler por ningún lado.
