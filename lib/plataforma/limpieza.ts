@@ -72,7 +72,11 @@ const REGLAS: { tabla: string; columna: string; dias: number }[] = [
   { tabla: 'amazon_fees_estimados', columna: 'fecha', dias: 3 },
   { tabla: 'amazon_buybox_diagnostico', columna: 'fecha', dias: 3 },
   { tabla: 'amazon_eventos', columna: 'created_at', dias: 15 },
-  { tabla: 'cron_ejecuciones', columna: 'empezado_at', dias: 15 },
+  { tabla: 'cron_ejecuciones', columna: 'iniciado_at', dias: 15 },
+  // Los trabajos TERMINADOS. Los vivos no se tocan: `terminado_at` a null es
+  // justo lo que distingue «acabó hace un mes» de «está corriendo ahora», y
+  // borrar uno en marcha dejaría al motor sin saber por dónde iba.
+  { tabla: 'amazon_jobs', columna: 'terminado_at', dias: 15 },
 ]
 
 export interface ResultadoLimpieza {

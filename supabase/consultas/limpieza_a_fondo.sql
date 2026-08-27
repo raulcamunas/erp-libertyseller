@@ -20,7 +20,7 @@ UNION ALL SELECT 'amazon_snapshots_inventario',  count(*) FROM public.amazon_sna
 UNION ALL SELECT 'amazon_fees_estimados',        count(*) FROM public.amazon_fees_estimados        WHERE fecha < now() - interval '3 days'
 UNION ALL SELECT 'amazon_buybox_diagnostico',    count(*) FROM public.amazon_buybox_diagnostico    WHERE fecha < now() - interval '3 days'
 UNION ALL SELECT 'amazon_eventos',               count(*) FROM public.amazon_eventos               WHERE created_at < now() - interval '15 days'
-UNION ALL SELECT 'cron_ejecuciones',             count(*) FROM public.cron_ejecuciones             WHERE empezado_at < now() - interval '15 days'
+UNION ALL SELECT 'cron_ejecuciones',             count(*) FROM public.cron_ejecuciones             WHERE iniciado_at < now() - interval '15 days'
 ORDER BY se_borran DESC;
 
 
@@ -35,7 +35,7 @@ DELETE FROM public.amazon_snapshots_inventario WHERE fecha < now() - interval '3
 DELETE FROM public.amazon_fees_estimados     WHERE fecha < now() - interval '3 days';
 DELETE FROM public.amazon_buybox_diagnostico WHERE fecha < now() - interval '3 days';
 DELETE FROM public.amazon_eventos            WHERE created_at < now() - interval '15 days';
-DELETE FROM public.cron_ejecuciones          WHERE empezado_at < now() - interval '15 days';
+DELETE FROM public.cron_ejecuciones          WHERE iniciado_at < now() - interval '15 days';
 
 
 -- ══════════════════ 3 · DEVOLVER EL ESPACIO ══════════════════
@@ -65,3 +65,18 @@ VACUUM FULL public.amazon_listings;
 
 -- Y el resultado
 SELECT pg_size_pretty(pg_database_size(current_database())) AS base_despues;
+
+
+-- ══════════════════ 4 · LOS TRABAJOS TERMINADOS ══════════════════
+-- Aparte de los bloques de arriba porque aqui la condicion NO es solo la fecha:
+-- `terminado_at IS NULL` es un trabajo VIVO, y borrar uno en marcha dejaria al
+-- motor sin saber por donde iba. Solo caen los que ya acabaron.
+
+SELECT count(*) AS trabajos_terminados_viejos
+FROM public.amazon_jobs
+WHERE terminado_at IS NOT NULL AND terminado_at < now() - interval '15 days';
+
+DELETE FROM public.amazon_jobs
+WHERE terminado_at IS NOT NULL AND terminado_at < now() - interval '15 days';
+
+VACUUM FULL public.amazon_jobs;
