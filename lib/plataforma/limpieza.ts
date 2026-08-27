@@ -7,15 +7,33 @@
  * exageración, es lo que había el 27 de agosto de 2026 cuando la base se pasó
  * del plan gratis al 177 %:
  *
- *     amazon_snapshots_bsr        335.711 filas en 17 días   ~20.200/día
- *     amazon_snapshots_precio     242.867 filas en 13 días   ~18.800/día
- *     amazon_buybox_diagnostico   128.494 filas
- *     amazon_listings             113.746 filas (el espejo; no crece con el tiempo)
- *     amazon_fees_estimados        40.526 filas en  2 días   ~22.100/día
- *     amazon_eventos               28.460 filas en 18 días    ~1.600/día
+ *     amazon_snapshots_precio     ~149.000 filas AL DÍA
+ *     amazon_snapshots_bsr        ~110.000 filas AL DÍA
+ *     amazon_buybox_diagnostico    ~77.000 filas AL DÍA
+ *     amazon_fees_estimados        ~30.000 filas AL DÍA
  *
- * Con ese ritmo no se llena el plan gratis: se llena cualquier plan. El de ocho
- * gigas aguantaría unos meses y volvería a pasar exactamente lo mismo.
+ * TRESCIENTAS SESENTA MIL AL DÍA. Y esa cifra hay que mirarla sabiendo de dónde
+ * sale: el 75 % es de UN cliente. KeslemShop tiene 102.954 referencias en cuatro
+ * países, y cada pasada de cada trabajo escribe una fila POR REFERENCIA.
+ *
+ *     BSR           205.279 de 243.535 son suyas   (84 %)
+ *     precios       182.852 de 265.120             (69 %)
+ *     diagnostico    91.508 de 137.678             (66 %)
+ *
+ * Con ese ritmo no se llena el plan gratis: se llena cualquier plan.
+ *
+ *
+ * ============ Y LA RETENCIÓN SOLA NO LO ARREGLA ============
+ *
+ * Esto se descubrió purgando: después de retirar TODO lo de más de tres días, la
+ * base seguía en 802 MB y las tablas casi igual de llenas. Porque a 360.000
+ * filas al día, tres días son un millón de filas — la retención estaba haciendo
+ * su trabajo y aun así no cabía.
+ *
+ * Los plazos de abajo bajan a uno o dos días, que es DOS PASADAS del trabajo que
+ * escribe cada tabla. Pero lo que de verdad decide es cuánto se escribe, y eso
+ * se decide APAGANDO TRABAJOS en Ingesta, cliente por cliente. Un trabajo que
+ * mide algo que nadie mira cuesta lo mismo que uno que sirve.
  *
  *
  * ============ CADA PLAZO SALE DE QUIÉN LEE ESA TABLA ============
@@ -68,11 +86,13 @@ import { createServiceClient } from '@/lib/supabase/service'
 
 /** Qué se purga, cuántos días se guardan, y por qué columna se mide */
 const REGLAS: { tabla: string; columna: string; dias: number }[] = [
-  { tabla: 'amazon_snapshots_precio', columna: 'fecha', dias: 3 },
-  { tabla: 'amazon_snapshots_bsr', columna: 'fecha', dias: 3 },
-  { tabla: 'amazon_snapshots_inventario', columna: 'fecha', dias: 3 },
-  { tabla: 'amazon_fees_estimados', columna: 'fecha', dias: 3 },
-  { tabla: 'amazon_buybox_diagnostico', columna: 'fecha', dias: 3 },
+  // Cada plazo es DOS PASADAS del trabajo que la escribe, ni una más. Ver la
+  // nota de arriba: con este volumen, un día de más son cien mil filas.
+  { tabla: 'amazon_snapshots_precio', columna: 'fecha', dias: 1 },
+  { tabla: 'amazon_snapshots_bsr', columna: 'fecha', dias: 2 },
+  { tabla: 'amazon_snapshots_inventario', columna: 'fecha', dias: 2 },
+  { tabla: 'amazon_fees_estimados', columna: 'fecha', dias: 2 },
+  { tabla: 'amazon_buybox_diagnostico', columna: 'fecha', dias: 1 },
   { tabla: 'amazon_eventos', columna: 'created_at', dias: 15 },
   { tabla: 'cron_ejecuciones', columna: 'iniciado_at', dias: 15 },
   // Los trabajos TERMINADOS. Los vivos no se tocan: `terminado_at` a null es
