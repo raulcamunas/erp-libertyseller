@@ -156,11 +156,15 @@ borrar_en_tandas() {
 
 echo "  BORRANDO"
 echo "  --------"
-borrar_en_tandas amazon_snapshots_bsr        "fecha < now() - interval '3 days'"
-borrar_en_tandas amazon_snapshots_precio     "fecha < now() - interval '3 days'"
-borrar_en_tandas amazon_buybox_diagnostico   "fecha < now() - interval '3 days'"
-borrar_en_tandas amazon_snapshots_inventario "fecha < now() - interval '3 days'"
-borrar_en_tandas amazon_fees_estimados       "fecha < now() - interval '3 days'"
+# LOS PLAZOS SON LOS DE lib/plataforma/limpieza.ts, y tienen que seguir siéndolo.
+# Si aquí dice tres días y allí uno, este script no borra lo que la purga sí
+# borraría, y el resultado es el que se vio: todo «listo» sin retirar una fila y
+# la base subiendo. Cada plazo es dos pasadas del trabajo que escribe esa tabla.
+borrar_en_tandas amazon_snapshots_precio     "fecha < now() - interval '1 day'"
+borrar_en_tandas amazon_buybox_diagnostico   "fecha < now() - interval '1 day'"
+borrar_en_tandas amazon_snapshots_bsr        "fecha < now() - interval '2 days'"
+borrar_en_tandas amazon_snapshots_inventario "fecha < now() - interval '2 days'"
+borrar_en_tandas amazon_fees_estimados       "fecha < now() - interval '2 days'"
 borrar_en_tandas amazon_eventos              "created_at < now() - interval '15 days'"
 borrar_en_tandas cron_ejecuciones            "iniciado_at < now() - interval '15 days'"
 # `terminado_at IS NULL` es un trabajo VIVO: borrarlo dejaría al motor sin saber
