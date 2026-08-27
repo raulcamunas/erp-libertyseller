@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { ejecutarJobs } from '@/lib/plataforma/motor'
 import { planificarRefrescos } from '@/lib/plataforma/planificador'
 import { registrarTareas } from '@/lib/plataforma/tareas'
+import { empujar } from '@/lib/ads/generador'
 
 /**
  * EL DISPARADOR DEL MOTOR DE TRABAJOS.
@@ -125,6 +126,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    /**
+     * ---------- Y de paso, los informes de marketing ----------
+     *
+     * Van aquí y no en un cron propio porque son la misma clase de problema:
+     * algo que tarda minutos, que no cabe en una petición, y que hay que ir
+     * empujando hasta que termine. Añadir una línea al crontab del contenedor
+     * obliga a reconstruir la imagen; esto sale gratis y corre cada minuto.
+     *
+     * SU FALLO NO PUEDE TUMBAR EL MOTOR, que es lo que de verdad importa aquí:
+     * si Amazon Ads está caído, el ciclo de catálogo y el de stock tienen que
+     * seguir. Por eso va en su propio try y solo deja una línea en el registro.
+     */
+    let marketing: Awaited<ReturnType<typeof empujar>> | null = null
+    try {
+      marketing = await empujar(6)
+    } catch (error) {
+      console.error('[marketing] el empujón de los informes ha fallado:', error)
+    }
+
     // El detalle por trabajo NO viaja en la respuesta: la lee un
     // `curl -o /dev/null` del cron, y en la tabla de trabajos está entero.
     return NextResponse.json({
@@ -134,6 +154,7 @@ export async function POST(request: NextRequest) {
       terminados: resultado.terminados,
       errores: resultado.errores,
       duracionMs: resultado.duracionMs,
+      marketing,
     })
   } catch (error) {
     console.error('[plataforma] la pasada del motor de trabajos ha fallado entera:', error)

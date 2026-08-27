@@ -181,8 +181,8 @@ export const apps: AppConfig[] = [
     // reutilizar su id le daría acceso a este módulo a quien tuviera aquel
     // permiso suelto en user_app_permissions.
     id: 'marketing-ads',
-    name: 'Marketing',
-    description: 'Revisión semanal de las campañas de Amazon Ads',
+    name: 'Informes Marketing',
+    description: 'Los informes de Amazon Ads de un cliente, en Excel',
     icon: Megaphone,
     route: '/dashboard/marketing-ads',
     status: 'new',
