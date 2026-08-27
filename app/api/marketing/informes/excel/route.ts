@@ -118,7 +118,13 @@ export async function GET(request: NextRequest) {
         Pestaña: parte.hoja,
         Estado: filas.length > MAX_FILAS ? `CORTADO en ${MAX_FILAS}` : 'OK',
         Filas: filas.length,
-        Detalle: filas.length > MAX_FILAS ? 'Excel no admite más filas por hoja' : '',
+        // En una parte que salió bien, `error` no es un error: es la nota de qué
+        // columnas podó Amazon. Va aquí porque una pestaña a la que le faltan dos
+        // columnas y no lo dice se lee como completa.
+        Detalle:
+          filas.length > MAX_FILAS
+            ? 'Excel no admite más filas por hoja'
+            : (parte.error ?? ''),
       })
     } catch (e) {
       portada.push({

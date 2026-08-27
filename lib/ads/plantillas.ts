@@ -43,15 +43,44 @@ export type ProductoAds =
   | 'SPONSORED_DISPLAY'
   | 'SPONSORED_TELEVISION'
 
-/** Métricas que valen para casi todo lo de publicidad patrocinada */
+/**
+ * MÉTRICAS · SE PIDE TODO LO QUE PODRÍA EXISTIR, Y AMAZON PODA.
+ *
+ * Esta lista es deliberadamente ambiciosa, y eso solo se puede hacer desde que
+ * `pedirPodando()` quita las columnas que Amazon rechaza y vuelve a pedir. La v3
+ * no tiene forma de preguntar qué admite cada informe —y su documentación es una
+ * SPA que no se deja leer—, pero cuando rechaza algo contesta con la lista
+ * completa de lo que sí acepta. O sea que la API se documenta sola, pero solo si
+ * le pides de más.
+ *
+ * Antes esto obligaba a ser conservador: una columna de más y perdías la pestaña
+ * entera. Ahora una columna de más es una columna menos y una nota en la portada.
+ *
+ * LAS DOS DE «SAME SKU» SON LAS QUE MÁS FALTAN y por eso están: separan lo que
+ * se vendió DEL PRODUCTO ANUNCIADO de lo que se vendió de otros. Sin esa
+ * separación, un ACOS bueno puede venir de que el anuncio empuja a un producto
+ * distinto — y eso cambia la decisión.
+ */
 const METRICAS = [
   'impressions',
   'clicks',
   'cost',
   'purchases7d',
+  'purchasesSameSku7d',
   'sales7d',
+  'attributedSalesSameSku7d',
+  'salesOtherSku7d',
   'unitsSoldClicks7d',
+  'unitsSoldSameSku7d',
+  'clickThroughRate',
+  'costPerClick',
+  'roasClicks7d',
+  'acosClicks7d',
 ] as const
+
+/** Los identificadores. Sin ellos no se puede cruzar nada entre pestañas */
+const IDS_CAMPANA = ['campaignId', 'campaignName', 'campaignStatus'] as const
+const IDS_GRUPO = ['adGroupId', 'adGroupName'] as const
 
 export interface Variante {
   /** El tipo de informe de la v3, tal cual lo espera Amazon */
@@ -97,10 +126,13 @@ export const PLANTILLAS: Plantilla[] = [
         adProduct: 'SPONSORED_PRODUCTS',
         groupBy: ['campaign'],
         columns: [
-          'campaignId',
-          'campaignName',
-          'campaignStatus',
+          ...IDS_CAMPANA,
           'campaignBudgetAmount',
+          'campaignBudgetType',
+          'campaignBudgetCurrencyCode',
+          'campaignRuleBasedBudgetAmount',
+          'campaignApplicableBudgetRuleName',
+          'topOfSearchImpressionShare',
           ...METRICAS,
         ],
         hoja: 'Campaña SP',
@@ -109,14 +141,14 @@ export const PLANTILLAS: Plantilla[] = [
         reportTypeId: 'sbCampaigns',
         adProduct: 'SPONSORED_BRANDS',
         groupBy: ['campaign'],
-        columns: ['campaignId', 'campaignName', 'campaignStatus', 'impressions', 'clicks', 'cost'],
+        columns: [...IDS_CAMPANA, 'campaignBudgetAmount', 'campaignBudgetType', ...METRICAS],
         hoja: 'Campaña SB',
       },
       {
         reportTypeId: 'sdCampaigns',
         adProduct: 'SPONSORED_DISPLAY',
         groupBy: ['campaign'],
-        columns: ['campaignId', 'campaignName', 'campaignStatus', 'impressions', 'clicks', 'cost'],
+        columns: [...IDS_CAMPANA, 'campaignBudgetAmount', 'campaignBudgetType', ...METRICAS],
         hoja: 'Campaña SD',
       },
     ],
@@ -131,10 +163,12 @@ export const PLANTILLAS: Plantilla[] = [
         adProduct: 'SPONSORED_PRODUCTS',
         groupBy: ['advertiser'],
         columns: [
-          'campaignName',
-          'adGroupName',
+          ...IDS_CAMPANA,
+          ...IDS_GRUPO,
+          'adId',
           'advertisedAsin',
           'advertisedSku',
+          'spend',
           ...METRICAS,
         ],
         hoja: 'Producto anunciado SP',
@@ -143,7 +177,7 @@ export const PLANTILLAS: Plantilla[] = [
         reportTypeId: 'sdAdvertisedProduct',
         adProduct: 'SPONSORED_DISPLAY',
         groupBy: ['advertiser'],
-        columns: ['campaignName', 'adGroupName', 'promotedAsin', 'promotedSku', 'impressions', 'clicks', 'cost'],
+        columns: [...IDS_CAMPANA, ...IDS_GRUPO, 'promotedAsin', 'promotedSku', ...METRICAS],
         hoja: 'Producto anunciado SD',
       },
     ],
@@ -158,12 +192,15 @@ export const PLANTILLAS: Plantilla[] = [
         adProduct: 'SPONSORED_PRODUCTS',
         groupBy: ['asin'],
         columns: [
-          'campaignName',
-          'adGroupName',
+          ...IDS_CAMPANA,
+          ...IDS_GRUPO,
           'advertisedAsin',
           'purchasedAsin',
           'sales7d',
+          'salesOtherSku7d',
+          'attributedSalesSameSku7d',
           'unitsSoldClicks7d',
+          'unitsSoldSameSku7d',
         ],
         hoja: 'Producto convertido SP',
       },
@@ -179,13 +216,19 @@ export const PLANTILLAS: Plantilla[] = [
         adProduct: 'SPONSORED_PRODUCTS',
         groupBy: ['targeting'],
         columns: [
-          'campaignName',
-          'adGroupName',
+          ...IDS_CAMPANA,
+          ...IDS_GRUPO,
           'keywordId',
           'keyword',
           'keywordType',
           'matchType',
           'targeting',
+          // LA PUJA Y EL ESTADO son lo que convierte esta pestaña en accionable:
+          // sin ellas se ve qué rinde mal, pero no desde qué puja ni si ya está
+          // pausada. Con ellas se puede decir «baja de 0,80 a 0,55».
+          'keywordBid',
+          'adKeywordStatus',
+          'topOfSearchImpressionShare',
           ...METRICAS,
         ],
         hoja: 'Segmentación SP',
@@ -202,11 +245,15 @@ export const PLANTILLAS: Plantilla[] = [
         adProduct: 'SPONSORED_PRODUCTS',
         groupBy: ['searchTerm'],
         columns: [
-          'campaignName',
-          'adGroupName',
+          ...IDS_CAMPANA,
+          ...IDS_GRUPO,
           'searchTerm',
+          'keywordId',
           'keyword',
+          'keywordType',
           'matchType',
+          'keywordBid',
+          'adKeywordStatus',
           ...METRICAS,
         ],
         hoja: 'Término búsqueda SP',
@@ -222,7 +269,13 @@ export const PLANTILLAS: Plantilla[] = [
         reportTypeId: 'spCampaigns',
         adProduct: 'SPONSORED_PRODUCTS',
         groupBy: ['campaignPlacement'],
-        columns: ['campaignName', 'placementClassification', ...METRICAS],
+        columns: [
+          ...IDS_CAMPANA,
+          'placementClassification',
+          'campaignBudgetAmount',
+          'topOfSearchImpressionShare',
+          ...METRICAS,
+        ],
         hoja: 'Emplazamiento SP',
       },
     ],
@@ -237,11 +290,14 @@ export const PLANTILLAS: Plantilla[] = [
         adProduct: 'SPONSORED_PRODUCTS',
         groupBy: ['targeting'],
         columns: [
-          'campaignName',
+          ...IDS_CAMPANA,
+          ...IDS_GRUPO,
+          'keywordId',
           'keyword',
           'matchType',
-          'impressions',
+          'keywordBid',
           'topOfSearchImpressionShare',
+          ...METRICAS,
         ],
         hoja: 'Cuota top SP',
       },
@@ -269,13 +325,13 @@ export const PLANTILLAS: Plantilla[] = [
         adProduct: 'SPONSORED_BRANDS',
         groupBy: ['searchTerm'],
         columns: [
-          'campaignName',
+          ...IDS_CAMPANA,
           'searchTerm',
-          'impressions',
-          'clicks',
-          'cost',
+          'keywordText',
+          'matchType',
           'searchTermImpressionShare',
           'searchTermImpressionRank',
+          ...METRICAS,
         ],
         hoja: 'Cuota término SB',
       },
@@ -294,7 +350,14 @@ export const PLANTILLAS: Plantilla[] = [
         // (targeting)»), aunque sea justo el nombre del agrupamiento. Es de las
         // cosas de esta API que no se pueden deducir — el agrupamiento y la
         // columna no se llaman igual.
-        columns: ['campaignName', 'adGroupName', 'impressions', 'clicks', 'cost'],
+        columns: [
+          ...IDS_CAMPANA,
+          ...IDS_GRUPO,
+          'targetingText',
+          'targetingExpression',
+          'targetingType',
+          ...METRICAS,
+        ],
         hoja: 'Audiencia SD',
       },
     ],

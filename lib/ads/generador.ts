@@ -213,13 +213,20 @@ export async function empujar(tope = 6): Promise<Empujon> {
         }
         presupuesto -= 1
         try {
-          const reportId = await pedir(perfil, parte, inf.desde, inf.hasta)
+          const { reportId, podadas } = await pedirPodando(perfil, parte, inf.desde, inf.hasta)
           await service
             .from('marketing_informe_partes')
             .update({
               report_id: reportId,
               estado: 'pedido',
-              error: null,
+              // Las podadas NO son un error: el informe sale. Pero se guardan
+              // aquí y salen en la portada del Excel, porque una pestaña a la
+              // que le faltan dos columnas sin decirlo se lee como completa.
+              error:
+                podadas.length > 0
+                  ? `Amazon no admite estas columnas en este informe y se han quitado: ${podadas.join(', ')}`
+                  : null,
+              columnas: parte.columnas.filter((c) => !podadas.includes(c)),
               actualizado_at: new Date().toISOString(),
             })
             .eq('id', parte.id)
@@ -332,11 +339,59 @@ function mensaje(e: unknown): string {
 /* Las tres llamadas a Amazon                                          */
 /* ------------------------------------------------------------------ */
 
-async function pedir(
+/**
+ * SE PIDE, Y SI AMAZON RECHAZA COLUMNAS SE QUITAN Y SE VUELVE A PEDIR.
+ *
+ * Esta es la pieza que permite ser AMBICIOSO con las columnas. La v3 no tiene
+ * forma de preguntar «¿qué admite este informe?» —y su documentación es una SPA
+ * que no se deja leer— pero cuando rechaza algo contesta así:
+ *
+ *     configuration columns includes invalid values: (targeting).
+ *     Allowed values: (date, viewabilityRate, unitsSold, …)
+ *
+ * O sea que la API SÍ se documenta, pero solo cuando le pides algo mal. Así que
+ * el catálogo pide TODO lo que podría existir para ese tipo de informe, y lo que
+ * no exista lo poda Amazon y se vuelve a pedir sin ello.
+ *
+ * Antes esto era un 400 y una pestaña menos en el Excel. Ahora es una pestaña
+ * con dos columnas menos y una nota diciendo cuáles se cayeron.
+ *
+ * UNA SOLA REPESCA. Si al quitar las que dijo sigue fallando, ya no es cosa de
+ * las columnas y reintentar en bucle solo gasta cupo.
+ */
+async function pedirPodando(
   perfil: Perfil,
   parte: FilaParte,
   desde: string,
   hasta: string
+): Promise<{ reportId: string; podadas: string[] }> {
+  try {
+    return { reportId: await pedir(perfil, parte, desde, hasta, parte.columnas), podadas: [] }
+  } catch (error) {
+    const cuerpo = error instanceof AdsError ? (error.cuerpo ?? error.message) : ''
+    const malas = /invalid values:\s*\(([^)]*)\)/i.exec(cuerpo)?.[1]
+    if (!malas) throw error
+
+    const fuera = malas.split(',').map((c) => c.trim()).filter(Boolean)
+    const quedan = parte.columnas.filter((c) => !fuera.includes(c))
+
+    // Si no queda ninguna dimensión que pedir, el informe no tiene sentido y es
+    // mejor el error de Amazon que un fichero con una columna de fechas sola.
+    if (quedan.length < 2) throw error
+
+    return {
+      reportId: await pedir(perfil, parte, desde, hasta, quedan),
+      podadas: fuera,
+    }
+  }
+}
+
+async function pedir(
+  perfil: Perfil,
+  parte: FilaParte,
+  desde: string,
+  hasta: string,
+  columnas: string[]
 ): Promise<string> {
   const cuerpo = {
     name: `${parte.plantilla} ${desde} ${hasta}`,
@@ -345,7 +400,7 @@ async function pedir(
     configuration: {
       adProduct: parte.ad_product,
       groupBy: gruposDe(parte),
-      columns: parte.columnas,
+      columns: columnas,
       reportTypeId: parte.report_type_id,
       timeUnit: 'SUMMARY',
       format: 'GZIP_JSON',
