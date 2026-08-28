@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
@@ -387,11 +387,46 @@ export function PanelEjecuciones({
           </div>
 
           <div className="flex-1 overflow-auto min-w-0">
-            {visibles.map((e) => {
+            {visibles.map((e, i) => {
               const activa = e.id === seleccionada
+
+              /**
+               * LOS HUECOS DEL HISTORIAL, EXPLICADOS DONDE SE VEN.
+               *
+               * El ciclo NO escribe fila cuando una pasada falla con el mismo
+               * mensaje que la anterior. Está hecho a propósito —si no, un error
+               * repetido llena la lista con noventa y seis copias al día y
+               * entierra todo lo demás— pero tiene un efecto que nadie previó:
+               * en el historial quedan saltos de dos horas y media, y eso se lee
+               * como «el ciclo no se está ejecutando».
+               *
+               * El aviso de arriba solo sale MIENTRAS está fallando. En cuanto
+               * se recupera desaparece, y los huecos se quedan ahí sin que nada
+               * diga de qué son.
+               *
+               * Así que se dice aquí, entre las dos filas: cuántas pasadas
+               * faltan y por qué. Se calcula con la cadencia del perfil, no con
+               * un número fijo — a 15 minutos y a 120 el mismo salto significa
+               * cosas muy distintas.
+               */
+              const siguiente = visibles[i + 1]
+              const cadencia =
+                (perfiles.find((p) => p.name === e.perfil_nombre) ?? (perfiles.length === 1 ? perfiles[0] : undefined))
+                  ?.cadencia_minutos ?? null
+              let hueco: number | null = null
+              if (siguiente && cadencia && cadencia > 0) {
+                const minutos = Math.round(
+                  (Date.parse(e.created_at) - Date.parse(siguiente.created_at)) / 60_000
+                )
+                // Milésima y media de la cadencia: por debajo de eso es el
+                // margen normal del cron, no un hueco.
+                const faltan = Math.round(minutos / cadencia) - 1
+                if (minutos > cadencia * 1.5 && faltan >= 1) hueco = faltan
+              }
+
               return (
+                <Fragment key={e.id}>
                 <button
-                  key={e.id}
                   type="button"
                   onClick={() => setSeleccionada(e.id)}
                   className={`w-full text-left px-3 py-2 border-b border-white/[0.04] transition-colors ${
@@ -444,8 +479,17 @@ export function PanelEjecuciones({
                     </p>
                   )}
                 </button>
-              )
-            })}
+                {hueco !== null && (
+                  <div className="px-3 py-1.5 border-b border-white/[0.04] bg-white/[0.015] text-[10.5px] leading-relaxed text-white/35">
+                    {hueco === 1 ? 'Falta 1 pasada' : `Faltan ${hueco} pasadas`} entre estas dos. El
+                    ciclo sí entró: cuando una pasada falla con el MISMO mensaje que la anterior no
+                    escribe fila, para que un error repetido no llene el historial con la misma
+                    línea. El motivo está en la fila de abajo.
+                  </div>
+                )}
+                </Fragment>
+                )
+              })}
             {visibles.length === 0 && (
               <p className="text-[12px] text-white/30 text-center py-8 px-4">
                 Ninguna de las {ejecuciones.length} ejecuciones mandó cambios.
