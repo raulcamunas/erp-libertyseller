@@ -937,7 +937,14 @@ function FilaConexion({
           </Linea>
         )}
 
-        {conn.last_sync_truncated && rancias === 0 && (
+        {/* SIN `rancias === 0` DELANTE, A PROPÓSITO.
+            Antes esta línea decía «todo al día» cuando el contador de rancias
+            estaba a cero — y ese contador mira `last_seen_at`, que con el
+            barrido completo solo avanza en las mil primeras por orden de SKU.
+            O sea que podía decir «todo al día» con el espejo congelado en el
+            resto del catálogo, que es exactamente lo que pasó con el SKU 47680.
+            Ahora explica cómo funciona y no promete nada. */}
+        {conn.last_sync_truncated && (
           // Sin triángulo y en color de contexto A PROPÓSITO. Esto no es un
           // aviso, es cómo funciona: ponerle el icono de alerta es lo que hacía
           // que se leyera como una avería.
@@ -946,7 +953,7 @@ function FilaConexion({
             {conn.last_sync_declared
               ? ` de las ${cifra(conn.last_sync_declared)} que declara Amazon`
               : ''}
-            ; del resto se encarga el censo del catálogo cada 6 horas. Todo al día.
+            ; del resto se encarga el censo del catálogo cada 6 horas.
           </p>
         )}
 

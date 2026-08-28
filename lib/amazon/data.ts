@@ -1244,47 +1244,29 @@ export async function syncConnectionCatalog(
     .eq('id', connectionId)
 
   /**
-   * ============ INCREMENTAL CUANDO EL BARRIDO COMPLETO NO CABE ============
+   * ============ SE BARRE ENTERO. SE INTENTÓ INCREMENTAL Y SALIÓ MAL ============
    *
-   * `searchListingsItems` pagina hasta 1.000 por país y ni uno más. Hasta ahora
-   * el ciclo pedía SIEMPRE el catálogo entero, ordenado por SKU ascendente, así
-   * que en un cliente de 5.000 referencias leía noventa y seis veces al día LAS
-   * MISMAS MIL PRIMERAS. Las otras cuatro mil no las tocaba nunca por esta vía.
+   * `searchListingsItems` pagina hasta 1.000 por país, así que en un cliente de
+   * 5.000 referencias este ciclo lee noventa y seis veces al día LAS MISMAS MIL
+   * PRIMERAS por orden de SKU. Eso es un desperdicio real y se intentó arreglar
+   * pidiendo solo lo cambiado con `lastUpdatedAfter`.
    *
-   * No estaban desatendidas —el censo del catálogo las trae enteras por el
-   * informe, cada seis horas— pero esas noventa y seis pasadas no aportaban
-   * nada de lo que no supiéramos ya.
+   * NO FUNCIONA, y el motivo hay que dejarlo escrito para que nadie lo vuelva a
+   * intentar: ese filtro va contra la fecha de modificación DEL LISTING, y un
+   * cambio de existencias no siempre la actualiza. Resultado: el barrido volvía
+   * casi vacío, el espejo se quedaba congelado, y el ciclo de stock comparaba
+   * contra unidades de hace dos días.
    *
-   * Con `lastUpdatedAfter` la pasada trae lo que HA CAMBIADO desde la última, y
-   * eso sí cubre el catálogo entero: son unas pocas decenas de referencias en
-   * vez de mil, y son las que importan.
+   * Se vio en el SKU 47680 —un portátil de 1.001 €—: Amazon lo tenía AGOTADO, el
+   * espejo decía 78 unidades, y el ciclo no mandaba nada porque para él ya
+   * coincidía. Un producto sin stock anunciándose como disponible es de los
+   * fallos más caros que puede tener este módulo, y no daba ni un error.
    *
-   * SOLO SE HACE DONDE EL COMPLETO YA NO CABÍA, y esa condición no es prudencia
-   * de más: donde el catálogo entra en 1.000, el barrido completo funciona y
-   * además es lo único que permite purgar lo que Amazon ha dejado de devolver
-   * (`purgeMissingListings` exige barrido completo). Cambiarlo ahí sería perder
-   * algo a cambio de nada. Donde ya venía truncado, la purga estaba desactivada
-   * de todas formas, así que no se pierde nada y se gana la cobertura.
-   *
-   * EL MARGEN DE DOS HORAS tampoco es al azar. La marca de agua es
-   * `last_sync_at`, que solo se escribe cuando la pasada termina bien; si una
-   * falla, la siguiente arranca desde la última buena. Las dos horas cubren
-   * además el desfase de reloj y el retardo con el que Amazon indexa un cambio
-   * propio — sin ellas, un cambio hecho justo en el corte se pierde para
-   * siempre y nada lo delata.
+   * Con el barrido completo el desperdicio vuelve, pero es un desperdicio
+   * conocido: las mil primeras se refrescan cada quince minutos y del resto se
+   * encarga el censo del catálogo cada seis horas, que lee el informe entero y sí
+   * trae las existencias.
    */
-  const MARGEN_MS = 2 * 3600_000
-  const incremental =
-    !options.updatedAfter &&
-    connection.last_sync_truncated === true &&
-    Boolean(connection.last_sync_at)
-
-  const desdeCuando = options.updatedAfter
-    ? options.updatedAfter
-    : incremental
-      ? new Date(Date.parse(connection.last_sync_at as string) - MARGEN_MS).toISOString()
-      : null
-
   for (const marketplaceId of marketplaces) {
     // Se anota ANTES de pedir nada: todo lo que el barrido vea se va a escribir
     // con un last_seen_at posterior a este instante, así que lo que se quede por
@@ -1294,7 +1276,7 @@ export async function syncConnectionCatalog(
     try {
       const catalogo = await fetchCatalog(credentials, {
         marketplaceId,
-        updatedAfter: desdeCuando,
+        updatedAfter: options.updatedAfter ?? null,
       })
 
       // El stock FBA solo se pide si hay algún listing FBA. Es la operación más
@@ -1317,7 +1299,7 @@ export async function syncConnectionCatalog(
         connectionId,
         marketplaceId,
         desde: inicioBarrido,
-        completo: !desdeCuando && !catalogo.truncated,
+        completo: !options.updatedAfter && !catalogo.truncated,
         leidos: catalogo.items.length,
       })
 
@@ -1387,19 +1369,8 @@ export async function syncConnectionCatalog(
   // refresca de verdad es el cron, que no tiene a nadie delante a quien
   // enseñarle un aviso, y sin persistirlo la pantalla presentaba 1.000
   // referencias como si fueran todas.
-  /**
-   * EN UNA PASADA INCREMENTAL, `declared` ES CUÁNTAS HAN CAMBIADO, NO CUÁNTAS
-   * HAY. Escribirlo encima diría «Amazon declara 12 referencias» en un cliente
-   * de cinco mil, y el aviso de catálogo incompleto desaparecería — no porque
-   * se hubiera arreglado nada, sino porque se habría borrado la única medida de
-   * lo que falta. Se conserva lo que dijo el último barrido completo.
-   */
-  const truncado = incremental
-    ? connection.last_sync_truncated === true
-    : results.some((r) => r.truncated)
-  const declarado = incremental
-    ? (connection.last_sync_declared ?? 0)
-    : results.reduce((sum, r) => sum + r.declared, 0)
+  const truncado = results.some((r) => r.truncated)
+  const declarado = results.reduce((sum, r) => sum + r.declared, 0)
 
   // SE COMPRUEBA EL ERROR A PROPÓSITO: supabase-js no lanza si falla. Esta
   // escritura es la que deja constancia de que el catálogo se quedó corto
@@ -1413,9 +1384,7 @@ export async function syncConnectionCatalog(
         ? { last_sync_error: fallo.error }
         : {
             last_sync_at: new Date().toISOString(),
-            // Igual que arriba: en incremental esto son las que se movieron, no
-            // las que hay. El recuento del catálogo sale de amazon_listings.
-            ...(incremental ? {} : { last_sync_items: total }),
+            last_sync_items: total,
             last_sync_error: null,
             last_sync_truncated: truncado,
             last_sync_declared: declarado,
