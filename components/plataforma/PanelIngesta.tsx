@@ -1569,7 +1569,29 @@ function PanelHorarios({
   if (horarios.length === 0) return null
 
   return (
-    <Panel titulo="Cada cuánto se actualiza cada dato" sinCuerpo>
+    <Panel titulo="Cada cuánto se actualiza cada dato · PARA TODOS LOS CLIENTES" sinCuerpo>
+      {/* ESTE AVISO NO ES DECORACIÓN, ES LA CICATRIZ DE UN APAGÓN.
+          Arriba de esta pantalla hay un selector de cliente, así que estos
+          interruptores parecen suyos. NO LO SON: `refresco_config` tiene una
+          fila por TIPO de trabajo y ninguna columna de cliente.
+          El 28 de agosto de 2026 se apagaron «las ingestas de Keslem» y se
+          apagaron las de los cinco clientes. Estuvieron los siete trabajos
+          parados un día entero sin que nada lo dijera: el censo del catálogo es
+          lo único que alcanza las referencias más allá de las 1.000 primeras, y
+          con él apagado el stock de un portátil de 1.001 € se quedó en 78
+          unidades mientras Amazon lo tenía agotado. */}
+      <div
+        className={`mx-[10px] mt-[8px] rounded-[6px] px-[10px] py-[6px] ${TIPO.s} leading-relaxed`}
+        style={{
+          color: COLOR_ESTADO.ambar,
+          border: `1px solid ${COLOR_ESTADO.ambar}44`,
+          background: `${COLOR_ESTADO.ambar}10`,
+        }}
+      >
+        <strong>Estos interruptores son GLOBALES.</strong> No dependen del cliente que tengas
+        elegido arriba: apagar uno lo apaga para todos los clientes a la vez. Para dejar de leer
+        los datos de UN cliente, desconecta su cuenta o apaga su perfil de origen, no esto.
+      </div>
       {/* ESTA LÍNEA EXISTE PORQUE LA PANTALLA CONFUNDÍA, Y CON RAZÓN.
           Hay dos horarios en el ERP con controles calcados en pestañas
           distintas, y sin decir cuál es cuál, «cada 5 minutos» en Sistema y
