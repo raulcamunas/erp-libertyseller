@@ -1871,6 +1871,62 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
   )
   const porClave = new Map(espejo.map((l) => [`${l.marketplace_id}|${l.sku}`, l]))
 
+  /**
+   * ---- 1 bis. LOS QUE AMAZON YA HA RECHAZADO UNA Y OTRA VEZ ----
+   *
+   * Un listing que Amazon no deja tocar no lo va a dejar tocar en la pasada
+   * siguiente. Y el ciclo de stock corre cada treinta minutos, así que sin este
+   * corte un solo SKU roto genera un rechazo cada media hora PARA SIEMPRE.
+   *
+   * No es teórico: el SKU 43535 —una tapa de webcam— acumulaba OCHENTA Y SIETE
+   * rechazos idénticos, todos con el mismo mensaje:
+   *
+   *     4000003 · El tipo de producto especificado por Amazon no es válido
+   *
+   * Su `listing_status` está vacío: ni BUYABLE ni DISCOVERABLE. Es un borrador
+   * sin terminar —de los 406 que ese cliente tiene en «Completar borradores»— y
+   * la Listings API no deja escribir en uno de esos. No hay tipo de producto que
+   * valga: hay que completar el listing en Seller Central.
+   *
+   * Lo que hacía el ERP era gastar cupo y enterrar los rechazos de verdad entre
+   * ochenta y siete copias del mismo. Ahora, a partir de CINCO rechazos con el
+   * mismo motivo en la última semana, el SKU se salta y se dice por qué.
+   *
+   * CINCO Y NO UNO: un rechazo suelto puede ser un listing a medio crear, un
+   * bloqueo temporal de Amazon o una carrera con otro cambio. Cinco seguidos con
+   * el mismo mensaje ya no es mala suerte.
+   */
+  const REINTENTOS_ANTES_DE_RENDIRSE = 5
+  const haceUnaSemana = new Date(Date.now() - 7 * 86_400_000).toISOString()
+  const rechazosPrevios = await fetchAll<{ sku: string; marketplace_id: string; field: string; error_message: string | null }>(
+    (a, b) =>
+      service
+        .from('amazon_submissions')
+        .select('sku, marketplace_id, field, error_message')
+        .eq('connection_id', input.connectionId)
+        .eq('status', 'invalido')
+        .gte('sent_at', haceUnaSemana)
+        .in('sku', skus)
+        .order('sku')
+        .order('id')
+        .range(a, b)
+  )
+  const veces = new Map<string, { n: number; motivo: string | null }>()
+  for (const r of rechazosPrevios) {
+    const clave = `${r.marketplace_id}|${r.sku}|${r.field}`
+    const y = veces.get(clave) ?? { n: 0, motivo: r.error_message }
+    y.n += 1
+    veces.set(clave, y)
+  }
+  const seRinde = (c: ChangeToSend): string | null => {
+    const y = veces.get(`${c.marketplaceId}|${c.sku}|${c.field}`)
+    if (!y || y.n < REINTENTOS_ANTES_DE_RENDIRSE) return null
+    return (
+      `Amazon lo ha rechazado ${y.n} veces con el mismo motivo, así que se deja de intentar. ` +
+      `Hay que arreglarlo en Seller Central. Último motivo: ${y.motivo ?? 'sin detalle'}`
+    )
+  }
+
   // ---- 2. El registro, antes de llamar a nadie ----
   const ahora = new Date().toISOString()
   interface Preparado {
@@ -1945,7 +2001,13 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
       submissionId: null,
     }
 
-    if (!listing || !listing.product_type) {
+    const rendido = seRinde(change)
+
+    if (rendido) {
+      // Ver la nota de «los que Amazon ya ha rechazado una y otra vez». No se
+      // llama a Amazon: el resultado se sabe y llamar solo gasta cupo.
+      outcome.message = rendido
+    } else if (!listing || !listing.product_type) {
       outcome.message =
         'No tenemos este SKU en el catálogo leído, o no conocemos su tipo de producto. Refresca el catálogo antes de enviarlo.'
     } else {
