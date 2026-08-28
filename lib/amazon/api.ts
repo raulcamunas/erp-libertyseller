@@ -112,6 +112,57 @@ export async function requireAmazonAdmin(): Promise<AmazonSession | NextResponse
   return { supabase, userId: user.id, role }
 }
 
+/**
+ * Como `requireAmazonAdmin`, pero admitiendo también a quien tenga concedida una
+ * app concreta.
+ *
+ * PARA QUÉ, Y POR QUÉ NO VALE EL DE ADMIN A SECAS.
+ *
+ * `requireAmazonAdmin` guarda las rutas que CAMBIAN cosas en la tienda de un
+ * cliente —precios, stock, ofertas— y ahí el listón de admin es el correcto.
+ * Pero hay pantallas que solo LEEN y que se reparten con el permiso de la app:
+ * los informes de publicidad los saca quien lleva las campañas, que no es el
+ * admin.
+ *
+ * Con el gate de admin en esas rutas pasaba algo que no parece un fallo de
+ * permisos: la app salía en el menú, la pantalla se abría, y todo lo que pedía
+ * contestaba 403. Se lee como «no va».
+ *
+ * El rol y el permiso se leen de la BASE con la sesión de quien llama, nunca del
+ * cuerpo de la petición: un {"role":"admin"} en el JSON no convierte a nadie en
+ * admin.
+ */
+export async function requireAppAccess(appId: string): Promise<AmazonSession | NextResponse> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return fail(401, 'Hay que iniciar sesión')
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  const role = profile?.role ?? 'employee'
+  if (role === 'admin' || role === 'partner') return { supabase, userId: user.id, role }
+
+  const { data: permiso } = await supabase
+    .from('user_app_permissions')
+    .select('can_access')
+    .eq('user_id', user.id)
+    .eq('app_id', appId)
+    .maybeSingle()
+
+  if (!permiso?.can_access) {
+    return fail(403, 'No tienes concedida esta aplicación. Pídesela a un administrador.')
+  }
+
+  return { supabase, userId: user.id, role }
+}
+
 /** Texto obligatorio del cuerpo, recortado y con tope */
 export function readText(value: unknown, max = 200): string | null {
   if (typeof value !== 'string') return null

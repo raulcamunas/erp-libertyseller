@@ -38,10 +38,36 @@ export default async function InformesMarketingPage() {
   } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  // Desde aquí se saca el gasto y las ventas de la cuenta de un cliente. El
-  // mismo listón que Amazon API y Growth Partner.
+  /**
+   * EL PERMISO DE LA APP, NO EL ROL.
+   *
+   * Aquí ponía `role !== 'admin'` y estaba mal, con un síntoma que no parece un
+   * fallo de permisos: a quien tenía la app concedida le SALÍA en el menú, y al
+   * pulsarla la pantalla la devolvía al dashboard sin decir nada. Se lee como
+   * «el botón no va».
+   *
+   * `marketing-ads` está en el mapa `routeToAppId` del middleware, o sea que es
+   * una app que SE PUEDE conceder a un employee — y de hecho se concede: quien
+   * saca los informes de publicidad no es el admin. Un rol clavado aquí
+   * contradice el reparto de permisos y gana siempre, porque va después.
+   *
+   * Se comprueba igualmente en vez de fiarse solo del middleware: una ruta que
+   * se añada mal al mapa dejaría esta pantalla abierta, y desde aquí se ve el
+   * gasto y las ventas de la cuenta de un cliente.
+   */
   const perfil = await getUserProfile()
-  if (perfil?.role !== 'admin') redirect('/dashboard')
+  if (!perfil) redirect('/auth/login')
+
+  const esAdmin = perfil.role === 'admin' || perfil.role === 'partner'
+  if (!esAdmin) {
+    const { data: permiso } = await supabase
+      .from('user_app_permissions')
+      .select('can_access')
+      .eq('user_id', user.id)
+      .eq('app_id', 'marketing-ads')
+      .maybeSingle()
+    if (!permiso?.can_access) redirect('/dashboard')
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1400px] p-4 space-y-3">

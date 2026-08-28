@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
-import { requireAmazonAdmin, UUID } from '@/lib/amazon/api'
+import { requireAppAccess, UUID } from '@/lib/amazon/api'
 import { createServiceClient } from '@/lib/supabase/service'
 import { filasDe } from '@/lib/ads/generador'
 
@@ -41,7 +41,9 @@ export const maxDuration = 300
 const MAX_FILAS = 1_000_000
 
 export async function GET(request: NextRequest) {
-  const session = await requireAmazonAdmin()
+  // Los informes solo LEEN, así que se reparten con el permiso de la app y no
+    // con el rol: quien lleva las campañas no es el admin.
+    const session = await requireAppAccess('marketing-ads')
   if (session instanceof NextResponse) return session
 
   const id = (request.nextUrl.searchParams.get('id') ?? '').trim()

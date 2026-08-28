@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { errorResponse, fail, requireAmazonAdmin, UUID } from '@/lib/amazon/api'
+import { errorResponse, fail, requireAppAccess, UUID } from '@/lib/amazon/api'
 import { createServiceClient } from '@/lib/supabase/service'
 import { cuentasDeTrabajo } from '@/lib/ads/datos'
 import { empujar, encargar } from '@/lib/ads/generador'
@@ -34,7 +34,9 @@ const MAX_DIAS = 400
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireAmazonAdmin()
+    // Los informes solo LEEN, así que se reparten con el permiso de la app y no
+    // con el rol: quien lleva las campañas no es el admin.
+    const session = await requireAppAccess('marketing-ads')
     if (session instanceof NextResponse) return session
 
     const body = (await request.json().catch(() => ({}))) as {
