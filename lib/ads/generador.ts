@@ -168,13 +168,18 @@ export interface Empujon {
 /**
  * Avanza todo lo que esté a medias.
  *
- * `tope` acota cuántas peticiones NUEVAS se hacen en esta pasada. Existe porque
- * la API de Ads tiene cupo y porque un encargo de quince informes lanzado de
- * golpe se lleva por delante los de los otros clientes que estuvieran en cola.
- * Preguntar por los ya pedidos no cuenta: eso es barato y es lo que hace avanzar
- * lo que ya está en marcha.
+ * `tope` acota cuántas peticiones NUEVAS se hacen en esta pasada.
+ *
+ * DOS, y no seis como estaba. Crear informes en la v3 tiene un cupo bajísimo
+ * —del orden de uno por minuto— y pidiendo seis de golpe Amazon corta con un 429
+ * a partir del segundo o el tercero. Con doce partes y dos por pasada, el encargo
+ * tarda unos seis minutos en salir entero; con seis por pasada tardaba lo mismo y
+ * encima perdía pestañas por el camino.
+ *
+ * Preguntar por los ya pedidos NO cuenta contra este tope: eso es barato y es lo
+ * que hace avanzar lo que ya está en marcha.
  */
-export async function empujar(tope = 6): Promise<Empujon> {
+export async function empujar(tope = 2): Promise<Empujon> {
   const service = createServiceClient()
   const salida: Empujon = { informes: 0, pedidas: 0, listas: 0, fallidas: 0, esperando: 0 }
 
@@ -232,16 +237,36 @@ export async function empujar(tope = 6): Promise<Empujon> {
             .eq('id', parte.id)
           salida.pedidas += 1
         } catch (e) {
+          /**
+           * UN 429 NO GASTA INTENTO, Y ESA ES TODA LA DIFERENCIA.
+           *
+           * `MAX_INTENTOS` existe para los errores de configuración: una columna
+           * que ese informe no tiene da el mismo 400 las mil veces que se pida, y
+           * reintentarlo es gastar cupo para nada.
+           *
+           * Un 429 es lo contrario: dice «ahora no, vuelve luego». Contarlo como
+           * intento fallido quema las tres oportunidades en tres minutos y deja la
+           * pestaña fuera del Excel por algo que se arreglaba solo esperando. Pasó
+           * con «Campaña SB» — 429 Throttled, y en la portada salía como si el
+           * informe no existiera.
+           *
+           * Así que se deja en `pendiente` y sin tocar el contador: la pasada
+           * siguiente lo vuelve a pedir.
+           */
+          const esCupo = e instanceof AdsError && (e.estado === 429 || /\b429\b|throttl/i.test(e.message))
           await service
             .from('marketing_informe_partes')
             .update({
-              estado: 'error',
-              error: mensaje(e),
-              intentos: parte.intentos + 1,
+              estado: esCupo ? 'pendiente' : 'error',
+              error: esCupo
+                ? 'Amazon ha cortado por cupo de peticiones. Se vuelve a pedir en la pasada siguiente.'
+                : mensaje(e),
+              intentos: esCupo ? parte.intentos : parte.intentos + 1,
               actualizado_at: new Date().toISOString(),
             })
             .eq('id', parte.id)
-          salida.fallidas += 1
+          if (esCupo) salida.esperando += 1
+          else salida.fallidas += 1
         }
         continue
       }
