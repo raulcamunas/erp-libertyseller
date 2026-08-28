@@ -232,6 +232,40 @@ async function datosDeAmazon(
     const referencia = t.precio_referencia === null ? null : Number(t.precio_referencia)
     // Una tarifa pedida a precio cero no dice nada, y dividir por cero menos.
     if (referral === null || referencia === null || referencia <= 0) continue
+
+    /**
+     * ============ LA TARIFA ES UN PORCENTAJE DE CATEGORÍA, NO UNA DIVISIÓN ============
+     *
+     * Amazon cobra un porcentaje por categoría —15 %, 10 %…— y encima va el 3 %
+     * de la tasa digital. Pero también cobra un MÍNIMO POR ARTÍCULO: en España,
+     * 0,30 €. Y ahí está la trampa de sacar el porcentaje dividiendo.
+     *
+     * Caso real, SKU 45903, un latiguillo de red:
+     *
+     *     precio publicado ............. 8,81 €
+     *     precio al que se pidió ....... 0,57 €   (el FOEP, que es más bajo)
+     *     comisión que devolvió Amazon . 0,30 €   ← el MÍNIMO, no un 15 %
+     *     0,30 / 0,57 .................. 52,6 %   ← y eso NO es su tarifa
+     *
+     * Con ese 52,6 % el motor proponía 23,82 € por un cable de 8,81 €. Un +170 %.
+     * Y no era un caso aislado: pasaba en todos los baratos cuya oferta destacada
+     * está por debajo de un euro.
+     *
+     * EL PORCENTAJE SOLO VALE CERCA DEL PRECIO AL QUE SE PIDIÓ. Por debajo, el
+     * mínimo lo dispara; muy por encima, los tramos de algunas categorías lo
+     * cambian. Así que si la referencia se aleja del precio publicado, la tarifa
+     * NO se usa: se cae al 15 % de la configuración y la fila sale marcada como
+     * «tarifa estimada», que es la verdad.
+     *
+     * El 25 % de margen no es redondo por gusto: con menos, un cambio normal de
+     * precio entre la pasada de tarifas y la del motor tiraría tarifas buenas.
+     */
+    const pvp = fila.pvp
+    if (pvp !== null && pvp > 0) {
+      const desvio = Math.abs(referencia - pvp) / pvp
+      if (desvio > 0.25) continue
+    }
+
     // Van ordenadas por fecha ascendente, así que la última sobrescribe.
     fila.tarifa = referral / referencia
   }
