@@ -47,6 +47,10 @@ const CAMPOS_CONFIG = [
   'tarifa_por_defecto',
   'redondeo',
   'margen_suelo',
+  'publicar_automatico',
+  'publicar_cada_horas',
+  'publicar_max_salto_pct',
+  'publicar_max_por_pasada',
 ] as const
 
 export async function POST(request: NextRequest) {

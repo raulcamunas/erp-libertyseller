@@ -61,6 +61,12 @@ export interface FilaConfig {
   tarifa_por_defecto: number
   redondeo: Redondeo
   margen_suelo: number | null
+  /** Ver la migración 164: publicar sin que nadie pulse, con su reloj y su freno */
+  publicar_automatico: boolean
+  publicar_cada_horas: number
+  publicar_max_salto_pct: number | null
+  publicar_max_por_pasada: number
+  publicado_at: string | null
   updated_at: string
 }
 
