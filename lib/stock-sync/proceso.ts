@@ -24,7 +24,12 @@
  */
 
 import { createHash } from 'node:crypto'
-import { loadConnection, loadListings, pickMarketplace } from '@/lib/amazon/data'
+import {
+  loadConnection,
+  loadListings,
+  pickMarketplace,
+  refrescarListingsPorSku,
+} from '@/lib/amazon/data'
 import { createServiceClient } from '@/lib/supabase/service'
 import { marketplaceById, type AmazonListing } from '@/lib/types/amazon'
 import type { StockProfileRunState, StockReadProfile } from '@/lib/types/stock-sync'
@@ -311,11 +316,114 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
       eanIndex: ean.indice,
     })
 
+    /**
+     * ---------- 6 bis) AMAZON, LEÍDO AHORA MISMO ----------
+     *
+     * Aquí estaba el agujero grande de este módulo, y no daba ningún error.
+     *
+     * El espejo lo refresca el ciclo de catálogo paginando, y esa vía NO PASA DE
+     * 1.000 REFERENCIAS por país. En un cliente de 5.460, las otras 4.460 se
+     * comparaban contra lo que hubiera dejado el censo —cada seis horas— y, con
+     * el censo apagado, contra datos de días.
+     *
+     * Pasó con el SKU 47680, un portátil de 1.001 € y el número 5.240 por orden
+     * de SKU: Amazon lo tenía AGOTADO, el espejo decía 78 unidades, y el ciclo
+     * no mandó nada porque para él ya coincidían. La comparación era correcta
+     * contra un número falso, que es la peor clase de fallo que puede tener
+     * esto.
+     *
+     * Así que ahora, ANTES de comparar, se lee de Amazon el estado de verdad de
+     * las referencias que han casado. Va por `identifiers` y no por paginación,
+     * así que no hay tope: una llamada por cada veinte SKU. Para Entrais son 273
+     * llamadas, menos de un minuto.
+     *
+     * VA DESPUÉS DEL CRUCE A PROPÓSITO. El cruce necesita el espejo como
+     * diccionario para saber QUÉ SKU de Amazon corresponde a cada referencia del
+     * fichero, y eso no cambia con datos frescos. Lo que sí cambia —y es lo que
+     * se compara— son las unidades y el precio, y esos se piden solo de los que
+     * han casado en vez de del catálogo entero.
+     */
+    let listingsFrescos = listings
+    let refrescoEnVivo: { leidos: number; llamadas: number; noVinieron: number } | null = null
+
+    if (destino) {
+      const skusDelCruce = [...new Set(cruce.rows.map((r) => r.sku))]
+      if (skusDelCruce.length > 0) {
+        try {
+          const fresco = await refrescarListingsPorSku(
+            destino.connectionId,
+            destino.marketplaceId,
+            skusDelCruce
+          )
+          const porSku = new Map(fresco.items.map((i) => [i.sku, i]))
+          listingsFrescos = listings.map((l) => {
+            const f = porSku.get(l.sku)
+            if (!f) return l
+            // Solo lo que se acaba de leer. `id`, `is_fba` y las columnas de FBA
+            // se quedan como estaban: esta vía no las pide y sobrescribirlas con
+            // un hueco sería borrar un dato bueno.
+            return {
+              ...l,
+              asin: f.asin,
+              title: f.title,
+              product_type: f.productType,
+              condition_type: f.conditionType,
+              listing_status: f.listingStatus,
+              price: f.price,
+              currency: f.currency,
+              quantity: f.quantity,
+              fulfillment_channel_code: f.fulfillmentChannelCode,
+              last_seen_at: new Date().toISOString(),
+            }
+          })
+          refrescoEnVivo = {
+            leidos: fresco.items.length,
+            llamadas: fresco.llamadas,
+            noVinieron: fresco.noVinieron.length,
+          }
+
+          /**
+           * QUE SE VEA QUE SE HA LEÍDO EN VIVO.
+           *
+           * Un envío calculado contra Amazon recién leído y uno calculado contra
+           * un espejo de hace seis horas se ven EXACTAMENTE IGUAL en la
+           * pantalla. Y no valen lo mismo. Así que se dice en cada ejecución, no
+           * solo cuando falla.
+           */
+          aplicadas.avisos.push(
+            `Se ha leído de Amazon el estado actual de ${fresco.items.length.toLocaleString('es-ES')} ` +
+              `referencias en ${fresco.llamadas} llamadas, así que la comparación va contra lo que ` +
+              'hay ahora mismo y no contra el espejo del catálogo.' +
+              (fresco.noVinieron.length > 0
+                ? ` ${fresco.noVinieron.length} no las ha devuelto: o ya no existen en su cuenta o ` +
+                  'están en un estado que Amazon no lista.'
+                : '')
+          )
+        } catch (error) {
+          /**
+           * SI NO SE PUEDE LEER, SE SIGUE CON EL ESPEJO Y SE DICE.
+           *
+           * Parar el ciclo porque Amazon no contesta dejaría el stock sin
+           * sincronizar durante toda la caída. Seguir con el espejo es peor que
+           * con datos frescos pero mejor que no hacer nada — con una condición:
+           * que quede escrito en los avisos, porque un envío calculado contra
+           * datos viejos y uno calculado contra datos frescos se parecen
+           * exactamente igual en la pantalla.
+           */
+          aplicadas.avisos.push(
+            'No se ha podido leer el estado actual de Amazon, así que se ha comparado contra el ' +
+              'espejo del catálogo, que puede tener horas. Motivo: ' +
+              (error instanceof Error ? error.message : 'error desconocido')
+          )
+        }
+      }
+    }
+
     // ---------- 7) El simulacro ----------
     const simulacro = simular({
       lineas: aplicadas.lineas,
       cruce,
-      listings,
+      listings: listingsFrescos,
       skusDelMapeo: new Set(mapeo.filas.map((m) => m.sku_amazon)),
       reglas,
       moneda: perfil.moneda,

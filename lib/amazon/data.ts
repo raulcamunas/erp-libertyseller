@@ -21,6 +21,7 @@ import {
   applyChange,
   fetchCatalog,
   fetchFbaInventory,
+  fetchListingsBySku,
   fetchMarketplaceParticipations,
   type AmazonCatalogItem,
   type AmazonCredentials,
@@ -1567,6 +1568,99 @@ export async function syncAllConnections(): Promise<SyncCycleResult> {
  * canal de logística. Mandarla en el upsert daría un error de Postgres
  * («cannot insert into a generated column») que tumbaría el refresco entero.
  */
+/**
+ * LEE DE AMAZON, AHORA MISMO, LOS SKU QUE SE LE PIDAN. SIN TOPE.
+ *
+ * ============ POR QUÉ EXISTE ESTO Y NO BASTA CON EL ESPEJO ============
+ *
+ * El ciclo de stock compara lo que tiene el proveedor con lo que tiene Amazon, y
+ * manda la diferencia. El lado de Amazon salía del espejo —`amazon_listings`—,
+ * que lo refresca `syncConnectionCatalog` paginando... y ahí está el problema:
+ * `searchListingsItems` NO PAGINA MÁS DE 1.000 por país.
+ *
+ * O sea que en un cliente de 5.460 referencias, el ciclo comparaba las 1.000
+ * primeras por orden de SKU contra datos frescos y las otras 4.460 contra lo que
+ * hubiera dejado el censo, que corre cada seis horas. Y si el censo se apagaba,
+ * contra datos de días.
+ *
+ * Costó esto: el SKU 47680, un portátil de 1.001 €, el número 5.240 de 5.460.
+ * Amazon lo tenía AGOTADO y el espejo decía 78 unidades. El ciclo no mandó nada
+ * —para él ya coincidían— y el producto siguió anunciándose disponible. No hubo
+ * ni un error en ninguna parte: la comparación era correcta contra un número
+ * falso.
+ *
+ *
+ * ============ LA VÍA QUE NO TIENE TOPE ============
+ *
+ * `fetchListingsBySku` no pagina: le pasa a Amazon los SKU en lotes de veinte
+ * con `identifiers`. No hay 1.000 que valgan porque no hay paginación que agotar.
+ *
+ * Cuesta una llamada por cada veinte referencias: 273 para las 5.460 de Entrais,
+ * 545 para los cuatro clientes juntos. A cinco llamadas por segundo son menos de
+ * dos minutos para leer TODO, de verdad y fresco, en cada pasada.
+ *
+ * Y de paso se guarda en el espejo, que sale gratis: los datos ya están en
+ * memoria. Así las pantallas que leen el espejo —el catálogo, el motor de
+ * precios— dejan de depender de que el censo haya corrido.
+ *
+ * NO SE TOCAN LAS COLUMNAS DE FBA. Esta vía no pide el inventario de FBA, y
+ * escribir null en `fba_quantity` porque no se ha preguntado sería borrar un
+ * dato bueno con un hueco.
+ */
+export async function refrescarListingsPorSku(
+  connectionId: string,
+  marketplaceId: string,
+  skus: string[]
+): Promise<{ items: AmazonCatalogItem[]; noVinieron: string[]; llamadas: number }> {
+  if (skus.length === 0) return { items: [], noVinieron: [], llamadas: 0 }
+
+  const resuelta = await connectionCredentials(connectionId)
+  if (!resuelta) throw new Error('Esa conexión de Amazon ya no existe')
+
+  const { items, noVinieron, llamadas } = await fetchListingsBySku(resuelta.credentials, {
+    marketplaceId,
+    skus,
+  })
+
+  if (items.length > 0) {
+    const service = createServiceClient()
+    const ahora = new Date().toISOString()
+    const filas = items.map((item) => ({
+      connection_id: connectionId,
+      marketplace_id: marketplaceId,
+      sku: item.sku,
+      asin: item.asin,
+      title: item.title,
+      product_type: item.productType,
+      condition_type: item.conditionType,
+      listing_status: item.listingStatus,
+      price: item.price,
+      currency: item.currency,
+      quantity: item.quantity,
+      fulfillment_channel_code: item.fulfillmentChannelCode,
+      last_seen_at: ahora,
+      amazon_last_updated_at: item.amazonLastUpdatedAt,
+    }))
+
+    // De 500 en 500: un upsert de cinco mil filas se pasa del tamaño que aguanta
+    // PostgREST y falla con un error que no menciona el tamaño.
+    for (let i = 0; i < filas.length; i += 500) {
+      const { error } = await service
+        .from('amazon_listings')
+        .upsert(filas.slice(i, i + 500), { onConflict: 'connection_id,marketplace_id,sku' })
+      // No se lanza: el ciclo tiene los datos frescos en memoria y puede seguir.
+      // Perder la escritura del espejo deja las pantallas con datos viejos, que
+      // es malo, pero parar el envío del stock por eso es peor.
+      if (error) {
+        console.error(`[amazon] no se pudo guardar el espejo de ${connectionId}:`, error.message)
+        break
+      }
+    }
+  }
+
+  return { items, noVinieron, llamadas }
+}
+
 async function upsertListings(
   service: Service,
   connectionId: string,
