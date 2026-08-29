@@ -639,7 +639,11 @@ export async function registrarRun(fila: Record<string, unknown>): Promise<strin
     const chequeoViolado = codigo === '23514'
 
     if (faltaEsquema || chequeoViolado) {
-      const { avisos, ...sinAvisos } = fila
+      // `fases` se cae por lo mismo que `avisos` mientras la 165 no esté
+      // aplicada, y por el mismo motivo se quita en vez de perder la fila: una
+      // ejecución sin el detalle de los pasos sigue diciendo qué pasó.
+      const { avisos, fases, ...sinAvisos } = fila
+      void fases
       const reducida = { ...sinAvisos }
       if (chequeoViolado && reducida.freno === 'caida_unidades') {
         // El CHECK viejo no conoce este código. Se guarda el freno como el que

@@ -337,6 +337,68 @@ export interface StockReadProfile {
 }
 
 /** La fila de public.stock_profile_runs: una por lectura de fichero, se mande o no */
+/**
+ * LOS CINCO PASOS DE UNA PASADA, EN ORDEN.
+ *
+ * Es el mismo recorrido que hace procesarPerfil(), nombrado para que se pueda
+ * pintar. Cada pasada guarda por dónde ha ido y cuánto ha tardado en cada uno
+ * —ver la migración 165—, y la pantalla lo enseña como una línea que avanza.
+ *
+ * El orden NO es el que se dibujaría de memoria. Primero se recoge el fichero
+ * del proveedor y solo después se le pregunta a Amazon, porque hasta que no se
+ * sabe qué referencias trae el fichero no se sabe por cuáles preguntar: se
+ * piden solo las que han casado, no el catálogo entero.
+ */
+export type PasoPasada = 'origen' | 'leer' | 'cruzar' | 'amazon' | 'contrastar' | 'enviar'
+
+export const PASOS_PASADA: PasoPasada[] = [
+  'origen',
+  'leer',
+  'cruzar',
+  'amazon',
+  'contrastar',
+  'enviar',
+]
+
+/** Para saber qué paso se estaba dando cuando algo revienta a mitad */
+export const SIGUIENTE_PASO: Record<PasoPasada, PasoPasada> = {
+  origen: 'leer',
+  leer: 'cruzar',
+  cruzar: 'amazon',
+  amazon: 'contrastar',
+  contrastar: 'enviar',
+  enviar: 'enviar',
+}
+
+export const PASO_TITULO: Record<PasoPasada, string> = {
+  origen: 'Recoger el fichero',
+  leer: 'Leerlo y aplicar reglas',
+  cruzar: 'Casar con los SKU de Amazon',
+  amazon: 'Preguntar a Amazon cómo está',
+  contrastar: 'Contrastar',
+  enviar: 'Enviar a Amazon',
+}
+
+/** El gerundio: lo que se enseña MIENTRAS ese paso está corriendo */
+export const PASO_HACIENDO: Record<PasoPasada, string> = {
+  origen: 'Recogiendo el fichero…',
+  leer: 'Leyendo el fichero…',
+  cruzar: 'Casando referencias…',
+  amazon: 'Preguntando a Amazon…',
+  contrastar: 'Contrastando…',
+  enviar: 'Enviando a Amazon…',
+}
+
+export interface FaseRegistrada {
+  paso: PasoPasada
+  /** `omitido` no es un fallo: es un paso que no tocaba dar, y lleva su motivo */
+  estado: 'ok' | 'aviso' | 'freno' | 'error' | 'omitido'
+  ms: number
+  /** El número que resume ese paso: líneas, referencias, cambios */
+  cifra: number | null
+  nota: string | null
+}
+
 export interface StockProfileRun {
   id: string
   profile_id: string
@@ -390,6 +452,8 @@ export interface StockProfileRun {
   /** Por qué se cortó el lote antes de terminar (autorización revocada, permisos) */
   envio_abortado: string | null
   duracion_ms: number | null
+  /** Por dónde fue y cuánto tardó en cada paso. NULL en las de antes de la 165 */
+  fases: FaseRegistrada[] | null
   error_message: string | null
   notes: string | null
   created_at: string

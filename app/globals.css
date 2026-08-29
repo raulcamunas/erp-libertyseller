@@ -882,3 +882,42 @@ html.light .bg-yellow-400\/\[0\.12\] { background-color: rgba(202, 138, 4, 0.18)
 html.light .border-green-400\/25     { border-color: rgba(17, 107, 54, 0.35); }
 html.light .bg-green-400\/\[0\.05\]  { background-color: rgba(17, 107, 54, 0.10); }
 html.light .bg-black\/25             { background-color: rgba(0, 0, 0, 0.05); }
+
+/* ==================================================================
+   LÍNEA DE VIDA DEL SINCRONISMO (components/growth/stock-sync/LineaDeVida)
+   ==================================================================
+   Dos gestos y ninguno más. La tira ya se mueve sola —los anillos se encienden
+   en orden y los hilos se llenan con una transición de ancho—, así que aquí
+   solo está lo que una transición de CSS no puede hacer: aparecer de golpe y
+   latir.
+
+   Respetan `prefers-reduced-motion` como el resto del fichero: quien pide que
+   no se mueva nada ve la tira ya montada, con la misma información. */
+
+@keyframes lv-pop {
+  0%   { transform: scale(0);   opacity: 0; }
+  60%  { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+.lv-pop {
+  animation: lv-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Solo el nodo que ha fallado. Un latido en cada paso sería una pantalla que
+   parpadea entera y no llama la atención sobre nada. */
+@keyframes lv-late {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0); }
+  50%      { box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.12); }
+}
+
+.lv-late {
+  animation: lv-late 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lv-pop,
+  .lv-late {
+    animation: none !important;
+  }
+}

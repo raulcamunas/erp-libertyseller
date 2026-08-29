@@ -53,6 +53,7 @@ import { conectorDe, OrigenError, type FicheroOrigen } from './origenes'
 import { textoConfig } from './origenes/tipos'
 import { segundoAdjunto } from './origenes/correo'
 import { loadPerfilEan, marcarPerfil, registrarRun } from './perfiles'
+import { SIGUIENTE_PASO, type FaseRegistrada } from '@/lib/types/stock-sync'
 import { aplicarReglas, reglasDesdeFila, type ResultadoReglas } from './reglas'
 import { umbralesDesdeFila } from './frenos'
 import { simular, type Simulacro } from './simulacro'
@@ -282,11 +283,36 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
     )
   }
 
+  /**
+   * EL CRONÓMETRO POR PASOS.
+   *
+   * Se va rellenando según avanza y viaja DENTRO de la fila de la ejecución, en
+   * la inserción que ya se hacía: no cuesta ni una escritura más. Ver la
+   * migración 165.
+   *
+   * Sirve para una pregunta muy concreta que hasta ahora no tenía respuesta:
+   * cuando una pasada tarda treinta segundos en vez de dos, ¿es el proveedor que
+   * no contesta o es Amazon? Con un único `duracion_ms` las dos se ven igual.
+   */
+  const fases: FaseRegistrada[] = []
+  let marca = arranque
+  const anotar = (
+    paso: FaseRegistrada['paso'],
+    estado: FaseRegistrada['estado'],
+    cifra: number | null = null,
+    nota: string | null = null
+  ) => {
+    const t = Date.now()
+    fases.push({ paso, estado, ms: t - marca, cifra, nota })
+    marca = t
+  }
+
   // ---------- 1) El fichero, venga de donde venga ----------
   // El ciclo automático ya lo ha traído para poder mirarle la huella antes de
   // decidir si valía la pena procesarlo; bajarlo otra vez sería pedirle al
   // cliente el mismo fichero dos veces en la misma pasada.
   const fichero = opciones.fichero ?? (await traerFichero(perfil, opciones.subida))
+  anotar('origen', 'ok', fichero.tamano ?? null, fichero.nombre)
 
   const mismoFichero = fichero.huellaContenido === perfil.last_file_fingerprint
 
@@ -297,6 +323,14 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
     // ---------- 3) Las reglas de negocio ----------
     const reglas = reglasDesdeFila(perfil)
     const aplicadas = aplicarReglas(lectura.lineas, reglas, ahora)
+    anotar(
+      'leer',
+      'ok',
+      aplicadas.lineas.length,
+      aplicadas.descartadas.length > 0
+        ? `${lectura.lineas.length} líneas leídas, ${aplicadas.descartadas.length} descartadas por las reglas`
+        : `${lectura.lineas.length} líneas leídas`
+    )
 
     // ---------- 4) Los códigos de barras, si los hay ----------
     const ean = await construirEanIndex(perfil, opciones.subidaEan ?? null, fichero.idExterno)
@@ -315,6 +349,13 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
       stockLines: aplicadas.lineas,
       eanIndex: ean.indice,
     })
+    anotar(
+      'cruzar',
+      cruce.stats.matched > 0 ? 'ok' : 'aviso',
+      cruce.stats.matched,
+      `${cruce.stats.matched} referencias casadas con SKU de Amazon` +
+        (cruce.stats.unmatched > 0 ? `, ${cruce.stats.unmatched} sin casar` : '')
+    )
 
     /**
      * ---------- 6 bis) AMAZON, LEÍDO AHORA MISMO ----------
@@ -381,6 +422,13 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
             llamadas: fresco.llamadas,
             noVinieron: fresco.noVinieron.length,
           }
+          anotar(
+            'amazon',
+            'ok',
+            fresco.items.length,
+            `leídas en ${fresco.llamadas} llamadas` +
+              (fresco.noVinieron.length > 0 ? `, ${fresco.noVinieron.length} no las devolvió` : '')
+          )
 
           /**
            * QUE SE VEA QUE SE HA LEÍDO EN VIVO.
@@ -410,6 +458,12 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
            * datos viejos y uno calculado contra datos frescos se parecen
            * exactamente igual en la pantalla.
            */
+          anotar(
+            'amazon',
+            'aviso',
+            null,
+            'No ha contestado: se compara contra el espejo, que puede tener horas'
+          )
           aplicadas.avisos.push(
             'No se ha podido leer el estado actual de Amazon, así que se ha comparado contra el ' +
               'espejo del catálogo, que puede tener horas. Motivo: ' +
@@ -441,6 +495,16 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
     // los del fichero de EAN se juntan con los del simulacro: es lo que se
     // guarda en la fila de la ejecución y lo que se enseña en pantalla.
     simulacro.avisos.unshift(...lectura.avisos, ...ean.avisos, ...aplicadas.avisos)
+    anotar(
+      'contrastar',
+      simulacro.frenos.puedeEnviar ? 'ok' : 'freno',
+      simulacro.cambios.length,
+      simulacro.frenos.puedeEnviar
+        ? simulacro.cambios.length === 0
+          ? 'Amazon ya está como tiene que estar: no hay nada que cambiar'
+          : `${simulacro.cambios.length} diferencias entre el fichero y Amazon`
+        : simulacro.frenos.resumen
+    )
 
     // ---------- 8) Enviar, SOLO si quien llama ha traído la puerta ----------
     // El orden importa: después de los frenos, nunca antes. Y con dos condiciones
@@ -457,6 +521,33 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
             simulacro,
           })
         : null
+
+    if (envio) {
+      anotar(
+        'enviar',
+        envio.fallidos > 0 ? (envio.aceptados > 0 ? 'aviso' : 'error') : 'ok',
+        envio.aceptados,
+        envio.fallidos > 0 ? `${envio.fallidos} no los ha aceptado Amazon` : null
+      )
+    } else {
+      /**
+       * UN PASO QUE NO SE DIO TAMBIÉN SE APUNTA, Y CON SU MOTIVO.
+       *
+       * Sin esto, «el perfil está en simulacro», «el freno lo paró» y «no había
+       * nada que cambiar» acaban siendo la misma casilla apagada en la pantalla,
+       * y son tres cosas que se arreglan de tres formas distintas.
+       */
+      anotar(
+        'enviar',
+        'omitido',
+        null,
+        !opciones.enviar
+          ? 'El perfil está en simulacro: calcula pero no manda'
+          : !simulacro.frenos.puedeEnviar
+            ? 'Frenado antes de mandar nada'
+            : 'No había ningún cambio que mandar'
+      )
+    }
 
     const duracionMs = Date.now() - arranque
 
@@ -507,6 +598,7 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
       enviados_error: envio?.fallidos ?? null,
       envio_abortado: envio?.abortado ?? null,
       duracion_ms: duracionMs,
+      fases,
       // El CHECK stock_profile_runs_error_ok exige mensaje cuando el estado es
       // 'error', y aquí se llega a 'error' con un envío que no aceptó ni uno.
       error_message: estado === 'error' ? mensajeDeEnvioFallido(envio) : null,
@@ -573,6 +665,23 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
     // El fallo también deja fila: un perfil que lleva tres días reventando en
     // el cron tiene que verse en el historial, no solo en los logs.
     const mensaje = error instanceof Error ? error.message : 'Error desconocido'
+
+    /**
+     * SE APUNTA EL PASO QUE SE ESTABA DANDO CUANDO REVENTÓ.
+     *
+     * Es lo único que convierte «Timeout expired» en algo accionable: los pasos
+     * que sí terminaron están en la lista con su tiempo, y el que falta es el
+     * que se rompió. Sin esto hay que adivinarlo por el mensaje, y los mensajes
+     * de las librerías de terceros no dicen en qué parte del ciclo estabas.
+     */
+    fases.push({
+      paso: SIGUIENTE_PASO[fases[fases.length - 1]?.paso ?? 'origen'],
+      estado: 'error',
+      ms: Date.now() - marca,
+      cifra: null,
+      nota: mensaje.slice(0, 300),
+    })
+
     await registrarRun({
       profile_id: perfil.id,
       client_id: perfil.client_id,
@@ -585,6 +694,7 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
       fichero_modificado_at: fichero.modificadoAt,
       estado: 'error' satisfies StockProfileRunState,
       duracion_ms: Date.now() - arranque,
+      fases,
       // El CHECK stock_profile_runs_error_ok exige mensaje cuando el estado es
       // 'error'; se recorta porque un stack entero no cabe ni aporta.
       error_message: mensaje.slice(0, 2000),

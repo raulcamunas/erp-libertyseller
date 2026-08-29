@@ -15,6 +15,8 @@ import {
   STOCK_RUN_STATE_COLORS,
   STOCK_RUN_STATE_LABELS,
   formatInt,
+  type FaseRegistrada,
+  type StockProfileOrigin,
   type StockProfileRunState,
 } from '@/lib/types/stock-sync'
 import {
@@ -25,6 +27,7 @@ import {
   type AmazonSubmissionStatus,
 } from '@/lib/types/amazon'
 import { formatDateTime } from './shared'
+import { LineaDeVida } from './LineaDeVida'
 
 /**
  * QUÉ HA HECHO EL ERP EN LA CUENTA DE ESTE CLIENTE.
@@ -92,6 +95,9 @@ export interface EjecucionVista {
   sku_sin_casar: number | null
   sku_a_cero: number | null
   duracion_ms: number | null
+  origen: StockProfileOrigin | null
+  /** El detalle de los pasos. NULL en las pasadas anteriores a la migración 165 */
+  fases: FaseRegistrada[] | null
   freno_detalle: string | null
   error_message: string | null
   avisos: string[] | null
@@ -142,11 +148,23 @@ function hace(iso: string | null): string | null {
  * mueven en cada pasada aunque no se escriba historial.
  */
 function EstadoAhora({ perfiles }: { perfiles: EstadoPerfilVista[] }) {
-  if (perfiles.length === 0) return null
+  /**
+   * Y DESDE LA LÍNEA DE VIDA, SOLO LO QUE VA MAL.
+   *
+   * «Última pasada hace 2 min · entra cada 30 min · envía solo» ya lo dice la
+   * tira de arriba, con el recorrido entero y la cuenta atrás. Repetirlo aquí
+   * era la misma frase dos veces y dos sitios donde mirar.
+   *
+   * Lo que la tira NO dice —y por eso esto no se ha borrado— es el perfil
+   * apagado y el fallo que se está reintentando en silencio. Eso se queda, y
+   * ahora destaca porque es lo único que sale.
+   */
+  const dignos = perfiles.filter((p) => !p.is_active || p.last_error)
+  if (dignos.length === 0) return null
 
   return (
     <div className="flex flex-col gap-1.5 flex-shrink-0">
-      {perfiles.map((p) => {
+      {dignos.map((p) => {
         const ultima = hace(p.last_run_at)
         const reintentando = Boolean(p.last_error)
         return (
@@ -316,6 +334,20 @@ export function PanelEjecuciones({
     )
   }, [cambios, busqueda])
 
+  /**
+   * EL PERFIL DE LA EJECUCIÓN QUE SE ESTÁ MIRANDO.
+   *
+   * Se empareja por nombre porque la fila de la ejecución no trae el id del
+   * perfil. Con un solo perfil —que es el caso de todos los clientes de hoy— se
+   * coge ese y no hay nada que emparejar; el `find` está para el día que un
+   * cliente tenga dos ficheros distintos y los nombres importen.
+   */
+  const perfilDeLaActual = useMemo(() => {
+    if (perfiles.length === 0) return null
+    if (perfiles.length === 1) return perfiles[0]
+    return perfiles.find((p) => p.name === actual?.perfil_nombre) ?? null
+  }, [perfiles, actual?.perfil_nombre])
+
   const resumen = useMemo(() => {
     const enviadas = ejecuciones.filter((e) => e.estado === 'enviado').length
     const frenadas = ejecuciones.filter((e) => e.estado === 'frenado').length
@@ -344,6 +376,14 @@ export function PanelEjecuciones({
 
   return (
     <div className={`flex flex-col min-h-0 gap-2 ${className}`}>
+      {/* ---------------- El recorrido de la pasada ---------------- */}
+      <LineaDeVida
+        ejecucion={actual}
+        perfil={perfilDeLaActual}
+        origen={actual?.origen ?? null}
+        esLaUltima={actual?.id === ejecuciones[0]?.id}
+      />
+
       <EstadoAhora perfiles={perfiles} />
 
       {/* Control de un vistazo */}
