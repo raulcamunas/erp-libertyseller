@@ -112,8 +112,8 @@ export const conectorCorreo: ConectorOrigen = {
       tipo: 'texto',
       requerido: false,
       ayuda:
-        'Solo se aceptan adjuntos de esta dirección. Dejarlo vacío significa procesar el adjunto de cualquiera que escriba a ese buzón, que es exactamente como se cuela un fichero que no es del cliente y acaba publicándose en Amazon.',
-      ejemplo: 'erp@cliente.com',
+        'Una dirección exacta (erp@cliente.com) o un dominio entero empezando por arroba (@cliente.com), para los proveedores que mandan el fichero desde varios buzones. Dejarlo vacío significa procesar el adjunto de cualquiera que escriba a ese buzón, que es exactamente como se cuela un fichero que no es del cliente y acaba publicándose en Amazon.',
+      ejemplo: 'erp@cliente.com  ·  @cliente.com',
     },
     {
       clave: 'asunto',
@@ -177,7 +177,7 @@ export const conectorCorreo: ConectorOrigen = {
           mensaje:
             `Se entra en el buzón ${cfg.buzon} sin problemas, pero en los últimos ${cfg.dias} días no hay ` +
             'ningún correo con adjunto que encaje con el filtro' +
-            (cfg.remitente ? ` de «${cfg.remitente}»` : '') +
+            (cfg.remitente ? ` de correos ${describeRemitente(cfg.remitente)}` : '') +
             (cfg.asunto ? ` con «${cfg.asunto}» en el asunto` : '') +
             '. Prueba a quitar filtros para ver qué llega de verdad.',
           candidatos: [],
@@ -231,7 +231,7 @@ export const conectorCorreo: ConectorOrigen = {
       throw new OrigenError(
         `En el buzón ${cfg.buzon} no hay ningún correo de los últimos ${cfg.dias} días con un adjunto ` +
           'que encaje con el filtro de este perfil' +
-          (cfg.remitente ? ` (remitente «${cfg.remitente}»)` : '') +
+          (cfg.remitente ? ` (remitente: solo ${describeRemitente(cfg.remitente)})` : '') +
           (cfg.asunto ? ` (asunto con «${cfg.asunto}»)` : '') +
           (cfg.adjunto ? ` (adjunto «${cfg.adjunto}»)` : '') +
           '. O el cliente todavía no lo ha mandado hoy, o ha cambiado el asunto y el filtro ya no le pilla.'
@@ -473,7 +473,14 @@ interface Elegido {
  */
 function consulta(cfg: ConfigCorreo): string {
   const partes = ['has:attachment', `newer_than:${cfg.dias}d`]
-  if (cfg.remitente) partes.push(`from:${cfg.remitente}`)
+  if (cfg.remitente) {
+    // Sin la arroba: `from:proveedor.com` es la forma que Gmail entiende como
+    // dominio. Aquí da igual pasarse de ancho —esto solo recorta el buzón— y en
+    // cambio quedarse corto escondería correos buenos. Quien decide es
+    // coincideRemitente(), abajo y en local.
+    const dominio = comoDominio(cfg.remitente.trim().toLowerCase())
+    partes.push(`from:${dominio ? dominio.slice(1) : cfg.remitente}`)
+  }
   if (cfg.asunto) partes.push(`subject:"${cfg.asunto.replace(/"/g, '')}"`)
   return partes.join(' ')
 }
@@ -588,7 +595,7 @@ function clasificar(
     // que de verdad decide si el fichero es del cliente: ver consulta().
     const asuntoOk =
       !cfg.asunto || correo.asunto.toLowerCase().includes(cfg.asunto.toLowerCase())
-    const remitenteOk = esperado === '' || direccionDe(correo.de) === esperado
+    const remitenteOk = coincideRemitente(correo.de, esperado)
 
     if (correo.adjuntos.length === 0) {
       candidatos.push(filaDe(correo, correo.asunto, null, 'El correo no trae ningún adjunto'))
@@ -623,7 +630,7 @@ function clasificar(
       }
 
       if (!remitenteOk) {
-        descarte = `Lo mandó ${direccionDe(correo.de) || correo.de}, no «${cfg.remitente}»`
+        descarte = `Lo mandó ${direccionDe(correo.de) || correo.de}, y aquí solo se aceptan correos ${describeRemitente(cfg.remitente)}`
       } else if (!asuntoOk) {
         descarte = `El asunto no contiene «${cfg.asunto}»`
       } else if (!encajaPatron(adjunto.nombre, cfg.adjunto)) {
@@ -662,6 +669,68 @@ function clasificar(
  * Si no lleva ángulos, la cabecera ES la dirección («erp@cliente.com» a secas),
  * que es como la mandan casi todos los ERP.
  */
+/**
+ * ¿VIENE DE QUIEN TIENE QUE VENIR?
+ *
+ * Dos formas de escribir el campo, y la diferencia importa:
+ *
+ *   pedidos@proveedor.com   una dirección exacta y ninguna más
+ *   @proveedor.com          cualquiera de ese dominio
+ *
+ * El dominio existe porque hay proveedores que mandan el mismo fichero desde
+ * varios buzones —el comercial, administración, un noreply— y con la dirección
+ * exacta puesta el ERP descartaba en silencio todo lo que no viniera del que
+ * estaba escrito. El efecto es el peor posible: no da error, simplemente el
+ * cliente se queda sin actualizar y nadie se entera.
+ *
+ *
+ * ============ POR QUÉ SE OBLIGA A LA ARROBA ============
+ *
+ * Porque sin ella la comprobación es un agujero. Con «proveedor.com» a secas,
+ * un `endsWith` acepta también:
+ *
+ *     cualquiera@NOproveedor.com     ← termina en «proveedor.com»
+ *
+ * Que es justo la clase de dominio que se registra para colarse. Así que el
+ * valor se normaliza SIEMPRE a `@dominio`, y entonces `endsWith` solo puede
+ * casar en el límite real de la dirección.
+ *
+ * Y una arroba sola no vale como dominio: sería aceptar a todo el mundo con
+ * aspecto de estar filtrando, que es peor que dejar el campo vacío —eso al
+ * menos se ve—.
+ */
+function coincideRemitente(deLaCabecera: string, esperado: string): boolean {
+  const esp = esperado.trim().toLowerCase()
+  if (esp === '') return true
+
+  const dir = direccionDe(deLaCabecera)
+  if (dir === '') return false
+
+  const dominio = comoDominio(esp)
+  return dominio ? dir.endsWith(dominio) : dir === esp
+}
+
+/**
+ * `@proveedor.com` si el valor es un dominio; null si es una dirección.
+ *
+ * Un dominio de verdad lleva un punto y algo a cada lado. `@` a secas, `@com` o
+ * `@.` no lo son y devuelven null, así que caen en la comparación exacta y no
+ * casan con nada: un campo mal escrito deja de aceptar correos en vez de
+ * aceptarlos todos.
+ */
+function comoDominio(valor: string): string | null {
+  if (valor.includes('@') && !valor.startsWith('@')) return null // es una dirección
+  const limpio = valor.replace(/^@+/, '')
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(limpio)) return null
+  return `@${limpio}`
+}
+
+/** Cómo se le cuenta a una persona contra qué se está comparando */
+function describeRemitente(esperado: string): string {
+  const dominio = comoDominio(esperado.trim().toLowerCase())
+  return dominio ? `del dominio «${dominio}»` : `«${esperado}»`
+}
+
 function direccionDe(cabecera: string): string {
   const entreAngulos = cabecera.match(/<([^>]+)>/)
   return (entreAngulos ? entreAngulos[1] : cabecera).trim().toLowerCase()
