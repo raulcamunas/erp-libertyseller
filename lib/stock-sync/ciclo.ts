@@ -345,28 +345,69 @@ async function procesarConCerrojo(
     return await registrarFallo(perfil, error, ahora, arranque)
   }
 
-  // ---------- NO REPETIR TRABAJO ----------
-  // La comparación es por SHA-256 del contenido que se acaba de leer, nunca por
-  // la fecha de modificación: en Drive esa fecha se mueve porque alguien abre el
-  // fichero y lo vuelve a guardar sin tocar nada, y eso dispararía un reproceso
-  // —y un envío a Amazon— por nada.
-  //
-  // Y no se escribe fila de ejecución a propósito. Serían 96 filas idénticas al
-  // día por cliente, y la única señal que de verdad se busca en ese historial
-  // —«hoy el fichero ha cambiado»— se perdería entre el ruido. Lo que sí queda
-  // es la marca en el perfil, que es lo que contesta a «¿esto se está mirando?».
+  /**
+   * ---------- NO REPETIR TRABAJO, PERO SÍ DEJAR CONSTANCIA ----------
+   *
+   * La comparación es por SHA-256 del contenido que se acaba de leer, nunca por
+   * la fecha de modificación: en Drive esa fecha se mueve porque alguien abre el
+   * fichero y lo vuelve a guardar sin tocar nada, y eso dispararía un reproceso
+   * —y un envío a Amazon— por nada.
+   *
+   * LO QUE SÍ HA CAMBIADO: antes esto no escribía fila. El motivo era evitar 96
+   * líneas idénticas al día, y el efecto fue peor que el problema: el historial
+   * salía lleno de huecos de horas y «no hay filas» se lee como «el ciclo se ha
+   * parado». Había que explicarlo con un cartel entre fila y fila.
+   *
+   * Ahora deja su fila, corta y clara: el ciclo entró, el proveedor mandaba lo
+   * mismo, no había nada que hacer. Son 48 filas al día por cliente —no las
+   * 360.000 diarias que llenaron la base en agosto, que eran de las tablas de
+   * medición— y ahora se purgan a los 30 días. Una pasada que ocurre y no se
+   * apunta es una pasada que nadie puede auditar.
+   */
   if (fichero.huellaContenido === perfil.last_file_fingerprint) {
     // `last_error` NO se limpia aquí, y es importante: a este punto también se
     // llega cuando el fichero anterior no se pudo leer y se apuntó su huella
     // para no releerlo cada cuarto de hora. Borrar el error dejaría la pantalla
     // diciendo que todo va bien mientras ese cliente lleva días sin actualizarse.
     const atascado = perfil.last_error !== null
+    const motivo = atascado
+      ? `«${fichero.nombre}» sigue siendo el mismo fichero que falló, así que no se vuelve a procesar hasta que el cliente lo cambie o se corrija el perfil.`
+      : `«${fichero.nombre}» es el mismo fichero que ya se procesó: el proveedor no ha mandado nada nuevo.`
+
+    /**
+     * Estado `sin_cambios` y no uno nuevo: el CHECK de la tabla solo admite los
+     * cinco de siempre, y añadir un sexto sería una migración con riesgo para
+     * decir algo que la frase de `notes` ya dice mejor y sin límite de sitio.
+     */
+    await registrarRun({
+      profile_id: perfil.id,
+      client_id: perfil.client_id,
+      created_by: null,
+      origen: perfil.origen,
+      fichero_nombre: fichero.nombre,
+      fichero_huella: fichero.huellaContenido,
+      fichero_bytes: fichero.tamano,
+      fichero_modificado_at: fichero.modificadoAt,
+      estado: 'sin_cambios' satisfies StockProfileRunState,
+      duracion_ms: Date.now() - arranque,
+      notes: motivo,
+      // Un solo paso: se recogió el fichero y ahí se acabó. Los otros cinco
+      // salen en pantalla como «no llegó», que es la verdad.
+      fases: [
+        {
+          paso: 'origen',
+          estado: atascado ? 'aviso' : 'omitido',
+          ms: Date.now() - arranque,
+          cifra: fichero.tamano ?? null,
+          nota: motivo,
+        },
+      ],
+    })
+
     await marcarPerfil(perfil.id, {
       last_run_at: ahora.toISOString(),
       last_skipped_at: ahora.toISOString(),
-      last_skip_reason: atascado
-        ? `«${fichero.nombre}» sigue siendo el mismo fichero que falló, así que no se vuelve a intentar hasta que el cliente lo cambie o se corrija el perfil.`
-        : `«${fichero.nombre}» es el mismo fichero que ya se procesó: no hay nada nuevo que mandar.`,
+      last_skip_reason: motivo,
     })
     return nota(
       perfil,
@@ -553,42 +594,28 @@ async function registrarFallo(
   let runId: string | null = null
 
   /**
-   * UN FALLO QUE SE REPITE NO ESCRIBE UNA FILA CADA CUARTO DE HORA.
+   * UN FALLO QUE SE REPITE TAMBIÉN DEJA SU FILA.
    *
-   * Un OrigenError —no se llega a la carpeta de Drive— se reintenta en cada
-   * pasada a propósito, porque casi siempre es pasajero. Pero cada reintento
-   * escribía una fila, y con cadencia de quince minutos son 96 filas idénticas
-   * al día. La pestaña «Ejecuciones» enseña 60, así que en unas quince horas no
-   * contenía otra cosa que el mismo error repetido y cualquier ejecución
-   * anterior útil dejaba de verse. Y este es justo el estado del primer día de
-   * cada cliente nuevo, que es el fallo que el diseño da por seguro.
+   * Aquí antes se callaba. El razonamiento era razonable —un OrigenError se
+   * reintenta en cada pasada porque casi siempre es pasajero, y a cuatro
+   * pasadas por hora eso son 96 líneas idénticas al día que entierran todo lo
+   * demás— pero la cura salió peor:
    *
-   * Se sigue reintentando y se sigue viendo en el perfil (last_run_at,
-   * last_error); lo que no se hace es repetir la fila mientras el mensaje sea
-   * EL MISMO. En cuanto cambia el error, o se arregla y se vuelve a romper,
-   * vuelve a escribirse: es el mismo mecanismo que ya existe para el fichero
-   * repetido.
+   *   · El historial quedaba con huecos de dos y tres horas, y un hueco se lee
+   *     como «el ciclo no está corriendo». Hubo que poner un cartel entre fila
+   *     y fila explicándolo, y aun así fue la primera pregunta que salió al
+   *     mirar la pantalla.
+   *   · El aviso de arriba solo sale MIENTRAS falla. En cuanto se recupera
+   *     desaparece, y los huecos se quedan ahí sin nada que los explique.
+   *
+   * Lo que se buscaba —que el mismo error no tape lo demás— ya lo resuelve el
+   * botón «Solo con cambios», que es donde tiene que estar: en quien mira, no
+   * en quien escribe. Un ciclo que corre y no lo apunta no se puede auditar.
+   *
+   * `repetido` no desaparece: marca la fila para poder decir en pantalla que es
+   * el mismo fallo de siempre y no uno nuevo.
    */
   const repetido = !opciones.yaRegistrado && perfil.last_error === mensaje
-
-  if (repetido) {
-    await marcarPerfil(perfil.id, {
-      last_run_at: ahora.toISOString(),
-      last_skipped_at: ahora.toISOString(),
-      last_skip_reason: `Sigue fallando igual: ${mensaje.split('\n')[0]}`,
-      last_error: mensaje,
-    })
-    return {
-      profileId: perfil.id,
-      perfil: perfil.name,
-      desenlace: 'error',
-      detalle: mensaje,
-      runId: null,
-      cambios: 0,
-      enviados: 0,
-      duracionMs: Date.now() - arranque,
-    }
-  }
 
   if (!opciones.yaRegistrado) {
     runId = await registrarRun({
@@ -599,9 +626,22 @@ async function registrarFallo(
       estado: 'error' satisfies StockProfileRunState,
       duracion_ms: Date.now() - arranque,
       error_message: mensaje,
+      notes: repetido
+        ? 'Es el mismo fallo que en la pasada anterior: el ciclo lo sigue reintentando cada vez.'
+        : null,
+      fases: [
+        {
+          paso: 'origen',
+          estado: 'error',
+          ms: Date.now() - arranque,
+          cifra: null,
+          nota: mensaje.slice(0, 300),
+        },
+      ],
     })
     await marcarPerfil(perfil.id, {
       last_run_at: ahora.toISOString(),
+      ...(repetido ? { last_skipped_at: ahora.toISOString() } : {}),
       last_error: mensaje,
     })
   }

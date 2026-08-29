@@ -262,8 +262,25 @@ export function PanelEjecuciones({
   const [busqueda, setBusqueda] = useState('')
   const [soloConCambios, setSoloConCambios] = useState(false)
 
+  /**
+   * EL FILTRO ESCONDE EL RUIDO, NO LOS PROBLEMAS.
+   *
+   * Antes dejaba pasar solo lo que había enviado algo. Con el historial completo
+   * —donde la mayoría de filas son «el proveedor mandaba lo mismo»— ese filtro
+   * es justo el que se va a pulsar para quitarse el ruido de encima, y tal como
+   * estaba se llevaba por delante los errores y los frenos.
+   *
+   * Así que esconde lo que no hizo nada Y salió limpio. Un fallo o un freno se
+   * ven siempre, con el filtro puesto o quitado.
+   */
   const visibles = useMemo(
-    () => (soloConCambios ? ejecuciones.filter((e) => (e.enviados_ok ?? 0) > 0) : ejecuciones),
+    () =>
+      soloConCambios
+        ? ejecuciones.filter(
+            (e) =>
+              (e.enviados_ok ?? 0) > 0 || e.estado === 'error' || e.estado === 'frenado'
+          )
+        : ejecuciones,
     [ejecuciones, soloConCambios]
   )
 
@@ -420,9 +437,9 @@ export function PanelEjecuciones({
                   ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
                   : 'border-white/10 text-white/40 hover:text-white/80'
               }`}
-              title="Esconder las que no mandaron ningún cambio"
+              title="Esconder las pasadas que no tenían nada que hacer. Los errores y los frenos se siguen viendo."
             >
-              Solo con cambios
+              Esconder las vacías
             </button>
           </div>
 
@@ -521,10 +538,10 @@ export function PanelEjecuciones({
                 </button>
                 {hueco !== null && (
                   <div className="px-3 py-1.5 border-b border-white/[0.04] bg-white/[0.015] text-[10.5px] leading-relaxed text-white/35">
-                    {hueco === 1 ? 'Falta 1 pasada' : `Faltan ${hueco} pasadas`} entre estas dos. El
-                    ciclo sí entró: cuando una pasada falla con el MISMO mensaje que la anterior no
-                    escribe fila, para que un error repetido no llene el historial con la misma
-                    línea. El motivo está en la fila de abajo.
+                    {hueco === 1 ? 'Falta 1 pasada' : `Faltan ${hueco} pasadas`} entre estas dos.
+                    Desde que el ciclo apunta todas —también las que no tenían nada que hacer— un
+                    hueco significa que esas pasadas NO entraron: el cron parado, un despliegue, o
+                    el perfil apagado durante ese rato.
                   </div>
                 )}
                 </Fragment>

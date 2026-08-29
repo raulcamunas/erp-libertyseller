@@ -94,6 +94,17 @@ const REGLAS: { tabla: string; columna: string; dias: number }[] = [
   { tabla: 'amazon_fees_estimados', columna: 'fecha', dias: 2 },
   { tabla: 'amazon_buybox_diagnostico', columna: 'fecha', dias: 1 },
   { tabla: 'amazon_eventos', columna: 'created_at', dias: 15 },
+  /**
+   * Desde que el ciclo apunta TODAS las pasadas —también las que no tenían nada
+   * que hacer— esta tabla crece de verdad: 48 filas al día por cliente. Sin
+   * plazo eran unas 70.000 al año, con su JSONB de fases dentro, en una base que
+   * ya se pasó de cuota una vez.
+   *
+   * 30 días y no 15 porque este es el historial que se mira para reconstruir qué
+   * le pasó a la cuenta de un cliente, y un mes es lo que se tarda en darse
+   * cuenta de que algo lleva raro desde hace semanas.
+   */
+  { tabla: 'stock_profile_runs', columna: 'created_at', dias: 30 },
   { tabla: 'cron_ejecuciones', columna: 'iniciado_at', dias: 15 },
   // Los trabajos TERMINADOS. Los vivos no se tocan: `terminado_at` a null es
   // justo lo que distingue «acabó hace un mes» de «está corriendo ahora», y

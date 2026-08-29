@@ -47,7 +47,16 @@ import type { StockProfileRun } from '@/lib/types/stock-sync'
  * A cuatro por hora, 200 son unas dos jornadas de un cliente activo. Más no
  * cabe en una pantalla y se pagaría en cada carga del submódulo.
  */
-export const EJECUCIONES_LIMITE = 200
+/**
+ * Cuántas pasadas se traen a la pantalla.
+ *
+ * Sube de 200 a 400 por el mismo cambio que hace que se apunten todas: a media
+ * hora de cadencia son 48 filas diarias por cliente, así que 200 se quedaban en
+ * cuatro días de historial cuando antes daban para semanas. Con 400 vuelven a
+ * ser ocho días largos, y para un cliente que manda fichero dos veces por semana
+ * siguen siendo meses.
+ */
+export const EJECUCIONES_LIMITE = 400
 
 /** Cambios de un lote. Un envío grande son cientos; el tope evita el disgusto */
 export const CAMBIOS_LIMITE = 2000
