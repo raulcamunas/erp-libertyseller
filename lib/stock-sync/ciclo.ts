@@ -351,7 +351,7 @@ async function mirarPerfil(
   }
 
   try {
-    return await procesarConCerrojo(perfil, ahora, arranque)
+    return await procesarConCerrojo(perfil, ahora, arranque, forzar)
   } finally {
     // En el `finally` y no al final del `try`: un fallo a mitad de proceso tiene
     // que soltar el cerrojo igual, o ese perfil se queda esperando media hora a
@@ -363,7 +363,9 @@ async function mirarPerfil(
 async function procesarConCerrojo(
   perfil: StockReadProfile,
   ahora: Date,
-  arranque: number
+  arranque: number,
+  /** Forzando NO se salta el fichero por tener la misma huella. Ver ejecutarCicloStock() */
+  forzar = false
 ): Promise<ResultadoPerfilCiclo> {
   // ---------- Traer el fichero ----------
   let fichero
