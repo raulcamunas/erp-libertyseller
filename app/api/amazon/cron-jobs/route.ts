@@ -5,7 +5,6 @@ import { planificarRefrescos } from '@/lib/plataforma/planificador'
 import { registrarTareas } from '@/lib/plataforma/tareas'
 import { empujar } from '@/lib/ads/generador'
 import { limpiar } from '@/lib/plataforma/limpieza'
-import { publicarSiToca } from '@/lib/entrais/automatico'
 
 /**
  * EL DISPARADOR DEL MOTOR DE TRABAJOS.
@@ -148,26 +147,18 @@ export async function POST(request: NextRequest) {
     }
 
     /**
-     * ---------- Los precios de Entrais, si toca ----------
+     * Aquí estaba la publicación de precios de Entrais, y estaba MAL.
      *
-     * Casi siempre no hace nada: mira el reloj, ve que no le toca y se va. Va
-     * aquí por lo mismo que los informes y la purga —el cron ya corre cada
-     * minuto— y en su propio try, porque publicar precios es lo más delicado que
-     * hace este ERP y no puede llevarse por delante el motor de trabajos.
+     * Esta ruta tiene su propia cadencia en `cron_config` y dos returns
+     * tempranos antes de este punto, así que con las ingestas apagadas los
+     * precios no se publicaban ni una vez — y desde la pantalla se veía como
+     * «el interruptor está encendido y no manda nada», sin nada que lo explicara.
+     *
+     * Se ha ido a cron-sync, detrás del ciclo de stock: allí el ritmo es el que
+     * se pidió y, sobre todo, es la MISMA llamada que acaba de traer el catálogo
+     * del proveedor, así que calcular no gasta otra de las cuatro que deja
+     * Entrais por hora.
      */
-    let precios: Awaited<ReturnType<typeof publicarSiToca>> | null = null
-    try {
-      precios = await publicarSiToca()
-      if (precios.hecho) {
-        console.log(
-          `[entrais] precios: ${precios.enviados} enviados, ${precios.fallidos} fallidos, ` +
-            `${precios.frenados} frenados de ${precios.candidatos} candidatos`
-        )
-      }
-    } catch (error) {
-      console.error('[entrais] la publicación automática de precios ha fallado:', error)
-    }
-
     /**
      * ---------- Y la purga ----------
      *
@@ -201,7 +192,6 @@ export async function POST(request: NextRequest) {
       errores: resultado.errores,
       duracionMs: resultado.duracionMs,
       marketing,
-      precios: precios?.hecho ? precios : null,
       purga: purga?.filter((r) => r.borradas > 0 || r.error) ?? null,
     })
   } catch (error) {

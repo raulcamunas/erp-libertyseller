@@ -4,6 +4,7 @@ import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { ejecutarCicloStock } from '@/lib/stock-sync/ciclo'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
+import { publicarSiToca } from '@/lib/entrais/automatico'
 
 /**
  * EL REFRESCO DE CADA QUINCE MINUTOS, Y EL CICLO DE STOCK DETRÁS.
@@ -159,9 +160,39 @@ async function cicloDeStock(): Promise<Record<string, unknown>> {
       }
     }
 
+    /**
+     * ---------- Y LOS PRECIOS, EN LA MISMA PASADA ----------
+     *
+     * AQUÍ Y NO EN amazon-jobs, que es donde estaban y por eso no salían nunca.
+     * Aquella ruta tiene su propia cadencia en `cron_config` y dos returns
+     * tempranos antes de llegar a los precios: con las ingestas apagadas —que es
+     * como está hoy— la publicación no se ejecutaba ni una sola vez, y desde
+     * fuera se veía como «el interruptor está encendido y no manda nada».
+     *
+     * Aquí es su sitio por dos razones, y la segunda es la que importa:
+     *
+     *   · El ritmo es el del stock, que es justo lo que se pidió.
+     *   · Es LA MISMA LLAMADA. El catálogo del proveedor que acaba de traer el
+     *     ciclo sigue en memoria, así que los precios se calculan con él sin
+     *     gastar otra de las cuatro llamadas por hora que deja Entrais. Puesto
+     *     en otra ruta eso dependía de que la caché siguiera viva entre dos
+     *     peticiones distintas, que es como se agotó la cuota esta mañana.
+     *
+     * En su try: publicar precios es lo más delicado que hace esto y no puede
+     * llevarse por delante un ciclo de stock que ya ha terminado bien.
+     */
+    let precios: Awaited<ReturnType<typeof publicarSiToca>> | null = null
+    try {
+      precios = await publicarSiToca()
+      console.log(`[entrais] precios: ${precios.motivo}`)
+    } catch (error) {
+      console.error('[entrais] la publicación automática de precios ha fallado:', error)
+    }
+
     // El detalle por perfil NO viaja en la respuesta: la lee un `curl -o
     // /dev/null` del cron y en el historial de la pantalla está entero.
     return {
+      precios: precios?.motivo ?? null,
       mirados: ciclo.mirados,
       procesados: ciclo.procesados,
       saltados: ciclo.saltados,
