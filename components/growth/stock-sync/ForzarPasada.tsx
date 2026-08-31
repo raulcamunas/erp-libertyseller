@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Check, Loader2, Play, Tag } from 'lucide-react'
+import { AlertTriangle, Check, Clock, Loader2, Play, Tag } from 'lucide-react'
 
 /**
  * FORZAR LA PASADA DE ESTE CLIENTE, AHORA.
@@ -31,7 +31,16 @@ interface Detalle {
   enviados: number
 }
 
+interface Cuota {
+  limite: number
+  usadas: number
+  quedan: number
+  /** ISO. Cuándo caduca la llamada más vieja y se libera un hueco */
+  seLiberaEn: string | null
+}
+
 interface Respuesta {
+  cuota: Cuota | null
   ciclo: { mirados: number; detalle: Detalle[] }
   precios: {
     hecho: boolean
@@ -42,6 +51,15 @@ interface Respuesta {
     enviados?: number
     fallidos?: number
   } | null
+}
+
+/** «13:47». La hora a la que se libera el siguiente hueco de cuota */
+function hora(iso: string): string {
+  return new Date(iso).toLocaleTimeString('es-ES', {
+    timeZone: 'Europe/Madrid',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export function ForzarPasada({
@@ -55,6 +73,34 @@ export function ForzarPasada({
   const [trabajando, setTrabajando] = useState(false)
   const [salida, setSalida] = useState<Respuesta | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [cuota, setCuota] = useState<Cuota | null>(null)
+
+  /**
+   * LA CUOTA DEL PROVEEDOR, ANTES DE GASTARLA.
+   *
+   * Entrais admite cuatro llamadas por hora a su catálogo, y el ciclo ya se
+   * lleva dos. Quedan dos para las personas, y cuando se acaban la pasada no
+   * falla a medias: falla entera y deja una fila roja en el historial.
+   *
+   * Se pregunta al abrir y después de cada pasada. No en un intervalo: el número
+   * solo cambia cuando alguien llama, y eso pasa aquí.
+   */
+  const leerCuota = useCallback(async () => {
+    try {
+      const res = await fetch('/api/growth/ejecuciones/forzar')
+      const p = (await res.json().catch(() => null)) as { cuota?: Cuota | null } | null
+      if (res.ok) setCuota(p?.cuota ?? null)
+    } catch {
+      // Sin cuota que enseñar se sigue pudiendo forzar: quien manda es Entrais,
+      // esto solo avisa. Un fallo aquí no puede bloquear el botón.
+    }
+  }, [])
+
+  useEffect(() => {
+    void leerCuota()
+  }, [leerCuota])
+
+  const sinCuota = cuota !== null && cuota.quedan === 0
 
   async function forzar() {
     setTrabajando(true)
@@ -74,6 +120,7 @@ export function ForzarPasada({
         return
       }
       setSalida(payload as Respuesta)
+      setCuota((payload as Respuesta).cuota ?? null)
       // El historial y la línea de vida se pintan en el servidor: sin esto la
       // pasada que se acaba de lanzar no aparecería hasta recargar a mano.
       router.refresh()
@@ -81,6 +128,7 @@ export function ForzarPasada({
       setError('No hay conexión con el servidor')
     } finally {
       setTrabajando(false)
+      void leerCuota()
     }
   }
 
@@ -90,8 +138,8 @@ export function ForzarPasada({
         <button
           type="button"
           onClick={() => void forzar()}
-          disabled={trabajando}
-          className="flex h-7 items-center gap-1.5 rounded-lg border border-[#FF6600]/50 bg-[#FF6600]/10 px-2.5 text-[11px] text-white transition-colors hover:bg-[#FF6600]/20 disabled:opacity-50"
+          disabled={trabajando || sinCuota}
+          className="flex h-7 items-center gap-1.5 rounded-lg border border-[#FF6600]/50 bg-[#FF6600]/10 px-2.5 text-[11px] text-white transition-colors hover:bg-[#FF6600]/20 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {trabajando ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -104,6 +152,14 @@ export function ForzarPasada({
         <span className="text-[10.5px] leading-relaxed text-white/35">
           {trabajando ? (
             <>Leyendo el fichero de {clientName} y Amazon en directo. Puede tardar un par de minutos.</>
+          ) : sinCuota ? (
+            <span className="text-amber-200/80">
+              <strong className="font-medium">El proveedor no admite más llamadas esta hora.</strong>{' '}
+              Son {cuota!.limite} por hora y ya van {cuota!.usadas} — el ciclo se lleva dos.
+              {cuota!.seLiberaEn && (
+                <> Se libera un hueco a las {hora(cuota!.seLiberaEn)}.</>
+              )}
+            </span>
           ) : (
             <>
               Adelanta el reloj: no espera a la cadencia y no se salta el fichero por ser el mismo.
@@ -112,6 +168,13 @@ export function ForzarPasada({
             </>
           )}
         </span>
+
+        {cuota && !sinCuota && (
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] text-white/30">
+            <Clock className="h-3 w-3" />
+            {cuota.quedan} de {cuota.limite} llamadas al proveedor esta hora
+          </span>
+        )}
       </div>
 
       {error && (

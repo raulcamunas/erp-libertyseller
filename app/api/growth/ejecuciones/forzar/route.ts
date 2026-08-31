@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail, requireAmazonAdmin } from '@/lib/amazon/api'
 import { ejecutarCicloStock } from '@/lib/stock-sync/ciclo'
 import { publicarSiToca } from '@/lib/entrais/automatico'
+import { cuotaRestante } from '@/lib/entrais/api'
 
 /**
  * FORZAR LA PASADA DE UN CLIENTE, AHORA.
@@ -45,6 +46,31 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
+/**
+ * CUÁNTA CUOTA DEL PROVEEDOR QUEDA ESTA HORA.
+ *
+ * Entrais admite CUATRO llamadas por hora a su catálogo. El ciclo se lleva dos
+ * —una cada media hora, con la caché de veinte minutos vencida— y las otras dos
+ * son para las personas. Cuando se acaban, la pasada no falla a medias: falla
+ * entera y deja una fila roja en el historial.
+ *
+ * Por eso esto se pregunta ANTES de enseñar el botón. Un botón que solo te dice
+ * que no había cuota DESPUÉS de gastarla no es un aviso, es un recibo.
+ *
+ * OJO CON UNA COSA: la cuenta vive en la memoria del proceso, así que un
+ * despliegue la pone a cero mientras Entrais sigue contando. Justo después de
+ * desplegar puede decir que quedan cuatro y que Entrais rechace igualmente. Se
+ * dice en la pantalla en vez de fingir una precisión que no hay.
+ */
+export async function GET() {
+  const session = await requireAmazonAdmin()
+  if (session instanceof NextResponse) return session
+
+  const real = cuotaRestante('real', '/api/v1/Products')
+  const pruebas = cuotaRestante('pruebas', '/api/v1/Products')
+  return NextResponse.json({ ok: true, cuota: real ?? pruebas ?? null })
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await requireAmazonAdmin()
@@ -85,6 +111,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      cuota: cuotaRestante('real', '/api/v1/Products'),
       ciclo: {
         // `mirados` es cuántos perfiles se han tocado; si sale 0 es que este
         // cliente no tiene ninguno activo, y eso hay que poder verlo.
