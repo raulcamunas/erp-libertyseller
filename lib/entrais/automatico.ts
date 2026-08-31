@@ -164,10 +164,30 @@ export async function publicarSiToca(
     }
   }
 
-  // ---------- 1. Recalcular ----------
-  // Trae el catálogo del proveedor —de la caché si es reciente, así que no gasta
-  // cuota— y lo cruza con lo que Amazon acaba de decir en el ciclo de stock.
-  const { resumen } = await calcularTodo({ lanzadoPor: null })
+  /**
+   * ---------- 1. Recalcular CON LO QUE YA HAY ----------
+   *
+   * `soloCache` es la línea importante de este módulo. El proveedor deja cuatro
+   * llamadas por hora a su catálogo y quien las necesita es el ciclo de stock.
+   * Los precios se calculan con EL MISMO catálogo que acaba de traer esa pasada:
+   * una petición, los dos trabajos.
+   *
+   * No es solo ahorro de cuota, es que el dato es mejor: el stock y el precio
+   * salen de la misma lectura, no de dos que pueden diferir en lo que tardan en
+   * llegar la una de la otra.
+   *
+   * Si no hay catálogo en memoria —recién desplegado, o la pasada de stock falló
+   * por cuota— no se publica y se dice por qué, en vez de gastar la llamada que
+   * le hace falta al stock para volver a fallar.
+   */
+  const calculo = await calcularTodo({ lanzadoPor: null, soloCache: true }).catch(
+    (error: unknown) =>
+      ({ fallo: error instanceof Error ? error.message : 'No se ha podido recalcular.' }) as const
+  )
+  if ('fallo' in calculo) {
+    return apuntar(config.id, { hecho: false, motivo: calculo.fallo })
+  }
+  const { resumen } = calculo
 
   // ---------- 2. Qué se puede mandar ----------
   const filas = await fetchAll<{

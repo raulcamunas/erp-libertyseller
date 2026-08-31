@@ -353,7 +353,21 @@ export interface ResumenCalculo {
  * actualizada — ver la migración 154 para por qué no es un histórico.
  */
 export async function calcularTodo(
-  opciones: { lanzadoPor?: string | null } = {}
+  opciones: {
+    lanzadoPor?: string | null
+    /**
+     * NO PEDIR EL CATÁLOGO: usar el que trajo la pasada de stock.
+     *
+     * Lo pone la publicación automática. El proveedor deja cuatro llamadas por
+     * hora y quien las necesita de verdad es el ciclo de stock; los precios se
+     * calculan con lo mismo que acaba de traer, que además es el dato correcto
+     * —el precio y el stock salen del MISMO catálogo, no de dos lecturas que
+     * pueden diferir—.
+     *
+     * A mano (el botón «Recalcular») va en false: ahí sí se quiere lo último.
+     */
+    soloCache?: boolean
+  } = {}
 ): Promise<{ resumen: ResumenCalculo; ejecucionId: string }> {
   const service = createServiceClient()
   const config = await leerConfig()
@@ -369,7 +383,15 @@ export async function calcularTodo(
 
   try {
     /* ---------- El catálogo del proveedor ---------- */
-    const productos = await llamarEntrais<ProductoEntrais[]>(config.entorno, '/api/v1/Products')
+    const productos = await llamarEntrais<ProductoEntrais[]>(
+      config.entorno,
+      '/api/v1/Products',
+      opciones.soloCache
+        ? // Una hora de margen: lo que interesa es reutilizar lo de la pasada de
+          // stock, que entra cada treinta minutos. Más viejo que eso no lo hay.
+          { soloCache: true, frescuraMs: 60 * 60_000 }
+        : {}
+    )
     if (!Array.isArray(productos) || productos.length === 0) {
       throw new Error(
         `Entrais ha contestado sin productos en el entorno «${config.entorno}». No se calcula nada: ` +

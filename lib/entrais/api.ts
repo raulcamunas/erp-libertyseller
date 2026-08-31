@@ -312,7 +312,7 @@ export interface LecturaEntrais<T> {
 export async function llamarEntraisDetalle<T>(
   entorno: EntornoEntrais,
   ruta: string,
-  opciones: { frescuraMs?: number } = {}
+  opciones: { frescuraMs?: number; soloCache?: boolean } = {}
 ): Promise<LecturaEntrais<T>> {
   const cuota = cuotaDe(ruta)
   const clave = `${entorno}|${ruta}`
@@ -326,6 +326,29 @@ export async function llamarEntraisDetalle<T>(
       edadMs: Date.now() - guardado.guardadoEn,
       cuota: cuotaRestante(entorno, ruta),
     }
+  }
+
+  /**
+   * SOLO CACHÉ: USAR LO QUE YA SE TRAJO, O NO HACER NADA.
+   *
+   * Entrais deja cuatro llamadas por hora al catálogo, y hasta ahora había DOS
+   * sitios que lo pedían: el ciclo de stock y el motor de precios. Se salvaban
+   * porque la caché de veinte minutos hacía que el segundo reutilizara lo del
+   * primero — hasta el día en que el primero falló por cuota, no guardó nada, y
+   * el segundo volvió a llamar y se comió también el límite por minuto. Dos
+   * errores distintos por lo mismo.
+   *
+   * Con esto el motor de precios deja de ser un consumidor de cuota: trabaja con
+   * el catálogo que trajo la pasada de stock y punto. Si no hay ninguno todavía
+   * —recién desplegado, o la pasada falló— no publica y lo dice, que es mejor
+   * que gastar la llamada que le hace falta al stock.
+   */
+  if (opciones.soloCache) {
+    throw new EntraisError(
+      'No hay catálogo del proveedor en memoria todavía. Se usa el que trae la pasada de stock, ' +
+        'así que en cuanto entre una se podrá calcular sin gastar otra llamada.',
+      0
+    )
   }
 
   if (cuota) {
@@ -365,7 +388,7 @@ export async function llamarEntraisDetalle<T>(
 export async function llamarEntrais<T>(
   entorno: EntornoEntrais,
   ruta: string,
-  opciones: { frescuraMs?: number } = {}
+  opciones: { frescuraMs?: number; soloCache?: boolean } = {}
 ): Promise<T> {
   return (await llamarEntraisDetalle<T>(entorno, ruta, opciones)).datos
 }
