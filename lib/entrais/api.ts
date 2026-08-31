@@ -344,11 +344,31 @@ export async function llamarEntraisDetalle<T>(
    * que gastar la llamada que le hace falta al stock.
    */
   if (opciones.soloCache) {
-    throw new EntraisError(
-      'No hay catálogo del proveedor en memoria todavía. Se usa el que trae la pasada de stock, ' +
-        'así que en cuanto entre una se podrá calcular sin gastar otra llamada.',
-      0
-    )
+    /**
+     * PERO NO A COSTA DE NO PUBLICAR NUNCA.
+     *
+     * La caché vive en la memoria del proceso, así que CADA DESPLIEGUE la borra.
+     * Con un «solo caché» estricto, la publicación de precios se quedaba
+     * esperando indefinidamente a una pasada de stock que ya había ocurrido
+     * antes del reinicio — y desde fuera se veía como «el interruptor está
+     * encendido y no manda nada», otra vez.
+     *
+     * Así que si no hay nada guardado se llama, PERO solo si sobra cuota: se
+     * reservan dos llamadas para el ciclo de stock, que es quien no puede
+     * quedarse sin ellas. En marcha normal esto no ocurre nunca —la pasada de
+     * stock acaba de guardar el catálogo dos líneas antes— y solo entra en juego
+     * justo después de un despliegue.
+     */
+    const restante = cuotaRestante(entorno, ruta)
+    const RESERVA_PARA_EL_STOCK = 2
+    if (restante && restante.quedan <= RESERVA_PARA_EL_STOCK) {
+      throw new EntraisError(
+        `No hay catálogo del proveedor en memoria —se borra en cada despliegue— y solo quedan ` +
+          `${restante.quedan} de ${restante.limite} llamadas esta hora, que se reservan para el ` +
+          'stock. La siguiente pasada de stock lo dejará en memoria y entonces se publica sin gastar nada.',
+        0
+      )
+    }
   }
 
   if (cuota) {
