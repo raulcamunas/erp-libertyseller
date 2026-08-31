@@ -122,19 +122,18 @@ export function ForzarPasada({
       setSalida(payload as Respuesta)
       setCuota((payload as Respuesta).cuota ?? null)
       /**
-       * EL REFRESCO VA CON RETRASO, Y NO ES UNA MANÍA.
+       * AQUÍ NO SE REFRESCA NADA, Y ES A PROPÓSITO.
        *
-       * `router.refresh()` vuelve a pedir los componentes de servidor, y al
-       * rehacerse el árbol este componente se monta de nuevo y pierde `salida`.
-       * O sea: el resultado que se acaba de pintar desaparecía en el mismo
-       * parpadeo, y la pasada parecía no haber dicho nada. Fue exactamente lo que
-       * pasó la primera vez que se usó.
+       * `router.refresh()` rehace el árbol de servidor, este componente se monta
+       * de nuevo y se lleva por delante el resultado que se acaba de pintar. Con
+       * dos segundos de margen tampoco valía: es el único sitio donde se puede
+       * leer POR QUÉ no se han publicado los precios, y dos segundos no dan para
+       * leer una frase y menos para hacerle una captura.
        *
-       * Dos segundos bastan para leer la primera línea, y el motivo de los
-       * precios queda además guardado en la configuración —migración 168— así
-       * que tras el refresco sigue estando, ahora servido por el servidor.
+       * Se refresca cuando la persona lo pide, con el enlace de abajo. Una lista
+       * un minuto desactualizada no le hace daño a nadie; perder el diagnóstico
+       * justo cuando por fin aparece, sí.
        */
-      setTimeout(() => router.refresh(), 2000)
     } catch {
       setError('No hay conexión con el servidor')
     } finally {
@@ -197,6 +196,15 @@ export function ForzarPasada({
 
       {salida && (
         <div className="mt-2 space-y-1.5 border-t border-white/[0.07] pt-2">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => router.refresh()}
+              className="text-[10px] text-white/30 underline underline-offset-2 hover:text-white/60"
+            >
+              Actualizar el historial
+            </button>
+          </div>
           {/* ---------- El stock ---------- */}
           {salida.ciclo.mirados === 0 ? (
             <p className="text-[11px] leading-relaxed text-amber-200/80">
