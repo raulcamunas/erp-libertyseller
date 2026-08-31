@@ -67,6 +67,8 @@ interface Config {
   publicar_max_salto_pct: number | null
   publicar_max_por_pasada: number
   publicado_at: string | null
+  publicado_motivo: string | null
+  publicado_intento_at: string | null
 }
 
 interface Ejecucion {
@@ -1369,12 +1371,34 @@ function PublicarPrecios({
 
               {cfg.publicado_at && (
                 <span className="text-[10px] text-white/25">
-                  última vez {cuando(cfg.publicado_at)}
+                  última publicación {cuando(cfg.publicado_at)}
                 </span>
               )}
             </>
           )}
         </div>
+
+        {/* ---------------- QUÉ PASÓ LA ÚLTIMA VEZ ----------------
+            Existe porque durante un día entero esto no publicó nada y no había
+            forma de saber por qué: el ciclo lo escribía en el registro del
+            servidor y la pantalla se callaba. El motivo se guarda en la
+            configuración (migración 168) y se lee aquí, venga de una pasada del
+            reloj o del botón de forzar. */}
+        {cfg.publicar_automatico && cfg.publicado_motivo && (
+          <p
+            className={`rounded border px-2 py-1 text-[10.5px] leading-relaxed ${
+              cfg.publicado_motivo.startsWith('Publicado')
+                ? 'border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-100/80'
+                : 'border-amber-400/25 bg-amber-400/[0.06] text-amber-100/85'
+            }`}
+          >
+            <strong className="font-medium">Último intento</strong>
+            {cfg.publicado_intento_at && (
+              <span className="opacity-60"> · {cuando(cfg.publicado_intento_at)}</span>
+            )}
+            : {cfg.publicado_motivo}
+          </p>
+        )}
 
         <p className="text-[10.5px] leading-relaxed text-white/35">
           {cfg.publicar_automatico ? (

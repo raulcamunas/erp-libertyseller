@@ -60,6 +60,38 @@ export interface ResultadoAutomatico {
   fallidos?: number
 }
 
+/**
+ * APUNTA EL MOTIVO Y LO DEVUELVE.
+ *
+ * Todo lo que sale de aquí pasa por esta función, y por eso la pantalla puede
+ * decir por qué no publicó en vez de callarse. Ver la migración 168.
+ *
+ * Los saltos de RUTINA no se apuntan —«todavía no le toca», que ocurre cada
+ * minuto— porque llenarían la columna de ruido y taparían el motivo que importa.
+ * Se apunta lo que es una respuesta: publicado, apagado, sin cuenta, sin perfil,
+ * nada que cambiar, o reventó.
+ */
+async function apuntar(
+  configId: string,
+  resultado: ResultadoAutomatico
+): Promise<ResultadoAutomatico> {
+  try {
+    await createServiceClient()
+      .from('entrais_config')
+      .update({
+        publicado_motivo: resultado.motivo,
+        publicado_intento_at: new Date().toISOString(),
+      })
+      .eq('id', configId)
+  } catch (error) {
+    // La 168 se lanza a mano, así que el código puede llegar antes. Que no poder
+    // apuntar el motivo tumbe la publicación sería cambiar un problema pequeño
+    // por uno grande.
+    console.warn('[entrais] no se ha podido apuntar el motivo del intento:', error)
+  }
+  return resultado
+}
+
 export async function publicarSiToca(
   opciones: { forzar?: boolean } = {}
 ): Promise<ResultadoAutomatico> {
@@ -73,10 +105,14 @@ export async function publicarSiToca(
    * «forzar la pasada de stock» en «publicar precios sin querer».
    */
   if (!config.publicar_automatico) {
+    // Este NO se apunta: estando apagado se pasa por aquí cada minuto.
     return { hecho: false, motivo: 'La publicación automática de precios está apagada.' }
   }
   if (!config.connection_id || !config.marketplace_id) {
-    return { hecho: false, motivo: 'El motor no tiene cuenta de Amazon ni país configurados.' }
+    return apuntar(config.id, {
+      hecho: false,
+      motivo: 'El motor no tiene cuenta de Amazon ni país configurados.',
+    })
   }
 
   const service = createServiceClient()
@@ -116,12 +152,12 @@ export async function publicarSiToca(
 
     const ultimaPasada = (perfiles ?? [])[0]?.last_run_at as string | undefined
     if (!ultimaPasada) {
-      return {
+      return apuntar(config.id, {
         hecho: false,
         motivo:
           'Esta cuenta no tiene ningún perfil de sincronismo activo del que seguir el ritmo. ' +
           'Enciéndelo, o pon un freno fijo en minutos.',
-      }
+      })
     }
     if (Date.parse(ultimaPasada) <= desde) {
       return { hecho: false, motivo: 'No ha entrado ninguna pasada de stock desde la última vez.' }
@@ -207,15 +243,18 @@ export async function publicarSiToca(
       .from('entrais_config')
       .update({ publicado_at: new Date().toISOString() })
       .eq('id', config.id)
-    return {
+    return apuntar(config.id, {
       hecho: true,
-      motivo: 'No había ningún precio que cambiar.',
+      motivo:
+        candidatos.length === 0 && frenados.length > 0
+          ? `Ninguno se ha podido mandar: los ${frenados.length} que cambiaban se pasan del tope de salto.`
+          : 'No había ningún precio que cambiar: Amazon ya está a los precios calculados.',
       calculados: resumen.productos,
       candidatos: 0,
       frenados: frenados.length,
       enviados: 0,
       fallidos: 0,
-    }
+    })
   }
 
   // ---------- 3. Mandar ----------
@@ -241,13 +280,17 @@ export async function publicarSiToca(
     .update({ publicado_at: new Date().toISOString() })
     .eq('id', config.id)
 
-  return {
+  return apuntar(config.id, {
     hecho: true,
-    motivo: 'Publicado.',
+    motivo:
+      `Publicado: ${enviado.accepted} precios aceptados por Amazon` +
+      (enviado.failed > 0 ? `, ${enviado.failed} rechazados` : '') +
+      (frenados.length > 0 ? `, ${frenados.length} frenados por el tope de salto` : '') +
+      '.',
     calculados: resumen.productos,
     candidatos: candidatos.length,
     frenados: frenados.length,
     enviados: enviado.accepted,
     fallidos: enviado.failed,
-  }
+  })
 }

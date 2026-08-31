@@ -68,6 +68,9 @@ export interface FilaConfig {
   publicar_max_salto_pct: number | null
   publicar_max_por_pasada: number
   publicado_at: string | null
+  /** Qué pasó en el último intento real, y cuándo. Ver la migración 168 */
+  publicado_motivo: string | null
+  publicado_intento_at: string | null
   updated_at: string
 }
 

@@ -121,9 +121,20 @@ export function ForzarPasada({
       }
       setSalida(payload as Respuesta)
       setCuota((payload as Respuesta).cuota ?? null)
-      // El historial y la línea de vida se pintan en el servidor: sin esto la
-      // pasada que se acaba de lanzar no aparecería hasta recargar a mano.
-      router.refresh()
+      /**
+       * EL REFRESCO VA CON RETRASO, Y NO ES UNA MANÍA.
+       *
+       * `router.refresh()` vuelve a pedir los componentes de servidor, y al
+       * rehacerse el árbol este componente se monta de nuevo y pierde `salida`.
+       * O sea: el resultado que se acaba de pintar desaparecía en el mismo
+       * parpadeo, y la pasada parecía no haber dicho nada. Fue exactamente lo que
+       * pasó la primera vez que se usó.
+       *
+       * Dos segundos bastan para leer la primera línea, y el motivo de los
+       * precios queda además guardado en la configuración —migración 168— así
+       * que tras el refresco sigue estando, ahora servido por el servidor.
+       */
+      setTimeout(() => router.refresh(), 2000)
     } catch {
       setError('No hay conexión con el servidor')
     } finally {
