@@ -49,6 +49,28 @@ import { fetchAll } from '@/lib/supabase/paginacion'
 import { sendChanges, type ChangeToSend } from '@/lib/amazon/data'
 import { calcularTodo, leerConfig } from './motor'
 
+/**
+ * CUÁNTO TIEMPO PUEDE OCUPAR EL ENVÍO DE PRECIOS EN UNA PASADA.
+ *
+ * El cron corta la petición a los 280 segundos y el ciclo de stock ya se lleva
+ * unos 130. Lo que queda son unos 100 para los precios, con margen.
+ *
+ * Esto NO es una optimización, es lo que hacía que no se publicara nada. El
+ * catálogo tenía 5.424 precios que cambiar y se mandaban en una sola tanda: unos
+ * nueve minutos de llamadas a Amazon. La petición moría a mitad, no se escribía
+ * ni una fila, no se apuntaba el motivo, y la pasada siguiente empezaba otra vez
+ * desde cero. Un bucle que no avanzaba nunca y que desde fuera se veía como «el
+ * interruptor está encendido y no manda nada».
+ *
+ * Ahora se manda por tandas hasta que se acaba el tiempo y se deja constancia de
+ * por dónde va. Como los mayores saltos van primero, lo que se queda para la
+ * siguiente pasada es siempre lo menos urgente.
+ */
+const PRESUPUESTO_ENVIO_MS = 100_000
+
+/** Cuántos precios por llamada a sendChanges. Cada tanda es un lote en el historial */
+const POR_TANDA = 200
+
 export interface ResultadoAutomatico {
   /** false = no le tocaba, o está apagado. No es un fallo */
   hecho: boolean
@@ -277,23 +299,44 @@ export async function publicarSiToca(
     })
   }
 
-  // ---------- 3. Mandar ----------
-  const cambios: ChangeToSend[] = tanda.map((c) => ({
-    sku: c.sku,
-    marketplaceId: config.marketplace_id as string,
-    field: 'precio',
-    newValue: c.precio,
-  }))
+  /**
+   * ---------- 3. Mandar, POR TANDAS Y CON RELOJ ----------
+   *
+   * Nunca en una sola llamada. Ver PRESUPUESTO_ENVIO_MS: mandar el catálogo
+   * entero de golpe es lo que hacía que la petición muriera a mitad y no se
+   * publicara nada, pasada tras pasada.
+   */
+  const arranqueEnvio = Date.now()
+  let aceptados = 0
+  let rechazados = 0
+  let mandados = 0
 
-  const enviado = await sendChanges({
-    connectionId: config.connection_id,
-    changes: cambios,
-    // `fichero` y no `manual`: lo decidió el motor, no una persona. Es lo primero
-    // que hay que saber el día que un precio salga raro.
-    source: 'fichero',
-    sourceRef: `entrais-automatico:${new Date().toISOString().slice(0, 16)}`,
-    userId: null,
-  })
+  for (let i = 0; i < tanda.length; i += POR_TANDA) {
+    if (Date.now() - arranqueEnvio > PRESUPUESTO_ENVIO_MS) break
+
+    const cambios: ChangeToSend[] = tanda.slice(i, i + POR_TANDA).map((c) => ({
+      sku: c.sku,
+      marketplaceId: config.marketplace_id as string,
+      field: 'precio',
+      newValue: c.precio,
+    }))
+
+    const parcial = await sendChanges({
+      connectionId: config.connection_id,
+      changes: cambios,
+      // `fichero` y no `manual`: lo decidió el motor, no una persona. Es lo
+      // primero que hay que saber el día que un precio salga raro.
+      source: 'fichero',
+      sourceRef: `entrais-automatico:${new Date().toISOString().slice(0, 16)}`,
+      userId: null,
+    })
+    aceptados += parcial.accepted
+    rechazados += parcial.failed
+    mandados += cambios.length
+  }
+
+  const quedan = tanda.length - mandados
+  const enviado = { accepted: aceptados, failed: rechazados }
 
   await service
     .from('entrais_config')
@@ -306,7 +349,10 @@ export async function publicarSiToca(
       `Publicado: ${enviado.accepted} precios aceptados por Amazon` +
       (enviado.failed > 0 ? `, ${enviado.failed} rechazados` : '') +
       (frenados.length > 0 ? `, ${frenados.length} frenados por el tope de salto` : '') +
-      '.',
+      (quedan > 0
+        ? `. Quedan ${quedan} para las siguientes pasadas: no caben en el tiempo de una, y van ` +
+          'ordenados de mayor a menor diferencia, así que lo que espera es lo menos urgente.'
+        : '.'),
     calculados: resumen.productos,
     candidatos: candidatos.length,
     frenados: frenados.length,
