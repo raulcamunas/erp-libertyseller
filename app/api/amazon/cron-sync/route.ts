@@ -140,6 +140,7 @@ export async function POST(request: NextRequest) {
  * de abrir la pantalla.
  */
 async function cicloDeStock(): Promise<Record<string, unknown>> {
+  const arranque = Date.now()
   try {
     const ciclo = await ejecutarCicloStock()
 
@@ -183,7 +184,16 @@ async function cicloDeStock(): Promise<Record<string, unknown>> {
      */
     let precios: Awaited<ReturnType<typeof publicarSiToca>> | null = null
     try {
-      precios = await publicarSiToca()
+      /**
+       * El tiempo que queda de verdad, no un número fijo.
+       *
+       * El cron corta a los 280 s. Detrás de una pasada de stock quedan unos
+       * 120; en una vuelta donde al stock no le tocaba, casi los 280. Se
+       * reservan 20 de margen para cerrar y contestar.
+       */
+      precios = await publicarSiToca({
+        presupuestoMs: 260_000 - (Date.now() - arranque),
+      })
       console.log(`[entrais] precios: ${precios.motivo}`)
     } catch (error) {
       console.error('[entrais] la publicación automática de precios ha fallado:', error)

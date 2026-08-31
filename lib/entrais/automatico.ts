@@ -68,6 +68,9 @@ import { calcularTodo, leerConfig } from './motor'
  */
 const PRESUPUESTO_ENVIO_MS = 100_000
 
+/** Suelo: por poco tiempo que quede, una tanda entra siempre */
+const PRESUPUESTO_MINIMO_MS = 30_000
+
 /** Cuántos precios por llamada a sendChanges. Cada tanda es un lote en el historial */
 const POR_TANDA = 200
 
@@ -115,7 +118,19 @@ async function apuntar(
 }
 
 export async function publicarSiToca(
-  opciones: { forzar?: boolean } = {}
+  opciones: {
+    forzar?: boolean
+    /**
+     * Cuánto tiempo queda para mandar precios en esta petición.
+     *
+     * Lo sabe quien llama y no este módulo: detrás de una pasada de stock quedan
+     * unos 120 segundos de los 280 que da el cron, pero en una pasada donde al
+     * stock no le tocaba están casi los 280 enteros. Fijarlo aquí a un número
+     * dejaba sin usar la mitad del tiempo disponible justo en las pasadas más
+     * desahogadas.
+     */
+    presupuestoMs?: number
+  } = {}
 ): Promise<ResultadoAutomatico> {
   const config = await leerConfig()
 
@@ -312,7 +327,11 @@ export async function publicarSiToca(
   let mandados = 0
 
   for (let i = 0; i < tanda.length; i += POR_TANDA) {
-    if (Date.now() - arranqueEnvio > PRESUPUESTO_ENVIO_MS) break
+    const presupuesto = Math.max(
+      PRESUPUESTO_MINIMO_MS,
+      opciones.presupuestoMs ?? PRESUPUESTO_ENVIO_MS
+    )
+    if (Date.now() - arranqueEnvio > presupuesto) break
 
     const cambios: ChangeToSend[] = tanda.slice(i, i + POR_TANDA).map((c) => ({
       sku: c.sku,
@@ -338,10 +357,25 @@ export async function publicarSiToca(
   const quedan = tanda.length - mandados
   const enviado = { accepted: aceptados, failed: rechazados }
 
-  await service
-    .from('entrais_config')
-    .update({ publicado_at: new Date().toISOString() })
-    .eq('id', config.id)
+  /**
+   * SOLO SE SELLA CUANDO NO QUEDA NADA, Y ESO ES LO QUE ACELERA LA PUESTA AL DÍA.
+   *
+   * `publicado_at` es lo que hace esperar a la siguiente pasada de stock. Si se
+   * sellara con trabajo pendiente, los 5.424 precios del primer día saldrían a
+   * 400 por media hora: siete horas.
+   *
+   * Dejándolo sin sellar mientras queden, el cron —que entra cada minuto—
+   * retoma por donde iba en la pasada siguiente, y esas pasadas tienen el tiempo
+   * casi entero porque al stock no le toca. La puesta al día pasa de horas a
+   * minutos, y en cuanto la cola se vacía se sella y todo vuelve al ritmo del
+   * sincronismo.
+   */
+  if (quedan === 0) {
+    await service
+      .from('entrais_config')
+      .update({ publicado_at: new Date().toISOString() })
+      .eq('id', config.id)
+  }
 
   return apuntar(config.id, {
     hecho: true,
