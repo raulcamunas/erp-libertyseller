@@ -745,19 +745,22 @@ export function PanelEjecuciones({
               </div>
             ) : errorCambios ? (
               <p className="text-[12px] text-red-300/80 text-center py-8 px-4">{errorCambios}</p>
-            ) : !actual?.batch_id ? (
+            ) : !batch ? (
               /* NO ES UN HUECO, ES LA RESPUESTA: esa ejecución no mandó nada, y
-                 el motivo está en la tarjeta de la izquierda. */
+                 el motivo está en la tarjeta de la izquierda.
+
+                 Solo se llega aquí con una pasada de stock: un lote de precios
+                 existe PORQUE se mandó algo, así que siempre trae batch. */
               <div className="h-full flex flex-col items-center justify-center gap-2 px-6 text-center">
                 <p className="text-[13px] text-white/35">
                   Esta ejecución no mandó ningún cambio a Amazon.
                 </p>
                 <p className="text-[11px] text-white/25 max-w-[380px]">
-                  {actual?.estado === 'frenado'
+                  {runActual?.estado === 'frenado'
                     ? 'Saltó un freno: el motivo está en la tarjeta de la izquierda.'
-                    : actual?.estado === 'error'
+                    : runActual?.estado === 'error'
                       ? 'Terminó con error. El mensaje está en la tarjeta de la izquierda.'
-                      : actual?.estado === 'simulacro'
+                      : runActual?.estado === 'simulacro'
                         ? 'Es un simulacro: se calculó todo pero el envío está apagado para este cliente.'
                         : 'Leyó el fichero y lo que decía era lo que Amazon ya tenía.'}
                 </p>
