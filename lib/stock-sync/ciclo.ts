@@ -192,7 +192,25 @@ async function conTopePorPerfil(
 }
 
 export async function ejecutarCicloStock(
-  opciones: { ahora?: Date; presupuestoMs?: number } = {}
+  opciones: {
+    ahora?: Date
+    presupuestoMs?: number
+    /**
+     * FORZAR: SALTARSE LOS DOS FRENOS QUE EXISTEN PARA NO REPETIR TRABAJO.
+     *
+     * La cadencia («todavía no le toca») y la huella del fichero («es el mismo
+     * que ya se procesó»). Los dos están para que el reloj no haga trabajo
+     * inútil, y los dos sobran cuando hay una persona pulsando un botón: si
+     * pulsa es porque quiere que pase AHORA.
+     *
+     * Y desde que el ciclo lee Amazon en directo, repetir el mismo fichero ya no
+     * es trabajo inútil: el fichero dirá lo mismo, pero Amazon puede haber
+     * cambiado —una venta baja unidades— y ahí sí hay algo que mandar.
+     */
+    forzar?: boolean
+    /** Solo los perfiles de este cliente. Para el botón de una pantalla de cliente */
+    soloCliente?: string
+  } = {}
 ): Promise<ResultadoCiclo> {
   const arranque = Date.now()
   const presupuestoMs = opciones.presupuestoMs ?? PRESUPUESTO_MS
@@ -209,6 +227,9 @@ export async function ejecutarCicloStock(
     let perfiles: StockReadProfile[]
     try {
       perfiles = await perfilesDelCiclo()
+      if (opciones.soloCliente) {
+        perfiles = perfiles.filter((p) => p.client_id === opciones.soloCliente)
+      }
     } catch (error) {
       // La migración se lanza a mano en el editor SQL de Supabase, así que el
       // código puede llegar desplegado antes que ella. Que el cron deje un error
@@ -244,7 +265,9 @@ export async function ejecutarCicloStock(
       }
 
       try {
-        salida.push(await conTopePorPerfil(mirarPerfil(perfil, reloj()), perfil))
+        salida.push(
+          await conTopePorPerfil(mirarPerfil(perfil, reloj(), opciones.forzar === true), perfil)
+        )
       } catch (error) {
         if (isMissingSchema(error)) {
           salida.push(
@@ -274,7 +297,11 @@ export async function ejecutarCicloStock(
 /* Un perfil                                                           */
 /* ------------------------------------------------------------------ */
 
-async function mirarPerfil(perfil: StockReadProfile, ahora: Date): Promise<ResultadoPerfilCiclo> {
+async function mirarPerfil(
+  perfil: StockReadProfile,
+  ahora: Date,
+  forzar = false
+): Promise<ResultadoPerfilCiclo> {
   const arranque = Date.now()
 
   // ---------- ¿Se puede traer el fichero de este origen? ----------
@@ -293,7 +320,8 @@ async function mirarPerfil(perfil: StockReadProfile, ahora: Date): Promise<Resul
   }
 
   // ---------- ¿Le toca? ----------
-  if (!leToca(perfil, ahora)) {
+  // Forzando no se pregunta: la cadencia es para el reloj, no para una persona.
+  if (!forzar && !leToca(perfil, ahora)) {
     return nota(
       perfil,
       'aun_no_toca',
@@ -364,7 +392,7 @@ async function procesarConCerrojo(
    * medición— y ahora se purgan a los 30 días. Una pasada que ocurre y no se
    * apunta es una pasada que nadie puede auditar.
    */
-  if (fichero.huellaContenido === perfil.last_file_fingerprint) {
+  if (!forzar && fichero.huellaContenido === perfil.last_file_fingerprint) {
     // `last_error` NO se limpia aquí, y es importante: a este punto también se
     // llega cuando el fichero anterior no se pudo leer y se apuntó su huella
     // para no releerlo cada cuarto de hora. Borrar el error dejaría la pantalla

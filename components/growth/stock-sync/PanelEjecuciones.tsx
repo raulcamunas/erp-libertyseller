@@ -29,6 +29,7 @@ import {
 import type { LotePrecio } from '@/lib/growth/ejecuciones'
 import { formatDateTime } from './shared'
 import { LineaDeVida } from './LineaDeVida'
+import { ForzarPasada } from './ForzarPasada'
 
 /**
  * QUÉ HA HECHO EL ERP EN LA CUENTA DE ESTE CLIENTE.
@@ -485,6 +486,8 @@ export function PanelEjecuciones({
         origen={runActual?.origen ?? null}
         esLaUltima={actual?.clave === historial[0]?.clave}
       />
+
+      <ForzarPasada clientId={clientId} clientName={clientName} />
 
       <EstadoAhora perfiles={perfiles} />
 

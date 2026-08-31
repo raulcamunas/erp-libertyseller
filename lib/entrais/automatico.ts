@@ -60,11 +60,20 @@ export interface ResultadoAutomatico {
   fallidos?: number
 }
 
-export async function publicarSiToca(): Promise<ResultadoAutomatico> {
+export async function publicarSiToca(
+  opciones: { forzar?: boolean } = {}
+): Promise<ResultadoAutomatico> {
   const config = await leerConfig()
 
+  /**
+   * ESTE SÍ SE RESPETA AUNQUE SE FUERCE.
+   *
+   * Forzar salta el reloj, no el permiso. Publicar precios en la tienda de un
+   * cliente se enciende a propósito, y un botón que se lo salta convierte
+   * «forzar la pasada de stock» en «publicar precios sin querer».
+   */
   if (!config.publicar_automatico) {
-    return { hecho: false, motivo: 'La publicación automática está apagada.' }
+    return { hecho: false, motivo: 'La publicación automática de precios está apagada.' }
   }
   if (!config.connection_id || !config.marketplace_id) {
     return { hecho: false, motivo: 'El motor no tiene cuenta de Amazon ni país configurados.' }
@@ -81,7 +90,9 @@ export async function publicarSiToca(): Promise<ResultadoAutomatico> {
    */
   const desde = config.publicado_at ? Date.parse(config.publicado_at) : 0
 
-  if (config.publicar_cada_minutos > 0) {
+  if (opciones.forzar) {
+    // Ni reloj ni pasada previa: lo ha pedido una persona.
+  } else if (config.publicar_cada_minutos > 0) {
     // Freno fijo: alguien ha decidido desacoplarlo del stock a propósito.
     if (Date.now() - desde < config.publicar_cada_minutos * 60_000) {
       return { hecho: false, motivo: 'Todavía no le toca.' }
