@@ -26,6 +26,7 @@ import {
   type AmazonSubmissionField,
   type AmazonSubmissionStatus,
 } from '@/lib/types/amazon'
+import type { LotePrecio } from '@/lib/growth/ejecuciones'
 import { formatDateTime } from './shared'
 import { LineaDeVida } from './LineaDeVida'
 
@@ -63,6 +64,8 @@ export interface PanelEjecucionesProps {
   clientId: string
   clientName: string
   ejecuciones: EjecucionVista[]
+  /** Las publicaciones de precio, que no pasan por el ciclo de stock */
+  precios?: LotePrecio[]
   /** El estado VIVO de cada perfil. Ver la nota de EstadoAhora() */
   perfiles?: EstadoPerfilVista[]
   className?: string
@@ -247,15 +250,37 @@ function valor(v: string | null, moneda: string | null, campo: AmazonSubmissionF
   return campo === 'precio' && moneda ? `${v} ${moneda}` : v
 }
 
+/**
+ * UNA LÍNEA DEL HISTORIAL, sea de stock o de precios.
+ *
+ * Las dos cosas viven en tablas distintas y no se pueden fusionar en la base:
+ * una pasada de stock es una fila de `stock_profile_runs` y una publicación de
+ * precios es un lote de `amazon_submissions` agrupado por la vista de la 167.
+ * Se juntan AQUÍ, que es donde importa que se vean juntas.
+ */
+type Fila =
+  | { clave: string; cuando: string; tipo: 'stock'; run: EjecucionVista; lote?: undefined }
+  | { clave: string; cuando: string; tipo: 'precio'; lote: LotePrecio; run?: undefined }
+
+/** El lote que hay que pedir para pintar «qué cambió», venga de donde venga */
+function batchDe(f: Fila | null): string | null {
+  if (!f) return null
+  return f.tipo === 'stock' ? f.run.batch_id : f.lote.batch_id
+}
+
 export function PanelEjecuciones({
   clientId,
   clientName,
   ejecuciones,
+  precios = [],
   perfiles = [],
   className = '',
 }: PanelEjecucionesProps) {
-  // La primera de la lista viene abierta: es la que se viene a mirar.
-  const [seleccionada, setSeleccionada] = useState<string | null>(ejecuciones[0]?.id ?? null)
+  // Arranca sin nada elegido y el efecto de abajo abre la primera. Fijarla aquí
+  // con `ejecuciones[0]` se saltaba las publicaciones de precio: si la más
+  // reciente era un envío de precios, la pantalla abría la pasada de stock
+  // anterior y parecía que los precios no se habían mandado.
+  const [seleccionada, setSeleccionada] = useState<string | null>(null)
   const [cambios, setCambios] = useState<AmazonSubmission[]>([])
   const [cargando, setCargando] = useState(false)
   const [errorCambios, setErrorCambios] = useState<string | null>(null)
@@ -273,21 +298,58 @@ export function PanelEjecuciones({
    * Así que esconde lo que no hizo nada Y salió limpio. Un fallo o un freno se
    * ven siempre, con el filtro puesto o quitado.
    */
+  /**
+   * STOCK Y PRECIOS EN LA MISMA LISTA, ORDENADOS POR HORA.
+   *
+   * Y no en dos pestañas. Lo que se viene a contestar aquí es «¿qué le ha hecho
+   * el ERP a esta cuenta?», y esa pregunta no distingue: si a las 10:15 se
+   * mandaron unidades y a las 10:16 precios, lo útil es verlo seguido. Separarlo
+   * obligaría a mirar dos sitios y a cruzar las horas a ojo, que es justo lo que
+   * una pantalla de historial tiene que ahorrar.
+   *
+   * Lo que sí se distingue es el TIPO, con su etiqueta y su color, porque un
+   * envío de precios y uno de stock no se arreglan igual cuando salen mal.
+   */
+  const historial = useMemo<Fila[]>(() => {
+    const deStock: Fila[] = ejecuciones.map((e) => ({
+      clave: `run-${e.id}`,
+      cuando: e.created_at,
+      tipo: 'stock',
+      run: e,
+    }))
+    const dePrecio: Fila[] = precios.map((l) => ({
+      clave: `precio-${l.batch_id}`,
+      cuando: l.created_at,
+      tipo: 'precio',
+      lote: l,
+    }))
+    return [...deStock, ...dePrecio].sort((a, b) => b.cuando.localeCompare(a.cuando))
+  }, [ejecuciones, precios])
+
   const visibles = useMemo(
     () =>
       soloConCambios
-        ? ejecuciones.filter(
-            (e) =>
-              (e.enviados_ok ?? 0) > 0 || e.estado === 'error' || e.estado === 'frenado'
+        ? historial.filter((f) =>
+            f.tipo === 'stock'
+              ? (f.run.enviados_ok ?? 0) > 0 ||
+                f.run.estado === 'error' ||
+                f.run.estado === 'frenado'
+              : // Un lote de precios existe porque se mandó algo: nunca está vacío.
+                // Solo se esconde el que no aceptó ni uno y tampoco falló nada,
+                // que no llega a darse pero deja el filtro coherente.
+                f.lote.aceptados > 0 || f.lote.fallidos > 0
           )
-        : ejecuciones,
-    [ejecuciones, soloConCambios]
+        : historial,
+    [historial, soloConCambios]
   )
 
   const actual = useMemo(
-    () => ejecuciones.find((e) => e.id === seleccionada) ?? null,
-    [ejecuciones, seleccionada]
+    () => visibles.find((f) => f.clave === seleccionada) ?? visibles[0] ?? null,
+    [visibles, seleccionada]
   )
+
+  /** La ejecución de stock elegida, o null si lo elegido es un lote de precios */
+  const runActual = actual?.tipo === 'stock' ? actual.run : null
 
   /**
    * Los cambios se piden AL SELECCIONAR, no al cargar la pantalla.
@@ -295,8 +357,11 @@ export function PanelEjecuciones({
    * Un envío son cientos de filas; traerse los de doscientas ejecuciones para
    * pintar los de una sería mover megas por nada.
    */
+  const batch = batchDe(actual)
+  const esPrecio = actual?.tipo === 'precio'
+
   useEffect(() => {
-    if (!actual?.batch_id) {
+    if (!batch) {
       setCambios([])
       setErrorCambios(null)
       return
@@ -309,8 +374,13 @@ export function PanelEjecuciones({
     setCargando(true)
     setErrorCambios(null)
 
+    // `tipo` decide por qué tabla se comprueba que ese lote es de este cliente:
+    // los de stock por `stock_profile_runs`, los de precio por la conexión. Ver
+    // cambiosDeLotePrecio().
     fetch(
-      `/api/growth/ejecuciones/cambios?batch=${encodeURIComponent(actual.batch_id)}&cliente=${encodeURIComponent(clientId)}`
+      `/api/growth/ejecuciones/cambios?batch=${encodeURIComponent(batch)}` +
+        `&cliente=${encodeURIComponent(clientId)}` +
+        `&tipo=${esPrecio ? 'precio' : 'stock'}`
     )
       .then(async (res) => {
         const payload = (await res.json().catch(() => null)) as {
@@ -338,7 +408,7 @@ export function PanelEjecuciones({
     return () => {
       cancelado = true
     }
-  }, [actual?.batch_id, clientId])
+  }, [batch, esPrecio, clientId])
 
   const cambiosVisibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
@@ -362,18 +432,32 @@ export function PanelEjecuciones({
   const perfilDeLaActual = useMemo(() => {
     if (perfiles.length === 0) return null
     if (perfiles.length === 1) return perfiles[0]
-    return perfiles.find((p) => p.name === actual?.perfil_nombre) ?? null
-  }, [perfiles, actual?.perfil_nombre])
+    return perfiles.find((p) => p.name === runActual?.perfil_nombre) ?? null
+  }, [perfiles, runActual?.perfil_nombre])
 
+  /**
+   * LAS CIFRAS DE ARRIBA CUENTAN LAS DOS COSAS.
+   *
+   * Contaban solo el stock, y con los precios ya en la lista eso dejaba una
+   * pantalla que se contradice a sí misma: abajo salen tres publicaciones con
+   * cuatro mil precios y arriba pone «Cambios en Amazon: 12». El resumen de una
+   * lista tiene que resumir esa lista.
+   */
   const resumen = useMemo(() => {
-    const enviadas = ejecuciones.filter((e) => e.estado === 'enviado').length
+    const enviadas =
+      ejecuciones.filter((e) => e.estado === 'enviado').length +
+      precios.filter((l) => l.aceptados > 0).length
     const frenadas = ejecuciones.filter((e) => e.estado === 'frenado').length
-    const conError = ejecuciones.filter((e) => e.estado === 'error').length
-    const cambiosTotales = ejecuciones.reduce((s, e) => s + (e.enviados_ok ?? 0), 0)
+    const conError =
+      ejecuciones.filter((e) => e.estado === 'error').length +
+      precios.filter((l) => l.fallidos > 0 && l.aceptados === 0).length
+    const cambiosTotales =
+      ejecuciones.reduce((s, e) => s + (e.enviados_ok ?? 0), 0) +
+      precios.reduce((s, l) => s + l.aceptados, 0)
     return { enviadas, frenadas, conError, cambiosTotales }
-  }, [ejecuciones])
+  }, [ejecuciones, precios])
 
-  if (ejecuciones.length === 0) {
+  if (ejecuciones.length === 0 && precios.length === 0) {
     return (
       <div className={`flex flex-col gap-2 min-h-0 ${className}`}>
         <EstadoAhora perfiles={perfiles} />
@@ -395,10 +479,11 @@ export function PanelEjecuciones({
     <div className={`flex flex-col min-h-0 gap-2 ${className}`}>
       {/* ---------------- El recorrido de la pasada ---------------- */}
       <LineaDeVida
-        ejecucion={actual}
+        ejecucion={runActual}
+        lote={actual?.tipo === 'precio' ? actual.lote : null}
         perfil={perfilDeLaActual}
-        origen={actual?.origen ?? null}
-        esLaUltima={actual?.id === ejecuciones[0]?.id}
+        origen={runActual?.origen ?? null}
+        esLaUltima={actual?.clave === historial[0]?.clave}
       />
 
       <EstadoAhora perfiles={perfiles} />
@@ -427,7 +512,7 @@ export function PanelEjecuciones({
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col min-h-0 overflow-hidden">
           <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-2 flex-shrink-0">
             <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider flex items-center gap-2">
-              <History className="h-3 w-3" /> Ejecuciones · {ejecuciones.length}
+              <History className="h-3 w-3" /> Ejecuciones · {historial.length}
             </h3>
             <button
               type="button"
@@ -444,96 +529,150 @@ export function PanelEjecuciones({
           </div>
 
           <div className="flex-1 overflow-auto min-w-0">
-            {visibles.map((e, i) => {
-              const activa = e.id === seleccionada
+            {visibles.map((f, i) => {
+              const activa = f.clave === actual?.clave
 
               /**
                * LOS HUECOS DEL HISTORIAL, EXPLICADOS DONDE SE VEN.
                *
-               * El ciclo NO escribe fila cuando una pasada falla con el mismo
-               * mensaje que la anterior. Está hecho a propósito —si no, un error
-               * repetido llena la lista con noventa y seis copias al día y
-               * entierra todo lo demás— pero tiene un efecto que nadie previó:
-               * en el historial quedan saltos de dos horas y media, y eso se lee
-               * como «el ciclo no se está ejecutando».
+               * Desde que el ciclo apunta TODAS las pasadas, un salto en las
+               * horas significa que esas pasadas no entraron. Se dice entre las
+               * dos filas, con la cadencia del perfil y no con un número fijo: a
+               * 15 minutos y a 120 el mismo salto significa cosas distintas.
                *
-               * El aviso de arriba solo sale MIENTRAS está fallando. En cuanto
-               * se recupera desaparece, y los huecos se quedan ahí sin que nada
-               * diga de qué son.
-               *
-               * Así que se dice aquí, entre las dos filas: cuántas pasadas
-               * faltan y por qué. Se calcula con la cadencia del perfil, no con
-               * un número fijo — a 15 minutos y a 120 el mismo salto significa
-               * cosas muy distintas.
+               * Solo se mide entre dos filas de STOCK. Las publicaciones de
+               * precio no tienen cadencia propia —van al ritmo del sincronismo—
+               * y meterlas en la cuenta daría huecos inventados.
                */
-              const siguiente = visibles[i + 1]
-              const cadencia =
-                (perfiles.find((p) => p.name === e.perfil_nombre) ?? (perfiles.length === 1 ? perfiles[0] : undefined))
-                  ?.cadencia_minutos ?? null
               let hueco: number | null = null
-              if (siguiente && cadencia && cadencia > 0) {
-                const minutos = Math.round(
-                  (Date.parse(e.created_at) - Date.parse(siguiente.created_at)) / 60_000
-                )
-                // Milésima y media de la cadencia: por debajo de eso es el
-                // margen normal del cron, no un hueco.
-                const faltan = Math.round(minutos / cadencia) - 1
-                if (minutos > cadencia * 1.5 && faltan >= 1) hueco = faltan
+              if (f.tipo === 'stock') {
+                const siguiente = visibles.slice(i + 1).find((x) => x.tipo === 'stock')
+                const cadencia =
+                  (
+                    perfiles.find((p) => p.name === f.run.perfil_nombre) ??
+                    (perfiles.length === 1 ? perfiles[0] : undefined)
+                  )?.cadencia_minutos ?? null
+                if (siguiente && cadencia && cadencia > 0) {
+                  const minutos = Math.round(
+                    (Date.parse(f.cuando) - Date.parse(siguiente.cuando)) / 60_000
+                  )
+                  // Vez y media la cadencia: por debajo de eso es el margen
+                  // normal del cron, no un hueco.
+                  const faltan = Math.round(minutos / cadencia) - 1
+                  if (minutos > cadencia * 1.5 && faltan >= 1) hueco = faltan
+                }
               }
 
               return (
-                <Fragment key={e.id}>
+                <Fragment key={f.clave}>
                 <button
                   type="button"
-                  onClick={() => setSeleccionada(e.id)}
+                  onClick={() => setSeleccionada(f.clave)}
                   className={`w-full text-left px-3 py-2 border-b border-white/[0.04] transition-colors ${
                     activa ? 'bg-[#FF6600]/[0.08]' : 'hover:bg-white/[0.03]'
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={`h-2 w-2 rounded-full flex-shrink-0 ${ESTADO_COLOR_PUNTO[e.estado]}`}
-                    />
-                    <span className="text-[12px] text-white tabular-nums whitespace-nowrap">
-                      {formatDateTime(e.created_at)}
-                    </span>
-                    <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded border leading-none whitespace-nowrap flex-shrink-0 ${STOCK_RUN_STATE_COLORS[e.estado]}`}
-                    >
-                      {STOCK_RUN_STATE_LABELS[e.estado]}
-                    </span>
-                    <span className="ml-auto text-[10px] text-white/30 tabular-nums whitespace-nowrap">
-                      {duracion(e.duracion_ms)}
-                    </span>
-                  </div>
+                  {f.tipo === 'stock' ? (
+                    <>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`h-2 w-2 rounded-full flex-shrink-0 ${ESTADO_COLOR_PUNTO[f.run.estado]}`}
+                        />
+                        <span className="text-[12px] text-white tabular-nums whitespace-nowrap">
+                          {formatDateTime(f.cuando)}
+                        </span>
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded border leading-none whitespace-nowrap flex-shrink-0 ${STOCK_RUN_STATE_COLORS[f.run.estado]}`}
+                        >
+                          {STOCK_RUN_STATE_LABELS[f.run.estado]}
+                        </span>
+                        <span className="ml-auto text-[10px] text-white/30 tabular-nums whitespace-nowrap">
+                          {duracion(f.run.duracion_ms)}
+                        </span>
+                      </div>
 
-                  <div className="flex items-center gap-2 mt-1 pl-4 min-w-0">
-                    <span className="text-[11px] text-white/40 truncate flex-1 min-w-0">
-                      {e.fichero_nombre ?? 'sin fichero'}
-                    </span>
-                    {(e.enviados_ok ?? 0) > 0 && (
-                      <span className="text-[10px] text-green-300/80 tabular-nums whitespace-nowrap">
-                        {formatInt(e.enviados_ok)} cambios
-                      </span>
-                    )}
-                    {(e.enviados_error ?? 0) > 0 && (
-                      <span className="text-[10px] text-red-300/80 tabular-nums whitespace-nowrap">
-                        {formatInt(e.enviados_error)} fallaron
-                      </span>
-                    )}
-                  </div>
+                      <div className="flex items-center gap-2 mt-1 pl-4 min-w-0">
+                        <span className="text-[11px] text-white/40 truncate flex-1 min-w-0">
+                          {f.run.fichero_nombre ?? 'sin fichero'}
+                        </span>
+                        {(f.run.enviados_ok ?? 0) > 0 && (
+                          <span className="text-[10px] text-green-300/80 tabular-nums whitespace-nowrap">
+                            {formatInt(f.run.enviados_ok)} cambios
+                          </span>
+                        )}
+                        {(f.run.enviados_error ?? 0) > 0 && (
+                          <span className="text-[10px] text-red-300/80 tabular-nums whitespace-nowrap">
+                            {formatInt(f.run.enviados_error)} fallaron
+                          </span>
+                        )}
+                      </div>
 
-                  {/* El porqué de una ejecución que no mandó nada va EN LA
-                      LISTA y no escondido en el detalle: es la información que
-                      hace falta para decidir si hay que hacer algo. */}
-                  {(e.freno_detalle || e.error_message) && (
-                    <p
-                      className={`text-[10px] mt-1 pl-4 line-clamp-2 ${
-                        e.error_message ? 'text-red-300/70' : 'text-yellow-300/70'
-                      }`}
-                    >
-                      {e.error_message ?? e.freno_detalle}
-                    </p>
+                      {/* El porqué de una ejecución que no mandó nada va EN LA
+                          LISTA y no escondido en el detalle: es la información
+                          que hace falta para decidir si hay que hacer algo. */}
+                      {(f.run.freno_detalle || f.run.error_message) && (
+                        <p
+                          className={`text-[10px] mt-1 pl-4 line-clamp-2 ${
+                            f.run.error_message ? 'text-red-300/70' : 'text-yellow-300/70'
+                          }`}
+                        >
+                          {f.run.error_message ?? f.run.freno_detalle}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* ---- Una publicación de precios ----
+                          Se distingue del stock a simple vista: punto morado y
+                          etiqueta «Precios». Dos envíos que se arreglan de forma
+                          distinta no pueden parecer el mismo. */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`h-2 w-2 rounded-full flex-shrink-0 ${
+                            f.lote.fallidos > 0
+                              ? f.lote.aceptados > 0
+                                ? 'bg-yellow-400'
+                                : 'bg-red-400'
+                              : 'bg-violet-400'
+                          }`}
+                        />
+                        <span className="text-[12px] text-white tabular-nums whitespace-nowrap">
+                          {formatDateTime(f.cuando)}
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded border leading-none whitespace-nowrap flex-shrink-0 border-violet-400/40 bg-violet-400/10 text-violet-200">
+                          Precios
+                        </span>
+                        {f.lote.pendientes > 0 && (
+                          <span className="text-[10px] text-white/35 whitespace-nowrap">
+                            {formatInt(f.lote.pendientes)} en cola
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-1 pl-4 min-w-0">
+                        <span className="text-[11px] text-white/40 truncate flex-1 min-w-0">
+                          {f.lote.source_ref?.startsWith('entrais-automatico')
+                            ? 'Motor de precios · automático'
+                            : (f.lote.source_ref ?? 'Motor de precios')}
+                        </span>
+                        {f.lote.aceptados > 0 && (
+                          <span className="text-[10px] text-green-300/80 tabular-nums whitespace-nowrap">
+                            {formatInt(f.lote.aceptados)} precios
+                          </span>
+                        )}
+                        {f.lote.fallidos > 0 && (
+                          <span className="text-[10px] text-red-300/80 tabular-nums whitespace-nowrap">
+                            {formatInt(f.lote.fallidos)} fallaron
+                          </span>
+                        )}
+                      </div>
+
+                      {f.lote.primer_error && (
+                        <p className="text-[10px] mt-1 pl-4 line-clamp-2 text-red-300/70">
+                          {f.lote.primer_error}
+                        </p>
+                      )}
+                    </>
                   )}
                 </button>
                 {hueco !== null && (
@@ -549,7 +688,7 @@ export function PanelEjecuciones({
               })}
             {visibles.length === 0 && (
               <p className="text-[12px] text-white/30 text-center py-8 px-4">
-                Ninguna de las {ejecuciones.length} ejecuciones mandó cambios.
+                Ninguna de las {historial.length} ejecuciones mandó cambios.
               </p>
             )}
           </div>
@@ -562,8 +701,12 @@ export function PanelEjecuciones({
               Qué cambió
               {actual && (
                 <span className="ml-2 normal-case tracking-normal text-white/30">
-                  {formatDateTime(actual.created_at)}
-                  {actual.perfil_nombre ? ` · ${actual.perfil_nombre}` : ''}
+                  {formatDateTime(actual.cuando)}
+                  {actual.tipo === 'precio'
+                    ? ' · precios'
+                    : actual.run.perfil_nombre
+                      ? ` · ${actual.run.perfil_nombre}`
+                      : ''}
                 </span>
               )}
             </h3>
@@ -583,9 +726,9 @@ export function PanelEjecuciones({
 
           {/* Los avisos de la ejecución: explican un resultado raro sin que
               nadie tenga que ir a buscarlos. */}
-          {actual?.avisos && actual.avisos.length > 0 && (
+          {runActual?.avisos && runActual.avisos.length > 0 && (
             <div className="px-3 py-2 border-b border-white/[0.06] flex-shrink-0 space-y-1">
-              {actual.avisos.map((a, i) => (
+              {runActual.avisos.map((a, i) => (
                 <p key={i} className="text-[11px] text-yellow-300/70 flex gap-1.5">
                   <AlertTriangle className="h-3 w-3 flex-shrink-0 mt-0.5" />
                   {a}

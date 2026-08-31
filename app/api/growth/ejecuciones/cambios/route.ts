@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail, requireAmazonAdmin } from '@/lib/amazon/api'
-import { cambiosDeEjecucion } from '@/lib/growth/ejecuciones'
+import { cambiosDeEjecucion, cambiosDeLotePrecio } from '@/lib/growth/ejecuciones'
 
 /**
  * LOS CAMBIOS DE UNA EJECUCIÓN: qué SKU, qué campo, de qué valor a qué valor.
@@ -37,7 +37,22 @@ export async function GET(request: NextRequest) {
     if (!UUID.test(batchId)) return fail(400, 'Ese lote no existe')
     if (!UUID.test(clientId)) return fail(400, 'Ese cliente no existe')
 
-    const cambios = await cambiosDeEjecucion(batchId, clientId)
+    /**
+     * DOS CAMINOS, PORQUE LA PROPIEDAD SE COMPRUEBA DE DOS FORMAS.
+     *
+     * Un lote de stock se valida contra `stock_profile_runs`, que sabe de qué
+     * cliente era. Los precios del motor de Entrais NO pasan por esa tabla, así
+     * que ese mismo camino los daría siempre por ajenos y devolvería una lista
+     * vacía: se comprueban por la conexión de Amazon del cliente.
+     *
+     * El tipo lo dice quien llama, pero NO es lo que autoriza: las dos funciones
+     * comprueban la propiedad por su cuenta. Un `tipo` falseado en la URL cambia
+     * por qué tabla se pregunta, no de quién se pueden leer los datos.
+     */
+    const cambios =
+      request.nextUrl.searchParams.get('tipo') === 'precio'
+        ? await cambiosDeLotePrecio(batchId, clientId)
+        : await cambiosDeEjecucion(batchId, clientId)
     return NextResponse.json({ cambios })
   } catch (error) {
     console.error('Error cargando los cambios de una ejecución:', error)

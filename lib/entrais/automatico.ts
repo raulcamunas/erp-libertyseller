@@ -1,39 +1,49 @@
 /**
- * ENTRAIS · RECALCULAR Y PUBLICAR SIN QUE NADIE PULSE
- * ===================================================
+ * ENTRAIS · RECALCULAR Y PUBLICAR EN CADA PASADA
+ * =============================================
  * SOLO SERVIDOR.
  *
- * Lo llama el cron en cada pasada. Casi siempre no hace nada: mira el reloj, ve
- * que no le toca, y se va. Cuando le toca, recalcula el catálogo entero y manda
- * a Amazon los precios que hayan cambiado.
+ * Lo llama el cron. Cuando ha entrado una pasada de stock desde la última
+ * publicación, recalcula LAS 6.931 REFERENCIAS y manda a Amazon las que hayan
+ * cambiado de precio. Mismo ritmo que el stock, mismo catálogo entero.
  *
  *
- * ============ POR QUÉ NO VA DENTRO DEL CICLO DE STOCK ============
+ * ============ AQUÍ HUBO UN RELOJ APARTE, Y ESTABA MAL ============
  *
- * Porque no es el mismo dato ni el mismo ritmo. El stock del proveedor se mueve
- * todo el día y por eso aquel entra cada media hora. El precio de compra cambia
- * cuando el proveedor manda tarifa nueva: una vez al día como mucho.
+ * La primera versión les puso reloj propio —una vez al día— con este argumento:
+ * recalcular son 6.931 escrituras, a 48 pasadas diarias 332.688, «el patrón que
+ * llenó la base al 177 %».
  *
- * Y meterlo en la misma pasada costaría dos cosas inútiles: recalcular son 6.931
- * filas escritas cada vez —a 48 pasadas al día, 332.688 escrituras, que es el
- * patrón exacto que llenó la base— y no cambiaría ni un precio, porque entre una
- * pasada y la siguiente el coste del proveedor es el mismo.
+ * El argumento no se sostiene. `entrais_precios` se escribe con UPSERT por SKU:
+ * tiene 6.931 filas y sigue teniendo 6.931 se recalcule una vez o cuarenta y
+ * ocho. NO CRECE. Lo que llenó la base en agosto fueron las tablas de medición
+ * —snapshots de precio, BSR e inventario—, que sí son append-only y por eso hoy
+ * se purgan a uno y dos días. Recalcular a menudo solo deja tuplas muertas, que
+ * es trabajo del autovacuum, no cuota.
+ *
+ * Así que el reloj aparte no compraba nada y costaba lo evidente: el precio de
+ * un producto podía pasarse hasta un día entero mal puesto.
  *
  *
- * ============ LO QUE NO SE MANDA ============
+ * ============ LO QUE SÍ SE FILTRA, Y POR QUÉ NO ES LO MISMO ============
  *
- * Se hereda entero del botón manual, que ya lo tenía pensado:
+ * Se calculan TODAS las referencias en cada pasada. Se MANDAN las que han
+ * cambiado. No es una versión descafeinada de «mándalo todo siempre»: mandar las
+ * 6.931 cada media hora son 332.688 PATCH diarios a Amazon para reescribir el
+ * mismo número, y Amazon corta el grifo mucho antes de llegar ahí. El precio
+ * queda igual de bien puesto mandando solo lo que difiere; lo que cambia es que
+ * la cuenta no se queda sin cuota.
+ *
+ * Aparte se caen, como en el botón manual:
  *
  *   · Los que no están listados en Amazon. Un PATCH contra un listing que no
  *     existe es una llamada para un error.
  *   · Los bloqueados por envío directo.
- *   · Los que ya están al precio propuesto.
  *
- * Y uno más que el botón no tiene: los que se pasan del tope de salto. Ahí la
- * diferencia es que en el botón hay una persona mirando el simulacro antes de
- * pulsar, y aquí no hay nadie. Ver la migración 164.
+ * Y uno más que el botón no tiene: los que se pasan del tope de salto. En el
+ * botón hay una persona mirando el simulacro antes de pulsar, y aquí no hay
+ * nadie. Se quita vaciando el campo en la pantalla.
  */
-
 import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { sendChanges, type ChangeToSend } from '@/lib/amazon/data'
@@ -60,20 +70,52 @@ export async function publicarSiToca(): Promise<ResultadoAutomatico> {
     return { hecho: false, motivo: 'El motor no tiene cuenta de Amazon ni país configurados.' }
   }
 
-  /**
-   * EL RELOJ, ANTES DE HACER NADA CARO.
-   *
-   * `publicado_at` se sella cuando termina, no cuando empieza. Si una pasada se
-   * cae a la mitad, la siguiente lo vuelve a intentar en vez de esperarse las
-   * veinticuatro horas — que es lo que hay que querer: un fallo no puede dejar
-   * los precios sin publicar un día entero.
-   */
-  const cadaMs = Math.max(1, config.publicar_cada_horas) * 3600_000
-  if (config.publicado_at && Date.now() - Date.parse(config.publicado_at) < cadaMs) {
-    return { hecho: false, motivo: 'Todavía no le toca.' }
-  }
-
   const service = createServiceClient()
+
+  /**
+   * ---------- ¿LE TOCA? ----------
+   *
+   * `publicado_at` se sella cuando TERMINA, no cuando empieza. Si una pasada se
+   * cae a la mitad, la siguiente lo reintenta en vez de esperarse el turno
+   * entero: un fallo no puede dejar los precios sin publicar.
+   */
+  const desde = config.publicado_at ? Date.parse(config.publicado_at) : 0
+
+  if (config.publicar_cada_minutos > 0) {
+    // Freno fijo: alguien ha decidido desacoplarlo del stock a propósito.
+    if (Date.now() - desde < config.publicar_cada_minutos * 60_000) {
+      return { hecho: false, motivo: 'Todavía no le toca.' }
+    }
+  } else {
+    /**
+     * AL RITMO DEL SINCRONISMO, LEYÉNDOLO DE DONDE VIVE.
+     *
+     * No se copia aquí el número de minutos del stock: se mira si ha ENTRADO una
+     * pasada desde la última publicación. Así la cadencia sigue existiendo en un
+     * solo sitio, y el día que el stock pase de 30 a 15 minutos los precios le
+     * siguen sin que nadie se acuerde de venir a tocar esto.
+     */
+    const { data: perfiles } = await service
+      .from('stock_read_profiles')
+      .select('last_run_at')
+      .eq('connection_id', config.connection_id)
+      .eq('is_active', true)
+      .order('last_run_at', { ascending: false })
+      .limit(1)
+
+    const ultimaPasada = (perfiles ?? [])[0]?.last_run_at as string | undefined
+    if (!ultimaPasada) {
+      return {
+        hecho: false,
+        motivo:
+          'Esta cuenta no tiene ningún perfil de sincronismo activo del que seguir el ritmo. ' +
+          'Enciéndelo, o pon un freno fijo en minutos.',
+      }
+    }
+    if (Date.parse(ultimaPasada) <= desde) {
+      return { hecho: false, motivo: 'No ha entrado ninguna pasada de stock desde la última vez.' }
+    }
+  }
 
   // ---------- 1. Recalcular ----------
   // Trae el catálogo del proveedor —de la caché si es reciente, así que no gasta

@@ -38,6 +38,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { isMissingSchema } from '@/lib/stock-sync/perfiles'
 import type { AmazonSubmission } from '@/lib/types/amazon'
 import type { StockProfileRun } from '@/lib/types/stock-sync'
 
@@ -209,4 +210,132 @@ export async function tieneMapeoManual(clientId: string): Promise<boolean> {
 
   if (error) throw error
   return (data ?? []).length > 0
+}
+
+/* ------------------------------------------------------------------ */
+/* Las publicaciones de precio                                         */
+/* ------------------------------------------------------------------ */
+
+/** Un lote de precios publicado FUERA del ciclo de stock. Ver la migración 167 */
+export interface LotePrecio {
+  batch_id: string
+  connection_id: string | null
+  marketplace_id: string
+  created_at: string
+  source: string | null
+  source_ref: string | null
+  total: number
+  aceptados: number
+  fallidos: number
+  pendientes: number
+  primer_error: string | null
+}
+
+/**
+ * LOS PRECIOS QUE SE PUBLICARON SIN PASAR POR EL CICLO DE STOCK.
+ *
+ * El historial de ejecuciones sale de `stock_profile_runs`, y los precios del
+ * motor de Entrais no pasan por ahí: los manda directamente sendChanges(). O
+ * sea que la pantalla enseñaba lo que el ERP le hacía al stock de un cliente y
+ * no lo que le hacía a sus precios, que es la otra mitad.
+ *
+ *
+ * ============ EL FILTRO POR CLIENTE VA POR CONEXIÓN, Y NO ES UN ATAJO ============
+ *
+ * `amazon_submissions` no guarda el cliente: guarda la CONEXIÓN de Amazon. Así
+ * que primero se mira qué conexiones son de este cliente —por sus perfiles de
+ * sincronismo— y solo después se piden los lotes de esas conexiones.
+ *
+ * Si el cliente no tiene ninguna, la respuesta es una lista vacía y NO una
+ * consulta sin filtro. Es la diferencia entre no enseñar nada y enseñar los
+ * precios de otro vendedor, que es justo lo que el compromiso con Amazon
+ * prohíbe: los datos de un vendedor se usan para operar su cuenta y ninguna más.
+ */
+export async function publicacionesDePrecios(
+  clientId: string,
+  limite = 60
+): Promise<LotePrecio[]> {
+  const service = createServiceClient()
+
+  const { data: perfiles, error: errorPerfiles } = await service
+    .from('stock_read_profiles')
+    .select('connection_id')
+    .eq('client_id', clientId)
+    .not('connection_id', 'is', null)
+
+  if (errorPerfiles) throw errorPerfiles
+
+  const conexiones = [
+    ...new Set(
+      (perfiles ?? [])
+        .map((p) => (p as { connection_id: string | null }).connection_id)
+        .filter((c): c is string => Boolean(c))
+    ),
+  ]
+  if (conexiones.length === 0) return []
+
+  const { data, error } = await service
+    .from('amazon_lotes_precio')
+    .select('*')
+    .in('connection_id', conexiones)
+    .order('created_at', { ascending: false })
+    .limit(limite)
+
+  if (error) {
+    /**
+     * La vista se lanza a mano en Supabase, así que el código puede llegar
+     * antes. Sin esto, la pestaña entera de un cliente se caería con un 500 por
+     * una sección que es un añadido. Se devuelve vacío y se avisa por consola.
+     */
+    if (isMissingSchema(error)) {
+      console.warn(
+        'No hay historial de precios: falta lanzar 167_lotes_de_precio.sql en el editor SQL.'
+      )
+      return []
+    }
+    throw error
+  }
+
+  return (data ?? []) as unknown as LotePrecio[]
+}
+
+/**
+ * Los cambios de un lote de PRECIOS. Mismo papel que cambiosDeEjecucion(), pero
+ * la propiedad se comprueba por conexión y no por `stock_profile_runs`, que es
+ * justo la tabla por la que estos lotes no pasan.
+ */
+export async function cambiosDeLotePrecio(
+  batchId: string,
+  clientId: string,
+  limite: number = CAMBIOS_LIMITE
+): Promise<AmazonSubmission[]> {
+  const service = createServiceClient()
+
+  const { data: perfiles } = await service
+    .from('stock_read_profiles')
+    .select('connection_id')
+    .eq('client_id', clientId)
+    .not('connection_id', 'is', null)
+
+  const conexiones = new Set(
+    (perfiles ?? [])
+      .map((p) => (p as { connection_id: string | null }).connection_id)
+      .filter((c): c is string => Boolean(c))
+  )
+  if (conexiones.size === 0) return []
+
+  const { data, error } = await service
+    .from('amazon_submissions')
+    .select('*')
+    .eq('batch_id', batchId)
+    .order('sku', { ascending: true })
+    .limit(limite)
+
+  if (error) throw error
+
+  const filas = (data ?? []) as AmazonSubmission[]
+  // La comprobación va aquí abajo, sobre lo que se ha leído: un batch_id copiado
+  // de otro sitio devolvería los envíos de otro vendedor.
+  if (filas.length > 0 && !conexiones.has(filas[0].connection_id ?? '')) return []
+  return filas
 }

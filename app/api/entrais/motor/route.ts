@@ -48,7 +48,7 @@ const CAMPOS_CONFIG = [
   'redondeo',
   'margen_suelo',
   'publicar_automatico',
-  'publicar_cada_horas',
+  'publicar_cada_minutos',
   'publicar_max_salto_pct',
   'publicar_max_por_pasada',
 ] as const

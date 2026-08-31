@@ -7,6 +7,7 @@ import { PestanasStockSync } from '@/components/growth/stock-sync/PestanasStockS
 import {
   ejecucionesDeCliente,
   estadoDePerfiles,
+  publicacionesDePrecios,
   tieneMapeoManual,
 } from '@/lib/growth/ejecuciones'
 import type { StockMapping, StockRun } from '@/lib/types/stock-sync'
@@ -135,13 +136,22 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
    * automático de un cliente no esté fino, y con un cliente vendiendo no se
    * puede esperar a que el conector funcione para poder trabajar.
    */
-  const [ejecuciones, perfiles, conMapeo] = await Promise.all([
+  const [ejecuciones, perfiles, conMapeo, precios] = await Promise.all([
     ejecucionesDeCliente(clienteId),
     // El estado VIVO de cada perfil. No es lo mismo que el historial: cuando un
     // fallo se repite igual, el ciclo lo reintenta pero no escribe fila, y sin
     // esto la pantalla parece parada. Ver estadoDePerfiles().
     estadoDePerfiles(clienteId),
     tieneMapeoManual(clienteId),
+    /**
+     * Y LOS PRECIOS, que no pasan por el ciclo de stock.
+     *
+     * Los manda el motor de Entrais directamente, así que no dejan fila en
+     * `stock_profile_runs` y hasta ahora no existían en esta pantalla: se veía lo
+     * que el ERP le hacía al stock de un cliente y no lo que le hacía a sus
+     * precios, que es la otra mitad de lo que le hace.
+     */
+    publicacionesDePrecios(clienteId),
   ])
 
   const panelEjecuciones = (
@@ -150,6 +160,7 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
       clientId={clienteId}
       clientName={cliente.nombre}
       ejecuciones={ejecuciones}
+      precios={precios}
       perfiles={perfiles}
       className="flex-1 min-h-0 min-w-0"
     />

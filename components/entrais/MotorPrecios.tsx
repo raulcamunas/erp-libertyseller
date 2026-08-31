@@ -63,7 +63,7 @@ interface Config {
   redondeo: 'centimo' | 'noventa_y_nueve' | 'cinco_centimos'
   margen_suelo: number | null
   publicar_automatico: boolean
-  publicar_cada_horas: number
+  publicar_cada_minutos: number
   publicar_max_salto_pct: number | null
   publicar_max_por_pasada: number
   publicado_at: string | null
@@ -1293,6 +1293,115 @@ function PublicarPrecios({
         </span>
       </div>
 
+      {/* ---------------- Que lo haga solo ----------------
+          VA AQUÍ ARRIBA Y NO DENTRO DEL DESPLEGABLE.
+
+          Estaba metido detrás de «Ver qué se publicaría», que es lo que se pulsa
+          para MIRAR un resultado. Esto no es un resultado: es el interruptor que
+          decide si el ERP toca los precios de la tienda de un cliente sin que
+          nadie mire. Un ajuste que solo aparece si antes pulsas otra cosa es un
+          ajuste que nadie encuentra — y de hecho no se encontró. */}
+      <div className="rounded-lg border border-white/10 bg-black/20 p-2.5 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void guardar({ publicar_automatico: !cfg.publicar_automatico })}
+            className={`h-7 rounded-lg border px-2.5 text-[11px] transition-colors ${
+              cfg.publicar_automatico
+                ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
+                : 'border-white/10 text-white/45 hover:text-white'
+            }`}
+          >
+            {cfg.publicar_automatico ? 'Publica solo' : 'Publicar a mano'}
+          </button>
+
+          {cfg.publicar_automatico && (
+            <>
+              <label className="flex items-center gap-1.5 text-[11px] text-white/45">
+                cada
+                <input
+                  key={`m-${cfg.publicar_cada_minutos}`}
+                  defaultValue={
+                    cfg.publicar_cada_minutos === 0 ? '' : String(cfg.publicar_cada_minutos)
+                  }
+                  inputMode="numeric"
+                  placeholder="pasada"
+                  onBlur={(e) => {
+                    const t = e.target.value.trim()
+                    if (t === '') {
+                      void guardar({ publicar_cada_minutos: 0 })
+                      return
+                    }
+                    const v = Math.round(Number(t))
+                    if (Number.isFinite(v) && v >= 0 && v <= 10080)
+                      void guardar({ publicar_cada_minutos: v })
+                  }}
+                  className="w-[58px] rounded bg-white/[0.06] px-1 py-0.5 text-right text-white tabular-nums outline-none placeholder:text-white/25"
+                />
+                {cfg.publicar_cada_minutos === 0 ? 'del sincronismo' : 'minutos'}
+              </label>
+
+              <label className="flex items-center gap-1.5 text-[11px] text-white/45">
+                · no mandar si cambia más de
+                <input
+                  key={`s-${cfg.publicar_max_salto_pct}`}
+                  defaultValue={
+                    cfg.publicar_max_salto_pct === null
+                      ? ''
+                      : String(Math.round(cfg.publicar_max_salto_pct * 100))
+                  }
+                  inputMode="numeric"
+                  placeholder="sin tope"
+                  onBlur={(e) => {
+                    const t = e.target.value.trim()
+                    if (t === '') {
+                      void guardar({ publicar_max_salto_pct: null })
+                      return
+                    }
+                    const v = Number(t) / 100
+                    if (Number.isFinite(v) && v > 0 && v <= 5)
+                      void guardar({ publicar_max_salto_pct: v })
+                  }}
+                  className="w-[46px] rounded bg-white/[0.06] px-1 py-0.5 text-right text-white tabular-nums outline-none placeholder:text-white/20"
+                />
+                %
+              </label>
+
+              {cfg.publicado_at && (
+                <span className="text-[10px] text-white/25">
+                  última vez {cuando(cfg.publicado_at)}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        <p className="text-[10.5px] leading-relaxed text-white/35">
+          {cfg.publicar_automatico ? (
+            <>
+              En cada pasada del sincronismo se recalcula el catálogo entero y se mandan a Amazon
+              los precios que hayan cambiado. Vacío en el primer campo = al ritmo del stock, que es
+              donde vive la cadencia; un número lo desacopla.{' '}
+              {cfg.publicar_max_salto_pct === null ? (
+                <>Sin tope de salto: se manda lo que salga del cálculo.</>
+              ) : (
+                <>
+                  Los que se pasen del tope no se mandan y salen en la cola de incidencias —{' '}
+                  <strong>vacía el campo</strong> si no lo quieres. Está puesto porque en automático
+                  no hay nadie mirando el simulacro, que era el freno del botón de abajo.
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              Enciéndelo y cada pasada del sincronismo recalculará el catálogo entero y publicará
+              solo las que hayan cambiado, sin que nadie pulse. No se mandan las que ya están a su precio: reescribir en Amazon el mismo número
+              seis mil veces cada media hora agota la cuota de la cuenta y no cambia nada.
+            </>
+          )}
+        </p>
+      </div>
+
       {!datos ? (
         <button
           type="button"
@@ -1395,100 +1504,6 @@ function PublicarPrecios({
               </p>
             </div>
           )}
-
-          {/* ---------------- Que lo haga solo ---------------- */}
-          <div className="rounded-lg border border-white/10 bg-black/20 p-2.5 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  void guardar({ publicar_automatico: !cfg.publicar_automatico })
-                }
-                className={`h-7 rounded-lg border px-2.5 text-[11px] transition-colors ${
-                  cfg.publicar_automatico
-                    ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
-                    : 'border-white/10 text-white/45 hover:text-white'
-                }`}
-              >
-                {cfg.publicar_automatico ? 'Publica solo' : 'Publicar a mano'}
-              </button>
-
-              {cfg.publicar_automatico && (
-                <>
-                  <label className="flex items-center gap-1.5 text-[11px] text-white/45">
-                    cada
-                    <input
-                      key={`h-${cfg.publicar_cada_horas}`}
-                      defaultValue={String(cfg.publicar_cada_horas)}
-                      inputMode="numeric"
-                      onBlur={(e) => {
-                        const v = Math.round(Number(e.target.value))
-                        if (Number.isFinite(v) && v >= 1 && v <= 720)
-                          void guardar({ publicar_cada_horas: v })
-                      }}
-                      className="w-[46px] rounded bg-white/[0.06] px-1 py-0.5 text-right text-white tabular-nums outline-none"
-                    />
-                    horas
-                  </label>
-
-                  <label className="flex items-center gap-1.5 text-[11px] text-white/45">
-                    · no mandar si cambia más de
-                    <input
-                      key={`s-${cfg.publicar_max_salto_pct}`}
-                      defaultValue={
-                        cfg.publicar_max_salto_pct === null
-                          ? ''
-                          : String(Math.round(cfg.publicar_max_salto_pct * 100))
-                      }
-                      inputMode="numeric"
-                      placeholder="sin tope"
-                      onBlur={(e) => {
-                        const t = e.target.value.trim()
-                        if (t === '') {
-                          void guardar({ publicar_max_salto_pct: null })
-                          return
-                        }
-                        const v = Number(t) / 100
-                        if (Number.isFinite(v) && v > 0 && v <= 5)
-                          void guardar({ publicar_max_salto_pct: v })
-                      }}
-                      className="w-[46px] rounded bg-white/[0.06] px-1 py-0.5 text-right text-white tabular-nums outline-none placeholder:text-white/20"
-                    />
-                    %
-                  </label>
-
-                  {cfg.publicado_at && (
-                    <span className="text-[10px] text-white/25">
-                      última vez {cuando(cfg.publicado_at)}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* EL FRENO SE EXPLICA, NO SE IMPONE EN SILENCIO.
-                Al montar el botón manual se decidió no ponerlos: el freno era
-                que hay alguien mirando el simulacro. En automático no lo hay, y
-                eso cambia el cálculo — pero es una decisión de quien manda, así
-                que se puede vaciar el campo y quedarse sin tope. */}
-            <p className="text-[10.5px] leading-relaxed text-white/35">
-              {cfg.publicar_automatico ? (
-                <>
-                  El ciclo recalcula y manda los precios que hayan cambiado, hasta{' '}
-                  {cfg.publicar_max_por_pasada} por pasada. Los que se pasen del tope se
-                  quedan sin mandar y salen en la cola de incidencias — <strong>vacía el campo</strong>{' '}
-                  si no lo quieres. Lo pongo porque en automático no hay nadie mirando el simulacro,
-                  que era el freno del botón de arriba.
-                </>
-              ) : (
-                <>
-                  Enciéndelo y el ciclo recalculará y publicará solo, sin que nadie pulse. Una vez
-                  al día basta: el coste del proveedor no cambia más a menudo, y recalcular más
-                  seguido son cientos de miles de escrituras al día sin cambiar ni un precio.
-                </>
-              )}
-            </p>
-          </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <button

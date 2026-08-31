@@ -63,7 +63,8 @@ export interface FilaConfig {
   margen_suelo: number | null
   /** Ver la migración 164: publicar sin que nadie pulse, con su reloj y su freno */
   publicar_automatico: boolean
-  publicar_cada_horas: number
+  /** 0 = al ritmo del sincronismo de stock. Ver la migración 166 */
+  publicar_cada_minutos: number
   publicar_max_salto_pct: number | null
   publicar_max_por_pasada: number
   publicado_at: string | null

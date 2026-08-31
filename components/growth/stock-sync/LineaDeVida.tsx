@@ -27,6 +27,7 @@ import {
   type PasoPasada,
   type StockProfileOrigin,
 } from '@/lib/types/stock-sync'
+import type { LotePrecio } from '@/lib/growth/ejecuciones'
 import type { EjecucionVista, EstadoPerfilVista } from './PanelEjecuciones'
 import { formatDateTime } from './shared'
 
@@ -72,6 +73,8 @@ type EstadoNodo = FaseRegistrada['estado'] | 'sin_dato'
 
 interface Nodo {
   paso: PasoPasada
+  /** Cuando el paso no se llama como en el ciclo de stock. Ver nodosDePrecio() */
+  titulo?: string
   estado: EstadoNodo
   ms: number | null
   cifra: number | null
@@ -173,6 +176,15 @@ function pesos(bytes: number | null): string {
 function cifraDe(nodo: Nodo): string {
   if (nodo.estado === 'sin_dato') return 'no consta'
   if (nodo.cifra == null) return ''
+  // Un nodo con título propio es de un recorrido que no es el del stock, así que
+  // su cifra tampoco son líneas ni referencias casadas: son precios.
+  if (nodo.titulo) {
+    return nodo.paso === 'enviar'
+      ? nodo.cifra === 0
+        ? 'ninguno aceptado'
+        : plural(nodo.cifra, 'aceptado', 'aceptados')
+      : plural(nodo.cifra, 'precio', 'precios')
+  }
   switch (nodo.paso) {
     case 'origen':
       return pesos(nodo.cifra)
@@ -272,6 +284,61 @@ function nodosDe(e: EjecucionVista): Nodo[] {
 }
 
 /**
+ * LOS PASOS DE UNA PUBLICACIÓN DE PRECIOS.
+ *
+ * Tres, no seis, y con sus nombres: aquí no hay fichero de proveedor que
+ * recoger ni referencias que casar con SKU —el motor de precios trabaja ya sobre
+ * el catálogo cruzado—. Enseñar los seis del stock con tres apagados sería
+ * inventar unos pasos que en este recorrido no existen.
+ *
+ * Se reconstruyen del propio lote de envíos, que es donde está el dato entero:
+ * cuántos se mandaron, cuántos entraron y cuántos rebotó Amazon. No hace falta
+ * guardar nada aparte. Ver la migración 167.
+ */
+function nodosDePrecio(lote: LotePrecio): Nodo[] {
+  const rebotados = lote.fallidos
+  const enCola = lote.pendientes
+
+  return [
+    {
+      paso: 'contrastar',
+      titulo: 'Calcular con las reglas',
+      // SIN CIFRA, A PROPÓSITO. El lote solo sabe lo que se MANDÓ; cuántas
+      // referencias se calcularon para llegar ahí no está en `amazon_submissions`
+      // y no se puede deducir. Poner aquí `lote.total` daría el mismo número que
+      // el paso siguiente con otro nombre, que se lee como si fueran dos datos
+      // distintos — y el de la izquierda sería falso.
+      estado: 'ok',
+      ms: null,
+      cifra: null,
+      nota: null,
+    },
+    {
+      paso: 'amazon',
+      titulo: 'Precios que cambiaban',
+      estado: 'ok',
+      ms: null,
+      cifra: lote.total,
+      nota: null,
+    },
+    {
+      paso: 'enviar',
+      titulo: 'Enviar a Amazon',
+      estado: rebotados > 0 ? (lote.aceptados > 0 ? 'aviso' : 'error') : 'ok',
+      ms: null,
+      cifra: lote.aceptados,
+      nota:
+        rebotados > 0
+          ? `${num(rebotados)} no los ha aceptado Amazon` +
+            (lote.primer_error ? `. El primero: ${lote.primer_error.slice(0, 200)}` : '')
+          : enCola > 0
+            ? `${num(enCola)} todavía en cola: Amazon tarda un rato en confirmarlos`
+            : null,
+    },
+  ]
+}
+
+/**
  * El calendario del replay.
  *
  * Proporcional al tiempo real, con suelo y techo: sin suelo, los pasos de 50 ms
@@ -301,15 +368,26 @@ function calendario(nodos: Nodo[]): number[] {
 
 export interface LineaDeVidaProps {
   ejecucion: EjecucionVista | null
+  /** Cuando lo que se mira es una publicación de precios y no una pasada de stock */
+  lote?: LotePrecio | null
   perfil: EstadoPerfilVista | null
   origen?: StockProfileOrigin | null
   /** true = la ejecución que se está viendo es la más reciente del historial */
   esLaUltima: boolean
 }
 
-export function LineaDeVida({ ejecucion, perfil, origen, esLaUltima }: LineaDeVidaProps) {
+export function LineaDeVida({
+  ejecucion,
+  lote = null,
+  perfil,
+  origen,
+  esLaUltima,
+}: LineaDeVidaProps) {
   const router = useRouter()
-  const nodos = useMemo(() => (ejecucion ? nodosDe(ejecucion) : []), [ejecucion])
+  const nodos = useMemo(
+    () => (lote ? nodosDePrecio(lote) : ejecucion ? nodosDe(ejecucion) : []),
+    [ejecucion, lote]
+  )
 
   /**
    * HASTA DÓNDE LLEGÓ LA PASADA DE VERDAD.
@@ -349,7 +427,7 @@ export function LineaDeVida({ ejecucion, perfil, origen, esLaUltima }: LineaDeVi
       setTimeout(() => setEncendidos(i + 1), off + MIN_NODO / 2)
     )
     return () => timers.forEach(clearTimeout)
-  }, [ejecucion?.id, nodos.length, offsets])
+  }, [ejecucion?.id, lote?.batch_id, nodos.length, offsets])
 
   // El reloj de la cuenta atrás. Un segundo: es lo que se espera de algo que
   // cuenta minutos y segundos, y no cuesta nada.
@@ -387,7 +465,7 @@ export function LineaDeVida({ ejecucion, perfil, origen, esLaUltima }: LineaDeVi
     return () => clearTimeout(t)
   }, [proximaEn, router])
 
-  if (!ejecucion || nodos.length === 0) return null
+  if (nodos.length === 0) return null
 
   const apagado = perfil && !perfil.is_active
   const entrando = proximaEn !== null && proximaEn <= 0 && !apagado
@@ -398,18 +476,31 @@ export function LineaDeVida({ ejecucion, perfil, origen, esLaUltima }: LineaDeVi
       <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
         <div className="flex items-center gap-2 text-[11px]">
           <span className="font-medium text-white/85">
-            {esLaUltima ? 'Última pasada' : 'Pasada del historial'}
+            {lote
+              ? 'Publicación de precios'
+              : esLaUltima
+                ? 'Última pasada'
+                : 'Pasada del historial'}
           </span>
           <span className="text-white/40">
-            {formatDateTime(ejecucion.created_at)}
+            {formatDateTime(lote ? lote.created_at : (ejecucion?.created_at ?? null))}
           </span>
-          {origen && (
-            <span className="rounded border border-white/10 px-1.5 py-px text-[10px] text-white/45">
-              {STOCK_PROFILE_ORIGIN_LABELS[origen]}
+          {lote ? (
+            <span className="rounded border border-sky-400/25 bg-sky-400/10 px-1.5 py-px text-[10px] text-sky-200/80">
+              Precios
             </span>
+          ) : (
+            origen && (
+              <span className="rounded border border-white/10 px-1.5 py-px text-[10px] text-white/45">
+                {STOCK_PROFILE_ORIGIN_LABELS[origen]}
+              </span>
+            )
           )}
-          {ejecucion.duracion_ms != null && (
+          {!lote && ejecucion?.duracion_ms != null && (
             <span className="text-white/35">· {ms(ejecucion.duracion_ms)} en total</span>
+          )}
+          {lote?.source_ref?.startsWith('entrais-automatico') && (
+            <span className="text-white/30">· la mandó el ciclo, no una persona</span>
           )}
         </div>
 
@@ -476,7 +567,9 @@ export function LineaDeVida({ ejecucion, perfil, origen, esLaUltima }: LineaDeVi
                       on ? 'text-white/75' : 'text-white/25'
                     }`}
                   >
-                    {enCurso ? PASO_HACIENDO[nodo.paso] : PASO_TITULO[nodo.paso]}
+                    {enCurso
+                      ? PASO_HACIENDO[nodo.paso]
+                      : (nodo.titulo ?? PASO_TITULO[nodo.paso])}
                   </p>
 
                   <p
@@ -535,7 +628,8 @@ export function LineaDeVida({ ejecucion, perfil, origen, esLaUltima }: LineaDeVi
                 key={n.paso}
                 className={`text-[10.5px] leading-relaxed ${PALETA[n.estado].texto}`}
               >
-                <strong className="font-medium">{PASO_TITULO[n.paso]}:</strong> {n.nota}
+                <strong className="font-medium">{n.titulo ?? PASO_TITULO[n.paso]}:</strong>{' '}
+                {n.nota}
               </p>
             ))}
           </div>
