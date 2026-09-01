@@ -72,8 +72,38 @@ export async function POST(request: NextRequest) {
    * que saltarse el reloj.
    */
   if (request.nextUrl.searchParams.get('forzar') !== '1') {
+    /**
+     * ---------- LA PURGA VA LA PRIMERA, ANTES DE NINGUNA SALIDA ----------
+     *
+     * Estaba al final, detrás de dos returns tempranos: la cadencia de este
+     * trabajo y el «omitido» del motor. Resultado: solo se ejecutaba cuando el
+     * motor hacía una pasada completa, que con las ingestas apagadas es casi
+     * nunca.
+     *
+     * Y no se notaba, porque las tablas con quince días de plazo —eventos, cron—
+     * sí se limpiaban en las pocas veces que corría. Las de un día no: llegaron
+     * a 222.293 filas de snapshots de precio con siete días de antigüedad y la
+     * base se volvió a pasar del plan.
+     *
+     * Ahora corre siempre. Cuesta una consulta por minuto que casi nunca borra
+     * nada; la alternativa era quedarse otra vez sin base.
+     */
+    let purga: Awaited<ReturnType<typeof limpiar>> | null = null
+    try {
+      purga = await limpiar()
+      const total = purga.reduce((a, b) => a + Math.max(0, b.borradas), 0)
+      if (total > 0) console.log(`[limpieza] ${total} filas retiradas`)
+      for (const r of purga) {
+        if (r.error) console.error(`[limpieza] ${r.tabla}: ${r.error}`)
+      }
+    } catch (error) {
+      console.error('[limpieza] la purga ha fallado:', error)
+    }
+
     const veredicto = await tocaAhora('amazon-jobs')
-    if (!veredicto.toca) return NextResponse.json({ ok: true, saltado: veredicto.motivo })
+    if (!veredicto.toca) {
+      return NextResponse.json({ ok: true, saltado: veredicto.motivo, purga })
+    }
   }
 
   // Idempotente. Ver el comentario de lib/plataforma/tareas/index.ts.
@@ -190,17 +220,6 @@ export async function POST(request: NextRequest) {
      * añadir una línea al crontab obliga a reconstruir la imagen. Y en su propio
      * try, porque una purga que falle no puede parar el motor.
      */
-    let purga: Awaited<ReturnType<typeof limpiar>> | null = null
-    try {
-      purga = await limpiar()
-      const total = purga.reduce((a, b) => a + Math.max(0, b.borradas), 0)
-      if (total > 0) console.log(`[limpieza] ${total} filas retiradas`)
-      for (const r of purga) {
-        if (r.error) console.error(`[limpieza] ${r.tabla}: ${r.error}`)
-      }
-    } catch (error) {
-      console.error('[limpieza] la purga ha fallado:', error)
-    }
 
     // El detalle por trabajo NO viaja en la respuesta: la lee un
     // `curl -o /dev/null` del cron, y en la tabla de trabajos está entero.

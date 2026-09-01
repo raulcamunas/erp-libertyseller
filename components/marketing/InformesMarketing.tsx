@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
-import { CalendarioInformes, type Programacion } from './CalendarioInformes'
   CalendarDays,
   Check,
   Download,
@@ -14,6 +13,7 @@ import { CalendarioInformes, type Programacion } from './CalendarioInformes'
   Trash2,
 } from 'lucide-react'
 import { postAmazon } from '@/lib/amazon/client'
+import { CalendarioInformes, type Programacion } from './CalendarioInformes'
 
 /**
  * INFORMES DE MARKETING.
