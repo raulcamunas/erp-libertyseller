@@ -131,7 +131,7 @@ export function monthCostForUser(userId: string, input: MonthCostInput): PersonC
     if (h.user_id !== userId) continue
     // work_date es un DATE: fecha civil pura, sin huso que convertir
     if (!h.work_date.startsWith(prefix)) continue
-    const rate = resolveRate(rates, cycleKeyForDate(h.work_date), userId)
+    const rate = resolveRate(rates, h.work_date, userId)
     acc.hours += Number(h.hours)
     acc.salary += Number(h.hours) * rate.hourly
   }
@@ -141,7 +141,7 @@ export function monthCostForUser(userId: string, input: MonthCostInput): PersonC
     const day = madridDayKey(a.start_time)
     if (!day.startsWith(prefix)) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, cycleKeyForDate(day), userId).commission
+    acc.commissions += resolveRate(rates, day, userId).commission
   }
 
   for (const m of manual ?? []) {
@@ -152,13 +152,23 @@ export function monthCostForUser(userId: string, input: MonthCostInput): PersonC
     acc.commissions +=
       m.commission != null
         ? Number(m.commission)
-        : resolveRate(rates, cycleKeyForDate(m.appointment_date), m.user_id).commission
+        : resolveRate(rates, m.appointment_date, m.user_id).commission
   }
 
   acc.total = acc.salary + acc.commissions
-  // La tarifa que se enseña es la del ciclo que arranca el día 15 de ese mes:
-  // la que está en vigor al cerrarlo. `${prefix}-15` cae siempre en ese ciclo.
-  return { userId, ...acc, rate: resolveRate(rates, cycleKeyForDate(`${prefix}-15`), userId) }
+  /**
+   * La tarifa que se ENSEÑA es la del último día del mes: la que está en vigor
+   * al cerrarlo. Si a mitad de mes hubo cambio, el coste está bien calculado día
+   * a día de todos modos —eso es el bucle de arriba—; esta es solo la que hay
+   * que contestar cuando alguien pregunta «¿a cuánto va la hora?».
+   */
+  const [ay, am] = prefix.split('-').map(Number)
+  const ultimoDia = new Date(Date.UTC(ay, am, 0)).getUTCDate()
+  return {
+    userId,
+    ...acc,
+    rate: resolveRate(rates, `${prefix}-${String(ultimoDia).padStart(2, '0')}`, userId),
+  }
 }
 
 /**
@@ -224,7 +234,7 @@ export function monthCostTotal(input: MonthCostInput): CostTotals {
 
   for (const h of hours) {
     if (!h.work_date.startsWith(prefix)) continue
-    const rate = resolveRate(rates, cycleKeyForDate(h.work_date), h.user_id)
+    const rate = resolveRate(rates, h.work_date, h.user_id)
     acc.hours += Number(h.hours)
     acc.salary += Number(h.hours) * rate.hourly
   }
@@ -234,7 +244,7 @@ export function monthCostTotal(input: MonthCostInput): CostTotals {
     const day = madridDayKey(a.start_time)
     if (!day.startsWith(prefix)) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, cycleKeyForDate(day), a.comercial_id).commission
+    acc.commissions += resolveRate(rates, day, a.comercial_id).commission
   }
 
   for (const m of manual ?? []) {
@@ -243,7 +253,7 @@ export function monthCostTotal(input: MonthCostInput): CostTotals {
     acc.commissions +=
       m.commission != null
         ? Number(m.commission)
-        : resolveRate(rates, cycleKeyForDate(m.appointment_date), m.user_id).commission
+        : resolveRate(rates, m.appointment_date, m.user_id).commission
   }
 
   acc.total = acc.salary + acc.commissions
@@ -265,7 +275,9 @@ export function cycleCostForUser(
   for (const h of hours) {
     if (h.user_id !== userId) continue
     if (cycleKeyForDate(h.work_date) !== periodKey) continue
-    const rate = resolveRate(rates, periodKey, userId)
+    // POR DÍA, no por ciclo: desde que las tarifas son mensuales, una puede
+    // arrancar el día 1 y partir este ciclo por la mitad. Ver resolveRate().
+    const rate = resolveRate(rates, h.work_date, userId)
     acc.hours += Number(h.hours)
     acc.salary += Number(h.hours) * rate.hourly
   }
@@ -275,7 +287,7 @@ export function cycleCostForUser(
     const day = madridDayKey(a.start_time)
     if (cycleKeyForDate(day) !== periodKey) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, periodKey, userId).commission
+    acc.commissions += resolveRate(rates, day, userId).commission
   }
 
   for (const m of manual ?? []) {
@@ -283,11 +295,22 @@ export function cycleCostForUser(
     if (cycleKeyForDate(m.appointment_date) !== periodKey) continue
     acc.appointments += 1
     acc.commissions +=
-      m.commission != null ? Number(m.commission) : resolveRate(rates, periodKey, userId).commission
+      m.commission != null
+        ? Number(m.commission)
+        : resolveRate(rates, m.appointment_date, userId).commission
   }
 
   acc.total = acc.salary + acc.commissions
-  return { userId, ...acc, rate: resolveRate(rates, periodKey, userId) }
+  /**
+   * La que se enseña es la del ÚLTIMO día del ciclo, que es la que está rigiendo
+   * cuando se cierra. Si dentro del ciclo hubo cambio de tarifa —que es
+   * justamente lo que permiten las tarifas mensuales— el importe de arriba ya
+   * está bien: se ha calculado día a día.
+   */
+  const [py, pm] = periodKey.split('-').map(Number)
+  const finCiclo = new Date(Date.UTC(py, pm - 1, 14))
+  finCiclo.setUTCMonth(finCiclo.getUTCMonth() + 1)
+  return { userId, ...acc, rate: resolveRate(rates, finCiclo.toISOString().slice(0, 10), userId) }
 }
 
 /**

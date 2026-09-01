@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { X, Settings2, Info } from 'lucide-react'
+import { X, Settings2, Info, ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   PayrollRate,
   PayrollPeriod,
-  periodLabel,
+  monthLabel,
   resolveRate,
   DEFAULT_HOURLY_RATE,
   DEFAULT_COMMISSION,
@@ -31,7 +31,7 @@ const field =
 function RateRow({
   label,
   sublabel,
-  period,
+  mesKey,
   userId,
   rates,
   onSaved,
@@ -39,18 +39,17 @@ function RateRow({
 }: {
   label: string
   sublabel: string
-  period: PayrollPeriod
+  /** El día 1 del mes al que se aplica: ver la nota de la cabecera */
+  mesKey: string
   userId: string | null
   rates: PayrollRate[]
   onSaved: (rate: PayrollRate) => void
   onRemoved: (id: string) => void
 }) {
   const supabase = createClient()
-  const existing = rates.find(
-    (r) => r.period_start === period.key && r.user_id === userId
-  )
-  // Si esta persona no tiene excepción, se parte de lo que le aplica hoy
-  const fallback = resolveRate(rates, period.key, userId ?? '__none__')
+  const existing = rates.find((r) => r.period_start === mesKey && r.user_id === userId)
+  // Si esta persona no tiene excepción, se parte de lo que le aplica ese mes
+  const fallback = resolveRate(rates, mesKey, userId ?? '__none__')
 
   const [hourly, setHourly] = useState(
     String(existing?.hourly_rate ?? (userId ? fallback.hourly : DEFAULT_HOURLY_RATE))
@@ -85,7 +84,7 @@ function RateRow({
         const { data, error } = await supabase
           .from('payroll_rates')
           .insert({
-            period_start: period.key,
+            period_start: mesKey,
             user_id: userId,
             hourly_rate: h,
             commission_per_appointment: c,
@@ -174,6 +173,22 @@ function RateRow({
   )
 }
 
+/**
+ * TARIFAS MENSUALES, NO POR CICLO DE NÓMINA.
+ *
+ * Antes esta ventana editaba «la tarifa del ciclo 15→14», y por eso no se podía
+ * pactar una comisión que vaya del 1 al 30 de septiembre: no existe ningún ciclo
+ * que empiece el día 1. Ahora se elige un MES y la tarifa rige desde su día 1
+ * hasta que otra la sustituya.
+ *
+ * Un mes parte dos nóminas por la mitad, y eso está bien: el motor de coste va
+ * día a día, así que la segunda quincena de agosto se paga a la tarifa vieja y
+ * la primera de septiembre a la nueva, en la misma nómina, sin prorratear nada.
+ *
+ * Se abre en el mes del final del ciclo que se está mirando, que es el que
+ * normalmente se viene a tocar: si estás en la nómina de 15 ago–14 sep, lo que
+ * quieres cambiar casi siempre es septiembre.
+ */
 export function RateSettings({
   period,
   rates,
@@ -182,6 +197,22 @@ export function RateSettings({
   onSaved,
   onRemoved,
 }: RateSettingsProps) {
+  const [mesKey, setMesKey] = useState(() => {
+    const [y, m] = period.key.split('-').map(Number)
+    const fin = new Date(Date.UTC(y, m, 1))
+    return `${fin.getUTCFullYear()}-${String(fin.getUTCMonth() + 1).padStart(2, '0')}-01`
+  })
+
+  function moverMes(n: number) {
+    const [y, m] = mesKey.split('-').map(Number)
+    const d = new Date(Date.UTC(y, m - 1 + n, 1))
+    setMesKey(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`)
+  }
+
+  /** Lo que rige ese mes si no se toca nada, para poder decirlo en pantalla */
+  const vigente = useMemo(() => resolveRate(rates, mesKey, '__none__'), [rates, mesKey])
+  const propia = rates.some((r) => r.period_start === mesKey && r.user_id === null)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div
@@ -198,7 +229,7 @@ export function RateSettings({
       >
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-white font-semibold text-[15px] flex items-center gap-2">
-            <Settings2 className="h-4 w-4 text-[#FF6600]" /> Tarifas del periodo
+            <Settings2 className="h-4 w-4 text-[#FF6600]" /> Tarifas mensuales
           </h2>
           <button
             type="button"
@@ -208,22 +239,54 @@ export function RateSettings({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="text-[11px] text-white/35 mb-3">{periodLabel(period)}</p>
+        {/* ---------------- El mes que se está tocando ---------------- */}
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5">
+          <button
+            type="button"
+            onClick={() => moverMes(-1)}
+            className="rounded border border-white/10 p-0.5 text-white/50 transition-colors hover:text-white"
+            aria-label="Mes anterior"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span className="flex-1 text-center text-[13px] font-medium capitalize text-white">
+            {monthLabel(mesKey)}
+          </span>
+          <button
+            type="button"
+            onClick={() => moverMes(1)}
+            className="rounded border border-white/10 p-0.5 text-white/50 transition-colors hover:text-white"
+            aria-label="Mes siguiente"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
 
-        <div className="flex items-start gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 mb-3">
-          <Info className="h-3.5 w-3.5 text-white/30 flex-shrink-0 mt-0.5" />
-          <p className="text-[11px] text-white/45 leading-snug">
-            La tarifa general se aplica a todo el equipo en este periodo. Si alguien
-            cobra distinto, guarda su excepción abajo y solo le afectará a esa persona
-            y a este ciclo.
+        <div className="mb-3 flex items-start gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] p-2">
+          <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-white/30" />
+          <p className="text-[11px] leading-snug text-white/45">
+            Lo que guardes rige <strong className="text-white/70">del día 1 al último</strong> de{' '}
+            <span className="capitalize">{monthLabel(mesKey)}</span> y sigue vigente hasta que otro
+            mes lo cambie. Un mes parte dos nóminas por la mitad y eso está bien: cada día se paga
+            a la tarifa que le tocaba.
+            {!propia && (
+              <>
+                {' '}
+                Ahora mismo este mes usa{' '}
+                <strong className="text-white/70">
+                  {vigente.hourly} $/h · {vigente.commission} $/cita
+                </strong>
+                , heredado del mes anterior.
+              </>
+            )}
           </p>
         </div>
 
         <div className="space-y-2">
           <RateRow
             label="Tarifa general"
-            sublabel="Se aplica a todo el equipo en este periodo"
-            period={period}
+            sublabel={`Todo el equipo, durante ${monthLabel(mesKey)}`}
+            mesKey={mesKey}
             userId={null}
             rates={rates}
             onSaved={onSaved}
@@ -239,11 +302,11 @@ export function RateSettings({
               key={p.id}
               label={p.full_name || p.email || 'Sin nombre'}
               sublabel={
-                rates.some((r) => r.period_start === period.key && r.user_id === p.id)
-                  ? 'Tiene tarifa propia en este periodo'
+                rates.some((r) => r.period_start === mesKey && r.user_id === p.id)
+                  ? 'Tiene tarifa propia este mes'
                   : 'Usa la tarifa general'
               }
-              period={period}
+              mesKey={mesKey}
               userId={p.id}
               rates={rates}
               onSaved={onSaved}

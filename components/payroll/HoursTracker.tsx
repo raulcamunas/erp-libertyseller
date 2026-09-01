@@ -114,6 +114,13 @@ function useCountUp(value: number, duration = 420) {
   return display
 }
 
+/** El día 14 del mes siguiente: el último del ciclo que abre esa clave */
+function finDelCiclo(periodKey: string): string {
+  const [y, m] = periodKey.split('-').map(Number)
+  const d = new Date(Date.UTC(y, m, 14))
+  return d.toISOString().slice(0, 10)
+}
+
 export function HoursTracker({
   initialHours,
   initialRates,
@@ -250,7 +257,13 @@ export function HoursTracker({
     [days, hoursByDay]
   )
 
-  const rate = resolveRate(rates, period.key, selectedUserId)
+  /**
+   * La tarifa que se enseña arriba es la del ÚLTIMO día del ciclo: la que está
+   * rigiendo cuando se cierra. Desde que las tarifas son mensuales una puede
+   * arrancar el día 1 y partir el ciclo, pero lo ganado ya se calcula día a día
+   * —ver cycleCostForUser()—, así que este número es solo el rótulo.
+   */
+  const rate = resolveRate(rates, finDelCiclo(period.key), selectedUserId)
 
   /**
    * Las citas del periodo, vengan de la agenda o añadidas a mano por un

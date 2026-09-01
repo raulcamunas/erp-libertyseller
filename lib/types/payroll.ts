@@ -117,16 +117,43 @@ export function periodDays(period: PayrollPeriod): string[] {
 }
 
 /**
- * Tarifa aplicable: primero una excepción para esa persona en ese
- * periodo, si no la general del periodo, y si tampoco, los valores por
- * defecto de siempre.
+ * LA TARIFA QUE ESTABA EN VIGOR ESE DÍA.
+ *
+ * Antes esto buscaba una coincidencia EXACTA con la clave del ciclo 15→14: si no
+ * había fila para ese ciclo, se caía a los valores por defecto. Eso ataba las
+ * tarifas a los ciclos y hacía imposible lo que hacía falta: una comisión que
+ * empiece el 1 de septiembre y termine el 30, partiendo dos nóminas por la mitad.
+ *
+ * Ahora una tarifa es «la que rige DESDE tal día», y vale hasta que la sustituye
+ * otra. Con eso las tarifas pasan a ser mensuales —fecha el día 1— sin que haya
+ * que tocar el motor, que ya calculaba día a día.
+ *
+ *
+ * ============ LA HISTORIA NO SE MUEVE ============
+ *
+ * Las filas viejas tienen fecha 15 y siguen rigiendo desde el 15, exactamente
+ * como antes. Y como hay tarifa general en TODOS los ciclos desde marzo de 2026
+ * —comprobado— ningún día pasado cambia de valor: donde antes había
+ * coincidencia exacta, ahora esa misma fila es también la más reciente.
+ *
+ * Lo único que sí cambiaría son las excepciones personales, que antes morían al
+ * acabar su ciclo y ahora seguirían en vigor. Por eso la migración 171 les
+ * escribe una fila de cierre con lo que cobran hoy: ver allí.
  */
 export function resolveRate(
   rates: PayrollRate[],
-  periodKey: string,
+  /** Un día 'yyyy-MM-dd', o una clave de periodo, que también lo es */
+  day: string,
   userId: string
 ): { hourly: number; commission: number; source: 'personal' | 'periodo' | 'defecto' } {
-  const personal = rates.find((r) => r.period_start === periodKey && r.user_id === userId)
+  // La más reciente que ya había empezado ese día. Empatan por fecha imposible:
+  // period_start es único por (fecha, persona).
+  const vigente = (uid: string | null) =>
+    rates
+      .filter((r) => r.user_id === uid && r.period_start <= day)
+      .sort((a, b) => b.period_start.localeCompare(a.period_start))[0]
+
+  const personal = vigente(userId)
   if (personal) {
     return {
       hourly: Number(personal.hourly_rate),
@@ -134,7 +161,7 @@ export function resolveRate(
       source: 'personal',
     }
   }
-  const general = rates.find((r) => r.period_start === periodKey && r.user_id === null)
+  const general = vigente(null)
   if (general) {
     return {
       hourly: Number(general.hourly_rate),
@@ -143,6 +170,21 @@ export function resolveRate(
     }
   }
   return { hourly: DEFAULT_HOURLY_RATE, commission: DEFAULT_COMMISSION, source: 'defecto' }
+}
+
+/** El día 1 del mes de una fecha: la clave de una tarifa mensual */
+export function monthKeyForDate(dateStr: string): string {
+  return `${dateStr.slice(0, 7)}-01`
+}
+
+/** «septiembre 2026» a partir de una clave 'yyyy-MM-01' */
+export function monthLabel(key: string): string {
+  const meses = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ]
+  const [y, m] = key.split('-').map(Number)
+  return `${meses[m - 1]} ${y}`
 }
 
 export function formatDollars(n: number) {
