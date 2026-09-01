@@ -5,6 +5,7 @@ import { planificarRefrescos } from '@/lib/plataforma/planificador'
 import { registrarTareas } from '@/lib/plataforma/tareas'
 import { empujar } from '@/lib/ads/generador'
 import { limpiar } from '@/lib/plataforma/limpieza'
+import { lanzarProgramadas } from '@/lib/ads/programador'
 
 /**
  * EL DISPARADOR DEL MOTOR DE TRABAJOS.
@@ -147,6 +148,25 @@ export async function POST(request: NextRequest) {
     }
 
     /**
+     * ---------- El calendario de informes de marketing ----------
+     *
+     * Una vuelta al día basta: lo que se programa es un día, no una hora. Se
+     * lanzan también las de días pasados que quedaran pendientes —si el servidor
+     * estuvo caído el martes, el miércoles salen igual en vez de perderse.
+     */
+    let programados: Awaited<ReturnType<typeof lanzarProgramadas>> | null = null
+    try {
+      programados = await lanzarProgramadas(new Date().toISOString().slice(0, 10))
+      if (programados.lanzados > 0 || programados.fallidos > 0) {
+        console.log(
+          `[marketing] programador: ${programados.lanzados} lanzados, ${programados.fallidos} fallidos`
+        )
+      }
+    } catch (error) {
+      console.error('[marketing] el programador de informes ha fallado:', error)
+    }
+
+    /**
      * Aquí estaba la publicación de precios de Entrais, y estaba MAL.
      *
      * Esta ruta tiene su propia cadencia en `cron_config` y dos returns
@@ -192,6 +212,7 @@ export async function POST(request: NextRequest) {
       errores: resultado.errores,
       duracionMs: resultado.duracionMs,
       marketing,
+      programados: programados?.lanzados ? programados : null,
       purga: purga?.filter((r) => r.borradas > 0 || r.error) ?? null,
     })
   } catch (error) {

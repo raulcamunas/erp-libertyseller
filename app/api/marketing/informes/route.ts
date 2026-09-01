@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { cuentasDeTrabajo } from '@/lib/ads/datos'
 import { empujar, encargar } from '@/lib/ads/generador'
 import { PLANTILLAS, PLANTILLAS_POR_ID } from '@/lib/ads/plantillas'
+import { PERIODOS, rangoDe, type PeriodoInforme } from '@/lib/ads/programador'
 
 /**
  * INFORMES DE MARKETING · ENCARGAR Y CONSULTAR
@@ -46,6 +47,9 @@ export async function POST(request: NextRequest) {
       hasta?: string
       plantillas?: unknown
       informeId?: string
+      fecha?: string
+      periodo?: string
+      programacionId?: string
     }
     const service = createServiceClient()
 
@@ -94,6 +98,61 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, informeId, paso })
     }
 
+    /* ---------------- Programar un día del calendario ---------------- */
+    if (body.accion === 'programar') {
+      const perfilId = (body.perfilId ?? '').trim()
+      if (!UUID.test(perfilId)) return fail(400, 'Elige una cuenta de anunciante.')
+
+      const fecha = (body.fecha ?? '').trim()
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+        return fail(400, 'La fecha tiene que venir como AAAA-MM-DD.')
+      }
+
+      const periodo = (body.periodo ?? '') as PeriodoInforme
+      if (!PERIODOS.some((p) => p.id === periodo)) {
+        return fail(400, 'El periodo tiene que ser 1, 2 o 4 semanas.')
+      }
+
+      const ids = Array.isArray(body.plantillas) ? (body.plantillas as unknown[]).map(String) : []
+      const buenas = ids.filter((id) => {
+        const t = PLANTILLAS_POR_ID.get(id)
+        return t !== undefined && !t.imposible
+      })
+
+      /**
+       * SE GUARDA LA FECHA Y EL PERIODO, NO EL RANGO YA CALCULADO.
+       *
+       * El rango se resuelve el día que se lanza. Guardarlo aquí congelaría un
+       * cálculo hecho con semanas de antelación, y bastaría con corregir un día
+       * el calendario para que el informe saliera de un periodo que ya no es el
+       * que dice la ficha.
+       */
+      const { error } = await service.from('marketing_programaciones').upsert(
+        {
+          perfil_id: perfilId,
+          fecha,
+          periodo,
+          plantillas: buenas,
+          estado: 'pendiente',
+          error: null,
+          informe_id: null,
+          creado_por: session.userId,
+        },
+        { onConflict: 'perfil_id,fecha,periodo' }
+      )
+      if (error) return fail(400, error.message)
+      return NextResponse.json({ ok: true, rango: rangoDe(fecha, periodo) })
+    }
+
+    /* ---------------- Quitar una programación ---------------- */
+    if (body.accion === 'desprogramar') {
+      const id = (body.programacionId ?? '').trim()
+      if (!UUID.test(id)) return fail(400, 'Falta la programación.')
+      const { error } = await service.from('marketing_programaciones').delete().eq('id', id)
+      if (error) return fail(400, error.message)
+      return NextResponse.json({ ok: true })
+    }
+
     /* ---------------- Empujar ---------------- */
     if (body.accion === 'empujar') {
       const paso = await empujar(6)
@@ -128,9 +187,23 @@ export async function POST(request: NextRequest) {
           .in('informe_id', ids)
       : { data: [] }
 
+    /**
+     * Las programaciones del calendario. Se traen las de los últimos tres meses
+     * y todas las futuras: el calendario se mueve por meses y con eso hay de
+     * sobra sin pedirlas otra vez a cada flecha.
+     */
+    const desdeCalendario = new Date(Date.now() - 92 * 86_400_000).toISOString().slice(0, 10)
+    const { data: programaciones } = await service
+      .from('marketing_programaciones')
+      .select('id, perfil_id, fecha, periodo, estado, informe_id, error, lanzado_at')
+      .gte('fecha', desdeCalendario)
+      .order('fecha', { ascending: true })
+
     return NextResponse.json({
       ok: true,
       cuentas,
+      programaciones: programaciones ?? [],
+      periodos: PERIODOS,
       // El catálogo viaja entero, incluidas las que no se pueden pedir: la
       // pantalla las enseña apagadas con el motivo. Filtrarlas aquí haría que la
       // pregunta «¿y la de geografía?» volviera cada dos meses.

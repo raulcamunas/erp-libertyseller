@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
+import { CalendarioInformes, type Programacion } from './CalendarioInformes'
   CalendarDays,
   Check,
   Download,
@@ -85,6 +86,7 @@ interface Parte {
 
 interface Respuesta {
   cuentas: Cuenta[]
+  programaciones: Programacion[]
   plantillas: Plantilla[]
   informes: Informe[]
   partes: Parte[]
@@ -168,6 +170,49 @@ export function InformesMarketing() {
     () => (datos?.informes ?? []).some((i) => i.estado === 'pendiente' || i.estado === 'preparando'),
     [datos]
   )
+  /**
+   * PROGRAMAR UN DÍA DEL CALENDARIO.
+   *
+   * No encarga nada ahora: apunta el día, la cuenta y el periodo. El informe se
+   * genera solo cuando llegue esa fecha, con el rango de semanas completas que
+   * le toque — y ese rango se calcula ESE día, no ahora, para que corregir el
+   * calendario no deje informes con un periodo que ya no es el que dice.
+   */
+  const [programando, setProgramando] = useState(false)
+
+  const programar = useCallback(
+    async (v: { perfilId: string; fecha: string; periodo: Programacion['periodo'] }) => {
+      setProgramando(true)
+      const res = await postAmazon<{ rango: { desde: string; hasta: string } }>(
+        '/api/marketing/informes',
+        { accion: 'programar', ...v }
+      )
+      setProgramando(false)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success(`Programado: cogerá del ${res.data.rango.desde} al ${res.data.rango.hasta}`)
+      void traer()
+    },
+    [traer]
+  )
+
+  const quitarProgramacion = useCallback(
+    async (id: string) => {
+      const res = await postAmazon('/api/marketing/informes', {
+        accion: 'desprogramar',
+        programacionId: id,
+      })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      void traer()
+    },
+    [traer]
+  )
+
   useEffect(() => {
     if (!hayTrabajo) return
     const t = setInterval(() => void traer(), 15_000)
@@ -495,6 +540,23 @@ export function InformesMarketing() {
         </div>
       </div>
 
+      {/* ---------------- El programador ----------------
+          Calendario a la izquierda y lo que hay listo a la derecha. En pantallas
+          estrechas el calendario va arriba: es lo que se viene a tocar. */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+        <CalendarioInformes
+          cuentas={datos.cuentas.map((c) => ({
+            id: c.perfilId,
+            nombre: c.nombre,
+            pais: c.pais,
+            moneda: c.moneda,
+          }))}
+          programaciones={datos.programaciones ?? []}
+          onProgramar={(v) => void programar(v)}
+          onQuitar={(id) => void quitarProgramacion(id)}
+          trabajando={programando}
+        />
+
       {/* ---------------- Los encargos ---------------- */}
       <div className={CAJA}>
         <div className="mb-2 flex flex-wrap items-baseline gap-3">
@@ -601,6 +663,7 @@ export function InformesMarketing() {
             })}
           </div>
         )}
+      </div>
       </div>
     </div>
   )

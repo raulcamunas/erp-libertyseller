@@ -105,6 +105,15 @@ const REGLAS: { tabla: string; columna: string; dias: number }[] = [
    * cuenta de que algo lleva raro desde hace semanas.
    */
   { tabla: 'stock_profile_runs', columna: 'created_at', dias: 30 },
+  /**
+   * Los encargos de marketing NO guardan ningun Excel —se arma al descargarlo—
+   * asi que aqui no se libera espacio de ficheros: lo que se quita son filas.
+   *
+   * 30 dias y no 7: lo que caduca de verdad es el informe en el lado de Amazon,
+   * y borrar la fila antes solo consigue perder el enlace a algo que todavia se
+   * podia bajar. Las partes se van solas por la clave foranea.
+   */
+  { tabla: 'marketing_informes', columna: 'pedido_at', dias: 30 },
   { tabla: 'cron_ejecuciones', columna: 'iniciado_at', dias: 15 },
   // Los trabajos TERMINADOS. Los vivos no se tocan: `terminado_at` a null es
   // justo lo que distingue «acabó hace un mes» de «está corriendo ahora», y
