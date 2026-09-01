@@ -4,10 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   CalendarDays,
-  Check,
   Download,
   Loader2,
-  Lock,
   Play,
   RefreshCw,
   Trash2,
@@ -134,7 +132,6 @@ export function InformesMarketing() {
   const [perfilId, setPerfilId] = useState('')
   const [desde, setDesde] = useState(() => mes(1).desde)
   const [hasta, setHasta] = useState(() => mes(1).hasta)
-  const [elegidas, setElegidas] = useState<Set<string>>(() => new Set())
   const [encargando, setEncargando] = useState(false)
   const [empujando, setEmpujando] = useState(false)
   const [bajando, setBajando] = useState<string | null>(null)
@@ -148,11 +145,6 @@ export function InformesMarketing() {
     }
     setDatos(res.data)
     setPerfilId((p) => p || (res.data.cuentas[0]?.perfilId ?? ''))
-    setElegidas((e) =>
-      e.size > 0
-        ? e
-        : new Set(res.data.plantillas.filter((p) => !p.imposible).map((p) => p.id))
-    )
   }, [])
 
   useEffect(() => {
@@ -220,14 +212,15 @@ export function InformesMarketing() {
   }, [hayTrabajo, traer])
 
   async function encargar() {
-    if (!perfilId || elegidas.size === 0) return
+    if (!perfilId) return
     setEncargando(true)
     const res = await postAmazon<{ informeId: string }>('/api/marketing/informes', {
       accion: 'encargar',
       perfilId,
       desde,
       hasta,
-      plantillas: [...elegidas],
+      // Todas las que se puedan pedir: ver la nota del bloque de encargar.
+      plantillas: disponibles.map((p) => p.id),
     })
     setEncargando(false)
     if (!res.ok) {
@@ -313,11 +306,23 @@ export function InformesMarketing() {
     return [...m]
   }, [datos])
 
-  const peticiones = useMemo(() => {
-    let n = 0
-    for (const p of datos?.plantillas ?? []) if (elegidas.has(p.id)) n += p.variantes.length
-    return n
-  }, [datos, elegidas])
+  /** Las que Amazon deja pedir. Las otras son de Amazon DSP: ver el bloque de encargar */
+  const disponibles = useMemo(
+    () => (datos?.plantillas ?? []).filter((p) => !p.imposible),
+    [datos]
+  )
+
+  /**
+   * Peticiones, que NO es lo mismo que informes.
+   *
+   * «Campaña» son tres —una por producto publicitario— y «Producto anunciado»
+   * dos. Nueve informes salen doce peticiones, y ese es el número que explica por
+   * qué tarda lo que tarda.
+   */
+  const peticiones = useMemo(
+    () => disponibles.reduce((n, p) => n + p.variantes.length, 0),
+    [disponibles]
+  )
 
   const dias = useMemo(
     () => Math.round((Date.parse(hasta) - Date.parse(desde)) / 86_400_000) + 1,
@@ -437,94 +442,32 @@ export function InformesMarketing() {
         </div>
       </div>
 
-      {/* ---------------- Qué informes ---------------- */}
-      <div className={CAJA}>
-        <div className="mb-2 flex flex-wrap items-baseline gap-3">
-          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-white/45">
-            Qué informes
-          </h3>
-          <span className="text-[11px] text-white/40">
-            {elegidas.size} elegidos · <strong className="text-white/70">{peticiones}</strong>{' '}
-            peticiones a Amazon
-          </span>
-          <button
-            type="button"
-            onClick={() =>
-              setElegidas(new Set(datos.plantillas.filter((p) => !p.imposible).map((p) => p.id)))
-            }
-            className="text-[11px] text-white/40 underline-offset-2 hover:text-white hover:underline"
-          >
-            todos
-          </button>
-          <button
-            type="button"
-            onClick={() => setElegidas(new Set())}
-            className="text-[11px] text-white/40 underline-offset-2 hover:text-white hover:underline"
-          >
-            ninguno
-          </button>
-        </div>
+      {/* ---------------- Encargar ----------------
+          AQUÍ HABÍA UN SELECTOR DE PLANTILLAS Y SE HA QUITADO.
 
-        <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-          {datos.plantillas.map((p) => {
-            const bloqueada = Boolean(p.imposible)
-            const marcada = elegidas.has(p.id)
-            return (
-              <button
-                key={p.id}
-                type="button"
-                disabled={bloqueada}
-                onClick={() =>
-                  setElegidas((prev) => {
-                    const s = new Set(prev)
-                    if (s.has(p.id)) s.delete(p.id)
-                    else s.add(p.id)
-                    return s
-                  })
-                }
-                title={p.imposible ?? p.descripcion}
-                className={`rounded-lg border p-2 text-left transition-colors ${
-                  bloqueada
-                    ? 'cursor-default border-white/[0.06] opacity-40'
-                    : marcada
-                      ? 'border-[#FF6600]/50 bg-[#FF6600]/10'
-                      : 'border-white/10 hover:border-white/25'
-                }`}
-              >
-                <span className="flex items-start gap-1.5">
-                  {bloqueada ? (
-                    <Lock className="mt-[2px] h-3 w-3 flex-shrink-0 text-white/30" />
-                  ) : (
-                    <span
-                      className={`mt-[2px] flex h-3 w-3 flex-shrink-0 items-center justify-center rounded-[3px] border ${
-                        marcada ? 'border-[#FF6600] bg-[#FF6600]' : 'border-white/25'
-                      }`}
-                    >
-                      {marcada && <Check className="h-2.5 w-2.5 text-black" />}
-                    </span>
-                  )}
-                  <span className="min-w-0">
-                    <span className="block text-[12px] font-medium text-white">{p.nombre}</span>
-                    <span className="block text-[10.5px] leading-snug text-white/35">
-                      {p.imposible ?? p.descripcion}
-                    </span>
-                    {!bloqueada && p.variantes.length > 1 && (
-                      <span className="mt-0.5 block text-[10px] text-white/25">
-                        {p.variantes.length} pestañas: {p.variantes.map((v) => v.hoja).join(', ')}
-                      </span>
-                    )}
-                  </span>
-                </span>
-              </button>
-            )
-          })}
-        </div>
+          Dieciséis casillas para elegir qué informes pedir, de las que siete
+          nunca se podían marcar. En la práctica siempre se pedían los nueve que
+          Amazon deja, así que era una pantalla entera de decisiones que nadie
+          tomaba y un clic de más antes de cada encargo.
+
+          Lo que sí se conserva es la EXPLICACIÓN de por qué son nueve y no
+          dieciséis, en una línea: sin ella, «¿y el informe de geografía?» vuelve
+          cada dos meses. */}
+      <div className={CAJA}>
+        <p className="text-[11px] leading-relaxed text-white/45">
+          Se piden <strong className="text-white/75">los {disponibles.length} informes</strong> que
+          Amazon permite en publicidad patrocinada —{' '}
+          <strong className="text-white/75">{peticiones}</strong> peticiones, porque algunos llevan
+          una por producto publicitario. Los otros{' '}
+          {(datos.plantillas.length - disponibles.length)} solo existen en Amazon DSP, que es otro
+          producto con su propia API y sus propias cuentas de anunciante.
+        </p>
 
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void encargar()}
-            disabled={encargando || elegidas.size === 0 || dias <= 0}
+            disabled={encargando || dias <= 0}
             className="flex h-8 items-center gap-1.5 rounded-lg border border-[#FF6600]/60 bg-[#FF6600]/20 px-3 text-[12px] text-white transition-colors hover:bg-[#FF6600]/30 disabled:opacity-40"
           >
             {encargando ? (
@@ -543,19 +486,24 @@ export function InformesMarketing() {
       {/* ---------------- El programador ----------------
           Calendario a la izquierda y lo que hay listo a la derecha. En pantallas
           estrechas el calendario va arriba: es lo que se viene a tocar. */}
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(520px,1.05fr)_minmax(0,1fr)]">
-        <CalendarioInformes
-          cuentas={datos.cuentas.map((c) => ({
-            id: c.perfilId,
-            nombre: c.nombre,
-            pais: c.pais,
-            moneda: c.moneda,
-          }))}
-          programaciones={datos.programaciones ?? []}
-          onProgramar={(v) => void programar(v)}
-          onQuitar={(id) => void quitarProgramacion(id)}
-          trabajando={programando}
-        />
+      {/* El calendario a lo ancho y los encargos debajo: la rejilla apretada a
+          la mitad no dejaba sitio para ver de quién era cada día, que es
+          justamente lo que se viene a mirar. */}
+      <CalendarioInformes
+        cuentas={datos.cuentas.map((c) => ({
+          id: c.perfilId,
+          nombre: c.nombre,
+          pais: c.pais,
+          moneda: c.moneda,
+        }))}
+        programaciones={datos.programaciones ?? []}
+        informes={datos.informes.map((i) => ({ id: i.id, estado: i.estado }))}
+        onProgramar={(v) => void programar(v)}
+        onQuitar={(id) => void quitarProgramacion(id)}
+        onDescargar={(id) => void descargar(id)}
+        bajando={bajando}
+        trabajando={programando}
+      />
 
       {/* ---------------- Los encargos ---------------- */}
       <div className={CAJA}>
@@ -663,7 +611,6 @@ export function InformesMarketing() {
             })}
           </div>
         )}
-      </div>
       </div>
     </div>
   )

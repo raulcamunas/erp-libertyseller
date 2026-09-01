@@ -921,3 +921,59 @@ html.light .bg-black\/25             { background-color: rgba(0, 0, 0, 0.05); }
     animation: none !important;
   }
 }
+
+/* ==================================================================
+   CALENDARIO DE INFORMES (components/marketing/CalendarioInformes)
+   ==================================================================
+   Las animaciones son las justas y cada una dice algo: el mes que entra dice
+   hacia dónde te has movido, el día que se abre dice de dónde sale su ficha, y
+   la pastilla que aparece dice que se ha guardado. Nada gira porque sí.
+
+   Respetan `prefers-reduced-motion`, como el resto del fichero. */
+
+@keyframes cal-mes-izq {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes cal-mes-der {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.cal-mes-izq { animation: cal-mes-izq 0.24s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.cal-mes-der { animation: cal-mes-der 0.24s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* La ficha del día se despliega desde arriba: nace donde se ha pulsado */
+@keyframes cal-ficha {
+  from { opacity: 0; transform: translateY(-6px) scaleY(0.97); }
+  to   { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+.cal-ficha {
+  animation: cal-ficha 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top;
+}
+
+/* Cada pastilla entra un poco después que la anterior. El escalonado se pone
+   con una variable en línea, para que no haga falta una clase por posición. */
+@keyframes cal-pastilla {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cal-pastilla {
+  animation: cal-pastilla 0.22s ease-out both;
+  animation-delay: var(--cal-retraso, 0ms);
+}
+
+/* El día de hoy: un punto que respira. Es lo único que se mueve solo en toda
+   la rejilla, y por eso se encuentra sin buscarlo. */
+@keyframes cal-hoy {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+.cal-hoy { animation: cal-hoy 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cal-mes-izq, .cal-mes-der, .cal-ficha, .cal-pastilla, .cal-hoy {
+    animation: none !important;
+  }
+}

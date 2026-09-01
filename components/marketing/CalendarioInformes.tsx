@@ -1,7 +1,16 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Loader2,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react'
 
 /**
  * EL CALENDARIO DE INFORMES: LO QUE HAY PROGRAMADO Y CUÁNDO.
@@ -102,14 +111,21 @@ function celdasDelMes(ano: number, mesIdx: number): (string | null)[] {
 export function CalendarioInformes({
   cuentas,
   programaciones,
+  informes,
   onProgramar,
   onQuitar,
+  onDescargar,
+  bajando,
   trabajando,
 }: {
   cuentas: CuentaAds[]
   programaciones: Programacion[]
+  /** En qué estado está el encargo que generó cada programación, para poder bajarlo desde el día */
+  informes: { id: string; estado: string }[]
   onProgramar: (v: { perfilId: string; fecha: string; periodo: Programacion['periodo'] }) => void
   onQuitar: (id: string) => void
+  onDescargar: (informeId: string) => void
+  bajando: string | null
   trabajando: boolean
 }) {
   const hoy = useMemo(() => new Date().toISOString().slice(0, 10), [])
@@ -118,6 +134,8 @@ export function CalendarioInformes({
     return { ano: d.getFullYear(), mes: d.getMonth() }
   })
   const [abierto, setAbierto] = useState<string | null>(null)
+  /** Hacia dónde se ha movido el mes, solo para que la animación entre por ese lado */
+  const [sentido, setSentido] = useState<'izq' | 'der'>('der')
   const [cuenta, setCuenta] = useState<string>(cuentas[0]?.id ?? '')
   const [periodo, setPeriodo] = useState<Programacion['periodo']>('7d')
 
@@ -135,7 +153,11 @@ export function CalendarioInformes({
 
   const nombreDe = (id: string) => cuentas.find((c) => c.id === id)?.nombre ?? 'Cuenta borrada'
 
+  const estadoInforme = (id: string | null) =>
+    id ? (informes.find((i) => i.id === id)?.estado ?? null) : null
+
   function mover(n: number) {
+    setSentido(n > 0 ? 'der' : 'izq')
     setCursor((c) => {
       const d = new Date(Date.UTC(c.ano, c.mes + n, 1))
       return { ano: d.getUTCFullYear(), mes: d.getUTCMonth() }
@@ -173,7 +195,12 @@ export function CalendarioInformes({
       </div>
 
       {/* ---------------- La rejilla ---------------- */}
-      <div className="grid grid-cols-7 gap-1 text-center">
+      <div
+        key={`${cursor.ano}-${cursor.mes}`}
+        className={`grid grid-cols-7 gap-1.5 text-center ${
+          sentido === 'der' ? 'cal-mes-der' : 'cal-mes-izq'
+        }`}
+      >
         {DIAS.map((d, i) => (
           <span
             key={d}
@@ -196,34 +223,36 @@ export function CalendarioInformes({
               key={fecha}
               type="button"
               onClick={() => setAbierto(activo ? null : fecha)}
-              className={`min-h-[74px] rounded-md border p-1.5 text-left transition-colors ${
+              className={`group relative min-h-[92px] rounded-lg border p-2 text-left transition-all duration-200 hover:-translate-y-px ${
                 activo
-                  ? 'border-[#FF6600]/60 bg-[#FF6600]/10'
+                  ? 'border-[#FF6600]/70 bg-[#FF6600]/10 shadow-[0_0_0_1px_rgba(255,102,0,0.25)]'
                   : hay.length > 0
-                    ? 'border-violet-400/30 bg-violet-400/[0.07] hover:border-violet-400/50'
-                    : 'border-white/[0.06] hover:border-white/20 hover:bg-white/[0.03]'
+                    ? 'border-violet-400/30 bg-violet-400/[0.07] hover:border-violet-400/60 hover:bg-violet-400/[0.11]'
+                    : 'border-white/[0.06] hover:border-white/25 hover:bg-white/[0.04]'
               }`}
             >
               <span
-                className={`block text-[12px] tabular-nums ${
+                className={`flex items-center gap-1 text-[13px] tabular-nums ${
                   esHoy
                     ? 'font-semibold text-[#FF8A3D]'
                     : pasado
                       ? 'text-white/25'
-                      : 'text-white/60'
+                      : 'text-white/65'
                 }`}
               >
                 {Number(fecha.slice(8))}
+                {esHoy && <span className="cal-hoy h-1 w-1 rounded-full bg-[#FF8A3D]" />}
               </span>
 
               {/* CADA PASTILLA LLEVA EL CLIENTE Y EL PERIODO.
                   Solo con el periodo —«2 sem»— la rejilla decía cuándo hay algo
                   pero no de quién, y con seis clientes eso obliga a abrir día por
                   día para saber qué falta. El nombre entero está en el `title`. */}
-              {hay.slice(0, 3).map((p) => (
+              {hay.slice(0, 3).map((p, n) => (
                 <span
                   key={p.id}
-                  className={`mt-0.5 flex items-baseline gap-1 truncate rounded px-1 py-px text-[9.5px] leading-[14px] ${
+                  style={{ ['--cal-retraso' as string]: `${n * 45}ms` }}
+                  className={`cal-pastilla mt-1 flex items-baseline gap-1 truncate rounded px-1.5 py-0.5 text-[10px] leading-[15px] transition-transform group-hover:translate-x-px ${
                     p.estado === 'error'
                       ? 'bg-red-400/20 text-red-200'
                       : p.estado === 'lanzado'
@@ -248,7 +277,7 @@ export function CalendarioInformes({
 
       {/* ---------------- El día abierto ---------------- */}
       {abierto && (
-        <div className="mt-2.5 rounded-lg border border-white/10 bg-black/25 p-2.5">
+        <div className="cal-ficha mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
           <div className="mb-2 flex items-center gap-2">
             <span className="text-[11px] font-medium text-white">{corto(abierto)}</span>
             <button
@@ -262,35 +291,68 @@ export function CalendarioInformes({
           </div>
 
           {/* Lo que ya hay ese día */}
-          {(porDia.get(abierto) ?? []).map((p) => {
+          {(porDia.get(abierto) ?? []).map((p, n) => {
             const r = rangoDe(p.fecha, p.periodo)
+            const estado = estadoInforme(p.informe_id)
+            const listo = p.informe_id !== null && estado === 'listo'
+            const preparando = estado === 'pendiente' || estado === 'preparando'
+
             return (
               <div
                 key={p.id}
-                className="mb-1 flex flex-wrap items-baseline gap-x-2 rounded border border-white/[0.07] px-2 py-1 text-[10.5px]"
+                style={{ ['--cal-retraso' as string]: `${n * 50}ms` }}
+                className="cal-pastilla mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/[0.07] bg-white/[0.02] px-2.5 py-1.5 text-[11px] transition-colors hover:border-white/15"
               >
-                <span className="text-white/80">{nombreDe(p.perfil_id)}</span>
-                <span className="rounded bg-violet-400/15 px-1 text-violet-100">
+                <span className="font-medium text-white/85">{nombreDe(p.perfil_id)}</span>
+                <span className="rounded bg-violet-400/15 px-1.5 py-px text-[10px] text-violet-100">
                   {ETIQUETA[p.periodo]}
                 </span>
                 <span className="text-white/35">
                   {corto(r.desde)} → {corto(r.hasta)}
                 </span>
-                <span
-                  className={
-                    p.estado === 'error'
-                      ? 'text-red-300/80'
-                      : p.estado === 'lanzado'
-                        ? 'text-emerald-300/80'
-                        : 'text-white/30'
-                  }
-                >
-                  {p.estado === 'lanzado' ? 'generado' : p.estado === 'error' ? p.error : 'esperando'}
-                </span>
+
+                {/* ---- LA DESCARGA, AQUÍ MISMO ----
+                    Antes había que localizar ese encargo en la lista de abajo
+                    entre cuarenta filas que solo se distinguen por dos fechas.
+                    Si el informe del día está listo, se baja desde el día. */}
+                {listo ? (
+                  <button
+                    type="button"
+                    onClick={() => onDescargar(p.informe_id as string)}
+                    disabled={bajando === p.informe_id}
+                    className="ml-auto flex items-center gap-1 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-2 py-0.5 text-[10.5px] text-emerald-100 transition-colors hover:bg-emerald-400/20 disabled:opacity-50"
+                  >
+                    {bajando === p.informe_id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Download className="h-3 w-3" />
+                    )}
+                    Excel
+                  </button>
+                ) : (
+                  <span
+                    className={`ml-auto ${
+                      p.estado === 'error'
+                        ? 'text-red-300/80'
+                        : preparando
+                          ? 'text-amber-200/70'
+                          : 'text-white/30'
+                    }`}
+                  >
+                    {p.estado === 'error'
+                      ? p.error
+                      : preparando
+                        ? 'preparándose en Amazon…'
+                        : p.estado === 'lanzado'
+                          ? 'generado'
+                          : `esperando al ${corto(p.fecha)}`}
+                  </span>
+                )}
+
                 <button
                   type="button"
                   onClick={() => onQuitar(p.id)}
-                  className="ml-auto text-white/25 hover:text-red-300"
+                  className="text-white/20 transition-colors hover:text-red-300"
                   aria-label="Quitar"
                 >
                   <Trash2 className="h-3 w-3" />
