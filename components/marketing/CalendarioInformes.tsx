@@ -67,6 +67,17 @@ const MESES = [
 ]
 const DIAS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 
+/**
+ * El nombre del cliente recortado para la celda.
+ *
+ * Se queda con las dos primeras palabras: «Creative Toys España · ES» pasa a
+ * «Creative Toys», que es lo que distingue de un vistazo sin comerse la celda.
+ * El nombre entero sigue estando en el `title` y en la ficha del día.
+ */
+function nombreCorto(n: string): string {
+  return n.split(/[·|]/)[0].trim().split(/\s+/).slice(0, 2).join(' ')
+}
+
 function corto(iso: string): string {
   const [, mm, dd] = iso.split('-')
   const m = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
@@ -166,7 +177,7 @@ export function CalendarioInformes({
         {DIAS.map((d, i) => (
           <span
             key={d}
-            className={`pb-1 text-[9.5px] font-medium ${i >= 5 ? 'text-white/20' : 'text-white/35'}`}
+            className={`pb-1 text-[10.5px] font-medium ${i >= 5 ? 'text-white/20' : 'text-white/35'}`}
           >
             {d}
           </span>
@@ -185,7 +196,7 @@ export function CalendarioInformes({
               key={fecha}
               type="button"
               onClick={() => setAbierto(activo ? null : fecha)}
-              className={`min-h-[46px] rounded-md border p-1 text-left transition-colors ${
+              className={`min-h-[74px] rounded-md border p-1.5 text-left transition-colors ${
                 activo
                   ? 'border-[#FF6600]/60 bg-[#FF6600]/10'
                   : hay.length > 0
@@ -194,7 +205,7 @@ export function CalendarioInformes({
               }`}
             >
               <span
-                className={`block text-[10px] tabular-nums ${
+                className={`block text-[12px] tabular-nums ${
                   esHoy
                     ? 'font-semibold text-[#FF8A3D]'
                     : pasado
@@ -205,26 +216,30 @@ export function CalendarioInformes({
                 {Number(fecha.slice(8))}
               </span>
 
-              {/* Una pastilla por informe programado ese día. Con el periodo
-                  encima, que es el dato que se viene a comprobar de un vistazo
-                  cuando se está alternando 1, 2 y 4 semanas. */}
-              {hay.slice(0, 2).map((p) => (
+              {/* CADA PASTILLA LLEVA EL CLIENTE Y EL PERIODO.
+                  Solo con el periodo —«2 sem»— la rejilla decía cuándo hay algo
+                  pero no de quién, y con seis clientes eso obliga a abrir día por
+                  día para saber qué falta. El nombre entero está en el `title`. */}
+              {hay.slice(0, 3).map((p) => (
                 <span
                   key={p.id}
-                  className={`mt-0.5 block truncate rounded px-1 text-[8.5px] leading-[13px] ${
+                  className={`mt-0.5 flex items-baseline gap-1 truncate rounded px-1 py-px text-[9.5px] leading-[14px] ${
                     p.estado === 'error'
                       ? 'bg-red-400/20 text-red-200'
                       : p.estado === 'lanzado'
                         ? 'bg-emerald-400/15 text-emerald-200/90'
                         : 'bg-violet-400/20 text-violet-100'
                   }`}
-                  title={`${nombreDe(p.perfil_id)} · ${ETIQUETA[p.periodo]}`}
+                  title={`${nombreDe(p.perfil_id)} · ${ETIQUETA[p.periodo]} · ${
+                    p.estado === 'lanzado' ? 'generado' : p.estado === 'error' ? 'falló' : 'esperando'
+                  }`}
                 >
-                  {ETIQUETA[p.periodo]}
+                  <span className="truncate">{nombreCorto(nombreDe(p.perfil_id))}</span>
+                  <span className="ml-auto flex-shrink-0 opacity-70">{ETIQUETA[p.periodo]}</span>
                 </span>
               ))}
-              {hay.length > 2 && (
-                <span className="block text-[8.5px] text-white/35">+{hay.length - 2}</span>
+              {hay.length > 3 && (
+                <span className="block text-[9px] text-white/35">+{hay.length - 3} más</span>
               )}
             </button>
           )

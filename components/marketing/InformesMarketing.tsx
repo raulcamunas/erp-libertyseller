@@ -543,7 +543,7 @@ export function InformesMarketing() {
       {/* ---------------- El programador ----------------
           Calendario a la izquierda y lo que hay listo a la derecha. En pantallas
           estrechas el calendario va arriba: es lo que se viene a tocar. */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(520px,1.05fr)_minmax(0,1fr)]">
         <CalendarioInformes
           cuentas={datos.cuentas.map((c) => ({
             id: c.perfilId,
