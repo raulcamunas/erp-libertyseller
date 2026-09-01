@@ -26,7 +26,7 @@ import {
   type AmazonSubmissionField,
   type AmazonSubmissionStatus,
 } from '@/lib/types/amazon'
-import type { LotePrecio } from '@/lib/growth/ejecuciones'
+import type { ListadoBloqueado, LotePrecio } from '@/lib/growth/ejecuciones'
 import { formatDateTime } from './shared'
 import { LineaDeVida } from './LineaDeVida'
 import { ForzarPasada } from './ForzarPasada'
@@ -67,6 +67,8 @@ export interface PanelEjecucionesProps {
   ejecuciones: EjecucionVista[]
   /** Las publicaciones de precio, que no pasan por el ciclo de stock */
   precios?: LotePrecio[]
+  /** Los listados que Amazon no deja tocar. Ver la migración 169 */
+  bloqueados?: ListadoBloqueado[]
   /** El estado VIVO de cada perfil. Ver la nota de EstadoAhora() */
   perfiles?: EstadoPerfilVista[]
   className?: string
@@ -269,11 +271,68 @@ function batchDe(f: Fila | null): string | null {
   return f.tipo === 'stock' ? f.run.batch_id : f.lote.batch_id
 }
 
+/**
+ * LOS QUE HAY QUE ARREGLAR EN SELLER CENTRAL.
+ *
+ * Amazon los rechaza siempre por el mismo motivo —casi siempre el tipo de
+ * producto de su ficha— y el ERP ha dejado de intentarlo tras cinco rechazos
+ * iguales.
+ *
+ * Salen aquí porque antes no salían en ninguna parte útil: ensuciaban la cola
+ * con una fila roja por SKU y por pasada —204 filas para decir cinco veces lo
+ * mismo— y el aviso de «sigue reintentando» se quedaba encendido para siempre
+ * por algo que no se arregla desde esta pantalla. Ahora se apartan del envío y
+ * se quedan aquí, quietos, con lo que hay que hacer.
+ *
+ * Desaparecen solos: en cuanto Amazon acepta un cambio de ese SKU, la marca se
+ * borra. Arreglar la ficha es todo lo que hay que hacer.
+ */
+function ListadosBloqueados({ listados }: { listados: ListadoBloqueado[] }) {
+  if (listados.length === 0) return null
+
+  return (
+    <div className="flex-shrink-0 rounded-xl border border-amber-400/25 bg-amber-400/[0.05] px-3 py-2">
+      <p className="flex items-center gap-1.5 text-[11px] font-medium text-amber-100">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-300" />
+        {listados.length === 1
+          ? '1 listado que Amazon no deja tocar'
+          : `${listados.length} listados que Amazon no deja tocar`}
+      </p>
+
+      <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
+        No entran en los envíos: se intentó cinco veces y Amazon los rechazó siempre igual. No es
+        del stock ni del precio, es su ficha —<strong>se arregla en Seller Central</strong>, en
+        Inventario · Editar · Todos los atributos, y al guardar Amazon le reasigna el tipo bueno.
+        En cuanto acepte un cambio desaparecen de aquí solos.
+      </p>
+
+      <div className="mt-1.5 space-y-1">
+        {listados.slice(0, 12).map((l) => (
+          <div key={l.sku} className="flex flex-wrap items-baseline gap-x-2 text-[10.5px]">
+            <span className="font-medium tabular-nums text-white/80">{l.sku}</span>
+            {l.asin && <span className="text-white/30">{l.asin}</span>}
+            {l.product_type && (
+              <span className="rounded border border-white/10 px-1 py-px text-[9.5px] text-white/45">
+                {l.product_type}
+              </span>
+            )}
+            <span className="text-amber-100/50">{l.publicacion_bloqueada_motivo}</span>
+          </div>
+        ))}
+        {listados.length > 12 && (
+          <p className="text-[10px] text-white/30">y {listados.length - 12} más</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function PanelEjecuciones({
   clientId,
   clientName,
   ejecuciones,
   precios = [],
+  bloqueados = [],
   perfiles = [],
   className = '',
 }: PanelEjecucionesProps) {
@@ -488,6 +547,8 @@ export function PanelEjecuciones({
       />
 
       <ForzarPasada clientId={clientId} clientName={clientName} />
+
+      <ListadosBloqueados listados={bloqueados} />
 
       <EstadoAhora perfiles={perfiles} />
 
