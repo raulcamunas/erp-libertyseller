@@ -1625,19 +1625,52 @@ export async function refrescarListingsPorSku(
   if (items.length > 0) {
     const service = createServiceClient()
     const ahora = new Date().toISOString()
+    /**
+     * LO QUE VENGA VACÍO NO PISA LO QUE YA SE SABÍA.
+     *
+     * Esta vía pide los SKU de veinte en veinte y Amazon no siempre devuelve
+     * TODOS los campos en esa forma: el canal de logística y el tipo de producto
+     * vienen a veces sin rellenar. Escribirlos tal cual borraba un dato bueno
+     * que había traído el censo.
+     *
+     * Y no daba ningún error, que es lo peor: sin `fulfillment_channel_code` el
+     * ERP da el listado por no editable y deja de mandarle stock. En Entrais se
+     * quedaron 306 referencias así, publicadas y sin actualizar, y en la pantalla
+     * solo salía un aviso de «tienen algo que cambiar y no se puede escribir».
+     *
+     * Así que se lee lo que ya hay y se usa de red: el valor nuevo si viene, y
+     * si no, el de antes.
+     */
+    const previos = await fetchAll<{
+      sku: string
+      product_type: string | null
+      fulfillment_channel_code: string | null
+      condition_type: string | null
+    }>((a, b) =>
+      service
+        .from('amazon_listings')
+        .select('sku, product_type, fulfillment_channel_code, condition_type')
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', marketplaceId)
+        .order('sku', { ascending: true })
+        .range(a, b)
+    )
+    const antes = new Map(previos.map((p) => [p.sku, p]))
+
     const filas = items.map((item) => ({
       connection_id: connectionId,
       marketplace_id: marketplaceId,
       sku: item.sku,
       asin: item.asin,
       title: item.title,
-      product_type: item.productType,
+      product_type: item.productType ?? antes.get(item.sku)?.product_type ?? null,
       condition_type: item.conditionType,
       listing_status: item.listingStatus,
       price: item.price,
       currency: item.currency,
       quantity: item.quantity,
-      fulfillment_channel_code: item.fulfillmentChannelCode,
+      fulfillment_channel_code:
+        item.fulfillmentChannelCode ?? antes.get(item.sku)?.fulfillment_channel_code ?? null,
       last_seen_at: ahora,
       amazon_last_updated_at: item.amazonLastUpdatedAt,
     }))
@@ -1854,6 +1887,8 @@ export interface SendChangesResult {
   results: SentChange[]
   accepted: number
   failed: number
+  /** Los que ni se han intentado porque su ficha está rota. Ver la migración 169 */
+  retirados?: { sku: string; motivo: string }[]
   /**
    * POR QUÉ SE CORTÓ EL LOTE ANTES DE TERMINAR, si es que se cortó.
    *
@@ -2021,6 +2056,50 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
     )
   }
 
+  /**
+   * ---- 1 bis. LOS QUE SE APARTAN NO ENTRAN EN EL LOTE ----
+   *
+   * Antes se quedaban dentro: no se llamaba a Amazon por ellos —eso ya estaba
+   * bien— pero seguían escribiendo su fila de envío fallido en cada pasada. Con
+   * cinco SKU rotos eso son cinco rojos por tanda, para siempre, diciendo lo
+   * mismo. La cola dejaba de servir para lo que sirve una cola: ver lo que hay
+   * que hacer.
+   *
+   * Ahora salen del lote y se marcan en el catálogo con su motivo (migración
+   * 169). Se limpian solos: en cuanto Amazon acepta un cambio de ese SKU, la
+   * marca se borra unas líneas más abajo. Así arreglar la ficha en Seller
+   * Central es todo lo que hay que hacer.
+   */
+  const retirados: { sku: string; field: AmazonSubmissionField; motivo: string }[] = []
+  const vivos = input.changes.filter((c) => {
+    const motivo = seRinde(c)
+    if (!motivo) return true
+    retirados.push({ sku: c.sku, field: c.field, motivo })
+    return false
+  })
+
+  if (retirados.length > 0) {
+    // Uno por SKU: el motivo es del listado, no de cada campo que se intentó.
+    const porSku = new Map(retirados.map((r) => [r.sku, r.motivo]))
+    await Promise.all(
+      [...porSku].map(([sku, motivo]) =>
+        service
+          .from('amazon_listings')
+          .update({
+            publicacion_bloqueada_motivo: motivo,
+            publicacion_bloqueada_at: new Date().toISOString(),
+          })
+          .eq('connection_id', input.connectionId)
+          .eq('sku', sku)
+      )
+    ).catch((error) => {
+      // La 169 se lanza a mano, así que el código puede llegar antes. Que no
+      // poder marcarlos tumbe el envío entero sería cambiar un problema
+      // pequeño por uno grande: apartarlos del lote ya funciona igual.
+      console.warn('[amazon] no se han podido marcar los listados bloqueados:', error)
+    })
+  }
+
   // ---- 2. El registro, antes de llamar a nadie ----
   const ahora = new Date().toISOString()
   interface Preparado {
@@ -2030,7 +2109,7 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
     currency: string | null
   }
 
-  const preparados: Preparado[] = input.changes.map((change) => {
+  const preparados: Preparado[] = vivos.map((change) => {
     const listing = porClave.get(`${change.marketplaceId}|${change.sku}`)
     const previousValue =
       change.field === 'precio' ? (listing?.price ?? null) : (listing?.quantity ?? null)
@@ -2119,6 +2198,21 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
           currency,
           validateOnly: input.validateOnly,
         })
+        /**
+         * SI AMAZON LO ACEPTA, SE LEVANTA LA MARCA.
+         *
+         * Es lo que hace que arreglar la ficha en Seller Central sea suficiente:
+         * nadie tiene que acordarse de venir al ERP a desmarcar nada. El propio
+         * envío que vuelve a funcionar borra la marca.
+         */
+        if (res.status === 'aceptado' && listing.publicacion_bloqueada_at) {
+          await service
+            .from('amazon_listings')
+            .update({ publicacion_bloqueada_motivo: null, publicacion_bloqueada_at: null })
+            .eq('id', listing.id)
+            .then(undefined, () => {})
+        }
+
         outcome = {
           ...outcome,
           status: res.status,
@@ -2293,6 +2387,7 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
     results,
     accepted: results.filter((r) => r.status === 'aceptado').length,
     failed: results.filter((r) => r.status !== 'aceptado').length,
+    retirados: retirados.map((r) => ({ sku: r.sku, motivo: r.motivo })),
     abortReason,
   }
 }

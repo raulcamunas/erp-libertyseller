@@ -7,6 +7,7 @@ import { PestanasStockSync } from '@/components/growth/stock-sync/PestanasStockS
 import {
   ejecucionesDeCliente,
   estadoDePerfiles,
+  listadosBloqueados,
   publicacionesDePrecios,
   tieneMapeoManual,
 } from '@/lib/growth/ejecuciones'
@@ -136,7 +137,7 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
    * automático de un cliente no esté fino, y con un cliente vendiendo no se
    * puede esperar a que el conector funcione para poder trabajar.
    */
-  const [ejecuciones, perfiles, conMapeo, precios] = await Promise.all([
+  const [ejecuciones, perfiles, conMapeo, precios, bloqueados] = await Promise.all([
     ejecucionesDeCliente(clienteId),
     // El estado VIVO de cada perfil. No es lo mismo que el historial: cuando un
     // fallo se repite igual, el ciclo lo reintenta pero no escribe fila, y sin
@@ -152,6 +153,9 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
      * precios, que es la otra mitad de lo que le hace.
      */
     publicacionesDePrecios(clienteId),
+    // Los que Amazon rechaza siempre por su ficha. No son un fallo del
+    // sincronismo y no se arreglan aquí, pero tienen que verse.
+    listadosBloqueados(clienteId),
   ])
 
   const panelEjecuciones = (
@@ -161,6 +165,7 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
       clientName={cliente.nombre}
       ejecuciones={ejecuciones}
       precios={precios}
+      bloqueados={bloqueados}
       perfiles={perfiles}
       className="flex-1 min-h-0 min-w-0"
     />

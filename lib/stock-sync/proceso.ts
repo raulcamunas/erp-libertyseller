@@ -407,13 +407,17 @@ export async function procesarPerfil(opciones: OpcionesProceso): Promise<Resulta
               ...l,
               asin: f.asin,
               title: f.title,
-              product_type: f.productType,
-              condition_type: f.conditionType,
-              listing_status: f.listingStatus,
+              // Lo que Amazon no devuelva en esta forma se queda como estaba: ver
+              // la nota de refrescarListingsPorSku(). Un canal de logística
+              // borrado hace que el ERP dé el listado por no editable y deje de
+              // mandarle stock, sin dar ningún error.
+              product_type: f.productType ?? l.product_type,
+              condition_type: f.conditionType ?? l.condition_type,
+              listing_status: f.listingStatus ?? l.listing_status,
               price: f.price,
-              currency: f.currency,
+              currency: f.currency ?? l.currency,
               quantity: f.quantity,
-              fulfillment_channel_code: f.fulfillmentChannelCode,
+              fulfillment_channel_code: f.fulfillmentChannelCode ?? l.fulfillment_channel_code,
               last_seen_at: new Date().toISOString(),
             }
           })

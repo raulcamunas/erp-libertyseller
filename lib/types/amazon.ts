@@ -478,6 +478,9 @@ export interface AmazonConnection {
 }
 
 export interface AmazonListing {
+  /** Por qué Amazon no deja tocar este listado, y desde cuándo. Ver la migración 169 */
+  publicacion_bloqueada_motivo?: string | null
+  publicacion_bloqueada_at?: string | null
   id: string
   connection_id: string
   marketplace_id: string

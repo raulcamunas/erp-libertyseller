@@ -339,3 +339,63 @@ export async function cambiosDeLotePrecio(
   if (filas.length > 0 && !conexiones.has(filas[0].connection_id ?? '')) return []
   return filas
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Los listados que Amazon no deja tocar                               */
+/* ------------------------------------------------------------------ */
+
+export interface ListadoBloqueado {
+  sku: string
+  asin: string | null
+  product_type: string | null
+  publicacion_bloqueada_motivo: string | null
+  publicacion_bloqueada_at: string | null
+}
+
+/**
+ * LOS QUE HAY QUE ARREGLAR EN SELLER CENTRAL.
+ *
+ * Amazon los rechaza siempre con el mismo motivo —casi siempre el tipo de
+ * producto— y el ERP ha dejado de intentarlo. No es un fallo del sincronismo:
+ * es la ficha del producto, y no se arregla desde aquí.
+ *
+ * Salen listados porque un envío que no se hace y que nadie ve es un precio o un
+ * stock mal puestos para siempre. Antes ensuciaban la cola con cinco rojos por
+ * pasada; ahora están en un sitio, con su motivo y su fecha, y desaparecen solos
+ * en cuanto Amazon acepta un cambio de ese SKU.
+ */
+export async function listadosBloqueados(clientId: string): Promise<ListadoBloqueado[]> {
+  const service = createServiceClient()
+
+  const { data: perfiles } = await service
+    .from('stock_read_profiles')
+    .select('connection_id')
+    .eq('client_id', clientId)
+    .not('connection_id', 'is', null)
+
+  const conexiones = [
+    ...new Set(
+      (perfiles ?? [])
+        .map((p) => (p as { connection_id: string | null }).connection_id)
+        .filter((c): c is string => Boolean(c))
+    ),
+  ]
+  if (conexiones.length === 0) return []
+
+  const { data, error } = await service
+    .from('amazon_listings')
+    .select('sku, asin, product_type, publicacion_bloqueada_motivo, publicacion_bloqueada_at')
+    .in('connection_id', conexiones)
+    .not('publicacion_bloqueada_at', 'is', null)
+    .order('publicacion_bloqueada_at', { ascending: true })
+    .limit(200)
+
+  if (error) {
+    // La 169 se lanza a mano: sin ella esto no existe todavía y la pestaña
+    // entera no puede caerse por una sección que es un añadido.
+    if (isMissingSchema(error)) return []
+    throw error
+  }
+  return (data ?? []) as unknown as ListadoBloqueado[]
+}
