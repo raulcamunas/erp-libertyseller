@@ -736,8 +736,17 @@ async function processPorMarca(
       .map(([asin, importe]) => ({ asin, importe: Math.round(importe * 100) / 100 }))
       .sort((a, b) => Math.abs(b.importe) - Math.abs(a.importe))
 
+    /**
+     * ENVUELTO EN `data`, COMO EL RESTO.
+     *
+     * La pantalla hace `setResult(data.data)`. Devolviendo los campos al primer
+     * nivel, `result` quedaba en undefined: el botón no daba error, no pintaba
+     * nada, y desde fuera parecía que no hacía nada al pulsarlo. La forma de la
+     * respuesta la manda quien la consume.
+     */
     return NextResponse.json({
       success: true,
+      data: {
       modo: 'por_marca',
       cliente: client.name,
       marca: client.marca_propia,
@@ -767,6 +776,7 @@ async function processPorMarca(
         total: sinUbicar.length,
       },
       totalComision: Math.round((comisionPropia + comisionTerceros) * 100) / 100,
+      },
     })
   } catch (error: any) {
     console.error('Error en el cálculo por marca:', error)
