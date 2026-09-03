@@ -83,6 +83,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { isMissingSchema } from '@/lib/stock-sync/perfiles'
 
 /** Qué se purga, cuántos días se guardan, y por qué columna se mide */
 const REGLAS: { tabla: string; columna: string; dias: number }[] = [
@@ -121,6 +122,18 @@ const REGLAS: { tabla: string; columna: string; dias: number }[] = [
   { tabla: 'amazon_jobs', columna: 'terminado_at', dias: 15 },
 ]
 
+/**
+ * Las cinco tablas de medición: las que crecen de verdad y las que se purgan con
+ * la función de la base. Ver la nota de dentro de limpiar().
+ */
+const SERIES = new Set([
+  'amazon_snapshots_precio',
+  'amazon_snapshots_bsr',
+  'amazon_snapshots_inventario',
+  'amazon_fees_estimados',
+  'amazon_buybox_diagnostico',
+])
+
 export interface ResultadoLimpieza {
   tabla: string
   borradas: number
@@ -143,6 +156,36 @@ export async function limpiar(tope = 20_000): Promise<ResultadoLimpieza[]> {
   for (const regla of REGLAS) {
     const corte = new Date(Date.now() - regla.dias * 86_400_000).toISOString()
     try {
+      /**
+       * LAS SERIES SE PURGAN EN LA BASE, NO LEYENDO IDS.
+       *
+       * Más abajo se eligen los identificadores y luego se borran, porque
+       * PostgREST no admite LIMIT en un DELETE. Con tablas pequeñas funciona;
+       * con `amazon_snapshots_precio` a 314.000 filas ese SELECT se iba por
+       * statement timeout —57014— y la purga fallaba EN SILENCIO cada minuto.
+       * Nadie se enteró porque el error se queda en este resultado, y este
+       * resultado no lo lee nadie.
+       *
+       * `purgar_serie` (migración 175) hace el DELETE acotado por ctid dentro de
+       * la base: una sola ida y vuelta y ningún identificador viajando. Si la
+       * migración no está aplicada, se sigue por el camino de siempre.
+       */
+      if (SERIES.has(regla.tabla)) {
+        const { data, error } = await service.rpc('purgar_serie', {
+          p_tabla: regla.tabla,
+          p_dias: regla.dias,
+          p_tope: tope,
+        })
+        if (!error) {
+          salida.push({ tabla: regla.tabla, borradas: Number(data ?? 0), error: null })
+          continue
+        }
+        if (!isMissingSchema(error)) {
+          salida.push({ tabla: regla.tabla, borradas: 0, error: error.message })
+          continue
+        }
+      }
+
       /**
        * SE ELIGEN LOS IDS PRIMERO Y SE BORRAN DESPUÉS.
        *
