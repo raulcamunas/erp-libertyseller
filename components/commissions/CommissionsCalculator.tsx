@@ -60,6 +60,65 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   
   // Detectar tipo de cliente para lógica de cálculo y UI
   const isShoesF = selectedClient?.name === 'ShoesF' || selectedClient?.name === 'Farmacia Garrachon'
+  /**
+   * Dos tasas, una por marca. Se decide por los datos del cliente y no por su
+   * nombre: el resto del módulo va con `name === 'X'` y por eso hay que tocar
+   * código cada vez que entra un cliente con un trato distinto.
+   */
+  const isPorMarca = Boolean(selectedClient?.marca_propia && selectedClient?.tasa_marca_propia != null)
+  const dosFicheros = isShoesF || isPorMarca
+
+  /**
+   * EL CATÁLOGO DEL CLIENTE: cuántas referencias conoce el ERP.
+   *
+   * El informe de impuestos no trae marca, así que sin catálogo no se puede
+   * partir la comisión. Se enseña ANTES de calcular —cuántas hay y de cuándo—
+   * porque si está vacío o viejo, el reparto sale mal y no da ningún error: los
+   * productos nuevos caen en «sin ubicar» y nadie los echa de menos.
+   */
+  const [catalogo, setCatalogo] = useState<{
+    total: number
+    marcaPropia: number
+    actualizado: string | null
+  } | null>(null)
+  const [subiendoCatalogo, setSubiendoCatalogo] = useState(false)
+
+  useEffect(() => {
+    if (!isPorMarca || !selectedClientId) {
+      setCatalogo(null)
+      return
+    }
+    fetch(`/api/commissions/catalogo?clientId=${encodeURIComponent(selectedClientId)}`)
+      .then((r) => r.json())
+      .then((d) => setCatalogo(d?.ok ? d : null))
+      .catch(() => setCatalogo(null))
+  }, [isPorMarca, selectedClientId])
+
+  async function subirCatalogo(f: File) {
+    if (!selectedClientId) return
+    setSubiendoCatalogo(true)
+    setError(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', f)
+      fd.append('clientId', selectedClientId)
+      const res = await fetch('/api/commissions/catalogo', { method: 'POST', body: fd })
+      const d = await res.json()
+      if (!res.ok) {
+        setError(d?.error ?? 'No se ha podido leer el informe de listados')
+        return
+      }
+      setCatalogo({
+        total: d.totalCatalogo,
+        marcaPropia: d.marcaPropia,
+        actualizado: new Date().toISOString(),
+      })
+    } catch {
+      setError('No se ha podido subir el informe de listados')
+    } finally {
+      setSubiendoCatalogo(false)
+    }
+  }
   const isShoplamp = selectedClient?.name === 'SHOPLAMP'
   const isDIRU = selectedClient?.name === 'DIRU'
   const isSAUSI = selectedClient?.name === 'SAUSI'
@@ -169,7 +228,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   }
 
   const handleProcess = async () => {
-    if (isShoesF) {
+    if (dosFicheros) {
       // Para ShoesF necesitamos ambos archivos
       if (!filePreviousYear || !fileCurrentYear || !selectedClientId) {
         setError('Por favor, sube ambos archivos CSV (año pasado y año actual)')
@@ -191,7 +250,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
       const formData = new FormData()
       formData.append('clientId', selectedClientId)
       
-      if (isShoesF) {
+      if (dosFicheros) {
         formData.append('filePreviousYear', filePreviousYear!)
         formData.append('fileCurrentYear', fileCurrentYear!)
       } else {
@@ -350,7 +409,51 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
           </div>
 
           {/* Upload de Archivo - Normal o ShoesF */}
-          {isShoesF ? (
+          {isPorMarca && (
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-white/45">
+                  Catálogo de {selectedClient?.name}
+                </span>
+                {catalogo ? (
+                  <span className="text-[12px] text-white/70">
+                    {catalogo.total.toLocaleString('es-ES')} referencias ·{' '}
+                    <span className="text-[#FF6600]">
+                      {catalogo.marcaPropia.toLocaleString('es-ES')} de marca{' '}
+                      {selectedClient?.marca_propia}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-amber-300/80">
+                    Todavía no hay catálogo: sin él no se puede partir la comisión por marca.
+                  </span>
+                )}
+
+                <label className="ml-auto cursor-pointer rounded-lg border border-white/15 px-2.5 py-1 text-[11px] text-white/70 transition-colors hover:border-white/35 hover:text-white">
+                  {subiendoCatalogo ? 'Leyendo…' : 'Subir informe de listados'}
+                  <input
+                    type="file"
+                    accept=".txt,.tsv,.csv"
+                    className="hidden"
+                    disabled={subiendoCatalogo}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) void subirCatalogo(f)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="mt-1.5 text-[10.5px] leading-relaxed text-white/35">
+                El informe de impuestos no dice de qué marca es cada venta, así que hace falta el
+                «Informe de todos los listados» de su Seller Central. Se sube una vez y se acumula:
+                los productos nuevos entran con cada subida y los viejos no se pierden. Súbelo de
+                vez en cuando para que las referencias nuevas no acaben en «sin ubicar».
+              </p>
+            </div>
+          )}
+
+          {dosFicheros ? (
             <div className="space-y-4">
               <label className="label-uppercase text-white/70 block">
                 Subir Archivos CSV para Comparación *
@@ -529,7 +632,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
               disabled={
                 processing || 
                 !selectedClientId || 
-                (isShoesF ? (!filePreviousYear || !fileCurrentYear) : !file)
+                (dosFicheros ? (!filePreviousYear || !fileCurrentYear) : !file)
               }
               className={cn(
                 "px-8 py-4 rounded-xl font-semibold text-base transition-all duration-300",
@@ -556,7 +659,93 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
       </Card>
 
       {/* Paso 2: Resultados */}
-      {result && (
+      {/* ---------------- Resultado partido por marca ----------------
+          Va antes que el resto y con su propio return: el resultado de este modo
+          no tiene `summary` ni filas por producto, porque no se factura producto
+          a producto sino por bloques de marca. */}
+      {result && (result as any).modo === 'por_marca' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <p className="mb-3 text-[12px] text-white/50">
+              {(result as any).cliente} · comparando los dos informes ·{' '}
+              {(result as any).catalogoReferencias.toLocaleString('es-ES')} referencias en catálogo
+            </p>
+
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-white/40">
+                  <th className="pb-1.5 text-left font-semibold">Bloque</th>
+                  <th className="pb-1.5 text-right font-semibold">Año anterior</th>
+                  <th className="pb-1.5 text-right font-semibold">Año actual</th>
+                  <th className="pb-1.5 text-right font-semibold">Excedente</th>
+                  <th className="pb-1.5 text-right font-semibold">Comisión</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(result as any).bloques.map((b: any) => (
+                  <tr key={b.etiqueta} className="border-b border-white/[0.05]">
+                    <td className="py-2 text-white/85">{b.etiqueta}</td>
+                    <td className="py-2 text-right tabular-nums text-white/60">
+                      €{b.anterior.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-2 text-right tabular-nums text-white/60">
+                      €{b.actual.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td
+                      className={`py-2 text-right tabular-nums ${
+                        b.excedente >= 0 ? 'text-emerald-300' : 'text-red-300'
+                      }`}
+                    >
+                      €{b.excedente.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-2 text-right tabular-nums font-semibold text-[#FF6600]">
+                      €{b.comision.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                      <span className="ml-1 text-[10px] font-normal text-white/35">
+                        {(b.tasa * 100).toFixed(0)}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={4} className="py-2 text-right text-[12px] text-white/50">
+                    Total a facturar
+                  </td>
+                  <td className="py-2 text-right text-[16px] font-bold tabular-nums text-[#FF6600]">
+                    €{(result as any).totalComision.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            {/* LO QUE NO SE HA PODIDO UBICAR SE DICE, NO SE REPARTE.
+                Suelen ser productos retirados que ya no salen en el informe de
+                listados. Meterlos en terceros «porque son mayoría» cambiaría el
+                importe sin que nadie lo supiera. */}
+            {(result as any).sinUbicar?.total > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.05] p-2.5">
+                <p className="text-[11.5px] leading-relaxed text-amber-100/85">
+                  <strong>{(result as any).sinUbicar.total} referencias sin ubicar</strong> — no
+                  están en el catálogo, así que no se sabe de qué marca son y{' '}
+                  <strong>se han dejado fuera del cálculo</strong>. Suman{' '}
+                  €{(result as any).sinUbicar.anterior.toLocaleString('es-ES', { minimumFractionDigits: 2 })}{' '}
+                  el año anterior y €
+                  {(result as any).sinUbicar.actual.toLocaleString('es-ES', { minimumFractionDigits: 2 })}{' '}
+                  el actual. Suele ser producto retirado: sube el informe de listados más reciente y
+                  vuelve a calcular.
+                </p>
+                <p className="mt-1 text-[10.5px] text-amber-100/50">
+                  {(result as any).sinUbicar.referencias
+                    .slice(0, 8)
+                    .map((r: any) => `${r.asin} (${r.importe} €)`)
+                    .join(' · ')}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {result && (result as any).modo !== 'por_marca' && (
         <div className="space-y-4">
           {/* Resumen Detallado - Diferente para ShoesF / SHOPLAMP / Benefits */}
           {isShoplamp && result.summary.baselineAmount !== undefined ? (

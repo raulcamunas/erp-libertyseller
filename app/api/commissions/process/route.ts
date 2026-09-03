@@ -63,6 +63,13 @@ export async function POST(request: NextRequest) {
     }
 
     const isShoesF = client.name === 'ShoesF' || client.name === 'Farmacia Garrachon'
+    /**
+     * Keslem compara dos años como ShoesF, pero PARTIENDO POR MARCA: 4 % sobre el
+     * excedente de su marca propia y 2 % sobre el de arbitraje. Lo que decide de
+     * qué marca es cada ASIN sale del catálogo del cliente —migración 173—,
+     * porque el informe de impuestos no trae ni título ni marca.
+     */
+    const isPorMarca = Boolean(client.marca_propia && client.tasa_marca_propia != null)
     const isShoplamp = client.name === 'SHOPLAMP'
     const isDIRU = client.name === 'DIRU'
     const isSAUSI = client.name === 'SAUSI'
@@ -136,6 +143,17 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+    }
+
+    // Keslem y cualquier otro con dos tasas por marca
+    if (isPorMarca) {
+      if (!filePreviousYear || !fileCurrentYear) {
+        return NextResponse.json(
+          { error: 'Hacen falta los dos informes: el del año anterior y el del actual.' },
+          { status: 400 }
+        )
+      }
+      return await processPorMarca(filePreviousYear, fileCurrentYear, client, supabase)
     }
 
     // Si es ShoesF, procesar comparación entre años (dos CSV)
@@ -579,6 +597,178 @@ export async function POST(request: NextRequest) {
     console.error('Error processing commission CSV:', error)
     return NextResponse.json(
       { error: 'Error al procesar el archivo', details: error.message },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * COMISIÓN PARTIDA POR MARCA, SOBRE EL EXCEDENTE DE DOS AÑOS.
+ *
+ * El trato de Keslem: 2 % sobre el excedente de facturación en marcas de
+ * terceros (arbitraje) y 4 % sobre el de su marca propia. Se comparan dos
+ * informes de impuestos —el mismo periodo de dos años— y se calcula sobre la
+ * diferencia.
+ *
+ *
+ * ============ CADA MARCA CON SU PROPIO EXCEDENTE ============
+ *
+ * NO se calcula el excedente total y luego se reparte: se calcula el excedente
+ * de marca propia y el de terceros por separado, y cada uno lleva su tasa. Es lo
+ * que dice el trato y no da el mismo número: si la marca propia baja y la de
+ * terceros sube, repartir el total mezclaría una pérdida con una ganancia y
+ * saldría una comisión que nadie ha pactado.
+ *
+ * Un excedente negativo no resta: comisión cero para esa marca. Un año peor no
+ * genera deuda del cliente hacia la agencia.
+ *
+ *
+ * ============ LO QUE NO SE PUEDE UBICAR SE DICE, NO SE REPARTE ============
+ *
+ * Un ASIN que no está en el catálogo no se sabe de qué marca es —suele ser un
+ * producto retirado que ya no sale en el informe de listados—. Repartirlo «a
+ * ojo» o meterlo en terceros porque son mayoría cambia el importe sin que nadie
+ * lo sepa. Se deja fuera del cálculo y se devuelve aparte, con su importe, para
+ * que quien factura decida.
+ */
+async function processPorMarca(
+  filePreviousYear: File,
+  fileCurrentYear: File,
+  client: any,
+  supabase: any
+) {
+  try {
+    const rowsPrevious = parseCSV(await filePreviousYear.text())
+    const rowsCurrent = parseCSV(await fileCurrentYear.text())
+
+    if (rowsPrevious.length === 0 || rowsCurrent.length === 0) {
+      return NextResponse.json(
+        { error: 'Uno de los dos informes está vacío o no se ha podido leer' },
+        { status: 400 }
+      )
+    }
+
+    // ---------- El catálogo del cliente ----------
+    const catalogo = new Map<string, { propia: boolean; nombre: string | null }>()
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await supabase
+        .from('commission_catalog')
+        .select('asin, item_name, es_marca_propia')
+        .eq('client_id', client.id)
+        .order('asin')
+        .range(desde, desde + 999)
+      if (error) break
+      const trozo = (data ?? []) as { asin: string; item_name: string | null; es_marca_propia: boolean }[]
+      for (const c of trozo) catalogo.set(c.asin, { propia: c.es_marca_propia, nombre: c.item_name })
+      if (trozo.length < 1000) break
+    }
+
+    if (catalogo.size === 0) {
+      return NextResponse.json(
+        {
+          error:
+            `Todavía no hay catálogo de ${client.name}. Sube primero su «Informe de todos los ` +
+            'listados» de Seller Central: sin él no se puede saber qué ventas son de marca propia ' +
+            'y cuáles de arbitraje, que es lo que decide si la comisión es del ' +
+            `${(client.tasa_marca_propia * 100).toFixed(0)} % o del ` +
+            `${(client.base_commission_rate * 100).toFixed(0)} %.`,
+        },
+        { status: 400 }
+      )
+    }
+
+    // ---------- Sumar, separando por marca ----------
+    const cubo = () => ({ propia: 0, terceros: 0, sinUbicar: 0 })
+    const anterior = cubo()
+    const actual = cubo()
+    const asinSinUbicar = new Map<string, number>()
+
+    const sumar = (rows: Record<string, any>[], acc: ReturnType<typeof cubo>) => {
+      for (const row of rows) {
+        const tipo = String(
+          getVal(row, ['Transaction Type', 'transaction_type', /Transaction.*Type/i]) || ''
+        ).toUpperCase()
+
+        const ourPrice = parseNum(
+          getVal(row, ['OUR_PRICE Tax Exclusive Selling Price', /OUR_PRICE.*Tax Exclusive Selling Price/i])
+        )
+        const shipping = parseNum(
+          getVal(row, ['SHIPPING Tax Exclusive Selling Price', /SHIPPING.*Tax Exclusive Selling Price/i])
+        )
+        const importe = Math.abs(ourPrice + shipping)
+
+        // Solo ventas y devoluciones. El resto de tipos —donaciones, ajustes— no
+        // son facturación del cliente y no entran en el excedente.
+        let neto = 0
+        if (tipo === 'SHIPMENT') neto = importe
+        else if (tipo === 'RETURN' || tipo === 'REFUND') neto = -importe
+        else continue
+
+        const asin = String(getVal(row, ['ASIN', 'asin', /^asin$/i]) || '').trim()
+        const ficha = asin ? catalogo.get(asin) : undefined
+
+        if (!ficha) {
+          acc.sinUbicar += neto
+          if (asin) asinSinUbicar.set(asin, (asinSinUbicar.get(asin) ?? 0) + neto)
+        } else if (ficha.propia) {
+          acc.propia += neto
+        } else {
+          acc.terceros += neto
+        }
+      }
+    }
+
+    sumar(rowsPrevious, anterior)
+    sumar(rowsCurrent, actual)
+
+    const tasaPropia = Number(client.tasa_marca_propia)
+    const tasaTerceros = Number(client.base_commission_rate)
+
+    const excedentePropia = actual.propia - anterior.propia
+    const excedenteTerceros = actual.terceros - anterior.terceros
+    const comisionPropia = Math.max(0, excedentePropia) * tasaPropia
+    const comisionTerceros = Math.max(0, excedenteTerceros) * tasaTerceros
+
+    const sinUbicar = [...asinSinUbicar.entries()]
+      .map(([asin, importe]) => ({ asin, importe: Math.round(importe * 100) / 100 }))
+      .sort((a, b) => Math.abs(b.importe) - Math.abs(a.importe))
+
+    return NextResponse.json({
+      success: true,
+      modo: 'por_marca',
+      cliente: client.name,
+      marca: client.marca_propia,
+      catalogoReferencias: catalogo.size,
+      bloques: [
+        {
+          etiqueta: `Marca propia (${client.marca_propia})`,
+          anterior: Math.round(anterior.propia * 100) / 100,
+          actual: Math.round(actual.propia * 100) / 100,
+          excedente: Math.round(excedentePropia * 100) / 100,
+          tasa: tasaPropia,
+          comision: Math.round(comisionPropia * 100) / 100,
+        },
+        {
+          etiqueta: 'Terceros (arbitraje)',
+          anterior: Math.round(anterior.terceros * 100) / 100,
+          actual: Math.round(actual.terceros * 100) / 100,
+          excedente: Math.round(excedenteTerceros * 100) / 100,
+          tasa: tasaTerceros,
+          comision: Math.round(comisionTerceros * 100) / 100,
+        },
+      ],
+      sinUbicar: {
+        anterior: Math.round(anterior.sinUbicar * 100) / 100,
+        actual: Math.round(actual.sinUbicar * 100) / 100,
+        referencias: sinUbicar.slice(0, 25),
+        total: sinUbicar.length,
+      },
+      totalComision: Math.round((comisionPropia + comisionTerceros) * 100) / 100,
+    })
+  } catch (error: any) {
+    console.error('Error en el cálculo por marca:', error)
+    return NextResponse.json(
+      { error: error?.message || 'No se ha podido calcular' },
       { status: 500 }
     )
   }

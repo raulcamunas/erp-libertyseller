@@ -2,6 +2,10 @@ export interface Client {
   id: string
   name: string
   base_commission_rate: number
+  /** La palabra que identifica su marca propia en el título. Ver la migración 173 */
+  marca_propia?: string | null
+  /** La tasa de la marca propia. El resto va a base_commission_rate */
+  tasa_marca_propia?: number | null
   created_at: string
   updated_at: string
 }
