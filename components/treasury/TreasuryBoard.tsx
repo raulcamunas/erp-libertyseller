@@ -41,6 +41,7 @@ import {
   type EmployeesMonthTotalWire,
 } from '@/lib/employees/payload'
 import { EmployeesMonthBlock } from './EmployeesMonthBlock'
+import { ApuntesComisiones } from './ApuntesComisiones'
 
 interface TreasuryBoardProps {
   clients: TreasuryClient[]
@@ -510,6 +511,13 @@ export function TreasuryBoard({
 
   return (
     <div className="flex flex-col h-full gap-3 min-w-0">
+      {/* ---------------- Lo pactado con cada cliente ----------------
+          Arriba del todo y plegado: es la referencia que se consulta antes de
+          facturar, no lo que se viene a hacer aquí todos los días. */}
+      <ApuntesComisiones
+        nombrePorCliente={new Map(clients.map((c) => [c.id, c.name]))}
+      />
+
       {/* Navegación de mes */}
       <div className="flex flex-wrap items-center justify-between gap-2 flex-shrink-0">
         <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-1">
