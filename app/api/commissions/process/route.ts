@@ -114,8 +114,11 @@ export async function POST(request: NextRequest) {
       'B0FY7KHGP9'
     ])
 
-    // Validar archivos según el tipo de cliente
-    if (isShoesF) {
+    // Validar archivos según el tipo de cliente.
+    // `isPorMarca` va con `isShoesF` porque también compara dos años: sin esto
+    // caía en el «else» de un solo fichero y contestaba «Archivo y cliente son
+    // requeridos» teniendo los dos delante.
+    if (isShoesF || isPorMarca) {
       if (!filePreviousYear || !fileCurrentYear || !clientId) {
         return NextResponse.json(
           { error: 'Se requieren ambos archivos CSV (año anterior y año actual)' },
