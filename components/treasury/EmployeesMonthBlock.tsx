@@ -170,7 +170,20 @@ export function EmployeesMonthBlock({
             // trabaja. Sin marcarlo se lee como su sueldo del mes y el
             // beneficio de agosto parece mucho mejor de lo que va a ser.
             const accruing = isCurrent && payModel === 'horas'
-            const eur = toEuros(month.amount, month.currency, usdEur)
+            /**
+             * Los encargos sueltos SUMAN al euro de esta fila.
+             *
+             * Van con su propia divisa —uno puede ser en euros y el sueldo en
+             * dólares—, así que se convierte cada uno por su lado. Si no se
+             * sumaran aquí, las filas no cuadrarían con el total de arriba, que
+             * sí los cuenta (employeesMonthTotal), y la resta saldría de la
+             * nada.
+             */
+            const eurExtras = month.extras.reduce(
+              (suma, x) => suma + toEuros(Number(x.amount), x.currency, usdEur),
+              0
+            )
+            const eur = toEuros(month.amount, month.currency, usdEur) + eurExtras
 
             return (
               <div
@@ -193,6 +206,21 @@ export function EmployeesMonthBlock({
                       title="Cobra por horas y no tiene perfil del ERP enlazado, así que su coste no se puede calcular y suma 0. Se arregla en Control empleados, en su ficha."
                     >
                       sin perfil enlazado
+                    </span>
+                  )}
+                  {/* Qué es ese dinero de más. Sin el concepto delante, un
+                      mes con 330 en vez de 250 obliga a abrir Control
+                      empleados para saber por qué. */}
+                  {month.extras.length > 0 && (
+                    <span
+                      className="ml-1.5 text-[10px] font-medium text-[#FF6600]"
+                      title={month.extras
+                        .map((x) => `${x.concept}: ${formatMoney(Number(x.amount), x.currency)}`)
+                        .join('\n')}
+                    >
+                      {month.extras.length === 1
+                        ? month.extras[0].concept
+                        : `${month.extras.length} encargos`}
                     </span>
                   )}
                   {month.divergence != null && (

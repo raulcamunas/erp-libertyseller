@@ -33,10 +33,12 @@ import {
   type HoursUnit,
   type LinkableProfile,
   type PayModel,
+  type EmployeeExtra,
 } from '@/lib/types/employees'
 import type { PersonCost } from '@/lib/payroll/cost'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import { EmployeeNotes } from './EmployeeNotes'
+import { ExtrasDelMes } from './ExtrasDelMes'
 import {
   dateInput,
   fieldInput,
@@ -64,6 +66,8 @@ export interface EmployeeDetailProps {
   onStepSaved: (step: EmployeeSalaryStep) => void
   onStepDeleted: (id: string) => void
   onNotesChange: (list: EmployeeNote[]) => void
+  /** Encargos y comisiones sueltas; las guarda ExtrasDelMes contra la base */
+  onExtrasChange: (list: EmployeeExtra[]) => void
 }
 
 /**
@@ -91,6 +95,7 @@ export function EmployeeDetail({
   onStepSaved,
   onStepDeleted,
   onNotesChange,
+  onExtrasChange,
 }: EmployeeDetailProps) {
   const supabase = createClient()
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -540,6 +545,21 @@ export function EmployeeDetail({
                   onStepDeleted={onStepDeleted}
                 />
               )}
+            </div>
+
+            {/* Va ANTES de las notas y después del historial de sueldo: es
+                dinero, no un comentario. Un encargo apuntado como nota no
+                llega a Tesorería. */}
+            <div>
+              <h4 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider mb-2">
+                Encargos y comisiones de este mes
+              </h4>
+              <ExtrasDelMes
+                employeeId={employee.id}
+                period={currentPeriod}
+                extras={data.extras ?? []}
+                onChange={onExtrasChange}
+              />
             </div>
 
             <div>

@@ -161,6 +161,7 @@ export default async function EmployeesPage() {
           initialSteps={data.steps}
           initialRecords={data.records}
           initialNotes={notes}
+          initialExtras={data.extras}
           profiles={(profiles as LinkableProfile[]) ?? []}
           hoursDetail={data.hoursDetail}
           periods={periods}

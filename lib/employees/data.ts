@@ -15,6 +15,7 @@ import {
   employeeMonth,
   employeesMonthTotal,
   type Employee,
+  type EmployeeExtra,
   type EmployeeMonthRecord,
   type EmployeeSalaryStep,
   type EmployeesDataset,
@@ -95,6 +96,8 @@ export interface EmployeesServerData {
   employees: Employee[]
   steps: EmployeeSalaryStep[]
   records: EmployeeMonthRecord[]
+  /** Encargos y comisiones sueltas (migración 178) */
+  extras: EmployeeExtra[]
   /**
    * Las tablas del módulo todavía no están creadas: faltan por lanzar las
    * migraciones 111, 112, 113 y 115.
@@ -164,10 +167,11 @@ export async function loadEmployeesData(
       employees: [],
       steps: [],
       records: [],
+      extras: [],
       missingTables: true,
       usdEur: 0.92,
       hoursDetail: {},
-      dataset: { employees: [], steps: [], records: [], hoursCost: {}, baseCoste: base },
+      dataset: { employees: [], steps: [], records: [], extras: [], hoursCost: {}, baseCoste: base },
     }
   }
 }
@@ -177,7 +181,7 @@ async function loadFromTables(
   periods: string[],
   base: BaseDeCoste
 ): Promise<EmployeesServerData> {
-  const [employees, steps, records, settings] = await Promise.all([
+  const [employees, steps, records, settings, extras] = await Promise.all([
     fetchAll<Employee>((a, b) =>
       service
         .from('employees')
@@ -198,6 +202,18 @@ async function loadFromTables(
       service.from('employee_month_records').select('*').order('period').order('id').range(a, b)
     ),
     service.from('app_settings').select('key, value').eq('key', 'usd_eur_rate').maybeSingle(),
+    /**
+     * Los encargos van en su propia llamada y con su propio catch: la 178 se
+     * lanza a mano, y hasta que se lance esta tabla no existe. Si el fallo
+     * subiera, tumbaría Control empleados y el bloque de Tesorería enteros por
+     * una función que hasta ayer no estaba.
+     */
+    fetchAll<EmployeeExtra>((a, b) =>
+      service.from('employee_extras').select('*').order('period').order('id').range(a, b)
+    ).catch((error) => {
+      if (isMissingTable(error)) return [] as EmployeeExtra[]
+      throw error
+    }),
   ])
 
   const usdEur = Number(settings.data?.value ?? 0.92)
@@ -262,10 +278,11 @@ async function loadFromTables(
     employees,
     steps,
     records,
+    extras,
     missingTables: false,
     usdEur,
     hoursDetail,
-    dataset: { employees, steps, records, hoursCost, baseCoste: base },
+    dataset: { employees, steps, records, extras, hoursCost, baseCoste: base },
   }
 }
 

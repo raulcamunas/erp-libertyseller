@@ -390,6 +390,36 @@ export function isWithinContract(employee: Employee, period: string): boolean {
 // El importe de un mes
 // ---------------------------------------------------------------------------
 
+/**
+ * Un pago suelto a una persona: un encargo, una comisión, un bonus.
+ *
+ * Va aparte del sueldo a propósito. «A Carla le hemos encargado unas
+ * creatividades por 80 $» no es su sueldo fijo ni son horas apuntadas: es un
+ * trabajo concreto que se paga una vez, y con su concepto delante se puede
+ * leer un mes atrás y saber por qué cobró de más.
+ */
+export interface EmployeeExtra {
+  id: string
+  employee_id: string
+  /** 'yyyy-MM-01' */
+  period: string
+  concept: string
+  amount: number
+  currency: EmployeeCurrency
+  kind: 'encargo' | 'comision' | 'bonus' | 'otro'
+  paid: boolean
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export const EXTRA_KIND_LABELS: Record<EmployeeExtra['kind'], string> = {
+  encargo: 'Encargo',
+  comision: 'Comisión',
+  bonus: 'Bonus',
+  otro: 'Otro',
+}
+
 export interface EmployeeMonthAmount {
   employeeId: string
   /** 'yyyy-MM-01' */
@@ -409,6 +439,15 @@ export interface EmployeeMonthAmount {
   divergence: number | null
   /** El escalón que se aplicó, si el importe salió de ahí */
   step: EmployeeSalaryStep | null
+  /**
+   * Encargos y comisiones sueltas de ese mes.
+   *
+   * NO están sumados en `amount`: cada uno lleva su propia divisa y meterlos
+   * dentro obligaría a convertir aquí, donde no se conoce el tipo de cambio.
+   * Los suma quien ya lo tiene: employeesMonthTotal. La interfaz los enseña
+   * como líneas aparte, que además es como se leen.
+   */
+  extras: EmployeeExtra[]
 }
 
 /**
@@ -426,6 +465,8 @@ export interface EmployeesDataset {
    * justo para que no haya dos motores dando cifras distintas.
    */
   hoursCost?: Record<string, Record<string, number>>
+  /** Encargos y comisiones sueltas. Ver la migración 178 */
+  extras?: EmployeeExtra[]
   /** Mes en curso. Lo anterior es historia y no se reescribe */
   currentPeriod?: string
   /**
@@ -470,6 +511,18 @@ export function employeeMonth(
       ? computed - recorded
       : null
 
+  /**
+   * Los encargos del mes se adjuntan SIEMPRE, salga el importe de donde salga.
+   *
+   * También en los meses cerrados: un encargo apuntado a marzo se pagó en
+   * marzo, y esconderlo porque el mes «ya está cerrado» dejaría un gasto real
+   * sin aparecer en ninguna parte. Lo que no se toca es `amount`, que sigue
+   * siendo el sueldo: el encargo es dinero aparte y se lee aparte.
+   */
+  const extras = (data.extras ?? []).filter(
+    (e) => e.employee_id === employee.id && monthKeyOf(e.period) === period
+  )
+
   const base = {
     employeeId: employee.id,
     period,
@@ -477,6 +530,7 @@ export function employeeMonth(
     computed,
     divergence,
     step,
+    extras,
   }
 
   // Mes cerrado: manda lo que se apuntó. Aunque el modelo diga otra cosa,
@@ -645,6 +699,12 @@ export function employeesMonthTotal(
       eur += toEuros(month.amount, month.currency, usdEur)
       usd += toDollars(month.amount, month.currency, usdEur)
       headcount += 1
+    }
+    // Cada encargo con SU divisa: uno puede estar en euros y el sueldo en
+    // dólares. Por eso se convierten uno a uno y no en bloque.
+    for (const extra of month.extras) {
+      eur += toEuros(extra.amount, extra.currency, usdEur)
+      usd += toDollars(extra.amount, extra.currency, usdEur)
     }
     if (month.divergence != null) warnings += 1
     if (month.source === 'sin_registro') warnings += 1

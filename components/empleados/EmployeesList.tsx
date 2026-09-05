@@ -14,6 +14,7 @@ import {
   monthLongLabel,
   type Employee,
   type EmployeesDataset,
+  type EmployeeMonthAmount,
 } from '@/lib/types/employees'
 import type { PersonCost } from '@/lib/payroll/cost'
 import { numInput, textInput, parseDecimal } from './shared'
@@ -41,6 +42,24 @@ export interface EmployeesListProps {
  * «Mis Horas»— y hasta ahora no había forma de compararlos sin abrir dos
  * pantallas. Cuando no cuadran, se ve aquí.
  */
+
+/**
+ * Los encargos del mes, resumidos para que quepan en la celda.
+ *
+ * Se agrupan POR DIVISA y no se convierten: aquí no se conoce el tipo de
+ * cambio, y enseñar «+80 US$» cuando eran euros sería peor que enseñar dos
+ * cifras. El detalle entero está en el title y en la ficha.
+ */
+function agrupaExtras(extras: EmployeeMonthAmount['extras']): string {
+  const porDivisa = new Map<string, number>()
+  for (const e of extras) {
+    porDivisa.set(e.currency, (porDivisa.get(e.currency) ?? 0) + Number(e.amount))
+  }
+  return [...porDivisa]
+    .map(([divisa, importe]) => `+${formatMoney(importe, divisa as 'EUR' | 'USD')}`)
+    .join(' · ')
+}
+
 export function EmployeesList({
   employees,
   data,
@@ -244,8 +263,23 @@ export function EmployeesList({
                         <span className="text-white font-semibold">
                           {formatMoney(month.amount, month.currency)}
                         </span>
-                      ) : (
+                      ) : month.extras.length === 0 ? (
                         <span className="text-white/20">—</span>
+                      ) : null}
+                      {/* LOS ENCARGOS SE VEN AQUÍ, NO SOLO EN LA FICHA.
+                          Van debajo del sueldo y en naranja: si solo estuvieran
+                          dentro de la ficha, desde esta lista el mes de Carla
+                          seguiría poniendo 250 US$ mientras Tesorería cobra 330,
+                          y la diferencia solo aparecería al abrirla. */}
+                      {month.extras.length > 0 && (
+                        <div
+                          className="text-[10px] font-medium text-[#FF6600]"
+                          title={month.extras
+                            .map((x) => `${x.concept}: ${formatMoney(Number(x.amount), x.currency)}`)
+                            .join('\n')}
+                        >
+                          {agrupaExtras(month.extras)}
+                        </div>
                       )}
                     </td>
 

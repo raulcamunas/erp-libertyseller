@@ -19,6 +19,7 @@ import {
   type EmployeeNote,
   type EmployeeSalaryStep,
   type EmployeesDataset,
+  type EmployeeExtra,
   type LinkableProfile,
 } from '@/lib/types/employees'
 import type { PersonCost } from '@/lib/payroll/cost'
@@ -36,6 +37,8 @@ export interface EmployeesBoardProps {
   initialSteps: EmployeeSalaryStep[]
   initialRecords: EmployeeMonthRecord[]
   initialNotes: EmployeeNote[]
+  /** Encargos y comisiones sueltas (migración 178) */
+  initialExtras: EmployeeExtra[]
   /** Perfiles del ERP, para poder enlazar a quien cobra por horas con «Mis Horas» */
   profiles: LinkableProfile[]
   /**
@@ -77,6 +80,7 @@ export function EmployeesBoard({
   initialSteps,
   initialRecords,
   initialNotes,
+  initialExtras,
   profiles,
   hoursDetail,
   periods,
@@ -92,6 +96,7 @@ export function EmployeesBoard({
   const [steps, setSteps] = useState(initialSteps)
   const [records, setRecords] = useState(initialRecords)
   const [notes, setNotes] = useState(initialNotes)
+  const [extras, setExtras] = useState(initialExtras)
   const [adding, setAdding] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [cell, setCell] = useState<{ employeeId: string; period: string } | null>(null)
@@ -154,8 +159,8 @@ export function EmployeesBoard({
   const data: EmployeesDataset = useMemo(
     // currentPeriod va explícito: lo calcula el servidor y así el navegador no
     // puede discrepar del mes en el que se pintó la página.
-    () => ({ employees: sorted, steps, records, hoursCost, currentPeriod }),
-    [sorted, steps, records, hoursCost, currentPeriod]
+    () => ({ employees: sorted, steps, records, extras, hoursCost, currentPeriod }),
+    [sorted, steps, records, extras, hoursCost, currentPeriod]
   )
 
   // ---------- Cabecera ----------
@@ -478,6 +483,7 @@ export function EmployeesBoard({
           onDeleted={removeEmployee}
           onStepSaved={upsertStep}
           onStepDeleted={(id) => setSteps((prev) => prev.filter((s) => s.id !== id))}
+          onExtrasChange={setExtras}
           onNotesChange={(list) =>
             setNotes((prev) => [...prev.filter((n) => n.employee_id !== openEmployee.id), ...list])
           }
