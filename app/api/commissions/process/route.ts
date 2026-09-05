@@ -1236,7 +1236,33 @@ async function processDIRUBenefits(
       const grossSales = parseNum(
         getVal(row, ['Sales', 'Ventas', /^Sales$/i, /Ventas/i, 'Gross Sales'])
       )
-      const refunds = Math.abs(parseNum(getVal(row, ['Refunds', 'Reembolsos', /^Refunds$/i])))
+      /**
+       * «Refunds» SON UNIDADES, NO EUROS.
+       *
+       * En el informe de Sellerboard `Refunds` es cuántas unidades se
+       * devolvieron (46 en agosto) y el dinero está en `Refund cost`
+       * (-719,32 €). Leyendo la primera, la pantalla enseñaba «Reembolsos
+       * -46,00 €» y restaba ese 46 de las ventas para sacar la facturación
+       * real: un número de unidades restado de un importe.
+       *
+       * Ojo con el nombre: Sellerboard escribe «Refund сost» con una С
+       * CIRÍLICA (U+0441), no con la c latina. Por eso van las dos escrituras
+       * y una expresión regular detrás — buscando solo 'Refund cost' no se
+       * encuentra la columna y el importe se queda en cero sin avisar.
+       */
+      const refunds = Math.abs(
+        parseNum(
+          getVal(row, [
+            'Refund cost',
+            'Refund \u0441ost',
+            'Coste reembolso',
+            /Refund.*[Cc\u0441]ost/i,
+            /Coste.*reembolso/i,
+          ])
+        )
+      )
+      /** Las unidades devueltas, que es lo que trae la columna «Refunds» */
+      const unidadesDevueltas = parseNum(getVal(row, ['Refunds', /^Refunds$/i]))
       const costOfGoods = Math.abs(
         parseNum(getVal(row, ['Cost of Goods', 'COGS', /Cost.*Goods/i, /Coste.*producto/i]))
       )
@@ -1256,6 +1282,7 @@ async function processDIRUBenefits(
         asin,
         orderId: sku,
         quantity: units,
+        unitsRefunded: unidadesDevueltas || undefined,
         grossSales,
         refunds,
         realTurnover,

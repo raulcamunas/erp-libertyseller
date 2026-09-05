@@ -165,5 +165,12 @@ export interface CommissionRow {
   netProfit?: number
   /** Beneficio sobre ventas, en tanto por uno */
   margin?: number
+  /**
+   * Unidades devueltas. Va aparte de `refunds`, que es el IMPORTE: en el
+   * informe de Sellerboard son dos columnas distintas —«Refunds» cuenta
+   * unidades y «Refund cost» es el dinero— y confundirlas hacía que la
+   * pantalla restara un número de unidades de un importe en euros.
+   */
+  unitsRefunded?: number
 }
 

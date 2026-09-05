@@ -44,6 +44,19 @@ function getShortProductName(title?: string | null): string {
  * Antes solo se aceptaba CSV, así que con el XLSX delante había que abrirlo y
  * volver a guardarlo como CSV para poder subirlo.
  */
+/**
+ * Si un cálculo se hizo sobre el BENEFICIO en vez de sobre la facturación.
+ *
+ * Lo marca el propio cálculo (`summary.modoCalculo`), no el nombre del
+ * cliente: así vale para cualquiera que se ponga en ese modo. Se acepta
+ * también `totalBenefits` para los reportes de DIRU y SAUSI hechos antes de
+ * que existiera la marca, que si no dejarían de verse bien.
+ */
+function esModoBeneficio(r: CommissionCalculationData | null): boolean {
+  if (!r) return false
+  return r.summary.modoCalculo === 'beneficio' || r.summary.totalBenefits !== undefined
+}
+
 const EXTENSIONES = ['.csv', '.xlsx', '.xls']
 
 function esInformeValido(f: File): boolean {
@@ -137,6 +150,18 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const isSAUSI = selectedClient?.name === 'SAUSI'
   const isLenobotics = selectedClient?.name === 'Lenobotics'
   const isBenefitsClient = isDIRU || isSAUSI // Clientes que usan Net profit
+
+  /**
+   * SI ESTE CÁLCULO ES SOBRE BENEFICIO, LO DICE EL RESULTADO.
+   *
+   * `isBenefitsClient` compara el nombre del cliente, y por eso Creative Toys
+   * —que cobra sobre beneficio desde la migración 177— caía en el resumen
+   * genérico: enseñaba el beneficio bajo el rótulo «Base Neta (SIN IVA)» y
+   * restaba de las ventas un número de unidades creyendo que eran euros.
+   *
+   * Se mira `summary.modoCalculo`, que lo pone el propio cálculo. Así vale
+   * para cualquier cliente que se ponga en este modo sin tocar nada aquí.
+   */
 
   // Cargar excepciones cuando se selecciona un cliente
   useEffect(() => {
@@ -828,53 +853,72 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                 </CardContent>
               </Card>
             </div>
-          ) : isBenefitsClient && result.summary.totalBenefits !== undefined ? (
-            // Resumen específico para DIRU/SAUSI (beneficios)
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          ) : esModoBeneficio(result) ? (
+            // Los que cobran sobre el BENEFICIO (DIRU, SAUSI, Creative Toys).
+            // Se enseña el recorrido entero del dinero —lo que vende, lo que le
+            // cuesta y lo que le queda— porque la comisión sale de lo último y
+            // sin las otras dos cifras no hay forma de comprobar que cuadra.
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs font-medium text-white/70">
-                    Beneficios Totales
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="text-2xl font-bold text-green-400">
-                    €{result.summary.totalBenefits.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                  <div className="text-xs text-white/50 mt-1">
-                    De la pestaña de beneficios
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-xs font-medium text-white/70">
-                    Tasa de Comisión
-                  </CardTitle>
+                  <CardTitle className="text-xs font-medium text-white/70">Ventas</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className="text-xl font-bold text-white">
-                    {(result.summary.averageCommissionRate * 100).toFixed(0)}%
+                    €{result.summary.totalSales.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                   <div className="text-xs text-white/50 mt-1">
-                    Sobre beneficios
+                    {result.summary.totalOrders} producto{result.summary.totalOrders !== 1 ? 's' : ''}
                   </div>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs font-medium text-white/70">
-                    Comisión Total
-                  </CardTitle>
+                  <CardTitle className="text-xs font-medium text-white/70">Costes</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-xl font-bold text-red-400">
+                    -€{(
+                      (result.summary.totalCostOfGoods ?? 0) +
+                      (result.summary.totalAmazonFees ?? 0) +
+                      (result.summary.totalAds ?? 0)
+                    ).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    Producto €{(result.summary.totalCostOfGoods ?? 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })} ·
+                    Amazon €{(result.summary.totalAmazonFees ?? 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })} ·
+                    PPC €{(result.summary.totalAds ?? 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">Beneficio neto</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-2xl font-bold text-green-400">
+                    €{(result.summary.totalBenefits ?? result.summary.netBase).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-white/50 mt-1">
+                    {result.summary.totalSales > 0
+                      ? `Margen ${(((result.summary.totalBenefits ?? result.summary.netBase) / result.summary.totalSales) * 100).toFixed(1)} %`
+                      : 'Sobre esto se calcula'}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-white/70">Comisión Total</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className="text-2xl font-bold text-[#FF6600]">
                     €{result.summary.totalCommission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                   <div className="text-xs text-white/50 mt-1">
-                    {(result.summary.averageCommissionRate * 100).toFixed(0)}% de los beneficios
+                    {(result.summary.averageCommissionRate * 100).toFixed(2)} % del beneficio
                   </div>
                 </CardContent>
               </Card>
@@ -1014,7 +1058,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
               <CommissionsTable
                 rows={result.rows}
                 isShoesF={isShoesF}
-                isBenefitsClient={isBenefitsClient}
+                isBenefitsClient={esModoBeneficio(result)}
                 isLenobotics={isLenobotics}
               />
               
@@ -1078,14 +1122,20 @@ function CommissionsTable({
         <thead>
           <tr className="border-b border-white/10">
             <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">#</th>
+            {/* Modo BENEFICIO: se enseña de dónde sale el beneficio de cada
+                producto —lo que vende, lo que cuesta y lo que se lleva Amazon—
+                y no solo el importe final. Diez columnas; el pie de la tabla
+                tiene que cuadrar con ellas. */}
             {isBenefitsClient && (
               <>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">SKU</th>
-                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Units</th>
-                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Refunds</th>
-                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Net Profit</th>
-                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">% Comisión</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Uds.</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Ventas</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Coste producto</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Tarifas Amazon</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Beneficio</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Margen</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Comisión</th>
               </>
             )}
@@ -1123,35 +1173,38 @@ function CommissionsTable({
               </td>
               {isBenefitsClient && (
                 <>
-                  <td className="py-3 px-3 text-white/70 text-xs font-mono">
-                    {row.asin}
-                  </td>
+                  <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.asin}</td>
                   <td className="py-3 px-3 text-white/60 text-xs font-mono">
-                    {row.orderId ? (
-                      <span>{row.orderId}</span>
-                    ) : (
-                      <span className="text-white/30">-</span>
-                    )}
+                    {row.orderId ?? <span className="text-white/30">-</span>}
                   </td>
                   <td className="py-3 px-3 text-white/70 text-xs text-right">
-                    {row.quantity !== undefined ? (
-                      <span>{row.quantity}</span>
-                    ) : (
-                      <span className="text-white/30">-</span>
-                    )}
+                    {row.quantity ?? <span className="text-white/30">-</span>}
+                  </td>
+                  <td className="py-3 px-3 text-white/80 text-xs text-right">
+                    €{row.grossSales.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="py-3 px-3 text-red-400/70 text-xs text-right">
-                    {row.refunds > 0 ? (
-                      <span>{row.refunds}</span>
-                    ) : (
-                      <span className="text-white/30">-</span>
-                    )}
+                    {row.costOfGoods
+                      ? `-€${row.costOfGoods.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '-'}
                   </td>
-                  <td className="py-3 px-3 text-green-400/70 text-xs text-right font-semibold">
-                    €{row.netBase.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <td className="py-3 px-3 text-red-400/70 text-xs text-right">
+                    {row.amazonFees
+                      ? `-€${row.amazonFees.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '-'}
                   </td>
-                  <td className="py-3 px-3 text-white/70 text-xs text-right">
-                    {(row.commissionRate * 100).toFixed(0)}%
+                  {/* Un producto puede acabar el mes en pérdidas. Se pinta en
+                      rojo en vez de esconderlo: resta del beneficio total y por
+                      tanto de la comisión. */}
+                  <td
+                    className={`py-3 px-3 text-xs text-right font-semibold ${
+                      (row.netProfit ?? row.netBase) < 0 ? 'text-red-400' : 'text-green-400/80'
+                    }`}
+                  >
+                    €{(row.netProfit ?? row.netBase).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="py-3 px-3 text-white/50 text-xs text-right">
+                    {row.margin != null ? `${(row.margin * 100).toFixed(1)} %` : '-'}
                   </td>
                   <td className="py-3 px-3 text-[#FF6600] font-bold text-sm text-right">
                     €{row.commission.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1222,25 +1275,34 @@ function CommissionsTable({
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-white/20 bg-white/[0.02]">
+            {/* Diez columnas, igual que la cabecera: el colSpan de «TOTALES»
+                cubre #, ASIN y SKU, y detrás van las siete restantes. */}
             {isBenefitsClient && (
               <>
-                <td colSpan={2} className="py-4 px-3 text-white font-semibold text-right">
+                <td colSpan={3} className="py-4 px-3 text-white font-semibold text-right">
                   TOTALES:
-                </td>
-                <td className="py-4 px-3 text-white/70 text-right">
-                  -
                 </td>
                 <td className="py-4 px-3 text-white/70 text-right">
                   {rows.reduce((sum, r) => sum + (r.quantity || 0), 0)}
                 </td>
+                <td className="py-4 px-3 text-white font-semibold text-right">
+                  €{rows.reduce((sum, r) => sum + r.grossSales, 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
                 <td className="py-4 px-3 text-red-400 font-semibold text-right">
-                  {rows.reduce((sum, r) => sum + r.refunds, 0)}
+                  -€{rows.reduce((sum, r) => sum + (r.costOfGoods ?? 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="py-4 px-3 text-red-400 font-semibold text-right">
+                  -€{rows.reduce((sum, r) => sum + (r.amazonFees ?? 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td className="py-4 px-3 text-green-400 font-semibold text-right">
-                  €{rows.reduce((sum, r) => sum + r.netBase, 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  €{rows.reduce((sum, r) => sum + (r.netProfit ?? r.netBase), 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
-                <td className="py-4 px-3 text-white/70 text-right">
-                  -
+                <td className="py-4 px-3 text-white/50 text-right">
+                  {(() => {
+                    const ventas = rows.reduce((sum, r) => sum + r.grossSales, 0)
+                    const benef = rows.reduce((sum, r) => sum + (r.netProfit ?? r.netBase), 0)
+                    return ventas > 0 ? `${((benef / ventas) * 100).toFixed(1)} %` : '-'
+                  })()}
                 </td>
                 <td className="py-4 px-3 text-[#FF6600] font-bold text-lg text-right">
                   €{rows.reduce((sum, r) => sum + r.commission, 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
