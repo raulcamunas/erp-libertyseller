@@ -55,6 +55,15 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
   const isShoplamp = summary.baselineAmount !== undefined
   // Formato Ham Master / Amazon: una fila por SHIPMENT/RETURN/REFUND con Order ID, Tipo, Base Producto/Envío
   const isAmazonLineFormat = allRows.length > 0 && allRows[0].transactionTypeLabel != null
+  /**
+   * COMISIÓN SOBRE EL BENEFICIO (Sellerboard), no sobre la facturación.
+   *
+   * Cambia lo que hay que enseñar. En este modo «Base Neta» no es una base
+   * neta: es el beneficio, y llamarlo así hace que el cliente cuadre mal sus
+   * propios números. Lo que se enseña son las ventas, lo que le cuesta el
+   * producto, lo que se lleva Amazon y lo que le queda.
+   */
+  const isBeneficio = summary.modoCalculo === 'beneficio'
 
   const currencies = useMemo(() => {
     const set = new Set<string>()
@@ -269,7 +278,65 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
 
       {/* Resumen: SHOPLAMP = excedente sobre baseline; ShoesF = comparación años; resto = estándar */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-        {isShoplamp ? (
+        {isBeneficio ? (
+          <>
+            {/* ---- El recorrido del dinero: de lo que vende a lo que le queda ---- */}
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">Ventas</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-base sm:text-lg lg:text-xl font-bold text-white">
+                  {formatMoney(summary.totalSales, 'EUR')}
+                </div>
+                <div className="text-[10px] text-white/50">{summary.totalOrders} productos</div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">Costes</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-base sm:text-lg lg:text-xl font-bold text-red-400">
+                  -{formatMoney((summary.totalCostOfGoods ?? 0) + (summary.totalAmazonFees ?? 0) + (summary.totalAds ?? 0), 'EUR')}
+                </div>
+                <div className="text-[10px] text-white/50">
+                  Producto {formatMoney(summary.totalCostOfGoods ?? 0, 'EUR')} · Amazon{' '}
+                  {formatMoney(summary.totalAmazonFees ?? 0, 'EUR')} · PPC{' '}
+                  {formatMoney(summary.totalAds ?? 0, 'EUR')}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">Beneficio neto</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-base sm:text-lg lg:text-xl font-bold text-green-400">
+                  {formatMoney(summary.totalBenefits ?? summary.netBase, 'EUR')}
+                </div>
+                <div className="text-[10px] text-white/50">
+                  {summary.totalSales > 0
+                    ? `Margen ${(((summary.totalBenefits ?? summary.netBase) / summary.totalSales) * 100).toFixed(1)} %`
+                    : 'Sobre el que se calcula'}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card animate-pulse-on-load">
+              <CardHeader className="pb-1 px-2 py-1.5">
+                <CardTitle className="text-xs font-semibold text-white/90 leading-tight">Comisión</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-2 pb-2">
+                <div className="text-base sm:text-lg lg:text-xl font-bold text-[#FF6600]">
+                  {formatMoney(summary.totalCommission, 'EUR')}
+                </div>
+                <div className="text-[10px] text-white/50">
+                  {((summary.commissionRateUsed ?? summary.averageCommissionRate) * 100).toFixed(2)} % del beneficio
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        ) : isShoplamp ? (
           <>
             <Card className="glass-card animate-pulse-on-load">
               <CardHeader className="pb-1 px-2 py-1.5">
@@ -880,6 +947,31 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                         </th>
                       )}
                     </>
+                  ) : isBeneficio ? (
+                    <>
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Nombre del producto</th>
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">ASIN</th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Uds.</th>
+                      <th
+                        className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase cursor-pointer hover:text-white transition-colors"
+                        onClick={() => handleSort('grossSales')}
+                      >
+                        Ventas {sortField === 'grossSales' && (sortDirection === 'asc' ? '\u2191' : '\u2193')}
+                      </th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Coste producto</th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Tarifas Amazon</th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Publicidad</th>
+                      <th
+                        className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase cursor-pointer hover:text-white transition-colors"
+                        onClick={() => handleSort('commission')}
+                      >
+                        Beneficio {sortField === 'commission' && (sortDirection === 'asc' ? '\u2191' : '\u2193')}
+                      </th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">Margen</th>
+                      <th className="text-right py-3 px-3 text-xs font-semibold text-white/70 uppercase">
+                        Comisión ({((summary.commissionRateUsed ?? summary.averageCommissionRate) * 100).toFixed(2)}%)
+                      </th>
+                    </>
                   ) : (
                     <>
                       <th className="text-left py-3 px-3 text-xs font-semibold text-white/70 uppercase">Nombre del producto</th>
@@ -957,6 +1049,45 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                           )}
                         </tr>
                       ))
+                    : isBeneficio
+                    ? filteredAndSortedRows.map((row, idx) => (
+                      <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                        <td className="py-3 px-3 text-white/70 text-xs max-w-[200px] truncate" title={row.productTitle}>
+                          {truncateProductName(row.productTitle)}
+                        </td>
+                        <td className="py-3 px-3 text-white/70 text-xs font-mono">{row.asin}</td>
+                        <td className="py-3 px-3 text-white/50 text-xs text-right">{row.quantity ?? '-'}</td>
+                        <td className="py-3 px-3 text-white/80 text-xs text-right">
+                          {formatMoney(row.grossSales, 'EUR')}
+                        </td>
+                        <td className="py-3 px-3 text-red-400/70 text-xs text-right">
+                          {row.costOfGoods ? `-${formatMoney(row.costOfGoods, 'EUR')}` : '-'}
+                        </td>
+                        <td className="py-3 px-3 text-red-400/70 text-xs text-right">
+                          {row.amazonFees ? `-${formatMoney(row.amazonFees, 'EUR')}` : '-'}
+                        </td>
+                        <td className="py-3 px-3 text-red-400/70 text-xs text-right">
+                          {row.adsSpend ? `-${formatMoney(row.adsSpend, 'EUR')}` : '-'}
+                        </td>
+                        {/* Un producto puede acabar el mes en pérdidas —devoluciones, o
+                            publicidad que se comió el margen—. Se pinta en rojo en vez de
+                            esconderlo: resta del beneficio y por tanto de la comisión. */}
+                        <td
+                          className={cn(
+                            'py-3 px-3 text-xs text-right font-semibold',
+                            (row.netProfit ?? 0) < 0 ? 'text-red-400' : 'text-green-400'
+                          )}
+                        >
+                          {formatMoney(row.netProfit ?? row.netBase, 'EUR')}
+                        </td>
+                        <td className="py-3 px-3 text-white/50 text-xs text-right">
+                          {row.margin != null ? `${(row.margin * 100).toFixed(1)} %` : '-'}
+                        </td>
+                        <td className="py-3 px-3 text-[#FF6600] text-xs text-right font-semibold">
+                          {formatMoney(row.commission, 'EUR')}
+                        </td>
+                      </tr>
+                    ))
                     : filteredAndSortedRows.map((row, idx) => (
                       <tr key={idx} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
                         <td className="py-3 px-3 text-white/70 text-xs max-w-[200px] truncate" title={row.productTitle}>

@@ -38,6 +38,18 @@ function getShortProductName(title?: string | null): string {
   return cut >= 0 ? s.slice(0, cut).trim() : s
 }
 
+/**
+ * Sellerboard deja bajar el mismo informe en CSV y en XLSX, y se usan los dos.
+ * Antes solo se aceptaba CSV, así que con el XLSX delante había que abrirlo y
+ * volver a guardarlo como CSV para poder subirlo.
+ */
+const EXTENSIONES = ['.csv', '.xlsx', '.xls']
+
+function esInformeValido(f: File): boolean {
+  const nombre = f.name.toLowerCase()
+  return f.type === 'text/csv' || EXTENSIONES.some((ext) => nombre.endsWith(ext))
+}
+
 export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const [selectedClientId, setSelectedClientId] = useState<string>('')
   const [file, setFile] = useState<File | null>(null)
@@ -159,12 +171,11 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
     setIsDragging(false)
 
     const droppedFile = e.dataTransfer.files[0]
-    // Todos los clientes aceptan CSV (incluyendo DIRU)
-    if (droppedFile && (droppedFile.type === 'text/csv' || droppedFile.name.endsWith('.csv'))) {
+    if (droppedFile && esInformeValido(droppedFile)) {
       setFile(droppedFile)
       setError(null)
     } else {
-      setError('Por favor, sube un archivo CSV válido')
+      setError('Sube el informe en CSV o en XLSX')
     }
   }, [])
 
@@ -217,12 +228,11 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
-      // Todos los clientes aceptan CSV (incluyendo DIRU)
-      if (selectedFile.type === 'text/csv' || selectedFile.name.endsWith('.csv')) {
+      if (esInformeValido(selectedFile)) {
         setFile(selectedFile)
         setError(null)
       } else {
-        setError('Por favor, sube un archivo CSV válido')
+        setError('Sube el informe en CSV o en XLSX')
       }
     }
   }
@@ -598,7 +608,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                     <Upload className="h-8 w-8 text-white/50 mb-3" />
                     <p className="text-white/70 mb-2 text-center">
                       {isBenefitsClient 
-                        ? 'Arrastra tu archivo CSV con la columna "Net profit" aquí o'
+                        ? 'Arrastra el Tablero de Productos de Sellerboard (CSV o XLSX) aquí o'
                         : 'Arrastra tu archivo CSV aquí o'
                       }
                     </p>
@@ -608,7 +618,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                       </span>
                       <input
                         type="file"
-                        accept=".csv"
+                        accept=".csv,.xlsx,.xls"
                         onChange={handleFileChange}
                         className="hidden"
                       />

@@ -6,6 +6,14 @@ export interface Client {
   marca_propia?: string | null
   /** La tasa de la marca propia. El resto va a base_commission_rate */
   tasa_marca_propia?: number | null
+  /**
+   * Sobre qué se calcula la comisión. Ver la migración 177.
+   *
+   * `facturacion` — sobre las ventas sin IVA. Es lo normal.
+   * `beneficio`   — sobre la suma de «Net profit» del informe de Sellerboard.
+   *                 Creative Toys: 7,5 % del beneficio.
+   */
+  modo_calculo?: 'facturacion' | 'beneficio' | null
   created_at: string
   updated_at: string
 }
@@ -98,6 +106,19 @@ export interface CommissionCalculationData {
     baselineAmount?: number // Baseline acordado (ej: 3500)
     // Para DIRU: beneficios totales
     totalBenefits?: number // Total de beneficios de la pestaña
+    /**
+     * Marca que este informe se calculó sobre el BENEFICIO y no sobre la
+     * facturación. La pantalla del reporte la mira para enseñar las columnas
+     * que tocan —coste de producto, comisiones de Amazon, beneficio— en vez de
+     * «Base neta», que en este modo no significa lo que dice.
+     */
+    modoCalculo?: 'facturacion' | 'beneficio'
+    /** Suma del coste de producto (Cost of Goods), cuando el informe lo trae */
+    totalCostOfGoods?: number
+    /** Suma de las comisiones que se lleva Amazon */
+    totalAmazonFees?: number
+    /** Suma del gasto en publicidad (PPC y demás) */
+    totalAds?: number
   }
   // CSV original subido (para poder descargarlo tal cual en el reporte)
   originalCsv?: string
@@ -132,5 +153,17 @@ export interface CommissionRow {
   promoNet?: number
   taxAmount?: number
   netLine?: number
+  // Para el modo «beneficio» (Sellerboard): lo que hace falta para que se vea
+  // de dónde sale el beneficio de cada producto y no solo su importe final.
+  /** Lo que cuesta comprar el producto (Cost of Goods), en positivo */
+  costOfGoods?: number
+  /** Lo que se lleva Amazon en tarifas, en positivo */
+  amazonFees?: number
+  /** Lo gastado en publicidad para ese producto, en positivo */
+  adsSpend?: number
+  /** El beneficio del producto: la columna «Net profit» tal cual */
+  netProfit?: number
+  /** Beneficio sobre ventas, en tanto por uno */
+  margin?: number
 }
 

@@ -78,7 +78,18 @@ export async function POST(request: NextRequest) {
     const isHamMasterSecondary = client.name === 'HamMaster Cuenta secundaria'
     // Sistema anterior: Sales + Refund Cost, base neta = facturación real / 1.21
     const useOldCalculation = isCreativeToys || isLenobotics
-    const isBenefitsClient = isDIRU || isSAUSI // Clientes que usan Net profit
+    /**
+     * COBRAR SOBRE EL BENEFICIO EN VEZ DE SOBRE LA FACTURACIÓN.
+     *
+     * DIRU y SAUSI se siguen decidiendo por su nombre porque así estaba escrito
+     * y funciona. Lo nuevo es `modo_calculo` (migración 177), que es un dato de
+     * la fila: con él, dar de alta a otro cliente con este trato ya no obliga a
+     * tocar el código.
+     *
+     * Creative Toys entra por aquí: 7,5 % del beneficio neto.
+     */
+    const modoBeneficio = client.modo_calculo === 'beneficio'
+    const isBenefitsClient = isDIRU || isSAUSI || modoBeneficio // Clientes que usan Net profit
 
     const hamMasterSecondaryAsins = new Set<string>([
       'B0GTQMWRB9',
@@ -132,10 +143,13 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
-      // Verificar que sea un archivo CSV
-      if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
+      // Sellerboard deja bajar el mismo informe en CSV y en XLSX, y se usan
+      // los dos. Rechazar el XLSX obligaba a abrirlo y volver a guardarlo.
+      const nombre = file.name.toLowerCase()
+      const aceptado = ['.csv', '.xlsx', '.xls'].some((ext) => nombre.endsWith(ext))
+      if (!aceptado) {
         return NextResponse.json(
-          { error: `${client.name} requiere un archivo CSV` },
+          { error: `${client.name} necesita el informe de Sellerboard en CSV o XLSX` },
           { status: 400 }
         )
       }
@@ -522,8 +536,22 @@ export async function POST(request: NextRequest) {
 
     // Calcular totales
     const realTurnover = totalSales - totalRefunds
-    // En la nueva lógica Amazon, los importes ya vienen sin IVA, así que la base es igual
-    const netBase = realTurnover
+    /**
+     * LA BASE NO ES LA MISMA EN LAS DOS LÓGICAS, Y EL RESUMEN LO DABA IGUAL.
+     *
+     * En la lógica de Amazon los importes ya vienen sin IVA, así que la base es
+     * la facturación tal cual. En la antigua (Sellerboard) vienen CON IVA y hay
+     * que quitarlo, que es lo que ya hace cada fila al dividir entre 1,21.
+     *
+     * El resumen no lo hacía: ponía `netBase = realTurnover` para todos. La
+     * COMISIÓN salía bien —se suma fila a fila— pero las tres cifras que ve el
+     * cliente en el desglose no. Con el informe de noviembre de 2025 de Creative
+     * Toys enseñaba «Base Neta (SIN IVA) 19.766,30 €» llevando el IVA dentro,
+     * «IVA 0,00» y una tasa media del 4,13 % sobre un trato del 5 %. Y los
+     * números no cuadraban entre sí: 19.766,30 x 5 % son 988,32, no los 816,79
+     * que ponía debajo.
+     */
+    const netBase = useOldCalculation ? realTurnover / 1.21 : realTurnover
     const totalIva = useOldCalculation ? (realTurnover - netBase) : totalIvaAmazon
     let totalCommission = processedRows.reduce((sum, r) => sum + r.commission, 0)
 
@@ -1104,7 +1132,38 @@ async function processShoesFComparison(
   }
 }
 
-// Función para procesar DIRU/SAUSI con CSV y columna Net profit
+/**
+ * COMISIÓN SOBRE EL BENEFICIO, NO SOBRE LA FACTURACIÓN.
+ *
+ * Lee el «Tablero de Productos» de Sellerboard y calcula la comisión sobre la
+ * suma de su columna «Net profit». Lo usan DIRU, SAUSI y —desde la migración
+ * 177— Creative Toys, con un 7,5 %.
+ *
+ *
+ * ============ POR QUÉ EL INFORME DE PRODUCTOS Y NO EL PANEL ============
+ *
+ * La cuenta se venía haciendo a mano copiando dos cifras del panel de
+ * Sellerboard: las ganancias del mes y el gasto de Vine, que se restaba. Con
+ * julio de 2026: (3.959,12 - 969,52) x 7,5 % = 224,22 €.
+ *
+ * Este fichero llega al mismo sitio solo: su «Net profit» suma 2.975,64, que da
+ * 223,17 € — un 0,47 % de diferencia. Y no es casualidad: el gasto de Vine es
+ * de CUENTA y no de producto, así que el informe de productos YA VIENE SIN ÉL.
+ * La resta que se hacía a mano la hace el propio fichero.
+ *
+ * Lo que se gana es que el número deja de depender de que alguien mire la
+ * pantalla correcta y reste la casilla correcta. En julio no se restó: se
+ * facturaron 296,93 € en vez de 224,22 €.
+ *
+ *
+ * ============ LOS COSTES VIENEN EN NEGATIVO ============
+ *
+ * Sellerboard da «Amazon fees» y «Cost of Goods» con el signo puesto (-7.075,00).
+ * Se guardan en positivo porque en el desglose se leen como lo que son —lo que
+ * se va—, y el beneficio no se recalcula a partir de ellos: se coge «Net profit»
+ * tal cual. Rehacer la resta aquí daría un número distinto del que ve el cliente
+ * en su propio Sellerboard, que es la referencia que él tiene.
+ */
 async function processDIRUBenefits(
   file: File,
   client: any,
@@ -1112,201 +1171,189 @@ async function processDIRUBenefits(
   benefitRateOverride?: number
 ) {
   try {
-    // Leer el archivo CSV
-    const csvContent = await file.text()
-    const rows = parseCSV(csvContent)
+    const rows = await leerInforme(file)
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { error: 'El archivo CSV está vacío o no es válido' },
+        { error: 'El informe está vacío o no se ha podido leer' },
         { status: 400 }
       )
     }
 
-    // Buscar la columna "Net profit" en el CSV
-    const benefitColumnKeys = [
-      'net profit',      // Prioridad 1: Nombre exacto
-      'netprofit',       // Sin espacio
-      'beneficios netos',
-      'net benefits'
-    ]
+    // ---------- Encontrar la columna del beneficio ----------
+    // Se busca sobre las CLAVES, no sobre el valor de la primera fila: si el
+    // primer producto tuviera el beneficio a 0 o en blanco, buscar por valor no
+    // encontraba la columna y el informe entero se rechazaba.
+    const claves = Object.keys(rows[0])
+    const normaliza = (k: string) => k.toLowerCase().trim().replace(/\s+/g, ' ')
 
-    let totalBenefits = 0
-    const errors: string[] = []
-    const processedRows: CommissionRow[] = []
+    let benefitKey: string | null =
+      claves.find((k) => ['net profit', 'netprofit'].includes(normaliza(k))) ?? null
 
-    // Buscar la columna "Net profit" usando getVal (que ya maneja case insensitive y variaciones)
-    let benefitKey: string | null = null
-    
-    // Buscar en la primera fila (headers)
-    if (rows.length > 0) {
-      const firstRow = rows[0]
-      // Intentar encontrar la columna usando getVal
-      const netProfitValue = getVal(firstRow, [
-        'Net profit',
-        'Net Profit',
-        'NET PROFIT',
-        'net profit',
-        'netprofit',
-        'NetProfit'
-      ])
-      
-      // Si encontramos un valor, buscar la clave original
-      if (netProfitValue !== undefined && netProfitValue !== null && netProfitValue !== '') {
-        // Buscar la clave que contiene "net profit"
-        for (const key of Object.keys(firstRow)) {
-          const normalizedKey = key.toLowerCase().trim()
-          if (normalizedKey === 'net profit' || normalizedKey === 'netprofit') {
-            benefitKey = key
-            break
-          }
-        }
-      }
-      
-      // Si no se encontró, buscar cualquier columna que contenga "net profit"
-      if (!benefitKey) {
-        for (const key of Object.keys(firstRow)) {
-          const normalizedKey = key.toLowerCase().trim()
-          if (benefitColumnKeys.some(bc => normalizedKey.includes(bc))) {
-            benefitKey = key
-            break
-          }
-        }
-      }
+    if (!benefitKey) {
+      benefitKey =
+        claves.find((k) =>
+          ['net profit', 'netprofit', 'beneficios netos', 'net benefits', 'beneficio neto'].some(
+            (c) => normaliza(k).includes(c)
+          )
+        ) ?? null
     }
 
     if (!benefitKey) {
       return NextResponse.json(
-        { error: 'No se encontró la columna "Net profit" en el archivo CSV. Por favor, asegúrate de que existe una columna con ese nombre.' },
+        {
+          error:
+            'No se encuentra la columna «Net profit» en el informe. Tiene que ser el Tablero de ' +
+            'Productos de Sellerboard, que la trae. Columnas encontradas: ' +
+            claves.slice(0, 12).join(', '),
+        },
         { status: 400 }
       )
     }
 
-    // Sumar los valores de la columna "Net profit" (incluyendo negativos)
+    const commissionRate = benefitRateOverride ?? client.base_commission_rate
+
+    const processedRows: CommissionRow[] = []
+    const errors: string[] = []
+    let totalBenefits = 0
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
-      const benefitValue = parseNum(getVal(row, [benefitKey]))
-      
-      if (!isNaN(benefitValue)) {
-        // Sumar el valor (si es negativo, se restará automáticamente)
-        totalBenefits += benefitValue
 
-        // Extraer datos adicionales del CSV
-        const productTitle = getVal(row, [
-          'Product',
-          'Producto',
-          'Title',
-          'Nombre',
-          'Product Title',
-          /Product.*Title/i,
-          /Nombre.*Producto/i
-        ]) || `Fila ${i + 2}`
+      const productTitle =
+        getVal(row, ['Product', 'Producto', 'Title', 'Nombre', /Product.*Title/i]) || `Fila ${i + 2}`
+      const asin = getVal(row, ['ASIN', 'asin', 'Asin']) || 'N/A'
+      const sku = getVal(row, ['SKU', 'sku', 'Sku']) || undefined
 
-        const asin = getVal(row, [
-          'ASIN',
-          'asin',
-          'Asin'
-        ]) || 'N/A'
+      // Una fila sin ASIN ni producto no es un producto: Sellerboard mete al
+      // final filas de totales y separadores, y sumarlas duplicaría el mes.
+      const esProducto = String(asin).trim() !== 'N/A' || String(productTitle).trim() !== ''
+      if (!esProducto) continue
 
-        const sku = getVal(row, [
-          'SKU',
-          'sku',
-          'Sku'
-        ]) || undefined
+      const netProfit = parseNum(getVal(row, [benefitKey]))
+      totalBenefits += netProfit
 
-        const units = parseNum(getVal(row, [
-          'Units',
-          'units',
-          'Unidades',
-          'Cantidad',
-          'Quantity',
-          /Units/i,
-          /Unidades/i,
-          /Cantidad/i
-        ])) || undefined
+      const grossSales = parseNum(
+        getVal(row, ['Sales', 'Ventas', /^Sales$/i, /Ventas/i, 'Gross Sales'])
+      )
+      const refunds = Math.abs(parseNum(getVal(row, ['Refunds', 'Reembolsos', /^Refunds$/i])))
+      const costOfGoods = Math.abs(
+        parseNum(getVal(row, ['Cost of Goods', 'COGS', /Cost.*Goods/i, /Coste.*producto/i]))
+      )
+      const amazonFees = Math.abs(
+        parseNum(getVal(row, ['Amazon fees', /Amazon.*fees/i, /Tarifas.*Amazon/i]))
+      )
+      const adsSpend = Math.abs(
+        parseNum(getVal(row, ['Ads', /^Ads$/i, 'Sponsored products (PPC)', /Sponsored products/i]))
+      )
+      const units =
+        parseNum(getVal(row, ['Units', 'Unidades', 'Cantidad', 'Quantity', /^Units$/i])) || undefined
 
-        const refunds = Math.abs(parseNum(getVal(row, [
-          'Refunds',
-          'refunds',
-          'Reembolsos',
-          'Refund',
-          /Refunds/i,
-          /Reembolsos/i
-        ]))) || 0
+      const realTurnover = grossSales - refunds
 
-        // Intentar obtener ventas del CSV si existe la columna
-        const grossSales = parseNum(
-          getVal(row, ['Sales', 'Ventas', /Sales/i, /Ventas/i, 'Gross Sales', /Gross.*Sales/i])
-        ) || 0
-
-        // Calcular realTurnover y iva si tenemos ventas
-        const realTurnover = grossSales > 0 ? grossSales - refunds : 0
-        const iva = realTurnover > 0 ? realTurnover - (realTurnover / 1.21) : 0
-
-        // Crear una fila para el reporte
-        processedRows.push({
-          productTitle,
-          asin,
-          orderId: sku, // Usamos SKU como orderId para mostrarlo en la tabla
-          date: undefined,
-          quantity: units,
-          grossSales,
-          refunds,
-          realTurnover,
-          iva,
-          netBase: benefitValue, // Valor individual de Net profit
-          commissionRate: benefitRateOverride ?? client.base_commission_rate,
-          commission: benefitValue * (benefitRateOverride ?? client.base_commission_rate),
-          rowNumber: i + 2
-        })
-      } else {
-        const rawValue = getVal(row, [benefitKey])
-        if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
-          errors.push(`Fila ${i + 2}: Valor no numérico en Net profit: ${rawValue}`)
-        }
-      }
+      processedRows.push({
+        productTitle,
+        asin,
+        orderId: sku,
+        quantity: units,
+        grossSales,
+        refunds,
+        realTurnover,
+        // En este modo no se descuenta IVA: «Net profit» ya lo trae descontado.
+        iva: 0,
+        // `netBase` es la base sobre la que se cobra, y aquí esa base ES el
+        // beneficio. Se rellena igual para que todo lo que ya suma netBase
+        // —medias, agregados, la hoja de Excel que se descarga— siga cuadrando.
+        netBase: netProfit,
+        netProfit,
+        costOfGoods,
+        amazonFees,
+        adsSpend,
+        margin: grossSales > 0 ? netProfit / grossSales : undefined,
+        commissionRate,
+        commission: netProfit * commissionRate,
+        rowNumber: i + 2,
+      })
     }
 
-    // Calcular comisión usando la tasa base del cliente sobre la suma total de "Net profit"
-    // Nota: totalBenefits ya incluye la suma de todos los valores (positivos y negativos)
-    // Los negativos se restan automáticamente al sumar
-    const commissionRate = benefitRateOverride ?? client.base_commission_rate
+    if (processedRows.length === 0) {
+      return NextResponse.json(
+        { error: 'El informe no trae ninguna fila de producto' },
+        { status: 400 }
+      )
+    }
+
+    /**
+     * LA COMISIÓN SE CALCULA SOBRE EL TOTAL, NO SUMANDO LAS DE CADA FILA.
+     *
+     * No da lo mismo. Un producto con beneficio NEGATIVO —devoluciones, o
+     * publicidad que se comió el margen— resta del total, y así es como se ha
+     * facturado siempre. Sumar comisiones fila a fila daría el mismo número
+     * aquí, pero deja la puerta abierta a que mañana alguien decida ignorar las
+     * filas negativas y el cliente pague comisión por un mes en el que perdió
+     * dinero en esos productos.
+     */
     const totalCommission = totalBenefits * commissionRate
 
-    // Calcular totales de ventas, reembolsos, etc. si están disponibles
-    const totalSales = processedRows.reduce((sum, r) => sum + r.grossSales, 0)
-    const totalRefunds = processedRows.reduce((sum, r) => sum + r.refunds, 0)
-    const realTurnover = totalSales - totalRefunds
-    const totalIva = processedRows.reduce((sum, r) => sum + r.iva, 0)
+    const totalSales = processedRows.reduce((s, r) => s + r.grossSales, 0)
+    const totalRefunds = processedRows.reduce((s, r) => s + r.refunds, 0)
+    const totalCostOfGoods = processedRows.reduce((s, r) => s + (r.costOfGoods ?? 0), 0)
+    const totalAmazonFees = processedRows.reduce((s, r) => s + (r.amazonFees ?? 0), 0)
+    const totalAds = processedRows.reduce((s, r) => s + (r.adsSpend ?? 0), 0)
 
-    // Crear resultado
     const result: CommissionCalculationData = {
       summary: {
         totalSales,
         totalRefunds,
-        realTurnover,
-        totalIva,
-        netBase: totalBenefits, // Total de beneficios
+        realTurnover: totalSales - totalRefunds,
+        totalIva: 0,
+        netBase: totalBenefits,
         totalCommission,
         averageCommissionRate: commissionRate,
+        commissionRateUsed: commissionRate,
         totalOrders: processedRows.length,
-        // Datos específicos de DIRU/SAUSI
-        totalBenefits
+        totalBenefits,
+        totalCostOfGoods,
+        totalAmazonFees,
+        totalAds,
+        modoCalculo: 'beneficio',
       },
       rows: processedRows,
-      errors
+      errors,
     }
 
-    return NextResponse.json({
-      success: true,
-      data: result
-    })
+    return NextResponse.json({ success: true, data: result })
   } catch (error: any) {
-    console.error('Error processing DIRU benefits:', error)
+    console.error('Error calculando la comisión sobre beneficio:', error)
     return NextResponse.json(
-      { error: 'Error al procesar el archivo CSV de beneficios', details: error.message },
+      { error: 'No se ha podido procesar el informe', details: error.message },
       { status: 500 }
     )
   }
 }
 
+/**
+ * LEER EL INFORME VENGA EN CSV O EN XLSX.
+ *
+ * Sellerboard deja bajar el mismo Tablero de Productos en los dos formatos y se
+ * usan los dos indistintamente. Antes solo se aceptaba CSV, así que con el XLSX
+ * delante había que abrirlo y volver a guardarlo para poder subirlo.
+ *
+ * El CSV viene con BOM y separado por punto y coma, y los miles con espacio
+ * duro («4 619,85»). parseCSV detecta el separador y parseNum se come el
+ * espacio duro; el BOM se quita aquí, porque si no la PRIMERA columna se llama
+ * «﻿Product» y no la encuentra nadie.
+ */
+async function leerInforme(file: File): Promise<Record<string, any>[]> {
+  const nombre = file.name.toLowerCase()
+
+  if (nombre.endsWith('.xlsx') || nombre.endsWith('.xls')) {
+    const buffer = await file.arrayBuffer()
+    const libro = XLSX.read(buffer, { type: 'array' })
+    const hoja = libro.Sheets[libro.SheetNames[0]]
+    return XLSX.utils.sheet_to_json(hoja, { defval: null }) as Record<string, any>[]
+  }
+
+  const texto = (await file.text()).replace(/^﻿/, '')
+  return parseCSV(texto)
+}
