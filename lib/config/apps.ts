@@ -19,6 +19,7 @@ import {
   Plug,
   Sprout,
   Eraser,
+  Receipt,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -105,6 +106,17 @@ export const apps: AppConfig[] = [
     route: '/dashboard/horas',
     status: 'new',
     category: 'productivity'
+  },
+  {
+    // Vive al lado de Tesorería porque bebe de ella: los importes de cada mes
+    // salen de allí y la casilla «Enviado» se marca sola desde aquí.
+    id: 'facturacion',
+    name: 'Facturación',
+    description: 'Emite y manda la factura de cada cliente, con el desglose y el PDF dentro',
+    icon: Receipt,
+    route: '/dashboard/facturacion',
+    status: 'new',
+    category: 'core'
   },
   {
     id: 'tesoreria',

@@ -42,7 +42,27 @@ function esc(valor: unknown): string {
     .replace(/'/g, '&#39;')
 }
 
-export function buildInvoiceEmailHtml(invoice: InvoiceWithItems, reportUrl?: string): string {
+/**
+ * Los datos para que el cliente pague por transferencia.
+ *
+ * Existe porque Wise se va: el correo llevaba un botón «Pagar ahora» que
+ * apuntaba a un enlace de pago, y sin Wise ese botón deja de tener destino. Lo
+ * que cobra a partir de ahora es una transferencia, así que lo que tiene que
+ * viajar en el correo es el IBAN y el concepto.
+ */
+export interface DatosTransferencia {
+  iban: string
+  bankName?: string | null
+  bic?: string | null
+  /** Quién factura, para que el cliente sepa a nombre de quién va */
+  legalName?: string | null
+}
+
+export function buildInvoiceEmailHtml(
+  invoice: InvoiceWithItems,
+  reportUrl?: string,
+  transferencia?: DatosTransferencia | null
+): string {
   const fmt = (n: number) =>
     n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -72,11 +92,39 @@ export function buildInvoiceEmailHtml(invoice: InvoiceWithItems, reportUrl?: str
       </a>`
     : ''
 
-  const paymentButton = invoice.wise_payment_link
+  /**
+   * QUÉ SE PINTA PARA COBRAR, EN ESTE ORDEN:
+   *
+   *   1. Los datos de transferencia, si se pasan. Es lo de ahora.
+   *   2. El enlace de Wise, si la factura lo tiene guardado. Solo lo tienen las
+   *      facturas viejas: se conserva para no romper el reenvío de una de ellas.
+   *   3. Una frase, si no hay ni una cosa ni la otra.
+   *
+   * La transferencia va PRIMERO a propósito. Una factura con las dos cosas
+   * dentro le deja al cliente elegir por dónde paga, y el cobro acaba entrando
+   * por una vía que estamos cerrando.
+   */
+  const bloquePago = transferencia?.iban
+    ? `<div style="background:#fafafa;border:1px solid #eee;border-radius:12px;padding:20px 24px;text-align:left;">
+        <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Forma de pago · Transferencia bancaria</div>
+        <div style="color:#111;font-size:17px;font-weight:700;margin-top:8px;letter-spacing:0.5px;">${esc(transferencia.iban)}</div>
+        <div style="color:#666;font-size:13px;margin-top:6px;">
+          ${[
+            transferencia.legalName ? `Titular: ${esc(transferencia.legalName)}` : '',
+            transferencia.bankName ? esc(transferencia.bankName) : '',
+            transferencia.bic ? `BIC ${esc(transferencia.bic)}` : '',
+          ].filter(Boolean).join(' · ')}
+        </div>
+        <div style="color:#666;font-size:13px;margin-top:4px;">
+          Concepto: <strong style="color:#333;">${esc(invoice.invoice_number)}</strong> · Importe: <strong style="color:#333;">€${fmt(invoice.total)}</strong>
+        </div>
+      </div>`
+    : invoice.wise_payment_link
     ? `<a href="${esc(invoice.wise_payment_link)}" style="display:inline-block;background:#00B9FF;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.3px;">
         💳 Pagar ahora — €${fmt(invoice.total)}
       </a>`
     : `<p style="color:#555;font-size:14px;">Por favor, realiza el pago por transferencia bancaria.</p>`
+  const paymentButton = bloquePago
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -154,10 +202,13 @@ export function buildInvoiceEmailHtml(invoice: InvoiceWithItems, reportUrl?: str
 
             ${invoice.notes ? `<div style="margin-top:20px;padding:14px 18px;background:#fffbf5;border-left:3px solid #FF6600;border-radius:0 8px 8px 0;color:#555;font-size:13px;">${esc(invoice.notes)}</div>` : ''}
 
-            <!-- Payment CTA -->
+            <!-- Cómo se paga y qué se adjunta -->
             <div style="margin-top:36px;text-align:center;">
               ${paymentButton}
               ${reportUrl ? `<div style="margin-top:14px;">${reportButton}</div>` : ''}
+              <p style="margin:18px 0 0;color:#999;font-size:12px;">
+                La factura en PDF va adjunta a este correo.
+              </p>
             </div>
 
           </td>
