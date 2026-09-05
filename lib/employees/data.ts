@@ -1,6 +1,16 @@
 import { createServiceClient } from '@/lib/supabase/service'
-import { monthCostForUser, type CostAppointment, type PersonCost } from '@/lib/payroll/cost'
-import type { WorkHourEntry, PayrollRate, ManualAppointment } from '@/lib/types/payroll'
+import {
+  cycleCostForUser,
+  monthCostForUser,
+  type CostAppointment,
+  type PersonCost,
+} from '@/lib/payroll/cost'
+import {
+  cycleKeyPaidInMonth,
+  type WorkHourEntry,
+  type PayrollRate,
+  type ManualAppointment,
+} from '@/lib/types/payroll'
 import {
   employeeMonth,
   employeesMonthTotal,
@@ -117,11 +127,35 @@ export interface EmployeesServerData {
  * y solo para quien cobra así: si algún día no queda nadie por horas, ni
  * siquiera se consultan las tablas de payroll.
  */
-export async function loadEmployeesData(periods: string[]): Promise<EmployeesServerData> {
+/**
+ * SOBRE QUÉ TRAMO SE CUENTA EL SUELDO DE CADA MES.
+ *
+ * `mes`   — el mes natural, del 1 al 30. Es lo devengado en ese mes.
+ * `ciclo` — el ciclo del 15 al 14 que SE PAGA ese mes. Para septiembre, del 15
+ *           de agosto al 14 de septiembre.
+ *
+ * Tesorería usa `ciclo` porque mide dinero que sale de la cuenta, y a la gente
+ * se le paga el día 15: lo que sale en septiembre es el ciclo que cerró el 14.
+ * Con el mes natural el importe no correspondía a ningún pago real y además se
+ * quedaba abierto hasta fin de mes, cuando en realidad ya no puede cambiar
+ * desde el día 14.
+ *
+ * Control empleados sigue con `mes`, y no es un descuido: esa pantalla enseña
+ * lo que cada persona gana en cada mes, no lo que se le transfiere. Las dos
+ * cifras salen del MISMO motor —cost.ts, día a día—, así que no pueden
+ * discrepar por accidente: miden dos cosas distintas a propósito.
+ */
+export type BaseDeCoste = 'mes' | 'ciclo'
+
+export async function loadEmployeesData(
+  periods: string[],
+  opciones: { base?: BaseDeCoste } = {}
+): Promise<EmployeesServerData> {
   const service = createServiceClient()
+  const base = opciones.base ?? 'mes'
 
   try {
-    return await loadFromTables(service, periods)
+    return await loadFromTables(service, periods, base)
   } catch (error) {
     if (!isMissingTable(error)) throw error
     // Sin tablas no hay nada que enseñar, pero tampoco hay nada que ocultar:
@@ -133,14 +167,15 @@ export async function loadEmployeesData(periods: string[]): Promise<EmployeesSer
       missingTables: true,
       usdEur: 0.92,
       hoursDetail: {},
-      dataset: { employees: [], steps: [], records: [], hoursCost: {} },
+      dataset: { employees: [], steps: [], records: [], hoursCost: {}, baseCoste: base },
     }
   }
 }
 
 async function loadFromTables(
   service: ReturnType<typeof createServiceClient>,
-  periods: string[]
+  periods: string[],
+  base: BaseDeCoste
 ): Promise<EmployeesServerData> {
   const [employees, steps, records, settings] = await Promise.all([
     fetchAll<Employee>((a, b) =>
@@ -197,13 +232,24 @@ async function loadFromTables(
       const byPeriod: Record<string, PersonCost> = {}
       const totals: Record<string, number> = {}
       for (const p of periods) {
-        const cost = monthCostForUser(e.user_id!, {
-          month: p,
-          hours: workHours,
-          rates,
-          qualified,
-          manual,
-        })
+        // Las dos ramas llaman al mismo motor con distinto recorte de días: lo
+        // único que cambia es qué días entran, no cómo se calcula ninguno.
+        const cost =
+          base === 'ciclo'
+            ? cycleCostForUser(e.user_id!, {
+                periodKey: cycleKeyPaidInMonth(p),
+                hours: workHours,
+                rates,
+                qualified,
+                manual,
+              })
+            : monthCostForUser(e.user_id!, {
+                month: p,
+                hours: workHours,
+                rates,
+                qualified,
+                manual,
+              })
         byPeriod[p] = cost
         totals[p] = cost.total
       }
@@ -219,7 +265,7 @@ async function loadFromTables(
     missingTables: false,
     usdEur,
     hoursDetail,
-    dataset: { employees, steps, records, hoursCost },
+    dataset: { employees, steps, records, hoursCost, baseCoste: base },
   }
 }
 

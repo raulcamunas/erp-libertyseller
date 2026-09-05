@@ -208,3 +208,33 @@ export function periodLabel(period: PayrollPeriod): string {
     months[endTxt.getMonth()]
   } ${endTxt.getFullYear()}`
 }
+
+/**
+ * EL CICLO QUE SE PAGA EN UN MES DADO.
+ *
+ * A la gente se le paga el día 15, y lo que se le paga ese día es el ciclo que
+ * acaba de cerrar: del 15 del mes anterior al 14 de éste. Así que el sueldo que
+ * SALE DE LA CUENTA en septiembre es el ciclo `2026-08-15`, del 15 de agosto al
+ * 14 de septiembre.
+ *
+ * Tesorería mide dinero que sale, no dinero devengado, y por eso necesita esta
+ * correspondencia: antes enseñaba el mes natural —del 1 al 30 de septiembre—,
+ * que no coincide con ningún pago real y dejaba el gasto abierto hasta fin de
+ * mes cuando en realidad se cierra el día 14.
+ *
+ *   '2026-09-01'  ->  '2026-08-15'
+ */
+export function cycleKeyPaidInMonth(period: string): string {
+  const [y, m] = period.split('-').map(Number)
+  const anterior = new Date(Date.UTC(y, m - 2, 15))
+  return `${anterior.getUTCFullYear()}-${pad(anterior.getUTCMonth() + 1)}-15`
+}
+
+/**
+ * El último día del ciclo que se paga ese mes: el 14.
+ * Mientras no haya pasado, el importe todavía puede subir.
+ */
+export function cycleEndPaidInMonth(period: string): string {
+  const [y, m] = period.split('-').map(Number)
+  return `${y}-${pad(m)}-14`
+}

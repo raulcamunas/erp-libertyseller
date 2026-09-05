@@ -77,7 +77,13 @@ export default async function TreasuryPage() {
       .from('app_settings')
       .select('key, value')
       .in('key', ['usd_eur_rate', 'treasury_partners']),
-    loadEmployeesData(costPeriods),
+    /**
+     * `ciclo`: a la gente se le paga el día 15, y lo que se paga ese día es el
+     * ciclo que cerró el 14 —del 15 del mes anterior al 14 de éste—. Tesorería
+     * mide el dinero que SALE de la cuenta, así que el gasto de septiembre es
+     * ese ciclo, no el mes natural del 1 al 30.
+     */
+    loadEmployeesData(costPeriods, { base: 'ciclo' }),
   ])
 
   const clients = clientsRes.data

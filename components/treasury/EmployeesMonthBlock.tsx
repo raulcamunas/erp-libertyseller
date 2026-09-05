@@ -52,6 +52,27 @@ export interface EmployeesMonthBlockProps {
  * y dejó el CHECK de la tabla sin la categoría «equipo», así que la base
  * rechaza que alguien vuelva a apuntar un sueldo como gasto suelto.
  */
+
+const MESES_CORTOS = [
+  'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+  'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+]
+
+/**
+ * «15 ago – 14 sep»: el ciclo que se paga en el mes que se está mirando.
+ *
+ * Se calcula aquí y no se recibe hecho porque es solo una etiqueta. El importe
+ * lo decide el servidor (lib/employees/data.ts, base 'ciclo'), y si algún día
+ * se cambiara la base habría que cambiar las dos cosas — por eso el rótulo dice
+ * fechas concretas y no algo vago como «ciclo de nóminas»: un rótulo que miente
+ * se nota, uno que no dice nada no.
+ */
+function rotuloDelCiclo(period: string): string {
+  const [y, m] = period.split('-').map(Number)
+  const inicio = new Date(Date.UTC(y, m - 2, 15))
+  return `15 ${MESES_CORTOS[inicio.getUTCMonth()]} – 14 ${MESES_CORTOS[m - 1]}`
+}
+
 export function EmployeesMonthBlock({
   period,
   total,
@@ -84,6 +105,14 @@ export function EmployeesMonthBlock({
             style={{ backgroundColor: EMPLOYEES_COLOR }}
           />
           Empleados al mes
+          {/* QUÉ TRAMO SE ESTÁ ENSEÑANDO.
+              No es el mes natural: es el ciclo del 15 al 14 que se PAGA este
+              mes, porque a la gente se le paga el día 15. Sin decirlo, el
+              importe no cuadra con ningún calendario que nadie tenga en la
+              cabeza y parece que falta gente o que sobra dinero. */}
+          <span className="text-[10px] font-normal text-white/30">
+            {rotuloDelCiclo(period)}
+          </span>
           {loading && <Loader2 className="h-3 w-3 animate-spin text-white/35" />}
         </span>
         <span className="flex items-center gap-2">
@@ -221,9 +250,9 @@ export function EmployeesMonthBlock({
         <p className="mt-1 pl-3.5 flex items-start gap-1.5 text-[10px] text-yellow-400/90 leading-relaxed">
           <Clock className="h-3 w-3 mt-px flex-shrink-0" />
           <span>
-            El mes no ha terminado:{' '}
+            El ciclo no ha cerrado todavía:{' '}
             {accruingCount === 1 ? 'una persona cobra' : `${accruingCount} personas cobran`} por
-            horas y su sueldo sube cada día que trabaja. Este gasto todavía va a crecer.
+            horas y su sueldo sube cada día que trabaja. Este gasto va a crecer hasta el día 14.
           </span>
         </p>
       )}

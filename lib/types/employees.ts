@@ -428,6 +428,15 @@ export interface EmployeesDataset {
   hoursCost?: Record<string, Record<string, number>>
   /** Mes en curso. Lo anterior es historia y no se reescribe */
   currentPeriod?: string
+  /**
+   * Sobre qué tramo se contó `hoursCost`. Ver BaseDeCoste en lib/employees/data.ts.
+   *
+   * Importa para saber CUÁNDO deja de crecer el importe: con el mes natural no
+   * está cerrado hasta fin de mes, y con el ciclo del 15 al 14 se cierra el día
+   * 14. Sin este dato, Tesorería seguiría avisando de que «el mes no ha
+   * terminado» del 15 al 30, con una cifra que ya no puede cambiar.
+   */
+  baseCoste?: 'mes' | 'ciclo'
 }
 
 /** El importe de una persona en un mes, con su procedencia y su desfase */
@@ -599,6 +608,25 @@ export interface EmployeesMonthTotal {
  * la migración 112 los sacó de ahí. Si alguien vuelve a meter filas de
  * sueldos como gasto, el mes se contará dos veces.
  */
+
+/**
+ * ¿El importe de este periodo todavía puede subir?
+ *
+ * Con el mes natural, mientras sea el mes en curso. Con el ciclo del 15 al 14
+ * —que es lo que se paga ese mes— solo hasta el día 14: a partir del 15 el
+ * ciclo está cerrado y la cifra ya es definitiva, aunque el mes siga corriendo.
+ */
+function sigueAbierto(
+  period: string,
+  current: string,
+  base: 'mes' | 'ciclo' | undefined
+): boolean {
+  if (period !== current) return false
+  if (base !== 'ciclo') return true
+  // El ciclo que se cobra este mes cierra el día 14.
+  return new Date().getDate() <= 14
+}
+
 export function employeesMonthTotal(
   period: string,
   data: EmployeesDataset,
@@ -624,7 +652,7 @@ export function employeesMonthTotal(
     // Solo se cuenta hasta el mes en curso: contarlo también en los doce meses
     // futuros multiplicaría por trece el aviso de una sola persona.
     if (month.source === 'sin_perfil' && period <= current) warnings += 1
-    if (month.source === 'horas' && period === current) accruing += 1
+    if (month.source === 'horas' && sigueAbierto(period, current, data.baseCoste)) accruing += 1
   }
 
   return { period, eur, usd, rows, headcount, warnings, accruing }
