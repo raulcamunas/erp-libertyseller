@@ -9,11 +9,20 @@ import { Input } from '@/components/ui/input'
 import { X } from 'lucide-react'
 import { LibertyButton } from '@/components/ui/LibertyButton'
 import { CommissionCalculationData } from '@/lib/types/commissions'
+import type { DatosPorMarca } from './DesglosePorMarca'
 
 interface SaveReportModalProps {
   clientId: string
   clientName: string
-  data: CommissionCalculationData
+  /**
+   * Lo que se guarda en `commission_reports.data`, que es JSONB.
+   *
+   * No siempre es un `CommissionCalculationData`: el cálculo por marca de
+   * Keslem tiene otra forma —`bloques` en vez de `summary` y `rows`— y también
+   * hay que poder guardarlo. La columna admite las dos; quien decide cómo
+   * pintarlo es la pantalla del reporte, mirando el campo `modo`.
+   */
+  data: CommissionCalculationData | DatosPorMarca
   onClose: () => void
   onSaved: () => void
 }

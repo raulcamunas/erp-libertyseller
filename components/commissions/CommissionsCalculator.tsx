@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { LibertyButton } from '@/components/ui/LibertyButton'
 import { SaveReportModal } from './SaveReportModal'
+import { DesglosePorMarca, esPorMarca } from './DesglosePorMarca'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -673,84 +674,21 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
           Va antes que el resto y con su propio return: el resultado de este modo
           no tiene `summary` ni filas por producto, porque no se factura producto
           a producto sino por bloques de marca. */}
-      {result && (result as any).modo === 'por_marca' && (
+      {result && esPorMarca(result) && (
         <div className="space-y-4">
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-            <p className="mb-3 text-[12px] text-white/50">
-              {(result as any).cliente} · comparando los dos informes ·{' '}
-              {(result as any).catalogoReferencias.toLocaleString('es-ES')} referencias en catálogo
-            </p>
+          <DesglosePorMarca datos={result} />
 
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-white/40">
-                  <th className="pb-1.5 text-left font-semibold">Bloque</th>
-                  <th className="pb-1.5 text-right font-semibold">Año anterior</th>
-                  <th className="pb-1.5 text-right font-semibold">Año actual</th>
-                  <th className="pb-1.5 text-right font-semibold">Excedente</th>
-                  <th className="pb-1.5 text-right font-semibold">Comisión</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(result as any).bloques.map((b: any) => (
-                  <tr key={b.etiqueta} className="border-b border-white/[0.05]">
-                    <td className="py-2 text-white/85">{b.etiqueta}</td>
-                    <td className="py-2 text-right tabular-nums text-white/60">
-                      €{b.anterior.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-2 text-right tabular-nums text-white/60">
-                      €{b.actual.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td
-                      className={`py-2 text-right tabular-nums ${
-                        b.excedente >= 0 ? 'text-emerald-300' : 'text-red-300'
-                      }`}
-                    >
-                      €{b.excedente.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-2 text-right tabular-nums font-semibold text-[#FF6600]">
-                      €{b.comision.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                      <span className="ml-1 text-[10px] font-normal text-white/35">
-                        {(b.tasa * 100).toFixed(0)}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                <tr>
-                  <td colSpan={4} className="py-2 text-right text-[12px] text-white/50">
-                    Total a facturar
-                  </td>
-                  <td className="py-2 text-right text-[16px] font-bold tabular-nums text-[#FF6600]">
-                    €{(result as any).totalComision.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            {/* LO QUE NO SE HA PODIDO UBICAR SE DICE, NO SE REPARTE.
-                Suelen ser productos retirados que ya no salen en el informe de
-                listados. Meterlos en terceros «porque son mayoría» cambiaría el
-                importe sin que nadie lo supiera. */}
-            {(result as any).sinUbicar?.total > 0 && (
-              <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.05] p-2.5">
-                <p className="text-[11.5px] leading-relaxed text-amber-100/85">
-                  <strong>{(result as any).sinUbicar.total} referencias sin ubicar</strong> — no
-                  están en el catálogo, así que no se sabe de qué marca son y{' '}
-                  <strong>se han dejado fuera del cálculo</strong>. Suman{' '}
-                  €{(result as any).sinUbicar.anterior.toLocaleString('es-ES', { minimumFractionDigits: 2 })}{' '}
-                  el año anterior y €
-                  {(result as any).sinUbicar.actual.toLocaleString('es-ES', { minimumFractionDigits: 2 })}{' '}
-                  el actual. Suele ser producto retirado: sube el informe de listados más reciente y
-                  vuelve a calcular.
-                </p>
-                <p className="mt-1 text-[10.5px] text-amber-100/50">
-                  {(result as any).sinUbicar.referencias
-                    .slice(0, 8)
-                    .map((r: any) => `${r.asin} (${r.importe} €)`)
-                    .join(' · ')}
-                </p>
-              </div>
-            )}
+          {/* GUARDAR TAMBIÉN AQUÍ.
+              El botón de guardar vivía solo en el bloque de los clientes
+              normales, que es justo el que se salta este modo. Resultado: el
+              cálculo de Keslem se veía en pantalla y se perdía al recargar, sin
+              enlace que mandarle al cliente y sin nada que adjuntar a la
+              factura. */}
+          <div className="flex justify-end">
+            <Button onClick={() => setIsSaveModalOpen(true)} variant="glass" className="gap-2">
+              <Save className="h-4 w-4" />
+              Guardar Reporte
+            </Button>
           </div>
         </div>
       )}

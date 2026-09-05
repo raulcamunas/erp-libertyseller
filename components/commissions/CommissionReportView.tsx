@@ -27,6 +27,7 @@ import {
   ResponsiveContainer 
 } from 'recharts'
 import { cn } from '@/lib/utils'
+import { DesglosePorMarca, esPorMarca } from './DesglosePorMarca'
 
 /** Corta el nombre del producto en la primera coma o en el primer " - " (guion con espacios). */
 function truncateProductName(title: string): string {
@@ -49,6 +50,19 @@ type SortField = 'productTitle' | 'grossSales' | 'commission' | 'commissionRate'
 type SortDirection = 'asc' | 'desc'
 
 export function CommissionReportView({ report }: CommissionReportViewProps) {
+  /**
+   * UN CÁLCULO POR MARCA NO TIENE `summary` NI `rows`.
+   *
+   * Esto va ANTES de leer nada de `report.data`. La línea de debajo hace
+   * `report.data.summary` y la siguiente lee una propiedad suya: con un reporte
+   * de Keslem guardado, eso es un TypeError y la página entera se queda en
+   * blanco — incluida la pública, que es el enlace que se le manda al cliente
+   * junto a la factura.
+   */
+  if (esPorMarca(report.data)) {
+    return <DesglosePorMarca datos={report.data} />
+  }
+
   const summary = report.data.summary
   const allRows = report.data.rows
   const isShoesF = summary.excessAmount !== undefined && summary.previousYearNetBase !== undefined

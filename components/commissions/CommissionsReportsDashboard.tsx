@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { CommissionReport, Client } from '@/lib/types/commissions'
+import { esPorMarca } from './DesglosePorMarca'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { 
@@ -114,7 +115,31 @@ export function CommissionsReportsDashboard({ reports, clients }: CommissionsRep
       <div className="grid grid-cols-1 gap-4">
         {filteredReports.map((report) => {
           const clientName = report.clients?.name || 'Cliente desconocido'
-          const summary = report.data.summary
+          /**
+           * NO TODOS LOS REPORTES TIENEN `summary` NI `rows`.
+           *
+           * El cálculo por marca (Keslem) guarda `bloques` y `totalComision`.
+           * Leyendo `report.data.summary.totalSales` a pelo, un solo reporte de
+           * ese tipo tumbaba ESTA LISTA ENTERA con un TypeError: no se veía
+           * ninguno de los demás, y el fallo no decía de cuál venía.
+           *
+           * Se normaliza a las cifras que la tarjeta sabe pintar. Las que un
+           * cálculo por marca no tiene —ventas, reembolsos, devoluciones— van a
+           * cero, porque compara dos años y esos números no existen en él.
+           */
+          const porMarca = esPorMarca(report.data) ? report.data : null
+          const summary = porMarca
+            ? {
+                totalSales: 0,
+                totalRefunds: 0,
+                netBase: porMarca.bloques.reduce((s, b) => s + b.excedente, 0),
+                averageCommissionRate: 0,
+                totalCommission: porMarca.totalComision,
+                totalOrders: 0,
+              }
+            : report.data.summary
+          const numFilas = porMarca ? porMarca.catalogoReferencias : (report.data.rows?.length ?? 0)
+          const numErrores = porMarca ? 0 : (report.data.errors?.length ?? 0)
           const shareUrl = `${window.location.origin}/report/commissions/${report.slug}`
 
           return (
@@ -239,12 +264,12 @@ export function CommissionsReportsDashboard({ reports, clients }: CommissionsRep
 
                 {/* Estadísticas adicionales */}
                 <div className="mt-4 flex flex-wrap gap-4 text-xs text-white/50">
-                  <span>{report.data.rows.length} productos procesados</span>
-                  <span>{summary.totalOrders} pedidos</span>
-                  {report.data.errors.length > 0 && (
-                    <span className="text-yellow-400">
-                      {report.data.errors.length} errores de parsing
-                    </span>
+                  <span>
+                    {numFilas} {porMarca ? 'referencias en catálogo' : 'productos procesados'}
+                  </span>
+                  {!porMarca && <span>{summary.totalOrders} pedidos</span>}
+                  {numErrores > 0 && (
+                    <span className="text-yellow-400">{numErrores} errores de parsing</span>
                   )}
                 </div>
               </CardContent>
