@@ -1778,6 +1778,35 @@ async function confirmSubmissions(
       .eq('connection_id', connectionId)
       .eq('marketplace_id', marketplaceId)
       .in('status', ['pendiente', 'aceptado'])
+      /**
+       * NO SE MIRA MÁS ATRÁS DE 48 HORAS, Y ESTO ERA LA FACTURA DE SUPABASE.
+       *
+       * Sin esta línea se leía TODO lo que estuviera sin confirmar, de siempre.
+       * Y no eran «unas pocas filas» como suponía el índice de la 118: eran
+       * 136.609. Un envío pasa a 'confirmado' cuando el espejo coincide con lo
+       * que se mandó, y si el precio vuelve a cambiar antes de esa comprobación
+       * ya no coincide nunca — se queda abierto para siempre y se relee cada
+       * quince minutos para volver a no coincidir.
+       *
+       * Medido: 13,6 MB por lectura, 96 lecturas al día, 39 GB al mes. El plan
+       * da 5. La organización entró en periodo de gracia por esto.
+       *
+       * SEIS HORAS, y el número está medido, no elegido a ojo. El catálogo se
+       * refresca cada quince minutos, así que lo que va a cuadrar cuadra en la
+       * primera media hora; seis horas son doce veces ese margen. Contado
+       * contra la base real, filas abiertas por ventana y lo que costaría
+       * releerlas cada quince minutos:
+       *
+       *      2 h      950 filas    0,27 GB/mes
+       *      6 h    2.729 filas    0,79 GB/mes   <- esta
+       *     24 h   11.402 filas    3,28 GB/mes
+       *     48 h   22.415 filas    6,46 GB/mes   (se pasa del plan)
+       *    sin      136.740 filas     39 GB/mes   (lo que había)
+       *
+       * Lo que siga abierto pasadas las seis horas lo cierra la migración 182
+       * como 'caducado': no es que se deje de mirar, es que ya no va a cuadrar.
+       */
+      .gte('sent_at', new Date(Date.now() - VENTANA_CONFIRMACION_MS).toISOString())
       .order('id', { ascending: true })
       .range(desde, hasta)
   )
@@ -1881,6 +1910,12 @@ export interface SentChange {
   message: string | null
   submissionId: string | null
 }
+
+/**
+ * Cuánto tiempo se sigue intentando confirmar un envío contra el espejo.
+ * Ver el comentario dentro de confirmSubmissions y la migración 182.
+ */
+const VENTANA_CONFIRMACION_MS = 6 * 60 * 60 * 1000
 
 export interface SendChangesResult {
   batchId: string
