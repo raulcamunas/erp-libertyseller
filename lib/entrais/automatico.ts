@@ -306,6 +306,28 @@ async function publicar(
   const arranque = Date.now()
 
   /**
+   * LA CUENTA Y EL PAÍS, YA COMPROBADOS, EN VARIABLES PROPIAS.
+   *
+   * `publicarSiToca` ya se asegura de que los dos existen antes de llamar aquí,
+   * pero eso TypeScript no lo sabe: el estrechamiento de tipo no cruza de una
+   * función a otra, así que `config.connection_id` sigue siendo `string | null`
+   * en este lado y la compilación falla al pasarlo a sendChanges.
+   *
+   * Se vuelve a comprobar en vez de poner un `as string`. El cast compila igual
+   * y esconde el día que deje de ser cierto —una cuenta desconectada a mitad de
+   * pasada, una configuración que se vacía— y entonces lo que llega a Amazon es
+   * un `null` disfrazado de texto.
+   */
+  const connectionId = config.connection_id
+  const marketplaceId = config.marketplace_id
+  if (!connectionId || !marketplaceId) {
+    return apuntar(config.id, {
+      hecho: false,
+      motivo: 'El motor no tiene cuenta de Amazon ni país configurados.',
+    })
+  }
+
+  /**
    * ---------- 1. Recalcular CON LO QUE YA HAY ----------
    *
    * `soloCache` es la línea importante de este módulo. El proveedor deja cuatro
@@ -454,8 +476,8 @@ async function publicar(
     // Un precio a cero es un producto sin precio de proveedor, no un error de
     // Amazon. Va a la cola de incidencias porque es lo que hay que arreglar.
     await service.from('amazon_eventos').insert({
-      connection_id: config.connection_id,
-      marketplace_id: config.marketplace_id,
+      connection_id: connectionId,
+      marketplace_id: marketplaceId,
       tipo: 'entrais_precio_imposible',
       severidad: 'aviso',
       mensaje:
@@ -472,8 +494,8 @@ async function publicar(
     // Se guardan como evento para que salgan en la cola de incidencias: un
     // precio que no se manda y que nadie ve es un precio mal puesto para siempre.
     await service.from('amazon_eventos').insert({
-      connection_id: config.connection_id,
-      marketplace_id: config.marketplace_id,
+      connection_id: connectionId,
+      marketplace_id: marketplaceId,
       tipo: 'entrais_precio_frenado',
       severidad: 'aviso',
       mensaje:
@@ -548,7 +570,7 @@ async function publicar(
 
     const cambios: ChangeToSend[] = tanda.slice(i, i + POR_TANDA).map((c) => ({
       sku: c.sku,
-      marketplaceId: config.marketplace_id as string,
+      marketplaceId,
       field: 'precio',
       newValue: c.precio,
     }))
@@ -568,7 +590,7 @@ async function publicar(
     let parcial: Awaited<ReturnType<typeof sendChanges>>
     try {
       parcial = await sendChanges({
-        connectionId: config.connection_id,
+        connectionId,
         changes: cambios,
         // `fichero` y no `manual`: lo decidió el motor, no una persona. Es lo
         // primero que hay que saber el día que un precio salga raro.
