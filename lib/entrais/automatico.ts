@@ -52,27 +52,71 @@ import { calcularTodo, leerConfig } from './motor'
 /**
  * CUÁNTO TIEMPO PUEDE OCUPAR EL ENVÍO DE PRECIOS EN UNA PASADA.
  *
- * El cron corta la petición a los 280 segundos y el ciclo de stock ya se lleva
- * unos 130. Lo que queda son unos 100 para los precios, con margen.
+ * Amazon acepta CINCO patchListingsItem por segundo (lib/amazon/throttle.ts), y
+ * eso no se negocia: 966 precios son 193 segundos, 2.900 son los 580 de la
+ * ventana entera. Todo lo que hay que decidir aquí es cuánta ventana se usa.
  *
- * Esto NO es una optimización, es lo que hacía que no se publicara nada. El
- * catálogo tenía 5.424 precios que cambiar y se mandaban en una sola tanda: unos
- * nueve minutos de llamadas a Amazon. La petición moría a mitad, no se escribía
- * ni una fila, no se apuntaba el motivo, y la pasada siguiente empezaba otra vez
- * desde cero. Un bucle que no avanzaba nunca y que desde fuera se veía como «el
- * interruptor está encendido y no manda nada».
  *
- * Ahora se manda por tandas hasta que se acaba el tiempo y se deja constancia de
- * por dónde va. Como los mayores saltos van primero, lo que se queda para la
- * siguiente pasada es siempre lo menos urgente.
+ * ============ AQUÍ HABÍA 260 SEGUNDOS Y ERA EL FALLO ============
+ *
+ * El número venía de creer que «el cron corta la petición a los 280 segundos».
+ * No es verdad: la ruta declara maxDuration = 600 y el curl del contenedor
+ * espera 780. Con 260 y el ciclo de stock por delante comiéndose 145, a los
+ * precios les quedaban 115 segundos — unos 570 precios— y el resto se quedaba
+ * para la pasada siguiente. Que además tardaba un cuarto de hora en llegar,
+ * porque cron-sync está a quince minutos en `cron_config`.
+ *
+ * Eso es exactamente lo que dejó escrito la última pasada real:
+ *
+ *     «598 precios aceptados por Amazon, 2 frenados. Quedan 893 para las
+ *      siguientes pasadas»
+ *
+ * Ahora los precios corren en su propia ruta (app/api/entrais/cron-precios) y
+ * tienen la ventana entera. 580 segundos dejan 20 de margen para cerrar y
+ * contestar dentro de los 600.
+ */
+export const PRESUPUESTO_TOTAL_MS = 580_000
+
+/**
+ * Lo que se usa si quien llama no dice nada. Sigue siendo el valor viejo a
+ * propósito: cualquier llamada que comparta petición con otro trabajo tiene que
+ * pedir su presupuesto expresamente, no heredar la ventana entera y morirse.
  */
 const PRESUPUESTO_ENVIO_MS = 100_000
 
 /** Suelo: por poco tiempo que quede, una tanda entra siempre */
 const PRESUPUESTO_MINIMO_MS = 30_000
 
-/** Cuántos precios por llamada a sendChanges. Cada tanda es un lote en el historial */
+/**
+ * Cuántos precios por llamada a sendChanges.
+ *
+ * NO es un tope de cuántos se mandan: el bucle da tantas vueltas como haga
+ * falta hasta acabarlos todos o agotar el presupuesto. Es el tamaño del lote
+ * con el que se escribe en el historial, y 200 es lo que hace que en la
+ * pantalla se vea el avance en vez de un único bloque al final.
+ *
+ * Se comprueba el reloj ENTRE tandas, así que la última puede pasarse hasta
+ * cuarenta segundos del presupuesto. Por eso PRESUPUESTO_TOTAL_MS deja margen.
+ */
 const POR_TANDA = 200
+
+/**
+ * CUÁNTO SE ESPERA ANTES DE VOLVER A MANDAR EL MISMO PRECIO.
+ *
+ * sendChanges() no toca el espejo del catálogo —lo confirma la pasada de
+ * catálogo, cada quince minutos—, así que durante ese rato un SKU recién
+ * enviado SIGUE saliendo como pendiente al compararlo con `pvp_actual`.
+ *
+ * Sin esta ventana, la pasada del minuto siguiente reenviaría lo mismo: con un
+ * catálogo que no cupiera en una sola pasada, los mismos 2.900 precios cada
+ * minuto durante un cuarto de hora, y la cola de los que faltan sin llegar
+ * nunca.
+ *
+ * Veinticinco minutos: por encima de los quince del refresco, con margen para
+ * una pasada que se retrase. Pasados, se reintenta aunque coincida — si a estas
+ * alturas Amazon sigue sin tener el precio, es que aquel envío no se aplicó.
+ */
+const ESPERA_CONFIRMACION_MS = 25 * 60_000
 
 export interface ResultadoAutomatico {
   /** false = no le tocaba, o está apagado. No es un fallo */
@@ -184,7 +228,19 @@ export async function publicarSiToca(
       .select('last_run_at')
       .eq('connection_id', config.connection_id)
       .eq('is_active', true)
-      .order('last_run_at', { ascending: false })
+      /**
+       * `nullsFirst: false` NO ES DECORACIÓN.
+       *
+       * En PostgreSQL, `ORDER BY ... DESC` pone los NULL PRIMERO por defecto. Un
+       * perfil activo que todavía no ha corrido nunca —uno recién creado— tiene
+       * `last_run_at` a NULL, así que salía el primero, `ultimaPasada` quedaba
+       * en undefined y esto contestaba «esta cuenta no tiene ningún perfil de
+       * sincronismo activo». Con perfiles corriendo cada quince minutos delante.
+       *
+       * O sea: dar de alta un perfil nuevo apagaba la publicación de precios
+       * entera, sin error y sin relación aparente con lo que se acababa de hacer.
+       */
+      .order('last_run_at', { ascending: false, nullsFirst: false })
       .limit(1)
 
     const ultimaPasada = (perfiles ?? [])[0]?.last_run_at as string | undefined
@@ -234,10 +290,14 @@ export async function publicarSiToca(
     dif_euros: number | null
     dif_porcentaje: number | null
     origen: string | null
+    enviado_precio: number | null
+    enviado_at: string | null
   }>((a, b) =>
     service
       .from('entrais_precios')
-      .select('sku, precio, pvp_actual, dif_euros, dif_porcentaje, origen')
+      .select(
+        'sku, precio, pvp_actual, dif_euros, dif_porcentaje, origen, enviado_precio, enviado_at'
+      )
       .order('sku', { ascending: true })
       .range(a, b)
   )
@@ -245,12 +305,32 @@ export async function publicarSiToca(
   const tope = config.publicar_max_salto_pct
   const candidatos: { sku: string; precio: number; salto: number }[] = []
   const frenados: { sku: string; de: number; a: number; pct: number }[] = []
+  /** Ya salieron hacia Amazon y el espejo todavía no lo refleja */
+  let enVuelo = 0
+
+  const ahoraMs = Date.now()
 
   for (const f of filas) {
     if (f.origen === 'bloqueado') continue
     if (f.precio === null || f.pvp_actual === null) continue
     const dif = f.dif_euros === null ? 0 : Number(f.dif_euros)
     if (Math.abs(dif) < 0.005) continue
+
+    /**
+     * YA SE MANDÓ Y AMAZON NO LO HA CONFIRMADO TODAVÍA.
+     *
+     * Va ANTES del tope de salto y antes de contarlo como candidato: no es que
+     * no se pueda mandar, es que ya está mandado. Ver ESPERA_CONFIRMACION_MS.
+     */
+    if (
+      f.enviado_precio !== null &&
+      f.enviado_at !== null &&
+      Math.abs(Number(f.enviado_precio) - Number(f.precio)) < 0.005 &&
+      ahoraMs - Date.parse(f.enviado_at) < ESPERA_CONFIRMACION_MS
+    ) {
+      enVuelo += 1
+      continue
+    }
 
     const pct = f.dif_porcentaje === null ? 0 : Math.abs(Number(f.dif_porcentaje))
     if (tope !== null && pct > Number(tope)) {
@@ -305,7 +385,10 @@ export async function publicarSiToca(
       motivo:
         candidatos.length === 0 && frenados.length > 0
           ? `Ninguno se ha podido mandar: los ${frenados.length} que cambiaban se pasan del tope de salto.`
-          : 'No había ningún precio que cambiar: Amazon ya está a los precios calculados.',
+          : enVuelo > 0
+            ? `Nada que mandar ahora mismo: ${enVuelo} ya salieron y Amazon todavía no los ha ` +
+              'confirmado. Se confirman en el refresco del catálogo, cada quince minutos.'
+            : 'No había ningún precio que cambiar: Amazon ya está a los precios calculados.',
       calculados: resumen.productos,
       candidatos: 0,
       frenados: frenados.length,
@@ -325,6 +408,8 @@ export async function publicarSiToca(
   let aceptados = 0
   let rechazados = 0
   let mandados = 0
+  /** Lo que cortó el envío a media tanda, si algo lo cortó */
+  let fallo: string | null = null
 
   for (let i = 0; i < tanda.length; i += POR_TANDA) {
     const presupuesto = Math.max(
@@ -340,21 +425,79 @@ export async function publicarSiToca(
       newValue: c.precio,
     }))
 
-    const parcial = await sendChanges({
-      connectionId: config.connection_id,
-      changes: cambios,
-      // `fichero` y no `manual`: lo decidió el motor, no una persona. Es lo
-      // primero que hay que saber el día que un precio salga raro.
-      source: 'fichero',
-      sourceRef: `entrais-automatico:${new Date().toISOString().slice(0, 16)}`,
-      userId: null,
-    })
+    /**
+     * EN SU TRY, PORQUE sendChanges() LANZA Y SE LO LLEVABA TODO POR DELANTE.
+     *
+     * sendChanges valida el LOTE ENTERO y lanza si un solo precio sale <= 0 o
+     * por encima del máximo (lib/amazon/data.ts). Esa excepción salía de
+     * publicarSiToca sin pasar por apuntar(), así que en la pantalla no quedaba
+     * ni el motivo: se veía como que la publicación no hacía nada, cuando lo
+     * que pasaba es que UN producto tenía el precio mal calculado.
+     *
+     * Se corta el bucle pero NO se pierde lo ya mandado: las tandas anteriores
+     * están enviadas y apuntadas, y el motivo de abajo lo dice.
+     */
+    let parcial: Awaited<ReturnType<typeof sendChanges>>
+    try {
+      parcial = await sendChanges({
+        connectionId: config.connection_id,
+        changes: cambios,
+        // `fichero` y no `manual`: lo decidió el motor, no una persona. Es lo
+        // primero que hay que saber el día que un precio salga raro.
+        source: 'fichero',
+        sourceRef: `entrais-automatico:${new Date().toISOString().slice(0, 16)}`,
+        userId: null,
+      })
+    } catch (error) {
+      fallo = error instanceof Error ? error.message : 'Amazon ha rechazado el lote entero.'
+      break
+    }
     aceptados += parcial.accepted
     rechazados += parcial.failed
     mandados += cambios.length
+
+    /**
+     * QUEDA APUNTADO LO QUE AMAZON HA ACEPTADO, TANDA A TANDA.
+     *
+     * Tanda a tanda y no al final: si la pasada se corta —se acaba el
+     * presupuesto, revientan los tokens, se cae el contenedor— lo ya mandado
+     * tiene que constar igualmente. Apuntándolo al final, un corte dejaría 2.000
+     * precios enviados a Amazon y sin rastro aquí, y la pasada siguiente los
+     * mandaría otra vez.
+     *
+     * Solo los ACEPTADOS. Uno que Amazon ha rechazado no está puesto, así que
+     * tiene que volver a intentarse en la pasada siguiente.
+     */
+    const aceptadosDeLaTanda = parcial.results.filter((r) => r.status === 'aceptado')
+    if (aceptadosDeLaTanda.length > 0) {
+      const sello = new Date().toISOString()
+      await Promise.all(
+        aceptadosDeLaTanda.map((r) =>
+          service
+            .from('entrais_precios')
+            .update({ enviado_precio: r.newValue, enviado_at: sello })
+            .eq('sku', r.sku)
+        )
+      ).catch((error) => {
+        // La 180 se lanza a mano, así que el código puede llegar antes. Que no
+        // poder apuntarlo tumbe una publicación que YA HA SALIDO hacia Amazon
+        // sería cambiar un problema pequeño por uno grande.
+        console.warn('[entrais] no se ha podido apuntar el precio enviado:', error)
+      })
+    }
   }
 
-  const quedan = tanda.length - mandados
+  /**
+   * LO QUE QUEDA ES SOBRE LOS CANDIDATOS, NO SOBRE LA TANDA.
+   *
+   * `tanda` ya viene recortada por `publicar_max_por_pasada`. Midiendo contra
+   * ella, los candidatos que se quedaron FUERA del recorte no contaban como
+   * pendientes: con el tope por debajo de lo que cambia, esto sellaba
+   * `publicado_at` diciendo que no quedaba nada y esos precios no se mandaban
+   * hasta el ciclo siguiente. Hoy el tope está en 20.000 y no recorta nada,
+   * pero es un número de la pantalla y cualquiera puede bajarlo.
+   */
+  const quedan = candidatos.length - mandados
   const enviado = { accepted: aceptados, failed: rechazados }
 
   /**
@@ -380,9 +523,11 @@ export async function publicarSiToca(
   return apuntar(config.id, {
     hecho: true,
     motivo:
-      `Publicado: ${enviado.accepted} precios aceptados por Amazon` +
+      (fallo ? `El envío se cortó: ${fallo}. Antes de cortarse: ` : 'Publicado: ') +
+      `${enviado.accepted} precios aceptados por Amazon` +
       (enviado.failed > 0 ? `, ${enviado.failed} rechazados` : '') +
       (frenados.length > 0 ? `, ${frenados.length} frenados por el tope de salto` : '') +
+      (enVuelo > 0 ? `, ${enVuelo} ya estaban mandados y sin confirmar` : '') +
       (quedan > 0
         ? `. Quedan ${quedan} para las siguientes pasadas: no caben en el tiempo de una, y van ` +
           'ordenados de mayor a menor diferencia, así que lo que espera es lo menos urgente.'

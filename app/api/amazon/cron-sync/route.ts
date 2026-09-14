@@ -4,7 +4,6 @@ import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { ejecutarCicloStock } from '@/lib/stock-sync/ciclo'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
-import { publicarSiToca } from '@/lib/entrais/automatico'
 
 /**
  * EL REFRESCO DE CADA QUINCE MINUTOS, Y EL CICLO DE STOCK DETRÁS.
@@ -140,7 +139,6 @@ export async function POST(request: NextRequest) {
  * de abrir la pantalla.
  */
 async function cicloDeStock(): Promise<Record<string, unknown>> {
-  const arranque = Date.now()
   try {
     const ciclo = await ejecutarCicloStock()
 
@@ -162,47 +160,24 @@ async function cicloDeStock(): Promise<Record<string, unknown>> {
     }
 
     /**
-     * ---------- Y LOS PRECIOS, EN LA MISMA PASADA ----------
+     * ---------- LOS PRECIOS YA NO VAN AQUÍ ----------
      *
-     * AQUÍ Y NO EN amazon-jobs, que es donde estaban y por eso no salían nunca.
-     * Aquella ruta tiene su propia cadencia en `cron_config` y dos returns
-     * tempranos antes de llegar a los precios: con las ingestas apagadas —que es
-     * como está hoy— la publicación no se ejecutaba ni una sola vez, y desde
-     * fuera se veía como «el interruptor está encendido y no manda nada».
+     * Estaban en esta misma petición, detrás del ciclo de stock, y por eso no
+     * se publicaban todos: las dos cosas se repartían una sola ventana de 600
+     * segundos. Al stock se le iban 145 y a los precios les quedaban 115 — unos
+     * 570 a cinco por segundo—, así que cada pasada dejaba cientos sin mandar.
+     * Y el resto tardaba un cuarto de hora en retomarse, porque esta ruta está
+     * a quince minutos en `cron_config`.
      *
-     * Aquí es su sitio por dos razones, y la segunda es la que importa:
-     *
-     *   · El ritmo es el del stock, que es justo lo que se pidió.
-     *   · Es LA MISMA LLAMADA. El catálogo del proveedor que acaba de traer el
-     *     ciclo sigue en memoria, así que los precios se calculan con él sin
-     *     gastar otra de las cuatro llamadas por hora que deja Entrais. Puesto
-     *     en otra ruta eso dependía de que la caché siguiera viva entre dos
-     *     peticiones distintas, que es como se agotó la cuota esta mañana.
-     *
-     * En su try: publicar precios es lo más delicado que hace esto y no puede
-     * llevarse por delante un ciclo de stock que ya ha terminado bien.
+     * Ahora viven en app/api/entrais/cron-precios, que corre cada minuto y
+     * tiene los 600 segundos enteros. Siguen calculándose con el catálogo del
+     * proveedor que deja esta pasada en memoria —misma llamada, misma cuota—
+     * porque la caché es del proceso y dura veinte minutos.
      */
-    let precios: Awaited<ReturnType<typeof publicarSiToca>> | null = null
-    try {
-      /**
-       * El tiempo que queda de verdad, no un número fijo.
-       *
-       * El cron corta a los 280 s. Detrás de una pasada de stock quedan unos
-       * 120; en una vuelta donde al stock no le tocaba, casi los 280. Se
-       * reservan 20 de margen para cerrar y contestar.
-       */
-      precios = await publicarSiToca({
-        presupuestoMs: 260_000 - (Date.now() - arranque),
-      })
-      console.log(`[entrais] precios: ${precios.motivo}`)
-    } catch (error) {
-      console.error('[entrais] la publicación automática de precios ha fallado:', error)
-    }
 
     // El detalle por perfil NO viaja en la respuesta: la lee un `curl -o
     // /dev/null` del cron y en el historial de la pantalla está entero.
     return {
-      precios: precios?.motivo ?? null,
       mirados: ciclo.mirados,
       procesados: ciclo.procesados,
       saltados: ciclo.saltados,

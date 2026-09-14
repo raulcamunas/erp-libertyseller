@@ -26,7 +26,7 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 RUN npm run build
 
 # Configurar scripts del entrypoint y cron
-RUN chmod +x /app/docker-entrypoint.sh /app/scripts/supabase-ping.sh /app/scripts/google-calendar-sync.sh /app/scripts/amazon-sync.sh /app/scripts/amazon-jobs.sh
+RUN chmod +x /app/docker-entrypoint.sh /app/scripts/supabase-ping.sh /app/scripts/google-calendar-sync.sh /app/scripts/amazon-sync.sh /app/scripts/amazon-jobs.sh /app/scripts/entrais-precios.sh
 
 # Cron: ping a Supabase cada día a las 08:00 UTC + los tres procesos del ERP,
 # que se despiertan CADA MINUTO.
@@ -64,6 +64,7 @@ RUN { \
       echo "* * * * * /app/scripts/google-calendar-sync.sh"; \
       echo "* * * * * /app/scripts/amazon-sync.sh"; \
       echo "* * * * * /app/scripts/amazon-jobs.sh"; \
+      echo "* * * * * /app/scripts/entrais-precios.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto

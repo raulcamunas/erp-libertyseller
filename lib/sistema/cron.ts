@@ -57,6 +57,29 @@ export const TAREAS_CRON = [
     que: 'Coge el siguiente trabajo de la cola —censo, atributos, BSR, inventario— y avanza un tramo.',
   },
   {
+    /**
+     * NO TIENE RELOJ AQUÍ, Y ES A PROPÓSITO.
+     *
+     * `cadaMinutos: 1` porque la ruta corre cada minuto y no consulta
+     * `tocaAhora()`: el intervalo de verdad —cada cuántas horas se recalcula y
+     * se publica— vive en `publicar_cada_minutos` de la configuración del
+     * motor de precios, que es donde se toca desde la pantalla.
+     *
+     * Correr cada minuto es lo que garantiza que no se quede ningún precio sin
+     * mandar. Cuando una pasada deja pendientes no sella `publicado_at`, y la
+     * del minuto siguiente los retoma. Estando dentro de amazon-sync —a quince
+     * minutos— cada resto esperaba un cuarto de hora, y con 966 precios que
+     * cambian eso era media hora para algo que cabe en una pasada.
+     */
+    id: 'entrais-precios',
+    nombre: 'Precios de Entrais',
+    ruta: '/api/entrais/cron-precios',
+    cadaMinutos: 1,
+    que:
+      'Recalcula el precio de todo el catálogo con las reglas del motor y manda a Amazon los que ' +
+      'han cambiado. La cadencia se ajusta en el motor de precios, no aquí.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
