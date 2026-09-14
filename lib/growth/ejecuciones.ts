@@ -283,17 +283,24 @@ export async function publicacionesDePrecios(
 
   if (error) {
     /**
-     * La vista se lanza a mano en Supabase, así que el código puede llegar
-     * antes. Sin esto, la pestaña entera de un cliente se caería con un 500 por
-     * una sección que es un añadido. Se devuelve vacío y se avisa por consola.
+     * NINGÚN FALLO DE ESTA SECCIÓN PUEDE TUMBAR LA PANTALLA.
+     *
+     * Antes solo se toleraba «la vista no existe» y cualquier otra cosa se
+     * relanzaba. Pero esta consulta agrupa `amazon_submissions` al vuelo, y esa
+     * tabla crece unos 5.000 envíos de precio al día: en frío tardaba seis
+     * segundos y estaba al borde del límite de tiempo de sentencia. Un tiempo
+     * agotado aquí —código 57014— se llevaba por delante Growth Partner entero,
+     * que es la pantalla desde la que se trabaja, por un panel de historial.
+     *
+     * La 183 acota la vista a noventa días y eso quita la causa. Esto es la red:
+     * el historial de precios es un añadido, y un añadido que falla se queda sin
+     * pintar, no tira la pantalla.
      */
-    if (isMissingSchema(error)) {
-      console.warn(
-        'No hay historial de precios: falta lanzar 167_lotes_de_precio.sql en el editor SQL.'
-      )
-      return []
-    }
-    throw error
+    console.warn(
+      `[growth] no se ha podido leer el historial de precios (${error.code ?? 'sin código'}): ` +
+        `${error.message}. La pestaña sigue, sin esa sección.`
+    )
+    return []
   }
 
   return (data ?? []) as unknown as LotePrecio[]
