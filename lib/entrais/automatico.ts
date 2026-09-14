@@ -118,6 +118,13 @@ const POR_TANDA = 200
  */
 const ESPERA_CONFIRMACION_MS = 25 * 60_000
 
+/**
+ * El mismo tope que valida sendChanges antes de llamar a Amazon
+ * (MAX_PRICE en lib/amazon/catalogo.ts). Se repite aquí para apartar el SKU
+ * ANTES de meterlo en el lote, en vez de que reviente el lote entero.
+ */
+const MAX_PRECIO = 999_999.99
+
 export interface ResultadoAutomatico {
   /** false = no le tocaba, o está apagado. No es un fallo */
   hecho: boolean
@@ -161,6 +168,23 @@ async function apuntar(
   return resultado
 }
 
+/**
+ * ¿HAY YA UNA PASADA DE PRECIOS EN MARCHA?
+ *
+ * El cron llama cada minuto y una pasada con cola dura minutos, así que sin
+ * esto se solapan: hasta diez a la vez. Y no van diez veces más rápido — van
+ * más lento. El cubo de fichas de patchListingsItem es UNO por conexión (5 por
+ * segundo, lib/amazon/throttle.ts) y vive en la memoria del proceso, así que
+ * diez pasadas se reparten esos mismos 5/s. Encima recorren la MISMA lista
+ * ordenada igual, y como `enviado_at` solo se sella al terminar cada tanda de
+ * 200, se pisan: PATCH duplicados del mismo SKU gastando la cuota en reescribir
+ * lo mismo.
+ *
+ * Mismo mecanismo que `ejecutarCicloStock`. Basta con que sea de proceso: hay
+ * un solo contenedor y un solo proceso de Next.
+ */
+let enMarcha = false
+
 export async function publicarSiToca(
   opciones: {
     forzar?: boolean
@@ -176,6 +200,12 @@ export async function publicarSiToca(
     presupuestoMs?: number
   } = {}
 ): Promise<ResultadoAutomatico> {
+  if (enMarcha) {
+    // No se apunta: con el cron cada minuto esto se contesta muchas veces
+    // durante una pasada larga y llenaría la columna de motivos de ruido.
+    return { hecho: false, motivo: 'Ya hay una pasada de precios en marcha.' }
+  }
+
   const config = await leerConfig()
 
   /**
@@ -257,6 +287,24 @@ export async function publicarSiToca(
     }
   }
 
+  enMarcha = true
+  try {
+    return await publicar(config, opciones)
+  } finally {
+    // En `finally`: si revienta el recálculo o el envío, el cerrojo tiene que
+    // soltarse igual. Si no, la publicación queda apagada hasta que alguien
+    // reinicie el contenedor, y sin ningún error que lo explique.
+    enMarcha = false
+  }
+}
+
+async function publicar(
+  config: Awaited<ReturnType<typeof leerConfig>>,
+  opciones: { forzar?: boolean; presupuestoMs?: number }
+): Promise<ResultadoAutomatico> {
+  const service = createServiceClient()
+  const arranque = Date.now()
+
   /**
    * ---------- 1. Recalcular CON LO QUE YA HAY ----------
    *
@@ -283,30 +331,57 @@ export async function publicarSiToca(
   const { resumen } = calculo
 
   // ---------- 2. Qué se puede mandar ----------
-  const filas = await fetchAll<{
+  interface FilaPrecio {
     sku: string
     precio: number | null
     pvp_actual: number | null
     dif_euros: number | null
     dif_porcentaje: number | null
     origen: string | null
-    enviado_precio: number | null
-    enviado_at: string | null
-  }>((a, b) =>
-    service
-      .from('entrais_precios')
-      .select(
-        'sku, precio, pvp_actual, dif_euros, dif_porcentaje, origen, enviado_precio, enviado_at'
-      )
-      .order('sku', { ascending: true })
-      .range(a, b)
-  )
+    enviado_precio?: number | null
+    enviado_at?: string | null
+  }
+
+  const COLUMNAS = 'sku, precio, pvp_actual, dif_euros, dif_porcentaje, origen'
+
+  /**
+   * SE REINTENTA SIN LAS COLUMNAS DE LA 180 SI TODAVÍA NO ESTÁ LANZADA.
+   *
+   * Las migraciones de este ERP se lanzan a mano, así que el código llega antes
+   * que la columna. Pidiendo `enviado_precio` a una tabla que no la tiene,
+   * PostgREST contesta 42703 y `fetchAll` lanza: la publicación entera se
+   * quedaba muerta —sin mandar un solo precio— hasta que alguien se acordara de
+   * ejecutar el SQL. Y el motivo que quedaba escrito hablaba de una columna, no
+   * de una migración.
+   *
+   * Sin esas dos columnas se trabaja igual; lo único que se pierde es no
+   * reenviar lo que acaba de salir, que es justo lo que la 180 viene a añadir.
+   */
+  let filas: FilaPrecio[]
+  try {
+    filas = await fetchAll<FilaPrecio>((a, b) =>
+      service
+        .from('entrais_precios')
+        .select(`${COLUMNAS}, enviado_precio, enviado_at`)
+        .order('sku', { ascending: true })
+        .range(a, b)
+    )
+  } catch (error) {
+    const codigo = (error as { code?: string } | null)?.code
+    if (codigo !== '42703' && codigo !== 'PGRST204') throw error
+    console.warn('[entrais] falta la migración 180: se publica sin control de reenvío')
+    filas = await fetchAll<FilaPrecio>((a, b) =>
+      service.from('entrais_precios').select(COLUMNAS).order('sku', { ascending: true }).range(a, b)
+    )
+  }
 
   const tope = config.publicar_max_salto_pct
   const candidatos: { sku: string; precio: number; salto: number }[] = []
   const frenados: { sku: string; de: number; a: number; pct: number }[] = []
   /** Ya salieron hacia Amazon y el espejo todavía no lo refleja */
   let enVuelo = 0
+  /** Precios que Amazon no aceptaría nunca: cero, negativos o desorbitados */
+  const imposibles: { sku: string; precio: number }[] = []
 
   const ahoraMs = Date.now()
 
@@ -322,9 +397,28 @@ export async function publicarSiToca(
      * Va ANTES del tope de salto y antes de contarlo como candidato: no es que
      * no se pueda mandar, es que ya está mandado. Ver ESPERA_CONFIRMACION_MS.
      */
+    /**
+     * UN PRECIO IMPOSIBLE SE APARTA AQUÍ, NO EN AMAZON.
+     *
+     * sendChanges() valida el LOTE ENTERO y LANZA si un solo precio es <= 0 o
+     * se pasa del máximo. Un cero es alcanzable de verdad: si el proveedor manda
+     * un artículo sin precio, el motor calcula coste 0 y objetivo 0 —de ahí que
+     * exista el aviso `precio_proveedor_cero`—. Dejándolo entrar, ese SKU
+     * tumbaba su tanda de 200 Y el resto de la pasada, y como el orden es el
+     * mismo en cada pasada, volvía a tumbarla la siguiente. Indefinidamente.
+     *
+     * Se aparta como frenado: es un precio que no se puede mandar, y sale en la
+     * cola de incidencias en vez de desaparecer.
+     */
+    const valor = Number(f.precio)
+    if (!Number.isFinite(valor) || valor <= 0 || valor > MAX_PRECIO) {
+      imposibles.push({ sku: f.sku, precio: valor })
+      continue
+    }
+
     if (
-      f.enviado_precio !== null &&
-      f.enviado_at !== null &&
+      f.enviado_precio != null &&
+      f.enviado_at != null &&
       Math.abs(Number(f.enviado_precio) - Number(f.precio)) < 0.005 &&
       ahoraMs - Date.parse(f.enviado_at) < ESPERA_CONFIRMACION_MS
     ) {
@@ -355,6 +449,24 @@ export async function publicarSiToca(
   candidatos.sort((a, b) => b.salto - a.salto)
 
   const tanda = candidatos.slice(0, config.publicar_max_por_pasada)
+
+  if (imposibles.length > 0) {
+    // Un precio a cero es un producto sin precio de proveedor, no un error de
+    // Amazon. Va a la cola de incidencias porque es lo que hay que arreglar.
+    await service.from('amazon_eventos').insert({
+      connection_id: config.connection_id,
+      marketplace_id: config.marketplace_id,
+      tipo: 'entrais_precio_imposible',
+      severidad: 'aviso',
+      mensaje:
+        `${imposibles.length} precios no se pueden mandar porque el cálculo da un importe que ` +
+        'Amazon no acepta (cero, negativo o desorbitado). Suele ser un artículo que llega del ' +
+        `proveedor sin precio. Los primeros: ${imposibles
+          .slice(0, 8)
+          .map((i) => `${i.sku} (${i.precio})`)
+          .join(', ')}`,
+    })
+  }
 
   if (frenados.length > 0) {
     // Se guardan como evento para que salgan en la cola de incidencias: un
@@ -404,19 +516,35 @@ export async function publicarSiToca(
    * entero de golpe es lo que hacía que la petición muriera a mitad y no se
    * publicara nada, pasada tras pasada.
    */
-  const arranqueEnvio = Date.now()
+  /**
+   * El reloj arranca con la PASADA, no con el envío.
+   *
+   * Medido desde `arranqueEnvio` se dejaban fuera el recálculo de las 6.931
+   * referencias y la lectura de la tabla, que son bastantes segundos: el
+   * presupuesto se pasaba de largo de la ventana justo en las pasadas con más
+   * trabajo, que son las que no se pueden permitir un corte.
+   */
+  const arranqueEnvio = arranque
   let aceptados = 0
   let rechazados = 0
   let mandados = 0
-  /** Lo que cortó el envío a media tanda, si algo lo cortó */
-  let fallo: string | null = null
+  /** Las tandas que sendChanges rechazó enteras, si alguna */
+  const fallos: string[] = []
 
   for (let i = 0; i < tanda.length; i += POR_TANDA) {
     const presupuesto = Math.max(
       PRESUPUESTO_MINIMO_MS,
       opciones.presupuestoMs ?? PRESUPUESTO_ENVIO_MS
     )
-    if (Date.now() - arranqueEnvio > presupuesto) break
+    /**
+     * PREDICTIVA: se mira si cabe la tanda ENTERA, no si ya se pasó.
+     *
+     * Comprobando sólo «¿me he pasado?» se arrancaba una tanda de 200 con dos
+     * segundos de margen y se acababa cuarenta segundos por encima de la
+     * ventana. Ahora una tanda que no cabe no se empieza.
+     */
+    const DURACION_TANDA_MS = (POR_TANDA / 5) * 1000
+    if (Date.now() - arranqueEnvio + DURACION_TANDA_MS > presupuesto) break
 
     const cambios: ChangeToSend[] = tanda.slice(i, i + POR_TANDA).map((c) => ({
       sku: c.sku,
@@ -449,8 +577,17 @@ export async function publicarSiToca(
         userId: null,
       })
     } catch (error) {
-      fallo = error instanceof Error ? error.message : 'Amazon ha rechazado el lote entero.'
-      break
+      /**
+       * `continue`, NO `break`.
+       *
+       * Con `break`, un lote que sendChanges rechaza entero se llevaba por
+       * delante las tandas que quedaban —hasta 2.800 precios más— y la pasada
+       * acababa con cero enviados. Y como cada pasada recorre la misma lista en
+       * el mismo orden, la siguiente moría igual: la publicación se quedaba
+       * parada para siempre por un solo producto.
+       */
+      fallos.push(error instanceof Error ? error.message : 'Amazon ha rechazado el lote.')
+      continue
     }
     aceptados += parcial.accepted
     rechazados += parcial.failed
@@ -523,11 +660,12 @@ export async function publicarSiToca(
   return apuntar(config.id, {
     hecho: true,
     motivo:
-      (fallo ? `El envío se cortó: ${fallo}. Antes de cortarse: ` : 'Publicado: ') +
+      (fallos.length > 0 ? `${fallos.length} tanda(s) rechazadas (${fallos[0]}). El resto: ` : 'Publicado: ') +
       `${enviado.accepted} precios aceptados por Amazon` +
       (enviado.failed > 0 ? `, ${enviado.failed} rechazados` : '') +
       (frenados.length > 0 ? `, ${frenados.length} frenados por el tope de salto` : '') +
       (enVuelo > 0 ? `, ${enVuelo} ya estaban mandados y sin confirmar` : '') +
+      (imposibles.length > 0 ? `, ${imposibles.length} con un precio que Amazon no admite` : '') +
       (quedan > 0
         ? `. Quedan ${quedan} para las siguientes pasadas: no caben en el tiempo de una, y van ` +
           'ordenados de mayor a menor diferencia, así que lo que espera es lo menos urgente.'
