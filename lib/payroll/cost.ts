@@ -69,7 +69,7 @@ export interface CostRate {
   hourly: number
   commission: number
   /** De dónde sale: excepción personal, tarifa general del ciclo o la de por defecto */
-  source: 'personal' | 'periodo' | 'defecto'
+  source: 'mes' | 'defecto'
 }
 
 /** Coste de una persona en un periodo. SIEMPRE en dólares: payroll va en dólares */
@@ -131,7 +131,7 @@ export function monthCostForUser(userId: string, input: MonthCostInput): PersonC
     if (h.user_id !== userId) continue
     // work_date es un DATE: fecha civil pura, sin huso que convertir
     if (!h.work_date.startsWith(prefix)) continue
-    const rate = resolveRate(rates, h.work_date, userId)
+    const rate = resolveRate(rates, h.work_date)
     acc.hours += Number(h.hours)
     acc.salary += Number(h.hours) * rate.hourly
   }
@@ -141,7 +141,7 @@ export function monthCostForUser(userId: string, input: MonthCostInput): PersonC
     const day = madridDayKey(a.start_time)
     if (!day.startsWith(prefix)) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, day, userId).commission
+    acc.commissions += resolveRate(rates, day).commission
   }
 
   for (const m of manual ?? []) {
@@ -152,7 +152,7 @@ export function monthCostForUser(userId: string, input: MonthCostInput): PersonC
     acc.commissions +=
       m.commission != null
         ? Number(m.commission)
-        : resolveRate(rates, m.appointment_date, m.user_id).commission
+        : resolveRate(rates, m.appointment_date).commission
   }
 
   acc.total = acc.salary + acc.commissions
@@ -167,7 +167,7 @@ export function monthCostForUser(userId: string, input: MonthCostInput): PersonC
   return {
     userId,
     ...acc,
-    rate: resolveRate(rates, `${prefix}-${String(ultimoDia).padStart(2, '0')}`, userId),
+    rate: resolveRate(rates, `${prefix}-${String(ultimoDia).padStart(2, '0')}`),
   }
 }
 
@@ -234,7 +234,7 @@ export function monthCostTotal(input: MonthCostInput): CostTotals {
 
   for (const h of hours) {
     if (!h.work_date.startsWith(prefix)) continue
-    const rate = resolveRate(rates, h.work_date, h.user_id)
+    const rate = resolveRate(rates, h.work_date)
     acc.hours += Number(h.hours)
     acc.salary += Number(h.hours) * rate.hourly
   }
@@ -244,7 +244,7 @@ export function monthCostTotal(input: MonthCostInput): CostTotals {
     const day = madridDayKey(a.start_time)
     if (!day.startsWith(prefix)) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, day, a.comercial_id).commission
+    acc.commissions += resolveRate(rates, day).commission
   }
 
   for (const m of manual ?? []) {
@@ -253,7 +253,7 @@ export function monthCostTotal(input: MonthCostInput): CostTotals {
     acc.commissions +=
       m.commission != null
         ? Number(m.commission)
-        : resolveRate(rates, m.appointment_date, m.user_id).commission
+        : resolveRate(rates, m.appointment_date).commission
   }
 
   acc.total = acc.salary + acc.commissions
@@ -277,7 +277,7 @@ export function cycleCostForUser(
     if (cycleKeyForDate(h.work_date) !== periodKey) continue
     // POR DÍA, no por ciclo: desde que las tarifas son mensuales, una puede
     // arrancar el día 1 y partir este ciclo por la mitad. Ver resolveRate().
-    const rate = resolveRate(rates, h.work_date, userId)
+    const rate = resolveRate(rates, h.work_date)
     acc.hours += Number(h.hours)
     acc.salary += Number(h.hours) * rate.hourly
   }
@@ -287,7 +287,7 @@ export function cycleCostForUser(
     const day = madridDayKey(a.start_time)
     if (cycleKeyForDate(day) !== periodKey) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, day, userId).commission
+    acc.commissions += resolveRate(rates, day).commission
   }
 
   for (const m of manual ?? []) {
@@ -297,7 +297,7 @@ export function cycleCostForUser(
     acc.commissions +=
       m.commission != null
         ? Number(m.commission)
-        : resolveRate(rates, m.appointment_date, userId).commission
+        : resolveRate(rates, m.appointment_date).commission
   }
 
   acc.total = acc.salary + acc.commissions
@@ -310,7 +310,7 @@ export function cycleCostForUser(
   const [py, pm] = periodKey.split('-').map(Number)
   const finCiclo = new Date(Date.UTC(py, pm - 1, 14))
   finCiclo.setUTCMonth(finCiclo.getUTCMonth() + 1)
-  return { userId, ...acc, rate: resolveRate(rates, finCiclo.toISOString().slice(0, 10), userId) }
+  return { userId, ...acc, rate: resolveRate(rates, finCiclo.toISOString().slice(0, 10)) }
 }
 
 /**

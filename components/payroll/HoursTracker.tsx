@@ -263,7 +263,7 @@ export function HoursTracker({
    * arrancar el día 1 y partir el ciclo, pero lo ganado ya se calcula día a día
    * —ver cycleCostForUser()—, así que este número es solo el rótulo.
    */
-  const rate = resolveRate(rates, finDelCiclo(period.key), selectedUserId)
+  const rate = resolveRate(rates, finDelCiclo(period.key))
 
   /**
    * Las citas del periodo, vengan de la agenda o añadidas a mano por un
@@ -779,9 +779,12 @@ export function HoursTracker({
                 </div>
               ))}
             </div>
-            {rate.source === 'personal' && (
-              <p className="text-[10px] text-[#FF6600]/80 mt-2">
-                Tarifa propia para esta persona en este periodo.
+            {/* Ya no hay tarifas por persona: todos van a la del mes. Lo que sí
+                merece decirse es cuándo NO hay tarifa puesta para ese mes, porque
+                entonces se está cobrando con los valores por defecto. */}
+            {rate.source === 'defecto' && (
+              <p className="mt-2 text-[10px] text-yellow-300/80">
+                Este mes no tiene tarifa puesta: se está usando la de por defecto.
               </p>
             )}
           </div>
@@ -926,7 +929,6 @@ export function HoursTracker({
           <RateSettings
             period={period}
             rates={rates}
-            team={team}
             onClose={() => setShowRates(false)}
             onSaved={(r) =>
               setRates((prev) =>

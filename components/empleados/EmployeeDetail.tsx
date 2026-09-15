@@ -352,11 +352,9 @@ export function EmployeeDetail({
                     className="text-white/80 tabular-nums"
                     title={
                       monthCost
-                        ? monthCost.rate.source === 'personal'
-                          ? 'Excepción propia de esta persona, puesta en «Mis Horas»'
-                          : monthCost.rate.source === 'periodo'
-                            ? 'Tarifa general del equipo para este ciclo'
-                            : 'No hay tarifa puesta para este ciclo: se aplica la de por defecto'
+                        ? monthCost.rate.source === 'mes'
+                          ? 'Tarifa del equipo para ese mes, puesta en «Mis Horas»'
+                          : 'Ese mes no tiene tarifa puesta: se aplica la de por defecto'
                         : undefined
                     }
                   >

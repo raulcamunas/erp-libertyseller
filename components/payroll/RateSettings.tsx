@@ -1,81 +1,141 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { X, Settings2, Info, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, Settings2, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import {
   PayrollRate,
   PayrollPeriod,
-  monthLabel,
-  resolveRate,
   DEFAULT_HOURLY_RATE,
   DEFAULT_COMMISSION,
 } from '@/lib/types/payroll'
-import { CalendarPerson } from '@/lib/types/appointments'
+
+/**
+ * LAS TARIFAS DEL AÑO, LOS DOCE MESES A LA VEZ
+ * ============================================
+ *
+ * Qué se paga por hora y qué se paga por cita, mes a mes. Todo el equipo cobra
+ * lo mismo: no hay tarifas por persona.
+ *
+ *
+ * ============ POR QUÉ EL AÑO ENTERO Y NO UN MES CADA VEZ ============
+ *
+ * Antes esto era una pantalla de UN mes con flechas para moverse. Tenía dos
+ * problemas, y el segundo es el que hacía perder dinero:
+ *
+ *   · Para saber qué se pagó en mayo había que ir mes a mes hasta mayo.
+ *   · Un mes sin tarifa propia HEREDABA la del mes anterior sin decirlo. Así,
+ *     poner 20 $ en septiembre lo ponía también en octubre, noviembre y todos
+ *     los siguientes. Y al revés: el número que veías en un mes podía venir de
+ *     tres meses atrás.
+ *
+ * Con los doce delante, lo que hay puesto en cada mes SE VE. Y desde la
+ * migración 184 cada mes usa su propia fila y solo la suya: tocar septiembre no
+ * toca octubre.
+ *
+ *
+ * ============ UN MES VACÍO NO HEREDA, CAE A LA DE POR DEFECTO ============
+ *
+ * Y se marca en ámbar, porque es una tarifa que nadie ha decidido. Heredar en
+ * silencio del mes anterior es justo lo que se viene a quitar: un número que no
+ * se ve no se puede revisar.
+ */
 
 interface RateSettingsProps {
   period: PayrollPeriod
   rates: PayrollRate[]
-  team: CalendarPerson[]
   onClose: () => void
   onSaved: (rate: PayrollRate) => void
   onRemoved: (id: string) => void
 }
 
-const field =
-  'w-full bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-1.5 text-[13px] text-white outline-none focus:border-[#FF6600] transition-colors'
+const MESES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
 
-/** Fila editable de tarifa: la general del periodo o la de una persona */
-function RateRow({
-  label,
-  sublabel,
+const campo =
+  'w-full rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-right text-[13px] tabular-nums text-white outline-none transition-colors focus:border-[#FF6600]'
+
+/** Una fila del año: un mes, su precio/hora y su comisión por cita */
+function FilaMes({
   mesKey,
-  userId,
-  rates,
+  nombre,
+  esteMes,
+  fila,
   onSaved,
   onRemoved,
 }: {
-  label: string
-  sublabel: string
-  /** El día 1 del mes al que se aplica: ver la nota de la cabecera */
   mesKey: string
-  userId: string | null
-  rates: PayrollRate[]
+  nombre: string
+  /** El mes en curso, para señalarlo en la lista */
+  esteMes: boolean
+  /** La tarifa de ESE mes, si la tiene. null = usa la de por defecto */
+  fila: PayrollRate | null
   onSaved: (rate: PayrollRate) => void
   onRemoved: (id: string) => void
 }) {
   const supabase = createClient()
-  const existing = rates.find((r) => r.period_start === mesKey && r.user_id === userId)
-  // Si esta persona no tiene excepción, se parte de lo que le aplica ese mes
-  const fallback = resolveRate(rates, mesKey, userId ?? '__none__')
+  const [hora, setHora] = useState(String(fila?.hourly_rate ?? ''))
+  const [cita, setCita] = useState(String(fila?.commission_per_appointment ?? ''))
+  const [guardando, setGuardando] = useState(false)
 
-  const [hourly, setHourly] = useState(
-    String(existing?.hourly_rate ?? (userId ? fallback.hourly : DEFAULT_HOURLY_RATE))
-  )
-  const [commission, setCommission] = useState(
-    String(
-      existing?.commission_per_appointment ??
-        (userId ? fallback.commission : DEFAULT_COMMISSION)
-    )
-  )
-  const [saving, setSaving] = useState(false)
+  // Si la fila cambia desde fuera —otro guardado, una recarga— el campo la sigue.
+  useEffect(() => {
+    setHora(String(fila?.hourly_rate ?? ''))
+    setCita(String(fila?.commission_per_appointment ?? ''))
+  }, [fila])
 
-  async function save() {
-    const h = Number(hourly)
-    const c = Number(commission)
-    if (Number.isNaN(h) || Number.isNaN(c)) {
+  const sinTarifa = !fila
+
+  async function guardar(campoTocado: 'hora' | 'cita', valor: string) {
+    const texto = valor.trim()
+
+    /**
+     * VACIAR LOS DOS CAMPOS BORRA LA TARIFA DEL MES.
+     *
+     * Es la única forma de decir «este mes no tiene tarifa propia». Sin esto,
+     * una tarifa puesta por error no se puede quitar: solo cambiar por otra.
+     */
+    const otro = campoTocado === 'hora' ? cita.trim() : hora.trim()
+    if (texto === '' && otro === '') {
+      if (!fila) return
+      setGuardando(true)
+      const { error } = await supabase.from('payroll_rates').delete().eq('id', fila.id)
+      setGuardando(false)
+      if (error) {
+        toast.error('No se ha podido quitar la tarifa')
+        return
+      }
+      onRemoved(fila.id)
+      toast.success(`${nombre} se queda sin tarifa propia`)
+      return
+    }
+
+    const h = Number((campoTocado === 'hora' ? texto : hora).replace(',', '.'))
+    const c = Number((campoTocado === 'cita' ? texto : cita).replace(',', '.'))
+    if (!Number.isFinite(h) || !Number.isFinite(c)) {
       toast.error('Los importes tienen que ser números')
       return
     }
-    setSaving(true)
+    // Nada que guardar si no ha cambiado: evita una escritura por cada clic fuera.
+    if (
+      fila &&
+      Math.abs(Number(fila.hourly_rate) - h) < 0.0001 &&
+      Math.abs(Number(fila.commission_per_appointment) - c) < 0.0001
+    ) {
+      return
+    }
+
+    setGuardando(true)
     try {
-      if (existing) {
+      if (fila) {
         const { data, error } = await supabase
           .from('payroll_rates')
           .update({ hourly_rate: h, commission_per_appointment: c })
-          .eq('id', existing.id)
+          .eq('id', fila.id)
           .select('*')
           .single()
         if (error) throw error
@@ -85,7 +145,8 @@ function RateRow({
           .from('payroll_rates')
           .insert({
             period_start: mesKey,
-            user_id: userId,
+            // Siempre general: ya no hay tarifas por persona.
+            user_id: null,
             hourly_rate: h,
             commission_per_appointment: c,
           })
@@ -94,124 +155,95 @@ function RateRow({
         if (error) throw error
         onSaved(data as PayrollRate)
       }
-      toast.success('Tarifa guardada')
     } catch (err) {
-      console.error('Error guardando tarifa:', err)
-      toast.error('No se pudo guardar la tarifa')
+      console.error('Error guardando la tarifa:', err)
+      toast.error('No se ha podido guardar')
     } finally {
-      setSaving(false)
-    }
-  }
-
-  async function remove() {
-    if (!existing) return
-    setSaving(true)
-    try {
-      const { error } = await supabase.from('payroll_rates').delete().eq('id', existing.id)
-      if (error) throw error
-      onRemoved(existing.id)
-      toast.success('Excepción quitada')
-    } catch (err) {
-      console.error('Error quitando tarifa:', err)
-      toast.error('No se pudo quitar')
-    } finally {
-      setSaving(false)
+      setGuardando(false)
     }
   }
 
   return (
     <div
-      className={`rounded-xl border p-2.5 ${
-        existing ? 'border-[#FF6600]/30 bg-[#FF6600]/[0.05]' : 'border-white/10 bg-white/[0.02]'
+      className={`grid grid-cols-[1fr_84px_84px] items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
+        esteMes
+          ? 'border-[#FF6600]/40 bg-[#FF6600]/[0.06]'
+          : sinTarifa
+            ? 'border-white/[0.07] bg-transparent'
+            : 'border-white/10 bg-white/[0.02]'
       }`}
     >
-      <div className="flex items-baseline justify-between gap-2 mb-1.5">
-        <div className="min-w-0">
-          <p className="text-[13px] font-semibold text-white truncate">{label}</p>
-          <p className="text-[10px] text-white/35">{sublabel}</p>
-        </div>
-        {existing && userId && (
-          <button
-            type="button"
-            onClick={remove}
-            disabled={saving}
-            className="text-[10px] text-white/35 hover:text-red-400 transition-colors flex-shrink-0"
-          >
-            Quitar excepción
-          </button>
+      <div className="min-w-0">
+        <p className="flex items-center gap-1.5 truncate text-[13px] font-medium text-white">
+          {nombre}
+          {esteMes && (
+            <span className="rounded-full bg-[#FF6600]/20 px-1.5 text-[9px] font-bold uppercase tracking-wider text-[#FF6600]">
+              este mes
+            </span>
+          )}
+          {guardando && <Loader2 className="h-3 w-3 animate-spin text-white/35" />}
+        </p>
+        {sinTarifa && (
+          <p className="text-[10px] text-yellow-300/60">
+            Sin tarifa propia: {DEFAULT_HOURLY_RATE} $/h y {DEFAULT_COMMISSION} $/cita
+          </p>
         )}
       </div>
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <label className="text-[10px] text-white/35 mb-0.5 block">Precio/hora ($)</label>
-          <input
-            value={hourly}
-            onChange={(e) => setHourly(e.target.value)}
-            inputMode="decimal"
-            className={field}
-          />
-        </div>
-        <div className="flex-1">
-          <label className="text-[10px] text-white/35 mb-0.5 block">Por cita ($)</label>
-          <input
-            value={commission}
-            onChange={(e) => setCommission(e.target.value)}
-            inputMode="decimal"
-            className={field}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="h-[34px] px-3 rounded-lg bg-[#FF6600] text-[12px] font-semibold text-white disabled:opacity-40 transition-opacity flex-shrink-0"
-        >
-          Guardar
-        </button>
-      </div>
+
+      <input
+        value={hora}
+        onChange={(e) => setHora(e.target.value)}
+        onBlur={(e) => void guardar('hora', e.target.value)}
+        inputMode="decimal"
+        placeholder={String(DEFAULT_HOURLY_RATE)}
+        aria-label={`Precio por hora de ${nombre}`}
+        className={campo}
+      />
+      <input
+        value={cita}
+        onChange={(e) => setCita(e.target.value)}
+        onBlur={(e) => void guardar('cita', e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        }}
+        inputMode="decimal"
+        placeholder={String(DEFAULT_COMMISSION)}
+        aria-label={`Comisión por cita de ${nombre}`}
+        className={campo}
+      />
     </div>
   )
 }
 
-/**
- * TARIFAS MENSUALES, NO POR CICLO DE NÓMINA.
- *
- * Antes esta ventana editaba «la tarifa del ciclo 15→14», y por eso no se podía
- * pactar una comisión que vaya del 1 al 30 de septiembre: no existe ningún ciclo
- * que empiece el día 1. Ahora se elige un MES y la tarifa rige desde su día 1
- * hasta que otra la sustituya.
- *
- * Un mes parte dos nóminas por la mitad, y eso está bien: el motor de coste va
- * día a día, así que la segunda quincena de agosto se paga a la tarifa vieja y
- * la primera de septiembre a la nueva, en la misma nómina, sin prorratear nada.
- *
- * Se abre en el mes del final del ciclo que se está mirando, que es el que
- * normalmente se viene a tocar: si estás en la nómina de 15 ago–14 sep, lo que
- * quieres cambiar casi siempre es septiembre.
- */
 export function RateSettings({
   period,
   rates,
-  team,
   onClose,
   onSaved,
   onRemoved,
 }: RateSettingsProps) {
-  const [mesKey, setMesKey] = useState(() => {
-    const [y, m] = period.key.split('-').map(Number)
-    const fin = new Date(Date.UTC(y, m, 1))
-    return `${fin.getUTCFullYear()}-${String(fin.getUTCMonth() + 1).padStart(2, '0')}-01`
-  })
+  const mesEnCurso = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  }, [])
 
-  function moverMes(n: number) {
-    const [y, m] = mesKey.split('-').map(Number)
-    const d = new Date(Date.UTC(y, m - 1 + n, 1))
-    setMesKey(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`)
-  }
+  const [anio, setAnio] = useState(() => Number(period.key.slice(0, 4)))
 
-  /** Lo que rige ese mes si no se toca nada, para poder decirlo en pantalla */
-  const vigente = useMemo(() => resolveRate(rates, mesKey, '__none__'), [rates, mesKey])
-  const propia = rates.some((r) => r.period_start === mesKey && r.user_id === null)
+  /** Las doce filas del año, cada una con su tarifa si la tiene */
+  const meses = useMemo(() => {
+    const generales = rates.filter((r) => r.user_id === null)
+    return MESES.map((nombre, i) => {
+      const mesKey = `${anio}-${String(i + 1).padStart(2, '0')}-01`
+      return {
+        mesKey,
+        nombre,
+        esteMes: mesKey === mesEnCurso,
+        fila: generales.find((r) => r.period_start.slice(0, 7) === mesKey.slice(0, 7)) ?? null,
+      }
+    })
+  }, [rates, anio, mesEnCurso])
+
+  const conTarifa = meses.filter((m) => m.fila).length
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -225,95 +257,74 @@ export function RateSettings({
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.18 }}
-        className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d0d] p-4 shadow-2xl"
+        className="relative max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d0d] p-4 shadow-2xl"
       >
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-white font-semibold text-[15px] flex items-center gap-2">
-            <Settings2 className="h-4 w-4 text-[#FF6600]" /> Tarifas mensuales
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold text-white">
+            <Settings2 className="h-4 w-4 text-[#FF6600]" /> Tarifas del año
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-white/40 hover:text-white transition-colors"
+            className="text-white/40 transition-colors hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
-        {/* ---------------- El mes que se está tocando ---------------- */}
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5">
+
+        <p className="mb-3 text-[11px] leading-relaxed text-white/40">
+          Lo que cobra <strong className="text-white/60">todo el equipo</strong> por hora y por cita
+          cualificada. Cada mes lleva la suya y solo la suya: tocar uno no cambia ninguno de los
+          otros. Se guarda al salir de la casilla.
+        </p>
+
+        {/* ---------------- El año ---------------- */}
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5">
           <button
             type="button"
-            onClick={() => moverMes(-1)}
+            onClick={() => setAnio((a) => a - 1)}
             className="rounded border border-white/10 p-0.5 text-white/50 transition-colors hover:text-white"
-            aria-label="Mes anterior"
+            aria-label="Año anterior"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          <span className="flex-1 text-center text-[13px] font-medium capitalize text-white">
-            {monthLabel(mesKey)}
+          <span className="flex-1 text-center text-[13px] font-semibold tabular-nums text-white">
+            {anio}
           </span>
           <button
             type="button"
-            onClick={() => moverMes(1)}
+            onClick={() => setAnio((a) => a + 1)}
             className="rounded border border-white/10 p-0.5 text-white/50 transition-colors hover:text-white"
-            aria-label="Mes siguiente"
+            aria-label="Año siguiente"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
 
-        <div className="mb-3 flex items-start gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] p-2">
-          <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-white/30" />
-          <p className="text-[11px] leading-snug text-white/45">
-            Lo que guardes rige <strong className="text-white/70">del día 1 al último</strong> de{' '}
-            <span className="capitalize">{monthLabel(mesKey)}</span> y sigue vigente hasta que otro
-            mes lo cambie. Un mes parte dos nóminas por la mitad y eso está bien: cada día se paga
-            a la tarifa que le tocaba.
-            {!propia && (
-              <>
-                {' '}
-                Ahora mismo este mes usa{' '}
-                <strong className="text-white/70">
-                  {vigente.hourly} $/h · {vigente.commission} $/cita
-                </strong>
-                , heredado del mes anterior.
-              </>
-            )}
-          </p>
+        <div className="mb-1 grid grid-cols-[1fr_84px_84px] gap-2 px-2.5 text-[9.5px] font-semibold uppercase tracking-wider text-white/35">
+          <span>Mes</span>
+          <span className="text-right">$/hora</span>
+          <span className="text-right">$/cita</span>
         </div>
 
-        <div className="space-y-2">
-          <RateRow
-            label="Tarifa general"
-            sublabel={`Todo el equipo, durante ${monthLabel(mesKey)}`}
-            mesKey={mesKey}
-            userId={null}
-            rates={rates}
-            onSaved={onSaved}
-            onRemoved={onRemoved}
-          />
-
-          <p className="text-[10px] uppercase tracking-wider text-white/30 pt-1">
-            Excepciones por persona
-          </p>
-
-          {team.map((p) => (
-            <RateRow
-              key={p.id}
-              label={p.full_name || p.email || 'Sin nombre'}
-              sublabel={
-                rates.some((r) => r.period_start === mesKey && r.user_id === p.id)
-                  ? 'Tiene tarifa propia este mes'
-                  : 'Usa la tarifa general'
-              }
-              mesKey={mesKey}
-              userId={p.id}
-              rates={rates}
+        <div className="space-y-1">
+          {meses.map((m) => (
+            <FilaMes
+              key={m.mesKey}
+              mesKey={m.mesKey}
+              nombre={m.nombre}
+              esteMes={m.esteMes}
+              fila={m.fila}
               onSaved={onSaved}
               onRemoved={onRemoved}
             />
           ))}
         </div>
+
+        <p className="mt-3 text-[10.5px] leading-relaxed text-white/30">
+          {conTarifa} de 12 meses tienen tarifa propia en {anio}. Los demás cobran la de por
+          defecto. Para quitarle la tarifa a un mes, vacía sus dos casillas.
+        </p>
       </motion.div>
     </div>
   )

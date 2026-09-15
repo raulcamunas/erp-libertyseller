@@ -117,56 +117,47 @@ export function periodDays(period: PayrollPeriod): string[] {
 }
 
 /**
- * LA TARIFA QUE ESTABA EN VIGOR ESE DÍA.
+ * LA TARIFA DE ESE MES. DE ESE MES Y DE NINGÚN OTRO.
  *
- * Antes esto buscaba una coincidencia EXACTA con la clave del ciclo 15→14: si no
- * había fila para ese ciclo, se caía a los valores por defecto. Eso ataba las
- * tarifas a los ciclos y hacía imposible lo que hacía falta: una comisión que
- * empiece el 1 de septiembre y termine el 30, partiendo dos nóminas por la mitad.
- *
- * Ahora una tarifa es «la que rige DESDE tal día», y vale hasta que la sustituye
- * otra. Con eso las tarifas pasan a ser mensuales —fecha el día 1— sin que haya
- * que tocar el motor, que ya calculaba día a día.
+ * Una tarifa pertenece a UN mes natural. Septiembre tiene la suya, octubre la
+ * suya, y tocar una no toca la otra.
  *
  *
- * ============ LA HISTORIA NO SE MUEVE ============
+ * ============ ANTES SE PROPAGABA, Y ESE ERA EL FALLO ============
  *
- * Las filas viejas tienen fecha 15 y siguen rigiendo desde el 15, exactamente
- * como antes. Y como hay tarifa general en TODOS los ciclos desde marzo de 2026
- * —comprobado— ningún día pasado cambia de valor: donde antes había
- * coincidencia exacta, ahora esa misma fila es también la más reciente.
+ * La versión anterior era «la más reciente que ya había empezado ese día»: una
+ * tarifa regía DESDE su fecha hasta que otra la sustituyera. Con eso, poner 20 $
+ * en septiembre lo ponía también en octubre, noviembre y todos los meses
+ * siguientes, porque ninguno tenía fila propia y heredaban la de septiembre.
  *
- * Lo único que sí cambiaría son las excepciones personales, que antes morían al
- * acabar su ciclo y ahora seguirían en vigor. Por eso la migración 171 les
- * escribe una fila de cierre con lo que cobran hoy: ver allí.
+ * Y al revés: un mes sin fila cogía la del mes anterior sin decirlo. Así el
+ * único mes que se veía en pantalla era el que estabas mirando, pero el número
+ * que enseñaba podía venir de tres meses atrás.
+ *
+ * Ahora la correspondencia es exacta: el día 2026-09-17 usa la fila de
+ * 2026-09-01 y punto. Un mes sin fila cae a los valores por defecto, que es un
+ * número que se puede ver y explicar, en vez de heredar en silencio.
+ *
+ *
+ * ============ TODOS COBRAN LO MISMO ============
+ *
+ * Ya no hay excepciones por persona. Existían, y produjeron dinero distinto
+ * entre junio y julio de 2026, pero el trato es que todos los comerciales van a
+ * la misma tarifa. La migración 184 borra las filas personales que quedaban.
  */
 export function resolveRate(
   rates: PayrollRate[],
-  /** Un día 'yyyy-MM-dd', o una clave de periodo, que también lo es */
-  day: string,
-  userId: string
-): { hourly: number; commission: number; source: 'personal' | 'periodo' | 'defecto' } {
-  // La más reciente que ya había empezado ese día. Empatan por fecha imposible:
-  // period_start es único por (fecha, persona).
-  const vigente = (uid: string | null) =>
-    rates
-      .filter((r) => r.user_id === uid && r.period_start <= day)
-      .sort((a, b) => b.period_start.localeCompare(a.period_start))[0]
+  /** Un día 'yyyy-MM-dd', o una clave de mes, que también lo es */
+  day: string
+): { hourly: number; commission: number; source: 'mes' | 'defecto' } {
+  const mes = monthKeyForDate(day)
+  const propia = rates.find((r) => r.user_id === null && monthKeyForDate(r.period_start) === mes)
 
-  const personal = vigente(userId)
-  if (personal) {
+  if (propia) {
     return {
-      hourly: Number(personal.hourly_rate),
-      commission: Number(personal.commission_per_appointment),
-      source: 'personal',
-    }
-  }
-  const general = vigente(null)
-  if (general) {
-    return {
-      hourly: Number(general.hourly_rate),
-      commission: Number(general.commission_per_appointment),
-      source: 'periodo',
+      hourly: Number(propia.hourly_rate),
+      commission: Number(propia.commission_per_appointment),
+      source: 'mes',
     }
   }
   return { hourly: DEFAULT_HOURLY_RATE, commission: DEFAULT_COMMISSION, source: 'defecto' }
