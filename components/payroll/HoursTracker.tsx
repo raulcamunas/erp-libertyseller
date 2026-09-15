@@ -33,6 +33,16 @@ import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { toMadrid } from '@/lib/timezone'
 import { RateSettings } from './RateSettings'
 
+const MESES_CORTOS = [
+  'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+  'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+]
+
+/** 'ago' a partir de '2026-08' */
+function nombreCortoDeMes(mes: string): string {
+  return MESES_CORTOS[Number(mes.slice(5, 7)) - 1] ?? mes
+}
+
 /** Cita cualificada, con lo mínimo para contarla y listarla */
 export interface QualifiedAppointment {
   id: string
@@ -258,12 +268,43 @@ export function HoursTracker({
   )
 
   /**
-   * La tarifa que se enseña arriba es la del ÚLTIMO día del ciclo: la que está
-   * rigiendo cuando se cierra. Desde que las tarifas son mensuales una puede
-   * arrancar el día 1 y partir el ciclo, pero lo ganado ya se calcula día a día
-   * —ver cycleCostForUser()—, así que este número es solo el rótulo.
+   * LA TARIFA DEL ÚLTIMO DÍA DEL CICLO, Y SOLO COMO RÓTULO.
+   *
+   * NO se usa para calcular nada. Un ciclo va del 15 al 14, así que cruza dos
+   * meses y con tarifas mensuales tiene DOS tarifas: una cita del 28 de agosto
+   * se paga a la de agosto y una del 2 de septiembre a la de septiembre.
+   *
+   * Hasta ahora esta pantalla aplicaba esta única tarifa a TODO el ciclo, y por
+   * eso no cuadraba con la nómina: el motor (cycleCostForUser) siempre ha
+   * calculado día a día. Con 25 $ en septiembre y 15 en agosto, una cita del 28
+   * de agosto se enseñaba a 25 y se pagaba a 15.
    */
   const rate = resolveRate(rates, finDelCiclo(period.key))
+
+  /** El día de una fecha en hora de España, que es con lo que se decide el mes */
+  const diaEnEspana = (iso: string | Date) => {
+    const d = toMadrid(iso instanceof Date ? iso.toISOString() : iso)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate()
+    ).padStart(2, '0')}`
+  }
+
+  /**
+   * EL SUELDO, DÍA A DÍA.
+   *
+   * Antes era `totalHours * rate.hourly`: todas las horas del ciclo al precio
+   * del último día. Mismo fallo que las comisiones, y se vería en cuanto el
+   * precio/hora cambiara de un mes a otro.
+   */
+  const salaryPorDia = useMemo(
+    () =>
+      days.reduce((suma, d) => {
+        const h = Number(hoursByDay.get(d)?.hours ?? 0)
+        if (h === 0) return suma
+        return suma + h * resolveRate(rates, d).hourly
+      }, 0),
+    [days, hoursByDay, rates]
+  )
 
   /**
    * Las citas del periodo, vengan de la agenda o añadidas a mano por un
@@ -282,7 +323,9 @@ export function HoursTracker({
         name: a.lead_name,
         company: a.lead_company,
         at: new Date(a.start_time),
-        commission: rate.commission,
+        // La de SU día, no la del final del ciclo. Ver la nota de `rate`.
+        commission: resolveRate(rates, diaEnEspana(a.start_time)).commission,
+        fijo: false,
         manual: false,
       }))
 
@@ -295,7 +338,16 @@ export function HoursTracker({
         // Mediodía UTC: así el día no se desplaza al comparar con los
         // límites del ciclo, que son medianoche en España.
         at: new Date(`${m.appointment_date}T12:00:00Z`),
-        commission: m.commission != null ? Number(m.commission) : rate.commission,
+        /**
+         * Una cita a mano puede llevar su importe escrito, y entonces manda ese.
+         * Si se dejó en blanco, la del mes de su fecha — no la del final del
+         * ciclo, que es de lo que se quejaba la pantalla.
+         */
+        commission:
+          m.commission != null
+            ? Number(m.commission)
+            : resolveRate(rates, m.appointment_date).commission,
+        fijo: m.commission != null,
         manual: true,
       }))
       .filter(
@@ -304,9 +356,48 @@ export function HoursTracker({
       )
 
     return [...fromAgenda, ...fromManual].sort((a, b) => a.at.getTime() - b.at.getTime())
-  }, [appointments, manual, selectedUserId, period, rate.commission])
+  }, [appointments, manual, selectedUserId, period, rates])
 
-  const salary = totalHours * rate.hourly
+  const salary = salaryPorDia
+
+  /**
+   * «3 × 15 $ · 2 × 25 $» en vez de «5 citas × 25 $».
+   *
+   * El rótulo de antes multiplicaba TODAS las citas por una sola tarifa y no
+   * cuadraba con el importe de al lado: con tres a 25 y dos a 20 ponía «5 citas
+   * × 25 $» —125— encima de un total de 115. Agrupar por importe dice la verdad
+   * y además enseña de un vistazo que el ciclo cruza dos meses.
+   */
+  /**
+   * LAS TARIFAS DEL CICLO, QUE PUEDEN SER DOS.
+   *
+   * Un ciclo va del 15 al 14 y cruza dos meses, así que puede tener dos
+   * tarifas. Enseñar solo una —la del último día— es lo que hacía que el
+   * comercial leyera «25 $/cita» y cobrara 15 por las de agosto.
+   */
+  const tarifasDelCiclo = useMemo(() => {
+    const meses = [...new Set(days.map((d) => d.slice(0, 7)))].sort()
+    const vistas = meses.map((mes) => {
+      const r = resolveRate(rates, `${mes}-01`)
+      return { mes, texto: `${formatDollars(r.hourly)}/h · ${formatDollars(r.commission)}/cita` }
+    })
+    // Si las dos mitades del ciclo cobran lo mismo, una línea basta.
+    if (vistas.length > 1 && vistas.every((v) => v.texto === vistas[0].texto)) {
+      return vistas[0].texto
+    }
+    return vistas.map((v) => `${nombreCortoDeMes(v.mes)} ${v.texto}`).join('  ·  ')
+  }, [days, rates])
+
+  const desgloseComisiones = useMemo(() => {
+    const porImporte = new Map<number, number>()
+    for (const a of periodQualified) {
+      porImporte.set(a.commission, (porImporte.get(a.commission) ?? 0) + 1)
+    }
+    return [...porImporte]
+      .sort((a, b) => a[0] - b[0])
+      .map(([importe, cuantas]) => `${cuantas} × ${formatDollars(importe)}`)
+      .join(' · ')
+  }, [periodQualified])
   const commissions = periodQualified.reduce((sum, a) => sum + a.commission, 0)
   const total = salary + commissions
 
@@ -341,6 +432,28 @@ export function HoursTracker({
       toast.error('No se pudo añadir la cita')
     } finally {
       setSaving(false)
+    }
+  }
+
+  /**
+   * Le quita a una cita manual su importe escrito a mano para que pase a cobrar
+   * la tarifa del mes de su fecha. Poner `commission` a null es lo que hace que
+   * el motor la resuelva por fecha (ver cost.ts).
+   */
+  async function soltarImporteFijo(id: string) {
+    try {
+      const { data, error } = await supabase
+        .from('payroll_manual_appointments')
+        .update({ commission: null })
+        .eq('id', id)
+        .select('*')
+        .single()
+      if (error) throw error
+      setManual((prev) => prev.map((m) => (m.id === id ? (data as ManualAppointment) : m)))
+      toast.success('Ahora cobra la tarifa de su mes')
+    } catch (err) {
+      console.error('Error soltando el importe fijo:', err)
+      toast.error('No se ha podido cambiar')
     }
   }
 
@@ -534,10 +647,10 @@ export function HoursTracker({
               <p className="text-white font-semibold text-[18px] tabular-nums">
                 {formatDollars(animatedCommissions)}
               </p>
-              <p className="text-[10px] text-white/35 mt-0.5">
-                {periodQualified.length}{' '}
-                {periodQualified.length === 1 ? 'cita' : 'citas'} ×{' '}
-                {formatDollars(rate.commission)}
+              <p className="mt-0.5 text-[10px] text-white/35">
+                {periodQualified.length === 0
+                  ? 'Ninguna cita este periodo'
+                  : desgloseComisiones}
               </p>
             </div>
           </div>
@@ -768,7 +881,7 @@ export function HoursTracker({
                 { label: 'Citas cualificadas', value: String(periodQualified.length) },
                 {
                   label: 'Tarifa aplicada',
-                  value: `${formatDollars(rate.hourly)}/h · ${formatDollars(rate.commission)}/cita`,
+                  value: tarifasDelCiclo,
                 },
               ].map((r) => (
                 <div key={r.label} className="flex items-baseline justify-between gap-2">
@@ -841,6 +954,9 @@ export function HoursTracker({
                           value={manualCommission}
                           onChange={(e) => setManualCommission(e.target.value)}
                           inputMode="decimal"
+                          placeholder={String(resolveRate(rates, manualDate || period.key).commission)}
+                          title="Déjalo vacío para que cobre la tarifa del mes de su fecha. Solo escribe un importe si esta cita es una excepción."
+                          aria-label="Importe de la cita; vacío = la tarifa del mes"
                           className="w-full bg-white/[0.05] border border-white/10 rounded-lg pl-2 pr-6 py-1.5 text-[11px] text-white outline-none focus:border-[#FF6600] transition-colors tabular-nums"
                         />
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-white/35 pointer-events-none">
@@ -893,8 +1009,21 @@ export function HoursTracker({
                       <p className="text-[12px] text-white truncate flex items-center gap-1.5">
                         {a.name}
                         {a.manual && (
-                          <span className="text-[8px] uppercase tracking-wider text-white/30 border border-white/15 rounded px-1 leading-[14px] flex-shrink-0">
+                          <span className="flex-shrink-0 rounded border border-white/15 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-white/30">
                             manual
+                          </span>
+                        )}
+                        {/* POR QUÉ ESTA COBRA OTRA COSA.
+                            Una cita a mano puede llevar el importe escrito, y
+                            entonces manda ese y NO la tarifa del mes. Sin
+                            decirlo, un «+20» junto a otras de 25 no se explica:
+                            es exactamente la pregunta que hizo Raúl. */}
+                        {a.fijo && (
+                          <span
+                            className="flex-shrink-0 rounded border border-yellow-400/25 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-yellow-300/70"
+                            title="Esta cita lleva el importe escrito a mano, así que no usa la tarifa del mes. Púlsalo para que la use."
+                          >
+                            importe fijo
                           </span>
                         )}
                       </p>
@@ -906,6 +1035,16 @@ export function HoursTracker({
                     <span className="text-[11px] font-semibold text-green-300 flex-shrink-0">
                       +{formatDollars(a.commission)}
                     </span>
+                    {isAdmin && a.fijo && (
+                      <button
+                        type="button"
+                        onClick={() => soltarImporteFijo(a.id)}
+                        className="flex-shrink-0 text-[9px] text-white/25 opacity-0 transition-all hover:text-[#FF6600] group-hover:opacity-100"
+                        title="Quitarle el importe fijo para que cobre la tarifa del mes"
+                      >
+                        usar la del mes
+                      </button>
+                    )}
                     {isAdmin && a.manual && (
                       <button
                         type="button"
