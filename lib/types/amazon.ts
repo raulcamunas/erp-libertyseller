@@ -316,6 +316,20 @@ export type AmazonSubmissionStatus =
   | 'confirmado'
   | 'invalido'
   | 'error'
+  /**
+   * Salió hacia Amazon, Amazon lo aceptó, y se dejó de comprobar si acabó
+   * aplicado. Lo pone la migración 182.
+   *
+   * No es un fallo: es el final normal de un cambio al que se le pasó el arroz.
+   * La comprobación solo mira las últimas seis horas, porque un envío que iba a
+   * cuadrar cuadra en la primera media hora —el catálogo se refresca cada quince
+   * minutos—. Lo que sigue sin cuadrar seis horas después es casi siempre que el
+   * precio VOLVIÓ A CAMBIAR, y entonces ya nunca va a coincidir.
+   *
+   * Sin este estado esas filas se quedaban en 'aceptado' para siempre y se
+   * releían cada quince minutos: 136.740 filas, 39 GB al mes de salida de datos.
+   */
+  | 'caducado'
 
 export const AMAZON_SUBMISSION_STATUS_LABELS: Record<AmazonSubmissionStatus, string> = {
   pendiente: 'Sin enviar',
@@ -323,6 +337,7 @@ export const AMAZON_SUBMISSION_STATUS_LABELS: Record<AmazonSubmissionStatus, str
   confirmado: 'Confirmado',
   invalido: 'Rechazado',
   error: 'Falló',
+  caducado: 'Enviado, sin comprobar',
 }
 
 export const AMAZON_SUBMISSION_STATUS_HINTS: Record<AmazonSubmissionStatus, string> = {
@@ -332,6 +347,9 @@ export const AMAZON_SUBMISSION_STATUS_HINTS: Record<AmazonSubmissionStatus, stri
   confirmado: 'Se ha vuelto a leer el listing en Amazon y el valor nuevo está puesto',
   invalido: 'Amazon ha rechazado el dato. El motivo está en el detalle',
   error: 'No se pudo enviar. Ni siquiera llegó a Amazon o falló por el camino',
+  caducado:
+    'Salió hacia Amazon y Amazon lo aceptó, pero pasaron seis horas sin que el catálogo lo ' +
+    'reflejara y se dejó de comprobar. Casi siempre es que el precio volvió a cambiar después',
 }
 
 export const AMAZON_SUBMISSION_STATUS_COLORS: Record<AmazonSubmissionStatus, string> = {
@@ -340,6 +358,9 @@ export const AMAZON_SUBMISSION_STATUS_COLORS: Record<AmazonSubmissionStatus, str
   confirmado: 'bg-green-500/20 text-green-300 border-green-500/30',
   invalido: 'bg-red-500/20 text-red-300 border-red-500/30',
   error: 'bg-red-500/20 text-red-300 border-red-500/30',
+  // Verde apagado: salió y lo aceptaron, pero no está comprobado. Ni el verde
+  // del confirmado —que sí lo está— ni el rojo del que falló, porque no falló.
+  caducado: 'bg-green-500/10 text-green-300/60 border-green-500/20',
 }
 
 /** Las columnas de estado son TEXT en la base, así que puede llegar un valor

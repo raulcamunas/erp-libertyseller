@@ -136,6 +136,8 @@ const ESTADO_SUBMISSION_COLOR: Record<AmazonSubmissionStatus, string> = {
   confirmado: 'text-green-300',
   invalido: 'text-red-300',
   error: 'text-red-300',
+  // Salió y lo aceptaron; lo que no hay es la comprobación contra el catálogo.
+  caducado: 'text-green-300/50',
 }
 
 /** «hace 4 min», «hace 2 h». null si nunca */
