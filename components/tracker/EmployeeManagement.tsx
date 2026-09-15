@@ -14,6 +14,7 @@ import { format, parseISO, startOfWeek, addDays, eachDayOfInterval, isSameDay } 
 import { es } from 'date-fns/locale'
 import { Plus, Trash2, Edit, DollarSign, Clock, TrendingUp, TrendingDown } from 'lucide-react'
 import { toast } from 'sonner'
+import { resolveRate, type PayrollRate } from '@/lib/types/payroll'
 
 interface EmployeePaymentAdjustment {
   id: string
@@ -34,11 +35,19 @@ interface WeeklyEarnings {
   totalEarnings: number
 }
 
-// Sueldo por hora de cada empleado (en dólares)
-const hourlyRates: Record<string, number> = {
-  'Alejandro': 2.44,
-  // Agregar más empleados aquí cuando sea necesario
-}
+/**
+ * EL SUELDO SALE DE `payroll_rates`, COMO EN TODO EL RESTO DEL ERP.
+ *
+ * Aquí había una tabla escrita en el código —`{ 'Alejandro': 2.44 }`— y con
+ * ella esta pantalla pagaba 2,44 $/h mientras «Mis Horas» pagaba 3,50 a la
+ * misma persona el mismo día. Dos sueldos distintos para uno, en dos pantallas
+ * del mismo ERP, y quien no estuviera en la lista salía a 0 $ — que se lee como
+ * «no cobra», no como «falta configurarlo».
+ *
+ * Ahora se leen las tarifas de verdad y se resuelve la de CADA DÍA con su mes,
+ * igual que lib/payroll/cost.ts. Una semana de lunes a domingo cruza el cambio
+ * de mes casi todos los meses, así que esto importa.
+ */
 
 interface EmployeeManagementProps {
   employees: string[]
@@ -108,17 +117,35 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
         .gte('report_date', weekStart.toISOString())
         .lte('report_date', weekEnd.toISOString())
 
+      // Las tarifas del equipo. Generales: desde la migración 184 no hay por persona.
+      const { data: ratesData } = await supabase.from('payroll_rates').select('*')
+      const rates = (ratesData ?? []) as PayrollRate[]
+
       if (reportsData && reportsData.length > 0) {
         const reportIds = reportsData.map(r => r.id)
         const { data: logsData } = await supabase
           .from('tracker_logs')
-          .select('duration_seconds')
+          .select('duration_seconds, report_id')
           .in('report_id', reportIds)
+
+        /**
+         * CADA PARTE SE PAGA A LA TARIFA DE SU MES.
+         *
+         * El día sale del informe al que pertenece el registro, no de la semana:
+         * una semana de lunes a domingo puede tener días de dos meses, y con
+         * tarifas distintas la diferencia es real.
+         */
+        const diaDelInforme = new Map(
+          reportsData.map((r) => [r.id, String(r.report_date).slice(0, 10)])
+        )
 
         const totalSeconds = logsData?.reduce((sum, log) => sum + log.duration_seconds, 0) || 0
         const totalHours = totalSeconds / 3600
-        const hourlyRate = hourlyRates[selectedEmployee] || 0
-        const baseEarnings = totalHours * hourlyRate
+        const baseEarnings = (logsData ?? []).reduce((suma, log) => {
+          const dia = diaDelInforme.get((log as { report_id: string }).report_id)
+          if (!dia) return suma
+          return suma + (log.duration_seconds / 3600) * resolveRate(rates, dia).hourly
+        }, 0)
 
         const adjustmentsTotal = (adjustmentsData || []).reduce((sum, adj) => {
           if (adj.adjustment_type === 'deduction') {
@@ -364,7 +391,12 @@ export function EmployeeManagement({ employees }: EmployeeManagementProps) {
                     ${currentWeekEarnings.baseEarnings.toFixed(2)}
                   </div>
                   <div className="text-xs text-white/50 mt-1">
-                    {hourlyRates[selectedEmployee] ? `$${hourlyRates[selectedEmployee]}/h` : 'Sin sueldo configurado'}
+                    {/* La tarifa MEDIA de la semana: si cruza dos meses con
+                        tarifas distintas, no hay una sola cifra que sea «la»
+                        tarifa, y dar una de las dos sería inventar. */}
+                    {currentWeekEarnings.totalHours > 0
+                      ? `$${(currentWeekEarnings.baseEarnings / currentWeekEarnings.totalHours).toFixed(2)}/h`
+                      : 'Sin horas esta semana'}
                   </div>
                 </div>
                 <div className="p-4 rounded-lg bg-white/5 border border-white/10">

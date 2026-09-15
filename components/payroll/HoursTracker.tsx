@@ -388,6 +388,43 @@ export function HoursTracker({
     return vistas.map((v) => `${nombreCortoDeMes(v.mes)} ${v.texto}`).join('  ·  ')
   }, [days, rates])
 
+  /**
+   * «20 h × 15 $ · 20 h × 25 $» en vez de «40 h × 25 $».
+   *
+   * El importe de arriba ya salía bien —lo calcula salaryPorDia, día a día—
+   * pero el rótulo de debajo multiplicaba TODAS las horas por la tarifa del
+   * último día. Exactamente la misma contradicción que se acaba de quitar de
+   * las comisiones, en la caja de al lado.
+   */
+  const desgloseHoras = useMemo(() => {
+    const porTarifa = new Map<number, number>()
+    for (const d of days) {
+      const h = Number(hoursByDay.get(d)?.hours ?? 0)
+      if (h === 0) continue
+      const t = resolveRate(rates, d).hourly
+      porTarifa.set(t, (porTarifa.get(t) ?? 0) + h)
+    }
+    return [...porTarifa]
+      .sort((a, b) => a[0] - b[0])
+      .map(([tarifa, horas]) => `${horas.toLocaleString('es-ES')} h × ${formatDollars(tarifa)}`)
+      .join(' · ')
+  }, [days, hoursByDay, rates])
+
+  /**
+   * LOS MESES DEL CICLO QUE NO TIENEN TARIFA PUESTA.
+   *
+   * Antes se miraba solo el último día, así que con agosto sin configurar y
+   * septiembre sí, el aviso no salía — y la mitad del ciclo se estaba pagando
+   * a la de por defecto sin que nadie lo supiera.
+   */
+  const mesesSinTarifa = useMemo(
+    () =>
+      [...new Set(days.map((d) => d.slice(0, 7)))]
+        .sort()
+        .filter((m) => resolveRate(rates, `${m}-01`).source === 'defecto'),
+    [days, rates]
+  )
+
   const desgloseComisiones = useMemo(() => {
     const porImporte = new Map<number, number>()
     for (const a of periodQualified) {
@@ -637,7 +674,7 @@ export function HoursTracker({
                 {formatDollars(animatedSalary)}
               </p>
               <p className="text-[10px] text-white/35 mt-0.5">
-                {totalHours.toLocaleString('es-ES')} h × {formatDollars(rate.hourly)}
+                {desgloseHoras || `${totalHours.toLocaleString('es-ES')} h`}
               </p>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 min-w-[132px]">
@@ -895,9 +932,10 @@ export function HoursTracker({
             {/* Ya no hay tarifas por persona: todos van a la del mes. Lo que sí
                 merece decirse es cuándo NO hay tarifa puesta para ese mes, porque
                 entonces se está cobrando con los valores por defecto. */}
-            {rate.source === 'defecto' && (
+            {mesesSinTarifa.length > 0 && (
               <p className="mt-2 text-[10px] text-yellow-300/80">
-                Este mes no tiene tarifa puesta: se está usando la de por defecto.
+                Sin tarifa puesta en {mesesSinTarifa.map(nombreCortoDeMes).join(' y ')}: esa parte
+                del ciclo se está pagando a la de por defecto.
               </p>
             )}
           </div>
@@ -914,7 +952,24 @@ export function HoursTracker({
                     setAddingManual(true)
                     setManualName('')
                     setManualDate(today)
-                    setManualCommission(String(rate.commission))
+                    /**
+                     * VACÍO, Y ESTE ERA EL FALLO GORDO.
+                     *
+                     * Aquí se precargaba `rate.commission`, o sea la tarifa del
+                     * ÚLTIMO día del ciclo. Y un importe escrito en esa casilla
+                     * se guarda FIJO: manda sobre la tarifa del mes para
+                     * siempre.
+                     *
+                     * O sea que toda cita añadida a mano se grababa con la
+                     * tarifa del segundo mes del ciclo, fuera cual fuera su
+                     * fecha. Las once que hay en la base llevan todas un 20
+                     * escrito por esto, no porque nadie lo tecleara.
+                     *
+                     * Vacío = la tarifa del mes de su fecha, que es lo que hay
+                     * que hacer. La casilla queda para las excepciones de
+                     * verdad, y el placeholder enseña lo que va a cobrar.
+                     */
+                    setManualCommission('')
                   }}
                   className="text-[10px] text-white/40 hover:text-white transition-colors flex items-center gap-1"
                   title="Sumar una cita que no está en la agenda"
