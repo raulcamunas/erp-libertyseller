@@ -1791,11 +1791,15 @@ async function confirmSubmissions(
        * Medido: 13,6 MB por lectura, 96 lecturas al día, 39 GB al mes. El plan
        * da 5. La organización entró en periodo de gracia por esto.
        *
-       * SEIS HORAS, y el número está medido, no elegido a ojo. El catálogo se
-       * refresca cada quince minutos, así que lo que va a cuadrar cuadra en la
-       * primera media hora; seis horas son doce veces ese margen. Contado
-       * contra la base real, filas abiertas por ventana y lo que costaría
-       * releerlas cada quince minutos:
+       * OCHO HORAS, y el número está medido. Lo lento no es el refresco del
+       * catálogo —ese va cada quince minutos— sino que AMAZON aplique el
+       * cambio: medido sobre 5.000 envíos confirmados, mediana 16,6 min, p99
+       * 161 min y máximo 369,6 min. Con una ventana de seis horas se dejaba de
+       * comprobar justo por encima del máximo observado, así que un envío lento
+       * quedaba marcado como caducado sin haberse aplicado todavía.
+       *
+       * Contado contra la base real, filas abiertas por ventana y lo que
+       * costaría releerlas cada quince minutos:
        *
        *      2 h      950 filas    0,27 GB/mes
        *      6 h    2.729 filas    0,79 GB/mes   <- esta
@@ -1915,7 +1919,7 @@ export interface SentChange {
  * Cuánto tiempo se sigue intentando confirmar un envío contra el espejo.
  * Ver el comentario dentro de confirmSubmissions y la migración 182.
  */
-const VENTANA_CONFIRMACION_MS = 6 * 60 * 60 * 1000
+const VENTANA_CONFIRMACION_MS = 8 * 60 * 60 * 1000
 
 export interface SendChangesResult {
   batchId: string

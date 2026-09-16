@@ -103,20 +103,35 @@ const POR_TANDA = 200
 /**
  * CUÁNTO SE ESPERA ANTES DE VOLVER A MANDAR EL MISMO PRECIO.
  *
- * sendChanges() no toca el espejo del catálogo —lo confirma la pasada de
- * catálogo, cada quince minutos—, así que durante ese rato un SKU recién
- * enviado SIGUE saliendo como pendiente al compararlo con `pvp_actual`.
+ * Amazon contesta «aceptado» en cuanto entiende la petición, NO cuando la
+ * aplica. Aplicarla es un trabajo suyo, asíncrono, y tarda bastante más de lo
+ * que parece. Medido sobre 5.000 envíos de precio confirmados del 14 al 16 de
+ * septiembre, tiempo desde que sale hasta que el catálogo lo refleja:
  *
- * Sin esta ventana, la pasada del minuto siguiente reenviaría lo mismo: con un
- * catálogo que no cupiera en una sola pasada, los mismos 2.900 precios cada
- * minuto durante un cuarto de hora, y la cola de los que faltan sin llegar
- * nunca.
+ *     mediana     16,6 min
+ *     p90         84,1 min
+ *     p99        161,3 min
+ *     maximo     369,6 min   (algo más de seis horas)
  *
- * Veinticinco minutos: por encima de los quince del refresco, con margen para
- * una pasada que se retrase. Pasados, se reintenta aunque coincida — si a estas
- * alturas Amazon sigue sin tener el precio, es que aquel envío no se aplicó.
+ * AQUÍ HABÍA 25 MINUTOS Y ESO ERA EL FALLO. El número salió de razonar que «el
+ * catálogo se refresca cada quince minutos, así que lo que va a cuadrar cuadra
+ * en la primera media hora». El refresco sí es rápido; lo lento es Amazon. Con
+ * 25 minutos, el 38,5 % de los envíos volvían a mandarse antes de que Amazon
+ * hubiera aplicado el anterior, y el 24,5 % tardaban más de una hora — o sea
+ * más que la cadencia, así que se remandaban una vez por pasada.
+ *
+ * El resultado medido: 1.516 SKU reenviados tres o más veces y 10.733 llamadas
+ * a Amazon en dos días gastadas en repetir lo que ya estaba en camino. De esos
+ * SKU, 917 tienen HOY el precio correcto en el espejo: no es que no se aplicara,
+ * es que se mandó otra vez antes de que llegara.
+ *
+ * Y esa cola de reenvíos inútiles es la que empujaba fuera de la ventana a los
+ * precios que sí hacía falta mandar. De ahí «hay precios que no se sincronizan».
+ *
+ * CUATRO HORAS cubren el 99,6 % de los casos medidos. Lo que pase de ahí se
+ * reintenta, que es lo correcto: a esas alturas ya no está en camino.
  */
-const ESPERA_CONFIRMACION_MS = 25 * 60_000
+const ESPERA_CONFIRMACION_MS = 4 * 60 * 60_000
 
 /**
  * El mismo tope que valida sendChanges antes de llamar a Amazon
