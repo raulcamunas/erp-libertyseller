@@ -134,6 +134,29 @@ const POR_TANDA = 200
 const ESPERA_CONFIRMACION_MS = 4 * 60 * 60_000
 
 /**
+ * CUÁNTAS VECES SE INSISTE CON UN PRECIO QUE AMAZON ACEPTA Y NO APLICA.
+ *
+ * Medido el 16 de septiembre: de 2.098 combinaciones SKU+precio intentadas en
+ * dos días, 341 se aplicaron y 1.262 llevaban más de cuatro horas aceptadas sin
+ * aplicarse. Amazon dice que sí y no hace nada.
+ *
+ * La causa está en Seller Central, no aquí: esos listados tienen una regla de
+ * precio automático que vuelve a poner el suyo. Comparados con los que sí
+ * entran, coinciden en todo lo que el ERP puede ver —canal, stock, estado—, así
+ * que desde este lado no hay nada que arreglar salvo dejar de gastar llamadas.
+ */
+const INTENTOS_ANTES_DE_RENDIRSE = 3
+
+/**
+ * Y cada cuánto se vuelve a probar uno de los que se dieron por perdidos.
+ *
+ * Una vez al día: si se quita la regla en Seller Central, el precio entra solo
+ * sin que nadie tenga que acordarse de desbloquearlo aquí. Abandonar para
+ * siempre convertiría un problema que se arregla en un problema permanente.
+ */
+const REINTENTO_DE_LOS_IGNORADOS_MS = 24 * 60 * 60_000
+
+/**
  * El mismo tope que valida sendChanges antes de llamar a Amazon
  * (MAX_PRICE en lib/amazon/catalogo.ts). Se repite aquí para apartar el SKU
  * ANTES de meterlo en el lote, en vez de que reviente el lote entero.
@@ -377,6 +400,7 @@ async function publicar(
     origen: string | null
     enviado_precio?: number | null
     enviado_at?: string | null
+    intentos_sin_aplicar?: number | null
   }
 
   const COLUMNAS = 'sku, precio, pvp_actual, dif_euros, dif_porcentaje, origen'
@@ -399,7 +423,7 @@ async function publicar(
     filas = await fetchAll<FilaPrecio>((a, b) =>
       service
         .from('entrais_precios')
-        .select(`${COLUMNAS}, enviado_precio, enviado_at`)
+        .select(`${COLUMNAS}, enviado_precio, enviado_at, intentos_sin_aplicar`)
         .order('sku', { ascending: true })
         .range(a, b)
     )
@@ -412,6 +436,9 @@ async function publicar(
     )
   }
 
+  /** Para poder mirar en qué estado estaba cada SKU al apuntar lo enviado */
+  const porSku = new Map(filas.map((f) => [f.sku, f]))
+
   const tope = config.publicar_max_salto_pct
   const candidatos: { sku: string; precio: number; salto: number }[] = []
   const frenados: { sku: string; de: number; a: number; pct: number }[] = []
@@ -419,6 +446,8 @@ async function publicar(
   let enVuelo = 0
   /** Precios que Amazon no aceptaría nunca: cero, negativos o desorbitados */
   const imposibles: { sku: string; precio: number }[] = []
+  /** Los que Amazon acepta y no aplica, y que se han dejado de intentar */
+  const ignorados: { sku: string; precio: number; veces: number }[] = []
 
   const ahoraMs = Date.now()
 
@@ -453,13 +482,33 @@ async function publicar(
       continue
     }
 
-    if (
+    const yaMandado =
       f.enviado_precio != null &&
       f.enviado_at != null &&
-      Math.abs(Number(f.enviado_precio) - Number(f.precio)) < 0.005 &&
-      ahoraMs - Date.parse(f.enviado_at) < ESPERA_CONFIRMACION_MS
-    ) {
+      Math.abs(Number(f.enviado_precio) - Number(f.precio)) < 0.005
+
+    if (yaMandado && ahoraMs - Date.parse(f.enviado_at as string) < ESPERA_CONFIRMACION_MS) {
       enVuelo += 1
+      continue
+    }
+
+    /**
+     * AMAZON LO ACEPTA Y NO LO APLICA: SE DEJA DE INSISTIR.
+     *
+     * Tres envíos del mismo precio sin que llegue a ponerse y este SKU deja de
+     * intentarse durante un día. Son 1.262 combinaciones en este catálogo, y
+     * cada pasada las volvía a mandar: esa cola es la que empujaba fuera de la
+     * ventana a los precios que sí entran.
+     *
+     * Se reintenta una vez al día por si se ha quitado la regla de precio
+     * automático en Seller Central, que es lo que los bloquea.
+     */
+    if (
+      yaMandado &&
+      Number(f.intentos_sin_aplicar ?? 0) >= INTENTOS_ANTES_DE_RENDIRSE &&
+      ahoraMs - Date.parse(f.enviado_at as string) < REINTENTO_DE_LOS_IGNORADOS_MS
+    ) {
+      ignorados.push({ sku: f.sku, precio: Number(f.precio), veces: Number(f.intentos_sin_aplicar) })
       continue
     }
 
@@ -501,6 +550,24 @@ async function publicar(
         `proveedor sin precio. Los primeros: ${imposibles
           .slice(0, 8)
           .map((i) => `${i.sku} (${i.precio})`)
+          .join(', ')}`,
+    })
+  }
+
+  if (ignorados.length > 0) {
+    await service.from('amazon_eventos').insert({
+      connection_id: connectionId,
+      marketplace_id: marketplaceId,
+      tipo: 'entrais_precio_ignorado',
+      severidad: 'aviso',
+      mensaje:
+        `${ignorados.length} precios se han dejado de intentar: Amazon los acepta y no los ` +
+        'aplica. Casi siempre es una REGLA DE PRECIO AUTOMÁTICO puesta en ese listado en Seller ' +
+        'Central (el icono de las flechas junto al precio, con su mínimo y su máximo): la regla ' +
+        'vuelve a poner el suyo en cuanto el ERP pone otro. Se reintentan solos una vez al día. ' +
+        `Los primeros: ${ignorados
+          .slice(0, 10)
+          .map((i) => `${i.sku} (${i.precio.toFixed(2)}, ${i.veces} intentos)`)
           .join(', ')}`,
     })
   }
@@ -646,12 +713,29 @@ async function publicar(
     if (aceptadosDeLaTanda.length > 0) {
       const sello = new Date().toISOString()
       await Promise.all(
-        aceptadosDeLaTanda.map((r) =>
-          service
+        aceptadosDeLaTanda.map((r) => {
+          /**
+           * LA CUENTA DE VECES QUE SE HA MANDADO ESTE MISMO PRECIO.
+           *
+           * Si es el mismo que la vez anterior, es un reenvío: Amazon no lo
+           * aplicó. Si es distinto, empieza de cero — es un intento nuevo, no
+           * una insistencia.
+           */
+          const antes = porSku.get(r.sku)
+          const esElMismo =
+            antes?.enviado_precio != null &&
+            Math.abs(Number(antes.enviado_precio) - Number(r.newValue)) < 0.005
+          const intentos = esElMismo ? Number(antes?.intentos_sin_aplicar ?? 0) + 1 : 1
+
+          return service
             .from('entrais_precios')
-            .update({ enviado_precio: r.newValue, enviado_at: sello })
+            .update({
+              enviado_precio: r.newValue,
+              enviado_at: sello,
+              intentos_sin_aplicar: intentos,
+            })
             .eq('sku', r.sku)
-        )
+        })
       ).catch((error) => {
         // La 180 se lanza a mano, así que el código puede llegar antes. Que no
         // poder apuntarlo tumbe una publicación que YA HA SALIDO hacia Amazon
@@ -703,6 +787,9 @@ async function publicar(
       (frenados.length > 0 ? `, ${frenados.length} frenados por el tope de salto` : '') +
       (enVuelo > 0 ? `, ${enVuelo} ya estaban mandados y sin confirmar` : '') +
       (imposibles.length > 0 ? `, ${imposibles.length} con un precio que Amazon no admite` : '') +
+      (ignorados.length > 0
+        ? `, ${ignorados.length} que Amazon acepta y no aplica (regla de precio automático en su ficha)`
+        : '') +
       (quedan > 0
         ? `. Quedan ${quedan} para las siguientes pasadas: no caben en el tiempo de una, y van ` +
           'ordenados de mayor a menor diferencia, así que lo que espera es lo menos urgente.'
