@@ -401,6 +401,7 @@ async function publicar(
     enviado_precio?: number | null
     enviado_at?: string | null
     intentos_sin_aplicar?: number | null
+    pvp_al_enviar?: number | null
   }
 
   const COLUMNAS = 'sku, precio, pvp_actual, dif_euros, dif_porcentaje, origen'
@@ -423,7 +424,7 @@ async function publicar(
     filas = await fetchAll<FilaPrecio>((a, b) =>
       service
         .from('entrais_precios')
-        .select(`${COLUMNAS}, enviado_precio, enviado_at, intentos_sin_aplicar`)
+        .select(`${COLUMNAS}, enviado_precio, enviado_at, intentos_sin_aplicar, pvp_al_enviar`)
         .order('sku', { ascending: true })
         .range(a, b)
     )
@@ -487,7 +488,28 @@ async function publicar(
       f.enviado_at != null &&
       Math.abs(Number(f.enviado_precio) - Number(f.precio)) < 0.005
 
-    if (yaMandado && ahoraMs - Date.parse(f.enviado_at as string) < ESPERA_CONFIRMACION_MS) {
+    /**
+     * ¿HA CAMBIADO EL PRECIO DE AMAZON DESDE QUE MANDAMOS?
+     *
+     * Si el que tiene ahora no es el que tenía cuando se mandó, aquel envío YA
+     * SE RESOLVIÓ —lo aplicara Amazon, lo pisara una regla o lo cambiara una
+     * persona a mano— y hay un precio nuevo que corregir. Esperar en ese caso es
+     * quedarse mirando.
+     *
+     * Pasó de verdad: el 16 de septiembre el ERP mandó 33,44 del SKU 34660 a las
+     * 12:04, Raúl puso 33,90 a mano a las 13:40, y la pasada de las 14:08 no
+     * mandó nada porque el guardia lo daba por «en camino» hasta las 16:04.
+     */
+    const espejoSeHaMovido =
+      f.pvp_al_enviar != null &&
+      f.pvp_actual != null &&
+      Math.abs(Number(f.pvp_actual) - Number(f.pvp_al_enviar)) > 0.005
+
+    if (
+      yaMandado &&
+      !espejoSeHaMovido &&
+      ahoraMs - Date.parse(f.enviado_at as string) < ESPERA_CONFIRMACION_MS
+    ) {
       enVuelo += 1
       continue
     }
@@ -505,6 +527,7 @@ async function publicar(
      */
     if (
       yaMandado &&
+      !espejoSeHaMovido &&
       Number(f.intentos_sin_aplicar ?? 0) >= INTENTOS_ANTES_DE_RENDIRSE &&
       ahoraMs - Date.parse(f.enviado_at as string) < REINTENTO_DE_LOS_IGNORADOS_MS
     ) {
@@ -733,6 +756,8 @@ async function publicar(
               enviado_precio: r.newValue,
               enviado_at: sello,
               intentos_sin_aplicar: intentos,
+              // Con qué precio partía Amazon. Ver la migración 187.
+              pvp_al_enviar: antes?.pvp_actual ?? null,
             })
             .eq('sku', r.sku)
         })
