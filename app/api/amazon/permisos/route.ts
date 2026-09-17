@@ -56,6 +56,9 @@ import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/info
  *   GET ?conexion=<uuid>                     -> lanza las sondas
  *   GET ?conexion=<uuid>&informe=<reportId>  -> cuando el informe esté listo,
  *                                               devuelve SUS COLUMNAS
+ *   GET ?conexion=<uuid>&sku=<sku>&dias=30   -> unidades vendidas por día de esa
+ *                                               referencia, que es el flujo que
+ *                                               consume una remesa
  *
  * El segundo paso existe por el FIFO de remesas: hace falta saber si el libro
  * mayor trae el identificador del envío en las entradas y el del pedido en las
@@ -219,6 +222,72 @@ export async function GET(request: NextRequest) {
         bytes: doc.bytes,
         filas: Math.max(0, lineas.length - 1),
         columnas,
+      })
+    }
+
+    /* ---------- Modo aparte: ¿hay ventas por SKU y por día? ---------- */
+
+    /**
+     * Esto no es una sonda de permisos, es la pregunta que decide la
+     * arquitectura del FIFO.
+     *
+     * El libro mayor da 403, así que el flujo de consumo tiene que salir de otro
+     * sitio. getOrderMetrics SÍ está concedido, y admite filtrar por SKU y pedir
+     * granularidad diaria. Si eso funciona, ya hay de dónde restar unidades sin
+     * depender de ningún rol nuevo: una serie de unidades vendidas por día y por
+     * referencia es exactamente lo que consume una remesa.
+     *
+     * Lo que NO da, y conviene tenerlo escrito: las devoluciones. orderMetrics
+     * cuenta lo que se pidió, no lo que volvió. Una devolución no aparece aquí y
+     * solo se verá como descuadre en el cuadre nocturno contra el stock real.
+     */
+    const sku = request.nextUrl.searchParams.get('sku')
+    if (sku) {
+      const dias = Math.min(60, Math.max(1, Number(request.nextUrl.searchParams.get('dias') ?? 30)))
+      const hasta = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      const desde = new Date(hasta.getTime() - dias * 24 * 60 * 60 * 1000)
+
+      const { data, httpStatus } = await spApiRequest<{
+        payload?: Array<{
+          interval?: string
+          unitCount?: number
+          orderCount?: number
+          totalSales?: { amount?: number; currencyCode?: string }
+        }>
+      }>(credentials, 'getOrderMetrics', {
+        method: 'GET',
+        path: '/sales/v1/orderMetrics',
+        query: {
+          marketplaceIds: [marketplaceId],
+          interval: `${isoConOffset(desde)}--${isoConOffset(hasta)}`,
+          granularity: 'Day',
+          sku,
+        },
+      })
+
+      const serie = (data.payload ?? []).map((d) => ({
+        dia: (d.interval ?? '').slice(0, 10),
+        unidades: d.unitCount ?? 0,
+        pedidos: d.orderCount ?? 0,
+        importe: d.totalSales?.amount ?? 0,
+      }))
+
+      const unidades = serie.reduce((suma, d) => suma + d.unidades, 0)
+      const conVenta = serie.filter((d) => d.unidades > 0).length
+
+      return NextResponse.json({
+        conexion: connection.name,
+        sku,
+        httpStatus,
+        dias,
+        // Lo que de verdad se quiere saber: ¿sirve esto para el FIFO?
+        sirveParaElFifo: serie.length > 0,
+        resumen: {
+          unidadesVendidas: unidades,
+          diasConVenta: conVenta,
+          mediaDiaria: dias > 0 ? Number((unidades / dias).toFixed(2)) : 0,
+        },
+        serie,
       })
     }
 
