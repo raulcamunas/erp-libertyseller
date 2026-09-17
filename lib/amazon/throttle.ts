@@ -55,6 +55,8 @@ export type AmazonOperation =
   | 'getFeaturedOfferExpectedPriceBatch'
   // ---------- La que añadieron las tarifas (A4/A5) ----------
   | 'getMyFeesEstimates'
+  // ---------- La que añadió la sonda de permisos ----------
+  | 'getOrderMetrics'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -142,6 +144,14 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   // monitor de Buy Box puede decir a qué precio se gana la oferta destacada pero
   // no si ganarla sale a cuenta.
   getMyFeesEstimates: { rate: 0.5, burst: 1 },
+
+  /**
+   * Sales API. El cupo publicado es 0,5 por segundo con ráfaga de 15, pero aquí
+   * se deja la ráfaga en 1: esta operación solo la usa la sonda de permisos, que
+   * la llama una vez, y una ráfaga que no se va a usar solo sirve para que un
+   * bucle accidental se coma quince fichas antes de que salte el freno.
+   */
+  getOrderMetrics: { rate: 0.5, burst: 1 },
 }
 
 export function sleep(ms: number): Promise<void> {
