@@ -441,6 +441,11 @@ async function publicar(
   const porSku = new Map(filas.map((f) => [f.sku, f]))
 
   const tope = config.publicar_max_salto_pct
+  /**
+   * El suelo por debajo del cual no se manda nada. `?? 0.005` para que el código
+   * siga funcionando si la 188 aún no está lanzada: ese era el valor de antes.
+   */
+  const minimo = Number(config.publicar_min_dif_eur ?? 0.005)
   const candidatos: { sku: string; precio: number; salto: number }[] = []
   const frenados: { sku: string; de: number; a: number; pct: number }[] = []
   /** Ya salieron hacia Amazon y el espejo todavía no lo refleja */
@@ -449,6 +454,8 @@ async function publicar(
   const imposibles: { sku: string; precio: number }[] = []
   /** Los que Amazon acepta y no aplica, y que se han dejado de intentar */
   const ignorados: { sku: string; precio: number; veces: number }[] = []
+  /** Cambios tan pequeños que no compensa mandarlos */
+  let minucias = 0
 
   const ahoraMs = Date.now()
 
@@ -456,7 +463,24 @@ async function publicar(
     if (f.origen === 'bloqueado') continue
     if (f.precio === null || f.pvp_actual === null) continue
     const dif = f.dif_euros === null ? 0 : Number(f.dif_euros)
-    if (Math.abs(dif) < 0.005) continue
+
+    /**
+     * POR UN CÉNTIMO NO SE MOLESTA A AMAZON.
+     *
+     * Medido el 17 de septiembre: de 176 precios que tocaba cambiar, 142 eran
+     * de 0,01 EUR. Ocho de cada diez envíos servían para mover un precio un
+     * céntimo — que no cambia el margen, ni lo que ve el comprador, ni la Buy
+     * Box— y cuesta lo mismo que uno de verdad: una de las cinco llamadas por
+     * segundo que deja Amazon, y un hueco en la ventana de la pasada.
+     *
+     * El mínimo se ajusta desde la pantalla (migración 188) porque el número
+     * bueno depende del catálogo: diez céntimos son un 1,7 % en una referencia
+     * de 6 EUR y un 0,08 % en una de 130.
+     */
+    if (Math.abs(dif) < minimo) {
+      if (Math.abs(dif) >= 0.005) minucias += 1
+      continue
+    }
 
     /**
      * YA SE MANDÓ Y AMAZON NO LO HA CONFIRMADO TODAVÍA.
@@ -814,6 +838,9 @@ async function publicar(
       (imposibles.length > 0 ? `, ${imposibles.length} con un precio que Amazon no admite` : '') +
       (ignorados.length > 0
         ? `, ${ignorados.length} que Amazon acepta y no aplica (regla de precio automático en su ficha)`
+        : '') +
+      (minucias > 0
+        ? `, ${minucias} sin mandar por cambiar menos de ${minimo.toFixed(2)} €`
         : '') +
       (quedan > 0
         ? `. Quedan ${quedan} para las siguientes pasadas: no caben en el tiempo de una, y van ` +

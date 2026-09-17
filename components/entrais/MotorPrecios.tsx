@@ -65,6 +65,7 @@ interface Config {
   publicar_automatico: boolean
   publicar_cada_minutos: number
   publicar_max_salto_pct: number | null
+  publicar_min_dif_eur: number | null
   publicar_max_por_pasada: number
   publicado_at: string | null
   publicado_motivo: string | null
@@ -1367,6 +1368,33 @@ function PublicarPrecios({
                   className="w-[46px] rounded bg-white/[0.06] px-1 py-0.5 text-right text-white tabular-nums outline-none placeholder:text-white/20"
                 />
                 %
+              </label>
+
+              {/* El suelo. Ocho de cada diez envíos eran para mover un precio un
+                  céntimo: no cambia nada y gasta una llamada igual que uno de
+                  verdad. Ver la migración 188. */}
+              <label className="flex items-center gap-1.5 text-[11px] text-white/45">
+                · ni si cambia menos de
+                <input
+                  key={`min-${cfg.publicar_min_dif_eur}`}
+                  defaultValue={
+                    cfg.publicar_min_dif_eur === null
+                      ? ''
+                      : String(Math.round(cfg.publicar_min_dif_eur * 100))
+                  }
+                  inputMode="numeric"
+                  placeholder="0"
+                  title="En céntimos. Por debajo de esto el precio se queda como está."
+                  onBlur={(e) => {
+                    const texto = e.target.value.trim()
+                    // Vacío o 0 = mandarlo todo, como antes de la 188.
+                    const v = texto === '' ? 0 : Number(texto) / 100
+                    if (Number.isFinite(v) && v >= 0 && v <= 50)
+                      void guardar({ publicar_min_dif_eur: v })
+                  }}
+                  className="w-[42px] rounded bg-white/[0.06] px-1 py-0.5 text-right text-white tabular-nums outline-none placeholder:text-white/20"
+                />
+                cént.
               </label>
 
               {cfg.publicado_at && (

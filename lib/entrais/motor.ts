@@ -66,6 +66,8 @@ export interface FilaConfig {
   /** 0 = al ritmo del sincronismo de stock. Ver la migración 166 */
   publicar_cada_minutos: number
   publicar_max_salto_pct: number | null
+  /** Diferencia mínima en euros para molestarse en mandarlo. Ver la migración 188 */
+  publicar_min_dif_eur: number | null
   publicar_max_por_pasada: number
   publicado_at: string | null
   /** Qué pasó en el último intento real, y cuándo. Ver la migración 168 */

@@ -50,6 +50,7 @@ const CAMPOS_CONFIG = [
   'publicar_automatico',
   'publicar_cada_minutos',
   'publicar_max_salto_pct',
+  'publicar_min_dif_eur',
   'publicar_max_por_pasada',
 ] as const
 
