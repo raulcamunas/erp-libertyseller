@@ -2,7 +2,22 @@
 
 import { useState, useEffect } from 'react'
 import { ManagedUser, CreateUserData } from '@/lib/types/users'
-import { apps } from '@/lib/config/apps'
+import { APPS_SIN_EFECTO, PERMISOS_SUELTOS, apps } from '@/lib/config/apps'
+
+/**
+ * LAS CASILLAS QUE SE OFRECEN, que NO son lo mismo que las apps del menú.
+ *
+ * `apps` es lo que se pinta como tarjeta; hay permisos que abren puertas sin ser
+ * una app —'stock-sync' es el caso— y sin esto se quedan sin casilla, o sea
+ * imposibles de conceder desde aquí. Pasó exactamente eso y costó de ver, porque
+ * el síntoma es que marcas la casilla que sí está y no ocurre nada.
+ *
+ * Solo se usan `id` y `name`, así que las dos listas se aplanan a eso.
+ */
+const COLUMNAS_PERMISO: ReadonlyArray<{ id: string; name: string }> = [
+  ...apps.map(a => ({ id: a.id, name: a.name })),
+  ...PERMISOS_SUELTOS.map(p => ({ id: p.id, name: p.name })),
+]
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,7 +49,7 @@ export function UsersManagement() {
     password: '',
     full_name: '',
     role: 'employee',
-    permissions: apps.map(app => ({ app_id: app.id, can_access: false })),
+    permissions: COLUMNAS_PERMISO.map(app => ({ app_id: app.id, can_access: false })),
   })
 
   useEffect(() => {
@@ -133,7 +148,7 @@ export function UsersManagement() {
         email: '',
         password: '',
         full_name: '',
-        permissions: apps.map(app => ({ app_id: app.id, can_access: false })),
+        permissions: COLUMNAS_PERMISO.map(app => ({ app_id: app.id, can_access: false })),
       })
       loadUsers()
     } catch (error: any) {
@@ -188,7 +203,7 @@ export function UsersManagement() {
       password: '', // No prellenar contraseña por seguridad
       full_name: user.full_name || '',
       role: user.role,
-      permissions: apps.map(app => ({
+      permissions: COLUMNAS_PERMISO.map(app => ({
         app_id: app.id,
         can_access: hasPermission(user, app.id),
       })),
@@ -234,7 +249,7 @@ export function UsersManagement() {
         email: '',
         password: '',
         full_name: '',
-        permissions: apps.map(app => ({ app_id: app.id, can_access: false })),
+        permissions: COLUMNAS_PERMISO.map(app => ({ app_id: app.id, can_access: false })),
       })
       loadUsers()
     } catch (error: any) {
@@ -275,7 +290,7 @@ export function UsersManagement() {
   }
 
   const getAppName = (appId: string) => {
-    const app = apps.find(a => a.id === appId)
+    const app = COLUMNAS_PERMISO.find(a => a.id === appId)
     return app?.name || appId
   }
 
@@ -313,7 +328,7 @@ export function UsersManagement() {
                 <TableHead className="text-white">Email</TableHead>
                 <TableHead className="text-white">Nombre</TableHead>
                 <TableHead className="text-white">Rol</TableHead>
-                {apps.map(app => (
+                {COLUMNAS_PERMISO.map(app => (
                   <TableHead key={app.id} className="text-white text-center">
                     {app.name}
                   </TableHead>
@@ -324,7 +339,7 @@ export function UsersManagement() {
             <TableBody>
               {users.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={apps.length + 4} className="text-center text-white/60 py-8">
+                  <TableCell colSpan={COLUMNAS_PERMISO.length + 4} className="text-center text-white/60 py-8">
                     No hay usuarios registrados
                   </TableCell>
                 </TableRow>
@@ -345,14 +360,16 @@ export function UsersManagement() {
                         {user.role === 'admin' ? 'Admin' : user.role === 'partner' ? 'Partner' : 'Empleado'}
                       </span>
                     </TableCell>
-                    {apps.map(app => (
+                    {COLUMNAS_PERMISO.map(app => (
                       <TableCell key={app.id} className="text-center">
                         <Checkbox
                           checked={hasPermission(user, app.id)}
+                          disabled={APPS_SIN_EFECTO.has(app.id)}
+                          title={APPS_SIN_EFECTO.get(app.id)}
                           onCheckedChange={(checked) =>
                             handleTogglePermission(user.id, app.id, !checked)
                           }
-                          className="border-white/30 data-[state=checked]:bg-[#FF6600] data-[state=checked]:border-[#FF6600]"
+                          className="border-white/30 data-[state=checked]:bg-[#FF6600] data-[state=checked]:border-[#FF6600] disabled:opacity-30 disabled:cursor-not-allowed"
                         />
                       </TableCell>
                     ))}
@@ -460,13 +477,17 @@ export function UsersManagement() {
                 Permisos de Aplicaciones
               </Label>
               <div className="space-y-2">
-                {apps.map(app => (
+                {COLUMNAS_PERMISO.map(app => (
                   <div
                     key={app.id}
                     className="flex items-center justify-between glass-card p-3"
+                    title={APPS_SIN_EFECTO.get(app.id)}
                   >
-                    <span className="text-white">{app.name}</span>
+                    <span className={APPS_SIN_EFECTO.has(app.id) ? 'text-white/40' : 'text-white'}>
+                      {app.name}
+                    </span>
                     <Checkbox
+                      disabled={APPS_SIN_EFECTO.has(app.id)}
                       checked={formData.permissions.find(p => p.app_id === app.id)?.can_access || false}
                       onCheckedChange={(checked) => {
                         setFormData({
@@ -587,13 +608,17 @@ export function UsersManagement() {
                 Permisos de Aplicaciones
               </Label>
               <div className="space-y-2">
-                {apps.map(app => (
+                {COLUMNAS_PERMISO.map(app => (
                   <div
                     key={app.id}
                     className="flex items-center justify-between glass-card p-3"
+                    title={APPS_SIN_EFECTO.get(app.id)}
                   >
-                    <span className="text-white">{app.name}</span>
+                    <span className={APPS_SIN_EFECTO.has(app.id) ? 'text-white/40' : 'text-white'}>
+                      {app.name}
+                    </span>
                     <Checkbox
+                      disabled={APPS_SIN_EFECTO.has(app.id)}
                       checked={formData.permissions.find(p => p.app_id === app.id)?.can_access || false}
                       onCheckedChange={(checked) => {
                         setFormData({

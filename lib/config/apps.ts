@@ -387,6 +387,54 @@ export function puedeVerGrowth(
   return rol === 'admin' || permisos.has(PERMISO_STOCK_SYNC)
 }
 
+/**
+ * PERMISOS QUE EXISTEN PERO NO SON UNA APP DEL MENÚ.
+ *
+ * `apps` es «lo que se pinta como tarjeta y como entrada de menú». La pantalla
+ * de usuarios usaba esa misma lista para decidir qué casillas ofrecer, y ahí se
+ * abrió un agujero que costó encontrar:
+ *
+ *   · 'stock-sync' dejó de ser una app cuando el módulo se mudó dentro de Growth
+ *     Partner, pero SIGUE SIENDO el permiso que abre esa puerta. Al salir de
+ *     `apps` se quedó sin casilla, o sea IMPOSIBLE DE CONCEDER desde la pantalla.
+ *   · A la vez sí había casilla de 'growth', que no la lee nadie: ni
+ *     puedeVerGrowth(), ni el middleware, ni modulosPermitidos(). Se marcaba, se
+ *     guardaba, y no pasaba nada.
+ *
+ * O sea: la única casilla que servía no estaba, y la que estaba no servía. Esto
+ * arregla la primera mitad; la segunda la arregla APPS_SIN_EFECTO de abajo.
+ *
+ * No se vuelven a meter en `apps` a propósito: eso los pintaría otra vez como
+ * tarjeta y como entrada de menú, que es justo lo que se quiso quitar.
+ */
+export const PERMISOS_SUELTOS: ReadonlyArray<{ id: string; name: string; description: string }> = [
+  {
+    id: PERMISO_STOCK_SYNC,
+    name: 'Mapeo de stock',
+    description:
+      'Entra en Growth Partner y ve ÚNICAMENTE el sincronismo de stock: el mapeo manual de SKU ' +
+      'de un cliente, con alta, edición y borrado de líneas. No ve Buy Box ni FBM→FBA.',
+  },
+]
+
+/**
+ * CASILLAS QUE NO HACEN NADA Y QUE LA PANTALLA TIENE QUE DESACTIVAR.
+ *
+ * 'growth' se guarda en user_app_permissions si alguien la marca, pero el acceso
+ * a Growth Partner lo deciden el rol de admin y el permiso 'stock-sync', nunca
+ * esta fila. Dejarla marcable es prometer un acceso que no se da, sin avisar.
+ *
+ * No se borra la casilla, se desactiva con el motivo escrito al lado: borrarla
+ * escondería que existen filas 'growth' en la base repartidas a gente que creyó
+ * tener acceso.
+ */
+export const APPS_SIN_EFECTO: ReadonlyMap<string, string> = new Map([
+  [
+    APP_GROWTH,
+    'Growth Partner es solo para administradores. Para dar acceso al mapeo de stock, usa la casilla «Mapeo de stock».',
+  ],
+])
+
 export const getAppById = (id: string): AppConfig | undefined => {
   return apps.find(app => app.id === id)
 }

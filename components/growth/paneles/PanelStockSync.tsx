@@ -15,6 +15,7 @@ import type { StockMapping, StockRun } from '@/lib/types/stock-sync'
 import { Vacio } from '@/components/plataforma/comun'
 import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
 import type { ClienteGrowth } from '@/lib/growth/clientes'
+import { PERMISO_STOCK_SYNC } from '@/lib/config/apps'
 
 /**
  * SUBMÓDULO «SINCRONISMO DE STOCK» — antes /dashboard/stock-sync.
@@ -107,19 +108,32 @@ export async function PanelStockSync({ cliente }: { cliente: ClienteGrowth }) {
 
   const clienteId = cliente.stockClientId
 
-  // Solo admin y partner pueden borrar, igual que las políticas de la migración
-  // 106. Con RLS un borrado sin permiso no da error, simplemente no borra: el
-  // tablero necesita saberlo de antemano para ofrecer desactivar en su lugar.
+  // Quién puede borrar líneas del mapeo. TIENE QUE DECIR LO MISMO que la función
+  // puede_borrar_mapeo() de la migración 189, porque quien manda es ella: con
+  // RLS un borrado sin permiso NO DA ERROR, simplemente no borra ninguna fila.
+  // Si esta línea fuera más generosa que la política, el botón aparecería y al
+  // pulsarlo no pasaría nada, sin mensaje. Por eso se calcula y no se asume.
   //
-  // Hoy Growth Partner es solo-admin, así que esto es siempre true. Se deja
-  // calculado y no puesto a mano porque el día que se abra el módulo a alguien
-  // más, el que se olvide de esta línea le está dando el botón de borrar.
+  // El día que esto se escribió, Growth Partner era solo-admin y el comentario
+  // avisaba: «el día que se abra el módulo a alguien más, el que se olvide de
+  // esta línea le está dando el botón de borrar». Ese día es hoy, y por eso ya
+  // no basta con el rol: hace falta además el permiso suelto que abre la puerta.
   const { data: perfil } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single()
-  const canDelete = perfil?.role === 'admin' || perfil?.role === 'partner'
+
+  let canDelete = perfil?.role === 'admin' || perfil?.role === 'partner'
+  if (!canDelete) {
+    const { data: permisoStock } = await supabase
+      .from('user_app_permissions')
+      .select('can_access')
+      .eq('user_id', user.id)
+      .eq('app_id', PERMISO_STOCK_SYNC)
+      .maybeSingle()
+    canDelete = permisoStock?.can_access === true
+  }
 
   /**
    * LO QUE VE TODO EL MUNDO ES EL HISTORIAL DE EJECUCIONES.
