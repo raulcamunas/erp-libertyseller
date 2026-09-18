@@ -56,8 +56,22 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     const leidoHasta = (lecturaPrevia as { leido_hasta: string | null } | null)?.leido_hasta ?? null
+
+    // La remesa más antigua de esta cuenta. Solo importa la primera vez, y es lo
+    // que hace que una migración de histórico signifique algo: sin esto la
+    // primera lectura empieza 90 días atrás y las remesas anteriores salen
+    // intactas, como si no se hubiera vendido nada de ellas.
+    const { data: primera } = await service
+      .from('fba_remesas')
+      .select('fecha_envio')
+      .eq('connection_id', conexionId)
+      .order('fecha_envio', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    const remesaMasAntigua = (primera as { fecha_envio: string } | null)?.fecha_envio ?? null
+
     const hoy = new Date()
-    const desde = desdeCuandoLeer(leidoHasta, hoy)
+    const desde = desdeCuandoLeer(leidoHasta, hoy, remesaMasAntigua)
     // Hasta hace una hora: el libro mayor del día en curso todavía se está
     // escribiendo, y pedirlo hasta «ahora» devuelve un tramo a medio cerrar.
     const hasta = new Date(hoy.getTime() - 60 * 60_000)
