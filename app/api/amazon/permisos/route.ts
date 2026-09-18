@@ -214,6 +214,44 @@ export async function GET(request: NextRequest) {
         (c) => c.trim()
       )
 
+      /**
+       * LA FORMA DEL INFORME, NO SU CONTENIDO.
+       *
+       * Saber que existe una columna «Reference ID» no dice si viene rellena, ni
+       * en qué tipos de movimiento. Y de eso depende el diseño entero del FIFO:
+       *
+       *   · si las entradas la traen  -> las remesas se detectan solas
+       *   · si las devoluciones la traen -> cada unidad devuelta vuelve a la
+       *     remesa exacta de la que salió, sin inventarse una convención
+       *
+       * Así que se cuenta POR TIPO DE MOVIMIENTO cuántas filas la llevan. Eso
+       * responde la pregunta sin sacar de Amazon el identificador de ningún
+       * pedido ni de ninguna venta: salen tipos, recuentos y nada más.
+       */
+      const idx = (nombre: string) => columnas.findIndex(c => c === nombre)
+      const iTipo = idx('Event Type')
+      const iRef = idx('Reference ID')
+      const iDisp = idx('Disposition')
+
+      const porTipo = new Map<string, { filas: number; conReferencia: number }>()
+      const porDisposicion = new Map<string, number>()
+
+      for (const linea of lineas.slice(1)) {
+        const campos = (linea.includes('\t') ? linea.split('\t') : linea.split(','))
+          .map(c => c.trim().replace(/^"|"$/g, ''))
+
+        const tipo = iTipo >= 0 ? campos[iTipo] || '(vacío)' : '(sin columna)'
+        const fila = porTipo.get(tipo) ?? { filas: 0, conReferencia: 0 }
+        fila.filas += 1
+        if (iRef >= 0 && (campos[iRef] ?? '').length > 0) fila.conReferencia += 1
+        porTipo.set(tipo, fila)
+
+        if (iDisp >= 0) {
+          const d = campos[iDisp] || '(vacío)'
+          porDisposicion.set(d, (porDisposicion.get(d) ?? 0) + 1)
+        }
+      }
+
       return NextResponse.json({
         conexion: connection.name,
         informe: informeId,
@@ -222,6 +260,18 @@ export async function GET(request: NextRequest) {
         bytes: doc.bytes,
         filas: Math.max(0, lineas.length - 1),
         columnas,
+        movimientos: [...porTipo.entries()]
+          .sort((a, b) => b[1].filas - a[1].filas)
+          .map(([tipo, v]) => ({
+            tipo,
+            filas: v.filas,
+            conReferencia: v.conReferencia,
+            // Lo que de verdad se quiere leer de un vistazo
+            sirveParaAtribuir: v.filas > 0 && v.conReferencia === v.filas,
+          })),
+        disposiciones: [...porDisposicion.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([disposicion, filas]) => ({ disposicion, filas })),
       })
     }
 
