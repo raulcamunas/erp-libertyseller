@@ -377,6 +377,32 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
  * El porqué entero y el recorte de lo que ve están en lib/growth/acceso.ts. Aquí
  * solo se decide QUÉ SE PINTA; quien manda son las RLS y el middleware.
  */
+/**
+ * APPS QUE NO SE LE PINTAN AL ADMIN.
+ *
+ * Al revés que APPS_SOLO_ADMIN: estas NO se esconden porque sean sensibles, sino
+ * porque el admin no las usa y le ocupan sitio en un menú que ya es largo.
+ *
+ * NO QUITAN NINGÚN PERMISO NI CIERRAN NINGUNA RUTA. Solo dejan de pintarse en el
+ * menú y en la rejilla del escritorio, y solo a quien es admin:
+ *
+ *   · 'vacaciones' es el caso que explica la lista. Es la pantalla donde CADA
+ *     EMPLEADO ve sus propios días, así que tiene que seguir estando para ellos;
+ *     lo que no tiene sentido es ocuparle un hueco al admin, que ahí no gestiona
+ *     nada. Quitarla de `apps` se la quitaría a todo el mundo.
+ *   · 'commissions-shoes-f' sigue disponible para quien tenga el permiso.
+ *   · 'limpieza-ofertas' y 'disenos' están además en APPS_SOLO_ADMIN, así que
+ *     esconderlas al admin las esconde de hecho a todos. Sus rutas siguen
+ *     funcionando si alguien tiene la dirección guardada; lo que se quita es la
+ *     entrada del menú, no el módulo.
+ */
+export const APPS_OCULTAS_A_ADMIN: ReadonlySet<string> = new Set([
+  'commissions-shoes-f',
+  'vacaciones',
+  'limpieza-ofertas',
+  'disenos',
+])
+
 export const APP_GROWTH = 'growth'
 export const PERMISO_STOCK_SYNC = 'stock-sync'
 

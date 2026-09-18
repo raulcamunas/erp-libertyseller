@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
-import { apps, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
+import { apps, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 
@@ -65,8 +65,12 @@ export default async function DashboardPage() {
     // a todo" de abajo para que ni un employee con el permiso suelto en
     // user_app_permissions las vea.
     if (APPS_SOLO_ADMIN.has(app.id)) {
-      return profile.role === 'admin'
+      return profile.role === 'admin' && !APPS_OCULTAS_A_ADMIN.has(app.id)
     }
+
+    // Las que el admin no usa. No es un permiso: el módulo sigue abierto y
+    // quien lo tenga concedido lo sigue viendo. Ver APPS_OCULTAS_A_ADMIN.
+    if (profile.role === 'admin' && APPS_OCULTAS_A_ADMIN.has(app.id)) return false
 
     // Growth Partner: admin, más quien tenga el permiso suelto 'stock-sync', que
     // dentro solo ve el sincronismo. Ver lib/growth/acceso.ts.

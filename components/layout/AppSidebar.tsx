@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 import { LogoutButton } from '@/components/auth/logout-button'
-import { apps, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
+import { apps, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -141,8 +141,12 @@ export function AppSidebar() {
     // rol, mostrar todas" de abajo: si no, aparecen un instante en el menú de
     // cualquiera mientras se resuelve el perfil.
     if (APPS_SOLO_ADMIN.has(app.id)) {
-      return userRole === 'admin'
+      return userRole === 'admin' && !APPS_OCULTAS_A_ADMIN.has(app.id)
     }
+
+    // Las que el admin no usa. No es un permiso: el módulo sigue abierto y
+    // quien lo tenga concedido lo sigue viendo. Ver APPS_OCULTAS_A_ADMIN.
+    if (userRole === 'admin' && APPS_OCULTAS_A_ADMIN.has(app.id)) return false
     // Growth Partner: admin, más quien tenga el permiso suelto 'stock-sync', que
     // dentro solo ve el sincronismo. Ver lib/growth/acceso.ts. Va aquí, antes
     // del "si aún no se ha cargado el rol", por el mismo motivo que la lista de
