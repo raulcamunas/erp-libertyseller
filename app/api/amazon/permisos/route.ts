@@ -210,9 +210,14 @@ export async function GET(request: NextRequest) {
       // Los informes de Amazon son TSV. Se parte por tabulador y, si no hay,
       // por coma: hay tipos que salen en CSV y la cabecera se leería entera
       // como una sola columna.
-      const columnas = (cabecera.includes('\t') ? cabecera.split('\t') : cabecera.split(',')).map(
-        (c) => c.trim()
-      )
+      // Las comillas se quitan AQUÍ y no solo en las filas de datos. Amazon
+      // entrecomilla también la cabecera, así que sin esto el nombre de la
+      // columna es «"Event Type"» —con las comillas dentro— y no casa con nada:
+      // el recuento por tipo salía entero como «(sin columna)» sin dar error.
+      const sinComillas = (c: string) => c.trim().replace(/^"|"$/g, '')
+      const columnas = (
+        cabecera.includes('\t') ? cabecera.split('\t') : cabecera.split(',')
+      ).map(sinComillas)
 
       /**
        * LA FORMA DEL INFORME, NO SU CONTENIDO.
@@ -237,8 +242,9 @@ export async function GET(request: NextRequest) {
       const porDisposicion = new Map<string, number>()
 
       for (const linea of lineas.slice(1)) {
-        const campos = (linea.includes('\t') ? linea.split('\t') : linea.split(','))
-          .map(c => c.trim().replace(/^"|"$/g, ''))
+        const campos = (linea.includes('\t') ? linea.split('\t') : linea.split(',')).map(
+          sinComillas
+        )
 
         const tipo = iTipo >= 0 ? campos[iTipo] || '(vacío)' : '(sin columna)'
         const fila = porTipo.get(tipo) ?? { filas: 0, conReferencia: 0 }
