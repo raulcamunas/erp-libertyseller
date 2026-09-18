@@ -65,6 +65,7 @@ RUN { \
       echo "* * * * * /app/scripts/amazon-sync.sh"; \
       echo "* * * * * /app/scripts/amazon-jobs.sh"; \
       echo "* * * * * /app/scripts/entrais-precios.sh"; \
+      echo "* * * * * /app/scripts/fba-remesas.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto

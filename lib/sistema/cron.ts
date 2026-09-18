@@ -80,6 +80,34 @@ export const TAREAS_CRON = [
       'han cambiado. La cadencia se ajusta en el motor de precios, no aquí.',
   },
   {
+    /**
+     * VA APARTE DEL CICLO DE CATÁLOGO, Y ES EL MOTIVO DE QUE EXISTA.
+     *
+     * El stock FBA se leía dentro de `amazon-sync`, y solo si el tramo de
+     * catálogo que tocaba en esa pasada contenía alguna referencia de FBA. Con
+     * ShoesF —42.737 listings, de los que 1.756 son FBA, un 4 %— eso significa
+     * que la lectura depende de por dónde vaya el barrido: puede tardar horas en
+     * caer en un tramo con FBA, y mientras tanto el panel de remesas no tiene
+     * con qué cuadrar.
+     *
+     * Aquí se pide el inventario de FBA DIRECTAMENTE, que devuelve solo lo que
+     * está en los almacenes de Amazon sin recorrer el catálogo entero. Para
+     * ShoesF son 1.756 referencias en vez de 42.737.
+     *
+     * Una vez al día y de madrugada porque el libro mayor es histórico, no stock
+     * vivo: pedirlo más a menudo no trae nada nuevo y cada pasada gasta una ficha
+     * de createReport, que se repone una vez por minuto.
+     */
+    id: 'fba-remesas',
+    nombre: 'Remesas a FBA',
+    ruta: '/api/fba/cron-remesas',
+    cadaMinutos: 1440,
+    que:
+      'Trae el libro mayor de inventario de cada cuenta con remesas —entradas, ventas, ' +
+      'devoluciones y mermas— y refresca el stock que Amazon tiene en sus almacenes. Es lo que ' +
+      'descuenta las remesas y lo que permite cuadrarlas.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
