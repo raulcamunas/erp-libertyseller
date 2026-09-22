@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, X } from 'lucide-react'
+import { ClipboardPaste, ListChecks, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { SelectorProductos, type Elegido } from './SelectorProductos'
 
 /**
  * DAR DE ALTA UNA REMESA PEGANDO LA TABLA.
@@ -145,11 +146,13 @@ export function NuevaRemesaDialog({
   clienteId,
   clienteNombre,
   marketplaceId = 'A1RKKUPIHCS9HS',
+  esAdmin = true,
   onClose,
 }: {
   clienteId: string
   clienteNombre: string
   marketplaceId?: string
+  esAdmin?: boolean
   onClose: () => void
 }) {
   const router = useRouter()
@@ -158,8 +161,34 @@ export function NuevaRemesaDialog({
   const [referenciaEnvio, setReferenciaEnvio] = useState('')
   const [pegado, setPegado] = useState('')
   const [guardando, setGuardando] = useState(false)
+  /**
+   * Dos formas de montar la lista, y las dos hacen falta.
+   *
+   * Elegir del catálogo es lo del día a día. Pegar sirve para traerse una hoja
+   * de cálculo entera de golpe —así entraron las diez remesas históricas de
+   * ShoesF— y quitarlo dejaría sin salida a quien tenga la lista ya hecha.
+   */
+  const [modo, setModo] = useState<'elegir' | 'pegar'>('elegir')
+  const [elegidos, setElegidos] = useState<Elegido[]>([])
 
-  const { lineas, avisos } = useMemo(() => interpretar(pegado), [pegado])
+  const { lineas: pegadas, avisos } = useMemo(() => interpretar(pegado), [pegado])
+
+  const lineas: LineaPegada[] = useMemo(
+    () =>
+      modo === 'elegir'
+        ? elegidos.map((e) => ({
+            sku: e.sku,
+            unidades: e.unidades,
+            referencia: null,
+            nombre: e.titulo,
+            variante: null,
+            ean: null,
+            fnsku: e.fnsku,
+            asin: e.asin,
+          }))
+        : pegadas,
+    [modo, elegidos, pegadas]
+  )
   const totalUnidades = lineas.reduce((s, l) => s + l.unidades, 0)
 
   async function guardar() {
@@ -233,6 +262,40 @@ export function NuevaRemesaDialog({
           </div>
 
           <div>
+            <div className="mb-2 flex items-center gap-1 rounded-lg bg-white/[0.03] p-0.5">
+              <button
+                type="button"
+                onClick={() => setModo('elegir')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  modo === 'elegir' ? 'bg-[#FF6600]/15 text-[#FF6600]' : 'text-white/45 hover:text-white/70'
+                }`}
+              >
+                <ListChecks className="h-3.5 w-3.5" />
+                Elegir del catálogo
+              </button>
+              <button
+                type="button"
+                onClick={() => setModo('pegar')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  modo === 'pegar' ? 'bg-[#FF6600]/15 text-[#FF6600]' : 'text-white/45 hover:text-white/70'
+                }`}
+              >
+                <ClipboardPaste className="h-3.5 w-3.5" />
+                Pegar una tabla
+              </button>
+            </div>
+
+            {modo === 'elegir' && (
+              <SelectorProductos
+                clienteId={clienteId}
+                esAdmin={esAdmin}
+                elegidos={elegidos}
+                onCambio={setElegidos}
+              />
+            )}
+          </div>
+
+          <div className={modo === 'pegar' ? '' : 'hidden'}>
             <label className="mb-1 block text-[11px] font-medium text-white/60">
               Pega aquí las referencias
             </label>
@@ -251,7 +314,7 @@ export function NuevaRemesaDialog({
             />
           </div>
 
-          {avisos.length > 0 && (
+          {modo === 'pegar' && avisos.length > 0 && (
             <div className="space-y-1 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2">
               {avisos.slice(0, 6).map((a) => (
                 <p key={a} className="text-[11px] text-amber-200/90">
@@ -264,7 +327,7 @@ export function NuevaRemesaDialog({
             </div>
           )}
 
-          {lineas.length > 0 && (
+          {modo === 'pegar' && lineas.length > 0 && (
             <div>
               <p className="mb-1.5 text-[11px] text-white/50">
                 <span className="font-semibold text-white">{lineas.length}</span> referencias ·{' '}

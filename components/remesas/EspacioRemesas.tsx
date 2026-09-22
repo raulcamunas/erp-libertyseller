@@ -326,6 +326,7 @@ export function EspacioRemesas({
         <NuevaRemesaDialog
           clienteId={cliente.id}
           clienteNombre={cliente.nombre}
+          esAdmin={esAdmin}
           onClose={() => setNueva(false)}
         />
       )}
