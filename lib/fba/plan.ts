@@ -635,6 +635,17 @@ export interface EnvioDelPlan {
   nombre: string | null
   estado: string | null
   destino: string | null
+  /** Cuándo sale, tal y como se le dijo a Amazon */
+  saleDesde: string | null
+  saleHasta: string | null
+  /**
+   * La ventana en la que Amazon espera recibirlo. Solo existe en transporte
+   * propio: con el transportista de Amazon la fecha la pone él y no se negocia.
+   */
+  entregaDesde: string | null
+  entregaHasta: string | null
+  /** Los seguimientos por caja, con lo que Amazon opina de cada número */
+  seguimientos: Array<{ boxId: string | null; numero: string | null; valido: string | null }>
 }
 
 export async function verEnvio(
@@ -647,12 +658,29 @@ export async function verEnvio(
     path: `${RUTA}/inboundPlans/${encodeURIComponent(planId)}/shipments/${encodeURIComponent(shipmentId)}`,
   })
   const destino = (data.destination ?? {}) as { warehouseId?: string }
+  const fechas = (data.dates ?? {}) as { readyToShipWindow?: { start?: string; end?: string } }
+  const ventana = (data.selectedDeliveryWindow ?? {}) as { startDate?: string; endDate?: string }
+  const seguimiento = (data.trackingDetails ?? {}) as {
+    spdTrackingDetail?: { spdTrackingItems?: Array<Record<string, unknown>> }
+  }
+
   return {
     shipmentId: (data.shipmentId as string) ?? shipmentId,
     confirmacion: (data.shipmentConfirmationId as string) ?? null,
     nombre: (data.name as string) ?? null,
     estado: (data.status as string) ?? null,
     destino: destino.warehouseId ?? null,
+    saleDesde: fechas.readyToShipWindow?.start ?? null,
+    saleHasta: fechas.readyToShipWindow?.end ?? null,
+    entregaDesde: ventana.startDate ?? null,
+    entregaHasta: ventana.endDate ?? null,
+    seguimientos: (seguimiento.spdTrackingDetail?.spdTrackingItems ?? []).map((t) => ({
+      boxId: (t.boxId as string) ?? null,
+      numero: (t.trackingId as string) ?? null,
+      // Amazon comprueba el numero contra el transportista. Un «INVALID» aqui
+      // es lo que hace que el envio se quede esperando en el almacen.
+      valido: (t.trackingNumberValidationStatus as string) ?? null,
+    })),
   }
 }
 
