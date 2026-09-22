@@ -57,6 +57,9 @@ export type AmazonOperation =
   | 'getMyFeesEstimates'
   // ---------- La que añadió la sonda de permisos ----------
   | 'getOrderMetrics'
+  // ---------- Las del seguimiento de envíos a FBA ----------
+  | 'getInboundShipments'
+  | 'getInboundShipmentItems'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -152,6 +155,15 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
    * bucle accidental se coma quince fichas antes de que salte el freno.
    */
   getOrderMetrics: { rate: 0.5, burst: 1 },
+
+  /**
+   * Fulfillment Inbound. El cupo publicado es 2 por segundo con ráfaga de 30,
+   * pero se deja la ráfaga en 2: los envíos abiertos de un cliente son unos
+   * pocos, no cientos, y una ráfaga de 30 solo serviría para que un bucle
+   * accidental se comiera el cupo antes de que saltara el freno.
+   */
+  getInboundShipments: { rate: 2, burst: 2 },
+  getInboundShipmentItems: { rate: 2, burst: 2 },
 }
 
 export function sleep(ms: number): Promise<void> {

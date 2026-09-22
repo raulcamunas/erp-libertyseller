@@ -429,6 +429,33 @@ export async function GET(request: NextRequest) {
       )
     )
 
+    sondas.push(
+      await sondar(
+        {
+          nombre: 'getInboundShipments',
+          rol: 'Logística de Amazon',
+          para: 'Seguimiento de los envíos a FBA: en qué estado está cada uno y cuántas unidades ha recibido Amazon de las que mandamos.',
+        },
+        async () => {
+          // Una ventana corta y sin filtrar por estado: solo interesa si Amazon
+          // deja pasar la llamada, no lo que devuelva.
+          const hasta = new Date()
+          const desde = new Date(hasta.getTime() - 30 * 24 * 60 * 60_000)
+          const { httpStatus } = await spApiRequest<unknown>(credentials, 'getInboundShipments', {
+            method: 'GET',
+            path: '/fba/inbound/v0/shipments',
+            query: {
+              MarketplaceId: marketplaceId,
+              QueryType: 'DATE_RANGE',
+              LastUpdatedAfter: iso(desde),
+              LastUpdatedBefore: iso(hasta),
+            },
+          })
+          return { httpStatus }
+        }
+      )
+    )
+
     const ledger = sondas.find((s) => s.nombre.includes('LEDGER'))
 
     return NextResponse.json({
