@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { Calendar, Check, Hash, Loader2, Pencil, StickyNote, Trash2, Truck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { RemesaDePanel, SkuDePanel } from '@/lib/fba/datos'
+import { ESTADO_INBOUND_TEXTO } from '@/lib/fba/inbound'
 import { colorDeCobertura, fecha } from './formato'
 
 /**
@@ -149,14 +150,8 @@ export function DetalleRemesa({
                   fecha(remesa.fechaEnvio)
                 )}
               </Dato>
-              <Dato icono={<Truck className="h-3 w-3" />} etiqueta="Llegó a Amazon">
-                {remesa.llegadaAt ? (
-                  <span className="text-emerald-400">{fecha(remesa.llegadaAt)}</span>
-                ) : (
-                  <span className="text-white/30" title="Se reconoce sola cuando el libro mayor registra la entrada con este número de envío">
-                    sin confirmar
-                  </span>
-                )}
+              <Dato icono={<Truck className="h-3 w-3" />} etiqueta="Estado en Amazon">
+                <EstadoEnvio remesa={remesa} />
               </Dato>
               <Dato icono={<Hash className="h-3 w-3" />} etiqueta="Nº envío FBA">
                 {editando ? (
@@ -249,11 +244,15 @@ export function DetalleRemesa({
         <CifraChica etiqueta="Devueltas" valor={totales.devueltas} tono={totales.devueltas > 0 ? 'aviso' : undefined} />
         <CifraChica etiqueta="Quedan" valor={remesa.quedan} tono="acento" />
         <CifraChica etiqueta="Consumido" valor={`${remesa.consumidoPct}%`} />
-        <CifraChica
-          etiqueta="Ref. agotadas"
-          valor={`${totales.agotadas}/${remesa.lineas.length}`}
-          tono={totales.agotadas === remesa.lineas.length ? 'apagado' : undefined}
-        />
+        {remesa.unidadesQueNoLlegaron > 0 ? (
+          <CifraChica etiqueta="No llegaron" valor={remesa.unidadesQueNoLlegaron} tono="aviso" />
+        ) : (
+          <CifraChica
+            etiqueta="Ref. agotadas"
+            valor={`${totales.agotadas}/${remesa.lineas.length}`}
+            tono={totales.agotadas === remesa.lineas.length ? 'apagado' : undefined}
+          />
+        )}
       </div>
 
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
@@ -312,6 +311,9 @@ export function DetalleRemesa({
                 <th className={TH}>Var.</th>
                 <th className={TH}>ASIN</th>
                 <th className={`${TH} text-right`}>Env.</th>
+                <th className={`${TH} text-right`} title="Lo que Amazon dice que ha recibido de las que mandamos">
+                  Recib.
+                </th>
                 <th className={`${TH} text-right`}>Vend.</th>
                 <th className={`${TH} text-right`}>Dev.</th>
                 <th className={`${TH} text-right`}>Quedan</th>
@@ -347,6 +349,24 @@ export function DetalleRemesa({
                     <td className={TD}>{l.variante ?? <span className="text-white/25">—</span>}</td>
                     <td className={`${TD} font-mono text-[10px] text-white/40`}>{l.asin ?? '—'}</td>
                     <td className={`${TD} text-right text-white/45`}>{l.enviadas}</td>
+                    <td
+                      className={`${TD} text-right ${
+                        l.recibidas === null
+                          ? 'text-white/20'
+                          : l.recibidas < l.enviadas
+                            ? 'font-semibold text-amber-400'
+                            : 'text-white/45'
+                      }`}
+                      title={
+                        l.recibidas === null
+                          ? 'Todavía sin preguntar a Amazon'
+                          : l.recibidas < l.enviadas
+                            ? `Faltan ${l.enviadas - l.recibidas} unidades por registrar`
+                            : ''
+                      }
+                    >
+                      {l.recibidas ?? '—'}
+                    </td>
                     <td className={`${TD} text-right`}>{l.consumidas}</td>
                     <td className={`${TD} text-right ${l.devueltas > 0 ? 'text-amber-400' : 'text-white/25'}`}>
                       {l.devueltas || '—'}
@@ -445,5 +465,64 @@ function Boton({
     >
       {children}
     </motion.button>
+  )
+}
+
+/**
+ * EN QUÉ PUNTO ESTÁ EL ENVÍO.
+ *
+ * Tres casos distintos y los tres tienen que leerse diferente:
+ *
+ *   · Sin número de envío -> no es que falle: es que nunca se preguntó. Las diez
+ *     remesas que vinieron del Excel están así, y decirles «sin confirmar» sin
+ *     más invita a buscar una avería que no existe.
+ *   · Con número y respuesta -> el estado de Amazon, en cristiano.
+ *   · Con número y error -> lo que contestó Amazon, no un genérico.
+ */
+function EstadoEnvio({ remesa }: { remesa: RemesaDePanel }) {
+  if (!remesa.referenciaEnvio) {
+    return (
+      <span className="text-white/30" title="Escribe el número de envío arriba y Amazon empezará a contarnos por dónde va">
+        sin número de envío
+      </span>
+    )
+  }
+
+  if (remesa.seguimientoError) {
+    return (
+      <span className="text-red-400" title={remesa.seguimientoError}>
+        {remesa.seguimientoError.slice(0, 40)}
+      </span>
+    )
+  }
+
+  if (!remesa.estadoAmazon) {
+    return (
+      <span className="text-white/30" title="Se consulta en la pasada de cada noche">
+        pendiente de consultar
+      </span>
+    )
+  }
+
+  const info = ESTADO_INBOUND_TEXTO[remesa.estadoAmazon]
+  const color =
+    info?.tono === 'ok'
+      ? 'text-emerald-400'
+      : info?.tono === 'camino'
+        ? 'text-sky-400'
+        : info?.tono === 'malo'
+          ? 'text-red-400'
+          : 'text-amber-400'
+
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={color}>{info?.texto ?? remesa.estadoAmazon}</span>
+      {remesa.llegadaAt && <span className="text-white/30">· entró el {fecha(remesa.llegadaAt)}</span>}
+      {remesa.seguimientoAt && (
+        <span className="text-white/20" title={`Consultado el ${fecha(remesa.seguimientoAt)}`}>
+          ·
+        </span>
+      )}
+    </span>
   )
 }

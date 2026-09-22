@@ -20,6 +20,8 @@ import {
 
 export interface LineaDePanel {
   sku: string
+  /** Lo que Amazon dice que ha recibido. null = todavía no se ha preguntado */
+  recibidas: number | null
   /** De la línea de la remesa, o del espejo del catálogo si el cliente conecta */
   nombre: string | null
   variante: string | null
@@ -40,6 +42,13 @@ export interface RemesaDePanel {
   llegadaAt: string | null
   referenciaEnvio: string | null
   nota: string | null
+  /** WORKING, SHIPPED, IN_TRANSIT, CLOSED… tal y como lo llama Amazon */
+  estadoAmazon: string | null
+  seguimientoAt: string | null
+  seguimientoError: string | null
+  /** Enviadas menos recibidas, solo de las líneas que Amazon ya ha contestado.
+      Es lo que se puede reclamar */
+  unidadesQueNoLlegaron: number
   lineas: LineaDePanel[]
   /** Totales de la remesa: es la fila del resumen */
   enviadas: number
@@ -78,6 +87,9 @@ interface FilaRemesa {
   nota: string | null
   connection_id: string | null
   marketplace_id: string
+  estado_amazon: string | null
+  seguimiento_at: string | null
+  seguimiento_error: string | null
 }
 
 interface FilaLinea {
@@ -88,6 +100,7 @@ interface FilaLinea {
   variante: string | null
   asin: string | null
   referencia: string | null
+  unidades_recibidas: number | null
 }
 
 interface FilaMovimiento {
@@ -114,7 +127,7 @@ export async function panelDeCliente(
 
   const { data: remesasRaw, error: errRemesas } = await service
     .from('fba_remesas')
-    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id')
+    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error')
     .eq('client_id', clienteId)
     .order('fecha_envio', { ascending: true })
   if (errRemesas) throw errRemesas
@@ -135,7 +148,7 @@ export async function panelDeCliente(
   const ids = filasRemesa.map((r) => r.id)
   const { data: lineasRaw, error: errLineas } = await service
     .from('fba_remesa_lineas')
-    .select('remesa_id, sku, unidades, nombre, variante, asin, referencia')
+    .select('remesa_id, sku, unidades, nombre, variante, asin, referencia, unidades_recibidas')
     .in('remesa_id', ids)
   if (errLineas) throw errLineas
   const filasLinea = (lineasRaw ?? []) as FilaLinea[]
@@ -236,6 +249,7 @@ export async function panelDeCliente(
       const rep = porRemesaYSku.get(`${r.id}|${l.sku}`)
       return {
         sku: l.sku,
+        recibidas: l.unidades_recibidas,
         nombre: l.nombre,
         variante: l.variante,
         asin: l.asin,
@@ -260,6 +274,15 @@ export async function panelDeCliente(
       llegadaAt: r.llegada_at,
       referenciaEnvio: r.referencia_envio,
       nota: r.nota,
+      estadoAmazon: r.estado_amazon,
+      seguimientoAt: r.seguimiento_at,
+      seguimientoError: r.seguimiento_error,
+      // Solo de las líneas que Amazon ya ha contestado: una línea sin respuesta
+      // todavía no falta, simplemente no se sabe.
+      unidadesQueNoLlegaron: lineas.reduce(
+        (s, l) => s + (l.recibidas !== null && l.recibidas < l.enviadas ? l.enviadas - l.recibidas : 0),
+        0
+      ),
       lineas,
       enviadas,
       quedan,

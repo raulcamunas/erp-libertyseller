@@ -449,6 +449,11 @@ export async function GET(request: NextRequest) {
               QueryType: 'DATE_RANGE',
               LastUpdatedAfter: iso(desde),
               LastUpdatedBefore: iso(hasta),
+              // Obligatorio SIEMPRE, también con DATE_RANGE. Sin esto Amazon
+              // contesta 400 «At least one of ShipmentStatusList and
+              // ShipmentIdList must be provided», que es lo que pasó la primera
+              // vez: el permiso estaba y el fallo era de la petición.
+              ShipmentStatusList: ['SHIPPED', 'IN_TRANSIT', 'RECEIVING', 'CLOSED'],
             },
           })
           return { httpStatus }

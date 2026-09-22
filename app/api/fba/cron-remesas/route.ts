@@ -3,6 +3,7 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { fetchFbaInventory } from '@/lib/amazon/sp-api'
+import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
 import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -130,6 +131,81 @@ export async function POST(request: NextRequest) {
           })
         }
 
+        /* ---------- 1bis) El seguimiento de los envíos ---------- */
+        //
+        // Solo los que TIENEN número —sin él Amazon no sabe de cuál le hablamos—
+        // y solo los que siguen vivos: un envío CERRADO ya no cambia, y volver a
+        // preguntar cada noche es gastar cupo para recibir lo mismo.
+        let seguidos = 0
+        let faltantes = 0
+        try {
+          const { data: aSeguir } = await service
+            .from('fba_remesas')
+            .select('id, referencia_envio, estado_amazon')
+            .eq('connection_id', u.conexion)
+            .not('referencia_envio', 'is', null)
+
+          const vivas = ((aSeguir ?? []) as Array<{
+            id: string
+            referencia_envio: string
+            estado_amazon: string | null
+          }>).filter((r) => sigueVivo(r.estado_amazon))
+
+          if (vivas.length > 0) {
+            const estados = await estadoDeEnvios(
+              credentials,
+              u.mercado,
+              vivas.map((r) => r.referencia_envio)
+            )
+
+            for (const remesa of vivas) {
+              const info = estados.get(remesa.referencia_envio)
+              if (!info) {
+                // Amazon no lo conoce: casi siempre un número mal escrito. Se
+                // deja dicho en la propia remesa en vez de callarlo.
+                await service
+                  .from('fba_remesas')
+                  .update({
+                    seguimiento_at: new Date().toISOString(),
+                    seguimiento_error: 'Amazon no reconoce este número de envío',
+                  })
+                  .eq('id', remesa.id)
+                continue
+              }
+
+              // Las unidades recibidas, por referencia. Es lo que convierte un
+              // descuadre en una reclamación con envío y SKU.
+              const lineas = await lineasDeEnvio(credentials, u.mercado, remesa.referencia_envio)
+              for (const l of lineas) {
+                const { error: errLinea } = await service
+                  .from('fba_remesa_lineas')
+                  .update({ unidades_recibidas: l.recibidas, updated_at: new Date().toISOString() })
+                  .eq('remesa_id', remesa.id)
+                  .eq('sku', l.sku)
+                if (!errLinea && l.recibidas < l.enviadas) faltantes += l.enviadas - l.recibidas
+              }
+
+              await service
+                .from('fba_remesas')
+                .update({
+                  estado_amazon: info.estado,
+                  seguimiento_at: new Date().toISOString(),
+                  seguimiento_error: null,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', remesa.id)
+              seguidos++
+            }
+          }
+        } catch (e) {
+          // Que falle el seguimiento NO impide leer el libro mayor: el reparto
+          // es lo que de verdad hace falta y no depende de esto.
+          resultados.push({
+            conexion: connection.name,
+            avisoSeguimiento: e instanceof Error ? e.message.slice(0, 200) : 'error en el seguimiento',
+          })
+        }
+
         /* ---------- 2) El libro mayor ---------- */
         const { data: lecturaPrevia } = await service
           .from('fba_lecturas')
@@ -222,6 +298,8 @@ export async function POST(request: NextRequest) {
           descartadas: lectura.descartadas,
           stockRefrescado: conStock,
           remesasReconocidas: reconocidas,
+          enviosSeguidos: seguidos,
+          unidadesQueNoLlegaron: faltantes,
         })
       } catch (e) {
         const mensaje = e instanceof Error ? e.message.slice(0, 500) : 'Error desconocido'
