@@ -1,12 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle,
   Boxes,
-  ChevronDown,
   Package,
   Plus,
   Search,
@@ -36,6 +35,7 @@ interface Cliente {
   id: string
   nombre: string
   puedeEditar: boolean
+  remesas: number
 }
 
 const suave = { type: 'spring', stiffness: 380, damping: 32 } as const
@@ -58,6 +58,23 @@ export function EspacioRemesas({
   const [busqueda, setBusqueda] = useState('')
   const [soloAbiertas, setSoloAbiertas] = useState(true)
   const [nueva, setNueva] = useState(false)
+  const [cambiando, setCambiando] = useState<string | null>(null)
+
+  /**
+   * Cambiar de cliente recarga en el servidor —el reparto entero se calcula
+   * allí—, así que hay un hueco de unas décimas. Se marca el botón pulsado para
+   * que no parezca que no ha hecho nada y se pulse dos veces.
+   */
+  function irACliente(id: string) {
+    if (id === cliente.id) return
+    setCambiando(id)
+    router.push(`/dashboard/remesas?cliente=${id}`)
+  }
+
+  // Al llegar los datos del cliente nuevo, se apaga la marca de carga
+  useEffect(() => {
+    setCambiando(null)
+  }, [cliente.id])
 
   // Si cambia el cliente o desaparece la remesa elegida, se elige la primera.
   useEffect(() => {
@@ -101,27 +118,6 @@ export function EspacioRemesas({
           <h1 className="text-[15px] font-semibold text-white">Remesas a FBA</h1>
         </div>
 
-        {clientes.length > 1 ? (
-          <div className="relative">
-            <select
-              value={cliente.id}
-              onChange={(e) => router.push(`/dashboard/remesas?cliente=${e.target.value}`)}
-              className="appearance-none rounded-lg border border-white/10 bg-white/[0.03] py-1.5 pl-3 pr-8 text-[12px] text-white focus:border-[#FF6600]/40 focus:outline-none"
-            >
-              {clientes.map((c) => (
-                <option key={c.id} value={c.id} className="bg-[#0d0d0d]">
-                  {c.nombre}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
-          </div>
-        ) : (
-          <span className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/80">
-            {cliente.nombre}
-          </span>
-        )}
-
         <div className="ml-2 flex items-center gap-1 rounded-lg bg-white/[0.03] p-0.5">
           <Pestana activa={vista === 'envios'} onClick={() => setVista('envios')}>
             <Package className="h-3.5 w-3.5" />
@@ -153,6 +149,16 @@ export function EspacioRemesas({
           )}
         </div>
       </header>
+
+      {/* ================= CLIENTES ================= */}
+      {clientes.length > 1 && (
+        <BarraClientes
+          clientes={clientes}
+          activo={cliente.id}
+          cargando={cambiando}
+          onElegir={irACliente}
+        />
+      )}
 
       {/* ================= CIFRAS ================= */}
       <div className="flex shrink-0 flex-wrap items-stretch gap-2 px-6 py-3">
@@ -452,5 +458,95 @@ function Pestana({
       )}
       <span className="relative flex items-center gap-1.5">{children}</span>
     </button>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* La barra de clientes                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN BOTÓN POR CLIENTE, EN HORIZONTAL.
+ *
+ * Con once cuentas un desplegable obliga a abrirlo para saber qué hay; en
+ * horizontal se ven todas de un vistazo y se salta de una a otra con un clic,
+ * que es como se trabaja cuando revisas varias seguidas.
+ *
+ * Cada botón lleva cuántas remesas tiene. Los que están a cero se pintan
+ * apagados: siguen siendo clicables —hay que poder crearle la primera— pero se
+ * distinguen sin tener que entrar a comprobarlo.
+ *
+ * La fila hace scroll horizontal ella sola. El activo se centra al montar, que
+ * es lo que hace falta cuando entras por un enlace directo al undécimo cliente.
+ */
+function BarraClientes({
+  clientes,
+  activo,
+  cargando,
+  onElegir,
+}: {
+  clientes: Cliente[]
+  activo: string
+  /** El que se acaba de pulsar y todavía no ha llegado. null = ninguno */
+  cargando: string | null
+  onElegir: (id: string) => void
+}) {
+  const fila = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    fila.current?.querySelector('[data-activo="true"]')?.scrollIntoView({
+      block: 'nearest',
+      inline: 'center',
+      behavior: 'smooth',
+    })
+  }, [activo])
+
+  return (
+    <div
+      ref={fila}
+      className="flex shrink-0 items-center gap-1.5 overflow-x-auto px-6 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      {clientes.map((c) => {
+        const esActivo = c.id === activo
+        const esperando = c.id === cargando
+        const vacio = c.remesas === 0
+        return (
+          <motion.button
+            key={c.id}
+            type="button"
+            data-activo={esActivo}
+            onClick={() => onElegir(c.id)}
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.97 }}
+            title={vacio ? `${c.nombre} · todavía sin remesas` : `${c.nombre} · ${c.remesas} remesas`}
+            className={`relative flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+              esperando ? 'animate-pulse ' : ''
+            }${
+              esActivo
+                ? 'border-[#FF6600]/50 text-white'
+                : vacio
+                  ? 'border-white/[0.06] text-white/30 hover:border-white/[0.12] hover:text-white/55'
+                  : 'border-white/[0.08] text-white/65 hover:border-white/20 hover:text-white'
+            }`}
+          >
+            {esActivo && (
+              <motion.span
+                layoutId="cliente-activo"
+                className="absolute inset-0 rounded-full bg-[#FF6600]/12"
+                transition={suave}
+              />
+            )}
+            <span className="relative">{c.nombre}</span>
+            <span
+              className={`relative rounded-full px-1.5 text-[10px] tabular-nums ${
+                esActivo ? 'bg-[#FF6600]/25 text-[#FF6600]' : 'bg-white/[0.06] text-white/40'
+              }`}
+            >
+              {c.remesas}
+            </span>
+          </motion.button>
+        )
+      })}
+    </div>
   )
 }

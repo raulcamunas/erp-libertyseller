@@ -34,6 +34,9 @@ interface ClienteRemesas {
   id: string
   nombre: string
   puedeEditar: boolean
+  /** Cuántas remesas tiene. Sirve para que un cliente sin ninguna se vea de un
+      vistazo y no haya que pinchar en los once para averiguarlo */
+  remesas: number
 }
 
 export default async function RemesasPage({
@@ -64,6 +67,7 @@ export default async function RemesasPage({
       id: c.id,
       nombre: c.name,
       puedeEditar: true,
+      remesas: 0,
     }))
   } else {
     const { data: accesos } = await service
@@ -81,7 +85,9 @@ export default async function RemesasPage({
     clientes = filas
       .map((a) => {
         const ficha = Array.isArray(a.amazon_clients) ? a.amazon_clients[0] : a.amazon_clients
-        return ficha ? { id: a.client_id, nombre: ficha.name, puedeEditar: a.puede_editar } : null
+        return ficha
+          ? { id: a.client_id, nombre: ficha.name, puedeEditar: a.puede_editar, remesas: 0 }
+          : null
       })
       .filter((c): c is ClienteRemesas => c !== null)
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
@@ -102,6 +108,23 @@ export default async function RemesasPage({
       </div>
     )
   }
+
+  /**
+   * Cuántas remesas tiene cada uno.
+   *
+   * Una sola lectura de `client_id` y se cuenta aquí, en vez de una consulta de
+   * recuento por cliente: con once clientes serían once viajes a la base para
+   * pintar una cifra pequeña.
+   */
+  const { data: cuentas } = await service
+    .from('fba_remesas')
+    .select('client_id')
+    .in('client_id', clientes.map((c) => c.id))
+  const porCliente = new Map<string, number>()
+  for (const r of (cuentas ?? []) as Array<{ client_id: string }>) {
+    porCliente.set(r.client_id, (porCliente.get(r.client_id) ?? 0) + 1)
+  }
+  clientes = clientes.map((c) => ({ ...c, remesas: porCliente.get(c.id) ?? 0 }))
 
   const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
   const pedido = uno(searchParams.cliente)
