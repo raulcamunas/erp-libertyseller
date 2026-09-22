@@ -132,7 +132,13 @@ export default async function RemesasPage({
   // sin confirmar si existe.
   const cliente = clientes.find((c) => c.id === pedido) ?? clientes[0]
 
-  const panel = await panelDeCliente(cliente.id, { hoy: diaEnEspana() })
+  // La remesa que se está mirando: sus cajas se leen aquí para no pedirlas
+  // desde el navegador en una segunda vuelta.
+  const remesaAbierta = uno(searchParams.remesa) ?? null
+  const panel = await panelDeCliente(cliente.id, {
+    hoy: diaEnEspana(),
+    cajasDe: remesaAbierta,
+  })
 
   return (
     <EspacioRemesas
@@ -140,6 +146,7 @@ export default async function RemesasPage({
       cliente={cliente}
       panel={panel}
       esAdmin={esAdmin}
+      remesaAbierta={remesaAbierta}
       nombreUsuario={profile.full_name ?? profile.email ?? ''}
     />
   )

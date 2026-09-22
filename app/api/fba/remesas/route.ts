@@ -146,6 +146,10 @@ export async function POST(request: NextRequest) {
         fecha_envio: fechaEnvio,
         referencia_envio: texto(body.referenciaEnvio, 120),
         nota: texto(body.nota, 1000),
+        // Una remesa nueva NACE en borrador: es una propuesta hasta que el
+        // cliente la aprueba. El DEFAULT de la tabla es 'cerrada' porque las
+        // que ya existían son historia, pero eso no vale para las nuevas.
+        estado: 'borrador',
         created_by: session.userId,
       })
       .select('id')

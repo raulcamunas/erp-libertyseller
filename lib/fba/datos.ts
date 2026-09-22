@@ -1,4 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { cajasDeRemesa, type CajasDeRemesa } from './cajas'
+import type { EstadoRemesa } from './flujo'
 import {
   descuadre,
   repartirSku,
@@ -46,6 +48,10 @@ export interface RemesaDePanel {
   estadoAmazon: string | null
   seguimientoAt: string | null
   seguimientoError: string | null
+  /** En qué paso del proceso está. Ver lib/fba/flujo.ts */
+  estado: EstadoRemesa
+  aprobadaAt: string | null
+  inboundPlanId: string | null
   /** Enviadas menos recibidas, solo de las líneas que Amazon ya ha contestado.
       Es lo que se puede reclamar */
   unidadesQueNoLlegaron: number
@@ -69,6 +75,8 @@ export interface SkuDePanel extends RepartoSku {
 
 export interface PanelRemesas {
   clienteId: string
+  /** Las cajas de UNA remesa, la que se pide. null si no se pide ninguna */
+  cajasDe: { remesaId: string; datos: CajasDeRemesa } | null
   conectado: boolean
   hoy: string
   remesas: RemesaDePanel[]
@@ -90,6 +98,9 @@ interface FilaRemesa {
   estado_amazon: string | null
   seguimiento_at: string | null
   seguimiento_error: string | null
+  estado: EstadoRemesa
+  aprobada_at: string | null
+  inbound_plan_id: string | null
 }
 
 interface FilaLinea {
@@ -121,13 +132,13 @@ interface FilaMovimiento {
  */
 export async function panelDeCliente(
   clienteId: string,
-  opciones: { hoy: string; diasDeVelocidad?: number }
+  opciones: { hoy: string; diasDeVelocidad?: number; cajasDe?: string | null }
 ): Promise<PanelRemesas> {
   const service = createServiceClient()
 
   const { data: remesasRaw, error: errRemesas } = await service
     .from('fba_remesas')
-    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error')
+    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, inbound_plan_id')
     .eq('client_id', clienteId)
     .order('fecha_envio', { ascending: true })
   if (errRemesas) throw errRemesas
@@ -136,6 +147,7 @@ export async function panelDeCliente(
   if (filasRemesa.length === 0) {
     return {
       clienteId,
+      cajasDe: null,
       conectado: false,
       hoy: opciones.hoy,
       remesas: [],
@@ -277,6 +289,11 @@ export async function panelDeCliente(
       estadoAmazon: r.estado_amazon,
       seguimientoAt: r.seguimiento_at,
       seguimientoError: r.seguimiento_error,
+      // Las remesas de antes de la 195 no tienen estado: son historia y se
+      // tratan como cerradas, no como borradores pendientes de aprobar.
+      estado: (r.estado ?? 'cerrada') as EstadoRemesa,
+      aprobadaAt: r.aprobada_at,
+      inboundPlanId: r.inbound_plan_id,
       // Solo de las líneas que Amazon ya ha contestado: una línea sin respuesta
       // todavía no falta, simplemente no se sabe.
       unidadesQueNoLlegaron: lineas.reduce(
@@ -308,8 +325,14 @@ export async function panelDeCliente(
     }
   })
 
+  // Las cajas SOLO de la remesa que se está mirando: leerlas de las diez sería
+  // trabajo para pintar una.
+  const remesaDeCajas =
+    opciones.cajasDe && filasRemesa.some((r) => r.id === opciones.cajasDe) ? opciones.cajasDe : null
+
   return {
     clienteId,
+    cajasDe: remesaDeCajas ? { remesaId: remesaDeCajas, datos: await cajasDeRemesa(remesaDeCajas) } : null,
     conectado: Boolean(connectionId),
     hoy: opciones.hoy,
     remesas,

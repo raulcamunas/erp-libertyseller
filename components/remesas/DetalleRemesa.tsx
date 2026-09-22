@@ -6,7 +6,12 @@ import { motion } from 'framer-motion'
 import { Calendar, Check, Hash, Loader2, Pencil, StickyNote, Trash2, Truck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { RemesaDePanel, SkuDePanel } from '@/lib/fba/datos'
+import type { CajasDeRemesa } from '@/lib/fba/cajas'
+import { puedeEditarCajas } from '@/lib/fba/flujo'
 import { ESTADO_INBOUND_TEXTO } from '@/lib/fba/inbound'
+import { AccionesPaso } from './AccionesPaso'
+import { EditorCajas } from './EditorCajas'
+import { Pasarela } from './Pasarela'
 import { colorDeCobertura, fecha } from './formato'
 
 /**
@@ -35,12 +40,17 @@ export function DetalleRemesa({
   puedeEditar,
   puedeBorrar,
   conectado,
+  esAdmin,
+  cajas,
 }: {
   remesa: RemesaDePanel
   skus: SkuDePanel[]
   puedeEditar: boolean
   puedeBorrar: boolean
   conectado: boolean
+  esAdmin: boolean
+  /** Las cajas de ESTA remesa. null si el servidor no las ha traído */
+  cajas: CajasDeRemesa | null
 }) {
   const router = useRouter()
   const [editando, setEditando] = useState(false)
@@ -118,8 +128,23 @@ export function DetalleRemesa({
     }
   }
 
+  const actor = esAdmin ? 'agencia' : 'cliente'
+  const enCajas = puedeEditarCajas(remesa.estado)
+
   return (
     <div className="flex h-full flex-col gap-3">
+      {/* ================= LOS PASOS ================= */}
+      <Pasarela estado={remesa.estado} />
+
+      <AccionesPaso
+        remesaId={remesa.id}
+        estado={remesa.estado}
+        actor={actor}
+        lineas={remesa.lineas.length}
+        cuadre={cajas?.cuadre}
+        cajas={cajas?.estado}
+      />
+
       {/* ================= FICHA ================= */}
       <div className="glass-card p-4">
         <div className="flex items-start justify-between gap-4">
@@ -266,6 +291,23 @@ export function DetalleRemesa({
           }`}
         />
       </div>
+
+      {/* ================= CAJAS, MIENTRAS SE ENCAJA ================= */}
+      {enCajas && (
+        <EditorCajas
+          remesaId={remesa.id}
+          lineas={remesa.lineas}
+          cajasIniciales={(cajas?.cajas ?? []).map((c) => ({
+            numero: c.numero,
+            largoCm: c.largoCm,
+            anchoCm: c.anchoCm,
+            altoCm: c.altoCm,
+            pesoKg: c.pesoKg,
+            contenido: c.contenido,
+          }))}
+          puedeEditar={puedeEditar}
+        />
+      )}
 
       {/* ================= REFERENCIAS ================= */}
       <div className="glass-card flex min-h-0 flex-1 flex-col overflow-hidden">

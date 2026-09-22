@@ -45,16 +45,21 @@ export function EspacioRemesas({
   cliente,
   panel,
   esAdmin,
+  remesaAbierta,
 }: {
   clientes: Cliente[]
   cliente: Cliente
   panel: PanelRemesas
   esAdmin: boolean
+  /** La remesa cuyas cajas ha traído el servidor. Viene de la URL */
+  remesaAbierta: string | null
   nombreUsuario: string
 }) {
   const router = useRouter()
   const [vista, setVista] = useState<'envios' | 'referencias'>('envios')
-  const [seleccionada, setSeleccionada] = useState<string | null>(panel.remesas[0]?.id ?? null)
+  const [seleccionada, setSeleccionada] = useState<string | null>(
+    remesaAbierta ?? panel.remesas[0]?.id ?? null
+  )
   const [busqueda, setBusqueda] = useState('')
   const [soloAbiertas, setSoloAbiertas] = useState(true)
   const [nueva, setNueva] = useState(false)
@@ -265,7 +270,14 @@ export function EspacioRemesas({
                     remesa={r}
                     activa={r.id === seleccionada}
                     indice={i}
-                    onClick={() => setSeleccionada(r.id)}
+                    onClick={() => {
+                      setSeleccionada(r.id)
+                      // A la URL: es lo que hace que el servidor traiga SUS
+                      // cajas. Sin scroll para que la lista no salte.
+                      router.replace(`/dashboard/remesas?cliente=${cliente.id}&remesa=${r.id}`, {
+                        scroll: false,
+                      })
+                    }}
                   />
                 ))}
               </div>
@@ -289,6 +301,8 @@ export function EspacioRemesas({
                       puedeEditar={cliente.puedeEditar}
                       puedeBorrar={esAdmin}
                       conectado={panel.conectado}
+                      esAdmin={esAdmin}
+                      cajas={panel.cajasDe?.remesaId === remesa.id ? panel.cajasDe.datos : null}
                     />
                   </motion.div>
                 ) : (
