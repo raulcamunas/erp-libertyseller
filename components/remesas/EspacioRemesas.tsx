@@ -303,6 +303,8 @@ export function EspacioRemesas({
                       conectado={panel.conectado}
                       esAdmin={esAdmin}
                       cajas={panel.cajasDe?.remesaId === remesa.id ? panel.cajasDe.datos : null}
+                      clienteId={cliente.id}
+                      clienteNombre={cliente.nombre}
                     />
                   </motion.div>
                 ) : (

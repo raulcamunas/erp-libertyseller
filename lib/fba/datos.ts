@@ -52,6 +52,13 @@ export interface RemesaDePanel {
   estado: EstadoRemesa
   aprobadaAt: string | null
   inboundPlanId: string | null
+  /** Por dónde va el plan en Amazon. null = no se ha creado */
+  pasoPlan: string | null
+  packingOptionId: string | null
+  placementOptionId: string | null
+  planError: string | null
+  /** Los envíos en que Amazon ha partido la remesa */
+  envios: EnvioDeRemesa[]
   /** Enviadas menos recibidas, solo de las líneas que Amazon ya ha contestado.
       Es lo que se puede reclamar */
   unidadesQueNoLlegaron: number
@@ -101,6 +108,26 @@ interface FilaRemesa {
   estado: EstadoRemesa
   aprobada_at: string | null
   inbound_plan_id: string | null
+  paso_plan: string | null
+  packing_option_id: string | null
+  placement_option_id: string | null
+  plan_error: string | null
+}
+
+export interface EnvioDeRemesa {
+  shipmentId: string
+  confirmationId: string | null
+  nombre: string | null
+  destino: string | null
+  estado: string | null
+  transportista: string | null
+  esDeAmazon: boolean | null
+  coste: number | null
+  moneda: string | null
+  saleDesde: string | null
+  saleHasta: string | null
+  entregaDesde: string | null
+  entregaHasta: string | null
 }
 
 interface FilaLinea {
@@ -138,7 +165,7 @@ export async function panelDeCliente(
 
   const { data: remesasRaw, error: errRemesas } = await service
     .from('fba_remesas')
-    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, inbound_plan_id')
+    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, inbound_plan_id, paso_plan, packing_option_id, placement_option_id, plan_error')
     .eq('client_id', clienteId)
     .order('fecha_envio', { ascending: true })
   if (errRemesas) throw errRemesas
@@ -224,6 +251,33 @@ export async function panelDeCliente(
     }
   }
 
+  // Los envíos de TODAS las remesas de una vez: son pocos y una lectura por
+  // remesa serían diez viajes para pintar una lista.
+  const { data: enviosRaw } = await service
+    .from('fba_envios')
+    .select('remesa_id, shipment_id, confirmation_id, nombre, destino, estado, transportista, es_de_amazon, coste, moneda, sale_desde, sale_hasta, entrega_desde, entrega_hasta')
+    .in('remesa_id', ids)
+  const enviosPorRemesa = new Map<string, EnvioDeRemesa[]>()
+  for (const e of (enviosRaw ?? []) as Array<Record<string, unknown>>) {
+    const lista = enviosPorRemesa.get(e.remesa_id as string) ?? []
+    lista.push({
+      shipmentId: e.shipment_id as string,
+      confirmationId: (e.confirmation_id as string) ?? null,
+      nombre: (e.nombre as string) ?? null,
+      destino: (e.destino as string) ?? null,
+      estado: (e.estado as string) ?? null,
+      transportista: (e.transportista as string) ?? null,
+      esDeAmazon: (e.es_de_amazon as boolean) ?? null,
+      coste: e.coste === null || e.coste === undefined ? null : Number(e.coste),
+      moneda: (e.moneda as string) ?? null,
+      saleDesde: (e.sale_desde as string) ?? null,
+      saleHasta: (e.sale_hasta as string) ?? null,
+      entregaDesde: (e.entrega_desde as string) ?? null,
+      entregaHasta: (e.entrega_hasta as string) ?? null,
+    })
+    enviosPorRemesa.set(e.remesa_id as string, lista)
+  }
+
   const remesasPorId = new Map<string, Remesa>(
     filasRemesa.map((r) => [
       r.id,
@@ -294,6 +348,11 @@ export async function panelDeCliente(
       estado: (r.estado ?? 'cerrada') as EstadoRemesa,
       aprobadaAt: r.aprobada_at,
       inboundPlanId: r.inbound_plan_id,
+      pasoPlan: r.paso_plan,
+      packingOptionId: r.packing_option_id,
+      placementOptionId: r.placement_option_id,
+      planError: r.plan_error,
+      envios: enviosPorRemesa.get(r.id) ?? [],
       // Solo de las líneas que Amazon ya ha contestado: una línea sin respuesta
       // todavía no falta, simplemente no se sabe.
       unidadesQueNoLlegaron: lineas.reduce(

@@ -10,6 +10,8 @@ import type { CajasDeRemesa } from '@/lib/fba/cajas'
 import { puedeEditarCajas } from '@/lib/fba/flujo'
 import { ESTADO_INBOUND_TEXTO } from '@/lib/fba/inbound'
 import { AccionesPaso } from './AccionesPaso'
+import { AsistenteAmazon } from './AsistenteAmazon'
+import { DireccionOrigen } from './DireccionOrigen'
 import { EditorCajas } from './EditorCajas'
 import { Pasarela } from './Pasarela'
 import { colorDeCobertura, fecha } from './formato'
@@ -42,6 +44,8 @@ export function DetalleRemesa({
   conectado,
   esAdmin,
   cajas,
+  clienteId,
+  clienteNombre,
 }: {
   remesa: RemesaDePanel
   skus: SkuDePanel[]
@@ -51,6 +55,8 @@ export function DetalleRemesa({
   esAdmin: boolean
   /** Las cajas de ESTA remesa. null si el servidor no las ha traído */
   cajas: CajasDeRemesa | null
+  clienteId: string
+  clienteNombre: string
 }) {
   const router = useRouter()
   const [editando, setEditando] = useState(false)
@@ -291,6 +297,33 @@ export function DetalleRemesa({
           }`}
         />
       </div>
+
+      {/* ================= EL ENVIO EN AMAZON ================= */}
+      {/*
+        Solo cuando toca: en `lista` para crearlo y en `en_amazon` o después
+        para seguirlo. Antes no hay nada que hacer aquí, y enseñarlo en borrador
+        invita a saltarse la aprobación del cliente.
+      */}
+      {esAdmin && ['lista', 'en_amazon', 'enviada'].includes(remesa.estado) && (
+        <>
+          {remesa.estado === 'lista' && !remesa.pasoPlan && (
+            <DireccionOrigen
+              clienteId={clienteId}
+              clienteNombre={clienteNombre}
+              puedeEditar={puedeEditar}
+            />
+          )}
+          <AsistenteAmazon
+            remesa={remesa}
+            unidadesPorEnvio={{
+              enviadas: remesa.enviadas,
+              recibidas: remesa.lineas.some((l) => l.recibidas !== null)
+                ? remesa.lineas.reduce((s, l) => s + (l.recibidas ?? 0), 0)
+                : null,
+            }}
+          />
+        </>
+      )}
 
       {/* ================= CAJAS, MIENTRAS SE ENCAJA ================= */}
       {enCajas && (
