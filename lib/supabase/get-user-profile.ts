@@ -1,11 +1,12 @@
 import { createClient } from './server'
 import { cache } from 'react'
+import type { RolUsuario } from '@/lib/types/users'
 
 export interface UserProfile {
   id: string
   email: string | null
   full_name: string | null
-  role: 'admin' | 'employee' | 'partner'
+  role: RolUsuario
 }
 
 /**

@@ -1,3 +1,5 @@
+import type { RolUsuario } from '@/lib/types/users'
+
 export type AppointmentStatus =
   | 'scheduled'
   | 'confirmed'
@@ -83,7 +85,7 @@ export interface CalendarPerson {
   id: string
   full_name: string | null
   email: string | null
-  role: 'admin' | 'employee' | 'partner'
+  role: RolUsuario
   calendar_color: string | null
 }
 

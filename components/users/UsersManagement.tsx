@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ManagedUser, CreateUserData } from '@/lib/types/users'
+import { ManagedUser, CreateUserData, type RolUsuario } from '@/lib/types/users'
 import { APPS_SIN_EFECTO, PERMISOS_SUELTOS, apps } from '@/lib/config/apps'
 
 /**
@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus, Trash2, Save, X, Edit } from 'lucide-react'
+import { AccesosRemesas } from './AccesosRemesas'
 import { toast } from 'sonner'
 import {
   Dialog,
@@ -461,17 +462,28 @@ export function UsersManagement() {
                 <select
                   id="edit-role"
                   value={formData.role || 'employee'}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'employee' | 'partner' })}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value as RolUsuario })}
                   className="w-full h-10 rounded-xl border border-white/10 bg-[#0a0a0a] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:ring-offset-2 focus:border-[#FF6600]"
                 >
                   <option value="employee">Empleado</option>
                   <option value="admin">Admin</option>
                   <option value="partner">Partner</option>
+                  <option value="cliente">Cliente (solo Remesas a FBA)</option>
                 </select>
               </div>
             </div>
 
-            {/* Permisos por aplicación */}
+            {/* Un cliente no tiene apps del ERP: tiene CUENTAS de Amazon a las que
+                entrar en Remesas a FBA. Se le enseña eso y no la rejilla de
+                permisos, que no le aplica y solo confundiría. */}
+            {formData.role === 'cliente' && editingUser ? (
+              <div>
+                <Label className="text-sm font-semibold text-white mb-3 block">
+                  Cuentas a las que puede entrar
+                </Label>
+                <AccesosRemesas usuarioId={editingUser.id} />
+              </div>
+            ) : (
             <div>
               <Label className="text-sm font-semibold text-white mb-3 block">
                 Permisos de Aplicaciones
@@ -505,6 +517,7 @@ export function UsersManagement() {
                 ))}
               </div>
             </div>
+            )}
 
             {/* Botones */}
             <div className="flex gap-3">
@@ -592,12 +605,13 @@ export function UsersManagement() {
                 <select
                   id="role"
                   value={formData.role || 'employee'}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'employee' | 'partner' })}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value as RolUsuario })}
                   className="w-full h-10 rounded-xl border border-white/10 bg-[#0a0a0a] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:ring-offset-2 focus:border-[#FF6600]"
                 >
                   <option value="employee">Empleado</option>
                   <option value="admin">Admin</option>
                   <option value="partner">Partner</option>
+                  <option value="cliente">Cliente (solo Remesas a FBA)</option>
                 </select>
               </div>
             </div>

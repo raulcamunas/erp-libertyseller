@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
+import { UUID, errorResponse, fail } from '@/lib/amazon/api'
+import { puedeEditar, requireFbaAccess } from '@/lib/fba/acceso'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -13,9 +14,24 @@ export const dynamic = 'force-dynamic'
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireAmazonAdmin()
-    if (session instanceof NextResponse) return session
     if (!UUID.test(params.id)) return fail(400, 'Esa remesa no existe')
+
+    const session = await requireFbaAccess('editar')
+    if (session instanceof NextResponse) return session
+
+    // La remesa dice de qué cliente es; y ESE cliente tiene que ser editable
+    // para esta sesión. Sin esto, un usuario con acceso a un cliente podría
+    // corregir remesas de otro conociendo el id.
+    const servicio = createServiceClient()
+    const { data: duena } = await servicio
+      .from('fba_remesas')
+      .select('client_id')
+      .eq('id', params.id)
+      .maybeSingle()
+    if (!duena) return fail(404, 'Esa remesa ya no existe')
+    if (!puedeEditar(session, (duena as { client_id: string }).client_id)) {
+      return fail(404, 'Esa remesa ya no existe')
+    }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
     const cambios: Record<string, unknown> = {}
@@ -52,7 +68,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
 export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireAmazonAdmin()
+    const session = await requireFbaAccess('borrar')
     if (session instanceof NextResponse) return session
     if (!UUID.test(params.id)) return fail(400, 'Esa remesa no existe')
 

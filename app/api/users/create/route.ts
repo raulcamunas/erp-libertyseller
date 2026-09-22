@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/lib/auth/api'
 
+/** Los cuatro roles del ERP. Cualquier otra cosa en `role` se rechaza */
+const ROLES_VALIDOS = new Set(['admin', 'employee', 'partner', 'cliente'])
+
 /**
  * CREAR UN USUARIO DEL ERP. SOLO ADMIN.
  *
@@ -40,6 +43,10 @@ export async function POST(request: NextRequest) {
     console.log('[CREATE USER] Starting user creation process...')
     const body = await request.json()
     const { email, password, full_name, role, permissions } = body
+
+    if (role !== undefined && !ROLES_VALIDOS.has(role)) {
+      return NextResponse.json({ error: 'Ese rol no existe' }, { status: 400 })
+    }
 
     console.log('[CREATE USER] Received data:', { email, full_name, permissionsCount: permissions?.length || 0 })
 

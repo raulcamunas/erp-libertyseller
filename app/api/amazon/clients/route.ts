@@ -1,3 +1,4 @@
+import { createServiceClient } from '@/lib/supabase/service'
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, readText, requireAmazonAdmin } from '@/lib/amazon/api'
 import { createAmazonClient, loadAmazonData } from '@/lib/amazon/data'
@@ -13,6 +14,31 @@ import { createAmazonClient, loadAmazonData } from '@/lib/amazon/data'
  * lleva el estado ya recargado y no tiene que pedirlo aparte.
  */
 export const dynamic = 'force-dynamic'
+
+/**
+ * La lista de clientes de Amazon, solo id y nombre.
+ *
+ * Para los selectores que necesitan elegir un cliente sin cargar la pantalla
+ * entera de Amazon API: la de accesos a Remesas la usa. Solo admin, como todo
+ * lo que toca amazon_clients.
+ */
+export async function GET() {
+  try {
+    const session = await requireAmazonAdmin()
+    if (session instanceof NextResponse) return session
+
+    const service = createServiceClient()
+    const { data, error } = await service
+      .from('amazon_clients')
+      .select('id, name')
+      .order('name', { ascending: true })
+    if (error) throw error
+
+    return NextResponse.json({ clients: data ?? [] })
+  } catch (error) {
+    return errorResponse(error, 'No se ha podido leer la lista de clientes')
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {

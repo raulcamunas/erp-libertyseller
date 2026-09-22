@@ -16,12 +16,13 @@ import { LogoutButton } from '@/components/auth/logout-button'
 import { apps, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
+import type { RolUsuario } from '@/lib/types/users'
 
 export function AppSidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
-  const [userRole, setUserRole] = useState<'admin' | 'employee' | 'partner' | null>(null)
+  const [userRole, setUserRole] = useState<RolUsuario | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [webLeadsBadge, setWebLeadsBadge] = useState<number | undefined>(undefined)
   const pathname = usePathname()
@@ -130,6 +131,11 @@ export function AppSidebar() {
 
   // Filtrar apps según permisos
   const filteredApps = apps.filter(app => {
+    // El rol 'cliente' es gente de fuera: ve Remesas a FBA y absolutamente nada
+    // más, ni el Inicio. El middleware ya le cierra las rutas; esto es para que
+    // el menú no le enseñe puertas que no puede abrir.
+    if (userRole === 'cliente') return app.id === 'remesas'
+
     // Home siempre visible
     if (app.id === 'home') return true
     // Gestión de usuarios solo para admin específico

@@ -27,7 +27,7 @@ import { ArrowRightLeft, Boxes, Crown, type LucideIcon } from 'lucide-react'
  * que se usa cada semana, después lo que se mira cuando hay tiempo.
  */
 
-export type ModuloId = 'stock-sync' | 'remesas' | 'buybox' | 'fbm-fba'
+export type ModuloId = 'stock-sync' | 'buybox' | 'fbm-fba'
 
 export interface Modulo {
   id: ModuloId
@@ -46,16 +46,6 @@ export interface Modulo {
 }
 
 export const MODULOS: readonly Modulo[] = [
-  {
-    id: 'remesas',
-    nombre: 'Remesas a FBA',
-    icono: Boxes,
-    pista: 'Qué mandamos a los almacenes de Amazon y cuánto queda vivo de cada envío',
-    // 'amazon' y no 'stock': lo que hace falta es la cuenta de Amazon, no que el
-    // cliente mande volcado del ERP. Un cliente sin autorizar puede llevar sus
-    // remesas a mano, pero sin ficha de Amazon no hay dónde colgarlas.
-    necesita: 'amazon',
-  },
   {
     id: 'stock-sync',
     nombre: 'Sincronismo de stock',

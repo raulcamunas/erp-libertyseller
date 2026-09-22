@@ -164,8 +164,31 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // Ruta /dashboard/* - Admins, employees y partners
+    // Ruta /dashboard/* - Admins, employees, partners… y clientes, a UNA sola.
     if (pathname.startsWith('/dashboard')) {
+      /**
+       * EL ROL 'cliente' SOLO EXISTE PARA REMESAS A FBA.
+       *
+       * Es gente de fuera de la agencia. Ve /dashboard/remesas y nada más:
+       * cualquier otra dirección del ERP —el escritorio, otra app, una URL
+       * guardada— le rebota a su única pantalla, sin mensaje y sin llegar a
+       * pedir nada. No se le manda al login porque SÍ tiene sesión; se le manda
+       * a donde puede estar.
+       *
+       * Qué DATOS ve ahí dentro no lo decide esto: lo deciden fba_accesos y el
+       * guardián de cada ruta (lib/fba/acceso.ts). Esto solo cierra el resto
+       * del edificio.
+       */
+      if (userRole === 'cliente') {
+        if (!pathname.startsWith('/dashboard/remesas')) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard/remesas'
+          url.search = ''
+          return NextResponse.redirect(url)
+        }
+        return supabaseResponse
+      }
+
       if (userRole !== 'admin' && userRole !== 'employee' && userRole !== 'partner') {
         const url = request.nextUrl.clone()
         url.pathname = '/auth/login'

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
+import { UUID, errorResponse, fail } from '@/lib/amazon/api'
+import { requireFbaAccess } from '@/lib/fba/acceso'
 import { panelDeCliente } from '@/lib/fba/datos'
 import { diaEnEspana } from '@/lib/fba/fechas'
 
@@ -16,11 +17,14 @@ export const maxDuration = 60
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireAmazonAdmin()
-    if (session instanceof NextResponse) return session
-
     const clienteId = request.nextUrl.searchParams.get('cliente') ?? ''
     if (!UUID.test(clienteId)) return fail(400, 'Hay que decir de qué cliente')
+
+    // El guardián comprueba que ESTE cliente esté entre los permitidos. Sin
+    // esto, un usuario con acceso a un cliente podría pedir el panel de otro
+    // cambiando el id de la URL.
+    const session = await requireFbaAccess('ver', clienteId)
+    if (session instanceof NextResponse) return session
 
     const dias = Number(request.nextUrl.searchParams.get('dias') ?? 30)
     const diasDeVelocidad = Number.isFinite(dias) ? Math.min(90, Math.max(7, dias)) : 30

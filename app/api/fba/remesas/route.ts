@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
+import { UUID, errorResponse, fail } from '@/lib/amazon/api'
+import { requireFbaAccess } from '@/lib/fba/acceso'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -37,11 +38,11 @@ const texto = (v: unknown, max = 200): string | null => {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireAmazonAdmin()
-    if (session instanceof NextResponse) return session
-
     const clienteId = request.nextUrl.searchParams.get('cliente') ?? ''
     if (!UUID.test(clienteId)) return fail(400, 'Hay que decir de qué cliente')
+
+    const session = await requireFbaAccess('ver', clienteId)
+    if (session instanceof NextResponse) return session
 
     const service = createServiceClient()
     const { data, error } = await service
@@ -59,9 +60,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireAmazonAdmin()
-    if (session instanceof NextResponse) return session
-
     const body = (await request.json().catch(() => ({}))) as {
       clienteId?: unknown
       marketplaceId?: unknown
@@ -74,6 +72,10 @@ export async function POST(request: NextRequest) {
 
     const clienteId = texto(body.clienteId, 40) ?? ''
     if (!UUID.test(clienteId)) return fail(400, 'Elige el cliente de la remesa')
+
+    // Crear exige poder EDITAR ese cliente. Un acceso de solo lectura se para aquí.
+    const session = await requireFbaAccess('editar', clienteId)
+    if (session instanceof NextResponse) return session
 
     const marketplaceId = texto(body.marketplaceId, 20)
     if (!marketplaceId) return fail(400, 'Falta el mercado de la remesa')

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/lib/auth/api'
 
+/** Los cuatro roles del ERP. Cualquier otra cosa en `role` se rechaza */
+const ROLES_VALIDOS = new Set(['admin', 'employee', 'partner', 'cliente'])
+
 /**
  * EDITAR UN USUARIO DEL ERP. SOLO ADMIN.
  *
@@ -49,6 +52,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { userId, email, full_name, password, role, permissions } = body
+
+    if (role !== undefined && role !== null && !ROLES_VALIDOS.has(role)) {
+      return NextResponse.json({ error: 'Ese rol no existe' }, { status: 400 })
+    }
 
     // Validar campos requeridos
     if (!userId) {

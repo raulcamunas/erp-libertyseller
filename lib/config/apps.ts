@@ -1,4 +1,5 @@
 import {
+  Boxes,
   Home,
   Users,
   Calculator,
@@ -269,6 +270,28 @@ export const apps: AppConfig[] = [
   // «Ingesta» de Amazon API: es información sobre lo que guardamos, o sea las
   // tripas, y tenerla en un módulo aparte obligaba a saber de antemano en cuál
   // de los dos estaba cada cosa. /dashboard/plataforma redirige a la pestaña.
+  {
+    /**
+     * APP PROPIA, Y LA PRIMERA EN LA QUE ENTRAN CLIENTES.
+     *
+     * Nació como submódulo de Growth Partner y se sacó por dos motivos: tener
+     * su propio espacio para trabajarla a diario, y poder darle acceso a los
+     * clientes a SUS remesas —para que las vean y las corrijan en cooperación
+     * con la agencia—. Growth Partner es solo-admin y ve las cuentas de todos
+     * los clientes a la vez; eso no se le puede abrir a nadie de fuera.
+     *
+     * Quién la ve: admin siempre; el rol 'cliente' siempre (es lo único que
+     * ve); un employee si tiene el permiso. Qué DATOS ve cada uno lo decide
+     * fba_accesos y lo comprueba lib/fba/acceso.ts en cada ruta, no esto.
+     */
+    id: 'remesas',
+    name: 'Remesas a FBA',
+    description: 'Qué mandamos a los almacenes de Amazon y cuánto queda vivo de cada envío',
+    icon: Boxes,
+    route: '/dashboard/remesas',
+    status: 'new',
+    category: 'analytics'
+  },
   {
     id: 'telefonos',
     name: 'Teléfonos',

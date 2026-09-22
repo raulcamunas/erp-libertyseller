@@ -52,6 +52,11 @@ export default async function DashboardPage() {
 
   // Filtrar apps según permisos
   const filteredApps = apps.filter(app => {
+    // El rol 'cliente' es gente de fuera: ve Remesas a FBA y absolutamente nada
+    // más, ni el Inicio. El middleware ya le cierra las rutas; esto es para que
+    // el menú no le enseñe puertas que no puede abrir.
+    if (profile.role === 'cliente') return app.id === 'remesas'
+
     // Home siempre visible
     if (app.id === 'home') return true
     

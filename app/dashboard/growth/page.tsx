@@ -12,7 +12,6 @@ import {
   PARAM_MODULO,
   type ModuloId,
 } from '@/components/growth/modulos'
-import { InfoRemesas, PanelRemesas } from '@/components/growth/paneles/PanelRemesas'
 import { InfoStockSync, PanelStockSync } from '@/components/growth/paneles/PanelStockSync'
 import { InfoBuyBox, PanelBuyBox } from '@/components/growth/paneles/PanelBuyBox'
 import { InfoFbmFba, PanelFbmFba } from '@/components/growth/paneles/PanelFbmFba'
@@ -80,7 +79,6 @@ const PANELES: Record<
     Info: () => React.ReactNode
   }
 > = {
-  remesas: { Panel: PanelRemesas, Info: InfoRemesas },
   'stock-sync': { Panel: PanelStockSync, Info: InfoStockSync },
   buybox: { Panel: PanelBuyBox, Info: InfoBuyBox },
   'fbm-fba': { Panel: PanelFbmFba, Info: InfoFbmFba },

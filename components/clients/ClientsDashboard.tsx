@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import type { RolUsuario } from '@/lib/types/users'
 import {
   Sheet,
   SheetContent,
@@ -42,7 +43,7 @@ interface ClientMember {
 
 interface ClientsDashboardProps {
   initialClients: Client[]
-  currentUserRole?: 'admin' | 'employee' | 'partner'
+  currentUserRole?: RolUsuario
 }
 
 export function ClientsDashboard({ initialClients, currentUserRole = 'employee' }: ClientsDashboardProps) {
