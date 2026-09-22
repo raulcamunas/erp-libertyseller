@@ -17,6 +17,7 @@ import {
   listarOpcionesReparto,
   listarOpcionesTransporte,
   mandarCajas,
+  mapaDeGrupos,
   mandarSeguimientos,
   verEnvio,
   type Direccion,
@@ -204,8 +205,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     /* ---------------- 3 · Nuestras cajas ---------------- */
     if (accion === 'mandar-cajas') {
-      const grupo = typeof body.grupo === 'string' ? body.grupo : ''
-      if (!grupo) return fail(400, 'Falta el grupo de empaquetado al que van las cajas')
+      if (!remesa.packing_option_id) return fail(409, 'Antes hay que confirmar el agrupado')
 
       const datos = await cajasDeRemesa(params.id)
       if (!datos.cuadre.cuadra) return fail(409, 'Las cajas no cuadran con lo declarado')
@@ -215,20 +215,83 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         return fail(409, `Faltan medidas o peso en ${incompletas.length} caja(s)`)
       }
 
-      await mandarCajas(credenciales, planId, [
-        {
-          packingGroupId: grupo,
-          cajas: datos.cajas.map((c) => ({
+      /**
+       * AMAZON PUEDE PARTIR LA MERCANCÍA EN VARIOS GRUPOS.
+       *
+       * Decide que ciertas referencias no viajan juntas, y cada grupo se
+       * empaqueta por separado. Nuestras cajas se rellenaron ANTES de saberlo,
+       * así que puede haber una caja con referencias de dos grupos — y eso
+       * Amazon lo rechaza.
+       *
+       * Se comprueba aquí, antes de mandar nada, porque a estas alturas las
+       * cajas ya están cerradas con cinta: decirlo ahora es pedir que se
+       * reabran dos, y decirlo después es que Amazon lo rechace sin explicar
+       * cuál falla.
+       */
+      const opciones = await listarOpcionesEmpaquetado(credenciales, planId)
+      const elegida = opciones.find((o) => o.packingOptionId === remesa.packing_option_id)
+      const gruposDeAmazon = elegida?.grupos ?? []
+
+      if (gruposDeAmazon.length === 0) {
+        return fail(409, 'Amazon no ha devuelto grupos para la opción de agrupado elegida')
+      }
+
+      const mapa =
+        gruposDeAmazon.length === 1
+          ? null
+          : await mapaDeGrupos(credenciales, planId, gruposDeAmazon)
+
+      // Una caja por grupo. Con un solo grupo, todas al mismo.
+      const porGrupo = new Map<string, typeof datos.cajas>()
+      const mezcladas: Array<{ caja: number; grupos: string[] }> = []
+
+      for (const caja of datos.cajas) {
+        const suyos = new Set(
+          caja.contenido.map((x) => (mapa ? (mapa.get(x.sku) ?? '(desconocido)') : gruposDeAmazon[0]))
+        )
+        if (suyos.size > 1) {
+          mezcladas.push({ caja: caja.numero, grupos: [...suyos] })
+          continue
+        }
+        const g = [...suyos][0] ?? gruposDeAmazon[0]
+        porGrupo.set(g, [...(porGrupo.get(g) ?? []), caja])
+      }
+
+      if (mezcladas.length > 0) {
+        return NextResponse.json(
+          {
+            error:
+              `Amazon ha partido esta remesa en ${gruposDeAmazon.length} grupos que no pueden ir ` +
+              `juntos, y ${mezcladas.length === 1 ? 'una caja mezcla' : `${mezcladas.length} cajas mezclan`} ` +
+              'referencias de varios. Hay que separarlas.',
+            cajasMezcladas: mezcladas.map((m) => m.caja),
+            grupos: gruposDeAmazon.length,
+          },
+          { status: 409 }
+        )
+      }
+
+      await mandarCajas(
+        credenciales,
+        planId,
+        [...porGrupo.entries()].map(([packingGroupId, cajas]) => ({
+          packingGroupId,
+          cajas: cajas.map((c) => ({
             largoCm: c.largoCm!,
             anchoCm: c.anchoCm!,
             altoCm: c.altoCm!,
             pesoKg: c.pesoKg!,
             contenido: c.contenido.map((x) => ({ msku: x.sku, unidades: x.unidades })),
           })),
-        },
-      ])
+        }))
+      )
       await guardar(params.id, { paso_plan: 'cajas', plan_error: null })
-      return NextResponse.json({ ok: true, paso: 'cajas', cajas: datos.cajas.length })
+      return NextResponse.json({
+        ok: true,
+        paso: 'cajas',
+        cajas: datos.cajas.length,
+        grupos: porGrupo.size,
+      })
     }
 
     /* ---------------- 4 · Dónde lo quiere Amazon ---------------- */

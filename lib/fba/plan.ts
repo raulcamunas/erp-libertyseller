@@ -258,6 +258,57 @@ export async function listarOpcionesEmpaquetado(
   }))
 }
 
+/**
+ * QUÉ REFERENCIAS VAN EN CADA GRUPO DE EMPAQUETADO.
+ *
+ * Una opción de agrupado puede partir la mercancía en VARIOS grupos, y esto es
+ * lo que más sorprende: Amazon decide que ciertas referencias no pueden viajar
+ * juntas —por tamaño, por peligrosidad, por centro de destino— y cada grupo se
+ * empaqueta por separado.
+ *
+ * Importa porque nuestras cajas se rellenan ANTES de saberlo. Si una caja lleva
+ * referencias de dos grupos distintos, Amazon la rechaza; y sin esta llamada no
+ * hay forma de avisar antes de que el cliente haya cerrado las cajas con cinta.
+ */
+export async function articulosDelGrupo(
+  creds: AmazonCredentials,
+  planId: string,
+  packingGroupId: string
+): Promise<Array<{ msku: string; unidades: number }>> {
+  const { data } = await spApiRequest<{ items?: Array<Record<string, unknown>> }>(
+    creds,
+    'listPackingGroupItems',
+    {
+      method: 'GET',
+      path: `${RUTA}/inboundPlans/${encodeURIComponent(planId)}/packingGroups/${encodeURIComponent(packingGroupId)}/items`,
+    }
+  )
+  return (data.items ?? []).map((i) => ({
+    msku: i.msku as string,
+    unidades: (i.quantity as number) ?? 0,
+  }))
+}
+
+/**
+ * El mapa de referencia -> grupo, de una opción de agrupado entera.
+ *
+ * Con esto se puede comprobar, antes de mandar nada, que ninguna de nuestras
+ * cajas mezcla grupos.
+ */
+export async function mapaDeGrupos(
+  creds: AmazonCredentials,
+  planId: string,
+  grupos: string[]
+): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>()
+  for (const g of grupos) {
+    for (const a of await articulosDelGrupo(creds, planId, g)) {
+      mapa.set(a.msku, g)
+    }
+  }
+  return mapa
+}
+
 export async function confirmarEmpaquetado(
   creds: AmazonCredentials,
   planId: string,

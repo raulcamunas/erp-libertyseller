@@ -64,6 +64,7 @@ export type AmazonOperation =
   | 'createInboundPlan'
   | 'generatePackingOptions'
   | 'listPackingOptions'
+  | 'listPackingGroupItems'
   | 'confirmPackingOption'
   | 'setPackingInformation'
   | 'generatePlacementOptions'
@@ -195,6 +196,7 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   createInboundPlan: { rate: 2, burst: 2 },
   generatePackingOptions: { rate: 2, burst: 2 },
   listPackingOptions: { rate: 2, burst: 6 },
+  listPackingGroupItems: { rate: 2, burst: 6 },
   confirmPackingOption: { rate: 2, burst: 2 },
   setPackingInformation: { rate: 2, burst: 2 },
   generatePlacementOptions: { rate: 2, burst: 2 },
