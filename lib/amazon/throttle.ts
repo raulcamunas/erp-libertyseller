@@ -60,6 +60,24 @@ export type AmazonOperation =
   // ---------- Las del seguimiento de envíos a FBA ----------
   | 'getInboundShipments'
   | 'getInboundShipmentItems'
+  // ---------- Las de crear el envío (Fulfillment Inbound 2024-03-20) ----------
+  | 'createInboundPlan'
+  | 'generatePackingOptions'
+  | 'listPackingOptions'
+  | 'confirmPackingOption'
+  | 'setPackingInformation'
+  | 'generatePlacementOptions'
+  | 'listPlacementOptions'
+  | 'confirmPlacementOption'
+  | 'generateTransportationOptions'
+  | 'listTransportationOptions'
+  | 'confirmTransportationOptions'
+  | 'getInboundOperationStatus'
+  | 'listShipmentBoxes'
+  | 'getShipment'
+  | 'cancelInboundPlan'
+  | 'updateShipmentTrackingDetails'
+  | 'createMarketplaceItemLabels'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -164,6 +182,33 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
    */
   getInboundShipments: { rate: 2, burst: 2 },
   getInboundShipmentItems: { rate: 2, burst: 2 },
+
+  /**
+   * Fulfillment Inbound 2024-03-20. Los cupos son los que publica el propio
+   * modelo de Amazon, copiados uno a uno y no redondeados «por si acaso»:
+   * quedarse corto aquí alarga cada paso del asistente delante del usuario.
+   *
+   * Las de LEER tienen ráfaga 6 y las de ESCRIBIR ráfaga 2. Tiene sentido: una
+   * pantalla lee varias cosas seguidas para pintarse, pero no confirma dos
+   * opciones a la vez.
+   */
+  createInboundPlan: { rate: 2, burst: 2 },
+  generatePackingOptions: { rate: 2, burst: 2 },
+  listPackingOptions: { rate: 2, burst: 6 },
+  confirmPackingOption: { rate: 2, burst: 2 },
+  setPackingInformation: { rate: 2, burst: 2 },
+  generatePlacementOptions: { rate: 2, burst: 2 },
+  listPlacementOptions: { rate: 2, burst: 6 },
+  confirmPlacementOption: { rate: 2, burst: 2 },
+  generateTransportationOptions: { rate: 2, burst: 2 },
+  listTransportationOptions: { rate: 2, burst: 6 },
+  confirmTransportationOptions: { rate: 2, burst: 2 },
+  getInboundOperationStatus: { rate: 2, burst: 6 },
+  listShipmentBoxes: { rate: 2, burst: 30 },
+  getShipment: { rate: 2, burst: 6 },
+  cancelInboundPlan: { rate: 2, burst: 2 },
+  updateShipmentTrackingDetails: { rate: 2, burst: 2 },
+  createMarketplaceItemLabels: { rate: 2, burst: 30 },
 }
 
 export function sleep(ms: number): Promise<void> {
