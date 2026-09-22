@@ -258,6 +258,42 @@ export async function POST(request: NextRequest) {
           if (errIns) throw errIns
         }
 
+        /* ---------- 2bis) El FNSKU al espejo del catálogo ---------- */
+        //
+        // Sin FNSKU no hay etiqueta de producto, y el libro mayor lo trae en una
+        // columna que ya estamos leyendo. Se guarda en el espejo para que lo
+        // tenga TODA referencia de FBA, no solo las que alguien tecleó.
+        //
+        // Solo se escribe lo que cambia: son miles de referencias y volver a
+        // escribir el mismo valor cada noche es trabajo que no cambia nada.
+        const fnskuPorSku = new Map<string, string>()
+        for (const m of lectura.movimientos) {
+          if (m.fnsku && !fnskuPorSku.has(m.sku)) fnskuPorSku.set(m.sku, m.fnsku)
+        }
+        let fnskusPuestos = 0
+        if (fnskuPorSku.size > 0) {
+          const { data: yaTienen } = await service
+            .from('amazon_listings')
+            .select('sku, fnsku')
+            .eq('connection_id', u.conexion)
+            .eq('marketplace_id', u.mercado)
+            .in('sku', [...fnskuPorSku.keys()])
+
+          const actual = new Map(
+            ((yaTienen ?? []) as Array<{ sku: string; fnsku: string | null }>).map((l) => [l.sku, l.fnsku])
+          )
+          for (const [sku, fnsku] of fnskuPorSku) {
+            if (actual.get(sku) === fnsku) continue
+            const { error: errFnsku } = await service
+              .from('amazon_listings')
+              .update({ fnsku })
+              .eq('connection_id', u.conexion)
+              .eq('marketplace_id', u.mercado)
+              .eq('sku', sku)
+            if (!errFnsku) fnskusPuestos++
+          }
+        }
+
         /* ---------- 3) Las entradas reconocen su remesa ---------- */
         const llegadas = new Map<string, string>()
         for (const m of lectura.movimientos) {
@@ -297,6 +333,7 @@ export async function POST(request: NextRequest) {
           movimientos: filas.length,
           descartadas: lectura.descartadas,
           stockRefrescado: conStock,
+          fnskusPuestos,
           remesasReconocidas: reconocidas,
           enviosSeguidos: seguidos,
           unidadesQueNoLlegaron: faltantes,

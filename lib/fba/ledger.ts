@@ -45,6 +45,9 @@ const SONDEOS_MAXIMOS = 30
 
 export interface MovimientoLeido {
   sku: string
+  /** El codigo con el que Amazon identifica este producto de este vendedor.
+      Va en la etiqueta que se pega en cada unidad */
+  fnsku: string | null
   asin: string | null
   fecha: string
   ocurridoAt: string | null
@@ -167,6 +170,7 @@ export async function leerLedger(
   }
 
   const iAsin = col('ASIN')
+  const iFnsku = col('FNSKU')
   const iRef = col('Reference ID')
   const iDisp = col('Disposition')
   const iMotivo = col('Reason')
@@ -214,6 +218,7 @@ export async function leerLedger(
 
     movimientos.push({
       sku,
+      fnsku: texto(iFnsku),
       asin: texto(iAsin),
       fecha,
       ocurridoAt: instante(texto(iInstante)),
