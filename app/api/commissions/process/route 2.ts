@@ -629,10 +629,8 @@ export async function POST(request: NextRequest) {
        * La 199 quita esa política y borra los `originalCsv` ya guardados.
        *
        * El botón de «descargar CSV» del informe NO se queda sin nada: ya tenía
-       * un plan B que genera el desglose a partir de las filas calculadas. Ese
-       * sigue llevando el Order ID —que es un pedido del propio vendedor y es lo
-       * que le deja cuadrar—, pero no la ciudad, ni el código postal, ni el país
-       * de entrega, ni el enlace a la factura del comprador.
+       * un plan B que genera el desglose a partir de las filas calculadas, que
+       * es lo que el cliente necesita ver y no lleva ni un dato de comprador.
        */
       rows: processedRows,
       errors

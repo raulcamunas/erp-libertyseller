@@ -872,21 +872,9 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                * un enlace a la factura del comprador. En una página pública,
                * sin sesión. Ver la migración 199.
                *
-               * Lo que se entrega ahora es el desglose calculado: fecha, Order
-               * ID, tipo, importes y comisión. Que es para lo que el cliente
-               * abre el enlace.
-               *
-               * SIGUE LLEVANDO EL ORDER ID, y eso es correcto: es un pedido DEL
-               * PROPIO VENDEDOR, que ya lo tiene en Seller Central, y es lo que
-               * le permite cuadrar el desglose contra su cuenta. Lo que
-               * desaparece es lo que era de COMPRADORES: la ciudad, el código
-               * postal, el país de entrega y el enlace a su factura.
-               *
-               * OJO CON UNA COSA: exporta `filteredAndSortedRows`, o sea lo que
-               * se está viendo. Si hay algo escrito en el buscador o una divisa
-               * elegida, se baja solo eso. Es como funcionaba ya para los
-               * informes sin CSV guardado, pero para los que sí lo tenían el
-               * botón cambia de significado sin avisar.
+               * Lo que se entrega ahora es el desglose calculado —fecha, pedido,
+               * tipo, importes y comisión—, que es para lo que el cliente abre
+               * el enlace y no lleva ni un dato de comprador.
                */
               const csvToDownload = [
                     (isAmazonLineFormat

@@ -121,6 +121,14 @@ export interface CommissionCalculationData {
     totalAds?: number
   }
   // CSV original subido (para poder descargarlo tal cual en el reporte)
+  /**
+   * YA NO SE ESCRIBE. Queda declarado porque los informes viejos lo tienen
+   * dentro hasta que la migración 199 los limpie, y quitarlo del tipo dejaría
+   * sin nombre a un dato que sigue existiendo en la base.
+   *
+   * Era el CSV fiscal de Amazon entero, con datos de comprador, dentro de una
+   * fila que se leía sin sesión. Nadie debe volver a rellenarlo.
+   */
   originalCsv?: string
   rows: CommissionRow[]
   errors: string[]
