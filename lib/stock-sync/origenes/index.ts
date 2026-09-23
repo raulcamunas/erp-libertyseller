@@ -21,6 +21,7 @@ import { conectorManual } from './manual'
 import { conectorFtps } from './ftps'
 import { conectorSftp } from './sftp'
 import type { ConectorOrigen } from './tipos'
+import { conectorImap } from './imap'
 
 const REGISTRO: Record<StockProfileOrigin, ConectorOrigen> = {
   manual: conectorManual,
@@ -28,6 +29,7 @@ const REGISTRO: Record<StockProfileOrigin, ConectorOrigen> = {
   sftp: conectorSftp,
   ftps: conectorFtps,
   correo: conectorCorreo,
+  imap: conectorImap,
   api: conectorApi,
 }
 
