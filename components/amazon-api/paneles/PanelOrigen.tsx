@@ -72,12 +72,29 @@ export function InfoOrigen() {
             nombre.
           </li>
           <li>
-            <strong>Correo</strong> — el volcado llega adjunto a un buzón que vigilamos.
+            <strong>Correo</strong> — el volcado llega adjunto a un buzón que vigilamos. El buzón no
+            se escribe aquí: se elige de los que hay dados de alta en la pestaña{' '}
+            <strong>Buzones</strong>.
           </li>
           <li>
             <strong>A mano</strong> — alguien lo sube. Es el que menos gusta y el que más se usa.
           </li>
         </ListaInfo>
+      </SeccionInfo>
+
+      <SeccionInfo titulo="Correo es UN origen, no dos">
+        <p>
+          Aquí no se elige entre Gmail e IMAP, y no es un olvido: era justo esa elección la que hacía
+          equivocarse de pestaña y dejar el perfil sin leer nada. Se elige el{' '}
+          <strong>buzón</strong>, y es el buzón el que sabe por dentro si se entra por la API de
+          Gmail —los de nuestro Workspace— o por IMAP —los del hosting del cliente—.
+        </p>
+        <p>
+          Los buzones se dan de alta en su propia pestaña, <strong>Buzones</strong>, y son de{' '}
+          <strong>toda la agencia</strong>: se da de alta uno una vez y lo eligen los perfiles de los
+          clientes que hagan falta. Ahí también se les pone la contraseña y se prueban, que es donde
+          se ve qué correos encajan y cuál se cogería.
+        </p>
       </SeccionInfo>
 
       <SeccionInfo titulo="Los tres estados de la lista">

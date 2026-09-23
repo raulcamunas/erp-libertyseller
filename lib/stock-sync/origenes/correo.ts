@@ -25,18 +25,47 @@
  * Si un cliente puede dar SFTP o Drive, es mejor. Esto es la última opción.
  *
  *
- * ============ POR QUÉ GMAIL Y NO IMAP ============
+ * ============ YA NO HAY DOS ORÍGENES DE CORREO (migración 198) ============
+ *
+ * Durante un tiempo hubo dos botones en la pantalla, «Correo» y «Correo
+ * (IMAP)», y elegir mal era el error más repetido del alta de un cliente: quien
+ * da de alta un perfil mira la dirección del buzón —stock@libertyseller.com— y
+ * no tiene forma de saber si esa dirección vive en nuestro Workspace o en el
+ * hosting de al lado. Cuando se equivocaba, lo que salía no era «te has
+ * equivocado de pestaña», era un 404 de Gmail o un ECONNREFUSED.
+ *
+ * Ahora el origen es UNO. Quien configura elige un BUZÓN del catálogo, y es la
+ * columna `transporte` de ese buzón la que decide por dónde se entra:
+ *
+ *   transporte 'google' — la API de Gmail, suplantando la dirección del buzón
+ *                         con la cuenta de servicio (lo de siempre, aquí abajo).
+ *   transporte 'imap'   — se DELEGA ENTERO en conectorImap, con un contexto
+ *                         armado a partir del host, el puerto y el usuario del
+ *                         buzón. Ver `contextoImap`.
+ *
+ * El CHECK de la columna `origen` NO admite 'imap' y no se amplía: 'imap' es un
+ * transporte, no un origen. Que `conectorImap` siga existiendo y siga en el
+ * REGISTRO de index.ts es porque es él quien hace el trabajo, no porque haya
+ * que elegirlo.
+ *
+ *
+ * ============ POR QUÉ GMAIL Y NO IMAP PARA NUESTRO DOMINIO ============
  *
  * Porque la delegación de dominio YA ESTÁ MONTADA para el calendario, con la
- * misma cuenta de servicio. Con IMAP habría que: añadir un paquete
- * (`imapflow` o `node-imap`), pedirle al equipo una contraseña de aplicación,
- * guardarla cifrada y mantenerla viva cuando caduque. Con Gmail no hay paquete,
- * no hay contraseña que guardar —así que la decisión de las credenciales
- * cifradas ni siquiera aplica aquí— y el filtro que pide el encargo (remitente,
- * asunto y nombre del adjunto) lo resuelve la sintaxis `q` de Gmail de una vez.
+ * misma cuenta de servicio: no hay paquete que añadir, no hay contraseña que
+ * guardar ni que renovar cuando caduque, y el filtro que pide el encargo
+ * (remitente, asunto y nombre del adjunto) lo resuelve la sintaxis `q` de Gmail
+ * de una vez. Un buzón de nuestro dominio por IMAP sería pedirle al equipo una
+ * contraseña de aplicación para leer algo a lo que ya tenemos acceso.
  *
- * SI EL BUZÓN NO ES DE NUESTRO WORKSPACE, esto no sirve y hay que ir a IMAP. El
- * mensaje de error de abajo lo dice, en vez de dejar un 404 pelado.
+ *
+ * ============ EL BUZÓN VIRTUAL, Y POR QUÉ NO SE PUEDE QUITAR ============
+ *
+ * `buzon_id` a NULL significa «la cuenta de siempre del ERP»: la de
+ * GOOGLE_IMPERSONATE_SUBJECT, leída por Gmail. Es LITERALMENTE lo que hacía
+ * este conector cuando el campo de texto «Buzón» venía vacío, y los perfiles
+ * que hoy funcionan lo tienen así. Ver `buzonDeSiempre()`: no es un caso
+ * especial que sobre, es el que mantiene vivo lo que ya estaba en marcha.
  *
  *
  * ============ LO QUE FALTA PARA QUE ESTO FUNCIONE, Y NO ES CÓDIGO ============
@@ -59,6 +88,9 @@
 
 import { auth as googleAuth } from '@googleapis/calendar'
 import { ESPERA_DESCARGA_MS } from '@/lib/tiempos-espera'
+import { leerBuzon, loginDe, type BuzonFila } from '../buzones'
+import { leerCredencialBuzon } from './credenciales-buzon'
+import { conectorImap } from './imap'
 import {
   OrigenError,
   encajaPatron,
@@ -92,19 +124,31 @@ export const conectorCorreo: ConectorOrigen = {
   id: 'correo',
   etiqueta: 'Correo',
   descripcion:
-    'El cliente manda el volcado como adjunto a un buzón nuestro y el ERP se queda con el último que encaje con el filtro. Es el origen más frágil de los tres: depende de que nadie cambie el asunto ni borre el correo.',
+    'El cliente manda el volcado como adjunto a uno de nuestros buzones y el ERP se queda con el último correo que encaje con el filtro. El buzón se elige de la lista y da igual dónde esté alojado: los del dominio se leen por Gmail y los de fuera por IMAP, sin que haya que decidirlo aquí. Es el origen más frágil de todos: depende de que nadie cambie el asunto ni borre el correo.',
   construido: true,
   explorador: 'mensajes',
 
+  /**
+   * EL BUZÓN SE ELIGE DE UNA LISTA, NO SE TECLEA.
+   *
+   * Aquí había un campo de texto «Buzón» y era la mitad del problema: una
+   * dirección escrita a mano no dice con qué contraseña se entra, ni de qué
+   * cliente es, ni si está en nuestro Workspace. Ahora la pantalla pinta el
+   * desplegable y escribe en la COLUMNA `buzon_id`, que es la que tiene clave
+   * ajena y la que vigilan los dos triggers de la 198 para que el perfil de un
+   * cliente no pueda apuntar al buzón de otro.
+   */
+  usaBuzon: true,
+
   campos: [
     {
-      clave: 'buzon',
-      etiqueta: 'Buzón',
+      clave: 'carpeta',
+      etiqueta: 'Carpeta del buzón',
       tipo: 'texto',
       requerido: false,
       ayuda:
-        'La dirección de NUESTRO Workspace a la que el cliente manda el fichero. Vacío = la cuenta que el ERP ya usa para el calendario. Tiene que ser una cuenta del dominio: un Gmail personal o un buzón de otro proveedor no se puede leer por aquí.',
-      ejemplo: 'stock-cliente@libertyseller.com',
+        'Vacío = la del buzón. Solo se usa en los buzones IMAP: el de Gmail no tiene carpetas que elegir. Ponla si el cliente escribe a una dirección que una regla del servidor desvía a una carpeta, porque entonces el correo no pasa por la bandeja de entrada y aquí no se vería nada llegar.',
+      ejemplo: 'INBOX',
     },
     {
       clave: 'remitente',
@@ -155,7 +199,24 @@ export const conectorCorreo: ConectorOrigen = {
   /* ---------------- ¿Llegamos? ---------------- */
 
   async comprobar(ctx: ContextoOrigen): Promise<EstadoOrigen> {
-    const cfg = leerConfig(ctx)
+    let buzon: BuzonFila
+    let delegado: ContextoOrigen | null = null
+    try {
+      buzon = await buzonDe(ctx)
+      // La delegación va LO PRIMERO, antes de mirar la cuenta de servicio de
+      // Google: un buzón de Hostinger no necesita para nada nuestra delegación
+      // de dominio, y decirle a quien configura que «falta GOOGLE_SA_...» sería
+      // mandarlo a arreglar algo que no tiene nada que ver con su problema.
+      if (buzon.transporte === 'imap') delegado = await contextoImap(ctx, buzon)
+    } catch (error) {
+      if (error instanceof OrigenError) {
+        return { ok: false, mensaje: error.message, candidatos: [] }
+      }
+      throw error
+    }
+    if (delegado) return conectorImap.comprobar(delegado)
+
+    const cfg = leerConfig(ctx, buzon)
 
     if (!configurado()) {
       return {
@@ -210,7 +271,12 @@ export const conectorCorreo: ConectorOrigen = {
   /* ---------------- Traer el fichero ---------------- */
 
   async traer(ctx: ContextoOrigen): Promise<FicheroOrigen> {
-    const cfg = leerConfig(ctx)
+    const buzon = await buzonDe(ctx)
+    if (buzon.transporte === 'imap') {
+      return conectorImap.traer(await contextoImap(ctx, buzon))
+    }
+
+    const cfg = leerConfig(ctx, buzon)
 
     if (!configurado()) {
       throw new OrigenError(
@@ -288,7 +354,24 @@ export const conectorCorreo: ConectorOrigen = {
    * `ruta` no se usa y por eso no se declara: aquí no se baja a ningún sitio.
    */
   async explorar(ctx: ContextoOrigen): Promise<ListadoOrigen> {
-    const cfg = leerConfig(ctx)
+    const buzon = await buzonDe(ctx)
+    if (buzon.transporte === 'imap') {
+      // `explorar` es opcional en la interfaz y el de IMAP lo tiene, pero se
+      // comprueba en vez de forzarlo con un `!`: si algún día se lo quitan, el
+      // fallo tiene que ser una frase y no un «is not a function».
+      const explorarImap = conectorImap.explorar
+      if (!explorarImap) {
+        throw new OrigenError(
+          `El buzón «${buzon.nombre}» se lee por IMAP y esa vía no sabe enseñar los correos que hay. ` +
+            'Usa el botón de comprobar para saber cuál se cogería.'
+        )
+      }
+      // La ruta no se usa: en un buzón no hay carpetas que bajar, y el conector
+      // de IMAP mira siempre la que trae en su configuración.
+      return explorarImap(await contextoImap(ctx, buzon), '')
+    }
+
+    const cfg = leerConfig(ctx, buzon)
 
     if (!configurado()) {
       throw new OrigenError(
@@ -325,7 +408,18 @@ export const conectorCorreo: ConectorOrigen = {
 /* ------------------------------------------------------------------ */
 
 interface ConfigCorreo {
+  /**
+   * La DIRECCIÓN del buzón elegido, que en Gmail es a quién se suplanta.
+   *
+   * Ya no sale de `origen_config`: sale de la fila del catálogo, o de
+   * GOOGLE_IMPERSONATE_SUBJECT cuando el perfil no ha elegido ninguno. Por eso
+   * `leerConfig` pide el buzón como argumento en vez de ir a buscarlo: quien
+   * llama ya lo tiene resuelto y no se puede resolver dos veces de dos maneras
+   * distintas.
+   */
   buzon: string
+  /** Vacío = la carpeta del buzón. Solo la mira el transporte IMAP */
+  carpeta: string
   remitente: string
   asunto: string
   adjunto: string
@@ -334,18 +428,173 @@ interface ConfigCorreo {
   dias: number
 }
 
-function leerConfig(ctx: ContextoOrigen): ConfigCorreo {
+function leerConfig(ctx: ContextoOrigen, buzon: BuzonFila): ConfigCorreo {
   const dias = Number.parseInt(textoConfig(ctx.config, 'dias'), 10)
 
   return {
-    // Vacío = la cuenta que el ERP ya suplanta para el calendario. Es la que
-    // seguro que está autorizada en la delegación.
-    buzon: textoConfig(ctx.config, 'buzon') || (process.env.GOOGLE_IMPERSONATE_SUBJECT ?? ''),
+    buzon: buzon.direccion,
+    carpeta: textoConfig(ctx.config, 'carpeta'),
     remitente: textoConfig(ctx.config, 'remitente'),
     asunto: textoConfig(ctx.config, 'asunto'),
     adjunto: textoConfig(ctx.config, 'adjunto'),
     adjuntoEan: textoConfig(ctx.config, 'adjunto_ean'),
     dias: Number.isFinite(dias) && dias > 0 && dias <= 90 ? dias : DIAS_POR_OMISION,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* El buzón: quién decide por dónde se entra                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * EL BUZÓN DE ESTE PERFIL, Y SI NO HAY, EL DE SIEMPRE.
+ *
+ * Las dos ramas importan por motivos distintos:
+ *
+ *   · `buzonId` a null NO es un fallo de configuración: es un perfil de los de
+ *     antes del catálogo, y lo que tiene que pasar es exactamente lo que pasaba
+ *     —leer por Gmail la cuenta de GOOGLE_IMPERSONATE_SUBJECT—. Si esto diera
+ *     error, todos los perfiles de correo que hoy funcionan dejarían de
+ *     funcionar el día del despliegue.
+ *
+ *   · `buzonId` con un valor que ya no está en el catálogo SÍ es un fallo, y
+ *     NO se cae al buzón de siempre. Caer sería leer un buzón DISTINTO del que
+ *     alguien eligió y publicar en Amazon lo que hubiera dentro sin decir nada
+ *     — y si el buzón borrado era de un cliente, sería además cruzar clientes,
+ *     que es lo único que este módulo tiene prohibido de raíz. La FK de la 198
+ *     es a propósito sin RESTRICT: borrar un buzón deja el perfil apuntando a
+ *     la nada, y es aquí donde eso se convierte en una frase.
+ */
+async function buzonDe(ctx: ContextoOrigen): Promise<BuzonFila> {
+  if (!ctx.buzonId) return buzonDeSiempre(textoConfig(ctx.config, 'buzon'))
+
+  const fila = await leerBuzon(ctx.buzonId)
+  if (!fila) {
+    throw new OrigenError(
+      `El perfil «${ctx.perfil}» está apuntando a un buzón que ya no existe en el catálogo. ` +
+        'Ve a Amazon API › Buzones, comprueba cuál debería leer y vuelve a elegirlo en el perfil. ' +
+        'Mientras tanto no se lee ningún correo: leer otro buzón por nuestra cuenta sería publicar ' +
+        'en Amazon el stock de quien no toca.'
+    )
+  }
+  return fila
+}
+
+/**
+ * EL BUZÓN VIRTUAL: la cuenta de siempre del ERP.
+ *
+ * No está en la tabla y no tiene por qué estarlo. Es la traducción exacta de lo
+ * que hacía la línea que había en `leerConfig`:
+ *
+ *     buzon: textoConfig(ctx.config, 'buzon') || GOOGLE_IMPERSONATE_SUBJECT
+ *
+ * `id` vacío es deliberado y seguro: un buzón virtual nunca es de transporte
+ * 'imap', así que nunca llega a `contextoImap` ni a `leerCredencialBuzon`, que
+ * son los dos únicos sitios donde el id se usaría. La contraseña de este no
+ * existe: se entra con la cuenta de servicio.
+ *
+ *
+ * ============ POR QUÉ ENTRA `heredado` Y NO SE PUEDE QUITAR ============
+ *
+ * `heredado` es lo que quedó escrito en `origen_config.buzon` cuando el buzón
+ * era un campo de texto, y es la mitad que faltaba de la traducción: la línea
+ * vieja decía
+ *
+ *     buzon: textoConfig(ctx.config, 'buzon') || GOOGLE_IMPERSONATE_SUBJECT
+ *
+ * o sea que un perfil que tenía escrita una dirección leía ESA, no la de
+ * siempre. Devolver aquí siempre GOOGLE_IMPERSONATE_SUBJECT hacía que todos
+ * esos perfiles —que son los que hoy funcionan, porque el catálogo acaba de
+ * nacer y ninguno tiene `buzon_id`— se pusieran a leer de golpe OTRO buzón el
+ * día del despliegue. Y sin dar ningún error: encontrarían correos, cogerían un
+ * adjunto y publicarían en Amazon el stock de quien no toca.
+ *
+ * Se va solo: en cuanto alguien elige buzón de la lista, `ctx.buzonId` manda y
+ * por aquí ya no se pasa. El campo de texto ya no existe, así que esto no puede
+ * volver a rellenarse; solo se lee lo que había.
+ */
+function buzonDeSiempre(heredado: string): BuzonFila {
+  const direccion = heredado || (process.env.GOOGLE_IMPERSONATE_SUBJECT ?? '')
+  return {
+    id: '',
+    nombre: heredado
+      ? `${heredado} (escrito a mano en este perfil, antes del catálogo)`
+      : 'La cuenta de siempre del ERP',
+    direccion,
+    transporte: 'google',
+    client_id: null,
+    host: null,
+    puerto: null,
+    usuario: null,
+    carpeta: 'INBOX',
+    seguro: true,
+    activo: true,
+    notas: null,
+    ultima_prueba_at: null,
+    ultima_prueba_ok: null,
+    ultima_prueba_error: null,
+  }
+}
+
+/**
+ * EL CONTEXTO CON EL QUE SE LLAMA AL CONECTOR DE IMAP.
+ *
+ * El de IMAP no sabe nada de buzones ni de catálogos: lee su host, su puerto y
+ * su usuario de `ctx.config`, como cualquier otro conector. Así que aquí se le
+ * arma un `config` sintético con los datos de la fila del buzón y el filtro del
+ * perfil. Es lo que permite que todo esto funcione SIN TOCAR imap.ts, y lo que
+ * hace que arreglar un host se haga en un sitio para los diez perfiles que lo
+ * comparten en vez de en diez.
+ *
+ * DOS COSAS QUE PARECEN DETALLE Y NO LO SON:
+ *
+ *   1. `perfilId: null`. El de IMAP, si no le llega contraseña, baja a buscar
+ *      la del PERFIL en stock_origen_credenciales. Eso aquí sería un desastre
+ *      silencioso: un perfil que antes era SFTP conserva ahí la contraseña del
+ *      SFTP del cliente, y la mandaríamos en claro al servidor de correo de
+ *      otro. La contraseña de un buzón es del BUZÓN; cortando el perfilId, no
+ *      hay ninguna otra de la que tirar por error.
+ *
+ *   2. La contraseña tecleada en pantalla manda sobre la guardada, igual que en
+ *      el resto del módulo: es lo que permite corregir una contraseña y probarla
+ *      antes de decidir guardarla.
+ */
+async function contextoImap(ctx: ContextoOrigen, b: BuzonFila): Promise<ContextoOrigen> {
+  if (!b.host) {
+    throw new OrigenError(
+      `El buzón «${b.nombre}» se lee por IMAP y no tiene servidor puesto. Ve a Amazon API › Buzones, ` +
+        'ábrelo y escribe el servidor de correo (en Hostinger es imap.hostinger.com).'
+    )
+  }
+
+  const secreto = ctx.secretoEnPantalla ?? (await leerCredencialBuzon(b.id))
+  if (!secreto) {
+    throw new OrigenError(
+      `El buzón «${b.nombre}» no tiene contraseña guardada. Ve a Amazon API › Buzones, ábrelo y ` +
+        'escríbela: mejor una contraseña de aplicación que la de la cuenta.',
+      { esDeAcceso: true }
+    )
+  }
+
+  const cfg = leerConfig(ctx, b)
+
+  return {
+    ...ctx,
+    perfilId: null,
+    config: {
+      host: b.host,
+      puerto: b.puerto,
+      usuario: loginDe(b),
+      // La del perfil si la hay, y si no la del buzón. Un mismo buzón puede
+      // repartir a carpetas distintas con una regla por cliente.
+      carpeta: cfg.carpeta || b.carpeta,
+      seguro: b.seguro,
+      remitente: cfg.remitente,
+      asunto: cfg.asunto,
+      adjunto: cfg.adjunto,
+      dias: cfg.dias,
+    },
+    secretoEnPantalla: secreto,
   }
 }
 
@@ -488,7 +737,8 @@ function consulta(cfg: ConfigCorreo): string {
 async function buscar(cfg: ConfigCorreo): Promise<Correo[]> {
   if (!cfg.buzon) {
     throw new OrigenError(
-      'Este perfil no tiene puesto el buzón y el servidor tampoco tiene GOOGLE_IMPERSONATE_SUBJECT.'
+      'Este perfil no tiene buzón elegido y el servidor tampoco tiene GOOGLE_IMPERSONATE_SUBJECT, ' +
+        'así que no hay ninguna dirección que leer. Elige un buzón de la lista en el perfil.'
     )
   }
 
@@ -776,21 +1026,77 @@ function filaDe(
  * Pasando el id del correo del que salió el fichero de stock, esto es imposible
  * por construcción: los dos adjuntos vienen del mismo mensaje o no vienen.
  *
- * Devuelve null cuando ese correo no trae ningún adjunto que encaje. No es un
- * error: quien llama sigue sin la vía por EAN y lo dice en los avisos, igual que
- * cuando el cliente no tiene fichero de códigos de barras.
+ *
+ * ============ POR QUÉ ESTO YA NO DEVUELVE `null` A SECAS ============
+ *
+ * Porque `null` significaba UNA SOLA COSA —«he mirado ese correo y no traía
+ * ningún adjunto que encajara»— y quien llama (lib/stock-sync/proceso.ts) tiene
+ * escrito para ese caso un aviso que dice «comprueba que el cliente sigue
+ * mandando los dos ficheros en el mismo mensaje». O sea: manda a llamar al
+ * cliente.
+ *
+ * Con los buzones IMAP aparece un caso NUEVO que no es ese: este código solo
+ * sabe sacar adjuntos de la API de Gmail, y si el volcado ha entrado por IMAP
+ * NO SE HA LLEGADO A MIRAR NADA. Devolver `null` ahí sería mandar a echarle la
+ * culpa al cliente de algo que sí ha hecho, que es exactamente la clase de
+ * fallo que todo el catálogo de buzones viene a quitar.
+ *
+ * Por eso el retorno distingue los tres estados, y el tipo obliga a mirarlos:
+ *
+ *   'encontrado'   — aquí está el fichero.
+ *   'sin_adjunto'  — MIRADO Y NO ESTÁ. Este, y solo este, justifica el aviso de
+ *                    «comprueba que el cliente sigue mandando los dos».
+ *   'no_mirado'    — NO SE HA PODIDO MIRAR, y `motivo` dice por qué en una
+ *                    frase ya redactada para enseñarla. El cruce va sin la vía
+ *                    por EAN igual que en 'sin_adjunto', pero lo que hay que
+ *                    hacer no es llamar a nadie: es dar de alta el perfil de
+ *                    códigos de barras aparte, o terminar de configurar esto.
  */
-export async function segundoAdjunto(
-  config: Record<string, unknown>,
-  correoId: string,
-  patron: string,
-  maxBytes: number
-): Promise<{ nombre: string; bytes: Uint8Array } | null> {
-  if (!configurado() || !correoId || !patron.trim()) return null
+export type SegundoAdjunto =
+  | { estado: 'encontrado'; nombre: string; bytes: Uint8Array }
+  | { estado: 'sin_adjunto' }
+  | { estado: 'no_mirado'; motivo: string }
 
-  const cfg = leerConfig({ config, perfil: '', maxBytes })
+export async function segundoAdjunto(params: {
+  config: Record<string, unknown>
+  /** El `buzon_id` del perfil. null = la cuenta de siempre del ERP */
+  buzonId: string | null
+  correoId: string
+  patron: string
+  maxBytes: number
+}): Promise<SegundoAdjunto> {
+  const { config, buzonId, correoId, patron, maxBytes } = params
+
+  // Sin correo o sin patrón no hay nada que buscar y tampoco nada que contar:
+  // quien llama solo entra aquí si tiene los dos, así que esto es una red.
+  if (!correoId || !patron.trim()) return { estado: 'sin_adjunto' }
+
+  const buzon = await buzonDe({ config, perfil: '', maxBytes, buzonId })
+
+  if (buzon.transporte !== 'google') {
+    return {
+      estado: 'no_mirado',
+      motivo:
+        `El volcado ha entrado por el buzón «${buzon.nombre}», que se lee por IMAP, y de ahí todavía ` +
+        'no se sabe sacar el segundo adjunto del mismo correo. NO quiere decir que el cliente no lo ' +
+        'haya mandado: no se ha llegado a mirar, así que no hay nada que reclamarle. Para cruzar por ' +
+        'códigos de barras, dale a este cliente un perfil de EAN aparte.',
+    }
+  }
+
+  if (!configurado()) {
+    return {
+      estado: 'no_mirado',
+      motivo:
+        'Falta configurar la cuenta de servicio de Google en el servidor (GOOGLE_SA_CLIENT_EMAIL, ' +
+        'GOOGLE_SA_PRIVATE_KEY y GOOGLE_IMPERSONATE_SUBJECT), así que no se ha podido abrir el correo ' +
+        'para buscar el fichero de códigos de barras.',
+    }
+  }
+
+  const cfg = leerConfig({ config, perfil: '', maxBytes, buzonId }, buzon)
   const correo = await leerCorreo(cfg, correoId)
-  if (!correo) return null
+  if (!correo) return { estado: 'sin_adjunto' }
 
   const candidatos = correo.adjuntos.filter(
     (a) => encajaPatron(a.nombre, patron) && extensionValida(a.nombre)
@@ -799,7 +1105,7 @@ export async function segundoAdjunto(
   // primero que encaje: si hay dos que encajan, el patrón está mal escrito y
   // elegir por tamaño o por orden sería adivinar.
   const elegido = candidatos[0]
-  if (!elegido) return null
+  if (!elegido) return { estado: 'sin_adjunto' }
 
   if (elegido.tamano > maxBytes) {
     throw new OrigenError(
@@ -808,8 +1114,10 @@ export async function segundoAdjunto(
   }
 
   const bytes = new Uint8Array(await bajarAdjunto(cfg, correoId, elegido.id))
-  if (bytes.byteLength === 0) return null
-  return { nombre: elegido.nombre, bytes }
+  // Cero bytes es «está y está vacío», no «no está»: el cliente ha adjuntado un
+  // fichero roto y eso se arregla hablando con él, igual que si faltara.
+  if (bytes.byteLength === 0) return { estado: 'sin_adjunto' }
+  return { estado: 'encontrado', nombre: elegido.nombre, bytes }
 }
 
 async function bajarAdjunto(
@@ -881,8 +1189,9 @@ function faltaElScope(cfg: ConfigCorreo): string {
 function buzonQueNoExiste(cfg: ConfigCorreo): string {
   return (
     `El buzón ${cfg.buzon} no existe en nuestro Workspace, o el correo no está.\n` +
-    'Este conector solo puede leer cuentas de nuestro dominio: un Gmail personal o un buzón de otro ' +
-    'proveedor necesitaría IMAP, que es otra cosa y todavía no está construida.\n' +
+    'Por esta vía solo se pueden leer cuentas de nuestro dominio. Si ese buzón es un Gmail personal ' +
+    'o está en otro proveedor, ve a Amazon API › Buzones, ábrelo y márcalo como IMAP con su servidor ' +
+    'y su contraseña: el mismo perfil sigue valiendo, cambia solo por dónde se entra.\n' +
     'Si la dirección es un alias, pon la cuenta real: un alias no se puede suplantar.'
   )
 }

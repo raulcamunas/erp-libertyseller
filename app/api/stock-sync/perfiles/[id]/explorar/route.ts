@@ -121,6 +121,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       config,
       perfil: perfil.name,
       perfilId: perfil.id,
+      // EL BUZÓN SALE DEL PERFIL GUARDADO Y NUNCA DEL CUERPO DE LA PETICIÓN, y
+      // es la misma regla que el párrafo «LA CREDENCIAL GUARDADA SOLO VA AL
+      // DESTINO GUARDADO» de la cabecera: la contraseña de un buzón vive
+      // cifrada colgando de él, así que admitir un buzón elegido por quien
+      // manda el POST convertiría esta ruta en un lector del correo de
+      // cualquier otro cliente. La configuración de pantalla se sigue
+      // admitiendo entera —carpeta, patrón, días— porque no decide de dónde se
+      // lee; el buzón sí.
+      buzonId: perfil.buzon_id,
       maxBytes: MAX_FICHERO_BYTES,
       subida: null,
       secretoEnPantalla,

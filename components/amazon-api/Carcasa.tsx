@@ -15,6 +15,7 @@ import {
 import type { PropsPanel } from './tipos'
 
 import { PanelBsr, InfoBsr } from './paneles/PanelBsr'
+import { PanelBuzones, InfoBuzones } from './paneles/PanelBuzones'
 import { PanelCatalogo, InfoCatalogo } from './paneles/PanelCatalogo'
 import { PanelCostes, InfoCostes } from './paneles/PanelCostes'
 import { PanelCuentas, InfoCuentas } from './paneles/PanelCuentas'
@@ -28,7 +29,7 @@ import { PanelPublicidad, InfoPublicidad } from './paneles/PanelPublicidad'
 /**
  * LA CARCASA DE AMAZON API — LAS TRIPAS DE TODO.
  *
- * Ocho pestañas sobre una sola idea: aquí se configura con qué va a trabajar la
+ * Un puñado de pestañas sobre una sola idea: aquí se configura con qué va a trabajar la
  * agencia en la cuenta de cada cliente, y aquí se ve toda la información que
  * guardamos de sus productos y de sus cuentas. Trabajar sobre esa cuenta es el
  * otro módulo, Growth Partner.
@@ -82,6 +83,7 @@ const PANELES: Record<
   seguimiento: { Panel: PanelSeguimiento, Info: InfoSeguimiento },
   costes: { Panel: PanelCostes, Info: InfoCostes },
   origen: { Panel: PanelOrigen, Info: InfoOrigen },
+  buzones: { Panel: PanelBuzones, Info: InfoBuzones },
   bsr: { Panel: PanelBsr, Info: InfoBsr },
   publicidad: { Panel: PanelPublicidad, Info: InfoPublicidad },
   ingesta: { Panel: PanelIngesta, Info: InfoIngesta },
@@ -104,7 +106,7 @@ export function Carcasa({
 }) {
   const [data, setData] = useState<AmazonView>(initialData)
   const [pestana, setPestana] = useState<PestanaId>(pestanaInicial)
-  /** La conexión elegida. Compartida por las ocho pestañas; ver PropsPanel */
+  /** La conexión elegida. Compartida por todas las pestañas; ver PropsPanel */
   const [conexionId, setConexionId] = useState<string | null>(null)
 
   /** Cuántas ediciones sin enviar hay ahora mismo, y de qué cliente */
@@ -326,7 +328,7 @@ export function Carcasa({
 
 /**
  * Lo que hay que saber del módulo entero, delante de la explicación de cada
- * pestaña. Se repite en las ocho a propósito: es el corte que decide dónde está
+ * pestaña. Se repite en todas a propósito: es el corte que decide dónde está
  * cada cosa, y es la pregunta que se hace todo el mundo la primera semana.
  */
 function InfoModulo() {
@@ -344,7 +346,7 @@ function InfoModulo() {
       </p>
       <ListaInfo>
         <li>
-          Las ocho pestañas están en el orden en el que hay que rellenarlas para que un cliente
+          Las pestañas están en el orden en el que hay que rellenarlas para que un cliente
           nuevo quede operativo.
         </li>
         <li>

@@ -253,6 +253,18 @@ export interface StockReadProfile {
   origen: StockProfileOrigin
   /** Configuración propia del conector. Nunca contraseñas ni tokens */
   origen_config: Record<string, unknown>
+  /**
+   * DE QUÉ BUZÓN DEL CATÁLOGO SALE EL FICHERO (migración 198).
+   *
+   * Es una columna y no una clave de `origen_config` porque ahí dentro no hay
+   * clave ajena que valga: nada impediría apuntar a un buzón borrado, ni que el
+   * perfil de un cliente apuntara al buzón de otro — que es el fallo que
+   * publica el stock de uno en la cuenta de Amazon del otro sin dar ni un error.
+   *
+   * null en los perfiles que no leen de correo, y también en los de correo que
+   * usan la cuenta de siempre del ERP.
+   */
+  buzon_id: string | null
 
   formato: StockProfileFormat
   csv_separador: string | null

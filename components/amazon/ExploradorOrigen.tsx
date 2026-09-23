@@ -18,11 +18,8 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { deleteAmazon, getAmazon, postAmazon, type PerfilesVista } from '@/lib/amazon/client'
-import type {
-  ComprobarResponse,
-  CredencialResponse,
-  ExplorarResponse,
-} from '@/lib/stock-sync/origenes/respuestas'
+import type { EstadoCredencial } from '@/lib/stock-sync/origenes/credenciales'
+import type { ComprobarResponse, ExplorarResponse } from '@/lib/stock-sync/origenes/respuestas'
 import type {
   CandidatoOrigen,
   EstadoOrigen,
@@ -146,7 +143,8 @@ export function PanelOrigen({
 
       {conector.secreto && (
         <PanelCredencial
-          perfilId={perfil.id}
+          id={perfil.id}
+          ruta="/api/stock-sync/perfiles"
           declaracion={conector.secreto}
           borrador={secretoBorrador}
           onBorrador={setSecretoBorrador}
@@ -171,6 +169,24 @@ export function PanelOrigen({
 /* ------------------------------------------------------------------ */
 
 /**
+ * Lo que contestan las dos rutas de credencial, que NO llaman igual al mismo
+ * dato: la del perfil lo manda en `credencial` y la del buzón en `estado`.
+ *
+ * Se aceptan los dos y se coge el que venga. Quedarse con uno solo no daría
+ * ningún error visible —`undefined` entra como «no hay contraseña guardada»— y
+ * la pantalla pediría a gritos una contraseña que ya está puesta, que es
+ * exactamente el aviso que nadie debería poder provocar.
+ */
+interface RespuestaCredencial {
+  credencial?: EstadoCredencial
+  estado?: EstadoCredencial
+}
+
+function credencialDe(r: RespuestaCredencial): EstadoCredencial | null {
+  return r.credencial ?? r.estado ?? null
+}
+
+/**
  * EL CAJETÍN DE LA CONTRASEÑA.
  *
  * Tres estados y ninguno enseña el valor:
@@ -181,21 +197,42 @@ export function PanelOrigen({
  * La huella son ocho caracteres del sha256 del valor YA CIFRADO. No lleva a
  * ningún sitio y no se puede deshacer; sirve para una sola cosa, que es poder
  * ver de un vistazo que la credencial ha cambiado después de tocarla.
+ *
+ *
+ * ============ POR QUÉ RECIBE LA RUTA Y NO SOLO UN ID ============
+ *
+ * Lo usan DOS pantallas y cada una cuelga la contraseña de una cosa distinta: la
+ * del perfil, de `/api/stock-sync/perfiles/<id>/credencial`, y la de la pestaña
+ * Buzones, de `/api/stock-sync/buzones/<id>/credencial` —porque un buzón de la
+ * agencia sirve al perfil de diez clientes y su contraseña no es de ninguno de
+ * ellos—. Con un solo `perfilId` y la ruta escrita dentro, la pestaña Buzones
+ * habría pedido el estado de un PERFIL pasándole el id de un BUZÓN: contestaría
+ * «no hay contraseña guardada» para un buzón que sí la tiene, y el siguiente
+ * paso de quien lo lea es volver a teclearla.
+ *
+ * Y por eso `endpoint` es lo que miran LOS DOS efectos de abajo, no `id` a
+ * secas: cambia entero cuando cambia cualquiera de los dos.
  */
-function PanelCredencial({
-  perfilId,
+export function PanelCredencial({
+  id,
+  ruta,
   declaracion,
   borrador,
   onBorrador,
 }: {
-  perfilId: string
+  /** El id de la cosa de la que cuelga la contraseña: un perfil o un buzón */
+  id: string
+  /** La colección, sin el id: '/api/stock-sync/perfiles' o '…/buzones' */
+  ruta: string
   declaracion: NonNullable<Conector['secreto']>
   borrador: { tipo: 'password' | 'clave_privada'; valor: string; passphrase: string } | null
   onBorrador: (
     v: { tipo: 'password' | 'clave_privada'; valor: string; passphrase: string } | null
   ) => void
 }) {
-  const [estado, setEstado] = useState<CredencialResponse['credencial'] | null>(null)
+  const endpoint = `${ruta}/${id}/credencial`
+
+  const [estado, setEstado] = useState<EstadoCredencial | null>(null)
   const [editando, setEditando] = useState(false)
   const [verValor, setVerValor] = useState(false)
   const [guardando, setGuardando] = useState(false)
@@ -205,20 +242,21 @@ function PanelCredencial({
 
   useEffect(() => {
     let vivo = true
-    getAmazon<CredencialResponse>(`/api/stock-sync/perfiles/${perfilId}/credencial`).then((res) => {
+    getAmazon<RespuestaCredencial>(endpoint).then((res) => {
       // La respuesta de un perfil que ya no se está mirando no se pinta: saltar
       // entre dos clientes deprisa dejaría el estado del primero encima del
       // segundo, y en una pantalla que dice «hay contraseña guardada» eso es
       // mentir sobre un dato importante.
-      if (vivo && res.ok) setEstado(res.data.credencial)
+      if (vivo && res.ok) setEstado(credencialDe(res.data))
     })
     return () => {
       vivo = false
     }
-  }, [perfilId])
+  }, [endpoint])
 
-  // Cambiar de perfil cierra la edición y tira el borrador: arrastrar la
-  // contraseña de un cliente al formulario de otro es el peor error posible aquí.
+  // Cambiar de perfil (o de buzón) cierra la edición y tira el borrador:
+  // arrastrar la contraseña de un cliente al formulario de otro es el peor error
+  // posible aquí.
   useEffect(() => {
     setEditando(false)
     setVerValor(false)
@@ -227,7 +265,7 @@ function PanelCredencial({
     // dependencias volvería a vaciar el borrador en cada render del padre, o
     // sea mientras se escribe la contraseña.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [perfilId])
+  }, [endpoint])
 
   const hay = estado?.hay ?? false
   const abierto = editando || !hay
@@ -238,17 +276,18 @@ function PanelCredencial({
       return
     }
     setGuardando(true)
-    const res = await postAmazon<CredencialResponse>(
-      `/api/stock-sync/perfiles/${perfilId}/credencial`,
-      { tipo: borrador.tipo, valor: borrador.valor, passphrase: borrador.passphrase || null }
-    )
+    const res = await postAmazon<RespuestaCredencial>(endpoint, {
+      tipo: borrador.tipo,
+      valor: borrador.valor,
+      passphrase: borrador.passphrase || null,
+    })
     setGuardando(false)
 
     if (!res.ok) {
       toast.error(res.error)
       return
     }
-    setEstado(res.data.credencial)
+    setEstado(credencialDe(res.data))
     setEditando(false)
     setVerValor(false)
     // El borrador se tira en cuanto está guardado: a partir de aquí el valor
@@ -260,15 +299,13 @@ function PanelCredencial({
 
   async function quitar() {
     setGuardando(true)
-    const res = await deleteAmazon<CredencialResponse>(
-      `/api/stock-sync/perfiles/${perfilId}/credencial`
-    )
+    const res = await deleteAmazon<RespuestaCredencial>(endpoint)
     setGuardando(false)
     if (!res.ok) {
       toast.error(res.error)
       return
     }
-    setEstado(res.data.credencial)
+    setEstado(credencialDe(res.data))
     onBorrador(null)
     toast.success('Credencial borrada')
   }

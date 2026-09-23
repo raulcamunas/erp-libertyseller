@@ -38,9 +38,30 @@ export function conectorDe(origen: StockProfileOrigin): ConectorOrigen {
   return REGISTRO[origen]
 }
 
-/** Todos, en el orden en que se enseñan: primero los que funcionan */
+/**
+ * Todos, en el orden en que se enseñan: primero los que funcionan.
+ *
+ * AQUÍ NO ESTÁ `conectorImap`, Y NO ES UN OLVIDO (aunque lo fue durante un día:
+ * se metió en el REGISTRO de arriba y no aquí, así que el conector existía y no
+ * había forma de llegar a él desde la pantalla).
+ *
+ * Desde la migración 198 NO HAY DOS ORÍGENES DE CORREO. Hay uno, 'correo', y el
+ * BUZÓN elegido decide por dentro si se lee por la API de Gmail o por IMAP.
+ * `conectorCorreo` delega en `conectorImap` cuando toca; el de IMAP sigue en el
+ * REGISTRO porque el Record los exige todos y porque es él quien hace el
+ * trabajo, pero no es una opción que nadie tenga que elegir.
+ *
+ * Volver a meterlo aquí sacaría otra vez los dos botones de correo, que es
+ * exactamente la decisión que sobra: quien configura no tiene por qué saber si
+ * un buzón está en nuestro Workspace o en el hosting del cliente.
+ */
 export function conectores(): ConectorOrigen[] {
   return [conectorManual, conectorApi, conectorDrive, conectorSftp, conectorFtps, conectorCorreo]
+}
+
+/** ¿Es un origen que el usuario puede elegir en la pantalla? */
+export function esOrigenElegible(origen: string): origen is StockProfileOrigin {
+  return conectores().some((c) => c.id === origen)
 }
 
 /**
@@ -66,6 +87,8 @@ export interface ConectorPublico {
   explorador: ConectorOrigen['explorador']
   /** Si el conector necesita una contraseña, y de qué formas la acepta */
   secreto: ConectorOrigen['secreto']
+  /** Si la pantalla tiene que pintar el desplegable de buzones. Ver tipos.ts */
+  usaBuzon: boolean
   /** En qué campo escribe el explorador la carpeta elegida */
   campoRuta: string | null
 }
@@ -79,6 +102,7 @@ export function conectoresPublicos(): ConectorPublico[] {
     campos: c.campos,
     explorador: c.explorador,
     secreto: c.secreto,
+    usaBuzon: c.usaBuzon ?? false,
     campoRuta: c.campoRuta ?? null,
   }))
 }

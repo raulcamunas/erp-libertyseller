@@ -116,6 +116,19 @@ export interface ContextoOrigen {
    * solo quien lo va a usar, dentro de la llamada.
    */
   perfilId?: string | null
+  /**
+   * EL BUZÓN DEL CATÁLOGO QUE HA ELEGIDO ESTE PERFIL (migración 198).
+   *
+   * Solo lo mira el conector de correo, y matiza el párrafo de arriba: el id
+   * del perfil sigue siendo la llave de su credencial en SFTP y en FTPS, pero
+   * YA NO EN EL CORREO. Ahí la contraseña es del BUZÓN, porque un buzón que
+   * sirve a diez clientes no puede tener diez contraseñas iguales guardadas
+   * diez veces, cada una colgando de un perfil distinto.
+   *
+   * null = la cuenta de siempre del ERP, que es lo que hacía el conector antes
+   * de que existiera el catálogo.
+   */
+  buzonId?: string | null
   /** Tope de tamaño, el mismo que el de las subidas a mano */
   maxBytes: number
   /**
@@ -294,6 +307,21 @@ export interface ConectorOrigen {
    *              que encajan con el filtro. Misma pantalla, sin migas.
    */
   explorador?: 'carpetas' | 'mensajes'
+  /**
+   * «LEO DE UN BUZÓN DEL CATÁLOGO». La pantalla pinta el desplegable de
+   * buzones y escribe en la COLUMNA `buzon_id`, no en `origen_config`.
+   *
+   * No es un CampoOrigen A PROPÓSITO, y conviene que quede escrito: todo lo que
+   * se declara como campo acaba en `origen_config`, que es texto libre y viaja
+   * al navegador. El buzón necesita clave ajena y necesita que un trigger
+   * vigile de quién es. Eso es una columna.
+   *
+   * Y hay una segunda razón, de las de perder una tarde: un `tipo` nuevo en
+   * CampoOrigen sin su rama en la pantalla cae en el `<input>` de texto del
+   * final del switch, y TypeScript no se queja. O sea que el «desplegable»
+   * saldría como el cajetín de escribir a mano que esto viene a quitar.
+   */
+  usaBuzon?: boolean
   /** «Necesito una contraseña». Ver SecretoDeclarado */
   secreto?: SecretoDeclarado
   /**

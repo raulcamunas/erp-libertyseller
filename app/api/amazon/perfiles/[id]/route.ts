@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
-import { conectorDe } from '@/lib/stock-sync/origenes'
+import { conectorDe, esOrigenElegible } from '@/lib/stock-sync/origenes'
+import { buzonElegibleParaPerfil } from '@/lib/stock-sync/buzones'
 import { borrarCredencial } from '@/lib/stock-sync/origenes/credenciales'
 import {
   actualizarPerfil,
@@ -37,9 +38,46 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
     if (!body || typeof body !== 'object') return fail(400, 'No ha llegado ningún cambio')
 
+    /**
+     * EL BUZÓN SE SACA DEL CUERPO AQUÍ, ANTES DE CONTAR LOS CAMBIOS.
+     *
+     * `buzon_id` NO está en CAMPOS_EDITABLES y no va a estarlo (el motivo, largo,
+     * está escrito al final de esa lista en perfiles.ts). Pero eso, por sí solo,
+     * dejaba la pantalla ENTERA sin poder elegir buzón: `filtrarCampos` lo tiraba,
+     * el patch se quedaba vacío y la ruta cortaba con «No hay ningún campo que se
+     * pueda guardar» sin llegar siquiera a leer el perfil. El desplegable
+     * funcionaba, guardaba, contestaba 400 y no cambiaba nada.
+     *
+     * Así que se lee aparte, se valida aparte y se escribe aparte, después del
+     * guardia del dueño. Un PATCH que SOLO trae el buzón es un cambio de verdad.
+     */
+    const traeBuzon = Object.prototype.hasOwnProperty.call(body, 'buzon_id')
+    const buzonPedido = traeBuzon ? normalizarBuzon(body.buzon_id) : undefined
+    if (traeBuzon && buzonPedido === INVALIDO) {
+      return fail(400, 'El buzón que ha llegado no se entiende. Recarga la pantalla y vuelve a elegirlo')
+    }
+
     const patch = filtrarCampos(body)
-    if (Object.keys(patch).length === 0) {
+    if (Object.keys(patch).length === 0 && !traeBuzon) {
       return fail(400, 'No hay ningún campo que se pueda guardar en lo que ha llegado')
+    }
+
+    /**
+     * EL ORIGEN SE VALIDA AQUÍ Y NO SE DEJA CAER EN LA BASE.
+     *
+     * El CHECK de la columna lo para igual, pero contestando un 23514 con el
+     * texto de Postgres dentro, que no dice cuáles son los orígenes válidos. Y
+     * hay uno que engaña: 'imap' SÍ existe como conector —es quien hace el
+     * trabajo cuando el buzón elegido no es de Google— pero NO es una opción que
+     * nadie deba elegir, porque desde la 198 el correo es un solo origen y el
+     * buzón decide por dentro cómo se entra. Ver el comentario de `conectores()`.
+     */
+    if (typeof patch.origen === 'string' && !esOrigenElegible(patch.origen)) {
+      return fail(
+        400,
+        `«${patch.origen}» no es un origen que se pueda elegir. Vuelve a elegirlo en la pantalla: ` +
+          'el correo es uno solo y es el buzón el que decide cómo se entra en él.'
+      )
     }
 
     /**
@@ -71,6 +109,75 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     // ha movido. Ver moverElDestinoBorraLaCredencial().
     const antes = await loadPerfil(params.id)
     if (!antes) return fail(404, 'Ese perfil ya no existe')
+
+    /**
+     * ¿Está la 198 lanzada? Se mira en la FILA y no con una consulta al catálogo
+     * de Postgres, igual que `faltaMigracionNoSincroniza` en perfiles.ts: el
+     * `select('*')` trae las columnas que existan, así que si la clave no está es
+     * que la migración no se ha pegado todavía en el editor SQL de Supabase.
+     *
+     * Sin esto, escribir `buzon_id` contra una tabla que no lo tiene contesta
+     * «Could not find the 'buzon_id' column of 'stock_read_profiles' in the
+     * schema cache», que no le dice a nadie qué fichero hay que lanzar.
+     */
+    const hayColumnaBuzon = 'buzon_id' in (antes as object)
+
+    /**
+     * ============ EL GUARDIA DEL DUEÑO ============
+     *
+     * Este es el paso que impide que el perfil del cliente B lea del buzón del
+     * cliente A. Cruzar datos entre clientes es lo que este proyecto tiene
+     * firmado con Amazon que no hace, y aquí NO HAY NINGÚN SÍNTOMA cuando sale
+     * mal: el perfil leería el correo del otro, encontraría un fichero de stock
+     * con buena pinta y lo publicaría en la cuenta de Amazon equivocada sin un
+     * solo error en ninguna pantalla.
+     *
+     * VA ANTES DE ESCRIBIR NADA, y con el `client_id` DE LA FILA GUARDADA
+     * (`antes`) y no con uno que venga en el cuerpo: `client_id` no está en la
+     * lista blanca justamente para que no se pueda mover, así que el de la fila
+     * es el único que no se puede falsear desde el navegador.
+     *
+     * El trigger de la 198 comprueba lo mismo desde la base y sigue ahí: es el
+     * candado que aguanta cuando alguien escribe desde el editor SQL de
+     * Supabase. Este de aquí existe para poder contestar con una frase que se
+     * entienda en vez de con un error de Postgres.
+     */
+    if (traeBuzon) {
+      if (!hayColumnaBuzon) {
+        return fail(
+          400,
+          'Falta lanzar 198_buzones_correo.sql en el editor SQL de Supabase: sin esa columna el ' +
+            'perfil no tiene dónde apuntar de qué buzón lee.'
+        )
+      }
+      const motivo = await buzonElegibleParaPerfil(buzonPedido as string | null, antes.client_id)
+      if (motivo) return fail(400, motivo)
+      patch.buzon_id = buzonPedido as string | null
+    }
+
+    /**
+     * SI EL ORIGEN DEJA DE SER 'correo', EL BUZÓN SE SUELTA.
+     *
+     * Un perfil que ahora lee de un SFTP no usa ningún buzón, pero el puntero se
+     * quedaría escrito, y ese puntero es lo que cuenta `perfilesQueUsan()` para
+     * negarse a borrar un buzón. O sea: un buzón que ya no usa nadie no se podría
+     * borrar, y la pantalla diría que lo está usando un perfil que lee por SFTP.
+     * Imposible de entender, y solo se arregla mirando la tabla a mano.
+     *
+     * Va DESPUÉS del guardia a propósito: si en el mismo PATCH cambian el origen
+     * y eligen buzón, manda el origen. Elegir buzón para un perfil que en ese
+     * mismo guardado deja de leer correo no significa nada.
+     *
+     * Y solo se escribe cuando el correo pinta algo —el perfil venía de correo o
+     * el cuerpo trae buzón—, nunca «por si acaso» en cualquier guardado: meter
+     * esta columna en TODOS los PATCH rompería el guardado de cualquier perfil
+     * mientras la 198 no esté lanzada, que es justo lo contrario de lo que se
+     * quiere.
+     */
+    const origenFinal = typeof patch.origen === 'string' ? patch.origen : antes.origen
+    if (origenFinal !== 'correo' && hayColumnaBuzon && (antes.origen === 'correo' || traeBuzon)) {
+      patch.buzon_id = null
+    }
 
     const perfil = await actualizarPerfil(params.id, patch)
     if (!perfil) return fail(404, 'Ese perfil ya no existe')
@@ -104,6 +211,30 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
   } catch (error) {
     return errorResponse(error, 'Error borrando un perfil de lectura')
   }
+}
+
+/** «Ha llegado algo en `buzon_id` que no es ni un buzón ni un vacío» */
+const INVALIDO = Symbol('buzón que no se entiende')
+
+/**
+ * El buzón que pide el cuerpo, o null si es «ninguno».
+ *
+ * Vacío, null y ausente son TODOS null y significan lo mismo: volver a la cuenta
+ * de siempre del ERP. El desplegable manda cadena vacía cuando se elige la
+ * opción «Ninguno», y tratarla como un id haría que el guardia buscara un buzón
+ * llamado «» y contestara «ese buzón ya no existe» a algo que es correcto.
+ *
+ * Lo que NO se deja pasar es cualquier otra cosa. El valor se escribe en una
+ * clave ajena, así que un número o un objeto acabarían en un error de Postgres
+ * en crudo; y comprobar la forma de UUID aquí evita además gastar una consulta
+ * al catálogo de buzones con algo que no puede ser un id.
+ */
+function normalizarBuzon(v: unknown): string | null | typeof INVALIDO {
+  if (v === null || v === undefined) return null
+  if (typeof v !== 'string') return INVALIDO
+  const t = v.trim()
+  if (t === '') return null
+  return UUID.test(t) ? t : INVALIDO
 }
 
 /**
@@ -175,6 +306,31 @@ const CHECKS: Record<string, string> = {
     'y las líneas que trae el fichero un día normal. Ese último número se rellena con una ejecución ' +
     'en simulacro que hayas dado por buena: sin él, el freno que detecta un volcado a medias está ' +
     'declarado pero no puede saltar.',
+
+  /**
+   * ============ Y LOS DOS TRIGGERS DE LA 198, QUE NO SON CHECK ============
+   *
+   * Lanzan a mano con `USING ERRCODE = 'check_violation'`, o sea el mismo 23514,
+   * y eso está hecho a propósito: así caen por este mismo embudo en vez de salir
+   * como un 500 sin explicación.
+   *
+   * La diferencia es que un CHECK trae su nombre en el mensaje y un trigger trae
+   * su texto, así que la clave de aquí abajo es un TROZO DE LA FRASE. Va sin
+   * tildes porque el SQL de las migraciones se escribe sin ellas —el fichero
+   * viaja pegado en el editor de Supabase— y `includes` no normaliza nada: con
+   * tilde no encajaría y el usuario vería el genérico.
+   *
+   * El texto que se enseña sí va con tildes y coincide, palabra por palabra, con
+   * el que da `buzonElegibleParaPerfil()` antes de escribir. Que digan lo mismo
+   * no es redundante: el guardia de la ruta es el que se ve casi siempre, y este
+   * es el que aparece cuando el cambio entra por otro sitio.
+   */
+  'Ese buzon es de otro cliente':
+    'Ese buzón es de otro cliente y este perfil no puede usarlo. Un buzón con dueño solo lo pueden ' +
+    'elegir los perfiles de ese cliente; si es compartido, quítale el dueño en Amazon API › Buzones.',
+  'No se le puede poner dueno a este buzon':
+    'No se le puede poner dueño a ese buzón: lo están usando perfiles de otros clientes. Cámbialos ' +
+    'de buzón primero y vuelve a intentarlo.',
 }
 
 function traducirCheck(error: unknown): string | null {

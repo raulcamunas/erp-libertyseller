@@ -244,6 +244,12 @@ export async function traerFichero(
     // (stock_origen_credenciales, migración 124). Sin él, un perfil de SFTP no
     // encuentra su contraseña y el ciclo automático no podría leer nada.
     perfilId: perfil.id,
+    // El buzón del catálogo (migración 198). Es lo que decide de qué cuenta de
+    // correo se lee y, por dentro, si se entra por la API de Gmail o por IMAP.
+    // Sin esta línea el conector de correo se cae a la cuenta de siempre del
+    // ERP y lee un buzón que no es el de este cliente: no daría ningún error,
+    // simplemente publicaría en Amazon el fichero equivocado.
+    buzonId: perfil.buzon_id,
     maxBytes: MAX_FICHERO_BYTES,
     subida: subida ? { nombre: subida.nombre, bytes: subida.bytes, tamano: subida.tamano } : null,
   })
@@ -978,16 +984,49 @@ async function construirEanIndex(
   )
   if (perfil.origen === 'correo' && patronEan && correoId && !subidaEan) {
     try {
-      const adjunto = await segundoAdjunto(
-        (perfil.origen_config ?? {}) as Record<string, unknown>,
+      const adjunto = await segundoAdjunto({
+        config: (perfil.origen_config ?? {}) as Record<string, unknown>,
+        // El mismo buzón del que salió el volcado, porque es en ESE mensaje
+        // donde hay que buscar el segundo adjunto. Ver el párrafo de arriba.
+        buzonId: perfil.buzon_id,
         correoId,
-        patronEan,
-        MAX_FICHERO_BYTES
-      )
-      if (adjunto) {
+        patron: patronEan,
+        maxBytes: MAX_FICHERO_BYTES,
+      })
+
+      if (adjunto.estado === 'encontrado') {
         const lectura = leerEan(adjunto.bytes, perfilDesdeFila(perfilEanDelMismoCorreo(perfil)))
         return { indice: lectura.indice, avisos: lectura.avisos }
       }
+
+      /**
+       * NO SE CULPA AL CLIENTE DE UNA LIMITACIÓN NUESTRA.
+       *
+       * Estos dos casos acaban igual —el cruce va sin la vía por EAN— pero lo
+       * que hay que HACER es lo contrario en cada uno, y por eso no comparten
+       * aviso:
+       *
+       *   'sin_adjunto' → se ha mirado ese correo y el fichero no está. Aquí sí
+       *                   toca llamar al cliente.
+       *   'no_mirado'   → no se ha llegado a mirar (hoy: el volcado entró por un
+       *                   buzón IMAP, y el segundo adjunto solo se sabe sacar de
+       *                   la API de Gmail). El cliente no ha hecho nada mal.
+       *
+       * Antes solo existía el primero, así que el segundo salía con su texto:
+       * «comprueba que el cliente sigue mandando los dos ficheros». Mandar a
+       * reclamarle a alguien un fichero que sí mandó gasta la confianza de quien
+       * lee los avisos, y la próxima vez ya no se los cree.
+       *
+       * El motivo del 'no_mirado' viene ya redactado desde correo.ts y se pega
+       * ENTERO: es quien sabe por qué no se ha podido mirar, y aquí no.
+       */
+      if (adjunto.estado === 'no_mirado') {
+        return {
+          indice: null,
+          avisos: [`El cruce va SIN la vía por EAN del ERP.\n${adjunto.motivo}`],
+        }
+      }
+
       return {
         indice: null,
         avisos: [
@@ -1038,6 +1077,13 @@ async function construirEanIndex(
       // Igual que arriba: el fichero de códigos de barras también puede venir
       // por SFTP, y su credencial cuelga de SU perfil, no del de stock.
       perfilId: perfilEan.id,
+      // Y por lo mismo el buzón es el DE ESTE PERFIL y no el del de stock. Es
+      // el fallo más caro de todos los de esta capa: coger el buzón del perfil
+      // de stock aquí leería el fichero de EAN de otra cuenta de correo, o sea
+      // de otro día o de otro cliente, y cruzar el stock de hoy con unos EAN
+      // que no le corresponden casa referencias equivocadas SIN avisar de nada.
+      // El resultado sale publicado en Amazon como si estuviera bien.
+      buzonId: perfilEan.buzon_id,
       maxBytes: MAX_FICHERO_BYTES,
       subida: subidaEan
         ? { nombre: subidaEan.nombre, bytes: subidaEan.bytes, tamano: subidaEan.tamano }

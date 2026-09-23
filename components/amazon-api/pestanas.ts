@@ -5,6 +5,7 @@ import {
   Eye,
   FolderInput,
   HeartPulse,
+  Mailbox,
   Megaphone,
   Plug,
   Store,
@@ -13,7 +14,7 @@ import {
 } from 'lucide-react'
 
 /**
- * LAS OCHO PESTAÑAS DE AMAZON API, Y SU ORDEN.
+ * LAS PESTAÑAS DE AMAZON API, Y SU ORDEN.
  *
  * Amazon API son LAS TRIPAS: aquí se configura con qué va a trabajar la agencia
  * en la cuenta de cada cliente y aquí se ve toda la información que guardamos de
@@ -48,6 +49,7 @@ export type PestanaId =
   | 'seguimiento'
   | 'costes'
   | 'origen'
+  | 'buzones'
   | 'bsr'
   | 'publicidad'
   | 'ingesta'
@@ -98,6 +100,20 @@ export const PESTANAS: readonly Pestana[] = [
     nombre: 'Origen',
     icono: FolderInput,
     pista: 'De dónde sale el fichero de cada cliente, o que este cliente no sincroniza',
+  },
+  {
+    // Detrás de Origen porque es lo que Origen necesita: el desplegable «de qué
+    // buzón se lee» de un perfil de correo no ofrece nada hasta que aquí haya
+    // un buzón dado de alta.
+    //
+    // Y ES DE TODA LA AGENCIA, no del cliente elegido arriba: un buzón se da de
+    // alta una vez y lo usan los perfiles de diez clientes. Es la única pestaña
+    // del módulo que no va por cliente, y por eso lo primero que se lee dentro
+    // es un aviso que lo dice.
+    id: 'buzones',
+    nombre: 'Buzones',
+    icono: Mailbox,
+    pista: 'Los buzones de correo de los que se sacan los ficheros de stock. De toda la agencia',
   },
   {
     id: 'bsr',

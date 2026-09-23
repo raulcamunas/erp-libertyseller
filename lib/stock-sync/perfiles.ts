@@ -15,6 +15,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { driveServiceAccountEmail, isDriveConfigured } from '@/lib/google-drive'
 import type { StockClient, StockProfileRun, StockReadProfile } from '@/lib/types/stock-sync'
+import { listarBuzonesElegibles, type BuzonElegible } from './buzones'
 import { conectoresPublicos, type ConectorPublico } from './origenes'
 
 /** Supabase corta cualquier consulta a 1000 filas y un .limit() mayor NO lo salta */
@@ -115,6 +116,24 @@ export interface PerfilesView {
   clientesSinAlta: ClienteSinAlta[]
   conexiones: DestinoAmazon[]
   conectores: ConectorPublico[]
+  /**
+   * EL CATÁLOGO DE BUZONES DE CORREO (migración 198), para el desplegable.
+   *
+   * Es `BuzonElegible` y no la fila entera a propósito, y no es celo: esta
+   * respuesta se serializa ENTERA en el HTML de cada carga de Amazon API, así
+   * que lo que entre aquí acaba en el navegador de todo el que abra la
+   * pantalla. El host, el puerto y el usuario de un buzón no hacen ninguna
+   * falta para pintar un desplegable, y son media credencial. Están en
+   * `BuzonAdmin`, que va por su propia ruta y solo cuando se abre la pestaña
+   * Buzones. La contraseña no está en ninguna de las dos.
+   *
+   * Vienen TODOS, también los de otros clientes y los apagados: filtrar es cosa
+   * de la pantalla, que es quien sabe de qué cliente es el perfil que se está
+   * mirando. Quien impide que un perfil acabe leyendo del buzón de otro NO es
+   * este filtro visual, sino `buzonElegibleParaPerfil()` en la ruta del PATCH y
+   * el trigger de la 198 por debajo.
+   */
+  buzones: BuzonElegible[]
   /** Últimas ejecuciones, para la pestaña de historial */
   runs: StockProfileRun[]
   /** Falta lanzar la migración 120 */
@@ -158,6 +177,11 @@ export async function loadPerfiles(): Promise<PerfilesView> {
     clientesSinAlta: [],
     conexiones: [],
     conectores: conectoresPublicos(),
+    // Lista vacía y NO undefined: este objeto es justo el que se devuelve
+    // cuando falta una migración, o sea el momento en el que la pantalla más
+    // necesita no reventar. Un `buzones` sin valor haría estallar el `.map()`
+    // del desplegable precisamente ahí.
+    buzones: [],
     runs: [],
     missingTables: true,
     driveEmail: driveServiceAccountEmail(),
@@ -240,12 +264,32 @@ export async function loadPerfiles(): Promise<PerfilesView> {
       if (!isMissingSchema(error)) throw error
     }
 
+    /**
+     * EL CATÁLOGO DE BUZONES, EN SU PROPIO try/catch Y POR EL MISMO MOTIVO.
+     *
+     * La 198 se lanza a mano en el editor SQL de Supabase, así que el código
+     * puede llegar desplegado antes que ella. Si se dejara caer el error hasta
+     * el catch de fuera, `isMissingSchema` lo tomaría por «falta la 120» y
+     * devolvería `vacio`: la pestaña Origen entera —perfiles, clientes,
+     * conexiones, historial— se apagaría con un cartel pidiendo pegar una
+     * migración que sí está puesta. Aislado aquí, lo único que pasa es que el
+     * desplegable de buzones sale vacío y todo lo demás sigue funcionando
+     * exactamente igual que antes de que existiera el catálogo.
+     */
+    let buzones: BuzonElegible[] = []
+    try {
+      buzones = await listarBuzonesElegibles()
+    } catch (error) {
+      if (!isMissingSchema(error)) throw error
+    }
+
     return {
       perfiles,
       clientes,
       clientesSinAlta,
       conexiones,
       conectores: conectoresPublicos(),
+      buzones,
       runs: (runs ?? []) as StockProfileRun[],
       missingTables: false,
       driveEmail: vacio.driveEmail,
@@ -547,6 +591,22 @@ const CAMPOS_EDITABLES = new Set([
   'is_active',
   'position',
   'notes',
+  /**
+   * `buzon_id` NO ESTÁ AQUÍ, Y NO ES UN OLVIDO.
+   *
+   * Es la única columna del perfil que decide DE QUÉ CUENTA DE CORREO SE LEE, y
+   * un buzón puede ser de otro cliente. Si entrara por esta lista, cualquiera
+   * que sepa mandar un PATCH con `{"buzon_id":"…"}` pondría el perfil del
+   * cliente B a leer del buzón del cliente A, y eso NO da ningún error: el
+   * fichero de stock de uno se publicaría tal cual en la cuenta de Amazon del
+   * otro. Es justo lo que este proyecto tiene firmado con Amazon que no hace.
+   *
+   * Por eso esa columna la escribe la ruta (app/api/amazon/perfiles/[id]) a
+   * mano y DESPUÉS de preguntarle a `buzonElegibleParaPerfil()` de quién es el
+   * buzón — nunca `filtrarCampos` copiando un valor del cuerpo crudo de una
+   * petición del navegador, que es lo que esta lista blanca existe para
+   * impedir.
+   */
 ])
 
 /** Se queda solo con lo que la pantalla puede tocar */

@@ -15,11 +15,13 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
+  getAmazon,
   subirAmazon,
   type PerfilesVista,
   type PruebaResponse,
   type SimulacroResponse,
 } from '@/lib/amazon/client'
+import type { BuzonElegible } from '@/lib/stock-sync/buzones'
 import { marketplaceLabel } from '@/lib/types/amazon'
 import { PanelOrigen } from './ExploradorOrigen'
 import {
@@ -29,6 +31,7 @@ import {
 } from '@/lib/types/stock-sync'
 import {
   cardShell,
+  errorBox,
   fieldInput,
   formatImporte,
   formatInt,
@@ -916,6 +919,21 @@ function Origen({
         </div>
       )}
 
+      {/**
+        * DE QUÉ BUZÓN SE LEE. Lo pinta el CONECTOR, no un `if` por origen.
+        *
+        * Va aquí arriba y no entre los campos del conector porque no es uno de
+        * ellos: `buzon_id` es una COLUMNA del perfil —con su clave ajena y sus
+        * dos triggers, ver la migración 198— y no una clave suelta dentro de
+        * `origen_config`. Meterlo ahí dentro habría dejado al perfil de un
+        * cliente pudiendo apuntar al buzón de otro sin que nada se quejara, que
+        * es el fallo que publica el stock de uno en la cuenta de Amazon del otro
+        * y no da ningún error.
+        */}
+      {conector?.usaBuzon && (
+        <BuzonDelPerfil perfil={perfil} buzonesIniciales={data.buzones} onPatch={onPatch} />
+      )}
+
       {/* Los campos los declara el CONECTOR, no esta pantalla: añadir un
           origen nuevo no obliga a tocar este formulario. */}
       {conector && conector.campos.length > 0 && (
@@ -1020,6 +1038,214 @@ function Origen({
       )}
     </Seccion>
   )
+}
+
+/* ------------------------------------------------------------------ */
+/* El buzón del que lee este perfil                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * EL DESPLEGABLE DE BUZONES.
+ *
+ * Desde la migración 198 ya no hay dos orígenes de correo. Hay uno, y el BUZÓN
+ * elegido decide por dentro si se lee por la API de Gmail o por IMAP. Aquí solo
+ * se elige el buzón: quien configura un cliente no tiene por qué saber si ese
+ * correo está en nuestro Workspace o en el hosting del cliente, y era justo esa
+ * elección la que hacía equivocarse de pestaña y dejar el perfil sin leer nada.
+ *
+ *
+ * ============ POR QUÉ ESTO SE GUARDA SOLO Y LOS DEMÁS CAMPOS NO ============
+ *
+ * El resto de este formulario guarda al SALIR del campo, y por eso los cajetines
+ * de arriba llevan borrador: hasta que no se pierde el foco no se escribe nada.
+ * Un `<select>` no tiene ese problema —dispara `onChange` al elegir, no al
+ * perder el foco— así que va por `onPatch` DIRECTO. Y tiene que ir por ahí de
+ * todas formas, porque `buzon_id` es una columna y no una clave de
+ * `origen_config`.
+ *
+ *
+ * ============ LA LISTA SE VUELVE A PEDIR AL MONTAR, Y NO ES POR GUSTO ========
+ *
+ * `data.buzones` viaja en el render de servidor de Amazon API y ese retrato se
+ * queda congelado mientras la página no se recargue. Cambiar de pestaña cambia
+ * el componente que se pinta, así que esta pantalla se DESMONTA y se vuelve a
+ * montar con el mismo retrato viejo: dar de alta un buzón en la pestaña Buzones
+ * y volver aquí dejaría el desplegable exactamente igual que antes. Quien acaba
+ * de darlo de alta concluiría que no se ha guardado y lo daría de alta otra vez.
+ *
+ * Se arranca CON el retrato del servidor para que el primer pintado ya lleve la
+ * lista —así no parpadea de vacío a lleno— y se pisa con lo que conteste la
+ * ruta.
+ */
+function BuzonDelPerfil({
+  perfil,
+  buzonesIniciales,
+  onPatch,
+}: {
+  perfil: StockReadProfile
+  buzonesIniciales: BuzonElegible[]
+  onPatch: (patch: Record<string, unknown>) => void
+}) {
+  const [buzones, setBuzones] = useState<BuzonElegible[]>(buzonesIniciales)
+
+  useEffect(() => {
+    let vivo = true
+    getAmazon<{ buzones: BuzonElegible[] }>('/api/stock-sync/buzones?vista=elegibles').then(
+      (res) => {
+        // Si la ruta falla se queda el retrato del servidor, que es peor que lo
+        // de ahora pero mucho mejor que una lista vacía: vaciarla haría creer
+        // que no hay ningún buzón dado de alta.
+        if (vivo && res.ok) setBuzones(res.data.buzones)
+      }
+    )
+    return () => {
+      vivo = false
+    }
+  }, [])
+
+  /**
+   * El filtro se hace AQUÍ y no en el servidor porque la lista es la misma para
+   * los cincuenta perfiles y lo que cambia es el cliente del perfil que se está
+   * mirando. Pedirla ya filtrada obligaría a volver al servidor cada vez que se
+   * salta de un perfil a otro, y son cuatro filas.
+   */
+  const deLaAgencia = buzones.filter((b) => b.activo && b.ambito === 'agencia')
+  const deEsteCliente = buzones.filter(
+    (b) => b.activo && b.ambito === 'cliente' && b.clientId === perfil.client_id
+  )
+  const hayDondeElegir = deLaAgencia.length > 0 || deEsteCliente.length > 0
+
+  const elegido = perfil.buzon_id ? (buzones.find((b) => b.id === perfil.buzon_id) ?? null) : null
+
+  /**
+   * POR QUÉ EL BUZÓN ELEGIDO SE PINTA AUNQUE NO PASE EL FILTRO.
+   *
+   * Si el perfil apunta a un buzón apagado —o a uno que cambió de dueño— ese id
+   * no casa con ninguna `<option>` y el navegador pinta la opción vacía. En
+   * pantalla parecería que este perfil lee de la cuenta de siempre del ERP,
+   * cuando en la base sigue apuntando al buzón apagado: y el que manda es el de
+   * la base, que es el que va a coger el ciclo automático esta noche.
+   *
+   * Así que se mete de todas formas, con su motivo escrito al lado, y debajo va
+   * un aviso rojo. Enseñar una mentira tranquila es peor que enseñar un
+   * problema.
+   */
+  const motivoFuera =
+    elegido === null
+      ? null
+      : !elegido.activo
+        ? 'apagado'
+        : elegido.ambito === 'cliente' && elegido.clientId !== perfil.client_id
+          ? 'de otro cliente'
+          : null
+
+  /**
+   * Apunta a un buzón que ya no está en el catálogo: borrado, o sin permiso.
+   *
+   * `Boolean(...)` y no `!== null`, y no es manía: mientras la 198 no esté
+   * lanzada la columna no existe, así que `buzon_id` no llega `null` sino
+   * AUSENTE — y `undefined !== null` es cierto. Con la comparación estricta,
+   * todos los perfiles de correo salían con el recuadro rojo de «apunta a un
+   * buzón que ya no está en el catálogo» sin apuntar a ninguno. Un error rojo
+   * que no es verdad enseña a no leer los rojos.
+   */
+  const desaparecido = Boolean(perfil.buzon_id) && elegido === null
+
+  const sinContrasena = elegido !== null && elegido.transporte === 'imap' && !elegido.tieneContrasena
+
+  return (
+    <Campo label="De qué buzón se lee">
+      <select
+        value={perfil.buzon_id ?? ''}
+        onChange={(e) => onPatch({ buzon_id: e.target.value || null })}
+        className={`${fieldInput} [color-scheme:dark]`}
+      >
+        <option value="">— La cuenta de siempre del ERP —</option>
+
+        {elegido && motivoFuera && (
+          <option value={elegido.id}>
+            {etiquetaBuzon(elegido)} ({motivoFuera})
+          </option>
+        )}
+
+        {desaparecido && perfil.buzon_id && (
+          <option value={perfil.buzon_id}>— Un buzón que ya no está en el catálogo —</option>
+        )}
+
+        {deLaAgencia.length > 0 && (
+          <optgroup label="De la agencia">
+            {deLaAgencia.map((b) => (
+              <option key={b.id} value={b.id}>
+                {etiquetaBuzon(b)}
+              </option>
+            ))}
+          </optgroup>
+        )}
+
+        {deEsteCliente.length > 0 && (
+          <optgroup label="Solo de este cliente">
+            {deEsteCliente.map((b) => (
+              <option key={b.id} value={b.id}>
+                {etiquetaBuzon(b)}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+
+      <Nota>
+        El buzón decide por dentro si se lee por la API de Gmail o por IMAP: aquí no hay que
+        saberlo. Se guarda en cuanto lo eliges.
+      </Nota>
+
+      {elegido && motivoFuera === 'apagado' && (
+        <div className={`${errorBox} mt-1.5`}>
+          Este perfil sigue apuntando a «{elegido.nombre}», que está APAGADO. En la base sigue
+          puesto, así que es de ahí de donde va a intentar leer el proceso automático esta noche.
+          Enciéndelo en Amazon API › Buzones o elige otro aquí.
+        </div>
+      )}
+
+      {elegido && motivoFuera === 'de otro cliente' && (
+        <div className={`${errorBox} mt-1.5`}>
+          Este perfil sigue apuntando a «{elegido.nombre}», que ahora es de OTRO cliente. Elige otro
+          buzón aquí, o quítale el dueño en Amazon API › Buzones si de verdad es compartido. Mientras
+          siga así, este perfil no va a leer nada.
+        </div>
+      )}
+
+      {desaparecido && (
+        <div className={`${errorBox} mt-1.5`}>
+          Este perfil apunta a un buzón que ya no está en el catálogo. Elige uno de la lista, o «la
+          cuenta de siempre del ERP», antes de que le toque procesar.
+        </div>
+      )}
+
+      {sinContrasena && (
+        <div className={`${errorBox} mt-1.5`}>
+          «{elegido.nombre}» se lee por IMAP y todavía no tiene contraseña guardada. Hasta que se la
+          pongas en Amazon API › Buzones, este perfil no va a poder abrir el correo.
+        </div>
+      )}
+
+      {!hayDondeElegir && !elegido && (
+        <div className={`${warnBox} mt-1.5`}>
+          Todavía no hay ningún buzón dado de alta. Se dan de alta una sola vez para toda la agencia
+          en{' '}
+          <a href="?p=buzones" className="underline underline-offset-2">
+            Amazon API › Buzones
+          </a>
+          . Mientras tanto, este perfil lee de la cuenta de siempre del ERP.
+        </div>
+      )}
+    </Campo>
+  )
+}
+
+/** «Nombre · direccion». Las dos cosas: dos buzones se llaman igual y la
+    dirección es lo único que distingue el de pedidos del de albaranes */
+function etiquetaBuzon(b: BuzonElegible): string {
+  return `${b.nombre} · ${b.direccion}`
 }
 
 /* ------------------------------------------------------------------ */
@@ -1203,12 +1429,7 @@ function Probar({
       )}
 
       {prueba && (
-        <ResultadoPrueba
-          prueba={prueba}
-          moneda={perfil.moneda}
-          perfil={perfil}
-          onPatch={onPatch}
-        />
+        <ResultadoPrueba prueba={prueba} moneda={perfil.moneda} onPatch={onPatch} />
       )}
 
       {cotejo && <Cotejo resultado={cotejo} moneda={perfil.moneda} />}
@@ -1584,13 +1805,11 @@ function Chip({
 function ResultadoPrueba({
   prueba,
   moneda,
-  perfil,
   onPatch,
 }: {
   prueba: PruebaResponse['prueba']
   /** La del perfil: la tabla se compara contra el Excel del cliente, que va en formato español */
   moneda: string
-  perfil: StockReadProfile
   onPatch: (patch: Record<string, unknown>) => void
 }) {
   return (
@@ -1670,7 +1889,7 @@ function ResultadoPrueba({
         ))}
       </div>
 
-      <AsignarColumnas prueba={prueba} perfil={perfil} onPatch={onPatch} />
+      <AsignarColumnas prueba={prueba} onPatch={onPatch} />
 
       {prueba.avisos.length > 0 && (
         <div className={warnBox}>
@@ -2123,11 +2342,9 @@ const CAMPO_DE: Record<string, keyof StockReadProfile> = {
  */
 function AsignarColumnas({
   prueba,
-  perfil,
   onPatch,
 }: {
   prueba: PruebaResponse['prueba']
-  perfil: StockReadProfile
   onPatch: (patch: Record<string, unknown>) => void
 }) {
   if (prueba.cabeceras.length === 0) return null
