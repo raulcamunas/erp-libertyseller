@@ -443,14 +443,50 @@ export const conectorImap: ConectorOrigen = {
       const elegido = elegir(mensajes, cfg.adjunto)
 
       if (!elegido) {
-        // NO se dice «bien»: no encontrar nada es el fallo típico de este
-        // origen, y hay que distinguirlo de «va todo correcto».
+        /**
+         * NO se dice «bien»: no encontrar nada es el fallo típico de este
+         * origen, y hay que distinguirlo de «va todo correcto».
+         *
+         * SON TRES CASOS Y NO DOS, y mezclarlos manda a mirar donde no es:
+         *
+         *   · Ni un correo      -> el filtro (remitente, asunto, días) o es que
+         *                          el cliente todavía no ha escrito.
+         *   · Correos sin NINGÚN adjunto -> el fichero no viene adjunto. Suele
+         *                          ser que lo han pegado en el cuerpo, o que es
+         *                          un enlace a Drive, o que era un correo de
+         *                          prueba escrito a mano y sin nada.
+         *   · Adjuntos que no casan con el patrón -> el patrón. Aquí SÍ tiene
+         *                          sentido decirlo, y debajo salen los nombres
+         *                          de los que hay para poder compararlos.
+         *
+         * Antes los dos últimos daban la misma frase, que además escupía
+         * «ninguno trae un adjunto que case con «null»» cuando no había patrón
+         * — un null pintado en pantalla, y encima acusando a un filtro que no
+         * existía: sin patrón `encaja()` admite cualquier nombre.
+         */
+        const conAdjuntos = mensajes.filter((m) => m.adjuntos.length > 0).length
+        const patron = (cfg.adjunto ?? '').trim()
+
+        let mensaje: string
+        if (mensajes.length === 0) {
+          mensaje = `Conecta bien con ${cfg.usuario}, pero no hay ningún correo de los últimos ${cfg.dias} días que encaje con el filtro.`
+        } else if (conAdjuntos === 0) {
+          mensaje =
+            `Conecta bien y hay ${mensajes.length} correo(s) que encajan, pero ninguno trae ningún ` +
+            'fichero adjunto. Comprueba que el volcado va ADJUNTO al correo y no pegado en el ' +
+            'cuerpo ni como enlace.'
+        } else if (patron) {
+          mensaje = `Hay ${mensajes.length} correo(s) que encajan y sí traen adjuntos, pero ninguno se llama como dice el patrón «${patron}». Abajo están los que hay.`
+        } else {
+          // Sin patrón se coge el primer adjunto, así que llegar aquí con
+          // adjuntos a la vista solo puede ser que el servidor los anuncie sin
+          // nombre de fichero. Se dice eso y no se acusa a ningún filtro.
+          mensaje = `Hay ${mensajes.length} correo(s) con adjuntos, pero el servidor no da el nombre de ninguno, así que no se puede decidir cuál coger.`
+        }
+
         return {
           ok: false,
-          mensaje:
-            mensajes.length === 0
-              ? `Conecta bien con ${cfg.usuario}, pero no hay ningún correo de los últimos ${cfg.dias} días que encaje con el filtro.`
-              : `Hay ${mensajes.length} correo(s) que encajan, pero ninguno trae un adjunto que case con «${cfg.adjunto}».`,
+          mensaje,
           // Se enseña lo que HAY aunque no sirva: es lo que permite ver que el
           // asunto ha cambiado, que es el fallo típico de este origen.
           candidatos: candidatosDe(mensajes, cfg.adjunto),
