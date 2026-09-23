@@ -833,7 +833,30 @@ function DialogoBuzon({
       {/* La contraseña: en la edición manda el cajetín de siempre, que guarda
           contra la ruta que cifra; en el alta todavía no hay id contra el que
           guardarla, así que se teclea aquí y viaja en un segundo paso. */}
+
+      {/*
+        EL CAMBIO A IMAP TIENE QUE ESTAR GUARDADO ANTES DE PEDIR LA CONTRASEÑA.
+
+        `PanelCredencial` guarda contra la RUTA, y la ruta mira la fila GRABADA,
+        no este formulario. Así que en un buzón que está en la base como Gmail y
+        que aquí acaba de cambiarse a IMAP, escribir la contraseña y darle a
+        guardar devuelve «este buzón se lee por la API de Gmail, cámbialo a
+        IMAP» — con el botón de IMAP marcado delante. El aviso tiene razón y es
+        inútil a la vez, y la culpa no es de la ruta: es de esta pantalla, que
+        deja teclear una contraseña contra un estado que todavía no existe.
+
+        Se enseña la razón y se manda a Guardar, que es lo único que desbloquea.
+      */}
+      {!esGoogle && buzon && buzon.transporte !== 'imap' ? (
+        <Aviso tono="ambar" icono={AlertTriangle}>
+          Para ponerle la contraseña hay que guardar antes el cambio a IMAP. La contraseña se guarda
+          contra lo que hay grabado, y ahí todavía pone que este buzón se lee por Gmail. Dale a
+          «Guardar», vuelve a abrirlo y el cajetín estará esperándote.
+        </Aviso>
+      ) : null}
+
       {!esGoogle &&
+        !(buzon && buzon.transporte !== 'imap') &&
         (buzon ? (
           <PanelCredencial
             id={buzon.id}

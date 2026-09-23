@@ -73,9 +73,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     if (buzon.transporte !== 'imap') {
       return fail(
         400,
-        `El buzón «${buzon.nombre}» se lee por la API de Gmail con la delegación de dominio, así que ` +
-          'no lleva contraseña. Si en realidad es un buzón de otro proveedor, cámbialo a IMAP y ponle ' +
-          'su servidor.'
+        `El buzón «${buzon.nombre}» está guardado como buzón de Gmail, y esos se leen por la ` +
+          'delegación de dominio: no llevan contraseña. Si acabas de cambiarlo a IMAP en el ' +
+          'formulario, ese cambio todavía no está grabado — dale a «Guardar» primero y luego ponle ' +
+          'la contraseña.'
       )
     }
 
