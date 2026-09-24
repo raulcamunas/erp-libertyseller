@@ -429,6 +429,82 @@ export async function GET(request: NextRequest) {
       )
     )
 
+    /**
+     * ¿PODEMOS SACAR LA VENTA SIN IVA POR MES SIN TOCAR DATOS DE COMPRADORES?
+     *
+     * Esta sonda decide un encargo entero: el volcado mensual que alimenta el
+     * cálculo de comisiones. Hoy ese número se saca a mano del fichero de la
+     * Tax Document Library, que lleva dentro la ciudad, el código postal y el
+     * país de entrega de cada pedido, y un enlace a la factura del comprador.
+     *
+     * La Finances API da lo mismo por otro camino: dentro de cada ShipmentEvent
+     * vienen los ChargeComponent separados —«Principal» es el precio y «Tax» es
+     * el IVA, cada uno en su concepto—, así que la venta sin IVA sale de restar
+     * uno de otro sin que aparezca ni un dato de comprador.
+     *
+     * El rol es «Finance and Accounting» y NO es de los restringidos, que es la
+     * otra mitad de por qué este camino y no el fiscal: pedir un rol nuevo
+     * INVALIDA todas las autorizaciones y obliga a los siete clientes a volver
+     * a autorizar la aplicación. Si esta sonda sale concedida, no hay que pedir
+     * nada a nadie.
+     *
+     * Ventana de un día y una sola página: solo interesa si Amazon deja pasar
+     * la llamada, no lo que devuelva. Un 400 cuenta como concedido —significa
+     * que validó los parámetros, o sea que pasó el control de permisos— igual
+     * que en el resto de sondas.
+     */
+    sondas.push(
+      await sondar(
+        {
+          nombre: 'listFinancialEvents',
+          rol: 'Finance and Accounting',
+          para: 'Los movimientos de dinero con el IVA separado del precio. Es de donde saldría la venta sin IVA de cada mes sin tocar ni un dato de comprador.',
+        },
+        async () => {
+          // Dos días atrás: los eventos de las últimas 48 h pueden no estar
+          // publicados todavía, y pedir un rango vacío no cambia el veredicto.
+          const hasta = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+          const desde = new Date(hasta.getTime() - 24 * 60 * 60 * 1000)
+          const { httpStatus } = await spApiRequest<unknown>(credentials, 'listFinancialEvents', {
+            method: 'GET',
+            path: '/finances/v0/financialEvents',
+            query: {
+              MaxResultsPerPage: '1',
+              PostedAfter: iso(desde),
+              PostedBefore: iso(hasta),
+            },
+          })
+          return { httpStatus }
+        }
+      )
+    )
+
+    /**
+     * Y LA DEL INFORME FISCAL, QUE SE ESPERA DENEGADA.
+     *
+     * No se sonda para usarlo: se sonda para no tener que decir «creo que no
+     * podemos» basándose en la documentación. Es el mismo informe que se baja a
+     * mano de Informes › Tax Document Library.
+     *
+     * Si contesta 403 —lo esperado—, queda confirmado que el rol «Tax
+     * Invoicing» no está concedido y que el camino limpio es el de arriba.
+     *
+     * Si contestara 2xx, NO SE DESCARGA EL CONTENIDO. Para eso está el segundo
+     * paso de esta misma ruta (?informe=<id>), que devuelve los nombres de las
+     * columnas y los recuentos y nunca las filas: sirve para ver si la versión
+     * por API trae además el nombre del comprador, sin leer los datos de nadie.
+     */
+    sondas.push(
+      await sondar(
+        {
+          nombre: 'createReport · GET_VAT_TRANSACTION_DATA',
+          rol: 'Tax Invoicing (restringido)',
+          para: 'El informe fiscal que hoy se baja a mano. Se sonda para confirmar que está cerrado, no para usarlo: lleva datos de comprador dentro.',
+        },
+        () => pedirInformeConRango(credentials, 'GET_VAT_TRANSACTION_DATA', marketplaceId, 7)
+      )
+    )
+
     sondas.push(
       await sondar(
         {

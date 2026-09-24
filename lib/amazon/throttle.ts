@@ -57,6 +57,8 @@ export type AmazonOperation =
   | 'getMyFeesEstimates'
   // ---------- La que añadió la sonda de permisos ----------
   | 'getOrderMetrics'
+  // ---------- La del dinero, con el IVA separado del precio ----------
+  | 'listFinancialEvents'
   // ---------- Las del seguimiento de envíos a FBA ----------
   | 'getInboundShipments'
   | 'getInboundShipmentItems'
@@ -174,6 +176,18 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
    * bucle accidental se coma quince fichas antes de que salte el freno.
    */
   getOrderMetrics: { rate: 0.5, burst: 1 },
+
+  /**
+   * Finances API. El cupo publicado de listFinancialEvents es 0,5 por segundo
+   * con ráfaga de 30, y aquí la ráfaga se deja en 1 por lo mismo que arriba: de
+   * momento solo la llama la sonda de permisos, que la usa una vez.
+   *
+   * Cuando llegue el volcado mensual habrá que subirla, porque esa operación
+   * PAGINA: un mes de movimientos de un cliente son varias páginas seguidas, y
+   * con ráfaga 1 cada una espera dos segundos. Se sube entonces y no ahora, que
+   * es cuando se sabrá cuántas páginas son de verdad.
+   */
+  listFinancialEvents: { rate: 0.5, burst: 1 },
 
   /**
    * Fulfillment Inbound. El cupo publicado es 2 por segundo con ráfaga de 30,
