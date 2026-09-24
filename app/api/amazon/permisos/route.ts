@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { AmazonApiError } from '@/lib/amazon/errors'
@@ -168,9 +169,40 @@ export async function GET(request: NextRequest) {
     const session = await requireAmazonAdmin()
     if (session instanceof NextResponse) return session
 
+    /**
+     * SIN `?conexion=` NO SE FALLA: SE ENSEÑA LA LISTA.
+     *
+     * El id de la conexión no sale en la URL de la pantalla —vive en el estado
+     * de React— así que quien quiera sondar tenía que ir a buscarlo a la base
+     * de datos. Un 400 diciendo «pon ?conexion=<id>» sin decir de dónde sacar
+     * ese id es una puerta cerrada con la llave dentro.
+     *
+     * Devolver la lista no enseña nada que un admin no vea ya en la pestaña
+     * Cuentas: el nombre del cliente y el identificador de su fila. Ni tokens,
+     * ni credenciales, ni datos de ninguna venta.
+     */
     const conexionId = request.nextUrl.searchParams.get('conexion') ?? ''
+    if (!conexionId) {
+      const service = createServiceClient()
+      const { data } = await service
+        .from('amazon_connections')
+        .select('id, name, is_active')
+        .order('name', { ascending: true })
+
+      const conexiones = (data ?? []) as { id: string; name: string; is_active: boolean }[]
+      return NextResponse.json({
+        mensaje:
+          'Elige de qué conexión quieres sondar los permisos y vuelve a abrir esta dirección ' +
+          'añadiéndole ?conexion=<id>.',
+        conexiones: conexiones.map((c) => ({
+          nombre: c.name,
+          activa: c.is_active,
+          url: `/api/amazon/permisos?conexion=${c.id}`,
+        })),
+      })
+    }
     if (!UUID.test(conexionId)) {
-      return fail(400, 'Hay que decir de qué conexión, con ?conexion=<id>')
+      return fail(400, 'Ese ?conexion= no es un identificador válido. Abre esta dirección sin parámetros para ver la lista.')
     }
 
     const resuelta = await connectionCredentials(conexionId)
