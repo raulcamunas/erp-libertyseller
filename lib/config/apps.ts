@@ -21,6 +21,7 @@ import {
   Sprout,
   Eraser,
   Receipt,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -320,6 +321,49 @@ export const apps: AppConfig[] = [
     category: 'productivity'
   },
   {
+    /**
+     * NO ESTÁ EN APPS_SOLO_ADMIN, Y ES DELIBERADO.
+     *
+     * Estuvo, y el día que se iba a usar no servía: el trabajo que existe para
+     * hacer aquí —el día 3, recorrer las cuentas colgando el informe de cada
+     * una— no lo hace un socio, lo hace la persona a la que se le encarga. Con
+     * la app cerrada a administradores eso acaba en que alguien trabaja con la
+     * sesión de otro, que es peor que lo que el cierre pretendía evitar.
+     *
+     * Se reparte por `user_app_permissions` con este mismo id, o sea a UNA
+     * PERSONA, no a un rol: un employee sin la casilla marcada ni ve la entrada
+     * ni pasa del redirect de la página. Es el corte de la migración 189 —admin,
+     * o el permiso suelto que abre el módulo— y no «rol employee», que sería
+     * todo el equipo interno.
+     *
+     * Y NO SE ABRE PORQUE EL FICHERO SEA INOCUO. El tax report de Amazon lleva,
+     * fila a fila, la ciudad, el código postal y el país de entrega de cada
+     * pedido, más el Order ID y el enlace a la factura del comprador: datos de
+     * COMPRADORES de nuestros clientes. Se guardan seis meses porque el fichero
+     * de un cliente va A ESE MISMO CLIENTE —que ya lo tiene en su Seller
+     * Central— y no hay cruce entre cuentas; el argumento entero está en la
+     * cabecera de la migración 200. Por eso el acceso se da persona a persona.
+     *
+     * Cerrada en tres sitios, y solo el último manda: este fichero (que solo
+     * decide qué se PINTA), el redirect de app/dashboard/tax-reports/page.tsx
+     * —que corre en servidor— y el requireAppAccess('tax-reports') de cada ruta
+     * de /api/tax-reports, que es el único que ve quien llega por la dirección
+     * directa: middleware.ts mete todo lo que empieza por /api/ en rutas
+     * públicas.
+     *
+     * El id tiene que coincidir LETRA POR LETRA con el de las rutas de API y con
+     * el del redirect de la página. Si baila en uno, la pantalla se abre y la
+     * API contesta 403 sin que nada diga por qué.
+     */
+    id: 'tax-reports',
+    name: 'Tax Reports',
+    description: 'El fichero fiscal de cada cliente, mes a mes: qué está puesto y qué falta',
+    icon: FileSpreadsheet,
+    route: '/dashboard/tax-reports',
+    status: 'new',
+    category: 'core'
+  },
+  {
     id: 'usos-horarios',
     name: 'Usos horarios',
     description: 'México (4 zonas) y España (Madrid)',
@@ -385,6 +429,11 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   // precios de COMPRA, que es de lo más sensible que hay en su negocio.
   'entrais-test',
   'limpieza-ofertas',
+  // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
+  // de llevar datos de compradores —los lleva—, sino porque el trabajo del día 3
+  // lo hace un empleado y con la app cerrada a admin acababa usando la sesión de
+  // otro. Ahora se concede con el permiso suelto 'tax-reports', persona a
+  // persona: el porqué entero está junto a la entrada de la app, arriba.
 ])
 
 /**
@@ -428,6 +477,15 @@ export const APPS_OCULTAS_A_ADMIN: ReadonlySet<string> = new Set([
 
 export const APP_GROWTH = 'growth'
 export const PERMISO_STOCK_SYNC = 'stock-sync'
+
+/**
+ * El id de Tax Reports, escrito UNA vez.
+ *
+ * Lo usan la entrada de `apps`, el redirect de la página y el
+ * requireAppAccess() de sus rutas de API, y tiene que ser el mismo en los tres:
+ * si baila en uno, la pantalla se abre y la API contesta 403 sin decir por qué.
+ */
+export const APP_TAX_REPORTS = 'tax-reports'
 
 export function puedeVerGrowth(
   rol: string | null | undefined,

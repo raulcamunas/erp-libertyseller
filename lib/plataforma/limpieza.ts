@@ -84,6 +84,7 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/stock-sync/perfiles'
+import { DIAS_RETENCION_INFORMES, purgarInformesCaducados } from '@/lib/tax-reports/datos'
 
 /** Qué se purga, cuántos días se guardan, y por qué columna se mide */
 const REGLAS: { tabla: string; columna: string; dias: number }[] = [
@@ -250,8 +251,46 @@ export async function limpiar(tope = 20_000): Promise<ResultadoLimpieza[]> {
     }
   }
 
+  /**
+   * ---------- LOS INFORMES FISCALES, EN UNA RAMA APARTE ----------
+   *
+   * `tax_report_ficheros` NO está en REGLAS, y eso es lo importante de este
+   * bloque. Todo lo de arriba BORRA FILAS y no sabe que Storage existe —lo dice
+   * la propia regla de marketing_informes: «aquí no se libera espacio de
+   * ficheros»—. Meter esa tabla en la lista sería el peor de los dos mundos:
+   * desaparece la fila, que es el único índice de que el fichero existe, y el
+   * CSV se queda en el bucket PARA SIEMPRE sin que nada vuelva a nombrarlo. Y
+   * ese CSV lleva la ciudad, el código postal y el Order ID de cada comprador
+   * del cliente.
+   *
+   * Así que la rama hace lo contrario: borra el FICHERO del bucket primero, y
+   * solo si eso sale bien marca la fila (ruta a null, purgado_at puesto). La
+   * fila se queda, porque una celda sin fila vuelve a significar «falta por
+   * subir» y el día 3 alguien colgaría otra vez lo que decidimos no guardar.
+   *
+   * Es la misma forma que ya tiene la rama de SERIES: un caso que la lista de
+   * arriba no puede expresar.
+   */
+  const informes = await purgarInformesCaducados()
+  salida.push({
+    tabla: 'tax_report_ficheros (ficheros del bucket)',
+    borradas: informes.retirados,
+    error: informes.error,
+  })
+
   return salida
 }
 
-/** Los plazos, para poder enseñarlos en pantalla sin repetirlos a mano */
-export const PLAZOS = REGLAS.map((r) => ({ tabla: r.tabla, dias: r.dias }))
+/**
+ * Los plazos, para poder enseñarlos en pantalla sin repetirlos a mano.
+ *
+ * Los informes fiscales van al final y NO salen de REGLAS, porque no están ahí:
+ * su purga es la rama aparte del final de limpiar(). Se listan igual porque lo
+ * que la pantalla de Sistema tiene que contestar es «cuánto se guarda cada
+ * cosa», y ahí la respuesta que más importa es justo esta: seis meses un
+ * fichero con datos de compradores.
+ */
+export const PLAZOS = [
+  ...REGLAS.map((r) => ({ tabla: r.tabla, dias: r.dias })),
+  { tabla: 'tax_report_ficheros', dias: DIAS_RETENCION_INFORMES },
+]

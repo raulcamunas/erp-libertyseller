@@ -439,6 +439,16 @@ export async function middleware(request: NextRequest) {
           '/dashboard/stock-sync': 'stock-sync',
           '/dashboard/reports': 'reports',
           '/dashboard/documents': 'documents',
+          // Tax Reports. El id va LETRA POR LETRA igual que en lib/config/apps.ts
+          // (APP_TAX_REPORTS), que el redirect de app/dashboard/tax-reports/page.tsx
+          // y que el requireAppAccess('tax-reports') de sus rutas de API: si baila
+          // en uno, la pantalla se abre y la API contesta 403 sin decir por qué.
+          //
+          // No es el filtro de verdad —ese es el redirect de la página, que corre
+          // en servidor, más las políticas de la migración 200—, pero sin esta
+          // línea un employee sin el permiso cargaba la pantalla entera para que
+          // el redirect lo echara después. Las demás apps del menú están aquí.
+          '/dashboard/tax-reports': 'tax-reports',
           // Vacaciones va aquí y no en el bloque de solo-admin de arriba: es la
           // pantalla del equipo, cada uno ve SU saldo y SUS peticiones y no
           // lleva ningún dato salarial. El permiso lo reparte la migración 116
