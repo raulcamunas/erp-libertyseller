@@ -50,6 +50,7 @@
  */
 
 import { isMfnChannel } from '@/lib/types/amazon'
+import { createServiceClient } from '@/lib/supabase/service'
 import { conexionDeTrabajo, marketplaceDeTrabajo } from '../amazon/conexion'
 import {
   MAX_SKUS_FILTRO,
@@ -236,6 +237,72 @@ export const tareaInventarioFba: Tarea = {
     }
 
     const escritas = await insertarInventario(snapshots)
+
+    /**
+     * ---------- EL FNSKU, QUE VENÍA EN LA MANO Y SE TIRABA ----------
+     *
+     * `leerInventarioFba` ya lee `fnSku` de cada fila (inventario-fba.ts) y hasta
+     * hoy no lo escribía en ningún sitio: entraba en el mapa y moría ahí.
+     *
+     * El ÚNICO sitio que rellenaba `amazon_listings.fnsku` era el cron del libro
+     * mayor de remesas, que aprende el FNSKU de los MOVIMIENTOS. Y ahí está el
+     * problema, que es una pescadilla que se muerde la cola:
+     *
+     *     un producto que se manda a FBA POR PRIMERA VEZ no tiene movimientos
+     *       -> nunca aparece en el libro mayor
+     *       -> nunca se aprende su FNSKU
+     *       -> no se le puede imprimir la etiqueta
+     *       -> no se puede mandar
+     *       -> no genera movimientos.
+     *
+     * Y se ve en pantalla como «no tenemos su FNSKU» en el PDF de etiquetas, que
+     * sale con cero etiquetas. El descarte es correcto —una etiqueta con un
+     * código inventado manda la caja al sitio equivocado— pero el hueco no.
+     *
+     * getInventorySummaries sí devuelve el FNSKU de una referencia que está en
+     * FBA aunque tenga cero unidades, porque el FNSKU se asigna al convertir el
+     * anuncio a FBA y no al recibir la primera caja. O sea que esta lectura, que
+     * ya se hace, es justo la que cierra el círculo.
+     *
+     * Se escribe SOLO lo que cambia, igual que en el cron de remesas: son miles
+     * de referencias y reescribir cada noche el mismo valor es trabajo que no
+     * cambia nada. Y NUNCA se borra un FNSKU que ya estaba: que Amazon no lo
+     * mande en una lectura concreta no significa que haya dejado de existir, y
+     * quedarse sin él rompería las etiquetas de un producto que funcionaba.
+     */
+    let fnskusPuestos = 0
+    const nuevosFnsku = [...existencias.values()].filter((e) => e.fnsku)
+    if (nuevosFnsku.length > 0) {
+      // El cliente se construye UNA vez y no dentro del bucle: son miles de
+      // referencias y abrir uno por vuelta es trabajo gratis multiplicado.
+      const service = createServiceClient()
+      const porSku = new Map(listings.map((l) => [l.sku, l]))
+      for (const e of nuevosFnsku) {
+        const listing = porSku.get(e.sku)
+        if (!listing || listing.fnsku === e.fnsku) continue
+        const { error } = await service
+          .from('amazon_listings')
+          .update({ fnsku: e.fnsku })
+          .eq('id', listing.id)
+        if (!error) fnskusPuestos += 1
+      }
+    }
+
+    /**
+     * Que se vea cuando aprende uno nuevo. No es ruido: un FNSKU que aparece
+     * significa que una referencia que ANTES no se podía etiquetar ya se puede,
+     * y eso es exactamente lo que alguien está esperando cuando prepara la
+     * primera remesa de un producto.
+     */
+    if (fnskusPuestos > 0) {
+      await ctx.evento({
+        tipo: 'fnsku_aprendido',
+        severidad: 'info',
+        mensaje:
+          `Se han guardado ${fnskusPuestos} FNSKU nuevos de «${conexion.nombre}» en ` +
+          `${unidad.marketplaceId}. Esas referencias ya se pueden etiquetar para FBA.`,
+      })
+    }
 
     // ---------- Lo que hay que contar en voz alta ----------
     if (desconocidos > 0) {

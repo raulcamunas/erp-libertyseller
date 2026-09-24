@@ -480,9 +480,19 @@ export interface ListingIngesta {
   is_fba: boolean
   fulfillment_channel_code: string | null
   quantity: number | null
+  /**
+   * El código con el que Amazon identifica esta referencia DENTRO de sus
+   * almacenes, y el que va impreso en la etiqueta de cada unidad.
+   *
+   * Se pide aquí para que la tarea de inventario pueda comparar lo que ya
+   * tenemos con lo que acaba de decir Amazon y escribir SOLO lo que cambia. Sin
+   * esta columna habría que hacer una consulta más por unidad de trabajo para
+   * averiguar lo mismo.
+   */
+  fnsku: string | null
 }
 
-const CAMPOS_INGESTA = 'id, sku, asin, is_fba, fulfillment_channel_code, quantity'
+const CAMPOS_INGESTA = 'id, sku, asin, is_fba, fulfillment_channel_code, quantity, fnsku'
 
 /** Los listings de estos ASIN. Es lo que convierte «un ASIN» en «sus SKU» */
 export async function listingsDeAsins(
