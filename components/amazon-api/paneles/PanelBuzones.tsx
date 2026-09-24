@@ -517,6 +517,29 @@ function DialogoBuzon({
   const [probando, setProbando] = useState(false)
   const [pruebaPrevia, setPruebaPrevia] = useState<Prueba | null>(null)
 
+  /**
+   * UN AVISO QUE YA NO ES VERDAD SE TIENE QUE IR SOLO.
+   *
+   * `aviso` solo se limpiaba dentro de guardar() y de probar(). O sea que esta
+   * secuencia, que es la que hace cualquiera, dejaba dos mentiras en pantalla:
+   *
+   *   1. Cambias el buzón a IMAP con el servidor todavía vacío y le das a
+   *      Guardar  ->  «Un buzón de otro proveedor necesita el servidor IMAP».
+   *   2. Escribes imap.hostinger.com.                   (el aviso sigue ahí)
+   *   3. Le das a «Guardar cifrada» en vez de a Guardar  ->  y encima se suma
+   *      el error de la contraseña.
+   *
+   * Y acabas mirando un recuadro rojo que te pide un dato que tienes escrito
+   * justo debajo. Un error que no se corresponde con lo que hay en pantalla es
+   * peor que ningún error: enseña a no leerlos.
+   *
+   * Tocar cualquier campo lo borra. Si sigue faltando algo, Guardar lo vuelve a
+   * decir — y entonces sí será verdad.
+   */
+  useEffect(() => {
+    setAviso(null)
+  }, [nombre, direccion, transporte, clientId, host, puerto, usuario, carpeta, seguro])
+
   const esGoogle = transporte === 'google'
 
   /** Lo que se manda, ya con las reglas de los dos CHECK de la 198 aplicadas */
