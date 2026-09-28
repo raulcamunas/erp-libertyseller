@@ -23,6 +23,13 @@ export default async function ColdCallingPage() {
   // filas por defecto (ajuste max-rows de PostgREST) y un .limit() mayor
   // no lo salta, porque el tope lo aplica el servidor. Con casi 4.000
   // leads, sin esto solo llegaban los 1.000 primeros.
+  //
+  // AVISO PARA LA SIGUIENTE TANDA: con los 2.000 de la lista nueva esto son
+  // ~6.000 filas y seis peticiones, y sigue aguantando. Las 21.320 tiendas que
+  // quedan en el Excel NO caben así: serían 27 peticiones y un array de 27.000
+  // filas enviado entero al cliente, donde el board hace useMemo sobre todo él.
+  // Antes de importar el resto hay que filtrar por tipo_lead y por comercial EN
+  // EL SERVIDOR y paginar de verdad; no es una mejora posterior.
   const CHUNK = 1000
   const leads: ColdLead[] = []
   for (let from = 0; ; from += CHUNK) {
@@ -36,11 +43,25 @@ export default async function ColdCallingPage() {
       .select(`
         id, store_name, company, revenue_monthly, phone, email,
         province, category, seller_url,
+        tipo_lead, vende_en_amazon, nivel, ventas_estimadas_usd,
+        ciudad, tipo_empresa, web,
         assigned_to, status, follow_up, next_call_date,
         last_contacted_at, call_attempts, source_list,
         created_at, updated_at
       `)
+      // ESTE ORDEN SOLO DECIDE EN QUÉ TRAMO VIENE CADA FILA, no lo que se ve:
+      // el bucle se trae la tabla entera y el orden de pantalla lo pone
+      // ColdCallingBoard. Se deja determinista —con `id` al final— porque un
+      // orden con empates hace que una misma fila aparezca en dos tramos y
+      // otra en ninguno.
+      //
+      // El segundo criterio es para las tiendas online, que traen
+      // `revenue_monthly` nulo (su cifra está en ventas_estimadas_usd): sin él
+      // las 2.000 llegan en un orden cualquiera. Quién va primero en pantalla
+      // lo resuelve pesoOrden() en el board, que no mezcla las dos monedas
+      // para nada más que para colocar la fila.
       .order('revenue_monthly', { ascending: false, nullsFirst: false })
+      .order('ventas_estimadas_usd', { ascending: false, nullsFirst: false })
       .order('id', { ascending: true })
       .range(from, from + CHUNK - 1)
 
@@ -64,8 +85,9 @@ export default async function ColdCallingPage() {
       <div className="mb-3 flex-shrink-0">
         <h1 className="heading-medium text-white mb-1">Cold Calling</h1>
         <p className="text-white/50 text-sm">
-          Tu cartera de sellers: estado de cada uno, historial de llamadas y todo
-          lo que necesitas para la siguiente.
+          Tu cartera: vendedores que ya están en Amazon y tiendas online a las
+          que hay que meter. Estado de cada uno, historial de llamadas y todo lo
+          que necesitas para la siguiente.
         </p>
       </div>
 

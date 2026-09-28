@@ -20,7 +20,9 @@ import {
   MapPin,
   Maximize2,
   Phone,
+  Store,
   Tag,
+  TrendingUp,
   Users,
 } from 'lucide-react'
 import {
@@ -30,6 +32,13 @@ import {
   COLD_STATUSES,
   COLD_STATUS_LABELS,
   COLD_STATUS_DOTS,
+  COLD_NIVEL_LABELS,
+  COLD_NIVEL_DOTS,
+  COLD_VENDE_LABELS,
+  COLD_VENDE_DOTS,
+  AVISO_VENTAS_ESTIMADAS,
+  esTiendaOnline,
+  formatVentasEstimadas,
   colorForList,
   formatRevenue,
 } from '@/lib/types/cold-leads'
@@ -125,6 +134,13 @@ function EditableCell({
  */
 function DatosEmpresa({ lead }: { lead: ColdLead }) {
   const categoria = [lead.category, lead.subcategory].filter(Boolean).join(' · ')
+
+  // Una tienda que todavía no vende en Amazon no tiene facturación observada,
+  // ni «vende desde», ni perfil de seller, ni directivos: seis de los campos de
+  // abajo saldrían como guiones fijos. Lo suyo es otra rejilla, y el resto —
+  // decisor, CIF, plataforma, años, catálogo — está en la ficha completa, que
+  // es la que lo pide al abrirse.
+  if (esTiendaOnline(lead)) return <DatosTienda lead={lead} />
 
   return (
     // Anclada a la izquierda y con ancho tope: la fila desplegada es tan ancha
@@ -242,6 +258,146 @@ function DatosEmpresa({ lead }: { lead: ColdLead }) {
   )
 }
 
+/**
+ * LO MISMO, PARA UNA TIENDA QUE AÚN NO ESTÁ EN AMAZON.
+ *
+ * Solo con los campos que la carga inicial de la pantalla trae de verdad. El
+ * resto —decisor, cargo, CIF, plataforma, antigüedad, catálogo, Instagram— se
+ * pide al abrir la ficha, y aquí se dice que está allí en vez de pintar media
+ * docena de guiones que parecen datos que faltan.
+ */
+function DatosTienda({ lead }: { lead: ColdLead }) {
+  return (
+    <div className="mb-3 max-w-[940px] rounded-xl border border-white/10 bg-white/[0.02] p-3">
+      <h4 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+        <Store className="h-3 w-3" />
+        La tienda
+      </h4>
+
+      {lead.tipo_empresa === 'autonomo' && (
+        <p className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90">
+          Autónomo: no se llama en frío, va por email.
+        </p>
+      )}
+
+      <div className="grid gap-x-7 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
+        <Campo icon={<Store className="h-3 w-3" />} label="¿En Amazon?">
+          <span style={{ color: COLD_VENDE_DOTS[lead.vende_en_amazon] }}>
+            {COLD_VENDE_LABELS[lead.vende_en_amazon]}
+          </span>
+        </Campo>
+
+        {/* La cifra va con su advertencia al lado y sin símbolo de euro: son
+            dólares estimados por un modelo de tráfico, y la Leyenda prohíbe
+            decirlos en la llamada. */}
+        <Campo icon={<TrendingUp className="h-3 w-3" />} label="Ventas est.">
+          {lead.ventas_estimadas_usd != null ? (
+            <>
+              {formatVentasEstimadas(lead.ventas_estimadas_usd)} / mes
+              <span className="block text-[10px] leading-snug text-amber-300/70">
+                {AVISO_VENTAS_ESTIMADAS}
+              </span>
+            </>
+          ) : (
+            '—'
+          )}
+        </Campo>
+
+        <Campo icon={<Tag className="h-3 w-3" />} label="Nivel">
+          {lead.nivel != null && COLD_NIVEL_LABELS[lead.nivel] ? (
+            <span style={{ color: COLD_NIVEL_DOTS[lead.nivel] }}>
+              {lead.nivel} · {COLD_NIVEL_LABELS[lead.nivel]}
+            </span>
+          ) : (
+            '—'
+          )}
+        </Campo>
+
+        <Campo icon={<Building2 className="h-3 w-3" />} label="Razón social">
+          {lead.company || '—'}
+        </Campo>
+
+        <Campo icon={<MapPin className="h-3 w-3" />} label="Ciudad">
+          {lead.ciudad || '—'}
+        </Campo>
+
+        <Campo icon={<Tag className="h-3 w-3" />} label="Sector">
+          {lead.category || '—'}
+        </Campo>
+
+        <Campo icon={<Phone className="h-3 w-3" />} label="Teléfono">
+          {lead.phone ? (
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(lead.phone!)
+                toast.success('Teléfono copiado')
+              }}
+              className="inline-flex items-center gap-1 transition-colors hover:text-white"
+              title={
+                lead.tipo_empresa === 'autonomo'
+                  ? 'Autónomo: no se llama en frío'
+                  : 'Copiar el teléfono'
+              }
+            >
+              {lead.phone}
+              <Copy className="h-3 w-3 flex-shrink-0 opacity-40" />
+            </button>
+          ) : (
+            '—'
+          )}
+        </Campo>
+
+        <Campo icon={<Mail className="h-3 w-3" />} label="Email">
+          {lead.email ? (
+            <a
+              href={`mailto:${lead.email.split(/[\s/,;]+/)[0]}`}
+              className="block truncate transition-colors hover:text-[#FF6600]"
+              title={lead.email}
+            >
+              {lead.email}
+            </a>
+          ) : (
+            '—'
+          )}
+        </Campo>
+
+        <Campo icon={<ExternalLink className="h-3 w-3" />} label="Web">
+          {lead.web ? (
+            <a
+              href={lead.web}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 transition-colors hover:text-[#FF6600]"
+            >
+              Abrir la tienda <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : (
+            '—'
+          )}
+        </Campo>
+
+        <Campo icon={<History className="h-3 w-3" />} label="Intentos">
+          {lead.call_attempts > 0 ? (
+            <>
+              {lead.call_attempts}
+              {lead.call_attempts < 3 && (
+                <span className="text-white/40">{' · la cita cae a partir del 3.º'}</span>
+              )}
+            </>
+          ) : (
+            <span className="text-white/40">sin llamadas todavía</span>
+          )}
+        </Campo>
+
+        <Campo icon={<Users className="h-3 w-3" />} label="Decisor">
+          <span className="text-white/40">en la ficha completa</span>
+        </Campo>
+      </div>
+    </div>
+  )
+}
+
 /** Una etiqueta y su valor, con la etiqueta a ancho fijo para que las tres
     columnas de la rejilla queden alineadas entre sí */
 function Campo({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
@@ -328,13 +484,15 @@ export function ColdLeadsTable({
               Tienda
             </th>
             <th className={`${TH} min-w-[170px]`}>Empresa</th>
-            <th className={`${TH} text-right min-w-[110px]`}>Facturación</th>
+            <th className={`${TH} text-right min-w-[130px]`} title="Facturación real de los sellers de Amazon; estimación de tráfico en dólares en las tiendas online">
+              Facturación / est.
+            </th>
             <th className={`${TH} min-w-[170px]`}>Estado</th>
             <th className={`${TH} min-w-[140px]`}>Teléfono</th>
             <th className={`${TH} min-w-[120px]`}>Rellamar</th>
             <th className={`${TH} min-w-[280px]`}>Seguimiento</th>
             <th className={`${TH} min-w-[180px]`}>Email</th>
-            <th className={`${TH} min-w-[120px]`}>Provincia</th>
+            <th className={`${TH} min-w-[120px]`}>Provincia / Ciudad</th>
             <th className={`${TH} min-w-[160px]`}>Categoría</th>
             <th className={`${TH} min-w-[110px]`}>Lista</th>
             <th className={`${TH} w-[70px]`}></th>
@@ -414,10 +572,27 @@ export function ColdLeadsTable({
                   </span>
                 </td>
 
+                {/* EUROS OBSERVADOS Y DÓLARES ESTIMADOS EN LA MISMA COLUMNA,
+                    PERO NUNCA CON LA MISMA MONEDA. Un vendedor de Amazon trae
+                    su facturación; una tienda online trae la estimación de
+                    tráfico de Store Leads, que va en dólares y con «est.»
+                    escrito al lado. Poner « €» a la estimación es exactamente
+                    el error que hace que alguien la lea en voz alta en una
+                    llamada. */}
                 <td className="px-2 py-1 text-right text-white/80 tabular-nums whitespace-nowrap">
-                  {l.revenue_monthly != null
-                    ? `${Math.round(Number(l.revenue_monthly)).toLocaleString('es-ES')} €`
-                    : '—'}
+                  {esTiendaOnline(l) ? (
+                    l.ventas_estimadas_usd != null ? (
+                      <span className="text-amber-300/80" title={AVISO_VENTAS_ESTIMADAS}>
+                        {formatVentasEstimadas(l.ventas_estimadas_usd)} est.
+                      </span>
+                    ) : (
+                      '—'
+                    )
+                  ) : l.revenue_monthly != null ? (
+                    `${Math.round(Number(l.revenue_monthly)).toLocaleString('es-ES')} €`
+                  ) : (
+                    '—'
+                  )}
                 </td>
 
                 <td className="px-1 py-1" onClick={(e) => e.stopPropagation()}>
@@ -501,8 +676,13 @@ export function ColdLeadsTable({
                   )}
                 </td>
 
+                {/* Provincia para los leads de Amazon, Ciudad para las tiendas
+                    online. La columna «Provincia» del Excel nuevo dice «Europe»
+                    en las 1.000 filas medidas —es el campo `region` de Store
+                    Leads— y por eso no se importa: la geografía real de esas
+                    tiendas está en `ciudad`. */}
                 <td className="px-2 py-1 text-white/55 whitespace-nowrap">
-                  {l.province || '—'}
+                  {(esTiendaOnline(l) ? l.ciudad : l.province) || '—'}
                 </td>
 
                 <td className="px-2 py-1 text-white/55">
