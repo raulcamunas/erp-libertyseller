@@ -20,6 +20,19 @@ interface CrmInteractionsProps {
   currentUser: UserProfile
   interactions: CrmInteraction[]
   onChange: (list: CrmInteraction[]) => void
+  /**
+   * ¿Puede BORRAR tomas de contacto ajenas?
+   *
+   * Solo dirección. Apuntar lo hablado sí lo abre el permiso suelto
+   * 'equipo-comercial' —la 212 le da INSERT y UPDATE en crm_interactions, que es
+   * la mitad de «trabajar el CRM»—, pero el DELETE se quedó en
+   * is_admin_or_partner (080) a propósito: el historial de lo que se habló con un
+   * lead es lo que otro lee antes de llamar, y borrarlo no se ha pedido.
+   *
+   * Por eso la papelera no se pinta cuando esto es false: estaría ahí para dar un
+   * «No se pudo borrar» y nada más.
+   */
+  puedeBorrar: boolean
 }
 
 const KIND_ICONS: Record<CrmInteractionKind, typeof Phone> = {
@@ -55,6 +68,7 @@ export function CrmInteractions({
   currentUser,
   interactions,
   onChange,
+  puedeBorrar,
 }: CrmInteractionsProps) {
   const supabase = createClient()
   const [adding, setAdding] = useState(false)
@@ -226,14 +240,16 @@ export function CrmInteractions({
                         {format(toMadrid(it.occurred_at), "d MMM yyyy", { locale: es })}
                         {it.author?.full_name ? ` · ${it.author.full_name}` : ''}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(it.id)}
-                        className="ml-auto opacity-0 group-hover:opacity-100 text-white/25 hover:text-red-400 transition-all"
-                        title="Borrar"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      {puedeBorrar && (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(it.id)}
+                          className="ml-auto opacity-0 group-hover:opacity-100 text-white/25 hover:text-red-400 transition-all"
+                          title="Borrar"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
                     <p className="text-[12px] text-white/70 whitespace-pre-wrap break-words leading-snug">
                       {it.body}

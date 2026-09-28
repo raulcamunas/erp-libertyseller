@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { HoursTracker, QualifiedAppointment } from '@/components/payroll/HoursTracker'
 import { WorkHourEntry, PayrollRate, ManualAppointment } from '@/lib/types/payroll'
 import { CalendarPerson } from '@/lib/types/appointments'
+import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
 
 export default async function HoursPage() {
   const supabase = await createClient()
@@ -16,7 +17,28 @@ export default async function HoursPage() {
   const profile = await getUserProfile()
   if (!profile) redirect('/auth/login')
 
+  /**
+   * AQUÍ HAY DOS PERMISOS Y NO UNO, Y MEZCLARLOS ES EL FALLO FÁCIL.
+   *
+   * `isAdmin` hacía tres cosas distintas en esta pantalla: abrir el selector de
+   * persona, abrir el botón de Tarifas y el alta de comisiones manuales, y quitar
+   * el filtro de las citas cualificadas (o sea, LAS COMISIONES de cada comercial).
+   * De las tres, al supervisor del equipo comercial le corresponde SOLO LA
+   * PRIMERA: el encargo dice ver las horas fichadas del equipo, y dice que los
+   * costes de empleados no.
+   *
+   *   · isAdmin                 -> tarifas, comisiones manuales y las citas
+   *                                cualificadas de todo el equipo. Sigue siendo
+   *                                admin o partner, y nada más.
+   *   · puedeVerHorasDelEquipo  -> el selector de persona del calendario de horas.
+   *                                Lo abre también el permiso 'equipo-comercial'.
+   *
+   * Si se hubiera reutilizado `isAdmin` para el selector, el permiso nuevo habría
+   * traído de regalo las tarifas hora y las comisiones de todo el equipo.
+   */
   const isAdmin = profile.role === 'admin' || profile.role === 'partner'
+  const puedeVerHorasDelEquipo =
+    isAdmin || (await puedeVerEquipoComercial(profile.role, user.id))
 
   // LAS CINCO CONSULTAS VAN EN PARALELO, NO EN CADENA.
   //
@@ -100,6 +122,7 @@ export default async function HoursPage() {
         team={(team.data as CalendarPerson[]) || []}
         currentUser={profile}
         isAdmin={isAdmin}
+        puedeVerHorasDelEquipo={puedeVerHorasDelEquipo}
       />
     </div>
   )

@@ -479,6 +479,28 @@ export const APP_GROWTH = 'growth'
 export const PERMISO_STOCK_SYNC = 'stock-sync'
 
 /**
+ * EL PERMISO QUE CONVIERTE A ALGUIEN EN SUPERVISOR DEL EQUIPO COMERCIAL.
+ *
+ * Existe para NO tener que dar el rol 'partner'. En este ERP «el que cuenta como
+ * admin» en Cold Calling es `role IN ('admin','partner')`, y ese mismo corte es
+ * el que abre Tesorería, Facturación, la liquidación de comisiones, Teléfonos,
+ * el coste mensual de cada empleado, Amazon/Growth y las rutas de Google
+ * Calendar. O sea que ascender a un manager de captación a 'partner' le entrega
+ * los márgenes de la agencia y las nóminas de la gente a la que supervisa.
+ *
+ * Con esto se le da solo lo suyo: las llamadas, la agenda, el CRM y las horas
+ * fichadas de todos los comerciales. Lo reparte la migración 212 en la base
+ * (función `puede_ver_equipo_comercial`) y lo leen las pantallas a través de
+ * lib/equipo-comercial/acceso.ts.
+ *
+ * EL ID TIENE QUE COINCIDIR LETRA POR LETRA en tres sitios: aquí, en la función
+ * SQL de la 212 y en la lectura de user_app_permissions de acceso.ts. Si baila
+ * en uno, la casilla se marca en Usuarios, no da ningún error y no pasa nada
+ * —exactamente lo que ocurrió con 'stock-sync' y con 'growth'—.
+ */
+export const PERMISO_EQUIPO_COMERCIAL = 'equipo-comercial'
+
+/**
  * El id de Tax Reports, escrito UNA vez.
  *
  * Lo usan la entrada de `apps`, el redirect de la página y el
@@ -521,6 +543,18 @@ export const PERMISOS_SUELTOS: ReadonlyArray<{ id: string; name: string; descrip
     description:
       'Entra en Growth Partner y ve ÚNICAMENTE el sincronismo de stock: el mapeo manual de SKU ' +
       'de un cliente, con alta, edición y borrado de líneas. No ve Buy Box ni FBM→FBA.',
+  },
+  {
+    id: PERMISO_EQUIPO_COMERCIAL,
+    name: 'Supervisión del equipo comercial',
+    description:
+      'Para un manager de captación. Ve y trabaja el Cold Calling de TODOS los comerciales ' +
+      '(estado, rellamadas y notas de cualquier lead, pero NO puede reasignar leads), la agenda ' +
+      'y el CRM del equipo entero —sin los PDFs de contratos—, y las horas fichadas de cada uno. ' +
+      'NO abre Tesorería, ni ' +
+      'Facturación, ni Comisiones y su liquidación, ni el coste o el sueldo de ningún empleado, ' +
+      'ni Amazon API: para eso hace falta ser admin o partner, y esta casilla existe justo para ' +
+      'no tener que dar ese rol.',
   },
 ]
 

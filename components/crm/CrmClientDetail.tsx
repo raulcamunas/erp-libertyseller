@@ -57,6 +57,24 @@ interface CrmClientDetailProps {
   team: CalendarPerson[]
   currentUser: UserProfile
   onPatched: (patch: Partial<CrmClientWithDetails>) => void
+  /**
+   * ¿PUEDE CAMBIAR LA FICHA, O SOLO LEERLA?
+   *
+   * Solo dirección (admin/partner). Quien entra con el permiso suelto
+   * 'equipo-comercial' —el manager de captación— ve el pipeline entero porque la
+   * 212 le da SELECT de crm_clients y crm_interactions, y puede APUNTAR tomas de
+   * contacto, que es lo que se le pidió. Pero el UPDATE de
+   * crm_clients se quedó en is_admin_or_partner (080) y no se ha tocado, porque en
+   * esa tabla viven `setup_budget` y `maintenance_budget`: lo que paga cada
+   * cliente. Cambiar eso es cerrar un presupuesto, y eso es dirección.
+   *
+   * ESTO NO ES EL FILTRO —el filtro es la RLS—, es que la pantalla diga lo mismo
+   * que la base. Sin esta bandera los campos se dejan escribir, el `patch` sale a
+   * Supabase, vuelve rechazado y lo único que se ve es «No se pudo guardar el
+   * cambio»: el síntoma de un permiso que falta es idéntico al de un fallo de red,
+   * y eso se diagnostica como un bug del ERP.
+   */
+  puedeEditar: boolean
 }
 
 const ghostInput =
@@ -122,6 +140,7 @@ export function CrmClientDetail({
   team,
   currentUser,
   onPatched,
+  puedeEditar,
 }: CrmClientDetailProps) {
   const supabase = createClient()
   const appt = client.appointment
@@ -230,6 +249,14 @@ export function CrmClientDetail({
    */
   async function cambiarEstadoCita(estado: 'qualified' | 'not_qualified' | 'no_show') {
     if (!appt || cambiandoCita) return
+    // CUALIFICAR UNA CITA ES PAGAR UNA COMISIÓN: `appointments.status` a
+    // 'qualified' es exactamente lo que cuenta HoursTracker y el desglose del
+    // mes. Así que no lo toca quien solo supervisa, ni siquiera en la cita de
+    // otro. La RLS de appointments ya lo cierra («Update own appointments»,
+    // 071: la propia o admin/partner) y la ruta /api/appointments/[id] escribe
+    // con la sesión del navegador, así que esto de aquí es que el botón no
+    // prometa lo que la base va a negar.
+    if (!puedeEditar) return
     setCambiandoCita(true)
     const res = await fetch(`/api/appointments/${appt.id}`, {
       method: 'PUT',
@@ -252,6 +279,19 @@ export function CrmClientDetail({
   }
 
   async function patch(fields: Partial<CrmClientWithDetails>) {
+    // EL EMBUDO ÚNICO de escritura de crm_clients en esta pantalla: los 18
+    // campos de la ficha, la etapa y el guion de la llamada pasan todos por
+    // aquí. Por eso el corte está aquí y no repartido por cada control: si
+    // mañana se añade un campo, ya queda cerrado sin acordarse.
+    //
+    // El aviso es explícito a propósito. La RLS lo iba a rechazar igual, pero
+    // entonces el mensaje habría sido «No se pudo guardar el cambio», que es lo
+    // mismo que sale cuando se cae la red.
+    if (!puedeEditar) {
+      toast.error('Cambiar la ficha del cliente es de dirección. Puedes apuntar tomas de contacto.')
+      return
+    }
+
     // Solo se mandan los campos tocados: nunca un update completo, para
     // no pisar lo que el otro admin esté editando a la vez.
     const { error } = await supabase.from('crm_clients').update(fields).eq('id', client.id)
@@ -290,6 +330,18 @@ export function CrmClientDetail({
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-3">
+      {/* EL AVISO VA ARRIBA Y NO EN CADA CAMPO. Quien supervisa al equipo
+          comercial abre esta ficha entera de lectura, y la primera reacción con
+          una ficha así es intentar escribir en ella. Decirlo una vez al entrar
+          cuesta una línea; descubrirlo campo por campo, con un aviso rojo cada
+          vez que se sale de un cuadro, parece un ERP roto. */}
+      {!puedeEditar && (
+        <div className="rounded-xl border border-[#FF6600]/25 bg-[#FF6600]/[0.06] px-3 py-2 text-[12px] text-white/70">
+          Ficha de solo lectura. Puedes repasarla y apuntar tomas de contacto; cambiar los datos,
+          la etapa, los importes o el resultado de la cita es de dirección.
+        </div>
+      )}
+
       {/* Cabecera */}
       <motion.div
         initial={{ opacity: 0, y: 6 }}
@@ -391,6 +443,7 @@ export function CrmClientDetail({
                         {pregunta.texto}
                       </p>
                       <textarea
+                        readOnly={!puedeEditar}
                         value={preguntas[pregunta.clave] ?? ''}
                         onChange={(e) =>
                           setPreguntas((prev) => ({ ...prev, [pregunta.clave]: e.target.value }))
@@ -430,6 +483,14 @@ export function CrmClientDetail({
         ) : (
           <>
             <div className="flex flex-wrap gap-1.5">
+              {/* Los tres desenlaces solo se PINTAN COMO BOTÓN para dirección:
+                  cualificar es lo que genera la comisión del comercial. Quien
+                  supervisa ve en qué quedó la cita, abajo, sin poder cambiarlo. */}
+              {!puedeEditar && (
+                <span className="text-[11px] text-white/45 self-center">
+                  {APPOINTMENT_STATUS_LABELS[appt.status]} · cambiarlo es de dirección
+                </span>
+              )}
               {/* «No asistió» ES UN DESENLACE, NO UN ESTADO INTERMEDIO.
                   Antes salía en el texto de «todavía sin decidir», que es
                   justo lo contrario de lo que significa: la cita ya pasó y no
@@ -437,7 +498,8 @@ export function CrmClientDetail({
                   por incomparecencia no es lo mismo que una que se celebró y no
                   valió— porque es el número que dice si el problema está en
                   cómo se agenda o en a quién se agenda. */}
-              {(
+              {puedeEditar &&
+                (
                 [
                   { valor: 'qualified' as const, texto: 'Cita cualificada', clase: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200' },
                   { valor: 'not_qualified' as const, texto: 'Cita no cualificada', clase: 'border-red-500/50 bg-red-500/15 text-red-200' },
@@ -459,7 +521,8 @@ export function CrmClientDetail({
                   </button>
                 )
               })}
-              {appt.status !== 'qualified' &&
+              {puedeEditar &&
+                appt.status !== 'qualified' &&
                 appt.status !== 'not_qualified' &&
                 appt.status !== 'no_show' && (
                   <span className="text-[11px] text-white/35 self-center">
@@ -485,8 +548,13 @@ export function CrmClientDetail({
               <button
                 key={s}
                 type="button"
+                // Mover la etapa es UPDATE de crm_clients: dirección. Las píldoras
+                // se siguen pintando —quien supervisa necesita ver por dónde va
+                // cada cliente— pero dejan de ser pulsables, que si no el `patch`
+                // salta con el aviso una vez por clic.
+                disabled={!puedeEditar}
                 onClick={() => !active && patch({ stage: s })}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all disabled:cursor-default ${
                   active
                     ? `${CRM_STAGE_COLORS[s]} ring-1 ring-white/20`
                     : 'border-white/10 text-white/40 hover:text-white/80 hover:border-white/25'
@@ -500,6 +568,7 @@ export function CrmClientDetail({
         <div className="mt-2 pt-2 border-t border-white/[0.06] space-y-0.5">
           <Row icon={<User className="h-3 w-3" />} label="Responsable">
             <select
+              disabled={!puedeEditar}
               value={client.owner_id ?? 'none'}
               onChange={(e) =>
                 patch({ owner_id: e.target.value === 'none' ? null : e.target.value })
@@ -518,6 +587,7 @@ export function CrmClientDetail({
           </Row>
           <Row icon={<CalendarClock className="h-3 w-3" />} label="Próxima acción">
             <input
+              readOnly={!puedeEditar}
               value={nextAction}
               onChange={(e) => setNextAction(e.target.value)}
               onBlur={() => commitText('next_action', nextAction)}
@@ -527,6 +597,7 @@ export function CrmClientDetail({
           </Row>
           <Row icon={<CalendarClock className="h-3 w-3" />} label="Fecha">
             <input
+              readOnly={!puedeEditar}
               type="date"
               value={nextActionDate}
               onChange={(e) => {
@@ -542,6 +613,7 @@ export function CrmClientDetail({
               la tesorería de agosto, no en la de julio. */}
           <Row icon={<BadgeEuro className="h-3 w-3" />} label="Fecha de cierre">
             <input
+              readOnly={!puedeEditar}
               type="date"
               value={closedAt}
               onChange={(e) => {
@@ -574,6 +646,7 @@ export function CrmClientDetail({
           <Row compacta icon={<User className="h-3 w-3" />} label="Contacto">
             {isManual ? (
               <input
+                readOnly={!puedeEditar}
                 value={leadName}
                 onChange={(e) => setLeadName(e.target.value)}
                 onBlur={() => leadName.trim() && commitText('lead_name', leadName)}
@@ -586,6 +659,7 @@ export function CrmClientDetail({
           </Row>
           <Row compacta icon={<Briefcase className="h-3 w-3" />} label="Cargo">
             <input
+              readOnly={!puedeEditar}
               value={contactRole}
               onChange={(e) => setContactRole(e.target.value)}
               onBlur={() => commitText('contact_role', contactRole)}
@@ -596,6 +670,7 @@ export function CrmClientDetail({
           <Row compacta icon={<Mail className="h-3 w-3" />} label="Email">
             {isManual ? (
               <input
+                readOnly={!puedeEditar}
                 value={leadEmail}
                 onChange={(e) => setLeadEmail(e.target.value)}
                 onBlur={() => commitText('lead_email', leadEmail)}
@@ -616,6 +691,7 @@ export function CrmClientDetail({
           <Row compacta icon={<Phone className="h-3 w-3" />} label="Teléfono">
             {isManual ? (
               <input
+                readOnly={!puedeEditar}
                 value={leadPhone}
                 onChange={(e) => setLeadPhone(e.target.value)}
                 onBlur={() => commitText('lead_phone', leadPhone)}
@@ -629,6 +705,7 @@ export function CrmClientDetail({
           <Row compacta icon={<Building2 className="h-3 w-3" />} label="Empresa">
             {isManual ? (
               <input
+                readOnly={!puedeEditar}
                 value={leadCompany}
                 onChange={(e) => setLeadCompany(e.target.value)}
                 onBlur={() => commitText('lead_company', leadCompany)}
@@ -641,6 +718,7 @@ export function CrmClientDetail({
           </Row>
           <Row compacta icon={<Globe className="h-3 w-3" />} label="Web">
             <input
+              readOnly={!puedeEditar}
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
               onBlur={() => commitText('website', website)}
@@ -650,6 +728,7 @@ export function CrmClientDetail({
           </Row>
           <Row compacta icon={<MapPin className="h-3 w-3" />} label="País">
             <input
+              readOnly={!puedeEditar}
               value={country}
               onChange={(e) => setCountry(e.target.value)}
               onBlur={() => commitText('country', country)}
@@ -659,6 +738,7 @@ export function CrmClientDetail({
           </Row>
           <Row compacta icon={<Store className="h-3 w-3" />} label="Marketplaces">
             <input
+              readOnly={!puedeEditar}
               value={marketplaces}
               onChange={(e) => setMarketplaces(e.target.value)}
               onBlur={() => commitText('marketplaces', marketplaces)}
@@ -669,6 +749,7 @@ export function CrmClientDetail({
           <Row compacta icon={<Link2 className="h-3 w-3" />} label="Amazon">
             {isManual ? (
               <input
+                readOnly={!puedeEditar}
                 value={manualAmazonLink}
                 onChange={(e) => setManualAmazonLink(e.target.value)}
                 onBlur={() => commitText('amazon_link', manualAmazonLink)}
@@ -691,6 +772,7 @@ export function CrmClientDetail({
           <Row compacta icon={<Euro className="h-3 w-3" />} label="Facturación">
             {isManual ? (
               <input
+                readOnly={!puedeEditar}
                 value={manualRevenue}
                 onChange={(e) => setManualRevenue(e.target.value)}
                 onBlur={() => commitNumber('revenue_amount', manualRevenue)}
@@ -716,6 +798,7 @@ export function CrmClientDetail({
         <div className="space-y-0.5">
           <Row icon={<Euro className="h-3 w-3" />} label="Set up">
             <input
+              readOnly={!puedeEditar}
               value={setupBudget}
               onChange={(e) => setSetupBudget(e.target.value)}
               onBlur={() => commitNumber('setup_budget', setupBudget)}
@@ -726,6 +809,7 @@ export function CrmClientDetail({
           </Row>
           <Row icon={<Euro className="h-3 w-3" />} label="Mantenimiento">
             <input
+              readOnly={!puedeEditar}
               value={maintenanceBudget}
               onChange={(e) => setMaintenanceBudget(e.target.value)}
               onBlur={() => commitNumber('maintenance_budget', maintenanceBudget)}
@@ -750,6 +834,7 @@ export function CrmClientDetail({
             label="Propuesta"
             documents={documents}
             onChange={setDocuments}
+            puedeEditar={puedeEditar}
           />
         )}
       </Section>
@@ -766,11 +851,17 @@ export function CrmClientDetail({
             label="Contrato"
             documents={documents}
             onChange={setDocuments}
+            puedeEditar={puedeEditar}
           />
         )}
       </Section>
 
-      {/* Tomas de contacto */}
+      {/* Tomas de contacto.
+
+          APUNTAR SÍ, BORRAR NO: la 212 le da INSERT y UPDATE de
+          crm_interactions a quien supervisa el equipo, porque apuntar lo hablado
+          es la mitad de «trabajar el CRM». El DELETE se queda en dirección
+          (080), y por eso la papelera de cada apunte va con `puedeBorrar`. */}
       <Section icon={<History className="h-3 w-3" />} title="Tomas de contacto">
         {loadingExtras ? (
           <p className="text-[11px] text-white/25 flex items-center gap-1.5">
@@ -782,6 +873,7 @@ export function CrmClientDetail({
             currentUser={currentUser}
             interactions={interactions}
             onChange={setInteractions}
+            puedeBorrar={puedeEditar}
           />
         )}
       </Section>
@@ -822,6 +914,7 @@ export function CrmClientDetail({
       {/* Notas internas del CRM */}
       <Section icon={<StickyNote className="h-3 w-3" />} title="Notas internas">
         <textarea
+          readOnly={!puedeEditar}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           onBlur={() => commitText('notes', notes)}

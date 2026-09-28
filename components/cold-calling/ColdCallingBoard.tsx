@@ -46,7 +46,21 @@ interface ColdCallingBoardProps {
   initialLeads: ColdLead[]
   team: CalendarPerson[]
   currentUser: UserProfile
-  isAdmin: boolean
+  /**
+   * ¿Ve y trabaja la cartera de TODO el equipo, o solo la suya?
+   *
+   * SE LLAMABA `isAdmin` Y SE HA RENOMBRADO A PROPÓSITO. Desde la migración 212
+   * ya no significa «es admin»: lo pone también a true el permiso suelto
+   * 'equipo-comercial' del manager de captación, que NO es admin ni partner y que
+   * no ve ni Tesorería ni sueldos. Dejarle el nombre viejo invitaba a colgar de
+   * esta bandera el siguiente botón que sí fuera de dirección.
+   *
+   * Lo que abre, y nada más: el filtro de comercial arranca en «todos», sale el
+   * selector de comercial, y `canEdit` deja tocar estado, fecha de rellamada,
+   * notas y vende_en_amazon en un lead ajeno. NO reasigna: la ficha no tiene
+   * control de `assigned_to` y el trigger de la 212 rechaza el cambio.
+   */
+  puedeVerTodos: boolean
 }
 
 /** Cuántas filas se pintan de golpe: la lista completa son miles */
@@ -99,14 +113,14 @@ export function ColdCallingBoard({
   initialLeads,
   team,
   currentUser,
-  isAdmin,
+  puedeVerTodos,
 }: ColdCallingBoardProps) {
   const supabase = createClient()
   const [leads, setLeads] = useState<ColdLead[]>(initialLeads)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ColdLeadStatus | 'all'>('all')
-  const [ownerFilter, setOwnerFilter] = useState<string>(isAdmin ? 'all' : currentUser.id)
+  const [ownerFilter, setOwnerFilter] = useState<string>(puedeVerTodos ? 'all' : currentUser.id)
   const [listFilter, setListFilter] = useState<string>('all')
   /**
    * QUÉ CLASE DE LEAD SE ESTÁ TRABAJANDO.
@@ -184,13 +198,13 @@ export function ColdCallingBoard({
         if (typeof p.minRev === 'string') setMinRev(p.minRev)
         if (typeof p.maxRev === 'string') setMaxRev(p.maxRev)
         if (typeof p.sort === 'string') setSort(p.sort)
-        if (isAdmin && typeof p.ownerFilter === 'string') setOwnerFilter(p.ownerFilter)
+        if (puedeVerTodos && typeof p.ownerFilter === 'string') setOwnerFilter(p.ownerFilter)
       }
     } catch {
       // preferencias corruptas: se ignoran y se arranca en limpio
     }
     setPrefsLoaded(true)
-  }, [prefsKey, isAdmin])
+  }, [prefsKey, puedeVerTodos])
 
   useEffect(() => {
     // No se guarda hasta haber leído lo anterior, o el estado inicial
@@ -805,7 +819,7 @@ export function ColdCallingBoard({
           {/* El comercial SÍ se mantiene: no es un filtro de prospección sino
               de quién es el trabajo, y un admin necesita poder mirar la agenda
               de cada uno. */}
-          {isAdmin && team.length > 0 && (
+          {puedeVerTodos && team.length > 0 && (
             <select
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
@@ -986,7 +1000,7 @@ export function ColdCallingBoard({
               leads={rellamadasVisibles}
               currentUserId={currentUser.id}
               currentUser={currentUser}
-              isAdmin={isAdmin}
+              puedeVerTodos={puedeVerTodos}
               selectedId={selectedId}
               onSelect={setSelectedId}
               onOpenDetail={(id) => {
@@ -1003,7 +1017,7 @@ export function ColdCallingBoard({
             leads={filtered.slice(0, visible)}
             currentUserId={currentUser.id}
               currentUser={currentUser}
-            isAdmin={isAdmin}
+            puedeVerTodos={puedeVerTodos}
             selectedId={selectedId}
             onSelect={setSelectedId}
             onOpenDetail={(id) => {
@@ -1161,7 +1175,7 @@ export function ColdCallingBoard({
                 <ColdLeadDetail
                   lead={selected}
                   currentUser={currentUser}
-                  canEdit={isAdmin || selected.assigned_to === currentUser.id}
+                  canEdit={puedeVerTodos || selected.assigned_to === currentUser.id}
                   onPatched={(patch) => handlePatched(selected.id, patch)}
                   onNext={goNext}
                 />

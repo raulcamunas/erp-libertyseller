@@ -4,9 +4,22 @@ import { fetchAllTolerante } from '@/lib/supabase/paginacion'
 import { redirect } from 'next/navigation'
 import { AppointmentsBreakdown } from '@/components/agenda/AppointmentsBreakdown'
 import { AppointmentWithPeople, CalendarPerson } from '@/lib/types/appointments'
+import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
 
-// Únicos con visión de todo el equipo en este desglose. El resto de
-// comerciales solo ven sus propios leads.
+/**
+ * VISIÓN DE TODO EL EQUIPO EN ESTE DESGLOSE, POR CORREO.
+ *
+ * Esta lista es la forma vieja de cerrar la pantalla y se queda por lo que ya
+ * concede: son los dos socios y quitarla ahora les cerraría el desglose si su
+ * perfil no tuviera el rol puesto. Pero NO SE LE AÑADE NADIE MÁS.
+ *
+ * El motivo está escrito aquí y no en un commit: meter el correo del siguiente
+ * manager en este array deja el ERP con dos mecanismos de permiso para lo mismo
+ * —una lista en el código y una casilla en Usuarios— y obliga a tocar código, y
+ * a desplegar, cada vez que cambia el organigrama. Quien entre de ahora en
+ * adelante lo hace con el permiso 'equipo-comercial', que Raúl da y quita desde
+ * Gestión de Usuarios.
+ */
 const FULL_ACCESS_EMAILS = ['raulcamunas369@gmail.com', 'mariocstanca@gmail.com']
 
 export default async function AgendaBreakdownPage() {
@@ -19,7 +32,12 @@ export default async function AgendaBreakdownPage() {
   const profile = await getUserProfile()
   if (!profile) redirect('/auth/login')
 
-  const hasFullAccess = FULL_ACCESS_EMAILS.includes(profile.email || '')
+  // Los correos de siempre, O el permiso de supervisión del equipo comercial.
+  // Es un OR y no un reemplazo para no quitarle el desglose a los dos socios si
+  // algún día su perfil pierde el rol.
+  const hasFullAccess =
+    FULL_ACCESS_EMAILS.includes(profile.email || '') ||
+    (await puedeVerEquipoComercial(profile.role, user.id))
 
   const { data: team } = hasFullAccess
     ? await supabase

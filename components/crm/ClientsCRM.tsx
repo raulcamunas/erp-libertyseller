@@ -53,6 +53,32 @@ interface ClientsCRMProps {
   payrollRates: PayrollRate[]
   qualifiedAppointments: CrmQualifiedAppointment[]
   initialUsdEurRate: number
+  /**
+   * ¿Se le puede enseñar a esta persona lo que cuesta el equipo comercial?
+   *
+   * Solo dirección. Quien entra con el permiso suelto 'equipo-comercial' —el
+   * manager de captación— supervisa el pipeline, pero los sueldos y las
+   * comisiones del equipo al que supervisa están fuera de su alcance.
+   *
+   * Cuando es false, `workHours` y `payrollRates` llegan VACÍOS desde el servidor
+   * (app/dashboard/agenda/crm/page.tsx: ni se consultan). Esto de aquí esconde lo
+   * que se calculaba con ellos, que si no saldría en cero y parecería un fallo:
+   * el tile «Coste comerciales» y el botón del desglose del mes.
+   */
+  puedeVerCosteEquipo: boolean
+  /**
+   * ¿Puede CAMBIAR las fichas del CRM, o solo leerlas y apuntar lo hablado?
+   *
+   * Solo dirección. Hoy vale lo mismo que `puedeVerCosteEquipo` —las dos son
+   * `esDireccion`— y aun así son dos props y no una a propósito: una dice «no le
+   * enseñes los sueldos del equipo» y la otra «la base le va a rechazar el
+   * UPDATE de crm_clients». El día que una de las dos cambie, juntarlas habría
+   * movido la otra sin que nadie lo pidiera.
+   *
+   * Lo que apaga: el botón de «Nuevo cliente» (el INSERT de crm_clients sigue
+   * siendo de dirección por la 080) y, dentro de la ficha, todo lo que escribe.
+   */
+  puedeEditarFichas: boolean
 }
 
 const CLIENT_SELECT = `
@@ -85,6 +111,8 @@ export function ClientsCRM({
   payrollRates,
   qualifiedAppointments,
   initialUsdEurRate,
+  puedeVerCosteEquipo,
+  puedeEditarFichas,
 }: ClientsCRMProps) {
   const supabase = createClient()
   const [clients, setClients] = useState<CrmClientWithDetails[]>(initialClients)
@@ -314,15 +342,18 @@ export function ClientsCRM({
 
   return (
     <div className="flex flex-col h-full gap-3">
-      <div className="flex justify-end flex-shrink-0">
-        <button
-          type="button"
-          onClick={() => setShowBreakdown(true)}
-          className="h-9 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[13px] font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
-        >
-          <BarChart3 className="h-4 w-4" /> Desglose mes
-        </button>
-      </div>
+      {/* El desglose del mes es coste por comercial: solo dirección. */}
+      {puedeVerCosteEquipo && (
+        <div className="flex justify-end flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowBreakdown(true)}
+            className="h-9 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[13px] font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+          >
+            <BarChart3 className="h-4 w-4" /> Desglose mes
+          </button>
+        </div>
+      )}
 
       {/* Métricas de cabecera */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
@@ -354,7 +385,8 @@ export function ClientsCRM({
           </div>
         ))}
 
-        {/* Coste del equipo comercial */}
+        {/* Coste del equipo comercial — SOLO DIRECCIÓN. Es sueldo del equipo. */}
+        {puedeVerCosteEquipo && (
         <div
           className={`rounded-xl border px-3 py-2 ${
             profitable
@@ -414,6 +446,7 @@ export function ClientsCRM({
             {dollars(teamCost.commissions)}
           </p>
         </div>
+        )}
       </div>
 
       {/* Filtros por estado */}
@@ -463,13 +496,18 @@ export function ClientsCRM({
                 className="w-full bg-white/[0.04] border border-white/10 rounded-lg pl-8 pr-2.5 py-1.5 text-[12px] text-white outline-none focus:border-[#FF6600] transition-colors placeholder:text-white/25"
               />
             </div>
-            <motion.button
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setShowNewLead(true)}
-              className="w-full h-8 rounded-lg bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[12px] font-semibold flex items-center justify-center gap-1.5 shadow-[0_4px_16px_-6px_rgba(255,102,0,0.6)]"
-            >
-              <Plus className="h-3.5 w-3.5" /> Nuevo cliente
-            </motion.button>
+            {/* Dar de alta un cliente es INSERT en crm_clients, y eso se quedó
+                en is_admin_or_partner (080): la 212 solo abrió el SELECT. Sin
+                esconderlo, el diálogo se rellena entero y revienta al guardar. */}
+            {puedeEditarFichas && (
+              <motion.button
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setShowNewLead(true)}
+                className="w-full h-8 rounded-lg bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[12px] font-semibold flex items-center justify-center gap-1.5 shadow-[0_4px_16px_-6px_rgba(255,102,0,0.6)]"
+              >
+                <Plus className="h-3.5 w-3.5" /> Nuevo cliente
+              </motion.button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
@@ -591,6 +629,7 @@ export function ClientsCRM({
                   team={team}
                   currentUser={currentUser}
                   onPatched={(patch) => handlePatched(selected.id, patch)}
+                  puedeEditar={puedeEditarFichas}
                 />
               </motion.div>
             ) : (

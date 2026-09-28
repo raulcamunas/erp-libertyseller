@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { ColdCallingBoard } from '@/components/cold-calling/ColdCallingBoard'
 import { ColdLead } from '@/lib/types/cold-leads'
 import { CalendarPerson } from '@/lib/types/appointments'
+import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
 
 export default async function ColdCallingPage() {
   const supabase = await createClient()
@@ -15,9 +16,28 @@ export default async function ColdCallingPage() {
   const profile = await getUserProfile()
   if (!profile) redirect('/auth/login')
 
-  const isAdmin = profile.role === 'admin' || profile.role === 'partner'
+  /**
+   * QUIÉN VE LA CARTERA DE TODO EL EQUIPO Y NO SOLO LA SUYA.
+   *
+   * Ya no es «es admin»: es admin, partner, o quien tenga el permiso suelto
+   * 'equipo-comercial' —el manager de captación—. El porqué de que ese permiso
+   * exista en vez de darle el rol partner está en lib/equipo-comercial/acceso.ts,
+   * en una frase: 'partner' arrastra Tesorería, Facturación, la liquidación de
+   * comisiones y los sueldos de todo el equipo.
+   *
+   * ESTO SOLO EVITA LA PANTALLA VACÍA. Quien recorta de verdad son las políticas
+   * RLS de cold_leads y cold_lead_notes (migración 212): la consulta de abajo no
+   * filtra por comercial, y aquí no hay ninguna ruta /api de por medio que pueda
+   * comprobar nada. Lo decide el servidor al pintar y la base al leer, nunca el
+   * navegador.
+   *
+   * Y NO INCLUYE REASIGNAR: la ficha no tiene control de `assigned_to` y el
+   * trigger de la 212 rechaza el cambio a quien no sea admin o partner, porque el
+   * board escribe directo contra Supabase desde el navegador.
+   */
+  const puedeVerTodos = await puedeVerEquipoComercial(profile.role, user.id)
 
-  // RLS ya limita a cada comercial su cartera; los admins reciben todo.
+  // RLS ya limita a cada comercial su cartera; quien supervisa recibe todo.
   //
   // Hay que pedirlo por tramos: Supabase corta cualquier consulta a 1.000
   // filas por defecto (ajuste max-rows de PostgREST) y un .limit() mayor
@@ -96,7 +116,7 @@ export default async function ColdCallingPage() {
           initialLeads={leads}
           team={(team as CalendarPerson[]) || []}
           currentUser={profile}
-          isAdmin={isAdmin}
+          puedeVerTodos={puedeVerTodos}
         />
       </div>
     </div>

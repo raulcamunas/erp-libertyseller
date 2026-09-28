@@ -8,6 +8,7 @@ import { ClientsCRM, CrmQualifiedAppointment } from '@/components/crm/ClientsCRM
 import { CrmClientWithDetails } from '@/lib/types/crm'
 import { WorkHourEntry, PayrollRate } from '@/lib/types/payroll'
 import { CalendarPerson } from '@/lib/types/appointments'
+import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
 
 export default async function CrmClientsPage() {
   const supabase = await createClient()
@@ -19,11 +20,26 @@ export default async function CrmClientsPage() {
   const profile = await getUserProfile()
   if (!profile) redirect('/auth/login')
 
-  // El CRM es vista de dirección: presupuestos, propuestas y contratos.
-  // Las políticas RLS ya lo blindan, esto es solo para no enseñar una
-  // pantalla vacía a quien no le corresponde.
-  const isAdmin = profile.role === 'admin' || profile.role === 'partner'
-  if (!isAdmin) redirect('/dashboard/agenda')
+  /**
+   * QUIÉN ENTRA, Y POR QUÉ SON DOS PERMISOS Y NO UNO.
+   *
+   * Entra dirección (admin/partner) y entra quien supervisa al equipo comercial
+   * —el permiso suelto 'equipo-comercial'—, porque el pipeline de lo que se ha
+   * hablado con cada lead es lo que un manager de captación tiene que repasar.
+   * Las políticas RLS de la 212 le dan lectura de crm_clients y crm_interactions,
+   * más apuntar interacciones; esto solo evita el viaje. Los PDFs (crm_documents)
+   * NO: ese bucket es público, así que la fila lleva la llave del fichero.
+   *
+   * PERO EL COSTE DEL EQUIPO NO ENTRA, y es lo que separa las dos variables de
+   * abajo. Esta pantalla no solo enseña el pipeline: calcula lo que cuesta el
+   * equipo comercial este mes (horas × tarifa + comisiones) y lo compara con la
+   * facturación. Eso es sueldo de empleados, está fuera del encargo, y con
+   * `esDireccion` a false ni se pide a la base ni se pinta.
+   */
+  const esDireccion = profile.role === 'admin' || profile.role === 'partner'
+  const puedeEntrar =
+    esDireccion || (await puedeVerEquipoComercial(profile.role, user.id))
+  if (!puedeEntrar) redirect('/dashboard/agenda')
 
   // LAS SEIS CONSULTAS VAN EN PARALELO, NO EN CADENA.
   //
@@ -59,9 +75,20 @@ export default async function CrmClientsPage() {
         .select('id, full_name, email, role, calendar_color')
         .eq('is_comercial', true)
         .order('full_name', { ascending: true }),
-      // Lo necesario para calcular lo que cuesta el equipo comercial este mes
-      supabase.from('work_hours').select('*'),
-      supabase.from('payroll_rates').select('*'),
+      // Lo necesario para calcular lo que cuesta el equipo comercial este mes.
+      //
+      // SOLO PARA DIRECCIÓN, Y NO ES UNA OPTIMIZACIÓN. Quien entra con el permiso
+      // 'equipo-comercial' no tiene que ver lo que cobra la gente a la que
+      // supervisa, así que no se le piden: se le pasa lista vacía y ClientsCRM no
+      // pinta el tile «Coste comerciales» ni el desglose del mes (ver
+      // `puedeVerCosteEquipo` más abajo). Pedirlas y esconderlas en el navegador
+      // sería mandarle los sueldos en el HTML.
+      esDireccion
+        ? supabase.from('work_hours').select('*')
+        : Promise.resolve({ data: [] as WorkHourEntry[] }),
+      esDireccion
+        ? supabase.from('payroll_rates').select('*')
+        : Promise.resolve({ data: [] as PayrollRate[] }),
       // PAGINADA, igual que la misma consulta en app/dashboard/horas/page.tsx:
       // PostgREST corta a 1000 filas y NO da error. Hoy el filtro deja 3 citas
       // de las 5853 de la tabla, así que devuelve exactamente lo mismo; pero
@@ -119,6 +146,16 @@ export default async function CrmClientsPage() {
           payrollRates={(payrollRates as PayrollRate[]) || []}
           qualifiedAppointments={qualified}
           initialUsdEurRate={Number(fxSetting?.value ?? 0.92)}
+          puedeVerCosteEquipo={esDireccion}
+          // LA OTRA MITAD DEL MISMO CORTE. La 212 le da a quien supervisa el
+          // SELECT de crm_clients y el INSERT/UPDATE de crm_interactions, y
+          // nada más: el UPDATE y el INSERT de crm_clients, el DELETE de
+          // interacciones y el bucket 'crm-documents' se quedaron en
+          // is_admin_or_partner (080). Sin esto la pantalla le ofrecería seis
+          // controles que la base rechaza uno por uno, y el mensaje sería
+          // siempre «No se pudo guardar», que es lo mismo que sale cuando se
+          // cae la red.
+          puedeEditarFichas={esDireccion}
         />
       </div>
     </div>

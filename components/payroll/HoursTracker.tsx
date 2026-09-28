@@ -59,7 +59,24 @@ interface HoursTrackerProps {
   initialManual: ManualAppointment[]
   team: CalendarPerson[]
   currentUser: UserProfile
+  /**
+   * Admin o partner: tarifas, comisiones manuales y las citas cualificadas de
+   * todo el equipo. Es DINERO, y no lo abre el permiso de supervisión.
+   */
   isAdmin: boolean
+  /**
+   * ¿Puede mirar el calendario de horas de otra persona?
+   *
+   * Lo pone a true admin/partner y también el permiso suelto 'equipo-comercial'
+   * —el manager de captación—, que tiene que ver lo que ficha su equipo. Está
+   * separado de `isAdmin` a propósito: si fuera la misma bandera, el permiso de
+   * supervisión abriría de paso las tarifas hora y las comisiones, que es
+   * justamente lo que se ha decidido NO darle.
+   *
+   * Solo abre el selector de persona. Ni edita, ni enseña dinero de nadie: eso lo
+   * decide `soloMirando`, más abajo.
+   */
+  puedeVerHorasDelEquipo: boolean
 }
 
 const WEEKDAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
@@ -139,6 +156,7 @@ export function HoursTracker({
   team,
   currentUser,
   isAdmin,
+  puedeVerHorasDelEquipo,
 }: HoursTrackerProps) {
   const supabase = createClient()
   const [hours, setHours] = useState<WorkHourEntry[]>(initialHours)
@@ -163,6 +181,28 @@ export function HoursTracker({
   // Los admins pueden mirar (y corregir) las horas de cualquiera; el
   // resto solo se ve a sí mismo.
   const viewingSelf = selectedUserId === currentUser.id
+
+  /**
+   * EL SUPERVISOR MIRA, NO TOCA NI VE SUELDOS. La línea que separa «horas
+   * fichadas del equipo: SÍ» de «costes de empleados: NO», que en esta pantalla
+   * caen a dos centímetros la una de la otra.
+   *
+   * Es true cuando alguien que NO es admin está viendo a otra persona. Entonces:
+   *
+   *   · El panel de «Llevas ganado» se cambia por un recuento de horas peladas.
+   *     Si se dejara, el salario se recalcularía para la persona seleccionada con
+   *     payroll_rates —que es legible por todo el equipo desde la 083— y el
+   *     supervisor acabaría viendo lo que cobra cada comercial sin que nadie lo
+   *     hubiera decidido.
+   *   · El calendario pasa a solo lectura. No es cosmética: la RLS de la 212 le da
+   *     SELECT de work_hours y NADA MÁS, así que un clic en un día ajeno acabaría
+   *     en un error de guardado sin explicación.
+   *   · Desaparecen las comisiones y la tarifa aplicada, por lo mismo que el
+   *     panel de dinero. Además las citas cualificadas que llegan del servidor son
+   *     solo las suyas (la consulta se filtra con `isAdmin`), así que ahí saldría
+   *     un cero que no es cero.
+   */
+  const soloMirando = !viewingSelf && !isAdmin
   const viewedPerson =
     team.find((p) => p.id === selectedUserId) ??
     ({ id: currentUser.id, full_name: currentUser.full_name, email: currentUser.email } as CalendarPerson)
@@ -509,6 +549,9 @@ export function HoursTracker({
   }
 
   function openDay(key: string) {
+    // El supervisor del equipo comercial solo tiene SELECT de work_hours: abrirle
+    // el editor sería prometerle un guardado que la base va a rechazar.
+    if (soloMirando) return
     setSelectedDay(key)
     const current = hoursByDay.get(key)
     setDraft(current ? String(Number(current.hours)) : '')
@@ -602,7 +645,7 @@ export function HoursTracker({
         </div>
 
         <div className="flex items-center gap-2">
-          {isAdmin && team.length > 0 && (
+          {puedeVerHorasDelEquipo && team.length > 0 && (
             <select
               value={selectedUserId}
               onChange={(e) => {
@@ -636,15 +679,33 @@ export function HoursTracker({
 
       {!viewingSelf && (
         <div className="rounded-xl border border-[#FF6600]/25 bg-[#FF6600]/[0.06] px-3 py-2 text-[12px] text-white/70">
-          Estás viendo y editando las horas de{' '}
+          {soloMirando ? 'Estás viendo las horas de' : 'Estás viendo y editando las horas de'}{' '}
           <span className="font-semibold text-white">
             {viewedPerson.full_name || viewedPerson.email}
           </span>
-          . Cualquier cambio se le guarda a esa persona.
+          .{' '}
+          {soloMirando
+            ? 'Solo de lectura: puedes ver lo que ficha, no corregirlo ni ver lo que cobra.'
+            : 'Cualquier cambio se le guarda a esa persona.'}
         </div>
       )}
 
-      {/* Lo que lleva ganado */}
+      {/* Lo que lleva ganado. SOLO SUYO, o de cualquiera si eres admin: el
+          supervisor del equipo ve horas, no sueldos (ver `soloMirando`). */}
+      {soloMirando ? (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex-shrink-0">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-white/40 flex items-center gap-1.5">
+            <Clock className="h-3 w-3" /> Horas fichadas en este periodo
+          </p>
+          <p className="text-white font-bold text-[34px] sm:text-[44px] leading-none mt-1.5 tabular-nums">
+            {totalHours.toLocaleString('es-ES')}
+            <span className="text-[16px] font-medium text-white/45 ml-1">h</span>
+          </p>
+          <p className="text-[11px] text-white/35 mt-1">
+            {desgloseHoras || `${workedDays} días trabajados`}
+          </p>
+        </div>
+      ) : (
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -693,6 +754,7 @@ export function HoursTracker({
           </div>
         </div>
       </motion.div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-3 flex-1 min-h-0">
         {/* Calendario del periodo */}
@@ -733,9 +795,10 @@ export function HoursTracker({
             </div>
           )}
 
-          {/* Editor del día seleccionado */}
+          {/* Editor del día seleccionado. `!soloMirando` es el cinturón además
+              del tirante: openDay ya no abre nada cuando solo se mira. */}
           <AnimatePresence>
-            {selectedDay && (
+            {selectedDay && !soloMirando && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
@@ -856,8 +919,11 @@ export function HoursTracker({
               return (
                 <motion.button
                   key={key}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => openDay(key)}
+                  whileTap={soloMirando ? undefined : { scale: 0.95 }}
+                  // Solo lectura: la RLS de la 212 le da SELECT de work_hours y
+                  // nada más, así que un clic acabaría en un error de guardado.
+                  onClick={soloMirando ? undefined : () => openDay(key)}
+                  disabled={soloMirando}
                   className={`group relative min-h-[52px] rounded-xl border flex flex-col items-start justify-between p-2 transition-colors ${
                     isSelected
                       ? 'border-[#FF6600] bg-[#FF6600]/15'
@@ -915,11 +981,17 @@ export function HoursTracker({
                     ? `${(totalHours / workedDays).toFixed(1).replace('.', ',')} h`
                     : '—',
                 },
-                { label: 'Citas cualificadas', value: String(periodQualified.length) },
-                {
-                  label: 'Tarifa aplicada',
-                  value: tarifasDelCiclo,
-                },
+                // Las dos siguientes son dinero: cuántas comisiones lleva y a
+                // cuánto se le paga la hora. Fuera cuando solo se supervisa.
+                ...(soloMirando
+                  ? []
+                  : [
+                      {
+                        label: 'Citas cualificadas',
+                        value: String(periodQualified.length),
+                      },
+                      { label: 'Tarifa aplicada', value: tarifasDelCiclo },
+                    ]),
               ].map((r) => (
                 <div key={r.label} className="flex items-baseline justify-between gap-2">
                   <span className="text-[12px] text-white/40">{r.label}</span>
@@ -932,7 +1004,7 @@ export function HoursTracker({
             {/* Ya no hay tarifas por persona: todos van a la del mes. Lo que sí
                 merece decirse es cuándo NO hay tarifa puesta para ese mes, porque
                 entonces se está cobrando con los valores por defecto. */}
-            {mesesSinTarifa.length > 0 && (
+            {mesesSinTarifa.length > 0 && !soloMirando && (
               <p className="mt-2 text-[10px] text-yellow-300/80">
                 Sin tarifa puesta en {mesesSinTarifa.map(nombreCortoDeMes).join(' y ')}: esa parte
                 del ciclo se está pagando a la de por defecto.
@@ -940,6 +1012,10 @@ export function HoursTracker({
             )}
           </div>
 
+          {/* Comisiones. Fuera cuando solo se supervisa: es dinero, y además las
+              citas que llegan del servidor son solo las propias, así que aquí
+              saldría un cero que no es cero. */}
+          {!soloMirando && (
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
             <div className="flex items-center justify-between gap-2 mb-2">
               <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider flex items-center gap-1.5">
@@ -1115,6 +1191,7 @@ export function HoursTracker({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 

@@ -50,7 +50,13 @@ interface ColdLeadsTableProps {
   currentUserId: string
   /** Hace falta entero para poder registrar interacciones sin salir de la tabla */
   currentUser: UserProfile
-  isAdmin: boolean
+  /**
+   * ¿Puede trabajar leads que no son suyos? Hereda el valor del board, donde
+   * está explicado; aquí solo decide el `canEdit` de la edición en línea
+   * (estado y fecha de rellamada). Se llamaba `isAdmin` y ya no lo es: también
+   * lo pone a true el permiso 'equipo-comercial', que no es un rol.
+   */
+  puedeVerTodos: boolean
   selectedId: string | null
   onSelect: (id: string) => void
   /** Abre la ficha completa de ese lead */
@@ -419,7 +425,7 @@ export function ColdLeadsTable({
   leads,
   currentUserId,
   currentUser,
-  isAdmin,
+  puedeVerTodos,
   selectedId,
   onSelect,
   onOpenDetail,
@@ -500,7 +506,7 @@ export function ColdLeadsTable({
         </thead>
         <tbody>
           {leads.map((l) => {
-            const canEdit = isAdmin || l.assigned_to === currentUserId
+            const canEdit = puedeVerTodos || l.assigned_to === currentUserId
             const color = COLD_STATUS_DOTS[l.status]
             const active = l.id === selectedId
             const abierto = abiertos.has(l.id)

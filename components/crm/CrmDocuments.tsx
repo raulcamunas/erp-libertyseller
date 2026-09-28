@@ -16,6 +16,23 @@ interface CrmDocumentsProps {
   label: string
   documents: CrmDocument[]
   onChange: (docs: CrmDocument[]) => void
+  /**
+   * ¿Puede subir y quitar PDFs, o solo abrir los que ya hay?
+   *
+   * Solo dirección. `crm_documents` se quedó FUERA del permiso suelto
+   * 'equipo-comercial' a propósito (ver la 212): el bucket 'crm-documents' es
+   * público desde la 080, así que el `file_url` que guarda esa tabla abre el
+   * contrato sin pedir nada. Quien solo supervisa llamadas no necesita eso.
+   *
+   * Efecto práctico, para que no se diagnostique como un fallo: a quien entra
+   * por el permiso suelto la RLS le devuelve CERO filas —sin error, porque una
+   * política filtra, no revienta— y esta sección le sale con el texto de
+   * «sin subir». Y el INSERT y el DELETE del bucket siguen pidiendo
+   * is_admin_or_partner (080), así que enseñarle el recuadro de «arrastra un
+   * PDF» sería prometer una subida que acaba en «No se pudo subir el
+   * documento» y nada más. Se esconde.
+   */
+  puedeEditar: boolean
 }
 
 function isPdf(file: File) {
@@ -38,6 +55,7 @@ export function CrmDocuments({
   label,
   documents,
   onChange,
+  puedeEditar,
 }: CrmDocumentsProps) {
   const supabase = createClient()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -125,17 +143,26 @@ export function CrmDocuments({
           >
             <Download className="h-3.5 w-3.5" />
           </a>
-          <button
-            type="button"
-            onClick={() => handleRemove(doc)}
-            className="text-white/30 hover:text-red-400 transition-colors flex-shrink-0"
-            title="Quitar"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          {/* Quitar un PDF es DELETE en el bucket, y eso sigue siendo de
+              dirección (080). Quien solo supervisa lo abre, no lo retira. */}
+          {puedeEditar && (
+            <button
+              type="button"
+              onClick={() => handleRemove(doc)}
+              className="text-white/30 hover:text-red-400 transition-colors flex-shrink-0"
+              title="Quitar"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       ))}
 
+      {/* EL RECUADRO DE SUBIR SOLO PARA DIRECCIÓN. El bucket 'crm-documents'
+          pide is_admin_or_partner para el INSERT (080) y el permiso suelto
+          'equipo-comercial' no lo cambia: enseñarlo sería prometer una subida
+          que acaba en «No se pudo subir el documento» y nada más. */}
+      {puedeEditar && (
       <motion.div
         onDragOver={(e) => {
           e.preventDefault()
@@ -173,6 +200,15 @@ export function CrmDocuments({
           {uploading ? 'Subiendo...' : `Arrastra el PDF de ${label.toLowerCase()} o selecciónalo`}
         </span>
       </motion.div>
+      )}
+
+      {/* Sin el recuadro y sin ningún PDF, la sección quedaría en blanco y
+          parecería que está cargando todavía. */}
+      {!puedeEditar && mine.length === 0 && (
+        <p className="text-[11px] text-white/25">
+          Sin {label.toLowerCase()} subida. Subirla es de dirección.
+        </p>
+      )}
     </div>
   )
 }
