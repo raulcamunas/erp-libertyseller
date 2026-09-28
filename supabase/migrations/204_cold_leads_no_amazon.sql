@@ -9,8 +9,10 @@
 -- Abre la línea de captación nueva: tiendas online (PrestaShop, Shopify) que NO
 -- venden todavía en Amazon, sacadas de Store Leads y cruzadas con el BORME.
 -- El Excel de origen es «Tiendas por sectores - reparto comerciales.xlsx»
--- (23.320 tiendas con contacto). En esta tanda entran 2.000: los lotes de José
--- y de Daniela.
+-- (23.320 tiendas con contacto). En esta tanda entran 3.000: los lotes de José,
+-- Daniela y María Fernanda, 1.000 cada uno. Los tres traen la misma mezcla de
+-- sectores a propósito —Belleza 270, Hogar 230, Mascotas 190…— para que sus
+-- números sean comparables entre sí desde el primer día.
 --
 --
 -- ============ POR QUÉ 18 COLUMNAS NUEVAS Y NO RECICLAR LAS QUE HAY ==========

@@ -50,6 +50,9 @@ const LISTA = 'No Amazon V1'
 const HOJAS: Array<{ hoja: string; comercial: string }> = [
   { hoja: 'José (1.000)', comercial: 'jose@libertyseller.com' },
   { hoja: 'Daniela (1.000)', comercial: 'daniela@libertyseller.es' },
+  // María Fernanda entró en el Excel después de la primera versión de este
+  // script: su hoja salió de «Resto con teléfono», que bajó de 15.586 a 14.586.
+  { hoja: 'María Fernanda (1.000)', comercial: 'mariafernanda@libertyseller.es' },
 ]
 
 /** Las seis columnas que rellena el comercial. Vienen vacías y NO se importan:
