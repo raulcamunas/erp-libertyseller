@@ -19,7 +19,7 @@ import {
   ChevronLeft,
   CalendarClock,
   AlertTriangle,
-  Store,
+  Signal,
 } from 'lucide-react'
 import {
   ColdLead,
@@ -29,8 +29,6 @@ import {
   COLD_STATUS_LABELS,
   COLD_STATUS_DOTS,
   COLD_SORT_LABELS,
-  ColdLeadTipo,
-  COLD_TIPO_LABELS,
   COLD_NIVEL_DOTS,
   COLD_NIVEL_LABELS,
   esTiendaOnline,
@@ -122,7 +120,16 @@ export function ColdCallingBoard({
    * habla de su cuenta; a la tienda, de entrar. Mezclarlas en la misma lista de
    * trabajo es cambiar de discurso cada dos filas.
    */
-  const [tipoFilter, setTipoFilter] = useState<ColdLeadTipo | 'all'>('all')
+  /**
+   * EL NIVEL, QUE ES EL ORDEN DE TRABAJO DE LA LISTA NUEVA.
+   *
+   * 1 potencial alto, 2 muy buenos números, 3 leads correctos. Solo lo traen
+   * las tiendas online, así que este filtro solo se pinta cuando se está
+   * mirando una lista suya: a un vendedor de Amazon el nivel no le aplica y un
+   * filtro que deja la pantalla vacía sin explicar por qué es peor que no
+   * tenerlo.
+   */
+  const [nivelFilter, setNivelFilter] = useState<number | 'all'>('all')
   const [minRev, setMinRev] = useState('')
   const [maxRev, setMaxRev] = useState('')
   const [sort, setSort] = useState<ColdSort>('due_first')
@@ -171,8 +178,8 @@ export function ColdCallingBoard({
         }
         if (typeof p.statusFilter === 'string') setStatusFilter(p.statusFilter)
         if (typeof p.listFilter === 'string') setListFilter(p.listFilter)
-        if (p.tipoFilter === 'seller_amazon' || p.tipoFilter === 'tienda_online') {
-          setTipoFilter(p.tipoFilter)
+        if (p.nivelFilter === 1 || p.nivelFilter === 2 || p.nivelFilter === 3) {
+          setNivelFilter(p.nivelFilter)
         }
         if (typeof p.minRev === 'string') setMinRev(p.minRev)
         if (typeof p.maxRev === 'string') setMaxRev(p.maxRev)
@@ -195,7 +202,7 @@ export function ColdCallingBoard({
         view,
         statusFilter,
         listFilter,
-        tipoFilter,
+        nivelFilter,
         minRev,
         maxRev,
         sort,
@@ -208,7 +215,7 @@ export function ColdCallingBoard({
     view,
     statusFilter,
     listFilter,
-    tipoFilter,
+    nivelFilter,
     minRev,
     maxRev,
     sort,
@@ -218,7 +225,7 @@ export function ColdCallingBoard({
   const hasFilters =
     statusFilter !== 'all' ||
     listFilter !== 'all' ||
-    tipoFilter !== 'all' ||
+    nivelFilter !== 'all' ||
     minRev !== '' ||
     maxRev !== '' ||
     search !== '' ||
@@ -227,7 +234,7 @@ export function ColdCallingBoard({
   function resetFilters() {
     setStatusFilter('all')
     setListFilter('all')
-    setTipoFilter('all')
+    setNivelFilter('all')
     setMinRev('')
     setMaxRev('')
     setSearch('')
@@ -284,7 +291,7 @@ export function ColdCallingBoard({
     const byPeso = (a: ColdLead, b: ColdLead) => pesoOrden(b) - pesoOrden(a)
 
     return scoped
-      .filter((l) => (tipoFilter === 'all' ? true : l.tipo_lead === tipoFilter))
+      .filter((l) => (nivelFilter === 'all' ? true : l.nivel === nivelFilter))
       .filter((l) => (statusFilter === 'all' ? true : l.status === statusFilter))
       .filter((l) =>
         listFilter === 'all' ? true : (l.source_list || 'Sin lista') === listFilter
@@ -293,12 +300,17 @@ export function ColdCallingBoard({
         // Rango de facturación. Si hay rango activo, los leads sin importe
         // quedan fuera: no se puede afirmar que caigan dentro.
         //
-        // Y NO se aplica cuando se están mirando solo tiendas online: ninguna
-        // tiene `revenue_monthly`, así que un rango olvidado en las
-        // preferencias de ayer dejaría la pantalla vacía sin decir por qué. El
-        // rango tampoco se enseña en ese caso (ver más abajo), porque comparar
-        // euros observados con dólares estimados no significa nada.
-        if (tipoFilter === 'tienda_online') return true
+        // Y NO se aplica cuando se están mirando tiendas online: ninguna tiene
+        // `revenue_monthly`, así que un rango olvidado en las preferencias de
+        // ayer dejaría la pantalla vacía sin decir por qué. El rango tampoco se
+        // enseña en ese caso (ver más abajo), porque comparar euros observados
+        // con dólares estimados no significa nada.
+        //
+        // Antes esto miraba el filtro de «tipo de lead», que era una fila de
+        // botones aparte. Se quitó por confusa —la lista ya dice qué se está
+        // mirando— así que ahora se deduce de la lista elegida. El efecto es el
+        // mismo y hay un botón menos.
+        if (l.tipo_lead === 'tienda_online') return true
         const min = minRev.trim() === '' ? null : Number(minRev)
         const max = maxRev.trim() === '' ? null : Number(maxRev)
         if (min === null && max === null) return true
@@ -349,12 +361,12 @@ export function ColdCallingBoard({
         if (!ad && bd) return 1
         return byPeso(a, b)
       })
-  }, [scoped, search, statusFilter, listFilter, tipoFilter, minRev, maxRev, sort])
+  }, [scoped, search, statusFilter, listFilter, nivelFilter, minRev, maxRev, sort])
 
   // Al cambiar de filtro se vuelve al principio de la lista
   useEffect(() => {
     setVisible(PAGE)
-  }, [search, statusFilter, ownerFilter, listFilter, tipoFilter, minRev, maxRev, sort])
+  }, [search, statusFilter, ownerFilter, listFilter, nivelFilter, minRev, maxRev, sort])
 
   // Si al cambiar de comercial la lista elegida ya no existe, se resetea
   useEffect(() => {
@@ -366,25 +378,39 @@ export function ColdCallingBoard({
   /** Cuántos hay de cada clase, para que los chips digan un número y no solo
       un nombre. Sale de `scoped` —la cartera de quien mira— y no de `filtered`,
       que ya lleva este filtro aplicado. */
-  const tipoCounts = useMemo(() => {
-    let tiendas = 0
-    for (const l of scoped) if (esTiendaOnline(l)) tiendas++
-    return { tienda_online: tiendas, seller_amazon: scoped.length - tiendas }
-  }, [scoped])
+  /**
+   * CUÁNTAS HAY DE CADA NIVEL EN LO QUE SE ESTÁ MIRANDO.
+   *
+   * Se cuenta sobre la LISTA ya elegida y no sobre la cartera entera: el nivel
+   * solo tiene sentido dentro de una lista de tiendas, y contar los de todas
+   * daría números que no cuadran con lo que se ve.
+   */
+  const enLaLista = useMemo(
+    () =>
+      listFilter === 'all'
+        ? scoped
+        : scoped.filter((l) => (l.source_list || 'Sin lista') === listFilter),
+    [scoped, listFilter]
+  )
 
-  // SI EN LA CARTERA QUE SE MIRA NO QUEDA NINGÚN LEAD DE LA CLASE FILTRADA, SE
-  // QUITA EL FILTRO. Es el mismo criterio que la lista de origen de arriba, y
-  // aquí deja además sin salida:
-  //
-  // los chips de «Tipo de lead» solo se pintan cuando hay tiendas online, y el
-  // filtro se recuerda de un día para otro en localStorage. Un admin que mire
-  // «Tiendas online» y luego elija a un comercial que solo tiene vendedores de
-  // Amazon se queda con la pantalla vacía, sin los chips —porque ya no hay
-  // tiendas que contar— y por tanto sin ningún sitio donde deshacerlo. Parece
-  // que le han desaparecido los leads.
+  const nivelCounts = useMemo(() => {
+    const c: Record<number, number> = { 1: 0, 2: 0, 3: 0 }
+    for (const l of enLaLista) if (l.nivel === 1 || l.nivel === 2 || l.nivel === 3) c[l.nivel]++
+    return c
+  }, [enLaLista])
+
+  /**
+   * SI EN LO QUE SE MIRA NO QUEDA NINGÚN LEAD DEL NIVEL FILTRADO, SE QUITA EL
+   * FILTRO. Sin esto se queda sin salida, y no es hipotético: los botones de
+   * nivel solo se pintan cuando hay tiendas, y el filtro se recuerda de un día
+   * para otro en localStorage. Quien deje puesto «Nivel 1» y mañana abra una
+   * lista de vendedores de Amazon vería la pantalla vacía, sin los botones
+   * —porque ya no hay niveles que contar— y por tanto sin ningún sitio donde
+   * deshacerlo. Parece que le han desaparecido los leads.
+   */
   useEffect(() => {
-    if (tipoFilter !== 'all' && tipoCounts[tipoFilter] === 0) setTipoFilter('all')
-  }, [tipoCounts, tipoFilter])
+    if (nivelFilter !== 'all' && nivelCounts[nivelFilter] === 0) setNivelFilter('all')
+  }, [nivelCounts, nivelFilter])
 
   const counts = useMemo(() => {
     const map = new Map<ColdLeadStatus, number>()
@@ -583,46 +609,56 @@ export function ColdCallingBoard({
       </div>
       )}
 
-      {/* QUÉ CLASE DE LEAD. Solo aparece cuando hay de las dos: mientras en la
-          base solo haya vendedores de Amazon, esta fila no existe y la pantalla
-          se ve exactamente como se veía. */}
-      {view !== 'rellamadas' && tipoCounts.tienda_online > 0 && (
+      {/* EL NIVEL, que es el orden de trabajo de la lista de tiendas.
+          Solo aparece cuando en la lista que se está mirando hay niveles que
+          contar, o sea cuando son tiendas online. En una lista de vendedores de
+          Amazon esta fila no existe: a ellos el nivel no les aplica.
+
+          Aquí había antes una fila de «Tipo de lead» (Todos · Vendedores de
+          Amazon · Tiendas online). Se quitó porque decía dos veces lo mismo: la
+          lista de abajo ya separa unos de otros —«No Amazon V1» son tiendas y
+          «José V2» son vendedores— y tener los dos filtros invitaba a cruzarlos
+          y quedarse con la pantalla vacía. */}
+      {view !== 'rellamadas' &&
+        nivelCounts[1] + nivelCounts[2] + nivelCounts[3] > 0 && (
         <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
           <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
-            <Store className="h-3 w-3" /> Tipo de lead
+            <Signal className="h-3 w-3" /> Nivel
           </span>
-          {([
-            { id: 'all' as const, label: 'Todos', count: scoped.length },
-            {
-              id: 'seller_amazon' as const,
-              label: COLD_TIPO_LABELS.seller_amazon,
-              count: tipoCounts.seller_amazon,
-            },
-            {
-              id: 'tienda_online' as const,
-              label: COLD_TIPO_LABELS.tienda_online,
-              count: tipoCounts.tienda_online,
-            },
-          ]).map((t) => (
+          <button
+            type="button"
+            onClick={() => setNivelFilter('all')}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+              nivelFilter === 'all'
+                ? 'border-white/25 bg-white/[0.08] text-white'
+                : 'border-white/10 text-white/40 hover:text-white/80'
+            }`}
+          >
+            Todos ({nivelCounts[1] + nivelCounts[2] + nivelCounts[3]})
+          </button>
+          {[1, 2, 3].map((n) => (
             <button
-              key={t.id}
+              key={n}
               type="button"
-              onClick={() => setTipoFilter(t.id)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-                tipoFilter === t.id
+              onClick={() => setNivelFilter(n)}
+              disabled={nivelCounts[n] === 0}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                nivelFilter === n
                   ? 'border-white/25 bg-white/[0.08] text-white'
                   : 'border-white/10 text-white/40 hover:text-white/80'
               }`}
             >
-              {t.label} ({t.count})
+              <span
+                className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle"
+                style={{ background: COLD_NIVEL_DOTS[n] }}
+              />
+              {COLD_NIVEL_LABELS[n]} ({nivelCounts[n]})
             </button>
           ))}
-          {tipoFilter === 'tienda_online' && (
-            <span className="text-[10px] text-amber-300/60">
-              Tiendas que aún no venden en Amazon. Comprueba lo primero si ya
-              están dentro.
-            </span>
-          )}
+          <span className="text-[10px] text-amber-300/60">
+            Tiendas que aún no venden en Amazon. Comprueba lo primero si ya
+            están dentro.
+          </span>
         </div>
       )}
 
@@ -796,7 +832,7 @@ export function ColdCallingBoard({
           Y tampoco se enseña mirando solo tiendas online: ninguna tiene
           facturación observada, así que el rango las dejaría todas fuera y la
           pantalla se quedaría vacía sin explicar por qué. */}
-      {view !== 'rellamadas' && tipoFilter !== 'tienda_online' && (
+      {view !== 'rellamadas' && nivelCounts[1] + nivelCounts[2] + nivelCounts[3] === 0 && (
       <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
         <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
           <Euro className="h-3 w-3" /> Facturación
