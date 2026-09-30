@@ -34,6 +34,25 @@ import { anchoEnModulos, code128B } from './code128'
  * El título se recorta a lo que quepa: es informativo para quien pega, mientras
  * que lo que lee el escáner es el código. Recortarlo es correcto; encogerlo
  * hasta que no se lea, no.
+ *
+ *
+ * ============ Y EL SKU, QUE LO PONEMOS NOSOTROS ============
+ *
+ * Amazon no imprime el SKU del vendedor en su etiqueta: pone el título y punto.
+ * Y el título lo TRUNCA POR EL MEDIO, así que de «COZSERIES Zapatillas de Casa
+ * Mujer | Calzado Anatómico Verano Hecho en España 600BURDEOS-38» acaba
+ * saliendo «COZSERIES Zapatill…aña 600BURDEOS-38». Cuando el código interno no
+ * está al final del título, quien empaqueta se queda con «COZSERIES Botines
+ * de…a | Negro | Talla 38» y no sabe qué modelo tiene en la mano.
+ *
+ * El dato que lo resuelve ya existe y es NUESTRO: el SKU. En estos catálogos
+ * lleva dentro el modelo, el color y la talla —«602A BEIG/39», «AD-XR024 MORADO
+ * 36/37»—, o sea justo lo que el almacén necesita leer.
+ *
+ * VA COMO TEXTO, NUNCA COMO UN SEGUNDO CÓDIGO DE BARRAS. Amazon obliga a que en
+ * la unidad solo haya UN código escaneable y a tapar todos los demás; imprimir
+ * el SKU codificado al lado del FNSKU sería un incumplimiento de preparación, y
+ * de los que se pagan. Texto legible: ni lo mira el escáner ni infringe nada.
  */
 
 /** Hojas de etiquetas que se usan en Europa. Medidas en milímetros */
@@ -88,6 +107,13 @@ export const FORMATOS: FormatoHoja[] = [
 export interface EtiquetaProducto {
   fnsku: string
   titulo: string
+  /**
+   * El SKU del vendedor, que es lo que de verdad identifica la referencia en el
+   * almacén. Obligatorio a propósito y no opcional: si fuera `sku?`, el día que
+   * alguien añada otra pantalla que imprima etiquetas se le olvidaría, no daría
+   * ningún error, y el problema volvería sin que nadie supiera por qué.
+   */
+  sku: string
   /** 'Nuevo' salvo que se diga otra cosa. Amazon lo exige en la etiqueta */
   condicion?: string
   /** Cuántas iguales hay que imprimir */
@@ -102,12 +128,147 @@ export interface ResultadoEtiquetas {
   descartadas: Array<{ fnsku: string; motivo: string }>
 }
 
+/** Separación entre renglones, en milímetros. Medido sobre las tres hojas de FORMATOS */
+const SALTO_SKU = 3.6
+const SALTO_TITULO = 2.6
+const SALTO_CONDICION = 2.4
+const MARGEN_ABAJO = 1.2
+
+/**
+ * QUIÉN LEE CADA RENGLÓN, QUE ES LO QUE FIJA LOS TAMAÑOS.
+ *
+ *   · el código de barras   -> lo lee el ESCÁNER de Amazon. Nadie más.
+ *   · el FNSKU en texto     -> solo si el escáner falla y hay que teclearlo.
+ *                              Es un dato de respaldo, así que va en redonda.
+ *   · EL SKU                -> lo lee la PERSONA que está empaquetando, y es el
+ *                              único renglón que le dice qué tiene en la mano.
+ *                              Va en negrita y es el texto MÁS GRANDE de la
+ *                              etiqueta, por encima del FNSKU.
+ *   · el título             -> contexto. Con doscientos pares delante nadie lee
+ *                              «Calzado Anatómico Verano Primavera».
+ *
+ * La primera versión ponía el FNSKU en negrita a 8 y el SKU a 7: al imprimir la
+ * hoja se veía que el ojo iba al FNSKU —diez caracteres que no significan nada
+ * para quien empaqueta— y el SKU se perdía entre el título. Por eso se invierte.
+ */
+/**
+ * LA ZONA MUDA: el blanco a los lados del código, en milímetros.
+ *
+ * Estaba en 2 mm y SE QUEDABA CORTA en los tres formatos. No es una cuestión de
+ * estética: el Code 128 exige un blanco de al menos DIEZ MÓDULOS a cada lado, y
+ * es lo que usa el escáner para saber dónde empieza y acaba el código. Con 2 mm
+ * hacían falta 4,1 mm en la hoja A4 de 21, 4,55 en la de 24 y 3,66 en el rollo
+ * térmico. Un código así se imprime perfecto y a veces se lee y a veces no,
+ * que es la peor avería posible: aparece en el almacén de Amazon, no aquí.
+ *
+ * 6,35 mm son las 0,25 pulgadas que pide Amazon en sus requisitos de etiquetado,
+ * y de paso cumplen el mínimo del Code 128 con holgura en los tres formatos. El
+ * código sale más estrecho —módulo de 12 a 15,6 milésimas de pulgada en vez de
+ * 14 a 18— y sigue muy por encima de lo que lee cualquier escáner.
+ *
+ * No se fía de la cuenta: comprobarBarras() la rehace para cada etiqueta, así
+ * que si mañana alguien añade un formato estrecho a FORMATOS se entera aquí.
+ */
+const ZONA_MUDA = 6.35
+
+/**
+ * Lo más fino que puede ser un módulo y seguir leyéndose. 0,19 mm son 7,5
+ * milésimas de pulgada, el mínimo de GS1 para distribución general. Por debajo
+ * de eso no se imprime: se dice cuál y por qué.
+ */
+const MODULO_MINIMO = 0.19
+
+/**
+ * El blanco a los lados del TEXTO. No es la zona muda —eso es solo del código—,
+ * es para que una impresora mal alineada no se coma la última letra del SKU.
+ * El mismo para el SKU y para el título: antes el SKU llegaba 0,5 mm más cerca
+ * del borde que el título y en la hoja impresa se notaba.
+ */
+const MARGEN_TEXTO = 2
+
+const PT_FNSKU = 8
+const PT_SKU = 9
+const PT_TITULO = 6
+
+/**
+ * El SKU en una sola línea, encogiendo la letra antes que recortarla.
+ *
+ * ESTE ES EL DATO QUE SE VA A LEER, así que cortarlo por la mitad sería tirar la
+ * etiqueta: «602A BEIG/3» no distingue un 39 de un 35, y el fallo es peor que no
+ * poner nada porque parece información buena. Así que primero se prueba a 9 pt,
+ * y si no cabe se baja de medio en medio hasta 5 pt, que es el suelo por debajo
+ * del cual una impresora térmica ya no lo saca limpio.
+ *
+ * Solo si ni a 5 pt cabe —un SKU disparatado— se recorta, y entonces se recorta
+ * POR DELANTE y con puntos suspensivos: en estos catálogos lo que identifica
+ * está al final («… MORADO 36/37»), igual que en la etiqueta de Amazon.
+ */
+function ajustarSku(doc: jsPDF, sku: string, anchoUtil: number): { texto: string; tamano: number } {
+  let tamano = PT_SKU
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(tamano)
+
+  while (doc.getTextWidth(sku) > anchoUtil && tamano > 5) {
+    tamano -= 0.5
+    doc.setFontSize(tamano)
+  }
+  if (doc.getTextWidth(sku) <= anchoUtil) return { texto: sku, tamano }
+
+  let recortado = sku
+  while (recortado.length > 1 && doc.getTextWidth('…' + recortado) > anchoUtil) {
+    recortado = recortado.slice(1)
+  }
+  return { texto: '…' + recortado, tamano }
+}
+
+/**
+ * ¿Se va a poder leer este código?
+ *
+ * Dos condiciones, y las dos tienen que cumplirse:
+ *   · el módulo no puede ser más fino que MODULO_MINIMO, o la impresora lo
+ *     emborrona;
+ *   · la zona muda tiene que llegar a diez módulos, que es lo que pide el
+ *     Code 128 para reconocer el principio y el final.
+ *
+ * Con los tres formatos de FORMATOS las dos se cumplen de sobra. Existe para el
+ * día que alguien añada una etiqueta estrecha: mejor que no salga y se diga, a
+ * que salgan cuatrocientas pegatinas que el almacén no puede escanear.
+ */
+function barrasLegibles(anchoModulo: number): boolean {
+  return anchoModulo >= MODULO_MINIMO && ZONA_MUDA >= anchoModulo * 10
+}
+
 /**
  * Dibuja una etiqueta en la posición dada.
  *
- * El código de barras se escala para dejar una zona muda de 2 mm a cada lado: es
- * lo que el escáner necesita para saber dónde empieza el código, y sin ella un
- * código perfectamente impreso no se lee.
+ * El código se escala para dejar la zona muda a cada lado —ver ZONA_MUDA—, que es
+ * lo que el escáner necesita para saber dónde empieza el código; sin ella un
+ * código perfectamente impreso unas veces se lee y otras no.
+ *
+ *
+ * ============ EL ORDEN DE LOS RENGLONES NO ES CAPRICHOSO ============
+ *
+ *      ‖‖‖‖‖‖‖‖‖‖‖‖‖‖‖‖‖‖‖      código de barras (FNSKU)
+ *          X002OWACXP           el FNSKU en texto, por si el escáner falla
+ *         602A BEIG/39          EL SKU, en negrita  <- lo que lee quien empaqueta
+ *   COZSERIES Zapatillas de     el título, las líneas que quepan
+ *      Casa Mujer | Verano
+ *            Nuevo              la condición, pegada al fondo
+ *
+ * El SKU va JUSTO DEBAJO DEL FNSKU y en negrita porque es el renglón que se
+ * busca con la vista: quien tiene doscientos pares delante mira una cosa, y esa
+ * cosa tiene que estar siempre en el mismo sitio y no perderse entre el título.
+ *
+ * El título baja a tercer renglón y se queda con lo que sobre. Es informativo
+ * —el escáner lee el código y el humano lee el SKU—, así que es lo correcto que
+ * ceda el sitio. Las líneas se calculan del hueco que quede, no son un número
+ * fijo: en la hoja A4 de 21 caben tres y en el rollo térmico de 32 mm caben dos,
+ * y con un `slice(0, 2)` a pelo la etiqueta grande desperdiciaba una línea.
+ *
+ * La condición se ancla ABAJO y no detrás del título, que es como estaba: si el
+ * título ocupaba una sola línea, «Nuevo» subía y quedaba un hueco blanco raro, y
+ * si ocupaba dos, se apretaba contra el borde. Amazon la exige, así que tiene
+ * sitio propio.
  */
 function dibujar(
   doc: jsPDF,
@@ -120,9 +281,10 @@ function dibujar(
   const modulos = code128B(etiqueta.fnsku)
   if (!modulos) return false
 
-  const ZONA_MUDA = 2
   const anchoUtil = ancho - ZONA_MUDA * 2
   const anchoModulo = anchoUtil / anchoEnModulos(modulos)
+  if (!barrasLegibles(anchoModulo)) return false
+  const centro = x + ancho / 2
 
   // El alto del código: la mitad de la etiqueta, dejando sitio al texto
   const altoBarra = Math.max(8, alto * 0.45)
@@ -138,23 +300,39 @@ function dibujar(
 
   // El FNSKU en texto, debajo del código: si el escáner falla se teclea
   doc.setTextColor(0, 0, 0)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(8)
-  doc.text(etiqueta.fnsku, x + ancho / 2, yBarra + altoBarra + 3.2, { align: 'center' })
-
-  // El título, recortado a lo que quepa. Dos líneas como mucho.
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6)
-  const lineas = doc.splitTextToSize(etiqueta.titulo, ancho - 4).slice(0, 2) as string[]
-  let yTexto = yBarra + altoBarra + 6.6
+  doc.setFontSize(PT_FNSKU)
+  const yFnsku = yBarra + altoBarra + 3.2
+  doc.text(etiqueta.fnsku, centro, yFnsku, { align: 'center' })
+
+  // EL SKU. Negrita, el más grande, y encogido antes que recortado: ajustarSku().
+  const ySku = yFnsku + SALTO_SKU
+  const sku = ajustarSku(doc, etiqueta.sku, ancho - MARGEN_TEXTO * 2)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(sku.tamano)
+  doc.text(sku.texto, centro, ySku, { align: 'center' })
+
+  // El título, con las líneas que quepan por debajo del SKU dejando sitio a la
+  // condición. El número de líneas se calcula, no es fijo: en la hoja A4 de 21
+  // caben tres y en el rollo térmico de 32 mm cabe una.
+  const suelo = y + alto - MARGEN_ABAJO
+  const maxLineas = Math.max(1, Math.floor((suelo - SALTO_CONDICION - ySku) / SALTO_TITULO))
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(PT_TITULO)
+  const lineas = (doc.splitTextToSize(etiqueta.titulo, ancho - MARGEN_TEXTO * 2) as string[]).slice(0, maxLineas)
+  let yTexto = ySku
   for (const linea of lineas) {
-    doc.text(linea, x + ancho / 2, yTexto, { align: 'center' })
-    yTexto += 2.6
+    yTexto += SALTO_TITULO
+    doc.text(linea, centro, yTexto, { align: 'center' })
   }
 
-  // La condición: Amazon la exige y es lo que más se olvida
-  doc.setFontSize(6)
-  doc.text(etiqueta.condicion ?? 'Nuevo', x + ancho / 2, Math.min(yTexto + 0.4, y + alto - 1.5), {
+  // La condición va PEGADA AL TÍTULO, no anclada al fondo de la etiqueta.
+  // Anclarla abajo dejaba un hueco blanco de medio centímetro en las
+  // referencias de título corto y parecía que faltaba algo. El clamp es para que
+  // un título de tres líneas no la empuje fuera del recuadro.
+  doc.setFontSize(PT_TITULO)
+  doc.text(etiqueta.condicion ?? 'Nuevo', centro, Math.min(yTexto + SALTO_CONDICION, suelo), {
     align: 'center',
   })
 
@@ -186,11 +364,31 @@ export function hojaDeEtiquetas(
   const planas: EtiquetaProducto[] = []
   for (const e of etiquetas) {
     if (!e.fnsku) {
-      descartadas.push({ fnsku: '(sin FNSKU)', motivo: `${e.titulo}: no tenemos su FNSKU` })
+      // Se nombra por el SKU y no por el título: el título de Amazon es larguísimo
+      // y casi idéntico entre tallas, así que «no tenemos el FNSKU de COZSERIES
+      // Zapatillas de Casa Mujer…» no dice CUÁL falta. El SKU sí.
+      descartadas.push({ fnsku: '(sin FNSKU)', motivo: `${e.sku}: no tenemos su FNSKU` })
       continue
     }
-    if (!code128B(e.fnsku)) {
-      descartadas.push({ fnsku: e.fnsku, motivo: 'tiene caracteres que Code 128 no admite' })
+    const modulos = code128B(e.fnsku)
+    if (!modulos) {
+      descartadas.push({
+        fnsku: e.fnsku,
+        motivo: `${e.sku}: su FNSKU tiene caracteres que Code 128 no admite`,
+      })
+      continue
+    }
+    // La legibilidad se comprueba AQUÍ y no dentro de dibujar(), aunque dibujar()
+    // vuelva a mirarlo: aquí es donde está `descartadas`, y una etiqueta que no
+    // sale tiene que decir por qué. Si se deja solo en dibujar(), devuelve false,
+    // el contador no sube y nadie se entera de que faltan cien pegatinas.
+    if (!barrasLegibles((formato.etiqueta.ancho - ZONA_MUDA * 2) / anchoEnModulos(modulos))) {
+      descartadas.push({
+        fnsku: e.fnsku,
+        motivo:
+          `${e.sku}: en «${formato.nombre}» el código saldría tan estrecho que no se leería. ` +
+          `Usa una etiqueta más ancha.`,
+      })
       continue
     }
     for (let i = 0; i < e.unidades; i++) planas.push(e)

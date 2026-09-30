@@ -108,6 +108,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return {
         fnsku: l.fnsku ?? delEspejo?.fnsku ?? '',
         titulo: titulo || l.sku,
+        // Nuestro SKU, tal cual está en la remesa. NO el del espejo: si algún día
+        // no coincidieran, el que manda es el de la línea que se va a enviar, que
+        // es lo que el almacén tiene delante.
+        sku: l.sku,
         unidades: l.unidades,
       }
     })
