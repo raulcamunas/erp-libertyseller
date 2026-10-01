@@ -191,42 +191,102 @@ export async function loadPerfiles(): Promise<PerfilesView> {
   }
 
   try {
-    const perfiles = await fetchAll<StockReadProfile>((a, b) =>
+    /**
+     * LAS SEIS LECTURAS A LA VEZ, Y ANTES IBAN UNA DETRÁS DE OTRA.
+     *
+     * Eran siete `await` encadenados sin un solo Promise.all, y NINGUNO necesitaba
+     * el resultado del anterior para lanzarse. A 30-80 ms de ida y vuelta contra
+     * Supabase eso son entre 200 y 600 ms de puro esperar, pagados en cada carga
+     * de la pantalla de Amazon API —porque esta función se llama allí— y otra vez
+     * en cada guardado de la pestaña Origen, que devuelve la vista recargada.
+     *
+     * EL CRUCE CON amazon_clients SE HACE DESPUÉS, no antes. Parecía que esa
+     * consulta dependía de `clientes` —se filtran los que ya están dados de alta—
+     * pero el filtro es JavaScript sobre las dos listas ya traídas: lo que
+     * dependía era el `.filter()`, no el viaje. Esa confusión es justo la que
+     * dejaba la consulta encadenada detrás.
+     *
+     * Cada una conserva su propio try/catch, y eso NO se puede simplificar: los
+     * buzones y los clientes de Amazon viven en migraciones distintas que se
+     * lanzan a mano, así que cada uno tiene que poder faltar sin apagar el resto
+     * de la pestaña. Con un try/catch alrededor del Promise.all entero, que
+     * faltara la 198 apagaría los perfiles, los clientes y el historial.
+     */
+    const [perfiles, clientes, conexiones, resultadoRuns, deAmazon, buzones] = await Promise.all([
+      fetchAll<StockReadProfile>((a, b) =>
+        service
+          .from('stock_read_profiles')
+          .select('*')
+          .order('position', { ascending: true, nullsFirst: false })
+          .order('name', { ascending: true })
+          .order('id')
+          .range(a, b)
+      ),
+      fetchAll<StockClient>((a, b) =>
+        service
+          .from('stock_clients')
+          .select('*')
+          .order('position', { ascending: true, nullsFirst: false })
+          .order('name', { ascending: true })
+          .order('id')
+          .range(a, b)
+      ),
+      fetchAll<DestinoAmazon>((a, b) =>
+        service
+          .from('amazon_connections')
+          .select(DESTINO_FIELDS)
+          .order('name', { ascending: true })
+          .order('id')
+          .range(a, b)
+      ),
       service
-        .from('stock_read_profiles')
+        .from('stock_profile_runs')
         .select('*')
-        .order('position', { ascending: true, nullsFirst: false })
-        .order('name', { ascending: true })
+        .order('created_at', { ascending: false })
         .order('id')
-        .range(a, b)
-    )
+        .limit(RUNS_RECIENTES),
+      /**
+       * Los clientes que solo están en Amazon. Se cruzan por slug más abajo.
+       *
+       * Que `amazon_clients` no exista todavía no es un fallo de esta pantalla:
+       * son dos módulos distintos con dos migraciones distintas, y el sincronismo
+       * funcionaba antes de que existiera Amazon API. Si la tabla no está, esta
+       * lista sale vacía y todo lo demás sigue igual.
+       */
+      fetchAll<{ name: string; slug: string; is_active: boolean }>((a, b) =>
+        service
+          .from('amazon_clients')
+          .select('name, slug, is_active')
+          .order('name', { ascending: true })
+          .range(a, b)
+      ).catch((error) => {
+        if (!isMissingSchema(error)) throw error
+        return [] as Array<{ name: string; slug: string; is_active: boolean }>
+      }),
+      /**
+       * EL CATÁLOGO DE BUZONES, EN SU PROPIO catch Y POR EL MISMO MOTIVO.
+       *
+       * La 198 se lanza a mano en el editor SQL de Supabase, así que el código
+       * puede llegar desplegado antes que ella. Si se dejara caer el error hasta
+       * el catch de fuera, `isMissingSchema` lo tomaría por «falta la 120» y
+       * devolvería `vacio`: la pestaña Origen entera —perfiles, clientes,
+       * conexiones, historial— se apagaría con un cartel pidiendo pegar una
+       * migración que sí está puesta. Aislado aquí, lo único que pasa es que el
+       * desplegable de buzones sale vacío y todo lo demás sigue funcionando.
+       */
+      listarBuzonesElegibles().catch((error) => {
+        if (!isMissingSchema(error)) throw error
+        return [] as BuzonElegible[]
+      }),
+    ])
 
-    const clientes = await fetchAll<StockClient>((a, b) =>
-      service
-        .from('stock_clients')
-        .select('*')
-        .order('position', { ascending: true, nullsFirst: false })
-        .order('name', { ascending: true })
-        .order('id')
-        .range(a, b)
-    )
+    if (resultadoRuns.error) throw resultadoRuns.error
+    const runs = resultadoRuns.data
 
-    const conexiones = await fetchAll<DestinoAmazon>((a, b) =>
-      service
-        .from('amazon_connections')
-        .select(DESTINO_FIELDS)
-        .order('name', { ascending: true })
-        .order('id')
-        .range(a, b)
-    )
-
-    const { data: runs, error: errorRuns } = await service
-      .from('stock_profile_runs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .order('id')
-      .limit(RUNS_RECIENTES)
-    if (errorRuns) throw errorRuns
+    const yaDadosDeAlta = new Set(clientes.map((c) => c.slug))
+    const clientesSinAlta: ClienteSinAlta[] = deAmazon
+      .filter((c) => !yaDadosDeAlta.has(c.slug))
+      .map((c) => ({ slug: c.slug, name: c.name, is_active: c.is_active }))
 
     /**
      * ¿Está la 127 lanzada?
@@ -238,50 +298,6 @@ export async function loadPerfiles(): Promise<PerfilesView> {
      */
     const faltaMigracionNoSincroniza =
       clientes.length > 0 && !('no_sincroniza_desde' in (clientes[0] as object))
-
-    /**
-     * Los clientes que solo están en Amazon, cruzados POR SLUG.
-     *
-     * Que `amazon_clients` no exista todavía no es un fallo de esta pantalla:
-     * son dos módulos distintos con dos migraciones distintas, y el sincronismo
-     * funcionaba antes de que existiera Amazon API. Si la tabla no está, esta
-     * lista sale vacía y todo lo demás sigue igual.
-     */
-    const yaDadosDeAlta = new Set(clientes.map((c) => c.slug))
-    let clientesSinAlta: ClienteSinAlta[] = []
-    try {
-      const deAmazon = await fetchAll<{ name: string; slug: string; is_active: boolean }>((a, b) =>
-        service
-          .from('amazon_clients')
-          .select('name, slug, is_active')
-          .order('name', { ascending: true })
-          .range(a, b)
-      )
-      clientesSinAlta = deAmazon
-        .filter((c) => !yaDadosDeAlta.has(c.slug))
-        .map((c) => ({ slug: c.slug, name: c.name, is_active: c.is_active }))
-    } catch (error) {
-      if (!isMissingSchema(error)) throw error
-    }
-
-    /**
-     * EL CATÁLOGO DE BUZONES, EN SU PROPIO try/catch Y POR EL MISMO MOTIVO.
-     *
-     * La 198 se lanza a mano en el editor SQL de Supabase, así que el código
-     * puede llegar desplegado antes que ella. Si se dejara caer el error hasta
-     * el catch de fuera, `isMissingSchema` lo tomaría por «falta la 120» y
-     * devolvería `vacio`: la pestaña Origen entera —perfiles, clientes,
-     * conexiones, historial— se apagaría con un cartel pidiendo pegar una
-     * migración que sí está puesta. Aislado aquí, lo único que pasa es que el
-     * desplegable de buzones sale vacío y todo lo demás sigue funcionando
-     * exactamente igual que antes de que existiera el catálogo.
-     */
-    let buzones: BuzonElegible[] = []
-    try {
-      buzones = await listarBuzonesElegibles()
-    } catch (error) {
-      if (!isMissingSchema(error)) throw error
-    }
 
     return {
       perfiles,

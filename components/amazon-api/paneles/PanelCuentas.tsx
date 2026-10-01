@@ -567,7 +567,6 @@ export function PanelCuentas({ data, onData, configError, appDraft }: PropsPanel
             connection={desconectar}
             clientName={clientesPorId.get(desconectar.client_id)?.name ?? 'este cliente'}
             listings={data.listingCounts[desconectar.id] ?? 0}
-            submissions={data.submissionCounts[desconectar.id] ?? 0}
             onClose={() => setDesconectar(null)}
             onDone={onData}
           />

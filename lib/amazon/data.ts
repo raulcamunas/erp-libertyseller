@@ -143,13 +143,19 @@ export interface AmazonServerData {
    */
   staleCounts: Record<string, number>
   /**
-   * Cuántos cambios registrados tiene cada conexión.
+   * YA NO SE TRAE EL CONTADOR DE CAMBIOS, y no es un olvido.
    *
-   * Se trae para que la pantalla pueda decir un número exacto al desconectar:
-   * «se conservan 143 cambios registrados» es una promesa comprobable, y
-   * «no se borra el historial» es una frase que hay que creerse.
+   * Estaba aquí para que el diálogo de desconectar pudiera decir un número
+   * exacto —«se conservan 143 cambios registrados» es una promesa comprobable y
+   * «no se borra el historial» es una frase que hay que creerse—. La promesa se
+   * mantiene; lo que cambia es CUÁNDO se pregunta.
+   *
+   * Costaba un COUNT exacto por conexión en cada carga de la pantalla, y Entrais
+   * tiene 268.610 filas en amazon_submissions: 1.963 ms medidos contra
+   * producción, de los 6.182 que tardaba la pantalla entera, para una frase que
+   * solo se ve si alguien abre el diálogo de desconectar una cuenta. Ahora lo
+   * pide ese diálogo al abrirse, en app/api/amazon/connections/[id]/cambios.
    */
-  submissionCounts: Record<string, number>
   /** Conexiones vivas, que es lo que consume del cupo de autorizaciones */
   activeConnections: number
   /** Cuántos clientes más se pueden conectar antes de tener que publicar la app */
@@ -177,61 +183,52 @@ export async function loadAmazonData(): Promise<AmazonServerData> {
     connections: [],
     listingCounts: {},
     staleCounts: {},
-    submissionCounts: {},
     activeConnections: 0,
     remainingAuthorizations: AMAZON_MAX_AUTHORIZATIONS,
     missingTables: true,
     missingConfig: !isAmazonConfigured() || !hasTokenKey(),
   }
 
-  try {
-    const clients = await fetchAll<AmazonClient>((a, b) =>
-      service
-        .from('amazon_clients')
-        .select('*')
-        // El orden termina en una columna única: .range() sobre un orden con
-        // empates repite filas o se las salta entre tramos.
-        .order('position', { ascending: true, nullsFirst: false })
-        .order('name', { ascending: true })
-        .order('id')
-        .range(a, b)
-    )
+  // Un día. El censo pasa cada seis horas y el ciclo cada quince minutos, así
+  // que una referencia que lleve veinticuatro horas sin verse se ha librado de
+  // los dos: eso ya no es cadencia, es que algo no la está alcanzando.
+  const haceUnDia = new Date(Date.now() - 86_400_000).toISOString()
 
-    const connections = await fetchAll<AmazonConnection>((a, b) =>
-      service
-        .from('amazon_connections')
-        .select(CONNECTION_FIELDS)
-        .order('name', { ascending: true })
-        .order('id')
-        .range(a, b)
-    )
+  try {
+    // LAS TRES A LA VEZ. Ninguna necesita el resultado de las otras, y antes se
+    // encadenaban con tres `await` seguidos: eran tres latencias pagadas en fila
+    // para nada. Ahora se paga la más lenta de las tres.
+    const [clients, connections, contadores] = await Promise.all([
+      fetchAll<AmazonClient>((a, b) =>
+        service
+          .from('amazon_clients')
+          .select('*')
+          // El orden termina en una columna única: .range() sobre un orden con
+          // empates repite filas o se las salta entre tramos.
+          .order('position', { ascending: true, nullsFirst: false })
+          .order('name', { ascending: true })
+          .order('id')
+          .range(a, b)
+      ),
+      fetchAll<AmazonConnection>((a, b) =>
+        service
+          .from('amazon_connections')
+          .select(CONNECTION_FIELDS)
+          .order('name', { ascending: true })
+          .order('id')
+          .range(a, b)
+      ),
+      contadoresDeCatalogo(service, haceUnDia),
+    ])
 
     const listingCounts: Record<string, number> = {}
     const staleCounts: Record<string, number> = {}
-    const submissionCounts: Record<string, number> = {}
-    // Un día. El censo pasa cada seis horas y el ciclo cada quince minutos, así
-    // que una referencia que lleve veinticuatro horas sin verse se ha librado de
-    // los dos: eso ya no es cadencia, es que algo no la está alcanzando.
-    const haceUnDia = new Date(Date.now() - 86_400_000).toISOString()
     for (const conn of connections) {
-      const { count } = await service
-        .from('amazon_listings')
-        .select('id', { count: 'exact', head: true })
-        .eq('connection_id', conn.id)
-      listingCounts[conn.id] = count ?? 0
-
-      const { count: rancias } = await service
-        .from('amazon_listings')
-        .select('id', { count: 'exact', head: true })
-        .eq('connection_id', conn.id)
-        .lt('last_seen_at', haceUnDia)
-      staleCounts[conn.id] = rancias ?? 0
-
-      const { count: enviados } = await service
-        .from('amazon_submissions')
-        .select('id', { count: 'exact', head: true })
-        .eq('connection_id', conn.id)
-      submissionCounts[conn.id] = enviados ?? 0
+      const fila = contadores.get(conn.id)
+      // Una conexión sin ni una referencia no sale del GROUP BY. Tiene que
+      // aparecer con cero y no desaparecer de la lista de cuentas.
+      listingCounts[conn.id] = fila?.listings ?? 0
+      staleCounts[conn.id] = fila?.rancias ?? 0
     }
 
     const activeConnections = connections.filter((c) => c.is_active && c.status === 'activa').length
@@ -241,7 +238,6 @@ export async function loadAmazonData(): Promise<AmazonServerData> {
       connections,
       listingCounts,
       staleCounts,
-      submissionCounts,
       activeConnections,
       remainingAuthorizations: Math.max(0, AMAZON_MAX_AUTHORIZATIONS - activeConnections),
       missingTables: false,
@@ -251,6 +247,87 @@ export async function loadAmazonData(): Promise<AmazonServerData> {
     if (isMissingSchema(error)) return vacio
     throw error
   }
+}
+
+/**
+ * LOS CONTADORES DE TODAS LAS CONEXIONES, EN UN VIAJE.
+ *
+ * ============ LO QUE HABÍA, Y POR QUÉ TARDABA SEIS SEGUNDOS ============
+ *
+ * Un `for` sobre las conexiones con TRES `await` dentro: contar referencias,
+ * contar rancias y contar envíos, una conexión detrás de otra. Medido contra
+ * producción con diez conexiones: 5.813 ms de los 6.182 que tardaba la pantalla
+ * entera en devolver una sola línea de HTML.
+ *
+ * Y no era Postgres. Los mismos treinta viajes lanzados a la vez tardan 642 ms:
+ * nueve de cada diez segundos eran esperar a la red, no contar filas.
+ *
+ * ============ POR QUÉ UNA FUNCIÓN EN LA BASE Y NO UN Promise.all ============
+ *
+ * Porque 642 ms siguen siendo treinta viajes, y crecen con cada cliente que se
+ * conecta. La función de la migración 213 los deja en UNO y en una sola pasada
+ * por la tabla, que es lo que debería haber sido desde el principio.
+ *
+ * ============ EL PLAN B NO SOBRA ============
+ *
+ * El código se despliega antes de que nadie lance la migración a mano en el
+ * editor SQL de Supabase. Entre una cosa y otra, la función no existe: sin esta
+ * salida la pantalla se caería entera en vez de ir un poco más lenta. Por eso el
+ * plan B hace las cuentas EN PARALELO —no vuelve al bucle en serie—, así que lo
+ * peor que puede pasar mientras tanto son 642 ms en vez de 150.
+ */
+async function contadoresDeCatalogo(
+  service: Service,
+  haceUnDia: string
+): Promise<Map<string, { listings: number; rancias: number }>> {
+  const mapa = new Map<string, { listings: number; rancias: number }>()
+
+  const { data, error } = await service.rpc('amazon_contadores_catalogo', {
+    limite_rancio: haceUnDia,
+  })
+
+  if (!error) {
+    for (const fila of (data ?? []) as Array<{
+      connection_id: string
+      listings: number | string
+      rancias: number | string
+    }>) {
+      // `count()` de Postgres es BIGINT y PostgREST lo manda como string en
+      // cuanto se sale del rango seguro de JavaScript. Number() lo cubre, y las
+      // cifras de esta pantalla no llegan ni de lejos a ese rango.
+      mapa.set(fila.connection_id, {
+        listings: Number(fila.listings) || 0,
+        rancias: Number(fila.rancias) || 0,
+      })
+    }
+    return mapa
+  }
+
+  // Solo se cae al plan B si la función TODAVÍA NO EXISTE. Cualquier otro fallo
+  // —un permiso, un timeout— tiene que seguir reventando: taparlo devolvería la
+  // pantalla con todos los contadores a cero, que se lee como «este cliente no
+  // tiene catálogo» y manda a buscar una avería que no existe.
+  if (!isMissingSchema(error) && (error as { code?: string })?.code !== 'PGRST202') throw error
+
+  const conexiones = await fetchAll<{ id: string }>((a, b) =>
+    service.from('amazon_connections').select('id').order('id').range(a, b)
+  )
+  const cuentas = await Promise.all(
+    conexiones.map(async (c) => {
+      const [total, rancias] = await Promise.all([
+        service.from('amazon_listings').select('id', { count: 'exact', head: true }).eq('connection_id', c.id),
+        service
+          .from('amazon_listings')
+          .select('id', { count: 'exact', head: true })
+          .eq('connection_id', c.id)
+          .not('last_seen_at', 'is', null)
+          .lt('last_seen_at', haceUnDia),
+      ])
+      return { id: c.id, listings: total.count ?? 0, rancias: rancias.count ?? 0 }
+    })
+  )
+  for (const c of cuentas) mapa.set(c.id, { listings: c.listings, rancias: c.rancias })
+  return mapa
 }
 
 /** Una conexión suelta, SIN token. Devuelve null si ya no existe */

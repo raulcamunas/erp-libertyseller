@@ -45,7 +45,6 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
-import { estadoCredencialBuzon } from './origenes/credenciales-buzon'
 
 /** Cómo se entra en el buzón. Ver el comentario de la columna en la 198 */
 export type TransporteBuzon = 'google' | 'imap'
@@ -360,14 +359,43 @@ async function leerFilas(): Promise<BuzonFila[]> {
  * tienen fila en la tabla de credenciales, así que preguntarlo sería una
  * consulta por buzón para recibir siempre «no» y pintar un aviso falso de
  * «falta la contraseña» en un buzón que funciona.
+ *
+ *
+ * ============ UNA CONSULTA, NO UNA POR BUZÓN ============
+ *
+ * Esto era un `for` con un `await estadoCredencialBuzon(f.id)` dentro: un viaje
+ * a la base por cada buzón IMAP, uno detrás de otro, y encima dentro de
+ * loadPerfiles(), que es lo que se espera para abrir Amazon API. Con cuatro
+ * buzones son 120-320 ms, y crece cada vez que se da de alta uno.
+ *
+ * No hace falta `estadoCredencialBuzon` aquí: esa función devuelve la huella y
+ * la fecha de cada credencial, y de todo eso lo único que se mira en esta
+ * pantalla es si la fila EXISTE. Así que se preguntan todas de golpe.
+ *
+ * NO SE SELECCIONA NI LA HUELLA. Solo `buzon_id`: lo que no sale de la base no
+ * se puede colar luego en un log ni en una respuesta.
  */
 async function cualesTienenContrasena(filas: readonly BuzonFila[]): Promise<Set<string>> {
   const conSecreto = new Set<string>()
-  for (const f of filas) {
-    if (f.transporte !== 'imap') continue
-    const estado = await estadoCredencialBuzon(f.id)
-    if (estado.hay) conSecreto.add(f.id)
+  const ids = filas.filter((f) => f.transporte === 'imap').map((f) => f.id)
+  if (ids.length === 0) return conSecreto
+
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('stock_buzon_credenciales')
+    .select('buzon_id')
+    .in('buzon_id', ids)
+
+  if (error) {
+    // La 198 se lanza a mano en el editor SQL de Supabase, así que el código
+    // puede llegar desplegado antes que ella. Sin la tabla no hay ninguna
+    // contraseña guardada, que es exactamente lo que dice el conjunto vacío.
+    const codigo = (error as { code?: string }).code
+    if (codigo === 'PGRST205' || codigo === '42P01') return conSecreto
+    throw error
   }
+
+  for (const fila of (data ?? []) as Array<{ buzon_id: string }>) conSecreto.add(fila.buzon_id)
   return conSecreto
 }
 

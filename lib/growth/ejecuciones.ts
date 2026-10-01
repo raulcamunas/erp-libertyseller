@@ -251,6 +251,36 @@ export interface LotePrecio {
  * precios de otro vendedor, que es justo lo que el compromiso con Amazon
  * prohíbe: los datos de un vendedor se usan para operar su cuenta y ninguna más.
  */
+/**
+ * CUÁNTO ESTÁ DISPUESTA LA PANTALLA A ESPERAR POR LOS LOTES DE PRECIO.
+ *
+ * ============ POR QUÉ HAY UN TOPE ============
+ *
+ * Medido contra producción, cliente por cliente: para Entrais esta consulta
+ * TARDA MÁS DE OCHO SEGUNDOS y acaba cancelada por el tiempo límite de Postgres.
+ * Para los demás son 100-300 ms, porque no tienen lotes de precio.
+ *
+ * El motivo no es un índice que falte. La vista `amazon_lotes_precio` agrupa
+ * `amazon_submissions` al vuelo, y de las 270.396 filas que hay, 251.523 son de
+ * Entrais y de tipo precio — y TODAS caen dentro de la ventana de 90 días, así
+ * que la ventana no recorta nada. Para sacar los 60 lotes más recientes hay que
+ * calcular el `min(created_at)` de cada lote, o sea recorrerlas todas. Eso no lo
+ * arregla un índice: lo arregla una tabla de resumen que mantenga el que
+ * escribe, y eso es otro trabajo.
+ *
+ * ============ LO QUE SÍ ARREGLA ESTE TOPE ============
+ *
+ * Que la pantalla de Growth Partner no se quede ocho segundos en blanco. Esta
+ * consulta vive dentro del Promise.all de PanelStockSync, así que marcaba el
+ * ritmo de TODO el panel: el historial de ejecuciones, el estado de los perfiles
+ * y los listados bloqueados estaban listos en 300 ms y esperaban a esta.
+ *
+ * Pasado el tope se devuelve lista vacía, que es lo mismo que ya devolvía cuando
+ * Postgres la cancelaba — solo que ocho segundos antes. La sección de precios es
+ * la única que se queda sin datos; el resto del panel entra igual.
+ */
+const TOPE_LOTES_MS = 1500
+
 export async function publicacionesDePrecios(
   clientId: string,
   limite = 60
@@ -274,12 +304,36 @@ export async function publicacionesDePrecios(
   ]
   if (conexiones.length === 0) return []
 
+  /**
+   * EL TOPE SE PONE CON AbortSignal.timeout Y NO CON UN Promise.race.
+   *
+   * Con una carrera, la consulta seguiría viva en el cliente de Supabase y su
+   * respuesta llegaría a nadie; con el `abortSignal`, se corta de verdad la
+   * petición HTTP. Lo que Postgres ya haya empezado a calcular sigue su curso
+   * hasta su propio tiempo límite —eso no lo decide el navegador—, pero la
+   * pantalla deja de esperarla.
+   */
+  // EL try/catch NO SOBRA AUNQUE ABAJO SE MIRE `error`. Un AbortSignal que salta
+  // puede llegar como excepción del fetch y no como `{ error }`, y según la
+  // versión del cliente de Supabase cambia cuál de las dos. Si se escapa, se
+  // lleva por delante Growth Partner entero por un panel de historial.
   const { data, error } = await service
     .from('amazon_lotes_precio')
     .select('*')
     .in('connection_id', conexiones)
     .order('created_at', { ascending: false })
     .limit(limite)
+    .abortSignal(AbortSignal.timeout(TOPE_LOTES_MS))
+    .then(
+      (r) => r,
+      (e: unknown) => ({
+        data: null,
+        error: {
+          code: (e as { name?: string })?.name === 'TimeoutError' ? 'TOPE' : 'EXCEPCION',
+          message: (e as Error)?.message ?? String(e),
+        },
+      })
+    )
 
   if (error) {
     /**
@@ -292,9 +346,13 @@ export async function publicacionesDePrecios(
      * agotado aquí —código 57014— se llevaba por delante Growth Partner entero,
      * que es la pantalla desde la que se trabaja, por un panel de historial.
      *
-     * La 183 acota la vista a noventa días y eso quita la causa. Esto es la red:
-     * el historial de precios es un añadido, y un añadido que falla se queda sin
-     * pintar, no tira la pantalla.
+     * La 183 acotó la vista a noventa días creyendo que eso quitaba la causa, y
+     * NO la quita: medido hoy, las 251.523 filas de precio de Entrais están
+     * TODAS dentro de esos noventa días, así que la ventana no recorta nada y la
+     * consulta vuelve a agotar el tiempo. De ahí el tope de arriba.
+     *
+     * Esto es la red: el historial de precios es un añadido, y un añadido que
+     * falla se queda sin pintar, no tira la pantalla.
      */
     console.warn(
       `[growth] no se ha podido leer el historial de precios (${error.code ?? 'sin código'}): ` +

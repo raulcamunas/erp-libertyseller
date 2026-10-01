@@ -130,29 +130,41 @@ export default async function AmazonApiPage({
   // les cambia el precio: solo admin, ni siquiera los socios.
   if (profile.role !== 'admin') redirect('/dashboard')
 
-  const data = await loadAmazonData()
+  /**
+   * LAS DOS CARGAS VAN A LA VEZ, Y ANTES IBAN UNA DETRÁS DE OTRA.
+   *
+   * `loadAmazonData()` y `loadPerfiles()` no comparten nada: una lee las cuentas
+   * y el catálogo, la otra los orígenes de fichero. Estaban encadenadas con dos
+   * `await` seguidos, así que quien abría la pantalla esperaba la SUMA de las
+   * dos. Ahora espera la más lenta.
+   *
+   * Los orígenes NO cortan la pantalla: sin ellos el catálogo y los envíos a
+   * mano funcionan igual, y lo único que falta es la pestaña Origen, que lo
+   * explica por su cuenta. Cortar aquí dejaría sin módulo a quien solo quiere
+   * mirar precios.
+   *
+   * Y EL catch NO SOBRA. loadPerfiles solo atrapa por su cuenta el caso «la
+   * tabla no existe»; cualquier otro fallo de esas cuatro consultas —un permiso,
+   * un timeout de PostgREST— se propagaba y se llevaba por delante la pantalla
+   * entera, incluidos el catálogo y la edición a mano, que no tocan ninguna de
+   * estas tablas. Un problema en lo nuevo no puede romper lo que ya funcionaba.
+   *
+   * OJO AL ORDEN: el catch va en la promesa, no envolviendo el Promise.all. Si
+   * envolviera al conjunto, un fallo de los orígenes se llevaría por delante
+   * también los datos de Amazon, que es justo lo que el catch venía a evitar.
+   */
+  const [data, perfiles] = await Promise.all([
+    loadAmazonData(),
+    loadPerfiles().catch((error) => {
+      console.error('No se han podido cargar los orígenes de fichero:', error)
+      return null
+    }),
+  ])
 
   // La migración se lanza a mano en el editor SQL de Supabase, así que el
   // código puede llegar desplegado antes que ella. Se explica en vez de
   // reventar con una pantalla negra y un número de digest.
   if (data.missingTables) return <PendingMigrations />
-
-  /**
-   * Los orígenes se cargan aparte y NO cortan la pantalla: sin ellos el catálogo
-   * y los envíos a mano funcionan igual, y lo único que falta es la pestaña
-   * Origen, que lo explica por su cuenta. Cortar aquí dejaría sin módulo a quien
-   * solo quiere mirar precios.
-   *
-   * Y EL try/catch NO SOBRA. loadPerfiles solo atrapa por su cuenta el caso «la
-   * tabla no existe»; cualquier otro fallo de esas cuatro consultas —un permiso,
-   * un timeout de PostgREST— se propagaba y se llevaba por delante la pantalla
-   * entera, incluidos el catálogo y la edición a mano, que no tocan ninguna de
-   * estas tablas. Un problema en lo nuevo no puede romper lo que ya funcionaba.
-   */
-  const perfiles = await loadPerfiles().catch((error) => {
-    console.error('No se han podido cargar los orígenes de fichero:', error)
-    return null
-  })
 
   /**
    * La pestaña sale de la URL y se valida AQUÍ, en el servidor.

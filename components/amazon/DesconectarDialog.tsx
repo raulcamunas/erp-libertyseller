@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2, Unplug } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AmazonConnection } from '@/lib/types/amazon'
-import { postAmazon, type AmazonMutation, type AmazonView } from '@/lib/amazon/client'
+import { getAmazon, postAmazon, type AmazonMutation, type AmazonView } from '@/lib/amazon/client'
 import { Dialogo } from './Dialogo'
 import { dangerButton, formatInt, ghostButton, infoBox, warnBox } from './shared'
 
@@ -24,18 +24,47 @@ export function DesconectarDialog({
   connection,
   clientName,
   listings,
-  submissions,
   onDone,
   onClose,
 }: {
   connection: AmazonConnection
   clientName: string
   listings: number
-  submissions: number
   onDone: (view: AmazonView) => void
   onClose: () => void
 }) {
   const [saving, setSaving] = useState(false)
+
+  /**
+   * EL HISTÓRICO SE CUENTA AL ABRIR ESTE DIÁLOGO, NO AL CARGAR LA PANTALLA.
+   *
+   * Venía con los datos del módulo, o sea un COUNT exacto por conexión cada vez
+   * que alguien entraba en Amazon API. Entrais tiene 268.610 filas y el suyo
+   * costaba 1.963 ms medidos contra producción, de los 6.182 que tardaba la
+   * pantalla en aparecer — para una frase que solo se lee aquí, y aquí se entra
+   * muy de tarde en tarde.
+   *
+   * `null` mientras llega: es lo que distingue «todavía no lo sé» de «no hay
+   * ninguno», y son dos frases distintas. Si la cuenta falla se queda en null y
+   * el texto lo dice en vez de enseñar un cero, que sería mentir sobre lo que se
+   * conserva justo antes de decidir una desconexión.
+   */
+  const [cambios, setCambios] = useState<number | null>(null)
+  const [contando, setContando] = useState(true)
+
+  useEffect(() => {
+    let vivo = true
+    void getAmazon<{ cambios: number }>(`/api/amazon/connections/${connection.id}/cambios`).then(
+      (res) => {
+        if (!vivo) return
+        if (res.ok) setCambios(res.data.cambios)
+        setContando(false)
+      }
+    )
+    return () => {
+      vivo = false
+    }
+  }, [connection.id])
 
   async function desconectar() {
     setSaving(true)
@@ -86,9 +115,19 @@ export function DesconectarDialog({
         <div>
           <p className="text-[11px] uppercase tracking-wider text-white/35 mb-1.5">NO se borra</p>
           <div className={infoBox}>
-            {submissions > 0 ? (
+            {contando ? (
               <>
-                Los <span className="text-white/80">{formatInt(submissions)}</span> cambios que le
+                <Loader2 className="mr-1.5 inline h-3 w-3 animate-spin align-[-2px]" />
+                Contando los cambios que le hemos enviado…
+              </>
+            ) : cambios === null ? (
+              <>
+                No se ha podido contar el histórico ahora mismo, pero no se borra: el registro de lo
+                que tocamos en la tienda de un cliente se conserva aunque se desconecte la cuenta.
+              </>
+            ) : cambios > 0 ? (
+              <>
+                Los <span className="text-white/80">{formatInt(cambios)}</span> cambios que le
                 hemos enviado siguen guardados, con su valor anterior, el nuevo, quién lo mandó y
                 qué contestó Amazon. Quedan asociados al identificador de su tienda, así que el día
                 que pregunte por qué un producto salió a otro precio se puede contestar igual.
