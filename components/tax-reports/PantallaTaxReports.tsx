@@ -5,8 +5,6 @@ import {
   AlertTriangle,
   Archive,
   Check,
-  ChevronLeft,
-  ChevronRight,
   CircleDashed,
   Download,
   FileSpreadsheet,
@@ -328,15 +326,33 @@ export function PantallaTaxReports() {
     return n
   }, [lista, faltanPorCliente])
 
+  /**
+   * QUÉ AÑOS SE PUEDEN MIRAR.
+   *
+   * ============ POR QUÉ LAS FLECHAS NO HACÍAN NADA ============
+   *
+   * La lista salía de `vista.anios`, que son los años QUE YA TIENEN FICHEROS. Y
+   * los topes se calculaban de ahí: `minAnio` era el primer año con ficheros y
+   * `maxAnio` el año de hoy. Con la base recién estrenada —cero ficheros subidos—
+   * ese conjunto se quedaba en {2026}, o sea minAnio = maxAnio = 2026, y las DOS
+   * flechas salían desactivadas a la vez. Parecían rotas porque lo estaban: para
+   * poder ir a un año había que tener ya ficheros de ese año, que es justo lo que
+   * se iba a hacer allí.
+   *
+   * Ahora el año de hoy y el anterior están SIEMPRE, haya ficheros o no. Son los
+   * dos que se usan: el día 3 se cuelga el mes que acaba de cerrar, y en enero
+   * ese mes es diciembre del año pasado. Y si queda histórico de años más atrás,
+   * se añaden detrás para poder consultarlo.
+   */
   const anios = useMemo(() => {
     const todos = new Set<number>(vista?.anios ?? [])
-    if (hoy) todos.add(hoy.anio)
+    if (hoy) {
+      todos.add(hoy.anio)
+      todos.add(hoy.anio - 1)
+    }
     if (anio !== null) todos.add(anio)
     return [...todos].sort((a, b) => a - b)
   }, [vista, hoy, anio])
-
-  const minAnio = anios.length > 0 ? anios[0] : anio
-  const maxAnio = hoy ? hoy.anio : anio
 
   /**
    * El cliente abierto, buscado en la vista recién llegada y no guardado entero.
@@ -653,8 +669,7 @@ export function PantallaTaxReports() {
       key={cliente.id}
       cliente={cliente}
       anio={anio}
-      minAnio={minAnio}
-      maxAnio={maxAnio}
+      anios={anios}
       porCelda={porCelda}
       notaPorCelda={notaPorCelda}
       estaCerrado={estaCerrado}
@@ -668,6 +683,7 @@ export function PantallaTaxReports() {
       onVolver={isMobile ? () => setClienteId(null) : null}
       onEditar={() => setEditando({ cliente })}
       onAdjuntar={(mes) => pedirFichero(cliente.id, mes)}
+      onSoltar={(mes, f) => void subir(cliente.id, mes, f)}
       onDescargar={(f) => void descargar(f)}
       onQuitar={(f) => void quitar(f)}
       onNotaMes={(mes) => setNotaMes({ mes })}
@@ -835,8 +851,7 @@ function FilaCliente({
 function PanelCliente({
   cliente,
   anio,
-  minAnio,
-  maxAnio,
+  anios,
   porCelda,
   notaPorCelda,
   estaCerrado,
@@ -850,6 +865,7 @@ function PanelCliente({
   onVolver,
   onEditar,
   onAdjuntar,
+  onSoltar,
   onDescargar,
   onQuitar,
   onNotaMes,
@@ -857,8 +873,8 @@ function PanelCliente({
 }: {
   cliente: ClienteTax
   anio: number | null
-  minAnio: number | null
-  maxAnio: number | null
+  /** Los años que se pueden mirar, de menor a mayor. Ver el porqué en `anios` */
+  anios: number[]
   porCelda: Map<string, FicheroTax>
   notaPorCelda: Map<string, string>
   estaCerrado: (mes: number) => boolean
@@ -873,6 +889,8 @@ function PanelCliente({
   onVolver: (() => void) | null
   onEditar: () => void
   onAdjuntar: (mes: number) => void
+  /** Un fichero soltado encima de un mes. Misma subida que el botón */
+  onSoltar: (mes: number, fichero: File) => void
   onDescargar: (fichero: FicheroTax) => void
   onQuitar: (fichero: FicheroTax) => void
   onNotaMes: (mes: number) => void
@@ -950,37 +968,46 @@ function PanelCliente({
             {/* EL SELECTOR DE AÑO VA AQUÍ, en la cabecera de los meses, porque
                 el año solo significa algo cuando hay meses delante. Mueve la
                 carga entera —la lista de la izquierda también cuenta con él—,
-                así que no es un filtro del panel: es qué año se está mirando. */}
+                así que no es un filtro del panel: es qué año se está mirando.
+
+                LOS AÑOS SE VEN, NO SE ADIVINAN. Antes eran dos flechas con el año
+                en medio: había que pulsar para descubrir a dónde se iba, y cuando
+                los topes dejaban las dos desactivadas —ver `anios`— no había
+                forma de saber si es que no había más años o es que el control
+                estaba roto. Con los años escritos, lo que hay se ve de un golpe y
+                el que está abierto se distingue del otro. */}
             <div
-              className={`ml-auto flex items-center gap-[2px] ${RADIO.r2} border ${LINEA.normal} ${SUPERFICIE.sup} px-[3px] py-[2px]`}
+              className={`ml-auto flex items-center gap-[2px] ${RADIO.r2} border ${LINEA.normal} ${SUPERFICIE.sup} p-[2px]`}
             >
-              <button
-                type="button"
-                className={BOTON.icono}
-                aria-label="Año anterior"
-                disabled={anio === null || minAnio === null || anio <= minAnio}
-                onClick={() => anio !== null && onAnio(anio - 1)}
-              >
-                <ChevronLeft className="h-[13px] w-[13px]" />
-              </button>
-              <span className={`${TIPO.l} ${TEXTO.t1} px-1 tabular-nums`}>{anio ?? '—'}</span>
-              <button
-                type="button"
-                className={BOTON.icono}
-                aria-label="Año siguiente"
-                disabled={anio === null || maxAnio === null || anio >= maxAnio}
-                onClick={() => anio !== null && onAnio(anio + 1)}
-              >
-                <ChevronRight className="h-[13px] w-[13px]" />
-              </button>
+              {anios.map((a) => {
+                const abierto = a === anio
+                return (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => onAnio(a)}
+                    aria-current={abierto ? 'true' : undefined}
+                    className={`${TIPO.m} ${TIPO.num} ${RADIO.r1} px-[7px] py-[2px] transition-colors ${
+                      abierto
+                        ? `${SUPERFICIE.sel} ${TEXTO.t1} font-semibold`
+                        : `${TEXTO.t4} hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t2)]`
+                    }`}
+                  >
+                    {a}
+                  </button>
+                )
+              })}
             </div>
           </header>
 
-          <div className={`${TARJETA.cuerpo} space-y-px`}>
+          {/* LOS DOCE MESES COMO CALENDARIO, TRES POR FILA.
+              Tres y no cuatro a propósito: así cada fila es un trimestre, que es
+              como se mira un año fiscal. En móvil se apilan. */}
+          <div className={`${TARJETA.cuerpo} grid grid-cols-1 gap-[6px] sm:grid-cols-2 lg:grid-cols-3`}>
             {MESES.map((_, i) => {
               const mes = i + 1
               return (
-                <FilaMes
+                <CeldaMes
                   key={mes}
                   cliente={cliente}
                   mes={mes}
@@ -993,6 +1020,7 @@ function PanelCliente({
                   bajando={bajando}
                   quitando={quitando}
                   onAdjuntar={() => onAdjuntar(mes)}
+                  onSoltar={(f) => onSoltar(mes, f)}
                   onDescargar={onDescargar}
                   onQuitar={onQuitar}
                   onNota={() => onNotaMes(mes)}
@@ -1005,6 +1033,7 @@ function PanelCliente({
               por qué un enlace guardado deja de valer al minuto. */}
           <div className={`border-t ${LINEA.normal} px-[10px] py-[7px]`}>
             <p className={`${TIPO.s} ${TEXTO.t4}`}>
+              Arrastra el fichero encima del mes y se sube ahí; también vale el botón de subir.
               El enlace de descarga se genera al pulsar y caduca a los 60 segundos: no sirve para
               reenviarlo ni pegado en un correo. Los ficheros se retiran solos a los seis meses —
               existen para mandarlos ese mes, no para guardarlos.
@@ -1030,8 +1059,24 @@ function PanelCliente({
  *
  * El último no se pinta como «falta» y no es un detalle: si los dos se vieran
  * igual, el día 3 alguien volvería a colgar justo lo que decidimos no guardar.
+ *
+ *
+ * ============ CADA MES ES UNA ZONA DONDE SOLTAR EL FICHERO ============
+ *
+ * El día 3 se baja un fichero de Seller Central y acto seguido hay que colgarlo
+ * en SU mes. Con el botón son tres pasos —pulsar, buscar la carpeta de descargas,
+ * elegir— y los tres hay que repetirlos por cada cuenta. Arrastrándolo desde la
+ * carpeta al recuadro del mes es uno.
+ *
+ * EL RECUADRO ENTERO ES LA ZONA, no un trocito con el borde de puntos: una diana
+ * pequeña obliga a apuntar, y aquí se apunta doce veces por cliente.
+ *
+ * SE SUELTA EN EL MES AL QUE SE APUNTA, aunque sea un mes que todavía no ha
+ * cerrado o que ya tiene fichero. No se bloquea ninguno: el botón de subir
+ * tampoco los bloqueaba, y adivinar el mes por el nombre del fichero —que es la
+ * otra opción— fallaría justo los meses en que el nombre viene raro.
  */
-function FilaMes({
+function CeldaMes({
   cliente,
   mes,
   anio,
@@ -1043,6 +1088,7 @@ function FilaMes({
   bajando,
   quitando,
   onAdjuntar,
+  onSoltar,
   onDescargar,
   onQuitar,
   onNota,
@@ -1060,11 +1106,41 @@ function FilaMes({
   bajando: string | null
   quitando: string | null
   onAdjuntar: () => void
+  onSoltar: (fichero: File) => void
   onDescargar: (fichero: FicheroTax) => void
   onQuitar: (fichero: FicheroTax) => void
   onNota: () => void
 }) {
   const comoSeLlamaSuFichero = comoSeLlama(cliente)
+
+  /**
+   * UN CONTADOR Y NO UN BOOLEANO.
+   *
+   * `dragleave` salta también al pasar de la celda a CUALQUIER hijo suyo —el
+   * nombre del mes, un botón—, así que con un booleano el recuadro parpadea
+   * mientras se arrastra por encima. Subiendo en `dragenter` y bajando en
+   * `dragleave`, solo se apaga cuando se ha salido de verdad.
+   */
+  const [arrastres, setArrastres] = useState(0)
+  const encima = arrastres > 0
+
+  function soltar(e: React.DragEvent) {
+    e.preventDefault()
+    setArrastres(0)
+    if (subiendo) return
+    const ficheros = Array.from(e.dataTransfer.files)
+    if (ficheros.length === 0) return
+    // Se coge el primero y se dice: soltar cinco ficheros sobre un mes y que se
+    // suba uno sin avisar es peor que no admitirlo. El resto de la validación
+    // —extensión y tamaño— la hace subir(), que es quien la tiene.
+    if (ficheros.length > 1) {
+      toast.error(
+        `Has soltado ${ficheros.length} ficheros sobre ${MESES[mes - 1]} y en un mes solo va uno. ` +
+          `Se ha cogido «${ficheros[0].name}».`
+      )
+    }
+    onSoltar(ficheros[0])
+  }
 
   let icono: React.ReactNode
   let linea: React.ReactNode
@@ -1082,7 +1158,7 @@ function FilaMes({
   } else if (fichero) {
     icono = <Check className="h-[13px] w-[13px]" style={{ color: COLOR_ESTADO.verde }} />
     linea = (
-      <span className={TEXTO.t3}>
+      <span className={TEXTO.t3} title={fichero.nombreOriginal}>
         {fichero.nombreOriginal} · {peso(fichero.tamano)} · {fechaHora(fichero.subidoAt)}
       </span>
     )
@@ -1096,21 +1172,35 @@ function FilaMes({
 
   return (
     <div
-      className={`min-w-0 ${RADIO.r1} px-[5px] py-[4px] ${
-        esElQueToca ? SUPERFICIE.sel : 'hover:bg-[var(--ls-sup2)]'
+      onDragEnter={(e) => {
+        e.preventDefault()
+        setArrastres((n) => n + 1)
+      }}
+      onDragOver={(e) => {
+        // Sin esto el navegador ABRE el fichero en la pestaña al soltarlo y se
+        // pierde la pantalla entera con el trabajo del día 3 a medias.
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+      }}
+      onDragLeave={() => setArrastres((n) => Math.max(0, n - 1))}
+      onDrop={soltar}
+      className={`relative min-w-0 border ${RADIO.r2} px-[8px] py-[7px] transition-colors ${
+        encima
+          ? 'border-[var(--ls-acc)] bg-[var(--ls-acc-suave,var(--ls-sup3))]'
+          : esElQueToca
+            ? `border-[var(--ls-linea2)] ${SUPERFICIE.sel}`
+            : `${LINEA.normal} hover:bg-[var(--ls-sup2)]`
       }`}
     >
       <div className="flex min-w-0 items-center gap-[6px]">
         <span className={`${TEXTO.t4} shrink-0`}>{icono}</span>
 
         <span
-          className={`${TIPO.m} ${esElQueToca ? TEXTO.t1 : TEXTO.t2} w-[92px] shrink-0 truncate`}
+          className={`${TIPO.m} ${esElQueToca ? `${TEXTO.t1} font-semibold` : TEXTO.t2} min-w-0 flex-1 truncate`}
           title={esElQueToca ? `${MESES[mes - 1]}: es el mes que toca subir` : MESES[mes - 1]}
         >
           {MESES[mes - 1]}
         </span>
-
-        <span className={`${TIPO.s} min-w-0 flex-1 truncate`}>{linea}</span>
 
         <span className="flex shrink-0 items-center gap-[2px]">
           {/* SE PUEDE ANOTAR UN MES VACÍO, y es el que más se anota: lo que hay
@@ -1179,16 +1269,38 @@ function FilaMes({
         </span>
       </div>
 
-      {/* La nota se LEE en la línea del mes, no solo en el `title`: una nota que
-          hay que descubrir pasando el ratón por encima de doce filas es una nota
-          que nadie va a leer el día que importa. */}
+      <p className={`${TIPO.s} mt-[3px] truncate`}>{linea}</p>
+
+      {/* La nota se LEE en la celda del mes, no solo en el `title`: una nota que
+          hay que descubrir pasando el ratón por encima de doce recuadros es una
+          nota que nadie va a leer el día que importa. */}
       {nota && (
         <p
-          className={`${TIPO.xs} mt-[2px] pl-[117px] font-normal leading-[1.5]`}
+          className={`${TIPO.xs} mt-[3px] font-normal leading-[1.5]`}
           style={{ color: COLOR_ESTADO.ambar }}
         >
           {nota}
         </p>
+      )}
+
+      {/* Mientras se arrastra encima, el recuadro DICE a qué mes va a caer. Sin
+          esto, con doce iguales y el ratón tapando el de debajo, se suelta en el
+          de al lado: un septiembre en la casilla de agosto no da ningún error y
+          se descubre cuando el cliente pregunta. */}
+      {encima && (
+        <div
+          // El fondo va en `style` y OPACO. Con `bg-[var(--ls-fondo)]/80` el
+          // rótulo se pintaba encima del texto del mes y no se leía ninguno de
+          // los dos: Tailwind no sabe aplicar el /80 a una variable CSS y lo que
+          // genera no es color válido, así que el recuadro salía transparente.
+          style={{ backgroundColor: 'var(--ls-sup2)' }}
+          className={`pointer-events-none absolute inset-0 flex items-center justify-center ${RADIO.r2}`}
+        >
+          <span className={`${TIPO.m} ${TEXTO.acento} font-semibold`}>
+            Soltar en {MESES[mes - 1]}
+            {anio === null ? '' : ` de ${anio}`}
+          </span>
+        </div>
       )}
     </div>
   )
