@@ -50,6 +50,23 @@ interface AgendaCalendarProps {
 const DAY_START = 8 // 08:00
 const DAY_END = 21 // 21:00
 const HOUR_HEIGHT = 64 // px por hora
+
+/**
+ * CUÁNTO DURA UNA CITA RECIÉN CREADA.
+ *
+ * Una hora. Eran 30 minutos y no daba: la sesión que agenda un comercial es una
+ * consultoría, no una llamada de encaje, y acababa pisando la siguiente del
+ * calendario o corrigiéndose a mano una por una.
+ *
+ * Es solo el valor con el que NACE la cita: la hora de fin sigue siendo un campo
+ * editable en la ficha, así que una que de verdad dure media hora se deja en
+ * media hora al crearla.
+ *
+ * La rejilla del calendario sigue en tramos de 30 minutos a propósito (ver
+ * timeFromOffsetY): eso es dónde EMPIEZA una cita, y poder empezar a y media no
+ * tiene nada que ver con cuánto dura.
+ */
+const DURACION_NUEVA_CITA_MS = 60 * 60 * 1000
 const HOURS = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i)
 
 // Etiquetas cortas para que quepan dentro de la tarjeta del calendario
@@ -403,10 +420,34 @@ export function AgendaCalendar({
     return { top, height }
   }
 
+  /**
+   * La hora de fin con la que nace una cita: una hora más tarde, SIN PASARSE DEL
+   * final del día.
+   *
+   * El tope importa porque la rejilla deja empezar a las 20:30 y el día acaba a
+   * las 21:00: una hora entera desde ahí terminaría a las 21:30, o sea media
+   * hora por debajo del último tramo pintado. El bloque se saldría de la columna
+   * y se montaría encima de lo que haya debajo. Con 30 minutos no pasaba porque
+   * encajaba justo.
+   *
+   * Se recorta el fin, no se mueve el inicio: quien ha pinchado en las 20:30 ha
+   * dicho a qué hora empieza, y eso no se le toca.
+   */
+  function finPorDefecto(start: Date) {
+    const fin = new Date(start.getTime() + DURACION_NUEVA_CITA_MS)
+    const enMadrid = toMadrid(fin)
+    const minutosDeFin = enMadrid.getHours() * 60 + enMadrid.getMinutes()
+    const cierre = DAY_END * 60
+    // Pasarse de día cuenta como pasarse: a las 00:30 los minutos salen 30 y
+    // parecerían dentro del horario.
+    const otroDia = !isSameDay(enMadrid, toMadrid(start))
+    if (!otroDia && minutosDeFin <= cierre) return fin
+    return fromMadrid(madridWallClockString(toMadrid(start), DAY_END, 0))
+  }
+
   function handleSlotClick(day: Date, hour: number, minute: number = 0) {
     const start = fromMadrid(madridWallClockString(day, hour, minute))
-    const end = new Date(start.getTime() + 30 * 60 * 1000)
-    setSheet({ mode: 'create', prefill: { start, end } })
+    setSheet({ mode: 'create', prefill: { start, end: finPorDefecto(start) } })
     setHoverSlot(null)
   }
 
@@ -746,8 +787,7 @@ export function AgendaCalendar({
               const roundedMinutes = start.getMinutes() < 30 ? 30 : 0
               start.setMinutes(roundedMinutes, 0, 0)
               if (roundedMinutes === 0) start.setHours(start.getHours() + 1)
-              const end = new Date(start.getTime() + 30 * 60 * 1000)
-              setSheet({ mode: 'create', prefill: { start, end } })
+              setSheet({ mode: 'create', prefill: { start, end: finPorDefecto(start) } })
             }}
             className="h-9 lg:h-10 px-4 lg:px-5 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[12px] lg:text-sm font-semibold flex items-center gap-1.5 lg:gap-2 whitespace-nowrap shadow-[0_4px_16px_-4px_rgba(255,102,0,0.5)]"
           >
