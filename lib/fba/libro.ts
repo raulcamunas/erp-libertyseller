@@ -281,6 +281,17 @@ export function buscarFila(
     contiene: string[]
     desde?: number
     hasta?: number
+    /**
+     * Coincidencia EXACTA en vez de «contiene».
+     *
+     * Hace falta más de lo que parece. La hoja de embalaje tiene la cabecera
+     * «SKU» en la fila 5, pero en la 3 pone «Total de SKU: 23 (69 unidades)»:
+     * buscando por «contiene» se encuentra la 3, el bloque de referencias
+     * empieza dos filas antes de donde está, y el generador cree que la hoja no
+     * tiene ninguna referencia. Un rótulo que habla DE una columna no es esa
+     * columna.
+     */
+    exacto?: boolean
   }
 ): number | null {
   const normal = (s: string) =>
@@ -294,8 +305,12 @@ export function buscarFila(
 
   for (let n = desde; n <= hasta; n += 1) {
     for (const col of opciones.columnas) {
-      const texto = normal(leerCelda(hojaXml, `${col}${n}`, compartidas))
-      if (texto && buscados.some((b) => texto.includes(b))) return n
+      const texto = normal(leerCelda(hojaXml, `${col}${n}`, compartidas)).trim()
+      if (!texto) continue
+      const casa = opciones.exacto
+        ? buscados.some((b) => texto === b.trim())
+        : buscados.some((b) => texto.includes(b))
+      if (casa) return n
     }
   }
   return null
