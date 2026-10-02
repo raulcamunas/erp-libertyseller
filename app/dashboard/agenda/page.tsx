@@ -2,7 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { AgendaCalendar } from '@/components/agenda/AgendaCalendar'
-import { AppointmentWithPeople, CalendarPerson, COLUMNAS_AGENDA } from '@/lib/types/appointments'
+import {
+  AppointmentWithPeople,
+  CalendarPerson,
+  COLUMNAS_AGENDA,
+  COLUMNAS_AGENDA_CON_TIENDA,
+  faltaLa214,
+} from '@/lib/types/appointments'
 import { AvailabilityWindow } from '@/lib/types/availability'
 
 export default async function AgendaPage() {
@@ -29,7 +35,13 @@ export default async function AgendaPage() {
   // en silencio en cuanto se pasara del millar.
   const CHUNK = 1000
   const appointments: AppointmentWithPeople[] = []
-  for (let from = 0; ; from += CHUNK) {
+  // ¿Se piden las columnas de la 214? Se baja a false la primera vez que la base
+  // diga que no existen, y ya no se vuelve a intentar en el resto de tramos.
+  let conTienda = true
+  // El avance va al FINAL y no en la cabecera del for, a propósito: el reintento
+  // sin las columnas nuevas tiene que repetir ESTE tramo, y con `from += CHUNK`
+  // en la cabecera un `continue` se saltaría mil citas sin decir nada.
+  for (let from = 0; ; ) {
     const { data, error } = await supabase
       .from('appointments')
       // Columnas explícitas en vez de `*`: la transcripción completa de una
@@ -57,17 +69,24 @@ export default async function AgendaPage() {
       // botón «Resincronizar» de AgendaCalendar recarga esta misma tabla y
       // tenía su propio `select('*')`, que deshacía el recorte en cuanto
       // alguien lo pulsaba. Con una sola lista no se pueden volver a separar.
-      .select(COLUMNAS_AGENDA)
+      .select(conTienda ? COLUMNAS_AGENDA_CON_TIENDA : COLUMNAS_AGENDA)
       .order('start_time', { ascending: true })
       .order('id', { ascending: true })
       .range(from, from + CHUNK - 1)
 
+    // La 214 todavía no está lanzada: se repite el tramo sin sus columnas en vez
+    // de dejar la agenda en blanco. Ver el comentario de COLUMNAS_214.
+    if (error && conTienda && faltaLa214(error)) {
+      conTienda = false
+      continue
+    }
     if (error) {
       console.error('Error cargando la agenda:', error)
       break
     }
     if (!data || data.length === 0) break
     appointments.push(...(data as unknown as AppointmentWithPeople[]))
+    from += CHUNK
     if (data.length < CHUNK) break
   }
 

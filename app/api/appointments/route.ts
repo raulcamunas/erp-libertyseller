@@ -53,9 +53,21 @@ export async function POST(request: NextRequest) {
       status: body.status ?? 'scheduled',
       title: body.title ?? null,
       notes: body.notes ?? null,
+      // 'sin_comprobar' si no viene, nunca 'no_vende': que nadie lo haya
+      // preguntado no es lo mismo que haberlo mirado y que no venda. Es la
+      // diferencia que hace que la ficha pueda pedir que se pregunte.
+      vende_en_amazon: body.vende_en_amazon ?? 'sin_comprobar',
       revenue_amount: body.revenue_amount ?? null,
       call_date: body.call_date ?? null,
       amazon_link: body.amazon_link ?? null,
+      razon_social: body.razon_social ?? null,
+      cif: body.cif ?? null,
+      sector: body.sector ?? null,
+      ciudad: body.ciudad ?? null,
+      plataforma: body.plataforma ?? null,
+      n_productos: body.n_productos ?? null,
+      anos_tienda: body.anos_tienda ?? null,
+      web: body.web ?? null,
       updated_source: 'erp',
       sync_status: isGoogleConfigured() ? 'pending' : 'local',
     })

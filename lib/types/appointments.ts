@@ -13,6 +13,24 @@ export type AppointmentStatus =
 export type SyncStatus = 'pending' | 'synced' | 'error' | 'local'
 export type TranscriptionStatus = 'none' | 'processing' | 'done' | 'error'
 
+/**
+ * ¿VENDE YA EN AMAZON?
+ *
+ * Las mismas tres palabras que cold_leads.vende_en_amazon (migración 204), y el
+ * CHECK de la 214 las impone en la base. Si aquí se añadiera una cuarta sin
+ * tocar la migración, la pantalla la ofrecería y el guardado fallaría con un
+ * 23514 que no dice nada.
+ */
+export type VendeEnAmazon = 'sin_comprobar' | 'no_vende' | 'vende'
+
+export const VENDE_EN_AMAZON_OPCIONES: VendeEnAmazon[] = ['vende', 'no_vende', 'sin_comprobar']
+
+export const VENDE_EN_AMAZON_LABELS: Record<VendeEnAmazon, string> = {
+  vende: 'Vende en Amazon',
+  no_vende: 'No vende en Amazon',
+  sin_comprobar: 'Sin comprobar',
+}
+
 export interface Appointment {
   id: string
   /** null en eventos externos importados de Google (no gestionados por el ERP) */
@@ -37,10 +55,37 @@ export interface Appointment {
   notes: string | null
   details: Record<string, unknown>
 
+  /**
+   * ¿VENDE YA EN AMAZON? Es la primera pregunta de la llamada.
+   *
+   * Mismo vocabulario que cold_leads.vende_en_amazon, letra por letra, para que
+   * las dos tablas se crucen sin traducir: un lead de Cold Calling acaba siendo
+   * una cita. 'sin_comprobar' no es lo mismo que 'no_vende' — es que nadie lo ha
+   * preguntado, y es lo que hace que la ficha pueda pedir que se pregunte.
+   */
+  vende_en_amazon: VendeEnAmazon
+
   /** Datos comerciales del lead (rellenados tras la llamada) */
   revenue_amount: number | null
   call_date: string | null
   amazon_link: string | null
+
+  /**
+   * LOS DATOS DE SU TIENDA, que solo tienen sentido si NO vende en Amazon.
+   *
+   * Si ya vende, lo que se mira es su escaparate de Amazon y para eso está
+   * `amazon_link`. Si no vende, no hay escaparate: la propuesta se prepara con lo
+   * que tenga montado por su cuenta, y antes eso acababa escrito a mano en las
+   * notas, donde no se puede ni filtrar ni contar.
+   */
+  razon_social: string | null
+  cif: string | null
+  sector: string | null
+  ciudad: string | null
+  plataforma: string | null
+  n_productos: number | null
+  anos_tienda: number | null
+  web: string | null
   recording_url: string | null
   recording_filename: string | null
   transcription: string | null
@@ -128,6 +173,37 @@ export const COLUMNAS_AGENDA = `
   assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
 `
 
+/**
+ * LAS COLUMNAS DE LA 214, APARTE, Y NO ES MANÍA.
+ *
+ * El código se despliega ANTES de que nadie lance la migración a mano en el
+ * editor SQL de Supabase. Entre una cosa y otra, estas columnas no existen — y
+ * un `select` que nombra una columna inexistente no degrada: PostgREST contesta
+ * 400 y la agenda entera se queda en blanco para los seis comerciales que la
+ * usan todos los días, por un campo que todavía no tiene ni un dato.
+ *
+ * Por eso van en su propia lista y se piden con `columnasAgenda()`, que prueba
+ * con ellas y, si la base todavía no las tiene, repite sin ellas. En cuanto se
+ * lance la 214 deja de reintentar sola. El día que las columnas sean viejas,
+ * esto se junta en una lista y se borra la función; mientras tanto es lo que
+ * permite desplegar y migrar en el orden que salga.
+ */
+const COLUMNAS_214 = `
+  vende_en_amazon,
+  razon_social, cif, sector, ciudad, plataforma, n_productos, anos_tienda, web
+`
+
+/** Con las columnas de la 214. Es lo que se pide primero. */
+export const COLUMNAS_AGENDA_CON_TIENDA = `${COLUMNAS_AGENDA.trimEnd()},${COLUMNAS_214}`
+
+/** ¿Es «esa columna no existe» y no otra cosa? */
+export function faltaLa214(error: { code?: string } | null): boolean {
+  // PGRST204: PostgREST no la tiene en su caché de esquema. 42703: Postgres dice
+  // que la columna no existe. Cualquier otro código —un permiso, un timeout—
+  // NO entra aquí: taparlo devolvería media agenda sin decir por qué.
+  return error?.code === 'PGRST204' || error?.code === '42703'
+}
+
 export interface CreateAppointmentPayload {
   comercial_id?: string
   assigned_closer_id?: string | null
@@ -143,9 +219,18 @@ export interface CreateAppointmentPayload {
   title?: string | null
   notes?: string | null
   details?: Record<string, unknown>
+  vende_en_amazon?: VendeEnAmazon
   revenue_amount?: number | null
   call_date?: string | null
   amazon_link?: string | null
+  razon_social?: string | null
+  cif?: string | null
+  sector?: string | null
+  ciudad?: string | null
+  plataforma?: string | null
+  n_productos?: number | null
+  anos_tienda?: number | null
+  web?: string | null
   recording_url?: string | null
   recording_filename?: string | null
 }

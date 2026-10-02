@@ -29,6 +29,8 @@ import {
   Mic,
   Image as ImageIcon,
   MessageSquare,
+  ShoppingBag,
+  Store,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
@@ -40,7 +42,10 @@ import {
   TranscriptionStatus,
   APPOINTMENT_STATUS_LABELS,
   APPOINTMENT_STATUS_COLORS,
+  VENDE_EN_AMAZON_LABELS,
+  VENDE_EN_AMAZON_OPCIONES,
   colorForAgent,
+  type VendeEnAmazon,
 } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { AudioRecordingField } from './AudioRecordingField'
@@ -197,6 +202,38 @@ export function AppointmentSheet({
   )
   const [callDate, setCallDate] = useState(appointment?.call_date ?? '')
   const [amazonLink, setAmazonLink] = useState(appointment?.amazon_link ?? '')
+
+  /**
+   * ¿VENDE YA EN AMAZON? VA ARRIBA Y ANTES DE AGENDAR, no con los datos
+   * comerciales.
+   *
+   * Es la primera pregunta de la llamada y la que decide el discurso entero: un
+   * seller que ya está en Amazon y una tienda que vende por su web son dos
+   * conversaciones distintas. Saberlo DESPUÉS de agendar no sirve para preparar
+   * la cita, que es justo para lo que sirve.
+   *
+   * Por eso es de los pocos campos que quedan FUERA del bloque que se desenfoca
+   * hasta guardar: ahí abajo está lo que se apunta tras la llamada, y esto se
+   * sabe antes.
+   */
+  const [vendeEnAmazon, setVendeEnAmazon] = useState<VendeEnAmazon>(
+    appointment?.vende_en_amazon ?? 'sin_comprobar'
+  )
+
+  // Los datos de su tienda. Solo se piden cuando NO vende en Amazon: ver el
+  // comentario del bloque en el JSX.
+  const [razonSocial, setRazonSocial] = useState(appointment?.razon_social ?? '')
+  const [cif, setCif] = useState(appointment?.cif ?? '')
+  const [sector, setSector] = useState(appointment?.sector ?? '')
+  const [ciudad, setCiudad] = useState(appointment?.ciudad ?? '')
+  const [plataforma, setPlataforma] = useState(appointment?.plataforma ?? '')
+  const [nProductos, setNProductos] = useState(
+    appointment?.n_productos != null ? String(appointment.n_productos) : ''
+  )
+  const [anosTienda, setAnosTienda] = useState(
+    appointment?.anos_tienda != null ? String(appointment.anos_tienda) : ''
+  )
+  const [web, setWeb] = useState(appointment?.web ?? '')
   const [recordingUrl, setRecordingUrl] = useState(appointment?.recording_url ?? null)
   const [recordingFilename, setRecordingFilename] = useState(
     appointment?.recording_filename ?? null
@@ -251,9 +288,22 @@ export function AppointmentSheet({
         end_time: end.toISOString(),
         status,
         notes: notes.trim() || null,
+        vende_en_amazon: vendeEnAmazon,
         revenue_amount: revenueAmount.trim() ? Number(revenueAmount.replace(',', '.')) : null,
         call_date: callDate || null,
         amazon_link: amazonLink.trim() || null,
+        // Se mandan SIEMPRE, también cuando vende en Amazon y el bloque está
+        // escondido. Esconder un campo no es borrarlo: si alguien marca «vende»
+        // por error y lo corrige, lo que escribió tiene que seguir ahí. Lo que
+        // decide qué se pide es la pantalla; lo que se guarda es lo que hay.
+        razon_social: razonSocial.trim() || null,
+        cif: cif.trim() || null,
+        sector: sector.trim() || null,
+        ciudad: ciudad.trim() || null,
+        plataforma: plataforma.trim() || null,
+        n_productos: nProductos.trim() ? Number(nProductos) : null,
+        anos_tienda: anosTienda.trim() ? Number(anosTienda.replace(',', '.')) : null,
+        web: web.trim() || null,
       }
 
       const res = await fetch(
@@ -434,6 +484,47 @@ export function AppointmentSheet({
                 placeholder="Empresa"
               />
             </PropertyRow>
+
+            {/* ¿VENDE YA EN AMAZON? AQUÍ ARRIBA Y NO CON LOS DATOS COMERCIALES.
+                Es la primera pregunta de la llamada y la que decide el discurso
+                entero: un seller que ya está en Amazon y una tienda que vende por
+                su web son dos conversaciones, dos propuestas y dos precios. Abajo
+                está lo que se apunta DESPUÉS de hablar; esto se sabe antes, y por
+                eso queda fuera del bloque que se desenfoca hasta agendar. */}
+            <div className="pt-2">
+              <div className="text-[12px] text-white/40 mb-1.5">¿Vende ya en Amazon?</div>
+              <div className="flex flex-wrap gap-1.5">
+                {VENDE_EN_AMAZON_OPCIONES.map((v) => {
+                  const elegido = vendeEnAmazon === v
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => canEdit && setVendeEnAmazon(v)}
+                      disabled={!canEdit}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-all ${
+                        elegido
+                          ? v === 'vende'
+                            ? 'border-emerald-400/40 bg-emerald-400/15 text-emerald-200'
+                            : v === 'no_vende'
+                              ? 'border-[#FF6600]/50 bg-[#FF6600]/15 text-[#FFA366]'
+                              : 'border-white/25 bg-white/10 text-white/70'
+                          : 'border-white/10 text-white/40 bg-transparent hover:border-white/20 hover:text-white/70'
+                      } ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
+                    >
+                      {elegido && <Check className="h-3 w-3" />}
+                      {VENDE_EN_AMAZON_LABELS[v]}
+                    </button>
+                  )
+                })}
+              </div>
+              {vendeEnAmazon === 'sin_comprobar' && (
+                <p className="mt-1.5 text-[11px] leading-[1.5] text-white/35">
+                  Sin esto, quien atienda la cita no sabe con qué discurso entrar. Se comprueba en
+                  treinta segundos buscando la marca en Amazon.
+                </p>
+              )}
+            </div>
           </Section>
 
           {/* Franja horaria */}
@@ -602,15 +693,130 @@ export function AppointmentSheet({
                 className={ghostInput}
               />
             </PropertyRow>
-            <PropertyRow icon={<LinkIcon className="h-3 w-3" />} label="Link Amazon">
-              <input
-                value={amazonLink}
-                onChange={(e) => setAmazonLink(e.target.value)}
-                disabled={!canEdit}
-                className={ghostInput}
-                placeholder="https://amazon.es/..."
-              />
-            </PropertyRow>
+            {/* EL ENLACE CAMBIA SEGÚN LA RESPUESTA DE ARRIBA, y no es cosmética.
+                Si ya vende, lo que hay que mirar para preparar la cita es su
+                escaparate de Amazon. Si no vende, no hay escaparate: pedirle un
+                «Link Amazon» a quien no está en Amazon es pedirle algo que no
+                existe, y el campo se queda vacío en todas las fichas de esa
+                mitad del embudo. Lo que sí tiene es su web. */}
+            {vendeEnAmazon === 'no_vende' ? (
+              <PropertyRow icon={<LinkIcon className="h-3 w-3" />} label="Web">
+                <input
+                  value={web}
+                  onChange={(e) => setWeb(e.target.value)}
+                  disabled={!canEdit}
+                  className={ghostInput}
+                  placeholder="https://sutienda.com"
+                />
+              </PropertyRow>
+            ) : (
+              <PropertyRow icon={<LinkIcon className="h-3 w-3" />} label="Link Amazon">
+                <input
+                  value={amazonLink}
+                  onChange={(e) => setAmazonLink(e.target.value)}
+                  disabled={!canEdit}
+                  className={ghostInput}
+                  placeholder="https://amazon.es/..."
+                />
+              </PropertyRow>
+            )}
+
+            {/* ============ LOS DATOS DE SU TIENDA ============
+
+                Solo cuando NO vende en Amazon, y por eso aparece y desaparece en
+                vez de estar siempre: a un seller que ya está en Amazon estos
+                campos no le aplican y seis filas vacías en cada ficha enseñan a
+                no leer el bloque.
+
+                QUE SE ESCONDA NO BORRA NADA. Lo escrito se sigue guardando aunque
+                luego se marque «vende»: si alguien se equivoca al elegir y lo
+                corrige, lo que ya había apuntado tiene que seguir ahí.
+
+                Son los mismos campos que la ficha de un lead de Cold Calling
+                —mismos nombres también en la base— porque muchas de estas citas
+                salen justo de ahí y el dato tiene que poder copiarse sin traducir. */}
+            {vendeEnAmazon === 'no_vende' && (
+              <div className="mt-2 rounded-xl border border-[#FF6600]/20 bg-[#FF6600]/[0.04] px-2.5 pb-1.5">
+                <div className="flex items-center gap-1.5 pt-2 pb-0.5 text-[12px] text-[#FFA366]">
+                  <Store className="h-3 w-3" />
+                  Su tienda
+                  <span className="ml-auto text-[11px] text-white/30">
+                    es lo único que hay para preparar la propuesta
+                  </span>
+                </div>
+
+                <PropertyRow icon={<ShoppingBag className="h-3 w-3" />} label="Plataforma">
+                  <input
+                    value={plataforma}
+                    onChange={(e) => setPlataforma(e.target.value)}
+                    disabled={!canEdit}
+                    className={ghostInput}
+                    placeholder="PrestaShop, Shopify, WooCommerce…"
+                  />
+                </PropertyRow>
+                <PropertyRow label="Productos">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    value={nProductos}
+                    onChange={(e) => setNProductos(e.target.value)}
+                    disabled={!canEdit}
+                    className={ghostInput}
+                    placeholder="112"
+                  />
+                </PropertyRow>
+                <PropertyRow label="Antigüedad">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.1"
+                    value={anosTienda}
+                    onChange={(e) => setAnosTienda(e.target.value)}
+                    disabled={!canEdit}
+                    className={ghostInput}
+                    placeholder="7,7 años"
+                  />
+                </PropertyRow>
+                <PropertyRow label="Sector">
+                  <input
+                    value={sector}
+                    onChange={(e) => setSector(e.target.value)}
+                    disabled={!canEdit}
+                    className={ghostInput}
+                    placeholder="Mascotas"
+                  />
+                </PropertyRow>
+                <PropertyRow label="Ciudad">
+                  <input
+                    value={ciudad}
+                    onChange={(e) => setCiudad(e.target.value)}
+                    disabled={!canEdit}
+                    className={ghostInput}
+                    placeholder="Albacete"
+                  />
+                </PropertyRow>
+                <PropertyRow icon={<Building2 className="h-3 w-3" />} label="Razón social">
+                  <input
+                    value={razonSocial}
+                    onChange={(e) => setRazonSocial(e.target.value)}
+                    disabled={!canEdit}
+                    className={ghostInput}
+                    placeholder="Pedro Luis Redondo Carrilero"
+                  />
+                </PropertyRow>
+                <PropertyRow label="CIF">
+                  <input
+                    value={cif}
+                    onChange={(e) => setCif(e.target.value)}
+                    disabled={!canEdit}
+                    className={ghostInput}
+                    placeholder="B12345678"
+                  />
+                </PropertyRow>
+              </div>
+            )}
             <div className="pt-2">
               <div className="text-[12px] text-white/40 mb-1.5 flex items-center gap-1.5">
                 <Mic className="h-3 w-3" /> Grabación de la llamada

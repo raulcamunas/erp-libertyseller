@@ -74,6 +74,19 @@ export async function PUT(
         body.revenue_amount !== undefined ? body.revenue_amount : before.revenue_amount,
       call_date: body.call_date !== undefined ? body.call_date : before.call_date,
       amazon_link: body.amazon_link !== undefined ? body.amazon_link : before.amazon_link,
+      // El patrón de todo este PATCH: `!== undefined` y no `??`. Con `??`, mandar
+      // null para BORRAR un campo lo dejaría como estaba, y aquí borrar es una
+      // operación de verdad — se corrige un dato que se apuntó mal en la llamada.
+      vende_en_amazon:
+        body.vende_en_amazon !== undefined ? body.vende_en_amazon : before.vende_en_amazon,
+      razon_social: body.razon_social !== undefined ? body.razon_social : before.razon_social,
+      cif: body.cif !== undefined ? body.cif : before.cif,
+      sector: body.sector !== undefined ? body.sector : before.sector,
+      ciudad: body.ciudad !== undefined ? body.ciudad : before.ciudad,
+      plataforma: body.plataforma !== undefined ? body.plataforma : before.plataforma,
+      n_productos: body.n_productos !== undefined ? body.n_productos : before.n_productos,
+      anos_tienda: body.anos_tienda !== undefined ? body.anos_tienda : before.anos_tienda,
+      web: body.web !== undefined ? body.web : before.web,
       updated_source: 'erp',
       sync_status: isGoogleConfigured() ? 'pending' : 'local',
     })

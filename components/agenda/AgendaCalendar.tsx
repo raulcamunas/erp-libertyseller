@@ -35,6 +35,8 @@ import {
   colorForAgent,
   APPOINTMENT_STATUS_COLORS,
   COLUMNAS_AGENDA,
+  COLUMNAS_AGENDA_CON_TIENDA,
+  faltaLa214,
 } from '@/lib/types/appointments'
 import { AvailabilityWindow, parseTimeToHourMinute } from '@/lib/types/availability'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -642,7 +644,12 @@ export function AgendaCalendar({
       // Por tramos: Supabase corta a 1.000 filas por consulta
       const CHUNK = 1000
       const fresh: AppointmentWithPeople[] = []
-      for (let from = 0; ; from += CHUNK) {
+      // ¿Se piden las columnas de la 214? Baja a false si la base aún no las tiene.
+      let conTienda = true
+      // El avance va al FINAL del cuerpo, no en la cabecera: el reintento sin
+      // esas columnas tiene que repetir ESTE tramo, y con `from += CHUNK` arriba
+      // un `continue` se saltaría mil citas sin decir nada.
+      for (let from = 0; ; ) {
         // LA MISMA LISTA DE COLUMNAS QUE LA CARGA INICIAL, NO `*`.
         //
         // Aquí ponía `select('*')`, que deshacía el recorte que hace
@@ -658,12 +665,19 @@ export function AgendaCalendar({
         // app/dashboard/), y `google_meet_link`, que sí se pinta, está en la
         // lista. Lo único que cambia es que después de resincronizar el estado
         // tiene la misma forma que al cargar la página.
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('appointments')
-          .select(COLUMNAS_AGENDA)
+          .select(conTienda ? COLUMNAS_AGENDA_CON_TIENDA : COLUMNAS_AGENDA)
           .order('start_time', { ascending: true })
           .order('id', { ascending: true })
           .range(from, from + CHUNK - 1)
+        // La 214 todavía no está lanzada: se repite ESTE tramo sin sus columnas.
+        // Sin esto, pulsar «Resincronizar» antes de migrar vaciaría el calendario
+        // que ya estaba pintado. Ver COLUMNAS_214 en lib/types/appointments.ts.
+        if (error && conTienda && faltaLa214(error)) {
+          conTienda = false
+          continue
+        }
         if (!data || data.length === 0) break
         // `as unknown as`, igual que app/dashboard/agenda/page.tsx:70: al pedir
         // columnas explícitas el tipo que infiere supabase-js ya no solapa con
@@ -671,6 +685,7 @@ export function AgendaCalendar({
         // propósito porque es el texto largo y se carga al desplegarlo).
         fresh.push(...(data as unknown as AppointmentWithPeople[]))
         if (data.length < CHUNK) break
+        from += CHUNK
       }
       setAppointments(fresh)
 
