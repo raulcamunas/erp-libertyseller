@@ -1295,7 +1295,7 @@ function explicacionTipo(tipo: AmazonJobTipo): string {
     case 'snapshot_bsr':
       return 'El ranking de ventas de cada ASIN, guardado con la fecha. Es el dato que NO se puede reconstruir hacia atrás: el día que no se guarda, se pierde para siempre.'
     case 'inventario_fba':
-      return 'Existencias en los almacenes de Amazon: disponible, reservado y lo que va de camino. Los SKU que gestiona el vendedor no salen en esa respuesta y se guardan como «no aplica», nunca como cero.'
+      return 'Existencias en los almacenes de Amazon: disponible, reservado y lo que va de camino. Los SKU que gestiona el vendedor no salen en esa respuesta y se guardan como «no aplica», nunca como cero. Y de paso trae el FNSKU de cada SKU, que no viene en ningún otro sitio: es el código que lleva el código de barras de las etiquetas de FBA, así que con esto apagado las etiquetas salen sin nada que imprimir.'
     case 'recalcular_activos':
       return 'Aplica el criterio del cliente y decide qué SKU se refrescan a diario. No gasta ni una llamada a Amazon, así que se puede lanzar las veces que haga falta.'
     case 'tarifas':
@@ -1397,7 +1397,11 @@ const QUE_ES: Record<string, { dato: string; cambia: string; serie?: boolean }> 
     cambia: 'horas · Amazon cachea el informe entre 1 y 6 h',
   },
   inventario_fba: {
-    dato: 'Histórico de existencias',
+    // «Histórico de existencias» a secas mandaba a buscarlo a quien venía por el
+    // FNSKU, que es la otra mitad de lo que trae esta tarea y la única forma de
+    // que salgan las etiquetas de FBA. Si el nombre no dice para qué sirve, la
+    // tabla no se puede leer y hay que preguntar.
+    dato: 'Existencias en FBA y el FNSKU de cada SKU',
     cambia: '1 vez al día · el stock que se ve en pantalla ya va cada 15 min',
     serie: true,
   },
