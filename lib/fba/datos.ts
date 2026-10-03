@@ -29,6 +29,8 @@ export interface LineaDePanel {
   variante: string | null
   asin: string | null
   referencia: string | null
+  /** El código del código de barras de la etiqueta. null = no lo sabemos todavía */
+  fnsku: string | null
   enviadas: number
   consumidas: number
   devueltas: number
@@ -51,6 +53,18 @@ export interface RemesaDePanel {
   /** En qué paso del proceso está. Ver lib/fba/flujo.ts */
   estado: EstadoRemesa
   aprobadaAt: string | null
+  /**
+   * EN QUÉ VERSIÓN VA EL BOCETO. Empieza en 1 y sube cada vez que se reabre.
+   *
+   * Sirve para una sola cosa, y es la que importa: compararla con la versión de
+   * las etiquetas que ya se imprimieron. Si lo impreso es de una versión
+   * anterior, esas pegatinas están puestas en mercancía que puede haber dejado
+   * de ir en el envío.
+   */
+  version: number
+  reabiertaAt: string | null
+  /** La última tirada de etiquetas, si ha habido alguna */
+  ultimaImpresion: { version: number; etiquetas: number; impresoAt: string } | null
   inboundPlanId: string | null
   /** Por dónde va el plan en Amazon. null = no se ha creado */
   pasoPlan: string | null
@@ -107,6 +121,8 @@ interface FilaRemesa {
   seguimiento_error: string | null
   estado: EstadoRemesa
   aprobada_at: string | null
+  version: number | null
+  reabierta_at: string | null
   inbound_plan_id: string | null
   paso_plan: string | null
   packing_option_id: string | null
@@ -131,6 +147,7 @@ export interface EnvioDeRemesa {
 }
 
 interface FilaLinea {
+  fnsku: string | null
   remesa_id: string
   sku: string
   unidades: number
@@ -165,7 +182,7 @@ export async function panelDeCliente(
 
   const { data: remesasRaw, error: errRemesas } = await service
     .from('fba_remesas')
-    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, inbound_plan_id, paso_plan, packing_option_id, placement_option_id, plan_error')
+    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, inbound_plan_id, paso_plan, packing_option_id, placement_option_id, plan_error, version, reabierta_at')
     .eq('client_id', clienteId)
     .order('fecha_envio', { ascending: true })
   if (errRemesas) throw errRemesas
@@ -187,10 +204,44 @@ export async function panelDeCliente(
   const ids = filasRemesa.map((r) => r.id)
   const { data: lineasRaw, error: errLineas } = await service
     .from('fba_remesa_lineas')
-    .select('remesa_id, sku, unidades, nombre, variante, asin, referencia, unidades_recibidas')
+    .select('remesa_id, sku, unidades, nombre, variante, asin, referencia, unidades_recibidas, fnsku')
     .in('remesa_id', ids)
   if (errLineas) throw errLineas
   const filasLinea = (lineasRaw ?? []) as FilaLinea[]
+
+  /**
+   * LA ÚLTIMA TIRADA DE ETIQUETAS DE CADA REMESA.
+   *
+   * En su propio try/catch porque la 215 se lanza a mano en el editor SQL de
+   * Supabase y el código puede llegar desplegado antes: sin la tabla, lo único
+   * que pasa es que no se avisa de las etiquetas viejas, y no que la pantalla
+   * entera se caiga. Se pide solo la última de cada una —es la que decide si lo
+   * impreso vale— y no el histórico, que no se enseña en ningún sitio.
+   */
+  const impresionPorRemesa = new Map<
+    string,
+    { version: number; etiquetas: number; impresoAt: string }
+  >()
+  const { data: impresionesRaw } = await service
+    .from('fba_impresiones')
+    .select('remesa_id, version, etiquetas, impreso_at')
+    .in('remesa_id', ids)
+    .order('impreso_at', { ascending: false })
+  for (const i of (impresionesRaw ?? []) as Array<{
+    remesa_id: string
+    version: number
+    etiquetas: number
+    impreso_at: string
+  }>) {
+    // Vienen de la más nueva a la más vieja: la primera de cada remesa gana.
+    if (!impresionPorRemesa.has(i.remesa_id)) {
+      impresionPorRemesa.set(i.remesa_id, {
+        version: i.version,
+        etiquetas: i.etiquetas,
+        impresoAt: i.impreso_at,
+      })
+    }
+  }
 
   // La conexión sale de las propias remesas: un cliente sin autorización —el
   // caso de ShoesF— las lleva igual, y entonces no hay movimientos que leer.
@@ -320,6 +371,7 @@ export async function panelDeCliente(
         variante: l.variante,
         asin: l.asin,
         referencia: l.referencia,
+        fnsku: l.fnsku,
         enviadas: l.unidades,
         consumidas: rep?.consumidas ?? 0,
         devueltas: rep?.devueltas ?? 0,
@@ -347,6 +399,11 @@ export async function panelDeCliente(
       // tratan como cerradas, no como borradores pendientes de aprobar.
       estado: (r.estado ?? 'cerrada') as EstadoRemesa,
       aprobadaAt: r.aprobada_at,
+      // Las remesas anteriores a la 215 no tienen versión y son la 1: nunca se
+      // han reabierto, porque reabrir no existía.
+      version: r.version ?? 1,
+      reabiertaAt: r.reabierta_at ?? null,
+      ultimaImpresion: impresionPorRemesa.get(r.id) ?? null,
       inboundPlanId: r.inbound_plan_id,
       pasoPlan: r.paso_plan,
       packingOptionId: r.packing_option_id,

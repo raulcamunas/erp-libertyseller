@@ -3,7 +3,18 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Calendar, Check, Hash, Loader2, Pencil, StickyNote, Trash2, Truck, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  Calendar,
+  Check,
+  Hash,
+  Loader2,
+  Pencil,
+  StickyNote,
+  Trash2,
+  Truck,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import type { RemesaDePanel, SkuDePanel } from '@/lib/fba/datos'
 import type { CajasDeRemesa } from '@/lib/fba/cajas'
@@ -12,6 +23,7 @@ import { ESTADO_INBOUND_TEXTO } from '@/lib/fba/inbound'
 import { AccionesPaso } from './AccionesPaso'
 import { AsistenteAmazon } from './AsistenteAmazon'
 import { DireccionOrigen } from './DireccionOrigen'
+import { EditorBoceto } from './EditorBoceto'
 import { EditorCajas } from './EditorCajas'
 import { Pasarela } from './Pasarela'
 import { colorDeCobertura, fecha } from './formato'
@@ -323,6 +335,52 @@ export function DetalleRemesa({
             }}
           />
         </>
+      )}
+
+      {/* ========== LAS ETIQUETAS IMPRESAS SON DE UNA VERSIÓN ANTERIOR ==========
+
+          El aviso que da sentido al contador de versión. Si este envío se cerró,
+          se imprimieron etiquetas y después se reabrió, hay pegatinas puestas en
+          mercancía de verdad que pueden haber dejado de valer: una referencia
+          quitada deja cajas etiquetadas que ya no van, y una añadida no tiene
+          etiqueta.
+
+          Se enseña en CUALQUIER estado y no solo en borrador: lo que importa es
+          que alguien lo lea antes de mandar el palé, y para entonces el envío ya
+          habrá vuelto a estar aprobado.
+
+          Si nunca se imprimió nada, no hay nada que avisar y no se pinta. */}
+      {remesa.ultimaImpresion && remesa.ultimaImpresion.version < remesa.version && (
+        <div className="glass-card border-amber-400/25 bg-amber-400/[0.06] px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-px h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+            <div className="min-w-0 text-[11.5px] leading-relaxed text-white/75">
+              <strong className="font-semibold text-amber-200">
+                Las etiquetas impresas son de una versión anterior de este envío.
+              </strong>{' '}
+              Se imprimieron{' '}
+              <span className="text-white">
+                {remesa.ultimaImpresion.etiquetas.toLocaleString('es-ES')}
+              </span>{' '}
+              el {fecha(remesa.ultimaImpresion.impresoAt)}, cuando el envío iba por la versión{' '}
+              {remesa.ultimaImpresion.version}; ahora va por la {remesa.version}. Las pegatinas de
+              las referencias que se hayan quitado están puestas en mercancía que ya no va, y las
+              que se hayan añadido no tienen. Vuelve a imprimir antes de cerrar las cajas.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= EL BOCETO, MIENTRAS ESTÁ EN BORRADOR ================= */}
+      {remesa.estado === 'borrador' && (
+        <EditorBoceto
+          clienteId={clienteId}
+          esAdmin={esAdmin}
+          puedeEditar={puedeEditar}
+          remesaId={remesa.id}
+          lineas={remesa.lineas}
+          onGuardado={() => router.refresh()}
+        />
       )}
 
       {/* ================= CAJAS, MIENTRAS SE ENCAJA ================= */}

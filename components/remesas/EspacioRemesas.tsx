@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   TrendingDown,
+  PencilRuler,
 } from 'lucide-react'
 import type { PanelRemesas, RemesaDePanel } from '@/lib/fba/datos'
 import { NuevaRemesaDialog } from './NuevaRemesaDialog'
@@ -56,7 +57,7 @@ export function EspacioRemesas({
   nombreUsuario: string
 }) {
   const router = useRouter()
-  const [vista, setVista] = useState<'envios' | 'referencias'>('envios')
+  const [vista, setVista] = useState<'envios' | 'bocetos' | 'referencias'>('envios')
   const [seleccionada, setSeleccionada] = useState<string | null>(
     remesaAbierta ?? panel.remesas[0]?.id ?? null
   )
@@ -88,10 +89,24 @@ export function EspacioRemesas({
     }
   }, [panel.remesas, seleccionada])
 
+  const bocetos = useMemo(
+    () => panel.remesas.filter((r) => r.estado === 'borrador').length,
+    [panel.remesas]
+  )
+
   const lista = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
     return panel.remesas
-      .filter((r) => !soloAbiertas || r.quedan > 0)
+      .filter((r) => (vista === 'bocetos' ? r.estado === 'borrador' : true))
+      /**
+       * «SOLO VIVAS» NO SE APLICA A LOS BOCETOS, y es la trampa de esta pestaña.
+       *
+       * Ese filtro esconde los envíos sin unidades por consumir, y un boceto
+       * recién creado tiene CERO consumido porque no se ha mandado nada: con la
+       * casilla puesta —que viene puesta de serie— la pestaña de bocetos saldría
+       * vacía justo cuando acabas de crear uno.
+       */
+      .filter((r) => vista === 'bocetos' || !soloAbiertas || r.quedan > 0)
       .filter(
         (r) =>
           !q ||
@@ -100,7 +115,7 @@ export function EspacioRemesas({
       )
       .slice()
       .sort((a, b) => b.fechaEnvio.localeCompare(a.fechaEnvio))
-  }, [panel.remesas, busqueda, soloAbiertas])
+  }, [panel.remesas, busqueda, soloAbiertas, vista])
 
   const remesa = panel.remesas.find((r) => r.id === seleccionada) ?? null
 
@@ -127,6 +142,19 @@ export function EspacioRemesas({
           <Pestana activa={vista === 'envios'} onClick={() => setVista('envios')}>
             <Package className="h-3.5 w-3.5" />
             Envíos
+          </Pestana>
+          {/* BOCETOS, ENTRE ENVÍOS Y REFERENCIAS.
+              Es el mismo panel, no otra pantalla: lo único que cambia es qué
+              envíos se listan a la izquierda. Un boceto es un envío al que
+              todavía se le está dando forma, no otra cosa. */}
+          <Pestana activa={vista === 'bocetos'} onClick={() => setVista('bocetos')}>
+            <PencilRuler className="h-3.5 w-3.5" />
+            Bocetos
+            {bocetos > 0 && (
+              <span className="ml-1 rounded-full bg-[#FF6600]/20 px-1.5 text-[10px] font-semibold text-[#FFA366]">
+                {bocetos}
+              </span>
+            )}
           </Pestana>
           <Pestana activa={vista === 'referencias'} onClick={() => setVista('referencias')}>
             <TrendingDown className="h-3.5 w-3.5" />
@@ -231,18 +259,20 @@ export function EspacioRemesas({
                     className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-1.5 pl-8 pr-2 text-[12px] text-white placeholder:text-white/25 focus:border-[#FF6600]/40 focus:outline-none"
                   />
                 </div>
-                <label
-                  className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-[10px] text-white/40"
-                  title="Esconder los envíos que ya no tienen unidades"
-                >
-                  <input
-                    type="checkbox"
-                    checked={soloAbiertas}
-                    onChange={(e) => setSoloAbiertas(e.target.checked)}
-                    className="h-3 w-3 accent-[#FF6600]"
-                  />
-                  Solo vivas
-                </label>
+                {vista !== 'bocetos' && (
+                  <label
+                    className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-[10px] text-white/40"
+                    title="Esconder los envíos que ya no tienen unidades"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={soloAbiertas}
+                      onChange={(e) => setSoloAbiertas(e.target.checked)}
+                      className="h-3 w-3 accent-[#FF6600]"
+                    />
+                    Solo vivas
+                  </label>
+                )}
               </div>
 
               <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
