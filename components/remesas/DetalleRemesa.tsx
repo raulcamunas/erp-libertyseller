@@ -10,6 +10,7 @@ import {
   Hash,
   Loader2,
   Pencil,
+  RefreshCw,
   StickyNote,
   Trash2,
   Truck,
@@ -70,6 +71,47 @@ export function DetalleRemesa({
   clienteNombre: string
 }) {
   const router = useRouter()
+
+  /**
+   * CONSULTAR EL ENVÍO EN AMAZON AL PULSAR.
+   *
+   * Pide el estado y, sobre todo, cuántas unidades ha recibido de cada
+   * referencia — que es lo que el reparto FIFO usa para descontar: lo que hay en
+   * el almacén es lo RECIBIDO, no lo declarado.
+   */
+  const [siguiendo, setSiguiendo] = useState(false)
+
+  async function seguirAhora() {
+    setSiguiendo(true)
+    const res = await fetch(`/api/fba/remesas/${remesa.id}/seguir`, { method: 'POST' })
+    const cuerpo = (await res.json().catch(() => null)) as
+      | { estado?: string; centro?: string | null; referencias?: number; faltan?: number; error?: string }
+      | null
+    setSiguiendo(false)
+
+    if (!res.ok) {
+      // El servidor manda frases que se enseñan tal cual: que Amazon no reconoce
+      // el número, que el cliente no tiene cuenta conectada…
+      toast.error(cuerpo?.error ?? 'No se ha podido consultar el envío en Amazon')
+      router.refresh()
+      return
+    }
+
+    const faltan = cuerpo?.faltan ?? 0
+    if (faltan > 0) {
+      toast.warning(
+        `Amazon dice «${cuerpo?.estado}». Faltan ${faltan} unidad${faltan === 1 ? '' : 'es'} de ` +
+          'las que se mandaron: el reparto ya cuenta con las recibidas.'
+      )
+    } else {
+      toast.success(
+        `Amazon dice «${cuerpo?.estado}»${cuerpo?.centro ? ` · ${cuerpo.centro}` : ''}. ` +
+          `${cuerpo?.referencias ?? 0} referencia(s) al día, sin unidades perdidas.`
+      )
+    }
+    router.refresh()
+  }
+
   const [editando, setEditando] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [borrando, setBorrando] = useState(false)
@@ -204,7 +246,33 @@ export function DetalleRemesa({
                     className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 font-mono text-[11px] text-white focus:outline-none"
                   />
                 ) : (
-                  <span className="font-mono">{remesa.referenciaEnvio ?? <span className="text-white/30">—</span>}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="font-mono">
+                      {remesa.referenciaEnvio ?? <span className="text-white/30">—</span>}
+                    </span>
+                    {/* PREGUNTARLE A AMAZON AHORA, y no esperar a la pasada de la
+                        noche. Quien acaba de pegar un número quiere saber si está
+                        bien escrito: con el cron de por medio, descubrir una
+                        errata cuesta veinticuatro horas. Va a botón y no
+                        automático porque son dos llamadas a la API y el cupo es
+                        del cliente. */}
+                    {remesa.referenciaEnvio && puedeEditar && (
+                      <button
+                        type="button"
+                        onClick={() => void seguirAhora()}
+                        disabled={siguiendo}
+                        title="Preguntarle a Amazon por este envío: en qué estado va y cuántas unidades ha recibido"
+                        className="flex items-center gap-1 rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-white/50 transition-colors hover:border-white/25 hover:text-white/80 disabled:opacity-40"
+                      >
+                        {siguiendo ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                        {siguiendo ? 'Preguntando…' : 'Consultar'}
+                      </button>
+                    )}
+                  </span>
                 )}
               </Dato>
             </div>

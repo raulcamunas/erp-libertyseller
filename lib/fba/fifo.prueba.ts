@@ -12,8 +12,8 @@ const remesas = new Map<string, Remesa>([
   ['r2', { id: 'r2', fechaEnvio: '2026-09-10' }],
 ])
 const lineas: LineaRemesa[] = [
-  { remesaId: 'r1', sku: 'XXXXX', unidades: 3 },
-  { remesaId: 'r2', sku: 'XXXXX', unidades: 3 },
+  { remesaId: 'r1', sku: 'XXXXX', unidades: 3, recibidas: null },
+  { remesaId: 'r2', sku: 'XXXXX', unidades: 3, recibidas: null },
 ]
 const venta = (fecha: string, n: number): Movimiento => ({ sku: 'XXXXX', fecha, tipo: 'Shipments', cantidad: -n })
 
@@ -77,7 +77,7 @@ console.log('\n=== 7. Una devolucion inservible cuenta aparte ===')
 console.log('\n=== 8. Velocidad y fecha de agotamiento ===')
 {
   const movs = Array.from({ length: 10 }, (_, i) => venta(`2026-09-${String(i + 5).padStart(2, '0')}`, 1))
-  const r = repartirSku('XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 30 }], new Map([['r1', { id: 'r1', fechaEnvio: '2026-09-01' }]]), movs, { hoy: '2026-09-18', diasDeVelocidad: 30 })
+  const r = repartirSku('XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 30, recibidas: null }], new Map([['r1', { id: 'r1', fechaEnvio: '2026-09-01' }]]), movs, { hoy: '2026-09-18', diasDeVelocidad: 30 })
   comprobar('quedan 20', r.quedan, 20)
   comprobar('velocidad 0,33/dia', r.velocidad, 0.33)
   comprobar('cobertura 60 dias', r.diasDeCobertura, 60)
@@ -86,9 +86,50 @@ console.log('\n=== 8. Velocidad y fecha de agotamiento ===')
 console.log('\n=== 9. La llegada confirmada manda sobre la fecha de envio ===')
 {
   const rem = new Map<string, Remesa>([['r1', { id: 'r1', fechaEnvio: '2026-09-01', fechaLlegada: '2026-09-12' }]])
-  const r = repartirSku('XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 3 }], rem, [venta('2026-09-05', 2)], { hoy: '2026-09-18' })
+  const r = repartirSku('XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 3, recibidas: null }], rem, [venta('2026-09-05', 2)], { hoy: '2026-09-18' })
   comprobar('la venta del dia 5 no consume una remesa que llego el 12', r.quedan, 3)
   comprobar('queda sin atribuir', r.sinAtribuir, 2)
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Se reparte sobre lo RECIBIDO, no sobre lo declarado                  */
+/* ------------------------------------------------------------------ */
+
+console.log('\n=== 10. LO QUE AMAZON RECIBIO MANDA SOBRE LO QUE SE DECLARO ===')
+{
+  const rem = new Map<string, Remesa>([['r1', { id: 'r1', fechaEnvio: '2026-09-01' }]])
+  const vendidas80 = [venta('2026-09-05', 80)]
+
+  // Se mandan 100, Amazon recibe 95 —una caja perdida— y se venden 80: quedan 15.
+  // Contando sobre las 100 declaradas saldrian 20, y esas cinco de mas son un
+  // fantasma que no se agota nunca y tapa el dia en que la referencia se queda
+  // sin stock, que es para lo que sirve esta pantalla.
+  const conRecibidas = repartirSku(
+    'XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 100, recibidas: 95 }], rem, vendidas80,
+    { hoy: '2026-10-01' }
+  )
+  comprobar('quedan 15 y no 20', conRecibidas.quedan, 15)
+  comprobar('las enviadas que cuentan son 95', conRecibidas.lineas[0].enviadas, 95)
+
+  // Mientras Amazon no contesta (null) se usa lo declarado, NO cero: un envio en
+  // transito no ha recibido nada todavia, y tomarlo al pie de la letra diria
+  // «agotada» de una remesa que va de camino.
+  const sinRespuesta = repartirSku(
+    'XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 100, recibidas: null }], rem, vendidas80,
+    { hoy: '2026-10-01' }
+  )
+  comprobar('sin respuesta de Amazon, quedan 20', sinRespuesta.quedan, 20)
+
+  // Y si Amazon recibio MENOS de lo vendido, la referencia esta agotada y lo que
+  // sobra queda sin atribuir; nunca en negativo.
+  const corto = repartirSku(
+    'XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 100, recibidas: 70 }], rem, vendidas80,
+    { hoy: '2026-10-01' }
+  )
+  comprobar('recibidas 70 y vendidas 80: quedan 0, no -10', corto.quedan, 0)
+  comprobar('  y las 10 de mas quedan sin atribuir', corto.sinAtribuir, 10)
+  comprobar('  y la linea queda marcada como agotada', corto.lineas[0].agotadaEl !== null, true)
 }
 
 console.log(fallos === 0 ? '\n  TODO CORRECTO\n' : `\n  ${fallos} COMPROBACIONES FALLIDAS\n`)

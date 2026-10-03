@@ -330,7 +330,14 @@ export async function panelDeCliente(
   for (const sku of skus) {
     const suyas: LineaRemesa[] = filasLinea
       .filter((l) => l.sku === sku)
-      .map((l) => ({ remesaId: l.remesa_id, sku: l.sku, unidades: l.unidades }))
+      .map((l) => ({
+        remesaId: l.remesa_id,
+        sku: l.sku,
+        unidades: l.unidades,
+        // Lo que Amazon dice que recibió de verdad. Es sobre esto sobre lo que
+        // reparte el FIFO: ver el comentario de repartirSku.
+        recibidas: l.unidades_recibidas,
+      }))
     repartoPorSku.set(
       sku,
       repartirSku(sku, suyas, remesasPorId, movimientos, {

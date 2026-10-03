@@ -74,7 +74,17 @@ export interface Movimiento {
 export interface LineaRemesa {
   remesaId: string
   sku: string
+  /** Las que se declararon al montar el envío */
   unidades: number
+  /**
+   * LAS QUE AMAZON DICE QUE RECIBIÓ. null = todavía no ha contestado.
+   *
+   * Es lo que de verdad hay en el almacén, y no siempre coincide con lo
+   * declarado: se pierde una caja, llegan dos pares menos, Amazon marca una
+   * unidad como dañada. Esa diferencia la escribe la pasada nocturna desde
+   * `getShipmentItems` en cuanto el envío tiene número.
+   */
+  recibidas: number | null
 }
 
 export interface Remesa {
@@ -176,10 +186,29 @@ export function repartirSku(
       return d !== 0 ? d : a.linea.remesaId.localeCompare(b.linea.remesaId)
     })
 
+  /**
+   * SE REPARTE SOBRE LO QUE AMAZON RECIBIÓ, NO SOBRE LO QUE SE DECLARÓ.
+   *
+   * Es la diferencia entre decir «quedan 20» y que queden 15. Si se mandaron
+   * 100 y Amazon recibió 95 —se pierde una caja, llegan unidades dañadas, se
+   * extravía un bulto—, lo que hay en el almacén son 95: descontar las ventas de
+   * 100 deja un fantasma de cinco unidades que no se agota nunca y que tapa el
+   * momento en que la referencia se queda sin stock, que es justo para lo que
+   * sirve esta pantalla.
+   *
+   * El cron ya escribía `unidades_recibidas` desde hace tiempo y NADIE lo leía.
+   *
+   * CUANDO TODAVÍA NO HA CONTESTADO (null) SE USA LO DECLARADO, y no cero. Un
+   * envío en tránsito no ha recibido nada aún; tomarlo al pie de la letra diría
+   * «agotada» de una remesa que va de camino, que es peor error que el que se
+   * viene a arreglar. `null` es «no lo sabemos», no «cero».
+   */
   const estado = vivas.map((v) => ({
     remesaId: v.linea.remesaId,
     desde: desdeCuando(v.remesa),
-    enviadas: v.linea.unidades,
+    enviadas: v.linea.recibidas ?? v.linea.unidades,
+    /** Lo declarado, para poder decir cuántas se perdieron por el camino */
+    declaradas: v.linea.unidades,
     consumidas: 0,
     devueltas: 0,
     devueltasNoVendibles: 0,
