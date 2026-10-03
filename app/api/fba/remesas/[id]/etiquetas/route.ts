@@ -39,7 +39,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const service = createServiceClient()
     const { data: cabecera } = await service
       .from('fba_remesas')
-      .select('id, nombre, client_id, connection_id, marketplace_id, estado, version')
+      // `version` NO va en este select, y es a propósito: la migración 215 se
+      // lanza a mano y el código llega antes. Un select que la nombra devuelve
+      // 42703 y deja SIN ETIQUETAS a quien tiene la mercancía delante, por un
+      // contador que solo sirve para un aviso. Se pide aparte, más abajo.
+      .select('id, nombre, client_id, connection_id, marketplace_id, estado')
       .eq('id', params.id)
       .maybeSingle()
     if (!cabecera) return fail(404, 'Esa remesa ya no existe')
@@ -51,7 +55,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       connection_id: string | null
       marketplace_id: string
       estado: EstadoRemesa
-      version: number | null
     }
     if (sesion.clientesPermitidos && !sesion.clientesPermitidos.includes(remesa.client_id)) {
       return fail(404, 'Esa remesa ya no existe')
@@ -132,15 +135,18 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
      * delante es peor que quedarse sin el apunte. Se avisa en el log.
      */
     void service
-      .from('fba_impresiones')
-      .insert({
+      .from('fba_remesas')
+      .select('version')
+      .eq('id', remesa.id)
+      .maybeSingle()
+      .then(({ data: v }) => service.from('fba_impresiones').insert({
         remesa_id: remesa.id,
-        version: remesa.version ?? 1,
+        version: (v as { version?: number } | null)?.version ?? 1,
         etiquetas: impresas,
         formato,
         descartadas: descartadas.length,
         impreso_por: sesion.userId,
-      })
+      }))
       .then(({ error }) => {
         if (error) {
           console.error('[fba] no se ha podido registrar la impresión de etiquetas:', error.message)

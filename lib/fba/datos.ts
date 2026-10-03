@@ -39,6 +39,17 @@ export interface LineaDePanel {
   agotadaEl: string | null
 }
 
+/**
+ * ¿Es «esa columna o esa tabla no existe» y no otra cosa?
+ *
+ * 42703 lo dice Postgres; PGRST204 y PGRST205 los dice PostgREST cuando no lo
+ * tiene en su caché de esquema. Cualquier otro código —un permiso, un timeout—
+ * NO entra aquí: taparlo devolvería media pantalla sin decir por qué.
+ */
+function faltaLa215(error: { code?: string } | null): boolean {
+  return error?.code === '42703' || error?.code === 'PGRST204' || error?.code === 'PGRST205'
+}
+
 export interface RemesaDePanel {
   id: string
   nombre: string | null
@@ -115,8 +126,9 @@ interface FilaRemesa {
   seguimiento_error: string | null
   estado: EstadoRemesa
   aprobada_at: string | null
-  version: number | null
-  reabierta_at: string | null
+  /** Pueden no venir: la 215 se lanza a mano y el código llega antes */
+  version?: number | null
+  reabierta_at?: string | null
 }
 
 export interface EnvioDeRemesa {
@@ -169,12 +181,51 @@ export async function panelDeCliente(
 ): Promise<PanelRemesas> {
   const service = createServiceClient()
 
-  const { data: remesasRaw, error: errRemesas } = await service
-    .from('fba_remesas')
-    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, version, reabierta_at')
-    .eq('client_id', clienteId)
-    .order('fecha_envio', { ascending: true })
-  if (errRemesas) throw errRemesas
+  /**
+   * LAS COLUMNAS DE LA 215, APARTE Y CON PLAN B.
+   *
+   * ============ POR QUÉ, Y ES UN FALLO QUE YA PASÓ ============
+   *
+   * El código se despliega ANTES de que nadie lance la migración a mano en el
+   * editor SQL de Supabase. Un `select` que nombra una columna inexistente NO
+   * degrada: PostgREST contesta 42703 y la consulta entera revienta.
+   *
+   * Y eso fue exactamente lo que pasó: con la 215 sin lanzar, «Remesas a FBA» se
+   * quedó en la pantalla de error para todo el mundo, por un contador de versión
+   * que todavía no tenía ni un dato. El mismo cuidado estaba puesto en la agenda
+   * —ver `faltaLa215` de lib/types/appointments.ts, que hace esto mismo para la
+   * 214— y aquí se olvidó.
+   *
+   * Así que se pide con las columnas nuevas y, si la base aún no las tiene, se
+   * repite sin ellas. En cuanto se lance la 215 deja de reintentar solo.
+   */
+  const BASE_REMESAS =
+    'id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, ' +
+    'marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at'
+  const CON_215 = `${BASE_REMESAS}, version, reabierta_at`
+
+  let remesasRaw: unknown[] | null = null
+  {
+    const conNuevas = await service
+      .from('fba_remesas')
+      .select(CON_215)
+      .eq('client_id', clienteId)
+      .order('fecha_envio', { ascending: true })
+
+    if (conNuevas.error && !faltaLa215(conNuevas.error)) throw conNuevas.error
+
+    if (conNuevas.error) {
+      const sinNuevas = await service
+        .from('fba_remesas')
+        .select(BASE_REMESAS)
+        .eq('client_id', clienteId)
+        .order('fecha_envio', { ascending: true })
+      if (sinNuevas.error) throw sinNuevas.error
+      remesasRaw = sinNuevas.data
+    } else {
+      remesasRaw = conNuevas.data
+    }
+  }
 
   const filasRemesa = (remesasRaw ?? []) as FilaRemesa[]
   if (filasRemesa.length === 0) {
@@ -211,6 +262,9 @@ export async function panelDeCliente(
     string,
     { version: number; etiquetas: number; impresoAt: string }
   >()
+  // Sin `throw`: si la 215 no está lanzada, `error` viene con PGRST205 y `data`
+  // con null. Lo único que pasa entonces es que no se avisa de las etiquetas
+  // viejas — y no que se caiga la pantalla, que es lo que pasó la primera vez.
   const { data: impresionesRaw } = await service
     .from('fba_impresiones')
     .select('remesa_id, version, etiquetas, impreso_at')
@@ -395,8 +449,8 @@ export async function panelDeCliente(
       // tratan como cerradas, no como borradores pendientes de aprobar.
       estado: (r.estado ?? 'cerrada') as EstadoRemesa,
       aprobadaAt: r.aprobada_at,
-      // Las remesas anteriores a la 215 no tienen versión y son la 1: nunca se
-      // han reabierto, porque reabrir no existía.
+      // Sin la 215 lanzada, estas dos no vienen en la fila. Versión 1 y sin
+      // reabrir es exactamente lo que significan: reabrir no existía.
       version: r.version ?? 1,
       reabiertaAt: r.reabierta_at ?? null,
       ultimaImpresion: impresionPorRemesa.get(r.id) ?? null,

@@ -45,12 +45,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const service = createServiceClient()
     const { data } = await service
       .from('fba_remesas')
-      .select('id, client_id, estado, version')
+      // Sin `version`: la 215 se lanza a mano y el código llega antes. Pedirla
+      // aquí dejaría la remesa sin poder moverse de paso por un contador que
+      // todavía no existe. Se lee aparte, solo al reabrir, que es cuando hace
+      // falta.
+      .select('id, client_id, estado')
       .eq('id', params.id)
       .maybeSingle()
     if (!data) return fail(404, 'Esa remesa ya no existe')
 
-    const remesa = data as { id: string; client_id: string; estado: EstadoRemesa; version: number | null }
+    const remesa = data as { id: string; client_id: string; estado: EstadoRemesa }
     if (!puedeEditar(sesion, remesa.client_id)) return fail(404, 'Esa remesa ya no existe')
 
     const actor = sesion.esAdmin ? 'agencia' : 'cliente'
@@ -105,9 +109,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       cambios.aprobada_por = null
       cambios.aprobada_at = null
       if (remesa.estado !== 'borrador') {
-        cambios.version = (remesa.version ?? 1) + 1
-        cambios.reabierta_at = new Date().toISOString()
-        cambios.reabierta_por = sesion.userId
+        const { data: v, error: errVersion } = await service
+          .from('fba_remesas')
+          .select('version')
+          .eq('id', params.id)
+          .maybeSingle()
+        // Si la 215 no está lanzada, esto da 42703 y lo único que se pierde es el
+        // contador. Volver a borrador tiene que funcionar igual: es un paso del
+        // trabajo diario, no una comodidad.
+        if (!errVersion) {
+          cambios.version = ((v as { version?: number } | null)?.version ?? 1) + 1
+          cambios.reabierta_at = new Date().toISOString()
+          cambios.reabierta_por = sesion.userId
+        }
       }
     }
 
