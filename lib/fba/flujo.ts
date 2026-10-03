@@ -16,11 +16,12 @@
  *               y, peor, pegar etiquetas de algo que luego no se manda.
  *   encajando   EL CLIENTE mete la mercancía en cajas y sube medidas y pesos.
  *               Es quien tiene la báscula.
- *   lista       El cliente ha terminado. Vuelve el turno a la agencia.
- *   en_amazon   LA AGENCIA ha creado el plan. Hay etiquetas de caja que
- *               devolverle al cliente.
- *   enviada     La mercancía ha salido, con sus seguimientos.
- *   cerrada     Amazon lo ha cerrado. Ya no cambia nada.
+ *   lista       El cliente ha terminado. Vuelve el turno a la agencia, que
+ *               genera el manifiesto y el Excel de embalaje y crea el envío en
+ *               Seller Central subiéndolos.
+ *   enviada     La mercancía ha salido. El nº de envío FBA se apunta a mano en
+ *               la ficha, y por ahí se sigue.
+ *   cerrada     Amazon ha terminado de recibir. Ya no cambia nada.
  *
  *
  * ============ SE PUEDE VOLVER ATRÁS, Y ES IMPORTANTE ============
@@ -30,8 +31,12 @@
  * marcha atrás la única salida sería borrar la remesa y rehacerla, perdiendo lo
  * ya encajado.
  *
- * Lo que NO tiene vuelta es `en_amazon`: a partir de ahí el envío existe en
- * Amazon, con su identificador y sus etiquetas, y deshacerlo es cancelarlo allí.
+ * Y DESDE LA 216 NO HAY NINGÚN PASO SIN VUELTA. Lo había: `en_amazon`, en el que
+ * el ERP creaba el plan de entrada por la API de Amazon y a partir de ahí
+ * deshacerlo era cancelarlo allí. Ese paso se quitó porque nunca se usó —cero
+ * remesas con plan en catorce envíos— y porque el envío se crea en Seller Central
+ * a mano, subiendo los dos Excel que genera el ERP. Hasta `enviada` se puede
+ * desandar: se marca por error y todavía no ha salido el camión.
  */
 
 export type EstadoRemesa =
@@ -39,7 +44,6 @@ export type EstadoRemesa =
   | 'aprobada'
   | 'encajando'
   | 'lista'
-  | 'en_amazon'
   | 'enviada'
   | 'cerrada'
 
@@ -123,22 +127,38 @@ export const TRANSICIONES: Transicion[] = [
     consecuencia: 'Se podrán corregir las cajas antes de que la agencia lo mande.',
   },
   {
+    /**
+     * EL ENVÍO SE CREA EN SELLER CENTRAL, NO AQUÍ.
+     *
+     * Antes había un paso 'en_amazon' entre estos dos: el ERP llamaba a la API
+     * de Amazon, creaba el plan de entrada, elegía opciones de empaquetado y de
+     * destino, y confirmaba. Eran 1.883 líneas y NUNCA SE USÓ — cero remesas con
+     * inbound_plan_id, cero con paso_plan, en catorce envíos.
+     *
+     * Se quita a propósito y no por dejadez: el ERP es la herramienta que prepara
+     * el envío —el boceto, las etiquetas con el SKU, los dos Excel— y quien lo
+     * crea en Amazon es una persona, en Seller Central, subiendo esos ficheros.
+     * Un asistente que replica media interfaz de Amazon hay que mantenerlo cada
+     * vez que Amazon la cambia, y lo que se gana es no tener que ir a una pestaña.
+     *
+     * Así que de 'lista' se pasa directamente a 'enviada' cuando la mercancía ha
+     * salido de verdad.
+     */
     desde: 'lista',
-    hasta: 'en_amazon',
-    quien: ['agencia'],
-    boton: 'Crear el envío en Amazon',
-    consecuencia:
-      'Se crea el envío en la cuenta de Amazon del cliente y nacen sus identificadores. Esto NO se deshace desde aquí.',
-    exigeCuadre: true,
-    exigeMedidas: true,
-    irreversible: true,
-  },
-  {
-    desde: 'en_amazon',
     hasta: 'enviada',
     quien: ['agencia'],
     boton: 'Marcar como enviada',
-    consecuencia: 'La mercancía ha salido. Se mandan los seguimientos a Amazon.',
+    consecuencia:
+      'La mercancía ha salido hacia Amazon. Apunta el nº de envío FBA en la ficha para poder seguirla.',
+    exigeCuadre: true,
+    exigeMedidas: true,
+  },
+  {
+    desde: 'enviada',
+    hasta: 'lista',
+    quien: ['agencia'],
+    boton: 'Volver atrás',
+    consecuencia: 'Se marcó como enviada por error y todavía no ha salido.',
   },
   {
     desde: 'enviada',
@@ -172,12 +192,7 @@ export const ESTADOS: Record<
   lista: {
     texto: 'Lista para enviar',
     tono: 'espera',
-    pista: 'Las cajas están. Le toca a la agencia crear el envío en Amazon.',
-  },
-  en_amazon: {
-    texto: 'Creada en Amazon',
-    tono: 'camino',
-    pista: 'El envío existe en Amazon. Hay etiquetas de caja que imprimir.',
+    pista: 'Las cajas están. Toca generar los dos Excel y crear el envío en Seller Central.',
   },
   enviada: { texto: 'Enviada', tono: 'camino', pista: 'La mercancía ha salido hacia Amazon.' },
   cerrada: { texto: 'Cerrada', tono: 'hecho', pista: 'Amazon ha terminado de recibir.' },
@@ -310,7 +325,6 @@ export const PASOS_VISIBLES: EstadoRemesa[] = [
   'aprobada',
   'encajando',
   'lista',
-  'en_amazon',
   'enviada',
 ]
 

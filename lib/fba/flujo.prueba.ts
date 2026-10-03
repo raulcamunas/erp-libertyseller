@@ -26,20 +26,23 @@ const cajasOk: EstadoDeCajas = { cajas: 2, sinMedidas: 0, vacias: 0 }
 
 console.log('\n=== QUIEN PUEDE QUE ===')
 ok('el cliente aprueba', puedeAvanzar('borrador', 'aprobada', 'cliente', { lineas: 3 }).puede, true)
-ok('el cliente NO crea el envio en Amazon',
-  puedeAvanzar('lista', 'en_amazon', 'cliente', { cuadre: cuadraBien, cajas: cajasOk }).puede, false)
+ok('el cliente NO marca como enviada',
+  puedeAvanzar('lista', 'enviada', 'cliente', { cuadre: cuadraBien, cajas: cajasOk }).puede, false)
 ok('  y se le dice de quien es',
-  puedeAvanzar('lista', 'en_amazon', 'cliente', { cuadre: cuadraBien, cajas: cajasOk }).motivos[0].texto,
+  puedeAvanzar('lista', 'enviada', 'cliente', { cuadre: cuadraBien, cajas: cajasOk }).motivos[0].texto,
   'Este paso lo tiene que dar Liberty Seller')
-ok('la agencia SI lo crea',
-  puedeAvanzar('lista', 'en_amazon', 'agencia', { cuadre: cuadraBien, cajas: cajasOk }).puede, true)
+ok('la agencia SI la marca',
+  puedeAvanzar('lista', 'enviada', 'agencia', { cuadre: cuadraBien, cajas: cajasOk }).puede, true)
 ok('el cliente NO devuelve a borrador', puedeAvanzar('aprobada', 'borrador', 'cliente', {}).puede, false)
 
 console.log('\n=== SALTOS IMPOSIBLES ===')
-ok('de borrador a Amazon directo',
-  puedeAvanzar('borrador', 'en_amazon', 'agencia', { cuadre: cuadraBien, cajas: cajasOk }).puede, false)
+ok('de borrador a enviada directo',
+  puedeAvanzar('borrador', 'enviada', 'agencia', { cuadre: cuadraBien, cajas: cajasOk }).puede, false)
 ok('de cerrada a cualquier sitio', puedeAvanzar('cerrada', 'enviada', 'agencia', {}).puede, false)
-ok('de en_amazon hacia atras', puedeAvanzar('en_amazon', 'lista', 'agencia', {}).puede, false)
+// Volver atras desde 'enviada' SI se puede ahora: se marca por error y todavia
+// no ha salido. Lo que no se puede es saltarse pasos hacia delante.
+ok('de enviada se vuelve a lista', puedeAvanzar('enviada', 'lista', 'agencia', {}).puede, true)
+ok('de cerrada no se vuelve', puedeAvanzar('cerrada', 'lista', 'agencia', {}).puede, false)
 
 console.log('\n=== LO QUE FALTA SE DICE TODO JUNTO ===')
 {
@@ -70,9 +73,9 @@ console.log('\n=== REMESA VACIA ===')
 ok('no se aprueba sin referencias', puedeAvanzar('borrador', 'aprobada', 'cliente', { lineas: 0 }).puede, false)
 
 console.log('\n=== QUE SE PUEDE TOCAR EN CADA ESTADO ===')
-const estados: EstadoRemesa[] = ['borrador','aprobada','encajando','lista','en_amazon','enviada','cerrada']
+const estados: EstadoRemesa[] = ['borrador','aprobada','encajando','lista','enviada','cerrada']
 ok('etiquetas: en todos menos borrador',
-  estados.filter(puedeImprimirEtiquetas), ['aprobada','encajando','lista','en_amazon','enviada','cerrada'])
+  estados.filter(puedeImprimirEtiquetas), ['aprobada','encajando','lista','enviada','cerrada'])
 ok('cajas: solo encajando', estados.filter(puedeEditarCajas), ['encajando'])
 ok('lineas: solo borrador', estados.filter(puedeEditarLineas), ['borrador'])
 

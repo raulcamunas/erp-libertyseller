@@ -65,12 +65,6 @@ export interface RemesaDePanel {
   reabiertaAt: string | null
   /** La última tirada de etiquetas, si ha habido alguna */
   ultimaImpresion: { version: number; etiquetas: number; impresoAt: string } | null
-  inboundPlanId: string | null
-  /** Por dónde va el plan en Amazon. null = no se ha creado */
-  pasoPlan: string | null
-  packingOptionId: string | null
-  placementOptionId: string | null
-  planError: string | null
   /** Los envíos en que Amazon ha partido la remesa */
   envios: EnvioDeRemesa[]
   /** Enviadas menos recibidas, solo de las líneas que Amazon ya ha contestado.
@@ -123,11 +117,6 @@ interface FilaRemesa {
   aprobada_at: string | null
   version: number | null
   reabierta_at: string | null
-  inbound_plan_id: string | null
-  paso_plan: string | null
-  packing_option_id: string | null
-  placement_option_id: string | null
-  plan_error: string | null
 }
 
 export interface EnvioDeRemesa {
@@ -182,7 +171,7 @@ export async function panelDeCliente(
 
   const { data: remesasRaw, error: errRemesas } = await service
     .from('fba_remesas')
-    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, inbound_plan_id, paso_plan, packing_option_id, placement_option_id, plan_error, version, reabierta_at')
+    .select('id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, version, reabierta_at')
     .eq('client_id', clienteId)
     .order('fecha_envio', { ascending: true })
   if (errRemesas) throw errRemesas
@@ -404,11 +393,6 @@ export async function panelDeCliente(
       version: r.version ?? 1,
       reabiertaAt: r.reabierta_at ?? null,
       ultimaImpresion: impresionPorRemesa.get(r.id) ?? null,
-      inboundPlanId: r.inbound_plan_id,
-      pasoPlan: r.paso_plan,
-      packingOptionId: r.packing_option_id,
-      placementOptionId: r.placement_option_id,
-      planError: r.plan_error,
       envios: enviosPorRemesa.get(r.id) ?? [],
       // Solo de las líneas que Amazon ya ha contestado: una línea sin respuesta
       // todavía no falta, simplemente no se sabe.

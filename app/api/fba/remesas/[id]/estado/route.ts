@@ -20,8 +20,8 @@ import { createServiceClient } from '@/lib/supabase/service'
  * flujo.ts decide otra vez, con los datos leídos de la base en este instante y
  * no con los que la pantalla tuviera cargados hace diez minutos.
  *
- * `en_amazon` NO se alcanza por aquí: ese paso crea cosas en la cuenta del
- * cliente y tiene su propia ruta, con su propia confirmación.
+ * Ya NO hay ningún paso con ruta aparte: el envío se crea en Seller Central a
+ * mano, así que todos los pasos son una actualización de estado y pasan por aquí.
  */
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -37,13 +37,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const hasta = typeof body.hasta === 'string' ? (body.hasta as EstadoRemesa) : null
     if (!hasta) return fail(400, 'Falta a qué paso se quiere mover')
 
-    if (hasta === 'en_amazon') {
-      return fail(
-        400,
-        'Crear el envío en Amazon se hace desde su propia acción, no desde aquí: es el único paso ' +
-          'que no se deshace y necesita su confirmación'
-      )
-    }
     if (!DESTINOS_SIMPLES.includes(hasta)) return fail(400, 'Ese paso no existe')
 
     const sesion = await requireFbaAccess('editar')
@@ -69,7 +62,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     // El cuadre solo se calcula si el paso lo exige: leer las cajas de una
     // remesa para aprobarla es trabajo que no cambia la respuesta.
-    const necesitaCajas = ['lista', 'en_amazon'].includes(hasta)
+    const necesitaCajas = ['lista', 'enviada'].includes(hasta)
     const datosCajas = necesitaCajas ? await cajasDeRemesa(params.id) : null
 
     const permiso = puedeAvanzar(remesa.estado, hasta, actor, {
