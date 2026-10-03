@@ -52,12 +52,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const service = createServiceClient()
     const { data } = await service
       .from('fba_remesas')
-      .select('id, client_id, estado')
+      .select('id, client_id, estado, version')
       .eq('id', params.id)
       .maybeSingle()
     if (!data) return fail(404, 'Esa remesa ya no existe')
 
-    const remesa = data as { id: string; client_id: string; estado: EstadoRemesa }
+    const remesa = data as { id: string; client_id: string; estado: EstadoRemesa; version: number | null }
     if (!puedeEditar(sesion, remesa.client_id)) return fail(404, 'Esa remesa ya no existe')
 
     const actor = sesion.esAdmin ? 'agencia' : 'cliente'
@@ -99,9 +99,23 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     if (hasta === 'lista') cambios.lista_at = new Date().toISOString()
     // Volver a borrador borra la aprobación: si no, quedaría dicho que el
     // cliente aprobó algo que luego se cambió.
+    //
+    // Y SUBE LA VERSIÓN DEL BOCETO, que es lo que convierte «reabrir» en algo
+    // que deja rastro. Las etiquetas que ya se hayan impreso están guardadas en
+    // fba_impresiones con la versión que tenían, así que a partir de aquí la
+    // pantalla puede decir que esas pegatinas son de una versión anterior.
+    //
+    // Sube SOLO al venir de un estado ya cerrado. Mientras el boceto está
+    // abierto no hay nada impreso que invalidar, y un contador que sube cada vez
+    // que alguien toca una cantidad no distingue nada.
     if (hasta === 'borrador') {
       cambios.aprobada_por = null
       cambios.aprobada_at = null
+      if (remesa.estado !== 'borrador') {
+        cambios.version = (remesa.version ?? 1) + 1
+        cambios.reabierta_at = new Date().toISOString()
+        cambios.reabierta_por = sesion.userId
+      }
     }
 
     const { error } = await service.from('fba_remesas').update(cambios).eq('id', params.id)

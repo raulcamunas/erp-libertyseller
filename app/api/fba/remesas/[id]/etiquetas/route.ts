@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const service = createServiceClient()
     const { data: cabecera } = await service
       .from('fba_remesas')
-      .select('id, nombre, client_id, connection_id, marketplace_id, estado')
+      .select('id, nombre, client_id, connection_id, marketplace_id, estado, version')
       .eq('id', params.id)
       .maybeSingle()
     if (!cabecera) return fail(404, 'Esa remesa ya no existe')
@@ -51,6 +51,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       connection_id: string | null
       marketplace_id: string
       estado: EstadoRemesa
+      version: number | null
     }
     if (sesion.clientesPermitidos && !sesion.clientesPermitidos.includes(remesa.client_id)) {
       return fail(404, 'Esa remesa ya no existe')
@@ -117,6 +118,34 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     })
 
     const { pdf, etiquetas: impresas, paginas, descartadas } = hojaDeEtiquetas(etiquetas, formato)
+
+    /**
+     * QUEDA REGISTRADO QUE SE HA IMPRIMIDO, Y CON QUÉ VERSIÓN DEL BOCETO.
+     *
+     * Es lo que convierte reabrir un envío cerrado en una decisión informada en
+     * vez de a ciegas: estas pegatinas se pegan en mercancía de verdad, y si
+     * luego se quita una referencia hay que saber que había cuatrocientas
+     * puestas de una versión anterior.
+     *
+     * NO SE ESPERA NI SE DEJA FALLAR LA DESCARGA POR ESTO. Si el registro no se
+     * puede escribir, el PDF sale igual: quedarse sin etiquetas con la mercancía
+     * delante es peor que quedarse sin el apunte. Se avisa en el log.
+     */
+    void service
+      .from('fba_impresiones')
+      .insert({
+        remesa_id: remesa.id,
+        version: remesa.version ?? 1,
+        etiquetas: impresas,
+        formato,
+        descartadas: descartadas.length,
+        impreso_por: sesion.userId,
+      })
+      .then(({ error }) => {
+        if (error) {
+          console.error('[fba] no se ha podido registrar la impresión de etiquetas:', error.message)
+        }
+      })
 
     const nombre = (remesa.nombre ?? `remesa-${params.id.slice(0, 8)}`)
       .replace(/[^\p{L}\p{N}\s-]/gu, '')

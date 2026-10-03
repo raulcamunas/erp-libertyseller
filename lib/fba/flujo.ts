@@ -97,6 +97,25 @@ export const TRANSICIONES: Transicion[] = [
     exigeMedidas: true,
   },
   {
+    // EL CALLEJÓN SIN SALIDA QUE ROMPÍA EL CIERRE REVERSIBLE.
+    //
+    // De 'encajando' solo se salía hacia 'lista'. O sea que quien se daba cuenta
+    // a mitad del encajado de que faltaba una referencia no tenía por dónde
+    // volver: había que terminar de encajar algo que ya se sabía que estaba mal,
+    // pasar a 'lista' y deshacer dos pasos. Con el boceto reabrible eso no se
+    // sostiene — un envío cambia hasta el último día.
+    //
+    // Se vuelve a 'aprobada' y no a 'borrador' a propósito: desandar UN paso.
+    // Para cambiar qué se manda hay que seguir pasando por «Volver a borrador»,
+    // que es el que sube la versión y marca las etiquetas impresas como viejas.
+    desde: 'encajando',
+    hasta: 'aprobada',
+    quien: ['cliente', 'agencia'],
+    boton: 'Volver atrás',
+    consecuencia:
+      'Se cierran las cajas y se vuelve al paso anterior. Lo encajado hasta ahora se conserva.',
+  },
+  {
     desde: 'lista',
     hasta: 'encajando',
     quien: ['cliente', 'agencia'],
