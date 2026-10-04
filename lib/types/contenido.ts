@@ -18,6 +18,9 @@ export interface ContenidoPieza {
   fichero_nombre: string | null
   fichero_bytes: number | null
   fichero_mime: string | null
+  /** Las láminas de un carrusel, o el fotograma de portada de un vídeo. Rutas
+   *  dentro del bucket `contenido`, en orden. Ver migración 218. */
+  vistas: string[]
   creado_at: string
   creado_por: string | null
 }

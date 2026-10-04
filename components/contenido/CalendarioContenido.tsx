@@ -78,6 +78,11 @@ const urlPublica = (path: string | null) => {
 
 const ICONO_TIPO: Record<TipoPieza, typeof Film> = { video: Film, carrusel: FileText }
 
+/** La primera imagen de la pieza: la lámina 1 de un carrusel, o el fotograma
+ *  de portada de un vídeo. Null si todavía no se subieron (piezas de antes de
+ *  la migración 218). */
+const portada = (p: ContenidoPieza) => (p.vistas?.length ? urlPublica(p.vistas[0]) : null)
+
 export function CalendarioContenido({
   encargos,
   piezas,
@@ -201,12 +206,29 @@ export function CalendarioContenido({
                                     : ''
                               }`}
                           >
-                            <div className="flex items-center gap-1.5 font-semibold">
-                              <Icono className="h-3 w-3 shrink-0 text-[#FF6600]" />
-                              <span className="truncate">{nombreCorto(e.responsable)}</span>
-                            </div>
-                            <div className="text-muted-foreground truncate mt-0.5">
-                              {ETIQUETA_TIPO[e.pieza.tipo]} · {e.pieza.titulo}
+                            <div className="flex gap-2">
+                              {/* La miniatura es lo que hace que el día se lea
+                                  de un vistazo: el nombre y el tipo solos son
+                                  una fila de texto gris igual a las demás. */}
+                              {portada(e.pieza) ? (
+                                <img
+                                  src={portada(e.pieza)!}
+                                  alt=""
+                                  className="w-10 h-[52px] object-cover rounded border border-white/10 shrink-0"
+                                />
+                              ) : null}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 font-semibold">
+                                  <Icono className="h-3 w-3 shrink-0 text-[#FF6600]" />
+                                  <span className="truncate">{nombreCorto(e.responsable)}</span>
+                                </div>
+                                <div className="text-muted-foreground truncate mt-0.5">
+                                  {ETIQUETA_TIPO[e.pieza.tipo]}
+                                </div>
+                                <div className="text-muted-foreground truncate text-[11px] leading-tight">
+                                  {e.pieza.titulo}
+                                </div>
+                              </div>
                             </div>
                           </button>
                         )
@@ -431,6 +453,47 @@ function DetalleDia({
                     </Button>
                   </div>
 
+                  {/* LO QUE HAY QUE SUBIR, a la vista.
+                      Un vídeo se reproduce aquí mismo; un carrusel enseña sus
+                      láminas en una tira. El botón de descarga va DEBAJO, que
+                      es el orden en que se usa: primero miras qué es, luego te
+                      lo llevas. */}
+                  {e.pieza.tipo === 'video' && url ? (
+                    <video
+                      src={url}
+                      controls
+                      playsInline
+                      poster={portada(e.pieza) ?? undefined}
+                      className="w-full rounded-lg border border-white/10 max-h-[420px] bg-black"
+                    />
+                  ) : null}
+
+                  {e.pieza.tipo === 'carrusel' && e.pieza.vistas?.length ? (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">
+                        {e.pieza.vistas.length} láminas
+                      </Label>
+                      <div className="flex gap-2 overflow-x-auto pb-2">
+                        {e.pieza.vistas.map((v, n) => (
+                          <a
+                            key={v}
+                            href={urlPublica(v) ?? undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="shrink-0"
+                            title={`Lámina ${n + 1}`}
+                          >
+                            <img
+                              src={urlPublica(v)!}
+                              alt={`Lámina ${n + 1}`}
+                              className="h-44 rounded border border-white/10 hover:border-[#FF6600]/60 transition-colors"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
                   {url && (
                     <a href={url} download={e.pieza.fichero_nombre ?? undefined}>
                       <Button variant="outline" size="sm" className="w-full">
@@ -645,15 +708,29 @@ function Piezas({
             return (
               <Card key={p.id}>
                 <CardContent className="p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">
-                      <Icono className="h-3 w-3 mr-1" />
-                      {ETIQUETA_TIPO[p.tipo]}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">{p.slug}</span>
+                  <div className="flex gap-3">
+                    {portada(p) ? (
+                      <img
+                        src={portada(p)!}
+                        alt=""
+                        className="w-20 rounded border border-white/10 object-cover shrink-0"
+                      />
+                    ) : null}
+                    <div className="min-w-0 space-y-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline">
+                          <Icono className="h-3 w-3 mr-1" />
+                          {ETIQUETA_TIPO[p.tipo]}
+                        </Badge>
+                        {p.vistas?.length > 1 && (
+                          <Badge variant="secondary">{p.vistas.length} láminas</Badge>
+                        )}
+                        <span className="text-xs text-muted-foreground">{p.slug}</span>
+                      </div>
+                      <div className="font-semibold">{p.titulo}</div>
+                      {p.angulo && <div className="text-sm text-muted-foreground">{p.angulo}</div>}
+                    </div>
                   </div>
-                  <div className="font-semibold">{p.titulo}</div>
-                  {p.angulo && <div className="text-sm text-muted-foreground">{p.angulo}</div>}
                   {url && (
                     <a href={url} download={p.fichero_nombre ?? undefined}>
                       <Button variant="outline" size="sm" className="w-full">
