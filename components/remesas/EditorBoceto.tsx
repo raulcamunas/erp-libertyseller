@@ -62,6 +62,20 @@ export function EditorBoceto({
         stock: null,
         vendible: null,
         unidades: l.enviadas,
+        /**
+         * LO QUE ESTE EDITOR NO ENSEÑA PERO TAMPOCO PUEDE BORRAR.
+         *
+         * `variante`, `referencia` y `ean` los rellena el alta por «Pegar una
+         * tabla», que sí lee esas columnas del Excel del cliente. Aquí no se
+         * editan — y al guardar se mandaba la línea sin ellos, así que la ruta
+         * los escribía a null y se perdían al primer cambio de cantidad.
+         *
+         * Viajan de vuelta tal cual: este editor cambia QUÉ y CUÁNTO, no la
+         * ficha de la referencia.
+         */
+        variante: l.variante,
+        referencia: l.referencia,
+        ean: l.ean,
       })),
     [lineas]
   )
@@ -111,6 +125,11 @@ export function EditorBoceto({
           nombre: e.titulo,
           asin: e.asin,
           fnsku: e.fnsku,
+          // Se devuelven aunque no se editen: la ruta reescribe la línea entera,
+          // así que lo que no viaje se guarda como null.
+          variante: (e as { variante?: string | null }).variante ?? null,
+          referencia: (e as { referencia?: string | null }).referencia ?? null,
+          ean: (e as { ean?: string | null }).ean ?? null,
         })),
       }),
     })

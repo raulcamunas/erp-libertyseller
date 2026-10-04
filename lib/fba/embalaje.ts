@@ -301,6 +301,21 @@ function leerGeometria(xml: string, compartidas: string[], etiqueta: string): Ge
   const delBloque = sqrefs.find((s) => s.includes(`${filaPeso}:`) || s.includes(`:${filaAlto}`))
   const columnas = (delBloque ?? '')
     .split(/\s+/)
+    // CADA TROZO SE PARTE TAMBIÉN POR LOS DOS PUNTOS, y esto no es cosmética.
+    //
+    // Antes solo se leía la columna de ARRANQUE de cada rango. Con la plantilla
+    // tal y como la descarga Seller Central da igual, porque trae la validación
+    // columna a columna —«M9:M12 N9:N12 O9:O12 …»— y el arranque de cada trozo ya
+    // recorre todas. Pero en cuanto alguien ABRE la plantilla con Excel y la
+    // guarda, Excel fusiona esas validaciones en un solo rango compacto:
+    // «M9:AL12». Entonces `columnas` se quedaba en ['M'], maxCajas salía 1, y el
+    // ERP se negaba a generar diciendo «esta plantilla solo tiene sitio para 1
+    // caja» cuando caben 26 — acusando además a quien no tiene culpa y mandándole
+    // a regenerarla en Seller Central, donde no hay nada que arreglar.
+    //
+    // Comprobado sobre las 32 plantillas de ~/Downloads: dos venían reguardadas
+    // por Excel y fallaban; con esto dan 26 y 25, y las otras 30 no cambian.
+    .flatMap((r) => r.split(':'))
     .map((r) => r.match(/^([A-Z]+)/)?.[1])
     .filter((c): c is string => Boolean(c))
   if (columnas.length === 0) {

@@ -93,6 +93,33 @@ export interface Remesa {
   fechaEnvio: string
   /** Confirmada por el libro mayor. Si está, manda sobre fechaEnvio */
   fechaLlegada?: string | null
+  /**
+   * ¿YA SE PUEDE CREER LO QUE AMAZON DICE QUE HA RECIBIDO?
+   *
+   * Lo que contesta `getShipmentItems` en QuantityReceived es CERO mientras el
+   * envío va de camino: no es que no haya llegado nada, es que todavía no ha
+   * llegado el momento de contarlo. Y la pasada nocturna pregunta por los envíos
+   * vivos —WORKING y SHIPPED incluidos—, así que ese cero se guarda en
+   * `unidades_recibidas` de verdad.
+   *
+   * Sin esta bandera, el reparto tomaba ese cero al pie de la letra y la remesa
+   * salía AGOTADA yendo en el camión. Solo se hace caso a lo recibido cuando el
+   * estado del envío dice que la recepción ha empezado.
+   */
+  recepcionContada?: boolean
+}
+
+/**
+ * Los estados de Amazon en los que QuantityReceived significa algo.
+ *
+ * Antes de CHECKED_IN el almacén no ha abierto una caja: lo que devuelve es cero
+ * porque no ha contado, no porque no haya nada.
+ */
+const RECEPCION_CONTADA = new Set(['CHECKED_IN', 'RECEIVING', 'CLOSED'])
+
+/** ¿Se puede creer el `unidades_recibidas` de una remesa en este estado? */
+export function recepcionContada(estadoAmazon: string | null | undefined): boolean {
+  return !!estadoAmazon && RECEPCION_CONTADA.has(estadoAmazon)
 }
 
 export interface RepartoLinea {
@@ -198,15 +225,25 @@ export function repartirSku(
    *
    * El cron ya escribía `unidades_recibidas` desde hace tiempo y NADIE lo leía.
    *
-   * CUANDO TODAVÍA NO HA CONTESTADO (null) SE USA LO DECLARADO, y no cero. Un
-   * envío en tránsito no ha recibido nada aún; tomarlo al pie de la letra diría
-   * «agotada» de una remesa que va de camino, que es peor error que el que se
-   * viene a arreglar. `null` es «no lo sabemos», no «cero».
+   * CUANDO TODAVÍA NO HA CONTESTADO (null) SE USA LO DECLARADO, y no cero.
+   *
+   * Y TAMPOCO SE HACE CASO AL CERO QUE ESCRIBE LA PASADA NOCTURNA mientras el
+   * envío va de camino. Esto es lo que faltaba y costó una avería: `getShipmentItems`
+   * devuelve QuantityReceived = 0 para un envío en WORKING o SHIPPED —no ha
+   * llegado el momento de contar, no es que no haya nada—, el cron pregunta por
+   * esos estados y guarda ese cero. Un `?? ` no lo tapa, porque 0 no es null: la
+   * remesa salía AGOTADA yendo en el camión.
+   *
+   * Así que solo manda lo recibido cuando el estado del envío dice que la
+   * recepción ha empezado (ver `recepcionContada`). Antes de eso, lo declarado.
    */
   const estado = vivas.map((v) => ({
     remesaId: v.linea.remesaId,
     desde: desdeCuando(v.remesa),
-    enviadas: v.linea.recibidas ?? v.linea.unidades,
+    enviadas:
+      v.remesa.recepcionContada && v.linea.recibidas !== null
+        ? v.linea.recibidas
+        : v.linea.unidades,
     /** Lo declarado, para poder decir cuántas se perdieron por el camino */
     declaradas: v.linea.unidades,
     consumidas: 0,

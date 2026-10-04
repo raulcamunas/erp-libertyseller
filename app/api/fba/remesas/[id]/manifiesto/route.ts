@@ -89,11 +89,27 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const r = rellenarManifiesto(await fichero.arrayBuffer(), filas)
 
-    const nombre = (remesa.nombre ?? `remesa-${params.id.slice(0, 8)}`)
-      .replace(/[^\p{L}\p{N}\s-]/gu, '')
-      .trim()
-      .replace(/\s+/g, '-')
-      .toLowerCase()
+    /**
+     * EL NOMBRE DEL FICHERO, EN ASCII Y A LA FUERZA.
+     *
+     * Una cabecera HTTP solo admite bytes 0-255, y esta limpieza conservaba las
+     * letras de CUALQUIER alfabeto: una remesa llamada «Envío 日本» —o «Łódź», o un
+     * nombre pegado desde un documento con letras estilizadas— hacía reventar la
+     * construcción de la respuesta con «Cannot convert argument to a ByteString»
+     * y devolvía 500. Sin PDF, y con un error que no dice nada de un nombre.
+     *
+     * Se quitan los acentos primero (NFD + fuera los diacríticos, así «Envío»
+     * queda «envio» y no «env o») y después se tira todo lo que no sea ASCII.
+     * Si no queda nada —un nombre entero en japonés—, se usa el id.
+     */
+    const nombre =
+      (remesa.nombre ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .toLowerCase() || `remesa-${params.id.slice(0, 8)}`
 
     return new NextResponse(Buffer.from(r.xlsx), {
       headers: {

@@ -8,6 +8,7 @@ import {
   type Movimiento,
   type Remesa,
   type RepartoSku,
+  recepcionContada,
 } from './fifo'
 
 /**
@@ -31,6 +32,12 @@ export interface LineaDePanel {
   referencia: string | null
   /** El código del código de barras de la etiqueta. null = no lo sabemos todavía */
   fnsku: string | null
+  /**
+   * El EAN del fabricante. No se edita en el ERP, pero VIAJA con la línea: el
+   * editor del boceto reescribe la línea entera, así que lo que no vaya de ida y
+   * vuelta se guarda como null y se pierde.
+   */
+  ean: string | null
   enviadas: number
   consumidas: number
   devueltas: number
@@ -149,6 +156,7 @@ export interface EnvioDeRemesa {
 
 interface FilaLinea {
   fnsku: string | null
+  ean: string | null
   remesa_id: string
   sku: string
   unidades: number
@@ -244,7 +252,7 @@ export async function panelDeCliente(
   const ids = filasRemesa.map((r) => r.id)
   const { data: lineasRaw, error: errLineas } = await service
     .from('fba_remesa_lineas')
-    .select('remesa_id, sku, unidades, nombre, variante, asin, referencia, unidades_recibidas, fnsku')
+    .select('remesa_id, sku, unidades, nombre, variante, asin, referencia, unidades_recibidas, fnsku, ean')
     .in('remesa_id', ids)
   if (errLineas) throw errLineas
   const filasLinea = (lineasRaw ?? []) as FilaLinea[]
@@ -375,7 +383,15 @@ export async function panelDeCliente(
   const remesasPorId = new Map<string, Remesa>(
     filasRemesa.map((r) => [
       r.id,
-      { id: r.id, fechaEnvio: r.fecha_envio, fechaLlegada: r.llegada_at?.slice(0, 10) ?? null },
+      {
+        id: r.id,
+        fechaEnvio: r.fecha_envio,
+        fechaLlegada: r.llegada_at?.slice(0, 10) ?? null,
+        // Solo se hace caso a `unidades_recibidas` cuando Amazon ya ha empezado
+        // a contar. Mientras el envío va de camino contesta cero y el reparto lo
+        // tomaba por bueno: ver recepcionContada() en lib/fba/fifo.ts.
+        recepcionContada: recepcionContada(r.estado_amazon),
+      },
     ])
   )
 
@@ -422,6 +438,7 @@ export async function panelDeCliente(
         asin: l.asin,
         referencia: l.referencia,
         fnsku: l.fnsku,
+        ean: l.ean,
         enviadas: l.unidades,
         consumidas: rep?.consumidas ?? 0,
         devueltas: rep?.devueltas ?? 0,
@@ -434,6 +451,24 @@ export async function panelDeCliente(
     const enviadas = lineas.reduce((s, l) => s + l.enviadas, 0)
     const quedan = lineas.reduce((s, l) => s + l.quedan, 0)
     const agotadas = lineas.map((l) => l.agotadaEl)
+    /**
+     * LO CONSUMIDO SE CUENTA, NO SE RESTA.
+     *
+     * El porcentaje salía de `(enviadas - quedan) / enviadas`, y eso mezcla dos
+     * cosas distintas desde que el reparto cuenta sobre lo RECIBIDO: `enviadas`
+     * son las declaradas y `quedan` sale de las recibidas. Una remesa de 100
+     * unidades de la que Amazon registró 95 y no se ha vendido NI UNA daba
+     * «5 % consumido» — las cinco que se perdieron por el camino contadas como
+     * ventas.
+     *
+     * Se suma lo que el reparto dice que se ha consumido de verdad, y se divide
+     * por la base que ese mismo reparto usó.
+     */
+    const consumidas = lineas.reduce((s, l) => s + l.consumidas, 0)
+    const baseDelReparto = suyas.reduce(
+      (s, l) => s + (porRemesaYSku.get(`${r.id}|${l.sku}`)?.enviadas ?? l.unidades),
+      0
+    )
 
     return {
       id: r.id,
@@ -464,7 +499,8 @@ export async function panelDeCliente(
       lineas,
       enviadas,
       quedan,
-      consumidoPct: enviadas > 0 ? Math.round(((enviadas - quedan) / enviadas) * 1000) / 10 : 0,
+      consumidoPct:
+        baseDelReparto > 0 ? Math.round((consumidas / baseDelReparto) * 1000) / 10 : 0,
       // La remesa se agota cuando se agota su ÚLTIMA línea, no la primera: si
       // una talla vuela y otra no se mueve, el envío no está agotado.
       agotadaEl: agotadas.every((a) => a !== null)

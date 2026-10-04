@@ -98,7 +98,10 @@ console.log('\n=== 9. La llegada confirmada manda sobre la fecha de envio ===')
 
 console.log('\n=== 10. LO QUE AMAZON RECIBIO MANDA SOBRE LO QUE SE DECLARO ===')
 {
-  const rem = new Map<string, Remesa>([['r1', { id: 'r1', fechaEnvio: '2026-09-01' }]])
+  // recepcionContada: Amazon ya ha contado, asi que lo recibido manda
+  const rem = new Map<string, Remesa>([
+    ['r1', { id: 'r1', fechaEnvio: '2026-09-01', recepcionContada: true }],
+  ])
   const vendidas80 = [venta('2026-09-05', 80)]
 
   // Se mandan 100, Amazon recibe 95 —una caja perdida— y se venden 80: quedan 15.
@@ -130,6 +133,44 @@ console.log('\n=== 10. LO QUE AMAZON RECIBIO MANDA SOBRE LO QUE SE DECLARO ===')
   comprobar('recibidas 70 y vendidas 80: quedan 0, no -10', corto.quedan, 0)
   comprobar('  y las 10 de mas quedan sin atribuir', corto.sinAtribuir, 10)
   comprobar('  y la linea queda marcada como agotada', corto.lineas[0].agotadaEl !== null, true)
+}
+
+
+/* ------------------------------------------------------------------ */
+/* El CERO de un envio en transito NO es «no queda nada»                */
+/* ------------------------------------------------------------------ */
+
+console.log('\n=== 11. UN ENVIO EN CAMINO NO ESTA AGOTADO ===')
+{
+  // La pasada nocturna pregunta por los envios vivos —WORKING, SHIPPED— y Amazon
+  // contesta QuantityReceived = 0: no ha llegado el momento de contar. Ese cero
+  // se guarda en unidades_recibidas de verdad. Si el reparto lo toma al pie de
+  // la letra, una remesa que va en el camion sale AGOTADA.
+  const enCamino = new Map<string, Remesa>([
+    ['r1', { id: 'r1', fechaEnvio: '2026-09-01', recepcionContada: false }],
+  ])
+  const r = repartirSku(
+    'XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 100, recibidas: 0 }], enCamino, [],
+    { hoy: '2026-09-18' }
+  )
+  comprobar('en transito con recibidas=0: quedan las 100 declaradas', r.quedan, 100)
+  comprobar('  y NO sale agotada', r.lineas[0].agotadaEl, null)
+
+  // En cuanto Amazon empieza a contar, manda lo recibido. Mismo cero, otra lectura.
+  const recibiendo = new Map<string, Remesa>([
+    ['r1', { id: 'r1', fechaEnvio: '2026-09-01', recepcionContada: true }],
+  ])
+  const r2 = repartirSku(
+    'XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 100, recibidas: 0 }], recibiendo, [],
+    { hoy: '2026-09-18' }
+  )
+  comprobar('ya recibiendo y Amazon dice 0: quedan 0', r2.quedan, 0)
+
+  const r3 = repartirSku(
+    'XXXXX', [{ remesaId: 'r1', sku: 'XXXXX', unidades: 100, recibidas: 95 }], recibiendo,
+    [venta('2026-09-05', 80)], { hoy: '2026-09-18' }
+  )
+  comprobar('ya recibiendo, 95 de 100 y vendidas 80: quedan 15', r3.quedan, 15)
 }
 
 console.log(fallos === 0 ? '\n  TODO CORRECTO\n' : `\n  ${fallos} COMPROBACIONES FALLIDAS\n`)

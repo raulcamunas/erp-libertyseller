@@ -104,11 +104,23 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       // Un SKU una vez. Dos líneas del mismo con 3 y 5 unidades no son «ocho»:
       // son un error de quien lo escribió, y sumarlas por nuestra cuenta manda a
       // Amazon una cantidad que nadie ha decidido.
-      const clave = sku.toLowerCase()
-      if (vistos.has(clave)) {
+      /**
+       * EL DUPLICADO SE MIRA TAL CUAL, SIN BAJAR A MINÚSCULAS.
+       *
+       * Los SKU de Amazon distinguen mayúsculas: «SHOE-40-BLK» y «shoe-40-blk»
+       * son DOS referencias distintas y pueden convivir en la misma cuenta. Con
+       * `toLowerCase()` las dos chocaban aquí, y como el alta por «Pegar una
+       * tabla» sí las admite, un boceto que las tuviera quedaba imposible de
+       * guardar para siempre: cualquier cambio moría en este 400 y la única
+       * salida era borrar el envío entero.
+       *
+       * La base piensa igual: el UNIQUE (remesa_id, sku) de la 190 también
+       * distingue mayúsculas.
+       */
+      if (vistos.has(sku)) {
         return fail(400, `«${sku}» aparece dos veces. Cada referencia va en una sola línea, con su total.`)
       }
-      vistos.add(clave)
+      vistos.add(sku)
 
       const unidades = Number(bruta.unidades)
       if (!Number.isInteger(unidades) || unidades < 1) {

@@ -444,7 +444,25 @@ export function AgendaCalendar({
     // parecerían dentro del horario.
     const otroDia = !isSameDay(enMadrid, toMadrid(start))
     if (!otroDia && minutosDeFin <= cierre) return fin
-    return fromMadrid(madridWallClockString(toMadrid(start), DAY_END, 0))
+
+    /**
+     * EL TOPE NO PUEDE DEJAR EL FIN ANTES QUE EL INICIO, y eso es lo que hacía.
+     *
+     * El botón «Nueva cita» redondea la hora de AHORA al siguiente :00 o :30, y
+     * no la obliga a caer dentro del horario. A las 20:40 el inicio sale a las
+     * 21:00 y recortar al cierre devolvía… las 21:00: fin igual que inicio, y la
+     * ficha se niega a guardarse con «La hora de fin debe ser posterior a la de
+     * inicio». A las 21:10 era peor: cita de 21:30 a 21:00.
+     *
+     * O sea que desde las 20:30 el botón dejaba de servir, que es justo cuando
+     * un comercial apunta la última llamada del día.
+     *
+     * El recorte solo tiene sentido si el cierre va DESPUÉS del inicio. Para una
+     * cita que empieza fuera del horario, la hora entera y en paz: salirse de la
+     * rejilla es un problema de pintado, y no poder agendar lo es de verdad.
+     */
+    const alCierre = fromMadrid(madridWallClockString(toMadrid(start), DAY_END, 0))
+    return alCierre.getTime() > start.getTime() ? alCierre : fin
   }
 
   function handleSlotClick(day: Date, hour: number, minute: number = 0) {
