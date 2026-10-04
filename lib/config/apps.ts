@@ -14,6 +14,7 @@ import {
   Megaphone,
   PhoneForwarded,
   CalendarDays,
+  CalendarRange,
   HandCoins,
   Palmtree,
   Palette,
@@ -394,6 +395,15 @@ export const apps: AppConfig[] = [
     description: 'Tres propuestas de cambio de imagen sobre las pantallas reales, para elegir una',
     icon: Palette,
     route: '/dashboard/disenos',
+    status: 'new',
+    category: 'productivity'
+  },
+  {
+    id: 'contenido',
+    name: 'Calendario de contenido',
+    description: 'Qué publica cada uno y qué día, con el fichero y el texto',
+    icon: CalendarRange,
+    route: '/dashboard/contenido',
     status: 'new',
     category: 'productivity'
   }
