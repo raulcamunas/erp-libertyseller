@@ -496,11 +496,16 @@ function DetalleDia({
 
                   {url && (
                     <a href={url} download={e.pieza.fichero_nombre ?? undefined}>
-                      <Button variant="outline" size="sm" className="w-full">
+                      {/* Que el botón diga qué cae al pulsarlo. «abrir-europa-
+                          mecanica.zip» no dice si dentro hay un PDF, nueve fotos
+                          o el proyecto entero. */}
+                      <Button className="w-full">
                         <Download className="h-4 w-4 mr-2" />
-                        {e.pieza.fichero_nombre ?? 'Descargar'}
+                        {e.pieza.tipo === 'video'
+                          ? 'Descargar el vídeo'
+                          : `Descargar las ${e.pieza.vistas?.length || ''} fotos`.replace('  ', ' ')}
                         {e.pieza.fichero_bytes ? (
-                          <span className="ml-2 text-muted-foreground">
+                          <span className="ml-2 opacity-60">
                             {pesoLegible(e.pieza.fichero_bytes)}
                           </span>
                         ) : null}
