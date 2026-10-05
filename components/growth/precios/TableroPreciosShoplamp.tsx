@@ -496,28 +496,53 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
           </span>
         )}
 
-        <div className="ml-auto flex items-center gap-[6px]">
-          <button
-            type="button"
-            className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
-            disabled={seleccion.length === 0 || trabajando !== null}
-            onClick={() => lanzar(true)}
-          >
-            Simular en Amazon
-          </button>
-          <button
-            type="button"
-            className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}
-            disabled={!simulacionVale || trabajando !== null}
-            title={
-              simulacionVale
-                ? undefined
-                : 'Primero hay que simular esta misma selección: Amazon dice si la aceptaría sin cambiar nada'
-            }
-            onClick={() => lanzar(false)}
-          >
-            Aplicar los precios
-          </button>
+        {/*
+          EL BOTÓN NARANJA ES SIEMPRE EL QUE SE PUEDE PULSAR.
+
+          Antes «Aplicar» era el primario desde el principio: naranja, grande y
+          a la derecha, o sea el sitio donde se mira para enviar algo. Estaba
+          apagado hasta simular, pero `disabled:opacity-45` sobre un naranja de
+          marca sigue leyéndose como un botón vivo — y con 421 filas marcadas,
+          lo que se ve es un botón de enviar que no hace nada al pulsarlo. Pasó.
+
+          Así que el acento se MUEVE: mientras no haya simulación es «Simular»
+          quien lo lleva, y solo cuando esa simulación vale pasa a «Aplicar». El
+          color deja de ser decoración y dice cuál es el paso siguiente.
+        */}
+        <div className="ml-auto flex items-center gap-[9px]">
+          {seleccion.length > 0 && !simulacionVale && trabajando === null && (
+            <span className={`${TIPO.s} ${TEXTO.t3}`}>
+              Paso 1 de 2: Amazon tiene que decir antes si lo aceptaría
+            </span>
+          )}
+          <div className="flex items-center gap-[6px]">
+            <button
+              type="button"
+              className={`${BOTON.base} ${BOTON.alto} ${
+                simulacionVale ? BOTON.secundario : BOTON.primario
+              }`}
+              disabled={seleccion.length === 0 || trabajando !== null}
+              title="Pregunta a Amazon si aceptaría estos precios. No cambia nada ni deja registro."
+              onClick={() => lanzar(true)}
+            >
+              {simulacionVale ? 'Volver a simular' : 'Simular en Amazon'}
+            </button>
+            <button
+              type="button"
+              className={`${BOTON.base} ${BOTON.alto} ${
+                simulacionVale ? BOTON.primario : BOTON.secundario
+              }`}
+              disabled={!simulacionVale || trabajando !== null}
+              title={
+                simulacionVale
+                  ? `Publica ${seleccion.length.toLocaleString('es-ES')} precios en la tienda de Shoplamp`
+                  : 'Primero hay que simular esta misma selección: Amazon dice si la aceptaría sin cambiar nada'
+              }
+              onClick={() => lanzar(false)}
+            >
+              Aplicar los precios
+            </button>
+          </div>
         </div>
       </div>
 
