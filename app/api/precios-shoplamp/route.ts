@@ -178,7 +178,23 @@ export async function POST(request: NextRequest) {
       batchId: res.batchId,
       aceptados: res.accepted,
       fallidos: res.failed,
-      resultados: res.results,
+      // SE TRADUCE AQUÍ, y no se devuelve `res.results` tal cual.
+      //
+      // `SentChange` habla en inglés (`status`, `message`) y el resto de este
+      // módulo en castellano. Devolverlo crudo y declararlo en la pantalla con
+      // los nombres de aquí compila igual —son dos objetos distintos que
+      // TypeScript nunca ve juntos—, pero en tiempo de ejecución `estado` y
+      // `mensaje` son `undefined`: el recuento de aceptados sale 0 SIEMPRE y
+      // todas las filas se listan como fallidas sin ningún motivo escrito.
+      // Pasó, y solo se vio ejecutándolo.
+      resultados: res.results.map((r) => ({
+        sku: r.sku,
+        marketplaceId: r.marketplaceId,
+        estado: r.status,
+        mensaje: r.message,
+        anterior: r.previousValue,
+        nuevo: r.newValue,
+      })),
       retirados: res.retirados ?? [],
       abortReason: res.abortReason,
       rechazadas,

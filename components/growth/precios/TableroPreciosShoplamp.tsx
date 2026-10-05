@@ -10,6 +10,7 @@ import {
   CIFRAS,
   COLOR_ESTADO,
   LINEA,
+  PANTALLA,
   RADIO,
   TABLA,
   TEXTO,
@@ -73,11 +74,23 @@ const ESTADOS: { id: EstadoFila | 'todas'; rotulo: string }[] = [
   { id: 'base_invalida', rotulo: 'Base no válida' },
 ]
 
+/**
+ * Lo que devuelve la ruta POR FILA.
+ *
+ * Es la forma que ELLA traduce, no la de `SentChange` de lib/amazon/data.ts, que
+ * habla en inglés (`status`, `message`). Declarar aquí los nombres de este
+ * módulo sobre el objeto crudo COMPILA IGUAL —TypeScript nunca ve los dos
+ * juntos— y en ejecución `estado` y `mensaje` salen `undefined`: el recuento de
+ * aceptados da 0 SIEMPRE y todas las filas se listan como fallidas y sin
+ * motivo. Pasó, y solo se vio ejecutándolo.
+ */
 type Envio = {
   sku: string
   marketplaceId: string
   estado: 'aceptado' | 'invalido' | 'error'
   mensaje: string | null
+  anterior?: number | null
+  nuevo?: number | null
 }
 
 const clave = (f: { sku: string; marketplaceId: string }) => `${f.marketplaceId}|${f.sku}`
@@ -302,7 +315,17 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
   const fallidos = resultados?.filter((r) => r.estado !== 'aceptado') ?? []
 
   return (
-    <div className="flex flex-col gap-[9px] min-h-0 flex-1">
+    // `h-full` Y NO `flex-1`. La carcasa de Growth mete a los paneles en un
+    // `<div class="flex-1 min-h-0">` que NO es un contenedor flex, así que un
+    // `flex-1` aquí no lo lee nadie y esta columna crece con su contenido.
+    // Medido con las 1.255 filas: la caja de la tabla medía 35.166 px, no
+    // scrolleaba por dentro, y la barra de «Simular» y «Aplicar» quedaba a
+    // treinta y cinco mil píxeles del principio — o sea, inalcanzable.
+    //
+    // Con la altura acotada aquí, el `flex-1 min-h-0 overflow-auto` de
+    // TABLA.caja vuelve a significar algo y la barra se queda siempre a la
+    // vista. Por eso todo lo que no es la tabla lleva `shrink-0`.
+    <div className={`${PANTALLA.cuerpo} h-full`}>
       {/* ---------- La tira de cifras ---------- */}
       <div className={CIFRAS.tira}>
         <div className={CIFRAS.celda}>
@@ -324,7 +347,7 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
       {/* ---------- Lo que hay que ver antes de pulsar ---------- */}
       {fuertes.length > 0 && (
         <div
-          className={`${AVISO.base} ${AVISO.conTono}`}
+          className={`${AVISO.base} ${AVISO.conTono} shrink-0`}
           style={{ borderLeftColor: COLOR_ESTADO.ambar }}
         >
           <TriangleAlert className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
@@ -344,7 +367,7 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
       )}
 
       {/* ---------- Filtros ---------- */}
-      <div className="flex flex-wrap items-center gap-[6px]">
+      <div className="flex shrink-0 flex-wrap items-center gap-[6px]">
         <button
           type="button"
           className={`${BOTON.chip} ${pais === 'todos' ? BOTON.chipEncendido : ''}`}
@@ -447,7 +470,7 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
 
       {/* ---------- La barra de acción ---------- */}
       <div
-        className={`flex flex-wrap items-center gap-[9px] ${RADIO.r2} border ${LINEA.normal} bg-[var(--ls-sup2)] px-[10px] py-[7px]`}
+        className={`flex shrink-0 flex-wrap items-center gap-[9px] ${RADIO.r2} border ${LINEA.normal} bg-[var(--ls-sup2)] px-[10px] py-[7px]`}
       >
         <span className={`${TIPO.m} ${TEXTO.t1} tabular-nums`}>
           <strong>{seleccion.length.toLocaleString('es-ES')}</strong> marcadas
@@ -500,13 +523,17 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
 
       {/* ---------- Qué ha pasado ---------- */}
       {error && (
-        <div className={`${AVISO.base} ${AVISO.conTono}`} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
+        <div
+          className={`${AVISO.base} ${AVISO.conTono} shrink-0`}
+          style={{ borderLeftColor: COLOR_ESTADO.rojo }}
+        >
           <X className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
           <div className={`${TIPO.s} ${TEXTO.t2}`}>{error}</div>
         </div>
       )}
 
       {resultados && resultados.length > 0 && (
+        <div className="shrink-0">
         <Panel
           titulo={
             aplicado
@@ -537,7 +564,14 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
                   {fallidos.slice(0, 200).map((r, i) => (
                     <tr key={`${r.marketplaceId}|${r.sku}|${i}`} className={TABLA.fila}>
                       <td className={`${TABLA.celda} font-mono text-[11.5px]`}>{r.sku}</td>
-                      <td className={`${TABLA.celda} ${TEXTO.t3}`}>{r.mensaje ?? r.estado}</td>
+                      <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t3}`}>
+                        {r.nuevo == null ? '' : `${euros(r.nuevo)} €`}
+                      </td>
+                      {/* Un rechazo sin motivo no sirve de nada: si Amazon no
+                          manda texto, se enseña al menos su veredicto. */}
+                      <td className={`${TABLA.celda} ${TEXTO.t3} whitespace-normal`}>
+                        {r.mensaje?.trim() ? r.mensaje : `Amazon lo ha marcado como «${r.estado}»`}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -550,6 +584,7 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
             </div>
           )}
         </Panel>
+        </div>
       )}
     </div>
   )
