@@ -54,10 +54,10 @@ console.log('\n=== EL CASO NORMAL ===')
   const f = construirFila(FRANCIA, listing({ sku: 'A1', price: 30 }), listing({ sku: 'A1', price: 24.99 }))
   ok('base de España', f.base, 24.99)
   ok('precio de hoy allí', f.actual, 30)
-  ok('quedaría en 35,99', f.destino, 35.99)
+  ok('quedaría en 31,99', f.destino, 31.99)
   ok('cambia', f.estado, 'cambia')
-  ok('sube un 44 %', f.subida, 44)
-  ok('el recargo se enseña en euros', f.recargo, 11)
+  ok('sube un 28 %', f.subida, 28)
+  ok('el recargo se enseña en euros', f.recargo, 7)
 }
 
 console.log('\n=== NO ESTÁ EN ESPAÑA: no se adivina su base ===')
@@ -71,22 +71,22 @@ console.log('\n=== NO ESTÁ EN ESPAÑA: no se adivina su base ===')
 console.log('\n=== LA BASE QUE NO SIRVE — y aquí está el fallo caro ===')
 for (const malo of [null, '', 0, '0', '0.00'] as (number | string | null)[]) {
   const f = construirFila(FRANCIA, listing({ sku: 'C1', price: 40 }), listing({ sku: 'C1', price: malo }))
-  ok(`price=${JSON.stringify(malo)} -> base_invalida, NO 11,00 €`, [f.estado, f.destino], ['base_invalida', null])
+  ok(`price=${JSON.stringify(malo)} -> base_invalida, NO 7,00 €`, [f.estado, f.destino], ['base_invalida', null])
 }
 
 console.log('\n=== YA ESTÁ EN SU PRECIO: no se gasta cupo de Amazon ===')
 {
-  const f = construirFila(FRANCIA, listing({ sku: 'D1', price: 35.99 }), listing({ sku: 'D1', price: 24.99 }))
+  const f = construirFila(FRANCIA, listing({ sku: 'D1', price: 31.99 }), listing({ sku: 'D1', price: 24.99 }))
   ok('ya_correcto', f.estado, 'ya_correcto')
 }
 {
   // EL CASO QUE JUSTIFICA COMPARAR EN CÉNTIMOS. Si el espejo guarda el número
-  // que produce la suma en euros, 24.99 + 11 da 35.989999999999995. Comparando
-  // en coma flotante no es igual a 35,99 y la fila saldría como «cambia» para
+  // que produce la suma en euros, 1,13 + 7 da 8.129999999999999. Comparando
+  // en coma flotante no es igual a 8,13 y la fila saldría como «cambia» para
   // siempre: cada pasada volvería a mandar a Amazon el precio que ya tiene.
-  const sucio = 24.99 + 11
-  ok('la suma en euros está sucia', String(sucio), '35.989999999999995')
-  const f = construirFila(FRANCIA, listing({ sku: 'D2', price: sucio }), listing({ sku: 'D2', price: 24.99 }))
+  const sucio = 1.13 + 7
+  ok('la suma en euros está sucia', String(sucio), '8.129999999999999')
+  const f = construirFila(FRANCIA, listing({ sku: 'D2', price: sucio }), listing({ sku: 'D2', price: 1.13 }))
   ok('aun así: ya_correcto', f.estado, 'ya_correcto')
 }
 
@@ -100,7 +100,7 @@ console.log('\n=== EL PRECIO LLEGA COMO CADENA, que es como lo manda PostgREST =
   ok("'hola' no es un precio", aNumero('hola'), null)
   ok('Infinity no es un precio', aNumero(Number.POSITIVE_INFINITY), null)
   const f = construirFila(FRANCIA, listing({ sku: 'E1', price: '30.00' }), listing({ sku: 'E1', price: '24.99' }))
-  ok('y la fila sale igual', [f.base, f.destino, f.estado], [24.99, 35.99, 'cambia'])
+  ok('y la fila sale igual', [f.base, f.destino, f.estado], [24.99, 31.99, 'cambia'])
 }
 
 console.log('\n=== SIN TIPO DE PRODUCTO SE ENSEÑA, PERO NO SE PUEDE ENVIAR ===')
@@ -117,8 +117,8 @@ console.log('\n=== SIN TIPO DE PRODUCTO SE ENSEÑA, PERO NO SE PUEDE ENVIAR ==='
 console.log('\n=== CADA PAÍS CON SU RECARGO ===')
 {
   const base = listing({ sku: 'G1', price: 24.99 })
-  ok('Francia +11 -> 35,99', construirFila(FRANCIA, listing({ sku: 'G1' }), base).destino, 35.99)
-  ok('Alemania +8 -> 32,99', construirFila(ALEMANIA, listing({ sku: 'G1' }), base).destino, 32.99)
+  ok('Francia +7 -> 31,99', construirFila(FRANCIA, listing({ sku: 'G1' }), base).destino, 31.99)
+  ok('Alemania +6 -> 30,99', construirFila(ALEMANIA, listing({ sku: 'G1' }), base).destino, 30.99)
 }
 
 console.log('\n=== EL TÍTULO: el de allí, y si no hay, el de España ===')

@@ -9,7 +9,8 @@ import { TableroPreciosShoplamp } from '@/components/growth/precios/TableroPreci
 /**
  * SUBMÓDULO «PRECIOS SHOPLAMP» — ESPAÑA MANDA, LOS DEMÁS SE CALCULAN.
  *
- * España es el precio base. Francia e Italia van a +11 € y Alemania a +8 €.
+ * España es el precio base. Francia e Italia van a +7 € y Alemania a +6 €:
+ * es lo que cuesta mandar el pedido, porque el almacén está en España.
  * Esa es la regla entera y vive en lib/precios-shoplamp/reglas.ts.
  *
  *
@@ -37,7 +38,7 @@ export async function PanelPreciosShoplamp({ cliente }: { cliente: ClienteGrowth
   if (cliente.slug !== SLUG_SHOPLAMP) {
     return (
       <Vacio icono={<Tag />} titulo="Esta pantalla es solo de Shoplamp">
-        La regla de precios que aplica —España como base, +11 € en Francia e Italia y +8 € en
+        La regla de precios que aplica —España como base, +7 € en Francia e Italia y +6 € en
         Alemania— es un acuerdo con ese cliente y nada más. Para trabajar los precios de{' '}
         <strong>{cliente.nombre}</strong>, elige Shoplamp arriba o usa el resto de submódulos.
       </Vacio>
@@ -65,8 +66,9 @@ export function InfoPreciosShoplamp() {
           ))}
         </ListaInfo>
         <p>
-          Ni porcentajes, ni redondeo a <em>,99</em>, ni recálculo de IVA: once euros son once
-          euros sobre el precio que ve el comprador. La tabla está en un solo sitio
+          Es lo que cuesta mandar el pedido a cada país: el almacén está en España y de ahí sale
+          todo. Ni porcentajes, ni redondeo a <em>,99</em>, ni recálculo de IVA: siete euros son
+          siete euros sobre el precio que ve el comprador. La tabla está en un solo sitio
           (<code>lib/precios-shoplamp/reglas.ts</code>) y cambiarla no obliga a tocar nada más.
         </p>
       </SeccionInfo>
@@ -74,8 +76,8 @@ export function InfoPreciosShoplamp() {
       <SeccionInfo titulo="Un recargo fijo NO sube lo mismo arriba que abajo">
         <p>
           Es lo único de esta pantalla que hay que mirar antes de pulsar. Sobre una referencia de
-          200 € once euros son un <strong>+5 %</strong>. Sobre una de 1,07 €, un{' '}
-          <strong>+1.028 %</strong>. Y en este catálogo hay referencias de los dos tipos.
+          200 € siete euros son un <strong>+3,5 %</strong>. Sobre una de 1,07 €, un{' '}
+          <strong>+654 %</strong>. Y en este catálogo hay referencias de los dos tipos.
         </p>
         <p>
           Por eso cada fila enseña su subida en tanto por ciento, la tabla viene{' '}

@@ -84,7 +84,7 @@ export const MODULOS: readonly Modulo[] = [
     id: 'precios-shoplamp',
     nombre: 'Precios Shoplamp',
     icono: Tags,
-    pista: 'España manda: +11 € en Francia e Italia, +8 € en Alemania',
+    pista: 'España manda: +7 € en Francia e Italia, +6 € en Alemania',
     necesita: 'amazon',
     soloCliente: 'shoplamp',
   },

@@ -31,10 +31,10 @@ import { MAX_POR_TRAMO } from '@/lib/precios-shoplamp/reglas'
  *
  * ============ POR QUÉ LA COLUMNA DEL PORCENTAJE ============
  *
- * Porque «+11 €» suena a poco y no lo es en todo el catálogo. Sobre una
- * referencia de 200 € son un 5 %; sobre una de 1,07 € son un 1.028 %, y en este
- * catálogo hay 188 referencias por debajo de 11 € — o sea, productos que
- * MÁS QUE DUPLICAN su precio. Eso no se puede descubrir después de publicarlo.
+ * Porque «+7 €» suena a poco y no lo es en todo el catálogo. Sobre una
+ * referencia de 200 € son un 3,5 %; sobre una de 1,07 € son un 654 %, y en este
+ * catálogo hay referencias por debajo de 7 € — o sea, productos que MÁS QUE
+ * DUPLICAN su precio. Eso no se puede descubrir después de publicarlo.
  *
  * La regla es la que se pidió y se aplica tal cual. Lo que hace esta pantalla
  * es que la subida se VEA antes de pulsar, ordenarla de mayor a menor, y dejar

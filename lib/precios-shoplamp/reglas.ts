@@ -7,13 +7,19 @@ import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
  * La regla del cliente, literal: el precio de España es la base, y sobre él se
  * suma una cantidad fija en cada país.
  *
- *     Francia   + 11 €
- *     Italia    + 11 €
- *     Alemania  +  8 €
+ *     Francia   + 7 €
+ *     Italia    + 7 €
+ *     Alemania  + 6 €
  *
- * Nada más. Ni porcentajes, ni redondeo a ,99, ni recálculo de IVA: «+11 €»
- * son once euros sobre el precio que ve el comprador. Si algún día se quiere
- * otra cosa, se cambia esta tabla y no el resto del módulo.
+ * Es lo que cuesta mandar el pedido a cada país: el almacén está en España y de
+ * ahí sale todo. Nada más. Ni porcentajes, ni redondeo a ,99, ni recálculo de
+ * IVA: «+7 €» son siete euros sobre el precio que ve el comprador.
+ *
+ * SI CAMBIAN, SE CAMBIAN AQUÍ Y YA ESTÁ. Esta tabla es el único sitio donde
+ * viven los números: la pantalla, la explicación y las pruebas los leen de
+ * aquí, así que no hay ningún otro fichero que tocar ni ninguna cifra suelta
+ * que se pueda quedar desfasada. Ya pasó una vez: la regla nació con +11/+11/+8
+ * y se corrigió a +7/+7/+6 antes de publicar nada.
  *
  *
  * ============ POR QUÉ LOS RECARGOS VAN EN CÉNTIMOS ENTEROS ============
@@ -72,9 +78,9 @@ export interface ReglaDestino {
 }
 
 export const DESTINOS: readonly ReglaDestino[] = [
-  { marketplaceId: 'A13V1IB3VIYZZH', pais: 'Francia', recargoCentimos: 1100 },
-  { marketplaceId: 'APJ6JRA9NG5V4', pais: 'Italia', recargoCentimos: 1100 },
-  { marketplaceId: 'A1PA6795UKMFR9', pais: 'Alemania', recargoCentimos: 800 },
+  { marketplaceId: 'A13V1IB3VIYZZH', pais: 'Francia', recargoCentimos: 700 },
+  { marketplaceId: 'APJ6JRA9NG5V4', pais: 'Italia', recargoCentimos: 700 },
+  { marketplaceId: 'A1PA6795UKMFR9', pais: 'Alemania', recargoCentimos: 600 },
 ] as const
 
 /** Los que NO entran, con el motivo escrito para poder enseñarlo */
@@ -83,8 +89,8 @@ export const EXCLUIDOS: ReadonlyArray<{ marketplaceId: string; pais: string; mot
     marketplaceId: 'A1F83G8C2ARO7P',
     pais: 'Reino Unido',
     motivo:
-      'Vende en libras y esta regla está en euros. Sumar 11 a un precio en libras serían unos ' +
-      '12,70 € de recargo sin que ningún aviso lo notara, así que no se puede seleccionar.',
+      'Vende en libras y esta regla está en euros. Sumar 7 a un precio en libras serían unos ' +
+      '8,10 € de recargo sin que ningún aviso lo notara, así que no se puede seleccionar.',
   },
 ]
 
@@ -112,8 +118,8 @@ export function mismaDivisa(destino: string): boolean {
 /** Un precio de destino, o null si la base no sirve para calcularlo */
 export function precioDestino(base: number | null | undefined, recargoCentimos: number): number | null {
   // `null` NO es cero, y esta guarda es la que impide el fallo caro: sin ella,
-  // `Math.round(null * 100) + 1100` da 11,00 € y una referencia de 60 € saldría
-  // publicada a once euros. Pasa todas las comprobaciones de abajo porque es un
+  // `Math.round(null * 100) + 700` da 7,00 € y una referencia de 60 € saldría
+  // publicada a siete euros. Pasa todas las comprobaciones de abajo porque es un
   // número positivo y perfectamente válido.
   if (base === null || base === undefined) return null
   if (!Number.isFinite(base) || base <= 0) return null
@@ -125,7 +131,7 @@ export function precioDestino(base: number | null | undefined, recargoCentimos: 
  *
  * Se enseña en cada fila a propósito. Un recargo fijo sobre un catálogo con
  * precios de 1 € a 593 € no sube lo mismo arriba que abajo: sobre 1,07 € son
- * +1.028 %, sobre 200 € son +5 %. Quien pulsa el botón tiene que verlo.
+ * +654 %, sobre 200 € son +3,5 %. Quien pulsa el botón tiene que verlo.
  */
 export function subidaPct(base: number, destino: number): number {
   if (base <= 0) return 0
