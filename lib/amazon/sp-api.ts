@@ -708,12 +708,42 @@ function assertEditable(target: ListingTarget, field: AmazonSubmissionField, val
  * 200 con `INVALID` es un cambio RECHAZADO, y devolverlo como éxito haría que
  * la pantalla enseñara el precio nuevo mientras la tienda sigue con el viejo.
  */
+/**
+ * AMAZON NO ACEPTA `merge` CUANDO SE LE PIDE VALIDAR SIN APLICAR.
+ *
+ * Literal de su respuesta:
+ *
+ *     Invalid operation found in patch at index of 0.
+ *     Merge operation is not allowed for VALIDATION_PREVIEW requests.
+ *
+ * Y no es un aviso: tumba la petición entera. O sea que `updatePrice` y
+ * `updateQuantity` —que usan `merge` a propósito, para no borrarle al cliente el
+ * precio mínimo, el máximo, la rebaja programada o el plazo de envío— NO SE
+ * PODÍAN SIMULAR. El botón de «simular antes de enviar» no llegaba a pasar
+ * nunca, en ningún módulo.
+ *
+ * Al validar se traducen a `replace`. Se puede porque en modo VALIDATION_PREVIEW
+ * AMAZON NO PERSISTE NADA: el `replace` que borraría los campos vecinos no llega
+ * a borrar nada, solo se comprueba. Y lo que se quiere comprobar —que el listing
+ * se puede escribir, que el tipo de producto vale, que el valor es admisible y
+ * que no hay un mínimo o un máximo que lo bloquee— se comprueba igual.
+ *
+ * LO QUE NO SE VALIDA ASÍ es la semántica del merge en sí. Es la diferencia que
+ * hay, y es pequeña: el envío de verdad sigue yendo con `merge`, intacto.
+ */
+function paraValidar(patches: PatchOperation[]): PatchOperation[] {
+  return patches.map((p) => (p.op === 'merge' ? { ...p, op: 'replace' as const } : p))
+}
+
 async function sendPatch(
   creds: AmazonCredentials,
   target: ListingTarget,
   patches: PatchOperation[],
   validateOnly: boolean
 ): Promise<SubmissionOutcome> {
+  // Solo cambia lo que se MANDA A VALIDAR. `patches` —el envío de verdad— no se
+  // toca: ahí el `merge` es justo lo que protege lo que el cliente tenía puesto.
+  const aMandar = validateOnly ? paraValidar(patches) : patches
   try {
     const { data, httpStatus, requestId, attempts } = await spApiRequest<PatchResponse>(
       creds,
@@ -734,10 +764,10 @@ async function sendPatch(
           // es exactamente lo que hace falta.
           mode: validateOnly ? 'VALIDATION_PREVIEW' : undefined,
         },
-        body: { productType: target.productType, patches },
+        body: { productType: target.productType, patches: aMandar },
         // Solo se permite repetir si TODAS las operaciones son de valor
         // absoluto. Ver patchIsRepeatable().
-        repeatable: patchIsRepeatable(patches),
+        repeatable: patchIsRepeatable(aMandar),
         maxAttempts: 3,
       }
     )
