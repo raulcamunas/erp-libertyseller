@@ -114,6 +114,21 @@ export async function POST(request: NextRequest) {
         })
         continue
       }
+      // YA ESTÁ EN SU PRECIO. La pantalla solo deja marcar filas que cambian,
+      // pero el plan se recalcula aquí y entre el render y el envío Amazon puede
+      // haber confirmado el cambio: entonces la fila llega marcada y vuelve a
+      // salir con el mismo número. No rompe nada —el precio es idéntico— pero
+      // gasta cupo del cliente y mete en su registro un cambio de 35,99 a 35,99.
+      if (fila.estado === 'ya_correcto') {
+        rechazadas.push({
+          sku,
+          marketplaceId,
+          pais: fila.pais,
+          motivo: 'Ya está en ese precio, así que no se ha vuelto a mandar.',
+        })
+        continue
+      }
+
       if (fila.destino === null) {
         rechazadas.push({
           sku,

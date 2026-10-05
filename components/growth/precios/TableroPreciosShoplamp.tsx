@@ -114,6 +114,15 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
   const [firmaSimulada, setFirmaSimulada] = useState<string | null>(null)
   const [resultados, setResultados] = useState<Envio[] | null>(null)
   const [aplicado, setAplicado] = useState(false)
+  /**
+   * CUÁNTAS SE PIDIERON Y CUÁNTAS LLEGARON A SALIR.
+   *
+   * Sin esto, el panel de resultados da un número absoluto sin denominador:
+   * «200 aceptadas» de un lote de 421 se lee como si hubieran ido las 421 y 221
+   * hubieran desaparecido sin dejar rastro. Con el lote cortado eso es
+   * exactamente lo que pasaba.
+   */
+  const [cobertura, setCobertura] = useState<{ total: number; intentadas: number } | null>(null)
 
   // El mismo recuento que usa el script de comprobación, no un segundo contador
   // escrito aquí: dos formas de contar lo mismo acaban discrepando.
@@ -205,7 +214,29 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
     setError(null)
     setResultados(null)
     setHechos(0)
-    setAplicado(false)
+
+    /**
+     * ESTO VA AQUÍ, ANTES DEL BUCLE, Y NO AL FINAL. ES EL FALLO CARO.
+     *
+     * Estaba después del bucle y dentro del `try`. Con 421 filas eso son tres
+     * peticiones, y si la segunda fallaba —un 504 del proxy, un corte de red, un
+     * 400 de la ruta porque la conexión dejó de estar activa— el `throw` saltaba
+     * al `catch` y estas dos líneas NO se ejecutaban. Resultado: las 200 del
+     * primer tramo estaban publicadas de verdad en la tienda del cliente y el
+     * panel las rotulaba «Simulación: 200 las aceptaría. Ya se puede aplicar».
+     * Y como `firmaSimulada` tampoco se limpiaba, «Aplicar» seguía armado con
+     * las 421 y un segundo clic reempezaba desde el tramo 1.
+     *
+     * El momento en que esto es cierto es el momento en que se DECIDE enviar,
+     * no el momento en que termina: a partir de aquí hay precios en la calle
+     * pase lo que pase después.
+     */
+    setAplicado(!simular)
+    if (!simular) setFirmaSimulada(null)
+
+    const total = seleccion.length
+    let intentadas = 0
+    setCobertura({ total, intentadas: 0 })
 
     const acumulado: Envio[] = []
     /** Si Amazon corta el lote, lo simulado NO cubre la selección entera */
@@ -217,6 +248,11 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
     try {
       for (let i = 0; i < seleccion.length; i += MAX_POR_TRAMO) {
         const tramo = seleccion.slice(i, i + MAX_POR_TRAMO)
+        // Se cuentan ANTES de salir: una petición que revienta deja sus filas en
+        // «salieron y no sabemos qué pasó», que es la verdad. Contarlas después
+        // las pondría en «ni se intentaron», que no lo es.
+        intentadas += tramo.length
+        setCobertura({ total, intentadas })
         const res = await fetch('/api/precios-shoplamp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -277,11 +313,6 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
         // impide.
         if (!cortado) setFirmaSimulada(firma)
       } else {
-        // `aplicado` dice QUE SE ENVIÓ DE VERDAD, no que terminara. Un lote
-        // cortado a la mitad ya ha publicado los tramos anteriores, y el panel
-        // de resultados no puede llamar a eso «simulación».
-        setAplicado(true)
-        setFirmaSimulada(null)
         // Se desmarca lo enviado. El espejo tarda unos minutos en reflejar el
         // precio nuevo, así que esas filas seguirían saliendo como «cambia» y
         // marcadas: sin esto, el botón invitaría a mandar otra vez lo mismo.
@@ -293,6 +324,10 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ha fallado el envío')
+      // Un envío real que revienta a mitad NO vuelve a quedar certificado por la
+      // simulación anterior: lo que salió ya no se puede deshacer pulsando otra
+      // vez, y lo que falta hay que volver a simularlo.
+      if (!simular) setFirmaSimulada(null)
     } finally {
       setTrabajando(null)
     }
@@ -313,6 +348,19 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
 
   const aceptados = resultados?.filter((r) => r.estado === 'aceptado').length ?? 0
   const fallidos = resultados?.filter((r) => r.estado !== 'aceptado') ?? []
+
+  /**
+   * LAS QUE NO ESTÁN EN NINGÚN RECUENTO, que son las que importan.
+   *
+   * `aceptados` y `fallidos` solo cubren las filas de las que ha vuelto una
+   * respuesta. Con el lote cortado —o con una petición que revienta— hay filas
+   * que no salieron nunca y filas que salieron sin que sepamos qué contestó
+   * Amazon, y antes no aparecían en ninguna parte: el panel decía «200
+   * aceptadas» de un lote de 421 y las otras 221 se evaporaban.
+   */
+  const resueltas = resultados?.length ?? 0
+  const sinIntentar = cobertura ? Math.max(0, cobertura.total - cobertura.intentadas) : 0
+  const enDuda = cobertura ? Math.max(0, cobertura.intentadas - resueltas) : 0
 
   return (
     // `h-full` Y NO `flex-1`. La carcasa de Growth mete a los paneles en un
@@ -411,8 +459,18 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
         <button
           type="button"
           className={`${BOTON.base} ${BOTON.secundario}`}
+          // APAGADO MIENTRAS SE ENVÍA. `router.refresh()` trae un plan nuevo, y a
+          // mitad del bucle eso descuadra dos cosas a la vez: la barra de
+          // progreso divide por la selección del render NUEVO mientras el bucle
+          // recorre la del cierre, y la firma que se guardaría al terminar sería
+          // la de una selección que ya no es la que se mandó.
+          disabled={trabajando !== null}
           onClick={() => router.refresh()}
-          title="Volver a leer el catálogo"
+          title={
+            trabajando === null
+              ? 'Volver a leer el catálogo'
+              : 'No se puede recargar mientras hay un envío en marcha'
+          }
         >
           <RefreshCw className="h-3 w-3" />
           Recargar
@@ -562,8 +620,8 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
         <Panel
           titulo={
             aplicado
-              ? `Aplicado: ${aceptados.toLocaleString('es-ES')} aceptadas por Amazon`
-              : `Simulación: ${aceptados.toLocaleString('es-ES')} las aceptaría`
+              ? `Aplicado: ${aceptados.toLocaleString('es-ES')} de ${(cobertura?.total ?? resueltas).toLocaleString('es-ES')} aceptadas por Amazon`
+              : `Simulación: ${aceptados.toLocaleString('es-ES')} de ${(cobertura?.total ?? resueltas).toLocaleString('es-ES')} las aceptaría`
           }
           derecha={
             fallidos.length > 0 ? (
@@ -575,12 +633,34 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
             )
           }
         >
+          {(sinIntentar > 0 || enDuda > 0) && (
+            <p
+              className={`${TIPO.s} mb-[6px]`}
+              style={{ color: COLOR_ESTADO.ambar }}
+            >
+              De las <strong>{(cobertura?.total ?? 0).toLocaleString('es-ES')}</strong> marcadas,{' '}
+              {resueltas.toLocaleString('es-ES')} tienen respuesta
+              {enDuda > 0 && (
+                <>
+                  , <strong>{enDuda.toLocaleString('es-ES')}</strong> salieron y no sabemos qué
+                  contestó Amazon
+                </>
+              )}
+              {sinIntentar > 0 && (
+                <>
+                  {' y '}
+                  <strong>{sinIntentar.toLocaleString('es-ES')}</strong> no se llegaron a enviar
+                </>
+              )}
+              . {aplicado ? 'Vuelve a cargar y simula lo que quede.' : 'La simulación no cubre el lote entero.'}
+            </p>
+          )}
           {fallidos.length === 0 ? (
             <p className={`${TIPO.s} ${TEXTO.t3}`}>
               {aplicado
-                ? 'Amazon ha aceptado todos. El precio tarda unos minutos en verse en la ficha, y ' +
-                  'cada cambio queda en el registro de Amazon API con su valor anterior.'
-                : 'Amazon aceptaría todos. Ya se puede aplicar.'}
+                ? 'Amazon ha aceptado todas las que contestó. El precio tarda unos minutos en verse ' +
+                  'en la ficha, y cada cambio queda en el registro de Amazon API con su valor anterior.'
+                : 'Amazon aceptaría todas las que ha mirado.'}
             </p>
           ) : (
             <div className="max-h-[180px] overflow-auto">
