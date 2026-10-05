@@ -1,4 +1,4 @@
-import { ArrowRightLeft, Boxes, Crown, type LucideIcon } from 'lucide-react'
+import { ArrowRightLeft, Boxes, Crown, Tags, type LucideIcon } from 'lucide-react'
 
 /**
  * LOS SUBMÓDULOS DE GROWTH PARTNER.
@@ -27,7 +27,7 @@ import { ArrowRightLeft, Boxes, Crown, type LucideIcon } from 'lucide-react'
  * que se usa cada semana, después lo que se mira cuando hay tiempo.
  */
 
-export type ModuloId = 'stock-sync' | 'buybox' | 'fbm-fba'
+export type ModuloId = 'stock-sync' | 'buybox' | 'fbm-fba' | 'precios-shoplamp'
 
 export interface Modulo {
   id: ModuloId
@@ -43,6 +43,19 @@ export interface Modulo {
    * que solo están en un lado, y los dos casos son normales.
    */
   necesita: 'amazon' | 'stock'
+  /**
+   * EL SLUG DEL ÚNICO CLIENTE QUE LO TIENE, si es de uno solo.
+   *
+   * «Precios Shoplamp» aplica un recargo fijo en euros que es un acuerdo con ESE
+   * cliente. Enseñar el botón con otro cliente elegido arriba sería ofrecer
+   * publicarle precios calculados con una regla que nadie ha acordado con él, y
+   * el botón se pulsa mirando la pantalla, no leyendo el nombre de arriba.
+   *
+   * Esto es la COMODIDAD de no verlo donde no toca. Lo que de verdad lo cierra
+   * es que el constructor del plan resuelve el cliente por slug dentro de sí
+   * mismo: ver lib/precios-shoplamp/plan.ts.
+   */
+  soloCliente?: string
 }
 
 export const MODULOS: readonly Modulo[] = [
@@ -67,6 +80,14 @@ export const MODULOS: readonly Modulo[] = [
     pista: 'Qué referencias merecen pasar a logística de Amazon',
     necesita: 'amazon',
   },
+  {
+    id: 'precios-shoplamp',
+    nombre: 'Precios Shoplamp',
+    icono: Tags,
+    pista: 'España manda: +11 € en Francia e Italia, +8 € en Alemania',
+    necesita: 'amazon',
+    soloCliente: 'shoplamp',
+  },
 ] as const
 
 /** El que se abre si la URL no dice otra cosa: el que se usa cada semana */
@@ -86,4 +107,25 @@ export function moduloDesdeUrl(valor: string | null | undefined): ModuloId {
   if (!valor) return MODULO_POR_DEFECTO
   const encontrado = MODULOS.find((m) => m.id === valor)
   return encontrado ? encontrado.id : MODULO_POR_DEFECTO
+}
+
+/** El cliente al que pertenece un submódulo, si es de uno solo */
+export function clienteDelModulo(modulo: ModuloId): string | null {
+  return MODULOS.find((m) => m.id === modulo)?.soloCliente ?? null
+}
+
+/**
+ * Los submódulos que tienen sentido con ESTE cliente elegido arriba.
+ *
+ * Se aplica DESPUÉS del filtro de permisos, nunca en su lugar: lo primero dice
+ * a qué puede entrar esta persona y lo segundo qué toca enseñarle ahora.
+ */
+export function modulosDelCliente(
+  permitidos: readonly ModuloId[],
+  slugCliente: string | null | undefined
+): readonly ModuloId[] {
+  return permitidos.filter((id) => {
+    const solo = clienteDelModulo(id)
+    return solo === null || solo === slugCliente
+  })
 }

@@ -47,7 +47,7 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
-import { MODULOS, type ModuloId } from '@/components/growth/modulos'
+import { clienteDelModulo, MODULOS, type ModuloId } from '@/components/growth/modulos'
 
 /** El cliente tal y como lo ve Growth Partner: un nombre y las dos llaves */
 export interface ClienteGrowth {
@@ -171,6 +171,18 @@ export function elegirCliente(
   }
 
   if (modulo) {
+    // UN SUBMÓDULO DE UN SOLO CLIENTE ELIGE A SU CLIENTE.
+    //
+    // «Precios Shoplamp» solo existe para Shoplamp, así que entrar por
+    // ?m=precios-shoplamp sin decir cliente tiene una única respuesta sensata.
+    // Sin esto caería en el primero de la lista y lo primero que se vería sería
+    // «esta pantalla es solo de Shoplamp», que se lee como una avería.
+    const soloDe = clienteDelModulo(modulo)
+    if (soloDe) {
+      const suyo = clientes.find((c) => c.slug === soloDe)
+      if (suyo) return suyo
+    }
+
     const necesita = MODULOS.find((m) => m.id === modulo)?.necesita
     const compatible = clientes.find((c) =>
       necesita === 'stock' ? c.stockClientId !== null : c.amazonClientId !== null

@@ -8,6 +8,7 @@ import { Vacio } from '@/components/plataforma/comun'
 import { Carcasa } from '@/components/growth/Carcasa'
 import {
   moduloDesdeUrl,
+  modulosDelCliente,
   PARAM_CLIENTE,
   PARAM_MODULO,
   type ModuloId,
@@ -15,6 +16,10 @@ import {
 import { InfoStockSync, PanelStockSync } from '@/components/growth/paneles/PanelStockSync'
 import { InfoBuyBox, PanelBuyBox } from '@/components/growth/paneles/PanelBuyBox'
 import { InfoFbmFba, PanelFbmFba } from '@/components/growth/paneles/PanelFbmFba'
+import {
+  InfoPreciosShoplamp,
+  PanelPreciosShoplamp,
+} from '@/components/growth/paneles/PanelPreciosShoplamp'
 
 /**
  * /dashboard/growth — GROWTH PARTNER. SOLO ADMIN.
@@ -75,13 +80,17 @@ export const dynamic = 'force-dynamic'
 const PANELES: Record<
   ModuloId,
   {
-    Panel: (props: { cliente: ClienteGrowth }) => React.ReactNode
+    // `Promise<…>` porque un panel de servidor puede ser `async`, y varios lo
+    // son: cargan sus datos antes de pintar. Sin esto, añadir un panel con
+    // `await` dentro no compila.
+    Panel: (props: { cliente: ClienteGrowth }) => React.ReactNode | Promise<React.AwaitedReactNode>
     Info: () => React.ReactNode
   }
 > = {
   'stock-sync': { Panel: PanelStockSync, Info: InfoStockSync },
   buybox: { Panel: PanelBuyBox, Info: InfoBuyBox },
   'fbm-fba': { Panel: PanelFbmFba, Info: InfoFbmFba },
+  'precios-shoplamp': { Panel: PanelPreciosShoplamp, Info: InfoPreciosShoplamp },
 }
 
 export default async function GrowthPage({
@@ -120,10 +129,21 @@ export default async function GrowthPage({
   // El submódulo pedido, ACOTADO a lo que esta persona puede ver. Sin esto, un
   // enlace a ?m=buybox le abriría la Buy Box a quien solo tiene el stock.
   const pedido = moduloDesdeUrl(uno(searchParams[PARAM_MODULO]))
-  const modulo: ModuloId = permitidos.includes(pedido) ? pedido : permitidos[0]
+  const conPermiso: ModuloId = permitidos.includes(pedido) ? pedido : permitidos[0]
 
+  // EL ORDEN DE ESTAS CUATRO LÍNEAS IMPORTA, y es un bucle que hay que romper
+  // por algún lado: el cliente se elige sabiendo el submódulo —para preferir uno
+  // que tenga el lado que necesita— y hay un submódulo que es de UN cliente.
+  //
+  // Se rompe así: el submódulo PEDIDO elige el cliente (y si es de un solo
+  // cliente, elige a ese), y después el cliente ya elegido acota la lista de
+  // botones. Un submódulo de otro cliente deja de estar disponible y se cae al
+  // primero suyo, en vez de enseñar una pantalla que no es de quien pone arriba.
   const clientes = await clientesGrowth()
-  const cliente = elegirCliente(clientes, uno(searchParams[PARAM_CLIENTE]), modulo)
+  const cliente = elegirCliente(clientes, uno(searchParams[PARAM_CLIENTE]), conPermiso)
+
+  const visibles = modulosDelCliente(permitidos, cliente?.slug ?? null)
+  const modulo: ModuloId = visibles.includes(conPermiso) ? conPermiso : (visibles[0] ?? conPermiso)
 
   const { Panel, Info } = PANELES[modulo]
 
@@ -137,7 +157,7 @@ export default async function GrowthPage({
         clientes={clientes}
         cliente={cliente}
         modulo={modulo}
-        modulos={permitidos}
+        modulos={visibles}
         info={<Info />}
       >
         {cliente ? (
