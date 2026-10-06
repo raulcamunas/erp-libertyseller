@@ -58,6 +58,30 @@ export const TAREAS_CRON = [
   },
   {
     /**
+     * CADA SEIS HORAS, Y EL NÚMERO SALE DE UNA MEDIDA.
+     *
+     * España tiene precios dinámicos: un repricer la mueve sola. Medido sobre el
+     * catálogo real, unas nueve referencias españolas cambian cada once horas, y
+     * como España es la base de la regla, cada una arrastra hasta tres filas.
+     *
+     * Seis horas es el reparto entre dos costes: más a menudo es gastar cupo de
+     * Amazon para no encontrar casi nada, y más espaciado es dejar a Francia,
+     * Italia y Alemania colgando de un precio español que ya no existe durante
+     * media jornada de ventas.
+     *
+     * Se cambia desde la pantalla de Sistema, no aquí.
+     */
+    id: 'shoplamp-precios',
+    nombre: 'Precios de Shoplamp',
+    ruta: '/api/precios-shoplamp/cron',
+    cadaMinutos: 360,
+    que:
+      'Vuelve a aplicar la regla de España a Francia, Italia y Alemania y publica lo que haya ' +
+      'cambiado. Se planta si de golpe cambian más de 150 referencias o si alguna se aparta más ' +
+      'de un 25 % de su precio de hoy.',
+  },
+  {
+    /**
      * NO TIENE RELOJ AQUÍ, Y ES A PROPÓSITO.
      *
      * `cadaMinutos: 1` porque la ruta corre cada minuto y no consulta
