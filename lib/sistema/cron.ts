@@ -77,8 +77,8 @@ export const TAREAS_CRON = [
     cadaMinutos: 360,
     que:
       'Vuelve a aplicar la regla de España a Francia, Italia y Alemania y publica lo que haya ' +
-      'cambiado. Se planta si de golpe cambian más de 150 referencias o si alguna se aparta más ' +
-      'de un 25 % de su precio de hoy.',
+      'cambiado. No limita cuánto sube o baja cada precio —eso es la regla del cliente—, solo se ' +
+      'planta si de golpe cambian más de 400 referencias, que sería señal de que algo se ha roto.',
   },
   {
     /**

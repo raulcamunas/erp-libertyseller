@@ -1,7 +1,7 @@
 /**
  * EL SIMULACRO DE LA PASADA AUTOMÁTICA. NO ENVÍA NADA.
  *
- * Construye el plan de verdad y aplica los mismos frenos que
+ * Construye el plan de verdad y aplica el mismo freno que
  * lib/precios-shoplamp/automatico.ts, pero sin llamar a Amazon. Es la forma de
  * ver qué haría el automático de las seis horas antes de dejarlo suelto.
  *
@@ -16,21 +16,16 @@ for (const linea of readFileSync('.env.local', 'utf8').split('\n')) {
 
 async function main() {
   const { construirPlan } = await import('../lib/precios-shoplamp/plan')
-  const { MAX_AUTOMATICO, SALTO_MAXIMO, salto } = await import('../lib/precios-shoplamp/automatico')
+  const { MAX_AUTOMATICO } = await import('../lib/precios-shoplamp/automatico')
 
   const plan = await construirPlan()
-  const candidatas = plan.filas.filter(
+  const enviables = plan.filas.filter(
     (f) => f.estado === 'cambia' && f.destino !== null && f.productType !== null
   )
 
-  const frenadas = candidatas.filter((f) => salto(f.actual, f.destino as number) > SALTO_MAXIMO)
-  const enviables = candidatas.filter((f) => salto(f.actual, f.destino as number) <= SALTO_MAXIMO)
-
   console.log(`\nSIMULACRO — no se manda nada a Amazon\n`)
-  console.log(`  candidatas (cambian y se pueden enviar): ${candidatas.length}`)
-  console.log(`  apartadas por saltar mas del ${Math.round(SALTO_MAXIMO * 100)} %: ${frenadas.length}`)
-  console.log(`  se enviarian:                            ${enviables.length}`)
-  console.log(`  tope del lote automatico:                ${MAX_AUTOMATICO}`)
+  console.log(`  cambian y se pueden enviar: ${enviables.length}`)
+  console.log(`  tope del lote automatico:   ${MAX_AUTOMATICO}`)
 
   if (enviables.length > MAX_AUTOMATICO) {
     console.log(`\n  >>> SE PLANTARIA ENTERO: ${enviables.length} pasa de ${MAX_AUTOMATICO}`)
@@ -38,17 +33,21 @@ async function main() {
     console.log(`\n  >>> publicaria ${enviables.length} precios`)
   }
 
-  if (frenadas.length > 0) {
-    console.log(`\n  las apartadas:`)
-    for (const f of frenadas
-      .sort((a, b) => salto(b.actual, b.destino as number) - salto(a.actual, a.destino as number))
-      .slice(0, 10)) {
-      const s = Math.round(salto(f.actual, f.destino as number) * 100)
-      console.log(
-        `    ${f.sku.padEnd(16)} ${f.pais.padEnd(9)} ${String(f.actual ?? '—').padStart(7)} € -> ` +
-          `${(f.destino as number).toFixed(2).padStart(7)} €   ${s} %`
-      )
-    }
+  const porPais = new Map<string, number>()
+  for (const f of enviables) porPais.set(f.pais, (porPais.get(f.pais) ?? 0) + 1)
+  console.log('')
+  for (const [pais, n] of [...porPais].sort()) console.log(`    ${pais.padEnd(10)} ${n}`)
+
+  const mayores = [...enviables]
+    .map((f) => ({ f, mov: Math.abs((f.destino as number) - (f.actual ?? 0)) / (f.actual || 1) }))
+    .sort((a, b) => b.mov - a.mov)
+    .slice(0, 8)
+  console.log('\n  las que mas se mueven (ya NO se frenan: es la regla del cliente):')
+  for (const { f, mov } of mayores) {
+    console.log(
+      `    ${f.sku.padEnd(16)} ${f.pais.padEnd(9)} ${String(f.actual ?? '—').padStart(7)} € -> ` +
+        `${(f.destino as number).toFixed(2).padStart(7)} €   ${Math.round(mov * 100)} %`
+    )
   }
 
   console.log(

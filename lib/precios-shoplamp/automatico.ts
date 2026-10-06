@@ -18,29 +18,35 @@ import { MAX_POR_TRAMO } from './reglas'
  *
  * ============ LO QUE DE VERDAD IMPORTA DE ESTE FICHERO ============
  *
- * No es que publique: es QUÉ SE NIEGA A PUBLICAR. Un automático de precios que
- * solo sabe decir que sí es una forma elegante de propagar un error a tres
- * países cada seis horas. Los frenos son tres y los tres se han puesto con un
- * número medido, no a ojo:
+ * No es que publique: es QUÉ SE NIEGA A PUBLICAR. Pero OJO con qué se frena,
+ * porque aquí hubo un freno de más y se quitó:
  *
- *   1. EL SALTO POR REFERENCIA. Si el precio nuevo se aparta más de un 25 % del
- *      que está publicado hoy, esa fila NO se manda y se deja para que la mire
- *      una persona. La deriva normal de un repricer es de céntimos; un salto
- *      grande significa que España ha hecho algo raro —o que el espejo está
- *      desfasado—, y ninguna de las dos cosas se arregla publicando.
+ *   NO SE LIMITA CUÁNTO PUEDE SUBIR O BAJAR UNA REFERENCIA, Y ES A PROPÓSITO.
  *
- *   2. EL TAMAÑO DEL LOTE. Si de golpe cambian más de 150 referencias, no se
- *      manda NADA y se levanta un aviso. Lo normal son veinticinco en once
- *      horas. Ciento cincuenta no es un día movido: es que algo se ha roto
- *      aguas arriba —una resincronización, un fallo del repricer, un censo que
- *      ha traído precios malos— y mandar mil doscientos cambios por si acaso es
- *      exactamente el accidente que esto tiene que evitar.
+ * El primer intento apartaba toda fila que se moviera más de un 25 % de su
+ * precio de hoy, razonando que «la deriva de un repricer es de céntimos». Está
+ * mal planteado: el precio de fuera NO lo pone un repricer, lo pone esta regla,
+ * y la regla es una orden de Shoplamp. Una referencia que vale 17,12 € en
+ * Alemania y tiene que pasar a 25,90 € no es una anomalía que haya que revisar:
+ * es exactamente lo que el cliente ha pedido que pase. Con aquel freno se
+ * apartaban 15 de 154 y todas eran correctas.
  *
- *   3. LAS QUE NO TIENEN FICHA FUERA NO SE TOCAN. Ya lo garantiza el plan —una
- *      fila 'sin_listado' no lleva precio calculado— pero aquí se filtra otra
- *      vez por `estado === 'cambia'`, que es la única clase enviable.
+ * Queda UN SOLO freno, y no mira el precio sino el VOLUMEN:
  *
- * Cuando un freno salta NO se calla: deja un evento que suena en la campana del
+ *   EL TAMAÑO DEL LOTE. Si de golpe cambian más de `MAX_AUTOMATICO`, no se manda
+ *   NADA y se levanta un aviso. Lo normal son unas veinticinco en once horas, y
+ *   la puesta al día más grande medida fueron 154. Un número muy por encima no
+ *   es un día movido: es que algo se ha roto aguas arriba —una resincronización,
+ *   un censo que ha traído precios malos, el repricer de España disparado— y
+ *   publicar mil doscientos cambios por si acaso es exactamente el accidente que
+ *   esto tiene que evitar. No limita CUÁNTO cambia cada precio; limita que se
+ *   mueva medio catálogo de golpe sin que nadie lo haya mirado.
+ *
+ * Y las que no tienen ficha fuera no se tocan: lo garantiza el plan —una fila
+ * 'sin_listado' no lleva precio calculado— y aquí se filtra otra vez por
+ * `estado === 'cambia'`, que es la única clase enviable.
+ *
+ * Cuando el freno salta NO se calla: deja un evento que suena en la campana del
  * ERP, con el número y el motivo. Un automático que se planta en silencio es
  * indistinguible de un automático que no se ha ejecutado.
  *
@@ -54,11 +60,15 @@ import { MAX_POR_TRAMO } from './reglas'
  * Lo que sustituye a la simulación son los frenos de arriba.
  */
 
-/** Más de esto en un solo lote y no se manda nada: algo ha pasado aguas arriba */
-export const MAX_AUTOMATICO = 150
-
-/** Cuánto puede apartarse un precio del que está publicado hoy, sin intervención */
-export const SALTO_MAXIMO = 0.25
+/**
+ * Más de esto en un solo lote y no se manda nada: algo ha pasado aguas arriba.
+ *
+ * 400 sobre un plan de unas 1.255 referencias que pueden cambiar, o sea un
+ * tercio del catálogo. La deriva normal son veinticinco cada once horas y la
+ * puesta al día más grande medida fueron 154: nada legítimo mueve un tercio del
+ * catálogo en seis horas.
+ */
+export const MAX_AUTOMATICO = 400
 
 export interface ResultadoAutomatico {
   /** null si Shoplamp no tiene conexión activa: no es un error, es un estado */
@@ -69,19 +79,9 @@ export interface ResultadoAutomatico {
   enviadas: number
   aceptadas: number
   fallidas: number
-  /** Apartadas por el freno del salto, con su motivo */
-  frenadas: { sku: string; pais: string; actual: number | null; destino: number; salto: number }[]
   /** Si se ha plantado entero, por qué */
   plantado: string | null
   batchId: string | null
-}
-
-/** ¿Cuánto se aparta el precio nuevo del que hay publicado? */
-export function salto(actual: number | null, destino: number): number {
-  // Sin precio publicado no hay salto que medir, y tampoco hay nada que romper:
-  // poner precio donde no había es la operación menos peligrosa de todas.
-  if (actual === null || actual <= 0) return 0
-  return Math.abs(destino - actual) / actual
 }
 
 export async function pasadaAutomatica(userId: string | null): Promise<ResultadoAutomatico> {
@@ -91,7 +91,6 @@ export async function pasadaAutomatica(userId: string | null): Promise<Resultado
     enviadas: 0,
     aceptadas: 0,
     fallidas: 0,
-    frenadas: [],
     plantado: null,
     batchId: null,
   }
@@ -110,22 +109,16 @@ export async function pasadaAutomatica(userId: string | null): Promise<Resultado
     return { ...vacio, connectionId: plan.connectionId }
   }
 
-  // ---- Freno 1: el salto por referencia ----
-  const frenadas: ResultadoAutomatico['frenadas'] = []
-  const enviables = candidatas.filter((f) => {
-    const s = salto(f.actual, f.destino)
-    if (s <= SALTO_MAXIMO) return true
-    frenadas.push({ sku: f.sku, pais: f.pais, actual: f.actual, destino: f.destino, salto: s })
-    return false
-  })
+  // Cuánto suba o baje cada referencia NO se mira: es la regla del cliente. Ver
+  // la cabecera.
+  const enviables = candidatas
 
-  // ---- Freno 2: el tamaño del lote ----
+  // ---- El único freno: el tamaño del lote ----
   if (enviables.length > MAX_AUTOMATICO) {
     return {
       ...vacio,
       connectionId: plan.connectionId,
       candidatas: candidatas.length,
-      frenadas,
       plantado:
         `${enviables.length} referencias querían cambiar de precio de golpe, y el tope automático ` +
         `son ${MAX_AUTOMATICO}. No se ha mandado nada. Lo normal son unas veinticinco: un número ` +
@@ -167,7 +160,6 @@ export async function pasadaAutomatica(userId: string | null): Promise<Resultado
         enviadas: aceptadas + fallidas,
         aceptadas,
         fallidas,
-        frenadas,
         plantado: res.abortReason,
         batchId,
       }
@@ -180,7 +172,6 @@ export async function pasadaAutomatica(userId: string | null): Promise<Resultado
     enviadas: aceptadas + fallidas,
     aceptadas,
     fallidas,
-    frenadas,
     plantado: null,
     batchId,
   }
@@ -192,11 +183,6 @@ export function resumirAutomatico(r: ResultadoAutomatico): string {
   if (r.candidatas === 0) return 'Los tres países ya estaban al día. Nada que mandar.'
   const partes = [`${r.aceptadas} precios publicados`]
   if (r.fallidas > 0) partes.push(`${r.fallidas} rechazados por Amazon`)
-  if (r.frenadas.length > 0) {
-    partes.push(
-      `${r.frenadas.length} apartados por saltar más del ${Math.round(SALTO_MAXIMO * 100)} %`
-    )
-  }
   return partes.join(' · ')
 }
 
@@ -204,17 +190,9 @@ export function resumirAutomatico(r: ResultadoAutomatico): string {
 export async function anotarEvento(r: ResultadoAutomatico): Promise<void> {
   // Solo se anota lo que hay que mirar: una pasada limpia no tiene que hacer
   // ruido, o la campana deja de significar nada en una semana.
-  if (!r.plantado && r.fallidas === 0 && r.frenadas.length === 0) return
+  if (!r.plantado && r.fallidas === 0) return
 
   const severidad = r.plantado ? 'error' : 'aviso'
-  const detalle = r.frenadas
-    .slice(0, 6)
-    .map(
-      (f) =>
-        `${f.sku} (${f.pais}): ${f.actual?.toFixed(2) ?? '—'} € → ${f.destino.toFixed(2)} €, ` +
-        `${Math.round(f.salto * 100)} %`
-    )
-    .join(' · ')
 
   // `registrarEvento` NUNCA lanza: que no se pueda anotar no puede tumbar una
   // pasada que YA ha publicado precios en la tienda del cliente.
@@ -222,7 +200,7 @@ export async function anotarEvento(r: ResultadoAutomatico): Promise<void> {
     tipo: 'precios_shoplamp',
     severidad,
     connectionId: r.connectionId,
-    mensaje: `Precios Shoplamp (automático): ${resumirAutomatico(r)}${detalle ? `. ${detalle}` : ''}`,
-    detalle: { frenadas: r.frenadas, batchId: r.batchId, candidatas: r.candidatas },
+    mensaje: `Precios Shoplamp (automático): ${resumirAutomatico(r)}`,
+    detalle: { batchId: r.batchId, candidatas: r.candidatas },
   })
 }
