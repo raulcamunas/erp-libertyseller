@@ -114,6 +114,19 @@ export interface EtiquetaProducto {
    * ningún error, y el problema volvería sin que nadie supiera por qué.
    */
   sku: string
+  /**
+   * EL ASIN DE LA REFERENCIA, SI SE SABE. Sirve para UNA sola cosa y es
+   * importante: descartar la etiqueta cuando el «FNSKU» es en realidad el ASIN.
+   *
+   * Amazon devuelve el ASIN en el campo del FNSKU cuando la referencia está en
+   * el programa de CÓDIGO DE BARRAS DEL FABRICANTE: esos artículos viajan con su
+   * EAN o UPC y NO LLEVAN etiqueta de Amazon. Imprimirles una con el ASIN dentro
+   * es pegar un código que el almacén no espera.
+   *
+   * No es teórico: en el catálogo de Cobo Family hay 40 referencias así, todas
+   * con fnsku == asin. Sin esta comprobación salían impresas y nadie lo veía.
+   */
+  asin?: string | null
   /** 'Nuevo' salvo que se diga otra cosa. Amazon lo exige en la etiqueta */
   condicion?: string
   /** Cuántas iguales hay que imprimir */
@@ -170,6 +183,32 @@ const MARGEN_ABAJO = 1.2
  * que si mañana alguien añade un formato estrecho a FORMATOS se entera aquí.
  */
 const ZONA_MUDA = 6.35
+
+/**
+ * EL BLANCO DE ARRIBA Y DE ABAJO DEL CÓDIGO. ES LA MISMA AVERÍA QUE LA DE AL
+ * LADO, Y SE NOS PASÓ.
+ *
+ * `ZONA_MUDA` arregló los laterales y nadie miró en vertical. Medido sobre el
+ * PDF que sale hoy: 2,50 mm por arriba y **1,18 mm por abajo**, contra los
+ * 3,175 mm (0,125") que pide Amazon.
+ *
+ * El 1,18 de abajo no se ve leyendo el código, y por eso estaba: la línea
+ * siguiente es `yBarra + altoBarra + 3.2`, que coloca la LÍNEA DE BASE del
+ * FNSKU. Pero el texto crece HACIA ARRIBA desde ahí: una mayúscula de Helvetica
+ * a 8 pt mide 2,024 mm, así que entre la última barra y la primera tinta del
+ * texto quedan 3,2 − 2,024 = 1,176 mm. El número del código decía 3,2 y la
+ * realidad eran 1,18.
+ *
+ * Y es exactamente la avería que el comentario de ZONA_MUDA describe: se imprime
+ * perfecto, a veces se lee y a veces no, y sale en el almacén de Amazon.
+ *
+ * El sitio sale del CÓDIGO DE BARRAS, no del texto: medido, las barras se
+ * llevaban el 45 % del alto siendo el doble de altas de lo que Amazon exige.
+ */
+const ZONA_MUDA_VERTICAL = 3.3
+
+/** Lo que mide hacia arriba una mayúscula de Helvetica, por punto de cuerpo */
+const ALTURA_MAYUSCULA = 0.717 / 2.835
 
 /**
  * Lo más fino que puede ser un módulo y seguir leyéndose. 0,19 mm son 7,5
@@ -286,9 +325,13 @@ function dibujar(
   if (!barrasLegibles(anchoModulo)) return false
   const centro = x + ancho / 2
 
-  // El alto del código: la mitad de la etiqueta, dejando sitio al texto
-  const altoBarra = Math.max(8, alto * 0.45)
-  const yBarra = y + 2.5
+  // El alto del código. Baja del 45 % al 38 % del alto de la etiqueta: con el 45 %
+  // las barras eran el doble de altas de lo que Amazon pide y los milímetros que
+  // sobraban se los quitaban a la zona muda de arriba y de abajo, que es lo que
+  // de verdad decide si un escáner lee. En la hoja A4 de 21 son 14,5 mm de barra,
+  // muy por encima del mínimo.
+  const altoBarra = Math.max(8, alto * 0.38)
+  const yBarra = y + ZONA_MUDA_VERTICAL
 
   doc.setFillColor(0, 0, 0)
   let cursor = x + ZONA_MUDA
@@ -302,7 +345,10 @@ function dibujar(
   doc.setTextColor(0, 0, 0)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(PT_FNSKU)
-  const yFnsku = yBarra + altoBarra + 3.2
+  // LA LÍNEA DE BASE, no el borde del texto. Hay que sumarle lo que la mayúscula
+  // sube desde ahí, o la zona muda real se queda en la cuarta parte de lo que
+  // dice el número. Ver ZONA_MUDA_VERTICAL.
+  const yFnsku = yBarra + altoBarra + ZONA_MUDA_VERTICAL + PT_FNSKU * ALTURA_MAYUSCULA
   doc.text(etiqueta.fnsku, centro, yFnsku, { align: 'center' })
 
   // EL SKU. Negrita, el más grande, y encogido antes que recortado: ajustarSku().
@@ -370,6 +416,18 @@ export function hojaDeEtiquetas(
       descartadas.push({ fnsku: '(sin FNSKU)', motivo: `${e.sku}: no tenemos su FNSKU` })
       continue
     }
+    // EL ASIN NO ES UN FNSKU. Ver el comentario del campo `asin`.
+    if (e.asin && e.fnsku.trim().toUpperCase() === e.asin.trim().toUpperCase()) {
+      descartadas.push({
+        fnsku: e.fnsku,
+        motivo:
+          `${e.sku}: Amazon da su ASIN como FNSKU, que es lo que hace cuando la referencia va ` +
+          'con el CÓDIGO DEL FABRICANTE y no lleva etiqueta de Amazon. Esta se envía con su ' +
+          'EAN/UPC tal cual; no hay que pegarle nada.',
+      })
+      continue
+    }
+
     const modulos = code128B(e.fnsku)
     if (!modulos) {
       descartadas.push({

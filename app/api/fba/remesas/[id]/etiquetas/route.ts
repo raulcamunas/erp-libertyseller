@@ -88,16 +88,50 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     // El espejo completa lo que falte: FNSKU de las referencias que no lo
     // traían, y el título real de Amazon, que es el que reconoce el almacén.
-    const catalogo = new Map<string, { fnsku: string | null; title: string | null }>()
+    const catalogo = new Map<
+      string,
+      { fnsku: string | null; title: string | null; asin: string | null }
+    >()
     if (remesa.connection_id) {
-      const { data: espejo } = await service
-        .from('amazon_listings')
-        .select('sku, fnsku, title')
-        .eq('connection_id', remesa.connection_id)
-        .eq('marketplace_id', remesa.marketplace_id)
-        .in('sku', filas.map((l) => l.sku))
-      for (const l of (espejo ?? []) as Array<{ sku: string; fnsku: string | null; title: string | null }>) {
-        catalogo.set(l.sku, { fnsku: l.fnsku, title: l.title })
+      /**
+       * POR TRAMOS, Y MIRANDO EL ERROR.
+       *
+       * Estaba con un solo `.in()` de todos los SKU y con el error ignorado
+       * (`const { data: espejo }` a secas). PostgREST mete los valores del `in`
+       * EN LA URL, así que por encima de unos quinientos SKU la petición se pasa
+       * de largo y falla — y al tirar el error, `catalogo` se quedaba vacío y
+       * TODAS las etiquetas salían sin FNSKU y sin el título de Amazon. Un
+       * cliente con una remesa grande se encontraba un PDF en blanco sin que
+       * nada dijera por qué.
+       *
+       * Ahora va en tramos de 200 y si alguno falla se corta con un mensaje. No
+       * se imprime media hoja: con mercancía delante, media hoja de etiquetas es
+       * peor que ninguna.
+       */
+      const TRAMO = 200
+      const skus = filas.map((l) => l.sku)
+      for (let i = 0; i < skus.length; i += TRAMO) {
+        const { data: espejo, error } = await service
+          .from('amazon_listings')
+          .select('sku, fnsku, title, asin')
+          .eq('connection_id', remesa.connection_id)
+          .eq('marketplace_id', remesa.marketplace_id)
+          .in('sku', skus.slice(i, i + TRAMO))
+        if (error) {
+          return fail(
+            502,
+            'No se ha podido leer el catálogo para completar los FNSKU, así que las etiquetas ' +
+              `saldrían incompletas y no se imprimen. Vuelve a intentarlo. (${error.message})`
+          )
+        }
+        for (const l of (espejo ?? []) as Array<{
+          sku: string
+          fnsku: string | null
+          title: string | null
+          asin: string | null
+        }>) {
+          catalogo.set(l.sku, { fnsku: l.fnsku, title: l.title, asin: l.asin })
+        }
       }
     }
 
@@ -116,11 +150,33 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         // no coincidieran, el que manda es el de la línea que se va a enviar, que
         // es lo que el almacén tiene delante.
         sku: l.sku,
+        // Para poder descartar las que van con el código del fabricante: ahí
+        // Amazon devuelve el ASIN en el campo del FNSKU. Ver lib/fba/etiquetas.ts.
+        asin: delEspejo?.asin ?? null,
         unidades: l.unidades,
       }
     })
 
     const { pdf, etiquetas: impresas, paginas, descartadas } = hojaDeEtiquetas(etiquetas, formato)
+
+    /**
+     * NI UNA ETIQUETA IMPRIMIBLE NO ES UN PDF EN BLANCO.
+     *
+     * Antes salía un A4 vacío con el aviso «0 etiquetas en 0 páginas» metido en
+     * una cabecera que no lee nadie, y el caso NO es raro: hoy Cobo Family tiene
+     * 1.610 de sus 2.126 referencias sin FNSKU, así que una remesa suya puede
+     * descartarse entera. Un folio en blanco con la mercancía delante se lee
+     * como «la impresora ha fallado», y se pierde media mañana buscando dónde.
+     */
+    if (impresas === 0) {
+      const motivos = descartadas.slice(0, 8).map((d) => d.motivo)
+      return fail(
+        400,
+        `No se puede imprimir ni una etiqueta de esta remesa (${descartadas.length} descartadas). ` +
+          motivos.join(' · ') +
+          (descartadas.length > motivos.length ? ` …y ${descartadas.length - motivos.length} más.` : '')
+      )
+    }
 
     /**
      * QUEDA REGISTRADO QUE SE HA IMPRIMIDO, Y CON QUÉ VERSIÓN DEL BOCETO.
