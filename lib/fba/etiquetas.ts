@@ -93,6 +93,40 @@ export const FORMATOS: FormatoHoja[] = [
     hueco: { horizontal: 0, vertical: 0 },
   },
   {
+    /**
+     * EL MÁS DENSO QUE CABE EN UN A4, Y 4 COLUMNAS NO CABEN.
+     *
+     * Se pidió 4 × 10 = 40. No se puede, y el motivo es aritmética del código de
+     * barras, no una limitación nuestra:
+     *
+     *   Un FNSKU de 10 caracteres en Code 128 son 145 módulos (arranque 11 +
+     *   10 × 11 + control 11 + parada 13). Amazon exige que el módulo más
+     *   estrecho mida 13,33 mils = 0,339 mm, así que las barras necesitan
+     *   145 × 0,339 = 49,1 mm, más 6,35 mm de zona muda a cada lado:
+     *
+     *       ANCHO MÍNIMO DE ETIQUETA = 61,8 mm
+     *
+     *   Con 4 columnas en un A4 la etiqueta se queda en 48,5 mm: el módulo sale
+     *   a 9,7 mils, un 27 % por debajo del mínimo. Imprimiría precioso y el
+     *   escáner del almacén fallaría de forma intermitente. Y además incumple el
+     *   mínimo de 51 mm de ancho de la propia especificación de «item label».
+     *
+     * Con 3 columnas la etiqueta mide 70 mm —módulo de 15,6 mils, holgado— y
+     * caben 10 filas de 29,7. Eso son 30 por hoja: un 25 % más que el formato de
+     * 24 y lo máximo que permite el código de barras.
+     *
+     * A 29,7 mm de alto solo entra UNA línea de título, y el alto de la barra se
+     * recorta para que entre: ver el `Math.min` de dibujar().
+     */
+    id: 'a4-30',
+    nombre: 'A4 · 30 etiquetas (70 × 29,7 mm)',
+    pagina: { ancho: 210, alto: 297 },
+    rejilla: { columnas: 3, filas: 10 },
+    etiqueta: { ancho: 70, alto: 29.7 },
+    margen: { izquierda: 0, arriba: 0 },
+    hueco: { horizontal: 0, vertical: 0 },
+  },
+  {
     // Impresora térmica de rollo: una etiqueta por página
     id: 'termica-57x32',
     nombre: 'Térmica · rollo 57 × 32 mm',
@@ -330,7 +364,19 @@ function dibujar(
   // sobraban se los quitaban a la zona muda de arriba y de abajo, que es lo que
   // de verdad decide si un escáner lee. En la hoja A4 de 21 son 14,5 mm de barra,
   // muy por encima del mínimo.
-  const altoBarra = Math.max(8, alto * 0.38)
+  // EL TEXTO TIENE PREFERENCIA SOBRE LA BARRA EN UNA ETIQUETA BAJA.
+  //
+  // Con el 38 % a secas, en la hoja de 30 (29,7 mm de alto) la última línea se
+  // salía por 0,01 mm: el título desaparecía entero y nadie veía por qué. Aquí
+  // se reserva primero lo que el texto necesita sí o sí —las dos zonas mudas, el
+  // FNSKU, el SKU, UNA línea de título, la condición y el margen de abajo— y la
+  // barra se queda con el resto, hasta el 38 %.
+  //
+  // En las etiquetas altas no cambia nada: 38,1 mm siguen dando 14,5 mm de
+  // barra. Solo muerde donde hacía falta.
+  const ALTO_TEXTO_MINIMO =
+    ZONA_MUDA_VERTICAL + PT_FNSKU * ALTURA_MAYUSCULA + SALTO_SKU + SALTO_TITULO + SALTO_CONDICION + MARGEN_ABAJO
+  const altoBarra = Math.max(8, Math.min(alto * 0.38, alto - ZONA_MUDA_VERTICAL - ALTO_TEXTO_MINIMO))
   const yBarra = y + ZONA_MUDA_VERTICAL
 
   doc.setFillColor(0, 0, 0)
