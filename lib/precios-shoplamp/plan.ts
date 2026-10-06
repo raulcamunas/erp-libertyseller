@@ -52,6 +52,29 @@ export type EstadoFila =
   | 'sin_base'
   /** Está en España pero su precio no sirve para calcular (vacío, cero) */
   | 'base_invalida'
+  /**
+   * ESTÁ EN ESPAÑA Y NO LO TENEMOS EN EL CATÁLOGO DE ESE PAÍS.
+   *
+   * Es el agujero que esta pantalla tenía y que no se veía. El plan se construía
+   * recorriendo las referencias de FUERA y buscándoles su gemela española, así
+   * que una referencia española SIN fila en Francia no producía ninguna línea:
+   * no salía como pendiente, no salía como error, no salía. Simplemente no
+   * existía, y 89 referencias se quedaban fuera del cálculo en silencio.
+   *
+   * Y OJO CON LO QUE SIGNIFICA, porque son dos cosas distintas y desde aquí no
+   * se distinguen:
+   *
+   *   · o el cliente no vende esa referencia en ese país —legítimo, no hay nada
+   *     que hacer—,
+   *   · o SÍ la vende y nuestro espejo de ese país está incompleto.
+   *
+   * El segundo caso es real: el censo del catálogo solo corre sobre los
+   * marketplaces marcados en `marketplaces_activos` (Amazon API · Cuentas), y si
+   * un país no está marcado, su mitad del espejo se queda congelada el día que
+   * se leyó por última vez. Por eso esta fila dice «no lo tenemos» y no «no está
+   * publicado»: es lo único que sabemos de verdad.
+   */
+  | 'sin_listado'
 
 export interface FilaPlan {
   sku: string
@@ -240,8 +263,33 @@ export async function construirPlan(): Promise<PlanPrecios> {
     // puede enviar por error desde ningún sitio.
     if (!mismaDivisa(regla.marketplaceId)) return
 
+    const vistosAqui = new Set<string>()
     for (const l of porDestino[i]) {
+      vistosAqui.add(l.sku)
       filas.push(construirFila(regla, l, base.get(l.sku)))
+    }
+
+    // LA OTRA MITAD, la que antes no se contaba: lo que está en España y no
+    // tenemos en este país. Ver el comentario de 'sin_listado'.
+    for (const [sku, esp] of base) {
+      if (vistosAqui.has(sku)) continue
+      const precioBase = aNumero(esp.price)
+      filas.push({
+        sku,
+        marketplaceId: regla.marketplaceId,
+        pais: regla.pais,
+        asin: esp.asin,
+        titulo: esp.title,
+        base: precioBase,
+        actual: null,
+        // No se calcula precio: no hay a qué referencia aplicárselo. Poner aquí
+        // base+7 sería ofrecer publicar en una ficha que no sabemos que exista.
+        destino: null,
+        subida: null,
+        recargo: regla.recargoCentimos / 100,
+        estado: 'sin_listado',
+        productType: esp.product_type,
+      })
     }
   })
 
@@ -261,15 +309,34 @@ export async function construirPlan(): Promise<PlanPrecios> {
 export function resumir(filas: FilaPlan[]) {
   const porPais = new Map<
     string,
-    { pais: string; marketplaceId: string; recargo: number; cambia: number; yaCorrecto: number; sinBase: number; baseInvalida: number }
+    {
+      pais: string
+      marketplaceId: string
+      recargo: number
+      cambia: number
+      yaCorrecto: number
+      sinBase: number
+      baseInvalida: number
+      sinListado: number
+    }
   >()
   for (const f of filas) {
     const r =
       porPais.get(f.marketplaceId) ??
-      { pais: f.pais, marketplaceId: f.marketplaceId, recargo: f.recargo, cambia: 0, yaCorrecto: 0, sinBase: 0, baseInvalida: 0 }
+      {
+        pais: f.pais,
+        marketplaceId: f.marketplaceId,
+        recargo: f.recargo,
+        cambia: 0,
+        yaCorrecto: 0,
+        sinBase: 0,
+        baseInvalida: 0,
+        sinListado: 0,
+      }
     if (f.estado === 'cambia') r.cambia += 1
     else if (f.estado === 'ya_correcto') r.yaCorrecto += 1
     else if (f.estado === 'sin_base') r.sinBase += 1
+    else if (f.estado === 'sin_listado') r.sinListado += 1
     else r.baseInvalida += 1
     porPais.set(f.marketplaceId, r)
   }

@@ -72,6 +72,7 @@ const ESTADOS: { id: EstadoFila | 'todas'; rotulo: string }[] = [
   { id: 'ya_correcto', rotulo: 'Ya correctas' },
   { id: 'sin_base', rotulo: 'Sin precio en España' },
   { id: 'base_invalida', rotulo: 'Base no válida' },
+  { id: 'sin_listado', rotulo: 'No las tenemos allí' },
 ]
 
 /**
@@ -127,6 +128,11 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
   // El mismo recuento que usa el script de comprobación, no un segundo contador
   // escrito aquí: dos formas de contar lo mismo acaban discrepando.
   const porPais = useMemo(() => resumir(plan.filas), [plan.filas])
+
+  const sinFicha = useMemo(
+    () => plan.filas.filter((f) => f.estado === 'sin_listado').length,
+    [plan.filas]
+  )
 
   const fuertes = useMemo(
     () => plan.filas.filter((f) => f.estado === 'cambia' && (f.subida ?? 0) >= SUBIDA_FUERTE),
@@ -387,6 +393,14 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
             </span>
             <span className={CIFRAS.rotulo}>
               cambian en {r.pais} · +{r.recargo.toFixed(2)} €
+              {r.sinListado > 0 && (
+                <>
+                  {' · '}
+                  <span style={{ color: COLOR_ESTADO.magenta }}>
+                    {r.sinListado.toLocaleString('es-ES')} sin ficha
+                  </span>
+                </>
+              )}
             </span>
           </div>
         ))}
@@ -409,6 +423,36 @@ export function TableroPreciosShoplamp({ plan }: { plan: PlanPrecios }) {
             Están ordenadas de mayor subida a menor y se pueden desmarcar una a una.{' '}
             <button type="button" className="underline" onClick={() => setSoloFuertes((v) => !v)}>
               {soloFuertes ? 'Ver todas' : 'Ver solo esas'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/*
+        EL HUECO QUE ANTES NO SE VEÍA.
+
+        Una referencia española que no tiene ficha en Francia no producía
+        ninguna fila: no salía como pendiente ni como error, no salía. Y la causa
+        más probable no es que el cliente no la venda allí, sino que el censo del
+        catálogo NO CORRE para ese país —solo corre sobre los marketplaces
+        marcados en Amazon API · Cuentas—, así que nuestra copia de ese país se
+        quedó congelada el día que se leyó por última vez.
+      */}
+      {sinFicha > 0 && (
+        <div
+          className={`${AVISO.base} ${AVISO.conTono} shrink-0`}
+          style={{ borderLeftColor: COLOR_ESTADO.magenta }}
+        >
+          <TriangleAlert className={AVISO.icono} style={{ color: COLOR_ESTADO.magenta }} />
+          <div className={`${TIPO.s} ${TEXTO.t2}`}>
+            <strong>{sinFicha.toLocaleString('es-ES')} referencias de España no tienen ficha</strong>{' '}
+            en nuestra copia del catálogo de esos países, así que esta pantalla no puede
+            cambiarles el precio. Puede ser que el cliente no las venda allí — o que{' '}
+            <strong>el país no esté activado para la ingesta</strong> y nuestra copia esté vieja.
+            Se comprueba en <strong>Amazon API · Cuentas</strong>, en los países marcados de esta
+            cuenta.{' '}
+            <button type="button" className="underline" onClick={() => setEstado('sin_listado')}>
+              Ver cuáles
             </button>
           </div>
         </div>
@@ -702,6 +746,7 @@ const TONO_ESTADO: Record<EstadoFila, { tono: keyof typeof COLOR_ESTADO; rotulo:
   ya_correcto: { tono: 'verde', rotulo: 'Ya correcto' },
   sin_base: { tono: 'gris', rotulo: 'No está en España' },
   base_invalida: { tono: 'ambar', rotulo: 'Base sin precio' },
+  sin_listado: { tono: 'magenta', rotulo: 'No lo tenemos allí' },
 }
 
 function Fila({

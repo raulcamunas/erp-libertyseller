@@ -38,7 +38,8 @@ async function main() {
         `cambian ${String(r.cambia).padStart(4)}   ` +
         `ya ok ${String(r.yaCorrecto).padStart(4)}   ` +
         `sin base ${String(r.sinBase).padStart(4)}   ` +
-        `base mala ${String(r.baseInvalida).padStart(3)}`
+        `base mala ${String(r.baseInvalida).padStart(3)}   ` +
+        `SIN FICHA ${String(r.sinListado).padStart(4)}`
     )
   }
 
