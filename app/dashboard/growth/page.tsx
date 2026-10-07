@@ -20,6 +20,7 @@ import {
   InfoPreciosShoplamp,
   PanelPreciosShoplamp,
 } from '@/components/growth/paneles/PanelPreciosShoplamp'
+import { InfoLimitesPrecio, PanelLimitesPrecio } from '@/components/growth/paneles/PanelLimitesPrecio'
 
 /**
  * /dashboard/growth — GROWTH PARTNER. SOLO ADMIN.
@@ -90,6 +91,7 @@ const PANELES: Record<
   'stock-sync': { Panel: PanelStockSync, Info: InfoStockSync },
   buybox: { Panel: PanelBuyBox, Info: InfoBuyBox },
   'fbm-fba': { Panel: PanelFbmFba, Info: InfoFbmFba },
+  'limites-precio': { Panel: PanelLimitesPrecio, Info: InfoLimitesPrecio },
   'precios-shoplamp': { Panel: PanelPreciosShoplamp, Info: InfoPreciosShoplamp },
 }
 

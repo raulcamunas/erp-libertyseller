@@ -1,4 +1,4 @@
-import { ArrowRightLeft, Boxes, Crown, Tags, type LucideIcon } from 'lucide-react'
+import { ArrowRightLeft, Boxes, Crown, SlidersHorizontal, Tags, type LucideIcon } from 'lucide-react'
 
 /**
  * LOS SUBMÓDULOS DE GROWTH PARTNER.
@@ -27,7 +27,7 @@ import { ArrowRightLeft, Boxes, Crown, Tags, type LucideIcon } from 'lucide-reac
  * que se usa cada semana, después lo que se mira cuando hay tiempo.
  */
 
-export type ModuloId = 'stock-sync' | 'buybox' | 'fbm-fba' | 'precios-shoplamp'
+export type ModuloId = 'stock-sync' | 'buybox' | 'fbm-fba' | 'precios-shoplamp' | 'limites-precio'
 
 export interface Modulo {
   id: ModuloId
@@ -78,6 +78,13 @@ export const MODULOS: readonly Modulo[] = [
     nombre: 'FBM → FBA',
     icono: ArrowRightLeft,
     pista: 'Qué referencias merecen pasar a logística de Amazon',
+    necesita: 'amazon',
+  },
+  {
+    id: 'limites-precio',
+    nombre: 'Sincronizar precio Min y Max',
+    icono: SlidersHorizontal,
+    pista: 'Arregla los «Error de precio»: el mínimo o el máximo roto pasa a valer el precio',
     necesita: 'amazon',
   },
   {

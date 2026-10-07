@@ -1137,6 +1137,91 @@ export async function fetchOfertas(
 }
 
 /**
+ * CAMBIA EL PRECIO MÍNIMO Y/O EL MÁXIMO DE UN LISTING, Y NADA MÁS.
+ *
+ * Es la contraria de `limpiarOferta`, y la diferencia es el verbo:
+ *
+ *   · limpiarOferta usa `replace` y SE LLEVA POR DELANTE todo lo que no manda: el
+ *     mínimo, el máximo y la rebaja programada. Es lo que se pide ahí.
+ *   · ésta usa `merge`: solo cambia lo que se le pasa y respeta el resto. Si
+ *     solo se corrige el mínimo, el máximo del vendedor y su rebaja programada
+ *     se quedan exactamente como estaban.
+ *
+ * ESTO ES LO QUE ARREGLA UN «ERROR DE PRECIO». Con la fijación automática de
+ * precios, Amazon marca el listing como error y deja de venderlo cuando el
+ * precio publicado se sale del rango [mínimo, máximo]. Ver
+ * lib/precios-limites/diagnostico.ts.
+ *
+ * SE MANDA SIEMPRE EL PRECIO, con el valor que tiene hoy, aunque no se quiera
+ * cambiar: un `purchasable_offer` sin `our_price` es una oferta sin precio —ver
+ * el comentario de limpiarOferta— y no se arriesga. Es idempotente: el precio
+ * que se manda es el mismo que Amazon ya tiene.
+ *
+ * Y SOLO SE MANDA EL LÍMITE QUE SE PIDE. Un `null` aquí significa «no lo toques»,
+ * no «bórralo»: borrar un límite es otra operación, y esa no se hace desde esta
+ * función ni por descuido.
+ */
+export async function fijarLimitesPrecio(
+  creds: AmazonCredentials,
+  target: ListingTarget,
+  params: {
+    /** El precio que tiene hoy. Se reenvía tal cual */
+    precio: number
+    currency: string
+    /** El mínimo nuevo. null = no se toca */
+    minimo: number | null
+    /** El máximo nuevo. null = no se toca */
+    maximo: number | null
+    validateOnly?: boolean
+  }
+): Promise<SubmissionOutcome> {
+  assertEditable(target, 'precio', params.precio)
+  if (params.minimo === null && params.maximo === null) {
+    throw new AmazonApiError({
+      kind: 'peticion',
+      message: `${target.sku}: no se ha pedido cambiar ningún límite`,
+      humanMessage: 'No hay ningún límite que corregir en este listing.',
+    })
+  }
+  for (const limite of [params.minimo, params.maximo]) {
+    if (limite !== null) assertEditable(target, 'precio', limite)
+  }
+
+  return sendPatch(
+    creds,
+    target,
+    patchLimitesPrecio(target.marketplaceId, params),
+    params.validateOnly ?? false
+  )
+}
+
+/**
+ * EL PATCH EXACTO de fijarLimitesPrecio, aparte y puro.
+ *
+ * Existe para poder COMPROBAR qué JSON viaja a la tienda de un cliente sin tener
+ * que llamar a Amazon: cambiar un límite de precio es de las pocas escrituras
+ * del ERP que no se pueden deshacer sabiendo el valor anterior sin haberlo
+ * leído antes, y el cuerpo se prueba en lib/precios-limites/patch.prueba.ts.
+ */
+export function patchLimitesPrecio(
+  marketplaceId: string,
+  params: { precio: number; currency: string; minimo: number | null; maximo: number | null }
+): PatchOperation[] {
+  const oferta: Record<string, unknown> = {
+    marketplace_id: marketplaceId,
+    currency: params.currency,
+    our_price: [{ schedule: [{ value_with_tax: params.precio }] }],
+  }
+  if (params.minimo !== null) {
+    oferta.minimum_seller_allowed_price = [{ schedule: [{ value_with_tax: params.minimo }] }]
+  }
+  if (params.maximo !== null) {
+    oferta.maximum_seller_allowed_price = [{ schedule: [{ value_with_tax: params.maximo }] }]
+  }
+  return [{ op: 'merge', path: '/attributes/purchasable_offer', value: [oferta] }]
+}
+
+/**
  * DEJA LA OFERTA CON EL PRECIO Y NADA MÁS: sin mínimo, sin máximo y sin rebaja.
  *
  * ESTO USA `replace` Y ESO ES EL PUNTO, no un descuido. `updatePrice` usa
