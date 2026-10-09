@@ -7,6 +7,7 @@ import {
   RECURSOS_PERSONALES,
   recursosPermitidos,
   resumenEan,
+  veredictoSondas,
 } from './respuesta'
 
 /**
@@ -129,6 +130,12 @@ export interface PruebaConexion {
   ms: number
   version: string | null
   recursos: { nombre: string; permitido: boolean }[]
+  /**
+   * Lo que la tienda LISTA en la raíz de /api/ para esta clave. Solo se enseña
+   * para diagnosticar: si dice 0, o lo que lista no se parece a recursos, es que
+   * la forma de esa respuesta no es la esperada y hay que mirarla.
+   */
+  listadosEnRaiz: { total: number; ejemplo: string[] }
   /** Recursos con datos personales de clientes a los que esta clave llega */
   personales: string[]
   stock: {
@@ -145,6 +152,7 @@ const vacia = (mensaje: string, ms: number, version: string | null = null): Prue
   ms,
   version,
   recursos: RECURSOS_NECESARIOS.map((nombre) => ({ nombre, permitido: false })),
+  listadosEnRaiz: { total: 0, ejemplo: [] },
   personales: [],
   stock: null,
   ean: null,
@@ -180,12 +188,25 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
     }
 
     // ---------- 2. Los permisos ----------
-    const permitidos = recursosPermitidos(raiz.json)
+    //
+    // Se PREGUNTA por cada recurso en vez de leer la lista de la raíz. Ver
+    // veredictoSondas: leer esa lista fue lo que falló en la primera prueba real.
+    const enRaiz = recursosPermitidos(raiz.json)
+    const listadosEnRaiz = { total: enRaiz.length, ejemplo: enRaiz.slice(0, 12) }
+    const personales = RECURSOS_PERSONALES.filter((r) => enRaiz.includes(r))
+
+    const sondas = await Promise.all(
+      RECURSOS_NECESARIOS.map(async (nombre) => {
+        const r = await peticion(c, nombre, { display: '[id]', limit: '0,1' })
+        return { nombre, status: r.status }
+      })
+    )
+    const v = veredictoSondas(sondas)
     const recursos = RECURSOS_NECESARIOS.map((nombre) => ({
       nombre,
-      permitido: permitidos.includes(nombre),
+      permitido: v.permitidos.includes(nombre),
     }))
-    const personales = RECURSOS_PERSONALES.filter((r) => permitidos.includes(r))
+
     const avisos: string[] = []
     if (personales.length > 0) {
       avisos.push(
@@ -194,15 +215,22 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
       )
     }
 
-    const faltan = recursos.filter((r) => !r.permitido).map((r) => r.nombre)
+    const faltan = [...v.sinPermiso, ...v.conError.map((e) => e.nombre)]
     if (faltan.length > 0) {
+      const partes: string[] = []
+      if (v.sinPermiso.length > 0) {
+        partes.push(`la tienda no deja a esta clave leer: ${v.sinPermiso.join(', ')}`)
+      }
+      for (const e of v.conError) partes.push(`${e.nombre} ha contestado ${e.status}`)
       return {
         ...vacia(
-          `La clave se reconoce, pero le faltan permisos de lectura (GET) sobre: ${faltan.join(', ')}.`,
+          `La clave se reconoce, pero ${partes.join('; ')}. ` +
+            'Hay que marcar «Ver (GET)» en esos recursos de la clave, en Parámetros avanzados → Webservice.',
           ms(),
           raiz.version
         ),
         recursos,
+        listadosEnRaiz,
         personales: [...personales],
         avisos,
       }
@@ -217,6 +245,7 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
       return {
         ...vacia(mensajeDeEstado(muestraRes.status, muestraRes.cuerpo, muestraRes.redireccion), ms(), raiz.version),
         recursos,
+        listadosEnRaiz,
         personales: [...personales],
         avisos,
       }
@@ -268,6 +297,7 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
       ms: ms(),
       version: raiz.version,
       recursos,
+      listadosEnRaiz,
       personales: [...personales],
       stock: { filas, muestra },
       ean,

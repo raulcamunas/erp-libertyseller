@@ -276,6 +276,18 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
             ))}
           </ul>
 
+          <p className={`${TIPO.s} ${TEXTO.t4}`}>
+            La tienda lista {n(prueba.listadosEnRaiz.total)} recursos para esta clave
+            {prueba.listadosEnRaiz.ejemplo.length > 0 && (
+              <>
+                {' '}
+                (<code>{prueba.listadosEnRaiz.ejemplo.slice(0, 8).join(', ')}</code>
+                {prueba.listadosEnRaiz.total > 8 ? '…' : ''})
+              </>
+            )}
+            .
+          </p>
+
           {prueba.stock && prueba.stock.muestra.length > 0 && (
             <div className={`${TIPO.s} ${TEXTO.t3}`}>
               <p className="mb-[3px]">

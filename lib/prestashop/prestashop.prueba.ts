@@ -12,6 +12,7 @@ import {
   pareceHtml,
   recursosPermitidos,
   resumenEan,
+  veredictoSondas,
 } from './respuesta'
 
 let fallos = 0
@@ -121,6 +122,33 @@ ok('500', /500/.test(mensajeDeEstado(500, '')), true)
 ok('una página HTML se reconoce', pareceHtml('<!DOCTYPE html><html>'), true)
 ok('con espacios delante', pareceHtml('  \n<html lang="es">'), true)
 ok('JSON NO es html', pareceHtml('{"products":{}}'), false)
+
+console.log('\n=== EL VEREDICTO DE LAS SONDAS: se pregunta por la cosa, no por la lista ===')
+{
+  const todo = veredictoSondas([
+    { nombre: 'stock_availables', status: 200 },
+    { nombre: 'combinations', status: 200 },
+    { nombre: 'products', status: 200 },
+  ])
+  ok('los tres con 200 -> todos permitidos', [todo.permitidos.length, todo.sinPermiso.length, todo.conError.length], [3, 0, 0])
+
+  const sin = veredictoSondas([
+    { nombre: 'stock_availables', status: 401 },
+    { nombre: 'combinations', status: 200 },
+    { nombre: 'products', status: 403 },
+  ])
+  ok('401 y 403 -> sin permiso', sin.sinPermiso, ['stock_availables', 'products'])
+  ok('el 200 sigue siendo permitido', sin.permitidos, ['combinations'])
+
+  const roto = veredictoSondas([
+    { nombre: 'stock_availables', status: 500 },
+    { nombre: 'combinations', status: 404 },
+    { nombre: 'products', status: 200 },
+  ])
+  ok('500 y 404 NO son «sin permiso»: son error', roto.conError.map((e) => e.status), [500, 404])
+  ok('y no se cuentan como sin permiso', roto.sinPermiso, [])
+  ok('lista vacía no revienta', veredictoSondas([]), { permitidos: [], sinPermiso: [], conError: [] })
+}
 
 console.log(fallos === 0 ? '\n  TODO CORRECTO\n' : `\n  ${fallos} FALLOS\n`)
 if (fallos > 0) process.exit(1)

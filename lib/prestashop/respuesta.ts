@@ -114,3 +114,41 @@ export function mensajeDeEstado(status: number, cuerpo: string, redireccion?: st
 export function pareceHtml(cuerpo: string): boolean {
   return /^\s*<(!doctype|html)/i.test(cuerpo)
 }
+
+/**
+ * EL VEREDICTO DE LAS SONDAS: ¿puede esta clave leer cada recurso que hace falta?
+ *
+ * Se mira DIRECTAMENTE, pidiendo una fila de cada recurso, y no leyendo la lista
+ * de permisos que devuelve la raíz de /api/. Esa lista es lo que primero se usó
+ * y falló en la primera prueba real: la tienda contestó que reconocía la clave,
+ * la lectura de la lista no encontró ni un recurso conocido, y la pantalla dijo
+ * que faltaban los tres permisos cuando casi seguro no era verdad. La forma
+ * exacta de ese JSON es lo único que no se pudo comprobar sin una clave delante.
+ *
+ * Preguntar por la cosa en sí no depende de ninguna forma de JSON: o contesta 200
+ * o no.
+ *
+ * Con la clave ya reconocida, un 401 o un 403 sobre un recurso concreto significa
+ * «esta clave no puede leer esto»: PrestaShop contesta 401 con «Resource of type
+ * X is not allowed with this authentication key».
+ */
+export interface Sonda {
+  nombre: string
+  status: number
+}
+
+export function veredictoSondas(sondas: Sonda[]): {
+  permitidos: string[]
+  sinPermiso: string[]
+  conError: { nombre: string; status: number }[]
+} {
+  const permitidos: string[] = []
+  const sinPermiso: string[] = []
+  const conError: { nombre: string; status: number }[] = []
+  for (const s of sondas) {
+    if (s.status === 200) permitidos.push(s.nombre)
+    else if (s.status === 401 || s.status === 403) sinPermiso.push(s.nombre)
+    else conError.push({ nombre: s.nombre, status: s.status })
+  }
+  return { permitidos, sinPermiso, conError }
+}
