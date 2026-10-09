@@ -12,6 +12,7 @@ import {
   type FilaDetalle,
   type ItemVivo,
 } from './clasificar'
+import { leerTramos } from './paralelo'
 
 /**
  * EL AUDITOR DE STOCK.
@@ -37,9 +38,13 @@ import {
  *
  * ============ LO QUE CUESTA, Y POR QUÉ SE LIMITA EL TIEMPO ============
  *
- * ~14.000 listings son ~700 llamadas a 5 por segundo: dos o tres minutos de cada
- * quince. Es lo que hay que pagar por un dato en directo, y por eso la cadencia
- * se cambia desde Sistema y no está escrita aquí.
+ * ~14.000 listings son ~700 llamadas. A 5 por segundo —el límite de Amazon—
+ * serían unos 140 s, y eso es lo que se estimó. NO es lo que pasó: la primera
+ * auditoría real leyó las llamadas una detrás de otra y fue a ~2 por segundo,
+ * porque cada una espera los ~450 ms que tarda Amazon en contestar. 10.800
+ * listings en 244 s, y se quedó a medias. Ahora van tres tramos en paralelo (ver
+ * CONCURRENCIA). Es lo que hay que pagar por un dato en directo, y por eso la
+ * cadencia se cambia desde Sistema y no está escrita aquí.
  *
  * Si Amazon va lento y se acaba el presupuesto, la pasada se PARA y se guarda
  * como `parcial`, con lo que se haya leído y marcada como tal. Lo que NO se hace
@@ -65,8 +70,24 @@ export const MERCADO_AUDITADO = 'A1RKKUPIHCS9HS'
  */
 export const PRESUPUESTO_MS = 240_000
 
-/** SKU por tramo: diez llamadas. Es la granularidad con la que se mira el reloj */
-const TRAMO = 200
+/** SKU por tramo: cinco llamadas. Es la granularidad con la que se mira el reloj */
+const TRAMO = 100
+
+/**
+ * CUÁNTOS TRAMOS SE LEEN A LA VEZ.
+ *
+ * La primera auditoría real se quedó a medias: 10.800 de 13.975 listings en 244 s.
+ * Eran ~2 llamadas por segundo, y el límite de Amazon es 5. El cuello de botella
+ * NO era el cupo sino la LATENCIA: leyendo las llamadas una detrás de otra, cada
+ * una espera los ~450 ms que tarda Amazon en contestar y el ritmo es 1/0,45.
+ *
+ * Con tres tramos en vuelo la demanda pasa de 2 a unas 6 llamadas por segundo, y
+ * el cubo de fichas (lib/amazon/throttle.ts) la recorta a 5 sin que haga falta
+ * hacer nada: sirve las esperas EN ORDEN, así que pedir de más no se come el
+ * límite, solo hace cola. No hay riesgo de pasarse; lo que sí hay es que durante
+ * la pasada las demás lecturas de esta cuenta esperan su turno detrás.
+ */
+const CONCURRENCIA = 3
 
 /** Cuánto se conserva. ~25 KB comprimidos por auditoría: unos 50 MB en régimen */
 export const RETENCION_DIAS = 21
@@ -215,7 +236,9 @@ async function ejecutar(
   let skus: string[] = []
   const vivos = new Map<string, ItemVivo>()
   const espejo = new Map<string, DelEspejo>()
-  let intentados = 0
+  /** Qué tramos han terminado, por posición. En paralelo no acaban en orden */
+  const hechos: number[] = []
+  const tramos: string[][] = []
 
   // ---------- 0. ¿Hay dónde guardarlo? ----------
   //
@@ -254,19 +277,16 @@ async function ejecutar(
       const resueltas = await connectionCredentials(cuenta.connectionId)
       if (!resueltas) throw new Error('Esa cuenta ya no está conectada.')
 
-      for (let i = 0; i < skus.length; i += TRAMO) {
-        if (Date.now() - inicio > PRESUPUESTO_MS) {
-          estado = 'parcial'
-          error =
-            `Se acabó el tiempo: Amazon va más lento de lo normal y se han leído ` +
-            `${intentados.toLocaleString('es-ES')} de ${skus.length.toLocaleString('es-ES')}.`
-          break
-        }
-        const tramo = skus.slice(i, i + TRAMO)
-        try {
+      for (let i = 0; i < skus.length; i += TRAMO) tramos.push(skus.slice(i, i + TRAMO))
+
+      const lectura = await leerTramos(
+        tramos.length,
+        async (idx) => {
           const { items } = await fetchListingsBySku(resueltas.credentials, {
             marketplaceId,
-            skus: tramo,
+            skus: tramos[idx],
+            // Solo el stock: sin las ofertas la respuesta pesa menos y tarda menos.
+            incluir: ['summaries', 'fulfillmentAvailability'],
           })
           for (const it of items) {
             vivos.set(it.sku, {
@@ -276,14 +296,32 @@ async function ejecutar(
               isFba: it.isFba,
             })
           }
-          intentados += tramo.length
-        } catch (e) {
-          // Se guarda lo leído hasta aquí. Si ni un tramo salió, es un error; si
-          // salieron algunos, es una auditoría parcial.
-          error = e instanceof AmazonApiError ? e.humanMessage : e instanceof Error ? e.message : 'Error desconocido'
-          estado = vivos.size > 0 ? 'parcial' : 'error'
-          break
+        },
+        {
+          concurrencia: CONCURRENCIA,
+          limiteMs: PRESUPUESTO_MS,
+          inicio,
+          mensajeDe: (e) =>
+            e instanceof AmazonApiError
+              ? e.humanMessage
+              : e instanceof Error
+                ? e.message
+                : 'Error desconocido',
         }
+      )
+      hechos.push(...lectura.hechos)
+
+      const leidosEnTotal = hechos.reduce((n, idx) => n + tramos[idx].length, 0)
+      if (lectura.fallo !== null) {
+        // Se guarda lo leído hasta aquí. Si ni un tramo salió, es un error; si
+        // salieron algunos, es una auditoría parcial.
+        error = lectura.fallo
+        estado = hechos.length > 0 ? 'parcial' : 'error'
+      } else if (lectura.sinTiempo) {
+        estado = 'parcial'
+        error =
+          `Se acabó el tiempo: Amazon va más lento de lo normal y se han leído ` +
+          `${leidosEnTotal.toLocaleString('es-ES')} de ${skus.length.toLocaleString('es-ES')}.`
       }
     }
   } catch (e) {
@@ -294,7 +332,9 @@ async function ejecutar(
   // ---------- 3. El recuento ----------
   // Solo se cuentan los SKU que se llegaron a PEDIR: en una parcial, los que no
   // se pidieron no son «que no vinieron», son «que no se preguntaron».
-  const preguntados = skus.slice(0, intentados)
+  // Con tramos en paralelo los terminados NO son un prefijo de la lista: pueden
+  // faltar uno del medio y estar hechos los de después. Se cuentan por tramo.
+  const preguntados = [...hechos].sort((a, b) => a - b).flatMap((idx) => tramos[idx])
   const r = clasificar(preguntados, vivos, espejo)
 
   // UNA AUDITORÍA A LA QUE LE FALTAN MUCHOS SKU NO ES COMPLETA.

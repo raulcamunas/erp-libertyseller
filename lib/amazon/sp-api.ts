@@ -979,7 +979,18 @@ const MAX_SKUS_POR_LLAMADA = 20
  */
 export async function fetchListingsBySku(
   creds: AmazonCredentials,
-  options: { marketplaceId: string; skus: string[] }
+  options: {
+    marketplaceId: string
+    skus: string[]
+    /**
+     * Qué pedir. Por defecto, resumen + ofertas + disponibilidad, que es lo que
+     * necesita el refresco del catálogo. Quien solo quiere el STOCK —el auditor—
+     * pide `['summaries', 'fulfillmentAvailability']`: sin las ofertas la
+     * respuesta pesa menos y tarda menos, y con 700 llamadas por pasada cada
+     * décima de segundo de latencia cuenta.
+     */
+    incluir?: string[]
+  }
 ): Promise<{ items: AmazonCatalogItem[]; noVinieron: string[]; llamadas: number }> {
   const items: AmazonCatalogItem[] = []
   const vistos = new Set<string>()
@@ -995,7 +1006,7 @@ export async function fetchListingsBySku(
         marketplaceIds: [options.marketplaceId],
         identifiers: lote,
         identifiersType: 'SKU',
-        includedData: ['summaries', 'offers', 'fulfillmentAvailability'],
+        includedData: options.incluir ?? ['summaries', 'offers', 'fulfillmentAvailability'],
         issueLocale: ISSUE_LOCALE,
         pageSize: MAX_SKUS_POR_LLAMADA,
       },

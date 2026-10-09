@@ -146,10 +146,12 @@ export function InfoAuditorStock() {
 
       <SeccionInfo titulo="Lo que cuesta">
         <p>
-          Leer unos 14.000 listings son unas <strong>700 llamadas</strong> a Amazon, a 5 por
-          segundo: <strong>dos o tres minutos de cada cuarto de hora</strong>. A 10 minutos serían
-          cuatro de cada diez, y las demás lecturas del catálogo harían cola detrás. Conviene
-          mirar cómo va antes de bajarlo.
+          Leer unos 14.000 listings son unas <strong>700 llamadas</strong> a Amazon. Con el límite de
+          5 por segundo serían unos 140 s, pero lo que manda es lo que tarda Amazon en contestar
+          a cada una, así que <strong>el tiempo real se ve en la columna «en N s»</strong> de cada
+          auditoría. Si una pasada no llega a terminar en {Math.round(PRESUPUESTO_MS / 1000)} s se
+          guarda como parcial. Mientras lee, las demás lecturas de esta cuenta esperan su turno
+          detrás, así que conviene mirar cuánto tarda antes de bajarlo a 10 minutos.
         </p>
         <p>
           Solo se audita <strong>España</strong>: el stock de ShoesF sale de un único almacén y es
