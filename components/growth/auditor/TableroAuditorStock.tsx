@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Play, Search } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Play, Search, Store } from 'lucide-react'
 import {
   AVISO,
   BOTON,
@@ -15,6 +15,7 @@ import {
   TEXTO,
   TIPO,
 } from '@/lib/estilo/denso'
+import { DialogoPrestaShop } from '@/components/growth/auditor/DialogoPrestaShop'
 import { agruparPorHora, ZONA } from '@/lib/auditor-stock/horas'
 import type { Cambios, FilaDetalle } from '@/lib/auditor-stock/clasificar'
 import type { AuditoriaResumen, ListaAuditorias } from '@/lib/auditor-stock/consulta'
@@ -69,6 +70,7 @@ export function TableroAuditorStock({
   const [enCurso, setEnCurso] = useState(enCursoInicial)
   const [iniciando, setIniciando] = useState(false)
   const [errorAccion, setErrorAccion] = useState<string | null>(null)
+  const [verTienda, setVerTienda] = useState(false)
   const [ahora, setAhora] = useState(() => Date.now())
 
   const filas = useMemo(() => (lista.ok ? lista.filas : []), [lista])
@@ -276,6 +278,16 @@ export function TableroAuditorStock({
             minutos— o pulsando «Auditar ahora».
           </div>
         )}
+
+        <button
+          type="button"
+          className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
+          onClick={() => setVerTienda(true)}
+          title="Conectar con la tienda PrestaShop de ShoesF para contrastar su stock con el de Amazon"
+        >
+          <Store className="h-3 w-3" />
+          Tienda PrestaShop
+        </button>
 
         <button
           type="button"
@@ -543,6 +555,7 @@ export function TableroAuditorStock({
           </div>
         </div>
       </div>
+      {verTienda && <DialogoPrestaShop onCerrar={() => setVerTienda(false)} />}
     </div>
   )
 }
