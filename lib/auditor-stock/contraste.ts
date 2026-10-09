@@ -2,7 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { leerTodo } from '@/lib/prestashop/cliente'
 import { claveDe } from '@/lib/prestashop/conexion'
-import type { Divergencia, FilaAmazon } from '@/lib/prestashop/cruce'
+import { cruzar, type Divergencia, type FilaAmazon } from '@/lib/prestashop/cruce'
 import { resumirContraste } from '@/lib/prestashop/informe'
 import { unirStock } from '@/lib/prestashop/stock'
 import type { FilaDetalle } from './clasificar'
@@ -30,7 +30,21 @@ import type { FilaDetalle } from './clasificar'
  * que no figuran.
  */
 
+export type EstadoFila =
+  | 'coincide'
+  | 'venta_perdida'
+  | 'sobreventa'
+  | 'distinta'
+  | 'sin_dato'
+  | 'dudoso'
+  | 'sin_pareja'
+
+/** [sku, asin, ean de Amazon, cantidad en Amazon, cantidad en la tienda o null, estado] */
+export type FilaTodas = [string, string | null, string | null, number, number | null, EstadoFila]
+
 export interface InformeContraste {
+  /** Todos los listings emparejados con stock en alguno de los dos lados, sin tope */
+  todas: FilaTodas[]
   generadoAt: string
   amazon: { auditoriaAt: string; listingsFbm: number; conStock: number; conEan: number }
   tienda: {
@@ -140,7 +154,29 @@ export async function contrastar(
   // contar lo mismo. Ver lib/prestashop/informe.ts.
   const r = resumirContraste(amazon, tallas, MAX_LISTA)
 
+  // La tabla entera: cada listing con stock en alguno de los dos lados. Es lo único
+  // que NO se guarda en las auditorías (serían miles de filas cada diez minutos);
+  // se calcula aquí, bajo demanda.
+  const { cruzados, sinCruce } = cruzar(amazon, tallas)
+  const eanDe = new Map(amazon.map((x) => [x.sku, x.ean]))
+  const todas: FilaTodas[] = []
+  for (const c of cruzados) {
+    const t = c.tienda === null ? null : Math.max(0, c.tienda)
+    let estado: EstadoFila
+    if (c.ambiguo) estado = 'dudoso'
+    else if (t === null) estado = 'sin_dato'
+    else if (c.amazon > 0 && t === 0) estado = 'sobreventa'
+    else if (c.amazon === 0 && t > 0) estado = 'venta_perdida'
+    else if (c.amazon !== t) estado = 'distinta'
+    else estado = 'coincide'
+    if (c.amazon > 0 || (t ?? 0) > 0) todas.push([c.sku, c.asin, eanDe.get(c.sku) ?? null, c.amazon, t, estado])
+  }
+  for (const a of sinCruce) {
+    if (a.cantidad > 0) todas.push([a.sku, a.asin, a.ean, a.cantidad, null, 'sin_pareja'])
+  }
+
   return {
+    todas,
     generadoAt: new Date().toISOString(),
     amazon: {
       auditoriaAt: ultima.creada_at,

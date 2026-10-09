@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Check, Loader2, X } from 'lucide-react'
 import { Dialogo } from '@/components/plataforma/comun'
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TEXTO, TIPO } from '@/lib/estilo/denso'
 import type { EstadoConexion } from '@/lib/prestashop/conexion'
 import type { PruebaConexion } from '@/lib/prestashop/cliente'
-import type { InformeContraste } from '@/lib/auditor-stock/contraste'
+import type { EstadoFila, FilaTodas, InformeContraste } from '@/lib/auditor-stock/contraste'
 
 /**
  * LA CONEXIÓN CON LA TIENDA PRESTASHOP DE SHOESF.
@@ -466,6 +466,8 @@ function VistaInforme({ informe }: { informe: InformeContraste }) {
         </div>
       )}
 
+      <TablaTodas filas={informe.todas} />
+
       {informe.tienda.duplicadosStock > 0 && (
         <p className={`${TIPO.s} ${TEXTO.t4}`}>
           La tienda repite {n(informe.tienda.duplicadosStock)} filas de stock (varias tiendas o grupos): no se
@@ -530,6 +532,128 @@ function ListaDivergencias({
         </tbody>
       </table>
       {total > 10 && <p className={`${TIPO.s} ${TEXTO.t4}`}>y {n(total - 10)} más</p>}
+    </div>
+  )
+}
+
+
+const ETIQUETA: Record<EstadoFila, { texto: string; color?: string }> = {
+  coincide: { texto: 'Coincide', color: COLOR_ESTADO.verde },
+  venta_perdida: { texto: 'Venta perdida', color: COLOR_ESTADO.ambar },
+  sobreventa: { texto: 'Sobreventa', color: COLOR_ESTADO.rojo },
+  distinta: { texto: 'Distinta cantidad', color: COLOR_ESTADO.azul },
+  sin_dato: { texto: 'Tienda sin dato' },
+  dudoso: { texto: 'Emparejamiento dudoso' },
+  sin_pareja: { texto: 'Sin pareja en la tienda' },
+}
+
+const MAX_PINTADAS = 300
+
+function descargarCsv(filas: FilaTodas[]) {
+  const celda = (v: string | number | null) => {
+    const t = v === null ? '' : String(v)
+    return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
+  }
+  const lineas = [
+    ['SKU', 'ASIN', 'EAN', 'Amazon', 'Tienda', 'Estado'].join(';'),
+    ...filas.map((f) =>
+      [f[0], f[1], f[2], f[3], f[4], ETIQUETA[f[5]].texto].map(celda).join(';')
+    ),
+  ]
+  const blob = new Blob(['\uFEFF' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `stock-amazon-vs-prestashop-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/** Todos los listings con stock en Amazon o en la tienda, lado a lado */
+function TablaTodas({ filas }: { filas: FilaTodas[] }) {
+  const [estado, setEstado] = useState<EstadoFila | 'todos'>('todos')
+  const [busca, setBusca] = useState('')
+
+  const recuento = useMemo(() => {
+    const m = new Map<EstadoFila, number>()
+    for (const f of filas) m.set(f[5], (m.get(f[5]) ?? 0) + 1)
+    return m
+  }, [filas])
+
+  const visibles = useMemo(() => {
+    const t = busca.trim().toLowerCase()
+    return filas.filter(
+      (f) =>
+        (estado === 'todos' || f[5] === estado) &&
+        (!t || f[0].toLowerCase().includes(t) || (f[1] ?? '').toLowerCase().includes(t) || (f[2] ?? '').includes(t))
+    )
+  }, [filas, estado, busca])
+
+  return (
+    <div>
+      <p className={`${TIPO.xs} ${TEXTO.t3} mb-[4px]`}>
+        Todos los listings con stock en Amazon o en la tienda ({n(filas.length)})
+      </p>
+      <div className="mb-[5px] flex flex-wrap items-center gap-[5px]">
+        {(['todos', ...(Object.keys(ETIQUETA) as EstadoFila[])] as const)
+          .filter((e) => e === 'todos' || (recuento.get(e) ?? 0) > 0)
+          .map((e) => (
+            <button
+              key={e}
+              type="button"
+              className={`${BOTON.chip} ${estado === e ? BOTON.chipEncendido : ''}`}
+              onClick={() => setEstado(e)}
+            >
+              {e === 'todos' ? 'Todos' : ETIQUETA[e].texto} ({n(e === 'todos' ? filas.length : (recuento.get(e) ?? 0))})
+            </button>
+          ))}
+        <input
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="SKU, ASIN o EAN"
+          className={`${CAMPO.input} ml-auto w-[170px]`}
+        />
+        <button
+          type="button"
+          className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
+          onClick={() => descargarCsv(visibles)}
+          title="Descarga lo que se ve con los filtros (todas las filas, no solo las pintadas)"
+        >
+          Descargar CSV ({n(visibles.length)})
+        </button>
+      </div>
+      <table className="w-full text-[11.5px]">
+        <thead>
+          <tr className={TEXTO.t4}>
+            <th className="text-left font-medium">SKU</th>
+            <th className="text-left font-medium">ASIN</th>
+            <th className="text-right font-medium">Amazon</th>
+            <th className="text-right font-medium">Tienda</th>
+            <th className="pl-[10px] text-left font-medium">Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visibles.slice(0, MAX_PINTADAS).map((f) => (
+            <tr key={f[0]}>
+              <td className="font-mono">{f[0]}</td>
+              <td className={`font-mono ${TEXTO.t4}`}>{f[1] ?? '—'}</td>
+              <td className="text-right tabular-nums">{n(f[3])}</td>
+              <td className="text-right tabular-nums">{f[4] === null ? '—' : n(f[4])}</td>
+              <td className="pl-[10px]" style={{ color: ETIQUETA[f[5]].color }}>
+                {ETIQUETA[f[5]].texto}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {visibles.length > MAX_PINTADAS && (
+        <p className={`${TIPO.s} ${TEXTO.t4}`}>
+          Se enseñan {n(MAX_PINTADAS)} de {n(visibles.length)}: filtra, busca o descarga el CSV para ver todas.
+        </p>
+      )}
+      <p className={`${TIPO.s} ${TEXTO.t4} mt-[3px]`}>
+        Solo entran los listings FBM de Amazon. Las tallas de la tienda que no están en Amazon no figuran aquí.
+      </p>
     </div>
   )
 }
