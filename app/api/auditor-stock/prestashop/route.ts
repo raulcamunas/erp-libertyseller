@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
-import { cuentaAuditada } from '@/lib/auditor-stock/auditar'
+import { cuentaAuditada, MERCADO_AUDITADO } from '@/lib/auditor-stock/auditar'
+import { contrastar } from '@/lib/auditor-stock/contraste'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { probarConexion } from '@/lib/prestashop/cliente'
 import {
@@ -18,6 +19,7 @@ import { claveValida, normalizarUrlTienda } from '@/lib/prestashop/url'
  *   estado    si hay conexión guardada y cómo salió la última prueba.
  *   guardar   la dirección y, si viene, la clave (cifrada).
  *   probar    llama a la tienda con lo guardado y dice qué ha encontrado.
+ *   contrastar  lee el stock de la tienda y lo cruza con el de Amazon.
  *   quitar    borra la conexión.
  *
  * LA CLAVE ENTRA Y NO SALE. Se lee del cuerpo de `guardar`, se cifra y se guarda;
@@ -29,8 +31,8 @@ import { claveValida, normalizarUrlTienda } from '@/lib/prestashop/url'
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-/** La prueba hace cuatro llamadas a una tienda que puede ir lenta */
-export const maxDuration = 120
+/** La prueba hace cuatro llamadas, y el contraste lee la tienda entera: puede ir lenta */
+export const maxDuration = 300
 
 const MIGRACION =
   'Falta lanzar la migración 221_prestashop_conexiones.sql en el editor SQL de Supabase.'
@@ -78,6 +80,12 @@ export async function POST(request: NextRequest) {
         const prueba = await probarConexion(conexion)
         await anotarPrueba(clientId, prueba.ok, prueba.mensaje, prueba.version)
         return NextResponse.json({ ok: true, prueba, estado: await estadoConexion(clientId) })
+      }
+
+      if (body.accion === 'contrastar') {
+        const informe = await contrastar(clientId, cuenta.connectionId, MERCADO_AUDITADO)
+        if ('error' in informe) return fail(400, informe.error)
+        return NextResponse.json({ ok: true, informe })
       }
 
       if (body.accion === 'quitar') {

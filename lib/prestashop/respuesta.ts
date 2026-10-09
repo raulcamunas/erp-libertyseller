@@ -33,18 +33,47 @@ export const RECURSOS_PERSONALES = [
 ] as const
 
 /**
- * Qué recursos puede leer esta clave, según lo que contesta la raíz de /api/.
+ * Qué recursos lista la tienda para esta clave, según la raíz de /api/.
  *
- * Con `output_format=JSON` la raíz devuelve un objeto cuyas claves son los
- * recursos, a veces dentro de un `api`. La raíz SOLO lista los recursos a los que
- * la clave tiene algún permiso, así que basta con leer los nombres.
+ * LA RAÍZ PUEDE VENIR COMO UN ARRAY, y es lo que pasó en la primera prueba real:
+ * la tienda de ShoesF devolvió 85 elementos en una lista, y leerla como si fuera un
+ * objeto daba como «recursos» los números 0, 1, 2, 3… Un objeto con los nombres
+ * como claves era lo que se esperaba y es lo que no es.
+ *
+ * Se aceptan las formas que se pueden esperar de un array de recursos, sin saber
+ * cuál es cuál: cada elemento es el nombre en una cadena, o un objeto con `name`,
+ * o un objeto cuya clave es el nombre. Y se mira dentro de un `api` si lo hay.
+ *
+ * Esta función YA NO DECIDE SI UNA CLAVE PUEDE LEER algo —eso se pregunta
+ * directamente, ver veredictoSondas—. Solo sirve para dos cosas: detectar si la
+ * clave llega a datos personales y enseñar qué lista la tienda.
  */
 export function recursosPermitidos(json: unknown): string[] {
   if (json === null || typeof json !== 'object') return []
+
+  const nombresDe = (v: unknown): string[] => {
+    if (typeof v === 'string') return [v]
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      const o = v as Record<string, unknown>
+      if (typeof o.name === 'string') return [o.name]
+      return Object.keys(o).filter((k) => !k.startsWith('@') && !k.startsWith('_'))
+    }
+    return []
+  }
+
+  const deLista = (lista: unknown[]) => [...new Set(lista.flatMap(nombresDe))]
+
+  if (Array.isArray(json)) return deLista(json)
+
   const obj = json as Record<string, unknown>
-  const raiz =
-    obj.api !== null && typeof obj.api === 'object' ? (obj.api as Record<string, unknown>) : obj
-  return Object.keys(raiz).filter((k) => !k.startsWith('@') && !k.startsWith('_'))
+  const raiz = obj.api !== null && typeof obj.api === 'object' ? obj.api : obj
+  if (Array.isArray(raiz)) return deLista(raiz)
+  return Object.keys(raiz as Record<string, unknown>).filter((k) => !k.startsWith('@') && !k.startsWith('_'))
+}
+
+/** ¿Lo que se ha sacado son solo números de posición («0», «1»…)? Es la señal de que se ha leído mal */
+export function sonIndices(nombres: string[]): boolean {
+  return nombres.length > 0 && nombres.every((n) => /^\d+$/.test(n))
 }
 
 /**

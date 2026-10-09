@@ -6,6 +6,7 @@ import { Dialogo } from '@/components/plataforma/comun'
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TEXTO, TIPO } from '@/lib/estilo/denso'
 import type { EstadoConexion } from '@/lib/prestashop/conexion'
 import type { PruebaConexion } from '@/lib/prestashop/cliente'
+import type { InformeContraste } from '@/lib/auditor-stock/contraste'
 
 /**
  * LA CONEXIÓN CON LA TIENDA PRESTASHOP DE SHOESF.
@@ -39,6 +40,8 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
   const [trabajando, setTrabajando] = useState<null | 'guardando' | 'probando' | 'quitando'>(null)
   const [error, setError] = useState<string | null>(null)
   const [prueba, setPrueba] = useState<PruebaConexion | null>(null)
+  const [informe, setInforme] = useState<InformeContraste | null>(null)
+  const [contrastando, setContrastando] = useState(false)
 
   useEffect(() => {
     let vigente = true
@@ -92,6 +95,20 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
     }
   }
 
+  async function contrastar() {
+    setContrastando(true)
+    setError(null)
+    setInforme(null)
+    try {
+      const r = await llamar<{ informe: InformeContraste }>({ accion: 'contrastar' })
+      setInforme(r.informe)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se ha podido contrastar')
+    } finally {
+      setContrastando(false)
+    }
+  }
+
   async function quitar() {
     setTrabajando('quitando')
     setError(null)
@@ -137,7 +154,7 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
       titulo="Tienda PrestaShop de ShoesF"
       entradilla="Solo lectura: se usa para contrastar su stock con el de Amazon. La clave se guarda cifrada y no vuelve a verse."
       onCerrar={onCerrar}
-      ancho="max-w-[640px]"
+      ancho="max-w-[760px]"
       pie={
         <>
           {estado?.configurada && (
@@ -287,6 +304,11 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
             )}
             .
           </p>
+          {prueba.formaRaiz && (
+            <p className={`${TIPO.s} ${TEXTO.t4}`}>
+              Con esta forma viene la lista: <code className="break-all">{prueba.formaRaiz}</code>
+            </p>
+          )}
 
           {prueba.stock && prueba.stock.muestra.length > 0 && (
             <div className={`${TIPO.s} ${TEXTO.t3}`}>
@@ -322,6 +344,183 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
           ))}
         </div>
       )}
+
+      {/* ---------- El contraste con Amazon ---------- */}
+      {estado?.configurada && (prueba?.ok || estado.ultimoTest?.ok) && (
+        <div className="mt-[14px] border-t border-[var(--ls-linea)] pt-[12px]">
+          <div className="flex items-center gap-[10px]">
+            <button
+              type="button"
+              className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
+              disabled={ocupado || contrastando}
+              onClick={contrastar}
+            >
+              {contrastando && <Loader2 className="h-3 w-3 animate-spin" />}
+              Contrastar con Amazon
+            </button>
+            <span className={`${TIPO.s} ${TEXTO.t4}`}>
+              {contrastando
+                ? 'Leyendo el stock de toda la tienda: puede tardar medio minuto…'
+                : 'Lee el stock de la tienda y lo cruza con la última auditoría de Amazon. Solo FBM.'}
+            </span>
+          </div>
+          {informe && <VistaInforme informe={informe} />}
+        </div>
+      )}
     </Dialogo>
+  )
+}
+
+
+/* ------------------------------------------------------------------ */
+
+const hora = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', minute: '2-digit' })
+
+function VistaInforme({ informe }: { informe: InformeContraste }) {
+  const c = informe.cruce
+  const d = informe.divergencias
+  const hayLista = (n: number) => n > 0
+
+  return (
+    <div className="mt-[10px] grid gap-[10px]">
+      <p className={`${TIPO.s} ${TEXTO.t4}`}>
+        Amazon según la auditoría de las {hora.format(new Date(informe.amazon.auditoriaAt))} · tienda a las{' '}
+        {hora.format(new Date(informe.generadoAt))} ({(informe.tienda.ms / 1000).toFixed(1)} s en leerla).
+      </p>
+
+      <div className={`${TIPO.s} ${TEXTO.t2} grid gap-[3px]`}>
+        <p>
+          <strong>{n(c.cruzados)}</strong> de {n(informe.amazon.listingsFbm)} listings FBM de Amazon se han
+          emparejado con una talla de la tienda ({n(c.porEan)} por EAN, {n(c.porReferencia)} por referencia).
+        </p>
+        <p>
+          <strong style={{ color: c.sinCruce > 0 ? COLOR_ESTADO.ambar : undefined }}>{n(c.sinCruce)}</strong> sin
+          pareja
+          {c.sinCruce > 0 && (
+            <>
+              {' '}
+              (<strong>{n(c.sinCruceConStock)}</strong> de ellos con stock en Amazon: de esos no se puede decir nada)
+            </>
+          )}
+          {c.ambiguos > 0 && <>, y {n(c.ambiguos)} con un emparejamiento dudoso que no se compara</>}.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-[8px] sm:grid-cols-4">
+        <Cifra valor={d.sobreventa} rotulo="Amazon vende, la tienda no tiene" tono="rojo" />
+        <Cifra valor={d.ventaPerdida} rotulo="La tienda tiene, Amazon no" tono="ambar" />
+        <Cifra valor={d.distinta} rotulo="Cantidad distinta" tono="azul" />
+        <Cifra valor={d.iguales} rotulo="Coinciden" tono="verde" />
+      </div>
+
+      {hayLista(d.sobreventa) && (
+        <ListaDivergencias
+          titulo="Amazon vende y la tienda no tiene (riesgo de sobreventa)"
+          total={d.sobreventa}
+          filas={informe.listas.sobreventa}
+        />
+      )}
+      {hayLista(d.ventaPerdida) && (
+        <ListaDivergencias
+          titulo="La tienda tiene y Amazon no (se está dejando de vender)"
+          total={d.ventaPerdida}
+          filas={informe.listas.ventaPerdida}
+        />
+      )}
+      {hayLista(d.distinta) && (
+        <ListaDivergencias
+          titulo="Los dos tienen, pero distinto"
+          total={d.distinta}
+          filas={informe.listas.distinta}
+        />
+      )}
+
+      {c.sinCruceConStock > 0 && (
+        <div>
+          <p className={`${TIPO.xs} ${TEXTO.t3} mb-[3px]`}>
+            Con stock en Amazon y sin pareja en la tienda ({n(c.sinCruceConStock)})
+          </p>
+          <table className="w-full text-[11.5px]">
+            <tbody>
+              {informe.listas.sinCruceConStock.slice(0, 10).map((f) => (
+                <tr key={f.sku}>
+                  <td className="font-mono">{f.sku}</td>
+                  <td className={`font-mono ${TEXTO.t4}`}>{f.ean ?? 'sin EAN'}</td>
+                  <td className="text-right tabular-nums">{n(f.cantidad)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {c.sinCruceConStock > 10 && (
+            <p className={`${TIPO.s} ${TEXTO.t4}`}>y {n(c.sinCruceConStock - 10)} más</p>
+          )}
+        </div>
+      )}
+
+      {informe.tienda.duplicadosStock > 0 && (
+        <p className={`${TIPO.s} ${TEXTO.t4}`}>
+          La tienda repite {n(informe.tienda.duplicadosStock)} filas de stock (varias tiendas o grupos): no se
+          han sumado.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function Cifra({
+  valor,
+  rotulo,
+  tono,
+}: {
+  valor: number
+  rotulo: string
+  tono: 'rojo' | 'ambar' | 'azul' | 'verde'
+}) {
+  return (
+    <div className="rounded-[6px] border border-[var(--ls-linea)] px-[9px] py-[7px]">
+      <div className="text-[16px] font-semibold tabular-nums" style={{ color: valor > 0 ? COLOR_ESTADO[tono] : undefined }}>
+        {n(valor)}
+      </div>
+      <div className={`${TIPO.s} ${TEXTO.t4}`}>{rotulo}</div>
+    </div>
+  )
+}
+
+function ListaDivergencias({
+  titulo,
+  total,
+  filas,
+}: {
+  titulo: string
+  total: number
+  filas: InformeContraste['listas']['sobreventa']
+}) {
+  return (
+    <div>
+      <p className={`${TIPO.xs} ${TEXTO.t3} mb-[3px]`}>
+        {titulo} ({n(total)})
+      </p>
+      <table className="w-full text-[11.5px]">
+        <thead>
+          <tr className={TEXTO.t4}>
+            <th className="text-left font-medium">SKU</th>
+            <th className="text-left font-medium">ASIN</th>
+            <th className="text-right font-medium">Amazon</th>
+            <th className="text-right font-medium">Tienda</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.slice(0, 10).map((f) => (
+            <tr key={f.sku}>
+              <td className="font-mono">{f.sku}</td>
+              <td className={`font-mono ${TEXTO.t4}`}>{f.asin ?? '—'}</td>
+              <td className="text-right tabular-nums">{n(f.amazon)}</td>
+              <td className="text-right tabular-nums">{n(f.tienda)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {total > 10 && <p className={`${TIPO.s} ${TEXTO.t4}`}>y {n(total - 10)} más</p>}
+    </div>
   )
 }

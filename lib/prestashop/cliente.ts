@@ -7,6 +7,7 @@ import {
   RECURSOS_PERSONALES,
   recursosPermitidos,
   resumenEan,
+  sonIndices,
   veredictoSondas,
 } from './respuesta'
 
@@ -60,7 +61,7 @@ interface Respuesta {
   redireccion: string | null
 }
 
-async function peticion(
+export async function peticion(
   c: ConexionPS,
   recurso: string,
   params: Record<string, string> = {}
@@ -136,6 +137,12 @@ export interface PruebaConexion {
    * la forma de esa respuesta no es la esperada y hay que mirarla.
    */
   listadosEnRaiz: { total: number; ejemplo: string[] }
+  /**
+   * Solo si lo que se ha sacado de la raíz son números de posición: un trozo del
+   * primer elemento, para ver con qué forma viene y poder leerla. Es la descripción
+   * de un recurso, no ningún dato de la tienda.
+   */
+  formaRaiz: string | null
   /** Recursos con datos personales de clientes a los que esta clave llega */
   personales: string[]
   stock: {
@@ -153,6 +160,7 @@ const vacia = (mensaje: string, ms: number, version: string | null = null): Prue
   version,
   recursos: RECURSOS_NECESARIOS.map((nombre) => ({ nombre, permitido: false })),
   listadosEnRaiz: { total: 0, ejemplo: [] },
+  formaRaiz: null,
   personales: [],
   stock: null,
   ean: null,
@@ -193,6 +201,10 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
     // veredictoSondas: leer esa lista fue lo que falló en la primera prueba real.
     const enRaiz = recursosPermitidos(raiz.json)
     const listadosEnRaiz = { total: enRaiz.length, ejemplo: enRaiz.slice(0, 12) }
+    const formaRaiz =
+      sonIndices(enRaiz) || enRaiz.length === 0
+        ? JSON.stringify(Array.isArray(raiz.json) ? raiz.json[0] : raiz.json)?.slice(0, 240) ?? null
+        : null
     const personales = RECURSOS_PERSONALES.filter((r) => enRaiz.includes(r))
 
     const sondas = await Promise.all(
@@ -231,6 +243,7 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
         ),
         recursos,
         listadosEnRaiz,
+        formaRaiz,
         personales: [...personales],
         avisos,
       }
@@ -246,6 +259,7 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
         ...vacia(mensajeDeEstado(muestraRes.status, muestraRes.cuerpo, muestraRes.redireccion), ms(), raiz.version),
         recursos,
         listadosEnRaiz,
+        formaRaiz,
         personales: [...personales],
         avisos,
       }
@@ -298,6 +312,7 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
       version: raiz.version,
       recursos,
       listadosEnRaiz,
+      formaRaiz,
       personales: [...personales],
       stock: { filas, muestra },
       ean,
@@ -306,4 +321,40 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
   } catch (e) {
     return vacia(describirFallo(e), ms())
   }
+}
+
+
+/**
+ * LEE TODAS LAS FILAS DE UN RECURSO, de cinco mil en cinco mil.
+ *
+ * PrestaShop pagina con `limit=desde,cuántas`. Se pide por tramos y no todo de una
+ * vez porque una tienda con 20.000 tallas contesta una sola petición con varios
+ * megas, y en un hosting compartido eso es lo que acaba en un tiempo agotado.
+ *
+ * Un tramo que falla corta la lectura entera con un error: unas filas de stock
+ * que faltan no se pueden tratar como «sin stock», y devolver media lista como si
+ * fuera la tienda entera es peor que no devolver nada.
+ */
+export async function leerTodo(
+  c: ConexionPS,
+  recurso: string,
+  campos: string[]
+): Promise<Record<string, unknown>[]> {
+  const POR_PAGINA = 5000
+  const TOPE = 200_000
+  const out: Record<string, unknown>[] = []
+
+  for (let desde = 0; desde < TOPE; desde += POR_PAGINA) {
+    const r = await peticion(c, recurso, {
+      display: `[${campos.join(',')}]`,
+      limit: `${desde},${POR_PAGINA}`,
+    })
+    if (r.status !== 200) {
+      throw new Error(`${recurso}: ${mensajeDeEstado(r.status, r.cuerpo, r.redireccion)}`)
+    }
+    const filas = extraerLista(r.json, recurso)
+    out.push(...filas)
+    if (filas.length < POR_PAGINA) return out
+  }
+  throw new Error(`${recurso}: la tienda devuelve más de ${TOPE.toLocaleString('es-ES')} filas y se ha cortado.`)
 }

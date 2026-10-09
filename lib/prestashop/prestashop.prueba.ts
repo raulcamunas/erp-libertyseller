@@ -12,6 +12,7 @@ import {
   pareceHtml,
   recursosPermitidos,
   resumenEan,
+  sonIndices,
   veredictoSondas,
 } from './respuesta'
 
@@ -86,6 +87,17 @@ ok('ignora lo que empieza por @ o _', recursosPermitidos({ '@attributes': {}, pr
 ok('vacío -> ninguno', recursosPermitidos({}), [])
 ok('null -> ninguno', recursosPermitidos(null), [])
 ok('texto -> ninguno', recursosPermitidos('hola'), [])
+
+console.log('\n=== LA RAÍZ COMO ARRAY: lo que pasó en la primera prueba real ===')
+ok('array de nombres', recursosPermitidos(['products', 'customers']), ['products', 'customers'])
+ok('array de objetos con una clave', recursosPermitidos([{ products: {} }, { customers: {} }]), ['products', 'customers'])
+ok('array de objetos con name', recursosPermitidos([{ name: 'products' }, { name: 'orders' }]), ['products', 'orders'])
+ok('array dentro de un «api»', recursosPermitidos({ api: [{ products: {} }] }), ['products'])
+ok('sin repetidos', recursosPermitidos(['products', 'products']), ['products'])
+ok('85 elementos que son números NO son 85 recursos: se detecta', sonIndices(['0', '1', '2', '84']), true)
+ok('nombres de verdad NO son índices', sonIndices(['products', 'customers']), false)
+ok('lista vacía NO es «índices»', sonIndices([]), false)
+ok('un objeto cuyas claves son 0,1,2 se delata solo', sonIndices(recursosPermitidos({ '0': {}, '1': {}, '2': {} })), true)
 
 console.log('\n=== LISTAS DE FILAS ===')
 ok('lista normal', extraerLista({ stock_availables: [{ id: '1' }, { id: '2' }] }, 'stock_availables').length, 2)
