@@ -74,6 +74,16 @@ async function main() {
     )
   }
 
+  // EL SUELO DE 15 €: cuántas filas ha puesto él y no el recargo, y que NINGÚN
+  // precio calculado baje de 15.
+  const porSuelo = plan.filas.filter((f) => f.porSuelo)
+  const bajoSuelo = plan.filas.filter((f) => f.destino !== null && f.destino < 15)
+  console.log(`\n  precios puestos por el suelo de 15 €: ${porSuelo.length}`)
+  const porPaisSuelo = new Map<string, number>()
+  for (const f of porSuelo) porPaisSuelo.set(f.pais, (porPaisSuelo.get(f.pais) ?? 0) + 1)
+  for (const [pais, n] of [...porPaisSuelo].sort()) console.log(`    ${pais.padEnd(10)} ${n}`)
+  console.log(`  precios calculados por debajo de 15 € (tienen que ser 0): ${bajoSuelo.length}`)
+
   // La comprobación que de verdad importa: que no haya ni un precio calculado
   // sobre una base que no existe, y que los céntimos salgan exactos.
   const fantasmas = plan.filas.filter((f) => f.destino !== null && f.base === null)
@@ -89,7 +99,9 @@ async function main() {
   console.log(`  precios con céntimos sucios (tienen que ser 0): ${sucios.length}`)
   console.log(`  países que no son los tres (tienen que ser 0):  ${colados.length}`)
   console.log(
-    fantasmas.length + sucios.length + colados.length === 0 ? '\nTODO BIEN\n' : '\nHAY FALLOS\n'
+    fantasmas.length + sucios.length + colados.length + bajoSuelo.length === 0
+      ? '\nTODO BIEN\n'
+      : '\nHAY FALLOS\n'
   )
 }
 

@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import {
+  actuaElSuelo,
   DESTINOS,
   EXCLUIDOS,
   MERCADO_BASE,
@@ -94,6 +95,11 @@ export interface FilaPlan {
   estado: EstadoFila
   /** Hace falta para poder mandar el PATCH */
   productType: string | null
+  /**
+   * El precio lo ha puesto el SUELO de 15 € y no el recargo: base + recargo no
+   * llegaba. Es lo que distingue «de 1 € a 15 €» de «de 1 € a 7 €».
+   */
+  porSuelo: boolean
 }
 
 export interface PlanPrecios {
@@ -195,6 +201,7 @@ export function construirFila(
     recargo: regla.recargoCentimos / 100,
     estado,
     productType: enDestino.product_type,
+    porSuelo: actuaElSuelo(precioBase, regla.recargoCentimos),
   }
 }
 
@@ -289,6 +296,8 @@ export async function construirPlan(): Promise<PlanPrecios> {
         recargo: regla.recargoCentimos / 100,
         estado: 'sin_listado',
         productType: esp.product_type,
+        // No se calcula precio, y por tanto el suelo no ha actuado.
+        porSuelo: false,
       })
     }
   })

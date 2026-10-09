@@ -12,14 +12,22 @@ import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
  *     Alemania  + 6 €
  *
  * Es lo que cuesta mandar el pedido a cada país: el almacén está en España y de
- * ahí sale todo. Nada más. Ni porcentajes, ni redondeo a ,99, ni recálculo de
- * IVA: «+7 €» son siete euros sobre el precio que ve el comprador.
+ * ahí sale todo.
+ *
+ * Y UN SUELO, también orden del cliente: fuera de España no hay nada por debajo
+ * de 15,00 €. El recargo se aplica primero y, si el resultado no llega a 15, se
+ * sube hasta 15. Una referencia de 1 € en España queda en 15 € en Alemania, no
+ * en 7. Ver SUELO_DESTINO_CENTIMOS.
+ *
+ * Nada más. Ni porcentajes, ni redondeo a ,99, ni recálculo de IVA: «+7 €» son
+ * siete euros sobre el precio que ve el comprador.
  *
  * SI CAMBIAN, SE CAMBIAN AQUÍ Y YA ESTÁ. Esta tabla es el único sitio donde
  * viven los números: la pantalla, la explicación y las pruebas los leen de
  * aquí, así que no hay ningún otro fichero que tocar ni ninguna cifra suelta
  * que se pueda quedar desfasada. Ya pasó una vez: la regla nació con +11/+11/+8
- * y se corrigió a +7/+7/+6 antes de publicar nada.
+ * y se corrigió a +7/+7/+6 antes de publicar nada. El suelo de 15 € se añadió
+ * después, y también es una sola constante.
  *
  *
  * ============ POR QUÉ LOS RECARGOS VAN EN CÉNTIMOS ENTEROS ============
@@ -115,6 +123,39 @@ export function mismaDivisa(destino: string): boolean {
   return a !== null && b !== null && a === b
 }
 
+/**
+ * EL PRECIO MÍNIMO EN CUALQUIER PAÍS QUE NO SEA ESPAÑA: 15,00 €.
+ *
+ * Orden de Shoplamp: fuera de España no puede haber nada por debajo de 15 €. Una
+ * referencia que vale 1 € en España se quedaría en 7 € en Alemania con solo el
+ * recargo, y tiene que estar en 15.
+ *
+ * Es `max(base + recargo, SUELO)`: el recargo se aplica primero y, si el
+ * resultado no llega, se sube hasta el suelo. Por encima de 15 € no cambia nada:
+ * una base de 20 € sigue siendo 26 € en Francia, no 15.
+ *
+ * EN CÉNTIMOS, igual que el recargo, y por lo mismo: 1.500 es un entero y no hay
+ * nada que pueda salir sucio.
+ *
+ * NO SE APLICA A ESPAÑA. España es la base y no pasa por esta función: el suelo
+ * es de los destinos. Y NO INVENTA PRECIO: una base que falta sigue siendo `null`,
+ * no 15 € — ver la guarda de abajo, que se evalúa ANTES que el suelo.
+ */
+export const SUELO_DESTINO_CENTIMOS = 1500
+
+/**
+ * ¿Ha sido el suelo, y no el recargo, lo que ha puesto el precio?
+ *
+ * Existe para poder ENSEÑARLO: una referencia que sube de 1 € a 15 € no es la
+ * misma noticia que una que sube de 1 € a 7 €, y quien mira la pantalla tiene
+ * que poder distinguirlas.
+ */
+export function actuaElSuelo(base: number | null | undefined, recargoCentimos: number): boolean {
+  if (base === null || base === undefined) return false
+  if (!Number.isFinite(base) || base <= 0) return false
+  return Math.round(base * 100) + recargoCentimos < SUELO_DESTINO_CENTIMOS
+}
+
 /** Un precio de destino, o null si la base no sirve para calcularlo */
 export function precioDestino(base: number | null | undefined, recargoCentimos: number): number | null {
   // `null` NO es cero, y esta guarda es la que impide el fallo caro: sin ella,
@@ -123,7 +164,10 @@ export function precioDestino(base: number | null | undefined, recargoCentimos: 
   // número positivo y perfectamente válido.
   if (base === null || base === undefined) return null
   if (!Number.isFinite(base) || base <= 0) return null
-  return (Math.round(base * 100) + recargoCentimos) / 100
+  // El suelo va DESPUÉS de la guarda de arriba: una base que falta es `null`, no
+  // un precio de 15 €. Si fuera al revés, una referencia sin precio en España
+  // saldría publicada a 15 € en tres países.
+  return Math.max(Math.round(base * 100) + recargoCentimos, SUELO_DESTINO_CENTIMOS) / 100
 }
 
 /**

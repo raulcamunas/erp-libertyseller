@@ -788,6 +788,17 @@ function Fila({
       <td className={`${TABLA.celda} ${TABLA.numero}`}>{euros(fila.base)}</td>
       <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t3}`}>{euros(fila.actual)}</td>
       <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t1} font-semibold`}>
+        {fila.porSuelo && (
+          // Lo ha puesto el SUELO de 15 € y no el recargo: no es la misma noticia
+          // «de 1 € a 15 €» que «de 1 € a 7 €».
+          <span
+            className={`${TIPO.xs} mr-[6px]`}
+            style={{ color: COLOR_ESTADO.cian, fontWeight: 500 }}
+            title="El precio lo ha puesto el suelo de 15 €: base + recargo no llegaba"
+          >
+            ▲ suelo
+          </span>
+        )}
         {euros(fila.destino)}
       </td>
       <td
