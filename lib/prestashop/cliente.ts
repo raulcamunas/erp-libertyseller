@@ -147,7 +147,7 @@ export interface PruebaConexion {
   personales: string[]
   stock: {
     filas: number | null
-    muestra: { id_product: string; id_product_attribute: string; quantity: number | null }[]
+    muestra: { id_product: string; id_product_attribute: string; quantity: number | null; referencia?: string | null; ean?: string | null }[]
   } | null
   ean: { total: number; conEan: number } | null
   avisos: string[]
@@ -264,11 +264,51 @@ export async function probarConexion(c: ConexionPS): Promise<PruebaConexion> {
         avisos,
       }
     }
-    const muestra = extraerLista(muestraRes.json, 'stock_availables').map((f) => ({
-      id_product: String(f.id_product ?? ''),
-      id_product_attribute: String(f.id_product_attribute ?? ''),
-      quantity: cantidadDe(f.quantity),
-    }))
+    let muestra: NonNullable<PruebaConexion['stock']>['muestra'] =
+      extraerLista(muestraRes.json, 'stock_availables').map((f) => ({
+        id_product: String(f.id_product ?? ''),
+        id_product_attribute: String(f.id_product_attribute ?? ''),
+        quantity: cantidadDe(f.quantity),
+      }))
+
+    // Las primeras filas son productos viejos a cero y sin referencia: no enseñan
+    // nada. Se prefiere una muestra de tallas CON stock, con su referencia y EAN.
+    try {
+      const conStock = await peticion(c, 'stock_availables', {
+        display: '[id_product,id_product_attribute,quantity]',
+        'filter[quantity]': '[1,999999]',
+        'filter[id_product_attribute]': '[1,99999999]',
+        limit: '0,8',
+      })
+      if (conStock.status === 200) {
+        const filasCS = extraerLista(conStock.json, 'stock_availables')
+        if (filasCS.length > 0) {
+          const ids = filasCS.map((f) => String(f.id_product_attribute ?? '')).filter(Boolean)
+          const comb = await peticion(c, 'combinations', {
+            display: '[id,ean13,reference]',
+            'filter[id]': `[${ids.join('|')}]`,
+          })
+          const porId = new Map<string, Record<string, unknown>>()
+          if (comb.status === 200) {
+            for (const x of extraerLista(comb.json, 'combinations')) porId.set(String(x.id ?? ''), x)
+          }
+          muestra = filasCS.map((f) => {
+            const k = porId.get(String(f.id_product_attribute ?? ''))
+            const ref = k && typeof k.reference === 'string' && k.reference.trim() ? k.reference.trim() : null
+            const e = k && (typeof k.ean13 === 'string' || typeof k.ean13 === 'number') && String(k.ean13).trim() ? String(k.ean13).trim() : null
+            return {
+              id_product: String(f.id_product ?? ''),
+              id_product_attribute: String(f.id_product_attribute ?? ''),
+              quantity: cantidadDe(f.quantity),
+              referencia: ref,
+              ean: e,
+            }
+          })
+        }
+      }
+    } catch {
+      // Se queda la muestra sencilla
+    }
 
     // El total: solo los ids, que es lo más ligero que deja pedir
     let filas: number | null = null

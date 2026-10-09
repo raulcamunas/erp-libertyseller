@@ -313,13 +313,15 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
           {prueba.stock && prueba.stock.muestra.length > 0 && (
             <div className={`${TIPO.s} ${TEXTO.t3}`}>
               <p className="mb-[3px]">
-                Muestra de stock{prueba.stock.filas !== null ? ` (${n(prueba.stock.filas)} registros en total)` : ''}:
+                Muestra de tallas con stock{prueba.stock.filas !== null ? ` (${n(prueba.stock.filas)} registros en total)` : ''}:
               </p>
               <table className="w-full text-[11.5px]">
                 <thead>
                   <tr className={TEXTO.t4}>
                     <th className="text-left font-medium">Producto</th>
                     <th className="text-left font-medium">Talla</th>
+                    <th className="text-left font-medium">Referencia (SKU)</th>
+                    <th className="text-left font-medium">EAN</th>
                     <th className="text-right font-medium">Cantidad</th>
                   </tr>
                 </thead>
@@ -328,6 +330,8 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
                     <tr key={i}>
                       <td className="font-mono">{f.id_product}</td>
                       <td className="font-mono">{f.id_product_attribute === '0' ? '—' : f.id_product_attribute}</td>
+                      <td className="font-mono">{f.referencia ?? '—'}</td>
+                      <td className="font-mono">{f.ean ?? '—'}</td>
                       <td className="text-right tabular-nums">{f.quantity === null ? '—' : n(f.quantity)}</td>
                     </tr>
                   ))}
