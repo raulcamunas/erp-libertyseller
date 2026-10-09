@@ -11,7 +11,7 @@ import { TableroPreciosShoplamp } from '@/components/growth/precios/TableroPreci
  *
  * España es el precio base. Francia e Italia van a +7 € y Alemania a +6 €:
  * es lo que cuesta mandar el pedido, porque el almacén está en España. Y fuera de
- * España no hay nada por debajo de 15 €.
+ * España no hay nada por debajo de 14,99 €.
  * Esa es la regla entera y vive en lib/precios-shoplamp/reglas.ts.
  *
  *
@@ -35,12 +35,18 @@ import { TableroPreciosShoplamp } from '@/components/growth/precios/TableroPreci
  *
  * El primero es comodidad, el segundo es cortesía, el TERCERO es el que cierra.
  */
+/** «14,99»: del mismo valor que usa la regla, para que el texto no se pueda desfasar */
+const SUELO_TXT = (SUELO_DESTINO_CENTIMOS / 100).toLocaleString('es-ES', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 export async function PanelPreciosShoplamp({ cliente }: { cliente: ClienteGrowth }) {
   if (cliente.slug !== SLUG_SHOPLAMP) {
     return (
       <Vacio icono={<Tag />} titulo="Esta pantalla es solo de Shoplamp">
         La regla de precios que aplica —España como base, +7 € en Francia e Italia y +6 € en
-        Alemania, y nada por debajo de 15 € fuera de España— es un acuerdo con ese cliente y
+        Alemania, y nada por debajo de 14,99 € fuera de España— es un acuerdo con ese cliente y
         nada más. Para trabajar los precios de{' '}
         <strong>{cliente.nombre}</strong>, elige Shoplamp arriba o usa el resto de submódulos.
       </Vacio>
@@ -75,25 +81,25 @@ export function InfoPreciosShoplamp() {
         </p>
       </SeccionInfo>
 
-      <SeccionInfo titulo={`El suelo: nada por debajo de ${(SUELO_DESTINO_CENTIMOS / 100).toFixed(0)} €`}>
+      <SeccionInfo titulo={`El suelo: nada por debajo de ${SUELO_TXT} €`}>
         <p>
-          Fuera de España <strong>ningún precio baja de {(SUELO_DESTINO_CENTIMOS / 100).toFixed(2)} €</strong>.
+          Fuera de España <strong>ningún precio baja de {SUELO_TXT} €</strong>.
           El recargo se aplica primero y, si el resultado no llega, se sube hasta el suelo: una
           referencia que vale 1 € en España y saldría a 7 € en Alemania se publica a{' '}
-          <strong>15 €</strong>.
+          <strong>{SUELO_TXT} €</strong>.
         </p>
         <ListaInfo>
           <li>
-            Por encima de 15 € <strong>no cambia nada</strong>: una base de 20 € sigue siendo 26 € en
-            Francia, no 15.
+            Por encima de {SUELO_TXT} € <strong>no cambia nada</strong>: una base de 20 € sigue siendo 27 € en
+            Francia, no {SUELO_TXT}.
           </li>
           <li>
             Lo ha puesto el suelo y no el recargo se marca en la columna «Quedaría» con{' '}
-            <strong>▲ suelo</strong>, para distinguir «de 1 € a 15 €» de «de 1 € a 7 €».
+            <strong>▲ suelo</strong>, para distinguir «de 1 € a {SUELO_TXT} €» de «de 1 € a 7 €».
           </li>
           <li>
             <strong>No inventa precio.</strong> Una referencia sin precio en España sigue sin
-            precio, no sale a 15 €.
+            precio, no sale a {SUELO_TXT} €.
           </li>
           <li>
             No se aplica a España: es la base, y el suelo es de los destinos.
@@ -105,7 +111,7 @@ export function InfoPreciosShoplamp() {
         <p>
           Es lo único de esta pantalla que hay que mirar antes de pulsar. Sobre una referencia de
           200 € siete euros son un <strong>+3,5 %</strong>. Sobre una de 1,07 €, que con el suelo
-          pasa a 15 €, un <strong>+1.302 %</strong>. Y en este catálogo hay referencias de los dos
+          pasa a {SUELO_TXT} €, un <strong>+1.301 %</strong>. Y en este catálogo hay referencias de los dos
           tipos.
         </p>
         <p>

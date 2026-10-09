@@ -116,35 +116,41 @@ console.log('\n=== SIN TIPO DE PRODUCTO SE ENSEÑA, PERO NO SE PUEDE ENVIAR ==='
   ok('pero sin tipo de producto', f.productType, null)
 }
 
-console.log('\n=== EL SUELO DE 15 € EN LA FILA ===')
+console.log('\n=== EL SUELO DE 14,99 € EN LA FILA ===')
 {
   // La referencia de 1,07 € de España: es la peor del catálogo real
   const f = construirFila(FRANCIA, listing({ sku: 'S1', price: 7.07 }), listing({ sku: 'S1', price: 1.07 }))
-  ok('1,07 € en España -> 15 € en Francia', f.destino, 15)
+  ok('1,07 € en España -> 14,99 € en Francia', f.destino, 14.99)
   ok('  lo ha puesto el suelo', f.porSuelo, true)
   ok('  cambia (hoy vale 7,07)', f.estado, 'cambia')
-  ok('  sube un 1301,9 %', f.subida, 1301.9)
+  ok('  sube un 1300,9 %', f.subida, 1300.9)
 
   const alem = construirFila(ALEMANIA, listing({ sku: 'S2', price: 7 }), listing({ sku: 'S2', price: 1 }))
-  ok('1 € en España -> 15 € en Alemania, no 7', alem.destino, 15)
+  ok('1 € en España -> 14,99 € en Alemania, no 7', alem.destino, 14.99)
 
-  // Una referencia que ya está a 15 € no se vuelve a mandar
-  const ya = construirFila(FRANCIA, listing({ sku: 'S3', price: 15 }), listing({ sku: 'S3', price: 1.07 }))
-  ok('si ya está a 15,00 -> ya_correcto', ya.estado, 'ya_correcto')
+  // Una referencia que ya está a 14,99 no se vuelve a mandar
+  const ya = construirFila(FRANCIA, listing({ sku: 'S3', price: 14.99 }), listing({ sku: 'S3', price: 1.07 }))
+  ok('si ya está a 14,99 -> ya_correcto', ya.estado, 'ya_correcto')
+
+  // Una que se publicó a 15,00 con el suelo anterior baja un céntimo
+  const quince = construirFila(FRANCIA, listing({ sku: 'S3b', price: 15 }), listing({ sku: 'S3b', price: 1.07 }))
+  ok('si se publicó a 15,00 con el suelo anterior -> cambia a 14,99', [quince.estado, quince.destino], ['cambia', 14.99])
 
   // Por encima del suelo, nada cambia
   const alto = construirFila(FRANCIA, listing({ sku: 'S4', price: 30 }), listing({ sku: 'S4', price: 20 }))
   ok('20 € -> 27 €, el suelo no actúa', [alto.destino, alto.porSuelo], [27, false])
 
-  // Justo en el borde
-  const borde = construirFila(FRANCIA, listing({ sku: 'S5', price: 1 }), listing({ sku: 'S5', price: 8 }))
-  ok('8 € + 7 = 15,00 justo: lo pone el recargo, no el suelo', [borde.destino, borde.porSuelo], [15, false])
+  // Justo en el borde: 7,99 + 7 = 14,99 lo pone el recargo; 7,98 + 7 = 14,98 lo pone el suelo
+  const borde = construirFila(FRANCIA, listing({ sku: 'S5', price: 1 }), listing({ sku: 'S5', price: 7.99 }))
+  ok('7,99 € + 7 = 14,99 justo: lo pone el recargo, no el suelo', [borde.destino, borde.porSuelo], [14.99, false])
+  const bajo = construirFila(FRANCIA, listing({ sku: 'S5b', price: 1 }), listing({ sku: 'S5b', price: 7.98 }))
+  ok('7,98 € + 7 = 14,98: lo sube el suelo a 14,99', [bajo.destino, bajo.porSuelo], [14.99, true])
 
-  // EL FALLO CARO: sin base no hay 15 €
+  // EL FALLO CARO: sin base no hay 14,99 €
   const sinBase = construirFila(FRANCIA, listing({ sku: 'S6', price: 40 }), undefined)
-  ok('sin España: NO sale a 15 €', [sinBase.destino, sinBase.estado, sinBase.porSuelo], [null, 'sin_base', false])
+  ok('sin España: NO sale a 14,99 €', [sinBase.destino, sinBase.estado, sinBase.porSuelo], [null, 'sin_base', false])
   const baseVacia = construirFila(FRANCIA, listing({ sku: 'S7', price: 40 }), listing({ sku: 'S7', price: null }))
-  ok('base sin precio: NO sale a 15 €', [baseVacia.destino, baseVacia.estado, baseVacia.porSuelo], [null, 'base_invalida', false])
+  ok('base sin precio: NO sale a 14,99 €', [baseVacia.destino, baseVacia.estado, baseVacia.porSuelo], [null, 'base_invalida', false])
 }
 
 console.log('\n=== CADA PAÍS CON SU RECARGO ===')

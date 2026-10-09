@@ -96,8 +96,8 @@ export interface FilaPlan {
   /** Hace falta para poder mandar el PATCH */
   productType: string | null
   /**
-   * El precio lo ha puesto el SUELO de 15 € y no el recargo: base + recargo no
-   * llegaba. Es lo que distingue «de 1 € a 15 €» de «de 1 € a 7 €».
+   * El precio lo ha puesto el SUELO de 14,99 € y no el recargo: base + recargo no
+   * llegaba. Es lo que distingue «de 1 € a 14,99 €» de «de 1 € a 7 €».
    */
   porSuelo: boolean
 }
