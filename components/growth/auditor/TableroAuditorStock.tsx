@@ -60,6 +60,33 @@ const ROTULO_TIENDA: Record<VistaTienda, { corto: string; ayuda: string }> = {
   distinta: { corto: 'Distinta cantidad', ayuda: 'Los dos tienen stock pero no el mismo número' },
 }
 
+function descargarTabla(
+  filas: { sku: string; asin: string | null; cantidad: number; canal: 'M' | 'A' | null; tienda?: number }[],
+  vista: Vista,
+  creada: string | null
+) {
+  const conTienda = filas.some((f) => f.tienda !== undefined)
+  const celda = (v: string | number | null) => {
+    const t = v === null ? '' : String(v)
+    return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
+  }
+  const lineas = [
+    ['SKU', 'ASIN', conTienda ? 'Amazon' : 'Cantidad', ...(conTienda ? ['Tienda'] : []), 'Canal'].join(';'),
+    ...filas.map((f) =>
+      [f.sku, f.asin, f.cantidad, ...(conTienda ? [f.tienda ?? ''] : []), f.canal === 'A' ? 'FBA' : f.canal === 'M' ? 'FBM' : '']
+        .map(celda)
+        .join(';')
+    ),
+  ]
+  const blob = new Blob(['\uFEFF' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `auditor-stock-${vista}-${(creada ?? new Date().toISOString()).slice(0, 16).replace(/[:T]/g, '-')}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function haceCuanto(iso: string, ahora: number): string {
   const min = Math.max(0, Math.round((ahora - new Date(iso).getTime()) / 60_000))
   if (min < 1) return 'hace un momento'
@@ -555,7 +582,17 @@ export function TableroAuditorStock({
               </button>
             ))}
 
-            <label className="relative ml-auto w-[200px]">
+            <button
+              type="button"
+              disabled={tabla.length === 0}
+              className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario} ml-auto`}
+              title="Descarga lo que se ve ahora, con la pestaña y los filtros elegidos"
+              onClick={() => descargarTabla(tabla, vista, detalle?.resumen.creada_at ?? null)}
+            >
+              Descargar CSV
+            </button>
+
+            <label className="relative w-[200px]">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--ls-t4)]" />
               <input
                 value={busca}
