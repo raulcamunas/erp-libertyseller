@@ -98,8 +98,21 @@ export const RETENCION_DIAS = 21
  */
 export const UMBRAL_NO_VINIERON = 0.03
 
-/** Cuántos SKU como máximo se guardan en cada lista de «entran» y «salen» */
-const MAX_LISTA_CAMBIOS = 500
+/**
+ * Cuántos SKU como máximo se guardan en cada lista de «entran» y «salen».
+ *
+ * Estaba en 500 y SE QUEDÓ CORTO LA PRIMERA VEZ QUE IMPORTÓ: una caída real de
+ * 594 productos en diez minutos guardaba el recuento exacto (594) pero solo la
+ * lista de los primeros 500, así que la pestaña «Salen (594)» enseñaba 500
+ * filas. Un tope pensado para evitar abusos acababa recortando justo el caso
+ * para el que existe el auditor.
+ *
+ * 5.000 es más de lo que puede haber: solo pueden «salir» los SKU que tenían
+ * stock (unos 2.200 en ShoesF), así que en la práctica no corta nunca, y queda
+ * como guarda contra un dato desbocado. Una lista de 2.200 son unos 80 KB, y
+ * solo se guarda cuando de verdad ha pasado algo.
+ */
+const MAX_LISTA_CAMBIOS = 5000
 
 /**
  * UNA PASADA A LA VEZ. En memoria del proceso, que aquí es suficiente: hay un
