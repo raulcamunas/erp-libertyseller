@@ -57,7 +57,7 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
     }
   }, [])
 
-  async function guardar() {
+  async function guardar(): Promise<boolean> {
     setTrabajando('guardando')
     setError(null)
     setPrueba(null)
@@ -68,8 +68,10 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
       // La clave se borra del campo en cuanto se ha guardado: ya no hace falta
       // tenerla en pantalla, y es lo que evita que acabe en una captura.
       setClave('')
+      return true
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se ha podido guardar')
+      return false
     } finally {
       setTrabajando(null)
     }
@@ -106,7 +108,27 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
     }
   }
 
+  /**
+   * UN SOLO BOTÓN PARA CONECTAR.
+   *
+   * «Probar conexión» estaba apagado hasta guardar, porque la prueba usa lo
+   * GUARDADO y no lo que hay escrito en el campo. Era correcto y un paso absurdo
+   * para quien solo quiere conectar: había que adivinar que primero tocaba
+   * «Guardar». Ahora, si hay algo escrito sin guardar, el botón principal lo
+   * guarda y prueba a continuación; si no hay nada pendiente, solo prueba.
+   */
+  async function guardarYProbar() {
+    if (hayCambios) {
+      const bien = await guardar()
+      if (!bien) return
+    }
+    await probar()
+  }
+
   const ocupado = trabajando !== null
+  const hayCambios =
+    clave.trim() !== '' || !estado?.configurada || url.trim() !== (estado?.url ?? '')
+  const puedeProbar = !ocupado && url.trim() !== '' && (clave.trim() !== '' || estado?.configurada === true)
   const puedeGuardar =
     !ocupado && url.trim() !== '' && (clave.trim() !== '' || estado?.configurada === true)
 
@@ -143,12 +165,18 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
           <button
             type="button"
             className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}
-            disabled={ocupado || !estado?.configurada}
-            title={estado?.configurada ? undefined : 'Primero hay que guardar la dirección y la clave'}
-            onClick={probar}
+            disabled={!puedeProbar}
+            title={
+              puedeProbar
+                ? undefined
+                : 'Escribe la dirección de la tienda y la clave del Webservice'
+            }
+            onClick={guardarYProbar}
           >
-            {trabajando === 'probando' && <Loader2 className="h-3 w-3 animate-spin" />}
-            Probar conexión
+            {(trabajando === 'probando' || trabajando === 'guardando') && (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            )}
+            {hayCambios ? 'Guardar y probar' : 'Probar conexión'}
           </button>
         </>
       }
