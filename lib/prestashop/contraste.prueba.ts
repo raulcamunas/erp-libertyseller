@@ -4,6 +4,7 @@
  *   npx tsx lib/prestashop/contraste.prueba.ts
  */
 import { cruzar, divergencias, normalizarEan, type FilaAmazon } from './cruce'
+import { compactar, resumirContraste } from './informe'
 import { unirStock } from './stock'
 
 let fallos = 0
@@ -158,6 +159,77 @@ console.log('\n=== LAS DIVERGENCIAS ===')
   ok('iguales (incluye 0 y 0)', d.iguales, 2)
   ok('sin dato en la tienda NO es sobreventa', d.sinDatoTienda, 1)
   ok('el negativo cuenta como 0, no como -3', d.sobreventa.find((x) => x.sku === 'negativa')?.tienda, 0)
+}
+
+console.log('\n=== EL RESUMEN DE CADA PASADA: dos universos que NO se comparan de frente ===')
+{
+  // La tienda tiene 4 tallas con stock; Amazon lista 6, de las que 5 se emparejan.
+  const tienda = unirStock(
+    [
+      { id_product: '1', id_product_attribute: '11', quantity: '4' },
+      { id_product: '1', id_product_attribute: '12', quantity: '2' },
+      { id_product: '1', id_product_attribute: '13', quantity: '0' },
+      { id_product: '2', id_product_attribute: '21', quantity: '7' },
+      { id_product: '2', id_product_attribute: '22', quantity: '-2' },
+      { id_product: '3', id_product_attribute: '31', quantity: '9' },
+      { id_product: '3', id_product_attribute: '32', quantity: '' },
+    ],
+    [
+      { id: '11', id_product: '1', ean13: '8435668577885', reference: 'A-36' },
+      { id: '12', id_product: '1', ean13: '8435668577892', reference: 'A-37' },
+      { id: '13', id_product: '1', ean13: '8435668577908', reference: 'A-38' },
+      { id: '21', id_product: '2', ean13: '8445472944322', reference: 'B-40' },
+      { id: '22', id_product: '2', ean13: '8445472944339', reference: 'B-41' },
+      { id: '31', id_product: '3', ean13: '8445197670803', reference: 'C-40' },
+      { id: '32', id_product: '3', ean13: '8445197670810', reference: 'C-41' },
+    ],
+    []
+  ).filas
+  const amazon: FilaAmazon[] = [
+    { sku: 'A-36', asin: 'B0A', ean: '8435668577885', cantidad: 4 }, // igual
+    { sku: 'A-37', asin: 'B0B', ean: '8435668577892', cantidad: 5 }, // distinta (2 vs 5)
+    { sku: 'B-40', asin: 'B0C', ean: '8445472944322', cantidad: 0 }, // venta perdida (tienda 7)
+    { sku: 'B-41', asin: 'B0D', ean: '8445472944339', cantidad: 3 }, // sobreventa (tienda -2 = 0)
+    { sku: 'C-41', asin: 'B0E', ean: '8445197670810', cantidad: 2 }, // la tienda no tiene dato
+    { sku: 'Z-99', asin: 'B0F', ean: '8400000000001', cantidad: 6 }, // sin pareja, con stock
+  ]
+  const r = resumirContraste(amazon, tienda)
+  ok('la tienda tiene 4 tallas con stock (4, 2, 7 y 9)', r.tienda.conStock, 4)
+  ok('la tienda: 2 sin stock (el 0 y el -2, que cuenta como agotado)', r.tienda.sinStock, 2)
+  ok('la tienda: 1 sin dato (cantidad vacía), que NO es sin stock', r.tienda.sinDato, 1)
+  ok('unidades: solo las positivas (4+2+7+9)', r.tienda.unidades, 22)
+  ok('cruzados 5, sin pareja 1', [r.cruce.cruzados, r.cruce.sinPareja], [5, 1])
+  ok('el sin pareja con stock se cuenta aparte', r.cruce.sinParejaConStock, 1)
+  ok('COMPARABLES: Amazon con stock = 3 (A-36, A-37, B-41)', r.cruce.amazonConStock, 3)
+  ok('COMPARABLES: tienda con stock = 3 (A-36, A-37, B-40); C-41 no entra (sin dato)', r.cruce.tiendaConStock, 3)
+  ok('divergencias', [r.divergencias.sobreventa, r.divergencias.ventaPerdida, r.divergencias.distinta, r.divergencias.iguales, r.divergencias.sinDatoTienda], [1, 1, 1, 1, 1])
+  ok('los totales NO son los comparables: la tienda tiene 4 con stock en total, pero entre los emparejados son 3', [r.tienda.conStock, r.cruce.tiendaConStock], [4, 3])
+}
+
+console.log('\n=== CÓMO SE GUARDA: tuplas compactas ===')
+{
+  const r = resumirContraste(
+    [{ sku: 'S1', asin: 'B0X', ean: '8435668577885', cantidad: 3 }],
+    unirStock([{ id_product: '1', id_product_attribute: '11', quantity: '0' }], [{ id: '11', id_product: '1', ean13: '8435668577885', reference: 'R' }], []).filas
+  )
+  const g = compactar(r)
+  ok('una sobreventa como tupla [sku, asin, amazon, tienda, vía]', g.sobreventa, [['S1', 'B0X', 3, 0, 'e']])
+  ok('listas vacías son []', [g.ventaPerdida, g.distinta, g.sinParejaConStock], [[], [], []])
+}
+
+console.log('\n=== EL TOPE DE LAS LISTAS NO TOCA LOS RECUENTOS ===')
+{
+  const muchas: FilaAmazon[] = []
+  const filasT = []
+  for (let i = 0; i < 50; i++) {
+    const ean = String(8400000000000 + i)
+    muchas.push({ sku: `S${i}`, asin: null, ean, cantidad: 1 })
+    filasT.push({ id: String(100 + i), id_product: String(i), ean13: ean, reference: `R${i}` })
+  }
+  const tallas = unirStock(filasT.map((f) => ({ id_product: f.id_product, id_product_attribute: f.id, quantity: '0' })), filasT, []).filas
+  const r = resumirContraste(muchas, tallas, 10)
+  ok('el recuento es el real: 50', r.divergencias.sobreventa, 50)
+  ok('la lista guardada, la del tope: 10', r.listas.sobreventa.length, 10)
 }
 
 console.log(fallos === 0 ? '\n  TODO CORRECTO\n' : `\n  ${fallos} FALLOS\n`)

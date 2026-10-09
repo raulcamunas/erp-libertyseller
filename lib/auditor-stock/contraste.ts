@@ -2,7 +2,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { leerTodo } from '@/lib/prestashop/cliente'
 import { claveDe } from '@/lib/prestashop/conexion'
-import { cruzar, divergencias, type Divergencia, type FilaAmazon } from '@/lib/prestashop/cruce'
+import type { Divergencia, FilaAmazon } from '@/lib/prestashop/cruce'
+import { resumirContraste } from '@/lib/prestashop/informe'
 import { unirStock } from '@/lib/prestashop/stock'
 import type { FilaDetalle } from './clasificar'
 
@@ -135,9 +136,9 @@ export async function contrastar(
   const msTienda = Date.now() - t0
 
   // ---------- El cruce ----------
-  const { cruzados, sinCruce } = cruzar(amazon, tallas)
-  const d = divergencias(cruzados)
-  const sinCruceConStock = sinCruce.filter((a) => a.cantidad > 0)
+  // El MISMO cálculo que hace cada auditoría de 10 minutos: no hay dos formas de
+  // contar lo mismo. Ver lib/prestashop/informe.ts.
+  const r = resumirContraste(amazon, tallas, MAX_LISTA)
 
   return {
     generadoAt: new Date().toISOString(),
@@ -148,35 +149,32 @@ export async function contrastar(
       conEan: amazon.filter((a) => a.ean !== null).length,
     },
     tienda: {
-      tallas: tallas.length,
+      tallas: r.tienda.tallas,
       conEan: tallas.filter((t) => t.ean !== null).length,
-      conStockDato: tallas.filter((t) => t.cantidad !== null).length,
+      conStockDato: r.tienda.tallas - r.tienda.sinDato,
       duplicadosStock,
       ms: msTienda,
     },
     cruce: {
-      cruzados: cruzados.length,
-      porEan: cruzados.filter((c) => c.via === 'ean').length,
-      porReferencia: cruzados.filter((c) => c.via === 'referencia').length,
-      ambiguos: d.ambiguos,
-      sinCruce: sinCruce.length,
-      sinCruceConStock: sinCruceConStock.length,
+      cruzados: r.cruce.cruzados,
+      porEan: r.cruce.porEan,
+      porReferencia: r.cruce.porReferencia,
+      ambiguos: r.cruce.ambiguos,
+      sinCruce: r.cruce.sinPareja,
+      sinCruceConStock: r.cruce.sinParejaConStock,
     },
     divergencias: {
-      sobreventa: d.sobreventa.length,
-      ventaPerdida: d.ventaPerdida.length,
-      distinta: d.distinta.length,
-      iguales: d.iguales,
-      sinDatoTienda: d.sinDatoTienda,
+      sobreventa: r.divergencias.sobreventa,
+      ventaPerdida: r.divergencias.ventaPerdida,
+      distinta: r.divergencias.distinta,
+      iguales: r.divergencias.iguales,
+      sinDatoTienda: r.divergencias.sinDatoTienda,
     },
     listas: {
-      sobreventa: d.sobreventa.slice(0, MAX_LISTA),
-      ventaPerdida: d.ventaPerdida.slice(0, MAX_LISTA),
-      distinta: d.distinta.slice(0, MAX_LISTA),
-      sinCruceConStock: sinCruceConStock
-        .sort((a, b) => b.cantidad - a.cantidad || a.sku.localeCompare(b.sku))
-        .slice(0, MAX_LISTA)
-        .map((a) => ({ sku: a.sku, ean: a.ean, cantidad: a.cantidad })),
+      sobreventa: r.listas.sobreventa,
+      ventaPerdida: r.listas.ventaPerdida,
+      distinta: r.listas.distinta,
+      sinCruceConStock: r.listas.sinParejaConStock,
     },
   }
 }

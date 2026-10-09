@@ -1,5 +1,6 @@
 'use client'
 
+import type { ContrasteGuardado } from '@/lib/prestashop/informe'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Play, Search, Store } from 'lucide-react'
 import {
@@ -47,9 +48,17 @@ interface Detalle {
   resumen: AuditoriaResumen
   detalle: FilaDetalle[]
   cambios: Cambios | null
+  contraste: ContrasteGuardado | null
 }
 
-type Vista = 'con_stock' | 'entran' | 'salen'
+type VistaTienda = 'sobreventa' | 'ventaPerdida' | 'distinta'
+type Vista = 'con_stock' | 'entran' | 'salen' | VistaTienda
+
+const ROTULO_TIENDA: Record<VistaTienda, { corto: string; ayuda: string }> = {
+  sobreventa: { corto: 'Sobreventa', ayuda: 'Amazon tiene stock y la tienda no: se puede vender lo que no hay' },
+  ventaPerdida: { corto: 'Venta perdida', ayuda: 'La tienda tiene stock y Amazon no: se está dejando de vender' },
+  distinta: { corto: 'Distinta cantidad', ayuda: 'Los dos tienen stock pero no el mismo número' },
+}
 
 function haceCuanto(iso: string, ahora: number): string {
   const min = Math.max(0, Math.round((ahora - new Date(iso).getTime()) / 60_000))
@@ -185,9 +194,17 @@ export function TableroAuditorStock({
   const tabla = useMemo(() => {
     if (!detalle) return []
     const t = busca.trim().toLowerCase()
-    type Fila = { sku: string; asin: string | null; cantidad: number; canal: 'M' | 'A' | null }
+    type Fila = { sku: string; asin: string | null; cantidad: number; canal: 'M' | 'A' | null; tienda?: number }
     let base: Fila[]
-    if (vista === 'con_stock') {
+    if (vista === 'sobreventa' || vista === 'ventaPerdida' || vista === 'distinta') {
+      base = (detalle.contraste?.[vista] ?? []).map((d) => ({
+        sku: d[0],
+        asin: d[1],
+        cantidad: d[2],
+        canal: 'M' as const,
+        tienda: d[3],
+      }))
+    } else if (vista === 'con_stock') {
       base = detalle.detalle.map((d) => ({ sku: d[0], asin: d[1], cantidad: d[2], canal: d[3] }))
     } else {
       const lista = (vista === 'entran' ? detalle.cambios?.entran : detalle.cambios?.salen) ?? []
@@ -268,6 +285,23 @@ export function TableroAuditorStock({
                 <span className={CIFRAS.rotulo}>entran / salen</span>
               </div>
             )}
+            {cabecera.ps_estado === 'ok' && cabecera.cruce_amz_con_stock != null && (
+              <div
+                className={CIFRAS.celda}
+                title={`Entre los ${n(cabecera.cruce_cruzados ?? 0)} listings FBM que se han encontrado en la tienda (por EAN o referencia): cuántos tienen stock en Amazon y cuántos en PrestaShop. La tienda entera tiene ${n(cabecera.ps_tallas ?? 0)} tallas, ${n(cabecera.ps_con_stock ?? 0)} con stock.`}
+              >
+                <span className={CIFRAS.valor}>
+                  {n(cabecera.cruce_amz_con_stock)} / {n(cabecera.cruce_ps_con_stock ?? 0)}
+                </span>
+                <span className={CIFRAS.rotulo}>Amazon / tienda con stock</span>
+              </div>
+            )}
+            {cabecera.ps_estado === 'ok' && cabecera.ps_con_stock != null && (
+              <div className={CIFRAS.celda} title="Tallas de la tienda PrestaShop con stock, estén o no en Amazon">
+                <span className={CIFRAS.valor}>{n(cabecera.ps_con_stock)}</span>
+                <span className={CIFRAS.rotulo}>en la tienda (de {n(cabecera.ps_tallas ?? 0)})</span>
+              </div>
+            )}
             <div className={CIFRAS.celda}>
               <span className={CIFRAS.rotulo}>{haceCuanto(cabecera.creada_at, ahora)}</span>
             </div>
@@ -305,6 +339,26 @@ export function TableroAuditorStock({
         <div className={`${AVISO.base} ${AVISO.conTono} shrink-0`} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
           <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
           <div className={`${TIPO.s} ${TEXTO.t2}`}>{errorAccion}</div>
+        </div>
+      )}
+
+      {/* La tienda no se ha podido leer en la última pasada: Amazon sigue auditándose igual */}
+      {ultima?.ps_estado === 'error' && (
+        <div className={`${AVISO.base} ${AVISO.conTono} shrink-0`} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
+          <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
+          <div className={`${TIPO.s} ${TEXTO.t2}`}>
+            <strong>La tienda PrestaShop no ha contestado en la última pasada.</strong> {ultima.ps_error}{' '}
+            La auditoría de Amazon es válida; solo falta el cruce de esa hora.
+          </div>
+        </div>
+      )}
+      {lista.ok && !lista.conTienda && (
+        <div className={`${AVISO.base} ${AVISO.conTono} shrink-0`} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
+          <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
+          <div className={`${TIPO.s} ${TEXTO.t2}`}>
+            Falta lanzar la migración <strong>222_auditor_stock_tienda.sql</strong> para que cada auditoría
+            cruce también con la tienda PrestaShop. Mientras tanto el auditor de Amazon sigue igual.
+          </div>
         </div>
       )}
 
@@ -420,6 +474,16 @@ export function TableroAuditorStock({
                               </>
                             )}
                           </td>
+                          <td
+                            className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t3}`}
+                            title="Entre los emparejados con la tienda: con stock en Amazon / con stock en la tienda"
+                          >
+                            {f.ps_estado === 'ok' && f.cruce_amz_con_stock != null
+                              ? `A ${n(f.cruce_amz_con_stock)} · T ${n(f.cruce_ps_con_stock ?? 0)}`
+                              : f.ps_estado === 'error'
+                                ? 'tienda ✕'
+                                : '—'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -465,6 +529,19 @@ export function TableroAuditorStock({
               )
             })}
 
+            {detalle?.contraste &&
+              (['sobreventa', 'ventaPerdida', 'distinta'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  title={ROTULO_TIENDA[v].ayuda}
+                  className={`${BOTON.chip} ${vista === v ? BOTON.chipEncendido : ''}`}
+                  onClick={() => setVista(v)}
+                >
+                  {ROTULO_TIENDA[v].corto} ({n(detalle.resumen[v === 'sobreventa' ? 'div_sobreventa' : v === 'ventaPerdida' ? 'div_venta_perdida' : 'div_distinta'] ?? 0)})
+                </button>
+              ))}
+
             <span className="mx-1 h-4 w-px bg-[var(--ls-linea)]" />
             {(['todos', 'M', 'A'] as const).map((c) => (
               <button
@@ -496,15 +573,18 @@ export function TableroAuditorStock({
                   <th className={TABLA.cabecera}>SKU</th>
                   <th className={TABLA.cabecera}>ASIN</th>
                   <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>
-                    {vista === 'salen' ? 'Tenían' : 'Cantidad'}
+                    {vista === 'salen' ? 'Tenían' : vista === 'con_stock' || vista === 'entran' ? 'Cantidad' : 'Amazon'}
                   </th>
+                  {(vista === 'sobreventa' || vista === 'ventaPerdida' || vista === 'distinta') && (
+                    <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Tienda</th>
+                  )}
                   <th className={TABLA.cabecera}>Canal</th>
                 </tr>
               </thead>
               <tbody>
                 {cargando && (
                   <tr>
-                    <td colSpan={4} className={`${TABLA.celda} ${TEXTO.t4}`}>
+                    <td colSpan={5} className={`${TABLA.celda} ${TEXTO.t4}`}>
                       <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />
                       Cargando…
                     </td>
@@ -512,14 +592,14 @@ export function TableroAuditorStock({
                 )}
                 {errorDetalle && (
                   <tr>
-                    <td colSpan={4} className={`${TABLA.celda}`} style={{ color: COLOR_ESTADO.rojo }}>
+                    <td colSpan={5} className={`${TABLA.celda}`} style={{ color: COLOR_ESTADO.rojo }}>
                       {errorDetalle}
                     </td>
                   </tr>
                 )}
                 {!cargando && !errorDetalle && tabla.length === 0 && (
                   <tr>
-                    <td colSpan={4} className={`${TABLA.celda} ${TEXTO.t4} text-center`}>
+                    <td colSpan={5} className={`${TABLA.celda} ${TEXTO.t4} text-center`}>
                       {!detalle
                         ? 'No hay ninguna auditoría que enseñar.'
                         : detalle.resumen.estado === 'error'
@@ -533,6 +613,9 @@ export function TableroAuditorStock({
                     <td className={`${TABLA.celda} font-mono text-[11.5px]`}>{f.sku}</td>
                     <td className={`${TABLA.celda} font-mono text-[11.5px] ${TEXTO.t3}`}>{f.asin ?? '—'}</td>
                     <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t1} font-semibold`}>{n(f.cantidad)}</td>
+                    {f.tienda !== undefined && (
+                      <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t1} font-semibold`}>{n(f.tienda)}</td>
+                    )}
                     <td className={`${TABLA.celda} ${TEXTO.t3}`}>
                       {f.canal === 'A' ? 'FBA' : f.canal === 'M' ? 'FBM' : '—'}
                     </td>

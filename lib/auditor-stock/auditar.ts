@@ -13,6 +13,10 @@ import {
   type ItemVivo,
 } from './clasificar'
 import { leerTramos } from './paralelo'
+import { hayColumnasTienda } from './esquema'
+import { leerTienda, type LecturaTienda } from './tienda'
+import { compactar, resumirContraste, type ResumenContraste } from '@/lib/prestashop/informe'
+import type { FilaAmazon } from '@/lib/prestashop/cruce'
 
 /**
  * EL AUDITOR DE STOCK.
@@ -188,6 +192,8 @@ interface FilaEspejo {
   asin: string | null
   fba_fulfillable_quantity: number | null
   fba_quantity: number | null
+  codigo_externo: string | null
+  codigo_externo_tipo: string | null
 }
 
 /**
@@ -202,7 +208,7 @@ export async function universo(connectionId: string, marketplaceId: string): Pro
   return fetchAll<FilaEspejo>((a, b) =>
     service
       .from('amazon_listings')
-      .select('sku, asin, fba_fulfillable_quantity, fba_quantity')
+      .select('sku, asin, fba_fulfillable_quantity, fba_quantity, codigo_externo, codigo_externo_tipo')
       .eq('connection_id', connectionId)
       .eq('marketplace_id', marketplaceId)
       .or('clasificacion_item.is.null,clasificacion_item.neq.VARIATION_PARENT')
@@ -252,6 +258,10 @@ async function ejecutar(
   /** Qué tramos han terminado, por posición. En paralelo no acaban en orden */
   const hechos: number[] = []
   const tramos: string[][] = []
+  const eans = new Map<string, string | null>()
+  /** La tienda se lee a la vez que Amazon (ver tienda.ts: no lanza nunca) */
+  let tienda: Promise<LecturaTienda> | null = null
+  let conTienda = false
 
   // ---------- 0. ¿Hay dónde guardarlo? ----------
   //
@@ -269,10 +279,19 @@ async function ejecutar(
   }
 
   try {
+    // La tienda, en paralelo: tarda lo que tarda y no suma al tiempo de Amazon.
+    // Sin las columnas de la migración 222 no se lee ni se guarda nada de ella.
+    conTienda = await hayColumnasTienda()
+    if (conTienda) tienda = leerTienda(cuenta.clientId, 150_000)
+
     // ---------- 1. Qué se pregunta ----------
     const filas = await universo(cuenta.connectionId, marketplaceId)
     skus = filas.map((f) => f.sku)
     for (const f of filas) {
+      eans.set(
+        f.sku,
+        f.codigo_externo_tipo && f.codigo_externo_tipo !== 'ASIN' ? f.codigo_externo : null
+      )
       espejo.set(f.sku, {
         sku: f.sku,
         asin: f.asin,
@@ -385,10 +404,31 @@ async function ejecutar(
     }
   }
 
+  // ---------- 4b. El cruce con la tienda ----------
+  // Solo si la auditoría de Amazon es completa: con una parcial faltarían listings
+  // y saldrían divergencias que no existen. La tienda se espera siempre, aunque
+  // no se cruce, para no dejar una lectura suelta en segundo plano.
+  const lecturaTienda = tienda ? await tienda : null
+  let resumenTienda: ResumenContraste | null = null
+  if (estado === 'completa' && lecturaTienda?.estado === 'ok') {
+    try {
+      const amazon: FilaAmazon[] = []
+      for (const f of espejo.values()) {
+        const v = vivos.get(f.sku)
+        // Solo FBM, y solo los que Amazon ha devuelto: el stock FBA no es el de la tienda
+        if (!v || v.isFba) continue
+        amazon.push({ sku: f.sku, asin: v.asin ?? f.asin, ean: eans.get(f.sku) ?? null, cantidad: v.quantity ?? 0 })
+      }
+      resumenTienda = resumirContraste(amazon, lecturaTienda.tallas, 300)
+    } catch (e) {
+      console.warn('[auditor-stock] no se ha podido cruzar con la tienda:', e instanceof Error ? e.message : e)
+    }
+  }
+
   const duracionMs = Date.now() - inicio
 
   // ---------- 5. Se guarda ----------
-  const fila = {
+  const campos = {
     client_id: cuenta.clientId,
     connection_id: cuenta.connectionId,
     marketplace_id: marketplaceId,
@@ -414,6 +454,7 @@ async function ejecutar(
       : null,
     detalle: estado === 'error' ? null : r.detalle,
   }
+  const fila = conTienda ? { ...campos, ...camposTienda(lecturaTienda, resumenTienda) } : campos
 
   try {
     const { data, error: errInsert } = await service
@@ -458,8 +499,8 @@ async function ejecutar(
       leidas: r.leidas,
       skusPedidos: skus.length,
       duracionMs,
-      entran: fila.entran,
-      salen: fila.salen,
+      entran: campos.entran,
+      salen: campos.salen,
     }
   } catch (e) {
     if (isMissingSchema(e)) {
@@ -469,5 +510,56 @@ async function ejecutar(
       )
     }
     throw e
+  }
+}
+
+/**
+ * Lo que se guarda de la tienda. NULL = «no se miró»: sin tienda conectada, o
+ * auditoría parcial que no se cruza. Un cero sería «una tienda sin stock».
+ */
+function camposTienda(lectura: LecturaTienda | null, r: ResumenContraste | null) {
+  const base = {
+    ps_estado: lectura?.estado ?? null,
+    ps_error: lectura?.estado === 'error' ? lectura.error : null,
+    ps_ms: lectura && lectura.estado !== 'omitida' ? lectura.ms : null,
+  }
+  if (!r) {
+    // Leída pero sin cruzar (auditoría parcial): al menos las cifras de la tienda
+    if (lectura?.estado === 'ok') {
+      const t = lectura.tallas
+      let conStock = 0
+      let sinStock = 0
+      let sinDato = 0
+      let unidades = 0
+      for (const x of t) {
+        if (x.cantidad === null) sinDato += 1
+        else if (x.cantidad > 0) {
+          conStock += 1
+          unidades += x.cantidad
+        } else sinStock += 1
+      }
+      return { ...base, ps_tallas: t.length, ps_con_stock: conStock, ps_sin_stock: sinStock, ps_sin_dato: sinDato, ps_unidades: unidades }
+    }
+    return base
+  }
+  return {
+    ...base,
+    ps_tallas: r.tienda.tallas,
+    ps_con_stock: r.tienda.conStock,
+    ps_sin_stock: r.tienda.sinStock,
+    ps_sin_dato: r.tienda.sinDato,
+    ps_unidades: r.tienda.unidades,
+    cruce_cruzados: r.cruce.cruzados,
+    cruce_por_ean: r.cruce.porEan,
+    cruce_por_ref: r.cruce.porReferencia,
+    cruce_sin_pareja: r.cruce.sinPareja,
+    cruce_ambiguos: r.cruce.ambiguos,
+    cruce_amz_con_stock: r.cruce.amazonConStock,
+    cruce_ps_con_stock: r.cruce.tiendaConStock,
+    div_sobreventa: r.divergencias.sobreventa,
+    div_venta_perdida: r.divergencias.ventaPerdida,
+    div_distinta: r.divergencias.distinta,
+    div_iguales: r.divergencias.iguales,
+    contraste: compactar(r),
   }
 }
