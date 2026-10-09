@@ -21,6 +21,7 @@ import {
   PanelPreciosShoplamp,
 } from '@/components/growth/paneles/PanelPreciosShoplamp'
 import { InfoLimitesPrecio, PanelLimitesPrecio } from '@/components/growth/paneles/PanelLimitesPrecio'
+import { InfoAuditorStock, PanelAuditorStock } from '@/components/growth/paneles/PanelAuditorStock'
 
 /**
  * /dashboard/growth — GROWTH PARTNER. SOLO ADMIN.
@@ -92,6 +93,7 @@ const PANELES: Record<
   buybox: { Panel: PanelBuyBox, Info: InfoBuyBox },
   'fbm-fba': { Panel: PanelFbmFba, Info: InfoFbmFba },
   'limites-precio': { Panel: PanelLimitesPrecio, Info: InfoLimitesPrecio },
+  'auditor-stock': { Panel: PanelAuditorStock, Info: InfoAuditorStock },
   'precios-shoplamp': { Panel: PanelPreciosShoplamp, Info: InfoPreciosShoplamp },
 }
 

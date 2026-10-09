@@ -82,6 +82,23 @@ export const TAREAS_CRON = [
   },
   {
     /**
+     * CADA 15 MINUTOS, Y SE PUEDE BAJAR A 10 DESDE SISTEMA.
+     *
+     * Lee en directo el stock de todos los listings de ShoesF (~14.000, unas 700
+     * llamadas a Amazon: dos o tres minutos de cada cuarto de hora) y apunta
+     * cuántos tienen y cuántos no. A 10 minutos son cuatro de cada diez con la
+     * cola de lecturas ocupada, así que conviene mirar cómo va antes de bajarlo.
+     */
+    id: 'auditor-stock',
+    nombre: 'Auditor de stock',
+    ruta: '/api/auditor-stock/cron',
+    cadaMinutos: 15,
+    que:
+      'Lee en directo el stock de todos los listings de ShoesF y guarda cuántos tienen y cuántos ' +
+      'no, con el SKU, el ASIN y la cantidad de los que sí. No escribe nada en Amazon.',
+  },
+  {
+    /**
      * NO TIENE RELOJ AQUÍ, Y ES A PROPÓSITO.
      *
      * `cadaMinutos: 1` porque la ruta corre cada minuto y no consulta

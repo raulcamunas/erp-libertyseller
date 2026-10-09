@@ -1,4 +1,4 @@
-import { ArrowRightLeft, Boxes, Crown, SlidersHorizontal, Tags, type LucideIcon } from 'lucide-react'
+import { Activity, ArrowRightLeft, Boxes, Crown, SlidersHorizontal, Tags, type LucideIcon } from 'lucide-react'
 
 /**
  * LOS SUBMÓDULOS DE GROWTH PARTNER.
@@ -27,7 +27,13 @@ import { ArrowRightLeft, Boxes, Crown, SlidersHorizontal, Tags, type LucideIcon 
  * que se usa cada semana, después lo que se mira cuando hay tiempo.
  */
 
-export type ModuloId = 'stock-sync' | 'buybox' | 'fbm-fba' | 'precios-shoplamp' | 'limites-precio'
+export type ModuloId =
+  | 'stock-sync'
+  | 'buybox'
+  | 'fbm-fba'
+  | 'precios-shoplamp'
+  | 'limites-precio'
+  | 'auditor-stock'
 
 export interface Modulo {
   id: ModuloId
@@ -86,6 +92,14 @@ export const MODULOS: readonly Modulo[] = [
     icono: SlidersHorizontal,
     pista: 'Arregla los «Error de precio»: el mínimo o el máximo roto pasa a valer el precio',
     necesita: 'amazon',
+  },
+  {
+    id: 'auditor-stock',
+    nombre: 'Auditor de stock',
+    icono: Activity,
+    pista: 'Cada 15 min lee el stock de toda la cuenta: cuántos tienen y cuántos no',
+    necesita: 'amazon',
+    soloCliente: 'shoesf',
   },
   {
     id: 'precios-shoplamp',

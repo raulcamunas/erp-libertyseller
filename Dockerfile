@@ -67,6 +67,7 @@ RUN { \
       echo "* * * * * /app/scripts/entrais-precios.sh"; \
       echo "* * * * * /app/scripts/fba-remesas.sh"; \
       echo "* * * * * /app/scripts/shoplamp-precios.sh"; \
+      echo "* * * * * /app/scripts/auditor-stock.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto
