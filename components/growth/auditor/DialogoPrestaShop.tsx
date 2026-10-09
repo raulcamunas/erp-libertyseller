@@ -242,7 +242,12 @@ export function DialogoPrestaShop({ onCerrar }: { onCerrar: () => void }) {
             placeholder={estado?.configurada ? 'Hay una guardada · escribe otra solo si quieres cambiarla' : 'Clave de 32 caracteres'}
             className={CAMPO.input}
             disabled={ocupado}
-            autoComplete="off"
+            // Chrome ignora "off" en un campo de contraseña y rellena la del ERP:
+            // "new-password" le dice que no es un inicio de sesión.
+            autoComplete="new-password"
+            name="ps-webservice-key"
+            data-lpignore="true"
+            data-1p-ignore="true"
             spellCheck={false}
           />
           <p className={CAMPO.nota}>
