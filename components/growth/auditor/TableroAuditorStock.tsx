@@ -71,7 +71,7 @@ function descargarTabla(
     return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
   }
   const lineas = [
-    ['SKU', 'ASIN', conTienda ? 'Amazon' : 'Cantidad', ...(conTienda ? ['Tienda'] : []), 'Canal'].join(';'),
+    ['SKU', 'ASIN', 'Stock en Amazon', ...(conTienda ? ['Stock en PrestaShop'] : []), 'Canal'].join(';'),
     ...filas.map((f) =>
       [f.sku, f.asin, f.cantidad, ...(conTienda ? [f.tienda ?? ''] : []), f.canal === 'A' ? 'FBA' : f.canal === 'M' ? 'FBM' : '']
         .map(celda)

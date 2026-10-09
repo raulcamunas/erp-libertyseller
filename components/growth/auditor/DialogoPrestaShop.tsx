@@ -555,7 +555,7 @@ function descargarCsv(filas: FilaTodas[]) {
     return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
   }
   const lineas = [
-    ['SKU', 'ASIN', 'EAN', 'Amazon', 'Tienda', 'Estado'].join(';'),
+    ['SKU', 'ASIN', 'EAN', 'Stock en Amazon', 'Stock en PrestaShop', 'Estado'].join(';'),
     ...filas.map((f) =>
       [f[0], f[1], f[2], f[3], f[4], ETIQUETA[f[5]].texto].map(celda).join(';')
     ),
