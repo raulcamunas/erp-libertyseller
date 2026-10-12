@@ -171,7 +171,7 @@ export function CalendarioContenido({
               return (
                 <div
                   key={iso}
-                  className={`rounded-2xl border bg-card/60 transition-colors ${
+                  className={`rounded-2xl border bg-card transition-colors ${
                     esHoy
                       ? 'border-[#FF6600]/60 shadow-[0_0_28px_rgba(255,102,0,0.14)]'
                       : 'border-white/[0.07]'
@@ -227,7 +227,7 @@ export function CalendarioContenido({
                                 key={e.id}
                                 onClick={() => setDiaAbierto(iso)}
                                 className={`group flex gap-3 text-left rounded-xl border border-white/[0.07]
-                                  bg-background/40 p-3 hover:border-[#FF6600]/50 hover:bg-background/70
+                                  bg-background p-3 hover:border-[#FF6600]/50
                                   transition-colors ${
                                     e.estado === 'saltado' ? 'opacity-45' : ''
                                   }`}
