@@ -158,94 +158,153 @@ export function CalendarioContenido({
             </div>
           </div>
 
-          {/* Siete columnas en pantalla ancha; en móvil se apilan, porque siete
-              columnas de 50 px no dejan leer ni el nombre. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
+          {/* Un día por fila: con siete columnas cada tarjeta quedaba en 120 px y
+              ni el nombre ni el título cabían. En fila la miniatura se ve y el
+              título se lee entero. */}
+          <div className="space-y-3">
             {dias.map((d, i) => {
               const iso = aFechaISO(d)
               const lista = delDia(iso)
               const esHoy = iso === hoyISO
+              const finde = i >= 5
+              const vacio = lista.length === 0
               return (
-                <Card
+                <div
                   key={iso}
-                  className={`min-h-[170px] transition-colors ${
-                    esHoy ? 'border-[#FF6600]/60 shadow-[0_0_24px_rgba(255,102,0,0.12)]' : ''
-                  }`}
+                  className={`rounded-2xl border bg-card/60 transition-colors ${
+                    esHoy
+                      ? 'border-[#FF6600]/60 shadow-[0_0_28px_rgba(255,102,0,0.14)]'
+                      : 'border-white/[0.07]'
+                  } ${vacio && finde ? 'opacity-60' : ''}`}
                 >
-                  <CardContent className="p-3 space-y-2">
+                  <div className="flex flex-col md:flex-row gap-4 p-4">
                     <button
                       onClick={() => setDiaAbierto(iso)}
-                      className="w-full text-left group"
+                      className="md:w-28 shrink-0 flex md:flex-col items-baseline md:items-start gap-3 md:gap-0 text-left"
                       title="Ver el día"
                     >
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                          {NOMBRE_DIA[i].slice(0, 3)}
+                      <span
+                        className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                          esHoy ? 'text-[#FF6600]' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {NOMBRE_DIA[i]}
+                      </span>
+                      <span
+                        className={`text-4xl font-bold leading-none md:mt-1 ${
+                          esHoy ? 'text-[#FF6600]' : ''
+                        }`}
+                      >
+                        {d.getDate()}
+                      </span>
+                      {esHoy && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#FF6600] md:mt-2">
+                          Hoy
                         </span>
-                        <span
-                          className={`text-lg font-bold ${esHoy ? 'text-[#FF6600]' : ''}`}
-                        >
-                          {d.getDate()}
-                        </span>
-                      </div>
+                      )}
                     </button>
 
-                    <div className="space-y-1.5">
-                      {lista.map((e) => {
-                        const Icono = ICONO_TIPO[e.pieza.tipo]
-                        return (
-                          <button
-                            key={e.id}
-                            onClick={() => setDiaAbierto(iso)}
-                            className={`w-full text-left rounded-md border px-2 py-1.5 text-xs
-                              hover:border-[#FF6600]/50 transition-colors ${
-                                e.estado === 'publicado'
-                                  ? 'opacity-55 line-through decoration-1'
-                                  : e.estado === 'saltado'
-                                    ? 'opacity-40'
-                                    : ''
-                              }`}
+                    <div className="flex-1 min-w-0">
+                      {vacio ? (
+                        <div className="h-full flex items-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground"
+                            onClick={() => setProgramando(iso)}
                           >
-                            <div className="flex gap-2">
-                              {/* La miniatura es lo que hace que el día se lea
-                                  de un vistazo: el nombre y el tipo solos son
-                                  una fila de texto gris igual a las demás. */}
-                              {portada(e.pieza) ? (
-                                <img
-                                  src={portada(e.pieza)!}
-                                  alt=""
-                                  className="w-10 h-[52px] object-cover rounded border border-white/10 shrink-0"
-                                />
-                              ) : null}
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 font-semibold">
-                                  <Icono className="h-3 w-3 shrink-0 text-[#FF6600]" />
-                                  <span className="truncate">{nombreCorto(e.responsable)}</span>
+                            <Plus className="h-4 w-4 mr-1.5" />
+                            Programar
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                          {lista.map((e) => {
+                            const Icono = ICONO_TIPO[e.pieza.tipo]
+                            const esVideo = e.pieza.tipo === 'video'
+                            return (
+                              <button
+                                key={e.id}
+                                onClick={() => setDiaAbierto(iso)}
+                                className={`group flex gap-3 text-left rounded-xl border border-white/[0.07]
+                                  bg-background/40 p-3 hover:border-[#FF6600]/50 hover:bg-background/70
+                                  transition-colors ${
+                                    e.estado === 'saltado' ? 'opacity-45' : ''
+                                  }`}
+                              >
+                                {portada(e.pieza) ? (
+                                  <img
+                                    src={portada(e.pieza)!}
+                                    alt=""
+                                    className={`object-cover rounded-lg border border-white/10 shrink-0 ${
+                                      esVideo ? 'w-[54px] h-24' : 'w-24 h-24'
+                                    }`}
+                                  />
+                                ) : (
+                                  <div
+                                    className={`rounded-lg border border-white/10 bg-white/[0.03] shrink-0 grid place-items-center ${
+                                      esVideo ? 'w-[54px] h-24' : 'w-24 h-24'
+                                    }`}
+                                  >
+                                    <Icono className="h-5 w-5 text-[#FF6600]" />
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1 flex flex-col">
+                                  <div className="flex items-center gap-2">
+                                    <span className="h-6 w-6 rounded-full bg-[#FF6600]/15 text-[#FF6600] text-[11px] font-bold grid place-items-center shrink-0">
+                                      {nombreCorto(e.responsable).slice(0, 1)}
+                                    </span>
+                                    <span className="font-semibold truncate">
+                                      {nombreCorto(e.responsable)}
+                                    </span>
+                                  </div>
+                                  <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                                    <span
+                                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                        esVideo
+                                          ? 'bg-[#FF6600]/15 text-[#FF8A3D]'
+                                          : 'bg-sky-500/15 text-sky-300'
+                                      }`}
+                                    >
+                                      <Icono className="h-3 w-3" />
+                                      {ETIQUETA_TIPO[e.pieza.tipo]}
+                                    </span>
+                                    {e.estado === 'publicado' && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 text-emerald-300 px-2 py-0.5 text-[11px] font-medium">
+                                        <Check className="h-3 w-3" />
+                                        Publicado
+                                      </span>
+                                    )}
+                                    {e.estado === 'saltado' && (
+                                      <span className="rounded-full bg-white/10 text-muted-foreground px-2 py-0.5 text-[11px] font-medium">
+                                        Saltado
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-auto pt-2 text-[13px] leading-snug text-foreground/80 line-clamp-2">
+                                    {e.pieza.titulo}
+                                  </div>
                                 </div>
-                                <div className="text-muted-foreground truncate mt-0.5">
-                                  {ETIQUETA_TIPO[e.pieza.tipo]}
-                                </div>
-                                <div className="text-muted-foreground truncate text-[11px] leading-tight">
-                                  {e.pieza.titulo}
-                                </div>
-                              </div>
-                            </div>
-                          </button>
-                        )
-                      })}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
 
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full h-7 text-xs text-muted-foreground"
-                      onClick={() => setProgramando(iso)}
-                    >
-                      <Plus className="h-3 w-3 mr-1" />
-                      Programar
-                    </Button>
-                  </CardContent>
-                </Card>
+                    {!vacio && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-muted-foreground self-start"
+                        onClick={() => setProgramando(iso)}
+                        title="Programar algo más este día"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
               )
             })}
           </div>
@@ -328,19 +387,41 @@ function ResumenSemana({
     </div>
   )
 
+  const Barra = ({ n, de, que }: { n: number; de: number; que: string }) => (
+    <div className="min-w-[150px]">
+      <div className="flex items-baseline gap-1.5">
+        <span className={`text-2xl font-bold ${n >= de ? 'text-[#FF6600]' : ''}`}>{n}</span>
+        <span className="text-muted-foreground text-sm">
+          de {de} {que}
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-[#FF6600] transition-all"
+          style={{ width: `${Math.min(100, (n / de) * 100)}%` }}
+        />
+      </div>
+    </div>
+  )
+
   return (
-    <Card>
-      <CardContent className="p-4 flex flex-wrap items-center gap-x-8 gap-y-3">
-        <Cifra n={videos} de={3} que="vídeos" />
-        <Cifra n={carruseles} de={6} que="carruseles" />
-        <div className="text-sm text-muted-foreground">
-          {publicados} de {todos.length} ya publicados
-        </div>
+    <Card className="rounded-2xl border-white/[0.07]">
+      <CardContent className="p-5 flex flex-wrap items-center gap-x-10 gap-y-4">
+        <Barra n={videos} de={3} que="vídeos" />
+        <Barra n={carruseles} de={6} que="carruseles" />
+        <Barra n={publicados} de={Math.max(todos.length, 1)} que="publicados" />
         <div className="flex flex-wrap gap-2 ml-auto">
           {porPersona.map(({ p, n }) => (
-            <Badge key={p.id} variant="secondary">
-              {nombreCorto(p)} · {n}
-            </Badge>
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] pl-1 pr-3 py-1 text-sm"
+            >
+              <span className="h-6 w-6 rounded-full bg-[#FF6600]/15 text-[#FF6600] text-xs font-bold grid place-items-center">
+                {nombreCorto(p).slice(0, 1)}
+              </span>
+              {nombreCorto(p)}
+              <span className="text-muted-foreground">{n}</span>
+            </span>
           ))}
         </div>
       </CardContent>
