@@ -107,6 +107,7 @@ export function TableroAuditorStock({
   const [iniciando, setIniciando] = useState(false)
   const [errorAccion, setErrorAccion] = useState<string | null>(null)
   const [verTienda, setVerTienda] = useState(false)
+  const [horasExport, setHorasExport] = useState(24)
   const [ahora, setAhora] = useState(() => Date.now())
 
   const filas = useMemo(() => (lista.ok ? lista.filas : []), [lista])
@@ -349,6 +350,28 @@ export function TableroAuditorStock({
           <Store className="h-3 w-3" />
           Tienda PrestaShop
         </button>
+
+        <div className="flex items-center gap-[4px]">
+          <select
+            value={horasExport}
+            onChange={(e) => setHorasExport(Number(e.target.value))}
+            className={`${CAMPO.input} w-[78px]`}
+            aria-label="Horas a exportar"
+          >
+            {[6, 12, 24, 48, 72].map((h) => (
+              <option key={h} value={h}>
+                {h} h
+              </option>
+            ))}
+          </select>
+          <a
+            href={`/api/auditor-stock/exportar?horas=${horasExport}`}
+            className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
+            title="CSV con una fila por SKU y una columna por auditoría (cada 10 min): el stock que tenía Amazon en cada momento"
+          >
+            Descargar historial
+          </a>
+        </div>
 
         <button
           type="button"
