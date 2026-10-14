@@ -268,7 +268,7 @@ export function EspacioPropuesta({
         {remesa.estado === 'lista' && (
           <>
             <PuntosDeControl remesa={remesa} cajas={cajas} />
-            {esAdmin && <PlantillasAmazon remesaId={remesa.id} />}
+            {esAdmin && <PlantillasAmazon remesaId={remesa.id} referencias={remesa.lineas.length} unidades={unidades} />}
             {esAdmin && <DireccionOrigen clienteId={clienteId} clienteNombre={clienteNombre} puedeEditar={puedeEditar} />}
             <ImprimirEtiquetas remesa={remesa} />
             <ResumenLineas remesa={remesa} />

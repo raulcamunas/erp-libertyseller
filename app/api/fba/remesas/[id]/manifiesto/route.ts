@@ -2,22 +2,33 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { requireFbaAccess } from '@/lib/fba/acceso'
 import { LibroError } from '@/lib/fba/libro'
-import { rellenarManifiesto, type LineaManifiesto } from '@/lib/fba/manifiesto'
+import { manifiestoListo, rellenarManifiesto, type LineaManifiesto } from '@/lib/fba/manifiesto'
 import { puedeImprimirEtiquetas, type EstadoRemesa } from '@/lib/fba/flujo'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
- * EL MANIFIESTO DE UNA REMESA, SOBRE LA PLANTILLA QUE SUBE EL CLIENTE.
+ * EL MANIFIESTO DE UNA REMESA: SE ENTREGA HECHO, LISTO PARA SUBIR A SELLER CENTRAL.
  *
- * Es POST y no GET porque hace falta un fichero de entrada: la plantilla que el
- * cliente acaba de descargar de SU Seller Central. No puede vivir en el
- * repositorio —lleva grabada la cuenta y la versión, y Amazon publica versiones
- * nuevas—, así que entra con la petición, se rellena en memoria y sale.
+ * Es lo que se sube en «Enviar a Amazon» (Cadena de suministro → Crear envío → subir
+ * un archivo): qué referencias van y cuántas de cada, y con él Amazon carga todo el
+ * pedido y se puede seguir con el envío.
  *
- * NO SE GUARDA EN NINGÚN SITIO. Entra, se rellena y se devuelve: es un paso de
- * una gestión, no un documento del cliente. Guardarla obligaría a decidir cuándo
- * se borra y a cargar con la plantilla de cada envío de cada cliente para
- * siempre.
+ *
+ * ============ SIN PLANTILLA POR DEFECTO ============
+ *
+ * Antes había que bajarse de Seller Central la plantilla vacía, subirla aquí y
+ * pedir que se rellenase. Era un paso de más: la plantilla vacía del manifiesto es la
+ * misma para todos —19 descargas de febrero a junio, idénticas byte a byte— y por eso
+ * ahora el ERP lleva la de Amazon y el manifiesto sale con un clic
+ * (lib/fba/manifiesto-plantilla.ts).
+ *
+ * Si llega una en el campo `plantilla`, se rellena ESA en lugar de la integrada: es la
+ * salida para el día que Amazon cambie el formato y la nuestra se quede atrás.
+ *
+ * Sigue siendo POST (y no un GET con enlace) por esa plantilla opcional.
+ *
+ * NO SE GUARDA EN NINGÚN SITIO: se genera al momento con las líneas que tiene la
+ * remesa ahora mismo, así que siempre sale con las cantidades vigentes.
  *
  *
  * ============ EL MISMO LISTÓN QUE LAS ETIQUETAS ============
@@ -40,12 +51,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const service = createServiceClient()
     const { data: cabecera } = await service
       .from('fba_remesas')
-      .select('id, nombre, client_id, estado')
+      .select('id, nombre, client_id, estado, fecha_envio')
       .eq('id', params.id)
       .maybeSingle()
     if (!cabecera) return fail(404, 'Esa remesa ya no existe')
 
-    const remesa = cabecera as { id: string; nombre: string | null; client_id: string; estado: EstadoRemesa }
+    const remesa = cabecera as { id: string; nombre: string | null; client_id: string; estado: EstadoRemesa; fecha_envio: string | null }
     if (sesion.clientesPermitidos && !sesion.clientesPermitidos.includes(remesa.client_id)) {
       return fail(404, 'Esa remesa ya no existe')
     }
@@ -58,24 +69,24 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       )
     }
 
-    const form = await request.formData()
-    const subida = form.get('plantilla')
-    if (!subida || typeof subida === 'string' || typeof subida.arrayBuffer !== 'function') {
-      return fail(
-        400,
-        'Falta la plantilla. Descárgala en Seller Central, en «Enviar a Amazon», y súbela aquí: ' +
-          'lleva grabada la cuenta del cliente, así que no puede estar guardada en el ERP.'
-      )
-    }
-    const fichero = subida as File
-    if (!fichero.name.toLowerCase().endsWith('.xlsx')) {
-      return fail(400, `«${fichero.name}» no es un .xlsx. La plantilla de Amazon se descarga ya en ese formato.`)
-    }
-    // Las plantillas que hay descargadas pesan entre 10 y 60 KB. Un tope de 10 MB
-    // es holgadísimo y a la vez impide que un fichero enorme se coma la memoria
-    // del contenedor antes de que nadie mire si siquiera es un Excel.
-    if (fichero.size > 10 * 1024 * 1024) {
-      return fail(400, `«${fichero.name}» ocupa demasiado para ser la plantilla del manifiesto.`)
+    // La plantilla propia es OPCIONAL: sin cuerpo, o sin el campo, se usa la de Amazon que lleva el ERP
+    const form = await request.formData().catch(() => null)
+    const subida = form?.get('plantilla') ?? null
+    let propia: File | null = null
+    if (subida) {
+      if (typeof subida === 'string' || typeof subida.arrayBuffer !== 'function') {
+        return fail(400, 'La plantilla no ha llegado como un fichero')
+      }
+      propia = subida as File
+      if (!propia.name.toLowerCase().endsWith('.xlsx')) {
+        return fail(400, `«${propia.name}» no es un .xlsx. La plantilla de Amazon se descarga ya en ese formato.`)
+      }
+      // Las plantillas que hay descargadas pesan entre 10 y 60 KB. Un tope de 10 MB
+      // es holgadísimo y a la vez impide que un fichero enorme se coma la memoria
+      // del contenedor antes de que nadie mire si siquiera es un Excel.
+      if (propia.size > 10 * 1024 * 1024) {
+        return fail(400, `«${propia.name}» ocupa demasiado para ser la plantilla del manifiesto.`)
+      }
     }
 
     const { data: lineas } = await service
@@ -87,7 +98,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const filas = (lineas ?? []) as LineaManifiesto[]
     if (filas.length === 0) return fail(400, 'Esta remesa no tiene ninguna referencia')
 
-    const r = rellenarManifiesto(await fichero.arrayBuffer(), filas)
+    const r = propia ? rellenarManifiesto(await propia.arrayBuffer(), filas) : manifiestoListo(filas)
 
     /**
      * EL NOMBRE DEL FICHERO, EN ASCII Y A LA FUERZA.
@@ -100,16 +111,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
      *
      * Se quitan los acentos primero (NFD + fuera los diacríticos, así «Envío»
      * queda «envio» y no «env o») y después se tira todo lo que no sea ASCII.
-     * Si no queda nada —un nombre entero en japonés—, se usa el id.
+     * Si no queda nada —un nombre entero en japonés— se usa la fecha del envío, que
+     * le dice más a quien lo busca en Descargas que un trozo de id; y sin fecha, el id.
      */
     const nombre =
       (remesa.nombre ?? '')
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[̀-ͯ]/g, '')
         .replace(/[^a-zA-Z0-9\s-]/g, '')
         .trim()
         .replace(/\s+/g, '-')
-        .toLowerCase() || `remesa-${params.id.slice(0, 8)}`
+        .toLowerCase() ||
+      (remesa.fecha_envio && /^\d{4}-\d{2}-\d{2}$/.test(remesa.fecha_envio) ? remesa.fecha_envio : `remesa-${params.id.slice(0, 8)}`)
 
     return new NextResponse(Buffer.from(r.xlsx), {
       headers: {
@@ -119,6 +132,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         // la ruta de etiquetas.
         'X-Lineas': String(r.lineas),
         'X-Unidades': String(r.unidades),
+        'X-Plantilla': propia ? 'propia' : 'integrada',
         'X-Descartadas': String(r.descartadas.length),
         'X-Motivos': encodeURIComponent(
           r.descartadas.map((d) => `${d.sku}: ${d.motivo}`).join(' | ').slice(0, 900)

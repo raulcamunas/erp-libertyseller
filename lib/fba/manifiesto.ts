@@ -10,13 +10,21 @@
  * plantilla. Son dos columnas y cuarenta filas, pero es a mano cada envío.
  *
  *
- * ============ LA PLANTILLA LA SUBE EL CLIENTE, NO VIVE AQUÍ ============
+ * ============ LA PLANTILLA YA VIVE AQUÍ (y se puede cambiar por otra) ============
  *
- * Igual que en lib/stock-sync/amazon-template.ts, y por el mismo motivo: la
- * plantilla se descarga del Seller Central de UNA cuenta, y Amazon publica
- * versiones nuevas. Una empotrada en el repositorio le pondría a todos los
- * clientes la del primero y caducaría sin avisar. Cada envío se rellena sobre la
- * que acaba de bajarse el cliente.
+ * Antes se rellenaba sobre la que acababa de bajarse el cliente, con el argumento de
+ * que Amazon publica versiones nuevas y que la plantilla lleva grabada la cuenta. Se
+ * midió y no es verdad con esta: las 19 plantillas vacías que había descargadas, de
+ * febrero a junio, son idénticas byte a byte. Por eso está empotrada
+ * (lib/fba/manifiesto-plantilla.ts) y el ERP ENTREGA EL MANIFIESTO YA HECHO: quien lo
+ * sube a Seller Central no tiene que bajarse nada antes.
+ *
+ * La de EMBALAJE es otra historia y no cambia: cada envío trae la suya, con una fila
+ * por SKU y el bloque de medidas en un sitio distinto (lib/fba/embalaje.ts).
+ *
+ * Si algún día Amazon cambia el formato, esto lo nota solo —busca todo por etiqueta y,
+ * si no la encuentra, no escribe nada— y `rellenarManifiesto` sigue aceptando una
+ * plantilla propia, que es lo que hace la ruta cuando llega una.
  *
  *
  * ============ LO QUE SE ESCRIBE, Y DÓNDE SE BUSCA ============
@@ -54,6 +62,7 @@ import {
   reemplazarFilasTras,
   type Plantilla,
 } from './libro'
+import { plantillaDelManifiesto } from './manifiesto-plantilla'
 
 export interface LineaManifiesto {
   sku: string
@@ -72,6 +81,14 @@ export interface ResultadoManifiesto {
 
 /** Quién prepara y quién etiqueta. El vendedor, en los dos casos */
 const DUENO = 'Seller'
+
+/**
+ * El manifiesto sobre la plantilla de Amazon que lleva el ERP: lo que hace falta para
+ * descargarlo con un clic. Es `rellenarManifiesto` con la plantilla de fábrica.
+ */
+export function manifiestoListo(lineas: LineaManifiesto[]): ResultadoManifiesto {
+  return rellenarManifiesto(plantillaDelManifiesto(), lineas)
+}
 
 export function rellenarManifiesto(
   plantilla: Plantilla,
