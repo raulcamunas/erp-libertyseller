@@ -3,6 +3,7 @@ import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { requireFbaAccess } from '@/lib/fba/acceso'
 import { estadoDeEnvios, lineasDeEnvio } from '@/lib/fba/inbound'
+import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -132,6 +133,13 @@ export async function POST(_request: Request, { params }: { params: { id: string
         updated_at: new Date().toISOString(),
       })
       .eq('id', params.id)
+
+    // Al historial del envío, si ha cambiado algo desde la última vez que se miró
+    await anotarSeguimiento(service, params.id, {
+      estado: info.estado,
+      enviadas: lineas.reduce((s, l) => s + l.enviadas, 0),
+      recibidas: lineas.reduce((s, l) => s + l.recibidas, 0),
+    }).catch(() => undefined)
 
     return NextResponse.json({
       ok: true,

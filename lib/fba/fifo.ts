@@ -139,6 +139,12 @@ export interface RepartoLinea {
   /** Lo que de verdad se puede vender: `quedan` menos lo que volvió inservible */
   quedanVendibles: number
   agotadaEl: string | null
+  /**
+   * LO QUE SE HA VENDIDO DE ESTA REMESA CADA DÍA ('YYYY-MM-DD' → unidades), en
+   * neto: las devoluciones restan del día en que vuelven. Solo trae los días en
+   * que pasó algo. Su suma es `consumidas`.
+   */
+  porDia: Record<string, number>
 }
 
 export interface RepartoSku {
@@ -250,6 +256,7 @@ export function repartirSku(
     devueltas: 0,
     devueltasNoVendibles: 0,
     agotadaEl: null as string | null,
+    porDia: {} as Record<string, number>,
   }))
 
   const ordenados = [...movimientos]
@@ -269,6 +276,7 @@ export function repartirSku(
         if (hueco <= 0) continue
         const toma = Math.min(hueco, porRepartir)
         e.consumidas += toma
+        e.porDia[mov.fecha] = (e.porDia[mov.fecha] ?? 0) + toma
         porRepartir -= toma
         if (e.enviadas - e.consumidas === 0) e.agotadaEl = mov.fecha
       }
@@ -287,6 +295,7 @@ export function repartirSku(
         if (e.consumidas <= 0) continue
         const suelta = Math.min(e.consumidas, porDevolver)
         e.consumidas -= suelta
+        e.porDia[mov.fecha] = (e.porDia[mov.fecha] ?? 0) - suelta
         e.devueltas += suelta
         if (noVendible) e.devueltasNoVendibles += suelta
         porDevolver -= suelta
@@ -306,6 +315,7 @@ export function repartirSku(
     devueltasNoVendibles: e.devueltasNoVendibles,
     quedanVendibles: Math.max(0, e.enviadas - e.consumidas - e.devueltasNoVendibles),
     agotadaEl: e.agotadaEl,
+    porDia: Object.fromEntries(Object.entries(e.porDia).filter(([, n]) => n !== 0)),
   }))
 
   const ventana = opciones.diasDeVelocidad ?? 30

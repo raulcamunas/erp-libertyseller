@@ -173,5 +173,19 @@ console.log('\n=== 11. UN ENVIO EN CAMINO NO ESTA AGOTADO ===')
   comprobar('ya recibiendo, 95 de 100 y vendidas 80: quedan 15', r3.quedan, 15)
 }
 
+console.log('\n=== 4. LO VENDIDO DÍA A DÍA DE CADA REMESA ===')
+{
+  const movs: Movimiento[] = [
+    venta('2026-09-12', 2),
+    venta('2026-09-13', 3), // r1 solo tenía 3: se agota con 1 de este día y el resto cae en r2
+    { sku: 'XXXXX', fecha: '2026-09-14', tipo: 'CustomerReturns', cantidad: 1 },
+  ]
+  const r = repartirSku('XXXXX', lineas, remesas, movs, { hoy: '2026-09-18' })
+  comprobar('r1 vendió 2 el día 12 y 1 el día 13', r.lineas[0].porDia, { '2026-09-12': 2, '2026-09-13': 1 })
+  comprobar('r2 vendió 2 el día 13 menos la devolución del 14', r.lineas[1].porDia, { '2026-09-13': 2, '2026-09-14': -1 })
+  comprobar('la suma de días es lo consumido (r2)', Object.values(r.lineas[1].porDia).reduce((x, y) => x + y, 0), r.lineas[1].consumidas)
+  comprobar('sin ventas no hay días', repartirSku('XXXXX', lineas, remesas, [], { hoy: '2026-09-18' }).lineas[0].porDia, {})
+}
+
 console.log(fallos === 0 ? '\n  TODO CORRECTO\n' : `\n  ${fallos} COMPROBACIONES FALLIDAS\n`)
 process.exit(fallos === 0 ? 0 : 1)

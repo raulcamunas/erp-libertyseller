@@ -44,6 +44,8 @@ export interface LineaDePanel {
   quedan: number
   quedanVendibles: number
   agotadaEl: string | null
+  /** Lo vendido de esta línea cada día ('YYYY-MM-DD' → unidades, en neto). Solo días con movimiento */
+  porDia: Record<string, number>
 }
 
 /**
@@ -89,6 +91,16 @@ export interface RemesaDePanel {
       Es lo que se puede reclamar */
   unidadesQueNoLlegaron: number
   lineas: LineaDePanel[]
+  /** El historial del envío: cuándo se vio cambiar su estado o las unidades recibidas */
+  eventos: EventoDeRemesa[]
+  /**
+   * LO VENDIDO CADA DÍA DE ESTA REMESA, en neto, de más antiguo a más reciente.
+   * Es el reparto FIFO por días: las ventas que caen en esta remesa y no en otra.
+   * Solo trae los días en que hubo movimiento; quien lo pinta rellena los huecos.
+   */
+  ventasPorDia: Array<{ fecha: string; vendidas: number }>
+  /** Desde qué día cuenta esta remesa: la llegada confirmada o, si no, el envío */
+  cuentaDesde: string
   /** Totales de la remesa: es la fila del resumen */
   enviadas: number
   quedan: number
@@ -136,6 +148,14 @@ interface FilaRemesa {
   /** Pueden no venir: la 215 se lanza a mano y el código llega antes */
   version?: number | null
   reabierta_at?: string | null
+}
+
+export interface EventoDeRemesa {
+  /** ISO. La hora en que se VIO el cambio, no la de Amazon */
+  vistoAt: string
+  estadoAmazon: string | null
+  enviadas: number | null
+  recibidas: number | null
 }
 
 export interface EnvioDeRemesa {
@@ -380,6 +400,28 @@ export async function panelDeCliente(
     enviosPorRemesa.set(e.remesa_id as string, lista)
   }
 
+  // El historial de los envíos. La tabla es de la migración 224, que se lanza a
+  // mano: si no está, no hay historial y el resto del panel sigue igual.
+  const eventosPorRemesa = new Map<string, EventoDeRemesa[]>()
+  if (filasRemesa.length > 0) {
+    const { data: filasEvento, error: errEventos } = await service
+      .from('fba_remesa_eventos')
+      .select('remesa_id, visto_at, estado_amazon, unidades_enviadas, unidades_recibidas')
+      .in('remesa_id', filasRemesa.map((r) => r.id))
+      .order('visto_at', { ascending: true })
+    if (errEventos && !faltaLa215(errEventos)) throw errEventos
+    for (const e of (filasEvento ?? []) as Array<Record<string, unknown>>) {
+      const lista = eventosPorRemesa.get(e.remesa_id as string) ?? []
+      lista.push({
+        vistoAt: e.visto_at as string,
+        estadoAmazon: (e.estado_amazon as string | null) ?? null,
+        enviadas: (e.unidades_enviadas as number | null) ?? null,
+        recibidas: (e.unidades_recibidas as number | null) ?? null,
+      })
+      eventosPorRemesa.set(e.remesa_id as string, lista)
+    }
+  }
+
   const remesasPorId = new Map<string, Remesa>(
     filasRemesa.map((r) => [
       r.id,
@@ -445,8 +487,17 @@ export async function panelDeCliente(
         quedan: rep?.quedan ?? l.unidades,
         quedanVendibles: rep?.quedanVendibles ?? l.unidades,
         agotadaEl: rep?.agotadaEl ?? null,
+        porDia: rep?.porDia ?? {},
       }
     })
+
+    const porDiaTotal = new Map<string, number>()
+    for (const l of lineas) {
+      for (const [fecha, n] of Object.entries(l.porDia)) porDiaTotal.set(fecha, (porDiaTotal.get(fecha) ?? 0) + n)
+    }
+    const ventasPorDia = [...porDiaTotal.entries()]
+      .map(([fecha, vendidas]) => ({ fecha, vendidas }))
+      .sort((a, b) => a.fecha.localeCompare(b.fecha))
 
     const enviadas = lineas.reduce((s, l) => s + l.enviadas, 0)
     const quedan = lineas.reduce((s, l) => s + l.quedan, 0)
@@ -497,6 +548,9 @@ export async function panelDeCliente(
         0
       ),
       lineas,
+      eventos: eventosPorRemesa.get(r.id) ?? [],
+      ventasPorDia,
+      cuentaDesde: (r.llegada_at ?? r.fecha_envio).slice(0, 10),
       enviadas,
       quedan,
       consumidoPct:

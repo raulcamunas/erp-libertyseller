@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardPaste, ListChecks, Loader2, X } from 'lucide-react'
+import { ClipboardPaste, Download, ListChecks, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { SelectorProductos, type Elegido } from './SelectorProductos'
 
@@ -168,7 +168,15 @@ export function NuevaRemesaDialog({
    * de cálculo entera de golpe —así entraron las diez remesas históricas de
    * ShoesF— y quitarlo dejaría sin salida a quien tenga la lista ya hecha.
    */
-  const [modo, setModo] = useState<'elegir' | 'pegar'>('elegir')
+  const [modo, setModo] = useState<'elegir' | 'pegar' | 'amazon'>('elegir')
+  /** Lo que Amazon contesta al buscar un envío por su número (modo «amazon») */
+  const [buscando, setBuscando] = useState(false)
+  const [traido, setTraido] = useState<{
+    existente: { id: string; nombre: string | null } | null
+    envio: { shipmentId: string; nombre: string | null; estado: string; centro: string | null }
+    lineas: Array<{ sku: string; enviadas: number; recibidas: number; nombre: string | null; asin: string | null }>
+  } | null>(null)
+  const [errorBusqueda, setErrorBusqueda] = useState<string | null>(null)
   const [elegidos, setElegidos] = useState<Elegido[]>([])
 
   const { lineas: pegadas, avisos } = useMemo(() => interpretar(pegado), [pegado])
@@ -191,7 +199,61 @@ export function NuevaRemesaDialog({
   )
   const totalUnidades = lineas.reduce((s, l) => s + l.unidades, 0)
 
+  async function buscarEnAmazon() {
+    setBuscando(true)
+    setErrorBusqueda(null)
+    setTraido(null)
+    try {
+      const res = await fetch('/api/fba/remesas/importar-envio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'buscar', clienteId, marketplaceId, shipmentId: referenciaEnvio }),
+      })
+      const payload = (await res.json().catch(() => null)) as
+        | ({ error?: string } & Partial<NonNullable<typeof traido>>)
+        | null
+      if (!res.ok || !payload?.envio || !payload.lineas) {
+        setErrorBusqueda(payload?.error ?? 'No se ha podido consultar el envío')
+        return
+      }
+      setTraido({ existente: payload.existente ?? null, envio: payload.envio, lineas: payload.lineas })
+      if (!nombre.trim() && payload.envio.nombre) setNombre(payload.envio.nombre)
+    } finally {
+      setBuscando(false)
+    }
+  }
+
+  async function guardarDeAmazon() {
+    if (!traido || traido.existente) return
+    setGuardando(true)
+    try {
+      const res = await fetch('/api/fba/remesas/importar-envio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion: 'crear',
+          clienteId,
+          marketplaceId,
+          shipmentId: traido.envio.shipmentId,
+          nombre: nombre.trim() || null,
+          fechaEnvio,
+        }),
+      })
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null
+      if (!res.ok) {
+        toast.error(payload?.error ?? 'No se ha podido traer el envío')
+        return
+      }
+      toast.success(`Envío traído de Amazon: ${traido.lineas.length} referencias`)
+      onClose()
+      router.refresh()
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   async function guardar() {
+    if (modo === 'amazon') return guardarDeAmazon()
     if (lineas.length === 0) return
     setGuardando(true)
     try {
@@ -283,7 +345,86 @@ export function NuevaRemesaDialog({
                 <ClipboardPaste className="h-3.5 w-3.5" />
                 Pegar una tabla
               </button>
+              <button
+                type="button"
+                onClick={() => setModo('amazon')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  modo === 'amazon' ? 'bg-[#FF6600]/15 text-[#FF6600]' : 'text-white/45 hover:text-white/70'
+                }`}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Traer de Amazon
+              </button>
             </div>
+
+            {modo === 'amazon' && (
+              <div className="space-y-3">
+                <p className="text-[11px] leading-relaxed text-white/45">
+                  Escribe arriba el <strong className="text-white/70">Nº de envío FBA</strong> (el que empieza por
+                  FBA, en Seller Central → Gestionar envíos) y pulsa buscar. Amazon dice qué se mandó y qué ha
+                  recibido; no hace falta elegir ni pegar nada. A partir de ahí se sigue solo: su estado cada
+                  hora y lo que se va vendiendo cada día.
+                </p>
+                <button
+                  type="button"
+                  onClick={buscarEnAmazon}
+                  disabled={buscando || referenciaEnvio.trim().length < 9}
+                  className="flex items-center gap-1.5 rounded-lg border border-[#FF6600]/40 px-3 py-1.5 text-[12px] font-semibold text-[#FF6600] hover:bg-[#FF6600]/10 disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  {buscando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Buscar en Amazon
+                </button>
+                {errorBusqueda && (
+                  <p className="rounded-lg border border-red-400/20 bg-red-400/[0.06] px-3 py-2 text-[11px] text-red-200/90">
+                    {errorBusqueda}
+                  </p>
+                )}
+                {traido && (
+                  <div>
+                    <p className="mb-1.5 text-[11px] text-white/50">
+                      <span className="font-semibold text-white">{traido.envio.nombre ?? traido.envio.shipmentId}</span>{' '}
+                      · {traido.envio.estado}
+                      {traido.envio.centro ? ` · destino ${traido.envio.centro}` : ''} ·{' '}
+                      <span className="font-semibold text-white">{traido.lineas.length}</span> referencias,{' '}
+                      <span className="font-semibold text-white">{traido.lineas.reduce((s, l) => s + l.enviadas, 0)}</span>{' '}
+                      unidades enviadas, {traido.lineas.reduce((s, l) => s + l.recibidas, 0)} recibidas
+                    </p>
+                    {traido.existente && (
+                      <p className="mb-1.5 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-[11px] text-amber-200/90">
+                        Este envío ya está en el ERP{traido.existente.nombre ? ` como «${traido.existente.nombre}»` : ''}.
+                        No se vuelve a crear.
+                      </p>
+                    )}
+                    <div className="max-h-52 overflow-auto rounded-lg border border-white/10">
+                      <table className="w-full">
+                        <thead className="sticky top-0 bg-[#0d0d0d]">
+                          <tr>
+                            {['SKU', 'Producto', 'Enviadas', 'Recibidas'].map((h, i) => (
+                              <th
+                                key={h}
+                                className={`border-b border-white/10 px-2 py-1 text-[9px] uppercase tracking-wider text-white/40 ${i > 1 ? 'text-right' : 'text-left'}`}
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {traido.lineas.map((l) => (
+                            <tr key={l.sku} className="border-b border-white/[0.04] last:border-0">
+                              <td className="px-2 py-1 font-mono text-[11px] text-white/70">{l.sku}</td>
+                              <td className="max-w-[240px] truncate px-2 py-1 text-[11px] text-white/60">{l.nombre ?? '—'}</td>
+                              <td className="px-2 py-1 text-right text-[11px] font-semibold text-white">{l.enviadas}</td>
+                              <td className="px-2 py-1 text-right text-[11px] text-white/60">{l.recibidas}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {modo === 'elegir' && (
               <SelectorProductos
@@ -383,11 +524,11 @@ export function NuevaRemesaDialog({
           <button
             type="button"
             onClick={guardar}
-            disabled={lineas.length === 0 || guardando}
+            disabled={(modo === 'amazon' ? !traido || !!traido.existente : lineas.length === 0) || guardando}
             className="flex items-center gap-1.5 rounded-lg bg-[#FF6600] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#FF6600]/85 disabled:cursor-not-allowed disabled:opacity-30"
           >
             {guardando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Guardar remesa
+            {modo === 'amazon' ? 'Traer este envío' : 'Guardar remesa'}
           </button>
         </div>
       </div>

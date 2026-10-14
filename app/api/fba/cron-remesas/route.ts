@@ -4,6 +4,7 @@ import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { fetchFbaInventory } from '@/lib/amazon/sp-api'
 import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
+import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -194,6 +195,11 @@ export async function POST(request: NextRequest) {
                   updated_at: new Date().toISOString(),
                 })
                 .eq('id', remesa.id)
+              await anotarSeguimiento(service, remesa.id, {
+                estado: info.estado,
+                enviadas: lineas.reduce((s, l) => s + l.enviadas, 0),
+                recibidas: lineas.reduce((s, l) => s + l.recibidas, 0),
+              }).catch(() => undefined)
               seguidos++
             }
           }

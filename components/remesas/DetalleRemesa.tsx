@@ -26,6 +26,8 @@ import { DireccionOrigen } from './DireccionOrigen'
 import { EditorBoceto } from './EditorBoceto'
 import { EditorCajas } from './EditorCajas'
 import { Pasarela } from './Pasarela'
+import { SeguimientoEnvio } from './SeguimientoEnvio'
+import { VentasPorDia } from './VentasPorDia'
 import { colorDeCobertura, fecha } from './formato'
 
 /**
@@ -456,6 +458,10 @@ export function DetalleRemesa({
           puedeEditar={puedeEditar}
         />
       )}
+
+      {/* ================= VENTAS DÍA A DÍA ================= */}
+      {remesa.estado !== 'borrador' && <SeguimientoEnvio remesa={remesa} />}
+      {remesa.estado !== 'borrador' && <VentasPorDia remesa={remesa} />}
 
       {/* ================= REFERENCIAS ================= */}
       <div className="glass-card flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -149,6 +149,16 @@ export const TAREAS_CRON = [
       'descuenta las remesas y lo que permite cuadrarlas.',
   },
   {
+    id: 'fba-seguimiento',
+    nombre: 'Seguimiento de envíos a FBA',
+    ruta: '/api/fba/cron-seguimiento',
+    cadaMinutos: 60,
+    que:
+      'Mira cada hora los envíos a FBA que siguen vivos: en qué estado están y cuántas unidades ' +
+      'ha recibido Amazon. Apunta en el historial del envío cada vez que algo cambia. No escribe ' +
+      'nada en Amazon.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
