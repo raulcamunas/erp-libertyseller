@@ -144,7 +144,7 @@ export async function lineasDeEnvio(
   marketplaceId: string,
   shipmentId: string
 ): Promise<LineaInbound[]> {
-  const lineas: LineaInbound[] = []
+  const porSku = new Map<string, LineaInbound>()
   let nextToken: string | undefined
   let vueltas = 0
 
@@ -155,23 +155,40 @@ export async function lineasDeEnvio(
       query: { MarketplaceId: marketplaceId, NextToken: nextToken },
     })
 
-    for (const crudo of (data.payload?.ItemData ?? data.ItemData ?? []) as Array<
-      Record<string, unknown>
-    >) {
-      const sku = texto(crudo.SellerSKU)
-      if (!sku) continue
-      lineas.push({
-        sku,
-        enviadas: entero(crudo.QuantityShipped),
-        recibidas: entero(crudo.QuantityReceived),
+    const nuevas = agregarPagina(
+      porSku,
+      ((data.payload?.ItemData ?? data.ItemData ?? []) as Array<Record<string, unknown>>).flatMap((crudo) => {
+        const sku = texto(crudo.SellerSKU)
+        return sku
+          ? [{ sku, enviadas: entero(crudo.QuantityShipped), recibidas: entero(crudo.QuantityReceived) }]
+          : []
       })
-    }
+    )
 
     nextToken = data.payload?.NextToken
     vueltas++
+    // UNA PÁGINA QUE NO TRAE NINGÚN SKU NUEVO ES LA MISMA DE ANTES. Este endpoint
+    // devuelve un NextToken pero no admite pedirlo (no hay parámetro para ello):
+    // se repetía la primera página hasta el tope de 20 vueltas y un envío de 99
+    // unidades salía con 1.980. Se corta aquí.
+    if (nuevas === 0) break
   } while (nextToken && vueltas < 20)
 
-  return lineas
+  return [...porSku.values()]
+}
+
+/**
+ * Suma una página al mapa por SKU y dice cuántos SKU eran nuevos. Un SKU que ya
+ * estaba SUSTITUYE al anterior, no se suma: dos veces la misma línea no son el
+ * doble de unidades. Pura, para probarla sin Amazon.
+ */
+export function agregarPagina(porSku: Map<string, LineaInbound>, pagina: LineaInbound[]): number {
+  let nuevas = 0
+  for (const l of pagina) {
+    if (!porSku.has(l.sku)) nuevas += 1
+    porSku.set(l.sku, l)
+  }
+  return nuevas
 }
 
 /**

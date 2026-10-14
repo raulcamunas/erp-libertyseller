@@ -218,6 +218,10 @@ export function NuevaRemesaDialog({
       }
       setTraido({ existente: payload.existente ?? null, envio: payload.envio, lineas: payload.lineas })
       if (!nombre.trim() && payload.envio.nombre) setNombre(payload.envio.nombre)
+      // Los envíos de Amazon se llaman «FBA STA (06/10/2026 10:17)»: lleva el día de
+      // creación, que es una fecha de envío mucho mejor que la de hoy.
+      const dia = /\((\d{2})\/(\d{2})\/(\d{4})/.exec(payload.envio.nombre ?? '')
+      if (dia) setFechaEnvio(`${dia[3]}-${dia[2]}-${dia[1]}`)
     } finally {
       setBuscando(false)
     }
