@@ -1,6 +1,7 @@
 'use client'
 
 import type { ContrasteGuardado } from '@/lib/prestashop/informe'
+import type { TuplaPrecio } from '@/lib/auditor-stock/precios'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Play, Search, Store } from 'lucide-react'
 import {
@@ -49,10 +50,11 @@ interface Detalle {
   detalle: FilaDetalle[]
   cambios: Cambios | null
   contraste: ContrasteGuardado | null
+  cambiosPrecio: TuplaPrecio[] | null
 }
 
 type VistaTienda = 'sobreventa' | 'ventaPerdida' | 'distinta'
-type Vista = 'con_stock' | 'entran' | 'salen' | VistaTienda
+type Vista = 'con_stock' | 'entran' | 'salen' | 'precios' | VistaTienda
 
 const ROTULO_TIENDA: Record<VistaTienda, { corto: string; ayuda: string }> = {
   sobreventa: { corto: 'Sobreventa', ayuda: 'Amazon tiene stock y la tienda no: se puede vender lo que no hay' },
@@ -61,16 +63,33 @@ const ROTULO_TIENDA: Record<VistaTienda, { corto: string; ayuda: string }> = {
 }
 
 function descargarTabla(
-  filas: { sku: string; asin: string | null; cantidad: number; canal: 'M' | 'A' | null; tienda?: number }[],
+  filas: { sku: string; asin: string | null; cantidad: number; canal: 'M' | 'A' | null; tienda?: number; precio?: [number, number] }[],
   vista: Vista,
   creada: string | null
 ) {
   const conTienda = filas.some((f) => f.tienda !== undefined)
+  const dePrecios = vista === 'precios'
   const celda = (v: string | number | null) => {
     const t = v === null ? '' : String(v)
     return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
   }
-  const lineas = [
+  const eurCsv = (c: number) => (c / 100).toFixed(2).replace('.', ',')
+  const lineas = dePrecios
+    ? [
+        ['SKU', 'ASIN', 'Precio antes (€)', 'Precio ahora (€)', 'Variación (%)'].join(';'),
+        ...filas.map((f) =>
+          [
+            f.sku,
+            f.asin,
+            f.precio ? eurCsv(f.precio[0]) : '',
+            f.precio ? eurCsv(f.precio[1]) : '',
+            f.precio ? (((f.precio[1] - f.precio[0]) / f.precio[0]) * 100).toFixed(1).replace('.', ',') : '',
+          ]
+            .map(celda)
+            .join(';')
+        ),
+      ]
+    : [
     ['SKU', 'ASIN', 'Stock en Amazon', ...(conTienda ? ['Stock en PrestaShop'] : []), 'Canal'].join(';'),
     ...filas.map((f) =>
       [f.sku, f.asin, f.cantidad, ...(conTienda ? [f.tienda ?? ''] : []), f.canal === 'A' ? 'FBA' : f.canal === 'M' ? 'FBM' : '']
@@ -85,6 +104,14 @@ function descargarTabla(
   a.download = `auditor-stock-${vista}-${(creada ?? new Date().toISOString()).slice(0, 16).replace(/[:T]/g, '-')}.csv`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+const eur = (centimos: number) =>
+  (centimos / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+
+function variacion(antes: number, ahora: number): string {
+  const p = ((ahora - antes) / antes) * 100
+  return `${p > 0 ? '+' : ''}${p.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`
 }
 
 function haceCuanto(iso: string, ahora: number): string {
@@ -222,9 +249,11 @@ export function TableroAuditorStock({
   const tabla = useMemo(() => {
     if (!detalle) return []
     const t = busca.trim().toLowerCase()
-    type Fila = { sku: string; asin: string | null; cantidad: number; canal: 'M' | 'A' | null; tienda?: number }
+    type Fila = { sku: string; asin: string | null; cantidad: number; canal: 'M' | 'A' | null; tienda?: number; precio?: [number, number] }
     let base: Fila[]
-    if (vista === 'sobreventa' || vista === 'ventaPerdida' || vista === 'distinta') {
+    if (vista === 'precios') {
+      base = (detalle.cambiosPrecio ?? []).map((d) => ({ sku: d[0], asin: d[1], cantidad: 0, canal: null, precio: [d[2], d[3]] as [number, number] }))
+    } else if (vista === 'sobreventa' || vista === 'ventaPerdida' || vista === 'distinta') {
       base = (detalle.contraste?.[vista] ?? []).map((d) => ({
         sku: d[0],
         asin: d[1],
@@ -324,6 +353,17 @@ export function TableroAuditorStock({
                 <span className={CIFRAS.rotulo}>Amazon / tienda con stock</span>
               </div>
             )}
+            {cabecera.precio_cambios != null && (
+              <div
+                className={CIFRAS.celda}
+                title="SKU que han cambiado de precio respecto a la auditoría anterior (suben / bajan)"
+              >
+                <span className={CIFRAS.valor}>
+                  {n(cabecera.precio_suben ?? 0)} / {n(cabecera.precio_bajan ?? 0)}
+                </span>
+                <span className={CIFRAS.rotulo}>precio suben / bajan</span>
+              </div>
+            )}
             {cabecera.ps_estado === 'ok' && cabecera.ps_con_stock != null && (
               <div className={CIFRAS.celda} title="Tallas de la tienda PrestaShop con stock, estén o no en Amazon">
                 <span className={CIFRAS.valor}>{n(cabecera.ps_con_stock)}</span>
@@ -371,6 +411,15 @@ export function TableroAuditorStock({
           >
             Descargar historial
           </a>
+          {lista.ok && lista.conPrecios && (
+            <a
+              href={`/api/auditor-stock/exportar?tipo=precios&horas=${horasExport}`}
+              className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
+              title="CSV con todos los cambios de precio del periodo: hora, SKU, precio antes y precio ahora"
+            >
+              Cambios de precio
+            </a>
+          )}
         </div>
 
         <button
@@ -399,6 +448,15 @@ export function TableroAuditorStock({
           <div className={`${TIPO.s} ${TEXTO.t2}`}>
             <strong>La tienda PrestaShop no ha contestado en la última pasada.</strong> {ultima.ps_error}{' '}
             La auditoría de Amazon es válida; solo falta el cruce de esa hora.
+          </div>
+        </div>
+      )}
+      {lista.ok && !lista.conPrecios && (
+        <div className={`${AVISO.base} ${AVISO.conTono} shrink-0`} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
+          <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
+          <div className={`${TIPO.s} ${TEXTO.t2}`}>
+            Falta lanzar la migración <strong>223_auditor_stock_precios.sql</strong> para que cada auditoría
+            apunte también los cambios de precio.
           </div>
         </div>
       )}
@@ -534,6 +592,20 @@ export function TableroAuditorStock({
                                 ? 'tienda ✕'
                                 : '—'}
                           </td>
+                          {lista.ok && lista.conPrecios && (
+                            <td
+                              className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t3}`}
+                              title="SKU cuyo precio cambió respecto a la auditoría anterior"
+                            >
+                              {f.precio_cambios == null ? (
+                                '—'
+                              ) : (
+                                <span style={{ color: f.precio_cambios > 0 ? COLOR_ESTADO.ambar : undefined }}>
+                                  € {n(f.precio_cambios)}
+                                </span>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -578,6 +650,17 @@ export function TableroAuditorStock({
                 </button>
               )
             })}
+
+            {detalle?.resumen.precio_cambios != null && (
+              <button
+                type="button"
+                title="SKU cuyo precio ha cambiado desde la auditoría anterior: lo que valía antes y lo que vale ahora"
+                className={`${BOTON.chip} ${vista === 'precios' ? BOTON.chipEncendido : ''}`}
+                onClick={() => setVista('precios')}
+              >
+                Precio cambia ({n(detalle.resumen.precio_cambios)})
+              </button>
+            )}
 
             {detalle?.contraste &&
               (['sobreventa', 'ventaPerdida', 'distinta'] as const).map((v) => (
@@ -632,13 +715,21 @@ export function TableroAuditorStock({
                 <tr>
                   <th className={TABLA.cabecera}>SKU</th>
                   <th className={TABLA.cabecera}>ASIN</th>
+                  {vista === 'precios' ? (
+                    <>
+                      <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Precio antes</th>
+                      <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Precio ahora</th>
+                      <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Variación</th>
+                    </>
+                  ) : (
                   <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>
                     {vista === 'salen' ? 'Tenían' : vista === 'con_stock' || vista === 'entran' ? 'Cantidad' : 'Amazon'}
                   </th>
+                  )}
                   {(vista === 'sobreventa' || vista === 'ventaPerdida' || vista === 'distinta') && (
                     <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Tienda</th>
                   )}
-                  <th className={TABLA.cabecera}>Canal</th>
+                  {vista !== 'precios' && <th className={TABLA.cabecera}>Canal</th>}
                 </tr>
               </thead>
               <tbody>
@@ -672,13 +763,28 @@ export function TableroAuditorStock({
                   <tr key={`${f.sku}|${i}`} className={TABLA.fila}>
                     <td className={`${TABLA.celda} font-mono text-[11.5px]`}>{f.sku}</td>
                     <td className={`${TABLA.celda} font-mono text-[11.5px] ${TEXTO.t3}`}>{f.asin ?? '—'}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t1} font-semibold`}>{n(f.cantidad)}</td>
-                    {f.tienda !== undefined && (
-                      <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t1} font-semibold`}>{n(f.tienda)}</td>
+                    {f.precio ? (
+                      <>
+                        <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t3}`}>{eur(f.precio[0])}</td>
+                        <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t1} font-semibold`}>{eur(f.precio[1])}</td>
+                        <td
+                          className={`${TABLA.celda} ${TABLA.numero}`}
+                          style={{ color: f.precio[1] > f.precio[0] ? COLOR_ESTADO.rojo : COLOR_ESTADO.verde }}
+                        >
+                          {variacion(f.precio[0], f.precio[1])}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t1} font-semibold`}>{n(f.cantidad)}</td>
+                        {f.tienda !== undefined && (
+                          <td className={`${TABLA.celda} ${TABLA.numero} ${TEXTO.t1} font-semibold`}>{n(f.tienda)}</td>
+                        )}
+                        <td className={`${TABLA.celda} ${TEXTO.t3}`}>
+                          {f.canal === 'A' ? 'FBA' : f.canal === 'M' ? 'FBM' : '—'}
+                        </td>
+                      </>
                     )}
-                    <td className={`${TABLA.celda} ${TEXTO.t3}`}>
-                      {f.canal === 'A' ? 'FBA' : f.canal === 'M' ? 'FBM' : '—'}
-                    </td>
                   </tr>
                 ))}
               </tbody>

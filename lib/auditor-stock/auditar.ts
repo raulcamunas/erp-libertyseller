@@ -13,7 +13,8 @@ import {
   type ItemVivo,
 } from './clasificar'
 import { leerTramos } from './paralelo'
-import { hayColumnasTienda } from './esquema'
+import { hayColumnasPrecio, hayColumnasTienda } from './esquema'
+import { aCentimos, diferenciasPrecio, type ResultadoPrecios } from './precios'
 import { leerTienda, type LecturaTienda } from './tienda'
 import { compactar, resumirContraste, type ResumenContraste } from '@/lib/prestashop/informe'
 import type { FilaAmazon } from '@/lib/prestashop/cruce'
@@ -91,7 +92,7 @@ const TRAMO = 100
  * límite, solo hace cola. No hay riesgo de pasarse; lo que sí hay es que durante
  * la pasada las demás lecturas de esta cuenta esperan su turno detrás.
  */
-const CONCURRENCIA = 3
+const CONCURRENCIA = 5
 
 /** Cuánto se conserva. ~25 KB comprimidos por auditoría: unos 50 MB en régimen */
 export const RETENCION_DIAS = 21
@@ -262,6 +263,9 @@ async function ejecutar(
   /** La tienda se lee a la vez que Amazon (ver tienda.ts: no lanza nunca) */
   let tienda: Promise<LecturaTienda> | null = null
   let conTienda = false
+  /** Los precios solo se piden si la migración 223 está lanzada */
+  let conPrecios = false
+  const precios = new Map<string, { asin: string | null; centimos: number }>()
 
   // ---------- 0. ¿Hay dónde guardarlo? ----------
   //
@@ -283,6 +287,7 @@ async function ejecutar(
     // Sin las columnas de la migración 222 no se lee ni se guarda nada de ella.
     conTienda = await hayColumnasTienda()
     if (conTienda) tienda = leerTienda(cuenta.clientId, 150_000)
+    conPrecios = await hayColumnasPrecio()
 
     // ---------- 1. Qué se pregunta ----------
     const filas = await universo(cuenta.connectionId, marketplaceId)
@@ -317,10 +322,15 @@ async function ejecutar(
           const { items } = await fetchListingsBySku(resueltas.credentials, {
             marketplaceId,
             skus: tramos[idx],
-            // Solo el stock: sin las ofertas la respuesta pesa menos y tarda menos.
-            incluir: ['summaries', 'fulfillmentAvailability'],
+            // El stock, y las ofertas solo si se van a comparar precios: pesan y
+            // alargan cada llamada, así que sin la migración 223 no se piden.
+            incluir: conPrecios
+              ? ['summaries', 'fulfillmentAvailability', 'offers']
+              : ['summaries', 'fulfillmentAvailability'],
           })
           for (const it of items) {
+            const c = conPrecios ? aCentimos(it.price) : null
+            if (c !== null) precios.set(it.sku, { asin: it.asin, centimos: c })
             vivos.set(it.sku, {
               sku: it.sku,
               asin: it.asin,
@@ -425,6 +435,35 @@ async function ejecutar(
     }
   }
 
+  // ---------- 4c. Qué precios han cambiado ----------
+  // Se compara con el último precio visto de cada SKU (tabla stock_precios). La
+  // primera pasada con precios no tiene con qué comparar: queda en NULL, que no es
+  // lo mismo que «0 cambios».
+  let cambiosPrecio: ResultadoPrecios | null = null
+  let hayBasePrecios = false
+  if (conPrecios && estado !== 'error' && precios.size > 0) {
+    try {
+      const previos = await fetchAll<{ sku: string; precio_centimos: number }>((a, b) =>
+        service
+          .from('stock_precios')
+          .select('sku, precio_centimos')
+          .eq('connection_id', cuenta.connectionId)
+          .eq('marketplace_id', marketplaceId)
+          .order('sku', { ascending: true })
+          .range(a, b)
+      )
+      const anteriores = new Map(previos.map((p) => [p.sku, p.precio_centimos]))
+      const d = diferenciasPrecio(anteriores, precios, MAX_LISTA_CAMBIOS)
+      // Sin ninguna referencia anterior todo es «nuevo»: se apunta, pero no hay
+      // nada que comparar
+      cambiosPrecio = d
+      hayBasePrecios = anteriores.size > 0
+    } catch (e) {
+      console.warn('[auditor-stock] no se han podido comparar los precios:', e instanceof Error ? e.message : e)
+    }
+  }
+  const comparado = cambiosPrecio !== null && hayBasePrecios
+
   const duracionMs = Date.now() - inicio
 
   // ---------- 5. Se guarda ----------
@@ -454,7 +493,17 @@ async function ejecutar(
       : null,
     detalle: estado === 'error' ? null : r.detalle,
   }
-  const fila = conTienda ? { ...campos, ...camposTienda(lecturaTienda, resumenTienda) } : campos
+  const conTiendaCampos = conTienda ? { ...campos, ...camposTienda(lecturaTienda, resumenTienda) } : campos
+  const fila = conPrecios
+    ? {
+        ...conTiendaCampos,
+        precios_leidos: precios.size,
+        precio_cambios: comparado ? cambiosPrecio!.total : null,
+        precio_suben: comparado ? cambiosPrecio!.suben : null,
+        precio_bajan: comparado ? cambiosPrecio!.bajan : null,
+        cambios_precio: comparado && cambiosPrecio!.total > 0 ? cambiosPrecio!.cambios : null,
+      }
+    : conTiendaCampos
 
   try {
     const { data, error: errInsert } = await service
@@ -463,6 +512,28 @@ async function ejecutar(
       .select('id')
       .single()
     if (errInsert) throw errInsert
+
+    // El «último precio visto» se apunta DESPUÉS de guardar la auditoría: si el
+    // guardado falla, la pasada siguiente vuelve a ver los mismos cambios en vez
+    // de perderlos.
+    if (conPrecios && cambiosPrecio) {
+      const lote = cambiosPrecio.aGuardar.map(([sku, c]) => ({
+        connection_id: cuenta.connectionId,
+        marketplace_id: marketplaceId,
+        sku,
+        precio_centimos: c,
+        visto_at: new Date().toISOString(),
+      }))
+      for (let i = 0; i < lote.length; i += 1000) {
+        const { error: e } = await service
+          .from('stock_precios')
+          .upsert(lote.slice(i, i + 1000), { onConflict: 'connection_id,marketplace_id,sku' })
+        if (e) {
+          console.warn('[auditor-stock] no se han podido apuntar los precios:', e.message)
+          break
+        }
+      }
+    }
 
     // La limpieza no puede tumbar una auditoría que ya está guardada.
     const limite = new Date(Date.now() - RETENCION_DIAS * 86_400_000).toISOString()

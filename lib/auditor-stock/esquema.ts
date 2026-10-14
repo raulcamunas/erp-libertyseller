@@ -35,3 +35,27 @@ export async function hayColumnasTienda(): Promise<boolean> {
   }
   return false
 }
+
+/**
+ * ¿ESTÁ LANZADA LA MIGRACIÓN 223 (precios)? Mismo criterio que arriba: sin ella no
+ * se pide el precio a Amazon ni se guarda nada, y el auditor sigue como siempre.
+ */
+let recuerdoPrecios: { ok: boolean; at: number } | null = null
+
+export async function hayColumnasPrecio(): Promise<boolean> {
+  if (recuerdoPrecios && Date.now() - recuerdoPrecios.at < RECUERDO_MS) return recuerdoPrecios.ok
+
+  const service = createServiceClient()
+  const [a, b] = await Promise.all([
+    service.from('stock_auditorias').select('precio_cambios').limit(1),
+    service.from('stock_precios').select('sku').limit(1),
+  ])
+  if (!a.error && !b.error) {
+    recuerdoPrecios = { ok: true, at: Date.now() }
+    return true
+  }
+  if ((a.error && isMissingSchema(a.error)) || (b.error && isMissingSchema(b.error))) {
+    recuerdoPrecios = { ok: false, at: Date.now() }
+  }
+  return false
+}

@@ -52,6 +52,10 @@ export async function GET(request: NextRequest) {
     const service = createServiceClient()
     const desde = new Date(Date.now() - horas * 3_600_000).toISOString()
 
+    if (request.nextUrl.searchParams.get('tipo') === 'precios') {
+      return await exportarPrecios(cuenta.connectionId, desde, horas)
+    }
+
     // Primero solo los ids y las horas: el detalle pesa y se pide por tandas.
     const { data: lista, error } = await service
       .from('stock_auditorias')
@@ -124,4 +128,51 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return errorResponse(error, 'Error al exportar el historial del auditor')
   }
+}
+
+const eurCsv = (c: number) => (c / 100).toFixed(2).replace('.', ',')
+
+/** Todos los cambios de precio de las auditorías del periodo, uno por fila */
+async function exportarPrecios(connectionId: string, desde: string, horas: number) {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('stock_auditorias')
+    .select('creada_at, cambios_precio')
+    .eq('connection_id', connectionId)
+    .eq('marketplace_id', MERCADO_AUDITADO)
+    .gte('creada_at', desde)
+    .not('cambios_precio', 'is', null)
+    .order('creada_at', { ascending: true })
+    .limit(1000)
+  if (error) {
+    return fail(500, `No se han podido leer los cambios de precio: ${error.message}`)
+  }
+
+  const lineas = [['Hora de la auditoría', 'SKU', 'ASIN', 'Precio antes (€)', 'Precio ahora (€)', 'Variación (%)'].join(';')]
+  for (const a of (data ?? []) as Array<{ creada_at: string; cambios_precio: Array<[string, string | null, number, number]> | null }>) {
+    for (const [sku, asin, antes, ahora] of a.cambios_precio ?? []) {
+      lineas.push(
+        [
+          hora.format(new Date(a.creada_at)),
+          sku,
+          asin,
+          eurCsv(antes),
+          eurCsv(ahora),
+          (((ahora - antes) / antes) * 100).toFixed(1).replace('.', ','),
+        ]
+          .map(celda)
+          .join(';')
+      )
+    }
+  }
+  if (lineas.length === 1) return fail(404, 'No hay cambios de precio guardados en ese periodo.')
+
+  const nombre = `auditor-stock-cambios-de-precio-${horas}h-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`
+  return new NextResponse('\uFEFF' + lineas.join('\r\n'), {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${nombre}"`,
+      'Cache-Control': 'no-store',
+    },
+  })
 }
