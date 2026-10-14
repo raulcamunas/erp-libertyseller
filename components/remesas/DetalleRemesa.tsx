@@ -26,8 +26,7 @@ import { DireccionOrigen } from './DireccionOrigen'
 import { EditorBoceto } from './EditorBoceto'
 import { EditorCajas } from './EditorCajas'
 import { Pasarela } from './Pasarela'
-import { SeguimientoEnvio } from './SeguimientoEnvio'
-import { VentasPorDia } from './VentasPorDia'
+import { PestanasRemesa } from './PestanasRemesa'
 import { colorDeCobertura, fecha } from './formato'
 
 /**
@@ -188,6 +187,140 @@ export function DetalleRemesa({
       setConfirmarBorrado(false)
     }
   }
+
+  const hoy = new Date().toISOString().slice(0, 10)
+
+  const bloqueReferencias = (
+        <div className="glass-card flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2">
+            <p className="text-[11px] font-medium text-white/60">
+              {remesa.lineas.length} referencia{remesa.lineas.length === 1 ? '' : 's'}
+              {totales.noVendibles > 0 && (
+                <span className="ml-2 text-amber-400" title="Unidades que volvieron y no se pueden vender">
+                  · {totales.noVendibles} inservible{totales.noVendibles === 1 ? '' : 's'}
+                </span>
+              )}
+            </p>
+            <div className="flex items-center gap-1 text-[10px] text-white/35">
+              Ordenar por
+              {(
+                [
+                  ['cobertura', 'urgencia'],
+                  ['quedan', 'quedan'],
+                  ['vendidas', 'vendidas'],
+                  ['sku', 'SKU'],
+                ] as Array<[Orden, string]>
+              ).map(([k, t]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setOrden(k)}
+                  className={`rounded px-1.5 py-0.5 transition-colors ${
+                    orden === k ? 'bg-[#FF6600]/15 text-[#FF6600]' : 'hover:text-white/70'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+  
+          <div className="min-h-0 flex-1 overflow-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10 bg-[#0d0d0d]">
+                <tr>
+                  <th className={TH}>SKU</th>
+                  <th className={TH}>Producto</th>
+                  <th className={TH}>Var.</th>
+                  <th className={TH}>ASIN</th>
+                  <th className={`${TH} text-right`}>Env.</th>
+                  <th className={`${TH} text-right`} title="Lo que Amazon dice que ha recibido de las que mandamos">
+                    Recib.
+                  </th>
+                  <th className={`${TH} text-right`}>Vend.</th>
+                  <th className={`${TH} text-right`}>Dev.</th>
+                  <th className={`${TH} text-right`}>Quedan</th>
+                  {conectado && (
+                    <>
+                      <th className={`${TH} text-right`} title="Unidades por día de este SKU, contando todos sus envíos">
+                        Ud/día
+                      </th>
+                      <th className={`${TH} text-right`} title="Días hasta agotar todo lo que queda de este SKU">
+                        Cobertura
+                      </th>
+                    </>
+                  )}
+                  <th className={TH}>Agotada</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lineas.map((l, i) => {
+                  const g = l.global
+                  const agotada = l.quedan === 0
+                  return (
+                    <motion.tr
+                      key={l.sku}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: Math.min(i * 0.015, 0.25) }}
+                      className={`border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] ${agotada ? 'opacity-50' : ''}`}
+                    >
+                      <td className={`${TD} font-mono text-[11px] text-white/60`}>{l.sku}</td>
+                      <td className={`${TD} max-w-[200px] truncate`} title={l.nombre ?? ''}>
+                        {l.nombre ?? <span className="text-white/25">—</span>}
+                      </td>
+                      <td className={TD}>{l.variante ?? <span className="text-white/25">—</span>}</td>
+                      <td className={`${TD} font-mono text-[10px] text-white/40`}>{l.asin ?? '—'}</td>
+                      <td className={`${TD} text-right text-white/45`}>{l.enviadas}</td>
+                      <td
+                        className={`${TD} text-right ${
+                          l.recibidas === null
+                            ? 'text-white/20'
+                            : l.recibidas < l.enviadas
+                              ? 'font-semibold text-amber-400'
+                              : 'text-white/45'
+                        }`}
+                        title={
+                          l.recibidas === null
+                            ? 'Todavía sin preguntar a Amazon'
+                            : l.recibidas < l.enviadas
+                              ? `Faltan ${l.enviadas - l.recibidas} unidades por registrar`
+                              : ''
+                        }
+                      >
+                        {l.recibidas ?? '—'}
+                      </td>
+                      <td className={`${TD} text-right`}>{l.consumidas}</td>
+                      <td className={`${TD} text-right ${l.devueltas > 0 ? 'text-amber-400' : 'text-white/25'}`}>
+                        {l.devueltas || '—'}
+                      </td>
+                      <td className={`${TD} text-right font-semibold ${agotada ? 'text-white/30' : 'text-white'}`}>
+                        {l.quedan}
+                        {l.quedanVendibles !== l.quedan && (
+                          <span className="ml-1 text-[9px] font-normal text-amber-400" title="De estas, algunas volvieron inservibles">
+                            ({l.quedanVendibles})
+                          </span>
+                        )}
+                      </td>
+                      {conectado && (
+                        <>
+                          <td className={`${TD} text-right text-white/45`}>{g?.velocidad || '—'}</td>
+                          <td className={`${TD} text-right font-semibold ${colorDeCobertura(g?.diasDeCobertura ?? null)}`}>
+                            {g?.diasDeCobertura === null || g?.diasDeCobertura === undefined
+                              ? '—'
+                              : `${g.diasDeCobertura} d`}
+                          </td>
+                        </>
+                      )}
+                      <td className={`${TD} text-white/35`}>{fecha(l.agotadaEl)}</td>
+                    </motion.tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+  )
 
   const actor = esAdmin ? 'agencia' : 'cliente'
   const enCajas = puedeEditarCajas(remesa.estado)
@@ -459,140 +592,12 @@ export function DetalleRemesa({
         />
       )}
 
-      {/* ================= VENTAS DÍA A DÍA ================= */}
-      {remesa.estado !== 'borrador' && <SeguimientoEnvio remesa={remesa} />}
-      {remesa.estado !== 'borrador' && <VentasPorDia remesa={remesa} />}
-
-      {/* ================= REFERENCIAS ================= */}
-      <div className="glass-card flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2">
-          <p className="text-[11px] font-medium text-white/60">
-            {remesa.lineas.length} referencia{remesa.lineas.length === 1 ? '' : 's'}
-            {totales.noVendibles > 0 && (
-              <span className="ml-2 text-amber-400" title="Unidades que volvieron y no se pueden vender">
-                · {totales.noVendibles} inservible{totales.noVendibles === 1 ? '' : 's'}
-              </span>
-            )}
-          </p>
-          <div className="flex items-center gap-1 text-[10px] text-white/35">
-            Ordenar por
-            {(
-              [
-                ['cobertura', 'urgencia'],
-                ['quedan', 'quedan'],
-                ['vendidas', 'vendidas'],
-                ['sku', 'SKU'],
-              ] as Array<[Orden, string]>
-            ).map(([k, t]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setOrden(k)}
-                className={`rounded px-1.5 py-0.5 transition-colors ${
-                  orden === k ? 'bg-[#FF6600]/15 text-[#FF6600]' : 'hover:text-white/70'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full">
-            <thead className="sticky top-0 z-10 bg-[#0d0d0d]">
-              <tr>
-                <th className={TH}>SKU</th>
-                <th className={TH}>Producto</th>
-                <th className={TH}>Var.</th>
-                <th className={TH}>ASIN</th>
-                <th className={`${TH} text-right`}>Env.</th>
-                <th className={`${TH} text-right`} title="Lo que Amazon dice que ha recibido de las que mandamos">
-                  Recib.
-                </th>
-                <th className={`${TH} text-right`}>Vend.</th>
-                <th className={`${TH} text-right`}>Dev.</th>
-                <th className={`${TH} text-right`}>Quedan</th>
-                {conectado && (
-                  <>
-                    <th className={`${TH} text-right`} title="Unidades por día de este SKU, contando todos sus envíos">
-                      Ud/día
-                    </th>
-                    <th className={`${TH} text-right`} title="Días hasta agotar todo lo que queda de este SKU">
-                      Cobertura
-                    </th>
-                  </>
-                )}
-                <th className={TH}>Agotada</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lineas.map((l, i) => {
-                const g = l.global
-                const agotada = l.quedan === 0
-                return (
-                  <motion.tr
-                    key={l.sku}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: Math.min(i * 0.015, 0.25) }}
-                    className={`border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] ${agotada ? 'opacity-50' : ''}`}
-                  >
-                    <td className={`${TD} font-mono text-[11px] text-white/60`}>{l.sku}</td>
-                    <td className={`${TD} max-w-[200px] truncate`} title={l.nombre ?? ''}>
-                      {l.nombre ?? <span className="text-white/25">—</span>}
-                    </td>
-                    <td className={TD}>{l.variante ?? <span className="text-white/25">—</span>}</td>
-                    <td className={`${TD} font-mono text-[10px] text-white/40`}>{l.asin ?? '—'}</td>
-                    <td className={`${TD} text-right text-white/45`}>{l.enviadas}</td>
-                    <td
-                      className={`${TD} text-right ${
-                        l.recibidas === null
-                          ? 'text-white/20'
-                          : l.recibidas < l.enviadas
-                            ? 'font-semibold text-amber-400'
-                            : 'text-white/45'
-                      }`}
-                      title={
-                        l.recibidas === null
-                          ? 'Todavía sin preguntar a Amazon'
-                          : l.recibidas < l.enviadas
-                            ? `Faltan ${l.enviadas - l.recibidas} unidades por registrar`
-                            : ''
-                      }
-                    >
-                      {l.recibidas ?? '—'}
-                    </td>
-                    <td className={`${TD} text-right`}>{l.consumidas}</td>
-                    <td className={`${TD} text-right ${l.devueltas > 0 ? 'text-amber-400' : 'text-white/25'}`}>
-                      {l.devueltas || '—'}
-                    </td>
-                    <td className={`${TD} text-right font-semibold ${agotada ? 'text-white/30' : 'text-white'}`}>
-                      {l.quedan}
-                      {l.quedanVendibles !== l.quedan && (
-                        <span className="ml-1 text-[9px] font-normal text-amber-400" title="De estas, algunas volvieron inservibles">
-                          ({l.quedanVendibles})
-                        </span>
-                      )}
-                    </td>
-                    {conectado && (
-                      <>
-                        <td className={`${TD} text-right text-white/45`}>{g?.velocidad || '—'}</td>
-                        <td className={`${TD} text-right font-semibold ${colorDeCobertura(g?.diasDeCobertura ?? null)}`}>
-                          {g?.diasDeCobertura === null || g?.diasDeCobertura === undefined
-                            ? '—'
-                            : `${g.diasDeCobertura} d`}
-                        </td>
-                      </>
-                    )}
-                    <td className={`${TD} text-white/35`}>{fecha(l.agotadaEl)}</td>
-                  </motion.tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* ================= PESTAÑAS: EL DESGLOSE DEL ENVÍO ================= */}
+      {remesa.estado !== 'borrador' ? (
+        <PestanasRemesa remesa={remesa} skus={skus} hoy={hoy} referencias={bloqueReferencias} />
+      ) : (
+        bloqueReferencias
+      )}
     </div>
   )
 }
