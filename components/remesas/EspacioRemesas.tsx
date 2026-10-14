@@ -2,34 +2,39 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AnimatePresence, motion } from 'framer-motion'
-import {
-  AlertTriangle,
-  Boxes,
-  Package,
-  Plus,
-  Search,
-  TrendingDown,
-  PencilRuler,
-} from 'lucide-react'
+import { AlertTriangle, ClipboardList, Download, Package, Plus, TrendingDown } from 'lucide-react'
+import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
+import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
 import type { PanelRemesas, RemesaDePanel } from '@/lib/fba/datos'
-import { NuevaRemesaDialog } from './NuevaRemesaDialog'
-import { DetalleRemesa } from './DetalleRemesa'
-import { VistaReferencias } from './VistaReferencias'
+import type { Actor } from '@/lib/fba/flujo'
+import { esEnvio, esPropuesta, estaEnCamino, estaEnlazada, leToca, turnoDe } from '@/lib/fba/vista'
+import { cx, Vacio } from './comun/ui'
+import { DetalleEnvio } from './envios/DetalleEnvio'
+import { ListaEnvios } from './envios/ListaEnvios'
+import { TraerEnvioDialog } from './envios/TraerEnvioDialog'
+import { EspacioPropuesta } from './propuestas/EspacioPropuesta'
+import { ListaPropuestas } from './propuestas/ListaPropuestas'
+import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
 import { fecha } from './formato'
+import { VistaReferencias } from './VistaReferencias'
 
 /**
- * EL ESPACIO DE REMESAS: DOS COLUMNAS.
+ * REMESAS A FBA: DOS COSAS DISTINTAS Y UNA TERCERA PARA MIRAR.
  *
- * A la izquierda, la lista de envíos. A la derecha, el que esté elegido, con
- * todo lo que se sabe de él. Es la forma de trabajar a diario: recorrer la
- * lista sin perder de vista lo que se está mirando.
+ *   ENVÍOS       lo que ya ha salido y existe en Amazon: se sigue su estado, lo
+ *                que ha llegado y lo que se va vendiendo. Es lo verídico.
+ *   PROPUESTAS   lo que se está preparando con el cliente: qué mandar, que lo
+ *                apruebe, que etiquete y encaje. Cuando se marca como enviada y se
+ *                enlaza con su número de Amazon, pasa a Envíos.
+ *   REFERENCIAS  producto a producto, la que dice cuándo hay que reponer.
  *
- * La vista «por referencia» —la que dice cuándo se agota cada SKU— es otra
- * pregunta y va a pantalla completa, porque es una tabla ancha y partirla en
- * dos columnas la haría ilegible.
+ * Cada una es una pantalla con su propia lista a la izquierda y su espacio de
+ * trabajo a la derecha. La pantalla no calcula nada pesado: el reparto de ventas
+ * llega hecho del servidor.
  *
- * No calcula nada: el reparto llega hecho del servidor.
+ * Cambiar de pestaña o de envío es instantáneo —no toca el servidor—. Solo se
+ * pide al servidor lo que hace falta: otro cliente, o las cajas de una propuesta
+ * que está encajándose, que llegan por la URL.
  */
 
 interface Cliente {
@@ -37,9 +42,11 @@ interface Cliente {
   nombre: string
   puedeEditar: boolean
   remesas: number
+  envios: number
+  propuestas: number
 }
 
-const suave = { type: 'spring', stiffness: 380, damping: 32 } as const
+type Vista = 'envios' | 'propuestas' | 'referencias'
 
 export function EspacioRemesas({
   clientes,
@@ -57,541 +64,357 @@ export function EspacioRemesas({
   nombreUsuario: string
 }) {
   const router = useRouter()
-  const [vista, setVista] = useState<'envios' | 'bocetos' | 'referencias'>('envios')
-  const [seleccionada, setSeleccionada] = useState<string | null>(
-    remesaAbierta ?? panel.remesas[0]?.id ?? null
-  )
-  const [busqueda, setBusqueda] = useState('')
-  const [soloAbiertas, setSoloAbiertas] = useState(true)
+  const verComo: Actor = esAdmin ? 'agencia' : 'cliente'
+  const hoy = panel.hoy
+
+  const envios = useMemo(() => panel.remesas.filter(esEnvio), [panel.remesas])
+  const propuestas = useMemo(() => panel.remesas.filter(esPropuesta), [panel.remesas])
+
+  // Si llegan por un enlace a una propuesta, se abre en Propuestas
+  const [vista, setVista] = useState<Vista>(() => {
+    const abierta = panel.remesas.find((r) => r.id === remesaAbierta)
+    return abierta && esPropuesta(abierta) ? 'propuestas' : 'envios'
+  })
+  const [envioElegido, setEnvioElegido] = useState<string | null>(remesaAbierta)
+  const [propuestaElegida, setPropuestaElegida] = useState<string | null>(remesaAbierta)
   const [nueva, setNueva] = useState(false)
+  const [trayendo, setTrayendo] = useState(false)
   const [cambiando, setCambiando] = useState<string | null>(null)
 
-  /**
-   * Cambiar de cliente recarga en el servidor —el reparto entero se calcula
-   * allí—, así que hay un hueco de unas décimas. Se marca el botón pulsado para
-   * que no parezca que no ha hecho nada y se pulse dos veces.
-   */
   function irACliente(id: string) {
     if (id === cliente.id) return
     setCambiando(id)
     router.push(`/dashboard/remesas?cliente=${id}`)
   }
+  useEffect(() => setCambiando(null), [cliente.id])
 
-  // Al llegar los datos del cliente nuevo, se apaga la marca de carga
-  useEffect(() => {
-    setCambiando(null)
-  }, [cliente.id])
+  /**
+   * LA ELEGIDA, DERIVADA Y NO CORREGIDA.
+   *
+   * Si la remesa elegida todavía no está en el panel —acaba de crearse y el
+   * servidor no ha contestado— se enseña la primera, pero NO se toca la elección:
+   * cuando lleguen los datos, la elegida está ahí y se abre sola. Corregir el
+   * estado en medio es lo que haría saltar a otra.
+   */
+  const envio = envios.find((r) => r.id === envioElegido) ?? primeroPorDefecto(envios)
+  const propuesta = propuestas.find((r) => r.id === propuestaElegida) ?? propuestas[0] ?? null
 
-  // Si cambia el cliente o desaparece la remesa elegida, se elige la primera.
+  // Las cajas de una propuesta que se está encajando llegan por la URL: es lo único
+  // que obliga a ir al servidor al elegir una. Se pide UNA vez por propuesta y paso
+  // (la clave lo recuerda), así que si el servidor no las trae no se queda
+  // preguntando en bucle.
+  const cajasPedidas = useRef<string | null>(null)
+  const clavePropuesta = propuesta ? `${propuesta.id}:${propuesta.estado}` : null
+  const cajasLlegadas = panel.cajasDe?.remesaId ?? null
   useEffect(() => {
-    if (!panel.remesas.some((r) => r.id === seleccionada)) {
-      setSeleccionada(panel.remesas[0]?.id ?? null)
+    if (vista !== 'propuestas' || !propuesta || !clavePropuesta) return
+    const necesitaCajas = propuesta.estado === 'encajando' || propuesta.estado === 'lista'
+    if (!necesitaCajas || cajasLlegadas === propuesta.id || cajasPedidas.current === clavePropuesta) return
+    cajasPedidas.current = clavePropuesta
+    router.replace(`/dashboard/remesas?cliente=${cliente.id}&remesa=${propuesta.id}`, { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vista, clavePropuesta, cajasLlegadas, cliente.id])
+
+  /** Días de stock de cada envío, para señalar en la lista los que se agotan pronto */
+  const diasCobertura = useMemo(() => {
+    const globales = new Map(panel.skus.map((s) => [s.sku, s]))
+    const m = new Map<string, number | null>()
+    for (const r of envios) {
+      if (r.quedan === 0) {
+        m.set(r.id, null)
+        continue
+      }
+      m.set(r.id, resumenDeRitmo(r, analizarProductos(r, globales, hoy), hoy).cobertura)
     }
-  }, [panel.remesas, seleccionada])
+    return m
+  }, [envios, panel.skus, hoy])
 
-  const bocetos = useMemo(
-    () => panel.remesas.filter((r) => r.estado === 'borrador').length,
-    [panel.remesas]
-  )
-
-  const lista = useMemo(() => {
-    const q = busqueda.trim().toLowerCase()
-    return panel.remesas
-      .filter((r) => (vista === 'bocetos' ? r.estado === 'borrador' : true))
-      /**
-       * «SOLO VIVAS» NO SE APLICA A LOS BOCETOS, y es la trampa de esta pestaña.
-       *
-       * Ese filtro esconde los envíos sin unidades por consumir, y un boceto
-       * recién creado tiene CERO consumido porque no se ha mandado nada: con la
-       * casilla puesta —que viene puesta de serie— la pestaña de bocetos saldría
-       * vacía justo cuando acabas de crear uno.
-       */
-      .filter((r) => vista === 'bocetos' || !soloAbiertas || r.quedan > 0)
-      .filter(
-        (r) =>
-          !q ||
-          (r.nombre ?? '').toLowerCase().includes(q) ||
-          r.lineas.some((l) => l.sku.toLowerCase().includes(q) || (l.nombre ?? '').toLowerCase().includes(q))
-      )
-      .slice()
-      .sort((a, b) => b.fechaEnvio.localeCompare(a.fechaEnvio))
-  }, [panel.remesas, busqueda, soloAbiertas, vista])
-
-  const remesa = panel.remesas.find((r) => r.id === seleccionada) ?? null
-
-  const totales = useMemo(() => {
-    const enviadas = panel.remesas.reduce((s, r) => s + r.enviadas, 0)
-    const quedan = panel.remesas.reduce((s, r) => s + r.quedan, 0)
-    const urgentes = panel.skus.filter(
-      (s) => s.diasDeCobertura !== null && s.diasDeCobertura <= 14 && s.quedan > 0
-    ).length
+  const cifras = useMemo(() => {
+    const enviadas = envios.reduce((s, r) => s + r.enviadas, 0)
+    const vivas = envios.reduce((s, r) => s + r.quedan, 0)
+    const enCamino = envios.filter((r) => estaEnCamino(r.estadoAmazon)).length
+    const urgentes = panel.skus.filter((s) => s.diasDeCobertura !== null && s.diasDeCobertura <= 14 && s.quedan > 0).length
     const descuadre = panel.skus.reduce((s, k) => s + (k.descuadre ?? 0), 0)
-    return { enviadas, quedan, urgentes, descuadre }
-  }, [panel])
+    const tocan = propuestas.filter((r) => leToca(turnoDe(r.estado, r.lineas.length), verComo)).length
+    const porFase = (e: string) => propuestas.filter((r) => r.estado === e).length
+    return { enviadas, vivas, enCamino, urgentes, descuadre, tocan, porFase, conDescuadre: panel.skus.filter((s) => s.descuadre !== null && s.descuadre !== 0).length }
+  }, [envios, propuestas, panel.skus, verComo])
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] min-h-0 flex-col">
-      {/* ================= CABECERA ================= */}
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-white/[0.06] px-6 py-3">
-        <div className="flex items-center gap-2">
-          <Boxes className="h-4 w-4 text-[#FF6600]" />
-          <h1 className="text-[15px] font-semibold text-white">Remesas a FBA</h1>
-        </div>
+    <div className="fba-cockpit flex h-[calc(100vh-4rem)] min-h-0 flex-col">
+      {/* ================= CABECERA: TÍTULO, VISTAS, CIFRAS Y ACCIONES ================= */}
+      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-5 pb-[6px] pt-[10px]">
+        <h1 className={cx(TIPO.xl, 'text-[var(--ls-t1)]')}>Remesas a FBA</h1>
 
-        <div className="ml-2 flex items-center gap-1 rounded-lg bg-white/[0.03] p-0.5">
-          <Pestana activa={vista === 'envios'} onClick={() => setVista('envios')}>
-            <Package className="h-3.5 w-3.5" />
+        <nav aria-label="Vistas" className="flex items-center gap-[2px] rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]">
+          <Pestana activa={vista === 'envios'} onClick={() => setVista('envios')} icono={<Package className="h-[14px] w-[14px]" />} titulo="Lo que ya ha salido y existe en Amazon">
             Envíos
+            <span className="tabular-nums text-[var(--ls-t4)]">{envios.filter(estaEnlazada).length}</span>
           </Pestana>
-          {/* BOCETOS, ENTRE ENVÍOS Y REFERENCIAS.
-              Es el mismo panel, no otra pantalla: lo único que cambia es qué
-              envíos se listan a la izquierda. Un boceto es un envío al que
-              todavía se le está dando forma, no otra cosa. */}
-          <Pestana activa={vista === 'bocetos'} onClick={() => setVista('bocetos')}>
-            <PencilRuler className="h-3.5 w-3.5" />
-            Bocetos
-            {bocetos > 0 && (
-              <span className="ml-1 rounded-full bg-[#FF6600]/20 px-1.5 text-[10px] font-semibold text-[#FFA366]">
-                {bocetos}
+          <Pestana activa={vista === 'propuestas'} onClick={() => setVista('propuestas')} icono={<ClipboardList className="h-[14px] w-[14px]" />} titulo="Lo que se está preparando con el cliente">
+            Propuestas
+            {propuestas.length > 0 && (
+              <span className={cifras.tocan > 0 ? INSIGNIA.contador : 'tabular-nums text-[var(--ls-t4)]'} title={cifras.tocan > 0 ? `${cifras.tocan} esperan a que muevas tú` : undefined}>
+                {propuestas.length}
               </span>
             )}
           </Pestana>
-          <Pestana activa={vista === 'referencias'} onClick={() => setVista('referencias')}>
-            <TrendingDown className="h-3.5 w-3.5" />
+          <Pestana activa={vista === 'referencias'} onClick={() => setVista('referencias')} icono={<TrendingDown className="h-[14px] w-[14px]" />} titulo="Producto a producto: cuándo hay que reponer">
             Referencias
           </Pestana>
-        </div>
+        </nav>
 
-        <div className="ml-auto flex items-center gap-2">
-          {panel.leidoHasta && (
-            <span className="hidden text-[10px] text-white/30 lg:inline">
-              Movimientos hasta el {fecha(panel.leidoHasta)}
-            </span>
+        {/* Las cifras del cliente, en la misma fila: no merecen una fila entera */}
+        {vista === 'envios' && (
+          <div className={CIFRAS.tira}>
+            <Cifra rotulo="enviadas" valor={cifras.enviadas} />
+            <Cifra rotulo="vivas" valor={cifras.vivas} />
+            <Cifra rotulo="de camino" valor={cifras.enCamino} />
+            <Cifra rotulo="se agotan en 14 días" valor={cifras.urgentes} alerta={cifras.urgentes > 0} />
+            {panel.conectado && <Cifra rotulo="descuadre con Amazon" valor={cifras.descuadre} signo alerta={cifras.descuadre !== 0} pista="Lo que Amazon tiene menos lo que explican los envíos. Positivo: había stock de antes" />}
+          </div>
+        )}
+        {vista === 'propuestas' && (
+          <div className={CIFRAS.tira}>
+            <Cifra rotulo="te tocan a ti" valor={cifras.tocan} urgente={cifras.tocan > 0} />
+            <Cifra rotulo="en propuesta" valor={cifras.porFase('borrador')} />
+            <Cifra rotulo="aprobadas" valor={cifras.porFase('aprobada')} />
+            <Cifra rotulo="encajando" valor={cifras.porFase('encajando')} />
+            <Cifra rotulo="listas" valor={cifras.porFase('lista')} />
+          </div>
+        )}
+        {vista === 'referencias' && (
+          <div className={CIFRAS.tira}>
+            <Cifra rotulo="referencias" valor={panel.skus.length} />
+            <Cifra rotulo="se agotan en 14 días" valor={cifras.urgentes} alerta={cifras.urgentes > 0} />
+            <Cifra rotulo="con descuadre" valor={cifras.conDescuadre} alerta={cifras.conDescuadre > 0} />
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-3">
+          {panel.leidoHasta && <span className="hidden text-[11px] text-[var(--ls-t4)] 2xl:inline">Ventas leídas hasta el {fecha(panel.leidoHasta)}</span>}
+          {cliente.puedeEditar && vista === 'envios' && (
+            <button type="button" onClick={() => setTrayendo(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Traer de Amazon un envío que ya existe, por su número FBA">
+              <Download className="h-3 w-3" />
+              Traer envío de Amazon
+            </button>
           )}
           {cliente.puedeEditar && (
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => setNueva(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-[#FF6600] px-3 py-1.5 text-[12px] font-semibold text-white shadow-[0_0_20px_-6px_#FF6600]"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Nueva remesa
-            </motion.button>
+            <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+              <Plus className="h-3 w-3" />
+              Nueva propuesta
+            </button>
           )}
         </div>
       </header>
 
       {/* ================= CLIENTES ================= */}
-      {clientes.length > 1 && (
-        <BarraClientes
-          clientes={clientes}
-          activo={cliente.id}
-          cargando={cambiando}
-          onElegir={irACliente}
-        />
+      {clientes.length > 1 && <BarraClientes clientes={clientes} activo={cliente.id} cargando={cambiando} onElegir={irACliente} />}
+
+      {/* ================= AVISOS (solo si los hay) ================= */}
+      {((!panel.conectado && envios.length > 0) || panel.ultimoError) && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-2">
+          {!panel.conectado && envios.length > 0 && (
+            <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
+              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
+              Sin API de Amazon: las ventas no se descuentan solas
+            </div>
+          )}
+          {panel.ultimoError && (
+            <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
+              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
+              Última lectura fallida: {panel.ultimoError.slice(0, 80)}
+            </div>
+          )}
+        </div>
       )}
 
-      {/* ================= CIFRAS ================= */}
-      <div className="flex shrink-0 flex-wrap items-stretch gap-2 px-6 py-3">
-        <Cifra etiqueta="Enviadas" valor={totales.enviadas} />
-        <Cifra etiqueta="Vivas" valor={totales.quedan} tono="acento" />
-        <Cifra
-          etiqueta="Se agotan en 14 días"
-          valor={totales.urgentes}
-          tono={totales.urgentes > 0 ? 'alerta' : undefined}
-        />
-        {panel.conectado && (
-          <Cifra
-            etiqueta="Descuadre con Amazon"
-            valor={totales.descuadre}
-            tono={totales.descuadre !== 0 ? 'aviso' : undefined}
-            signo
-            pista="Lo que Amazon tiene menos lo que explican las remesas. Positivo = había stock de antes"
-          />
-        )}
-        {!panel.conectado && (
-          <div className="flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-3 text-[11px] text-amber-200/90">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            Sin API de Amazon: las ventas no se descuentan solas
-          </div>
-        )}
-        {panel.ultimoError && (
-          <div className="flex items-center gap-2 rounded-xl border border-red-400/20 bg-red-400/[0.06] px-3 text-[11px] text-red-300">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            Última lectura fallida: {panel.ultimoError.slice(0, 80)}
-          </div>
-        )}
-      </div>
-
       {/* ================= CUERPO ================= */}
-      <AnimatePresence mode="wait">
-        {vista === 'referencias' ? (
-          <motion.div
-            key="referencias"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18 }}
-            className="min-h-0 flex-1 overflow-auto px-6 pb-6"
-          >
-            <VistaReferencias skus={panel.skus} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="envios"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="grid min-h-0 flex-1 grid-cols-[360px_1fr] gap-4 px-6 pb-6"
-          >
-            {/* ---------- IZQUIERDA: la lista ---------- */}
-            <aside className="flex min-h-0 flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
-                  <input
-                    value={busqueda}
-                    onChange={(e) => setBusqueda(e.target.value)}
-                    placeholder="Buscar envío o SKU"
-                    className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-1.5 pl-8 pr-2 text-[12px] text-white placeholder:text-white/25 focus:border-[#FF6600]/40 focus:outline-none"
-                  />
-                </div>
-                {vista !== 'bocetos' && (
-                  <label
-                    className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-[10px] text-white/40"
-                    title="Esconder los envíos que ya no tienen unidades"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={soloAbiertas}
-                      onChange={(e) => setSoloAbiertas(e.target.checked)}
-                      className="h-3 w-3 accent-[#FF6600]"
-                    />
-                    Solo vivas
-                  </label>
+      {vista === 'referencias' ? (
+        <div className="min-h-0 flex-1 px-5 pb-4">
+          <VistaReferencias skus={panel.skus} />
+        </div>
+      ) : (
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 px-5 pb-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+          {vista === 'envios' ? (
+            <>
+              <ListaEnvios envios={envios} seleccionada={envio?.id ?? null} onElegir={setEnvioElegido} puedeEditar={cliente.puedeEditar} onTraer={() => setTrayendo(true)} diasCobertura={diasCobertura} hoy={hoy} />
+              <section className="min-h-0 min-w-0">
+                {envio ? (
+                  <DetalleEnvio key={envio.id} remesa={envio} skus={panel.skus} hoy={hoy} puedeEditar={cliente.puedeEditar} puedeBorrar={esAdmin} conectado={panel.conectado} />
+                ) : (
+                  <SinSeleccion icono={<Package />} titulo={envios.length === 0 ? 'Todavía no hay ningún envío' : 'Elige un envío de la lista'}>
+                    {envios.length === 0
+                      ? 'Los envíos nacen de una propuesta: se prepara con el cliente, se marca como enviada y se enlaza con su número de Amazon. O se trae uno que ya existe por su número FBA.'
+                      : 'Aquí aparece todo lo que se sabe de él: por dónde va en Amazon, cuánto ha llegado, cuánto se ha vendido y cuándo se agota.'}
+                  </SinSeleccion>
                 )}
-              </div>
-
-              <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-                {lista.length === 0 && (
-                  <div className="glass-card p-6 text-center">
-                    <p className="text-[12px] text-white/40">
-                      {panel.remesas.length === 0
-                        ? 'Todavía no hay ninguna remesa.'
-                        : 'Nada que coincida. Prueba a quitar el filtro.'}
-                    </p>
-                    {panel.remesas.length === 0 && cliente.puedeEditar && (
-                      <button
-                        type="button"
-                        onClick={() => setNueva(true)}
-                        className="mt-3 text-[12px] font-semibold text-[#FF6600] hover:underline"
-                      >
-                        Crear la primera
-                      </button>
-                    )}
-                  </div>
-                )}
-                {lista.map((r, i) => (
-                  <TarjetaRemesa
-                    key={r.id}
-                    remesa={r}
-                    activa={r.id === seleccionada}
-                    indice={i}
-                    onClick={() => {
-                      setSeleccionada(r.id)
-                      // A la URL: es lo que hace que el servidor traiga SUS
-                      // cajas. Sin scroll para que la lista no salte.
-                      router.replace(`/dashboard/remesas?cliente=${cliente.id}&remesa=${r.id}`, {
-                        scroll: false,
-                      })
+              </section>
+            </>
+          ) : (
+            <>
+              <ListaPropuestas
+                propuestas={propuestas}
+                seleccionada={propuesta?.id ?? null}
+                onElegir={(id) => setPropuestaElegida(id)}
+                verComo={verComo}
+                hoy={hoy}
+                puedeEditar={cliente.puedeEditar}
+                onNueva={() => setNueva(true)}
+              />
+              <section className="min-h-0 min-w-0">
+                {propuesta ? (
+                  <EspacioPropuesta
+                    key={propuesta.id}
+                    remesa={propuesta}
+                    clienteId={cliente.id}
+                    clienteNombre={cliente.nombre}
+                    esAdmin={esAdmin}
+                    puedeEditar={cliente.puedeEditar}
+                    puedeBorrar={esAdmin}
+                    cajas={panel.cajasDe?.remesaId === propuesta.id ? panel.cajasDe.datos : null}
+                    hoy={hoy}
+                    onEnviada={(id) => {
+                      setEnvioElegido(id)
+                      setVista('envios')
                     }}
                   />
-                ))}
-              </div>
-            </aside>
-
-            {/* ---------- DERECHA: el detalle ---------- */}
-            <section className="min-h-0 overflow-y-auto">
-              <AnimatePresence mode="wait">
-                {remesa ? (
-                  <motion.div
-                    key={remesa.id}
-                    initial={{ opacity: 0, x: 12 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -12 }}
-                    transition={suave}
-                    className="h-full"
-                  >
-                    <DetalleRemesa
-                      remesa={remesa}
-                      skus={panel.skus}
-                      puedeEditar={cliente.puedeEditar}
-                      puedeBorrar={esAdmin}
-                      conectado={panel.conectado}
-                      esAdmin={esAdmin}
-                      cajas={panel.cajasDe?.remesaId === remesa.id ? panel.cajasDe.datos : null}
-                      clienteId={cliente.id}
-                      clienteNombre={cliente.nombre}
-                    />
-                  </motion.div>
                 ) : (
-                  <motion.div
-                    key="vacio"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="glass-card flex h-full flex-col items-center justify-center gap-3 p-10 text-center"
-                  >
-                    <Boxes className="h-8 w-8 text-white/15" />
-                    <p className="text-[12px] text-white/40">Elige un envío de la lista</p>
-                  </motion.div>
+                  <SinSeleccion icono={<ClipboardList />} titulo={propuestas.length === 0 ? 'No hay ninguna propuesta' : 'Elige una propuesta'}>
+                    Se propone qué mandar, el cliente lo aprueba, etiqueta y encaja, y la agencia crea el envío en Amazon. Cuando está enviada pasa a Envíos.
+                  </SinSeleccion>
                 )}
-              </AnimatePresence>
-            </section>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </section>
+            </>
+          )}
+        </div>
+      )}
 
       {nueva && (
-        <NuevaRemesaDialog
+        <NuevaPropuestaDialog
           clienteId={cliente.id}
           clienteNombre={cliente.nombre}
           esAdmin={esAdmin}
-          onClose={() => setNueva(false)}
+          onCerrar={() => setNueva(false)}
+          onCreada={(id) => {
+            setPropuestaElegida(id)
+            setVista('propuestas')
+            router.refresh()
+          }}
+        />
+      )}
+      {trayendo && (
+        <TraerEnvioDialog
+          clienteId={cliente.id}
+          clienteNombre={cliente.nombre}
+          onCerrar={() => setTrayendo(false)}
+          onTraido={(id) => {
+            setEnvioElegido(id)
+            setVista('envios')
+            router.refresh()
+          }}
         />
       )}
     </div>
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* La tarjeta de la lista                                              */
-/* ------------------------------------------------------------------ */
-
-function TarjetaRemesa({
-  remesa,
-  activa,
-  indice,
-  onClick,
-}: {
-  remesa: RemesaDePanel
-  activa: boolean
-  indice: number
-  onClick: () => void
-}) {
-  const agotada = remesa.quedan === 0
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: Math.min(indice * 0.025, 0.3), ...suave }}
-      whileHover={{ x: 2 }}
-      className={`group relative w-full rounded-xl border p-3 text-left transition-colors ${
-        activa
-          ? 'border-[#FF6600]/50 bg-[#FF6600]/[0.07]'
-          : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12] hover:bg-white/[0.04]'
-      }`}
-    >
-      {activa && (
-        <motion.span
-          layoutId="marca-activa"
-          className="absolute -left-px top-3 bottom-3 w-[3px] rounded-full bg-[#FF6600]"
-          transition={suave}
-        />
-      )}
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className={`truncate text-[13px] font-semibold ${agotada ? 'text-white/45' : 'text-white'}`}>
-            {remesa.nombre ?? `Envío del ${fecha(remesa.fechaEnvio)}`}
-          </p>
-          <p className="mt-0.5 text-[10px] text-white/35">
-            {fecha(remesa.fechaEnvio)} · {remesa.lineas.length} ref · {remesa.enviadas} ud
-          </p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className={`text-[15px] font-semibold leading-none ${agotada ? 'text-white/30' : 'text-white'}`}>
-            {remesa.quedan}
-          </p>
-          <p className="mt-0.5 text-[8px] uppercase tracking-wider text-white/30">quedan</p>
-        </div>
-      </div>
-      <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${Math.min(100, remesa.consumidoPct)}%` }}
-          transition={{ duration: 0.6, ease: 'easeOut', delay: 0.1 }}
-          className={`h-full rounded-full ${
-            remesa.consumidoPct >= 90 ? 'bg-red-400/70' : remesa.consumidoPct >= 60 ? 'bg-amber-400/70' : 'bg-[#FF6600]/70'
-          }`}
-        />
-      </div>
-      {remesa.llegadaAt && (
-        <span className="mt-1.5 inline-block rounded bg-emerald-400/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-emerald-400">
-          llegó el {fecha(remesa.llegadaAt)}
-        </span>
-      )}
-    </motion.button>
-  )
+/** Al abrir Envíos, si no hay ninguno elegido, el más reciente de los enlazados */
+function primeroPorDefecto(envios: RemesaDePanel[]): RemesaDePanel | null {
+  const enlazados = envios.filter(estaEnlazada).sort((a, b) => b.fechaEnvio.localeCompare(a.fechaEnvio))
+  return enlazados.find((r) => r.quedan > 0) ?? enlazados[0] ?? null
 }
 
 /* ------------------------------------------------------------------ */
 /* Piezas                                                              */
 /* ------------------------------------------------------------------ */
 
-function Cifra({
-  etiqueta,
-  valor,
-  tono,
-  signo,
-  pista,
-}: {
-  etiqueta: string
-  valor: number
-  tono?: 'acento' | 'alerta' | 'aviso'
-  signo?: boolean
-  pista?: string
-}) {
-  const color =
-    tono === 'alerta'
-      ? 'text-red-400'
-      : tono === 'aviso'
-        ? 'text-amber-400'
-        : tono === 'acento'
-          ? 'text-[#FF6600]'
-          : 'text-white'
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass-card min-w-[110px] px-3 py-2"
-      title={pista}
-    >
-      <p className={`text-[18px] font-semibold leading-none tabular-nums ${color}`}>
-        {signo && valor > 0 ? '+' : ''}
-        {valor}
-      </p>
-      <p className="mt-1 text-[9px] uppercase tracking-wide text-white/35">{etiqueta}</p>
-    </motion.div>
-  )
-}
-
-function Pestana({
-  activa,
-  onClick,
-  children,
-}: {
-  activa: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
+function Pestana({ activa, onClick, icono, titulo, children }: { activa: boolean; onClick: () => void; icono: React.ReactNode; titulo: string; children: React.ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex items-center gap-1.5 rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${
-        activa ? 'text-[#FF6600]' : 'text-white/45 hover:text-white/70'
-      }`}
-    >
-      {activa && (
-        <motion.span
-          layoutId="pestana-activa"
-          className="absolute inset-0 rounded-md bg-[#FF6600]/12"
-          transition={suave}
-        />
+      title={titulo}
+      aria-current={activa ? 'page' : undefined}
+      className={cx(
+        'inline-flex h-[28px] items-center gap-[7px] rounded-[6px] px-3 text-[12.5px] font-medium transition-colors',
+        activa ? 'bg-[var(--ls-sup)] text-[var(--ls-t1)] shadow-[inset_0_0_0_1px_var(--ls-linea2)]' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'
       )}
-      <span className="relative flex items-center gap-1.5">{children}</span>
+    >
+      <span className={activa ? 'text-[var(--ls-acc)]' : undefined}>{icono}</span>
+      {children}
     </button>
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* La barra de clientes                                                */
-/* ------------------------------------------------------------------ */
+function Cifra({ rotulo, valor, signo, alerta, urgente, pista }: { rotulo: string; valor: number; signo?: boolean; alerta?: boolean; urgente?: boolean; pista?: string }) {
+  return (
+    <div className={CIFRAS.celda} title={pista}>
+      <span className={cx(CIFRAS.valor, urgente && CIFRAS.urgente)} style={alerta ? { color: COLOR_ESTADO.ambar } : undefined}>
+        {signo && valor > 0 ? '+' : ''}
+        {valor.toLocaleString('es-ES')}
+      </span>
+      <span className={CIFRAS.rotulo}>{rotulo}</span>
+    </div>
+  )
+}
+
+function SinSeleccion({ icono, titulo, children }: { icono: React.ReactNode; titulo: string; children: React.ReactNode }) {
+  return (
+    <div className="flex h-full items-center justify-center rounded-[8px] border border-dashed border-[var(--ls-linea2)]">
+      <Vacio icono={icono} titulo={titulo}>
+        {children}
+      </Vacio>
+    </div>
+  )
+}
 
 /**
  * UN BOTÓN POR CLIENTE, EN HORIZONTAL.
  *
  * Con once cuentas un desplegable obliga a abrirlo para saber qué hay; en
- * horizontal se ven todas de un vistazo y se salta de una a otra con un clic,
- * que es como se trabaja cuando revisas varias seguidas.
- *
- * Cada botón lleva cuántas remesas tiene. Los que están a cero se pintan
- * apagados: siguen siendo clicables —hay que poder crearle la primera— pero se
- * distinguen sin tener que entrar a comprobarlo.
- *
- * La fila hace scroll horizontal ella sola. El activo se centra al montar, que
- * es lo que hace falta cuando entras por un enlace directo al undécimo cliente.
+ * horizontal se ven todas de un vistazo y se salta de una a otra con un clic, que
+ * es como se trabaja cuando revisas varias seguidas. Cada una dice cuántos envíos
+ * tiene y, en naranja, cuántas propuestas hay en marcha. Las que no tienen nada se
+ * pintan apagadas: siguen siendo clicables —hay que poder crearle la primera—.
  */
-function BarraClientes({
-  clientes,
-  activo,
-  cargando,
-  onElegir,
-}: {
-  clientes: Cliente[]
-  activo: string
-  /** El que se acaba de pulsar y todavía no ha llegado. null = ninguno */
-  cargando: string | null
-  onElegir: (id: string) => void
-}) {
+function BarraClientes({ clientes, activo, cargando, onElegir }: { clientes: Cliente[]; activo: string; cargando: string | null; onElegir: (id: string) => void }) {
   const fila = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    fila.current?.querySelector('[data-activo="true"]')?.scrollIntoView({
-      block: 'nearest',
-      inline: 'center',
-      behavior: 'smooth',
-    })
+    fila.current?.querySelector('[data-activo="true"]')?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
   }, [activo])
 
   return (
-    <div
-      ref={fila}
-      className="flex shrink-0 items-center gap-1.5 overflow-x-auto px-6 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-    >
+    <div ref={fila} className="flex shrink-0 items-center gap-[6px] overflow-x-auto px-5 pb-[8px] pt-[2px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {clientes.map((c) => {
         const esActivo = c.id === activo
-        const esperando = c.id === cargando
         const vacio = c.remesas === 0
         return (
-          <motion.button
+          <button
             key={c.id}
             type="button"
             data-activo={esActivo}
             onClick={() => onElegir(c.id)}
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.97 }}
-            title={vacio ? `${c.nombre} · todavía sin remesas` : `${c.nombre} · ${c.remesas} remesas`}
-            className={`relative flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
-              esperando ? 'animate-pulse ' : ''
-            }${
+            title={vacio ? `${c.nombre} · todavía sin remesas` : `${c.nombre} · ${c.envios} envío${c.envios === 1 ? '' : 's'} · ${c.propuestas} propuesta${c.propuestas === 1 ? '' : 's'}`}
+            className={cx(
+              'relative inline-flex h-[26px] shrink-0 items-center gap-[7px] rounded-[6px] border px-[10px] text-[12px] transition-colors',
+              c.id === cargando && 'animate-pulse',
               esActivo
-                ? 'border-[#FF6600]/50 text-white'
+                ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] font-medium text-[var(--ls-t1)]'
                 : vacio
-                  ? 'border-white/[0.06] text-white/30 hover:border-white/[0.12] hover:text-white/55'
-                  : 'border-white/[0.08] text-white/65 hover:border-white/20 hover:text-white'
-            }`}
-          >
-            {esActivo && (
-              <motion.span
-                layoutId="cliente-activo"
-                className="absolute inset-0 rounded-full bg-[#FF6600]/12"
-                transition={suave}
-              />
+                  ? 'border-[var(--ls-linea)] text-[var(--ls-t4)] hover:border-[var(--ls-linea2)] hover:text-[var(--ls-t2)]'
+                  : 'border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:border-[var(--ls-linea2)] hover:text-[var(--ls-t1)]'
             )}
-            <span className="relative">{c.nombre}</span>
-            <span
-              className={`relative rounded-full px-1.5 text-[10px] tabular-nums ${
-                esActivo ? 'bg-[#FF6600]/25 text-[#FF6600]' : 'bg-white/[0.06] text-white/40'
-              }`}
-            >
-              {c.remesas}
-            </span>
-          </motion.button>
+          >
+            {c.nombre}
+            {c.envios > 0 && <span className="tabular-nums text-[11px] text-[var(--ls-t4)]">{c.envios}</span>}
+            {c.propuestas > 0 && (
+              <span className={INSIGNIA.contador} title={`${c.propuestas} propuesta${c.propuestas === 1 ? '' : 's'} en marcha`}>
+                {c.propuestas}
+              </span>
+            )}
+          </button>
         )
       })}
     </div>

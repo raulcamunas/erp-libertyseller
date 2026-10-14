@@ -49,12 +49,17 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       // aquí dejaría la remesa sin poder moverse de paso por un contador que
       // todavía no existe. Se lee aparte, solo al reabrir, que es cuando hace
       // falta.
-      .select('id, client_id, estado')
+      .select('id, client_id, estado, referencia_envio')
       .eq('id', params.id)
       .maybeSingle()
     if (!data) return fail(404, 'Esa remesa ya no existe')
 
-    const remesa = data as { id: string; client_id: string; estado: EstadoRemesa }
+    const remesa = data as {
+      id: string
+      client_id: string
+      estado: EstadoRemesa
+      referencia_envio: string | null
+    }
     if (!puedeEditar(sesion, remesa.client_id)) return fail(404, 'Esa remesa ya no existe')
 
     const actor = sesion.esAdmin ? 'agencia' : 'cliente'
@@ -73,6 +78,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       lineas: lineas ?? 0,
       cuadre: datosCajas?.cuadre,
       cajas: datosCajas?.estado,
+      // Se lee de la base en este instante: la pantalla acaba de guardarlo justo
+      // antes de pedir el paso, y una copia vieja diría que falta
+      referencia: remesa.referencia_envio,
     })
 
     if (!permiso.puede) {

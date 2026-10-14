@@ -19,8 +19,10 @@
  *   lista       El cliente ha terminado. Vuelve el turno a la agencia, que
  *               genera el manifiesto y el Excel de embalaje y crea el envío en
  *               Seller Central subiéndolos.
- *   enviada     La mercancía ha salido. El nº de envío FBA se apunta a mano en
- *               la ficha, y por ahí se sigue.
+ *   enviada     La mercancía ha salido. El nº de envío FBA es OBLIGATORIO para
+ *               llegar aquí: enlaza la remesa con el envío real de Seller Central
+ *               y es lo que la hace pasar de «Propuestas» a «Envíos»; por él se
+ *               sigue el estado y lo recibido.
  *   cerrada     Amazon ha terminado de recibir. Ya no cambia nada.
  *
  *
@@ -65,6 +67,14 @@ export interface Transicion {
   exigeMedidas?: boolean
   /** ¿Es irreversible? Se pide confirmación */
   irreversible?: boolean
+  /**
+   * ¿Hace falta el nº de envío FBA?
+   *
+   * Es lo que enlaza la remesa con el envío REAL de Seller Central. Sin él no hay
+   * forma de preguntarle a Amazon por dónde va ni cuánto ha recibido, y la remesa
+   * pasaría a «Envíos» —que solo enseña envíos de verdad— sin poder seguirse.
+   */
+  exigeReferencia?: boolean
 }
 
 export const TRANSICIONES: Transicion[] = [
@@ -149,9 +159,10 @@ export const TRANSICIONES: Transicion[] = [
     quien: ['agencia'],
     boton: 'Marcar como enviada',
     consecuencia:
-      'La mercancía ha salido hacia Amazon. Apunta el nº de envío FBA en la ficha para poder seguirla.',
+      'Pasa a Envíos, enlazada con su envío de Amazon. Te pedimos el nº de envío FBA y lo comprobamos contra Amazon antes de marcarla.',
     exigeCuadre: true,
     exigeMedidas: true,
+    exigeReferencia: true,
   },
   {
     desde: 'enviada',
@@ -234,7 +245,7 @@ export function puedeAvanzar(
   desde: EstadoRemesa,
   hasta: EstadoRemesa,
   actor: Actor,
-  contexto: { cuadre?: Cuadre; cajas?: EstadoDeCajas; lineas?: number }
+  contexto: { cuadre?: Cuadre; cajas?: EstadoDeCajas; lineas?: number; referencia?: string | null }
 ): Permiso {
   const t = TRANSICIONES.find((x) => x.desde === desde && x.hasta === hasta)
   if (!t) {
@@ -277,6 +288,14 @@ export function puedeAvanzar(
         })
       }
     }
+  }
+
+  if (t.exigeReferencia && !(contexto.referencia ?? '').trim()) {
+    motivos.push({
+      texto:
+        'Falta el nº de envío FBA: lo da Seller Central al crear el envío y es lo que enlaza esta ' +
+        'remesa con el envío real',
+    })
   }
 
   if (t.exigeCuadre && contexto.cuadre && !contexto.cuadre.cuadra) {

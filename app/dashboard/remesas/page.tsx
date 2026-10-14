@@ -34,9 +34,13 @@ interface ClienteRemesas {
   id: string
   nombre: string
   puedeEditar: boolean
-  /** Cuántas remesas tiene. Sirve para que un cliente sin ninguna se vea de un
-      vistazo y no haya que pinchar en los once para averiguarlo */
+  /** Cuántas remesas tiene en total. Sirve para que un cliente sin ninguna se vea
+      de un vistazo y no haya que pinchar en los once para averiguarlo */
   remesas: number
+  /** De esas, los envíos reales (enviada o cerrada) */
+  envios: number
+  /** Y las propuestas que se están trabajando (borrador, aprobada, encajando, lista) */
+  propuestas: number
 }
 
 export default async function RemesasPage({
@@ -68,6 +72,8 @@ export default async function RemesasPage({
       nombre: c.name,
       puedeEditar: true,
       remesas: 0,
+      envios: 0,
+      propuestas: 0,
     }))
   } else {
     const { data: accesos } = await service
@@ -86,7 +92,7 @@ export default async function RemesasPage({
       .map((a) => {
         const ficha = Array.isArray(a.amazon_clients) ? a.amazon_clients[0] : a.amazon_clients
         return ficha
-          ? { id: a.client_id, nombre: ficha.name, puedeEditar: a.puede_editar, remesas: 0 }
+          ? { id: a.client_id, nombre: ficha.name, puedeEditar: a.puede_editar, remesas: 0, envios: 0, propuestas: 0 }
           : null
       })
       .filter((c): c is ClienteRemesas => c !== null)
@@ -118,13 +124,22 @@ export default async function RemesasPage({
    */
   const { data: cuentas } = await service
     .from('fba_remesas')
-    .select('client_id')
+    .select('client_id, estado')
     .in('client_id', clientes.map((c) => c.id))
-  const porCliente = new Map<string, number>()
-  for (const r of (cuentas ?? []) as Array<{ client_id: string }>) {
-    porCliente.set(r.client_id, (porCliente.get(r.client_id) ?? 0) + 1)
+  const envios = new Map<string, number>()
+  const propuestas = new Map<string, number>()
+  for (const r of (cuentas ?? []) as Array<{ client_id: string; estado: string | null }>) {
+    // Sin estado = remesa de antes de la migración 195: historia, o sea envío
+    const real = ['enviada', 'cerrada'].includes(r.estado ?? 'cerrada')
+    const mapa = real ? envios : propuestas
+    mapa.set(r.client_id, (mapa.get(r.client_id) ?? 0) + 1)
   }
-  clientes = clientes.map((c) => ({ ...c, remesas: porCliente.get(c.id) ?? 0 }))
+  clientes = clientes.map((c) => ({
+    ...c,
+    envios: envios.get(c.id) ?? 0,
+    propuestas: propuestas.get(c.id) ?? 0,
+    remesas: (envios.get(c.id) ?? 0) + (propuestas.get(c.id) ?? 0),
+  }))
 
   const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
   const pedido = uno(searchParams.cliente)

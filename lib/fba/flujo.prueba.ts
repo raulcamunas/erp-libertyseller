@@ -32,10 +32,19 @@ ok('  y se le dice de quien es',
   puedeAvanzar('lista', 'enviada', 'cliente', { cuadre: cuadraBien, cajas: cajasOk }).motivos[0].texto,
   'Este paso lo tiene que dar Liberty Seller')
 ok('la agencia SI la marca',
-  puedeAvanzar('lista', 'enviada', 'agencia', { cuadre: cuadraBien, cajas: cajasOk }).puede, true)
+  puedeAvanzar('lista', 'enviada', 'agencia', { cuadre: cuadraBien, cajas: cajasOk, referencia: 'FBA15ML7ZSVQ' }).puede, true)
 ok('el cliente NO devuelve a borrador', puedeAvanzar('aprobada', 'borrador', 'cliente', {}).puede, false)
 
 console.log('\n=== SALTOS IMPOSIBLES ===')
+ok('sin nº de envío FBA no se marca como enviada',
+  puedeAvanzar('lista', 'enviada', 'agencia', { cuadre: cuadraBien, cajas: cajasOk }).puede, false)
+ok('y el motivo dice que falta el número',
+  puedeAvanzar('lista', 'enviada', 'agencia', { cuadre: cuadraBien, cajas: cajasOk, referencia: '   ' }).motivos
+    .some((m) => m.texto.includes('nº de envío FBA')), true)
+ok('con el número y todo lo demás en orden, sí',
+  puedeAvanzar('lista', 'enviada', 'agencia', { cuadre: cuadraBien, cajas: cajasOk, referencia: 'FBA15ML7ZSVQ' }).motivos.length, 0)
+ok('los demás pasos NO piden el número',
+  puedeAvanzar('borrador', 'aprobada', 'agencia', { lineas: 3 }).puede, true)
 ok('de borrador a enviada directo',
   puedeAvanzar('borrador', 'enviada', 'agencia', { cuadre: cuadraBien, cajas: cajasOk }).puede, false)
 ok('de cerrada a cualquier sitio', puedeAvanzar('cerrada', 'enviada', 'agencia', {}).puede, false)

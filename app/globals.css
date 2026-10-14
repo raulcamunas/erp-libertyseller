@@ -977,3 +977,49 @@ html.light .bg-black\/25             { background-color: rgba(0, 0, 0, 0.05); }
     animation: none !important;
   }
 }
+
+/* =====================================================================
+   REMESAS A FBA — la capa de la pantalla (clase `.fba-cockpit`)
+   =====================================================================
+   Dos cosas, las dos acotadas a esa clase y las dos fáciles de quitar:
+
+   1. LOS COLORES DE LOS GRÁFICOS (--viz-1/2/3). Son los tres primeros huecos
+      de la paleta categórica de la guía de visualización de datos, pasada por
+      su validador contra las superficies reales de este ERP (tarjeta #15171B en
+      oscuro y #FFFFFF en claro): los tres pasan los seis chequeos en los dos
+      temas —peor par para daltónicos ΔE 9,4 y 9,2, mínimo 8— y el único aviso
+      es el aqua en claro (2,82:1), que se compensa con la tabla que lleva cada
+      gráfico. El color sigue a la entidad: «vendidas» es siempre --viz-1 y
+      «quedan» siempre --viz-2, en todos los gráficos.
+        --viz-1  azul     vendidas
+        --viz-2  naranja  quedan / stock en el almacén
+        --viz-3  aqua     recibidas
+
+   2. LOS RADIOS. En este repositorio `rounded-lg` son 24 px y `glass-card`
+      también (ver tailwind.config.ts), y los editores de boceto, cajas y
+      selector de productos están escritos con eso: botones e inputs en forma de
+      pastilla. Aquí dentro se recortan a una escala de 6/8/10 y se quita el
+      desenfoque, para que lo viejo y lo nuevo convivan sin saltos. NO toca
+      ninguna otra pantalla.
+
+   CÓMO SE DESHACE: borrando este bloque. Nada más depende de él salvo los
+   gráficos, que perderían sus colores.
+   ===================================================================== */
+.fba-cockpit {
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+}
+html.light .fba-cockpit {
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+}
+.fba-cockpit .glass-card {
+  border-radius: 8px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.fba-cockpit .rounded-lg  { border-radius: 6px; }
+.fba-cockpit .rounded-xl  { border-radius: 8px; }
+.fba-cockpit .rounded-2xl { border-radius: 10px; }

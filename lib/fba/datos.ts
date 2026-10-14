@@ -73,6 +73,10 @@ export interface RemesaDePanel {
   /** En qué paso del proceso está. Ver lib/fba/flujo.ts */
   estado: EstadoRemesa
   aprobadaAt: string | null
+  /** Cuándo se creó. Con esto se dice «lleva 5 días en este paso» */
+  creadaAt: string | null
+  /** La última vez que se tocó: cambio de paso, líneas, cajas… */
+  actualizadaAt: string | null
   /**
    * EN QUÉ VERSIÓN VA EL BOCETO. Empieza en 1 y sube cada vez que se reabre.
    *
@@ -145,6 +149,8 @@ interface FilaRemesa {
   seguimiento_error: string | null
   estado: EstadoRemesa
   aprobada_at: string | null
+  created_at: string | null
+  updated_at: string | null
   /** Pueden no venir: la 215 se lanza a mano y el código llega antes */
   version?: number | null
   reabierta_at?: string | null
@@ -229,7 +235,8 @@ export async function panelDeCliente(
    */
   const BASE_REMESAS =
     'id, nombre, fecha_envio, llegada_at, referencia_envio, nota, connection_id, ' +
-    'marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at'
+    'marketplace_id, estado_amazon, seguimiento_at, seguimiento_error, estado, aprobada_at, ' +
+    'created_at, updated_at'
   const CON_215 = `${BASE_REMESAS}, version, reabierta_at`
 
   let remesasRaw: unknown[] | null = null
@@ -319,7 +326,21 @@ export async function panelDeCliente(
   const connectionId = filasRemesa.find((r) => r.connection_id)?.connection_id ?? null
   const marketplaceId = filasRemesa[0]?.marketplace_id ?? null
 
-  const skus = [...new Set(filasLinea.map((l) => l.sku))]
+  /**
+   * EL REPARTO DE VENTAS SOLO MIRA LO QUE YA HA SALIDO.
+   *
+   * Una propuesta —borrador, aprobada, encajando o lista— todavía no está en el
+   * almacén de Amazon. Si entrara en el reparto FIFO, las ventas que no cupieran
+   * en los envíos reales se le atribuirían, y sus unidades contarían como stock
+   * vivo: «quedan» y «descuadre» saldrían inflados por algo que no existe.
+   *
+   * Las remesas antiguas sin estado (de antes de la migración 195) son historia y
+   * se tratan como cerradas, igual que más abajo.
+   */
+  const esReal = (r: FilaRemesa) => ['enviada', 'cerrada'].includes((r.estado ?? 'cerrada') as string)
+  const filasReales = filasRemesa.filter(esReal)
+  const idsReales = new Set(filasReales.map((r) => r.id))
+  const skus = [...new Set(filasLinea.filter((l) => idsReales.has(l.remesa_id)).map((l) => l.sku))]
 
   let movimientos: Movimiento[] = []
   let leidoHasta: string | null = null
@@ -328,7 +349,7 @@ export async function panelDeCliente(
 
   if (connectionId && marketplaceId && skus.length > 0) {
     // Desde el primer envío: antes de eso ningún movimiento puede consumir nada.
-    const desde = filasRemesa[0].fecha_envio
+    const desde = filasReales[0].fecha_envio
 
     const { data: movsRaw, error: errMovs } = await service
       .from('fba_movimientos')
@@ -423,7 +444,7 @@ export async function panelDeCliente(
   }
 
   const remesasPorId = new Map<string, Remesa>(
-    filasRemesa.map((r) => [
+    filasReales.map((r) => [
       r.id,
       {
         id: r.id,
@@ -535,6 +556,8 @@ export async function panelDeCliente(
       // tratan como cerradas, no como borradores pendientes de aprobar.
       estado: (r.estado ?? 'cerrada') as EstadoRemesa,
       aprobadaAt: r.aprobada_at,
+      creadaAt: r.created_at,
+      actualizadaAt: r.updated_at,
       // Sin la 215 lanzada, estas dos no vienen en la fila. Versión 1 y sin
       // reabrir es exactamente lo que significan: reabrir no existía.
       version: r.version ?? 1,

@@ -32,6 +32,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (!puedeEditar(session, (duena as { client_id: string }).client_id)) {
       return fail(404, 'Esa remesa ya no existe')
     }
+    const clienteDeLaRemesa = (duena as { client_id: string }).client_id
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
     const cambios: Record<string, unknown> = {}
@@ -40,6 +41,28 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (typeof body.nota === 'string') cambios.nota = body.nota.trim().slice(0, 1000) || null
     if (typeof body.referenciaEnvio === 'string') {
       cambios.referencia_envio = body.referenciaEnvio.trim().slice(0, 120) || null
+
+      /**
+       * UN ENVÍO DE AMAZON, UNA REMESA.
+       *
+       * Si dos remesas apuntan al mismo número, las ventas de ese envío se contarían
+       * dos veces y las unidades recibidas se pisarían entre sí. Se avisa de cuál
+       * lo tiene ya, en vez de dejar que pase en silencio.
+       */
+      if (cambios.referencia_envio) {
+        const { data: repetida } = await servicio
+          .from('fba_remesas')
+          .select('id, nombre')
+          .eq('client_id', clienteDeLaRemesa)
+          .eq('referencia_envio', cambios.referencia_envio as string)
+          .neq('id', params.id)
+          .limit(1)
+          .maybeSingle()
+        if (repetida) {
+          const nombre = (repetida as { nombre: string | null }).nombre
+          return fail(409, `Ese número de envío ya está enlazado con ${nombre ? `«${nombre}»` : 'otra remesa'}. Un envío de Amazon solo puede estar en una remesa.`)
+        }
+      }
     }
     if (typeof body.fechaEnvio === 'string') {
       const f = body.fechaEnvio.trim()
