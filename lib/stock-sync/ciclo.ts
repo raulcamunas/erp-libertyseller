@@ -45,6 +45,7 @@ import {
   tomarCerrojo,
 } from './perfiles'
 import { procesarPerfil, traerFichero, type AntesDeEnviar, type EnvioRealizado } from './proceso'
+import { programarVerificacion } from './verificacion'
 
 /**
  * Cuánto tiempo puede ocupar UNA pasada del ciclo.
@@ -568,6 +569,17 @@ async function enviarLoQueSalga(antes: AntesDeEnviar): Promise<EnvioRealizado | 
       source: 'fichero',
       sourceRef: `${fichero.nombre} · perfil ${perfil.slug}`.slice(0, 200),
       userId: null,
+    })
+
+    // Si este cliente lleva verificación, se apunta para dentro de media hora. Solo
+    // apunta: no espera ni puede estropear el envío (nunca lanza).
+    await programarVerificacion({
+      clientId: perfil.client_id,
+      profileId: perfil.id,
+      connectionId: destino.connectionId,
+      marketplaceId: destino.marketplaceId,
+      batchId: resultado.batchId,
+      enviados: resultado.accepted,
     })
 
     return {

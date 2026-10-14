@@ -57,6 +57,9 @@ export type AmazonOperation =
   | 'getMyFeesEstimates'
   // ---------- La que añadió la sonda de permisos ----------
   | 'getOrderMetrics'
+  // ---------- Las de contar las ventas de un intervalo (verificación de stock) ----------
+  | 'getOrders'
+  | 'getOrderItems'
   // ---------- La del dinero, con el IVA separado del precio ----------
   | 'listFinancialEvents'
   // ---------- Las del seguimiento de envíos a FBA ----------
@@ -176,6 +179,15 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
    * bucle accidental se coma quince fichas antes de que salte el freno.
    */
   getOrderMetrics: { rate: 0.5, burst: 1 },
+
+  /**
+   * Orders API. getOrders publica UNA llamada por minuto y ráfaga de 20 (0,0167);
+   * getOrderItems, 0,5 por segundo con ráfaga de 30. Aquí se cobra una ráfaga
+   * pequeña a propósito: la verificación pregunta por unos pocos pedidos de media
+   * hora y no tiene prisa.
+   */
+  getOrders: { rate: 0.0167, burst: 3 },
+  getOrderItems: { rate: 0.5, burst: 5 },
 
   /**
    * Finances API. El cupo publicado de listFinancialEvents es 0,5 por segundo

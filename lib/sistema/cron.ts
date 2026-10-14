@@ -159,6 +159,16 @@ export const TAREAS_CRON = [
       'nada en Amazon.',
   },
   {
+    id: 'stock-verificacion',
+    nombre: 'Verificación del stock subido',
+    ruta: '/api/stock-sync/cron-verificacion',
+    cadaMinutos: 5,
+    que:
+      'Media hora después de subir el stock de un cliente con verificación (Lenobotics, Shoplamp), ' +
+      'vuelve a leer en Amazon lo que ha quedado de cada SKU enviado, lo compara con lo que se mandó ' +
+      'descontando las ventas, guarda el informe y avisa a Slack. No corrige nada: solo lee.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
