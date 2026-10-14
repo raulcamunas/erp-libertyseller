@@ -2,12 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, ClipboardList, Download, Package, Plus, TrendingDown } from 'lucide-react'
+import { AlertTriangle, ClipboardList, Database, Download, FileDown, Package, Plus, TrendingDown, Upload } from 'lucide-react'
 import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
 import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
+import { filasACsv } from '@/lib/fba/catalogo/exportar'
+import { esClienteConCatalogo } from '@/lib/fba/catalogo/tipos'
+import { estaCompleta } from '@/lib/fba/catalogo/validar'
 import type { PanelRemesas, RemesaDePanel } from '@/lib/fba/datos'
 import type { Actor } from '@/lib/fba/flujo'
 import { esEnvio, esPropuesta, estaEnCamino, estaEnlazada, leToca, turnoDe } from '@/lib/fba/vista'
+import { AnadirReferenciaDialog, type PrellenadoReferencia } from './catalogo/AnadirReferenciaDialog'
+import { ImportarCatalogoDialog } from './catalogo/ImportarCatalogoDialog'
+import { useCatalogo } from './catalogo/useCatalogo'
+import { VistaBaseDeDatos } from './catalogo/VistaBaseDeDatos'
 import { cx, Vacio } from './comun/ui'
 import { DetalleEnvio } from './envios/DetalleEnvio'
 import { ListaEnvios } from './envios/ListaEnvios'
@@ -27,6 +34,9 @@ import { VistaReferencias } from './VistaReferencias'
  *                apruebe, que etiquete y encaje. Cuando se marca como enviada y se
  *                enlaza con su número de Amazon, pasa a Envíos.
  *   REFERENCIAS  producto a producto, la que dice cuándo hay que reponer.
+ *   BASE DE DATOS  solo para los clientes que la tienen (ShoesF): su hoja de REF,
+ *                color, talla, EAN, FNSKU, ASIN y FBASKU, de la que las propuestas
+ *                sacan los desplegables.
  *
  * Cada una es una pantalla con su propia lista a la izquierda y su espacio de
  * trabajo a la derecha. La pantalla no calcula nada pesado: el reparto de ventas
@@ -46,7 +56,7 @@ interface Cliente {
   propuestas: number
 }
 
-type Vista = 'envios' | 'propuestas' | 'referencias'
+type Vista = 'envios' | 'propuestas' | 'referencias' | 'base'
 
 export function EspacioRemesas({
   clientes,
@@ -71,10 +81,18 @@ export function EspacioRemesas({
   const propuestas = useMemo(() => panel.remesas.filter(esPropuesta), [panel.remesas])
 
   // Si llegan por un enlace a una propuesta, se abre en Propuestas
-  const [vista, setVista] = useState<Vista>(() => {
+  const [vistaElegida, setVista] = useState<Vista>(() => {
     const abierta = panel.remesas.find((r) => r.id === remesaAbierta)
     return abierta && esPropuesta(abierta) ? 'propuestas' : 'envios'
   })
+
+  // La base de datos solo existe para los clientes que la tienen. Si se estaba en ella
+  // y se salta a otro cliente, se cae a Envíos: derivado, no corregido en un efecto.
+  const conCatalogo = esClienteConCatalogo(cliente.nombre)
+  const vista: Vista = vistaElegida === 'base' && !conCatalogo ? 'envios' : vistaElegida
+  const catalogo = useCatalogo(cliente.id, conCatalogo)
+  const [anadiendo, setAnadiendo] = useState<PrellenadoReferencia | null>(null)
+  const [importando, setImportando] = useState(false)
   const [envioElegido, setEnvioElegido] = useState<string | null>(remesaAbierta)
   const [propuestaElegida, setPropuestaElegida] = useState<string | null>(remesaAbierta)
   const [nueva, setNueva] = useState(false)
@@ -140,6 +158,28 @@ export function EspacioRemesas({
     return { enviadas, vivas, enCamino, urgentes, descuadre, tocan, porFase, conDescuadre: panel.skus.filter((s) => s.descuadre !== null && s.descuadre !== 0).length }
   }, [envios, propuestas, panel.skus, verComo])
 
+  const cifrasBase = useMemo(() => {
+    const filas = catalogo.filas ?? []
+    return {
+      referencias: catalogo.indice.grupos.length,
+      modelos: catalogo.indice.modelos.length,
+      tallas: filas.length,
+      incompletas: filas.filter((f) => !estaCompleta(f)).length,
+    }
+  }, [catalogo.filas, catalogo.indice])
+
+  /** Descarga la base de datos en el formato de la hoja: se puede pegar de vuelta o volver a importar */
+  function descargarBase() {
+    const csv = '\ufeff' + filasACsv(catalogo.filas ?? [])
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const a = document.createElement('a')
+    const nombre = cliente.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    a.href = url
+    a.download = `base-de-datos-${nombre}-${hoy}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="fba-cockpit flex h-[calc(100vh-4rem)] min-h-0 flex-col">
       {/* ================= CABECERA: TÍTULO, VISTAS, CIFRAS Y ACCIONES ================= */}
@@ -162,6 +202,12 @@ export function EspacioRemesas({
           <Pestana activa={vista === 'referencias'} onClick={() => setVista('referencias')} icono={<TrendingDown className="h-[14px] w-[14px]" />} titulo="Producto a producto: cuándo hay que reponer">
             Referencias
           </Pestana>
+          {conCatalogo && (
+            <Pestana activa={vista === 'base'} onClick={() => setVista('base')} icono={<Database className="h-[14px] w-[14px]" />} titulo={`La hoja de referencias de ${cliente.nombre}: REF, color, talla y sus códigos. De aquí salen los desplegables de las propuestas`}>
+              Base de datos
+              {catalogo.filas && <span className="tabular-nums text-[var(--ls-t4)]">{catalogo.filas.length}</span>}
+            </Pestana>
+          )}
         </nav>
 
         {/* Las cifras del cliente, en la misma fila: no merecen una fila entera */}
@@ -190,6 +236,14 @@ export function EspacioRemesas({
             <Cifra rotulo="con descuadre" valor={cifras.conDescuadre} alerta={cifras.conDescuadre > 0} />
           </div>
         )}
+        {vista === 'base' && catalogo.filas && catalogo.filas.length > 0 && (
+          <div className={CIFRAS.tira}>
+            <Cifra rotulo="REF" valor={cifrasBase.referencias} />
+            <Cifra rotulo="modelos" valor={cifrasBase.modelos} />
+            <Cifra rotulo="tallas" valor={cifrasBase.tallas} />
+            <Cifra rotulo="incompletas" valor={cifrasBase.incompletas} alerta={cifrasBase.incompletas > 0} pista="Tallas a las que les falta el FBASKU, el EAN, el FNSKU o el ASIN" />
+          </div>
+        )}
 
         <div className="ml-auto flex items-center gap-3">
           {panel.leidoHasta && <span className="hidden text-[11px] text-[var(--ls-t4)] 2xl:inline">Ventas leídas hasta el {fecha(panel.leidoHasta)}</span>}
@@ -199,11 +253,34 @@ export function EspacioRemesas({
               Traer envío de Amazon
             </button>
           )}
-          {cliente.puedeEditar && (
-            <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-              <Plus className="h-3 w-3" />
-              Nueva propuesta
-            </button>
+          {vista === 'base' ? (
+            <>
+              {catalogo.filas && catalogo.filas.length > 0 && (
+                <button type="button" onClick={descargarBase} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Descargar la base de datos en el formato de la hoja de cálculo">
+                  <FileDown className="h-3 w-3" />
+                  Exportar CSV
+                </button>
+              )}
+              {catalogo.puedeEditar && !catalogo.sinMigrar && (
+                <>
+                  <button type="button" onClick={() => setImportando(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Cargar o completar la base de datos desde el CSV de la hoja">
+                    <Upload className="h-3 w-3" />
+                    Importar CSV
+                  </button>
+                  <button type="button" onClick={() => setAnadiendo({})} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+                    <Plus className="h-3 w-3" />
+                    Añadir referencia
+                  </button>
+                </>
+              )}
+            </>
+          ) : (
+            cliente.puedeEditar && (
+              <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+                <Plus className="h-3 w-3" />
+                Nueva propuesta
+              </button>
+            )
           )}
         </div>
       </header>
@@ -230,7 +307,11 @@ export function EspacioRemesas({
       )}
 
       {/* ================= CUERPO ================= */}
-      {vista === 'referencias' ? (
+      {vista === 'base' ? (
+        <div className="min-h-0 flex-1 px-5 pb-4">
+          <VistaBaseDeDatos clienteId={cliente.id} clienteNombre={cliente.nombre} onAnadir={(p) => setAnadiendo(p ?? {})} onImportar={() => setImportando(true)} />
+        </div>
+      ) : vista === 'referencias' ? (
         <div className="min-h-0 flex-1 px-5 pb-4">
           <VistaReferencias skus={panel.skus} />
         </div>
@@ -290,11 +371,14 @@ export function EspacioRemesas({
         </div>
       )}
 
+      {anadiendo && <AnadirReferenciaDialog clienteId={cliente.id} clienteNombre={cliente.nombre} prellenado={anadiendo} onCerrar={() => setAnadiendo(null)} />}
+      {importando && <ImportarCatalogoDialog clienteId={cliente.id} clienteNombre={cliente.nombre} onCerrar={() => setImportando(false)} />}
       {nueva && (
         <NuevaPropuestaDialog
           clienteId={cliente.id}
           clienteNombre={cliente.nombre}
           esAdmin={esAdmin}
+          conCatalogo={conCatalogo}
           onCerrar={() => setNueva(false)}
           onCreada={(id) => {
             setPropuestaElegida(id)

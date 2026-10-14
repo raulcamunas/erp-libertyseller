@@ -41,6 +41,14 @@ export interface ProductoFba {
 
 export interface Elegido extends ProductoFba {
   unidades: number
+  /**
+   * Los descriptivos de la hoja de ShoesF: talla, REF y EAN. El catálogo de Amazon no
+   * los trae; sí la base de datos de referencias y una remesa ya guardada. Viajan de
+   * vuelta al guardar para que corregir una cantidad no los borre.
+   */
+  variante?: string | null
+  referencia?: string | null
+  ean?: string | null
 }
 
 export function SelectorProductos({

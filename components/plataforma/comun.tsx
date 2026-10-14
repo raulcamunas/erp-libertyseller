@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Loader2, X, type LucideIcon } from 'lucide-react'
 import {
   AVISO,
@@ -202,6 +202,20 @@ export function Panel({
  * copiado en cada sitio— es cerrar con Escape y no dejar la página de debajo
  * haciendo scroll.
  */
+/**
+ * Los diálogos abiertos, el último arriba.
+ *
+ * Hay sitios donde un diálogo abre otro encima —dar de alta una referencia mientras
+ * se monta una propuesta—. Con un `keydown` por diálogo, un solo Esc cerraba los dos
+ * y la propuesta a medias se perdía. Ahora Esc cierra solo el de arriba, y el
+ * bloqueo del scroll de la página se pone al abrir el primero y se quita al cerrar
+ * el último: guardar el valor anterior en cada diálogo dejaba la página sin scroll
+ * cuando se cerraban a la vez.
+ */
+const pilaDeDialogos: symbol[] = []
+let dialogosAbiertos = 0
+let overflowAntesDeAbrir = ''
+
 export function Dialogo({
   titulo,
   entradilla,
@@ -217,18 +231,30 @@ export function Dialogo({
   pie?: React.ReactNode
   ancho?: string
 }) {
+  // El efecto se monta UNA vez. Con `onCerrar` en las dependencias, un padre que pasa
+  // una función nueva en cada render volvería a apilar el diálogo cada vez, y el de
+  // abajo acabaría encima del de arriba.
+  const cerrar = useRef(onCerrar)
+  cerrar.current = onCerrar
+
   useEffect(() => {
+    const yo = Symbol('dialogo')
+    pilaDeDialogos.push(yo)
     const alPulsar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCerrar()
+      if (e.key === 'Escape' && pilaDeDialogos[pilaDeDialogos.length - 1] === yo) cerrar.current()
     }
     document.addEventListener('keydown', alPulsar)
-    const antes = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    if (dialogosAbiertos++ === 0) {
+      overflowAntesDeAbrir = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+    }
     return () => {
       document.removeEventListener('keydown', alPulsar)
-      document.body.style.overflow = antes
+      const i = pilaDeDialogos.indexOf(yo)
+      if (i >= 0) pilaDeDialogos.splice(i, 1)
+      if (--dialogosAbiertos === 0) document.body.style.overflow = overflowAntesDeAbrir
     }
-  }, [onCerrar])
+  }, [])
 
   return (
     <div

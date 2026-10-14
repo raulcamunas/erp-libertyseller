@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { AlertTriangle, Calendar, Check, CheckCircle2, ChevronDown, Circle, Loader2, Pencil, StickyNote, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { BOTON, CAMPO, COLOR_ESTADO, TABLA, TIPO } from '@/lib/estilo/denso'
+import { esClienteConCatalogo } from '@/lib/fba/catalogo/tipos'
 import type { CajasDeRemesa } from '@/lib/fba/cajas'
 import type { RemesaDePanel } from '@/lib/fba/datos'
 import { puedeImprimirEtiquetas, type Actor } from '@/lib/fba/flujo'
@@ -217,7 +218,16 @@ export function EspacioPropuesta({
       {/* ================= LO QUE TOCA HACER AHORA ================= */}
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2 pr-[2px]">
         {remesa.estado === 'borrador' && (
-          <EditorBoceto clienteId={clienteId} esAdmin={esAdmin} puedeEditar={puedeEditar} remesaId={remesa.id} lineas={remesa.lineas} onGuardado={() => router.refresh()} />
+          <EditorBoceto
+            clienteId={clienteId}
+            clienteNombre={clienteNombre}
+            esAdmin={esAdmin}
+            puedeEditar={puedeEditar}
+            conCatalogo={esClienteConCatalogo(clienteNombre)}
+            remesaId={remesa.id}
+            lineas={remesa.lineas}
+            onGuardado={() => router.refresh()}
+          />
         )}
 
         {remesa.estado === 'aprobada' && (
@@ -354,8 +364,10 @@ function ResumenLineas({ remesa, abierto = false }: { remesa: RemesaDePanel; abi
               {remesa.lineas.map((l) => (
                 <tr key={l.sku} className={TABLA.fila}>
                   <td className={cx(TABLA.celda, 'font-mono text-[11.5px] text-[var(--ls-t3)]')}>{l.sku}</td>
-                  <td className={cx(TABLA.celda, 'max-w-[380px] truncate text-[var(--ls-t1)]')} title={l.nombre ?? ''}>
-                    {l.nombre ?? '—'}
+                  <td className={cx(TABLA.celda, 'max-w-[380px] truncate text-[var(--ls-t1)]')} title={[l.referencia, l.nombre].filter(Boolean).join(' · ')}>
+                    {/* La REF delante cuando la hay (ShoesF): «8412 · CUERO», como en su hoja */}
+                    {l.referencia && <span className="mr-[6px] text-[var(--ls-t3)]">{l.referencia}</span>}
+                    {l.nombre ?? (l.referencia ? '' : '—')}
                   </td>
                   <td className={cx(TABLA.celda, 'text-[var(--ls-t3)]')}>{l.variante ?? '—'}</td>
                   <td className={cx(TABLA.celda, TABLA.numero, 'font-semibold text-[var(--ls-t1)]')}>{l.enviadas}</td>

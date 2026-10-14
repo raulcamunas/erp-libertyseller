@@ -1,12 +1,14 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ClipboardPaste, ListChecks, Loader2, Plus } from 'lucide-react'
+import { AlertTriangle, ClipboardPaste, Database, ListChecks, Loader2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialogo } from '@/components/plataforma/comun'
 import { BOTON, CAMPO, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
+import type { LineaElegida } from '@/lib/fba/catalogo/indice'
 import { interpretar, type LineaPegada } from '@/lib/fba/pegado'
 import { cx, Segmentado } from '../comun/ui'
+import { EditorDesplegables, type EstadoEditor } from '../catalogo/EditorDesplegables'
 import { SelectorProductos, type Elegido } from '../SelectorProductos'
 
 /**
@@ -16,17 +18,41 @@ import { SelectorProductos, type Elegido } from '../SelectorProductos'
  * cuando se crea el envío en Seller Central, y se pide al final, al marcarla como
  * enviada. Aquí solo se dice cómo se llama, para cuándo es y qué lleva.
  *
- * Dos formas de montar la lista y las dos hacen falta: elegir del catálogo es lo
- * del día a día; pegar una tabla sirve para traerse de golpe una hoja de cálculo
- * entera —una remesa de ShoesF trae 83 líneas, y teclearlas es justo lo que hizo
- * que el Excel dejara de actualizarse—.
+ * Tres formas de montar la lista y las tres hacen falta:
+ *
+ *   DESPLEGABLES   (clientes con base de datos de referencias: ShoesF) REF, color y
+ *                  talla, con los códigos rellenándose solos. Es lo del día a día.
+ *   CATÁLOGO       elegir de los productos de FBA que Amazon tiene del cliente.
+ *   PEGAR          traerse de golpe una hoja de cálculo entera —una remesa de ShoesF
+ *                  trae 83 líneas, y teclearlas es justo lo que hizo que el Excel
+ *                  dejara de actualizarse—.
+ *
+ * Cada una guarda su propia lista y cambiar de pestaña no la pierde. La que se crea
+ * es la de la pestaña que está abierta al pulsar «Crear propuesta».
  */
+
+type Modo = 'desplegables' | 'elegir' | 'pegar'
+
+/** De cualquier forma de elegir a la línea que entiende la ruta de alta */
+function aLineaPegada(e: Elegido | LineaElegida): LineaPegada {
+  return {
+    sku: e.sku,
+    unidades: e.unidades,
+    referencia: e.referencia ?? null,
+    nombre: e.titulo,
+    variante: e.variante ?? null,
+    ean: e.ean ?? null,
+    fnsku: e.fnsku,
+    asin: e.asin,
+  }
+}
 
 export function NuevaPropuestaDialog({
   clienteId,
   clienteNombre,
   marketplaceId = 'A1RKKUPIHCS9HS',
   esAdmin,
+  conCatalogo = false,
   onCerrar,
   onCreada,
 }: {
@@ -34,28 +60,34 @@ export function NuevaPropuestaDialog({
   clienteNombre: string
   marketplaceId?: string
   esAdmin: boolean
+  /** El cliente trabaja con base de datos de referencias: se monta con desplegables */
+  conCatalogo?: boolean
   onCerrar: () => void
   onCreada: (id: string) => void
 }) {
   const [nombre, setNombre] = useState('')
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
-  const [modo, setModo] = useState<'elegir' | 'pegar'>('elegir')
+  const [modo, setModo] = useState<Modo>(conCatalogo ? 'desplegables' : 'elegir')
   const [pegado, setPegado] = useState('')
   const [elegidos, setElegidos] = useState<Elegido[]>([])
+  const [desplegables, setDesplegables] = useState<LineaElegida[]>([])
+  const [estado, setEstado] = useState<EstadoEditor>({ sinTerminar: 0, fueraDeLaBase: 0 })
   const [guardando, setGuardando] = useState(false)
 
   const { lineas: pegadas, avisos } = useMemo(() => interpretar(pegado), [pegado])
   const lineas: LineaPegada[] = useMemo(
-    () =>
-      modo === 'elegir'
-        ? elegidos.map((e) => ({ sku: e.sku, unidades: e.unidades, referencia: null, nombre: e.titulo, variante: null, ean: null, fnsku: e.fnsku, asin: e.asin }))
-        : pegadas,
-    [modo, elegidos, pegadas]
+    () => (modo === 'pegar' ? pegadas : (modo === 'desplegables' ? desplegables : elegidos).map(aLineaPegada)),
+    [modo, elegidos, desplegables, pegadas]
   )
   const unidades = lineas.reduce((s, l) => s + l.unidades, 0)
+  const aMedias = modo === 'desplegables' ? estado.sinTerminar : 0
 
   async function crear() {
     if (lineas.length === 0) return
+    if (aMedias > 0) {
+      toast.error(`Hay ${aMedias} línea${aMedias === 1 ? '' : 's'} sin terminar (falta la talla o las unidades). Termínalas o quítalas: si no, se quedarían fuera.`)
+      return
+    }
     setGuardando(true)
     try {
       const res = await fetch('/api/fba/remesas', {
@@ -76,28 +108,36 @@ export function NuevaPropuestaDialog({
     }
   }
 
+  const ancho = modo === 'desplegables' ? 'max-w-[1060px]' : 'max-w-[880px]'
+
   return (
     <Dialogo
       titulo="Nueva propuesta"
       entradilla={`Lo que se va a mandar a Amazon para ${clienteNombre}. Se prepara aquí con el cliente y, cuando está enviada, pasa a Envíos.`}
       onCerrar={onCerrar}
-      ancho="max-w-[880px]"
+      ancho={ancho}
       pie={
         <>
-          <span className="mr-auto text-[11.5px] text-[var(--ls-t3)]">
+          <span className="mr-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[var(--ls-t3)]">
             {lineas.length > 0 ? (
-              <>
+              <span>
                 <b className="font-semibold text-[var(--ls-t1)]">{lineas.length}</b> referencia{lineas.length === 1 ? '' : 's'} ·{' '}
                 <b className="font-semibold text-[var(--ls-t1)]">{unidades.toLocaleString('es-ES')}</b> unidades
-              </>
+              </span>
             ) : (
-              'Añade al menos una referencia'
+              <span>Añade al menos una referencia</span>
+            )}
+            {aMedias > 0 && (
+              <span className="flex items-center gap-1" style={{ color: COLOR_ESTADO.ambar }}>
+                <AlertTriangle className="h-3 w-3" />
+                {aMedias} línea{aMedias === 1 ? '' : 's'} sin terminar
+              </span>
             )}
           </span>
           <button type="button" onClick={onCerrar} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
             Cancelar
           </button>
-          <button type="button" onClick={crear} disabled={lineas.length === 0 || guardando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+          <button type="button" onClick={crear} disabled={lineas.length === 0 || guardando || aMedias > 0} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
             {guardando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
             Crear propuesta
           </button>
@@ -126,10 +166,59 @@ export function NuevaPropuestaDialog({
         onCambio={setModo}
         etiqueta="Cómo montar la lista"
         opciones={[
-          { id: 'elegir', texto: (<><ListChecks className="h-3 w-3" />Elegir del catálogo</>) },
-          { id: 'pegar', texto: (<><ClipboardPaste className="h-3 w-3" />Pegar una tabla</>) },
+          ...(conCatalogo
+            ? [
+                {
+                  id: 'desplegables' as const,
+                  texto: (
+                    <>
+                      <Database className="h-3 w-3" />
+                      Desplegables
+                    </>
+                  ),
+                  titulo: 'REF, color y talla de la base de datos de referencias',
+                },
+              ]
+            : []),
+          {
+            id: 'elegir' as const,
+            texto: (
+              <>
+                <ListChecks className="h-3 w-3" />
+                {conCatalogo ? 'Catálogo de Amazon' : 'Elegir del catálogo'}
+              </>
+            ),
+          },
+          {
+            id: 'pegar' as const,
+            texto: (
+              <>
+                <ClipboardPaste className="h-3 w-3" />
+                Pegar una tabla
+              </>
+            ),
+          },
         ]}
       />
+
+      {/* El editor de desplegables se queda montado al cambiar de pestaña: lo elegido no se pierde */}
+      {conCatalogo && (
+        <div className={modo === 'desplegables' ? undefined : 'hidden'}>
+          <EditorDesplegables
+            clienteId={clienteId}
+            clienteNombre={clienteNombre}
+            puedeAnadir
+            inicial={[]}
+            onCambio={(l, e) => {
+              setDesplegables(l)
+              setEstado(e)
+            }}
+            variante="dialogo"
+            alturaMaxima="min(50vh, 440px)"
+            onUsarOtroModo={() => setModo('elegir')}
+          />
+        </div>
+      )}
 
       {modo === 'elegir' && <SelectorProductos clienteId={clienteId} esAdmin={esAdmin} elegidos={elegidos} onCambio={setElegidos} />}
 
