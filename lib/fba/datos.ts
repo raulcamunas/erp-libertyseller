@@ -39,12 +39,21 @@ export interface LineaDePanel {
    */
   ean: string | null
   enviadas: number
+  /**
+   * Lo que ha salido de esta línea, en neto: ventas, retiradas y mermas, menos lo que
+   * ha vuelto. La pantalla lo llama «vendidas»; `retiradas` y `mermas` dicen cuánto de
+   * ello NO son ventas.
+   */
   consumidas: number
   devueltas: number
   quedan: number
   quedanVendibles: number
+  /** De `consumidas`: lo que se retiró del almacén (retiradas y bajas) */
+  retiradas: number
+  /** De `consumidas`: lo que Amazon dio por perdido o dañado, en neto de lo encontrado */
+  mermas: number
   agotadaEl: string | null
-  /** Lo vendido de esta línea cada día ('YYYY-MM-DD' → unidades, en neto). Solo días con movimiento */
+  /** Lo que ha salido de esta línea cada día ('YYYY-MM-DD' → unidades, en neto). Solo días con movimiento */
   porDia: Record<string, number>
 }
 
@@ -507,6 +516,8 @@ export async function panelDeCliente(
         devueltas: rep?.devueltas ?? 0,
         quedan: rep?.quedan ?? l.unidades,
         quedanVendibles: rep?.quedanVendibles ?? l.unidades,
+        retiradas: rep?.retiradas ?? 0,
+        mermas: rep?.mermas ?? 0,
         agotadaEl: rep?.agotadaEl ?? null,
         porDia: rep?.porDia ?? {},
       }

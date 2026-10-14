@@ -48,6 +48,8 @@ export function TabResumen({
   const recibidas = remesa.lineas.reduce((s, l) => s + (l.recibidas ?? 0), 0)
   const vendidas = remesa.lineas.reduce((s, l) => s + l.consumidas, 0)
   const devueltas = remesa.lineas.reduce((s, l) => s + l.devueltas, 0)
+  const retiradas = remesa.lineas.reduce((s, l) => s + l.retiradas, 0)
+  const mermas = remesa.lineas.reduce((s, l) => s + l.mermas, 0)
   const base = Math.max(1, sinPreguntar ? enviadas : recibidas)
   const pctVendido = Math.round((vendidas / base) * 100)
   const conDescuadre = filas.filter((f) => f.descuadre !== null && f.descuadre !== 0).length
@@ -118,6 +120,13 @@ export function TabResumen({
               Quedan <b className="font-semibold text-[var(--ls-t1)]">{remesa.quedan.toLocaleString('es-ES')}</b>
             </Clave>
             {devueltas > 0 && <span className="text-[11.5px] text-[var(--ls-t3)]">{devueltas} devuelta{devueltas === 1 ? '' : 's'} (ya restadas de las vendidas)</span>}
+            {retiradas + mermas > 0 && (
+              <span className="text-[11.5px] text-[var(--ls-t3)]" title="Salen del stock pero no son ventas: una retirada del almacén o una pérdida que Amazon apunta. Por ahora se cuentan dentro de «vendidas»">
+                incluidas en las vendidas:{retiradas > 0 && <> {retiradas} retirada{retiradas === 1 ? '' : 's'} del almacén</>}
+                {retiradas > 0 && mermas > 0 && ' y'}
+                {mermas > 0 && <> {mermas} merma{mermas === 1 ? '' : 's'}</>}
+              </span>
+            )}
           </div>
           {!sinPreguntar && enviadas !== recibidas && (
             <p className="mt-2 text-[11.5px] text-[var(--ls-t3)]">

@@ -26,6 +26,10 @@ export function CifrasEnvio({ remesa, ritmo, rejilla = false }: { remesa: Remesa
   const sinPreguntar = remesa.lineas.length > 0 && remesa.lineas.every((l) => l.recibidas === null)
   const recibidas = remesa.lineas.reduce((s, l) => s + (l.recibidas ?? 0), 0)
   const vendidas = remesa.lineas.reduce((s, l) => s + l.consumidas, 0)
+  // De lo «vendido», lo que son retiradas del almacén y pérdidas: salen del stock pero no son ventas
+  const retiradas = remesa.lineas.reduce((s, l) => s + l.retiradas, 0)
+  const mermas = remesa.lineas.reduce((s, l) => s + l.mermas, 0)
+  const noVentas = retiradas + mermas
   const devueltas = remesa.lineas.reduce((s, l) => s + l.devueltas, 0)
   const agotadas = remesa.lineas.filter((l) => l.quedan === 0).length
   const base = Math.max(1, sinPreguntar ? enviadas : recibidas)
@@ -53,7 +57,7 @@ export function CifrasEnvio({ remesa, ritmo, rejilla = false }: { remesa: Remesa
           )
         }
       />
-      <Celda rejilla={rejilla} color={VIZ.vendidas} rotulo="Vendidas" valor={vendidas} sub={`${Math.round((vendidas / base) * 100)} % de lo recibido`} />
+      <Celda rejilla={rejilla} color={VIZ.vendidas} rotulo="Vendidas" valor={vendidas} sub={`${Math.round((vendidas / base) * 100)} % de lo recibido`} aviso={noVentas > 0 ? 'ambar' : undefined} pista={noVentas > 0 ? `Incluye ${noVentas} unidad${noVentas === 1 ? '' : 'es'} que no ${noVentas === 1 ? 'es una venta' : 'son ventas'}: ${[retiradas > 0 ? `${retiradas} retirada${retiradas === 1 ? '' : 's'} del almacén` : '', mermas > 0 ? `${mermas} merma${mermas === 1 ? '' : 's'}` : ''].filter(Boolean).join(' y ')}. Salen del stock, por eso restan, pero no son ventas.` : undefined} />
       <Celda rejilla={rejilla} color={VIZ.quedan} rotulo="Quedan" valor={remesa.quedan} sub={`${Math.round((remesa.quedan / base) * 100)} %${agotadas > 0 ? ` · ${agotadas} agotada${agotadas === 1 ? '' : 's'}` : ''}`} />
       <Celda rejilla={rejilla} rotulo="Ritmo" valor={ritmo.udDia7 > 0 ? ritmo.udDia7.toLocaleString('es-ES', { maximumFractionDigits: 1 }) : '0'} unidad="/día" sub="últimos 7 días" />
       <Celda
@@ -75,6 +79,7 @@ function Celda({
   sub,
   color,
   aviso,
+  pista,
   ultima,
   rejilla,
 }: {
@@ -86,6 +91,8 @@ function Celda({
   /** El color de la serie en los gráficos: liga la cifra con lo que se ve abajo */
   color?: string
   aviso?: 'rojo' | 'ambar'
+  /** Lo que explica el aviso, al pasar el ratón por encima de la cifra */
+  pista?: string
   ultima?: boolean
 }) {
   if (rejilla) {
@@ -96,7 +103,7 @@ function Celda({
           {color && <span className="h-[8px] w-[8px] rounded-[2px]" style={{ background: color }} />}
           {rotulo}
         </div>
-        <div className="mt-[1px] flex items-baseline gap-[4px] whitespace-nowrap">
+        <div className="mt-[1px] flex items-baseline gap-[4px] whitespace-nowrap" title={pista}>
           <span className="text-[21px] font-semibold leading-[1.15] tracking-[-0.02em] text-[var(--ls-t1)]">{typeof valor === 'number' ? valor.toLocaleString('es-ES') : valor}</span>
           {unidad && <span className="text-[12px] text-[var(--ls-t3)]">{unidad}</span>}
           {aviso && <AlertTriangle className="h-[12px] w-[12px] shrink-0 self-center" style={{ color: COLOR_ESTADO[aviso] }} />}
@@ -113,7 +120,7 @@ function Celda({
         {color && <span className="h-[8px] w-[8px] rounded-[2px]" style={{ background: color }} />}
         {rotulo}
       </div>
-      <div className="mt-[1px] flex items-baseline gap-[5px] overflow-hidden whitespace-nowrap">
+      <div className="mt-[1px] flex items-baseline gap-[5px] overflow-hidden whitespace-nowrap" title={pista}>
         <span className="text-[19px] font-semibold leading-[1.2] tracking-[-0.02em] text-[var(--ls-t1)]">
           {typeof valor === 'number' ? valor.toLocaleString('es-ES') : valor}
         </span>

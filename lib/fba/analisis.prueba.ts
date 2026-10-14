@@ -10,7 +10,7 @@ function ok(nombre: string, real: unknown, esperado: unknown) {
 
 const linea = (sku: string, o: Partial<LineaDePanel>): LineaDePanel => ({
   sku, recibidas: 10, nombre: sku, variante: null, asin: null, referencia: null, fnsku: null, ean: null,
-  enviadas: 10, consumidas: 0, devueltas: 0, quedan: 10, quedanVendibles: 10, agotadaEl: null, porDia: {}, ...o,
+  enviadas: 10, consumidas: 0, devueltas: 0, quedan: 10, quedanVendibles: 10, retiradas: 0, mermas: 0, agotadaEl: null, porDia: {}, ...o,
 })
 
 console.log('=== SERIE DIARIA ===')
