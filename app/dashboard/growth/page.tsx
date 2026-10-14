@@ -22,6 +22,7 @@ import {
 } from '@/components/growth/paneles/PanelPreciosShoplamp'
 import { InfoLimitesPrecio, PanelLimitesPrecio } from '@/components/growth/paneles/PanelLimitesPrecio'
 import { InfoAuditorStock, PanelAuditorStock } from '@/components/growth/paneles/PanelAuditorStock'
+import { InfoVerificacionStock, PanelVerificacionStock } from '@/components/growth/paneles/PanelVerificacionStock'
 
 /**
  * /dashboard/growth — GROWTH PARTNER. SOLO ADMIN.
@@ -94,6 +95,7 @@ const PANELES: Record<
   'fbm-fba': { Panel: PanelFbmFba, Info: InfoFbmFba },
   'limites-precio': { Panel: PanelLimitesPrecio, Info: InfoLimitesPrecio },
   'auditor-stock': { Panel: PanelAuditorStock, Info: InfoAuditorStock },
+  'verificacion-stock': { Panel: PanelVerificacionStock, Info: InfoVerificacionStock },
   'precios-shoplamp': { Panel: PanelPreciosShoplamp, Info: InfoPreciosShoplamp },
 }
 

@@ -1,4 +1,4 @@
-import { Activity, ArrowRightLeft, Boxes, Crown, SlidersHorizontal, Tags, type LucideIcon } from 'lucide-react'
+import { Activity, ArrowRightLeft, Boxes, Crown, ShieldCheck, SlidersHorizontal, Tags, type LucideIcon } from 'lucide-react'
 
 /**
  * LOS SUBMÓDULOS DE GROWTH PARTNER.
@@ -34,6 +34,7 @@ export type ModuloId =
   | 'precios-shoplamp'
   | 'limites-precio'
   | 'auditor-stock'
+  | 'verificacion-stock'
 
 export interface Modulo {
   id: ModuloId
@@ -100,6 +101,13 @@ export const MODULOS: readonly Modulo[] = [
     pista: 'Cada 15 min lee el stock de toda la cuenta: cuántos tienen y cuántos no',
     necesita: 'amazon',
     soloCliente: 'shoesf',
+  },
+  {
+    id: 'verificacion-stock',
+    nombre: 'Verificación de stock',
+    icono: ShieldCheck,
+    pista: 'Media hora después de subir el stock, comprueba en Amazon que ha quedado bien',
+    necesita: 'stock',
   },
   {
     id: 'precios-shoplamp',
