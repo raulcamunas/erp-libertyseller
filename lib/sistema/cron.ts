@@ -169,6 +169,25 @@ export const TAREAS_CRON = [
       'descontando las ventas, guarda el informe y avisa a Slack. No corrige nada: solo lee.',
   },
   {
+    /**
+     * CADA HORA, Y CADA PASADA REVISA SOLO UNA PARTE.
+     *
+     * Amazon solo deja leer las incidencias de veinte listings por llamada y comparte
+     * el cupo con el catálogo y con el auditor. Una cuenta como ShoesF (43.800
+     * listings en cuatro países) no se revisa entera cada hora: cada pasada coge los
+     * más urgentes —con stock y sin revisar, o con problemas abiertos— y deja el resto
+     * para la siguiente. El reparto vive en lib/cumplimiento/pendientes.ts.
+     */
+    id: 'cumplimiento',
+    nombre: 'Cumplimiento de listings',
+    ruta: '/api/cumplimiento/cron',
+    cadaMinutos: 60,
+    que:
+      'Lee en Amazon las incidencias de los listings de cada cuenta —atributos que faltan, ' +
+      'seguridad de producto, mercancías peligrosas, productos ocultos— empezando por los que ' +
+      'tienen stock, y las guarda por cliente. No escribe nada en Amazon.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',

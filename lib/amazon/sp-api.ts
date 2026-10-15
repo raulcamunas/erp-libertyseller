@@ -323,6 +323,12 @@ interface RawListingItem {
     fulfillmentChannelCode?: string
     quantity?: number
   }>
+  /**
+   * Las incidencias del listing. `unknown` a propósito: es dato de un tercero y
+   * quien lo interpreta (lib/cumplimiento/incidencias.ts) no se fía de la forma.
+   * Solo viene si se pidió `issues` en includedData.
+   */
+  issues?: unknown
 }
 
 /**
@@ -1029,6 +1035,87 @@ export async function fetchListingsBySku(
    * sobre los mismos SKU en cada pasada: se piden, no vienen, siguen sin
    * `product_type`, se vuelven a pedir.
    */
+  return { items, noVinieron: options.skus.filter((s) => !vistos.has(s)), llamadas }
+}
+
+/* ------------------------------------------------------------------ */
+/* Las incidencias de unos listings, por SKU                           */
+/* ------------------------------------------------------------------ */
+
+/** Un listing con lo que Amazon dice que tiene mal. Ver fetchIncidenciasPorSku */
+export interface ListingConIncidencias {
+  sku: string
+  asin: string | null
+  titulo: string | null
+  /** BUYABLE / DISCOVERABLE, del resumen de ESTE marketplace. Vacío = ninguno */
+  estado: string[]
+  productType: string | null
+  /**
+   * Las incidencias tal cual las da Amazon, sin interpretar. `undefined` = la
+   * respuesta no traía el campo; `[]` = lo traía y estaba vacío. Quien las lee
+   * tiene que decidir qué hacer con cada caso: aquí no se inventa ninguno.
+   */
+  incidencias: unknown
+}
+
+/**
+ * Las incidencias de unos SKU CONCRETOS: lo que Amazon dice que está mal en cada
+ * listing, y qué ha hecho por ello (ocultarlo, quitarlo del catálogo...).
+ *
+ * Misma operación y mismo cubo de fichas que fetchListingsBySku, a propósito: no
+ * hay otra puerta. El informe de listings no trae las incidencias, y las
+ * notificaciones (LISTINGS_ITEM_ISSUES_CHANGE) exigen una cola SQS o un bus de
+ * EventBridge que este ERP no tiene. Veinte SKU por llamada, y se pide solo lo
+ * imprescindible —resumen e incidencias, sin ofertas ni disponibilidad— para que
+ * la respuesta pese lo menos posible: son miles de llamadas por vuelta.
+ *
+ * NO es el panel «Gestionar su cumplimiento» de Seller Central: ese no tiene API.
+ * Esto es lo que Amazon pega al propio listing.
+ *
+ * Los SKU que Amazon no devuelve se listan en `noVinieron`: ya no existen en su
+ * catálogo, y callárselo dejaría la revisión pidiéndolos para siempre.
+ */
+export async function fetchIncidenciasPorSku(
+  creds: AmazonCredentials,
+  options: { marketplaceId: string; skus: string[] }
+): Promise<{ items: ListingConIncidencias[]; noVinieron: string[]; llamadas: number }> {
+  const items: ListingConIncidencias[] = []
+  const vistos = new Set<string>()
+  let llamadas = 0
+
+  for (let i = 0; i < options.skus.length; i += MAX_SKUS_POR_LLAMADA) {
+    const lote = options.skus.slice(i, i + MAX_SKUS_POR_LLAMADA)
+
+    const { data } = await spApiRequest<ListingsSearchResponse>(creds, 'searchListingsItems', {
+      method: 'GET',
+      path: `/listings/2021-08-01/items/${encodeURIComponent(creds.sellingPartnerId)}`,
+      query: {
+        marketplaceIds: [options.marketplaceId],
+        identifiers: lote,
+        identifiersType: 'SKU',
+        includedData: ['summaries', 'issues'],
+        issueLocale: ISSUE_LOCALE,
+        pageSize: MAX_SKUS_POR_LLAMADA,
+      },
+    })
+    llamadas += 1
+
+    for (const raw of data.items ?? []) {
+      if (typeof raw.sku !== 'string' || !raw.sku) continue
+      const resumen =
+        raw.summaries?.find((s) => s.marketplaceId === options.marketplaceId) ?? raw.summaries?.[0]
+      items.push({
+        sku: raw.sku,
+        asin: resumen?.asin ?? null,
+        titulo: resumen?.itemName ?? null,
+        estado: Array.isArray(resumen?.status) ? resumen.status.filter((x) => typeof x === 'string') : [],
+        productType: resumen?.productType ?? null,
+        incidencias: raw.issues,
+      })
+      vistos.add(raw.sku)
+    }
+  }
+
   return { items, noVinieron: options.skus.filter((s) => !vistos.has(s)), llamadas }
 }
 

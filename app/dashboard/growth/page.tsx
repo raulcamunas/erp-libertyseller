@@ -20,6 +20,7 @@ import {
   InfoPreciosShoplamp,
   PanelPreciosShoplamp,
 } from '@/components/growth/paneles/PanelPreciosShoplamp'
+import { InfoCumplimiento, PanelCumplimiento } from '@/components/growth/paneles/PanelCumplimiento'
 import { InfoLimitesPrecio, PanelLimitesPrecio } from '@/components/growth/paneles/PanelLimitesPrecio'
 import { InfoAuditorStock, PanelAuditorStock } from '@/components/growth/paneles/PanelAuditorStock'
 import { InfoVerificacionStock, PanelVerificacionStock } from '@/components/growth/paneles/PanelVerificacionStock'
@@ -93,6 +94,7 @@ const PANELES: Record<
   'stock-sync': { Panel: PanelStockSync, Info: InfoStockSync },
   buybox: { Panel: PanelBuyBox, Info: InfoBuyBox },
   'fbm-fba': { Panel: PanelFbmFba, Info: InfoFbmFba },
+  cumplimiento: { Panel: PanelCumplimiento, Info: InfoCumplimiento },
   'limites-precio': { Panel: PanelLimitesPrecio, Info: InfoLimitesPrecio },
   'auditor-stock': { Panel: PanelAuditorStock, Info: InfoAuditorStock },
   'verificacion-stock': { Panel: PanelVerificacionStock, Info: InfoVerificacionStock },

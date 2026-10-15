@@ -1,4 +1,14 @@
-import { Activity, ArrowRightLeft, Boxes, Crown, ShieldCheck, SlidersHorizontal, Tags, type LucideIcon } from 'lucide-react'
+import {
+  Activity,
+  ArrowRightLeft,
+  Boxes,
+  ClipboardCheck,
+  Crown,
+  ShieldCheck,
+  SlidersHorizontal,
+  Tags,
+  type LucideIcon,
+} from 'lucide-react'
 
 /**
  * LOS SUBMÓDULOS DE GROWTH PARTNER.
@@ -31,6 +41,7 @@ export type ModuloId =
   | 'stock-sync'
   | 'buybox'
   | 'fbm-fba'
+  | 'cumplimiento'
   | 'precios-shoplamp'
   | 'limites-precio'
   | 'auditor-stock'
@@ -85,6 +96,13 @@ export const MODULOS: readonly Modulo[] = [
     nombre: 'FBM → FBA',
     icono: ArrowRightLeft,
     pista: 'Qué referencias merecen pasar a logística de Amazon',
+    necesita: 'amazon',
+  },
+  {
+    id: 'cumplimiento',
+    nombre: 'Cumplimiento',
+    icono: ClipboardCheck,
+    pista: 'Los listings que Amazon marca con errores o tiene ocultos, y por qué',
     necesita: 'amazon',
   },
   {
