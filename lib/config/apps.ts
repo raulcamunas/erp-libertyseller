@@ -483,6 +483,14 @@ export const APPS_OCULTAS_A_ADMIN: ReadonlySet<string> = new Set([
   'vacaciones',
   'limpieza-ofertas',
   'disenos',
+  // Quitadas del menú de Raúl el 15 oct 2026: no las usa. Siguen existiendo y sus
+  // rutas, datos y permisos no se tocan (Facturación guarda las facturas ya
+  // emitidas); quien tenga el permiso las sigue viendo, y para devolverlas basta
+  // con quitar el id de esta lista.
+  'linkedin',
+  'facturacion',
+  'tracker',
+  'usos-horarios',
 ])
 
 export const APP_GROWTH = 'growth'
