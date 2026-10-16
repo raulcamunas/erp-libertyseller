@@ -433,11 +433,12 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
             >
               <option value="todos">Todos los temas</option>
               {TEMAS.map((t) => {
-                const n = r.porTema.find((x) => x.tema === t)?.n
+                const serie = filtros.gravedad === 'atencion' ? r.porTema : filtros.gravedad === 'todo' ? r.porTemaTodos : null
+            const n = serie?.find((x) => x.tema === t)?.n
                 return (
                   <option key={t} value={t}>
                     {ROTULO_TEMA[t].corto}
-                    {filtros.gravedad === 'atencion' && n !== undefined ? ` (${cifra(n)})` : ''}
+                    {serie && n !== undefined ? ` (${cifra(n)})` : ''}
                   </option>
                 )
               })}

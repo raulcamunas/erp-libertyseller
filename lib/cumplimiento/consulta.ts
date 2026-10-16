@@ -51,7 +51,10 @@ function conFiltros(consulta: any, connIds: string[], f: FiltrosCumplimiento): a
   if (f.gravedad === 'atencion') q = q.or('errores.gt.0,suprimido.eq.true')
   else if (f.gravedad === 'avisos') q = q.gt('avisos', 0).eq('errores', 0).eq('suprimido', false)
   else q = q.or('errores.gt.0,avisos.gt.0,suprimido.eq.true')
-  if (f.tema !== 'todos') q = q.eq('tema', f.tema)
+  // `temas` (todos los del listing) y no `tema` (solo el de su incidencia más grave):
+  // un listing con un error de precio y un aviso de normativa TIENE un problema de
+  // normativa, y quien filtra por normativa quiere verlo.
+  if (f.tema !== 'todos') q = q.contains('temas', [f.tema])
   if (f.soloStock) q = q.eq('con_stock', true)
   const b = limpiarBusqueda(f.busca)
   // `*` y no `%`: es el comodín de los filtros de PostgREST
@@ -124,7 +127,7 @@ export async function resumenDeCliente(
     const mercado = mercados.some((m) => m.id === mercadoElegido) ? mercadoElegido : 'todos'
     const enLoElegido = mercado === 'todos' ? mercados : mercados.filter((m) => m.id === mercado)
 
-    const [conErrores, suprimidos, atn, soloAvisos, atnStock, ultima, temas] = await Promise.all([
+    const [conErrores, suprimidos, atn, soloAvisos, atnStock, ultima, temas, temasTodos] = await Promise.all([
       base(mercado).gt('errores', 0),
       base(mercado).eq('suprimido', true),
       atencion(mercado),
@@ -140,7 +143,12 @@ export async function resumenDeCliente(
         if (mercado !== 'todos') q = q.eq('marketplace_id', mercado)
         return q
       })(),
-      Promise.all(TEMAS.map((t) => atencion(mercado).eq('tema', t))),
+      Promise.all(TEMAS.map((t) => atencion(mercado).contains('temas', [t]))),
+      // Con CUALQUIER incidencia, avisos incluidos: es donde está casi toda la normativa
+      // (Amazon manda como aviso lo de la RAP y el GPSR hasta que bloquea)
+      Promise.all(
+        TEMAS.map((t) => base(mercado).or('errores.gt.0,avisos.gt.0,suprimido.eq.true').contains('temas', [t]))
+      ),
     ])
 
     return {
@@ -155,6 +163,7 @@ export async function resumenDeCliente(
       soloAvisos: soloAvisos.count ?? 0,
       atencionConStock: atnStock.count ?? 0,
       porTema: TEMAS.map((t, i) => ({ tema: t, n: temas[i].count ?? 0 })).filter((t) => t.n > 0),
+      porTemaTodos: TEMAS.map((t, i) => ({ tema: t, n: temasTodos[i].count ?? 0 })).filter((t) => t.n > 0),
     }
   } catch (e) {
     console.error('[cumplimiento] no se ha podido leer el resumen:', e)
@@ -180,22 +189,24 @@ function ordenado(q: any): any {
 export async function paginaDeCliente(
   amazonClientId: string,
   filtros: FiltrosCumplimiento,
-  pagina: number
+  pagina: number,
+  /** Filas por página. La pantalla usa 100; el conector de Claude pide menos para no llenar el chat */
+  tamano: number = TAMANO_PAGINA
 ): Promise<PaginaCumplimiento | { error: string }> {
   try {
     const conexiones = await conexionesDeCliente(amazonClientId)
     if (conexiones.length === 0) return { error: 'Este cliente no tiene ninguna cuenta de Amazon activa.' }
     const connIds = conexiones.map((c) => c.id)
 
-    const desde = Math.max(0, Math.floor(pagina)) * TAMANO_PAGINA
+    const desde = Math.max(0, Math.floor(pagina)) * tamano
     // Se pide una de más para saber si hay otra página sin contar todo
     const { data, error } = await ordenado(
       conFiltros(createServiceClient().from('listing_cumplimiento').select(COLUMNAS), connIds, filtros)
-    ).range(desde, desde + TAMANO_PAGINA)
+    ).range(desde, desde + tamano)
     if (error) throw error
 
     const filas = (data ?? []) as unknown as FilaCumplimiento[]
-    return { filas: filas.slice(0, TAMANO_PAGINA), hayMas: filas.length > TAMANO_PAGINA }
+    return { filas: filas.slice(0, tamano), hayMas: filas.length > tamano }
   } catch (e) {
     console.error('[cumplimiento] no se ha podido leer la lista:', e)
     return { error: 'No se ha podido leer la lista.' }

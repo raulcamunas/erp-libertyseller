@@ -170,6 +170,39 @@ ok('imagen por el texto', tema({ mensaje: 'La imagen tiene fondo blanco.' }) ===
 ok('atributo suelto = datos', tema({ atributos: ['color'] }) === 'datos')
 ok('sin nada = otros', tema({ mensaje: 'Algo ha pasado.' }) === 'otros')
 
+console.log('\n=== mensajes REALES de Amazon (capturados de las cuentas el 16 oct 2026, recortados) ===')
+{
+  // Estos sí son reales: salen de listing_cumplimiento tras las primeras pasadas en producción
+  const real = (mensaje: string, categorias: string[], atributos: string[] = []) => tema({ mensaje, categorias, atributos })
+  ok('RAP/RER con QUALIFICATION_REQUIRED es normativa, no aprobación',
+    real('Para vender este producto en las tiendas de Amazon, debes obtener la información de una RER para cumplir la normativa de responsabilidad ampliada del productor (RAP). Más', ['QUALIFICATION_REQUIRED', 'LISTING']) === 'normativa')
+  ok('RAP/RER como simple aviso',
+    real('Para vender este producto en las tiendas de Amazon, debes obtener la información de una RER para cumplir la normativa de responsabilidad ampliada del productor (RAP). Si ', ['LISTING']) === 'normativa')
+  ok('GPSR: información del fabricante',
+    real('Para vender este producto en las tiendas de Amazon ubicadas en la UE, debes proporcionar información del fabricante para cumplir con el Reglamento general de seguridad de los productos', ['MISSING_ATTRIBUTE', 'PRODUCT']) === 'normativa')
+  ok('GPSR: advertencias y seguridad',
+    real('Para vender este producto en las tiendas de Amazon ubicadas en la UE, debes proporcionar información de advertencia y seguridad para cumplir con el Reglamento general de seguridad', ['MISSING_ATTRIBUTE', 'PRODUCT']) === 'normativa')
+  ok('GPSR: persona responsable',
+    real('Para vender este producto en las tiendas europeas de Amazon, debes proporcionar información sobre la persona responsable para cumplir con el Reglamento general de seguridad', ['MISSING_ATTRIBUTE', 'LISTING']) === 'normativa')
+  ok('documento de cumplimiento en el panel de estado de la cuenta',
+    real('Visita el panel de estado de la cuenta para verificar el requisito y continuar con la carga del documento de cumplimiento necesario, atribuir o apelar el requisito', ['MISSING_ATTRIBUTE', 'LISTING']) === 'normativa')
+  ok('permisos de acceso con compliance_media', real('Es necesario actualizar tus permisos de acceso. Comprueba la configuración del navegador e inténtalo de nuevo.', ['INVALID_ATTRIBUTE', 'LISTING'], ['compliance_media']) === 'normativa')
+  ok('autorización de marca sigue siendo aprobación',
+    real('Necesitas autorización para publicar productos de esta marca.', ['QUALIFICATION_REQUIRED', 'LISTING']) === 'aprobacion')
+  ok('precio por debajo del umbral',
+    real('El precio de venta está por debajo del umbral de precio mínimo. Comprueba si has introducido el precio correcto', ['INVALID_PRICE', 'INVALID_ATTRIBUTE', 'LISTING']) === 'precio')
+  ok('identificadores del catálogo (UPC, ISBN, EAN)',
+    real('Los datos proporcionados del listing son diferentes de los que ya están en el catálogo de Amazon. La identificadores de productos estándar (como códigos UPC, ISBN, EAN o', ['INVALID_ATTRIBUTE', 'LISTING']) === 'identificadores')
+  ok('atributo obligatorio que falta', real("'Color' es obligatorio y no está.", ['MISSING_ATTRIBUTE', 'PRODUCT'], ['color']) === 'datos')
+  ok('relaciones de variante de una marca', real('No puedes crear nuevas relaciones de variante para esta marca. Puedes añadir ofertas a cualquier ASIN existente de esta marca.', ['LISTING']) === 'marca')
+  ok('la marca no coincide con toda la familia', real('El ASIN secundario no se puede añadir al ASIN principal porque el valor de la marca no coincide con toda la familia.', ['INVALID_ATTRIBUTE', 'PRODUCT'], ['brand', 'global_catalog_owner']) === 'marca')
+  ok('un mensaje de códigos de barras que acaba hablando de «certificado GS1» NO es normativa',
+    real('El ID de producto (ASIN, UPC, EAN, ISBN o JAN) que has proporcionado no coincide con los registros de nuestra marca. Comprueba que estás utilizando el código de barras asignado por el fabricante correcto. Si has comprado recientemente un GTIN/UPC en GS1, espera 72 horas antes de volver a enviarlo. Si estás seguro de que has utilizado un ID de producto correcto, ponte en contacto con el servicio de asistencia para colaboradores comerciales con las imágenes del producto que muestren el código de barras y la marca, tu certificado GS1 y los documentos de autorización de la marca.', ['INVALID_ATTRIBUTE', 'LISTING']) === 'identificadores')
+  ok('uno que acaba pidiendo «el nombre de tu marca» NO es de marca',
+    real('El SKU no coincide con ningún ASIN existente y no podemos crear uno nuevo con la información proporcionada. Asegúrate de que tu UPC/EAN/GTIN esté registrado en la plataforma GS1. Si lo ha registrado recientemente, espera hasta 72 horas para que nuestros sistemas se actualicen. Verifica también que el nombre de tu marca coincida exactamente con el nombre asociado a tu UPC/EAN/GTIN.', ['INVALID_ATTRIBUTE', 'LISTING'], ['273672-39']) === 'identificadores')
+  ok('imagen principal que no representa el producto', real('La imagen MAIN que has enviado para US/Global no representa con precisión el producto', ['INVALID_IMAGE', 'INVALID_ATTRIBUTE', 'LISTING'], ['media_locator']) === 'imagenes')
+}
+
 console.log('\n=== la misma incidencia dos veces es una ===')
 {
   const r = normalizarIncidencias([

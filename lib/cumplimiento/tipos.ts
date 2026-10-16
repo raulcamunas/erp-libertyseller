@@ -190,8 +190,10 @@ export interface ResumenPanel {
   soloAvisos: number
   /** Necesitan atención Y tienen stock: lo que se está perdiendo hoy */
   atencionConStock: number
-  /** Los que necesitan atención, por el tema de su incidencia más grave */
+  /** Los que necesitan atención, por cada tema que tengan (un listing cuenta en todos los suyos) */
   porTema: Array<{ tema: Tema; n: number }>
+  /** Lo mismo, con CUALQUIER incidencia: avisos incluidos. Es donde está casi toda la normativa */
+  porTemaTodos: Array<{ tema: Tema; n: number }>
 }
 
 export type RespuestaResumen =

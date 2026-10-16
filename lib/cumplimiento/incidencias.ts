@@ -126,10 +126,24 @@ const ATTR_IDENTIFICADORES = [
 
 // ---- por el TEXTO del mensaje (en español: se pide con issueLocale es_ES) ----
 
+/** Cuánto del mensaje se mira para deducir el tema. Ver clasificarTema */
+const VENTANA_TEXTO = 220
+
 const TXT_PELIGROSAS =
   /(peligros|hazmat|bateria|litio|hoja de datos de seguridad|inflamable|dangerous goods|\badr\b)/
 const TXT_NORMATIVA =
   /(gpsr|seguridad (de los |del )?productos?|normativ|reglament|cumplimiento|certificad|conformidad|marcado ce|persona responsable|operador economico|etiqueta energetica|raee|rohs|\breach\b|residuos|envases|compliance|regulat)/
+/**
+ * Lo que es normativa SIN DISCUSIÓN, aunque Amazon lo marque como «necesita aprobación».
+ *
+ * Medido en la cuenta real (16 oct 2026): Amazon pone QUALIFICATION_REQUIRED a los
+ * bloqueos por la responsabilidad ampliada del productor (RAP) —«debes obtener la
+ * información de una RER para cumplir la normativa…»— y eran 1.514 listings que
+ * salían como «aprobación», que es lo que se pide para una marca, cuando lo que
+ * falta es un registro de normativa. Esto va ANTES de mirar la categoría.
+ */
+const TXT_NORMATIVA_FUERTE =
+  /(gpsr|reglamento general de seguridad|responsabilidad ampliada|\brap\b|persona responsable|raee|rohs|\breach\b)/
 const TXT_APROBACION =
   /(aprobacion|autorizacion|restring|cualificacion|no tienes permiso|no tiene permiso|approval)/
 const TXT_IDENTIFICADORES =
@@ -150,10 +164,17 @@ export function clasificarTema(i: {
 }): Tema {
   const attr = i.atributos.join(' ').toLowerCase()
   const fichas = new Set(i.atributos.flatMap((a) => a.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)))
-  const txt = plano(i.mensaje)
+  // SOLO EL PRINCIPIO DEL MENSAJE. Los de Amazon son largos y acaban con consejos que
+  // nombran de todo: uno de códigos de barras termina pidiendo «tu certificado GS1» y
+  // «el nombre de tu marca», y salía como normativa o como marca. Lo que dice de qué
+  // va está en la primera o la segunda frase.
+  const txt = plano(i.mensaje).slice(0, VENTANA_TEXTO)
   const tieneAttr = (trozos: readonly string[]) => trozos.some((t) => attr.includes(t))
   const tieneFicha = (palabras: ReadonlySet<string>) => [...palabras].some((p) => fichas.has(p))
   const cat = (c: string) => i.categorias.includes(c)
+
+  // La normativa inequívoca gana incluso a «necesita aprobación» (ver TXT_NORMATIVA_FUERTE)
+  if (TXT_NORMATIVA_FUERTE.test(txt)) return 'normativa'
 
   // Amazon marca así lo que exige una aprobación previa: es lo que más manda
   if (cat('QUALIFICATION_REQUIRED')) return 'aprobacion'
@@ -164,10 +185,13 @@ export function clasificarTema(i: {
   if (TXT_NORMATIVA.test(txt)) return 'normativa'
   if (TXT_APROBACION.test(txt)) return 'aprobacion'
 
-  if (attr.includes('brand') || /\bmarca\b/.test(txt)) return 'marca'
+  if (attr.includes('brand')) return 'marca'
+  // Los códigos de producto van ANTES que la palabra «marca» del texto: «el ID de producto
+  // (ASIN, UPC, EAN…) no coincide con los registros de nuestra marca» va de códigos de barras
   if (tieneAttr(ATTR_IDENTIFICADORES) || tieneFicha(TOKEN_IDENTIFICADORES) || TXT_IDENTIFICADORES.test(txt)) {
     return 'identificadores'
   }
+  if (/\bmarca\b/.test(txt)) return 'marca'
 
   if (cat('INVALID_IMAGE') || cat('MISSING_IMAGE')) return 'imagenes'
   if (cat('INVALID_PRICE') || cat('MISSING_PRICE')) return 'precio'
