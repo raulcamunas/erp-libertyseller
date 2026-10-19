@@ -323,6 +323,8 @@ function Contenido({
 
   // El almacenaje se cobra por lo que está DENTRO del almacén: lo que viene de camino no paga
   const enAlmacen = Math.max(0, r.unidadesEnAmazon - r.entrante)
+  // Lo que la tarjeta de antigüedad no recoge: lo que Amazon tiene dentro y no está fechado ni es «anterior al libro»
+  const sinClasificar = Math.max(0, enAlmacen - Object.values(r.porTramo).reduce((s, v) => s + v, 0) - r.anteriorALaLectura)
   const est = useMemo(() => estimarAlmacenaje({ unidades: enAlmacen, unidadesAntiguas: r.unidadesAntiguas }, mes, supuestos), [enAlmacen, r.unidadesAntiguas, mes, supuestos])
   const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
   const mesSiguiente = MESES[mes % 12]
@@ -499,6 +501,7 @@ function Contenido({
                 diasDeLibro={datos.diasDeLibro}
                 sinLibro={sinLibro}
                 costeDe={(u) => costeMensual(u, mes, supuestos)}
+                sinClasificar={sinClasificar}
               />
             </Tarjeta>
           </div>

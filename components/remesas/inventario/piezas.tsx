@@ -126,6 +126,7 @@ export function EdadDelStock({
   diasDeLibro,
   sinLibro,
   costeDe,
+  sinClasificar = 0,
 }: {
   porTramo: PorTramo
   valorPorTramo: PorTramo
@@ -136,13 +137,18 @@ export function EdadDelStock({
   sinLibro: boolean
   /** Euros al mes de guardar tantas unidades, o null si no se calcula */
   costeDe: ((unidades: number) => number) | null
+  /** Unidades que Amazon cuenta en sus almacenes y que no están en ninguna fila: no vendibles sin fecha de entrada */
+  sinClasificar?: number
 }) {
-  const total = Object.values(porTramo).reduce((s, v) => s + v, 0)
+  // El 100 % es TODO lo que enseña la tarjeta, las de «anterior al libro» incluidas. Con las unidades
+  // sin edad fuera, un cliente con 16 unidades fechadas y 8 sin fecha salía con «100 % de 0 a 90 días»
+  // al lado de una barra que no era toda verde: parecía que nada llevaba más de 90 días
+  const total = Object.values(porTramo).reduce((s, v) => s + v, 0) + anterior
   return (
     <div className="space-y-2">
       <Medidor
         alto={10}
-        total={Math.max(1, total + anterior)}
+        total={Math.max(1, total)}
         partes={[
           ...TRAMOS_EDAD.map((t) => ({ valor: porTramo[t.id], color: COLOR_TRAMO[t.id], titulo: t.texto })),
           { valor: anterior, color: 'var(--ls-t4)', titulo: 'Anterior al libro' },
@@ -182,13 +188,20 @@ export function EdadDelStock({
                 </span>
               </td>
               <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t1)]">{n0(anterior)}</td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right text-[var(--ls-t4)]">—</td>
+              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{total > 0 ? n0((anterior / total) * 100) : '—'}</td>
               <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right text-[var(--ls-t4)]">—</td>
               {costeDe && <td className="h-[24px] border-t border-[var(--ls-linea)] pl-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(costeDe(anterior))}</td>}
             </tr>
           )}
         </tbody>
       </table>
+      {sinClasificar > 0 && (
+        <p className="text-[11px] leading-[1.5] text-[var(--ls-t4)]">
+          {sinClasificar === 1
+            ? '1 unidad más que Amazon tiene en sus almacenes no sale aquí: no se puede vender y no tiene fecha de entrada en el libro.'
+            : `${n0(sinClasificar)} unidades más que Amazon tiene en sus almacenes no salen aquí: no se pueden vender y no tienen fecha de entrada en el libro.`}
+        </p>
+      )}
     </div>
   )
 }
