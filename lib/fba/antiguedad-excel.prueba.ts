@@ -245,6 +245,51 @@ console.log('\n=== un solo tramo ===')
   ok('un tramo que no existe da el documento entero, no uno vacío', desconocido.filas === 6)
 }
 
+console.log('\n=== lo que parece un error y no lo es: el documento lo explica ===')
+{
+  // Como el Cobo real: la foto de Amazon (16/10) da 3 unidades en 0-60 días de A pero hoy consta que hay 2; B no tiene coste en el informe
+  const A = sku({ sku: 'A VENDIDA', nombre: 'Producto A', precio: 10, enAmazon: 2, ultimaVenta: '2026-10-10', ritmoPlan: 0.1 })
+  const B = sku({ sku: 'B SIN COSTE', nombre: 'Producto B', precio: 10, enAmazon: 2, ultimaVenta: null })
+  const C = sku({ sku: 'C ANTIGUA', nombre: 'Producto C', precio: 10, enAmazon: 1, ultimaVenta: '2026-09-01', ritmoPlan: 0.02 })
+  const filasD = [fila('A VENDIDA', { a0: 3 }, 0.27), fila('B SIN COSTE', { a0: 2 }, null), fila('C ANTIGUA', { a91: 1 }, 0.09)]
+  const ea = resumirEdadAmazon({ filas: filasD, fecha: '2026-10-16', precios: new Map([A, B, C].map((k) => [k.sku, k.precio] as const)) })
+  for (const k of [A, B, C]) k.edadAmazon = ea.porSku[k.sku] ?? null
+  const inv = cliente([A, B, C], { edadAmazon: ea })
+  const d = excelDeAntiguedad({ cliente: 'Cobo Family', inventario: inv, tramo: null, hoy: '2026-10-19' })
+  ok('salen las tres filas y sus seis unidades', d.filas === 3 && d.unidades === 6, `${d.filas} / ${d.unidades}`)
+  const pk = unzipSync(d.xlsx)
+  const r1 = new TextDecoder().decode(pk['xl/worksheets/sheet1.xml'])
+  const r2 = new TextDecoder().decode(pk['xl/worksheets/sheet2.xml'])
+  ok('el resumen cuenta cuántos productos no tienen almacenaje de Amazon', r1.includes('Amazon no calcula el almacenaje de 1 producto: en la hoja Productos salen con «—»'))
+  ok('la hoja de productos avisa de la foto: «Total en Amazon» es lo de ahora', r2.includes('foto de Amazon del 16 de octubre de 2026') && r2.includes('«Total en Amazon» es lo que consta ahora'))
+  ok('avisa de la «—» y de «sin ventas», con el día en que empieza el libro', r2.includes('«—» en Almacenaje/mes') && r2.includes('«Sin ventas»: no hay ninguna venta registrada desde el 2 de julio de 2026, que es cuando empieza el libro mayor.'))
+  ok('ya no dice «nunca»', !r2.includes('>nunca<') && r2.includes('sin ventas'))
+
+  const dd = abrir(d.xlsx, 'explicado.xlsx')
+  if (dd) {
+    const p = dd.Productos as Hoja
+    const filaB = p.filas.find((f) => f[3] === 'B SIN COSTE')
+    const filaA = p.filas.find((f) => f[3] === 'A VENDIDA')
+    ok('el producto sin coste lleva «—», no una celda vacía', !!filaB && filaB[8] === '—', JSON.stringify(filaB))
+    ok('el que sí lo tiene sigue siendo un número: 0,27', !!filaA && filaA[8] === 0.27, JSON.stringify(filaA))
+    ok('el total de almacenaje solo suma lo que Amazon calculó: 0,27 + 0,09', p.filas.some((f) => String(f[2] ?? '').startsWith('TOTAL') && f[8] === 0.36), JSON.stringify(p.filas.find((f) => String(f[2] ?? '').startsWith('TOTAL'))))
+    ok('las unidades siguen siendo las de Amazon: 3 + 2 + 1', p.filas.filter((f) => ['A VENDIDA', 'B SIN COSTE', 'C ANTIGUA'].includes(String(f[3]))).map((f) => f[5]).join() === '1,3,2', p.filas.filter((f) => ['A VENDIDA', 'B SIN COSTE', 'C ANTIGUA'].includes(String(f[3]))).map((f) => f[5]).join())
+    const pie = p.filas.findIndex((f) => String(f[0] ?? '').startsWith('Liberty Seller'))
+    const notaFila = p.filas.findIndex((f) => String(f[1] ?? '').startsWith('A TENER EN CUENTA'))
+    const totalFila = p.filas.findIndex((f) => String(f[2] ?? '').startsWith('TOTAL'))
+    ok('la nota va debajo del total, fuera del filtro, y el pie al final', totalFila > 0 && notaFila > totalFila && pie > notaFila, `${totalFila} < ${notaFila} < ${pie}`)
+    ok('el filtro llega hasta la última fila de productos, no a la nota', /^C5:L8$/.test(String(p.filtro)), String(p.filtro))
+  }
+
+  // Si se pide solo el tramo de C, que no tiene ninguno de los tres casos, no hay nada que avisar
+  const solo = excelDeAntiguedad({ cliente: 'Cobo Family', inventario: inv, tramo: 'a91', hoy: '2026-10-19' })
+  const h = new TextDecoder().decode(unzipSync(solo.xlsx)['xl/worksheets/sheet2.xml'])
+  ok('un tramo sin esos casos no lleva notas de más', solo.filas === 1 && !h.includes('A TENER EN CUENTA') && !h.includes('consta ahora') && !h.includes('Sin ventas') && !h.includes('«—»'))
+  // y en el documento de siempre (todo cuadra, salvo el producto raro que nunca ha vendido) solo sale lo de las ventas
+  const base = new TextDecoder().decode(unzipSync(todo.xlsx)['xl/worksheets/sheet2.xml'])
+  ok('cuando todo cuadra no se avisa de la foto ni de la «—»', !base.includes('consta ahora') && !base.includes('«—» en Almacenaje'))
+}
+
 console.log('\n=== con la edad estimada del libro ===')
 {
   const skus = [

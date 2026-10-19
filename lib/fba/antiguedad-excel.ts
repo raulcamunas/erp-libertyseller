@@ -100,6 +100,17 @@ export function excelDeAntiguedad(datos: DatosExcelAntiguedad): ExcelDeAntigueda
   const valorFilas = filas.reduce((s, f) => s + (f.p.valor ?? 0), 0)
   const costeFilas = filas.reduce((s, f) => s + (f.p.coste ?? 0), 0)
 
+  /* ---------- lo que se puede tomar por un error y no lo es: el documento lo dice ---------- */
+  const sumaEdad = (k: SkuInventario) => (k.edadAmazon ? Object.values(k.edadAmazon.edad).reduce((s, n) => s + n, 0) : 0)
+  /** Productos con unidades con edad a los que Amazon no calcula el almacenaje: no suman en el total */
+  const sinCoste = hayCoste ? skus.filter((k) => k.edadAmazon && sumaEdad(k) > 0 && k.edadAmazon.costeMes === null).length : 0
+  // De las filas que salen, no de todas: si se pide un tramo, una nota sobre otro no pinta nada
+  const hayCosteVacio = hayCoste && filas.some((f) => f.p.coste === null)
+  // La edad de Amazon es una foto de hace unos días y cuenta todo lo que hay en sus almacenes (también lo reservado o no vendible);
+  // «Total en Amazon» es lo que consta ahora. En alguna fila no coinciden y, sin decirlo, parece un fallo del documento
+  const hayDesfase = informe.fuente === 'amazon' && filas.some((f) => sumaEdad(f.p.sku) !== f.p.sku.enAmazon)
+  const haySinVentas = filas.some((f) => !f.p.sku.ultimaVenta)
+
   const antiguas = informe.tramos.filter((t) => t.antiguo)
   const unidadesAntiguas = antiguas.reduce((s, t) => s + t.unidades, 0)
   const valorAntiguas = antiguas.reduce((s, t) => s + t.valor, 0)
@@ -281,8 +292,9 @@ export function excelDeAntiguedad(datos: DatosExcelAntiguedad): ExcelDeAntigueda
     if (informe.fuente === 'libro') {
       avisos.push('Amazon todavía no ha dado su informe de antigüedad: esta es una estimación con el libro mayor, donde lo más antiguo se vende primero.')
       if (informe.tramos.some((t) => t.id === 'anterior')) avisos.push('«Anterior al libro» son unidades que ya estaban en Amazon antes de empezar el libro que leemos: su edad es esa o más.')
-    } else if (informe.recargoMes !== null && informe.recargoMes > 0) {
-      avisos.push('A partir de 181 días Amazon cobra un recargo por antigüedad: está incluido en el almacenaje al mes.')
+    } else {
+      if (informe.recargoMes !== null && informe.recargoMes > 0) avisos.push('A partir de 181 días Amazon cobra un recargo por antigüedad: está incluido en el almacenaje al mes.')
+      if (sinCoste > 0) avisos.push(`Amazon no calcula el almacenaje de ${sinCoste} producto${sinCoste === 1 ? '' : 's'}: en la hoja Productos salen con «—» y no suman en el total al mes.`)
     }
     if (avisos.length > 0) {
       const filo: Estilo = { relleno: COLOR.aviso, izquierda: { estilo: 'thick', color: COLOR.naranja } }
@@ -385,9 +397,11 @@ export function excelDeAntiguedad(datos: DatosExcelAntiguedad): ExcelDeAntigueda
       hoja.poner(fila, colDe('enTramo'), p.unidades, { ...base, h: 'right', negrita: true, tam: 10, color: COLOR.naranja, formato: '#,##0' })
       hoja.poner(fila, colDe('total'), s.enAmazon, { ...base, h: 'right', formato: '#,##0' })
       if (hayPrecio) hoja.poner(fila, colDe('valor'), p.valor, { ...base, h: 'right', formato: '#,##0.00" €"' })
-      if (hayCoste) hoja.poner(fila, colDe('coste'), p.coste, { ...base, h: 'right', formato: '#,##0.00" €"' })
+      // Sin cálculo de Amazon no es 0 €: una celda vacía se leería como «gratis» o como «se les olvidó»
+      if (hayCoste) hoja.poner(fila, colDe('coste'), p.coste ?? '—', p.coste === null ? { ...base, h: 'right', color: COLOR.discreto } : { ...base, h: 'right', formato: '#,##0.00" €"' })
       hoja.poner(fila, colDe('ritmo'), s.ritmoPlan > 0 ? Math.round(s.ritmoPlan * 100) / 100 : null, { ...base, h: 'right', formato: '0.00' })
-      hoja.poner(fila, colDe('ultima'), s.ultimaVenta ? fechaCorta(s.ultimaVenta) : 'nunca', { ...base, h: 'center', color: s.ultimaVenta ? COLOR.tinta : COLOR.discreto })
+      // «Nunca» sería afirmar de más: el libro mayor solo cubre unos meses; la nota de abajo dice cuáles
+      hoja.poner(fila, colDe('ultima'), s.ultimaVenta ? fechaCorta(s.ultimaVenta) : 'sin ventas', { ...base, h: 'center', color: s.ultimaVenta ? COLOR.tinta : COLOR.discreto })
     })
 
     const ultimaFila = filaCabecera + filas.length
@@ -405,9 +419,37 @@ export function excelDeAntiguedad(datos: DatosExcelAntiguedad): ExcelDeAntigueda
     if (hayPrecio) hoja.poner(filaTotal, colDe('valor'), Math.round(valorFilas * 100) / 100, { ...fondo, nombre: FUENTE.titulo, tam: 10, negrita: true, color: COLOR.blanco, h: 'right', formato: '#,##0.00" €"' })
     if (hayCoste) hoja.poner(filaTotal, colDe('coste'), Math.round(costeFilas * 100) / 100, { ...fondo, nombre: FUENTE.titulo, tam: 10, negrita: true, color: COLOR.naranjaClaro, h: 'right', formato: '#,##0.00" €"' })
 
-    hoja.altoFila(filaTotal + 1, 14)
-    hoja.altoFila(filaTotal + 2, 15)
-    hoja.poner(filaTotal + 2, primera - 1, `Liberty Seller · Informe generado el ${fechaLarga(hoy)}`, { nombre: FUENTE.cuerpo, tam: 8, color: COLOR.discreto, v: 'center' })
+    /* ---------- lo que hay que saber de las cifras de esta hoja ---------- */
+    const notas: string[] = []
+    if (hayDesfase) {
+      notas.push(`Las unidades de cada tramo son las de la foto de Amazon${esDia(informe.fecha) ? ` del ${fechaLarga(informe.fecha)}` : ''} y cuentan todo lo que Amazon tiene en sus almacenes, también lo reservado o no vendible. «Total en Amazon» es lo que consta ahora: en algún producto puede no coincidir si se ha vendido o movido algo desde esa foto.`)
+    }
+    if (hayCosteVacio) notas.push('«—» en Almacenaje/mes: Amazon no calcula el coste de ese producto, así que no suma en el total.')
+    if (haySinVentas) {
+      notas.push(`«Sin ventas»: no hay ninguna venta registrada ${esDia(datos.inventario.libroDesde) ? `desde el ${fechaLarga(datos.inventario.libroDesde)}, que es cuando empieza` : 'en el periodo que cubre'} el libro mayor.`)
+    }
+
+    let filaPie = filaTotal + 1
+    hoja.altoFila(filaPie, 14)
+    filaPie += 1
+    if (notas.length > 0) {
+      const filo: Estilo = { relleno: COLOR.aviso, izquierda: { estilo: 'thick', color: COLOR.naranja } }
+      hoja.altoFila(filaPie, 20)
+      hoja.pintar(filaPie, primera, ultima, { relleno: COLOR.aviso })
+      hoja.poner(filaPie, primera, 'A TENER EN CUENTA', { ...filo, nombre: FUENTE.titulo, tam: 9, negrita: true, color: COLOR.naranja, v: 'center', sangria: 1 })
+      filaPie += 1
+      const texto = notas.join('\n')
+      const anchoTabla = columnas.reduce((s, c) => s + c.ancho, 0)
+      hoja.pintar(filaPie, primera, ultima, { relleno: COLOR.aviso })
+      hoja.poner(filaPie, primera, texto, { ...filo, nombre: FUENTE.cuerpo, tam: 9, color: COLOR.tinta, h: 'left', v: 'top', ajustar: true, sangria: 1 })
+      hoja.combinar(filaPie, primera, filaPie, ultima)
+      hoja.altoFila(filaPie, Math.max(30, lineasDe(texto, Math.floor(anchoTabla * 1.05)) * 13 + 12))
+      filaPie += 1
+      hoja.altoFila(filaPie, 14)
+      filaPie += 1
+    }
+    hoja.altoFila(filaPie, 15)
+    hoja.poner(filaPie, primera - 1, `Liberty Seller · Informe generado el ${fechaLarga(hoy)}`, { nombre: FUENTE.cuerpo, tam: 8, color: COLOR.discreto, v: 'center' })
     hoja.vertical = false
   }
 
