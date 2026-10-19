@@ -42,6 +42,16 @@ interface LineaEditable {
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
+/**
+ * Lo que se dice cuando la respuesta NO es el JSON de nuestra ruta: no la ha dado la ruta, sino lo que
+ * hay delante —el servidor que se está reiniciando, un proxy—. Con el código se sabe qué fue sin abrir
+ * las herramientas del navegador; un «no se ha podido» a secas no distingue un reinicio de un fallo.
+ */
+const sinRespuestaDe = (que: string, estado: number) =>
+  estado === 502 || estado === 503 || estado === 504
+    ? `El servidor no ha contestado (código ${estado}). Suele pasar justo cuando la aplicación se está actualizando: espera un minuto y vuelve a probar.`
+    : `${que} (código ${estado}).`
+
 const sumarDias = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10)
 const diasEntre = (desde: string, hasta: string) => Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000)
 
@@ -128,7 +138,7 @@ export function PropuestaIaDialog({
       })
       const cuerpo = (await res.json().catch(() => null)) as { propuesta?: PropuestaGenerada; error?: string } | null
       if (!res.ok || !cuerpo?.propuesta) {
-        setError(cuerpo?.error ?? 'No se ha podido generar la propuesta')
+        setError(cuerpo?.error ?? sinRespuestaDe('No se ha podido generar la propuesta', res.status))
         setFase('ajustes')
         return
       }
@@ -138,7 +148,7 @@ export function PropuestaIaDialog({
       setFase('revisar')
     } catch (e) {
       if ((e as { name?: string }).name === 'AbortError') return
-      setError('No se ha podido conectar. Revisa la conexión y vuelve a probar.')
+      setError('Se ha cortado la conexión con el servidor. Si la aplicación se estaba actualizando, espera un minuto; si no, revisa la conexión. Después vuelve a probar.')
       setFase('ajustes')
     }
   }
@@ -208,7 +218,7 @@ export function PropuestaIaDialog({
       })
       const p = (await res.json().catch(() => null)) as { error?: string; id?: string; analisisGuardado?: boolean } | null
       if (!res.ok || !p?.id) {
-        toast.error(p?.error ?? 'No se ha podido crear la propuesta')
+        toast.error(p?.error ?? sinRespuestaDe('No se ha podido crear la propuesta', res.status))
         return
       }
       toast.success(`Propuesta creada: ${elegidas.length} referencias, ${n0(totalUnidades)} unidades`)
