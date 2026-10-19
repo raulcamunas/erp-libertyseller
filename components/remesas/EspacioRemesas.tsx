@@ -36,9 +36,11 @@ import { VistaReferencias } from './VistaReferencias'
  *                apruebe, que etiquete y encaje. Cuando se marca como enviada y se
  *                enlaza con su número de Amazon, pasa a Envíos.
  *   REFERENCIAS  producto a producto, la que dice cuándo hay que reponer.
- *   INVENTARIO   TODO lo que el cliente tiene en Amazon, con sus ventas, devoluciones, el
- *                tiempo que lleva parado y lo que puede costar: el panel del cliente
- *                entero, sin depender de qué envíos se hayan registrado.
+ *   PANEL DEL CLIENTE   (pestaña «Panel del cliente») TODO lo que el cliente tiene en Amazon,
+ *                con sus ventas, devoluciones, el tiempo que lleva parado y lo que puede
+ *                costar: su inventario FBA entero, sin depender de qué envíos se hayan
+ *                registrado. Al cambiar de cliente en la barra, la pestaña se queda: se
+ *                recorren los paneles de uno en uno.
  *   PROPUESTA CON IA   (solo la agencia) la IA mira el inventario y propone qué mandar, con el
  *                porqué de cada línea; se revisa, se corrige y se crea el borrador. La
  *                propuesta a mano sigue ahí, al lado.
@@ -214,8 +216,8 @@ export function EspacioRemesas({
           <Pestana activa={vista === 'referencias'} onClick={() => setVista('referencias')} icono={<TrendingDown className="h-[14px] w-[14px]" />} titulo="Producto a producto: cuándo hay que reponer">
             Referencias
           </Pestana>
-          <Pestana activa={vista === 'inventario'} onClick={() => setVista('inventario')} icono={<Boxes className="h-[14px] w-[14px]" />} titulo="Todo lo que tiene este cliente en Amazon: ventas, devoluciones, tiempo parado y lo que puede costar">
-            Inventario
+          <Pestana activa={vista === 'inventario'} onClick={() => setVista('inventario')} icono={<Boxes className="h-[14px] w-[14px]" />} titulo="El panel completo de este cliente: su inventario FBA con ventas, devoluciones, tiempo parado, ritmo de venta y lo que puede costarle dejarlo en Amazon">
+            Panel del cliente
           </Pestana>
           {conCatalogo && (
             <Pestana activa={vista === 'base'} onClick={() => setVista('base')} icono={<Database className="h-[14px] w-[14px]" />} titulo={`La hoja de referencias de ${cliente.nombre}: REF, color, talla y sus códigos. De aquí salen los desplegables de las propuestas`}>
