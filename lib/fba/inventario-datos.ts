@@ -129,6 +129,8 @@ export async function inventarioDeCliente(clienteId: string, opciones: { hoy: st
     ...calcularInventario({ hoy: opciones.hoy, leidoHasta: null, listings: [], movimientos: [], envios: [] }),
     conectado,
     marketplaceId,
+    conexionId: null,
+    lectura: null,
   })
 
   /* ---------- la conexión y el mercado ---------- */
@@ -144,9 +146,14 @@ export async function inventarioDeCliente(clienteId: string, opciones: { hoy: st
 
   const { data: lecturas } = await service
     .from('fba_lecturas')
-    .select('marketplace_id, leido_hasta')
+    .select('marketplace_id, leido_hasta, ultimo_intento_at, ultimo_error')
     .eq('connection_id', connectionId)
-  const filasLectura = (lecturas ?? []) as Array<{ marketplace_id: string; leido_hasta: string | null }>
+  const filasLectura = (lecturas ?? []) as Array<{
+    marketplace_id: string
+    leido_hasta: string | null
+    ultimo_intento_at: string | null
+    ultimo_error: string | null
+  }>
   // España si se lee; si no, el que más al día esté
   const lectura =
     filasLectura.find((l) => l.marketplace_id === MARKETPLACE_ESPANA) ??
@@ -244,5 +251,11 @@ export async function inventarioDeCliente(clienteId: string, opciones: { hoy: st
     )
   }
 
-  return { ...inventario, conectado: true, marketplaceId }
+  return {
+    ...inventario,
+    conectado: true,
+    marketplaceId,
+    conexionId: connectionId,
+    lectura: lectura ? { intentoAt: lectura.ultimo_intento_at, error: lectura.ultimo_error } : null,
+  }
 }

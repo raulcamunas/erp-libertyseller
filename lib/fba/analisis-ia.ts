@@ -37,6 +37,8 @@ export interface AnalisisIa {
   version: 1
   /** ISO */
   generadaEn: string
+  /** Hasta qué día llegaban las ventas con las que se hizo ('YYYY-MM-DD'). null = no se sabe */
+  ventasHasta: string | null
   modelo: string | null
   /** false = la propuesta salió solo del cálculo: la IA no contestó o no se pidió */
   usada: boolean
@@ -112,6 +114,7 @@ export function limpiarAnalisis(crudo: unknown): AnalisisIa | null {
   const analisis: AnalisisIa = {
     version: 1,
     generadaEn: typeof o.generadaEn === 'string' && !Number.isNaN(Date.parse(o.generadaEn)) ? new Date(o.generadaEn).toISOString() : new Date().toISOString(),
+    ventasHasta: typeof o.ventasHasta === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.ventasHasta) ? o.ventasHasta : null,
     modelo: textoONulo(o.modelo, 60),
     usada: o.usada === true,
     aviso: textoONulo(o.aviso, 400),

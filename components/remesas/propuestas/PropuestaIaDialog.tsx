@@ -9,6 +9,7 @@ import type { AnalisisIa } from '@/lib/fba/analisis-ia'
 import type { PropuestaGenerada } from '@/lib/fba/propuesta-ia'
 import type { LineaGenerada, Nivel, ParametrosReposicion } from '@/lib/fba/reposicion'
 import { cx, Segmentado } from '../comun/ui'
+import { fecha } from '../formato'
 import { ESTADO_SKU, n0, n1, n2, pct } from '../inventario/formato'
 
 /**
@@ -42,6 +43,7 @@ interface LineaEditable {
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
 const sumarDias = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10)
+const diasEntre = (desde: string, hasta: string) => Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000)
 
 const TONO_PRIORIDAD: Record<Nivel, { texto: string; color: string }> = {
   alta: { texto: 'Alta', color: COLOR_ESTADO.rojo },
@@ -167,6 +169,7 @@ export function PropuestaIaDialog({
       const analisis: Partial<AnalisisIa> = {
         version: 1,
         generadaEn: propuesta.generadaEn,
+        ventasHasta: propuesta.leidoHasta,
         modelo: propuesta.ia.modelo,
         usada: propuesta.ia.usada,
         aviso: propuesta.ia.aviso,
@@ -429,8 +432,15 @@ function Revision({
   onVerFuera: () => void
 }) {
   const cambia = (sku: string, parche: Partial<LineaEditable>) => onFilas(filas.map((f) => (f.linea.sku === sku ? { ...f, ...parche } : f)))
+  // Las ventas con las que se ha calculado llegan hasta un día: lo vendido desde entonces no cuenta, y
+  // con unos días de atraso una referencia que parece a punto de agotarse puede llevar días agotada
+  const atraso = propuesta.leidoHasta ? diasEntre(propuesta.leidoHasta, propuesta.hoy) : null
+  const avisoVentas =
+    atraso !== null && atraso >= 2
+      ? `Las ventas de este cliente están leídas hasta el ${fecha(propuesta.leidoHasta)}: hace ${atraso} días. La propuesta no cuenta lo vendido desde entonces. Se ponen al día con «Leer ventas de Amazon» en el Panel del cliente; después, vuelve a generarla.`
+      : null
   // El aviso de «la IA no ha contestado» ya sale en su propio recuadro; el resto, aparte
-  const avisos = [...(propuesta.resumen && propuesta.ia.aviso ? [propuesta.ia.aviso] : []), ...propuesta.notas]
+  const avisos = [...(avisoVentas ? [avisoVentas] : []), ...(propuesta.resumen && propuesta.ia.aviso ? [propuesta.ia.aviso] : []), ...propuesta.notas]
 
   return (
     // A la altura de la pantalla, para que «Crear propuesta» no quede nunca fuera de la vista: lo de la IA

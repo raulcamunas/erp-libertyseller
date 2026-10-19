@@ -6,6 +6,7 @@ import { fetchFbaInventory } from '@/lib/amazon/sp-api'
 import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
 import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
+import { claveDeLectura, planDeLectura, type ConexionParaLeer } from '@/lib/fba/lectura-plan'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -34,11 +35,20 @@ import { createServiceClient } from '@/lib/supabase/service'
  * referencias en vez de recorrer 42.737 esperando a tener suerte.
  *
  *
- * ============ SOLO LAS CUENTAS CON REMESAS ============
+ * ============ QUÉ CUENTAS SE LEEN ============
  *
- * Un cliente sin remesas no tiene nada que consumir, y pedirle el libro mayor
- * gasta una ficha de createReport —que se repone UNA VEZ POR MINUTO— para
- * guardar movimientos que nadie va a mirar.
+ * Las que tienen remesas, como siempre, Y TAMBIÉN las que tienen stock en FBA
+ * o ya se habían leído (lib/fba/lectura-plan.ts). Antes eran SOLO las que
+ * tenían remesas —un cliente sin remesas no tiene nada que consumir, y pedirle
+ * el libro mayor gasta una ficha de createReport, que se repone UNA VEZ POR
+ * MINUTO—, pero el panel del cliente y la propuesta con IA se calculan del
+ * libro mayor para cualquier cliente con stock. El 15 de octubre la pasada pasó
+ * de cuatro cuentas a una (se habían borrado remesas) y ShoesF se quedó cinco
+ * días sin leerse.
+ *
+ * Primero las que tienen remesas y después las demás, de la más atrasada a la
+ * más al día: si una noche no da tiempo para todas, la que se queda fuera es
+ * la que menos lo necesita y a la siguiente le toca antes.
  */
 export const dynamic = 'force-dynamic'
 export const maxDuration = 600
@@ -72,27 +82,58 @@ export async function POST(request: NextRequest) {
       .order('fecha_envio', { ascending: true })
     if (error) throw error
 
-    // La más antigua de cada (conexión, mercado): es desde donde hay que leer la
-    // primera vez. Ver desdeCuandoLeer() en lib/fba/ledger.ts.
-    const unidades = new Map<string, { conexion: string; mercado: string; primera: string }>()
-    for (const r of (conRemesas ?? []) as Array<{
+    // La más antigua de cada (conexión, mercado) con remesas: es desde donde hay que leer
+    // la primera vez. Ver desdeCuandoLeer() en lib/fba/ledger.ts.
+    const remesasParaLeer = ((conRemesas ?? []) as Array<{
       connection_id: string
       marketplace_id: string
       fecha_envio: string
+    }>).map((r) => ({ conexion: r.connection_id, mercado: r.marketplace_id, fechaEnvio: r.fecha_envio }))
+
+    // Las demás cuentas activas, por si tienen stock en FBA o ya se leían. Se mira solo en
+    // las que no tienen remesas: las otras se leen de todas formas.
+    const yaConRemesas = new Set(remesasParaLeer.map((r) => r.conexion))
+    const { data: activas, error: errorActivas } = await service
+      .from('amazon_connections')
+      .select('id, default_marketplace_id, marketplaces_activos, marketplace_ids')
+      .eq('is_active', true)
+      .eq('status', 'activa')
+    if (errorActivas) throw errorActivas
+
+    const { data: lecturas } = await service.from('fba_lecturas').select('connection_id, marketplace_id, leido_hasta')
+    const leidoHasta = new Map<string, string | null>(
+      ((lecturas ?? []) as Array<{ connection_id: string; marketplace_id: string; leido_hasta: string | null }>).map((l) => [
+        claveDeLectura(l.connection_id, l.marketplace_id),
+        l.leido_hasta,
+      ])
+    )
+
+    const candidatas: ConexionParaLeer[] = []
+    for (const c of (activas ?? []) as Array<{
+      id: string
+      default_marketplace_id: string | null
+      marketplaces_activos: string[] | null
+      marketplace_ids: string[] | null
     }>) {
-      const clave = `${r.connection_id}|${r.marketplace_id}`
-      if (!unidades.has(clave)) {
-        unidades.set(clave, {
-          conexion: r.connection_id,
-          mercado: r.marketplace_id,
-          primera: r.fecha_envio,
-        })
+      const mercado = c.default_marketplace_id ?? c.marketplaces_activos?.[0] ?? c.marketplace_ids?.[0] ?? null
+      let conStockFba = false
+      if (mercado && !yaConRemesas.has(c.id)) {
+        const { data: conStock } = await service
+          .from('amazon_listings')
+          .select('id')
+          .eq('connection_id', c.id)
+          .gt('fba_quantity', 0)
+          .limit(1)
+        conStockFba = (conStock ?? []).length > 0
       }
+      candidatas.push({ id: c.id, mercado, conStockFba })
     }
+
+    const unidades = planDeLectura({ remesas: remesasParaLeer, conexiones: candidatas, leidoHasta })
 
     const resultados: Array<Record<string, unknown>> = []
 
-    for (const u of unidades.values()) {
+    for (const u of unidades) {
       if (Date.now() - arranque > PRESUPUESTO_MS) {
         resultados.push({ conexion: u.conexion, saltado: 'sin tiempo en esta pasada' })
         continue
@@ -228,6 +269,18 @@ export async function POST(request: NextRequest) {
 
         const lectura = await leerLedger(credentials, u.mercado, desde, hasta)
         if (!lectura) {
+          // Se guarda, no solo se cuenta en el resultado: sin esto la cuenta se queda atrasada
+          // día tras día y ninguna pantalla dice por qué
+          await service.from('fba_lecturas').upsert(
+            {
+              connection_id: u.conexion,
+              marketplace_id: u.mercado,
+              ultimo_intento_at: new Date().toISOString(),
+              ultimo_error: 'Amazon aceptó la petición del informe pero no devolvió su identificador',
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'connection_id,marketplace_id' }
+          )
           resultados.push({ conexion: connection.name, error: 'Amazon no devolvió el informe' })
           continue
         }
@@ -364,9 +417,9 @@ export async function POST(request: NextRequest) {
     const movimientos = resultados.reduce((s, r) => s + ((r.movimientos as number) ?? 0), 0)
     return {
       ok: true,
-      cuentas: unidades.size,
+      cuentas: unidades.length,
       movimientos,
-      resumen: `${unidades.size} cuentas, ${movimientos} movimientos`,
+      resumen: `${unidades.length} cuentas, ${movimientos} movimientos`,
       resultados,
     }
   })

@@ -289,6 +289,10 @@ export interface InventarioDeCliente extends InventarioCliente {
   /** El cliente tiene una conexión de Amazon activa. Sin ella no hay libro ni stock */
   conectado: boolean
   marketplaceId: string | null
+  /** La conexión de la que sale todo. Es la que se pide volver a leer (POST /api/fba/sincronizar) */
+  conexionId: string | null
+  /** El último intento de leer el libro mayor y si falló. null = ni se ha intentado */
+  lectura: { intentoAt: string | null; error: string | null } | null
 }
 
 /* ------------------------------------------------------------------ */
@@ -298,6 +302,14 @@ export interface InventarioDeCliente extends InventarioCliente {
 const DIA = 86_400_000
 const aMs = (f: string) => Date.parse(`${f.slice(0, 10)}T00:00:00Z`)
 const aFecha = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+/**
+ * Los dos avisos a los que la pantalla añade el botón de leer el libro de Amazon. Se reconocen
+ * por su principio, y por eso las dos pantallas —la que los escribe y la que los acompaña—
+ * usan estas constantes y no el texto.
+ */
+export const AVISO_LIBRO_SIN_LEER = 'Todavía no se ha leído el libro mayor de Amazon'
+export const AVISO_VENTAS_ATRASADAS = 'Las ventas están leídas hasta el'
+
 export const sumarDiasInv = (f: string, n: number) => aFecha(aMs(f) + n * DIA)
 export const diasEntreInv = (desde: string, hasta: string) => Math.round((aMs(hasta) - aMs(desde)) / DIA)
 
@@ -671,9 +683,9 @@ export function calcularInventario(entrada: EntradaInventario): InventarioClient
   }
 
   /* ---------- lo que hay que decir de los datos ---------- */
-  if (entrada.leidoHasta === null) avisos.push('Todavía no se ha leído el libro mayor de Amazon: sin él no hay ventas, devoluciones ni edad del stock.')
+  if (entrada.leidoHasta === null) avisos.push(`${AVISO_LIBRO_SIN_LEER}: sin él no hay ventas, devoluciones ni edad del stock.`)
   else if (diasEntreInv(entrada.leidoHasta, hoy) > 3) {
-    avisos.push(`Las ventas están leídas hasta el ${dmy(entrada.leidoHasta)}: hace ${diasEntreInv(entrada.leidoHasta, hoy)} días. Lo posterior no cuenta todavía.`)
+    avisos.push(`${AVISO_VENTAS_ATRASADAS} ${dmy(entrada.leidoHasta)}: hace ${diasEntreInv(entrada.leidoHasta, hoy)} días. Lo posterior no cuenta todavía.`)
   }
   if (libro === 'corto' && diasDeLibro !== null) {
     avisos.push(`El libro mayor solo cubre ${diasDeLibro} días: las ventas de 90 días, las devoluciones y la edad del stock están a medias.`)

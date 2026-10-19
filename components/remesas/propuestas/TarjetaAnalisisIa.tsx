@@ -218,7 +218,8 @@ export function TarjetaAnalisisIa({ analisis, lineas, abierto = false }: { anali
 
           <p className="text-[11px] leading-[1.5] text-[var(--ls-t4)]">
             Cobertura objetivo {analisis.parametros.coberturaObjetivo} días, {analisis.parametros.plazoDias} hasta que está a la venta
-            {analisis.parametros.topeUnidades ? `, tope de ${n0(analisis.parametros.topeUnidades)} unidades` : ''}. Es lo que se vio el {fecha(analisis.generadaEn)}: no se actualiza con las ventas de después.
+            {analisis.parametros.topeUnidades ? `, tope de ${n0(analisis.parametros.topeUnidades)} unidades` : ''}. Es lo que se vio el {fecha(analisis.generadaEn)}
+            {analisis.ventasHasta ? `, con las ventas leídas hasta el ${fecha(analisis.ventasHasta)}` : ''}: no se actualiza con las ventas de después.
           </p>
         </div>
       )}

@@ -339,7 +339,7 @@ export function EspacioRemesas({
       {/* ================= CUERPO ================= */}
       {vista === 'inventario' ? (
         <div className="min-h-0 flex-1 px-5 pb-1">
-          <PanelInventario key={cliente.id} clienteId={cliente.id} clienteNombre={cliente.nombre} hoy={hoy} onProponer={puedeProponerConIa ? () => setConIa(true) : undefined} />
+          <PanelInventario key={cliente.id} clienteId={cliente.id} clienteNombre={cliente.nombre} hoy={hoy} onProponer={puedeProponerConIa ? () => setConIa(true) : undefined} puedeLeerVentas={esAdmin} />
         </div>
       ) : vista === 'base' ? (
         <div className="min-h-0 flex-1 px-5 pb-4">

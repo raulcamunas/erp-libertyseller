@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, Boxes, Loader2, RefreshCw, Search, Sparkles } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Boxes, CloudDownload, Loader2, RefreshCw, Search, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TIPO } from '@/lib/estilo/denso'
 import { costeMensual, estimarAlmacenaje, mesDe, type SupuestosAlmacenaje } from '@/lib/fba/almacenaje'
-import type { EstadoSku, InventarioDeCliente, SkuInventario } from '@/lib/fba/inventario'
+import { AVISO_LIBRO_SIN_LEER, AVISO_VENTAS_ATRASADAS, diasEntreInv, type EstadoSku, type InventarioDeCliente, type SkuInventario } from '@/lib/fba/inventario'
 import { Clave, cx, Tarjeta, Vacio } from '../comun/ui'
 import { descargarCsv, VIZ } from '../comun/graficos'
 import { fecha } from '../formato'
@@ -172,12 +173,15 @@ export function PanelInventario({
   clienteNombre,
   hoy,
   onProponer,
+  puedeLeerVentas = false,
 }: {
   clienteId: string
   clienteNombre: string
   hoy: string
   /** Salta a Propuestas con el generador de IA. Solo la agencia lo tiene */
   onProponer?: () => void
+  /** Pedirle a Amazon el libro mayor ahora mismo, sin esperar a la pasada de la noche. Solo un administrador */
+  puedeLeerVentas?: boolean
 }) {
   const { cargando, error, datos, recargar } = useInventario(clienteId)
   const [supuestos, guardarSupuestos] = useSupuestosAlmacenaje(clienteId)
@@ -199,7 +203,69 @@ export function PanelInventario({
     )
   }
 
-  return <Contenido datos={datos} clienteNombre={clienteNombre} hoy={hoy} supuestos={supuestos} onSupuestos={guardarSupuestos} actualizando={cargando} onActualizar={() => void recargar()} onProponer={onProponer} />
+  return (
+    <Contenido
+      datos={datos}
+      clienteNombre={clienteNombre}
+      hoy={hoy}
+      supuestos={supuestos}
+      onSupuestos={guardarSupuestos}
+      actualizando={cargando}
+      onActualizar={() => void recargar()}
+      onProponer={onProponer}
+      puedeLeerVentas={puedeLeerVentas}
+    />
+  )
+}
+
+/**
+ * PEDIRLE A AMAZON EL LIBRO MAYOR AHORA.
+ *
+ * La pasada de la noche lo lee sola, una vez al día. Este botón es para cuando hace falta
+ * antes —se va a montar un envío y las ventas de los últimos días cuentan— o cuando la
+ * pasada ha fallado y el aviso dice que las ventas llevan días atrasadas.
+ *
+ * Amazon tarda entre uno y varios minutos en preparar el informe, y la petición espera a que
+ * esté. Si la conexión se corta por el camino, el servidor sigue con lo suyo: el informe no
+ * depende de que esta pestaña siga abierta. Por eso un fallo de red no se cuenta como un
+ * fallo de la lectura, y se dice que mire más tarde.
+ */
+function LeerVentas({ conexionId, destacado, onLeido }: { conexionId: string; destacado: boolean; onLeido: () => void }) {
+  const [leyendo, setLeyendo] = useState(false)
+
+  async function leer() {
+    setLeyendo(true)
+    try {
+      const res = await fetch(`/api/fba/sincronizar?conexion=${encodeURIComponent(conexionId)}`, { method: 'POST' })
+      const cuerpo = (await res.json().catch(() => null)) as { error?: string; hasta?: string; movimientos?: number } | null
+      if (!res.ok) {
+        toast.error(cuerpo?.error ?? 'No se ha podido leer el libro mayor de Amazon')
+        return
+      }
+      toast.success(`Ventas al día: leídas hasta el ${fecha(cuerpo?.hasta)} (${n0(cuerpo?.movimientos ?? 0)} movimientos)`)
+      onLeido()
+    } catch {
+      toast.warning('Se ha cortado la conexión con el servidor, pero la lectura puede seguir en marcha. Pulsa «Actualizar» dentro de unos minutos.', { duration: 12_000 })
+    } finally {
+      setLeyendo(false)
+    }
+  }
+
+  return (
+    <>
+      {leyendo && <span className="hidden text-[11px] text-[var(--ls-t4)] xl:inline">Amazon tarda unos minutos en preparar el informe</span>}
+      <button
+        type="button"
+        onClick={() => void leer()}
+        disabled={leyendo}
+        className={cx(BOTON.base, BOTON.alto, destacado ? BOTON.primario : BOTON.secundario)}
+        title="Le pide a Amazon el libro mayor de este cliente hasta hoy y lo guarda. Tarda unos minutos"
+      >
+        {leyendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <CloudDownload className="h-3 w-3" />}
+        {leyendo ? 'Leyendo de Amazon…' : 'Leer ventas de Amazon'}
+      </button>
+    </>
+  )
 }
 
 function Contenido({
@@ -211,6 +277,7 @@ function Contenido({
   actualizando,
   onActualizar,
   onProponer,
+  puedeLeerVentas,
 }: {
   datos: InventarioDeCliente
   clienteNombre: string
@@ -220,6 +287,7 @@ function Contenido({
   actualizando: boolean
   onActualizar: () => void
   onProponer?: () => void
+  puedeLeerVentas: boolean
 }) {
   const [filtro, setFiltro] = useState<IdFiltro>('con_stock')
   const [busca, setBusca] = useState('')
@@ -227,6 +295,8 @@ function Contenido({
   const [abierta, setAbierta] = useState<string | null>(null)
 
   const mes = mesDe(hoy)
+  // La pasada de la noche lee cada día: pasar de un día sin leer ya es raro, y el botón se destaca
+  const ventasAtrasadas = datos.leidoHasta === null || diasEntreInv(datos.leidoHasta, hoy) > 1
   const ctx: Ctx = useMemo(() => ({ mes, supuestos }), [mes, supuestos])
   const r = datos.resumen
   const sinLibro = datos.libro === 'sin_leer'
@@ -299,11 +369,13 @@ function Contenido({
         </div>
         <div className="ml-auto flex items-center gap-2">
           {onProponer && (
-            <button type="button" onClick={onProponer} className={cx(BOTON.base, BOTON.alto, BOTON.primario)} title="Que la IA proponga qué mandar a Amazon, con este inventario delante">
+            // Con las ventas atrasadas lo primero es ponerlas al día: el botón destacado es el de leerlas
+            <button type="button" onClick={onProponer} className={cx(BOTON.base, BOTON.alto, puedeLeerVentas && datos.conexionId && ventasAtrasadas ? BOTON.secundario : BOTON.primario)} title="Que la IA proponga qué mandar a Amazon, con este inventario delante">
               <Sparkles className="h-3 w-3" />
               Proponer reposición con IA
             </button>
           )}
+          {puedeLeerVentas && datos.conexionId && <LeerVentas conexionId={datos.conexionId} destacado={ventasAtrasadas} onLeido={onActualizar} />}
           <button type="button" onClick={onActualizar} disabled={actualizando} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Volver a leer el inventario">
             <RefreshCw className={cx('h-3 w-3', actualizando && 'animate-spin')} />
             Actualizar
@@ -311,12 +383,26 @@ function Contenido({
         </div>
       </div>
 
-      {datos.avisos.length > 0 && (
+      {(datos.avisos.length > 0 || datos.lectura?.error) && (
         <ul className="shrink-0 space-y-[6px]">
+          {datos.lectura?.error && (
+            <li className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
+              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
+              <span>
+                <b className={AVISO.fuerte}>La última lectura de Amazon ha fallado{datos.lectura.intentoAt ? ` (${fecha(datos.lectura.intentoAt)})` : ''}:</b> {datos.lectura.error}
+              </span>
+            </li>
+          )}
           {datos.avisos.map((a) => (
             <li key={a} className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
               <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
-              {a}
+              <span>
+                {a}
+                {/* Las ventas se leen solas cada noche: si pasan de unos días, algo ha fallado. El botón las pone al día */}
+                {puedeLeerVentas && datos.conexionId && (a.startsWith(AVISO_VENTAS_ATRASADAS) || a.startsWith(AVISO_LIBRO_SIN_LEER)) && (
+                  <span className="text-[var(--ls-t3)]"> Se leen solas cada noche; con «Leer ventas de Amazon» se ponen al día ahora.</span>
+                )}
+              </span>
             </li>
           ))}
         </ul>

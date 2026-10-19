@@ -17,6 +17,7 @@ const ok = (n: string, bien: boolean, d = '') => {
 const BUENO: AnalisisIa = {
   version: 1,
   generadaEn: '2026-10-19T09:30:00.000Z',
+  ventasHasta: '2026-10-14',
   modelo: 'gpt-5.5-2026-xx',
   usada: true,
   aviso: null,
@@ -37,7 +38,7 @@ console.log('\n=== lo que no se parece a un análisis ===')
 {
   ok('nada, texto, número o lista: null', limpiarAnalisis(null) === null && limpiarAnalisis(undefined) === null && limpiarAnalisis('hola') === null && limpiarAnalisis(5) === null && limpiarAnalisis([BUENO]) === null)
   const minimo = limpiarAnalisis({})!
-  ok('un objeto vacío se queda en un análisis vacío pero con forma', !!minimo && minimo.version === 1 && minimo.usada === false && minimo.riesgos.length === 0 && Object.keys(minimo.lineas).length === 0 && minimo.descartadas.length === 0)
+  ok('un objeto vacío se queda en un análisis vacío pero con forma', !!minimo && minimo.version === 1 && minimo.ventasHasta === null && minimo.usada === false && minimo.riesgos.length === 0 && Object.keys(minimo.lineas).length === 0 && minimo.descartadas.length === 0)
   ok('con los parámetros mínimos razonables', minimo.parametros.multiplo === 1 && minimo.parametros.minimoLinea === 1 && minimo.parametros.topeUnidades === null && minimo.parametros.notas === '')
   ok('y una fecha de generación válida (la de ahora)', !Number.isNaN(Date.parse(minimo.generadaEn)))
 }
@@ -47,6 +48,7 @@ console.log('\n=== un análisis bueno pasa entero ===')
   const l = limpiarAnalisis(JSON.parse(JSON.stringify(BUENO)))!
   ok('ida y vuelta idéntica', JSON.stringify(l) === JSON.stringify(BUENO), JSON.stringify(l).slice(0, 200))
   ok('la fecha se conserva', l.generadaEn === '2026-10-19T09:30:00.000Z')
+  ok('y hasta cuándo llegaban las ventas con las que se hizo: es lo que explica una propuesta que no cuenta lo de los últimos días', l.ventasHasta === '2026-10-14')
   ok('el modelo, el resumen y el criterio también', l.modelo === 'gpt-5.5-2026-xx' && l.resumen === BUENO.resumen && l.estrategia === BUENO.estrategia)
   ok('las líneas por SKU, con su origen', l.lineas['FBA047768-40'].origen === 'ia' && l.lineas['FBA047768-41'].origen === 'calculo' && l.lineas['FBA047768-41'].confianza === null)
 }
@@ -56,6 +58,7 @@ console.log('\n=== lo hostil y lo roto ===')
   const sucio = limpiarAnalisis({
     version: 99,
     generadaEn: 'ayer por la tarde',
+    ventasHasta: '14 de octubre',
     modelo: `gpt\u0007-5 ${'m'.repeat(200)}`,
     usada: 'sí',
     aviso: 'a'.repeat(1000),
@@ -76,6 +79,7 @@ console.log('\n=== lo hostil y lo roto ===')
   })!
   ok('la versión es siempre la 1 y «usada» solo vale si es true de verdad', sucio.version === 1 && sucio.usada === false)
   ok('una fecha ilegible se sustituye por la de ahora', !Number.isNaN(Date.parse(sucio.generadaEn)) && sucio.generadaEn !== 'ayer por la tarde')
+  ok('y un «hasta cuándo llegaban las ventas» que no es un día, queda en null', sucio.ventasHasta === null)
   ok('el modelo pierde los caracteres de control y se corta a 60', sucio.modelo !== null && sucio.modelo.length <= 60 && !/[\u0000-\u0008]/.test(sucio.modelo))
   ok('el aviso se corta a 400', sucio.aviso?.length === 400)
   ok('el resumen se limpia y colapsa', sucio.resumen === 'con control y espacios', JSON.stringify(sucio.resumen))

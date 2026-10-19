@@ -63,6 +63,8 @@ export interface PropuestaGenerada {
   sinNecesidad: number
   quedanFuera: number
   libro: 'ok' | 'corto' | 'sin_leer'
+  /** Hasta qué día llegan las ventas con las que se ha calculado ('YYYY-MM-DD'). Lo posterior no cuenta */
+  leidoHasta: string | null
   avisosInventario: string[]
 }
 
@@ -156,6 +158,7 @@ export async function generarPropuestaIa(entrada: {
     sinNecesidad: seleccion.sinNecesidad,
     quedanFuera: seleccion.quedanFuera,
     libro: inventario.libro,
+    leidoHasta: inventario.leidoHasta,
     avisosInventario: inventario.avisos,
   }
 }
