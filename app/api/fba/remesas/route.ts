@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { requireFbaAccess } from '@/lib/fba/acceso'
+import { limpiarAnalisis } from '@/lib/fba/analisis-ia'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -68,6 +69,8 @@ export async function POST(request: NextRequest) {
       referenciaEnvio?: unknown
       nota?: unknown
       lineas?: unknown
+      /** El análisis de la IA, si la propuesta nace de ella. Lo reconstruye limpiarAnalisis */
+      analisisIa?: unknown
     }
 
     const clienteId = texto(body.clienteId, 40) ?? ''
@@ -136,24 +139,46 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
-    const { data: creada, error: errorAlta } = await service
+    const cabecera = {
+      client_id: clienteId,
+      connection_id: (conexion as { id: string } | null)?.id ?? null,
+      marketplace_id: marketplaceId,
+      nombre: texto(body.nombre, 120),
+      fecha_envio: fechaEnvio,
+      referencia_envio: texto(body.referenciaEnvio, 120),
+      nota: texto(body.nota, 1000),
+      // Una remesa nueva NACE en borrador: es una propuesta hasta que el
+      // cliente la aprueba. El DEFAULT de la tabla es 'cerrada' porque las
+      // que ya existían son historia, pero eso no vale para las nuevas.
+      estado: 'borrador',
+      created_by: session.userId,
+    }
+
+    /**
+     * EL ANÁLISIS DE LA IA VA APARTE, Y SU FALTA NO ES UN ERROR.
+     *
+     * Solo lo trae una propuesta nacida de la IA, y solo lo puede escribir la agencia: la IA la
+     * lanza la agencia, y un acceso de cliente que mandara su propio «análisis» estaría
+     * poniendo palabras en boca de Liberty Seller. Lo que llega se reconstruye campo a campo
+     * (lib/fba/analisis-ia.ts).
+     *
+     * La columna es de la migración 230, que se lanza a mano: si todavía no está, la
+     * propuesta se crea igual y lo único que se pierde es el análisis. Reintentar sin la
+     * columna es lo que evita dejar al equipo sin poder crear propuestas por un retraso en
+     * pegar un SQL.
+     */
+    const analisis = session.esAdmin ? limpiarAnalisis(body.analisisIa) : null
+    let alta = await service
       .from('fba_remesas')
-      .insert({
-        client_id: clienteId,
-        connection_id: (conexion as { id: string } | null)?.id ?? null,
-        marketplace_id: marketplaceId,
-        nombre: texto(body.nombre, 120),
-        fecha_envio: fechaEnvio,
-        referencia_envio: texto(body.referenciaEnvio, 120),
-        nota: texto(body.nota, 1000),
-        // Una remesa nueva NACE en borrador: es una propuesta hasta que el
-        // cliente la aprueba. El DEFAULT de la tabla es 'cerrada' porque las
-        // que ya existían son historia, pero eso no vale para las nuevas.
-        estado: 'borrador',
-        created_by: session.userId,
-      })
+      .insert(analisis ? { ...cabecera, analisis_ia: analisis } : cabecera)
       .select('id')
       .single()
+    let analisisGuardado = analisis !== null
+    if (alta.error && analisis && ['42703', 'PGRST204', 'PGRST205'].includes(alta.error.code ?? '')) {
+      alta = await service.from('fba_remesas').insert(cabecera).select('id').single()
+      analisisGuardado = false
+    }
+    const { data: creada, error: errorAlta } = alta
     if (errorAlta) throw errorAlta
 
     const remesaId = (creada as { id: string }).id
@@ -169,7 +194,7 @@ export async function POST(request: NextRequest) {
       throw errorLineas
     }
 
-    return NextResponse.json({ id: remesaId, lineas: lineas.length })
+    return NextResponse.json({ id: remesaId, lineas: lineas.length, analisisGuardado })
   } catch (error) {
     return errorResponse(error, 'No se ha podido crear la remesa')
   }

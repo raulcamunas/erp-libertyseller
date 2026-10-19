@@ -16,10 +16,12 @@ import { EditorBoceto } from '../EditorBoceto'
 import { EditorCajas } from '../EditorCajas'
 import { fecha } from '../formato'
 import { BarraAcciones } from './BarraAcciones'
+import { BotonExcel } from './BotonExcel'
 import { EnlazarEnvioDialog } from './EnlazarEnvioDialog'
 import { FasesPropuesta } from './FasesPropuesta'
 import { ImprimirEtiquetas } from './ImprimirEtiquetas'
 import { PlantillasAmazon } from './PlantillasAmazon'
+import { TarjetaAnalisisIa } from './TarjetaAnalisisIa'
 
 /**
  * EL ESPACIO DE TRABAJO DE UNA PROPUESTA.
@@ -170,44 +172,47 @@ export function EspacioPropuesta({
             )}
           </div>
 
-          {puedeEditar && (
-            <div className="flex shrink-0 items-center gap-[6px]">
-              {editando ? (
-                <>
-                  <button type="button" onClick={() => setEditando(false)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
-                    <X className="h-3 w-3" />
-                    Cancelar
-                  </button>
-                  <button type="button" onClick={guardar} disabled={guardando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-                    {guardando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                    Guardar
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button type="button" onClick={() => setEditando(true)} className={cx(BOTON.icono, 'h-7 w-7')} title="Cambiar el nombre, la fecha o la nota">
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  {puedeBorrar &&
-                    (confirmarBorrado ? (
-                      <span className="flex items-center gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 py-1 text-[11.5px]">
-                        <span className="text-[var(--ls-t2)]">¿Borrar?</span>
-                        <button type="button" onClick={borrar} disabled={borrando} className="font-semibold text-[var(--ls-e-rojo)] hover:underline">
-                          {borrando ? '…' : 'Sí'}
+          <div className="flex shrink-0 items-center gap-[6px]">
+            {!editando && <BotonExcel remesaId={remesa.id} vacia={remesa.lineas.length === 0} />}
+            {puedeEditar && (
+              <div className="flex shrink-0 items-center gap-[6px]">
+                {editando ? (
+                  <>
+                    <button type="button" onClick={() => setEditando(false)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
+                      <X className="h-3 w-3" />
+                      Cancelar
+                    </button>
+                    <button type="button" onClick={guardar} disabled={guardando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+                      {guardando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                      Guardar
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => setEditando(true)} className={cx(BOTON.icono, 'h-7 w-7')} title="Cambiar el nombre, la fecha o la nota">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    {puedeBorrar &&
+                      (confirmarBorrado ? (
+                        <span className="flex items-center gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 py-1 text-[11.5px]">
+                          <span className="text-[var(--ls-t2)]">¿Borrar?</span>
+                          <button type="button" onClick={borrar} disabled={borrando} className="font-semibold text-[var(--ls-e-rojo)] hover:underline">
+                            {borrando ? '…' : 'Sí'}
+                          </button>
+                          <button type="button" onClick={() => setConfirmarBorrado(false)} className="text-[var(--ls-t3)] hover:text-[var(--ls-t1)]">
+                            No
+                          </button>
+                        </span>
+                      ) : (
+                        <button type="button" onClick={() => setConfirmarBorrado(true)} className={cx(BOTON.icono, 'h-7 w-7 hover:!text-[var(--ls-e-rojo)]')} title="Borrar la propuesta">
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                        <button type="button" onClick={() => setConfirmarBorrado(false)} className="text-[var(--ls-t3)] hover:text-[var(--ls-t1)]">
-                          No
-                        </button>
-                      </span>
-                    ) : (
-                      <button type="button" onClick={() => setConfirmarBorrado(true)} className={cx(BOTON.icono, 'h-7 w-7 hover:!text-[var(--ls-e-rojo)]')} title="Borrar la propuesta">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    ))}
-                </>
-              )}
-            </div>
-          )}
+                      ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -217,6 +222,9 @@ export function EspacioPropuesta({
 
       {/* ================= LO QUE TOCA HACER AHORA ================= */}
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2 pr-[2px]">
+        {/* El porqué de una propuesta que nació con IA. Solo la agencia; abierto mientras se está revisando */}
+        {esAdmin && remesa.analisisIa && <TarjetaAnalisisIa key={remesa.id} analisis={remesa.analisisIa} lineas={remesa.lineas} abierto={remesa.estado === 'borrador'} />}
+
         {remesa.estado === 'borrador' && (
           <EditorBoceto
             clienteId={clienteId}

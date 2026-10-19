@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, ClipboardList, Database, Download, FileDown, Package, Plus, TrendingDown, Upload } from 'lucide-react'
+import { AlertTriangle, Boxes, ClipboardList, Database, Download, FileDown, Package, Plus, Sparkles, TrendingDown, Upload } from 'lucide-react'
 import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
 import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
 import { filasACsv } from '@/lib/fba/catalogo/exportar'
@@ -17,11 +17,13 @@ import { useCatalogo } from './catalogo/useCatalogo'
 import { VistaBaseDeDatos } from './catalogo/VistaBaseDeDatos'
 import { cx, Vacio } from './comun/ui'
 import { DetalleEnvio } from './envios/DetalleEnvio'
+import { PanelInventario } from './inventario/PanelInventario'
 import { ListaEnvios } from './envios/ListaEnvios'
 import { TraerEnvioDialog } from './envios/TraerEnvioDialog'
 import { EspacioPropuesta } from './propuestas/EspacioPropuesta'
 import { ListaPropuestas } from './propuestas/ListaPropuestas'
 import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
+import { PropuestaIaDialog } from './propuestas/PropuestaIaDialog'
 import { fecha } from './formato'
 import { VistaReferencias } from './VistaReferencias'
 
@@ -34,6 +36,12 @@ import { VistaReferencias } from './VistaReferencias'
  *                apruebe, que etiquete y encaje. Cuando se marca como enviada y se
  *                enlaza con su número de Amazon, pasa a Envíos.
  *   REFERENCIAS  producto a producto, la que dice cuándo hay que reponer.
+ *   INVENTARIO   TODO lo que el cliente tiene en Amazon, con sus ventas, devoluciones, el
+ *                tiempo que lleva parado y lo que puede costar: el panel del cliente
+ *                entero, sin depender de qué envíos se hayan registrado.
+ *   PROPUESTA CON IA   (solo la agencia) la IA mira el inventario y propone qué mandar, con el
+ *                porqué de cada línea; se revisa, se corrige y se crea el borrador. La
+ *                propuesta a mano sigue ahí, al lado.
  *   BASE DE DATOS  solo para los clientes que la tienen (ShoesF): su hoja de REF,
  *                color, talla, EAN, FNSKU, ASIN y FBASKU, de la que las propuestas
  *                sacan los desplegables.
@@ -56,7 +64,7 @@ interface Cliente {
   propuestas: number
 }
 
-type Vista = 'envios' | 'propuestas' | 'referencias' | 'base'
+type Vista = 'envios' | 'propuestas' | 'referencias' | 'inventario' | 'base'
 
 export function EspacioRemesas({
   clientes,
@@ -76,6 +84,9 @@ export function EspacioRemesas({
   const router = useRouter()
   const verComo: Actor = esAdmin ? 'agencia' : 'cliente'
   const hoy = panel.hoy
+  // Cada propuesta con IA es una llamada de pago sobre el inventario entero del cliente: la lanza
+  // la agencia, igual que la ruta, que lo comprueba otra vez en el servidor
+  const puedeProponerConIa = esAdmin && cliente.puedeEditar
 
   const envios = useMemo(() => panel.remesas.filter(esEnvio), [panel.remesas])
   const propuestas = useMemo(() => panel.remesas.filter(esPropuesta), [panel.remesas])
@@ -96,6 +107,7 @@ export function EspacioRemesas({
   const [envioElegido, setEnvioElegido] = useState<string | null>(remesaAbierta)
   const [propuestaElegida, setPropuestaElegida] = useState<string | null>(remesaAbierta)
   const [nueva, setNueva] = useState(false)
+  const [conIa, setConIa] = useState(false)
   const [trayendo, setTrayendo] = useState(false)
   const [cambiando, setCambiando] = useState<string | null>(null)
 
@@ -202,6 +214,9 @@ export function EspacioRemesas({
           <Pestana activa={vista === 'referencias'} onClick={() => setVista('referencias')} icono={<TrendingDown className="h-[14px] w-[14px]" />} titulo="Producto a producto: cuándo hay que reponer">
             Referencias
           </Pestana>
+          <Pestana activa={vista === 'inventario'} onClick={() => setVista('inventario')} icono={<Boxes className="h-[14px] w-[14px]" />} titulo="Todo lo que tiene este cliente en Amazon: ventas, devoluciones, tiempo parado y lo que puede costar">
+            Inventario
+          </Pestana>
           {conCatalogo && (
             <Pestana activa={vista === 'base'} onClick={() => setVista('base')} icono={<Database className="h-[14px] w-[14px]" />} titulo={`La hoja de referencias de ${cliente.nombre}: REF, color, talla y sus códigos. De aquí salen los desplegables de las propuestas`}>
               Base de datos
@@ -275,12 +290,25 @@ export function EspacioRemesas({
               )}
             </>
           ) : (
-            cliente.puedeEditar && (
+            cliente.puedeEditar &&
+            (puedeProponerConIa ? (
+              // La agencia tiene las dos: que la IA proponga, o montarla a mano como siempre
+              <>
+                <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Eliges tú qué mandar, producto a producto">
+                  <Plus className="h-3 w-3" />
+                  Propuesta manual
+                </button>
+                <button type="button" onClick={() => setConIa(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)} title="La IA mira el inventario, las ventas y las devoluciones y propone qué mandar. Se revisa y se corrige antes de crearla">
+                  <Sparkles className="h-3 w-3" />
+                  Propuesta con IA
+                </button>
+              </>
+            ) : (
               <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
                 <Plus className="h-3 w-3" />
                 Nueva propuesta
               </button>
-            )
+            ))
           )}
         </div>
       </header>
@@ -307,7 +335,11 @@ export function EspacioRemesas({
       )}
 
       {/* ================= CUERPO ================= */}
-      {vista === 'base' ? (
+      {vista === 'inventario' ? (
+        <div className="min-h-0 flex-1 px-5 pb-1">
+          <PanelInventario key={cliente.id} clienteId={cliente.id} clienteNombre={cliente.nombre} hoy={hoy} onProponer={puedeProponerConIa ? () => setConIa(true) : undefined} />
+        </div>
+      ) : vista === 'base' ? (
         <div className="min-h-0 flex-1 px-5 pb-4">
           <VistaBaseDeDatos clienteId={cliente.id} clienteNombre={cliente.nombre} onAnadir={(p) => setAnadiendo(p ?? {})} onImportar={() => setImportando(true)} />
         </div>
@@ -342,6 +374,7 @@ export function EspacioRemesas({
                 hoy={hoy}
                 puedeEditar={cliente.puedeEditar}
                 onNueva={() => setNueva(true)}
+                onNuevaIa={puedeProponerConIa ? () => setConIa(true) : undefined}
               />
               <section className="min-h-0 min-w-0">
                 {propuesta ? (
@@ -380,6 +413,19 @@ export function EspacioRemesas({
           esAdmin={esAdmin}
           conCatalogo={conCatalogo}
           onCerrar={() => setNueva(false)}
+          onCreada={(id) => {
+            setPropuestaElegida(id)
+            setVista('propuestas')
+            router.refresh()
+          }}
+        />
+      )}
+      {conIa && puedeProponerConIa && (
+        <PropuestaIaDialog
+          clienteId={cliente.id}
+          clienteNombre={cliente.nombre}
+          hoy={hoy}
+          onCerrar={() => setConIa(false)}
           onCreada={(id) => {
             setPropuestaElegida(id)
             setVista('propuestas')

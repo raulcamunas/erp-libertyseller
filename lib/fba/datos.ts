@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { cajasDeRemesa, type CajasDeRemesa } from './cajas'
+import type { AnalisisIa } from './analisis-ia'
 import type { EstadoRemesa } from './flujo'
 import {
   descuadre,
@@ -98,6 +99,8 @@ export interface RemesaDePanel {
   reabiertaAt: string | null
   /** La última tirada de etiquetas, si ha habido alguna */
   ultimaImpresion: { version: number; etiquetas: number; impresoAt: string } | null
+  /** Por qué la IA montó esta propuesta así. null = no viene de la IA, o falta la migración 230 */
+  analisisIa: AnalisisIa | null
   /** Los envíos en que Amazon ha partido la remesa */
   envios: EnvioDeRemesa[]
   /** Enviadas menos recibidas, solo de las líneas que Amazon ya ha contestado.
@@ -327,6 +330,25 @@ export async function panelDeCliente(
         etiquetas: i.etiquetas,
         impresoAt: i.impreso_at,
       })
+    }
+  }
+
+  /**
+   * EL ANÁLISIS DE LA IA, APARTE Y CON PLAN B.
+   *
+   * Columna de la migración 230, que se lanza a mano. Un `select` que nombrase una columna
+   * inexistente reventaría la consulta entera (ver la 215, arriba), así que se pide aparte y
+   * se traga la falta: sin ella, las propuestas salen igual, sin su análisis.
+   */
+  const analisisPorRemesa = new Map<string, AnalisisIa>()
+  {
+    const { data: filasAnalisis } = await service
+      .from('fba_remesas')
+      .select('id, analisis_ia')
+      .eq('client_id', clienteId)
+      .not('analisis_ia', 'is', null)
+    for (const a of (filasAnalisis ?? []) as Array<{ id: string; analisis_ia: AnalisisIa | null }>) {
+      if (a.analisis_ia) analisisPorRemesa.set(a.id, a.analisis_ia)
     }
   }
 
@@ -574,6 +596,7 @@ export async function panelDeCliente(
       version: r.version ?? 1,
       reabiertaAt: r.reabierta_at ?? null,
       ultimaImpresion: impresionPorRemesa.get(r.id) ?? null,
+      analisisIa: analisisPorRemesa.get(r.id) ?? null,
       envios: enviosPorRemesa.get(r.id) ?? [],
       // Solo de las líneas que Amazon ya ha contestado: una línea sin respuesta
       // todavía no falta, simplemente no se sabe.

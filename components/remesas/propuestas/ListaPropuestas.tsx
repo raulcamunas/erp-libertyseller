@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { ClipboardList, Plus, Search } from 'lucide-react'
+import { ClipboardList, Plus, Search, Sparkles } from 'lucide-react'
 import { BOTON, CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
 import type { RemesaDePanel } from '@/lib/fba/datos'
 import type { Actor } from '@/lib/fba/flujo'
@@ -28,6 +28,7 @@ export function ListaPropuestas({
   hoy,
   puedeEditar,
   onNueva,
+  onNuevaIa,
 }: {
   propuestas: RemesaDePanel[]
   seleccionada: string | null
@@ -36,6 +37,8 @@ export function ListaPropuestas({
   hoy: string
   puedeEditar: boolean
   onNueva: () => void
+  /** Solo la agencia: que la IA proponga qué mandar */
+  onNuevaIa?: () => void
 }) {
   const [fase, setFase] = useState<FasePropuesta | 'todas'>('todas')
   const [busca, setBusca] = useState('')
@@ -100,10 +103,18 @@ export function ListaPropuestas({
               titulo={propuestas.length === 0 ? 'No hay ninguna propuesta' : 'Nada con este filtro'}
               accion={
                 propuestas.length === 0 && puedeEditar ? (
-                  <button type="button" onClick={onNueva} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-                    <Plus className="h-3 w-3" />
-                    Nueva propuesta
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-[6px]">
+                    {onNuevaIa && (
+                      <button type="button" onClick={onNuevaIa} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+                        <Sparkles className="h-3 w-3" />
+                        Propuesta con IA
+                      </button>
+                    )}
+                    <button type="button" onClick={onNueva} className={cx(BOTON.base, BOTON.alto, onNuevaIa ? BOTON.secundario : BOTON.primario)}>
+                      <Plus className="h-3 w-3" />
+                      {onNuevaIa ? 'Propuesta manual' : 'Nueva propuesta'}
+                    </button>
+                  </div>
                 ) : undefined
               }
             >
