@@ -2,7 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { CalendarioContenido } from '@/components/contenido/CalendarioContenido'
-import type { ContenidoPieza, EncargoResuelto } from '@/lib/types/contenido'
+import { isMissingSchema } from '@/lib/plataforma/eventos'
+import type { ContenidoPieza, EncargoResuelto, TextoRed } from '@/lib/types/contenido'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +29,7 @@ export default async function ContenidoPage() {
   desde.setDate(desde.getDate() - 60)
   const desdeISO = desde.toISOString().slice(0, 10)
 
-  const [encargosRes, piezasRes, perfilesRes] = await Promise.all([
+  const [encargosRes, piezasRes, perfilesRes, textosRes] = await Promise.all([
     supabase
       .from('contenido_calendario')
       .select(
@@ -40,6 +41,10 @@ export default async function ContenidoPage() {
       .order('fecha'),
     supabase.from('contenido_piezas').select('*').order('creado_at', { ascending: false }),
     supabase.from('profiles').select('id, full_name, email, role').order('full_name'),
+    // Los textos por red (migración 229). Son pocos —cuatro por vídeo— y se traen todos
+    supabase
+      .from('contenido_textos')
+      .select('id, pieza_id, red, texto, hashtags, comentario_fijado, actualizado_at'),
   ])
 
   // SI FALLA, FALLA.
@@ -50,11 +55,22 @@ export default async function ContenidoPage() {
   const error = encargosRes.error ?? piezasRes.error ?? perfilesRes.error
   if (error) throw new Error(`No se pudo cargar el calendario de contenido: ${error.message}`)
 
+  // La ÚNICA excepción: que la tabla de textos no exista todavía. Las migraciones se
+  // lanzan a mano y el código puede llegar antes; sin ella el calendario funciona igual
+  // con el texto de LinkedIn, y la pantalla avisa de qué falta. Cualquier otro fallo
+  // de esa consulta, en cambio, SÍ para la pantalla.
+  const sinTablaTextos = textosRes.error !== null && isMissingSchema(textosRes.error)
+  if (textosRes.error && !sinTablaTextos) {
+    throw new Error(`No se pudieron cargar los textos por red: ${textosRes.error.message}`)
+  }
+
   return (
     <CalendarioContenido
       encargos={(encargosRes.data ?? []) as unknown as EncargoResuelto[]}
       piezas={(piezasRes.data ?? []) as ContenidoPieza[]}
       perfiles={perfilesRes.data ?? []}
+      textos={(textosRes.data ?? []) as TextoRed[]}
+      sinTablaTextos={sinTablaTextos}
       usuarioId={profile.id}
       puedeGestionarPiezas={profile.role === 'admin' || profile.role === 'partner'}
     />

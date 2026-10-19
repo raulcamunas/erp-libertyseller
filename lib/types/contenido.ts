@@ -3,6 +3,8 @@
  * para por qué son dos tablas y no una.
  */
 
+import type { Red } from '@/lib/contenido/redes'
+
 export type TipoPieza = 'video' | 'carrusel'
 export type EstadoEncargo = 'programado' | 'publicado' | 'saltado'
 
@@ -23,6 +25,23 @@ export interface ContenidoPieza {
   vistas: string[]
   creado_at: string
   creado_por: string | null
+}
+
+/**
+ * El texto de una pieza en UNA red (Instagram, TikTok, Facebook). El de LinkedIn no
+ * está aquí: sigue en `ContenidoPieza.texto_post`. Ver migración 229.
+ */
+export interface TextoRed {
+  id: string
+  pieza_id: string
+  red: Red
+  /** El pie o la descripción, SIN los hashtags */
+  texto: string
+  /** Con su almohadilla y aparte del texto, para poder contarlos */
+  hashtags: string[]
+  /** Lo que se deja de primer comentario, si cabe en esa red */
+  comentario_fijado: string | null
+  actualizado_at: string
 }
 
 export interface ContenidoEncargo {

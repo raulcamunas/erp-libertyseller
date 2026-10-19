@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -8,10 +8,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Copy,
   Download,
-  FileText,
-  Film,
   Plus,
   SkipForward,
   Trash2,
@@ -52,41 +49,34 @@ import {
   type ContenidoPieza,
   type EncargoResuelto,
   type EstadoEncargo,
+  type TextoRed,
   type TipoPieza,
 } from '@/lib/types/contenido'
-
-type Perfil = { id: string; full_name: string | null; email: string | null; role?: string }
+import { AgendaContenido } from './AgendaContenido'
+import { BUCKET, ICONO_TIPO, nombreCorto, portada, urlPublica, type Perfil } from './comun'
+import { TextosPorRed } from './TextosPorRed'
 
 interface Props {
   encargos: EncargoResuelto[]
   piezas: ContenidoPieza[]
   perfiles: Perfil[]
+  /** Los textos de las piezas en Instagram, TikTok y Facebook. Migración 229 */
+  textos: TextoRed[]
+  /** La migración 229 no está lanzada: los textos por red no se pueden guardar */
+  sinTablaTextos: boolean
   usuarioId: string
   puedeGestionarPiezas: boolean
 }
 
-const BUCKET = 'contenido'
-
-/** «Raúl Camuñas» → «Raúl». En una celda de calendario no cabe el apellido. */
-const nombreCorto = (p: Perfil) => (p.full_name ?? p.email ?? '—').split(' ')[0]
-
-const urlPublica = (path: string | null) => {
-  if (!path) return null
-  const supabase = createClient()
-  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl
-}
-
-const ICONO_TIPO: Record<TipoPieza, typeof Film> = { video: Film, carrusel: FileText }
-
-/** La primera imagen de la pieza: la lámina 1 de un carrusel, o el fotograma
- *  de portada de un vídeo. Null si todavía no se subieron (piezas de antes de
- *  la migración 218). */
-const portada = (p: ContenidoPieza) => (p.vistas?.length ? urlPublica(p.vistas[0]) : null)
+const CLAVE_PESTANA = 'contenido-pestana'
+const PESTANAS = ['agenda', 'semana', 'piezas']
 
 export function CalendarioContenido({
   encargos,
   piezas,
   perfiles,
+  textos,
+  sinTablaTextos,
   usuarioId,
   puedeGestionarPiezas,
 }: Props) {
@@ -94,7 +84,25 @@ export function CalendarioContenido({
   const [lunes, setLunes] = useState(() => lunesDe(new Date()))
   const [diaAbierto, setDiaAbierto] = useState<string | null>(null)
   const [programando, setProgramando] = useState<string | null>(null)
-  const [pestana, setPestana] = useState('semana')
+  // La Agenda es la que enseña todo; la semana se queda a un clic. Se recuerda la última
+  // que se usó (en este navegador), y si no se puede leer, se empieza por la Agenda.
+  const [pestana, setPestanaEstado] = useState('agenda')
+  useEffect(() => {
+    try {
+      const guardada = localStorage.getItem(CLAVE_PESTANA)
+      if (guardada && PESTANAS.includes(guardada)) setPestanaEstado(guardada)
+    } catch {
+      // Sin almacenamiento (ventana privada): se queda la de por defecto
+    }
+  }, [])
+  const setPestana = (v: string) => {
+    setPestanaEstado(v)
+    try {
+      localStorage.setItem(CLAVE_PESTANA, v)
+    } catch {
+      // No pasa nada: solo se pierde la memoria de la pestaña
+    }
+  }
 
   const dias = useMemo(() => diasDeLaSemana(lunes), [lunes])
   const hoyISO = aFechaISO(new Date())
@@ -118,6 +126,38 @@ export function CalendarioContenido({
 
   const delDia = (iso: string) => porDia.get(iso) ?? []
 
+  /** Los textos por red de cada pieza, para no filtrar la lista entera en cada fila */
+  const textosPorPieza = useMemo(() => {
+    const m = new Map<string, TextoRed[]>()
+    for (const t of textos) {
+      const l = m.get(t.pieza_id) ?? []
+      l.push(t)
+      m.set(t.pieza_id, l)
+    }
+    return m
+  }, [textos])
+
+  /** La navegación de la semana, que comparten la Agenda y la Semana */
+  const barraSemana = (
+    <div className="flex items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => mueveSemana(-1)}>
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => setLunes(lunesDe(new Date()))}>
+        Hoy
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => mueveSemana(1)}>
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      <div className="ml-2">
+        <span className="font-semibold capitalize">
+          {NOMBRE_MES[lunes.getMonth()]} {lunes.getFullYear()}
+        </span>
+        <span className="text-muted-foreground text-sm ml-2">{rotuloSemana(lunes)}</span>
+      </div>
+    </div>
+  )
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -134,29 +174,30 @@ export function CalendarioContenido({
 
       <Tabs value={pestana} onValueChange={setPestana}>
         <TabsList>
+          <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="semana">Semana</TabsTrigger>
           <TabsTrigger value="piezas">Piezas ({piezas.length})</TabsTrigger>
         </TabsList>
 
+        {/* ------------------------------------------------------ la agenda */}
+        <TabsContent value="agenda" className="space-y-4">
+          {barraSemana}
+          <AgendaContenido
+            dias={dias}
+            porDia={porDia}
+            textosPorPieza={textosPorPieza}
+            hoyISO={hoyISO}
+            puedeEditar={puedeGestionarPiezas}
+            sinTabla={sinTablaTextos}
+            usuarioId={usuarioId}
+            onProgramar={setProgramando}
+            onCambio={() => router.refresh()}
+          />
+        </TabsContent>
+
         {/* ------------------------------------------------------ la semana */}
         <TabsContent value="semana" className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => mueveSemana(-1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setLunes(lunesDe(new Date()))}>
-              Hoy
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => mueveSemana(1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <div className="ml-2">
-              <span className="font-semibold capitalize">
-                {NOMBRE_MES[lunes.getMonth()]} {lunes.getFullYear()}
-              </span>
-              <span className="text-muted-foreground text-sm ml-2">{rotuloSemana(lunes)}</span>
-            </div>
-          </div>
+          {barraSemana}
 
           {/* Un día por fila: con siete columnas cada tarjeta quedaba en 120 px y
               ni el nombre ni el título cabían. En fila la miniatura se ve y el
@@ -327,6 +368,10 @@ export function CalendarioContenido({
         <DetalleDia
           iso={diaAbierto}
           encargos={delDia(diaAbierto)}
+          textosPorPieza={textosPorPieza}
+          puedeEditar={puedeGestionarPiezas}
+          sinTabla={sinTablaTextos}
+          usuarioId={usuarioId}
           onCerrar={() => setDiaAbierto(null)}
           onProgramar={() => {
             setProgramando(diaAbierto)
@@ -434,12 +479,20 @@ function ResumenSemana({
 function DetalleDia({
   iso,
   encargos,
+  textosPorPieza,
+  puedeEditar,
+  sinTabla,
+  usuarioId,
   onCerrar,
   onProgramar,
   onCambio,
 }: {
   iso: string
   encargos: EncargoResuelto[]
+  textosPorPieza: Map<string, TextoRed[]>
+  puedeEditar: boolean
+  sinTabla: boolean
+  usuarioId: string
   onCerrar: () => void
   onProgramar: () => void
   onCambio: () => void
@@ -480,16 +533,11 @@ function DetalleDia({
     onCambio()
   }
 
-  const copiar = async (texto: string) => {
-    await navigator.clipboard.writeText(texto)
-    toast.success('Texto copiado')
-  }
-
   return (
     <Dialog open onOpenChange={(v) => !v && onCerrar()}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="capitalize">
+          <DialogTitle>
             {NOMBRE_DIA[(fecha.getDay() + 6) % 7]} {fecha.getDate()} de{' '}
             {NOMBRE_MES[fecha.getMonth()]}
           </DialogTitle>
@@ -594,22 +642,14 @@ function DetalleDia({
                     </a>
                   )}
 
-                  {e.pieza.texto_post && (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs text-muted-foreground">Texto del post</Label>
-                        <Button variant="ghost" size="sm" onClick={() => copiar(e.pieza.texto_post)}>
-                          <Copy className="h-3 w-3 mr-1" />
-                          Copiar
-                        </Button>
-                      </div>
-                      <Textarea
-                        readOnly
-                        value={e.pieza.texto_post}
-                        className="min-h-[150px] text-sm font-normal"
-                      />
-                    </div>
-                  )}
+                  <TextosPorRed
+                    pieza={e.pieza}
+                    textos={textosPorPieza.get(e.pieza_id) ?? []}
+                    puedeEditar={puedeEditar}
+                    sinTabla={sinTabla}
+                    usuarioId={usuarioId}
+                    onCambio={onCambio}
+                  />
 
                   <div className="flex gap-2">
                     {e.estado !== 'publicado' ? (
