@@ -5,8 +5,9 @@ import { Dialogo } from '@/components/plataforma/comun'
 import { AVISO, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { costeMensual, mesDe, type SupuestosAlmacenaje } from '@/lib/fba/almacenaje'
 import { TRAMOS_EDAD, tramoDe, type SkuInventario } from '@/lib/fba/inventario'
+import { TRAMOS_AMAZON } from '@/lib/fba/planificacion'
 import { ChipEstado, Dato, GraficoSerie } from './piezas'
-import { COLOR_TRAMO, eur, eur2, hace, m3, n0, n2, pct } from './formato'
+import { COLOR_TRAMO, COLOR_TRAMO_AMAZON, eur, eur2, eurFino, hace, m3, n0, n2, pct } from './formato'
 import { cx } from '../comun/ui'
 import { fecha } from '../formato'
 
@@ -86,7 +87,15 @@ export function FichaSku({
           <Dato rotulo="Tiempo medio de venta" valor={sku.diasMedioDeVenta === null ? '—' : `${n0(sku.diasMedioDeVenta)} d`} sub="desde que llega hasta que se vende" />
           <Dato rotulo="Edad del stock" valor={sku.edadMediaDias === null ? '—' : `${n0(sku.edadMediaDias)} d de media`} sub={sku.edadMaxDias === null ? undefined : `la más vieja: ${n0(sku.edadMaxDias)} d`} />
           <Dato rotulo="Valor del stock" valor={eur(sku.valorStock)} sub={sku.precio === null ? 'sin precio en el catálogo' : 'a precio de venta'} />
-          <Dato rotulo="Almacenaje (estimado)" valor={`${eur2(costeMensual(enAlmacen, mes, supuestos))}/mes`} sub={`${m3((enAlmacen * supuestos.litrosPorUnidad) / 1000)} · supuesto de ${n0(supuestos.litrosPorUnidad)} L/ud`} />
+          {sku.edadAmazon?.costeMes != null ? (
+            <Dato
+              rotulo="Almacenaje (Amazon)"
+              valor={`${eurFino(sku.edadAmazon.costeMes)}/mes`}
+              sub={sku.edadAmazon.recargoMes > 0 ? `lo que calcula Amazon · recargo ${eurFino(sku.edadAmazon.recargoMes)}` : 'lo que calcula Amazon para el mes que viene'}
+            />
+          ) : (
+            <Dato rotulo="Almacenaje (estimado)" valor={`${eur2(costeMensual(enAlmacen, mes, supuestos))}/mes`} sub={`${m3((enAlmacen * supuestos.litrosPorUnidad) / 1000)} · supuesto de ${n0(supuestos.litrosPorUnidad)} L/ud`} />
+          )}
           <Dato rotulo="Retiradas y mermas" valor={`${n0(sku.retiradas)} · ${n0(sku.mermas)}`} sub="unidades retiradas del almacén · dadas por perdidas" />
         </dl>
 
@@ -97,10 +106,35 @@ export function FichaSku({
           </section>
         )}
 
+        {sku.edadAmazon && (
+          <section>
+            <h4 className="mb-1 text-[12px] font-semibold text-[var(--ls-t2)]">
+              Antigüedad según Amazon
+              <span className="ml-2 font-normal text-[var(--ls-t4)]">la que usa para cobrar el almacenaje: unidades por tramo, en días</span>
+            </h4>
+            <div className="grid grid-cols-4 gap-[6px] sm:grid-cols-7">
+              {TRAMOS_AMAZON.map((t) => {
+                const u = sku.edadAmazon?.edad[t.id] ?? 0
+                return (
+                  <div key={t.id} className="rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 py-[6px] text-center">
+                    <div className="flex items-center justify-center gap-[5px] text-[10.5px] text-[var(--ls-t4)]">
+                      <span className="h-[7px] w-[7px] rounded-[2px]" style={{ background: COLOR_TRAMO_AMAZON[t.id] }} aria-hidden />
+                      {t.texto.replace(' días', '')}
+                    </div>
+                    <div className={cx('mt-[2px] text-[15px] font-semibold tabular-nums', u > 0 ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t4)]')}>{n0(u)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
         <section>
           <h4 className="mb-1 text-[12px] font-semibold text-[var(--ls-t2)]">
             De qué llegada es lo que queda
-            <span className="ml-2 font-normal text-[var(--ls-t4)]">la mercancía más antigua se vende primero (FIFO)</span>
+            <span className="ml-2 font-normal text-[var(--ls-t4)]">
+              {sku.edadAmazon ? 'estimado con el libro mayor: lo más antiguo se vende primero (FIFO)' : 'la mercancía más antigua se vende primero (FIFO)'}
+            </span>
           </h4>
           {sku.lotes.length === 0 ? (
             <p className="rounded-[6px] border border-dashed border-[var(--ls-linea2)] px-3 py-3 text-[12px] leading-[1.5] text-[var(--ls-t3)]">

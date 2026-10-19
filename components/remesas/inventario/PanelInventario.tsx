@@ -5,13 +5,14 @@ import { AlertTriangle, ArrowDown, ArrowUp, Boxes, CloudDownload, Loader2, Refre
 import { toast } from 'sonner'
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TIPO } from '@/lib/estilo/denso'
 import { costeMensual, estimarAlmacenaje, mesDe, type SupuestosAlmacenaje } from '@/lib/fba/almacenaje'
-import { AVISO_LIBRO_SIN_LEER, AVISO_VENTAS_ATRASADAS, diasEntreInv, type EstadoSku, type InventarioDeCliente, type SkuInventario } from '@/lib/fba/inventario'
+import { AVISO_ANTERIOR_AL_LIBRO, AVISO_LIBRO_SIN_LEER, AVISO_VENTAS_ATRASADAS, diasEntreInv, type EstadoSku, type InventarioDeCliente, type SkuInventario } from '@/lib/fba/inventario'
+import { TRAMOS_AMAZON, TRAMOS_MAS_DE_90 } from '@/lib/fba/planificacion'
 import { Clave, cx, Tarjeta, Vacio } from '../comun/ui'
 import { descargarCsv, VIZ } from '../comun/graficos'
 import { fecha } from '../formato'
 import { FichaSku } from './FichaSku'
-import { AjusteAlmacenaje, ChipEstado, EdadDelStock, GraficoVentas, Kpi } from './piezas'
-import { ESTADO_SKU, eur, hace, m3, n0, n1, n2, pct } from './formato'
+import { AjusteAlmacenaje, ChipEstado, EdadDelStock, EdadDelStockAmazon, GraficoVentas, Kpi } from './piezas'
+import { COLOR_TRAMO_AMAZON, ESTADO_SKU, eur, eurFino, hace, m3, n0, n1, n2, pct } from './formato'
 import { useInventario, useSupuestosAlmacenaje } from './useInventario'
 
 /**
@@ -49,15 +50,31 @@ const FILTROS: Filtro[] = [
   { id: 'todas', texto: 'Todas', ayuda: 'Todas las referencias que han tenido stock o ventas', admite: () => true },
 ]
 
+/**
+ * Con el informe de Amazon leído, «antiguas» pasa a ser lo que Seller Central llama inventario
+ * antiguo —más de 90 días—, que es lo que se compara con su pantalla. Mismo id: el filtro elegido
+ * se conserva.
+ */
+const FILTRO_ANTIGUAS_AMAZON: Filtro = {
+  id: 'antiguas',
+  texto: 'Más de 90 días',
+  ayuda: 'Tiene unidades de más de 90 días en Amazon (de 91 días en adelante), según su informe de planificación: lo que Seller Central llama inventario antiguo',
+  admite: (s) => (s.edadAmazon?.masDe90 ?? 0) > 0,
+}
+
 interface Ctx {
   mes: number
   supuestos: SupuestosAlmacenaje
+  /** Hay antigüedad leída del informe de Amazon: las columnas de edad y de almacenaje usan esa */
+  conAmazon: boolean
 }
+
+const textoDe = (v: string | ((c: Ctx) => string | undefined) | undefined, c: Ctx): string | undefined => (typeof v === 'function' ? v(c) : v)
 
 interface Columna {
   id: string
-  titulo: string
-  ayuda?: string
+  titulo: string | ((c: Ctx) => string)
+  ayuda?: string | ((c: Ctx) => string | undefined)
   /** El valor con el que se ordena y se exporta. null va siempre al final */
   valor: (s: SkuInventario, c: Ctx) => number | string | null
   celda: (s: SkuInventario, c: Ctx) => ReactNode
@@ -129,19 +146,39 @@ const COLUMNAS: Columna[] = [
   },
   {
     id: 'edad',
-    titulo: 'Edad',
-    ayuda: 'Días medios que llevan en Amazon las unidades que quedan',
-    valor: (s) => s.edadMediaDias,
-    celda: (s) => (s.edadMediaDias === null ? <span className="text-[var(--ls-t4)]">—</span> : `${n0(s.edadMediaDias)} d`),
+    titulo: (c) => (c.conAmazon ? 'Antigüedad' : 'Edad'),
+    ayuda: (c) =>
+      c.conAmazon
+        ? 'El tramo de antigüedad más viejo en el que tiene unidades, según Amazon. Con el ratón encima se ve el reparto'
+        : 'Días medios que llevan en Amazon las unidades que quedan (estimado con el libro mayor)',
+    valor: (s, c) => (c.conAmazon ? (s.edadAmazon?.masAntiguo ? TRAMOS_AMAZON.findIndex((t) => t.id === s.edadAmazon?.masAntiguo) : null) : s.edadMediaDias),
+    celda: (s, c) => {
+      if (!c.conAmazon) return s.edadMediaDias === null ? <span className="text-[var(--ls-t4)]">—</span> : `${n0(s.edadMediaDias)} d`
+      const e = s.edadAmazon
+      const tramo = TRAMOS_AMAZON.find((t) => t.id === e?.masAntiguo)
+      if (!e || !tramo) return <span className="text-[var(--ls-t4)]">—</span>
+      const reparto = TRAMOS_AMAZON.filter((t) => e.edad[t.id] > 0).map((t) => `${t.texto}: ${n0(e.edad[t.id])}`).join(' · ')
+      return (
+        <span title={reparto} className="inline-flex items-center justify-end gap-[6px]">
+          <span className="h-[7px] w-[7px] rounded-full" style={{ background: COLOR_TRAMO_AMAZON[tramo.id] }} aria-hidden />
+          {tramo.texto.replace(' días', '')} d
+        </span>
+      )
+    },
   },
   {
     id: 'antiguas',
-    titulo: '> 270 d',
-    ayuda: 'Unidades que llevan más de 270 días: la zona donde Amazon puede cobrar de más',
-    valor: (s) => s.porTramo.t271 + s.porTramo.t366,
-    celda: (s) => {
-      const v = s.porTramo.t271 + s.porTramo.t366
-      return v > 0 ? <b className="font-semibold" style={{ color: COLOR_ESTADO.rojo }}>{n0(v)}</b> : <span className="text-[var(--ls-t4)]">—</span>
+    titulo: (c) => (c.conAmazon ? '> 90 d' : '> 270 d'),
+    ayuda: (c) =>
+      c.conAmazon
+        ? 'Unidades que llevan más de 90 días en Amazon: lo que Seller Central llama inventario antiguo'
+        : 'Unidades que llevan más de 270 días: la zona donde Amazon puede cobrar de más',
+    valor: (s, c) => (c.conAmazon ? (s.edadAmazon?.masDe90 ?? 0) : s.porTramo.t271 + s.porTramo.t366),
+    celda: (s, c) => {
+      const v = c.conAmazon ? (s.edadAmazon?.masDe90 ?? 0) : s.porTramo.t271 + s.porTramo.t366
+      // Con los tramos de Amazon, de 181 días en adelante ya hay recargo por antigüedad: eso va en rojo
+      const conRecargo = c.conAmazon && s.edadAmazon ? s.edadAmazon.edad.a181 + s.edadAmazon.edad.a331 + s.edadAmazon.edad.a366 + s.edadAmazon.edad.a456 > 0 : !c.conAmazon
+      return v > 0 ? <b className="font-semibold" style={{ color: conRecargo ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }}>{n0(v)}</b> : <span className="text-[var(--ls-t4)]">—</span>
     },
   },
   {
@@ -162,9 +199,14 @@ const COLUMNAS: Columna[] = [
   {
     id: 'almacenaje',
     titulo: 'Almacenaje/mes',
-    ayuda: 'Estimación: ver los supuestos de volumen y tarifa',
-    valor: (s, c) => costeMensual(Math.max(0, s.enAmazon - s.entrante), c.mes, c.supuestos),
-    celda: (s, c) => <span className="text-[var(--ls-t3)]">{eur(costeMensual(Math.max(0, s.enAmazon - s.entrante), c.mes, c.supuestos))}</span>,
+    ayuda: (c) => (c.conAmazon ? 'Lo que Amazon calcula que costará guardar esta referencia el mes que viene, recargos incluidos' : 'Estimación: ver los supuestos de volumen y tarifa'),
+    valor: (s, c) => (c.conAmazon ? (s.edadAmazon?.costeMes ?? null) : costeMensual(Math.max(0, s.enAmazon - s.entrante), c.mes, c.supuestos)),
+    celda: (s, c) =>
+      c.conAmazon ? (
+        <span className="text-[var(--ls-t3)]">{s.edadAmazon?.costeMes != null ? eurFino(s.edadAmazon.costeMes) : '—'}</span>
+      ) : (
+        <span className="text-[var(--ls-t3)]">{eur(costeMensual(Math.max(0, s.enAmazon - s.entrante), c.mes, c.supuestos))}</span>
+      ),
   },
 ]
 
@@ -237,12 +279,17 @@ function LeerVentas({ conexionId, destacado, onLeido }: { conexionId: string; de
     setLeyendo(true)
     try {
       const res = await fetch(`/api/fba/sincronizar?conexion=${encodeURIComponent(conexionId)}`, { method: 'POST' })
-      const cuerpo = (await res.json().catch(() => null)) as { error?: string; hasta?: string; movimientos?: number } | null
+      const cuerpo = (await res.json().catch(() => null)) as { error?: string; hasta?: string; movimientos?: number; planificacion?: { guardadas: number; guardado: boolean; aviso: string | null; error: string | null } } | null
       if (!res.ok) {
         toast.error(cuerpo?.error ?? 'No se ha podido leer el libro mayor de Amazon')
         return
       }
       toast.success(`Ventas al día: leídas hasta el ${fecha(cuerpo?.hasta)} (${n0(cuerpo?.movimientos ?? 0)} movimientos)`)
+      // La antigüedad se lee a la vez y puede fallar sola: se cuenta aparte, no se esconde
+      const p = cuerpo?.planificacion
+      if (p?.error) toast.warning(`No se ha podido leer la antigüedad de Amazon: ${p.error}`, { duration: 15_000 })
+      else if (p && !p.guardado && p.aviso) toast.warning(p.aviso, { duration: 15_000 })
+      else if (p?.guardado) toast.success(`Antigüedad de Amazon al día: ${n0(p.guardadas)} referencias`)
       onLeido()
     } catch {
       toast.warning('Se ha cortado la conexión con el servidor, pero la lectura puede seguir en marcha. Pulsa «Actualizar» dentro de unos minutos.', { duration: 12_000 })
@@ -259,10 +306,10 @@ function LeerVentas({ conexionId, destacado, onLeido }: { conexionId: string; de
         onClick={() => void leer()}
         disabled={leyendo}
         className={cx(BOTON.base, BOTON.alto, destacado ? BOTON.primario : BOTON.secundario)}
-        title="Le pide a Amazon el libro mayor de este cliente hasta hoy y lo guarda. Tarda unos minutos"
+        title="Le pide a Amazon, y guarda, el libro mayor de este cliente hasta hoy —ventas y devoluciones— y su informe de antigüedad del stock. Tarda unos minutos"
       >
         {leyendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <CloudDownload className="h-3 w-3" />}
-        {leyendo ? 'Leyendo de Amazon…' : 'Leer ventas de Amazon'}
+        {leyendo ? 'Leyendo de Amazon…' : 'Leer de Amazon'}
       </button>
     </>
   )
@@ -297,14 +344,19 @@ function Contenido({
   const mes = mesDe(hoy)
   // La pasada de la noche lee cada día: pasar de un día sin leer ya es raro, y el botón se destaca
   const ventasAtrasadas = datos.leidoHasta === null || diasEntreInv(datos.leidoHasta, hoy) > 1
-  const ctx: Ctx = useMemo(() => ({ mes, supuestos }), [mes, supuestos])
+  const ea = datos.edadAmazon
+  const conAmazon = ea !== null
+  // Con la antigüedad de Amazon, el aviso de las unidades «anteriores al libro» ya no describe lo que se ve
+  const avisos = ea ? datos.avisos.filter((a) => !a.includes(AVISO_ANTERIOR_AL_LIBRO)) : datos.avisos
+  const ctx: Ctx = useMemo(() => ({ mes, supuestos, conAmazon }), [mes, supuestos, conAmazon])
   const r = datos.resumen
   const sinLibro = datos.libro === 'sin_leer'
 
-  const cuentas = useMemo(() => Object.fromEntries(FILTROS.map((f) => [f.id, datos.skus.filter(f.admite).length])) as Record<IdFiltro, number>, [datos.skus])
+  const filtros = useMemo(() => (conAmazon ? FILTROS.map((f) => (f.id === 'antiguas' ? FILTRO_ANTIGUAS_AMAZON : f)) : FILTROS), [conAmazon])
+  const cuentas = useMemo(() => Object.fromEntries(filtros.map((f) => [f.id, datos.skus.filter(f.admite).length])) as Record<IdFiltro, number>, [filtros, datos.skus])
 
   const visibles = useMemo(() => {
-    const f = FILTROS.find((x) => x.id === filtro) ?? FILTROS[0]
+    const f = filtros.find((x) => x.id === filtro) ?? filtros[0]
     const q = busca.trim().toLowerCase()
     const lista = datos.skus.filter(f.admite).filter((s) => !q || s.sku.toLowerCase().includes(q) || (s.nombre ?? '').toLowerCase().includes(q) || (s.asin ?? '').toLowerCase().includes(q))
     if (!orden) return lista
@@ -319,12 +371,13 @@ function Contenido({
       if (vb === null) return -1
       return (typeof va === 'string' && typeof vb === 'string' ? va.localeCompare(vb) : Number(va) - Number(vb)) * signo
     })
-  }, [datos.skus, filtro, busca, orden, ctx])
+  }, [datos.skus, filtros, filtro, busca, orden, ctx])
 
   // El almacenaje se cobra por lo que está DENTRO del almacén: lo que viene de camino no paga
   const enAlmacen = Math.max(0, r.unidadesEnAmazon - r.entrante)
   // Lo que la tarjeta de antigüedad no recoge: lo que Amazon tiene dentro y no está fechado ni es «anterior al libro»
-  const sinClasificar = Math.max(0, enAlmacen - Object.values(r.porTramo).reduce((s, v) => s + v, 0) - r.anteriorALaLectura)
+  const sinClasificar = ea ? Math.max(0, enAlmacen - ea.unidades) : Math.max(0, enAlmacen - Object.values(r.porTramo).reduce((s, v) => s + v, 0) - r.anteriorALaLectura)
+  const valorMasDe90 = ea ? ea.tramos.filter((t) => TRAMOS_MAS_DE_90.includes(t.id)).reduce((acc, t) => acc + t.valor, 0) : 0
   const est = useMemo(() => estimarAlmacenaje({ unidades: enAlmacen, unidadesAntiguas: r.unidadesAntiguas }, mes, supuestos), [enAlmacen, r.unidadesAntiguas, mes, supuestos])
   const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
   const mesSiguiente = MESES[mes % 12]
@@ -338,12 +391,17 @@ function Contenido({
   function exportar() {
     descargarCsv(
       `inventario-${clienteNombre.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${hoy}.csv`,
-      ['SKU', 'Producto', 'ASIN', 'Estado', 'En Amazon', 'Vendibles', 'De camino', 'No vendibles', 'Vendidas 7 d', 'Vendidas 30 d', 'Vendidas 90 d', 'Ud/día', 'Días de stock', 'Se agota', 'Última venta', 'Días sin venta', 'Edad media (d)', 'Más de 270 d (uds)', 'Devueltas 90 d', 'Tasa de devolución', 'Precio', 'Valor del stock', 'Almacenaje/mes (est.)'],
+      [
+        'SKU', 'Producto', 'ASIN', 'Estado', 'En Amazon', 'Vendibles', 'De camino', 'No vendibles', 'Vendidas 7 d', 'Vendidas 30 d', 'Vendidas 90 d', 'Ud/día', 'Días de stock', 'Se agota', 'Última venta', 'Días sin venta',
+        ...(conAmazon ? [...TRAMOS_AMAZON.map((t) => `Antigüedad ${t.texto.replace(' días', '')} (uds)`), 'Más de 90 d (uds)'] : ['Edad media (d)', 'Más de 270 d (uds)']),
+        'Devueltas 90 d', 'Tasa de devolución', 'Precio', 'Valor del stock', conAmazon ? 'Almacenaje/mes (Amazon)' : 'Almacenaje/mes (est.)',
+      ],
       visibles.map((s) => [
         s.sku, s.nombre, s.asin, ESTADO_SKU[s.estado].texto, s.enAmazon, s.vendibles, s.entrante, s.noDisponibles,
         s.vendidas.d7, s.vendidas.d30, s.vendidas.d90, s.ritmoPlan, s.cobertura, s.seAgotaEl, s.ultimaVenta, s.diasSinVenta,
-        s.edadMediaDias, s.porTramo.t271 + s.porTramo.t366, s.devueltas.d90, s.tasaDevolucion90, s.precio, s.valorStock,
-        costeMensual(Math.max(0, s.enAmazon - s.entrante), mes, supuestos),
+        ...(conAmazon ? [...TRAMOS_AMAZON.map((t) => s.edadAmazon?.edad[t.id] ?? null), s.edadAmazon?.masDe90 ?? null] : [s.edadMediaDias, s.porTramo.t271 + s.porTramo.t366]),
+        s.devueltas.d90, s.tasaDevolucion90, s.precio, s.valorStock,
+        conAmazon ? (s.edadAmazon?.costeMes ?? null) : costeMensual(Math.max(0, s.enAmazon - s.entrante), mes, supuestos),
       ])
     )
   }
@@ -385,8 +443,24 @@ function Contenido({
         </div>
       </div>
 
-      {(datos.avisos.length > 0 || datos.lectura?.error) && (
+      {(avisos.length > 0 || datos.lectura?.error || datos.planificacion.error || (puedeLeerVentas && !datos.planificacion.tabla)) && (
         <ul className="shrink-0 space-y-[6px]">
+          {puedeLeerVentas && !datos.planificacion.tabla && (
+            <li className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
+              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
+              <span>
+                <b className={AVISO.fuerte}>Falta lanzar la migración 231_fba_planificacion.sql en Supabase.</b> Sin ella no se guarda la antigüedad que cuenta Amazon y la tarjeta enseña la estimada con el libro mayor.
+              </span>
+            </li>
+          )}
+          {datos.planificacion.error && (
+            <li className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
+              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
+              <span>
+                <b className={AVISO.fuerte}>La última lectura de la antigüedad de Amazon ha fallado{datos.planificacion.leidoAt ? ` (${fecha(datos.planificacion.leidoAt)})` : ''}:</b> {datos.planificacion.error}
+              </span>
+            </li>
+          )}
           {datos.lectura?.error && (
             <li className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
               <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
@@ -395,14 +469,14 @@ function Contenido({
               </span>
             </li>
           )}
-          {datos.avisos.map((a) => (
+          {avisos.map((a) => (
             <li key={a} className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
               <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
               <span>
                 {a}
                 {/* Las ventas se leen solas cada noche: si pasan de unos días, algo ha fallado. El botón las pone al día */}
                 {puedeLeerVentas && datos.conexionId && (a.startsWith(AVISO_VENTAS_ATRASADAS) || a.startsWith(AVISO_LIBRO_SIN_LEER)) && (
-                  <span className="text-[var(--ls-t3)]"> Se leen solas cada noche; con «Leer ventas de Amazon» se ponen al día ahora.</span>
+                  <span className="text-[var(--ls-t3)]"> Se leen solas cada noche; con «Leer de Amazon» se ponen al día ahora.</span>
                 )}
               </span>
             </li>
@@ -452,13 +526,37 @@ function Contenido({
               sub={sinLibro ? 'sin libro mayor' : `${eur(r.paradasValor)} · ${n0(r.paradas)} referencia${r.paradas === 1 ? '' : 's'} sin vender`}
               ayuda="Stock de productos que llevan 60 días o más sin venderse"
             />
-            <Kpi
-              rotulo="Edad media"
-              valor={r.edadMediaDias === null ? '—' : `${n0(r.edadMediaDias)} días`}
-              tono={r.unidadesAntiguas > 0 ? 'rojo' : undefined}
-              sub={sinLibro ? 'sin libro mayor' : `${n0(r.unidadesAntiguas)} uds con más de 270 d`}
-              ayuda="Días medios que llevan en Amazon las unidades que quedan (las que tienen entrada en el libro mayor)"
-            />
+            {ea ? (
+              <Kpi
+                rotulo="Más de 90 días"
+                valor={`${n0(ea.masDe90)} uds`}
+                tono={ea.masDe180 > 0 ? 'rojo' : ea.masDe90 > 0 ? 'ambar' : undefined}
+                sub={`${eur(valorMasDe90)} · ${n0(ea.masDe180)} con más de 180 d`}
+                ayuda="Unidades que llevan más de 90 días en Amazon según su informe de planificación: lo que Seller Central llama inventario antiguo. A partir de 181 días hay recargo por antigüedad"
+              />
+            ) : (
+              <Kpi
+                rotulo="Edad media"
+                valor={r.edadMediaDias === null ? '—' : `${n0(r.edadMediaDias)} días`}
+                tono={r.unidadesAntiguas > 0 ? 'rojo' : undefined}
+                sub={sinLibro ? 'sin libro mayor' : `${n0(r.unidadesAntiguas)} uds con más de 270 d`}
+                ayuda="Días medios que llevan en Amazon las unidades que quedan (las que tienen entrada en el libro mayor)"
+              />
+            )}
+            {ea && ea.costeMes !== null ? (
+              <Kpi
+                rotulo="Almacenaje (Amazon)"
+                valor={`${eurFino(ea.costeMes)}/mes`}
+                sub={
+                  <>
+                    Lo que calcula Amazon{ea.recargoMes > 0 && ` · recargo ${eurFino(ea.recargoMes)}`}
+                    <br />
+                    foto del {fecha(ea.fecha)}
+                  </>
+                }
+                ayuda="Lo que Amazon calcula que costará guardar este stock el mes que viene, con los recargos. Viene de su informe de planificación de inventario"
+              />
+            ) : (
             <Kpi
               rotulo="Almacenaje (estimado)"
               valor={`${eur(est.almacenajeMes)}/mes`}
@@ -477,6 +575,7 @@ function Contenido({
               ayuda="Estimación con un volumen medio por unidad y las tarifas por m³. Se ajusta con el lápiz"
               derecha={<AjusteAlmacenaje supuestos={supuestos} onGuardar={onSupuestos} />}
             />
+            )}
           </div>
 
           {/* ================= LOS GRÁFICOS ================= */}
@@ -493,22 +592,29 @@ function Contenido({
             >
               {sinLibro ? <p className="py-8 text-center text-[12px] text-[var(--ls-t4)]">Sin libro mayor no hay ventas que dibujar.</p> : <GraficoVentas datos={datos.porDia} />}
             </Tarjeta>
-            <Tarjeta titulo="Cuánto lleva el stock en Amazon" ayuda="Por tramos de antigüedad, como los cuenta Amazon">
-              <EdadDelStock
-                porTramo={r.porTramo}
-                valorPorTramo={r.valorPorTramo}
-                anterior={r.anteriorALaLectura}
-                diasDeLibro={datos.diasDeLibro}
-                sinLibro={sinLibro}
-                costeDe={(u) => costeMensual(u, mes, supuestos)}
-                sinClasificar={sinClasificar}
-              />
+            <Tarjeta
+              titulo="Cuánto lleva el stock en Amazon"
+              ayuda={ea ? `Por tramos de antigüedad, como los cuenta Amazon · foto del ${fecha(ea.fecha)}` : 'Estimada con el libro mayor (lo más antiguo se vende primero): Amazon todavía no ha dado la suya'}
+            >
+              {ea ? (
+                <EdadDelStockAmazon resumen={ea} sinClasificar={sinClasificar} />
+              ) : (
+                <EdadDelStock
+                  porTramo={r.porTramo}
+                  valorPorTramo={r.valorPorTramo}
+                  anterior={r.anteriorALaLectura}
+                  diasDeLibro={datos.diasDeLibro}
+                  sinLibro={sinLibro}
+                  costeDe={(u) => costeMensual(u, mes, supuestos)}
+                  sinClasificar={sinClasificar}
+                />
+              )}
             </Tarjeta>
           </div>
 
           {/* ================= FILTROS ================= */}
           <div className="flex shrink-0 flex-wrap items-center gap-[6px]">
-            {FILTROS.map((f) => (
+            {filtros.map((f) => (
               <button key={f.id} type="button" title={f.ayuda} onClick={() => setFiltro(f.id)} className={cx(BOTON.chip, filtro === f.id && BOTON.chipEncendido)}>
                 {f.alerta && cuentas[f.id] > 0 && <span className="h-[7px] w-[7px] rounded-full" style={{ background: f.id === 'agotadas' ? COLOR_ESTADO.rojo : COLOR_ESTADO.naranja }} />}
                 {f.texto}
@@ -534,9 +640,9 @@ function Contenido({
                     {COLUMNAS.map((c) => {
                       const activa = orden?.id === c.id
                       return (
-                        <th key={c.id} className={cx(TABLA.cabecera, c.id !== 'estado' && TABLA.derecha)} title={c.ayuda}>
+                        <th key={c.id} className={cx(TABLA.cabecera, c.id !== 'estado' && TABLA.derecha)} title={textoDe(c.ayuda, ctx)}>
                           <button type="button" onClick={() => ordenarPor(c.id)} className="inline-flex items-center gap-[3px] hover:text-[var(--ls-t1)]">
-                            {c.titulo}
+                            {textoDe(c.titulo, ctx)}
                             {activa && (orden?.dir === 'desc' ? <ArrowDown className="h-[10px] w-[10px]" /> : <ArrowUp className="h-[10px] w-[10px]" />)}
                           </button>
                         </th>
@@ -574,7 +680,11 @@ function Contenido({
             </div>
           </Tarjeta>
           <p className="shrink-0 text-[11px] leading-[1.5] text-[var(--ls-t4)]">
-            Las ventas y devoluciones salen del libro mayor de inventario de Amazon, que se lee una vez al día. La edad del stock sigue la convención FIFO: lo más antiguo se vende primero. * ritmo orientativo (poca historia).
+            Las ventas y devoluciones salen del libro mayor de inventario de Amazon, que se lee una vez al día.{' '}
+            {ea
+              ? 'La antigüedad y el coste de almacenaje salen del informe de planificación de inventario de Amazon, que se lee a la vez.'
+              : 'La edad del stock se estima con la convención FIFO: lo más antiguo se vende primero.'}{' '}
+            * ritmo orientativo (poca historia).
           </p>
         </>
       )}

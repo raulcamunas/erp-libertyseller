@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
+import { esperarPlanificacion, leerYGuardarPlanificacion } from '@/lib/fba/planificacion-amazon'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -87,8 +88,21 @@ export async function POST(request: NextRequest) {
       { onConflict: 'connection_id,marketplace_id' }
     )
 
-    const lectura = await leerLedger(credentials, marketplaceId, desde, hasta)
+    // La antigüedad del stock que cuenta Amazon se lee A LA VEZ que las ventas: los dos informes tardan
+    // minutos y cuesta lo que el más lento. Esa lectura no lanza nunca: que falle no impide ver las ventas
+    // y queda dicho en la respuesta y en `fba_lecturas`.
+    const planificacionPendiente = leerYGuardarPlanificacion(service, credentials, { conexion: conexionId, mercado: marketplaceId })
+
+    let lectura: Awaited<ReturnType<typeof leerLedger>> = null
+    try {
+      lectura = await leerLedger(credentials, marketplaceId, desde, hasta)
+    } catch (e) {
+      // Se espera un poco a la otra lectura para no dejarla suelta: el catch de abajo guarda este error
+      await esperarPlanificacion(planificacionPendiente)
+      throw e
+    }
     if (!lectura) {
+      await esperarPlanificacion(planificacionPendiente)
       return fail(502, 'Amazon ha aceptado la petición del informe pero no ha devuelto su identificador')
     }
 
@@ -158,6 +172,9 @@ export async function POST(request: NextRequest) {
       { onConflict: 'connection_id,marketplace_id' }
     )
 
+    // Con un plazo: si Amazon tarda más en este informe, la respuesta no espera y lo que tarde se guarda solo
+    const planificacion = await esperarPlanificacion(planificacionPendiente)
+
     return NextResponse.json({
       conexion: connection.name,
       informe: lectura.reportId,
@@ -166,6 +183,8 @@ export async function POST(request: NextRequest) {
       movimientos: filas.length,
       descartadas: lectura.descartadas,
       remesasReconocidas: reconocidas,
+      // La antigüedad del stock según Amazon: cuántas referencias se han guardado, y por qué no si no
+      planificacion: { guardadas: planificacion.guardadas, guardado: planificacion.guardado, aviso: planificacion.aviso, error: planificacion.error },
     })
   } catch (error) {
     // El error se guarda para que la pantalla lo pueda decir sin que nadie tenga

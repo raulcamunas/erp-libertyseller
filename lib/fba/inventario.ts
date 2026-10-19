@@ -1,4 +1,5 @@
 import { repartirSku, type Movimiento, type Remesa, type LineaRemesa } from './fifo'
+import type { EdadAmazonSku, ResumenEdadAmazon } from './planificacion'
 
 /**
  * EL INVENTARIO FBA DE UN CLIENTE, ENTERO: QUÉ HAY, CUÁNTO SE VENDE, CUÁNTO LLEVA PARADO.
@@ -221,6 +222,12 @@ export interface SkuInventario {
 
   estado: EstadoSku
   alertas: string[]
+  /**
+   * La antigüedad que cuenta Amazon, si se ha leído su informe de planificación. No sale del libro
+   * mayor: la pone quien lee la base DESPUÉS de calcular (lib/fba/inventario-datos.ts). null = ese
+   * SKU no sale en el informe (sin stock)
+   */
+  edadAmazon?: EdadAmazonSku | null
 }
 
 export interface DiaVentas {
@@ -291,6 +298,14 @@ export interface InventarioDeCliente extends InventarioCliente {
   marketplaceId: string | null
   /** La conexión de la que sale todo. Es la que se pide volver a leer (POST /api/fba/sincronizar) */
   conexionId: string | null
+  /**
+   * La antigüedad del stock TAL Y COMO LA CUENTA AMAZON (su informe de planificación), con la que se
+   * dibuja la tarjeta de antigüedad. null = todavía no se ha leído: el panel enseña entonces la que
+   * se estima del libro mayor, con sus límites.
+   */
+  edadAmazon: ResumenEdadAmazon | null
+  /** Cómo va la lectura de ese informe: si existe la tabla (migración 231), cuándo se leyó y por qué falló */
+  planificacion: { tabla: boolean; leidoAt: string | null; error: string | null }
   /** El último intento de leer el libro mayor y si falló. null = ni se ha intentado */
   lectura: { intentoAt: string | null; error: string | null } | null
 }
@@ -309,6 +324,8 @@ const aFecha = (ms: number) => new Date(ms).toISOString().slice(0, 10)
  */
 export const AVISO_LIBRO_SIN_LEER = 'Todavía no se ha leído el libro mayor de Amazon'
 export const AVISO_VENTAS_ATRASADAS = 'Las ventas están leídas hasta el'
+/** El aviso de la edad estimada del libro: con la antigüedad que da Amazon ya no hace falta */
+export const AVISO_ANTERIOR_AL_LIBRO = 'ya estaban en Amazon antes de empezar el libro'
 
 export const sumarDiasInv = (f: string, n: number) => aFecha(aMs(f) + n * DIA)
 export const diasEntreInv = (desde: string, hasta: string) => Math.round((aMs(hasta) - aMs(desde)) / DIA)
@@ -691,7 +708,7 @@ export function calcularInventario(entrada: EntradaInventario): InventarioClient
     avisos.push(`El libro mayor solo cubre ${diasDeLibro} días: las ventas de 90 días, las devoluciones y la edad del stock están a medias.`)
   }
   if (resumen.anteriorALaLectura > 0 && diasDeLibro !== null) {
-    avisos.push(`${resumen.anteriorALaLectura.toLocaleString('es-ES')} unidades ya estaban en Amazon antes de empezar el libro (hace ${diasDeLibro} días): su edad es esa o más, y no se reparten por tramos.`)
+    avisos.push(`${resumen.anteriorALaLectura.toLocaleString('es-ES')} unidades ${AVISO_ANTERIOR_AL_LIBRO} (hace ${diasDeLibro} días): su edad es esa o más, y no se reparten por tramos.`)
   }
   if (resumen.sinPrecio > 0) avisos.push(`${resumen.sinPrecio} referencias con stock no tienen precio en el catálogo: no cuentan en el valor.`)
 

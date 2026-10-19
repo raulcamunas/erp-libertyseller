@@ -7,6 +7,7 @@ import {
   type ListingInventario,
   type MovimientoInventario,
 } from './inventario'
+import { edadVacia, faltaLaTabla, resumirEdadAmazon, TRAMOS_AMAZON, type EdadAmazon, type FilaPlanificacion } from './planificacion'
 
 /**
  * LEER DE LA BASE LO QUE EL INVENTARIO NECESITA, Y NADA MÁS.
@@ -122,6 +123,84 @@ export async function enviosDelCliente(service: Servicio, clienteId: string): Pr
   return envios
 }
 
+/** Más allá de esto la foto de antigüedad de Amazon ya no se cree: se vuelve a la estimada */
+const DIAS_QUE_VALE_LA_FOTO = 5
+
+/** Un reparto por tramos guardado en JSON, saneado: lo que no sea un número no cuenta */
+function edadDeJson(crudo: unknown): EdadAmazon {
+  const e = edadVacia()
+  if (typeof crudo !== 'object' || crudo === null) return e
+  const o = crudo as Record<string, unknown>
+  for (const t of TRAMOS_AMAZON) {
+    const v = o[t.id]
+    e[t.id] = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0
+  }
+  return e
+}
+
+/**
+ * LA ANTIGÜEDAD QUE GUARDÓ LA ÚLTIMA LECTURA DEL INFORME DE AMAZON.
+ *
+ * `tabla: false` es «falta lanzar la migración 231»: no es un error del cliente ni se cuenta como
+ * tal. Cualquier otro fallo de lectura sí se lanza.
+ */
+async function planificacionGuardada(
+  service: Servicio,
+  conexion: string,
+  mercado: string
+): Promise<{ tabla: boolean; filas: FilaPlanificacion[]; fechaFoto: string | null; leidoAt: string | null }> {
+  const filas: FilaPlanificacion[] = []
+  let fechaFoto: string | null = null
+  let leidoAt: string | null = null
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await service
+      .from('fba_planificacion')
+      .select('sku, fecha_foto, disponible, no_vendible, edad, recargo, coste_mes, moneda, dias_suministro, accion, updated_at')
+      .eq('connection_id', conexion)
+      .eq('marketplace_id', mercado)
+      .order('sku', { ascending: true })
+      .range(inicio, inicio + PAGINA - 1)
+    if (error) {
+      if (faltaLaTabla(error)) return { tabla: false, filas: [], fechaFoto: null, leidoAt: null }
+      throw error
+    }
+    const pagina = (data ?? []) as Array<{
+      sku: string
+      fecha_foto: string | null
+      disponible: number | null
+      no_vendible: number | null
+      edad: unknown
+      recargo: unknown
+      coste_mes: number | string | null
+      moneda: string | null
+      dias_suministro: number | string | null
+      accion: string | null
+      updated_at: string
+    }>
+    for (const f of pagina) {
+      const coste = f.coste_mes === null || f.coste_mes === undefined ? null : Number(f.coste_mes)
+      const dias = f.dias_suministro === null || f.dias_suministro === undefined ? null : Number(f.dias_suministro)
+      filas.push({
+        sku: f.sku,
+        fnsku: null,
+        asin: null,
+        disponible: f.disponible ?? 0,
+        noVendible: f.no_vendible ?? 0,
+        edad: edadDeJson(f.edad),
+        costeMes: coste !== null && Number.isFinite(coste) ? coste : null,
+        recargo: edadDeJson(f.recargo),
+        moneda: f.moneda,
+        diasSuministro: dias !== null && Number.isFinite(dias) ? dias : null,
+        accion: f.accion,
+      })
+      if (f.fecha_foto && (!fechaFoto || f.fecha_foto > fechaFoto)) fechaFoto = f.fecha_foto
+      if (!leidoAt || f.updated_at > leidoAt) leidoAt = f.updated_at
+    }
+    if (pagina.length < PAGINA) break
+  }
+  return { tabla: true, filas, fechaFoto, leidoAt }
+}
+
 export async function inventarioDeCliente(clienteId: string, opciones: { hoy: string }): Promise<InventarioDeCliente> {
   const service = createServiceClient()
 
@@ -131,6 +210,8 @@ export async function inventarioDeCliente(clienteId: string, opciones: { hoy: st
     marketplaceId,
     conexionId: null,
     lectura: null,
+    edadAmazon: null,
+    planificacion: { tabla: true, leidoAt: null, error: null },
   })
 
   /* ---------- la conexión y el mercado ---------- */
@@ -251,11 +332,46 @@ export async function inventarioDeCliente(clienteId: string, opciones: { hoy: st
     )
   }
 
+  /* ---------- la antigüedad que cuenta Amazon ---------- */
+  const guardada = await planificacionGuardada(service, connectionId, marketplaceId)
+
+  // Cómo fue la última lectura de ese informe: columnas de la misma migración, así que aparte y tolerante
+  let leidoAt: string | null = guardada.leidoAt
+  let errorPlanificacion: string | null = null
+  const { data: estado, error: errorEstado } = await service
+    .from('fba_lecturas')
+    .select('planificacion_at, planificacion_error')
+    .eq('connection_id', connectionId)
+    .eq('marketplace_id', marketplaceId)
+    .maybeSingle()
+  if (!errorEstado && estado) {
+    const e = estado as { planificacion_at: string | null; planificacion_error: string | null }
+    leidoAt = e.planificacion_at ?? leidoAt
+    errorPlanificacion = e.planificacion_error
+  }
+
+  let edadAmazon: InventarioDeCliente['edadAmazon'] = null
+  if (guardada.filas.length > 0) {
+    const leido = (guardada.leidoAt ?? '').slice(0, 10)
+    const diasDesdeLaLectura = leido ? Math.round((Date.parse(`${opciones.hoy}T00:00:00Z`) - Date.parse(`${leido}T00:00:00Z`)) / 86_400_000) : 0
+    if (diasDesdeLaLectura <= DIAS_QUE_VALE_LA_FOTO) {
+      const precios = new Map(inventario.skus.map((k) => [k.sku, k.precio] as const))
+      edadAmazon = resumirEdadAmazon({ filas: guardada.filas, fecha: guardada.fechaFoto ?? leido ?? opciones.hoy, precios })
+      for (const k of inventario.skus) k.edadAmazon = edadAmazon.porSku[k.sku] ?? null
+    } else {
+      inventario.avisos.push(
+        `La antigüedad que cuenta Amazon es de hace ${diasDesdeLaLectura} días y ya no se usa: la tarjeta enseña la que se estima del libro mayor. Se vuelve a leer cada noche.`
+      )
+    }
+  }
+
   return {
     ...inventario,
     conectado: true,
     marketplaceId,
     conexionId: connectionId,
     lectura: lectura ? { intentoAt: lectura.ultimo_intento_at, error: lectura.ultimo_error } : null,
+    edadAmazon,
+    planificacion: { tabla: guardada.tabla, leidoAt, error: errorPlanificacion },
   }
 }

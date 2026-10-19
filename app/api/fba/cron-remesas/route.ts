@@ -7,6 +7,7 @@ import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
 import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
 import { claveDeLectura, planDeLectura, type ConexionParaLeer } from '@/lib/fba/lectura-plan'
+import { esperarPlanificacion, leerYGuardarPlanificacion } from '@/lib/fba/planificacion-amazon'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -267,7 +268,29 @@ export async function POST(request: NextRequest) {
         const desde = desdeCuandoLeer(leidoHasta, hoy, u.primera)
         const hasta = new Date(hoy.getTime() - 60 * 60_000)
 
-        const lectura = await leerLedger(credentials, u.mercado, desde, hasta)
+        // La antigüedad del stock que cuenta Amazon se pide A LA VEZ: los dos informes tardan minutos y lo
+        // que se espera es lo mismo, así que cuesta lo que el más lento y no la suma. Esa lectura no
+        // lanza nunca: que falle no puede llevarse por delante la de las ventas.
+        const planificacionPendiente = leerYGuardarPlanificacion(service, credentials, { conexion: u.conexion, mercado: u.mercado })
+        let lectura: Awaited<ReturnType<typeof leerLedger>> = null
+        let errorLedger: unknown = null
+        try {
+          lectura = await leerLedger(credentials, u.mercado, desde, hasta)
+        } catch (e) {
+          errorLedger = e
+        }
+        // Con un plazo: una cuenta lenta no puede dejar sin leer a las demás, y lo que tarde se guarda solo
+        const planificacion = await esperarPlanificacion(planificacionPendiente)
+        resultados.push({
+          conexion: connection.name,
+          planificacion: planificacion.error
+            ? `error: ${planificacion.error.slice(0, 160)}`
+            : planificacion.guardado
+              ? `${planificacion.guardadas} referencias`
+              : (planificacion.aviso ?? 'sin guardar'),
+        })
+        // Lo del libro mayor sigue su camino de siempre: el catch de abajo guarda el error
+        if (errorLedger) throw errorLedger
         if (!lectura) {
           // Se guarda, no solo se cuenta en el resultado: sin esto la cuenta se queda atrasada
           // día tras día y ninguna pantalla dice por qué

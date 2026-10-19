@@ -1,4 +1,5 @@
 import type { EstadoSku, IdTramo } from '@/lib/fba/inventario'
+import type { IdTramoAmazon } from '@/lib/fba/planificacion'
 import type { TonoEstado } from '@/lib/estilo/denso'
 
 /** Pequeñas funciones de formato del panel de inventario */
@@ -20,6 +21,15 @@ export const m3 = (v: number): string => `${v.toLocaleString(ES, { maximumFracti
 /** 1.234 € (sin decimales: en un panel de cientos de filas los céntimos solo estorban) */
 export const eur = (v: number | null | undefined): string =>
   v === null || v === undefined ? '—' : v.toLocaleString(ES, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
+
+/**
+ * 0,03 € o 1.234 €: con céntimos cuando la cifra es pequeña y sin ellos cuando no. Los costes de
+ * almacenaje que da Amazon por referencia son de céntimos, y con `eur` saldrían todos «0 €».
+ */
+export const eurFino = (v: number | null | undefined): string =>
+  v === null || v === undefined
+    ? '—'
+    : v.toLocaleString(ES, { style: 'currency', currency: 'EUR', minimumFractionDigits: Math.abs(v) < 100 ? 2 : 0, maximumFractionDigits: Math.abs(v) < 100 ? 2 : 0 })
 
 /** 1.234,56 € */
 export const eur2 = (v: number | null | undefined): string =>
@@ -53,4 +63,15 @@ export const COLOR_TRAMO: Record<IdTramo, string> = {
   t181: 'var(--ls-e-naranja)',
   t271: 'var(--ls-e-rojo)',
   t366: 'var(--ls-e-magenta)',
+}
+
+/** Los siete tramos de Seller Central, del verde de lo recién llegado al magenta de lo que lleva más de un año */
+export const COLOR_TRAMO_AMAZON: Record<IdTramoAmazon, string> = {
+  a0: 'var(--ls-e-verde)',
+  a61: 'color-mix(in srgb, var(--ls-e-verde) 50%, var(--ls-e-ambar))',
+  a91: 'var(--ls-e-ambar)',
+  a181: 'var(--ls-e-naranja)',
+  a331: 'color-mix(in srgb, var(--ls-e-naranja) 50%, var(--ls-e-rojo))',
+  a366: 'var(--ls-e-rojo)',
+  a456: 'var(--ls-e-magenta)',
 }

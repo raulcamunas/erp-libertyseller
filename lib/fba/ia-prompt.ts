@@ -118,7 +118,7 @@ CÓMO DECIDIR
 1. Un producto agotado o a punto de agotarse pierde ventas y posición en Amazon; uno que sobra paga almacenaje cada mes (de octubre a diciembre cuesta casi el doble) y se queda parado. Busca el equilibrio.
 2. La tendencia importa: si sube, el cálculo se queda corto; si baja, se pasa. Con poco historial ("pocoHistorial": true) o con muy pocas ventas, desconfía del ritmo y mándalo con prudencia.
 3. Devoluciones altas (a partir del 12 %) pueden ser un problema del producto o de la talla: manda menos o nada, y dilo en el motivo.
-4. No mandes más de una referencia que ya tiene stock envejecido (más de 270 días) ni de un modelo que el cliente va a descatalogar ("continuidad": false), salvo que haya una razón fuerte, que explicarás.
+4. No mandes más de una referencia que ya tiene stock envejecido (más de 270 días; o, si trae "antiguedadAmazon", unidades de más de 180 días: a partir de ahí Amazon cobra recargo por antigüedad) ni de un modelo que el cliente va a descatalogar ("continuidad": false), salvo que haya una razón fuerte, que explicarás. "antiguedadAmazon" es la edad REAL con la que Amazon cobra; "unidadesDeMasDe270Dias" es una estimación a partir de su libro mayor.
 5. Piensa en modelos completos: si varias referencias son tallas de un mismo "modelo", una serie rota vende peor. Prioriza las tallas que más rotan y no mandes tallas sueltas de poca salida.
 6. Los eventos próximos (Black Friday, Navidad…) justifican subir la cantidad de lo que se va a vender en esas fechas, teniendo en cuenta que el envío tarda "plazoDias" en estar a la venta.
 7. No inventes datos: solo existe lo que está en el mensaje. Si falta algo que cambiaría la decisión (por ejemplo, cuántas unidades tiene el cliente en su almacén), anótalo en "dudas".
@@ -159,6 +159,16 @@ export function construirMensajes(e: EntradaPrompt): { system: string; usuario: 
       devoluciones90d: { unidades: s.devueltas.d90, tasa: s.tasaDevolucion90 },
       edadMediaStockDias: s.edadMediaDias,
       unidadesDeMasDe270Dias: s.porTramo.t271 + s.porTramo.t366,
+      // La edad real que cuenta Amazon, si se ha leído su informe de planificación. Va solo cuando existe
+      ...(s.edadAmazon
+        ? {
+            antiguedadAmazon: {
+              unidadesDeMasDe90Dias: s.edadAmazon.masDe90,
+              unidadesDeMasDe180Dias: s.edadAmazon.edad.a181 + s.edadAmazon.edad.a331 + s.edadAmazon.edad.a366 + s.edadAmazon.edad.a456,
+              recargoPorAntiguedadAlMes: s.edadAmazon.recargoMes,
+            },
+          }
+        : {}),
       precio: s.precio,
       calculoBase: { unidades: c.base.unidades, urgencia: c.base.urgencia, maximoPorReferencia: c.base.tope },
     }

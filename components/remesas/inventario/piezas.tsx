@@ -8,7 +8,8 @@ import { SUPUESTOS_POR_DEFECTO, type SupuestosAlmacenaje } from '@/lib/fba/almac
 import { TRAMOS_EDAD, sumarDiasInv, type DiaVentas, type EstadoSku, type PorTramo } from '@/lib/fba/inventario'
 import { EJE, VIZ, dm, dmy, tooltipDe } from '../comun/graficos'
 import { cx, Medidor } from '../comun/ui'
-import { COLOR_TRAMO, ESTADO_SKU, eur, n0 } from './formato'
+import type { ResumenEdadAmazon } from '@/lib/fba/planificacion'
+import { COLOR_TRAMO, COLOR_TRAMO_AMAZON, ESTADO_SKU, eur, eurFino, n0 } from './formato'
 
 /**
  * LAS PIEZAS DEL PANEL DE INVENTARIO: tarjetas de cifras, estado, gráficos y el ajuste
@@ -200,6 +201,62 @@ export function EdadDelStock({
           {sinClasificar === 1
             ? '1 unidad más que Amazon tiene en sus almacenes no sale aquí: no se puede vender y no tiene fecha de entrada en el libro.'
             : `${n0(sinClasificar)} unidades más que Amazon tiene en sus almacenes no salen aquí: no se pueden vender y no tienen fecha de entrada en el libro.`}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * LA ANTIGÜEDAD DEL STOCK TAL Y COMO LA CUENTA AMAZON.
+ *
+ * Los siete tramos de Seller Central, con las unidades, el valor y lo que Amazon calcula que
+ * cuesta guardarlas. Viene de su informe de planificación (lib/fba/planificacion.ts), no de una
+ * estimación: es la edad con la que Amazon cobra.
+ */
+export function EdadDelStockAmazon({ resumen, sinClasificar = 0 }: { resumen: ResumenEdadAmazon; sinClasificar?: number }) {
+  const total = Math.max(1, resumen.unidades)
+  const conCoste = resumen.costeMes !== null
+  return (
+    <div className="space-y-2">
+      <Medidor alto={10} total={total} partes={resumen.tramos.map((t) => ({ valor: t.unidades, color: COLOR_TRAMO_AMAZON[t.id], titulo: t.texto }))} />
+      <table className="w-full border-separate border-spacing-0 text-[12px]">
+        <thead>
+          <tr className="text-left text-[11px] font-semibold text-[var(--ls-t4)]">
+            <th className="h-[22px] pr-2 font-semibold">Lleva en Amazon</th>
+            <th className="h-[22px] px-2 text-right font-semibold">Unidades</th>
+            <th className="h-[22px] px-2 text-right font-semibold">%</th>
+            <th className="h-[22px] px-2 text-right font-semibold">Valor</th>
+            {conCoste && (
+              <th className="h-[22px] pl-2 text-right font-semibold" title="Lo que Amazon calcula que cuesta guardar el stock de cada tramo el mes que viene. El recargo por antigüedad va al tramo que lo causa">
+                Almacenaje/mes
+              </th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {resumen.tramos.map((t) => (
+            <tr key={t.id}>
+              <td className="h-[24px] border-t border-[var(--ls-linea)] pr-2">
+                <span className="inline-flex items-center gap-[7px] text-[var(--ls-t2)]">
+                  <span className="h-[8px] w-[8px] shrink-0 rounded-[2px]" style={{ background: COLOR_TRAMO_AMAZON[t.id] }} />
+                  {t.texto}
+                </span>
+              </td>
+              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t1)]">{n0(t.unidades)}</td>
+              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{resumen.unidades > 0 ? n0((t.unidades / resumen.unidades) * 100) : '—'}</td>
+              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(t.valor)}</td>
+              {conCoste && <td className="h-[24px] border-t border-[var(--ls-linea)] pl-2 text-right tabular-nums text-[var(--ls-t3)]">{eurFino(t.coste)}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {resumen.aproximada && <p className="text-[11px] leading-[1.5] text-[var(--ls-t4)]">Amazon ha devuelto los tramos de otro mercado: el reparto es aproximado.</p>}
+      {sinClasificar > 0 && (
+        <p className="text-[11px] leading-[1.5] text-[var(--ls-t4)]">
+          {sinClasificar === 1
+            ? '1 unidad más que Amazon tiene en sus almacenes no sale aquí: no se puede vender y no tiene edad en su informe.'
+            : `${n0(sinClasificar)} unidades más que Amazon tiene en sus almacenes no salen aquí: no se pueden vender y no tienen edad en su informe.`}
         </p>
       )}
     </div>
