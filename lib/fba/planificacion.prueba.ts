@@ -158,8 +158,10 @@ console.log('\n=== el resumen del cliente ===')
   ok('por SKU: lo más antiguo es 91-180 y hay una unidad de más de 90 días', sku.masAntiguo === 'a91' && sku.masDe90 === 1 && sku.edad.a0 === 2)
   ok('una referencia solo con unidades recientes no tiene nada de más de 90 días', s.porSku['725A MARINO/37 FBA'].masDe90 === 0 && s.porSku['725A MARINO/37 FBA'].masAntiguo === 'a0')
   ok('el tramo más antiguo de una edad vacía es null', tramoMasAntiguo(edadVacia()) === null)
+  const rec = s.porSku['CON RECARGO']
+  ok('por SKU se guarda lo que cuesta cada tramo, y suma lo que dice Amazon', !!rec.costePorTramo && cerca(rec.costePorTramo.a181, 0.8) && cerca(rec.costePorTramo.a0, 0.2) && cerca(TRAMOS_AMAZON.reduce((t, x) => t + (rec.costePorTramo?.[x.id] ?? 0), 0), 1.0, 1e-9))
   const sinCoste = resumirEdadAmazon({ filas: r.filas.map((f) => ({ ...f, costeMes: null })), fecha: '2026-10-18', precios })
-  ok('si el informe no trae coste, no se inventa: null', sinCoste.costeMes === null && sinCoste.tramos.every((t) => t.coste === null))
+  ok('si el informe no trae coste, no se inventa: null', sinCoste.costeMes === null && sinCoste.tramos.every((t) => t.coste === null) && Object.values(sinCoste.porSku).every((k) => k.costePorTramo === null))
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

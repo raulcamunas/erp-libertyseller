@@ -323,6 +323,8 @@ export interface EdadAmazonSku {
   costeMes: number | null
   /** De eso, lo que es recargo por antigüedad */
   recargoMes: number
+  /** Lo que cuesta guardar las unidades de cada tramo: la suma es `costeMes`. null si el informe no trae coste */
+  costePorTramo: EdadAmazon | null
   masDe90: number
   /** El tramo más antiguo con unidades */
   masAntiguo: IdTramoAmazon | null
@@ -417,6 +419,7 @@ export function resumirEdadAmazon(entrada: {
       disponible: f.disponible,
       costeMes: f.costeMes === null ? null : redondea(f.costeMes),
       recargoMes: redondea(recargo),
+      costePorTramo: reparto,
       masDe90: unidadesDeMasDe90(f.edad),
       masAntiguo: tramoMasAntiguo(f.edad),
       accion: f.accion,

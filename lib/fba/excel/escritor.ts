@@ -255,6 +255,13 @@ export class Hoja {
   private combinadas: string[] = []
   imagen: Imagen | null = null
   colorPestana: Color | null = null
+  /**
+   * Congelar lo de arriba (y, si se quiere, lo de la izquierda) para que al bajar por una tabla larga
+   * la cabecera siga a la vista: `filas` es cuántas filas de arriba se quedan quietas.
+   */
+  congelar: { filas: number; columnas?: number } | null = null
+  /** Filtro automático (las flechitas de la cabecera): la fila de la cabecera, las columnas y la última fila con datos */
+  filtro: { fila: number; desde: number; hasta: number; hastaFila: number } | null = null
   /** Impresión: ajustar a una página de ancho, y las que hagan falta de alto */
   ajustarAlAncho = true
   vertical = true
@@ -355,6 +362,23 @@ export class Hoja {
       })
       .join('')
 
+    // El panel congelado: la vista se parte en zonas y la selección se declara en la que se usa
+    const cf = this.congelar && (this.congelar.filas > 0 || (this.congelar.columnas ?? 0) > 0) ? this.congelar : null
+    const filasCongeladas = cf?.filas ?? 0
+    const colsCongeladas = cf?.columnas ?? 0
+    const celdaSuperior = `${colLetter(colsCongeladas + 1)}${filasCongeladas + 1}`
+    const panel = !cf
+      ? '<selection activeCell="A1" sqref="A1"/>'
+      : colsCongeladas > 0 && filasCongeladas > 0
+        ? `<pane xSplit="${colsCongeladas}" ySplit="${filasCongeladas}" topLeftCell="${celdaSuperior}" activePane="bottomRight" state="frozen"/>` +
+          `<selection pane="topRight" activeCell="${colLetter(colsCongeladas + 1)}1" sqref="${colLetter(colsCongeladas + 1)}1"/>` +
+          `<selection pane="bottomLeft" activeCell="A${filasCongeladas + 1}" sqref="A${filasCongeladas + 1}"/>` +
+          `<selection pane="bottomRight" activeCell="${celdaSuperior}" sqref="${celdaSuperior}"/>`
+        : colsCongeladas > 0
+          ? `<pane xSplit="${colsCongeladas}" topLeftCell="${celdaSuperior}" activePane="topRight" state="frozen"/><selection pane="topRight" activeCell="${celdaSuperior}" sqref="${celdaSuperior}"/>`
+          : `<pane ySplit="${filasCongeladas}" topLeftCell="${celdaSuperior}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="${celdaSuperior}" sqref="${celdaSuperior}"/>`
+    const filtro = this.filtro && this.filtro.hastaFila >= this.filtro.fila ? `<autoFilter ref="${colLetter(this.filtro.desde)}${this.filtro.fila}:${colLetter(this.filtro.hasta)}${this.filtro.hastaFila}"/>` : ''
+
     return (
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
@@ -363,10 +387,11 @@ export class Hoja {
       (this.ajustarAlAncho ? '<pageSetUpPr fitToPage="1"/>' : '') +
       '</sheetPr>' +
       `<dimension ref="A1:${colLetter(cols)}${filas}"/>` +
-      `<sheetViews><sheetView showGridLines="0"${seleccionada ? ' tabSelected="1"' : ''} workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews>` +
+      `<sheetViews><sheetView showGridLines="0"${seleccionada ? ' tabSelected="1"' : ''} workbookViewId="0">${panel}</sheetView></sheetViews>` +
       '<sheetFormatPr defaultRowHeight="15"/>' +
       (columnas ? `<cols>${columnas}</cols>` : '') +
       `<sheetData>${filasXml}</sheetData>` +
+      filtro +
       (this.combinadas.length > 0 ? `<mergeCells count="${this.combinadas.length}">${this.combinadas.map((r) => `<mergeCell ref="${r}"/>`).join('')}</mergeCells>` : '') +
       '<printOptions horizontalCentered="1"/>' +
       '<pageMargins left="0.4" right="0.4" top="0.4" bottom="0.5" header="0.3" footer="0.3"/>' +

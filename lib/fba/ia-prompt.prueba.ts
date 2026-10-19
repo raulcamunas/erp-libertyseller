@@ -187,6 +187,7 @@ console.log('\n=== lo que sale hacia la IA, y solo eso ===')
         disponible: 5,
         costeMes: 0.5,
         recargoMes: 0.3,
+        costePorTramo: null,
         masDe90: 3,
         masAntiguo: 'a181',
         accion: null,

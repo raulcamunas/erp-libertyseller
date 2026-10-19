@@ -74,10 +74,10 @@ export function fechaCorta(f: string): string {
 }
 
 /** Orden humano: «2» antes que «10», sin mirar mayúsculas ni acentos */
-const natural = (a: string, b: string) => a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' })
+export const natural = (a: string, b: string) => a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' })
 
 /** Para un nombre de fichero: sin acentos, solo letras, números y guiones */
-function limpio(texto: string, max = 40): string {
+export function limpio(texto: string, max = 40): string {
   return texto
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -89,7 +89,7 @@ function limpio(texto: string, max = 40): string {
 }
 
 /** Cuántas líneas ocupa un texto en una columna de `ancho` caracteres, partiendo por palabras */
-function lineasDe(texto: string, ancho: number): number {
+export function lineasDe(texto: string, ancho: number): number {
   let total = 0
   for (const parrafo of texto.split(/\r?\n/)) {
     let actual = 0

@@ -128,7 +128,12 @@ export function EdadDelStock({
   sinLibro,
   costeDe,
   sinClasificar = 0,
+  seleccion = null,
+  onSeleccion,
 }: {
+  /** El tramo pulsado: sus productos son los que se enseñan debajo */
+  seleccion?: string | null
+  onSeleccion?: (id: string) => void
   porTramo: PorTramo
   valorPorTramo: PorTramo
   /** Unidades vendibles anteriores al libro: sin tramo */
@@ -167,32 +172,38 @@ export function EdadDelStock({
         </thead>
         <tbody>
           {TRAMOS_EDAD.map((t) => (
-            <tr key={t.id}>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] pr-2">
-                <span className="inline-flex items-center gap-[7px] text-[var(--ls-t2)]">
-                  <span className="h-[8px] w-[8px] shrink-0 rounded-[2px]" style={{ background: COLOR_TRAMO[t.id] }} />
-                  {t.texto}
-                </span>
-              </td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t1)]">{n0(porTramo[t.id])}</td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{total > 0 ? n0((porTramo[t.id] / total) * 100) : '—'}</td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(valorPorTramo[t.id])}</td>
-              {costeDe && <td className="h-[24px] border-t border-[var(--ls-linea)] pl-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(costeDe(porTramo[t.id]))}</td>}
-            </tr>
+            <FilaDeTramo
+              key={t.id}
+              texto={t.texto}
+              color={COLOR_TRAMO[t.id]}
+              unidades={porTramo[t.id]}
+              activa={seleccion === t.id}
+              onPulsar={onSeleccion ? () => onSeleccion(t.id) : undefined}
+              celdas={
+                <>
+                  <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{total > 0 ? n0((porTramo[t.id] / total) * 100) : '—'}</td>
+                  <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(valorPorTramo[t.id])}</td>
+                  {costeDe && <td className="h-[24px] border-t border-[var(--ls-linea)] pl-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(costeDe(porTramo[t.id]))}</td>}
+                </>
+              }
+            />
           ))}
           {anterior > 0 && (
-            <tr>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] pr-2" title={sinLibro ? 'Todavía no se ha leído el libro mayor de este cliente: no se sabe cuándo llegó nada' : 'Estaba en Amazon antes de que empezara el libro mayor: su edad es esa o más, y no se puede repartir por tramos'}>
-                <span className="inline-flex items-center gap-[7px] text-[var(--ls-t2)]">
-                  <span className="h-[8px] w-[8px] shrink-0 rounded-[2px] bg-[var(--ls-t4)]" />
-                  {sinLibro ? 'Edad desconocida (sin libro mayor)' : `Anterior al libro${diasDeLibro !== null ? ` (más de ${diasDeLibro} d)` : ''}`}
-                </span>
-              </td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t1)]">{n0(anterior)}</td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{total > 0 ? n0((anterior / total) * 100) : '—'}</td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right text-[var(--ls-t4)]">—</td>
-              {costeDe && <td className="h-[24px] border-t border-[var(--ls-linea)] pl-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(costeDe(anterior))}</td>}
-            </tr>
+            <FilaDeTramo
+              texto={sinLibro ? 'Edad desconocida (sin libro mayor)' : `Anterior al libro${diasDeLibro !== null ? ` (más de ${diasDeLibro} d)` : ''}`}
+              titulo={sinLibro ? 'Todavía no se ha leído el libro mayor de este cliente: no se sabe cuándo llegó nada' : 'Estaba en Amazon antes de que empezara el libro mayor: su edad es esa o más, y no se puede repartir por tramos'}
+              color="var(--ls-t4)"
+              unidades={anterior}
+              activa={seleccion === 'anterior'}
+              onPulsar={onSeleccion ? () => onSeleccion('anterior') : undefined}
+              celdas={
+                <>
+                  <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{total > 0 ? n0((anterior / total) * 100) : '—'}</td>
+                  <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right text-[var(--ls-t4)]">—</td>
+                  {costeDe && <td className="h-[24px] border-t border-[var(--ls-linea)] pl-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(costeDe(anterior))}</td>}
+                </>
+              }
+            />
           )}
         </tbody>
       </table>
@@ -208,13 +219,73 @@ export function EdadDelStock({
 }
 
 /**
+ * UNA FILA DE LA TARJETA DE ANTIGÜEDAD, QUE SE PUEDE PULSAR.
+ *
+ * Pulsarla es decir «enséñame qué productos forman este tramo»: la pantalla los lista debajo. Una
+ * fila sin unidades no se puede pulsar —no hay nada que enseñar—. La fila entera responde al clic,
+ * pero lo que recibe el teclado es el botón de la primera celda, así que Tab y Enter también
+ * sirven y un lector de pantalla oye «pulsado» en la que está elegida.
+ */
+function FilaDeTramo({
+  texto,
+  titulo,
+  color,
+  unidades,
+  activa,
+  onPulsar,
+  celdas,
+}: {
+  texto: string
+  titulo?: string
+  color: string
+  unidades: number
+  activa: boolean
+  onPulsar?: () => void
+  celdas: ReactNode
+}) {
+  const pulsable = !!onPulsar && unidades > 0
+  return (
+    <tr
+      onClick={pulsable ? onPulsar : undefined}
+      className={cx(pulsable && 'cursor-pointer', activa ? '[&>td]:bg-[var(--ls-acc-suave)]' : pulsable && 'hover:[&>td]:bg-[var(--ls-sup3)]')}
+    >
+      <td className={cx('h-[24px] border-t border-[var(--ls-linea)] pr-2', activa && 'shadow-[inset_2px_0_0_var(--ls-acc-graf)] pl-[6px]')} title={titulo}>
+        <button
+          type="button"
+          disabled={!pulsable}
+          aria-pressed={activa}
+          title={pulsable ? (activa ? 'Quitar el filtro y volver a ver todos los productos' : 'Ver debajo los productos de este tramo') : titulo}
+          className={cx('inline-flex items-center gap-[7px] text-left disabled:cursor-default', activa ? 'font-medium text-[var(--ls-t1)]' : 'text-[var(--ls-t2)]', pulsable && 'hover:text-[var(--ls-t1)]')}
+        >
+          <span className="h-[8px] w-[8px] shrink-0 rounded-[2px]" style={{ background: color }} />
+          {texto}
+        </button>
+      </td>
+      <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t1)]">{n0(unidades)}</td>
+      {celdas}
+    </tr>
+  )
+}
+
+/**
  * LA ANTIGÜEDAD DEL STOCK TAL Y COMO LA CUENTA AMAZON.
  *
  * Los siete tramos de Seller Central, con las unidades, el valor y lo que Amazon calcula que
  * cuesta guardarlas. Viene de su informe de planificación (lib/fba/planificacion.ts), no de una
  * estimación: es la edad con la que Amazon cobra.
  */
-export function EdadDelStockAmazon({ resumen, sinClasificar = 0 }: { resumen: ResumenEdadAmazon; sinClasificar?: number }) {
+export function EdadDelStockAmazon({
+  resumen,
+  sinClasificar = 0,
+  seleccion = null,
+  onSeleccion,
+}: {
+  resumen: ResumenEdadAmazon
+  sinClasificar?: number
+  /** El tramo pulsado: sus productos son los que se enseñan debajo */
+  seleccion?: string | null
+  onSeleccion?: (id: string) => void
+}) {
   const total = Math.max(1, resumen.unidades)
   const conCoste = resumen.costeMes !== null
   return (
@@ -236,18 +307,21 @@ export function EdadDelStockAmazon({ resumen, sinClasificar = 0 }: { resumen: Re
         </thead>
         <tbody>
           {resumen.tramos.map((t) => (
-            <tr key={t.id}>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] pr-2">
-                <span className="inline-flex items-center gap-[7px] text-[var(--ls-t2)]">
-                  <span className="h-[8px] w-[8px] shrink-0 rounded-[2px]" style={{ background: COLOR_TRAMO_AMAZON[t.id] }} />
-                  {t.texto}
-                </span>
-              </td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t1)]">{n0(t.unidades)}</td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{resumen.unidades > 0 ? n0((t.unidades / resumen.unidades) * 100) : '—'}</td>
-              <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(t.valor)}</td>
-              {conCoste && <td className="h-[24px] border-t border-[var(--ls-linea)] pl-2 text-right tabular-nums text-[var(--ls-t3)]">{eurFino(t.coste)}</td>}
-            </tr>
+            <FilaDeTramo
+              key={t.id}
+              texto={t.texto}
+              color={COLOR_TRAMO_AMAZON[t.id]}
+              unidades={t.unidades}
+              activa={seleccion === t.id}
+              onPulsar={onSeleccion ? () => onSeleccion(t.id) : undefined}
+              celdas={
+                <>
+                  <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{resumen.unidades > 0 ? n0((t.unidades / resumen.unidades) * 100) : '—'}</td>
+                  <td className="h-[24px] border-t border-[var(--ls-linea)] px-2 text-right tabular-nums text-[var(--ls-t3)]">{eur(t.valor)}</td>
+                  {conCoste && <td className="h-[24px] border-t border-[var(--ls-linea)] pl-2 text-right tabular-nums text-[var(--ls-t3)]">{eurFino(t.coste)}</td>}
+                </>
+              }
+            />
           ))}
         </tbody>
       </table>
