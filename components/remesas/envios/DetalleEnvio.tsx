@@ -10,6 +10,7 @@ import type { RemesaDePanel, SkuDePanel } from '@/lib/fba/datos'
 import { estaEnlazada, haceCuanto } from '@/lib/fba/vista'
 import { cx } from '../comun/ui'
 import { fecha } from '../formato'
+import { BotonInformePdf } from './BotonInformePdf'
 import { CifrasEnvio } from './CifrasEnvio'
 import { InsigniaAmazon } from './estadoAmazon'
 import { PestanasEnvio } from './PestanasEnvio'
@@ -223,6 +224,8 @@ export function DetalleEnvio({
             </div>
 
             <div className="flex shrink-0 items-center gap-[6px]">
+              {/* Para cualquiera que pueda ver el envío, no solo para quien lo edita: es lo que se le manda al cliente */}
+              {!editando && <BotonInformePdf remesaId={remesa.id} sinLineas={remesa.lineas.length === 0} />}
               {estaEnlazada(remesa) && puedeEditar && !editando && (
                 <button
                   type="button"

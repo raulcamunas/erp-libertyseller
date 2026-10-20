@@ -8,6 +8,7 @@ import { AVISO, BOTON, CAMPO, CELDA, COLOR_ESTADO, TABLA } from '@/lib/estilo/de
 import type { AnalisisIa } from '@/lib/fba/analisis-ia'
 import type { PropuestaGenerada } from '@/lib/fba/propuesta-ia'
 import type { LineaGenerada, Nivel, ParametrosReposicion } from '@/lib/fba/reposicion'
+import { sinRespuestaDe } from '../comun/errores'
 import { cx, Segmentado } from '../comun/ui'
 import { fecha } from '../formato'
 import { ESTADO_SKU, n0, n1, n2, pct } from '../inventario/formato'
@@ -41,16 +42,6 @@ interface LineaEditable {
 }
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-
-/**
- * Lo que se dice cuando la respuesta NO es el JSON de nuestra ruta: no la ha dado la ruta, sino lo que
- * hay delante —el servidor que se está reiniciando, un proxy—. Con el código se sabe qué fue sin abrir
- * las herramientas del navegador; un «no se ha podido» a secas no distingue un reinicio de un fallo.
- */
-const sinRespuestaDe = (que: string, estado: number) =>
-  estado === 502 || estado === 503 || estado === 504
-    ? `El servidor no ha contestado (código ${estado}). Suele pasar justo cuando la aplicación se está actualizando: espera un minuto y vuelve a probar.`
-    : `${que} (código ${estado}).`
 
 const sumarDias = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10)
 const diasEntre = (desde: string, hasta: string) => Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000)
