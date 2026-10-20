@@ -226,6 +226,21 @@ console.log('\n=== retiradas, mermas, devoluciones y cantidades grandes ===')
   }
 }
 
+console.log('\n=== títulos y clientes larguísimos ===')
+{
+  const largo = 'Reposición de temporada de invierno para todas las tallas de mujer y de hombre incluyendo los modelos nuevos de la colección de otoño y los que quedaron pendientes del envío anterior'
+  const L = [linea({ sku: 'A-1', enviadas: 10, quedan: 10 })]
+  const cliente = 'Comercializadora Internacional de Calzado y Complementos de la Península Ibérica Sociedad Limitada Unipersonal'
+  const out = pdfDeInforme(informeDePedido({ cliente, remesa: remesa(L, { nombre: largo }), skus: [], hoy: HOY }))
+  const p = poppler(out.pdf, 'largo.pdf')
+  if (p) {
+    const t = p.texto(1).replace(/\s+/g, ' ')
+    ok('el título largo acaba en «…» en vez de perder el resto en silencio', /Reposición de temporada de invierno .*…/.test(t) && !/envío anterior/.test(t), t.slice(0, 260))
+    ok('el cliente larguísimo se recorta con «…» y no se sale de la página', /Comercializadora Internacional .*…/.test(t))
+  }
+  ok('el nombre del fichero sigue siendo corto y ASCII', out.nombreFichero.length < 110 && /^[a-z0-9.-]+$/.test(out.nombreFichero), out.nombreFichero)
+}
+
 console.log('\n=== un ritmo ínfimo: «+365 días», no miles ===')
 {
   const L = [linea({ sku: 'L', enviadas: 2001, consumidas: 1, quedan: 2000, porDia: { '2026-10-19': 1 } })]

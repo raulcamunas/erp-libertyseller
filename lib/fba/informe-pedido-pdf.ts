@@ -305,9 +305,11 @@ function dibujarTarjeta(l: Lienzo, x: number, y: number, w: number, h: number, t
 function portada(l: Lienzo, i: InformeDePedido): number {
   l.rect(0, 0, ANCHO, 3, C.naranja)
 
-  // El título parte en dos líneas como mucho
+  // El título parte en dos líneas como mucho; si hay más, la segunda acaba en «…» en vez de perder el resto sin avisar
   l.fuente('titulo', 20)
-  const titulo = l.lineas(i.titulo, UTIL).slice(0, 2)
+  const todas = l.lineas(i.titulo, UTIL)
+  const titulo = todas.slice(0, 2)
+  if (todas.length > 2) titulo[1] = l.recortar(`${titulo[1]} ${todas.slice(2).join(' ')}`, UTIL - 2)
   const sub: string[] = []
   if (i.referenciaEnvio) sub.push(i.referenciaEnvio)
   sub.push(`Enviado el ${fechaLarga(i.fechaEnvio)}`)
@@ -331,7 +333,8 @@ function portada(l: Lienzo, i: InformeDePedido): number {
     l.texto(t, MARGEN, y, { f: 'titulo', tam: 20, color: C.blanco })
     y += 8.6
   }
-  l.texto(i.cliente, MARGEN, y + 0.8, { f: 'titulo', tam: 12.5, color: C.naranja })
+  l.fuente('titulo', 12.5)
+  l.texto(l.recortar(i.cliente, UTIL), MARGEN, y + 0.8, { f: 'titulo', tam: 12.5, color: C.naranja })
   y += 8.2
   for (const t of subLineas) {
     l.texto(t, MARGEN, y, { f: 'cuerpo', tam: 8.2, color: C.claro })
