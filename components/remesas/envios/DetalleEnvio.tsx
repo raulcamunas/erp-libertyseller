@@ -11,6 +11,7 @@ import { estaEnlazada, haceCuanto } from '@/lib/fba/vista'
 import { cx } from '../comun/ui'
 import { fecha } from '../formato'
 import { BotonInformePdf } from './BotonInformePdf'
+import { BotonLeerVentas } from './BotonLeerVentas'
 import { CifrasEnvio } from './CifrasEnvio'
 import { InsigniaAmazon } from './estadoAmazon'
 import { PestanasEnvio } from './PestanasEnvio'
@@ -37,6 +38,7 @@ export function DetalleEnvio({
   hoy,
   puedeEditar,
   puedeBorrar,
+  puedeLeerVentas = false,
   conectado,
 }: {
   remesa: RemesaDePanel
@@ -44,6 +46,8 @@ export function DetalleEnvio({
   hoy: string
   puedeEditar: boolean
   puedeBorrar: boolean
+  /** Leer el libro mayor de Amazon ahora, sin esperar a la pasada de la noche. Solo administradores */
+  puedeLeerVentas?: boolean
   conectado: boolean
 }) {
   const router = useRouter()
@@ -237,6 +241,11 @@ export function DetalleEnvio({
                   {siguiendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                   {siguiendo ? 'Preguntando…' : 'Consultar en Amazon'}
                 </button>
+              )}
+              {/* Se destaca cuando Amazon ya tiene el envío en el almacén y el libro mayor aún no ha confirmado su llegada:
+                  es justo cuando se acaba de traer y todo sale en cero */}
+              {puedeLeerVentas && conectado && estaEnlazada(remesa) && !editando && (
+                <BotonLeerVentas remesaId={remesa.id} destacado={!remesa.llegadaAt && ['CLOSED', 'RECEIVING', 'CHECKED_IN', 'DELIVERED'].includes(remesa.estadoAmazon ?? '')} />
               )}
               {puedeEditar &&
                 (editando ? (

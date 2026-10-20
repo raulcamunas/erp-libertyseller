@@ -6,6 +6,8 @@ import { toast } from 'sonner'
 import { Dialogo } from '@/components/plataforma/comun'
 import { BOTON, CAMPO, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { ESTADO_INBOUND_TEXTO } from '@/lib/fba/inbound-estados'
+import { diaDeCreacionDeEnvio } from '@/lib/fba/mercados'
+import type { AmazonRegion } from '@/lib/types/amazon'
 import { cx } from '../comun/ui'
 
 /**
@@ -22,6 +24,8 @@ const FBA = /^FBA[0-9A-Z]{6,20}$/
 interface Traido {
   existente: { id: string; nombre: string | null } | null
   envio: { shipmentId: string; nombre: string | null; estado: string; centro: string | null }
+  /** El mercado en el que el servidor ha buscado el envío (el de la cuenta, no siempre España) y en el que se creará */
+  mercado: { id: string; nombre: string; region: AmazonRegion | null }
   lineas: Array<{ sku: string; enviadas: number; recibidas: number; nombre: string | null; asin: string | null }>
 }
 
@@ -64,12 +68,14 @@ export function TraerEnvioDialog({
         setError(p?.error ?? 'No se ha podido consultar el envío')
         return
       }
-      setTraido({ existente: p.existente ?? null, envio: p.envio, lineas: p.lineas })
+      const mercado = p.mercado ?? { id: marketplaceId, nombre: 'España', region: null }
+      setTraido({ existente: p.existente ?? null, envio: p.envio, mercado, lineas: p.lineas })
       if (!nombre.trim() && p.envio.nombre) setNombre(p.envio.nombre)
-      // Los envíos de Amazon se llaman «FBA STA (06/10/2026 10:17)»: lleva el día de
-      // creación, que es una fecha de envío mucho mejor que la de hoy.
-      const dia = /\((\d{2})\/(\d{2})\/(\d{4})/.exec(p.envio.nombre ?? '')
-      if (dia) setFecha(`${dia[3]}-${dia[2]}-${dia[1]}`)
+      // Los envíos de Amazon se llaman «FBA STA (06/10/2026 10:17)»: lleva el día de creación, que es una
+      // fecha de envío mucho mejor que la de hoy. El orden de los números es el del país de la cuenta:
+      // «07/08/2026» es 8 de julio en Estados Unidos y 7 de agosto en España.
+      const dia = diaDeCreacionDeEnvio(p.envio.nombre, mercado.region)
+      if (dia) setFecha(dia)
     } finally {
       setBuscando(false)
     }
@@ -82,7 +88,8 @@ export function TraerEnvioDialog({
       const res = await fetch('/api/fba/remesas/importar-envio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'crear', clienteId, marketplaceId, shipmentId: traido.envio.shipmentId, nombre: nombre.trim() || null, fechaEnvio: fecha }),
+        // El mercado que dijo el servidor al buscar, no el que lleva el diálogo por costumbre
+        body: JSON.stringify({ accion: 'crear', clienteId, marketplaceId: traido.mercado.id, shipmentId: traido.envio.shipmentId, nombre: nombre.trim() || null, fechaEnvio: fecha }),
       })
       const p = (await res.json().catch(() => null)) as { error?: string; id?: string } | null
       if (!res.ok || !p?.id) {
@@ -148,7 +155,8 @@ export function TraerEnvioDialog({
         <div className="space-y-3">
           <p className="text-[12px] text-[var(--ls-t3)]">
             <b className="font-semibold text-[var(--ls-t1)]">{traido.envio.nombre ?? traido.envio.shipmentId}</b> · {ESTADO_INBOUND_TEXTO[traido.envio.estado]?.texto ?? traido.envio.estado}
-            {traido.envio.centro ? ` · destino ${traido.envio.centro}` : ''} · <b className="font-semibold text-[var(--ls-t1)]">{traido.lineas.length}</b> referencias,{' '}
+            {traido.envio.centro ? ` · destino ${traido.envio.centro}` : ''} · <span title="El país de Amazon en el que se ha buscado el envío y en el que se creará">Amazon {traido.mercado.nombre}</span> ·{' '}
+            <b className="font-semibold text-[var(--ls-t1)]">{traido.lineas.length}</b> referencias,{' '}
             <b className="font-semibold text-[var(--ls-t1)]">{enviadas.toLocaleString('es-ES')}</b> unidades enviadas y {recibidas.toLocaleString('es-ES')} recibidas
           </p>
 

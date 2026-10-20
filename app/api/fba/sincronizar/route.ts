@@ -2,8 +2,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
+import { claveDeCuenta, haceCuanto, pedirTurnoDeLectura } from '@/lib/fba/lectura-en-curso'
+import { mercadosQueVendeLaCuenta, participaEn } from '@/lib/fba/mercados'
 import { esperarPlanificacion, leerYGuardarPlanificacion } from '@/lib/fba/planificacion-amazon'
+import { desdeParaLeerAhora } from '@/lib/fba/ventana-lectura'
 import { createServiceClient } from '@/lib/supabase/service'
+import { marketplaceLabel } from '@/lib/types/amazon'
 
 /**
  * TRAER LOS MOVIMIENTOS DE UNA CUENTA Y GUARDARLOS.
@@ -24,30 +28,106 @@ import { createServiceClient } from '@/lib/supabase/service'
  *
  * Se apunta `leido_hasta` SOLO si todo ha ido bien. Si falla a mitad, la próxima
  * pasada vuelve a por el mismo tramo.
+ *
+ *
+ * ============ DE QUÉ CUENTA Y DE QUÉ MERCADO ============
+ *
+ *   ?remesa=<id>      la cuenta y el mercado de ESE envío. Es lo que usa el botón «Leer ventas»
+ *                     de un envío, y la única forma que sirve para una cuenta que no vende en el
+ *                     mercado por defecto de su conexión (Portico LLC: por defecto México, y sus
+ *                     envíos y productos están en Estados Unidos). Además estira la ventana hacia
+ *                     atrás hasta cubrir el envío si el libro todavía no ha confirmado su llegada:
+ *                     traer de Amazon un envío antiguo a una cuenta que ya se leía cada noche
+ *                     dejaba sus ventas fuera para siempre, porque la pasada solo relee 14 días.
+ *   ?conexion=<id>    la cuenta entera (el botón del panel del cliente). El mercado es el de sus
+ *                     remesas si el por defecto de la conexión no tiene ninguna; si no, el de siempre.
+ *   &mercado=<id>     fuerza el mercado en cualquiera de las dos.
+ *
+ * Un mercado en el que la cuenta no vende NO se pide a Amazon: se dice cuál es el problema.
+ *
+ * UNA LECTURA A LA VEZ por cuenta y mercado (lib/fba/lectura-en-curso.ts): dos lecturas cruzadas
+ * duplican cada movimiento sin dar ningún error. La segunda no espera: se rechaza.
  */
 export const dynamic = 'force-dynamic'
 export const maxDuration = 600
 
 export async function POST(request: NextRequest) {
-  const conexionId = request.nextUrl.searchParams.get('conexion') ?? ''
+  const parametros = request.nextUrl.searchParams
+  let conexionId = parametros.get('conexion') ?? ''
+  const remesaId = parametros.get('remesa') ?? ''
+  let mercadoPedido = parametros.get('mercado') ?? ''
   const service = createServiceClient()
   let marketplaceId = ''
+  let soltarTurno: (() => void) | null = null
 
   try {
     const session = await requireAmazonAdmin()
     if (session instanceof NextResponse) return session
+
+    // Con ?remesa= la cuenta y el mercado son los del envío
+    let remesa: { id: string; nombre: string | null; fecha_envio: string; llegada_at: string | null } | null = null
+    if (remesaId) {
+      if (!UUID.test(remesaId)) return fail(400, 'Hay que decir de qué envío')
+      const { data } = await service
+        .from('fba_remesas')
+        .select('id, nombre, connection_id, marketplace_id, fecha_envio, llegada_at')
+        .eq('id', remesaId)
+        .maybeSingle()
+      const fila = data as { id: string; nombre: string | null; connection_id: string | null; marketplace_id: string; fecha_envio: string; llegada_at: string | null } | null
+      if (!fila) return fail(404, 'Ese envío no existe')
+      if (!fila.connection_id) return fail(409, 'Este envío no tiene una cuenta de Amazon conectada, así que no hay libro mayor que leer.')
+      conexionId = fila.connection_id
+      mercadoPedido = fila.marketplace_id
+      remesa = { id: fila.id, nombre: fila.nombre, fecha_envio: fila.fecha_envio, llegada_at: fila.llegada_at }
+    }
     if (!UUID.test(conexionId)) return fail(400, 'Hay que decir de qué conexión')
 
     const resuelta = await connectionCredentials(conexionId)
     if (!resuelta) return fail(404, 'Esa conexión no existe')
 
     const { connection, credentials } = resuelta
-    marketplaceId =
+    const porDefecto =
       connection.default_marketplace_id ??
       connection.marketplaces_activos?.[0] ??
       connection.marketplace_ids?.[0] ??
       ''
+
+    if (mercadoPedido) {
+      marketplaceId = mercadoPedido
+    } else {
+      // Sin mercado pedido: el por defecto de la conexión, salvo que no tenga ni una remesa y la cuenta sí las
+      // tenga en otro (así se leen las ventas de un cliente cuyo mercado por defecto no es donde envía)
+      marketplaceId = porDefecto
+      const { data: deRemesas } = await service.from('fba_remesas').select('marketplace_id').eq('connection_id', conexionId)
+      const cuenta = new Map<string, number>()
+      for (const r of (deRemesas ?? []) as Array<{ marketplace_id: string }>) cuenta.set(r.marketplace_id, (cuenta.get(r.marketplace_id) ?? 0) + 1)
+      if (cuenta.size > 0 && !cuenta.has(porDefecto)) {
+        marketplaceId = [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0][0]
+      }
+    }
     if (!marketplaceId) return fail(400, `${connection.name} no tiene ningún mercado asignado`)
+
+    // Si la cuenta no está dada de alta en ese mercado, Amazon no contesta con un error que se entienda:
+    // devuelve un informe vacío o rechaza la petición, y las ventas se quedan en cero sin explicación
+    if (!participaEn(connection, marketplaceId)) {
+      const dondeVende = mercadosQueVendeLaCuenta(connection).join(', ') || 'ningún mercado conocido'
+      return fail(
+        409,
+        remesa
+          ? `Este envío está apuntado en Amazon ${marketplaceLabel(marketplaceId)}, pero la cuenta «${connection.name}» no vende ahí (vende en: ${dondeVende}). Hay que corregir el país del envío antes de leer sus ventas.`
+          : `La cuenta «${connection.name}» no vende en Amazon ${marketplaceLabel(marketplaceId)} (vende en: ${dondeVende}).`
+      )
+    }
+
+    // Una lectura a la vez por cuenta y mercado. Se pide ANTES de tocar nada
+    const turno = pedirTurnoDeLectura(claveDeCuenta(conexionId, marketplaceId))
+    if (!turno.ok) {
+      return fail(
+        409,
+        `Ya se está leyendo el libro mayor de ${connection.name} en Amazon ${marketplaceLabel(marketplaceId)} (empezó ${haceCuanto(turno.desdeHaceMs)}). Espera a que termine y vuelve a mirar.`
+      )
+    }
+    soltarTurno = turno.soltar
 
     const { data: lecturaPrevia } = await service
       .from('fba_lecturas')
@@ -66,13 +146,18 @@ export async function POST(request: NextRequest) {
       .from('fba_remesas')
       .select('fecha_envio')
       .eq('connection_id', conexionId)
+      .eq('marketplace_id', marketplaceId)
       .order('fecha_envio', { ascending: true })
       .limit(1)
       .maybeSingle()
     const remesaMasAntigua = (primera as { fecha_envio: string } | null)?.fecha_envio ?? null
 
     const hoy = new Date()
-    const desde = desdeCuandoLeer(leidoHasta, hoy, remesaMasAntigua)
+    // Para un envío concreto la ventana se estira hasta cubrirlo si el libro aún no ha confirmado su llegada;
+    // sin envío (el botón del panel) es la de siempre
+    const desde = remesa
+      ? desdeParaLeerAhora(leidoHasta, hoy, remesaMasAntigua, remesa.llegada_at ? [] : [remesa.fecha_envio])
+      : desdeCuandoLeer(leidoHasta, hoy, remesaMasAntigua)
     // Hasta hace una hora: el libro mayor del día en curso todavía se está
     // escribiendo, y pedirlo hasta «ahora» devuelve un tramo a medio cerrar.
     const hasta = new Date(hoy.getTime() - 60 * 60_000)
@@ -177,6 +262,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       conexion: connection.name,
+      mercado: { id: marketplaceId, nombre: marketplaceLabel(marketplaceId) },
       informe: lectura.reportId,
       desde: lectura.desde,
       hasta: lectura.hasta,
@@ -204,5 +290,8 @@ export async function POST(request: NextRequest) {
         .then(() => undefined)
     }
     return errorResponse(error, 'No se ha podido leer el libro mayor')
+  } finally {
+    // Pase lo que pase: sin esto una lectura que falla dejaría la cuenta bloqueada hasta que caduque el candado
+    soltarTurno?.()
   }
 }

@@ -6,6 +6,7 @@ import { fetchFbaInventory } from '@/lib/amazon/sp-api'
 import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
 import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
+import { claveDeCuenta, haceCuanto, pedirTurnoDeLectura } from '@/lib/fba/lectura-en-curso'
 import { claveDeLectura, planDeLectura, type ConexionParaLeer } from '@/lib/fba/lectura-plan'
 import { esperarPlanificacion, leerYGuardarPlanificacion } from '@/lib/fba/planificacion-amazon'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
@@ -137,6 +138,14 @@ export async function POST(request: NextRequest) {
     for (const u of unidades) {
       if (Date.now() - arranque > PRESUPUESTO_MS) {
         resultados.push({ conexion: u.conexion, saltado: 'sin tiempo en esta pasada' })
+        continue
+      }
+
+      // Si alguien la está leyendo a mano ahora mismo, no se pisa: dos lecturas cruzadas de la misma cuenta
+      // duplican los movimientos sin dar error (lib/fba/lectura-en-curso.ts). Le toca mañana, o ya la ha leído la otra.
+      const turno = pedirTurnoDeLectura(claveDeCuenta(u.conexion, u.mercado))
+      if (!turno.ok) {
+        resultados.push({ conexion: u.conexion, saltado: `ya se estaba leyendo a mano (empezó ${haceCuanto(turno.desdeHaceMs)})` })
         continue
       }
 
@@ -434,6 +443,8 @@ export async function POST(request: NextRequest) {
         )
         // Una cuenta que falla NO se lleva por delante a las demás.
         resultados.push({ conexion: u.conexion, error: mensaje })
+      } finally {
+        turno.soltar()
       }
     }
 

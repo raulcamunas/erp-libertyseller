@@ -33,11 +33,11 @@ import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/info
  * teníamos; lo que ahorra es un descuadre que nadie sabría explicar.
  */
 
-/** Días que se releen siempre, por encima de lo que falte */
-export const SOLAPE_DIAS = 14
-
-/** La primera vez no hay nada: se trae un trimestre para tener contra qué cuadrar */
-export const PRIMERA_LECTURA_DIAS = 90
+/**
+ * Hasta dónde se relee y desde dónde se lee la primera vez: vive en ventana-lectura.ts (puro, con su prueba)
+ * y se exporta desde aquí con los mismos nombres de siempre.
+ */
+export { MAXIMO_HISTORICO_DIAS, PRIMERA_LECTURA_DIAS, SOLAPE_DIAS, desdeCuandoLeer } from './ventana-lectura'
 
 /** Un informe tarda entre uno y quince minutos. Ver `esperarInforme` */
 const ESPERA_ENTRE_SONDEOS_MS = 20_000
@@ -290,41 +290,4 @@ function instante(texto: string | null): string | null {
   if (!texto) return null
   const t = Date.parse(texto)
   return Number.isFinite(t) ? new Date(t).toISOString() : null
-}
-
-/** Amazon guarda el libro mayor 18 meses. Más atrás no hay nada que pedir */
-export const MAXIMO_HISTORICO_DIAS = 540
-
-/**
- * Desde qué día hay que leer.
- *
- * LA PRIMERA VEZ SE VA A BUSCAR LA REMESA MÁS ANTIGUA, no 90 días fijos, y esto
- * es lo que decide si una migración de histórico sirve de algo:
- *
- * Al importar las diez remesas de ShoesF, cinco son de mayo —752 de las 1.279
- * unidades—. Con una ventana fija de 90 días la primera lectura empezaría el 20
- * de junio, o sea DESPUÉS de esos cinco envíos: no habría ni un movimiento que
- * los consumiera y el panel los pintaría intactos, como si no se hubiera vendido
- * un par de zapatillas desde mayo. El número sería falso y parecería cierto.
- *
- * Así que la primera vez manda la remesa más antigua, con el tope de lo que
- * Amazon conserva. Las siguientes pasadas ya van desde donde se quedaron.
- */
-export function desdeCuandoLeer(
-  leidoHasta: string | null,
-  hoy: Date,
-  remesaMasAntigua?: string | null
-): Date {
-  const limite = hoy.getTime() - MAXIMO_HISTORICO_DIAS * 86_400_000
-
-  if (!leidoHasta) {
-    const porDefecto = hoy.getTime() - PRIMERA_LECTURA_DIAS * 86_400_000
-    if (!remesaMasAntigua) return new Date(Math.max(porDefecto, limite))
-    // Un día antes de la remesa, para que su propia entrada quede dentro
-    const desdeRemesa = Date.parse(`${remesaMasAntigua}T00:00:00Z`) - 86_400_000
-    return new Date(Math.max(Math.min(porDefecto, desdeRemesa), limite))
-  }
-
-  const ultimo = Date.parse(`${leidoHasta}T00:00:00Z`)
-  return new Date(Math.max(ultimo - SOLAPE_DIAS * 86_400_000, limite))
 }

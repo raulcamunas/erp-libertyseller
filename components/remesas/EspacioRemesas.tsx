@@ -356,7 +356,7 @@ export function EspacioRemesas({
               <ListaEnvios envios={envios} seleccionada={envio?.id ?? null} onElegir={setEnvioElegido} puedeEditar={cliente.puedeEditar} onTraer={() => setTrayendo(true)} diasCobertura={diasCobertura} hoy={hoy} />
               <section className="min-h-0 min-w-0">
                 {envio ? (
-                  <DetalleEnvio key={envio.id} remesa={envio} skus={panel.skus} hoy={hoy} puedeEditar={cliente.puedeEditar} puedeBorrar={esAdmin} conectado={panel.conectado} />
+                  <DetalleEnvio key={envio.id} remesa={envio} skus={panel.skus} hoy={hoy} puedeEditar={cliente.puedeEditar} puedeBorrar={esAdmin} puedeLeerVentas={esAdmin} conectado={panel.conectado} />
                 ) : (
                   <SinSeleccion icono={<Package />} titulo={envios.length === 0 ? 'Todavía no hay ningún envío' : 'Elige un envío de la lista'}>
                     {envios.length === 0
