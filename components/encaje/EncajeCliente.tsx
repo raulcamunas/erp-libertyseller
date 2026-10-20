@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Info, Loader2, Package, Plus, TriangleAlert } from 'lucide-react'
 import { sinRespuestaDe } from '@/components/remesas/comun/errores'
 import type { DatosDeEncaje } from '@/lib/fba/encaje-enlace'
-import { anadirCaja, meterPendientes, meterTodoLoPendiente, moverLinea, ponerMedida, ponerUnidades, quitarCaja } from '@/lib/fba/encaje-operaciones'
+import { anadirCaja, duplicarCaja, meterPendientes, meterTodoLoPendiente, moverLinea, ponerMedida, ponerUnidades, quitarCaja } from '@/lib/fba/encaje-operaciones'
 import { porQueNoSePuedeEncajar, resumirEncaje, type CajaEnEdicion, type ResumenDeEncaje } from '@/lib/fba/encaje-resumen'
 import { BarraDeProgreso } from './BarraDeProgreso'
 import { Cabecera } from './Cabecera'
@@ -53,10 +53,10 @@ export function EncajeCliente({ token, inicial }: { token: string; inicial: Dato
     }
   }, [cajas.length])
 
-  const avisar = useCallback((texto: string) => {
+  const avisar = useCallback((texto: string, ms = 2400) => {
     setAviso(texto)
     if (temporizadorDelAviso.current) clearTimeout(temporizadorDelAviso.current)
-    temporizadorDelAviso.current = setTimeout(() => setAviso(null), 2400)
+    temporizadorDelAviso.current = setTimeout(() => setAviso(null), ms)
   }, [])
 
   /* ---------- lo que se hace con las cajas ---------- */
@@ -74,6 +74,22 @@ export function EncajeCliente({ token, inicial }: { token: string; inicial: Dato
   function anadir(copiarMedidasDe?: number) {
     setCajas((prev) => anadirCaja(prev, copiarMedidasDe))
     setActiva(Math.max(0, ...cajas.map((c) => c.numero)) + 1)
+  }
+
+  /** «Otra igual»: una caja nueva con las mismas medidas, el mismo peso y lo mismo dentro, en lo que quede por encajar */
+  function duplicar(numero: number) {
+    const r = duplicarCaja(cajas, lineas, numero)
+    if (r.nueva === null) return
+    setCajas((prev) => duplicarCaja(prev, lineas, numero).cajas)
+    setActiva(r.nueva)
+    if (r.sinCopiar === 0) {
+      avisar(r.copiadas > 0 ? `Caja ${r.nueva}: igual que la ${numero}, con sus ${n0(r.copiadas)} unidades` : `Caja ${r.nueva}: con las mismas medidas que la ${numero}`)
+    } else if (r.copiadas > 0) {
+      // No se puede mentir con un «copiada»: el envío tiene las unidades que tiene
+      avisar(`Caja ${r.nueva}: copiadas ${n0(r.copiadas)} de las ${n0(r.copiadas + r.sinCopiar)} unidades de la caja ${numero}. De las demás ya no quedaba por encajar. Revisa el peso.`, 6000)
+    } else {
+      avisar(`Caja ${r.nueva}: con las mismas medidas, pero vacía: ya no queda nada por encajar de lo que llevaba la caja ${numero}.`, 5000)
+    }
   }
 
   function meterDeLaLista(sku: string) {
@@ -241,7 +257,7 @@ export function EncajeCliente({ token, inicial }: { token: string; inicial: Dato
                           avisar(`Todo lo que faltaba, en la caja ${c.numero}`)
                         }}
                         onQuitar={() => quitar(c.numero)}
-                        onNuevaIgual={() => anadir(c.numero)}
+                        onNuevaIgual={() => duplicar(c.numero)}
                         onSoltar={(dato) => soltarEn(c.numero, dato)}
                       />
                     ))

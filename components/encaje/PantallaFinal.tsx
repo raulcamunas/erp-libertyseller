@@ -1,6 +1,6 @@
 'use client'
 
-import { CircleCheck } from 'lucide-react'
+import { CircleCheck, Tags } from 'lucide-react'
 import type { CajaEnEdicion, LineaParaEncajar, ResumenDeEncaje } from '@/lib/fba/encaje-resumen'
 import { unidadesDeCaja } from '@/lib/fba/encaje-resumen'
 import { FUENTE_TITULO, n0, n1 } from './marca'
@@ -37,6 +37,22 @@ export function PantallaFinal({ recien, resumen, cajas, lineas }: { recien: bool
           <Dato>
             <b>{n1(resumen.pesoTotalKg)}</b> kg en total
           </Dato>
+        </div>
+
+        {/* Lo que pasa DESPUÉS: el cliente no tiene que hacer nada, pero tiene que saber que le van a mandar las etiquetas
+            de las cajas y que hasta entonces no hay nada que pegar. Va aquí y no en el correo porque es donde está mirando */}
+        <div className="mx-auto mt-8 flex max-w-[540px] items-start gap-3.5 rounded-2xl border border-[#F26212]/25 bg-[#FBEFE8] px-4 py-4 text-left">
+          <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#FFFFFF] text-[#F26212]">
+            <Tags className="h-[18px] w-[18px]" />
+          </span>
+          <div>
+            <p className="text-[14.5px] font-semibold text-[#141414]" style={{ fontFamily: FUENTE_TITULO }}>
+              Las etiquetas de las cajas
+            </p>
+            <p className="mt-1 text-[14px] leading-relaxed text-[#5E5852]">
+              Ahora, cuando lo configuremos, te enviaremos las etiquetas para pegarlas en las cajas <span className="whitespace-nowrap">(si has hecho el envío con UPS).</span>
+            </p>
+          </div>
         </div>
       </div>
 

@@ -127,7 +127,7 @@ export function TarjetaCaja({
                 e.stopPropagation()
                 onNuevaIgual()
               }}
-              title="Añadir otra caja con las mismas medidas"
+              title="Duplicar esta caja: mismas medidas, mismo peso y lo mismo dentro, en lo que quede por encajar"
               className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] text-[#5E5852] transition hover:bg-[#F7F5F2] hover:text-[#141414]"
             >
               <Copy className="h-3.5 w-3.5" />

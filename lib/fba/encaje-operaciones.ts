@@ -38,6 +38,48 @@ export function anadirCaja(cajas: CajaEnEdicion[], copiarMedidasDe?: number): Ca
   return [...cajas, { numero, largoCm: base?.largoCm ?? null, anchoCm: base?.anchoCm ?? null, altoCm: base?.altoCm ?? null, pesoKg: null, contenido: [] }]
 }
 
+export interface ResultadoDeDuplicar {
+  cajas: CajaEnEdicion[]
+  /** El número de la caja nueva. null si la de origen no existe y no se ha hecho nada */
+  nueva: number | null
+  /** Unidades que se han copiado a la caja nueva */
+  copiadas: number
+  /** De lo que llevaba la de origen, lo que NO se ha podido copiar porque ya no quedaba por encajar de esa referencia */
+  sinCopiar: number
+}
+
+/**
+ * «OTRA IGUAL»: una caja nueva que repite una que ya está hecha —las mismas medidas, el mismo peso y
+ * lo mismo dentro—, en lo que quede por encajar.
+ *
+ * Es lo que se espera de «otra igual»: cuando un producto tiene seis unidades y la primera caja lleva
+ * tres, la segunda lleva las otras tres sin volver a buscarlas una a una. Pero el envío tiene las
+ * unidades que tiene: de cada referencia se copia lo que quepa, nunca más de lo que queda, y lo que no
+ * cabe se dice (`sinCopiar`) para que la pantalla avise en vez de dejar creer que se ha copiado todo.
+ *
+ * El PESO solo se copia si la copia es entera: con menos dentro la caja pesa menos, y un peso heredado
+ * que no es el de verdad es peor que uno en blanco, porque nadie se acuerda de corregirlo.
+ */
+export function duplicarCaja(cajas: CajaEnEdicion[], lineas: LineaParaEncajar[], numero: number): ResultadoDeDuplicar {
+  const origen = cajas.find((c) => c.numero === numero)
+  if (!origen) return { cajas, nueva: null, copiadas: 0, sinCopiar: 0 }
+
+  let acc = anadirCaja(cajas, numero)
+  const nueva = acc[acc.length - 1].numero
+  let copiadas = 0
+  let sinCopiar = 0
+  for (const x of origen.contenido) {
+    const caben = Math.min(x.unidades, pendientesDe(lineas, acc, x.sku))
+    if (caben > 0) {
+      acc = ponerUnidades(acc, lineas, nueva, x.sku, caben)
+      copiadas += caben
+    }
+    sinCopiar += x.unidades - caben
+  }
+  if (sinCopiar === 0 && origen.pesoKg !== null) acc = ponerMedida(acc, nueva, 'pesoKg', origen.pesoKg)
+  return { cajas: acc, nueva, copiadas, sinCopiar }
+}
+
 /**
  * Quita una caja. Las demás se RENUMERAN de 1 en adelante: el número de caja acaba en la plantilla de
  * embalaje de Amazon y «Caja 1, Caja 3» sin la 2 es un hueco que luego hay que explicar. Lo que
