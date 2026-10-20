@@ -272,10 +272,15 @@ export function puedeAvanzar(
     motivos.push({ texto: 'La remesa no tiene ninguna referencia' })
   }
 
+  // Sin ninguna caja TODAS las referencias «faltan» por definición: «No hay ninguna caja» ya lo dice, y repetirlo
+  // referencia por referencia —24 líneas iguales en la barra de abajo— tapaba la pantalla sin decir nada nuevo
+  const sinCajas = !!t.exigeMedidas && (!contexto.cajas || contexto.cajas.cajas === 0)
+
   if (t.exigeMedidas) {
     const c = contexto.cajas
     if (!c || c.cajas === 0) {
-      motivos.push({ texto: 'No hay ninguna caja' })
+      const total = (contexto.cuadre?.descuadres ?? []).reduce((s, d) => s + d.declaradas, 0)
+      motivos.push({ texto: total > 0 ? `No hay ninguna caja: añade una y reparte las ${total.toLocaleString('es-ES')} unidades` : 'No hay ninguna caja' })
     } else {
       if (c.vacias > 0) {
         motivos.push({
@@ -298,18 +303,42 @@ export function puedeAvanzar(
     })
   }
 
-  if (t.exigeCuadre && contexto.cuadre && !contexto.cuadre.cuadra) {
-    for (const d of contexto.cuadre.descuadres.filter((x) => x.diferencia !== 0)) {
-      motivos.push({
-        texto:
-          d.diferencia > 0
-            ? `${d.sku}: faltan ${d.diferencia} unidades por encajar de las ${d.declaradas} declaradas`
-            : `${d.sku}: hay ${-d.diferencia} unidades de más en las cajas (declaradas ${d.declaradas})`,
-      })
-    }
+  if (t.exigeCuadre && contexto.cuadre && !contexto.cuadre.cuadra && !sinCajas) {
+    const faltan = contexto.cuadre.descuadres.filter((x) => x.diferencia > 0)
+    const sobran = contexto.cuadre.descuadres.filter((x) => x.diferencia < 0)
+    for (const m of resumirDescuadres(faltan, 'faltan')) motivos.push({ texto: m })
+    for (const m of resumirDescuadres(sobran, 'sobran')) motivos.push({ texto: m })
   }
 
   return { puede: motivos.length === 0, motivos }
+}
+
+/**
+ * HASTA CUÁNTAS REFERENCIAS SE DICEN UNA A UNA.
+ *
+ * Con dos o tres, saber CUÁLES es lo útil y cabe en pantalla. Con más, una línea por referencia es una
+ * pared de avisos casi idénticos —«faltan 5 de las 5», «faltan 6 de las 6»…— y la lista de cuáles ya está
+ * en «Pendiente de repartir», que es donde se mira. Pasado este número se dice una sola vez cuánto y en
+ * cuántas.
+ */
+export const MAX_DESCUADRES_EN_DETALLE = 3
+
+function resumirDescuadres(lista: Cuadre['descuadres'], sentido: 'faltan' | 'sobran'): string[] {
+  if (lista.length === 0) return []
+  if (lista.length <= MAX_DESCUADRES_EN_DETALLE) {
+    return lista.map((d) => {
+      const n = Math.abs(d.diferencia)
+      return sentido === 'faltan'
+        ? `${d.sku}: ${n === 1 ? 'falta 1 unidad' : `faltan ${n} unidades`} por encajar de las ${d.declaradas} declaradas`
+        : `${d.sku}: hay ${n} ${n === 1 ? 'unidad' : 'unidades'} de más en las cajas (declaradas ${d.declaradas})`
+    })
+  }
+  const unidades = lista.reduce((s, d) => s + Math.abs(d.diferencia), 0)
+  return [
+    sentido === 'faltan'
+      ? `Faltan ${unidades.toLocaleString('es-ES')} unidades por encajar en ${lista.length} referencias`
+      : `Hay ${unidades.toLocaleString('es-ES')} unidades de más en las cajas, en ${lista.length} referencias`,
+  ]
 }
 
 /** Los pasos que este actor puede dar ahora mismo desde este estado */

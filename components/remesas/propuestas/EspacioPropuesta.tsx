@@ -17,6 +17,7 @@ import { EditorCajas } from '../EditorCajas'
 import { fecha } from '../formato'
 import { BarraAcciones } from './BarraAcciones'
 import { BotonExcel } from './BotonExcel'
+import { EnlaceParaElCliente } from './EnlaceParaElCliente'
 import { EnlazarEnvioDialog } from './EnlazarEnvioDialog'
 import { FasesPropuesta } from './FasesPropuesta'
 import { ImprimirEtiquetas } from './ImprimirEtiquetas'
@@ -255,6 +256,9 @@ export function EspacioPropuesta({
 
         {remesa.estado === 'encajando' && (
           <>
+            {/* El cliente no tiene por qué entrar al ERP para encajar: se le manda un enlace. Solo para quien puede editar:
+                el enlace es una credencial de escritura sobre estas cajas */}
+            {puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} />}
             <EditorCajas
               remesaId={remesa.id}
               lineas={remesa.lineas}

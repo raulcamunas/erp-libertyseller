@@ -97,6 +97,10 @@ export async function middleware(request: NextRequest) {
                        pathname.startsWith('/api/') ||
                        pathname.startsWith('/report/commissions/') ||
                        pathname.startsWith('/audit/share/') ||
+                       // La página donde el CLIENTE encaja un envío sin entrar al ERP. La credencial es el
+                       // token de la dirección (lib/fba/encaje-enlace.ts): da paso a UN envío y se comprueba
+                       // en el servidor en cada petición. Solo esta carpeta: nada más del ERP se abre así
+                       pathname.startsWith('/encajar/') ||
                        // OAuth de Amazon. Quien llega a estas dos direcciones es
                        // el CLIENTE desde su Seller Central, sin sesión en el
                        // ERP: mandarle al login rompe el flujo a mitad y él no

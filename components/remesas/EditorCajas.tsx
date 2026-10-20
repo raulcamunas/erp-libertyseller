@@ -202,21 +202,33 @@ export function EditorCajas({
       {/* ---------- LO QUE FALTA POR REPARTIR ---------- */}
       {!cuadre.cuadra && (
         <div className="glass-card p-3">
-          <p className="mb-2 text-[11px] font-medium text-white/50">Pendiente de repartir</p>
+          {/* El «faltan» va una vez en el titular, no en cada chip: 24 veces la misma palabra era ruido */}
+          <p className="mb-2 text-[11px] font-medium text-white/50">
+            Pendiente de repartir · {cuadre.filas.filter((f) => f.diferencia !== 0).length} referencias
+            {cuadre.pendientes > 0 && ` · ${cuadre.pendientes} unidades`}
+            {cuadre.sobrantes > 0 && <span className="text-red-300"> · sobran {cuadre.sobrantes}</span>}
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {cuadre.filas
               .filter((f) => f.diferencia !== 0)
               .map((f) => (
                 <span
                   key={f.sku}
-                  title={[f.nombre, f.variante].filter(Boolean).join(' · ')}
-                  className={`rounded-full px-2 py-1 font-mono text-[11px] ${
+                  title={`${f.diferencia > 0 ? `Faltan ${f.diferencia}` : `Sobran ${-f.diferencia}`} unidades${[f.nombre, f.variante].filter(Boolean).length > 0 ? ` · ${[f.nombre, f.variante].filter(Boolean).join(' · ')}` : ''}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full py-[3px] pl-2 pr-[3px] font-mono text-[11px] ${
                     f.diferencia > 0
-                      ? 'bg-amber-400/10 text-amber-300'
+                      ? 'bg-amber-400/10 text-amber-200/90'
                       : 'bg-red-400/10 text-red-300'
                   }`}
                 >
-                  {f.sku} {f.diferencia > 0 ? `faltan ${f.diferencia}` : `sobran ${-f.diferencia}`}
+                  {f.sku}
+                  <b
+                    className={`min-w-[18px] rounded-full px-[5px] text-center text-[10.5px] font-semibold tabular-nums ${
+                      f.diferencia > 0 ? 'bg-amber-400/20 text-amber-300' : 'bg-red-400/20 text-red-200'
+                    }`}
+                  >
+                    {f.diferencia > 0 ? f.diferencia : `−${-f.diferencia}`}
+                  </b>
                 </span>
               ))}
           </div>

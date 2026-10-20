@@ -78,6 +78,56 @@ ok('sobran en las cajas',
   }).motivos[0].texto,
   'A: hay 2 unidades de más en las cajas (declaradas 10)')
 
+console.log('\n=== SIN PARED DE AVISOS: LO MISMO DICHO UNA VEZ ===')
+{
+  // La pantalla real: Cobo Family, 24 referencias, 100 unidades, y todavía ninguna caja. Salían 25 líneas casi iguales
+  const veinticuatro = Array.from({ length: 24 }, (_, i) => ({ sku: `SKU-${i + 1}`, declaradas: i < 4 ? 5 : 4, encajadas: 0, diferencia: i < 4 ? 5 : 4 }))
+  const total = veinticuatro.reduce((s, d) => s + d.declaradas, 0)
+  const sinCajas = puedeAvanzar('encajando', 'lista', 'cliente', {
+    cuadre: { descuadres: veinticuatro, cuadra: false },
+    cajas: { cajas: 0, sinMedidas: 0, vacias: 0 },
+  })
+  ok('sin ninguna caja, UN solo motivo (no 25)', sinCajas.motivos.length, 1)
+  ok('  y dice qué hacer y cuántas unidades son', sinCajas.motivos[0].texto, `No hay ninguna caja: añade una y reparte las ${total} unidades`)
+  ok('sin el cuadre a mano, el motivo es el de siempre',
+    puedeAvanzar('encajando', 'lista', 'cliente', { cajas: { cajas: 0, sinMedidas: 0, vacias: 0 } }).motivos[0].texto, 'No hay ninguna caja')
+
+  // Con una caja ya empezada, las 24 faltan: una sola línea con el total, no una por referencia
+  const conCaja = puedeAvanzar('encajando', 'lista', 'cliente', {
+    cuadre: { descuadres: veinticuatro, cuadra: false },
+    cajas: { cajas: 1, sinMedidas: 1, vacias: 1 },
+  })
+  ok('con una caja: las 24 que faltan salen en UNA línea', conCaja.motivos.filter((m) => /Faltan/.test(m.texto)).map((m) => m.texto), [`Faltan ${total} unidades por encajar en 24 referencias`])
+  ok('  y el resto de motivos (vacía, sin medidas) siguen', conCaja.motivos.length, 3)
+
+  // Hasta tres referencias se dicen una a una: saber cuáles es lo útil
+  const tres = veinticuatro.slice(0, 3)
+  const detalle = puedeAvanzar('encajando', 'lista', 'cliente', { cuadre: { descuadres: tres, cuadra: false }, cajas: cajasOk })
+  ok('con tres, una línea por referencia', detalle.motivos.length, 3)
+  const cuatro = veinticuatro.slice(0, 4)
+  ok('con cuatro ya se resume: «Faltan 20 unidades… en 4 referencias»',
+    puedeAvanzar('encajando', 'lista', 'cliente', { cuadre: { descuadres: cuatro, cuadra: false }, cajas: cajasOk }).motivos.map((m) => m.texto),
+    ['Faltan 20 unidades por encajar en 4 referencias'])
+
+  // Faltan unas y sobran otras: cada sentido con su línea
+  const mezcla = [
+    ...veinticuatro.slice(0, 5),
+    { sku: 'X-1', declaradas: 2, encajadas: 3, diferencia: -1 },
+    { sku: 'X-2', declaradas: 2, encajadas: 3, diferencia: -1 },
+    { sku: 'X-3', declaradas: 2, encajadas: 4, diferencia: -2 },
+    { sku: 'X-4', declaradas: 2, encajadas: 3, diferencia: -1 },
+  ]
+  ok('faltan 5 referencias y sobran 4: una línea de cada',
+    puedeAvanzar('encajando', 'lista', 'cliente', { cuadre: { descuadres: mezcla, cuadra: false }, cajas: cajasOk }).motivos.map((m) => m.texto),
+    ['Faltan 24 unidades por encajar en 5 referencias', 'Hay 5 unidades de más en las cajas, en 4 referencias'])
+  ok('una sola unidad de más no se resume: sale con su SKU',
+    puedeAvanzar('encajando', 'lista', 'cliente', { cuadre: { descuadres: [{ sku: 'X-1', declaradas: 2, encajadas: 3, diferencia: -1 }], cuadra: false }, cajas: cajasOk }).motivos[0].texto,
+    'X-1: hay 1 unidad de más en las cajas (declaradas 2)')
+  ok('y una que falta: «falta 1 unidad»',
+    puedeAvanzar('encajando', 'lista', 'cliente', { cuadre: { descuadres: [{ sku: 'Y-1', declaradas: 4, encajadas: 3, diferencia: 1 }], cuadra: false }, cajas: cajasOk }).motivos[0].texto,
+    'Y-1: falta 1 unidad por encajar de las 4 declaradas')
+}
+
 console.log('\n=== REMESA VACIA ===')
 ok('no se aprueba sin referencias', puedeAvanzar('borrador', 'aprobada', 'cliente', { lineas: 0 }).puede, false)
 

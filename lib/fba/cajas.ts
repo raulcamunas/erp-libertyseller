@@ -75,8 +75,10 @@ function estaCompleta(c: { largoCm: number | null; anchoCm: number | null; altoC
   return [c.largoCm, c.anchoCm, c.altoCm, c.pesoKg].every((v) => v !== null && v > 0)
 }
 
-export async function cajasDeRemesa(remesaId: string): Promise<CajasDeRemesa> {
-  const service = createServiceClient()
+/** El cliente de la base. Se puede pasar uno de mentira en las pruebas; por defecto es el de servicio */
+export type ClienteDeBase = ReturnType<typeof createServiceClient>
+
+export async function cajasDeRemesa(remesaId: string, service: ClienteDeBase = createServiceClient()): Promise<CajasDeRemesa> {
 
   const { data: filas, error } = await service
     .from('fba_cajas')
@@ -184,9 +186,7 @@ export interface CajaEntrante {
  * Se borra y se reinserta en vez de comparar: son cajas de un envío, decenas
  * como mucho, y el código que compara es el que se equivoca.
  */
-export async function guardarCajas(remesaId: string, cajas: CajaEntrante[]): Promise<number> {
-  const service = createServiceClient()
-
+export async function guardarCajas(remesaId: string, cajas: CajaEntrante[], service: ClienteDeBase = createServiceClient()): Promise<number> {
   // El contenido cae con las cajas (CASCADE), así que basta con borrar estas.
   const { error: errBorrar } = await service.from('fba_cajas').delete().eq('remesa_id', remesaId)
   if (errBorrar) throw errBorrar

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { puedeEditar, requireFbaAccess } from '@/lib/fba/acceso'
-import { cajasDeRemesa, guardarCajas, type CajaEntrante } from '@/lib/fba/cajas'
+import { cajasDeRemesa, guardarCajas } from '@/lib/fba/cajas'
+import { limpiarCajas } from '@/lib/fba/cajas-validacion'
 import { puedeEditarCajas, type EstadoRemesa } from '@/lib/fba/flujo'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -16,8 +17,6 @@ import { createServiceClient } from '@/lib/supabase/service'
  */
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
-
-const MAX_CAJAS = 500
 
 async function remesaYAcceso(id: string, nivel: 'ver' | 'editar') {
   if (!UUID.test(id)) return { error: fail(400, 'Esa remesa no existe') as NextResponse }
@@ -70,64 +69,13 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     }
 
     const body = (await request.json().catch(() => ({}))) as { cajas?: unknown }
-    if (!Array.isArray(body.cajas)) return fail(400, 'Falta la lista de cajas')
-    if (body.cajas.length > MAX_CAJAS) return fail(400, `Son demasiadas cajas (máximo ${MAX_CAJAS})`)
 
-    // Se valida TODO antes de tocar nada: se borra el conjunto entero para
-    // reescribirlo, así que un fallo a mitad dejaría a la remesa sin cajas.
-    const numeros = new Set<number>()
-    const limpias: CajaEntrante[] = []
-
-    for (const [i, cruda] of (body.cajas as Array<Record<string, unknown>>).entries()) {
-      const numero = Number(cruda.numero)
-      if (!Number.isInteger(numero) || numero <= 0) {
-        return fail(400, `La caja ${i + 1} no tiene un número válido`)
-      }
-      if (numeros.has(numero)) return fail(400, `Hay dos cajas con el número ${numero}`)
-      numeros.add(numero)
-
-      const medida = (v: unknown, nombre: string): number | null | NextResponse => {
-        if (v === null || v === undefined || v === '') return null
-        const n = Number(v)
-        if (!Number.isFinite(n) || n <= 0) {
-          return fail(400, `La caja ${numero}: «${nombre}» tiene que ser un número mayor que cero`)
-        }
-        // Un tope que no molesta a nadie y frena el dedo gordo: 500 cm de lado
-        // o 1.000 kg no es una caja, es un error de tecleo.
-        if (n > 1000) return fail(400, `La caja ${numero}: «${nombre}» es imposible`)
-        return n
-      }
-
-      const largoCm = medida(cruda.largoCm, 'largo')
-      if (largoCm instanceof NextResponse) return largoCm
-      const anchoCm = medida(cruda.anchoCm, 'ancho')
-      if (anchoCm instanceof NextResponse) return anchoCm
-      const altoCm = medida(cruda.altoCm, 'alto')
-      if (altoCm instanceof NextResponse) return altoCm
-      const pesoKg = medida(cruda.pesoKg, 'peso')
-      if (pesoKg instanceof NextResponse) return pesoKg
-
-      const vistos = new Set<string>()
-      const contenido: Array<{ sku: string; unidades: number }> = []
-      for (const x of (Array.isArray(cruda.contenido) ? cruda.contenido : []) as Array<
-        Record<string, unknown>
-      >) {
-        const sku = typeof x.sku === 'string' ? x.sku.trim() : ''
-        if (!sku) continue
-        const unidades = Number(x.unidades)
-        if (!Number.isInteger(unidades) || unidades < 0) {
-          return fail(400, `La caja ${numero}: las unidades de ${sku} no son válidas`)
-        }
-        if (unidades === 0) continue
-        if (vistos.has(sku)) {
-          return fail(400, `La caja ${numero} tiene ${sku} dos veces. Súmalo en una sola línea`)
-        }
-        vistos.add(sku)
-        contenido.push({ sku, unidades })
-      }
-
-      limpias.push({ numero, largoCm, anchoCm, altoCm, pesoKg, contenido })
-    }
+    // Se valida TODO antes de tocar nada: se borra el conjunto entero para reescribirlo, así que
+    // un fallo a mitad dejaría a la remesa sin cajas. Las reglas están en lib/fba/cajas-validacion.ts,
+    // las mismas que usa la página pública del encaje.
+    const limpieza = limpiarCajas(body.cajas)
+    if (!limpieza.ok) return fail(400, limpieza.error)
+    const limpias = limpieza.cajas
 
     await guardarCajas(params.id, limpias)
 
