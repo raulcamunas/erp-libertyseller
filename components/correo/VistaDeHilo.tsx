@@ -1,13 +1,15 @@
 'use client'
 
-import { ArrowLeft, ChevronDown, ChevronRight, Download, Forward, ImageOff, MailOpen, Paperclip, Reply, ReplyAll, Star } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Download, Forward, ImageOff, MailOpen, Moon, Paperclip, Reply, ReplyAll, Star, Sun } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Avatar, Esqueleto } from '@/components/rendimiento/ui'
 import { nombreOCorreo, type Persona } from '@/lib/correo/direcciones'
 import { fechaCompleta, fechaDeLista, tamanoLegible } from '@/lib/correo/formato'
+import { tieneDisenoPropio, type FondoDeCorreo } from '@/lib/correo/html'
 import type { ModoDeRedactar } from '@/lib/correo/redactar'
 import type { HiloAbierto, MensajeDeHilo } from '@/lib/correo/tipos'
 import { CuerpoDeCorreo } from './CuerpoDeCorreo'
+import { useTemaOscuro } from './tema'
 import { BOTON_ICONO, BOTON_SECUNDARIO, Etiqueta } from './ui'
 
 /**
@@ -39,8 +41,12 @@ function destinatarios(personas: Persona[], maximo = 3): string {
   return personas.length > maximo ? `${primeros} y ${personas.length - maximo} más` : primeros
 }
 
-function Tarjeta({ mensaje, abierto, esMio, onAlternar, onResponder }: { mensaje: MensajeDeHilo; abierto: boolean; esMio: boolean; onAlternar: () => void; onResponder: (modo: ModoDeRedactar, m: MensajeDeHilo) => void }) {
+function Tarjeta({ mensaje, abierto, esMio, temaOscuro, onAlternar, onResponder }: { mensaje: MensajeDeHilo; abierto: boolean; esMio: boolean; temaOscuro: boolean; onAlternar: () => void; onResponder: (modo: ModoDeRedactar, m: MensajeDeHilo) => void }) {
   const [imagenes, setImagenes] = useState(false)
+  // El fondo en que se enseña: oscuro si el ERP lo es y el correo no trae diseño propio (ni imágenes); si no, gris claro. Se puede cambiar a mano
+  const [forzado, setForzado] = useState<FondoDeCorreo | null>(null)
+  const conDiseno = useMemo(() => !!mensaje.html && tieneDisenoPropio(mensaje.html), [mensaje.html])
+  const fondo: FondoDeCorreo = forzado ?? (temaOscuro && !conDiseno ? 'oscuro' : 'claro')
   const quien = mensaje.deNombre || mensaje.deDireccion || '(sin remitente)'
   const hayImagenesBloqueadas = useMemo(() => !!mensaje.html && (HAY_IMAGENES_DE_FUERA.test(mensaje.html) || HAY_FONDOS_DE_FUERA.test(mensaje.html)), [mensaje.html])
   const varios = mensaje.para.length + mensaje.cc.length > 1
@@ -73,9 +79,22 @@ function Tarjeta({ mensaje, abierto, esMio, onAlternar, onResponder }: { mensaje
               {mensaje.direccion === 'saliente' ? 'Tú' : quien}
               {mensaje.deNombre && mensaje.direccion !== 'saliente' && <span className="ml-1.5 text-[11.5px] font-normal text-[var(--ls-t4)]">&lt;{mensaje.deDireccion}&gt;</span>}
             </p>
-            <time dateTime={mensaje.fecha} className="shrink-0 text-[11.5px] tabular-nums text-[var(--ls-t4)]">
-              {fechaCompleta(mensaje.fecha)}
-            </time>
+            <span className="flex shrink-0 items-center gap-1.5">
+              <time dateTime={mensaje.fecha} className="text-[11.5px] tabular-nums text-[var(--ls-t4)]">
+                {fechaCompleta(mensaje.fecha)}
+              </time>
+              {temaOscuro && (
+                <button
+                  type="button"
+                  onClick={() => setForzado(fondo === 'oscuro' ? 'claro' : 'oscuro')}
+                  className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--ls-t4)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"
+                  title={fondo === 'oscuro' ? 'Ver este correo sobre fondo claro' : 'Ver este correo sobre fondo oscuro'}
+                  aria-label={fondo === 'oscuro' ? 'Ver este correo sobre fondo claro' : 'Ver este correo sobre fondo oscuro'}
+                >
+                  {fondo === 'oscuro' ? <Sun className="h-3 w-3" aria-hidden /> : <Moon className="h-3 w-3" aria-hidden />}
+                </button>
+              )}
+            </span>
           </div>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[var(--ls-t4)]">
             <span className="min-w-0 truncate" title={mensaje.para.map((p) => p.direccion).join(', ')}>
@@ -100,7 +119,7 @@ function Tarjeta({ mensaje, abierto, esMio, onAlternar, onResponder }: { mensaje
       )}
 
       <div className="px-3 pb-3">
-        <CuerpoDeCorreo html={mensaje.html} texto={mensaje.texto} imagenesDeFuera={imagenes} />
+        <CuerpoDeCorreo html={mensaje.html} texto={mensaje.texto} imagenesDeFuera={imagenes} fondo={fondo} />
       </div>
 
       {mensaje.adjuntos.length > 0 && (
@@ -142,6 +161,7 @@ function Tarjeta({ mensaje, abierto, esMio, onAlternar, onResponder }: { mensaje
 }
 
 function Mensajes({ hilo, esMio, onResponder }: { hilo: HiloAbierto; esMio: boolean; onResponder: Props['onResponder'] }) {
+  const temaOscuro = useTemaOscuro()
   // Abiertos al empezar: el último y todo lo que esté sin leer
   const [abiertos, setAbiertos] = useState<Set<string>>(() => {
     const ids = new Set<string>(hilo.mensajes.filter((m) => !m.leido).map((m) => m.id))
@@ -160,7 +180,7 @@ function Mensajes({ hilo, esMio, onResponder }: { hilo: HiloAbierto; esMio: bool
     <div className="space-y-2">
       {hilo.recortado && <p className="rounded-[6px] bg-[var(--ls-sup2)] px-3 py-1.5 text-[11.5px] text-[var(--ls-t4)]">Este hilo es muy largo: se enseñan los {hilo.mensajes.length} mensajes más recientes.</p>}
       {hilo.mensajes.map((m) => (
-        <Tarjeta key={m.id} mensaje={m} abierto={abiertos.has(m.id)} esMio={esMio} onAlternar={() => alternar(m.id)} onResponder={onResponder} />
+        <Tarjeta key={m.id} mensaje={m} abierto={abiertos.has(m.id)} esMio={esMio} temaOscuro={temaOscuro} onAlternar={() => alternar(m.id)} onResponder={onResponder} />
       ))}
     </div>
   )

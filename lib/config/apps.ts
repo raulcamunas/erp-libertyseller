@@ -547,6 +547,22 @@ export const PERMISO_STOCK_SYNC = 'stock-sync'
 export const PERMISO_EQUIPO_COMERCIAL = 'equipo-comercial'
 
 /**
+ * EL PERMISO QUE DEJA ELEGIR QUÉ BANDEJA DE CORREO LEER.
+ *
+ * Es un permiso SUELTO (una casilla en Gestión de Usuarios, sin tarjeta ni entrada de menú) que se da persona a persona.
+ * Con él, al abrir «Correo», la persona ve un selector con los buzones conectados del equipo y puede leer cualquiera, en
+ * SOLO LECTURA y dejando rastro (cada mirada queda anotada y su dueño la ve en los ajustes de su buzón). No lee el de un
+ * administrador, ni escribe ni envía desde el de nadie, ni conecta o desconecta buzones ajenos.
+ *
+ * Es independiente de 'equipo-comercial': aquel solo abre los buzones de los COMERCIALES; este abre los de todo el
+ * equipo. Para ver la pantalla hace falta además la casilla de la app «Correo» ('correo').
+ *
+ * EL ID TIENE QUE COINCIDIR LETRA POR LETRA con la lectura de user_app_permissions de lib/correo/servidor.ts (quienPide):
+ * si baila, la casilla se marca en Usuarios, no da ningún error y no pasa nada.
+ */
+export const PERMISO_CORREO_SUPERVISION = 'correo-supervision'
+
+/**
  * El id de Tax Reports, escrito UNA vez.
  *
  * Lo usan la entrada de `apps`, el redirect de la página y el
@@ -601,6 +617,16 @@ export const PERMISOS_SUELTOS: ReadonlyArray<{ id: string; name: string; descrip
       'Facturación, ni Comisiones y su liquidación, ni el coste o el sueldo de ningún empleado, ' +
       'ni Amazon API: para eso hace falta ser admin o partner, y esta casilla existe justo para ' +
       'no tener que dar ese rol.',
+  },
+  {
+    id: PERMISO_CORREO_SUPERVISION,
+    name: 'Supervisión del correo',
+    description:
+      'Al abrir «Correo» puede elegir qué bandeja leer: la de cualquier persona del equipo con el ' +
+      'correo conectado (la de un administrador no). Solo LEE: no contesta, no envía, no marca nada ' +
+      'y no conecta ni desconecta buzones, y cada vez que mira uno queda anotado y su dueño lo ve. ' +
+      'Hace falta además la casilla «Correo». Distinta de «Supervisión del equipo comercial», que ' +
+      'solo abre los buzones de los comerciales.',
   },
 ]
 

@@ -1,10 +1,10 @@
 import { simpleParser } from 'mailparser'
 import type { createServiceClient } from '@/lib/supabase/service'
-import { PERMISO_EQUIPO_COMERCIAL } from '@/lib/config/apps'
+import { PERMISO_CORREO_SUPERVISION, PERMISO_EQUIPO_COMERCIAL } from '@/lib/config/apps'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { nombreDeFichero } from './analizar'
 import { almacenSupabase, type FilaDeBuzon, type FilaDeCarpeta } from './almacen'
-import { NO_EXISTE, UUID, decidirAcceso, type ModoDeAcceso, type QuienPide } from './acceso'
+import { NO_EXISTE, UUID, decidirAcceso, type DatosDelDueno, type ModoDeAcceso, type QuienPide } from './acceso'
 import { elegirCarpetas } from './carpetas'
 import { ErrorDeCorreo, MENSAJE_DE_ERROR_DE_CORREO, abrirImap, cerrarImap, convertirError, crearTransporte, type CodigoDeErrorDeCorreo } from './conexion'
 import { borrarContrasena, buzonesConContrasena, leerContrasena } from './credenciales'
@@ -53,11 +53,17 @@ export async function cargarBuzon(service: Servicio, buzonId: string): Promise<F
 }
 
 export async function quienPide(service: Servicio, sesion: { userId: string; role: string }): Promise<QuienPide> {
-  // Un administrador lo puede leer todo sin pasar por el permiso. Un partner NO: su rol no supervisa nada (ver acceso.ts)
-  if (sesion.role === 'admin') return { ...sesion, tienePermisoEquipo: false }
-  const { data, error } = await service.from('user_app_permissions').select('can_access').eq('user_id', sesion.userId).eq('app_id', PERMISO_EQUIPO_COMERCIAL).maybeSingle()
+  // Un administrador lo puede leer todo sin pasar por ningún permiso. Un partner NO: su rol no supervisa nada (ver acceso.ts)
+  if (sesion.role === 'admin') return { ...sesion, tienePermisoEquipo: false, tienePermisoCorreo: false }
+  const { data, error } = await service
+    .from('user_app_permissions')
+    .select('app_id, can_access')
+    .eq('user_id', sesion.userId)
+    .in('app_id', [PERMISO_EQUIPO_COMERCIAL, PERMISO_CORREO_SUPERVISION])
   if (error) throw new Error('No se ha podido comprobar el permiso.', { cause: error })
-  return { ...sesion, tienePermisoEquipo: (data as { can_access: boolean } | null)?.can_access === true }
+  const filas = (data ?? []) as Array<{ app_id: string; can_access: boolean | null }>
+  const tiene = (id: string) => filas.some((f) => f.app_id === id && f.can_access === true)
+  return { ...sesion, tienePermisoEquipo: tiene(PERMISO_EQUIPO_COMERCIAL), tienePermisoCorreo: tiene(PERMISO_CORREO_SUPERVISION) }
 }
 
 export type Autorizacion =
@@ -71,14 +77,15 @@ export async function autorizarBuzon(service: Servicio, sesion: { userId: string
   if (!buzon) return { ok: false, estado: 404, mensaje: NO_EXISTE }
 
   const quien = await quienPide(service, sesion)
-  let esComercial: boolean | null = null
+  let dueno: DatosDelDueno = { is_comercial: null, role: null }
   if (buzon.user_id !== sesion.userId) {
-    const { data, error } = await service.from('profiles').select('is_comercial').eq('id', buzon.user_id).maybeSingle()
+    const { data, error } = await service.from('profiles').select('is_comercial, role').eq('id', buzon.user_id).maybeSingle()
     if (error) throw new Error('No se ha podido comprobar al dueño del buzón.', { cause: error })
-    esComercial = (data as { is_comercial: boolean | null } | null)?.is_comercial ?? null
+    const p = data as { is_comercial: boolean | null; role: string | null } | null
+    dueno = { is_comercial: p?.is_comercial ?? null, role: p?.role ?? null }
   }
 
-  const d = decidirAcceso(quien, buzon, { is_comercial: esComercial }, modo)
+  const d = decidirAcceso(quien, buzon, dueno, modo)
   if (!d.ok) return d
   return { ok: true, buzon, esDueno: d.esDueno, porSupervision: d.porSupervision, quien }
 }
@@ -92,7 +99,7 @@ const SIN_RESUMEN: ResumenDeBuzon = { hilos: 0, hilosSinLeer: 0, sinLeer: 0, esp
 /** Los buzones propios y, si se supervisa, los de las personas que se pueden supervisar. Siempre pasa por decidirAcceso */
 export async function buzonesVisibles(service: Servicio, sesion: { userId: string; role: string }): Promise<BuzonVisible[]> {
   const quien = await quienPide(service, sesion)
-  const supervisa = quien.role === 'admin' || quien.tienePermisoEquipo
+  const supervisa = quien.role === 'admin' || quien.tienePermisoEquipo || quien.tienePermisoCorreo
 
   const consulta = service.from('correo_buzones').select(CAMPOS_DE_BUZON).order('direccion', { ascending: true })
   const { data, error } = await (supervisa ? consulta : consulta.eq('user_id', sesion.userId))
@@ -101,11 +108,11 @@ export async function buzonesVisibles(service: Servicio, sesion: { userId: strin
   if (todos.length === 0) return []
 
   const idsDuenos = [...new Set(todos.map((b) => b.user_id))]
-  const { data: perfiles, error: errorPerfiles } = await service.from('profiles').select('id, full_name, email, is_comercial').in('id', idsDuenos)
+  const { data: perfiles, error: errorPerfiles } = await service.from('profiles').select('id, full_name, email, is_comercial, role').in('id', idsDuenos)
   if (errorPerfiles) throw new Error('No se han podido leer los dueños de los buzones.', { cause: errorPerfiles })
-  const duenos = new Map(((perfiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null; is_comercial: boolean | null }>).map((p) => [p.id, p]))
+  const duenos = new Map(((perfiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null; is_comercial: boolean | null; role: string | null }>).map((p) => [p.id, p]))
 
-  const visibles = todos.filter((b) => decidirAcceso(quien, b, { is_comercial: duenos.get(b.user_id)?.is_comercial ?? null }, 'leer').ok)
+  const visibles = todos.filter((b) => decidirAcceso(quien, b, { is_comercial: duenos.get(b.user_id)?.is_comercial ?? null, role: duenos.get(b.user_id)?.role ?? null }, 'leer').ok)
   if (visibles.length === 0) return []
 
   const ids = visibles.map((b) => b.id)

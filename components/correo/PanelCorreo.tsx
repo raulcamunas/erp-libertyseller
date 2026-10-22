@@ -21,8 +21,9 @@ import { VistaEquipo } from './VistaEquipo'
  * EL CORREO.
  *
  * El webmail de cada comercial dentro del ERP: su buzón de Hostinger (IMAP/SMTP) con sus conversaciones agrupadas en hilos,
- * búsqueda, y poder leer, contestar, reenviar y enviar con adjuntos. Quien supervisa al equipo comercial ve además los
- * buzones de los comerciales, en SOLO LECTURA, y cada vez que mira uno queda anotado (y su dueño lo ve en los ajustes).
+ * búsqueda, y poder leer, contestar, reenviar y enviar con adjuntos. Quien supervisa (administrador, o con el permiso
+ * «Supervisión del correo» o el de «Supervisión del equipo comercial») elige desde el selector qué bandeja del equipo
+ * leer, en SOLO LECTURA, y cada vez que mira una queda anotado (y su dueño lo ve en los ajustes).
  *
  *   · Al abrir y cada minuto (mientras la pestaña se ve), la pantalla le pide al servidor que traiga los correos nuevos de
  *     SU buzón. Una importación grande se trae por tramos: la pantalla insiste mientras la respuesta diga que quedan.
@@ -35,7 +36,7 @@ import { VistaEquipo } from './VistaEquipo'
 
 interface Props {
   yo: { id: string; nombre: string }
-  /** Administrador, o quien tenga el permiso suelto de supervisión del equipo comercial */
+  /** Administrador, o quien tenga el permiso suelto «Supervisión del correo» o el de «Supervisión del equipo comercial» */
   puedeSupervisar: boolean
   esAdmin: boolean
   buzonInicial: string | null
