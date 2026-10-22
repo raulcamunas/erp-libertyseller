@@ -463,6 +463,10 @@ export async function middleware(request: NextRequest) {
           // tablas rinkel_*, que dejan leer lo propio (o todo a quien supervisa) y nada más.
           '/dashboard/rendimiento': 'rendimiento',
           '/dashboard/rendimiento/informe': 'rendimiento',
+          // Correo: cada comercial lee y escribe desde SU buzón. El permiso lo reparte la migración 236 a los
+          // comerciales y a quien supervisa; el filtro de verdad está en las rutas /api/correo, que deciden qué
+          // buzón abre cada persona (las tablas correo_* están cerradas al navegador).
+          '/dashboard/correo': 'correo',
         }
 
         const appId = routeToAppId[pathname]

@@ -209,6 +209,27 @@ export const TAREAS_CRON = [
       'las que la tienen, para el panel «Mi rendimiento». No escribe nada en Rinkel.',
   },
   {
+    /**
+     * CADA COMERCIAL TIENE SU BUZÓN, Y CADA UNO SE LEE POR SEPARADO.
+     *
+     * Cada persona conecta su buzón de Hostinger en «Correo» y esta tarea trae los mensajes nuevos de TODOS los
+     * buzones conectados (Entrada y Enviados), uno detrás de otro y con un presupuesto de tiempo: el que no cabe en
+     * esta pasada se retoma en la siguiente, empezando por el que lleva más tiempo sin leerse. Un buzón al que el
+     * servidor rechaza la contraseña se deja de intentar hasta que su dueño la vuelva a escribir (seguir probando
+     * acaba bloqueando la cuenta en el proveedor), y uno que falla por otra causa espera cada vez más entre intentos.
+     *
+     * Cada tres minutos porque es el correo de gente que habla con clientes; y mientras alguien tiene Correo abierto,
+     * la propia pantalla pide una lectura a su buzón cada minuto.
+     */
+    id: 'correo-sync',
+    nombre: 'Correo de los comerciales',
+    ruta: '/api/correo/cron',
+    cadaMinutos: 3,
+    que:
+      'Trae a Correo los mensajes nuevos de cada buzón conectado, de Entrada y de Enviados, y recoge lo que se ' +
+      'haya leído en el webmail. Solo lee: no envía, no borra ni marca nada en el servidor de correo.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',

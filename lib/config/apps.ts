@@ -24,6 +24,7 @@ import {
   Receipt,
   FileSpreadsheet,
   Gauge,
+  Mail,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -121,6 +122,19 @@ export const apps: AppConfig[] = [
     description: 'Tus llamadas, mensajes, correos y citas del día, con las grabaciones de Rinkel',
     icon: Gauge,
     route: '/dashboard/rendimiento',
+    status: 'new',
+    category: 'productivity'
+  },
+  {
+    // El webmail de cada comercial dentro del ERP: su buzón de Hostinger conectado por IMAP/SMTP, con hilos y búsqueda.
+    // Quien supervisa (admin o el permiso suelto 'equipo-comercial') puede mirar los buzones del equipo comercial,
+    // en solo lectura y dejando rastro. El id va LETRA POR LETRA igual que en middleware.ts, que en el
+    // requireAppAccess('correo') de sus rutas de API y que en el INSERT de la migración 236.
+    id: 'correo',
+    name: 'Correo',
+    description: 'Tu correo de Hostinger dentro del ERP: lee, contesta y sigue cada conversación',
+    icon: Mail,
+    route: '/dashboard/correo',
     status: 'new',
     category: 'productivity'
   },
