@@ -1,6 +1,7 @@
 'use client'
 
 import { CalendarDays, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import { etiquetaDeDia, etiquetaDeMes } from '@/lib/rendimiento/dia'
 import { intensidad, type MesDeLlamadas } from '@/lib/rendimiento/metricas'
 
@@ -10,6 +11,10 @@ import { intensidad, type MesDeLlamadas } from '@/lib/rendimiento/metricas'
  *
  * Es un calendario de LLAMADAS HECHAS (las salientes), que es lo que se cuenta como trabajo. Las recibidas
  * y el resto de cifras están en el panel del día.
+ *
+ * EN PANTALLAS ANCHAS LLENA LA ALTURA QUE LE DAN: el panel le pone al lado la lista de llamadas del día y las dos tienen
+ * que medir lo mismo, así que las filas de días se reparten el alto sobrante (un mes de cinco semanas queda con las
+ * casillas más altas que uno de seis, y la tarjeta no cambia de tamaño al pasar de mes).
  */
 
 interface Props {
@@ -44,9 +49,10 @@ const numero = (n: number) => n.toLocaleString('es-ES')
 export function CalendarioLlamadas({ anio, mes, datos, dia, resaltado, hoy, cargando, sinRinkel, onDia, onMes, onHoy }: Props) {
   const total = datos.total
   const esMesActual = hoy.startsWith(`${anio}-${String(mes).padStart(2, '0')}`)
+  const filas = Math.ceil((datos.huecos + datos.celdas.length) / 7)
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 flex flex-col">
+    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 flex flex-col h-full">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-1">
           <button
@@ -97,7 +103,10 @@ export function CalendarioLlamadas({ anio, mes, datos, dia, resaltado, hoy, carg
         ))}
       </div>
 
-      <div className={`grid grid-cols-7 gap-1.5 transition-opacity ${cargando ? 'opacity-50' : ''}`}>
+      <div
+        className={`grid grid-cols-7 gap-1.5 transition-opacity flex-1 min-h-0 lg:[grid-template-rows:repeat(var(--filas),minmax(62px,1fr))] ${cargando ? 'opacity-50' : ''}`}
+        style={{ '--filas': filas } as CSSProperties}
+      >
         {Array.from({ length: datos.huecos }).map((_, i) => (
           <div key={`hueco-${i}`} />
         ))}

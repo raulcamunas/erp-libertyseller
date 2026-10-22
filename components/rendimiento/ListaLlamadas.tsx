@@ -13,6 +13,10 @@ import type { LlamadaGuardada } from './tipos'
  *
  * Una grabación se abre debajo de su llamada y solo hay una abierta a la vez: al abrir otra se cierra la
  * anterior, para que no suenen dos conversaciones a la vez.
+ *
+ * LA TARJETA NO CRECE CON LAS LLAMADAS: en pantallas anchas mide lo que le dan (el panel la pone al lado del calendario y
+ * las dos miden lo mismo) y la lista hace scroll por dentro; en pantallas estrechas llega a 480 px y también hace scroll.
+ * Así el bloque de debajo no se mueve tenga el día pocas llamadas o cientos.
  */
 
 export interface NombreDeLead {
@@ -89,7 +93,7 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
   const nombreDelDia = dia === hoy ? 'de hoy' : `del ${etiquetaDeDia(dia)}`
 
   return (
-    <div id="llamadas-del-dia" className="scroll-mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 flex flex-col min-h-0">
+    <div id="llamadas-del-dia" className="scroll-mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 flex flex-col min-h-0 h-full max-h-[480px] lg:max-h-none">
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <h2 className="text-[13px] font-semibold text-white">Llamadas {nombreDelDia}</h2>
         <span className="text-[12px] text-white/40 flex items-center gap-2 tabular-nums">
@@ -134,7 +138,7 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
               : 'Ninguna llamada con ese filtro.'}
         </p>
       ) : (
-        <ul className="space-y-1.5 overflow-y-auto lg:max-h-[560px] pr-0.5">
+        <ul className="space-y-1.5 overflow-y-auto pr-0.5 flex-1 min-h-0">
           {visibles.map((l) => {
             const lead = l.lead_id ? nombres.get(l.lead_id) : undefined
             const telefono = l.numero ? telefonoLegible(l.numero) : l.numero_anonimo ? 'Número oculto' : 'Sin número'

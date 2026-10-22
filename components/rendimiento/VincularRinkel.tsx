@@ -2,7 +2,7 @@
 
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Link2, Loader2, RefreshCw, Unlink } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ChevronDown, ExternalLink, KeyRound, Link2, Loader2, RefreshCw, Unlink } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 import type { VinculoVisible } from './tipos'
@@ -17,6 +17,11 @@ import type { VinculoVisible } from './tipos'
  * UN ADMINISTRADOR puede hacerlo también por otra persona: ve su panel, pega su clave y queda a nombre de ella
  * (la ruta manda `usuario`). Quien solo supervisa no: ve el estado de la cuenta y nada más. El permiso de verdad
  * lo comprueba la ruta; `puedeGestionar` solo decide si se pintan los botones.
+ *
+ * DOS FORMAS. La tarjeta de siempre (la que invita a vincular, enseña el avance de la importación y los errores) y,
+ * con `compacta`, un chip pequeño —«Rinkel · leído hace 10 minutos»— con el botón de sincronizar al lado; al pulsarlo se
+ * abre debajo la ficha de la cuenta con sus acciones (cambiar la clave, desvincular). La compacta es para cuando todo
+ * va bien: ocupa lo que una palabra en la fila del título de las cifras en vez de una fila entera.
  *
  * LA IMPORTACIÓN SE HACE POR TRAMOS. Una cuenta con meses de uso tiene miles de llamadas y no caben en una sola
  * petición, así que la ruta lee unos 40 segundos y dice cuánto queda; esta pantalla insiste mientras quede algo
@@ -75,9 +80,11 @@ interface Props {
    * equipo comercial (un administrador que supervisa): no llama con Rinkel y no hay que insistirle.
    */
   destacar?: boolean
+  /** Un chip pequeño en vez de la tarjeta. Solo tiene sentido con la cuenta vinculada: sin vincular siempre sale la tarjeta */
+  compacta?: boolean
 }
 
-export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinculo, onCambio, destacar = true }: Props) {
+export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinculo, onCambio, destacar = true, compacta = false }: Props) {
   /** Se puede actuar sobre esta cuenta: la propia, o la de otra persona siendo administrador */
   const puedeActuar = esPropio || puedeGestionar
   /** Sobre quién se pide: nadie (la cuenta de quien pide) si es la propia; la persona del panel si no */
@@ -89,6 +96,9 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
   const [progreso, setProgreso] = useState<{ importadas: number; total: number | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmaQuitar, setConfirmaQuitar] = useState(false)
+  /** La ficha de la cuenta que se abre desde el chip (solo en la forma compacta) */
+  const [abierto, setAbierto] = useState(false)
+  const raiz = useRef<HTMLDivElement>(null)
   const vivo = useRef(true)
   const importando = useRef(false)
 
@@ -98,6 +108,28 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
       vivo.current = false
     }
   }, [])
+
+  // La ficha se cierra al pulsar fuera de ella o con Esc
+  useEffect(() => {
+    if (!abierto) return
+    const fuera = (e: MouseEvent) => {
+      if (raiz.current && !raiz.current.contains(e.target as Node)) setAbierto(false)
+    }
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAbierto(false)
+    }
+    document.addEventListener('mousedown', fuera)
+    document.addEventListener('keydown', tecla)
+    return () => {
+      document.removeEventListener('mousedown', fuera)
+      document.removeEventListener('keydown', tecla)
+    }
+  }, [abierto])
+
+  // Un fallo al sincronizar a mano no puede quedarse escondido detrás de un chip cerrado
+  useEffect(() => {
+    if (compacta && error) setAbierto(true)
+  }, [compacta, error])
 
   /**
    * Lee de Rinkel hasta que no quede histórico por importar.
@@ -202,6 +234,15 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
   /* ---------------------------- mirando a otra persona, sin poder tocarla ---------------------------- */
 
   if (!puedeActuar) {
+    if (compacta && vinculo) {
+      return (
+        <p className="flex items-center gap-1.5 text-[11px] text-white/45" suppressHydrationWarning>
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+          {vinculo.ultimo_sync_at ? `Rinkel · leído ${hace(vinculo.ultimo_sync_at)}` : 'Rinkel · todavía sin leer'}
+          {!vinculo.historico_completo && ' · importando el histórico'}
+        </p>
+      )
+    }
     return (
       <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
         {vinculo ? (
@@ -311,8 +352,11 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
   /* ---------------------------- vinculado ---------------------------- */
 
   const total = progreso?.total ?? vinculo.rinkel_total
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
+
+  // Todo lo de la cuenta vinculada: quién es, cuándo se leyó, sus acciones, el avance y los avisos.
+  // Va dentro de la tarjeta, o dentro de la ficha que abre el chip en la forma compacta.
+  const contenido = (
+    <>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-[13px] font-semibold text-white whitespace-nowrap">
@@ -392,8 +436,61 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
           <AlertCircle className="h-4 w-4 shrink-0 mt-px" /> {vinculo.ultimo_error}
         </p>
       ) : null)}
-    </div>
+    </>
   )
+
+  if (compacta) {
+    const trabajandoAhora = trabajando === 'importando'
+    const aviso = Boolean(error)
+    const textoDelChip = trabajandoAhora
+      ? 'Leyendo llamadas…'
+      : !vinculo.historico_completo
+        ? 'Importando el histórico…'
+        : vinculo.ultimo_sync_at
+          ? `Rinkel · leído ${hace(vinculo.ultimo_sync_at)}`
+          : 'Rinkel · todavía sin leer'
+    return (
+      <div ref={raiz} className="relative flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setAbierto((v) => !v)}
+          aria-expanded={abierto}
+          aria-haspopup="dialog"
+          title="La cuenta de Rinkel de donde se leen las llamadas"
+          className={`h-7 pl-2.5 pr-2 rounded-full border bg-white/[0.02] text-[11px] flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+            aviso ? 'border-amber-400/40 text-amber-200' : 'border-white/10 text-white/55 hover:text-white hover:border-white/25'
+          }`}
+        >
+          {trabajandoAhora ? (
+            <Loader2 className="h-3 w-3 animate-spin text-[#FF6600]" aria-hidden />
+          ) : aviso ? (
+            <AlertCircle className="h-3 w-3 text-amber-300" aria-hidden />
+          ) : (
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+          )}
+          <span suppressHydrationWarning>{textoDelChip}</span>
+          <ChevronDown className={`h-3 w-3 text-white/30 transition-transform ${abierto ? 'rotate-180' : ''}`} aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={sincronizarAhora}
+          disabled={trabajando !== null}
+          title="Sincronizar ahora"
+          aria-label="Sincronizar ahora"
+          className="h-7 w-7 rounded-full border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:border-white/25 disabled:opacity-40 transition-colors"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${trabajandoAhora ? 'animate-spin' : ''}`} />
+        </button>
+        {abierto && (
+          <div role="dialog" aria-label="Cuenta de Rinkel" className="absolute right-0 top-full mt-2 z-30 w-[min(92vw,420px)] rounded-2xl border border-white/10 bg-[#121212] px-4 py-3 shadow-2xl shadow-black/60">
+            {contenido}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">{contenido}</div>
 }
 
 function Progreso({ importadas, total, leyendo, suyas }: { importadas: number | null; total: number | null; leyendo: boolean; suyas: 'tus' | 'sus' }) {

@@ -560,6 +560,9 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
 
   const resultadoPersona = persona ? resultadoDe(persona.id) : null
   const vinculo = persona ? (vinculos.get(persona.id) ?? null) : null
+  // Con la cuenta vinculada y sin avisos, Rinkel es un chip en la fila del título de las cifras; si no está vinculada o la
+  // última lectura falló, sigue siendo la tarjeta de arriba, que es la que explica qué hacer
+  const rinkelEnLaFilaDeCifras = vinculo !== null && !vinculo.ultimo_error
   const conRinkel = vinculo !== null || (resultadoPersona ? resultadoPersona.actual.llamadas + resultadoPersona.actual.recibidas > 0 : false)
   const numerosDistintos = periodo.tipo === 'dia' ? resumenDeLlamadas(llamadasDelDia).numerosDistintos : null
   // El informe semanal abre en la semana que se está mirando; desde «Hoy» o desde un mes, en la última semana completa
@@ -633,18 +636,34 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
 
       {persona ? (
         <>
-          <VincularRinkel
-            key={persona.id}
-            persona={persona}
-            esPropio={esPropio}
-            puedeGestionar={puedeGestionar}
-            vinculo={vinculo}
-            onCambio={refrescar}
-            destacar={esPropio ? esComercial : true}
-          />
+          {!rinkelEnLaFilaDeCifras && (
+            <VincularRinkel
+              key={persona.id}
+              persona={persona}
+              esPropio={esPropio}
+              puedeGestionar={puedeGestionar}
+              vinculo={vinculo}
+              onCambio={refrescar}
+              destacar={esPropio ? esComercial : true}
+            />
+          )}
 
           <div className="space-y-2.5">
-            <h2 className="text-[13px] font-semibold text-white">{esPropio ? 'Tus cifras' : `Cifras de ${persona.nombre}`}</h2>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <h2 className="text-[13px] font-semibold text-white">{esPropio ? 'Tus cifras' : `Cifras de ${persona.nombre}`}</h2>
+              {rinkelEnLaFilaDeCifras && (
+                <VincularRinkel
+                  key={`compacta-${persona.id}`}
+                  compacta
+                  persona={persona}
+                  esPropio={esPropio}
+                  puedeGestionar={puedeGestionar}
+                  vinculo={vinculo}
+                  onCambio={refrescar}
+                  destacar={esPropio ? esComercial : true}
+                />
+              )}
+            </div>
             <CifrasDelPeriodo
               periodo={periodo}
               hoy={hoy}
@@ -664,7 +683,8 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
             cargando={cargandoMes || leyendoActividad}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 items-start">
+          {/* Las dos tarjetas miden siempre lo mismo (la altura la pone el calendario) y la lista de llamadas hace scroll por dentro: así el bloque de debajo no se mueve tenga el día las llamadas que tenga */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 lg:min-h-[540px]">
             <CalendarioLlamadas
               anio={mesVisible.anio}
               mes={mesVisible.mes}
@@ -678,17 +698,21 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
               onMes={(delta) => setMesVisible((m) => sumarMeses(m.anio, m.mes, delta))}
               onHoy={() => cambiarPeriodo({ tipo: 'dia', ancla: hoy })}
             />
-            <ListaLlamadas
-              key={persona.id}
-              dia={diaFoco}
-              hoy={hoy}
-              llamadas={llamadasDelDia}
-              nombres={nombresUtiles}
-              cargando={cargandoMes}
-              sinRinkel={!conRinkel}
-              esPropio={esPropio}
-              onAislarDia={periodo.tipo !== 'dia' ? () => cambiarPeriodo({ tipo: 'dia', ancla: diaFoco }) : undefined}
-            />
+            <div className="relative min-w-0">
+              <div className="lg:absolute lg:inset-0">
+                <ListaLlamadas
+                  key={persona.id}
+                  dia={diaFoco}
+                  hoy={hoy}
+                  llamadas={llamadasDelDia}
+                  nombres={nombresUtiles}
+                  cargando={cargandoMes}
+                  sinRinkel={!conRinkel}
+                  esPropio={esPropio}
+                  onAislarDia={periodo.tipo !== 'dia' ? () => cambiarPeriodo({ tipo: 'dia', ancla: diaFoco }) : undefined}
+                />
+              </div>
+            </div>
           </div>
 
           <ListaDeActividad

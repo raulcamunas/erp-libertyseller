@@ -157,7 +157,7 @@ export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, selecci
         <table className="w-full min-w-[860px] text-[12px] border-separate border-spacing-0">
           <thead>
             <tr>
-              <th className={`${cabecera} text-left pl-0 pr-3 sticky left-0 z-10 bg-[#0c0c0c]`} aria-sort={orden?.col === 'nombre' ? (orden.descendente ? 'descending' : 'ascending') : 'none'}>
+              <th className={`${cabecera} text-left pl-0 pr-3 sticky left-0 z-10 bg-[var(--ls-sup)]`} aria-sort={orden?.col === 'nombre' ? (orden.descendente ? 'descending' : 'ascending') : 'none'}>
                 <button type="button" onClick={() => pulsar('nombre')} className="uppercase tracking-wider hover:text-white/70 transition-colors">
                   Persona
                 </button>
@@ -186,7 +186,7 @@ export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, selecci
               const anchoDeBarra = maximoDeLlamadas === 0 ? 0 : (t.llamadas / maximoDeLlamadas) * 100
               return (
                 <tr key={f.id} onClick={() => onElegir(f.id)} className={`cursor-pointer transition-colors ${elegida ? 'bg-[#FF6600]/[0.08]' : 'hover:bg-white/[0.03]'}`}>
-                  <th scope="row" className={`text-left font-medium pl-0 pr-3 py-2 border-t border-white/[0.06] sticky left-0 z-10 ${elegida ? 'text-white bg-[#1a120c]' : 'text-white/80 bg-[#0c0c0c]'}`}>
+                  <th scope="row" className={`text-left font-medium pl-0 pr-3 py-2 border-t border-white/[0.06] sticky left-0 z-10 ${elegida ? 'text-white bg-[var(--ls-sel)]' : 'text-white/80 bg-[var(--ls-sup)]'}`}>
                     {/* Sin onClick propio: el clic (también el de teclado) sube a la fila, que es quien abre el panel */}
                     <button type="button" className="text-left hover:underline underline-offset-2">
                       {f.nombre}
@@ -237,7 +237,7 @@ export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, selecci
           </tbody>
           <tfoot>
             <tr>
-              <th scope="row" className="text-left font-semibold text-white pl-0 pr-3 py-2 border-t border-white/15 sticky left-0 z-10 bg-[#0c0c0c]">
+              <th scope="row" className="text-left font-semibold text-white pl-0 pr-3 py-2 border-t border-white/15 sticky left-0 z-10 bg-[var(--ls-sup)]">
                 Total
               </th>
               <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">
@@ -257,7 +257,7 @@ export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, selecci
             </tr>
             {filas.length > 1 && (
               <tr>
-                <th scope="row" className="text-left font-normal text-white/50 pl-0 pr-3 py-1.5 sticky left-0 z-10 bg-[#0c0c0c]">
+                <th scope="row" className="text-left font-normal text-white/50 pl-0 pr-3 py-1.5 sticky left-0 z-10 bg-[var(--ls-sup)]">
                   Media por persona
                 </th>
                 <td className="text-right tabular-nums text-white/50 px-2 py-1.5">{conRinkel.length > 0 ? numero(totalDeTelefono.llamadas / conRinkel.length) : '—'}</td>
