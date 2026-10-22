@@ -29,6 +29,8 @@ interface Props {
   cargando: boolean
   sinRinkel: boolean
   esPropio: boolean
+  /** Si se mira una semana o un mes: pasar a mirar solo este día. Sin esto no se ofrece */
+  onAislarDia?: () => void
 }
 
 type Filtro = 'todas' | 'contestadas' | 'sin_contestar' | 'recibidas'
@@ -67,7 +69,7 @@ function textoDeEstado(l: LlamadaGuardada): string {
 
 const grabacionCaducada = (l: LlamadaGuardada) => l.grabacion_hasta !== null && Date.parse(l.grabacion_hasta) < Date.now()
 
-export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel, esPropio }: Props) {
+export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel, esPropio, onAislarDia }: Props) {
   const [filtro, setFiltro] = useState<Filtro>('todas')
   const [abierta, setAbierta] = useState<string | null>(null)
 
@@ -90,9 +92,14 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
     <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 flex flex-col min-h-0">
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <h2 className="text-[13px] font-semibold text-white">Llamadas {nombreDelDia}</h2>
-        <span className="text-[12px] text-white/40 flex items-center gap-1.5 tabular-nums">
+        <span className="text-[12px] text-white/40 flex items-center gap-2 tabular-nums">
           {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {llamadas.length > 0 && `${llamadas.length.toLocaleString('es-ES')} en total`}
+          {onAislarDia && (
+            <button type="button" onClick={onAislarDia} className="text-white/50 hover:text-white underline underline-offset-2 transition-colors">
+              Ver solo este día
+            </button>
+          )}
         </span>
       </div>
 

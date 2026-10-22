@@ -1,337 +1,215 @@
 'use client'
 
 import { Eye } from 'lucide-react'
-import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/supabase/paginacion'
-import { diasDelMes, etiquetaDeDia, mesDe, rangoDelDia, rangoDelMes, sumarMeses } from '@/lib/rendimiento/dia'
-import {
-  actividadDeNotas,
-  agruparPorDia,
-  citasAgendadasEl,
-  mesDeLlamadas,
-  resumenDeLlamadas,
-} from '@/lib/rendimiento/metricas'
+import { indexar, resultadoDePersona, tramosDeComparacion, ventanaDeDatos, type FilaDiaria } from '@/lib/rendimiento/comparativa'
+import { mesDe, rangoDelMes, sumarMeses } from '@/lib/rendimiento/dia'
+import { agruparPorDia, mesDeLlamadas, resumenDeLlamadas } from '@/lib/rendimiento/metricas'
+import { contieneHoy, diasDelRango, etiquetaDeRango, rangoDe, recortarA, type Periodo } from '@/lib/rendimiento/periodos'
+import { BarraDePeriodo } from './BarraDePeriodo'
 import { CalendarioLlamadas } from './CalendarioLlamadas'
-import { CifrasDelDia } from './CifrasDelDia'
+import { CifrasDelPeriodo } from './CifrasDelPeriodo'
+import { ComparativaDelEquipo, type FilaDeComparativa } from './ComparativaDelEquipo'
 import { ListaLlamadas, type NombreDeLead } from './ListaLlamadas'
-import { ResumenDelEquipo, type FilaDelEquipo } from './ResumenDelEquipo'
-import {
-  CAMPOS_DEL_VINCULO,
-  CAMPOS_DE_LLAMADA,
-  type LlamadaGuardada,
-  type Miembro,
-  type NotaDelDia,
-  type VinculoVisible,
-} from './tipos'
+import { CAMPOS_DEL_VINCULO, CAMPOS_DE_LLAMADA, type LlamadaGuardada, type Miembro, type VinculoVisible } from './tipos'
 import { VincularRinkel } from './VincularRinkel'
 
 /**
- * EL PANEL DE RENDIMIENTO DE UNA PERSONA.
+ * EL PANEL DE RENDIMIENTO: UN DÍA, UNA SEMANA O UN MES, COMPARADO.
  *
- * Cada comercial ve el suyo; quien supervisa al equipo (admin, partner o el permiso 'equipo-comercial') puede
- * cambiar de persona con el selector, en solo lectura.
+ * Arriba, la barra de periodo (Hoy, Ayer, Semana, Mes y las flechas) y, para quien supervisa, quién se mira: todo el
+ * equipo o una persona. El periodo manda sobre toda la página. Quien supervisa aterriza en «Todo el equipo», con la
+ * comparativa de cada comercial; cada comercial, en el suyo.
  *
- * LAS CIFRAS NO SE APUNTAN A MANO: se calculan de donde ya queda escrito todo.
- *   · llamadas        -> rinkel_llamadas (las lee el servidor de la cuenta de Rinkel de cada comercial)
- *   · WhatsApp, correos y respuestas -> las notas de Cold Calling de esa persona
- *   · citas           -> la Agenda (las que creó, sin las importadas de Google)
+ * LAS CIFRAS SALEN DE UNA FUNCIÓN DE LA BASE (rendimiento_resumen_diario, migración 235) que devuelve una fila por
+ * persona y día: ni las llamadas ni las notas de varios meses viajan al navegador. De esas filas se suman las
+ * cifras del periodo, se calcula la referencia con la que comparar y se pinta la tendencia (lib/rendimiento/comparativa.ts).
+ * Lo único que sigue bajando «en crudo» son las llamadas del mes de la persona elegida, para el calendario y para
+ * escuchar las de un día.
  *
- * Todo se lee con la sesión de quien mira, así que las políticas RLS deciden qué ve cada uno: lo suyo, o lo
- * de todo el equipo si supervisa. Se descarga el MES entero (pocas filas) y el día seleccionado se calcula en el
- * navegador, para que cambiar de día en el calendario sea instantáneo.
+ * TODO SE LEE CON LA SESIÓN DE QUIEN MIRA, así que las políticas de la base deciden qué ve cada uno: lo suyo, o lo
+ * de todo el equipo si supervisa. Cambiar de persona o de periodo no recarga la página: la dirección se actualiza
+ * para poder compartirla o recargar en el mismo sitio.
  */
 
-interface DatosDelMes {
-  llamadas: LlamadaGuardada[]
-  notas: NotaDelDia[]
-  citas: Array<{ created_at: string }>
-  /** Lo que no se pudo leer, para decirlo en vez de enseñar un cero */
-  avisos: string[]
-}
-
 interface Props {
-  /** La persona cuyo panel se enseña */
-  usuario: { id: string; nombre: string }
-  /** Quien está mirando */
-  yo: string
+  yo: { id: string; nombre: string }
+  /** El equipo comercial, con quién tiene Rinkel. Solo para quien supervisa; vacío si no */
   equipo: Miembro[]
   puedeSupervisar: boolean
+  /** Es administrador: en el panel de otra persona puede vincular, cambiar o quitar su clave de Rinkel */
+  puedeGestionar: boolean
+  /** Quien mira es del equipo comercial. Si no (un administrador), la invitación a vincular Rinkel no se resalta */
+  esComercial: boolean
   /** El día de hoy en Madrid, «2026-10-22». Lo pone el servidor para que no baile entre servidor y navegador */
   hoy: string
-  vinculoInicial: VinculoVisible | null
-  /** Quien mira es del equipo comercial. Si no (un administrador), la invitación a vincular Rinkel no se resalta */
-  esComercial?: boolean
-  /**
-   * Quien mira es administrador: en el panel de otra persona puede vincular, cambiar, sincronizar o desvincular
-   * su clave de Rinkel. Solo decide qué se pinta; la ruta vuelve a comprobar el rol.
-   */
-  puedeGestionar?: boolean
+  /** Los vínculos con Rinkel visibles para quien mira: el suyo, o los de todo el equipo si supervisa */
+  vinculosIniciales: VinculoVisible[]
+  /** La persona que pide la dirección. null = todo el equipo (solo quien supervisa) */
+  personaInicial: string | null
+  periodoInicial: Periodo
 }
 
 const REFRESCO_MS = 120_000
 
-const dosCifras = (n: number) => String(n).padStart(2, '0')
+type Opciones = { forzar?: boolean; silencioso?: boolean }
 
-async function leer<T>(
-  que: string,
-  avisos: string[],
-  consulta: (desde: number, hasta: number) => PromiseLike<{ data: unknown; error: unknown }>
-): Promise<T[]> {
-  try {
-    return await fetchAll<T>(consulta)
-  } catch (error) {
-    console.error(`Rendimiento: no se ha podido leer ${que}`, error)
-    avisos.push(que)
-    return []
-  }
-}
-
-export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vinculoInicial, esComercial = true, puedeGestionar = false }: Props) {
+export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, esComercial, hoy, vinculosIniciales, personaInicial, periodoInicial }: Props) {
   const supabase = useMemo(() => createClient(), [])
-  const router = useRouter()
-  const [cambiandoDePersona, empezarCambio] = useTransition()
 
-  const esPropio = usuario.id === yo
-  const mesDeHoy = mesDe(hoy)
-  const [{ anio, mes }, setMesVisible] = useState(mesDeHoy)
-  const [dia, setDia] = useState(hoy)
-  const [datos, setDatos] = useState<DatosDelMes | null>(null)
-  const [cargando, setCargando] = useState(true)
-  const [vinculo, setVinculo] = useState<VinculoVisible | null>(vinculoInicial)
+  /* ---------------------------- quién y cuándo ---------------------------- */
+
+  const [personaId, setPersonaId] = useState<string | null>(puedeSupervisar ? personaInicial : yo.id)
+  const [periodo, setPeriodo] = useState<Periodo>(periodoInicial)
+  /** El día que se ha pulsado en el calendario mientras se mira una semana o un mes (en un día, el día es el periodo) */
+  const [focoManual, setFocoManual] = useState<string | null>(null)
+  const [mesVisible, setMesVisible] = useState(() => mesDe(recortarA(rangoDe(periodoInicial), hoy)?.hasta ?? hoy))
+  const [vinculos, setVinculos] = useState<ReadonlyMap<string, VinculoVisible>>(() => new Map(vinculosIniciales.map((v) => [v.user_id, v])))
   const [nombres, setNombres] = useState<ReadonlyMap<string, NombreDeLead>>(new Map())
 
-  const cache = useRef(new Map<string, DatosDelMes>())
-  const peticion = useRef(0)
-  // El resumen del equipo, por día
-  const [filasEquipo, setFilasEquipo] = useState<FilaDelEquipo[] | null>(null)
-  const [cargandoEquipo, setCargandoEquipo] = useState(false)
-  const cacheEquipo = useRef(new Map<string, FilaDelEquipo[]>())
-  const peticionEquipo = useRef(0)
-  // Quién tiene Rinkel vinculado. Lo que trae el servidor es la foto de cuando se abrió la página: si un
-  // administrador vincula o quita una clave aquí mismo, la tabla del equipo y el selector tienen que enterarse
-  const [conRinkel, setConRinkel] = useState<ReadonlySet<string>>(() => new Set(equipo.filter((m) => m.vinculado).map((m) => m.id)))
-  const equipoVivo = useMemo(() => equipo.map((m) => ({ ...m, vinculado: conRinkel.has(m.id) })), [equipo, conRinkel])
-  const verEquipo = puedeSupervisar && equipo.filter((m) => m.comercial).length > 0
-  const mesActual = useRef({ anio, mes })
-  mesActual.current = { anio, mes }
+  const persona = useMemo(() => {
+    if (personaId === null) return null
+    if (personaId === yo.id) return { id: yo.id, nombre: yo.nombre }
+    const m = equipo.find((x) => x.id === personaId)
+    return m ? { id: m.id, nombre: m.nombre } : { id: yo.id, nombre: yo.nombre }
+  }, [personaId, yo, equipo])
+  const esPropio = persona?.id === yo.id
 
-  /* ---------------------------- leer el mes ---------------------------- */
+  // Quién tiene Rinkel, en vivo: si un administrador vincula o quita una clave aquí mismo, la tabla se entera
+  const equipoVivo = useMemo(() => equipo.map((m) => ({ ...m, vinculado: vinculos.has(m.id) })), [equipo, vinculos])
 
-  const cargar = useCallback(
-    async (a: number, m: number, opciones: { forzar?: boolean; silencioso?: boolean } = {}) => {
-      const clave = `${a}-${m}`
-      // Cada petición se numera ANTES de mirar la caché: si se pide un mes que ya está guardado mientras otro
-      // viaja todavía, la respuesta lenta tiene que quedar descartada y no pisar al mes que sí se está viendo
-      const numeroDePeticion = ++peticion.current
+  const rangoDelPeriodo = useMemo(() => rangoDe(periodo), [periodo])
+  const comparacion = useMemo(() => tramosDeComparacion(periodo, hoy), [periodo, hoy])
+
+  /* ---------------------------- las cifras: una fila por persona y día ---------------------------- */
+
+  const ventana = useMemo(() => ventanaDeDatos(periodo), [periodo])
+  const claveDeVentana = `${ventana.desde}|${ventana.hasta}`
+  const [resumen, setResumen] = useState<{ clave: string; filas: FilaDiaria[] } | null>(null)
+  const [cargandoResumen, setCargandoResumen] = useState(true)
+  const [errorResumen, setErrorResumen] = useState<string | null>(null)
+  const cacheResumen = useRef(new Map<string, FilaDiaria[]>())
+  const peticionResumen = useRef(0)
+
+  const cargarResumen = useCallback(
+    async (v: { desde: string; hasta: string }, opciones: Opciones = {}) => {
+      const clave = `${v.desde}|${v.hasta}`
+      // Cada petición se numera ANTES de mirar la caché: una respuesta lenta de otro periodo no pisa al que se está viendo
+      const numero = ++peticionResumen.current
       if (!opciones.forzar) {
-        const guardado = cache.current.get(clave)
+        const guardado = cacheResumen.current.get(clave)
         if (guardado) {
-          setDatos(guardado)
-          setCargando(false)
+          setResumen({ clave, filas: guardado })
+          setErrorResumen(null)
+          setCargandoResumen(false)
           return
         }
       }
-      if (!opciones.silencioso) setCargando(true)
+      if (!opciones.silencioso) setCargandoResumen(true)
+      try {
+        // La función ordena por día y persona, así que paginar de 1.000 en 1.000 no repite ni se salta filas
+        const filas = await fetchAll<FilaDiaria>((de, a) => supabase.rpc('rendimiento_resumen_diario', { p_desde: v.desde, p_hasta: v.hasta }).range(de, a))
+        if (numero !== peticionResumen.current) return
+        cacheResumen.current.set(clave, filas)
+        setResumen({ clave, filas })
+        setErrorResumen(null)
+      } catch (error) {
+        if (numero !== peticionResumen.current) return
+        console.error('Rendimiento: no se han podido leer las cifras del periodo', error)
+        setErrorResumen('No se han podido leer las cifras del periodo. Recarga la página.')
+      } finally {
+        if (numero === peticionResumen.current) setCargandoResumen(false)
+      }
+    },
+    [supabase]
+  )
 
-      const { desde, hasta } = rangoDelMes(a, m)
-      const d = desde.toISOString()
-      const h = hasta.toISOString()
-      const avisos: string[] = []
+  useEffect(() => {
+    void cargarResumen(ventana)
+  }, [ventana, cargarResumen])
 
-      const [llamadas, notas, citas] = await Promise.all([
-        leer<LlamadaGuardada>('las llamadas', avisos, (de, a2) =>
+  const porPersona = useMemo(() => indexar(resumen?.filas ?? []), [resumen])
+  // Mientras llega la ventana nueva, lo que hay en pantalla es de la anterior: se atenúa en vez de enseñarlo como bueno
+  const cargandoCifras = cargandoResumen || resumen?.clave !== claveDeVentana
+
+  const resultadoDe = useCallback(
+    (id: string) => resultadoDePersona(porPersona.get(id), periodo, hoy, comparacion, etiquetaDeRango),
+    [porPersona, periodo, hoy, comparacion]
+  )
+
+  const filasDeComparativa = useMemo<FilaDeComparativa[]>(
+    () => equipoVivo.filter((m) => m.comercial).map((m) => ({ id: m.id, nombre: m.nombre, vinculado: m.vinculado, resultado: resultadoDe(m.id) })),
+    [equipoVivo, resultadoDe]
+  )
+
+  /* ---------------------------- las llamadas en crudo de la persona: calendario y lista ---------------------------- */
+
+  const claveDelMes = persona ? `${persona.id}|${mesVisible.anio}-${mesVisible.mes}` : null
+  const [llamadasMes, setLlamadasMes] = useState<{ clave: string; llamadas: LlamadaGuardada[] } | null>(null)
+  const [cargandoMes, setCargandoMes] = useState(false)
+  const cacheMes = useRef(new Map<string, LlamadaGuardada[]>())
+  const peticionMes = useRef(0)
+
+  const cargarLlamadasMes = useCallback(
+    async (id: string, anio: number, mes: number, opciones: Opciones = {}) => {
+      const clave = `${id}|${anio}-${mes}`
+      const numero = ++peticionMes.current
+      if (!opciones.forzar) {
+        const guardado = cacheMes.current.get(clave)
+        if (guardado) {
+          setLlamadasMes({ clave, llamadas: guardado })
+          setCargandoMes(false)
+          return
+        }
+      }
+      if (!opciones.silencioso) setCargandoMes(true)
+      try {
+        const { desde, hasta } = rangoDelMes(anio, mes)
+        const llamadas = await fetchAll<LlamadaGuardada>((de, a) =>
           supabase
             .from('rinkel_llamadas')
             .select(CAMPOS_DE_LLAMADA)
-            .eq('user_id', usuario.id)
-            .gte('fecha', d)
-            .lt('fecha', h)
+            .eq('user_id', id)
+            .gte('fecha', desde.toISOString())
+            .lt('fecha', hasta.toISOString())
             .order('fecha', { ascending: true })
             .order('id', { ascending: true })
-            .range(de, a2)
-        ),
-        leer<NotaDelDia>('las notas de Cold Calling', avisos, (de, a2) =>
-          supabase
-            .from('cold_lead_notes')
-            .select('kind, es_respuesta, occurred_at, lead_id')
-            .eq('author_id', usuario.id)
-            .gte('occurred_at', d)
-            .lt('occurred_at', h)
-            .order('occurred_at', { ascending: true })
-            .order('id', { ascending: true })
-            .range(de, a2)
-        ),
-        leer<{ created_at: string }>('las citas', avisos, (de, a2) =>
-          supabase
-            .from('appointments')
-            .select('id, created_at')
-            .eq('comercial_id', usuario.id)
-            .eq('is_external', false)
-            .gte('created_at', d)
-            .lt('created_at', h)
-            .order('created_at', { ascending: true })
-            .order('id', { ascending: true })
-            .range(de, a2)
-        ),
-      ])
-
-      // Si mientras tanto se pidió otro mes, esta respuesta ya no interesa
-      if (numeroDePeticion !== peticion.current) return
-      const resultado: DatosDelMes = { llamadas, notas, citas, avisos }
-      // Un mes con avisos no se guarda: la próxima vez se vuelve a intentar leer
-      if (avisos.length === 0) cache.current.set(clave, resultado)
-      setDatos(resultado)
-      setCargando(false)
-    },
-    [supabase, usuario.id]
-  )
-
-  useEffect(() => {
-    void cargar(anio, mes)
-  }, [anio, mes, cargar])
-
-  /**
-   * Las cifras de TODO el equipo en un día, para quien supervisa. Se lee el día entero de todos de una vez
-   * (la política de la base deja ver todo a quien supervisa) y se reparte por persona aquí.
-   */
-  const cargarEquipo = useCallback(
-    async (d: string, opciones: { forzar?: boolean; silencioso?: boolean } = {}) => {
-      if (!verEquipo) return
-      const numeroDePeticion = ++peticionEquipo.current
-      if (!opciones.forzar) {
-        const guardado = cacheEquipo.current.get(d)
-        if (guardado) {
-          setFilasEquipo(guardado)
-          setCargandoEquipo(false)
-          return
-        }
+            .range(de, a)
+        )
+        if (numero !== peticionMes.current) return
+        cacheMes.current.set(clave, llamadas)
+        setLlamadasMes({ clave, llamadas })
+      } catch (error) {
+        if (numero !== peticionMes.current) return
+        console.error('Rendimiento: no se han podido leer las llamadas del mes', error)
+        setLlamadasMes({ clave, llamadas: [] })
+      } finally {
+        if (numero === peticionMes.current) setCargandoMes(false)
       }
-      if (!opciones.silencioso) setCargandoEquipo(true)
-
-      const { desde, hasta } = rangoDelDia(d)
-      const ini = desde.toISOString()
-      const fin = hasta.toISOString()
-      const avisos: string[] = []
-      type LlamadaDeEquipo = LlamadaGuardada & { user_id: string }
-      const [ll, no, ci] = await Promise.all([
-        leer<LlamadaDeEquipo>('las llamadas del equipo', avisos, (de, a2) =>
-          supabase
-            .from('rinkel_llamadas')
-            .select('id, user_id, fecha, direccion, estado, duracion_s, numero, grabacion_id')
-            .gte('fecha', ini)
-            .lt('fecha', fin)
-            .order('fecha', { ascending: true })
-            .order('id', { ascending: true })
-            .range(de, a2)
-        ),
-        leer<NotaDelDia & { author_id: string }>('las notas del equipo', avisos, (de, a2) =>
-          supabase
-            .from('cold_lead_notes')
-            .select('id, author_id, kind, es_respuesta, occurred_at, lead_id')
-            .gte('occurred_at', ini)
-            .lt('occurred_at', fin)
-            .order('occurred_at', { ascending: true })
-            .order('id', { ascending: true })
-            .range(de, a2)
-        ),
-        leer<{ comercial_id: string; created_at: string }>('las citas del equipo', avisos, (de, a2) =>
-          supabase
-            .from('appointments')
-            .select('id, comercial_id, created_at')
-            .eq('is_external', false)
-            .gte('created_at', ini)
-            .lt('created_at', fin)
-            .order('created_at', { ascending: true })
-            .order('id', { ascending: true })
-            .range(de, a2)
-        ),
-      ])
-      if (numeroDePeticion !== peticionEquipo.current) return
-
-      const filas: FilaDelEquipo[] = equipoVivo
-        .filter((m) => m.comercial)
-        .map((m) => ({
-          id: m.id,
-          nombre: m.nombre,
-          vinculado: m.vinculado,
-          llamadas: resumenDeLlamadas(ll.filter((l) => l.user_id === m.id)),
-          actividad: actividadDeNotas(no.filter((n) => n.author_id === m.id), d),
-          citas: citasAgendadasEl(ci.filter((c) => c.comercial_id === m.id), d),
-        }))
-      if (avisos.length === 0) cacheEquipo.current.set(d, filas)
-      setFilasEquipo(filas)
-      setCargandoEquipo(false)
     },
-    [supabase, equipoVivo, verEquipo]
+    [supabase]
   )
 
-  /** Vuelve a leer el estado de la cuenta de Rinkel y las llamadas del mes: lo llama el cuadro de vinculación */
-  const refrescar = useCallback(async () => {
-    const { data } = await supabase.from('rinkel_vinculos').select(CAMPOS_DEL_VINCULO).eq('user_id', usuario.id).maybeSingle()
-    setVinculo((data as VinculoVisible | null) ?? null)
-    setConRinkel((antes) => {
-      const ahora = new Set(antes)
-      if (data) ahora.add(usuario.id)
-      else ahora.delete(usuario.id)
-      return ahora
-    })
-    cache.current.clear()
-    cacheEquipo.current.clear()
-    await Promise.all([
-      cargar(mesActual.current.anio, mesActual.current.mes, { forzar: true, silencioso: true }),
-      cargarEquipo(diaVisibleRef.current, { forzar: true, silencioso: true }),
-    ])
-  }, [supabase, usuario.id, cargar, cargarEquipo])
-
-  // Mientras la pestaña está abierta en el mes de hoy, se va refrescando sola: el proceso automático trae llamadas nuevas
   useEffect(() => {
-    const enElMesDeHoy = anio === mesDeHoy.anio && mes === mesDeHoy.mes
-    if (!enElMesDeHoy) return
-    const volverALeer = () => {
-      if (document.visibilityState !== 'visible') return
-      void cargar(anio, mes, { forzar: true, silencioso: true })
-      if (diaVisibleRef.current === hoy) void cargarEquipo(hoy, { forzar: true, silencioso: true })
-    }
-    const reloj = setInterval(volverALeer, REFRESCO_MS)
-    document.addEventListener('visibilitychange', volverALeer)
-    return () => {
-      clearInterval(reloj)
-      document.removeEventListener('visibilitychange', volverALeer)
-    }
-  }, [anio, mes, mesDeHoy.anio, mesDeHoy.mes, cargar, cargarEquipo, hoy])
+    if (persona) void cargarLlamadasMes(persona.id, mesVisible.anio, mesVisible.mes)
+  }, [persona, mesVisible.anio, mesVisible.mes, cargarLlamadasMes])
 
-  /* ---------------------------- lo calculado ---------------------------- */
+  const llamadas = useMemo(() => (llamadasMes && llamadasMes.clave === claveDelMes ? llamadasMes.llamadas : []), [llamadasMes, claveDelMes])
+  const delMes = useMemo(() => mesDeLlamadas(mesVisible.anio, mesVisible.mes, llamadas), [mesVisible, llamadas])
+  const porDiaDeLlamadas = useMemo(() => agruparPorDia(llamadas), [llamadas])
 
-  const llamadas = datos?.llamadas
-  const dias = useMemo(() => diasDelMes(anio, mes), [anio, mes])
-  const prefijo = `${anio}-${dosCifras(mes)}`
+  /** El día cuyas llamadas se enseñan: el del periodo si es un día; si no, el que se pulsó o el último con llamadas */
+  const diaFoco = useMemo(() => {
+    if (periodo.tipo === 'dia') return periodo.ancla
+    if (focoManual && focoManual >= rangoDelPeriodo.desde && focoManual <= rangoDelPeriodo.hasta) return focoManual
+    const dias = diasDelRango(recortarA(rangoDelPeriodo, hoy) ?? rangoDelPeriodo)
+    for (let i = dias.length - 1; i >= 0; i -= 1) if ((porDiaDeLlamadas.get(dias[i])?.length ?? 0) > 0) return dias[i]
+    return dias[dias.length - 1]
+  }, [periodo, focoManual, rangoDelPeriodo, hoy, porDiaDeLlamadas])
 
-  const delMes = useMemo(() => mesDeLlamadas(anio, mes, llamadas ?? []), [anio, mes, llamadas])
-  const porDia = useMemo(() => agruparPorDia(llamadas ?? []), [llamadas])
-
-  // El día seleccionado tiene que ser del mes que se ve; si no (al cambiar de mes), el de hoy, o el último con llamadas
-  const diaVisible = useMemo(() => {
-    if (dia.startsWith(prefijo)) return dia
-    if (dias.includes(hoy)) return hoy
-    const ultimoConLlamadas = [...dias].reverse().find((d) => (porDia.get(d)?.length ?? 0) > 0)
-    return ultimoConLlamadas ?? dias[0]
-  }, [dia, prefijo, dias, hoy, porDia])
-
-  const diaVisibleRef = useRef(diaVisible)
-  diaVisibleRef.current = diaVisible
-
-  const llamadasDelDia = useMemo(() => porDia.get(diaVisible) ?? [], [porDia, diaVisible])
-  const resumen = useMemo(() => resumenDeLlamadas(llamadasDelDia), [llamadasDelDia])
-  const actividad = useMemo(() => actividadDeNotas(datos?.notas ?? [], diaVisible), [datos?.notas, diaVisible])
-  const citas = useMemo(() => citasAgendadasEl(datos?.citas ?? [], diaVisible), [datos?.citas, diaVisible])
-
-  const hayLlamadas = vinculo !== null || (llamadas?.length ?? 0) > 0
-
-  useEffect(() => {
-    void cargarEquipo(diaVisible)
-  }, [diaVisible, cargarEquipo])
+  const llamadasDelDia = useMemo(() => porDiaDeLlamadas.get(diaFoco) ?? [], [porDiaDeLlamadas, diaFoco])
 
   /* ---------------------------- los nombres de los leads del día ---------------------------- */
 
@@ -357,7 +235,6 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
     }
   }, [llamadasDelDia, nombres, supabase])
 
-  // Los vacíos (leads que no se ven) no se usan como nombre: la lista enseña el teléfono
   const nombresUtiles = useMemo(() => {
     const m = new Map<string, NombreDeLead>()
     nombres.forEach((v, k) => {
@@ -368,118 +245,180 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
 
   /* ---------------------------- moverse ---------------------------- */
 
-  const irAMes = (delta: number) => {
-    const destino = sumarMeses(anio, mes, delta)
-    setMesVisible(destino)
-  }
-  const irAHoy = () => {
-    setMesVisible(mesDeHoy)
-    setDia(hoy)
-  }
-  const cambiarDePersona = (id: string) => {
-    empezarCambio(() => router.push(id === yo ? '/dashboard/rendimiento' : `/dashboard/rendimiento?comercial=${id}`))
+  const cambiarPeriodo = useCallback(
+    (p: Periodo) => {
+      setPeriodo(p)
+      setFocoManual(null)
+      setMesVisible(mesDe(recortarA(rangoDe(p), hoy)?.hasta ?? p.ancla))
+    },
+    [hoy]
+  )
+
+  const elegirDia = (d: string) => {
+    if (periodo.tipo === 'dia') cambiarPeriodo({ tipo: 'dia', ancla: d })
+    else setFocoManual(d)
   }
 
-  const quien = diaVisible === hoy ? 'hoy' : etiquetaDeDia(diaVisible)
+  const cambiarDePersona = (id: string | null) => {
+    setPersonaId(id)
+    setFocoManual(null)
+  }
+
+  // La dirección refleja quién y cuándo, para recargar o compartir en el mismo sitio. Sin pasar por el servidor
+  useEffect(() => {
+    const q = new URLSearchParams()
+    if (puedeSupervisar && personaId) q.set('comercial', personaId)
+    if (!(periodo.tipo === 'dia' && periodo.ancla === hoy)) {
+      q.set('p', periodo.tipo)
+      q.set('f', periodo.ancla)
+    }
+    const texto = q.toString()
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${texto ? `?${texto}` : ''}`)
+  }, [personaId, periodo, hoy, puedeSupervisar])
+
+  /* ---------------------------- refrescar ---------------------------- */
+
+  /** Vuelve a leer el estado de la cuenta de Rinkel y las cifras: lo llama el cuadro de vinculación */
+  const refrescar = useCallback(async () => {
+    if (!persona) return
+    const { data } = await supabase.from('rinkel_vinculos').select(CAMPOS_DEL_VINCULO).eq('user_id', persona.id).maybeSingle()
+    setVinculos((antes) => {
+      const ahora = new Map(antes)
+      if (data) ahora.set(persona.id, data as VinculoVisible)
+      else ahora.delete(persona.id)
+      return ahora
+    })
+    cacheResumen.current.clear()
+    cacheMes.current.clear()
+    await Promise.all([
+      cargarResumen(ventana, { forzar: true, silencioso: true }),
+      cargarLlamadasMes(persona.id, mesVisible.anio, mesVisible.mes, { forzar: true, silencioso: true }),
+    ])
+  }, [supabase, persona, ventana, mesVisible, cargarResumen, cargarLlamadasMes])
+
+  // Mientras la pestaña está abierta en un periodo que incluye hoy, se va refrescando sola: el proceso automático trae llamadas nuevas
+  const estadoParaRefrescar = useRef({ ventana, persona, mesVisible })
+  estadoParaRefrescar.current = { ventana, persona, mesVisible }
+  const incluyeHoy = contieneHoy(periodo, hoy)
+  useEffect(() => {
+    if (!incluyeHoy) return
+    const volverALeer = () => {
+      if (document.visibilityState !== 'visible') return
+      const { ventana: v, persona: p, mesVisible: m } = estadoParaRefrescar.current
+      void cargarResumen(v, { forzar: true, silencioso: true })
+      if (p) void cargarLlamadasMes(p.id, m.anio, m.mes, { forzar: true, silencioso: true })
+    }
+    const reloj = setInterval(volverALeer, REFRESCO_MS)
+    document.addEventListener('visibilitychange', volverALeer)
+    return () => {
+      clearInterval(reloj)
+      document.removeEventListener('visibilitychange', volverALeer)
+    }
+  }, [incluyeHoy, cargarResumen, cargarLlamadasMes])
+
+  /* ---------------------------- lo que se pinta ---------------------------- */
+
+  const resultadoPersona = persona ? resultadoDe(persona.id) : null
+  const vinculo = persona ? (vinculos.get(persona.id) ?? null) : null
+  const conRinkel = vinculo !== null || (resultadoPersona ? resultadoPersona.actual.llamadas + resultadoPersona.actual.recibidas > 0 : false)
+  const numerosDistintos = periodo.tipo === 'dia' ? resumenDeLlamadas(llamadasDelDia).numerosDistintos : null
 
   return (
     <div className="space-y-4">
-      {puedeSupervisar && equipo.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor="persona-rendimiento" className="text-[12px] text-white/45">
-            Ver el panel de
-          </label>
-          <select
-            id="persona-rendimiento"
-            value={usuario.id}
-            onChange={(e) => cambiarDePersona(e.target.value)}
-            disabled={cambiandoDePersona}
-            className="h-9 rounded-full border border-white/10 bg-white/[0.03] px-3 text-[13px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {equipoVivo.map((m) => (
-              <option key={m.id} value={m.id} className="bg-[#1a1a1a]">
-                {m.id === yo ? `${m.nombre} (yo)` : m.nombre}
-                {m.vinculado ? '' : ' · sin Rinkel'}
-              </option>
-            ))}
-          </select>
-        </div>
+      <BarraDePeriodo
+        periodo={periodo}
+        hoy={hoy}
+        cargando={cargandoCifras}
+        onPeriodo={cambiarPeriodo}
+        personas={puedeSupervisar ? equipoVivo.map((m) => ({ id: m.id, nombre: m.nombre, sinRinkel: m.comercial && !m.vinculado })) : undefined}
+        personaId={personaId}
+        yoId={yo.id}
+        onPersona={puedeSupervisar ? cambiarDePersona : undefined}
+      />
+
+      {errorResumen && (
+        <p className="text-[12px] text-amber-300" role="alert">
+          {errorResumen}
+        </p>
       )}
 
-      {!esPropio && (
+      {persona && !esPropio && (
         <div className="rounded-xl border border-[#FF6600]/25 bg-[#FF6600]/[0.06] px-3 py-2 text-[12px] text-white/70 flex items-center gap-2">
           <Eye className="h-3.5 w-3.5 text-[#FF6600] shrink-0" />
           <span>
-            Estás viendo el rendimiento de <span className="font-semibold text-white">{usuario.nombre}</span>.{' '}
+            Estás viendo el rendimiento de <span className="font-semibold text-white">{persona.nombre}</span>.{' '}
             {puedeGestionar ? 'Como administrador puedes vincular, cambiar o quitar su clave de Rinkel.' : 'Solo de lectura.'}
           </span>
         </div>
       )}
 
-      {verEquipo && filasEquipo && (
-        <ResumenDelEquipo
-          filas={filasEquipo}
-          dia={diaVisible}
+      {puedeSupervisar && filasDeComparativa.length > 0 && (
+        <ComparativaDelEquipo
+          filas={filasDeComparativa}
+          periodo={periodo}
           hoy={hoy}
-          cargando={cargandoEquipo}
-          seleccionada={usuario.id}
+          comparacion={comparacion}
+          seleccionada={persona?.id ?? null}
           puedeGestionar={puedeGestionar}
+          cargando={cargandoCifras}
           onElegir={cambiarDePersona}
         />
       )}
 
-      <VincularRinkel
-        persona={usuario}
-        esPropio={esPropio}
-        puedeGestionar={puedeGestionar}
-        vinculo={vinculo}
-        onCambio={refrescar}
-        destacar={esPropio ? esComercial : true}
-      />
+      {persona ? (
+        <>
+          <VincularRinkel
+            key={persona.id}
+            persona={persona}
+            esPropio={esPropio}
+            puedeGestionar={puedeGestionar}
+            vinculo={vinculo}
+            onCambio={refrescar}
+            destacar={esPropio ? esComercial : true}
+          />
 
-      <div className="space-y-2.5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[13px] font-semibold text-white">
-            {diaVisible === hoy ? 'Hoy' : 'Día elegido'}
-            <span className="font-normal text-white/45"> · {etiquetaDeDia(diaVisible)}</span>
-          </h2>
-          {diaVisible !== hoy && (
-            <button type="button" onClick={irAHoy} className="text-[12px] text-white/45 hover:text-white transition-colors">
-              Volver a hoy
-            </button>
-          )}
-        </div>
-        <CifrasDelDia quien={quien} llamadas={resumen} actividad={actividad} citas={citas} conRinkel={hayLlamadas} cargando={cargando} />
-      </div>
+          <div className="space-y-2.5">
+            <h2 className="text-[13px] font-semibold text-white">{esPropio ? 'Tus cifras' : `Cifras de ${persona.nombre}`}</h2>
+            <CifrasDelPeriodo
+              periodo={periodo}
+              hoy={hoy}
+              resultado={resultadoPersona}
+              comparacion={comparacion}
+              conRinkel={conRinkel}
+              cargando={cargandoCifras}
+              numerosDistintos={numerosDistintos}
+            />
+          </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 items-start">
-        <CalendarioLlamadas
-          anio={anio}
-          mes={mes}
-          datos={delMes}
-          dia={diaVisible}
-          hoy={hoy}
-          cargando={cargando}
-          sinRinkel={!hayLlamadas}
-          onDia={setDia}
-          onMes={irAMes}
-          onHoy={irAHoy}
-        />
-        <ListaLlamadas
-          dia={diaVisible}
-          hoy={hoy}
-          llamadas={llamadasDelDia}
-          nombres={nombresUtiles}
-          cargando={cargando}
-          sinRinkel={!hayLlamadas}
-          esPropio={esPropio}
-        />
-      </div>
-
-      {datos && datos.avisos.length > 0 && (
-        <p className="text-[12px] text-amber-300" role="status">
-          No se han podido leer {datos.avisos.join(' ni ')}. Las cifras que dependen de eso pueden estar incompletas: recarga la página.
-        </p>
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 items-start">
+            <CalendarioLlamadas
+              anio={mesVisible.anio}
+              mes={mesVisible.mes}
+              datos={delMes}
+              dia={diaFoco}
+              resaltado={rangoDelPeriodo}
+              hoy={hoy}
+              cargando={cargandoMes}
+              sinRinkel={!conRinkel}
+              onDia={elegirDia}
+              onMes={(delta) => setMesVisible((m) => sumarMeses(m.anio, m.mes, delta))}
+              onHoy={() => cambiarPeriodo({ tipo: 'dia', ancla: hoy })}
+            />
+            <ListaLlamadas
+              key={persona.id}
+              dia={diaFoco}
+              hoy={hoy}
+              llamadas={llamadasDelDia}
+              nombres={nombresUtiles}
+              cargando={cargandoMes}
+              sinRinkel={!conRinkel}
+              esPropio={esPropio}
+              onAislarDia={periodo.tipo !== 'dia' ? () => cambiarPeriodo({ tipo: 'dia', ancla: diaFoco }) : undefined}
+            />
+          </div>
+        </>
+      ) : (
+        <p className="text-[12px] text-white/40 px-1">Elige a una persona en la tabla, o arriba en «Ver», para ver su calendario, sus llamadas y escuchar sus grabaciones.</p>
       )}
     </div>
   )

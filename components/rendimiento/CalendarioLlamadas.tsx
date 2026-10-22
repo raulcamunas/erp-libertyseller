@@ -18,6 +18,8 @@ interface Props {
   datos: MesDeLlamadas
   /** Día seleccionado, «2026-10-21» */
   dia: string
+  /** Los días del periodo que se está mirando (una semana, un mes): se marcan con un contorno suave */
+  resaltado?: { desde: string; hasta: string }
   hoy: string
   cargando: boolean
   /** Sin cuenta de Rinkel vinculada no hay nada que pintar: se avisa en vez de enseñar un mes vacío */
@@ -39,7 +41,7 @@ const FONDO_POR_INTENSIDAD: Record<0 | 1 | 2 | 3 | 4, string> = {
 
 const numero = (n: number) => n.toLocaleString('es-ES')
 
-export function CalendarioLlamadas({ anio, mes, datos, dia, hoy, cargando, sinRinkel, onDia, onMes, onHoy }: Props) {
+export function CalendarioLlamadas({ anio, mes, datos, dia, resaltado, hoy, cargando, sinRinkel, onDia, onMes, onHoy }: Props) {
   const total = datos.total
   const esMesActual = hoy.startsWith(`${anio}-${String(mes).padStart(2, '0')}`)
 
@@ -104,6 +106,7 @@ export function CalendarioLlamadas({ anio, mes, datos, dia, hoy, cargando, sinRi
           const esHoy = d === hoy
           const seleccionado = d === dia
           const futuro = d > hoy
+          const enElPeriodo = resaltado !== undefined && resaltado.desde !== resaltado.hasta && d >= resaltado.desde && d <= resaltado.hasta
           const nivel = intensidad(resumen.realizadas, datos.maximoRealizadas)
           const etiqueta = `${etiquetaDeDia(d)}: ${
             resumen.realizadas === 0 ? 'sin llamadas hechas' : `${resumen.realizadas} llamadas hechas, ${resumen.contestadas} contestadas`
@@ -121,9 +124,11 @@ export function CalendarioLlamadas({ anio, mes, datos, dia, hoy, cargando, sinRi
               className={`group relative aspect-square sm:aspect-auto sm:min-h-[62px] rounded-xl border flex flex-col items-start justify-between p-1.5 sm:p-2 transition-colors disabled:cursor-default ${
                 seleccionado
                   ? 'border-[#FF6600] ring-1 ring-[#FF6600]/60'
-                  : nivel > 0
-                    ? 'border-[#FF6600]/20 hover:border-[#FF6600]/55'
-                    : 'border-white/[0.07] hover:border-white/20'
+                  : enElPeriodo
+                    ? 'border-white/40 ring-1 ring-white/15 hover:border-[#FF6600]/55'
+                    : nivel > 0
+                      ? 'border-[#FF6600]/20 hover:border-[#FF6600]/55'
+                      : 'border-white/[0.07] hover:border-white/20'
               } ${FONDO_POR_INTENSIDAD[nivel]} ${futuro ? 'opacity-30' : ''}`}
             >
               <span className={`text-[12px] sm:text-[13px] leading-none ${esHoy ? 'text-[#FF6600] font-bold' : 'text-white/50'}`}>
