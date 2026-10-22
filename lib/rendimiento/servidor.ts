@@ -16,7 +16,8 @@ import {
 } from './rinkel'
 import { decidirObjetivo, type DecisionDeObjetivo } from './gestion'
 import { ESTADO_INICIAL, sincronizarCuenta, type EstadoDeSincronizacion, type FilaParaGuardar } from './sincronizar'
-import { clavesDeTelefonos } from './telefonos'
+import { indiceDeTelefonos, mapaDeLeadsDe, type LeadParaVincular } from '@/lib/cold-calling/vinculos'
+import { leerLeadsParaVincular, repasarTrasLeer } from '@/lib/cold-calling/vinculos-servidor'
 
 /**
  * LO QUE EL SERVIDOR HACE CON LA CLAVE DE RINKEL DE CADA COMERCIAL.
@@ -57,7 +58,6 @@ export const huellaDeClave = (clave: string): string => createHash('sha256').upd
 const PROPOSITO = 'rinkel.api_key.v1'
 
 const POR_BLOQUE = 500
-const PAGINA_DE_BASE = 1000
 
 /* ------------------------------------------------------------------ */
 /* Lo que se lee de la base                                            */
@@ -106,35 +106,37 @@ export async function leerClaveDe(service: Servicio, userId: string): Promise<{ 
 /**
  * Los teléfonos de los leads de ESTE comercial: clave de nueve cifras -> id del lead.
  * Solo los suyos: el nombre de una tienda de la cartera de otro no hace falta para saber a quién se llamó.
+ * Si varios leads suyos comparten el teléfono se lleva la llamada UNO, siempre el mismo (ver elegirLead en
+ * lib/cold-calling/vinculos.ts): el que sigue abierto y se tocó más recientemente.
  */
 export async function leadsPorTelefonoDe(service: Servicio, userId: string): Promise<Map<string, string>> {
-  const mapa = new Map<string, string>()
-  for (let desde = 0; ; desde += PAGINA_DE_BASE) {
-    const { data, error } = await service
-      .from('cold_leads')
-      .select('id, phone, telefonos_extra')
-      .eq('assigned_to', userId)
-      .order('id', { ascending: true })
-      .range(desde, desde + PAGINA_DE_BASE - 1)
-    if (error) throw new Error('No se han podido leer los teléfonos de los leads.', { cause: error })
-    const filas = (data ?? []) as Array<{ id: string; phone: string | null; telefonos_extra: string | null }>
-    for (const lead of filas) {
-      for (const clave of [...clavesDeTelefonos(lead.phone), ...clavesDeTelefonos(lead.telefonos_extra)]) {
-        if (!mapa.has(clave)) mapa.set(clave, lead.id)
-      }
-    }
-    if (filas.length < PAGINA_DE_BASE) break
-  }
-  return mapa
+  return mapaDeLeadsDe(indiceDeTelefonos(await leerLeadsParaVincular(service, userId)), userId)
 }
 
-/** Guarda llamadas con upsert por (usuario, id de Rinkel): repetir una no duplica nada */
+/**
+ * Guarda llamadas con upsert por (usuario, id de Rinkel): repetir una no duplica nada.
+ *
+ * LAS QUE TIENEN LEAD Y LAS QUE NO VAN EN UPSERTS SEPARADOS, y las segundas SIN la clave `lead_id`. Un upsert que
+ * llevara `lead_id: null` BORRARÍA el enlace de una llamada que ya lo tenía cada vez que se vuelve a leer en el solape
+ * de tres días —porque el lead cambió de teléfono o de dueño—, y el historial del lead perdería sus llamadas. Sin la
+ * clave, una fila que ya existe conserva el enlace que tenía y una nueva nace sin lead.
+ */
 export async function guardarLlamadas(service: Servicio, filas: FilaParaGuardar[]): Promise<void> {
   const ahora = new Date().toISOString()
   for (let i = 0; i < filas.length; i += POR_BLOQUE) {
     const bloque = filas.slice(i, i + POR_BLOQUE).map((f) => ({ ...f, actualizada_at: ahora }))
-    const { error } = await service.from('rinkel_llamadas').upsert(bloque, { onConflict: 'user_id,rinkel_id' })
-    if (error) throw new Error('No se han podido guardar las llamadas.', { cause: error })
+    const conLead = bloque.filter((f) => f.lead_id !== null)
+    const sinLead = bloque
+      .filter((f) => f.lead_id === null)
+      .map((f) => {
+        const { lead_id: _sin, ...resto } = f
+        return resto
+      })
+    for (const grupo of [conLead, sinLead]) {
+      if (grupo.length === 0) continue
+      const { error } = await service.from('rinkel_llamadas').upsert(grupo, { onConflict: 'user_id,rinkel_id' })
+      if (error) throw new Error('No se han podido guardar las llamadas.', { cause: error })
+    }
   }
 }
 
@@ -215,6 +217,13 @@ const MENSAJE_DE_CLAVE_ILEGIBLE = 'No se ha podido leer la clave guardada. Vuelv
 export interface OpcionesDeLeerCuenta {
   presupuestoMs: number
   rinkel?: Partial<DepsRinkel>
+  /**
+   * Cuántos días se releen hacia atrás de lo reciente. Por defecto 3, que es lo que hace la pasada de fondo. La pantalla
+   * de Cold Calling pide una lectura cada minuto para que la llamada que acaba de acabar salga ya en el historial del
+   * lead, y para eso releer tres días enteros cada vez son decenas de páginas de Rinkel: con dos horas basta (una
+   * grabación aparece unos minutos después de colgar).
+   */
+  solapeDias?: number
 }
 
 /**
@@ -244,15 +253,19 @@ export async function leerCuentaDe(service: Servicio, userId: string, opciones: 
       }
     }
 
+    // Los leads de la persona se leen una sola vez por pasada y se reparten entre el casamiento al importar y el repaso
+    const lectura: { leads: LeadParaVincular[] | null } = { leads: null }
+    const leadsDe = async () => (lectura.leads ??= await leerLeadsParaVincular(service, userId))
+
     const resultado = await sincronizarCuenta(
       { historico_completo: vinculo.historico_completo, siguiente_pagina: vinculo.siguiente_pagina, ultimo_sync_at: vinculo.ultimo_sync_at },
       {
         leerPagina: (op) => leerPaginaDeLlamadas(clave.clave, op, opciones.rinkel),
         guardar: (filas) => guardarLlamadas(service, filas),
-        leadsPorTelefono: () => leadsPorTelefonoDe(service, userId),
+        leadsPorTelefono: async () => mapaDeLeadsDe(indiceDeTelefonos(await leadsDe()), userId),
         ahora: () => Date.now(),
       },
-      { usuario: userId, presupuestoMs: opciones.presupuestoMs }
+      { usuario: userId, presupuestoMs: opciones.presupuestoMs, solapeDias: opciones.solapeDias }
     )
 
     const error = resultado.error
@@ -268,6 +281,10 @@ export async function leerCuentaDe(service: Servicio, userId: string, opciones: 
         ...(resultado.totalEnRinkel !== null ? { rinkel_total: resultado.totalEnRinkel } : {}),
       })
       .eq('user_id', userId)
+
+    // El lead se apunta solo: las llamadas de estos días que aún no tienen lead (porque el lead se creó o cambió de
+    // teléfono después) se enlazan ahora. No es crítico y no espera a nadie: si falla, se registra y ya
+    await repasarTrasLeer(service, userId, lectura.leads ?? undefined)
 
     return {
       tipo: 'hecha',

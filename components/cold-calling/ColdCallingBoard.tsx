@@ -20,6 +20,7 @@ import {
   CalendarClock,
   AlertTriangle,
   Signal,
+  Link2,
 } from 'lucide-react'
 import {
   ColdLead,
@@ -41,6 +42,8 @@ import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { useIsMobile } from '@/lib/use-is-mobile'
 import { ColdLeadDetail } from './ColdLeadDetail'
 import { ColdLeadsTable } from './ColdLeadsTable'
+import { DiagnosticoDeVinculos } from './DiagnosticoDeVinculos'
+import { useSincronizarRinkel } from './useSincronizarRinkel'
 
 interface ColdCallingBoardProps {
   initialLeads: ColdLead[]
@@ -175,6 +178,25 @@ export function ColdCallingBoard({
   const [conAtrasadas, setConAtrasadas] = useState(false)
   // En móvil se enseña la lista o la ficha, nunca las dos
   const isMobile = useIsMobile()
+
+  /**
+   * LAS LLAMADAS DE RINKEL SE APUNTAN SOLAS EN EL LEAD (migración 237). Mientras esta pantalla está abierta se pide cada minuto una
+   * lectura rápida de la cuenta de Rinkel de quien mira; si han llegado llamadas nuevas, `version` sube y el historial del lead
+   * abierto las vuelve a pedir. Los intentos, el último contacto y el estado del lead llegan solos por el canal en tiempo real.
+   */
+  const [versionDeLlamadas, setVersionDeLlamadas] = useState(0)
+  useSincronizarRinkel(true, () => setVersionDeLlamadas((v) => v + 1))
+
+  /** Quién es quién, para que el historial diga «Maoli» y no un identificador */
+  const nombres = useMemo(() => {
+    const mapa = new Map<string, string>()
+    for (const p of team) mapa.set(p.id, p.full_name?.trim() || p.email || 'Sin nombre')
+    if (!mapa.has(currentUser.id)) mapa.set(currentUser.id, currentUser.full_name?.trim() || currentUser.email || 'Sin nombre')
+    return mapa
+  }, [team, currentUser])
+
+  /** La comprobación de teléfonos y llamadas: solo la ve quien supervisa; enlazar ahora, solo un administrador */
+  const [comprobando, setComprobando] = useState(false)
 
   // La sesión de trabajo se recuerda: si Maoli se pasa el día en «+100k,
   // sin contactar, vista tabla», mañana entra exactamente ahí. La clave
@@ -819,6 +841,17 @@ export function ColdCallingBoard({
           {/* El comercial SÍ se mantiene: no es un filtro de prospección sino
               de quién es el trabajo, y un admin necesita poder mirar la agenda
               de cada uno. */}
+          {puedeVerTodos && (
+            <button
+              type="button"
+              onClick={() => setComprobando(true)}
+              title="Comprobar que las llamadas de Rinkel se enlazan con los teléfonos de los leads"
+              className="h-7 px-2.5 rounded-full border border-white/10 bg-white/[0.03] text-[11px] font-medium text-white/60 hover:text-white hover:border-white/25 transition-colors flex items-center gap-1.5"
+            >
+              <Link2 className="h-3 w-3" /> Teléfonos
+            </button>
+          )}
+
           {puedeVerTodos && team.length > 0 && (
             <select
               value={ownerFilter}
@@ -1008,6 +1041,8 @@ export function ColdCallingBoard({
                 setView('ficha')
               }}
               onPatched={handlePatched}
+              nombres={nombres}
+              version={versionDeLlamadas}
             />
           )}
         </div>
@@ -1025,6 +1060,8 @@ export function ColdCallingBoard({
               setView('ficha')
             }}
             onPatched={handlePatched}
+            nombres={nombres}
+            version={versionDeLlamadas}
           />
           {visible < filtered.length && (
             <button
@@ -1178,6 +1215,8 @@ export function ColdCallingBoard({
                   canEdit={puedeVerTodos || selected.assigned_to === currentUser.id}
                   onPatched={(patch) => handlePatched(selected.id, patch)}
                   onNext={goNext}
+                  nombres={nombres}
+                  version={versionDeLlamadas}
                 />
               </motion.div>
             ) : (
@@ -1191,6 +1230,10 @@ export function ColdCallingBoard({
           </AnimatePresence>
         </div>
       </div>
+      )}
+
+      {puedeVerTodos && (
+        <DiagnosticoDeVinculos abierto={comprobando} onCerrar={() => setComprobando(false)} esAdmin={currentUser.role === 'admin'} />
       )}
     </div>
   )

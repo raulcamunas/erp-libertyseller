@@ -55,7 +55,7 @@ import {
   formatRevenue,
 } from '@/lib/types/cold-leads'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
-import { ColdLeadNotes } from './ColdLeadNotes'
+import { HistorialDelLead } from './HistorialDelLead'
 
 interface ColdLeadDetailProps {
   lead: ColdLead
@@ -63,6 +63,10 @@ interface ColdLeadDetailProps {
   canEdit: boolean
   onPatched: (patch: Partial<ColdLead>) => void
   onNext: () => void
+  /** Nombre de cada persona del equipo, para decir quién hizo cada llamada del historial */
+  nombres: ReadonlyMap<string, string>
+  /** Sube cuando Rinkel ha traído llamadas nuevas */
+  version: number
 }
 
 const ghostInput =
@@ -110,6 +114,8 @@ export function ColdLeadDetail({
   canEdit,
   onPatched,
   onNext,
+  nombres,
+  version,
 }: ColdLeadDetailProps) {
   const supabase = createClient()
 
@@ -190,11 +196,13 @@ export function ColdLeadDetail({
     patch({ status, last_contacted_at: new Date().toISOString() })
   }
 
-  /** Al registrar una llamada se suma intento y se sella la fecha */
-  function handleLogged(kind: ColdNoteKind) {
-    const fields: Partial<ColdLead> = { last_contacted_at: new Date().toISOString() }
-    if (kind === 'llamada') fields.call_attempts = (lead.call_attempts ?? 0) + 1
-    patch(fields)
+  /**
+   * Al apuntar algo se sella la fecha del último contacto. NO se suma intento aunque sea una «llamada»: las llamadas de
+   * Rinkel suman su intento solas (migración 237) y una «llamada» escrita a mano es un comentario sobre ellas; sumarla
+   * también contaría la misma dos veces.
+   */
+  function handleLogged(_kind: ColdNoteKind) {
+    patch({ last_contacted_at: new Date().toISOString() })
   }
 
   /**
@@ -733,10 +741,12 @@ export function ColdLeadDetail({
 
       {/* Interacciones */}
       <Section icon={<History className="h-3 w-3" />} title="Interacciones">
-        <ColdLeadNotes
+        <HistorialDelLead
           key={lead.id}
           leadId={lead.id}
           currentUser={currentUser}
+          nombres={nombres}
+          version={version}
           onLogged={handleLogged}
         />
       </Section>

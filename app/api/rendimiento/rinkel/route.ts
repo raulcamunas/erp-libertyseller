@@ -17,7 +17,8 @@ import { createServiceClient } from '@/lib/supabase/service'
  * VINCULAR, SINCRONIZAR Y DESVINCULAR LA CLAVE DE RINKEL DE UN COMERCIAL.
  *
  * POST { accion: 'vincular', clave }   · comprueba la clave contra Rinkel, la guarda cifrada y empieza a importar
- * POST { accion: 'sincronizar' }       · lee lo que falte; se repite mientras la respuesta diga `pendiente`
+ * POST { accion: 'sincronizar' }       · lee lo que falte; se repite mientras la respuesta diga `pendiente`. Con `rapida: true`
+ *                                        (la pantalla de Cold Calling, cada minuto) solo relee las últimas dos horas
  * POST { accion: 'desvincular' }       · borra la clave y el estado; las llamadas ya importadas se quedan
  * Las tres admiten además `usuario` (el id de otra persona): ver abajo.
  *
@@ -43,6 +44,8 @@ const PRESUPUESTO_MS = 40_000
 /** Pulsar «Sincronizar» dos veces seguidas no vuelve a preguntar a Rinkel: no hay nada nuevo en 15 segundos */
 const ENTRE_LECTURAS_MS = 15_000
 const SIN_CACHE = { 'Cache-Control': 'no-store' }
+/** Dos horas: lo que se relee en una lectura «rápida» (la pantalla de Cold Calling pide una por minuto) */
+const SOLAPE_RAPIDO_DIAS = 2 / 24
 
 const ACCIONES = ['vincular', 'sincronizar', 'desvincular'] as const
 type Accion = (typeof ACCIONES)[number]
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest) {
   const cuerpo = await leerCuerpoConTope(request, MAX_BYTES_CUERPO)
   if (cuerpo instanceof NextResponse) return cuerpo
 
-  let json: { accion?: unknown; clave?: unknown; usuario?: unknown }
+  let json: { accion?: unknown; clave?: unknown; usuario?: unknown; rapida?: unknown }
   try {
     json = JSON.parse(cuerpo.texto) as typeof json
   } catch {
@@ -113,10 +116,12 @@ export async function POST(request: NextRequest) {
     // sincronizar
     const vinculo = await leerVinculo(service, userId)
     if (!vinculo) return fail(409, 'Todavía no hay una clave de Rinkel vinculada.')
+    // Una lectura rápida es para lo reciente: si aún falta importar el histórico, eso lo hace la pasada de fondo y no esta petición
+    if (json.rapida === true && !vinculo.historico_completo) return NextResponse.json({ ok: true, historicoPendiente: true }, { headers: SIN_CACHE })
     if (vinculo.historico_completo && vinculo.ultimo_intento_at && Date.now() - Date.parse(vinculo.ultimo_intento_at) < ENTRE_LECTURAS_MS) {
       return NextResponse.json({ ok: true, recienLeido: true }, { headers: SIN_CACHE })
     }
-    const lectura = await leerCuentaDe(service, userId, { presupuestoMs: PRESUPUESTO_MS })
+    const lectura = await leerCuentaDe(service, userId, { presupuestoMs: PRESUPUESTO_MS, ...(json.rapida === true ? { solapeDias: SOLAPE_RAPIDO_DIAS } : {}) })
     if (lectura.tipo === 'sin_vinculo') return fail(409, 'Todavía no hay una clave de Rinkel vinculada.')
     return NextResponse.json({ ok: true, ...respuestaDeLectura(lectura) }, { headers: SIN_CACHE })
   } catch (error) {

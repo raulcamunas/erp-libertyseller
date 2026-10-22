@@ -56,6 +56,22 @@ console.log('\n=== varios teléfonos en el mismo campo ===')
   ok('un solo número con espacios no se parte por los espacios', JSON.stringify(clavesDeTelefonos('+34 600 11 22 33')) === '["600112233"]')
 }
 
+console.log('\n=== otros formatos reales de un campo con varios teléfonos ===')
+{
+  const claves = (t: string) => JSON.stringify(clavesDeTelefonos(t))
+  ok('separados por « y » o « o »', claves('931112244 y 600112233') === '["931112244","600112233"]' && claves('931112244 o 600112233') === '["931112244","600112233"]')
+  ok('separados por barra vertical o por salto de línea', claves('931112244|600112233') === '["931112244","600112233"]' && claves('931112244\n600112233') === '["931112244","600112233"]')
+  ok('pegados con un solo espacio: dos números de nueve cifras', claves('931112244 600112233') === '["931112244","600112233"]')
+  ok('pegados con espacios dentro de cada uno', claves('931 11 22 44 600 11 22 33') === '["931112244","600112233"]')
+  ok('dos con el +34 delante', claves('+34 931112244 +34 600112233') === '["931112244","600112233"]')
+  ok('tres de nueve cifras', claves('931112244 600112233 977000111') === '["931112244","600112233","977000111"]')
+  ok('con una extensión detrás', claves('910 21 04 65 ext. 2') === '["910210465"]' && claves('931112244 (ext 12)') === '["931112244"]' && claves('931112244 extensión 3') === '["931112244"]')
+  ok('con texto delante o detrás', claves('Tel: 931112244') === '["931112244"]' && claves('931112244 (centralita)') === '["931112244"]')
+  ok('una tira de dieciocho cifras donde un trozo no es un número español NO se adivina', claves('931112244 123456789') === '[]')
+  ok('una tira que no es múltiplo de nueve ni de once tampoco', claves('9311122446001122') === '[]')
+  ok('uno de otro país suelto sigue siendo uno solo', claves('+44 20 7946 0958') === '["+442079460958"]')
+}
+
 console.log('\n=== cómo se lee en pantalla ===')
 {
   ok('un español con espacios', telefonoLegible('+34600112233') === '+34 600 11 22 33')

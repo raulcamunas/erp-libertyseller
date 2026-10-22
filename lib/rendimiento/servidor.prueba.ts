@@ -2,6 +2,7 @@ import type { createServiceClient } from '@/lib/supabase/service'
 import { decryptToken } from '@/lib/amazon/crypto'
 import { pedirTurnoDeLectura } from '@/lib/fba/lectura-en-curso'
 import { MENSAJE_DE_ERROR, type DepsRinkel } from '@/lib/rendimiento/rinkel'
+import { olvidarRepasos } from '@/lib/cold-calling/vinculos-servidor'
 import { autorizarObjetivo, contarLlamadas, desvincularClave, esComercial, guardarLlamadas, huellaDeClave, leadsPorTelefonoDe, leerCuentaDe, vincularClave } from '@/lib/rendimiento/servidor'
 
 let fallos = 0
@@ -34,6 +35,8 @@ class Consulta {
   private conflicto: string[] = []
   private rango: [number, number] | null = null
   private soloContar = false
+  private otros: Array<(f: Fila) => boolean> = []
+  private tope: number | null = null
 
   constructor(
     private base: Base,
@@ -50,6 +53,26 @@ class Consulta {
     return this
   }
   order() {
+    return this
+  }
+  is(columna: string, valor: unknown) {
+    this.otros.push((f) => (valor === null ? (f[columna] ?? null) === null : f[columna] === valor))
+    return this
+  }
+  not(columna: string, operador: string, valor: unknown) {
+    if (operador === 'is' && valor === null) this.otros.push((f) => (f[columna] ?? null) !== null)
+    return this
+  }
+  gte(columna: string, valor: string) {
+    this.otros.push((f) => String(f[columna]) >= valor)
+    return this
+  }
+  in(columna: string, valores: unknown[]) {
+    this.otros.push((f) => valores.includes(f[columna]))
+    return this
+  }
+  limit(n: number) {
+    this.tope = n
     return this
   }
   range(desde: number, hasta: number) {
@@ -83,12 +106,13 @@ class Consulta {
     const fallo = this.base.falla.get(`${this.operacion} ${this.tabla}`)
     if (fallo) return { data: null, error: { message: fallo } }
     const tabla = this.base.tabla(this.tabla)
-    const cumple = (f: Fila) => this.filtros.every(([c, v]) => f[c] === v)
+    const cumple = (f: Fila) => this.filtros.every(([c, v]) => f[c] === v) && this.otros.every((p) => p(f))
 
     if (this.operacion === 'select') {
       let encontradas = tabla.filter(cumple)
       if (this.soloContar) return { data: null, error: null, count: encontradas.length }
       if (this.rango) encontradas = encontradas.slice(this.rango[0], this.rango[1] + 1)
+      if (this.tope !== null) encontradas = encontradas.slice(0, this.tope)
       return unica ? { data: encontradas[0] ?? null, error: null } : { data: encontradas, error: null }
     }
     if (this.operacion === 'update') {
@@ -109,7 +133,8 @@ class Consulta {
         if (otraConLaMismaHuella) return { data: null, error: { message: 'duplicate key value violates unique constraint "rinkel_claves_huella_key"' } }
       }
       if (igual) Object.assign(igual, nueva)
-      else tabla.push({ ...nueva })
+      // Una columna que no viaja en el upsert vale lo que valga por defecto en la base: lead_id, NULL
+      else tabla.push({ ...(this.tabla === 'rinkel_llamadas' ? { lead_id: null } : {}), ...nueva })
     }
     return { data: null, error: null }
   }
@@ -125,6 +150,23 @@ class Base {
   }
   from(nombre: string) {
     return new Consulta(this, nombre)
+  }
+  /** Imita la función cold_vincular_llamadas de la migración 237: enlaza las llamadas sin lead y devuelve cuántas */
+  rpcs: Array<{ nombre: string; historico: boolean; pares: number }> = []
+  async rpc(nombre: string, args: { p_pares: Array<{ llamada: string; lead: string }>; p_historico: boolean }) {
+    this.consultas.push(`rpc ${nombre}`)
+    const fallo = this.falla.get(`rpc ${nombre}`)
+    if (fallo) return { data: null, error: { message: fallo, code: fallo.startsWith('PGRST202') ? 'PGRST202' : 'XX000' } }
+    this.rpcs.push({ nombre, historico: args.p_historico, pares: args.p_pares.length })
+    let n = 0
+    for (const par of args.p_pares) {
+      const fila = this.tabla('rinkel_llamadas').find((l) => l.id === par.llamada)
+      if (!fila || (fila.lead_id ?? null) !== null || !this.tabla('cold_leads').some((l) => l.id === par.lead)) continue
+      fila.lead_id = par.lead
+      if (args.p_historico) fila.efecto_aplicado = true
+      n += 1
+    }
+    return { data: n, error: null }
   }
 }
 
@@ -418,6 +460,52 @@ async function main() {
     ok('guarda en bloques de 500: 3 upserts para 1.200 filas', b.consultas.filter((c) => c === 'upsert rinkel_llamadas').length === 3 && b.tabla('rinkel_llamadas').length === 1200)
     await guardarLlamadas(servicio(b), filas.slice(0, 100))
     ok('repetir no duplica', b.tabla('rinkel_llamadas').length === 1200)
+  }
+
+  console.log('\n=== guardar NO borra un enlace que ya existe ===')
+  {
+    const b = new Base()
+    const fila = (lead: string | null, rinkelId = 'k1') => ({ user_id: MAOLI, lead_id: lead, rinkel_id: rinkelId, call_id: null, fecha: '2026-10-21T10:00:00.000Z', direccion: 'outbound', duracion_s: 5, estado: 'ANSWERED', motivo_perdida: null, numero: '+34600112233', numero_anonimo: false, numero_propio: null, grabacion_id: null, grabacion_hasta: null })
+    await guardarLlamadas(servicio(b), [fila('lead-1')])
+    ok('una llamada se guarda con su lead', b.tabla('rinkel_llamadas')[0].lead_id === 'lead-1')
+    // El solape de tres días la vuelve a leer, pero el lead ya no casa (cambió de teléfono o de dueño): llega con lead_id null
+    await guardarLlamadas(servicio(b), [fila(null)])
+    ok('releerla sin lead NO le quita el que tenía', b.tabla('rinkel_llamadas')[0].lead_id === 'lead-1')
+    await guardarLlamadas(servicio(b), [fila(null, 'k2')])
+    ok('y una nueva sin lead nace sin lead', b.tabla('rinkel_llamadas').find((l) => l.rinkel_id === 'k2')?.lead_id === null)
+    await guardarLlamadas(servicio(b), [fila('lead-2')])
+    ok('releerla CON otro lead sí actualiza el enlace', b.tabla('rinkel_llamadas')[0].lead_id === 'lead-2')
+    ok('los dos grupos van en upserts separados', b.consultas.filter((c) => c === 'upsert rinkel_llamadas').length === 4)
+  }
+
+  console.log('\n=== varios leads con el mismo teléfono ===')
+  {
+    const b = new Base()
+    b.tabla('cold_leads').push(
+      { id: 'cerrado', assigned_to: MAOLI, phone: '931112244', telefonos_extra: null, status: 'no_interesa', last_contacted_at: '2026-10-20T10:00:00.000Z' },
+      { id: 'abierto', assigned_to: MAOLI, phone: '+34 931 11 22 44', telefonos_extra: null, status: 'seguimiento', last_contacted_at: '2026-09-01T10:00:00.000Z' }
+    )
+    const mapa = await leadsPorTelefonoDe(servicio(b), MAOLI)
+    ok('se lleva la llamada el lead que sigue abierto, no el descartado', mapa.get('931112244') === 'abierto', String(mapa.get('931112244')))
+  }
+
+  console.log('\n=== una llamada guardada ANTES de que existiera el lead se enlaza en la siguiente lectura ===')
+  {
+    olvidarRepasos()
+    const b = new Base()
+    const llamadas = Array.from({ length: 6 }, (_, i) => llamadaCruda(i + 1, `+3462200${String(i + 1).padStart(4, '0')}`))
+    const r = rinkelFalso({ llamadas })
+    const v = await vincularClave(servicio(b), MAOLI, CLAVE_DE_MAOLI, { presupuestoMs: 600_000, rinkel: r.deps })
+    ok('se vincula y se importan las seis, todas sin lead (no hay ningún lead)', v.ok && b.tabla('rinkel_llamadas').length === 6 && b.tabla('rinkel_llamadas').every((l) => (l.lead_id ?? null) === null))
+
+    // Después alguien crea el lead de uno de esos números, y de otro más lo crea en la cartera de otra persona
+    b.tabla('cold_leads').push({ id: 'lead-nuevo', assigned_to: MAOLI, phone: '622 00 00 03', telefonos_extra: null, status: 'pendiente', last_contacted_at: null })
+    b.tabla('cold_leads').push({ id: 'lead-ajeno', assigned_to: DANIELA, phone: '622 00 00 04', telefonos_extra: null, status: 'pendiente', last_contacted_at: null })
+    olvidarRepasos()
+    const lectura = await leerCuentaDe(servicio(b), MAOLI, { presupuestoMs: 600_000, rinkel: r.deps })
+    ok('la lectura se hace sin error', lectura.tipo === 'hecha' && lectura.resumen.ok)
+    ok('la llamada a ese número queda enlazada con el lead nuevo', b.tabla('rinkel_llamadas').find((l) => l.rinkel_id === 'rk-0003')?.lead_id === 'lead-nuevo')
+    ok('la del lead de otra persona, no', (b.tabla('rinkel_llamadas').find((l) => l.rinkel_id === 'rk-0004')?.lead_id ?? null) === null)
   }
 }
 

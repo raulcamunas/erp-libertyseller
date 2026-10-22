@@ -43,7 +43,7 @@ import {
   formatRevenue,
 } from '@/lib/types/cold-leads'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
-import { ColdLeadNotes } from './ColdLeadNotes'
+import { HistorialDelLead } from './HistorialDelLead'
 
 interface ColdLeadsTableProps {
   leads: ColdLead[]
@@ -62,6 +62,10 @@ interface ColdLeadsTableProps {
   /** Abre la ficha completa de ese lead */
   onOpenDetail: (id: string) => void
   onPatched: (id: string, patch: Partial<ColdLead>) => void
+  /** Nombre de cada persona del equipo, para decir quién hizo cada llamada del historial */
+  nombres: ReadonlyMap<string, string>
+  /** Sube cuando Rinkel ha traído llamadas nuevas */
+  version: number
 }
 
 /** Celda de texto editable al vuelo, como en una hoja de cálculo */
@@ -430,6 +434,8 @@ export function ColdLeadsTable({
   onSelect,
   onOpenDetail,
   onPatched,
+  nombres,
+  version,
 }: ColdLeadsTableProps) {
   const supabase = createClient()
 
@@ -453,18 +459,11 @@ export function ColdLeadsTable({
   }
 
   /**
-   * Lo mismo que hace la ficha al registrar algo: sella el último contacto y
-   * suma un intento si fue una llamada.
-   *
-   * Se repite aquí —cuatro líneas— en vez de sacarlo a un sitio común porque
-   * sacarlo obligaría a que la tabla y la ficha compartieran también el `patch`
-   * y el estado local del lead, y eso son dos componentes atados por algo que
-   * cabe en un vistazo.
+   * Lo mismo que hace la ficha al apuntar algo: sella el último contacto. No suma intento ni siquiera si fue una
+   * «llamada»: las de Rinkel lo suman solas (migración 237) y una escrita a mano es un comentario sobre ellas.
    */
-  function registrado(id: string, kind: ColdNoteKind, lead: ColdLead) {
-    const fields: Partial<ColdLead> = { last_contacted_at: new Date().toISOString() }
-    if (kind === 'llamada') fields.call_attempts = (lead.call_attempts ?? 0) + 1
-    void patch(id, fields)
+  function registrado(id: string, _kind: ColdNoteKind) {
+    void patch(id, { last_contacted_at: new Date().toISOString() })
   }
 
   async function patch(id: string, fields: Partial<ColdLead>) {
@@ -768,10 +767,12 @@ export function ColdLeadsTable({
                       >
                         <div className="px-3 py-3 bg-black/25">
                           <DatosEmpresa lead={l} />
-                          <ColdLeadNotes
+                          <HistorialDelLead
                             leadId={l.id}
                             currentUser={currentUser}
-                            onLogged={(kind) => registrado(l.id, kind, l)}
+                            nombres={nombres}
+                            version={version}
+                            onLogged={(kind) => registrado(l.id, kind)}
                           />
                         </div>
                       </motion.div>

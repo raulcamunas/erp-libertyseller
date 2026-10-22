@@ -47,17 +47,48 @@ export function claveDeTelefono(crudo: unknown): string | null {
   return null
 }
 
+/** Lo que separa un teléfono de otro dentro del mismo campo: barra, punto y coma, coma, barra vertical, salto de línea, « - » y « y » / « o » */
+const SEPARADOR = /[/;,|\n\r]|\s-\s|\s(?:y|o|e)\s/i
+
+/** «ext. 2», «extensión 14», «int 3»: una extensión no es parte del número y estropea el recuento de cifras */
+const EXTENSION = /\b(?:ext(?:ensi[oó]n)?|extn|int(?:erno)?)\b\.?\s*\d+.*$/i
+
+/**
+ * Varios números pegados sin ningún separador reconocible («931112244 600112233», «+34 931112244 +34 600112233»):
+ * dos números de nueve cifras suman 18, y dos con el +34 suman 22. Un teléfono real (E.164) no pasa de 15 cifras,
+ * así que una tira de 18 o 22 no puede ser UN número: se parte en trozos del mismo largo, y solo si CADA trozo es un
+ * número español válido (empieza por 6, 7, 8 o 9). Si alguno no lo es no se adivina nada.
+ */
+function partirPorLongitud(cifras: string): string[] {
+  for (const largo of [9, 11]) {
+    if (cifras.length < 2 * largo || cifras.length % largo !== 0) continue
+    const trozos: string[] = []
+    for (let i = 0; i < cifras.length; i += largo) trozos.push(cifras.slice(i, i + largo))
+    const valido = largo === 9 ? /^[6-9]\d{8}$/ : /^34[6-9]\d{8}$/
+    if (trozos.every((t) => valido.test(t))) return trozos.map((t) => (largo === 9 ? t : t.slice(2)))
+  }
+  return []
+}
+
 /**
  * Las claves de TODOS los teléfonos que lleve un texto. Un lead puede traer varios en el mismo
- * campo («931112244 / 600112233», «600112233; 931112244»), y el que sirve para casar la llamada
- * es cualquiera de ellos. Sin repetidos y en el orden en que aparecen.
+ * campo («931112244 / 600112233», «600112233; 931112244», «931112244 y 600112233»), y el que sirve para
+ * casar la llamada es cualquiera de ellos. Sin repetidos y en el orden en que aparecen.
+ *
+ * Es tolerante a propósito: un lead cuyo teléfono no se reconoce es un lead al que las llamadas nunca se
+ * enlazan, y no da ningún error, así que cada formato que se pueda leer sin adivinar se lee.
  */
 export function clavesDeTelefonos(texto: unknown): string[] {
   if (texto === null || texto === undefined) return []
   const claves: string[] = []
-  for (const trozo of String(texto).split(/[/;,]|\s-\s/)) {
-    const clave = claveDeTelefono(trozo)
+  const anadir = (clave: string | null) => {
     if (clave && !claves.includes(clave)) claves.push(clave)
+  }
+  for (const trozo of String(texto).split(SEPARADOR)) {
+    const limpio = trozo.replace(EXTENSION, '')
+    const clave = claveDeTelefono(limpio)
+    if (clave) anadir(clave)
+    else for (const suelta of partirPorLongitud(limpio.replace(/\D/g, ''))) anadir(suelta)
   }
   return claves
 }
