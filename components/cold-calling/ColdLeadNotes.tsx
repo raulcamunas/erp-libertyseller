@@ -33,6 +33,12 @@ const KIND_ICONS: Record<ColdNoteKind, typeof Phone> = {
 
 const KINDS: ColdNoteKind[] = ['llamada', 'email', 'whatsapp', 'linkedin', 'nota']
 
+/**
+ * Los canales en los que el cliente puede ESCRIBIR de vuelta. En una llamada o en una nota suelta la casilla
+ * de «respuesta» no tiene sentido: la llamada ya cuenta en Rinkel y la nota es un comentario.
+ */
+const CANALES_CON_RESPUESTA: ReadonlySet<ColdNoteKind> = new Set<ColdNoteKind>(['email', 'whatsapp', 'linkedin'])
+
 const NOTE_SELECT = `
   *,
   author:profiles!cold_lead_notes_author_id_fkey(id, full_name, email, role, calendar_color)
@@ -44,12 +50,19 @@ export function ColdLeadNotes({ leadId, currentUser, onLogged }: ColdLeadNotesPr
   const [loading, setLoading] = useState(true)
   const [kind, setKind] = useState<ColdNoteKind>('llamada')
   const [body, setBody] = useState('')
+  /**
+   * La interacción es lo que escribió el CLIENTE, no lo que mandamos. Alimenta «respuestas de hoy» del panel
+   * «Mi rendimiento», y una nota marcada así no cuenta además como correo o WhatsApp enviado.
+   */
+  const [esRespuesta, setEsRespuesta] = useState(false)
   const [saving, setSaving] = useState(false)
+  const marcaRespuesta = esRespuesta && CANALES_CON_RESPUESTA.has(kind)
 
   useEffect(() => {
     let active = true
     setLoading(true)
     setBody('')
+    setEsRespuesta(false)
     supabase
       .from('cold_lead_notes')
       .select(NOTE_SELECT)
@@ -72,16 +85,25 @@ export function ColdLeadNotes({ leadId, currentUser, onLogged }: ColdLeadNotesPr
     try {
       const { data, error } = await supabase
         .from('cold_lead_notes')
-        .insert({ lead_id: leadId, author_id: currentUser.id, kind, body: text })
+        // `es_respuesta` solo viaja si está marcado: así, antes de lanzar la migración 234, anotar una
+        // interacción normal sigue funcionando igual que siempre.
+        .insert({ lead_id: leadId, author_id: currentUser.id, kind, body: text, ...(marcaRespuesta ? { es_respuesta: true } : {}) })
         .select(NOTE_SELECT)
         .single()
       if (error) throw error
       setNotes((prev) => [data as ColdLeadNote, ...prev])
       setBody('')
+      setEsRespuesta(false)
       onLogged(kind)
     } catch (err) {
       console.error('Error guardando la interacción:', err)
-      toast.error('No se pudo guardar la interacción')
+      // PGRST204 / 42703: la columna no existe todavía, o sea que falta lanzar la migración 234
+      const codigo = (err as { code?: string } | null)?.code
+      toast.error(
+        marcaRespuesta && (codigo === 'PGRST204' || codigo === '42703')
+          ? 'Para marcar respuestas falta lanzar la migración 234 en Supabase'
+          : 'No se pudo guardar la interacción'
+      )
     } finally {
       setSaving(false)
     }
@@ -135,6 +157,18 @@ export function ColdLeadNotes({ leadId, currentUser, onLogged }: ColdLeadNotesPr
           className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-white outline-none focus:border-[#FF6600] transition-colors resize-none placeholder:text-white/25"
         />
 
+        {CANALES_CON_RESPUESTA.has(kind) && (
+          <label className="flex items-center gap-1.5 cursor-pointer select-none w-fit">
+            <input
+              type="checkbox"
+              checked={esRespuesta}
+              onChange={(e) => setEsRespuesta(e.target.checked)}
+              className="h-3 w-3 accent-[#FF6600]"
+            />
+            <span className="text-[11px] text-white/60">Es una respuesta del cliente</span>
+          </label>
+        )}
+
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-white/25 flex-1">⌘/Ctrl + Enter para guardar</span>
           <button
@@ -186,6 +220,11 @@ export function ColdLeadNotes({ leadId, currentUser, onLogged }: ColdLeadNotesPr
                       <span className="text-[11px] font-semibold text-white">
                         {COLD_NOTE_LABELS[n.kind] ?? n.kind}
                       </span>
+                      {n.es_respuesta && (
+                        <span className="rounded px-1 py-px text-[9px] font-medium bg-emerald-500/15 text-emerald-300">
+                          respuesta del cliente
+                        </span>
+                      )}
                       <span className="text-[10px] text-white/30">
                         {format(toMadrid(n.occurred_at), "d MMM yyyy, HH:mm", { locale: es })}
                         {n.author?.full_name ? ` · ${n.author.full_name}` : ''}

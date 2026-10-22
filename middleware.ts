@@ -458,6 +458,10 @@ export async function middleware(request: NextRequest) {
           // lleva ningún dato salarial. El permiso lo reparte la migración 116
           // a admins y employees; el filtro de verdad son sus políticas RLS.
           '/dashboard/vacaciones': 'vacaciones',
+          // Mi rendimiento: cada comercial ve el suyo. El permiso lo reparte la migración 234 a los
+          // comerciales y a quien supervisa al equipo; el filtro de verdad son las políticas RLS de las
+          // tablas rinkel_*, que dejan leer lo propio (o todo a quien supervisa) y nada más.
+          '/dashboard/rendimiento': 'rendimiento',
         }
 
         const appId = routeToAppId[pathname]

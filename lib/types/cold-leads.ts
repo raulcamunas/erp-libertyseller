@@ -104,6 +104,8 @@ export interface ColdLeadNote {
   author_id: string | null
   kind: ColdNoteKind
   body: string
+  /** Lo que escribió el cliente, no lo que mandamos. Columna de la migración 234; null/ausente = no */
+  es_respuesta?: boolean | null
   occurred_at: string
   created_at: string
   author?: CalendarPerson | null

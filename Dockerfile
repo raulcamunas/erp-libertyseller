@@ -71,6 +71,7 @@ RUN { \
       echo "* * * * * /app/scripts/fba-seguimiento.sh"; \
       echo "* * * * * /app/scripts/stock-verificacion.sh"; \
       echo "* * * * * /app/scripts/cumplimiento.sh"; \
+      echo "* * * * * /app/scripts/rinkel-llamadas.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto

@@ -23,6 +23,7 @@ import {
   Eraser,
   Receipt,
   FileSpreadsheet,
+  Gauge,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -107,6 +108,19 @@ export const apps: AppConfig[] = [
     description: 'Apunta tus horas y mira en vivo tu salario y comisiones',
     icon: Timer,
     route: '/dashboard/horas',
+    status: 'new',
+    category: 'productivity'
+  },
+  {
+    // Cada comercial ve SU panel; quien supervisa al equipo (admin, partner o el permiso suelto
+    // 'equipo-comercial') puede cambiar de persona. El id va LETRA POR LETRA igual que en middleware.ts,
+    // que en el requireAppAccess('rendimiento') de sus rutas de API y que en el INSERT de la migración 234:
+    // si baila en uno, la pantalla se abre y la API contesta 403 sin decir por qué.
+    id: 'rendimiento',
+    name: 'Mi rendimiento',
+    description: 'Tus llamadas, mensajes, correos y citas del día, con las grabaciones de Rinkel',
+    icon: Gauge,
+    route: '/dashboard/rendimiento',
     status: 'new',
     category: 'productivity'
   },

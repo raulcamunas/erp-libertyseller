@@ -188,6 +188,27 @@ export const TAREAS_CRON = [
       'tienen stock, y las guarda por cliente. No escribe nada en Amazon.',
   },
   {
+    /**
+     * CADA COMERCIAL TIENE SU CUENTA DE RINKEL, Y CADA UNA SE LEE POR SEPARADO.
+     *
+     * Cada persona vincula su clave de la API en su panel «Mi rendimiento» y esta tarea lee las llamadas nuevas
+     * de TODAS las cuentas vinculadas, una detrás de otra, con un presupuesto de tiempo: la que no cabe en esta
+     * pasada se retoma en la siguiente, empezando por la que lleva más tiempo sin leerse. Lo reciente cuesta una
+     * o dos peticiones por cuenta; el histórico de una cuenta recién vinculada lo va completando por tramos
+     * (lib/rendimiento/sincronizar.ts).
+     *
+     * Cada diez minutos porque la lista de llamadas del día es lo que mira un supervisor para saber cómo va el
+     * equipo, y una grabación aparece en Rinkel unos minutos después de colgar.
+     */
+    id: 'rinkel-llamadas',
+    nombre: 'Llamadas de Rinkel',
+    ruta: '/api/rendimiento/cron',
+    cadaMinutos: 10,
+    que:
+      'Lee de Rinkel las llamadas nuevas de cada comercial que ha vinculado su clave, con la grabación de ' +
+      'las que la tienen, para el panel «Mi rendimiento». No escribe nada en Rinkel.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',

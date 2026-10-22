@@ -56,7 +56,8 @@ const TAG_BYTES = 16
  * otra cosa con la misma clave) no se pueda pegar en la columna del token y
  * descifrarse sin más.
  */
-const AAD = Buffer.from('amazon.refresh_token.v1', 'utf8')
+const PROPOSITO_AMAZON = 'amazon.refresh_token.v1'
+const AAD = Buffer.from(PROPOSITO_AMAZON, 'utf8')
 
 /** El mensaje de «falta la clave», completo, porque es lo primero que va a
     pasar en un despliegue nuevo y tiene que decir exactamente qué hacer */
@@ -107,6 +108,11 @@ export function hasTokenKey(): boolean {
 }
 
 /**
+ * `proposito` ata lo cifrado a para qué se cifró (el AAD de GCM): un valor cifrado para un uso NO se descifra
+ * si se pega donde se espera otro, aunque la clave sea la misma. Por defecto es el de los tokens de Amazon, que
+ * es lo que usan todos los llamadores de siempre; lo que se cifre con otro fin —como las claves de Rinkel— lleva
+ * el suyo.
+ *
  * Cifra un refresh token. Devuelve 'v1.<iv>.<tag>.<ciphertext>' en base64url,
  * que es lo que se guarda en amazon_connections.refresh_token_enc.
  *
@@ -114,13 +120,13 @@ export function hasTokenKey(): boolean {
  * consultas, y así no lleva '+', '/' ni '=' que alguien pueda escapar mal por
  * el camino.
  */
-export function encryptToken(plain: string): string {
+export function encryptToken(plain: string, proposito: string = PROPOSITO_AMAZON): string {
   if (typeof plain !== 'string' || plain === '') {
     throw new Error('No se puede cifrar un token vacío')
   }
   const iv = randomBytes(IV_BYTES)
   const cipher = createCipheriv('aes-256-gcm', tokenKey(), iv)
-  cipher.setAAD(AAD)
+  cipher.setAAD(proposito === PROPOSITO_AMAZON ? AAD : Buffer.from(proposito, 'utf8'))
   const ct = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
   const tag = cipher.getAuthTag()
 
@@ -136,7 +142,7 @@ export function encryptToken(plain: string): string {
  * longitud. Un error se acaba imprimiendo en un log, y un log con material del
  * token deja de ser un log para convertirse en el problema.
  */
-export function decryptToken(stored: string): string {
+export function decryptToken(stored: string, proposito: string = PROPOSITO_AMAZON): string {
   if (typeof stored !== 'string' || stored === '') {
     throw new Error('La conexión no tiene token guardado')
   }
@@ -158,7 +164,7 @@ export function decryptToken(stored: string): string {
 
   try {
     const decipher = createDecipheriv('aes-256-gcm', tokenKey(), iv)
-    decipher.setAAD(AAD)
+    decipher.setAAD(proposito === PROPOSITO_AMAZON ? AAD : Buffer.from(proposito, 'utf8'))
     decipher.setAuthTag(tag)
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8')
   } catch {
