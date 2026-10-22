@@ -12,6 +12,7 @@ import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, COLD_STATUS_LABELS, esTiendaOnli
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, tinte } from './ui'
+import { useEscribirAlLead } from './useEscribirAlLead'
 
 /**
  * LA TABLA: muchos leads a la vez, como el Excel de siempre, con el estado, la rellamada y el seguimiento editables en la fila.
@@ -92,6 +93,7 @@ function CeldaEditable({ valor, onGuardar, deshabilitada, placeholder }: { valor
 }
 
 export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos, selectedId, onSelect, onOpenDetail, onPatched, nombres, version, hoy, generacion }: Props) {
+  const escribirAlLead = useEscribirAlLead()
   const supabase = useMemo(() => createClient(), [])
   const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set())
   const [visibles, setVisibles] = useState(TRAMO)
@@ -263,9 +265,10 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
 
                   <td className={TABLA.celda} onClick={(e) => e.stopPropagation()}>
                     {l.email ? (
-                      <a href={`mailto:${l.email.split(/[\s/,;]+/)[0]}`} className={`${TABLA.corta} max-w-[170px] transition-colors hover:text-[var(--ls-acc)]`} title={l.email}>
+                      // Lleva a Correo con el mensaje ya abierto y dirigido a él (lib/correo/peticiones.ts); la tabla se queda como está
+                      <button type="button" onClick={() => escribirAlLead(l)} className={`${TABLA.corta} max-w-[170px] text-left transition-colors hover:text-[var(--ls-acc)]`} title={`Escribir a ${l.email}`}>
                         {l.email}
-                      </a>
+                      </button>
                     ) : (
                       <span className={CELDA.vacia}>—</span>
                     )}

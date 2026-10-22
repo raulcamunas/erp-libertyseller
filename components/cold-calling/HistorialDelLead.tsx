@@ -124,34 +124,42 @@ export function HistorialDelLead({ leadId, currentUser, nombres, version = 0, on
     return error ? [] : ((data ?? []) as LlamadaDelHistorial[])
   }, [supabase, leadId])
 
+  /** Los apuntes de este lead; null si la consulta falla (entonces se dejan los que había) */
+  const pedirNotas = useCallback(async () => {
+    const { data, error } = await supabase.from('cold_lead_notes').select(NOTE_SELECT).eq('lead_id', leadId).order('occurred_at', { ascending: false })
+    return error ? null : ((data as ColdLeadNote[]) ?? [])
+  }, [supabase, leadId])
+
   useEffect(() => {
     let activo = true
     setCargando(true)
     setTexto('')
     setEsRespuesta(false)
     setAbierta(null)
-    Promise.all([supabase.from('cold_lead_notes').select(NOTE_SELECT).eq('lead_id', leadId).order('occurred_at', { ascending: false }), pedirLlamadas()]).then(([n, l]) => {
+    Promise.all([pedirNotas(), pedirLlamadas()]).then(([n, l]) => {
       if (!activo) return
-      setNotas((n.data as ColdLeadNote[]) || [])
+      setNotas(n ?? [])
       setLlamadas(l)
       setCargando(false)
     })
     return () => {
       activo = false
     }
-  }, [supabase, leadId, pedirLlamadas])
+  }, [pedirNotas, pedirLlamadas])
 
-  // Rinkel ha traído llamadas nuevas: se vuelven a pedir las de este lead (las notas no cambian solas)
+  // Rinkel ha traído llamadas nuevas, o ha salido un correo desde la ficha de este lead (se apunta solo): se vuelve a pedir su historial
   useEffect(() => {
     if (version === 0) return
     let activo = true
-    pedirLlamadas().then((l) => {
-      if (activo) setLlamadas(l)
+    Promise.all([pedirNotas(), pedirLlamadas()]).then(([n, l]) => {
+      if (!activo) return
+      if (n) setNotas(n)
+      setLlamadas(l)
     })
     return () => {
       activo = false
     }
-  }, [version, pedirLlamadas])
+  }, [version, pedirNotas, pedirLlamadas])
 
   async function guardar() {
     const cuerpo = texto.trim()
@@ -262,15 +270,25 @@ export function HistorialDelLead({ leadId, currentUser, nombres, version = 0, on
                   {!ultimo && <span aria-hidden className="absolute bottom-0 left-[10px] top-6 w-px bg-[var(--ls-linea2)]" />}
                   <Capsula icono={ICONO_DE_LLAMADA[d.icono]} tono={d.tono} />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-[12px] font-semibold text-[var(--ls-t1)]">{d.titulo}</span>
-                      <span className="text-[12px] text-[var(--ls-t2)]">{d.resultado}</span>
+                    {/* El botón de escuchar va CENTRADO en vertical respecto a las dos líneas de la llamada (título y resultado, y
+                        teléfono con fecha), no pegado a la primera: antes se quedaba más arriba que el centro y parecía descolgado */}
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline gap-x-1.5">
+                          <span className="text-[12px] font-semibold text-[var(--ls-t1)]">{d.titulo}</span>
+                          <span className="text-[12px] text-[var(--ls-t2)]">{d.resultado}</span>
+                        </div>
+                        <p className="text-[11px] text-[var(--ls-t4)]">
+                          {d.telefono} · {cuandoEs(l.fecha)}
+                          {quien ? ` · ${quien}` : ''}
+                        </p>
+                      </div>
                       {conGrabacion && (
                         <button
                           type="button"
                           onClick={() => setAbierta(abierto ? null : l.id)}
                           aria-expanded={abierto}
-                          className={`ml-auto inline-flex h-5 items-center gap-1 rounded-[4px] border px-1.5 text-[11px] font-medium transition-colors ${
+                          className={`inline-flex h-6 shrink-0 items-center gap-1.5 rounded-[6px] border px-2 text-[11.5px] font-medium transition-colors ${
                             abierto ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-t1)]' : 'border-[var(--ls-linea)] text-[var(--ls-t2)] hover:border-[var(--ls-acc-graf)] hover:text-[var(--ls-t1)]'
                           }`}
                         >
@@ -279,15 +297,11 @@ export function HistorialDelLead({ leadId, currentUser, nombres, version = 0, on
                         </button>
                       )}
                       {caducada && (
-                        <span className="ml-auto text-[11px] text-[var(--ls-t4)]" title="Rinkel guarda las grabaciones 90 días">
+                        <span className="shrink-0 text-[11px] text-[var(--ls-t4)]" title="Rinkel guarda las grabaciones 90 días">
                           grabación caducada
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-[var(--ls-t4)]">
-                      {d.telefono} · {cuandoEs(l.fecha)}
-                      {quien ? ` · ${quien}` : ''}
-                    </p>
                     {abierto && <ReproductorGrabacion llamadaId={l.id} onCerrar={() => setAbierta(null)} />}
                   </div>
                 </li>

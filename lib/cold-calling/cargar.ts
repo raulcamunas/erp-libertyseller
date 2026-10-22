@@ -4,8 +4,8 @@ import type { ColdLead } from '@/lib/types/cold-leads'
 /**
  * TRAER LA CARTERA DE LEADS, RÁPIDO.
  * ==================================
- * Sirve igual desde el servidor (la página, con la sesión de quien mira) que desde el navegador (cuando un supervisor cambia de
- * comercial). Se comprueba con cargar.prueba.ts.
+ * Sirve igual desde el servidor (con la sesión de quien mira) que desde el navegador, que es de donde se pide hoy: Cold Calling se queda
+ * montada al cambiar de aplicación y pide su cartera ella misma, una vez por sesión. Se comprueba con cargar.prueba.ts.
  *
  * POR QUÉ NO SE PIDE ENTERA DE UNA VEZ. PostgREST corta cualquier consulta a 1.000 filas (el ajuste max-rows) y un .limit() mayor
  * no lo salta: la cartera hay que pedirla por tramos. Antes se pedían uno tras otro —con la cartera de todos los comerciales, unas
@@ -26,9 +26,6 @@ export const COLUMNAS_DE_CARTERA = [
   'tipo_lead', 'vende_en_amazon', 'tipo_empresa', 'nivel', 'revenue_monthly', 'ventas_estimadas_usd',
   'assigned_to', 'status', 'follow_up', 'next_call_date', 'last_contacted_at', 'call_attempts', 'source_list',
 ].join(', ')
-
-/** La cookie donde quien supervisa deja de qué comercial es la cartera que mira, para que el servidor traiga ya la buena la próxima vez */
-export const COOKIE_DE_PROPIETARIO = 'cc_propietario'
 
 export const FILAS_POR_TRAMO = 1000
 /** Cuántos tramos se piden a la vez. Con 6.000 leads son seis; con 27.000, no se abren veintisiete conexiones juntas */

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -12,6 +12,9 @@ import {
   ChevronRight
 } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
+import { NotificationsBell } from '@/components/layout/NotificationsBell'
+import { leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { LogoutButton } from '@/components/auth/logout-button'
 import { apps, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
 import { cn } from '@/lib/utils'
@@ -25,6 +28,8 @@ export function AppSidebar() {
   const [userRole, setUserRole] = useState<RolUsuario | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [webLeadsBadge, setWebLeadsBadge] = useState<number | undefined>(undefined)
+  // Cuántas conversaciones de correo tienen algo sin leer: lo publica el lector de correo nuevo (components/avisos), esté donde esté la persona
+  const correoSinLeer = useSyncExternalStore(suscribirContadores, leerCorreoSinLeer, () => 0)
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
@@ -246,7 +251,9 @@ export function AppSidebar() {
               // Usar badge dinámico para web-leads si es admin
               const badge = app.id === 'web-leads' && userRole === 'admin' 
                 ? webLeadsBadge 
-                : app.badge
+                : app.id === 'correo' && correoSinLeer > 0
+                  ? correoSinLeer
+                  : app.badge
               
               return (
                 <Link
@@ -291,8 +298,15 @@ export function AppSidebar() {
           </div>
         </nav>
 
-        {/* Footer con Gestión de Usuarios y Logout */}
+        {/* Footer con las notificaciones, el tema, Gestión de Usuarios y Logout.
+            LAS NOTIFICACIONES Y EL TEMA VIVEN AQUÍ, ABAJO A LA IZQUIERDA: antes eran dos botones fijos arriba a la derecha de la pantalla y
+            se montaban encima de pestañas, desplegables y botones de cabecera de cada página. En una barra plegada se apilan. */}
         <div className="border-t border-white/10 p-4 space-y-1">
+          <div className={cn('flex gap-1', isCollapsed ? 'flex-col items-center' : 'items-center')}>
+            <NotificationsBell colapsado={isCollapsed} />
+            <ThemeToggle />
+          </div>
+
           <Link
             href="/dashboard/users"
             onClick={() => setIsMobileOpen(false)}

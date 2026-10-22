@@ -15,9 +15,10 @@ import { BOTON_PRIMARIO, CAMPO } from './ui'
  * vez, hacia nuestra ruta, que la comprueba contra el servidor de correo y la guarda cifrada; no se vuelve a mostrar ni
  * se puede leer desde aquí (ni por su dueño ni por quien supervisa).
  *
- * LO QUE SE LE DICE A LA PERSONA, SIN LETRA PEQUEÑA: que quien supervisa el correo del equipo puede leer este buzón,
- * que es de solo lectura y que ella puede ver cuándo lo han mirado. Conectar el correo de trabajo a una herramienta de la
- * empresa es una decisión que se toma sabiendo eso.
+ * LO QUE SE LE DICE A LA PERSONA, SIN LETRA PEQUEÑA: que quien supervisa el correo del equipo puede leer este buzón y que es de
+ * solo lectura. Conectar el correo de trabajo a una herramienta de la empresa es una decisión que se toma sabiendo eso. (Ya NO se le
+ * dice que ve quién lo ha mirado y cuándo: ese rastro lo lee solo un administrador. Ese aviso es lo que informa a la persona de que su
+ * correo puede revisarse; quitarlo es una decisión de la empresa, no un detalle de la pantalla.)
  */
 
 interface Respuesta {
@@ -192,7 +193,7 @@ export function ConectarBuzon({ nombre, esAdmin, variante = 'tarjeta', onConecta
       <p className="flex items-start gap-2 rounded-[8px] bg-[var(--ls-sup2)] px-3 py-2 text-[11.5px] leading-relaxed text-[var(--ls-t3)]">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--ls-t4)]" aria-hidden />
         <span>
-          Quien supervisa el correo del equipo (administración y las personas a las que se les da ese permiso) puede leer tu buzón desde el ERP, en solo lectura. Cada vez que lo mira queda anotado, y tú puedes ver quién y cuándo en los ajustes de tu buzón.
+          Quien supervisa el correo del equipo (administración y las personas a las que se les da ese permiso) puede leer tu buzón desde el ERP, en solo lectura.
         </span>
       </p>
     </form>

@@ -13,7 +13,8 @@ import { ESTADO_VISUAL, GlifoDeEstado, TONO_DE_NIVEL, tinte, tonoDeLista } from 
  *
  * Antes eran tres filas de chips (estado, nivel, lista) y otra más de facturación, y ocupaban más que la lista de leads. Ahora:
  *   · la LISTA es un desplegable (una persona trabaja de una a cinco), no cinco botones;
- *   · los ESTADOS son chips de glifo y número, y solo el activo escribe su nombre: los siete caben en una línea;
+ *   · los ESTADOS son chips de glifo y número, TODOS DEL MISMO ANCHO: el nombre del activo no se escribe dentro del chip (lo ensancharía y
+ *     empujaría a los demás cada vez que se pulsa uno) sino en el rótulo fijo de la derecha, junto al recuento;
  *   · el NIVEL solo existe cuando se mira una lista de tiendas, y la FACTURACIÓN solo cuando se mira una de vendedores de Amazon.
  */
 
@@ -25,6 +26,16 @@ const PRESETS_DE_FACTURACION: ReadonlyArray<{ etiqueta: string; min: string; max
 ]
 
 const numero = (n: number) => n.toLocaleString('es-ES')
+
+/**
+ * EL ANCHO DE LOS CHIPS NO DEPENDE DE LO QUE LLEVEN. Antes cada chip medía lo que midiera su contenido y el activo, además, escribía su
+ * nombre: al pulsar uno se ensanchaba y la fila entera se descuadraba. Ahora los chips de estado miden todos lo mismo (caben hasta cuatro
+ * cifras con `tabular-nums`; con cinco crecen lo justo) y lo mismo los de nivel. Se miden con `min-w` y no con `w` para que un recuento
+ * de cinco cifras no se recorte.
+ */
+const ANCHO_DE_ESTADO = 'min-w-[64px] justify-center'
+const ANCHO_DE_NIVEL = 'min-w-[68px] justify-center'
+const ANCHO_DE_TODOS = 'min-w-[88px] justify-center'
 
 interface Props {
   filtros: FiltrosDeCartera
@@ -45,6 +56,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
   const [listaAbierta, setListaAbierta] = useState(false)
   const [rangoAbierto, setRangoAbierto] = useState(false)
   const rangoPuesto = filtros.minRev !== '' || filtros.maxRev !== ''
+  const estadoActivo = filtros.estado === 'all' ? null : filtros.estado
 
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
@@ -70,7 +82,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
                     onCambiar({ lista: nombre })
                     setListaAbierta(false)
                   }}
-                  className={`flex h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left text-[12.5px] transition-colors ${activa ? 'bg-[var(--ls-sel)] text-[var(--ls-t1)]' : 'hover:bg-[var(--ls-sup3)]'}`}
+                  className={`flex h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left text-[12.5px] outline-none transition-colors focus-visible:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)] ${activa ? 'bg-[var(--ls-sel)] text-[var(--ls-t1)]' : 'hover:bg-[var(--ls-sup3)]'}`}
                 >
                   {nombre === 'all' ? <span aria-hidden className="h-2 w-2 rounded-[2px] border border-[var(--ls-linea2)]" /> : <span aria-hidden className="h-2 w-2 rounded-[2px]" style={{ background: COLOR_ESTADO[tonoDeLista(nombre)] }} />}
                   <span className="min-w-0 flex-1 truncate">{nombre === 'all' ? 'Todas las listas' : nombre}</span>
@@ -87,7 +99,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
 
       {/* El estado: glifo y número; el activo, además, su nombre */}
       <div role="group" aria-label="Estado" className="flex flex-wrap items-center gap-1">
-        <button type="button" onClick={() => onCambiar({ estado: 'all' })} aria-pressed={filtros.estado === 'all'} className={`${BOTON.chip} ${filtros.estado === 'all' ? BOTON.chipEncendido : ''}`}>
+        <button type="button" onClick={() => onCambiar({ estado: 'all' })} aria-pressed={filtros.estado === 'all'} className={`${BOTON.chip} ${ANCHO_DE_TODOS} ${filtros.estado === 'all' ? BOTON.chipEncendido : ''}`}>
           Todos <span className="tabular-nums text-[var(--ls-t4)]">{numero(total)}</span>
         </button>
         {COLD_STATUSES.map((s) => {
@@ -101,11 +113,10 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
               onClick={() => onCambiar({ estado: activo ? 'all' : s })}
               aria-pressed={activo}
               title={`${COLD_STATUS_LABELS[s]}: ${numero(cuantos)}`}
-              className={`${BOTON.chip} ${activo ? '!text-[var(--ls-t1)] font-medium' : ''}`}
+              className={`${BOTON.chip} ${ANCHO_DE_ESTADO} ${activo ? '!text-[var(--ls-t1)] font-medium' : ''}`}
               style={activo ? { background: tinte(tono, 16), borderColor: COLOR_ESTADO[tono] } : undefined}
             >
               <GlifoDeEstado estado={s} tamano={12} />
-              {activo && <span className="rend-desliza">{COLD_STATUS_LABELS[s]}</span>}
               <span className={`tabular-nums ${activo ? 'text-[var(--ls-t2)]' : 'text-[var(--ls-t4)]'}`}>{numero(cuantos)}</span>
             </button>
           )
@@ -128,7 +139,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
                   onClick={() => onCambiar({ nivel: activo ? 'all' : nivel })}
                   aria-pressed={activo}
                   title={`Nivel ${nivel} · ${COLD_NIVEL_LABELS[nivel]}: ${numero(niveles[nivel])}`}
-                  className={`${BOTON.chip} disabled:opacity-35 ${activo ? '!text-[var(--ls-t1)] font-medium' : ''}`}
+                  className={`${BOTON.chip} ${ANCHO_DE_NIVEL} disabled:opacity-35 ${activo ? '!text-[var(--ls-t1)] font-medium' : ''}`}
                   style={activo ? { background: tinte(tono, 16), borderColor: COLOR_ESTADO[tono] } : undefined}
                 >
                   <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: COLOR_ESTADO[tono] }} />
@@ -179,8 +190,18 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
       )}
 
       <div className="ml-auto flex items-center gap-1.5">
-        <span className="hidden text-[11.5px] tabular-nums text-[var(--ls-t4)] md:inline">
-          {numero(coinciden)} {coinciden === 1 ? 'lead' : 'leads'}
+        {/* El nombre del estado activo vive aquí y no dentro del chip. De ancho fijo y pegado a la derecha: que cambie de «En seguimiento» a
+            «Info enviada» no mueve nada de lo que tiene a la izquierda ni hace saltar la fila a otra línea */}
+        <span className={`${estadoActivo ? 'inline-flex' : 'hidden md:inline-flex'} w-[210px] max-w-full items-center justify-end gap-1 truncate text-[11.5px] text-[var(--ls-t4)]`}>
+          {estadoActivo && (
+            <>
+              <span className="truncate font-medium text-[var(--ls-t2)]">{COLD_STATUS_LABELS[estadoActivo]}</span>
+              <span aria-hidden>·</span>
+            </>
+          )}
+          <span className="shrink-0 tabular-nums">
+            {numero(coinciden)} {coinciden === 1 ? 'lead' : 'leads'}
+          </span>
         </span>
         {hayFiltros(filtros) && (
           <button type="button" onClick={() => onCambiar({ ...SIN_FILTROS })} className={`${BOTON.chip} rend-entra`}>

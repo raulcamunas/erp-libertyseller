@@ -13,13 +13,20 @@ import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from './ui'
 /**
  * LOS AJUSTES DE UN BUZÓN: nombre y firma, contraseña, quién lo ha mirado y desconectarlo.
  *
- * Su dueño ve todo. Un administrador que abre el de otra persona ve solo el estado, el rastro de accesos y el botón de
- * desconectar (no puede cambiarle la firma ni la contraseña). La ruta lo vuelve a comprobar; `esMio` solo decide qué se pinta.
+ * Su dueño ve su firma, su contraseña y el botón de desconectar. Un administrador que abre el de otra persona ve solo el estado, el
+ * rastro de accesos y el botón de desconectar (no puede cambiarle la firma ni la contraseña). La ruta lo vuelve a comprobar; `esMio`
+ * solo decide qué se pinta.
+ *
+ * EL RASTRO DE ACCESOS («quién ha mirado este buzón y cuándo») LO VE SOLO UN ADMINISTRADOR (`verAccesos`). Es el registro de auditoría de
+ * la empresa y no se enseña a la persona auditada: ni el bloque ni su explicación salen en los ajustes de un empleado, y la ruta
+ * /api/correo/accesos tampoco le contesta.
  */
 
 interface Props {
   buzon: BuzonVisible
   esMio: boolean
+  /** Es un administrador: el único que ve quién ha mirado el buzón */
+  verAccesos: boolean
   onCambio: (buzones: BuzonVisible[]) => void
   onCerrar: () => void
 }
@@ -33,7 +40,7 @@ const ETIQUETA_DE_ACCION: Record<AccesoRegistrado['accion'], string> = {
 
 const hace = (iso: string) => formatDistanceToNow(new Date(Math.min(Date.parse(iso), Date.now())), { locale: es, addSuffix: true })
 
-export function AjustesDeBuzon({ buzon, esMio, onCambio, onCerrar }: Props) {
+export function AjustesDeBuzon({ buzon, esMio, verAccesos, onCambio, onCerrar }: Props) {
   const [nombre, setNombre] = useState(buzon.nombre ?? '')
   const [firma, setFirma] = useState(buzon.firma ?? '')
   const [password, setPassword] = useState('')
@@ -44,6 +51,8 @@ export function AjustesDeBuzon({ buzon, esMio, onCambio, onCerrar }: Props) {
   const [errorAccesos, setErrorAccesos] = useState<string | null>(null)
 
   useEffect(() => {
+    // Quien no es administrador ni lo pide: la ruta le contestaría «no existe», pero ni siquiera se intenta
+    if (!verAccesos) return
     let vivo = true
     void pedir<{ accesos: AccesoRegistrado[] }>(`/api/correo/accesos?buzon=${encodeURIComponent(buzon.id)}`).then((r) => {
       if (!vivo) return
@@ -53,7 +62,7 @@ export function AjustesDeBuzon({ buzon, esMio, onCambio, onCerrar }: Props) {
     return () => {
       vivo = false
     }
-  }, [buzon.id])
+  }, [buzon.id, verAccesos])
 
   async function guardarFirma() {
     setGuardando('firma')
@@ -168,31 +177,33 @@ export function AjustesDeBuzon({ buzon, esMio, onCambio, onCerrar }: Props) {
             </section>
           )}
 
-          <section aria-label="Quién ha mirado este buzón" className="space-y-2">
-            <h3 className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--ls-t2)]">
-              <Eye className="h-3.5 w-3.5 text-[var(--ls-t4)]" aria-hidden /> Quién ha mirado {esMio ? 'tu buzón' : 'este buzón'}
-            </h3>
-            {errorAccesos ? (
-              <p className="text-[12px] text-[var(--ls-e-ambar)]">{errorAccesos}</p>
-            ) : accesos === null ? (
-              <p className="text-[12px] text-[var(--ls-t4)]">Cargando…</p>
-            ) : accesos.length === 0 ? (
-              <p className="text-[12px] text-[var(--ls-t4)]">Nadie lo ha mirado desde que se conectó.</p>
-            ) : (
-              <ul className="divide-y divide-[var(--ls-linea)] rounded-[8px] border border-[var(--ls-linea)]">
-                {accesos.map((a) => (
-                  <li key={a.id} className="px-3 py-2 text-[12px] leading-snug text-[var(--ls-t2)]">
-                    <span className="font-medium text-[var(--ls-t1)]">{a.quien}</span> {ETIQUETA_DE_ACCION[a.accion]}
-                    {a.asunto ? <span className="text-[var(--ls-t3)]"> «{a.asunto}»</span> : null}
-                    <span className="block text-[11px] text-[var(--ls-t4)]" suppressHydrationWarning>
-                      {fechaCompleta(a.cuando)} · {hace(a.cuando)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+          {verAccesos && (
+            <section aria-label="Quién ha mirado este buzón" className="space-y-2">
+              <h3 className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--ls-t2)]">
+                <Eye className="h-3.5 w-3.5 text-[var(--ls-t4)]" aria-hidden /> Quién ha mirado {esMio ? 'tu buzón' : 'este buzón'}
+              </h3>
+              {errorAccesos ? (
+                <p className="text-[12px] text-[var(--ls-e-ambar)]">{errorAccesos}</p>
+              ) : accesos === null ? (
+                <p className="text-[12px] text-[var(--ls-t4)]">Cargando…</p>
+              ) : accesos.length === 0 ? (
+                <p className="text-[12px] text-[var(--ls-t4)]">Nadie lo ha mirado desde que se conectó.</p>
+              ) : (
+                <ul className="divide-y divide-[var(--ls-linea)] rounded-[8px] border border-[var(--ls-linea)]">
+                  {accesos.map((a) => (
+                    <li key={a.id} className="px-3 py-2 text-[12px] leading-snug text-[var(--ls-t2)]">
+                      <span className="font-medium text-[var(--ls-t1)]">{a.quien}</span> {ETIQUETA_DE_ACCION[a.accion]}
+                      {a.asunto ? <span className="text-[var(--ls-t3)]"> «{a.asunto}»</span> : null}
+                      <span className="block text-[11px] text-[var(--ls-t4)]" suppressHydrationWarning>
+                        {fechaCompleta(a.cuando)} · {hace(a.cuando)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
             )}
             <p className="text-[11.5px] leading-relaxed text-[var(--ls-t4)]">Se anota cuando alguien que supervisa al equipo abre una lista, una conversación, una búsqueda o un adjunto. Varias miradas seguidas a lo mismo cuentan como una.</p>
           </section>
+          )}
 
           {buzon.conectado && (
             <section aria-label="Desconectar" className="space-y-2 border-t border-[var(--ls-linea)] pt-4">

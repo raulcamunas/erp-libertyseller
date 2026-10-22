@@ -1,5 +1,6 @@
 import { etiquetaDePersona, type Persona } from './direcciones'
 import { asuntoDeReenvio, asuntoDeRespuesta } from './hilos'
+import type { LeadDeOrigen } from './peticiones'
 import type { MensajeDeHilo } from './tipos'
 
 /**
@@ -28,6 +29,8 @@ export interface BorradorDeCorreo {
   respondeA: string | null
   /** Citar el mensaje original debajo. Solo tiene sentido al responder */
   conCita: boolean
+  /** Si el mensaje se abre desde la ficha de un lead de Cold Calling: al enviarlo se apunta en su historial, y las plantillas rellenan su nombre */
+  lead?: LeadDeOrigen | null
 }
 
 const lista = (personas: Persona[]): string => personas.map(etiquetaDePersona).join(', ')

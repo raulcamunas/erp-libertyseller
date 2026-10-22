@@ -27,6 +27,7 @@ import {
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, InsigniaDeNivel, Tecla, tinte } from './ui'
+import { useEscribirAlLead } from './useEscribirAlLead'
 
 /**
  * LA FICHA DE UN LEAD.
@@ -191,6 +192,8 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
   /** Un teléfono escrito que no da ninguna clave no recibirá nunca una llamada de Rinkel, y no da ningún error */
   const telefonoSinReconocer = telefonos.length > 0 && clavesDelLead(lead).length === 0 && /\d/.test(lead.phone ?? '')
 
+  const escribirAlLead = useEscribirAlLead()
+
   const contenedor = useRef<HTMLDivElement>(null)
   const ancho = useAncho(contenedor)
   const dosColumnas = ancho >= ANCHO_PARA_DOS_COLUMNAS
@@ -264,9 +267,10 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
             </button>
           ))}
           {lead.email && (
-            <a href={`mailto:${lead.email.split(/[\s/,;]+/)[0]}`} title={lead.email} className={`${BOTON.base} ${BOTON.secundario} !h-8 max-w-[240px] !px-2.5 !text-[12px]`}>
+            // Lleva a Correo con el mensaje ya abierto y dirigido a él. Cold Calling se queda donde está (lib/correo/peticiones.ts)
+            <button type="button" onClick={() => escribirAlLead(lead)} title={`Escribir a ${lead.email}`} className={`${BOTON.base} ${BOTON.secundario} !h-8 max-w-[240px] !px-2.5 !text-[12px]`}>
               <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">{lead.email}</span>
-            </a>
+            </button>
           )}
           {esTienda && lead.web && (
             <a href={lead.web} target="_blank" rel="noopener noreferrer" className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}>

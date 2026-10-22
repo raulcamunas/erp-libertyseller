@@ -4,9 +4,11 @@ import { AlertCircle, Loader2, Paperclip, Send, X } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { toast } from 'sonner'
 import { tamanoLegible } from '@/lib/correo/formato'
+import { camposSinRellenar, insertarPlantilla, rellenarPlantilla, textoSinFirma, type PlantillaDeCorreo } from '@/lib/correo/plantillas'
 import type { BorradorDeCorreo } from '@/lib/correo/redactar'
 import type { BuzonVisible } from '@/lib/correo/tipos'
 import { pedir } from './api'
+import { SelectorDePlantillas } from './SelectorDePlantillas'
 import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from './ui'
 
 /**
@@ -24,10 +26,13 @@ const MAX_ADJUNTOS = 10
 
 interface Props {
   buzon: BuzonVisible
+  /** Quién escribe y si es administrador: de eso depende qué plantillas puede tocar */
+  yoId: string
+  esAdmin: boolean
   borrador: BorradorDeCorreo
   onCerrar: () => void
-  /** Se ha enviado: el hilo en el que ha quedado */
-  onEnviado: (hiloId: string) => void
+  /** Se ha enviado: el hilo en el que ha quedado y el asunto con el que salió */
+  onEnviado: (hiloId: string, asunto: string) => void
 }
 
 interface RespuestaDeEnvio {
@@ -44,7 +49,7 @@ const TITULO: Record<BorradorDeCorreo['modo'], string> = {
   reenviar: 'Reenviar',
 }
 
-export function Redactar({ buzon, borrador, onCerrar, onEnviado }: Props) {
+export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }: Props) {
   const [para, setPara] = useState(borrador.para)
   const [cc, setCc] = useState(borrador.cc)
   const [mostrarCc, setMostrarCc] = useState(borrador.cc !== '')
@@ -59,14 +64,22 @@ export function Redactar({ buzon, borrador, onCerrar, onEnviado }: Props) {
   const entradaTexto = useRef<HTMLTextAreaElement>(null)
   const entradaFicheros = useRef<HTMLInputElement>(null)
 
-  // Si ya se sabe a quién va, el cursor cae en el texto (al principio, encima de la firma); si no, en «Para»
+  // Si ya se sabe a quién va, el cursor cae en el texto (al principio, encima de la firma); si no, en «Para».
+  // SE INSISTE UNOS CUADROS: un mensaje que se abre desde otra aplicación (el chip del email de un lead, un aviso de correo nuevo) se monta
+  // mientras Correo todavía está oculto —el cambio de pantalla llega un instante después— y un elemento oculto no admite el foco.
   useEffect(() => {
-    if (borrador.para) {
-      entradaTexto.current?.focus()
-      entradaTexto.current?.setSelectionRange(0, 0)
-    } else {
-      entradaPara.current?.focus()
+    const objetivo = borrador.para ? entradaTexto : entradaPara
+    let intentos = 0
+    let cuadro = 0
+    const intentar = () => {
+      const el = objetivo.current
+      if (!el) return
+      el.focus()
+      if (borrador.para) el.setSelectionRange(0, 0)
+      if (document.activeElement !== el && intentos++ < 40) cuadro = requestAnimationFrame(intentar)
     }
+    intentar()
+    return () => cancelAnimationFrame(cuadro)
   }, [borrador.para])
 
   const bytes = adjuntos.reduce((suma, f) => suma + f.size, 0)
@@ -79,6 +92,33 @@ export function Redactar({ buzon, borrador, onCerrar, onEnviado }: Props) {
       return
     }
     onCerrar()
+  }
+
+  /** Lo que se sabe para rellenar los campos de una plantilla. {{nombre}} no está: lo escribe quien envía (ver lib/correo/plantillas.ts) */
+  const datosDeRelleno = { empresa: borrador.lead?.empresa || borrador.lead?.nombre || null, mi_nombre: buzon.nombre || null, mi_correo: buzon.direccion }
+
+  function aplicarPlantilla(p: PlantillaDeCorreo) {
+    // El asunto solo se cambia en un mensaje nuevo: al contestar se queda el «Re: …» de la conversación
+    if (borrador.modo === 'nuevo' && p.asunto.trim()) setAsunto(rellenarPlantilla(p.asunto, datosDeRelleno))
+    const el = entradaTexto.current
+    const r = insertarPlantilla(texto, borrador.texto, rellenarPlantilla(p.texto, datosDeRelleno), el?.selectionStart ?? texto.length)
+    setTexto(r.texto)
+    setError(null)
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(r.cursor, r.cursor)
+    })
+  }
+
+  function insertarCampo(campo: string) {
+    const el = entradaTexto.current
+    const inicio = el?.selectionStart ?? texto.length
+    const fin = el?.selectionEnd ?? inicio
+    setTexto(texto.slice(0, inicio) + campo + texto.slice(fin))
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(inicio + campo.length, inicio + campo.length)
+    })
   }
 
   function añadir(ficheros: FileList | null) {
@@ -97,6 +137,9 @@ export function Redactar({ buzon, borrador, onCerrar, onEnviado }: Props) {
     if (!para.trim()) return setError('Falta al menos un destinatario.')
     if (!asunto.trim() && borrador.modo === 'nuevo') return setError('Escribe un asunto.')
     if (!texto.trim() && adjuntos.length === 0) return setError('El mensaje está vacío.')
+    // Un campo de plantilla sin rellenar («Hola {{nombre}}») NO sale: es el error que no se puede deshacer una vez enviado
+    const pendientes = camposSinRellenar(`${asunto}\n${texto}`)
+    if (pendientes.length > 0) return setError(`Quedan campos sin rellenar: ${pendientes.join(', ')}. Escríbelos, o bórralos, antes de enviar.`)
 
     setError(null)
     setEnviando(true)
@@ -120,7 +163,7 @@ export function Redactar({ buzon, borrador, onCerrar, onEnviado }: Props) {
     if (r.datos.rechazados.length > 0) toast.warning(`Enviado, pero el servidor no ha entregado a: ${r.datos.rechazados.join(', ')}`)
     else if (!r.datos.copiadoAEnviados) toast.warning('Enviado. No se ha podido guardar la copia en la carpeta Enviados del webmail.')
     else toast.success('Mensaje enviado.')
-    onEnviado(r.datos.hiloId)
+    onEnviado(r.datos.hiloId, asunto.trim())
   }
 
   function teclas(e: KeyboardEvent) {
@@ -225,6 +268,7 @@ export function Redactar({ buzon, borrador, onCerrar, onEnviado }: Props) {
             {enviando ? 'Enviando…' : 'Enviar'}
           </button>
           <input ref={entradaFicheros} type="file" multiple onChange={(e) => añadir(e.target.files)} className="sr-only" tabIndex={-1} aria-hidden />
+          <SelectorDePlantillas yoId={yoId} esAdmin={esAdmin} actual={{ asunto, texto: textoSinFirma(texto, buzon.firma) }} onAplicar={aplicarPlantilla} onInsertarCampo={insertarCampo} conAsunto={borrador.modo === 'nuevo'} />
           <button type="button" onClick={() => entradaFicheros.current?.click()} disabled={enviando} className={BOTON_SECUNDARIO}>
             <Paperclip className="h-3.5 w-3.5" aria-hidden /> Adjuntar
           </button>

@@ -24,7 +24,8 @@ export interface Preferencias {
 const VISTAS: ReadonlySet<string> = new Set(['ficha', 'tabla', 'rellamadas'])
 const ORDENES: ReadonlySet<string> = new Set(['revenue_desc', 'revenue_asc', 'due_first', 'name', 'prioridad'])
 
-const clave = (userId: string) => `coldCalling:${userId}`
+/** Dónde se guardan las preferencias de una persona. Lo lee también ColdCallingApp, para pedir ya la cartera buena al montar */
+export const clavePreferencias = (userId: string) => `coldCalling:${userId}`
 
 /** Lo guardado, validado campo a campo: unas preferencias estropeadas se ignoran en vez de romper la pantalla */
 export function leerPreferencias(texto: string | null, puedeVerTodos: boolean): Partial<Preferencias> {
@@ -54,7 +55,7 @@ export function usePreferencias(userId: string, puedeVerTodos: boolean, estado: 
   useEffect(() => {
     let texto: string | null = null
     try {
-      texto = window.localStorage.getItem(clave(userId))
+      texto = window.localStorage.getItem(clavePreferencias(userId))
     } catch {
       // Sin almacenamiento (ventana privada, datos bloqueados): se arranca en limpio
     }
@@ -68,7 +69,7 @@ export function usePreferencias(userId: string, puedeVerTodos: boolean, estado: 
     if (!listo) return
     try {
       window.localStorage.setItem(
-        clave(userId),
+        clavePreferencias(userId),
         JSON.stringify({
           view: estado.vista,
           statusFilter: estado.filtros.estado,

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 type Theme = 'dark' | 'light'
 
@@ -13,8 +14,12 @@ const STORAGE_KEY = 'erpTheme'
  *
  * El oscuro es el tema por defecto: es como se ha diseñado todo el ERP y
  * como se sirve desde el servidor, así que no hay parpadeo al cargar.
+ *
+ * VIVE ABAJO A LA IZQUIERDA, EN LA BARRA LATERAL (junto a las notificaciones). Antes era un círculo
+ * fijo arriba a la derecha de la pantalla y tapaba lo que hubiera ahí: pestañas, desplegables de orden,
+ * botones de cabecera. Con el aspecto de un botón más de la barra no tapa nada y se ve en todas las pantallas.
  */
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const [theme, setTheme] = useState<Theme>('dark')
 
   useEffect(() => {
@@ -31,15 +36,17 @@ export function ThemeToggle() {
     window.localStorage.setItem(STORAGE_KEY, next)
   }
 
+  const titulo = theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'
+
   return (
     <button
       type="button"
       onClick={toggle}
-      title={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
-      aria-label={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
-      className="h-9 w-9 rounded-full border border-[var(--border-color)] bg-[var(--glass-bg)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+      title={titulo}
+      aria-label={titulo}
+      className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white/70 transition-colors hover:bg-white/[0.05] hover:text-white', className)}
     >
-      {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
     </button>
   )
 }

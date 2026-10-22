@@ -12,6 +12,7 @@ import {
   type FiltrosDeCartera,
 } from '@/lib/cold-calling/cartera'
 import { diaConSemana, diaLocal } from '@/lib/cold-calling/fechas'
+import { alEnviarseCorreoDeLead } from '@/lib/correo/peticiones'
 import { AVISO, BOTON, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { useIsMobile } from '@/lib/use-is-mobile'
 import type { CalendarPerson } from '@/lib/types/appointments'
@@ -48,15 +49,21 @@ import { useSincronizarRinkel } from './useSincronizarRinkel'
  */
 
 interface Props {
-  initialLeads: ColdLead[]
-  /** 'all' o el id de la persona cuya cartera trae `initialLeads` */
-  initialOwner: string
-  /** La carga del servidor falló en algún tramo: la cartera está INCOMPLETA y hay que decirlo */
-  initialIncompleta: boolean
+  /** 'all' o el id de la persona cuya cartera se pide al montar (la que quien supervisa miraba la última vez) */
+  propietarioInicial: string
   team: CalendarPerson[]
   currentUser: UserProfile
   puedeVerTodos: boolean
+  /**
+   * ¿Es la aplicación que se está viendo? Cold Calling se queda montada (oculta) mientras se trabaja en otra y se vuelve: lo único que
+   * NO puede seguir haciendo mientras está oculta es secuestrar el teclado (↑ ↓ y «/» son de la pantalla que se ve). Lo demás —el canal
+   * en tiempo real, la lectura de Rinkel cada minuto— sigue, y es justo lo que se quiere.
+   */
+  activa: boolean
 }
+
+/** Si la pantalla estuvo más de esto fuera de la vista, al volver se pide la cartera otra vez, en silencio (por si el canal en tiempo real se perdió algo) */
+const REFRESCO_AL_VOLVER_MS = 10 * 60_000
 
 /**
  * El día de HOY en el calendario de quien mira, y se renueva solo si la pantalla se queda abierta pasada la medianoche. En el servidor vale
@@ -77,11 +84,11 @@ function useHoy(): string {
   )
 }
 
-export function ColdCallingBoard({ initialLeads, initialOwner, initialIncompleta, team, currentUser, puedeVerTodos }: Props) {
+export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeVerTodos, activa }: Props) {
   const hoy = useHoy()
   const esMovil = useIsMobile()
-  const cartera = useCartera({ inicial: initialLeads, propietarioInicial: initialOwner, incompletaInicial: initialIncompleta, userId: currentUser.id })
-  const { leads, propietario, cargando, incompleta, parchear } = cartera
+  const cartera = useCartera({ propietarioInicial, userId: currentUser.id })
+  const { leads, propietario, cargando, incompleta, parchear, cambiarPropietario, refrescar, cargadaEn } = cartera
 
   const [vista, setVista] = useState<VistaDeCartera>('ficha')
   const [filtros, setFiltros] = useState<FiltrosDeCartera>(SIN_FILTROS)
@@ -98,6 +105,16 @@ export function ColdCallingBoard({ initialLeads, initialOwner, initialIncompleta
    */
   useSincronizarRinkel(true, () => setVersionDeLlamadas((v) => v + 1))
 
+  // Un correo enviado desde la ficha de un lead (el chip de su email lleva a Correo) se apunta solo en su historial: aquí se refleja sin recargar
+  useEffect(
+    () =>
+      alEnviarseCorreoDeLead((envio) => {
+        parchear(envio.leadId, { last_contacted_at: envio.cuando })
+        setVersionDeLlamadas((v) => v + 1)
+      }),
+    [parchear]
+  )
+
   /** Quién es quién, para que el historial diga «Maoli» y no un identificador */
   const nombres = useMemo(() => {
     const mapa = new Map<string, string>()
@@ -109,8 +126,28 @@ export function ColdCallingBoard({ initialLeads, initialOwner, initialIncompleta
   const preferenciasListas = usePreferencias(currentUser.id, puedeVerTodos, { vista, filtros, propietario: puedeVerTodos ? propietario : null }, (leidas) => {
     if (leidas.vista) setVista(leidas.vista)
     if (leidas.filtros) setFiltros(leidas.filtros)
-    if (puedeVerTodos && leidas.propietario && leidas.propietario !== initialOwner && (leidas.propietario === 'all' || team.some((t) => t.id === leidas.propietario))) cartera.cambiarPropietario(leidas.propietario)
+    if (puedeVerTodos && leidas.propietario && leidas.propietario !== propietarioInicial && (leidas.propietario === 'all' || team.some((t) => t.id === leidas.propietario))) cartera.cambiarPropietario(leidas.propietario)
   })
+
+  // Una cartera de alguien que ya no está en el equipo (o de otro, si a quien mira le han quitado el permiso de ver a todos) se vuelve a «todos»:
+  // una cartera sin dueño en el selector, o la de otra persona sin derecho a verla, solo deja la pantalla vacía sin explicar por qué
+  useEffect(() => {
+    if (propietario === 'all') return
+    if (!puedeVerTodos) cambiarPropietario('all')
+    else if (team.length > 0 && !team.some((t) => t.id === propietario)) cambiarPropietario('all')
+  }, [propietario, puedeVerTodos, team, cambiarPropietario])
+
+  // Al volver a la pantalla tras mucho rato fuera de la vista (o al despertar el portátil con ella abierta) se vuelve a pedir la cartera, en silencio
+  useEffect(() => {
+    if (!activa) return
+    const alVolver = () => {
+      if (document.visibilityState !== 'visible') return
+      if (cargadaEn.current > 0 && Date.now() - cargadaEn.current > REFRESCO_AL_VOLVER_MS) void refrescar()
+    }
+    alVolver()
+    document.addEventListener('visibilitychange', alVolver)
+    return () => document.removeEventListener('visibilitychange', alVolver)
+  }, [activa, refrescar, cargadaEn])
 
   /* ---------------- lo que se calcula de la cartera ---------------- */
 
@@ -172,9 +209,10 @@ export function ColdCallingBoard({ initialLeads, initialOwner, initialIncompleta
     setSeleccionado(navegacion[0].id)
   }, [preferenciasListas, esMovil, vista, leadSeleccionado, navegacion])
 
-  // Teclado: ↑ ↓ cambian de lead y «/» va a la búsqueda. Nada de esto actúa mientras se escribe o hay un diálogo abierto
+  // Teclado: ↑ ↓ cambian de lead y «/» va a la búsqueda. Nada de esto actúa mientras se escribe o hay un diálogo abierto, ni mientras la
+  // pantalla está oculta (se está en Correo: las flechas y la barra son de lo que se ve)
   useEffect(() => {
-    if (vista === 'tabla') return
+    if (!activa || vista === 'tabla') return
     const alPulsar = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || document.querySelector('[role="dialog"]')) return
       const el = e.target as HTMLElement | null
@@ -193,7 +231,7 @@ export function ColdCallingBoard({ initialLeads, initialOwner, initialIncompleta
     }
     window.addEventListener('keydown', alPulsar)
     return () => window.removeEventListener('keydown', alPulsar)
-  }, [vista, mover])
+  }, [activa, vista, mover])
 
   const cambiarFiltros = useCallback((cambios: Partial<FiltrosDeCartera>) => setFiltros((previos) => ({ ...previos, ...cambios })), [])
   const elegirVista = useCallback((v: VistaDeCartera) => {

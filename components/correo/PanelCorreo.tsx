@@ -6,6 +6,9 @@ import { AlertCircle, ChevronDown, Eye, KeyRound, Mail, PenSquare, Plus, Refresh
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Avatar, Esqueleto } from '@/components/rendimiento/ui'
+import { ponerCorreoSinLeer } from '@/lib/avisos/contadores'
+import { apuntarCorreoEnLead } from '@/lib/correo/lead-cliente'
+import { avisarCorreoEnviadoALead, escucharPeticiones, type PeticionAlCorreo } from '@/lib/correo/peticiones'
 import { borradorDe, type BorradorDeCorreo, type ModoDeRedactar } from '@/lib/correo/redactar'
 import type { BuzonVisible, HiloAbierto, HiloDeLista, MensajeDeHilo, RespuestaDeSincronizar, VistaDeCorreo } from '@/lib/correo/tipos'
 import { enviarJson, pedir } from './api'
@@ -23,7 +26,7 @@ import { VistaEquipo } from './VistaEquipo'
  * El webmail de cada comercial dentro del ERP: su buzón de Hostinger (IMAP/SMTP) con sus conversaciones agrupadas en hilos,
  * búsqueda, y poder leer, contestar, reenviar y enviar con adjuntos. Quien supervisa (administrador, o con el permiso
  * «Supervisión del correo» o el de «Supervisión del equipo comercial») elige desde el selector qué bandeja del equipo
- * leer, en SOLO LECTURA, y cada vez que mira una queda anotado (y su dueño lo ve en los ajustes).
+ * leer, en SOLO LECTURA, y cada vez que mira una queda anotado (el rastro lo lee solo un administrador: su dueño no lo ve).
  *
  *   · Al abrir y cada minuto (mientras la pestaña se ve), la pantalla le pide al servidor que traiga los correos nuevos de
  *     SU buzón. Una importación grande se trae por tramos: la pantalla insiste mientras la respuesta diga que quedan.
@@ -41,6 +44,11 @@ interface Props {
   esAdmin: boolean
   buzonInicial: string | null
   hiloInicial: string | null
+  /**
+   * ¿Es la aplicación que se está viendo? El correo se queda montado (oculto) mientras se trabaja en Cold Calling y se vuelve: oculto sigue
+   * trayendo correo nuevo cada minuto, pero NO toca la dirección del navegador, que en ese momento es la de la otra aplicación.
+   */
+  activa: boolean
 }
 
 const hace = (iso: string) => formatDistanceToNow(new Date(Math.min(Date.parse(iso), Date.now())), { locale: es, addSuffix: true })
@@ -48,7 +56,7 @@ const esperar = (ms: number) => new Promise((resolver) => setTimeout(resolver, m
 const EN_SEGUNDO_PLANO_MS = 60_000
 const MAX_BUZONES_POR_PERSONA = 3
 
-export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloInicial }: Props) {
+export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloInicial, activa }: Props) {
   const [buzones, setBuzones] = useState<BuzonVisible[] | null>(null)
   const [errorInicial, setErrorInicial] = useState<{ mensaje: string; faltaMigracion: boolean } | null>(null)
   const [cifrado, setCifrado] = useState(true)
@@ -101,6 +109,8 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
     }
     setBuzones(r.datos.buzones)
     setCifrado(r.datos.cifradoConfigurado)
+    // El número que va junto a «Correo» en el menú se pone al día al momento, sin esperar a la siguiente lectura por detrás
+    ponerCorreoSinLeer(r.datos.buzones.filter((b) => b.esMio).reduce((suma, b) => suma + b.resumen.hilosSinLeer, 0))
     return r.datos.buzones
   }, [])
 
@@ -237,15 +247,16 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
     setCargandoHilo(false)
   }
 
-  // La dirección refleja dónde se está
+  // La dirección refleja dónde se está, y SOLO mientras esta es la aplicación que se ve: oculta, la dirección es la de otra pantalla
   useEffect(() => {
+    if (!activa) return
     const url = new URL(window.location.href)
     if (buzonId) url.searchParams.set('buzon', buzonId)
     else url.searchParams.delete('buzon')
     if (hiloId) url.searchParams.set('hilo', hiloId)
     else url.searchParams.delete('hilo')
     window.history.replaceState(window.history.state, '', url)
-  }, [buzonId, hiloId])
+  }, [activa, buzonId, hiloId])
 
   async function destacar() {
     if (!hilo) return
@@ -384,8 +395,52 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
     setRedactando(borradorDe(modo, mensaje, { miDireccion: buzon.direccion, firma: buzon.firma }))
   }
 
-  async function alEnviar(hiloEnviado: string) {
+  /* ------------------------------ lo que piden otras aplicaciones ------------------------------ */
+
+  // Cold Calling («escribe a este lead») y el aviso de correo nuevo («abre este correo») dejan un encargo en lib/correo/peticiones.ts y cambian
+  // de aplicación sin recargar nada. Se guarda aquí y se atiende en cuanto hay buzones: si el correo se acaba de abrir por primera vez en la
+  // sesión, todavía se están leyendo.
+  const [peticion, setPeticion] = useState<PeticionAlCorreo | null>(null)
+  useEffect(() => escucharPeticiones(setPeticion), [])
+
+  useEffect(() => {
+    if (!peticion || !buzones) return
+    setPeticion(null)
+
+    if (peticion.tipo === 'hilo') {
+      const destino = buzones.find((b) => b.id === peticion.buzonId)
+      if (!destino) return
+      setEnEquipo(false)
+      setConectando(false)
+      if (destino.id !== buzonId) elegirBuzon(destino.id)
+      void abrir(peticion.hiloId)
+      return
+    }
+
+    // Escribir: siempre desde un buzón PROPIO y conectado. Sin él, la pantalla ya está enseñando cómo conectarlo
+    const mio = (buzonId ? buzones.find((b) => b.id === buzonId && b.esMio && b.conectado && !b.credencialesInvalidas) : null) ?? buzones.find((b) => b.esMio && b.conectado && !b.credencialesInvalidas)
+    if (!mio) {
+      toast.info('Para escribir desde aquí primero conecta tu correo.')
+      return
+    }
+    setEnEquipo(false)
+    setConectando(false)
+    if (mio.id !== buzonId) elegirBuzon(mio.id)
+    const base = borradorDe('nuevo', null, { miDireccion: mio.direccion, firma: mio.firma })
+    setRedactando({ ...base, para: peticion.para, asunto: peticion.asunto ?? '', texto: peticion.texto ?? base.texto, lead: peticion.lead ?? null })
+    // `elegirBuzon` y `abrir` son funciones de este mismo componente que se redefinen en cada pintado: depender de ellas relanzaría este efecto
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peticion, buzones])
+
+  async function alEnviar(hiloEnviado: string, borrador: BorradorDeCorreo, asuntoEnviado: string) {
     setRedactando(null)
+    // Un correo que sale desde la ficha de un lead se apunta solo en su historial (y sella su último contacto): el comercial no escribe nada
+    if (borrador.lead) {
+      const cuando = new Date().toISOString()
+      void apuntarCorreoEnLead({ leadId: borrador.lead.id, userId: yo.id, asunto: asuntoEnviado, cuando }).then((hecho) => {
+        if (hecho) avisarCorreoEnviadoALead({ leadId: borrador.lead!.id, asunto: asuntoEnviado, cuando })
+      })
+    }
     await Promise.all([cargarBuzones(), refrescarLista()])
     void abrir(hiloEnviado)
   }
@@ -614,11 +669,12 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
         )}
       </div>
 
-      {redactando && buzon && <Redactar buzon={buzon} borrador={redactando} onCerrar={() => setRedactando(null)} onEnviado={(id) => void alEnviar(id)} />}
+      {redactando && buzon && <Redactar buzon={buzon} yoId={yo.id} esAdmin={esAdmin} borrador={redactando} onCerrar={() => setRedactando(null)} onEnviado={(id, asunto) => void alEnviar(id, redactando, asunto)} />}
       {ajustes && buzon && (
         <AjustesDeBuzon
           buzon={buzon}
           esMio={esMio}
+          verAccesos={esAdmin}
           onCambio={(nuevos) => {
             setBuzones(nuevos)
             setAjustes(false)

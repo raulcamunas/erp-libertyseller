@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Bell } from 'lucide-react'
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
+import { Bell, BellOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
 import { cn } from '@/lib/utils'
 import {
   Popover,
@@ -25,12 +26,21 @@ interface Notification {
   created_at: string
 }
 
-export function NotificationsBell() {
+/**
+ * LA CAMPANA DE NOTIFICACIONES, EN LA BARRA LATERAL.
+ *
+ * Es una fila más del menú («Notificaciones» con el número de las que faltan por leer) y, con la barra plegada, un icono con la bolita. Antes
+ * era un botón fijo arriba a la derecha de toda la pantalla y se montaba encima del contenido. El panel se abre HACIA ARRIBA desde la
+ * campana, alineado con su borde izquierdo, y se encoge en pantallas estrechas para no salirse.
+ */
+export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }) {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
+  // Los avisos del equipo (hitos de llamadas, citas agendadas) se pueden silenciar desde aquí: son una celebración, no una obligación
+  const silenciados = useSyncExternalStore(suscribirPreferenciasDeAvisos, equipoSilenciado, () => false)
 
   useEffect(() => {
     let mounted = true
@@ -161,25 +171,37 @@ export function NotificationsBell() {
     return null
   }
 
+  const etiquetaDeCuenta = unreadCount > 9 ? '9+' : String(unreadCount)
+
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative text-white/70 hover:text-white"
-        >
-          <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-[#FF6600] text-white text-xs flex items-center justify-center font-semibold">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
+        <button
+          type="button"
+          title={colapsado ? 'Notificaciones' : undefined}
+          aria-label={unreadCount > 0 ? `Notificaciones: ${unreadCount} sin leer` : 'Notificaciones'}
+          className={cn(
+            'relative flex h-10 items-center rounded-xl text-white/70 transition-colors hover:bg-white/[0.05] hover:text-white',
+            colapsado ? 'w-10 justify-center' : 'min-w-0 flex-1 gap-3 px-3',
+            isOpen && 'bg-white/[0.05] text-white'
           )}
-        </Button>
+        >
+          <Bell className="h-5 w-5 flex-shrink-0" />
+          {!colapsado && <span className="flex-1 truncate text-left text-sm font-medium">Notificaciones</span>}
+          {unreadCount > 0 &&
+            (colapsado ? (
+              <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#FF6600] text-[10px] font-semibold text-white">{etiquetaDeCuenta}</span>
+            ) : (
+              <span className="rounded-full bg-[#FF6600] px-2 py-0.5 text-xs text-white">{etiquetaDeCuenta}</span>
+            ))}
+        </button>
       </PopoverTrigger>
-      <PopoverContent 
-        className="w-80 bg-[#1a1a1a] border-white/10 p-0"
-        align="end"
+      <PopoverContent
+        className="w-[min(20rem,calc(100vw-1.5rem))] bg-[#1a1a1a] border-white/10 p-0"
+        side="top"
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
       >
         <div className="p-4 border-b border-white/10 flex items-center justify-between">
           <h3 className="font-semibold text-white">Notificaciones</h3>
@@ -260,6 +282,18 @@ export function NotificationsBell() {
               })}
             </div>
           )}
+        </div>
+        <div className="border-t border-white/10 p-2">
+          <button
+            type="button"
+            onClick={() => silenciarEquipo(!silenciados)}
+            aria-pressed={silenciados}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-white/60 transition-colors hover:bg-white/5 hover:text-white"
+          >
+            {silenciados ? <BellOff className="h-3.5 w-3.5 shrink-0" /> : <Bell className="h-3.5 w-3.5 shrink-0" />}
+            <span className="flex-1">{silenciados ? 'Avisos del equipo silenciados' : 'Avisos del equipo: llamadas y citas'}</span>
+            <span className="text-white/40">{silenciados ? 'Activar' : 'Silenciar'}</span>
+          </button>
         </div>
       </PopoverContent>
     </Popover>
