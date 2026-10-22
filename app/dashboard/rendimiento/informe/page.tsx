@@ -29,14 +29,14 @@ const primero = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] :
 function Aviso({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-amber-400/30 bg-amber-400/[0.06] p-4 flex items-start gap-3">
-        <AlertTriangle className="h-5 w-5 text-amber-300 shrink-0 mt-0.5" />
-        <div className="text-[13px] text-white/75 leading-relaxed">
-          <p className="font-semibold text-white mb-1">{titulo}</p>
+      <div className="flex items-start gap-3 rounded-[10px] border border-l-2 border-[var(--ls-linea)] border-l-[var(--ls-e-ambar)] bg-[var(--ls-sup)] p-4">
+        <AlertTriangle className="h-5 w-5 text-[var(--ls-e-ambar)] shrink-0 mt-0.5" />
+        <div className="text-[13px] text-[var(--ls-t2)] leading-relaxed">
+          <p className="font-semibold text-[var(--ls-t1)] mb-1">{titulo}</p>
           <p>{children}</p>
         </div>
       </div>
-      <a href="/dashboard/rendimiento" className="inline-flex items-center gap-1.5 text-[13px] text-white/60 hover:text-white transition-colors">
+      <a href="/dashboard/rendimiento" className="inline-flex items-center gap-1.5 text-[13px] text-[var(--ls-t3)] hover:text-[var(--ls-t1)] transition-colors">
         <ArrowLeft className="h-4 w-4" /> Volver a Rendimiento
       </a>
     </div>
@@ -72,7 +72,7 @@ export default async function InformeSemanalPage({ searchParams }: { searchParam
   if (errorVinculos && isMissingSchema(errorVinculos)) {
     return (
       <Aviso titulo="Falta preparar la base de datos">
-        Hay que lanzar <span className="font-mono text-white/90">234_rendimiento_rinkel.sql</span> en el editor SQL de Supabase.
+        Hay que lanzar <span className="font-mono text-[var(--ls-t2)]">234_rendimiento_rinkel.sql</span> en el editor SQL de Supabase.
       </Aviso>
     )
   }
@@ -88,7 +88,7 @@ export default async function InformeSemanalPage({ searchParams }: { searchParam
     if (isMissingSchema(errorResumen)) {
       return (
         <Aviso titulo="Falta lanzar una migración para ver el informe semanal">
-          Hay que lanzar <span className="font-mono text-white/90">235_rendimiento_resumen_diario.sql</span> en el editor SQL de Supabase.
+          Hay que lanzar <span className="font-mono text-[var(--ls-t2)]">235_rendimiento_resumen_diario.sql</span> en el editor SQL de Supabase.
         </Aviso>
       )
     }

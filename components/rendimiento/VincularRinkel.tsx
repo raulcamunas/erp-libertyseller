@@ -236,32 +236,32 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
   if (!puedeActuar) {
     if (compacta && vinculo) {
       return (
-        <p className="flex items-center gap-1.5 text-[11px] text-white/45" suppressHydrationWarning>
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+        <p className="flex items-center gap-1.5 text-[11px] text-[var(--ls-t4)]" suppressHydrationWarning>
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--ls-e-verde)]" aria-hidden />
           {vinculo.ultimo_sync_at ? `Rinkel · leído ${hace(vinculo.ultimo_sync_at)}` : 'Rinkel · todavía sin leer'}
           {!vinculo.historico_completo && ' · importando el histórico'}
         </p>
       )
     }
     return (
-      <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3.5 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
         {vinculo ? (
           <>
-            <span className="flex items-center gap-1.5 text-[12px] text-white/80">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Rinkel de {persona.nombre} vinculado
+            <span className="flex items-center gap-1.5 text-[12px] text-[var(--ls-t2)]">
+              <CheckCircle2 className="h-3.5 w-3.5 text-[var(--ls-e-verde)]" /> Rinkel de {persona.nombre} vinculado
             </span>
-            <span className="text-[12px] text-white/40" suppressHydrationWarning>
+            <span className="text-[12px] text-[var(--ls-t4)]" suppressHydrationWarning>
               {vinculo.ultimo_sync_at ? `Última lectura ${hace(vinculo.ultimo_sync_at)}` : 'Todavía sin leer'}
               {!vinculo.historico_completo && ' · importando el histórico'}
             </span>
             {vinculo.ultimo_error && (
-              <span className="flex items-center gap-1.5 text-[12px] text-amber-300">
+              <span className="flex items-center gap-1.5 text-[12px] text-[var(--ls-e-ambar)]">
                 <AlertCircle className="h-3.5 w-3.5" /> {vinculo.ultimo_error}
               </span>
             )}
           </>
         ) : (
-          <span className="flex items-center gap-1.5 text-[12px] text-white/50">
+          <span className="flex items-center gap-1.5 text-[12px] text-[var(--ls-t4)]">
             <Unlink className="h-3.5 w-3.5" /> {persona.nombre} todavía no ha vinculado su Rinkel. Se vincula desde su propio panel.
           </span>
         )}
@@ -273,7 +273,7 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
 
   const formulario = (
     <form onSubmit={vincular} className="space-y-2">
-      <label htmlFor="clave-rinkel" className="block text-[11px] font-medium text-white/60">
+      <label htmlFor="clave-rinkel" className="block text-[11px] font-medium text-[var(--ls-t3)]">
         {esPropio ? 'Clave de la API de Rinkel' : `Clave de la API de Rinkel de ${persona.nombre}`}
       </label>
       <div className="flex flex-col sm:flex-row gap-2">
@@ -292,24 +292,24 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
           data-bwignore="true"
           placeholder="Pega aquí la clave entera"
           disabled={trabajando !== null}
-          className="flex-1 min-w-0 h-10 rounded-lg bg-white/[0.04] border border-white/10 px-3 text-[13px] text-white font-mono outline-none focus:border-[#FF6600] transition-colors placeholder:text-white/25 placeholder:font-sans disabled:opacity-50"
+          className="flex-1 min-w-0 h-10 rounded-[6px] bg-[var(--ls-sup2)] border border-[var(--ls-linea)] px-3 text-[13px] text-[var(--ls-t1)] font-mono outline-none focus:border-[var(--ls-acc-graf)] transition-colors placeholder:text-[var(--ls-t4)] placeholder:font-sans disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={!clave.trim() || trabajando !== null}
-          className="h-10 px-4 rounded-lg bg-[#FF6600] text-[13px] font-semibold text-white disabled:opacity-40 transition-opacity flex items-center justify-center gap-2 shrink-0"
+          className="h-9 px-4 rounded-[6px] bg-[var(--ls-acc-relleno)] text-[13px] font-semibold text-[var(--ls-acc-tinta)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 flex items-center justify-center gap-2 shrink-0"
         >
           {trabajando === 'comprobando' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
           {trabajando === 'comprobando' ? 'Comprobando…' : vinculo ? 'Cambiar clave' : esPropio ? 'Vincular y leer mis llamadas' : 'Vincular y leer sus llamadas'}
         </button>
       </div>
-      <p className="text-[11px] text-white/35 leading-relaxed">
+      <p className="text-[11px] text-[var(--ls-t4)] leading-relaxed">
         La clave se guarda cifrada y no se vuelve a mostrar. Solo sirve para LEER las llamadas y las grabaciones de la cuenta: el ERP no llama ni cambia nada en Rinkel.{' '}
         <a
           href="https://developers.rinkel.com"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-white/55 hover:text-white underline underline-offset-2"
+          className="inline-flex items-center gap-1 text-[var(--ls-t3)] hover:text-[var(--ls-t1)] underline underline-offset-2"
         >
           Cómo crear la clave en Rinkel <ExternalLink className="h-3 w-3" />
         </a>
@@ -318,7 +318,7 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
   )
 
   const mensajeDeError = error ? (
-    <p className="flex items-start gap-2 text-[12px] text-amber-300 leading-snug mt-2.5" role="alert">
+    <p className="flex items-start gap-2 text-[12px] text-[var(--ls-e-ambar)] leading-snug mt-2.5" role="alert">
       <AlertCircle className="h-4 w-4 shrink-0 mt-px" /> {error}
     </p>
   ) : null
@@ -327,16 +327,16 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
 
   if (!vinculo) {
     return (
-      <div className={`rounded-2xl border p-4 ${destacar ? 'border-[#FF6600]/30 bg-[#FF6600]/[0.05]' : 'border-white/10 bg-white/[0.02]'}`}>
+      <div className={`rend-aparece rounded-[10px] border bg-[var(--ls-sup)] p-4 ${destacar ? 'border-[var(--ls-acc-graf)] bg-[linear-gradient(135deg,var(--ls-acc-suave),transparent_65%)]' : 'border-[var(--ls-linea)]'}`}>
         <div className="flex items-start gap-3 mb-3">
-          <span className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${destacar ? 'bg-[#FF6600]/15' : 'bg-white/[0.06]'}`}>
-            <KeyRound className={`h-5 w-5 ${destacar ? 'text-[#FF6600]' : 'text-white/50'}`} />
+          <span className={`h-9 w-9 rounded-[8px] flex items-center justify-center shrink-0 ${destacar ? 'bg-[var(--ls-acc-suave)]' : 'bg-[var(--ls-sup3)]'}`}>
+            <KeyRound className={`h-5 w-5 ${destacar ? 'text-[var(--ls-acc)]' : 'text-[var(--ls-t4)]'}`} />
           </span>
           <div>
-            <h2 className="text-[14px] font-semibold text-white">
+            <h2 className="text-[14px] font-semibold text-[var(--ls-t1)]">
               {!esPropio ? `Vincula el Rinkel de ${persona.nombre}` : destacar ? 'Vincula tu Rinkel' : 'Vincula tu Rinkel (si llamas con él)'}
             </h2>
-            <p className="text-[12px] text-white/55 leading-relaxed mt-0.5">
+            <p className="text-[12px] text-[var(--ls-t3)] leading-relaxed mt-0.5">
               {esPropio
                 ? 'Con tu clave, el ERP lee todas tus llamadas —las de hoy y las de los días anteriores— y las enseña en el calendario, con su grabación para escucharla.'
                 : `Con su clave, el ERP lee todas sus llamadas —las de hoy y las de los días anteriores— y las enseña en el calendario, con su grabación para escucharla. ${persona.nombre} la verá vinculada en su panel y podrá cambiarla o quitarla.`}
@@ -359,13 +359,13 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
     <>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-white whitespace-nowrap">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" /> Rinkel vinculado
+          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--ls-t1)] whitespace-nowrap">
+            <CheckCircle2 className="h-4 w-4 text-[var(--ls-e-verde)] shrink-0" /> Rinkel vinculado
           </p>
           {(vinculo.rinkel_usuario || vinculo.rinkel_numero) && (
-            <p className="text-[12px] text-white/55 mt-0.5 truncate">{[vinculo.rinkel_usuario, vinculo.rinkel_numero].filter(Boolean).join(' · ')}</p>
+            <p className="text-[12px] text-[var(--ls-t3)] mt-0.5 truncate">{[vinculo.rinkel_usuario, vinculo.rinkel_numero].filter(Boolean).join(' · ')}</p>
           )}
-          <p className="text-[11px] text-white/40 mt-0.5" suppressHydrationWarning>
+          <p className="text-[11px] text-[var(--ls-t4)] mt-0.5" suppressHydrationWarning>
             {trabajando === 'importando'
               ? `Leyendo ${suyas} llamadas…`
               : vinculo.ultimo_sync_at
@@ -379,7 +379,7 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
             type="button"
             onClick={sincronizarAhora}
             disabled={trabajando !== null}
-            className="h-8 px-3 rounded-lg border border-white/10 text-[12px] text-white/75 hover:text-white hover:border-white/25 transition-colors disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap"
+            className="h-8 px-3 rounded-[6px] border border-[var(--ls-linea)] text-[12px] text-[var(--ls-t2)] hover:text-[var(--ls-t1)] hover:border-[var(--ls-linea2)] transition-colors disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${trabajando === 'importando' ? 'animate-spin' : ''}`} /> Sincronizar ahora
           </button>
@@ -387,7 +387,7 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
             type="button"
             onClick={() => setCambiando((v) => !v)}
             disabled={trabajando !== null}
-            className="h-8 px-3 rounded-lg border border-white/10 text-[12px] text-white/55 hover:text-white hover:border-white/25 transition-colors disabled:opacity-40 whitespace-nowrap"
+            className="h-8 px-3 rounded-[6px] border border-[var(--ls-linea)] text-[12px] text-[var(--ls-t3)] hover:text-[var(--ls-t1)] hover:border-[var(--ls-linea2)] transition-colors disabled:opacity-40 whitespace-nowrap"
           >
             Cambiar clave
           </button>
@@ -397,11 +397,11 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
                 type="button"
                 onClick={desvincular}
                 disabled={trabajando !== null}
-                className="h-8 px-3 rounded-lg bg-red-500/80 text-[12px] font-semibold text-white disabled:opacity-40"
+                className="h-8 px-3 rounded-[6px] bg-[var(--ls-e-rojo)] text-[12px] font-semibold text-[var(--ls-acc-tinta)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40"
               >
                 {trabajando === 'quitando' ? 'Quitando…' : 'Sí, desvincular'}
               </button>
-              <button type="button" onClick={() => setConfirmaQuitar(false)} className="h-8 px-2 text-[12px] text-white/50 hover:text-white">
+              <button type="button" onClick={() => setConfirmaQuitar(false)} className="h-8 px-2 text-[12px] text-[var(--ls-t4)] hover:text-[var(--ls-t1)]">
                 No
               </button>
             </span>
@@ -410,7 +410,7 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
               type="button"
               onClick={() => setConfirmaQuitar(true)}
               disabled={trabajando !== null}
-              className="h-8 px-3 rounded-lg border border-white/10 text-[12px] text-white/40 hover:text-red-300 hover:border-red-400/40 transition-colors disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap"
+              className="h-8 px-3 rounded-[6px] border border-[var(--ls-linea)] text-[12px] text-[var(--ls-t4)] hover:text-[var(--ls-e-rojo)] hover:border-[var(--ls-e-rojo)] transition-colors disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap"
             >
               <Unlink className="h-3.5 w-3.5" /> Desvincular
             </button>
@@ -419,7 +419,7 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
       </div>
 
       {confirmaQuitar && (
-        <p className="text-[11px] text-white/40 mt-2">
+        <p className="text-[11px] text-[var(--ls-t4)] mt-2">
           Se borra la clave y dejan de leerse llamadas nuevas. Las ya leídas se quedan, pero no se podrán escuchar sus grabaciones hasta que se vuelva a vincular.
         </p>
       )}
@@ -430,9 +430,9 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
         </div>
       )}
 
-      {cambiando && <div className="mt-3 pt-3 border-t border-white/[0.07]">{formulario}</div>}
+      {cambiando && <div className="mt-3 pt-3 border-t border-[var(--ls-linea)]">{formulario}</div>}
       {mensajeDeError ?? (vinculo.ultimo_error && !trabajando ? (
-        <p className="flex items-start gap-2 text-[12px] text-amber-300 leading-snug mt-2.5" role="alert">
+        <p className="flex items-start gap-2 text-[12px] text-[var(--ls-e-ambar)] leading-snug mt-2.5" role="alert">
           <AlertCircle className="h-4 w-4 shrink-0 mt-px" /> {vinculo.ultimo_error}
         </p>
       ) : null)}
@@ -457,19 +457,19 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
           aria-expanded={abierto}
           aria-haspopup="dialog"
           title="La cuenta de Rinkel de donde se leen las llamadas"
-          className={`h-7 pl-2.5 pr-2 rounded-full border bg-white/[0.02] text-[11px] flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            aviso ? 'border-amber-400/40 text-amber-200' : 'border-white/10 text-white/55 hover:text-white hover:border-white/25'
+          className={`h-7 pl-2.5 pr-2 rounded-full border bg-[var(--ls-sup)] text-[11px] flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+            aviso ? 'border-[var(--ls-e-ambar)] text-[var(--ls-e-ambar)]' : 'border-[var(--ls-linea)] text-[var(--ls-t3)] hover:text-[var(--ls-t1)] hover:border-[var(--ls-linea2)]'
           }`}
         >
           {trabajandoAhora ? (
-            <Loader2 className="h-3 w-3 animate-spin text-[#FF6600]" aria-hidden />
+            <Loader2 className="h-3 w-3 animate-spin text-[var(--ls-acc)]" aria-hidden />
           ) : aviso ? (
-            <AlertCircle className="h-3 w-3 text-amber-300" aria-hidden />
+            <AlertCircle className="h-3 w-3 text-[var(--ls-e-ambar)]" aria-hidden />
           ) : (
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--ls-e-verde)]" aria-hidden />
           )}
           <span suppressHydrationWarning>{textoDelChip}</span>
-          <ChevronDown className={`h-3 w-3 text-white/30 transition-transform ${abierto ? 'rotate-180' : ''}`} aria-hidden />
+          <ChevronDown className={`h-3 w-3 text-[var(--ls-t4)] transition-transform ${abierto ? 'rotate-180' : ''}`} aria-hidden />
         </button>
         <button
           type="button"
@@ -477,12 +477,12 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
           disabled={trabajando !== null}
           title="Sincronizar ahora"
           aria-label="Sincronizar ahora"
-          className="h-7 w-7 rounded-full border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:border-white/25 disabled:opacity-40 transition-colors"
+          className="h-7 w-7 rounded-full border border-[var(--ls-linea)] flex items-center justify-center text-[var(--ls-t4)] hover:text-[var(--ls-t1)] hover:border-[var(--ls-linea2)] disabled:opacity-40 transition-colors"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${trabajandoAhora ? 'animate-spin' : ''}`} />
         </button>
         {abierto && (
-          <div role="dialog" aria-label="Cuenta de Rinkel" className="absolute right-0 top-full mt-2 z-30 w-[min(92vw,420px)] rounded-2xl border border-white/10 bg-[#121212] px-4 py-3 shadow-2xl shadow-black/60">
+          <div role="dialog" aria-label="Cuenta de Rinkel" className="absolute right-0 top-full mt-2 z-30 w-[min(92vw,420px)] rounded-[10px] border border-[var(--ls-linea)] bg-[#121212] px-4 py-3 shadow-2xl shadow-black/60">
             {contenido}
           </div>
         )}
@@ -490,22 +490,22 @@ export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinc
     )
   }
 
-  return <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">{contenido}</div>
+  return <div className="rend-aparece rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-3">{contenido}</div>
 }
 
 function Progreso({ importadas, total, leyendo, suyas }: { importadas: number | null; total: number | null; leyendo: boolean; suyas: 'tus' | 'sus' }) {
   const porcentaje = importadas !== null && total && total > 0 ? Math.min(100, Math.round((importadas / total) * 100)) : null
   return (
     <div role="status" aria-live="polite">
-      <div className="flex items-center justify-between text-[12px] text-white/60 mb-1.5">
+      <div className="flex items-center justify-between text-[12px] text-[var(--ls-t3)] mb-1.5">
         <span className="flex items-center gap-1.5">
           {leyendo && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {leyendo ? `Leyendo ${suyas} llamadas…` : `Falta terminar de leer ${suyas} llamadas antiguas`}
         </span>
         <span className="tabular-nums">{importadas !== null ? `${numero(importadas)}${total ? ` de ${numero(total)}` : ''}` : total ? `${numero(total)} en total` : ''}</span>
       </div>
-      <div className="h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
-        <div className="h-full rounded-full bg-[#FF6600] transition-all duration-500" style={{ width: `${porcentaje ?? 8}%` }} />
+      <div className="h-1.5 rounded-full bg-[var(--ls-sup3)] overflow-hidden">
+        <div className="h-full rounded-full bg-[var(--ls-acc-relleno)] transition-all duration-500" style={{ width: `${porcentaje ?? 8}%` }} />
       </div>
     </div>
   )

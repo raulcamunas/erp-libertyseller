@@ -1,26 +1,38 @@
 'use client'
 
-import { Check, Copy, ListChecks } from 'lucide-react'
-import { useState } from 'react'
+import { Check, Copy, ListChecks, TrendingUp, TriangleAlert } from 'lucide-react'
+import { useState, type CSSProperties } from 'react'
+import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import type { Titular, TipoDeTitular } from '@/lib/rendimiento/informe'
+import { CabeceraDePanel, PANEL } from '../ui'
 
 /**
  * LO MÁS IMPORTANTE DE LA SEMANA, EN FRASES.
  *
- * Es lo primero que se lee en la reunión: lo que ha pasado, escrito, con un punto de color por si es buena noticia
- * (verde), algo a mirar (ámbar) o un dato (gris). Salen de las mismas cifras de más abajo, no de una opinión.
+ * Es lo primero que se lee en la reunión: lo que ha pasado, escrito. Cada frase lleva un glifo y un color por si es
+ * buena noticia (flecha verde), algo a mirar (triángulo ámbar) o un dato (punto gris): la forma va antes que el
+ * color, así que se entiende también sin distinguir tonos. Salen de las mismas cifras de más abajo, no de una opinión.
  */
 
-const PUNTO: Record<TipoDeTitular, string> = {
-  bien: 'bg-emerald-400',
-  aviso: 'bg-amber-400',
-  info: 'bg-white/30',
+const TONO: Record<TipoDeTitular, string> = {
+  bien: COLOR_ESTADO.verde,
+  aviso: COLOR_ESTADO.ambar,
+  info: 'var(--ls-t4)',
 }
 
 const ETIQUETA: Record<TipoDeTitular, string> = {
   bien: 'Buena noticia',
   aviso: 'A mirar',
   info: 'Dato',
+}
+
+function Glifo({ tipo }: { tipo: TipoDeTitular }) {
+  const color = TONO[tipo]
+  return (
+    <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px]" style={{ color, background: `color-mix(in srgb, ${color} 15%, transparent)` }} title={ETIQUETA[tipo]} aria-label={ETIQUETA[tipo]}>
+      {tipo === 'bien' ? <TrendingUp className="h-3 w-3" aria-hidden /> : tipo === 'aviso' ? <TriangleAlert className="h-3 w-3" aria-hidden /> : <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />}
+    </span>
+  )
 }
 
 interface Props {
@@ -44,35 +56,38 @@ export function TitularesDeLaSemana({ titulares, encabezadoParaCopiar }: Props) 
   }
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5" aria-label="Titulares de la semana">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h2 className="text-[13px] font-semibold text-white flex items-center gap-2">
-          <ListChecks className="h-4 w-4 text-[#FF6600]" /> Lo más importante de la semana
-        </h2>
-        {titulares.length > 0 && (
-          <button
-            type="button"
-            onClick={copiar}
-            className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 h-7 text-[11px] text-white/55 hover:text-white hover:border-white/25 transition-colors"
-          >
-            {copiado ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-            {copiado ? 'Copiado' : 'Copiar'}
-          </button>
+    <section className={`${PANEL} rend-aparece overflow-hidden`} aria-label="Titulares de la semana">
+      <CabeceraDePanel
+        icono={<ListChecks className="h-3.5 w-3.5" />}
+        titulo="Lo más importante de la semana"
+        derecha={
+          titulares.length > 0 ? (
+            <button
+              type="button"
+              onClick={copiar}
+              className="flex h-6 items-center gap-1.5 rounded-[6px] border border-[var(--ls-linea)] px-2.5 text-[11.5px] text-[var(--ls-t3)] transition-colors hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"
+            >
+              {copiado ? <Check className="h-3 w-3 text-[var(--ls-e-verde)]" /> : <Copy className="h-3 w-3" />}
+              {copiado ? 'Copiado' : 'Copiar'}
+            </button>
+          ) : undefined
+        }
+      />
+
+      <div className="p-3">
+        {titulares.length === 0 ? (
+          <p className="text-[13px] text-[var(--ls-t4)]">Todavía no hay nada que destacar de esta semana.</p>
+        ) : (
+          <ul className="grid gap-x-8 gap-y-2 lg:grid-cols-2">
+            {titulares.map((t, i) => (
+              <li key={i} className="rend-entra flex items-start gap-2.5 text-[13.5px] leading-snug text-[var(--ls-t2)]" style={{ '--d': i } as CSSProperties}>
+                <Glifo tipo={t.tipo} />
+                <span>{t.texto}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
-
-      {titulares.length === 0 ? (
-        <p className="text-[13px] text-white/40">Todavía no hay nada que destacar de esta semana.</p>
-      ) : (
-        <ul className="grid gap-x-8 gap-y-2.5 lg:grid-cols-2">
-          {titulares.map((t, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-[14px] leading-snug text-white/80">
-              <span className={`mt-[7px] h-2 w-2 shrink-0 rounded-full ${PUNTO[t.tipo]}`} title={ETIQUETA[t.tipo]} aria-label={ETIQUETA[t.tipo]} />
-              <span>{t.texto}</span>
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   )
 }

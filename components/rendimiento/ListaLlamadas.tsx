@@ -1,12 +1,14 @@
 'use client'
 
-import { Loader2, Mic, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, Play } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Loader2, Mic, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, Play, Voicemail } from 'lucide-react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { etiquetaDeDia, horaMadrid } from '@/lib/rendimiento/dia'
 import { duracionCorta, esContestador, estaContestada } from '@/lib/rendimiento/metricas'
 import { telefonoLegible } from '@/lib/rendimiento/telefonos'
 import { ReproductorGrabacion } from './ReproductorGrabacion'
 import type { LlamadaGuardada } from './tipos'
+import { CabeceraDePanel, ChipDeFiltro, PANEL } from './ui'
 
 /**
  * LAS LLAMADAS DE UN DÍA, de la última a la primera, con su grabación.
@@ -17,6 +19,9 @@ import type { LlamadaGuardada } from './tipos'
  * LA TARJETA NO CRECE CON LAS LLAMADAS: en pantallas anchas mide lo que le dan (el panel la pone al lado del calendario y
  * las dos miden lo mismo) y la lista hace scroll por dentro; en pantallas estrechas llega a 480 px y también hace scroll.
  * Así el bloque de debajo no se mueve tenga el día pocas llamadas o cientos.
+ *
+ * CADA LLAMADA lleva un icono con el color de lo que pasó (verde: la contestó alguien; cian: recibida; gris: nadie o
+ * un contestador; rojo: perdida), siempre con su palabra al lado: el color nunca va solo.
  */
 
 export interface NombreDeLead {
@@ -56,12 +61,22 @@ const CUMPLE: Record<Filtro, (l: LlamadaGuardada) => boolean> = {
   recibidas: recibida,
 }
 
-function IconoDeLlamada({ llamada }: { llamada: LlamadaGuardada }) {
-  const ok = contestada(llamada)
+/** El icono de una llamada y el color de lo que pasó en ella */
+function EstadoDeLlamada({ llamada }: { llamada: LlamadaGuardada }) {
+  let Icono = PhoneOutgoing
+  let color: string = COLOR_ESTADO.verde
   if (recibida(llamada)) {
-    return ok ? <PhoneIncoming className="h-4 w-4 text-sky-400" /> : <PhoneMissed className="h-4 w-4 text-red-400" />
+    Icono = contestada(llamada) ? PhoneIncoming : PhoneMissed
+    color = contestada(llamada) ? COLOR_ESTADO.cian : COLOR_ESTADO.rojo
+  } else if (!contestada(llamada)) {
+    Icono = esContestador(llamada) ? Voicemail : PhoneOff
+    color = COLOR_ESTADO.gris
   }
-  return ok ? <PhoneOutgoing className="h-4 w-4 text-emerald-400" /> : <PhoneOff className="h-4 w-4 text-white/30" />
+  return (
+    <span className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px]" style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}>
+      <Icono className="h-3.5 w-3.5" aria-hidden />
+    </span>
+  )
 }
 
 function textoDeEstado(l: LlamadaGuardada): string {
@@ -93,116 +108,104 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
   const nombreDelDia = dia === hoy ? 'de hoy' : `del ${etiquetaDeDia(dia)}`
 
   return (
-    <div id="llamadas-del-dia" className="scroll-mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 flex flex-col min-h-0 h-full max-h-[480px] lg:max-h-none">
-      <div className="flex items-center justify-between gap-2 mb-2.5">
-        <h2 className="text-[13px] font-semibold text-white">Llamadas {nombreDelDia}</h2>
-        <span className="text-[12px] text-white/40 flex items-center gap-2 tabular-nums">
-          {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {llamadas.length > 0 && `${llamadas.length.toLocaleString('es-ES')} en total`}
-          {onAislarDia && (
-            <button type="button" onClick={onAislarDia} className="text-white/50 hover:text-white underline underline-offset-2 transition-colors">
-              Ver solo este día
-            </button>
-          )}
-        </span>
+    <div id="llamadas-del-dia" className={`${PANEL} rend-aparece scroll-mt-4 flex h-full max-h-[480px] min-h-0 flex-col overflow-hidden lg:max-h-none`} style={{ '--d': 1 } as CSSProperties}>
+      <CabeceraDePanel
+        titulo={`Llamadas ${nombreDelDia}`}
+        derecha={
+          <span className="flex items-center gap-2 text-[11.5px] tabular-nums text-[var(--ls-t4)]">
+            {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {llamadas.length > 0 && `${llamadas.length.toLocaleString('es-ES')} en total`}
+            {onAislarDia && (
+              <button type="button" onClick={onAislarDia} className="text-[var(--ls-t3)] underline underline-offset-2 transition-colors hover:text-[var(--ls-t1)]">
+                Ver solo este día
+              </button>
+            )}
+          </span>
+        }
+      />
+
+      <div className="flex min-h-0 flex-1 flex-col p-3 pt-2.5">
+        {llamadas.length > 0 && (
+          <div className="mb-2.5 flex flex-wrap gap-1" role="group" aria-label="Filtrar llamadas">
+            {FILTROS.map((f) => (
+              <ChipDeFiltro key={f.id} activo={filtro === f.id} deshabilitado={f.id !== 'todas' && cuantas[f.id] === 0} onClick={() => setFiltro(f.id)} ayuda={f.ayuda}>
+                {f.etiqueta} <span className="tabular-nums text-[var(--ls-t4)]">{cuantas[f.id]}</span>
+              </ChipDeFiltro>
+            ))}
+          </div>
+        )}
+
+        {visibles.length === 0 ? (
+          <p className="py-6 text-center text-[12px] leading-relaxed text-[var(--ls-t4)]">
+            {sinRinkel
+              ? esPropio
+                ? 'Todavía no hay llamadas. Vincula tu clave de Rinkel arriba y se leerán todas.'
+                : 'Esta persona no ha vinculado su Rinkel, así que no hay llamadas que enseñar.'
+              : llamadas.length === 0
+                ? 'Ese día no hay llamadas.'
+                : 'Ninguna llamada con ese filtro.'}
+          </p>
+        ) : (
+          <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-0.5">
+            {visibles.map((l, i) => {
+              const lead = l.lead_id ? nombres.get(l.lead_id) : undefined
+              const telefono = l.numero ? telefonoLegible(l.numero) : l.numero_anonimo ? 'Número oculto' : 'Sin número'
+              const conGrabacion = l.grabacion_id !== null
+              const caducada = conGrabacion && grabacionCaducada(l)
+              const abierto = abierta === l.id
+
+              return (
+                <li key={l.id} className={`rend-entra rounded-[8px] border transition-colors ${abierto ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-sup2)]' : 'border-transparent bg-[var(--ls-sup)] hover:border-[var(--ls-linea)] hover:bg-[var(--ls-sup2)]'}`} style={{ '--d': Math.min(i, 14) } as CSSProperties}>
+                  <div className="flex items-center gap-2.5 px-2 py-1.5">
+                    <span title={textoDeEstado(l)}>
+                      <EstadoDeLlamada llamada={l} />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[12.5px] text-[var(--ls-t1)]">{lead ? lead.nombre : telefono}</p>
+                      <p className="truncate text-[11px] text-[var(--ls-t4)]">{lead ? `${telefono}${lead.empresa ? ` · ${lead.empresa}` : ''}` : textoDeEstado(l)}</p>
+                    </div>
+
+                    <div className="shrink-0 text-right">
+                      <p className="text-[12px] tabular-nums text-[var(--ls-t2)]">{horaMadrid(l.fecha)}</p>
+                      <p className="text-[11px] tabular-nums text-[var(--ls-t4)]">
+                        {contestada(l) ? duracionCorta(l.duracion_s) : esContestador(l) ? (lead ? `Contestador · ${duracionCorta(l.duracion_s)}` : duracionCorta(l.duracion_s)) : lead ? textoDeEstado(l) : '—'}
+                      </p>
+                    </div>
+
+                    {conGrabacion &&
+                      (caducada ? (
+                        <span className="w-[78px] shrink-0 text-center text-[10.5px] text-[var(--ls-t4)]" title="Rinkel guarda las grabaciones 90 días">
+                          Caducada
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setAbierta(abierto ? null : l.id)}
+                          aria-expanded={abierto}
+                          className={`flex h-7 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-[6px] border text-[11.5px] font-medium transition-colors ${
+                            abierto
+                              ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-t1)]'
+                              : 'border-[var(--ls-linea)] text-[var(--ls-t2)] hover:border-[var(--ls-acc-graf)] hover:text-[var(--ls-t1)]'
+                          }`}
+                        >
+                          {abierto ? <Mic className="h-3.5 w-3.5 text-[var(--ls-acc)]" /> : <Play className="h-3.5 w-3.5" />}
+                          Escuchar
+                        </button>
+                      ))}
+                  </div>
+
+                  {abierto && (
+                    <div className="px-2 pb-2">
+                      <ReproductorGrabacion llamadaId={l.id} onCerrar={() => setAbierta(null)} />
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </div>
-
-      {llamadas.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2.5" role="group" aria-label="Filtrar llamadas">
-          {FILTROS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFiltro(f.id)}
-              aria-pressed={filtro === f.id}
-              title={f.ayuda}
-              disabled={f.id !== 'todas' && cuantas[f.id] === 0}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-30 ${
-                filtro === f.id ? 'border-[#FF6600]/50 bg-[#FF6600]/15 text-white' : 'border-white/10 text-white/50 hover:text-white/80'
-              }`}
-            >
-              {f.etiqueta} <span className="text-white/40 tabular-nums">{cuantas[f.id]}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {visibles.length === 0 ? (
-        <p className="text-[12px] text-white/35 py-6 text-center leading-relaxed">
-          {sinRinkel
-            ? esPropio
-              ? 'Todavía no hay llamadas. Vincula tu clave de Rinkel arriba y se leerán todas.'
-              : 'Esta persona no ha vinculado su Rinkel, así que no hay llamadas que enseñar.'
-            : llamadas.length === 0
-              ? 'Ese día no hay llamadas.'
-              : 'Ninguna llamada con ese filtro.'}
-        </p>
-      ) : (
-        <ul className="space-y-1.5 overflow-y-auto pr-0.5 flex-1 min-h-0">
-          {visibles.map((l) => {
-            const lead = l.lead_id ? nombres.get(l.lead_id) : undefined
-            const telefono = l.numero ? telefonoLegible(l.numero) : l.numero_anonimo ? 'Número oculto' : 'Sin número'
-            const conGrabacion = l.grabacion_id !== null
-            const caducada = conGrabacion && grabacionCaducada(l)
-            const abierto = abierta === l.id
-
-            return (
-              <li key={l.id} className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2">
-                <div className="flex items-center gap-3">
-                  <span className="shrink-0" title={textoDeEstado(l)}>
-                    <IconoDeLlamada llamada={l} />
-                  </span>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] text-white truncate">{lead ? lead.nombre : telefono}</p>
-                    <p className="text-[11px] text-white/40 truncate">
-                      {lead ? `${telefono}${lead.empresa ? ` · ${lead.empresa}` : ''}` : textoDeEstado(l)}
-                    </p>
-                  </div>
-
-                  <div className="text-right shrink-0">
-                    <p className="text-[12px] text-white/80 tabular-nums">{horaMadrid(l.fecha)}</p>
-                    <p className="text-[11px] text-white/40 tabular-nums">
-                      {contestada(l)
-                        ? duracionCorta(l.duracion_s)
-                        : esContestador(l)
-                          ? lead
-                            ? `Contestador · ${duracionCorta(l.duracion_s)}`
-                            : duracionCorta(l.duracion_s)
-                          : lead
-                            ? textoDeEstado(l)
-                            : '—'}
-                    </p>
-                  </div>
-
-                  {conGrabacion &&
-                    (caducada ? (
-                      <span className="shrink-0 w-[84px] text-center text-[10px] text-white/25" title="Rinkel guarda las grabaciones 90 días">
-                        Caducada
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setAbierta(abierto ? null : l.id)}
-                        aria-expanded={abierto}
-                        className={`shrink-0 w-[84px] h-8 rounded-lg border text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors ${
-                          abierto
-                            ? 'border-[#FF6600]/60 bg-[#FF6600]/20 text-white'
-                            : 'border-white/10 text-white/70 hover:border-[#FF6600]/40 hover:text-white'
-                        }`}
-                      >
-                        {abierto ? <Mic className="h-3.5 w-3.5 text-[#FF6600]" /> : <Play className="h-3.5 w-3.5" />}
-                        Escuchar
-                      </button>
-                    ))}
-                </div>
-
-                {abierto && <ReproductorGrabacion llamadaId={l.id} onCerrar={() => setAbierta(null)} />}
-              </li>
-            )
-          })}
-        </ul>
-      )}
     </div>
   )
 }

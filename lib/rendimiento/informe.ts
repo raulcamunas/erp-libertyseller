@@ -273,6 +273,10 @@ export interface Kpi {
   etiqueta: string
   /** Ya escrito: «412», «31 %», «1 h 37 min» */
   valor: string
+  /** El número de detrás, para que la tarjeta cuente hasta él: llamadas, % de contacto o segundos al teléfono */
+  bruto: number
+  /** Cómo se escribe ese número: enteros, un tanto por ciento o horas y minutos */
+  unidad: 'n' | 'pct' | 'tiempo'
   detalle: string
   cambio: Variacion
   /** Lo que enseña la matriz al pulsar esta cifra */
@@ -292,10 +296,12 @@ export function kpisDelEquipo(resultados: readonly ResultadoSemanal[], semana: S
   const tasa = contacto(actual)
   const tasaBase = base ? contacto(base) : null
 
-  const kpi = (id: Kpi['id'], etiqueta: string, valor: string, detalle: string, cambio: Variacion, metrica: Metrica): Kpi => ({
+  const kpi = (id: Kpi['id'], etiqueta: string, valor: string, bruto: number, unidad: Kpi['unidad'], detalle: string, cambio: Variacion, metrica: Metrica): Kpi => ({
     id,
     etiqueta,
     valor,
+    bruto,
+    unidad,
     detalle,
     cambio,
     metrica,
@@ -308,21 +314,23 @@ export function kpisDelEquipo(resultados: readonly ResultadoSemanal[], semana: S
   const porPersona = actual.llamadas === 0 || llamaron === 0 ? '' : `${n(actual.llamadas / llamaron)} por persona`
 
   return [
-    kpi('llamadas', 'Llamadas hechas', n(actual.llamadas), porPersona || 'Ninguna llamada', variacion(actual.llamadas, base?.llamadas ?? null), 'llamadas'),
+    kpi('llamadas', 'Llamadas hechas', n(actual.llamadas), actual.llamadas, 'n', porPersona || 'Ninguna llamada', variacion(actual.llamadas, base?.llamadas ?? null), 'llamadas'),
     kpi(
       'contacto',
       'Tasa de contacto',
       actual.llamadas === 0 ? '—' : `${Math.round(tasa * 100)} %`,
+      Math.round(tasa * 100),
+      'pct',
       `${n(actual.contestadas)} contestadas de ${n(actual.llamadas)}`,
       actual.llamadas === 0 ? variacionDePuntos(0, null) : variacionDePuntos(tasa, tasaBase),
       'contestadas'
     ),
-    kpi('conversaciones', 'Conversaciones', n(actual.conversaciones), 'Llamadas de más de 1 minuto', variacion(actual.conversaciones, base?.conversaciones ?? null), 'conversaciones'),
-    kpi('tiempo', 'Tiempo al teléfono', tiempoHablado(actual.segundos), 'Solo llamadas contestadas', variacion(actual.segundos, base?.segundos ?? null), 'tiempo'),
-    kpi('whatsapp', 'WhatsApp', n(actual.whatsapp), `Clientes distintos · ${n(actual.whatsappApuntes)} apuntes`, variacion(actual.whatsapp, base?.whatsapp ?? null), 'whatsapp'),
-    kpi('correos', 'Correos', n(actual.correos), `Clientes distintos · ${n(actual.correosApuntes)} apuntes`, variacion(actual.correos, base?.correos ?? null), 'correos'),
-    kpi('respuestas', 'Respuestas', n(actual.respuestas), 'Clientes que contestaron', variacion(actual.respuestas, base?.respuestas ?? null), 'respuestas'),
-    kpi('citas', 'Citas agendadas', n(actual.citas), 'De la Agenda', variacion(actual.citas, base?.citas ?? null), 'citas'),
+    kpi('conversaciones', 'Conversaciones', n(actual.conversaciones), actual.conversaciones, 'n', 'Llamadas de más de 1 minuto', variacion(actual.conversaciones, base?.conversaciones ?? null), 'conversaciones'),
+    kpi('tiempo', 'Tiempo al teléfono', tiempoHablado(actual.segundos), actual.segundos, 'tiempo', 'Solo llamadas contestadas', variacion(actual.segundos, base?.segundos ?? null), 'tiempo'),
+    kpi('whatsapp', 'WhatsApp', n(actual.whatsapp), actual.whatsapp, 'n', `Clientes distintos · ${n(actual.whatsappApuntes)} apuntes`, variacion(actual.whatsapp, base?.whatsapp ?? null), 'whatsapp'),
+    kpi('correos', 'Correos', n(actual.correos), actual.correos, 'n', `Clientes distintos · ${n(actual.correosApuntes)} apuntes`, variacion(actual.correos, base?.correos ?? null), 'correos'),
+    kpi('respuestas', 'Respuestas', n(actual.respuestas), actual.respuestas, 'n', 'Clientes que contestaron', variacion(actual.respuestas, base?.respuestas ?? null), 'respuestas'),
+    kpi('citas', 'Citas agendadas', n(actual.citas), actual.citas, 'n', 'De la Agenda', variacion(actual.citas, base?.citas ?? null), 'citas'),
   ]
 }
 

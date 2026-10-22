@@ -4,7 +4,7 @@ import { Eye } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/supabase/paginacion'
-import { indexar, resultadoDePersona, tramosDeComparacion, ventanaDeDatos, type FilaDiaria } from '@/lib/rendimiento/comparativa'
+import { indexar, resultadoDePersona, seriesDeCifras, tramosDeComparacion, ventanaDeDatos, type FilaDiaria } from '@/lib/rendimiento/comparativa'
 import { agruparConversaciones, citasAgendadas, itemsDeActividad, type FiltroDeActividad } from '@/lib/rendimiento/actividad'
 import { diaMadrid, etiquetaDeDia, horaMadrid, mesDe, rangoDelMes, sumarMeses } from '@/lib/rendimiento/dia'
 import { eventosDeLinea, minutoDeLaHora, type EventoDeLinea } from '@/lib/rendimiento/linea'
@@ -17,6 +17,7 @@ import { ComparativaDelEquipo, type FilaDeComparativa } from './ComparativaDelEq
 import { LineaDelDia } from './LineaDelDia'
 import { LineaDelEquipo } from './LineaDelEquipo'
 import { ListaDeActividad } from './ListaDeActividad'
+import { Esqueleto } from './ui'
 import { ListaLlamadas, type NombreDeLead } from './ListaLlamadas'
 import { leerCitas, leerLlamadasDelEquipo, leerNombres, leerNotas, type CitaConComercial, type LlamadaDeEquipo, type NotaConAutor } from './lecturas'
 import { CAMPOS_DEL_VINCULO, CAMPOS_DE_LLAMADA, type LlamadaGuardada, type Miembro, type VinculoVisible } from './tipos'
@@ -565,6 +566,8 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
   const rinkelEnLaFilaDeCifras = vinculo !== null && !vinculo.ultimo_error
   const conRinkel = vinculo !== null || (resultadoPersona ? resultadoPersona.actual.llamadas + resultadoPersona.actual.recibidas > 0 : false)
   const numerosDistintos = periodo.tipo === 'dia' ? resumenDeLlamadas(llamadasDelDia).numerosDistintos : null
+  // Los últimos siete días laborables de cada cifra de la persona, para las barritas de las tarjetas
+  const series = useMemo(() => (persona ? seriesDeCifras(porPersona.get(persona.id), periodo, hoy) : null), [persona, porPersona, periodo, hoy])
   // El informe semanal abre en la semana que se está mirando; desde «Hoy» o desde un mes, en la última semana completa
   const enlaceDelInforme =
     periodo.tipo === 'mes' || (periodo.tipo === 'dia' && periodo.ancla === hoy)
@@ -572,7 +575,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
       : `/dashboard/rendimiento/informe?semana=${lunesDe(periodo.ancla)}`
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <BarraDePeriodo
         periodo={periodo}
         hoy={hoy}
@@ -586,21 +589,21 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
       />
 
       {errorResumen && (
-        <p className="text-[12px] text-amber-300" role="alert">
+        <p className="text-[12px] text-[var(--ls-e-ambar)]" role="alert">
           {errorResumen}
         </p>
       )}
       {errorEquipo && (
-        <p className="text-[12px] text-amber-300" role="alert">
+        <p className="text-[12px] text-[var(--ls-e-ambar)]" role="alert">
           {errorEquipo}
         </p>
       )}
 
       {persona && !esPropio && (
-        <div className="rounded-xl border border-[#FF6600]/25 bg-[#FF6600]/[0.06] px-3 py-2 text-[12px] text-white/70 flex items-center gap-2">
-          <Eye className="h-3.5 w-3.5 text-[#FF6600] shrink-0" />
+        <div className="rend-aparece flex items-center gap-2 rounded-[8px] border border-l-2 border-[var(--ls-linea)] border-l-[var(--ls-acc-graf)] bg-[var(--ls-sup)] px-3 py-1.5 text-[11.5px] text-[var(--ls-t3)]">
+          <Eye className="h-3.5 w-3.5 shrink-0 text-[var(--ls-acc)]" />
           <span>
-            Estás viendo el rendimiento de <span className="font-semibold text-white">{persona.nombre}</span>.{' '}
+            Estás viendo el rendimiento de <span className="font-semibold text-[var(--ls-t1)]">{persona.nombre}</span>.{' '}
             {puedeGestionar ? 'Como administrador puedes vincular, cambiar o quitar su clave de Rinkel.' : 'Solo de lectura.'}
           </span>
         </div>
@@ -630,12 +633,18 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
             onElegir={cambiarDePersona}
           />
         ) : (
-          !errorEquipo && <p className="text-[12px] text-white/40 px-1">Leyendo la actividad del equipo…</p>
+          !errorEquipo && (
+            <div className="rend-aparece space-y-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3" aria-live="polite">
+              <Esqueleto className="h-4 w-48" />
+              <Esqueleto className="h-24 w-full" />
+            </div>
+          )
         )
       )}
 
       {persona ? (
-        <>
+        // Al pasar a otra persona todo vuelve a entrar con su animación: se nota que es otro panel, no el mismo con otros números
+        <div key={persona.id} className="space-y-3">
           {!rinkelEnLaFilaDeCifras && (
             <VincularRinkel
               key={persona.id}
@@ -648,9 +657,12 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
             />
           )}
 
-          <div className="space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <h2 className="text-[13px] font-semibold text-white">{esPropio ? 'Tus cifras' : `Cifras de ${persona.nombre}`}</h2>
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+              <h2 className="flex flex-wrap items-baseline gap-x-2 text-[13px] font-semibold text-[var(--ls-t1)]">
+                {esPropio ? 'Tus cifras' : `Cifras de ${persona.nombre}`}
+                {comparacion && <span className="text-[11.5px] font-normal text-[var(--ls-t4)]">· cambios frente a {comparacion.texto}</span>}
+              </h2>
               {rinkelEnLaFilaDeCifras && (
                 <VincularRinkel
                   key={`compacta-${persona.id}`}
@@ -672,6 +684,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
               conRinkel={conRinkel}
               cargando={cargandoCifras}
               numerosDistintos={numerosDistintos}
+              series={series}
               onAbrir={abrirTarjeta}
             />
           </div>
@@ -684,7 +697,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
           />
 
           {/* Las dos tarjetas miden siempre lo mismo (la altura la pone el calendario) y la lista de llamadas hace scroll por dentro: así el bloque de debajo no se mueve tenga el día las llamadas que tenga */}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 lg:min-h-[540px]">
+          <div className="grid grid-cols-1 gap-3 lg:min-h-[540px] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
             <CalendarioLlamadas
               anio={mesVisible.anio}
               mes={mesVisible.mes}
@@ -697,6 +710,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
               onDia={elegirDia}
               onMes={(delta) => setMesVisible((m) => sumarMeses(m.anio, m.mes, delta))}
               onHoy={() => cambiarPeriodo({ tipo: 'dia', ancla: hoy })}
+              onSemana={(lunes) => cambiarPeriodo({ tipo: 'semana', ancla: lunes })}
             />
             <div className="relative min-w-0">
               <div className="lg:absolute lg:inset-0">
@@ -727,9 +741,9 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
             error={errorActividad}
             clave={`${persona.id}|${periodo.tipo}|${periodo.ancla}`}
           />
-        </>
+        </div>
       ) : (
-        <p className="text-[12px] text-white/40 px-1">Elige a una persona en la tabla, o arriba en «Ver», para ver su calendario, sus llamadas y escuchar sus grabaciones.</p>
+        <p className="px-1 text-[12px] text-[var(--ls-t4)]">Elige a una persona en la tabla, o arriba en «Ver», para ver su calendario, sus llamadas y escuchar sus grabaciones.</p>
       )}
     </div>
   )

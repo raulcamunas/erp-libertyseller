@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, ChevronLeft, ChevronRight, Expand, Loader2, Shrink, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Clock, Expand, Loader2, Shrink, Users, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -31,6 +31,7 @@ import { MapaDeFranjas } from './MapaDeFranjas'
 import { MatrizDeLaSemana } from './MatrizDeLaSemana'
 import { PersonaDelInforme } from './PersonaDelInforme'
 import { TitularesDeLaSemana } from './TitularesDeLaSemana'
+import { CabeceraDePanel, Esqueleto, PANEL } from '../ui'
 
 /**
  * EL INFORME SEMANAL: LA SEMANA ENTERA DEL EQUIPO EN UNA PÁGINA, PARA REVISARLA LOS LUNES.
@@ -71,9 +72,10 @@ function agruparPor<T>(lista: readonly T[], clave: (x: T) => string | null): Map
   return grupos
 }
 
-const CHIP = 'px-3 h-8 rounded-full border text-[12px] font-medium transition-colors'
-const CHIP_ACTIVO = 'border-[#FF6600]/50 bg-[#FF6600]/15 text-white'
-const CHIP_QUIETO = 'border-white/10 text-white/55 hover:text-white hover:border-white/25'
+/** Los botones de la cabecera: 28 px, 8 de radio, y el naranja suave cuando están encendidos */
+const CHIP = 'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[8px] border px-2.5 text-[12px] font-medium transition-colors'
+const CHIP_ACTIVO = 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-t1)]'
+const CHIP_QUIETO = 'border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t3)] hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]'
 
 export function InformeSemanal({ equipo, hoy, lunesInicial }: Props) {
   const supabase = useMemo(() => createClient(), [])
@@ -327,19 +329,24 @@ export function InformeSemanal({ equipo, hoy, lunesInicial }: Props) {
       : `Semana en curso: lleva ${semana.transcurridos} de 7 días${semana.completa ? '' : ' (hoy todavía no ha acabado)'} y se compara con los mismos días de la semana anterior`
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] overflow-y-auto bg-[#080808] text-white" role="dialog" aria-modal="true" aria-label={`Informe semanal. ${tituloDeSemana}`}>
-      <header className="sm:sticky sm:top-0 z-20 border-b border-white/10 bg-[#080808]/90 backdrop-blur px-4 sm:px-6 py-3">
-        <div className="max-w-[1500px] mx-auto flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+    <div className="fixed inset-0 z-[100] overflow-y-auto bg-[var(--ls-fondo)] text-[var(--ls-t1)]" role="dialog" aria-modal="true" aria-label={`Informe semanal. ${tituloDeSemana}`}>
+      <header className="relative z-20 border-b border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-fondo)_88%,transparent)] px-4 py-3 backdrop-blur sm:sticky sm:top-0 sm:px-6">
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-[#FF6600]">Informe semanal</p>
-            <h1 className="text-[20px] sm:text-[24px] font-semibold leading-tight text-white">{tituloDeSemana}</h1>
-            <p className={`text-[12px] ${semana.completa ? 'text-emerald-400/80' : 'text-amber-300/90'}`}>{estado}</p>
+            <p className="text-[11px] font-semibold text-[var(--ls-acc)]">Informe semanal</p>
+            <h1 key={tituloDeSemana} className="rend-desliza text-[20px] font-semibold leading-tight tracking-[-0.012em] text-[var(--ls-t1)] sm:text-[24px]">
+              {tituloDeSemana}
+            </h1>
+            <p className="flex items-center gap-1.5 text-[12px]" style={{ color: semana.completa ? 'var(--ls-e-verde)' : 'var(--ls-e-ambar)' }}>
+              {!semana.completa && <span className="rend-latido h-1.5 w-1.5 rounded-full bg-current" aria-hidden />}
+              {estado}
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {cargando && <Loader2 className="h-4 w-4 animate-spin text-white/40" aria-label="Cargando" />}
-            <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-1 h-8">
-              <button type="button" onClick={() => irA(sumarDias(lunes, -7))} aria-label="Semana anterior" className="h-6 w-6 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors">
+            {cargando && <Loader2 className="h-4 w-4 animate-spin text-[var(--ls-t4)]" aria-label="Cargando" />}
+            <div className="flex h-7 items-center gap-0.5 rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-0.5">
+              <button type="button" onClick={() => irA(sumarDias(lunes, -7))} aria-label="Semana anterior" className="flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]">
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
@@ -347,7 +354,7 @@ export function InformeSemanal({ equipo, hoy, lunesInicial }: Props) {
                 onClick={() => irA(sumarDias(lunes, 7))}
                 disabled={!puedeAvanzar}
                 aria-label="Semana siguiente"
-                className="h-6 w-6 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-white/60"
+                className="flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)] disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[var(--ls-t3)]"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -364,44 +371,49 @@ export function InformeSemanal({ equipo, hoy, lunesInicial }: Props) {
                 {pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
               </button>
             )}
-            <button type="button" onClick={cerrar} aria-label="Cerrar el informe" title="Cerrar (Esc)" className="h-8 w-8 flex items-center justify-center rounded-full border border-white/10 text-white/60 hover:text-white hover:border-white/25 transition-colors">
+            <button type="button" onClick={cerrar} aria-label="Cerrar el informe" title="Cerrar (Esc)" className="flex h-7 w-7 items-center justify-center rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t3)] transition-colors hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]">
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-[1500px] mx-auto px-4 sm:px-6 py-5 space-y-5 pb-20">
+      <main className="mx-auto max-w-[1500px] space-y-3 px-4 py-4 pb-20 sm:px-6">
         {error ? (
-          <p className="text-[13px] text-amber-300 py-10 text-center" role="alert">
+          <p className="text-[13px] text-[var(--ls-e-ambar)] py-10 text-center" role="alert">
             {error}
           </p>
         ) : !leida ? (
-          <p className="text-[13px] text-white/40 py-20 text-center">Leyendo la semana…</p>
+          <div className="space-y-3 py-2" aria-live="polite" aria-label="Leyendo la semana">
+            <Esqueleto className="h-24 w-full" />
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              {Array.from({ length: 8 }, (_, i) => (
+                <Esqueleto key={i} className="h-[92px]" />
+              ))}
+            </div>
+            <Esqueleto className="h-64 w-full" />
+          </div>
         ) : personas.length === 0 ? (
-          <p className="text-[13px] text-white/40 py-20 text-center">No hay ningún comercial marcado en el equipo, así que no hay nada que enseñar.</p>
+          <p className="text-[13px] text-[var(--ls-t4)] py-20 text-center">No hay ningún comercial marcado en el equipo, así que no hay nada que enseñar.</p>
         ) : (
           <>
             <TitularesDeLaSemana titulares={frases} encabezadoParaCopiar={tituloDeSemana} />
             <CifrasDeLaSemana kpis={kpis} dias={dias} contra={contra} metrica={metrica} onElegir={setMetrica} />
             <MatrizDeLaSemana semana={semana} dias={dias} resultados={resultados} metrica={metrica} onMetrica={setMetrica} contra={contra} onAbrirPersona={abrirPersona} />
 
-            <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5 space-y-4" aria-label="Cuándo se trabaja">
-              <div>
-                <h2 className="text-[13px] font-semibold text-white">Cuándo se trabaja</h2>
-                <p className="text-[12px] text-white/40 mt-0.5">En qué horas se llama y a qué hora suele empezar y acabar cada persona.</p>
-              </div>
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+            <section className={`${PANEL} rend-aparece overflow-hidden`} aria-label="Cuándo se trabaja">
+              <CabeceraDePanel icono={<Clock className="h-3.5 w-3.5" />} titulo="Cuándo se trabaja" contexto="· en qué horas se llama y a qué hora suele empezar y acabar cada persona" />
+              <div className="grid grid-cols-1 gap-6 p-3 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
                 <MapaDeFranjas mapa={mapaDelEquipo} dias={dias} />
                 <div className="overflow-x-auto">
                   <table className="w-full text-[12px] min-w-[340px]">
                     <thead>
-                      <tr className="text-[10px] uppercase tracking-[0.1em] text-white/35">
-                        <th className="text-left font-medium pb-1.5">Persona</th>
-                        <th className="text-right font-medium pb-1.5">Empieza</th>
-                        <th className="text-right font-medium pb-1.5">Acaba</th>
-                        <th className="text-right font-medium pb-1.5">Jornadas</th>
-                        <th className="text-right font-medium pb-1.5">Hueco más largo</th>
+                      <tr className="text-[11px] font-semibold text-[var(--ls-t4)]">
+                        <th className="pb-1.5 text-left font-semibold">Persona</th>
+                        <th className="pb-1.5 text-right font-semibold">Empieza</th>
+                        <th className="pb-1.5 text-right font-semibold">Acaba</th>
+                        <th className="pb-1.5 text-right font-semibold">Jornadas</th>
+                        <th className="pb-1.5 text-right font-semibold">Hueco más largo</th>
                       </tr>
                     </thead>
                     <tbody className="tabular-nums">
@@ -409,41 +421,44 @@ export function InformeSemanal({ equipo, hoy, lunesInicial }: Props) {
                         const h = horarios.get(p.id)
                         const hueco = h ? Math.max(0, ...h.dias.map((d) => d.pausaMasLarga)) : 0
                         return (
-                          <tr key={p.id} className="border-t border-white/[0.05]">
-                            <td className="py-1.5 text-white/80">
-                              <button type="button" onClick={() => abrirPersona(p.id)} className="hover:text-white hover:underline underline-offset-2 text-left">
+                          <tr key={p.id} className="border-t border-[var(--ls-linea)]">
+                            <td className="py-1.5 text-[var(--ls-t2)]">
+                              <button type="button" onClick={() => abrirPersona(p.id)} className="hover:text-[var(--ls-t1)] hover:underline underline-offset-2 text-left">
                                 {p.nombre}
                               </button>
                             </td>
-                            <td className="py-1.5 text-right text-white/80">{h?.inicioMedio ?? '—'}</td>
-                            <td className="py-1.5 text-right text-white/80">{h?.finMedio ?? '—'}</td>
-                            <td className="py-1.5 text-right text-white/50">{h?.diasConActividad ?? 0}</td>
-                            <td className={`py-1.5 text-right ${hueco >= 90 ? 'text-amber-300' : 'text-white/60'}`}>{textoDePausa(hueco)}</td>
+                            <td className="py-1.5 text-right text-[var(--ls-t2)]">{h?.inicioMedio ?? '—'}</td>
+                            <td className="py-1.5 text-right text-[var(--ls-t2)]">{h?.finMedio ?? '—'}</td>
+                            <td className="py-1.5 text-right text-[var(--ls-t4)]">{h?.diasConActividad ?? 0}</td>
+                            <td className={`py-1.5 text-right ${hueco >= 90 ? 'text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t3)]'}`}>{textoDePausa(hueco)}</td>
                           </tr>
                         )
                       })}
                     </tbody>
                   </table>
-                  <p className="text-[10px] text-white/30 mt-2">Cuentan llamadas, WhatsApp, correos, respuestas y citas. Una jornada es un día con 5 apuntes o más.</p>
+                  <p className="text-[10px] text-[var(--ls-t4)] mt-2">Cuentan llamadas, WhatsApp, correos, respuestas y citas. Una jornada es un día con 5 apuntes o más.</p>
                 </div>
               </div>
             </section>
 
-            <section className="space-y-2.5" aria-label="Cada persona">
-              <div className="flex items-center justify-between gap-3 px-1">
-                <h2 className="text-[13px] font-semibold text-white">Cada persona</h2>
+            <section className="space-y-2" aria-label="Cada persona">
+              <div className="flex items-center justify-between gap-3 px-1 pt-1">
+                <h2 className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ls-t1)]">
+                  <Users className="h-3.5 w-3.5 text-[var(--ls-acc)]" /> Cada persona
+                </h2>
                 <button
                   type="button"
                   onClick={() => setAbiertas(todasAbiertas ? new Set() : new Set(personas.map((p) => p.id)))}
-                  className="flex items-center gap-1.5 text-[12px] text-white/50 hover:text-white transition-colors"
+                  className="flex items-center gap-1.5 text-[12px] text-[var(--ls-t4)] hover:text-[var(--ls-t1)] transition-colors"
                 >
                   <ChevronDown className={`h-3.5 w-3.5 transition-transform ${todasAbiertas ? 'rotate-180' : ''}`} aria-hidden />
                   {todasAbiertas ? 'Cerrar todas' : 'Abrir todas'}
                 </button>
               </div>
-              {resultados.map((r) => (
+              {resultados.map((r, indice) => (
                 <PersonaDelInforme
                   key={r.persona.id}
+                  indice={indice}
                   resultado={r}
                   semana={semana}
                   dias={dias}
@@ -463,10 +478,10 @@ export function InformeSemanal({ equipo, hoy, lunesInicial }: Props) {
               ))}
             </section>
 
-            <footer className="text-[11px] text-white/30 leading-relaxed space-y-1 px-1 pt-2">
+            <footer className="text-[11px] text-[var(--ls-t4)] leading-relaxed space-y-1 px-1 pt-2">
               <p>
-                Cómo se cuenta: una llamada es <span className="text-white/45">contestada</span> si dura 10 segundos o más (por debajo es un contestador automático) y una{' '}
-                <span className="text-white/45">conversación</span> si pasa de 1 minuto. WhatsApp y correos cuentan clientes distintos por día, por muchos apuntes que haya. Las citas son las que se agendaron esos días.
+                Cómo se cuenta: una llamada es <span className="text-[var(--ls-t4)]">contestada</span> si dura 10 segundos o más (por debajo es un contestador automático) y una{' '}
+                <span className="text-[var(--ls-t4)]">conversación</span> si pasa de 1 minuto. WhatsApp y correos cuentan clientes distintos por día, por muchos apuntes que haya. Las citas son las que se agendaron esos días.
                 Los días son de lunes a domingo, en hora de Madrid. {semana.completa ? 'Se compara con la semana anterior entera.' : 'Se compara con los mismos días de la semana anterior.'}
               </p>
             </footer>

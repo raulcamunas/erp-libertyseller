@@ -1023,3 +1023,92 @@ html.light .fba-cockpit {
 .fba-cockpit .rounded-lg  { border-radius: 6px; }
 .fba-cockpit .rounded-xl  { border-radius: 8px; }
 .fba-cockpit .rounded-2xl { border-radius: 10px; }
+
+
+/* =====================================================================
+   MI RENDIMIENTO · MOVIMIENTO
+   =====================================================================
+   Las animaciones del panel «Mi rendimiento» y del informe semanal
+   (components/rendimiento/**). Son pocas y cortas a propósito: las cosas
+   entran con un ligero ascenso escalonado, las barras crecen desde su base,
+   las marcas de la línea del día aparecen de izquierda a derecha y el punto
+   de «ahora» late. Nada se mueve una vez asentado salvo ese punto.
+
+   RESPETAN `prefers-reduced-motion`: quien pide menos movimiento ve la
+   pantalla ya puesta, sin nada de esto. Por eso todas las `animation` van
+   dentro de la media query y no hay ninguna fuera.
+
+   `translate` y `scale` van como propiedades sueltas (no dentro de
+   `transform`) para no pisar los `-translate-x-1/2` y `hover:-translate-y-px`
+   de Tailwind, que escriben en `transform`.
+
+   Todas acaban en `none` (no en `0 0` ni en `1`): un `translate` o un `scale`
+   distinto de `none` crea un contexto de apilamiento y hace de bloque
+   contenedor de los hijos `fixed`, y no se quiere eso en tarjetas que llevan
+   menús desplegables dentro.
+
+   El escalón de cada elemento se pone con `style={{ '--d': n }}` (n = 0, 1,
+   2…): cada paso son 45 ms, y el componente `Revelar` lo hace por ti.
+
+   CÓMO SE DESHACE: borrando este bloque. Los componentes siguen funcionando,
+   solo que sin movimiento (las clases `rend-*` dejarían de existir).
+   ===================================================================== */
+@keyframes rend-aparece {
+  from { opacity: 0; translate: 0 8px; }
+  to   { opacity: 1; translate: none; }
+}
+@keyframes rend-entra {
+  from { opacity: 0; translate: 0 4px; }
+  to   { opacity: 1; translate: none; }
+}
+@keyframes rend-desliza {
+  from { opacity: 0; translate: 8px 0; }
+  to   { opacity: 1; translate: none; }
+}
+@keyframes rend-crece-x {
+  from { scale: 0 1; }
+  to   { scale: none; }
+}
+@keyframes rend-crece-y {
+  from { scale: 1 0; }
+  to   { scale: none; }
+}
+@keyframes rend-pop {
+  from { opacity: 0; scale: 0.2; }
+  60%  { opacity: 1; scale: 1.25; }
+  to   { opacity: 1; scale: none; }
+}
+@keyframes rend-latido {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@keyframes rend-onda {
+  from { opacity: 0.6; scale: 0.6; }
+  to   { opacity: 0; scale: 2.6; }
+}
+@keyframes rend-brillo {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+@keyframes rend-dibuja {
+  from { stroke-dashoffset: var(--largo, 120); }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes rend-carga {
+  from { translate: -100% 0; }
+  to   { translate: 260% 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rend-aparece  { animation: rend-aparece 0.45s cubic-bezier(0.22, 0.8, 0.3, 1) both; animation-delay: calc(var(--d, 0) * 45ms); }
+  .rend-entra    { animation: rend-entra 0.32s cubic-bezier(0.22, 0.8, 0.3, 1) both; animation-delay: calc(var(--d, 0) * 22ms); }
+  .rend-desliza  { animation: rend-desliza 0.28s cubic-bezier(0.22, 0.8, 0.3, 1) both; }
+  .rend-crece-x  { transform-origin: left center; animation: rend-crece-x 0.7s cubic-bezier(0.22, 0.8, 0.3, 1) both; animation-delay: calc(var(--d, 0) * 45ms); }
+  .rend-crece-y  { transform-origin: center bottom; animation: rend-crece-y 0.55s cubic-bezier(0.22, 0.8, 0.3, 1) both; animation-delay: calc(var(--d, 0) * 35ms); }
+  .rend-pop      { animation: rend-pop 0.4s cubic-bezier(0.22, 0.8, 0.3, 1) both; animation-delay: calc(var(--d, 0) * 8ms); }
+  .rend-latido   { animation: rend-latido 1.8s ease-in-out infinite; }
+  .rend-onda     { animation: rend-onda 1.8s ease-out infinite; }
+  .rend-brillo   { background-size: 200% 100%; animation: rend-brillo 1.6s linear infinite; }
+  .rend-dibuja   { stroke-dasharray: var(--largo, 120); animation: rend-dibuja 0.9s cubic-bezier(0.22, 0.8, 0.3, 1) both; animation-delay: calc(var(--d, 0) * 45ms); }
+  .rend-carga    { animation: rend-carga 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+}

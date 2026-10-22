@@ -43,18 +43,18 @@ export function ReproductorGrabacion({ llamadaId, onCerrar }: { llamadaId: strin
   }, [velocidad, estado])
 
   return (
-    <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2.5">
+    <div className="rend-entra mt-1 rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-fondo)] p-2.5">
       {estado.tipo === 'cargando' && (
-        <p className="text-[12px] text-white/50 flex items-center gap-2">
+        <p className="flex items-center gap-2 text-[12px] text-[var(--ls-t3)]">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Pidiendo la grabación a Rinkel…
         </p>
       )}
 
       {estado.tipo === 'error' && (
         <div className="flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-px" />
-          <p className="text-[12px] text-white/70 leading-snug flex-1">{estado.mensaje}</p>
-          <button type="button" onClick={onCerrar} aria-label="Cerrar" className="text-white/30 hover:text-white">
+          <AlertCircle className="mt-px h-4 w-4 shrink-0 text-[var(--ls-e-ambar)]" />
+          <p className="flex-1 text-[12px] leading-snug text-[var(--ls-t2)]">{estado.mensaje}</p>
+          <button type="button" onClick={onCerrar} aria-label="Cerrar" className="text-[var(--ls-t4)] hover:text-[var(--ls-t1)]">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -82,15 +82,15 @@ export function ReproductorGrabacion({ llamadaId, onCerrar }: { llamadaId: strin
                   type="button"
                   onClick={() => setVelocidad(v)}
                   aria-pressed={velocidad === v}
-                  className={`px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors ${
-                    velocidad === v ? 'border-[#FF6600]/50 bg-[#FF6600]/15 text-white' : 'border-white/10 text-white/45 hover:text-white/80'
+                  className={`rounded-[6px] border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                    velocidad === v ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-t1)]' : 'border-[var(--ls-linea)] text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'
                   }`}
                 >
                   {String(v).replace('.', ',')}×
                 </button>
               ))}
             </div>
-            <button type="button" onClick={onCerrar} className="text-[11px] text-white/40 hover:text-white transition-colors">
+            <button type="button" onClick={onCerrar} className="text-[11px] text-[var(--ls-t4)] transition-colors hover:text-[var(--ls-t1)]">
               Cerrar
             </button>
           </div>

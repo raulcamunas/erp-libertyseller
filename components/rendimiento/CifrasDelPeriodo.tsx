@@ -1,21 +1,34 @@
 'use client'
 
-import { CalendarCheck, ChevronRight, Clock, Mail, MessageCircle, MessageSquareReply, Minus, PhoneCall, PhoneIncoming, TrendingDown, TrendingUp } from 'lucide-react'
-import type { ReactNode } from 'react'
-import { contacto, llamadasPorDiaLaborable, variacion, variacionDePuntos, type Comparacion, type ResultadoDePersona, type Variacion } from '@/lib/rendimiento/comparativa'
-import { rangoDe, type Periodo } from '@/lib/rendimiento/periodos'
+import { CalendarCheck, Clock, Mail, MessageCircle, MessageSquareReply, PhoneCall, PhoneIncoming } from 'lucide-react'
+import type { CSSProperties, ReactNode } from 'react'
+import {
+  contacto,
+  llamadasPorDiaLaborable,
+  variacion,
+  variacionDePuntos,
+  type ClaveDeSerie,
+  type Comparacion,
+  type ResultadoDePersona,
+  type SerieDeCifra,
+  type Variacion,
+} from '@/lib/rendimiento/comparativa'
 import { tiempoHablado } from '@/lib/rendimiento/metricas'
+import { rangoDe, type Periodo } from '@/lib/rendimiento/periodos'
+import { TarjetaDeCifra } from './TarjetaDeCifra'
+import { Delta, Numero } from './ui'
 
 /**
  * LAS CIFRAS DE UNA PERSONA EN UN PERIODO, CON SU CAMBIO FRENTE A LA REFERENCIA.
  *
  * Las mismas cinco de siempre —llamadas hechas, conversaciones de WhatsApp, conversaciones por correo, respuestas y
- * citas— pero de un día, una semana o un mes, y cada una con lo que ha subido o bajado respecto a la referencia
- * (la semana anterior, el mes anterior, la media de los jueves anteriores…). Si no tiene Rinkel vinculado no se
- * pinta un 0 en las llamadas —un cero es una afirmación—, sino un guion con la explicación.
+ * citas— pero de un día, una semana o un mes. Cada una cuenta hasta su valor, lleva en una píldora lo que ha subido o
+ * bajado respecto a la referencia (la semana anterior, el mes anterior, la media de los jueves anteriores…) y, a la
+ * derecha, sus últimos siete días laborables en barritas. Si no tiene Rinkel vinculado no se pinta un 0 en las
+ * llamadas —un cero es una afirmación—, sino un guion con la explicación.
  *
  * WhatsApp y correos cuentan CONVERSACIONES, no apuntes: varias interacciones con el mismo cliente el mismo día son
- * una sola. Debajo de la cifra se ve cuántas interacciones se apuntaron.
+ * una sola. Debajo de la cifra se ve cuántos apuntes se hicieron.
  *
  * Con `onAbrir`, cada tarjeta se puede pulsar para ir a la lista que hay detrás de su cifra: las llamadas, o las
  * conversaciones, respuestas y citas con el cliente y el comentario de cada una.
@@ -23,6 +36,9 @@ import { tiempoHablado } from '@/lib/rendimiento/metricas'
 
 /** Lo que hay detrás de cada tarjeta */
 export type DestinoDeTarjeta = 'llamadas' | 'whatsapp' | 'correos' | 'respuestas' | 'citas'
+
+/** El cambio de una cifra, para quien lo importe con el nombre de siempre */
+export { Delta as Cambio }
 
 interface Props {
   periodo: Periodo
@@ -34,6 +50,8 @@ interface Props {
   cargando: boolean
   /** Solo en un día: a cuántos números distintos se llamó (sale de las llamadas de ese día) */
   numerosDistintos: number | null
+  /** Sus últimos siete días laborables de cada cifra, para las barritas */
+  series?: Record<ClaveDeSerie, SerieDeCifra> | null
   /** Pulsar una tarjeta. Sin esto las tarjetas son solo para mirar */
   onAbrir?: (destino: DestinoDeTarjeta) => void
 }
@@ -42,102 +60,32 @@ const numero = (n: number) => Math.round(n).toLocaleString('es-ES')
 
 function detalleDeConversaciones(conversaciones: number, apuntes: number): string {
   if (conversaciones === 0) return 'Sin conversaciones'
-  return `${conversaciones === 1 ? 'conversación' : 'conversaciones'} · ${numero(apuntes)} ${apuntes === 1 ? 'interacción apuntada' : 'interacciones apuntadas'}`
+  return `${conversaciones === 1 ? '1 conversación' : `${numero(conversaciones)} conversaciones`} · ${numero(apuntes)} ${apuntes === 1 ? 'apunte' : 'apuntes'}`
 }
 
-/** Lo que ha cambiado, con su color: verde si sube, rojo si baja. En estas cifras más es siempre mejor */
-export function Cambio({ v, contra }: { v: Variacion | null; contra: string }) {
-  if (!v) return null
-  if (v.sentido === 'sinBase') {
-    return (
-      <span title={`Sin referencia: no hay actividad con la que comparar (${contra})`} className="text-[10px] text-white/30 whitespace-nowrap">
-        sin referencia
-      </span>
-    )
-  }
-  const color = v.sentido === 'sube' ? 'text-emerald-400' : v.sentido === 'baja' ? 'text-red-400' : 'text-white/35'
-  const Icono = v.sentido === 'sube' ? TrendingUp : v.sentido === 'baja' ? TrendingDown : Minus
+/** Un dato suelto de la tira de debajo de las tarjetas */
+function Dato({ icono, valor, texto, cambio, contra, ayuda }: { icono?: ReactNode; valor: ReactNode; texto: string; cambio?: Variacion | null; contra?: string; ayuda?: string }) {
   return (
-    <span title={`Comparado con ${contra}`} className={`flex items-center gap-0.5 text-[11px] font-medium whitespace-nowrap ${color}`}>
-      <Icono className="h-3 w-3" aria-hidden /> {v.texto}
+    <span title={ayuda} className="flex h-8 min-w-[150px] flex-1 items-center gap-1.5 whitespace-nowrap bg-[var(--ls-sup)] px-3 text-[12px] text-[var(--ls-t4)]">
+      {icono && <span className="text-[var(--ls-t4)]">{icono}</span>}
+      <span className="font-semibold tabular-nums text-[var(--ls-t1)]">{valor}</span>
+      <span className="truncate">{texto}</span>
+      {cambio && contra && (
+        <span className="ml-auto">
+          <Delta v={cambio} contra={contra} />
+        </span>
+      )}
     </span>
   )
 }
 
-function Tarjeta({
-  icono,
-  titulo,
-  valor,
-  detalle,
-  cambio,
-  contra,
-  destacada = false,
-  ayuda,
-  onAbrir,
-}: {
-  icono: ReactNode
-  titulo: string
-  valor: string
-  detalle: string
-  cambio: Variacion | null
-  contra: string
-  destacada?: boolean
-  ayuda?: string
-  onAbrir?: () => void
-}) {
-  const clases = `group relative overflow-hidden rounded-2xl border p-3.5 ${
-    destacada ? 'border-white/10 bg-gradient-to-br from-[#FF6600]/[0.13] via-white/[0.03] to-transparent' : 'border-white/10 bg-white/[0.02]'
-  }`
-  const contenido = (
-    <>
-      <p className="text-[10px] uppercase tracking-[0.14em] text-white/40 flex items-center gap-1.5">
-        <span className="text-[#FF6600]">{icono}</span>
-        {titulo}
-        {onAbrir && <ChevronRight className="ml-auto h-3 w-3 text-white/20 transition-colors group-hover:text-white/60" aria-hidden />}
-      </p>
-      <div className="flex items-baseline justify-between gap-2 mt-2">
-        <p className="text-white font-bold text-[34px] leading-none tabular-nums">{valor}</p>
-        <Cambio v={cambio} contra={contra} />
-      </div>
-      <p className="text-[11px] text-white/40 mt-1.5 leading-snug min-h-[1.5em]">{detalle}</p>
-    </>
-  )
-  if (!onAbrir) {
-    return (
-      <div title={ayuda} className={clases}>
-        {contenido}
-      </div>
-    )
-  }
-  return (
-    <button
-      type="button"
-      onClick={onAbrir}
-      title={ayuda ? `${ayuda}. Pulsa para ver el detalle` : 'Pulsa para ver el detalle'}
-      className={`${clases} w-full text-left transition-colors hover:border-[#FF6600]/40 hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FF6600]/60`}
-    >
-      {contenido}
-    </button>
-  )
-}
-
-function Dato({ icono, valor, texto, cambio, contra }: { icono?: ReactNode; valor: string; texto: string; cambio?: Variacion | null; contra?: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      {icono}
-      <span className="text-white/80 font-semibold tabular-nums">{valor}</span>
-      {texto}
-      {cambio && contra && <Cambio v={cambio} contra={contra} />}
-    </span>
-  )
-}
-
-export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRinkel, cargando, numerosDistintos, onAbrir }: Props) {
+export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRinkel, cargando, numerosDistintos, series = null, onAbrir }: Props) {
   const actual = resultado?.actual
   const base = resultado?.base ?? null
   const contra = comparacion?.texto ?? 'el periodo anterior'
   const sinRinkel = !conRinkel
   const cambio = (a: number | undefined, b: number | undefined): Variacion | null => (resultado && comparacion && a !== undefined ? variacion(a, base ? (b ?? 0) : null) : null)
+  const barras = (clave: ClaveDeSerie) => (series ? { valores: series[clave].valores, etiquetas: series[clave].etiquetas } : undefined)
 
   const tasa = actual ? contacto(actual) : 0
   const tasaBase = base ? contacto(base) : null
@@ -145,84 +93,91 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
   const rango = comparacion?.actual ?? rangoDe(periodo)
 
   return (
-    <section className={`space-y-2.5 transition-opacity ${cargando ? 'opacity-60' : ''}`} aria-label="Cifras del periodo">
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
-        <Tarjeta
+    <section className={`space-y-2 transition-opacity duration-300 ${cargando ? 'opacity-60' : ''}`} aria-label="Cifras del periodo">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+        <TarjetaDeCifra
           destacada
+          indice={0}
           ayuda="Cuenta como contestada la llamada que dura 10 segundos o más: por debajo es un contestador automático y va con las no contestadas"
           icono={<PhoneCall className="h-3 w-3" />}
           titulo="Llamadas hechas"
-          valor={sinRinkel ? '—' : numero(llamadas)}
+          valor={llamadas}
+          sinDato={sinRinkel}
           detalle={sinRinkel ? 'Vincula Rinkel para verlas' : llamadas === 0 ? 'Ninguna llamada saliente' : `${numero(actual?.contestadas ?? 0)} contestadas · ${Math.round(tasa * 100)} %`}
           cambio={sinRinkel ? null : cambio(actual?.llamadas, base?.llamadas)}
           contra={contra}
-          onAbrir={onAbrir && !sinRinkel ? () => onAbrir('llamadas') : undefined}
+          barras={barras('llamadas')}
+          onClick={onAbrir && !sinRinkel ? () => onAbrir('llamadas') : undefined}
         />
-        <Tarjeta
+        <TarjetaDeCifra
+          indice={1}
           icono={<MessageCircle className="h-3 w-3" />}
           titulo="WhatsApp"
-          valor={numero(actual?.whatsapp ?? 0)}
+          valor={actual?.whatsapp ?? 0}
           detalle={detalleDeConversaciones(actual?.whatsapp ?? 0, actual?.whatsappApuntes ?? 0)}
           cambio={cambio(actual?.whatsapp, base?.whatsapp)}
           contra={contra}
-          onAbrir={onAbrir ? () => onAbrir('whatsapp') : undefined}
+          barras={barras('whatsapp')}
+          onClick={onAbrir ? () => onAbrir('whatsapp') : undefined}
         />
-        <Tarjeta
+        <TarjetaDeCifra
+          indice={2}
           icono={<Mail className="h-3 w-3" />}
           titulo="Correos"
-          valor={numero(actual?.correos ?? 0)}
+          valor={actual?.correos ?? 0}
           detalle={detalleDeConversaciones(actual?.correos ?? 0, actual?.correosApuntes ?? 0)}
           cambio={cambio(actual?.correos, base?.correos)}
           contra={contra}
-          onAbrir={onAbrir ? () => onAbrir('correos') : undefined}
+          barras={barras('correos')}
+          onClick={onAbrir ? () => onAbrir('correos') : undefined}
         />
-        <Tarjeta
+        <TarjetaDeCifra
+          indice={3}
           icono={<MessageSquareReply className="h-3 w-3" />}
           titulo="Respuestas"
-          valor={numero(actual?.respuestas ?? 0)}
+          valor={actual?.respuestas ?? 0}
           detalle="Clientes que han contestado"
           cambio={cambio(actual?.respuestas, base?.respuestas)}
           contra={contra}
-          onAbrir={onAbrir ? () => onAbrir('respuestas') : undefined}
+          barras={barras('respuestas')}
+          onClick={onAbrir ? () => onAbrir('respuestas') : undefined}
         />
-        <Tarjeta
+        <TarjetaDeCifra
+          indice={4}
           icono={<CalendarCheck className="h-3 w-3" />}
           titulo="Citas agendadas"
-          valor={numero(actual?.citas ?? 0)}
+          valor={actual?.citas ?? 0}
           detalle="De la Agenda"
           cambio={cambio(actual?.citas, base?.citas)}
           contra={contra}
-          onAbrir={onAbrir ? () => onAbrir('citas') : undefined}
+          barras={barras('citas')}
+          onClick={onAbrir ? () => onAbrir('citas') : undefined}
         />
       </div>
 
       {conRinkel && actual && (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-1 text-[12px] text-white/50">
+        <div className="rend-aparece flex flex-wrap gap-px overflow-hidden rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-linea)]" style={{ '--d': 5 } as CSSProperties}>
           <Dato
-            icono={<PhoneCall className="h-3 w-3 text-white/30" />}
-            valor={numero(actual.conversaciones)}
-            texto="conversaciones (más de 1 min)"
+            icono={<PhoneCall className="h-3 w-3" />}
+            valor={<Numero valor={actual.conversaciones} />}
+            texto="conversaciones"
+            ayuda="Llamadas contestadas de más de 1 minuto"
             cambio={cambio(actual.conversaciones, base?.conversaciones)}
             contra={contra}
           />
-          <Dato
-            icono={<Clock className="h-3 w-3 text-white/30" />}
-            valor={tiempoHablado(actual.segundos)}
-            texto="al teléfono"
-          />
-          <Dato icono={<PhoneIncoming className="h-3 w-3 text-white/30" />} valor={numero(actual.recibidas)} texto="recibidas" />
+          <Dato icono={<Clock className="h-3 w-3" />} valor={<Numero valor={actual.segundos} formato={tiempoHablado} />} texto="al teléfono" />
+          <Dato icono={<PhoneIncoming className="h-3 w-3" />} valor={<Numero valor={actual.recibidas} />} texto="recibidas" />
           {llamadas > 0 && (
-            <Dato valor={`${Math.round(tasa * 100)} %`} texto="de contacto" cambio={comparacion && tasaBase !== null ? variacionDePuntos(tasa, tasaBase) : null} contra={contra} />
+            <Dato
+              valor={<Numero valor={Math.round(tasa * 100)} formato={(n) => `${Math.round(n)} %`} />}
+              texto="de contacto"
+              cambio={comparacion && tasaBase !== null ? variacionDePuntos(tasa, tasaBase) : null}
+              contra={contra}
+            />
           )}
-          {periodo.tipo !== 'dia' && comparacion && llamadas > 0 && (
-            <Dato valor={numero(llamadasPorDiaLaborable(llamadas, rango, hoy))} texto="llamadas por día laborable" />
-          )}
-          {periodo.tipo === 'dia' && numerosDistintos !== null && numerosDistintos > 0 && <Dato valor={numero(numerosDistintos)} texto="números distintos" />}
+          {periodo.tipo !== 'dia' && comparacion && llamadas > 0 && <Dato valor={<Numero valor={llamadasPorDiaLaborable(llamadas, rango, hoy)} />} texto="llamadas por día laborable" />}
+          {periodo.tipo === 'dia' && numerosDistintos !== null && numerosDistintos > 0 && <Dato valor={<Numero valor={numerosDistintos} />} texto="números distintos" />}
         </div>
-      )}
-
-      {comparacion && (
-        <p className="px-1 text-[10px] text-white/30">Los cambios comparan con {comparacion.texto}.</p>
       )}
     </section>
   )

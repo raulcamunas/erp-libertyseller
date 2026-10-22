@@ -335,6 +335,48 @@ export function tendenciaDe(porDia: PorDia | undefined, p: Periodo, hoy: string,
 }
 
 /* ------------------------------------------------------------------ */
+/* Los últimos días de cada cifra, para las barritas                   */
+/* ------------------------------------------------------------------ */
+
+export type ClaveDeSerie = 'llamadas' | 'whatsapp' | 'correos' | 'respuestas' | 'citas'
+
+export interface SerieDeCifra {
+  /** Siete valores, del día más antiguo al más reciente */
+  valores: number[]
+  /** «lun 19» */
+  etiquetas: string[]
+}
+
+/**
+ * Los últimos 7 días LABORABLES de cada cifra de una persona, hasta el final del periodo que se mira (o hasta hoy, si
+ * el periodo no ha acabado): lo que dibujan las barritas de cada tarjeta, para ver de un vistazo si la cifra sube o
+ * baja sin tener que comparar números. Un día sin fila es un día sin nada (cero). Los fines de semana no cuentan: una
+ * barra de cero cada sábado y domingo no diría nada.
+ */
+export function seriesDeCifras(porDia: PorDia | undefined, p: Periodo, hoy: string): Record<ClaveDeSerie, SerieDeCifra> {
+  const completo = rangoDe(p)
+  const hasta = recortarA(completo, hoy)?.hasta ?? completo.hasta
+  let d = esLaborable(hasta) ? hasta : sumarLaborables(hasta, -1)
+  const dias: string[] = []
+  for (let i = 0; i < 7; i += 1) {
+    dias.unshift(d)
+    d = sumarLaborables(d, -1)
+  }
+  const etiquetas = dias.map((dia) => `${nombreDelDia(dia).slice(0, 3)} ${Number(dia.slice(8))}`)
+  const de = (campo: (f: FilaDiaria) => number) => dias.map((dia) => {
+    const f = porDia?.get(dia)
+    return f ? campo(f) : 0
+  })
+  return {
+    llamadas: { valores: de((f) => f.realizadas), etiquetas },
+    whatsapp: { valores: de((f) => f.whatsapp), etiquetas },
+    correos: { valores: de((f) => f.correos), etiquetas },
+    respuestas: { valores: de((f) => f.respuestas), etiquetas },
+    citas: { valores: de((f) => f.citas), etiquetas },
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* La fila de una persona, ya lista para pintar                        */
 /* ------------------------------------------------------------------ */
 

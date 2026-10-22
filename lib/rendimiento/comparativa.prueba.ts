@@ -6,6 +6,7 @@ import {
   llamadasPorDiaLaborable,
   promediar,
   resultadoDePersona,
+  seriesDeCifras,
   sumarTotales,
   tendenciaDe,
   totalesDeRango,
@@ -180,6 +181,29 @@ console.log('\n=== la tendencia ===')
   const meses = tendenciaDe(indexar([fila(MAOLI, '2026-09-15', { realizadas: 220 }), fila(MAOLI, '2026-10-05', { realizadas: 100 })]).get(MAOLI), mes('2026-10-22'), HOY, etiquetar)
   ok('un mes: 4 puntos (julio a octubre), por día laborable', meses.length === 4 && Math.abs(meses[2].valor - 220 / 22) < 1e-9 && Math.abs(meses[3].valor - 100 / 16) < 1e-9, j(meses.map((p) => p.valor)))
   ok('llamadas por día laborable: 200 en 4 días = 50; un periodo que no ha empezado, 0', llamadasPorDiaLaborable(200, { desde: '2026-10-19', hasta: '2026-10-25' }, HOY) === 50 && llamadasPorDiaLaborable(200, { desde: '2026-10-26', hasta: '2026-11-01' }, HOY) === 0)
+}
+
+console.log('\n=== los últimos días de cada cifra ===')
+{
+  // Siete laborables hasta el jueves 22: mié 14, jue 15, vie 16, lun 19, mar 20, mié 21 y jue 22
+  const filas = [
+    fila(MAOLI, '2026-10-14', { realizadas: 10, whatsapp: 1 }),
+    fila(MAOLI, '2026-10-16', { realizadas: 30, citas: 2 }),
+    fila(MAOLI, '2026-10-19', { realizadas: 40, correos: 3, respuestas: 1 }),
+    fila(MAOLI, '2026-10-22', { realizadas: 52, whatsapp: 4 }),
+    fila(MAOLI, '2026-10-17', { realizadas: 99 }), // un sábado: no entra
+  ]
+  const porDia = indexar(filas).get(MAOLI)
+  const s = seriesDeCifras(porDia, dia('2026-10-22'), HOY)
+  ok('un día: sus siete últimos laborables, del más antiguo al más reciente', s.llamadas.valores.join() === '10,0,30,40,0,0,52', s.llamadas.valores.join())
+  ok('con su nombre de día', s.llamadas.etiquetas.join() === 'mié 14,jue 15,vie 16,lun 19,mar 20,mié 21,jue 22', s.llamadas.etiquetas.join())
+  ok('cada cifra, la suya', s.whatsapp.valores.join() === '1,0,0,0,0,0,4' && s.correos.valores.join() === '0,0,0,3,0,0,0' && s.respuestas.valores.join() === '0,0,0,1,0,0,0' && s.citas.valores.join() === '0,0,2,0,0,0,0')
+  ok('el sábado no cuenta: ni una barra de cero ni sus 99 llamadas', !s.llamadas.valores.includes(99) && s.llamadas.valores.length === 7)
+  ok('una semana en curso se mide hasta hoy, no hasta el domingo', seriesDeCifras(porDia, semana('2026-10-20'), HOY).llamadas.etiquetas.join() === s.llamadas.etiquetas.join())
+  ok('una semana ya cerrada acaba en su viernes (el domingo no es laborable)', seriesDeCifras(porDia, semana('2026-10-20'), '2026-10-27').llamadas.etiquetas[6] === 'vie 23')
+  ok('un mes en curso acaba hoy y uno pasado, en su último día laborable', seriesDeCifras(porDia, mes('2026-10-05'), HOY).llamadas.etiquetas[6] === 'jue 22' && seriesDeCifras(porDia, mes('2026-09-05'), HOY).llamadas.etiquetas[6] === 'mié 30')
+  ok('un domingo se queda en el viernes de antes', seriesDeCifras(porDia, dia('2026-10-18'), HOY).llamadas.etiquetas[6] === 'vie 16')
+  ok('sin datos, siete ceros', seriesDeCifras(undefined, dia('2026-10-22'), HOY).llamadas.valores.join() === '0,0,0,0,0,0,0')
 }
 
 console.log('\n=== la fila de una persona ===')

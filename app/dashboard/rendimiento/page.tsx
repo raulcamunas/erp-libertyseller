@@ -1,7 +1,6 @@
 import { AlertTriangle } from 'lucide-react'
 import { redirect } from 'next/navigation'
 import { PanelRendimiento } from '@/components/rendimiento/PanelRendimiento'
-import { PanelRendimientoClasico } from '@/components/rendimiento/PanelRendimientoClasico'
 import { CAMPOS_DEL_VINCULO, type Miembro, type VinculoVisible } from '@/components/rendimiento/tipos'
 import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
@@ -27,8 +26,9 @@ import { createClient } from '@/lib/supabase/server'
  * pedir el panel de otra persona sin supervisar devuelve vacío, no sus datos. El id de la URL solo se acepta si
  * es de alguien del equipo que esta persona puede ver; cualquier otro valor se ignora.
  *
- * LAS COMPARATIVAS NECESITAN LA MIGRACIÓN 235 (rendimiento_resumen_diario). Si todavía no está lanzada, la página
- * enseña el panel de un solo día de antes y avisa; desplegar el código antes que el SQL no estropea nada.
+ * EL PANEL NECESITA LAS MIGRACIONES 234 (Rinkel) Y 235 (la función rendimiento_resumen_diario). Si falta una, la
+ * página lo dice con el nombre del fichero que hay que lanzar en vez de enseñar un panel vacío; desplegar el código
+ * antes que el SQL no estropea nada.
  */
 export const dynamic = 'force-dynamic'
 
@@ -37,10 +37,10 @@ const primero = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] :
 
 function Aviso({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-amber-400/30 bg-amber-400/[0.06] p-4 flex items-start gap-3">
-      <AlertTriangle className="h-5 w-5 text-amber-300 shrink-0 mt-0.5" />
-      <div className="text-[13px] text-white/75 leading-relaxed">
-        <p className="font-semibold text-white mb-1">{titulo}</p>
+    <div className="flex items-start gap-3 rounded-[10px] border border-l-2 border-[var(--ls-linea)] border-l-[var(--ls-e-ambar)] bg-[var(--ls-sup)] p-4">
+      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--ls-e-ambar)]" />
+      <div className="text-[13px] leading-relaxed text-[var(--ls-t2)]">
+        <p className="mb-1 font-semibold text-[var(--ls-t1)]">{titulo}</p>
         <p>{children}</p>
       </div>
     </div>
@@ -87,12 +87,15 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
   const vinculosVisibles = (vinculosBrutos ?? []) as VinculoVisible[]
   const vinculos = new Map(vinculosVisibles.map((v) => [v.user_id, v]))
 
-  // ¿Está lanzada la migración 235? Se pregunta por el día de hoy: cuesta una fila. Si falla por lo que sea, el panel de siempre
-  let conComparativa = false
+  // ¿Está lanzada la migración 235? Se pregunta por el día de hoy: cuesta una fila. Solo «no existe la función» cuenta como
+  // falta de migración; otro fallo se apunta en el registro y el panel lo dirá con su propio aviso al leer las cifras
+  let faltaResumen = false
   if (!faltaMigracion) {
     const { error: errorResumen } = await supabase.rpc('rendimiento_resumen_diario', { p_desde: hoy, p_hasta: hoy })
-    conComparativa = !errorResumen
-    if (errorResumen && !isMissingSchema(errorResumen)) console.error('Rendimiento: el resumen diario ha fallado', errorResumen)
+    if (errorResumen) {
+      if (isMissingSchema(errorResumen)) faltaResumen = true
+      else console.error('Rendimiento: el resumen diario ha fallado', errorResumen)
+    }
   }
 
   const pedido = primero(searchParams.comercial)
@@ -108,10 +111,10 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
   const puedeGestionar = profile.role === 'admin'
 
   return (
-    <div className="space-y-4 pb-10">
+    <div className="space-y-3 pb-10">
       <div>
-        <h1 className="heading-medium text-white mb-1">{puedeSupervisar ? 'Rendimiento' : 'Mi rendimiento'}</h1>
-        <p className="text-white/50 text-sm">
+        <h1 className="mb-0.5 text-[22px] font-semibold leading-tight tracking-[-0.012em] text-[var(--ls-t1)]">{puedeSupervisar ? 'Rendimiento' : 'Mi rendimiento'}</h1>
+        <p className="text-[13px] text-[var(--ls-t3)]">
           {puedeSupervisar
             ? 'Cómo va el equipo y cada persona: llamadas, conversaciones, respuestas y citas, comparado con el periodo anterior. Las llamadas y sus grabaciones se leen del Rinkel de cada uno.'
             : 'Lo que has hecho: llamadas, mensajes, correos, respuestas y citas, y cómo van frente a antes. Las llamadas y sus grabaciones se leen de tu Rinkel.'}
@@ -120,10 +123,14 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
 
       {faltaMigracion ? (
         <Aviso titulo="Falta preparar la base de datos">
-          Hay que lanzar la migración <span className="font-mono text-white/90">234_rendimiento_rinkel.sql</span> en el editor SQL de Supabase. Hasta entonces este panel no
+          Hay que lanzar la migración <span className="font-mono text-[var(--ls-t1)]">234_rendimiento_rinkel.sql</span> en el editor SQL de Supabase. Hasta entonces este panel no
           puede guardar ni leer llamadas.
         </Aviso>
-      ) : conComparativa ? (
+      ) : faltaResumen ? (
+        <Aviso titulo="Falta lanzar una migración para ver las cifras">
+          Hay que lanzar <span className="font-mono text-[var(--ls-t1)]">235_rendimiento_resumen_diario.sql</span> en el editor SQL de Supabase.
+        </Aviso>
+      ) : (
         <PanelRendimiento
           yo={yo}
           equipo={equipo}
@@ -135,24 +142,6 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
           personaInicial={pedidoValido}
           periodoInicial={periodoDeTexto(primero(searchParams.p), primero(searchParams.f), hoy)}
         />
-      ) : (
-        <>
-          <Aviso titulo="Falta lanzar una migración para ver la semana, el mes y las comparativas">
-            Hay que lanzar <span className="font-mono text-white/90">235_rendimiento_resumen_diario.sql</span> en el editor SQL de Supabase. Mientras tanto el panel
-            enseña un día, como hasta ahora.
-          </Aviso>
-          <PanelRendimientoClasico
-            key={pedidoValido ?? yo.id}
-            usuario={pedidoValido ? personas.get(pedidoValido)! : yo}
-            yo={yo.id}
-            equipo={equipo}
-            puedeSupervisar={puedeSupervisar}
-            hoy={hoy}
-            vinculoInicial={vinculos.get(pedidoValido ?? yo.id) ?? null}
-            esComercial={esComercial}
-            puedeGestionar={puedeGestionar}
-          />
-        </>
       )}
     </div>
   )

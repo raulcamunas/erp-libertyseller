@@ -1,7 +1,8 @@
 'use client'
 
 import { CalendarCheck, ChevronDown, ChevronsDownUp, ChevronsUpDown, Linkedin, Loader2, Mail, MessageCircle, Phone, StickyNote, type LucideIcon } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import {
   ETIQUETA_DE_CANAL,
   FILTROS_DE_ACTIVIDAD,
@@ -17,6 +18,7 @@ import {
 import { etiquetaDeDia, sumarDias } from '@/lib/rendimiento/dia'
 import { etiquetaDePeriodo, type Periodo } from '@/lib/rendimiento/periodos'
 import type { NombreDeLead } from './ListaLlamadas'
+import { CabeceraDePanel, ChipDeFiltro, PANEL } from './ui'
 
 /**
  * EL DETALLE DE LA ACTIVIDAD: CON QUIÉN HABLÓ CADA PERSONA Y QUÉ APUNTÓ EN CADA MOMENTO.
@@ -31,11 +33,11 @@ import type { NombreDeLead } from './ListaLlamadas'
 const POR_PAGINA = 60
 
 const ICONO_DE_CANAL: Record<Canal, { Icono: LucideIcon; color: string }> = {
-  whatsapp: { Icono: MessageCircle, color: 'text-green-400' },
-  correo: { Icono: Mail, color: 'text-sky-400' },
-  linkedin: { Icono: Linkedin, color: 'text-blue-400' },
-  llamada: { Icono: Phone, color: 'text-emerald-400' },
-  nota: { Icono: StickyNote, color: 'text-white/50' },
+  whatsapp: { Icono: MessageCircle, color: COLOR_ESTADO.verde },
+  correo: { Icono: Mail, color: COLOR_ESTADO.cian },
+  linkedin: { Icono: Linkedin, color: COLOR_ESTADO.azul },
+  llamada: { Icono: Phone, color: COLOR_ESTADO.verde },
+  nota: { Icono: StickyNote, color: COLOR_ESTADO.gris },
 }
 
 const AYUDA_DE_FILTRO: Partial<Record<FiltroDeActividad, string>> = {
@@ -44,6 +46,18 @@ const AYUDA_DE_FILTRO: Partial<Record<FiltroDeActividad, string>> = {
 }
 
 const primeraMayuscula = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t)
+
+/** Una etiquetita redonda con su tono: el color lo lleva el fondo suave y el texto, nunca solo uno */
+function Etiqueta({ children, color }: { children: React.ReactNode; color?: string }) {
+  return (
+    <span
+      className={`inline-flex h-[17px] items-center rounded-[5px] px-1.5 text-[10.5px] font-medium whitespace-nowrap ${color ? '' : 'bg-[var(--ls-sup3)] text-[var(--ls-t3)]'}`}
+      style={color ? { color, background: `color-mix(in srgb, ${color} 15%, transparent)` } : undefined}
+    >
+      {children}
+    </span>
+  )
+}
 
 interface Props {
   persona: string
@@ -66,7 +80,7 @@ interface Props {
   anclaId?: string | null
 }
 
-function TarjetaDeConversacion({ c, cliente, abierta, onAlternar }: { c: Conversacion; cliente: NombreDeLead | undefined; abierta: boolean; onAlternar: () => void }) {
+function TarjetaDeConversacion({ c, cliente, abierta, onAlternar, orden }: { c: Conversacion; cliente: NombreDeLead | undefined; abierta: boolean; onAlternar: () => void; orden: number }) {
   const { Icono, color } = ICONO_DE_CANAL[c.canal]
   const n = c.interacciones.length
   // Lo que se ve sin abrir: lo que contestó el cliente, si contestó (es lo que importa); si no, el primer apunte
@@ -75,56 +89,56 @@ function TarjetaDeConversacion({ c, cliente, abierta, onAlternar }: { c: Convers
   const horas = c.desde === c.hasta ? c.desde : `${c.desde} – ${c.hasta}`
 
   return (
-    <li className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2.5">
-      <div className="flex items-start gap-3">
-        <span className={`mt-0.5 shrink-0 ${color}`} title={ETIQUETA_DE_CANAL[c.canal]}>
-          <Icono className="h-4 w-4" />
+    <li className="rend-entra rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2.5 py-2 transition-colors hover:border-[var(--ls-linea2)]" style={{ '--d': Math.min(orden, 12) } as CSSProperties}>
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px]" style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }} title={ETIQUETA_DE_CANAL[c.canal]}>
+          <Icono className="h-3.5 w-3.5" />
         </span>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="text-[13px] text-white truncate max-w-full">{cliente?.nombre || 'Cliente'}</p>
-            {c.hayRespuesta && <span className="rounded-full bg-[#FF6600]/15 border border-[#FF6600]/30 px-1.5 py-px text-[10px] font-medium text-[#FF8A3D]">Contestó</span>}
-            {n > 1 && <span className="rounded-full bg-white/[0.06] px-1.5 py-px text-[10px] text-white/50">{n} interacciones</span>}
+            <p className="max-w-full truncate text-[12.5px] text-[var(--ls-t1)]">{cliente?.nombre || 'Cliente'}</p>
+            {c.hayRespuesta && <Etiqueta color="var(--ls-acc)">Contestó</Etiqueta>}
+            {n > 1 && <Etiqueta>{n} interacciones</Etiqueta>}
           </div>
-          <p className="text-[11px] text-white/40 truncate">
+          <p className="truncate text-[11px] text-[var(--ls-t4)]">
             {ETIQUETA_DE_CANAL[c.canal]}
             {cliente?.empresa ? ` · ${cliente.empresa}` : ''}
           </p>
 
           {!abierta && destacada.texto && (
-            <p className="mt-1.5 text-[12px] text-white/65 leading-snug line-clamp-2 break-words">
-              {destacada.esRespuesta && <span className="font-medium text-[#FF8A3D]">Cliente: </span>}
+            <p className="mt-1.5 line-clamp-2 break-words text-[12px] leading-snug text-[var(--ls-t3)]">
+              {destacada.esRespuesta && <span className="font-medium text-[var(--ls-acc)]">Cliente: </span>}
               {destacada.texto}
             </p>
           )}
 
           {abierta && (
-            <ol className="mt-2 space-y-1.5 border-l border-white/10 pl-3">
+            <ol className="mt-2 space-y-1.5 border-l border-[var(--ls-linea2)] pl-3">
               {c.interacciones.map((i) => (
                 <li key={i.id} className="text-[12px] leading-snug">
                   <p className="flex items-center gap-2 text-[11px]">
-                    <span className="font-semibold text-white/80 tabular-nums">{i.hora}</span>
-                    <span className={i.esRespuesta ? 'font-medium text-[#FF8A3D]' : 'text-white/35'}>{i.esRespuesta ? 'Contestó el cliente' : 'Apunte'}</span>
+                    <span className="font-semibold tabular-nums text-[var(--ls-t2)]">{i.hora}</span>
+                    <span className={i.esRespuesta ? 'font-medium text-[var(--ls-acc)]' : 'text-[var(--ls-t4)]'}>{i.esRespuesta ? 'Contestó el cliente' : 'Apunte'}</span>
                   </p>
-                  <p className={`mt-0.5 whitespace-pre-wrap break-words ${i.texto ? 'text-white/70' : 'text-white/25 italic'}`}>{i.texto || 'Sin comentario'}</p>
+                  <p className={`mt-0.5 whitespace-pre-wrap break-words ${i.texto ? 'text-[var(--ls-t2)]' : 'italic text-[var(--ls-t4)]'}`}>{i.texto || 'Sin comentario'}</p>
                 </li>
               ))}
             </ol>
           )}
         </div>
 
-        <div className="flex shrink-0 items-start gap-1.5">
-          <p className="text-[12px] text-white/70 tabular-nums pt-0.5">{horas}</p>
+        <div className="flex shrink-0 items-start gap-1">
+          <p className="pt-0.5 text-[12px] tabular-nums text-[var(--ls-t3)]">{horas}</p>
           {expandible && (
             <button
               type="button"
               onClick={onAlternar}
               aria-expanded={abierta}
               aria-label={abierta ? 'Cerrar la conversación' : 'Abrir la conversación'}
-              className="rounded-md p-1 text-white/40 hover:bg-white/[0.06] hover:text-white transition-colors"
+              className="rounded-[6px] p-1 text-[var(--ls-t4)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"
             >
-              <ChevronDown className={`h-4 w-4 transition-transform ${abierta ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${abierta ? 'rotate-180' : ''}`} />
             </button>
           )}
         </div>
@@ -133,25 +147,26 @@ function TarjetaDeConversacion({ c, cliente, abierta, onAlternar }: { c: Convers
   )
 }
 
-function TarjetaDeCita({ c }: { c: CitaAgendada }) {
+function TarjetaDeCita({ c, orden }: { c: CitaAgendada; orden: number }) {
+  const violeta = COLOR_ESTADO.violeta
   return (
-    <li className="rounded-xl border border-violet-400/20 bg-violet-400/[0.04] px-3 py-2.5">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 shrink-0 text-violet-400" title="Cita agendada">
-          <CalendarCheck className="h-4 w-4" />
+    <li className="rend-entra rounded-[8px] border px-2.5 py-2" style={{ borderColor: `color-mix(in srgb, ${violeta} 28%, transparent)`, background: `color-mix(in srgb, ${violeta} 6%, var(--ls-sup))`, '--d': Math.min(orden, 12) } as CSSProperties}>
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px]" style={{ color: violeta, background: `color-mix(in srgb, ${violeta} 16%, transparent)` }} title="Cita agendada">
+          <CalendarCheck className="h-3.5 w-3.5" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="text-[13px] text-white truncate max-w-full">{c.cliente}</p>
-            <span className="rounded-full bg-violet-400/15 border border-violet-400/30 px-1.5 py-px text-[10px] font-medium text-violet-300">Cita agendada</span>
-            <span className="rounded-full bg-white/[0.06] px-1.5 py-px text-[10px] text-white/50">{etiquetaDeEstadoDeCita(c.estado)}</span>
+            <p className="max-w-full truncate text-[12.5px] text-[var(--ls-t1)]">{c.cliente}</p>
+            <Etiqueta color={violeta}>Cita agendada</Etiqueta>
+            <Etiqueta>{etiquetaDeEstadoDeCita(c.estado)}</Etiqueta>
           </div>
-          <p className="text-[11px] text-white/40 truncate">{c.empresa ?? 'Sin empresa'}</p>
-          <p className="mt-1.5 text-[12px] text-white/65 leading-snug">
-            Es para el <span className="text-white/85">{etiquetaDeDia(c.paraDia)}</span> a las <span className="text-white/85 tabular-nums">{c.paraHora}</span>
+          <p className="truncate text-[11px] text-[var(--ls-t4)]">{c.empresa ?? 'Sin empresa'}</p>
+          <p className="mt-1.5 text-[12px] leading-snug text-[var(--ls-t3)]">
+            Es para el <span className="text-[var(--ls-t1)]">{etiquetaDeDia(c.paraDia)}</span> a las <span className="tabular-nums text-[var(--ls-t1)]">{c.paraHora}</span>
           </p>
         </div>
-        <p className="shrink-0 text-[12px] text-white/70 tabular-nums pt-0.5" title="Hora a la que se agendó">
+        <p className="shrink-0 pt-0.5 text-[12px] tabular-nums text-[var(--ls-t3)]" title="Hora a la que se agendó">
           {c.hora}
         </p>
       </div>
@@ -210,47 +225,21 @@ export function ListaDeActividad({ persona, periodo, hoy, items, filtro, onFiltr
 
   const etiquetaDelDia = (dia: string) => (dia === hoy ? 'Hoy' : dia === sumarDias(hoy, -1) ? 'Ayer' : primeraMayuscula(etiquetaDeDia(dia)))
 
-  return (
-    <section
-      id={anclaId ?? undefined}
-      className={sinMarco ? 'scroll-mt-4' : 'scroll-mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4'}
-      aria-label="Detalle de la actividad"
-    >
-      {!sinMarco && (
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-2.5">
-          <h2 className="text-[13px] font-semibold text-white">Detalle de la actividad</h2>
-          <p className="text-[12px] text-white/40 flex items-center gap-2">
-            {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            <span className="truncate">
-              {persona} · {etiquetaDePeriodo(periodo, hoy)}
-            </span>
-          </p>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+  const cuerpo = (
+    <div className={sinMarco ? '' : 'p-3 pt-2.5'}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-1" role="group" aria-label="Filtrar la actividad">
           {FILTROS_DE_ACTIVIDAD.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => onFiltro(f.id)}
-              aria-pressed={filtro === f.id}
-              title={AYUDA_DE_FILTRO[f.id]}
-              disabled={f.id !== 'todo' && cuenta[f.id] === 0}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-30 ${
-                filtro === f.id ? 'border-[#FF6600]/50 bg-[#FF6600]/15 text-white' : 'border-white/10 text-white/50 hover:text-white/80'
-              }`}
-            >
-              {f.etiqueta} <span className="text-white/40 tabular-nums">{cuenta[f.id]}</span>
-            </button>
+            <ChipDeFiltro key={f.id} activo={filtro === f.id} deshabilitado={f.id !== 'todo' && cuenta[f.id] === 0} onClick={() => onFiltro(f.id)} ayuda={AYUDA_DE_FILTRO[f.id]}>
+              {f.etiqueta} <span className="tabular-nums text-[var(--ls-t4)]">{cuenta[f.id]}</span>
+            </ChipDeFiltro>
           ))}
         </div>
         {expandibles.length > 0 && (
           <button
             type="button"
             onClick={() => setAbiertas(todoAbierto ? new Set() : new Set(expandibles))}
-            className="flex items-center gap-1.5 text-[11px] text-white/50 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-[11.5px] text-[var(--ls-t3)] transition-colors hover:text-[var(--ls-t1)]"
           >
             {todoAbierto ? <ChevronsDownUp className="h-3.5 w-3.5" /> : <ChevronsUpDown className="h-3.5 w-3.5" />}
             {todoAbierto ? 'Cerrar todo' : 'Abrir todo'}
@@ -259,14 +248,14 @@ export function ListaDeActividad({ persona, periodo, hoy, items, filtro, onFiltr
       </div>
 
       {visibles.length === 0 ? (
-        <p className={`text-[12px] py-6 text-center leading-relaxed ${error ? 'text-amber-300' : 'text-white/35'}`} role={error ? 'alert' : undefined}>
+        <p className={`py-6 text-center text-[12px] leading-relaxed ${error ? 'text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t4)]'}`} role={error ? 'alert' : undefined}>
           {error
             ? error
             : cargando
               ? 'Leyendo la actividad…'
-            : items.length === 0
-              ? 'No hay nada apuntado en este periodo. Aquí salen los WhatsApp, correos, respuestas y notas que se apuntan en Cold Calling y las citas que se agendan en la Agenda.'
-              : 'Nada con ese filtro.'}
+              : items.length === 0
+                ? 'No hay nada apuntado en este periodo. Aquí salen los WhatsApp, correos, respuestas y notas que se apuntan en Cold Calling y las citas que se agendan en la Agenda.'
+                : 'Nada con ese filtro.'}
         </p>
       ) : (
         <div className="space-y-4">
@@ -274,14 +263,15 @@ export function ListaDeActividad({ persona, periodo, hoy, items, filtro, onFiltr
             const delDia = grupos.get(dia) ?? []
             return (
               <div key={dia}>
-                <div className="flex items-baseline justify-between gap-3 mb-1.5 px-0.5">
-                  <h3 className="text-[12px] font-semibold text-white/80">{etiquetaDelDia(dia)}</h3>
-                  <p className="text-[11px] text-white/35">{resumenDelDia(delDia)}</p>
+                <div className="mb-1.5 flex items-center gap-3 px-0.5">
+                  <h3 className="text-[12px] font-semibold text-[var(--ls-t2)]">{etiquetaDelDia(dia)}</h3>
+                  <span aria-hidden className="h-px flex-1 bg-[var(--ls-linea)]" />
+                  <p className="text-[11px] text-[var(--ls-t4)]">{resumenDelDia(delDia)}</p>
                 </div>
                 <ul className="space-y-1.5">
-                  {delDia.map((i) =>
+                  {delDia.map((i, orden) =>
                     i.tipo === 'cita' ? (
-                      <TarjetaDeCita key={`cita-${i.cita.id}`} c={i.cita} />
+                      <TarjetaDeCita key={`cita-${i.cita.id}`} c={i.cita} orden={orden} />
                     ) : (
                       <TarjetaDeConversacion
                         key={i.conversacion.clave}
@@ -289,6 +279,7 @@ export function ListaDeActividad({ persona, periodo, hoy, items, filtro, onFiltr
                         cliente={nombres.get(i.conversacion.leadId)}
                         abierta={abiertas.has(i.conversacion.clave)}
                         onAlternar={() => alternar(i.conversacion.clave)}
+                        orden={orden}
                       />
                     )
                   )}
@@ -302,14 +293,39 @@ export function ListaDeActividad({ persona, periodo, hoy, items, filtro, onFiltr
               <button
                 type="button"
                 onClick={() => setLimite((l) => l + POR_PAGINA)}
-                className="rounded-full border border-white/10 px-4 py-1.5 text-[12px] text-white/60 hover:border-[#FF6600]/40 hover:text-white transition-colors"
+                className="rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-1.5 text-[12px] text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-acc-graf)] hover:text-[var(--ls-t1)]"
               >
-                Ver {Math.min(POR_PAGINA, restantes)} más <span className="text-white/35">({restantes.toLocaleString('es-ES')} sin mostrar, las más antiguas)</span>
+                Ver {Math.min(POR_PAGINA, restantes)} más <span className="text-[var(--ls-t4)]">({restantes.toLocaleString('es-ES')} sin mostrar, las más antiguas)</span>
               </button>
             </div>
           )}
         </div>
       )}
+    </div>
+  )
+
+  if (sinMarco) {
+    return (
+      <section id={anclaId ?? undefined} className="scroll-mt-4" aria-label="Detalle de la actividad">
+        {cuerpo}
+      </section>
+    )
+  }
+
+  return (
+    <section id={anclaId ?? undefined} className={`${PANEL} rend-aparece scroll-mt-4 overflow-hidden`} aria-label="Detalle de la actividad">
+      <CabeceraDePanel
+        titulo="Detalle de la actividad"
+        derecha={
+          <span className="flex items-center gap-2 text-[11.5px] text-[var(--ls-t4)]">
+            {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            <span className="truncate">
+              {persona} · {etiquetaDePeriodo(periodo, hoy)}
+            </span>
+          </span>
+        }
+      />
+      {cuerpo}
     </section>
   )
 }

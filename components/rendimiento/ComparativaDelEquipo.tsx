@@ -1,7 +1,7 @@
 'use client'
 
-import { ArrowDown, ArrowUp, Loader2, Minus, TrendingDown, TrendingUp, Users } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { ArrowDown, ArrowUp, Info, Loader2, Users } from 'lucide-react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import {
   contacto,
   sumarTotales,
@@ -9,11 +9,11 @@ import {
   type Comparacion,
   type ResultadoDePersona,
   type Totales,
-  type Variacion,
 } from '@/lib/rendimiento/comparativa'
 import { tiempoHablado } from '@/lib/rendimiento/metricas'
 import { etiquetaDePeriodo, type Periodo } from '@/lib/rendimiento/periodos'
 import { Tendencia } from './Tendencia'
+import { Avatar, CabeceraDePanel, Delta, NOTA_DE_PANEL, PANEL } from './ui'
 
 /**
  * LA COMPARATIVA DEL EQUIPO: una fila por comercial con las cifras del periodo, lo que han cambiado frente a la
@@ -25,6 +25,9 @@ import { Tendencia } from './Tendencia'
  *     media de los mismos días de la semana.
  *   · Las columnas se ordenan pulsando su cabecera. Un clic más las invierte y otro más devuelve el orden de siempre.
  *   · Un clic en una persona abre su panel.
+ *
+ * LA PRIMERA COLUMNA SE QUEDA FIJA al deslizar la tabla en pantallas estrechas, con el color OPACO de la tarjeta (el
+ * token de superficie, no un negro suelto): si fuera transparente, las cifras que pasan por debajo la cruzarían.
  */
 
 export interface FilaDeComparativa {
@@ -54,12 +57,15 @@ const COLUMNAS: ReadonlyArray<{ id: Exclude<Columna, 'nombre'>; texto: string; a
   { id: 'llamadas', texto: 'Llamadas', ayuda: 'Llamadas hechas (salientes). La barra compara con quien más ha llamado' },
   { id: 'contacto', texto: 'Contacto', ayuda: 'Llamadas hechas que contestó una persona, entre las hechas (10 segundos o más; los contestadores no cuentan)' },
   { id: 'conversaciones', texto: 'Conv.', ayuda: 'Conversaciones por teléfono: contestadas de más de 1 minuto' },
-  { id: 'segundos', texto: 'Al teléf.', ayuda: 'Tiempo al teléfono, sin los contestadores' },
+  { id: 'segundos', texto: 'Al teléfono', ayuda: 'Tiempo al teléfono, sin los contestadores' },
   { id: 'whatsapp', texto: 'WhatsApp', ayuda: 'Conversaciones de WhatsApp: clientes distintos con los que se habló cada día, por muchas interacciones que se apunten' },
   { id: 'correos', texto: 'Correos', ayuda: 'Conversaciones por correo: clientes distintos con los que se habló cada día' },
   { id: 'respuestas', texto: 'Respuestas', ayuda: 'Clientes distintos que han contestado cada día' },
   { id: 'citas', texto: 'Citas', ayuda: 'Citas agendadas en la Agenda' },
 ]
+
+const COMO_SE_CUENTA =
+  'Llamadas, contacto y tiempo salen de Rinkel. WhatsApp y correos son conversaciones —clientes distintos con los que se habló cada día, por muchas interacciones que se apunten— y salen, igual que las respuestas, de las notas de Cold Calling. Las citas, de la Agenda.'
 
 const numero = (n: number) => Math.round(n).toLocaleString('es-ES')
 
@@ -85,17 +91,6 @@ function valorDe(t: Totales, col: Exclude<Columna, 'nombre'>): number {
     case 'citas':
       return t.citas
   }
-}
-
-function Cambio({ v, contra }: { v: Variacion | null; contra: string }) {
-  if (!v || v.sentido === 'sinBase') return null
-  const color = v.sentido === 'sube' ? 'text-emerald-400' : v.sentido === 'baja' ? 'text-red-400' : 'text-white/30'
-  const Icono = v.sentido === 'sube' ? TrendingUp : v.sentido === 'baja' ? TrendingDown : Minus
-  return (
-    <span title={`Comparado con ${contra}`} className={`inline-flex items-center gap-0.5 text-[10px] font-medium whitespace-nowrap ${color}`}>
-      <Icono className="h-2.5 w-2.5" aria-hidden /> {v.texto}
-    </span>
-  )
 }
 
 export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, seleccionada, puedeGestionar, cargando, onElegir }: Props) {
@@ -136,35 +131,41 @@ export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, selecci
       return null
     })
 
-  const cabecera = 'font-medium text-[10px] uppercase tracking-wider text-white/35 pb-1.5 px-2'
-  const celda = 'text-right tabular-nums px-2 py-2 border-t border-white/[0.06]'
-  const muda = 'text-white/25'
+  const cabecera = 'h-7 px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--ls-t4)] bg-[var(--ls-sup2)] border-b border-[var(--ls-linea2)]'
+  const celda = 'h-10 px-2.5 text-right tabular-nums whitespace-nowrap border-b border-[var(--ls-linea)] transition-colors'
+  const pie = 'h-9 px-2.5 tabular-nums whitespace-nowrap font-semibold text-[var(--ls-t1)] bg-[var(--ls-sup2)] border-t border-[var(--ls-linea2)]'
+  const muda = 'text-[var(--ls-t4)]'
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4" aria-label="Comparativa del equipo">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-2.5">
-        <h2 className="text-[13px] font-semibold text-white flex items-center gap-2">
-          <Users className="h-3.5 w-3.5 text-[#FF6600]" /> Equipo
-          <span className="font-normal text-white/45"> · {etiquetaDePeriodo(periodo, hoy)}</span>
-        </h2>
-        <span className="text-[11px] text-white/35 flex items-center gap-1.5">
-          {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {comparacion ? `Cambios comparados con ${comparacion.texto}` : ''}
-        </span>
-      </div>
+    <section className={`${PANEL} rend-aparece overflow-hidden`} aria-label="Comparativa del equipo">
+      <CabeceraDePanel
+        icono={<Users className="h-3.5 w-3.5" />}
+        titulo="Equipo"
+        contexto={`· ${etiquetaDePeriodo(periodo, hoy)}`}
+        derecha={
+          <>
+            {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--ls-t4)]" aria-label="Cargando" />}
+            {comparacion && <span className={NOTA_DE_PANEL}>Cambios frente a {comparacion.texto}</span>}
+            <span title={COMO_SE_CUENTA} className="text-[var(--ls-t4)] hover:text-[var(--ls-t2)] transition-colors cursor-help">
+              <Info className="h-3.5 w-3.5" aria-label="Cómo se cuenta cada cifra" />
+            </span>
+          </>
+        }
+      />
 
-      <div className={`overflow-x-auto transition-opacity ${cargando ? 'opacity-60' : ''}`}>
-        <table className="w-full min-w-[860px] text-[12px] border-separate border-spacing-0">
+      <div className={`overflow-x-auto transition-opacity duration-300 ${cargando ? 'opacity-60' : ''}`}>
+        <table className="w-full min-w-[860px] border-separate border-spacing-0 text-[12.5px]">
           <thead>
             <tr>
-              <th className={`${cabecera} text-left pl-0 pr-3 sticky left-0 z-10 bg-[var(--ls-sup)]`} aria-sort={orden?.col === 'nombre' ? (orden.descendente ? 'descending' : 'ascending') : 'none'}>
-                <button type="button" onClick={() => pulsar('nombre')} className="uppercase tracking-wider hover:text-white/70 transition-colors">
+              <th className={`${cabecera} sticky left-0 z-10 text-left`} aria-sort={orden?.col === 'nombre' ? (orden.descendente ? 'descending' : 'ascending') : 'none'}>
+                <button type="button" onClick={() => pulsar('nombre')} className="inline-flex items-center gap-0.5 hover:text-[var(--ls-t1)] transition-colors">
                   Persona
+                  {orden?.col === 'nombre' && (orden.descendente ? <ArrowDown className="h-2.5 w-2.5" /> : <ArrowUp className="h-2.5 w-2.5" />)}
                 </button>
               </th>
               {COLUMNAS.map((c) => (
                 <th key={c.id} title={c.ayuda} className={`${cabecera} text-right`} aria-sort={orden?.col === c.id ? (orden.descendente ? 'descending' : 'ascending') : 'none'}>
-                  <button type="button" onClick={() => pulsar(c.id)} className="inline-flex items-center gap-0.5 uppercase tracking-wider hover:text-white/70 transition-colors">
+                  <button type="button" onClick={() => pulsar(c.id)} className={`inline-flex items-center gap-0.5 transition-colors hover:text-[var(--ls-t1)] ${orden?.col === c.id ? 'text-[var(--ls-t1)]' : ''}`}>
                     {c.texto}
                     {orden?.col === c.id && (orden.descendente ? <ArrowDown className="h-2.5 w-2.5" /> : <ArrowUp className="h-2.5 w-2.5" />)}
                   </button>
@@ -176,7 +177,7 @@ export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, selecci
             </tr>
           </thead>
           <tbody>
-            {ordenadas.map((f) => {
+            {ordenadas.map((f, indice) => {
               const elegida = f.id === seleccionada
               const t = f.resultado.actual
               const base = f.resultado.base
@@ -184,52 +185,64 @@ export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, selecci
               const cambioDeLlamadas = hayTelefono && comparacion ? variacion(t.llamadas, base ? base.llamadas : null) : null
               const cambioDeConversaciones = hayTelefono && comparacion ? variacion(t.conversaciones, base ? base.conversaciones : null) : null
               const anchoDeBarra = maximoDeLlamadas === 0 ? 0 : (t.llamadas / maximoDeLlamadas) * 100
+              const fondo = elegida ? 'bg-[var(--ls-sel)]' : 'group-hover:bg-[var(--ls-sup3)]'
               return (
-                <tr key={f.id} onClick={() => onElegir(f.id)} className={`cursor-pointer transition-colors ${elegida ? 'bg-[#FF6600]/[0.08]' : 'hover:bg-white/[0.03]'}`}>
-                  <th scope="row" className={`text-left font-medium pl-0 pr-3 py-2 border-t border-white/[0.06] sticky left-0 z-10 ${elegida ? 'text-white bg-[var(--ls-sel)]' : 'text-white/80 bg-[var(--ls-sup)]'}`}>
-                    {/* Sin onClick propio: el clic (también el de teclado) sube a la fila, que es quien abre el panel */}
-                    <button type="button" className="text-left hover:underline underline-offset-2">
-                      {f.nombre}
-                    </button>
-                    {!f.vinculado && (
-                      <span className={`ml-2 text-[10px] font-normal ${puedeGestionar ? 'text-[#FF6600]/70' : 'text-white/30'}`}>
-                        {puedeGestionar ? 'sin Rinkel · vincular' : 'sin Rinkel'}
-                      </span>
-                    )}
+                <tr key={f.id} onClick={() => onElegir(f.id)} className="group cursor-pointer rend-entra" style={{ '--d': indice } as CSSProperties}>
+                  <th scope="row" className={`h-10 min-w-[200px] whitespace-nowrap px-2.5 text-left font-medium border-b border-[var(--ls-linea)] sticky left-0 z-10 transition-colors ${elegida ? 'bg-[var(--ls-sel)] text-[var(--ls-t1)]' : 'bg-[var(--ls-sup)] text-[var(--ls-t2)] group-hover:bg-[var(--ls-sup3)] group-hover:text-[var(--ls-t1)]'}`}>
+                    <span className="flex items-center gap-2">
+                      {elegida && <span aria-hidden className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-[var(--ls-acc-graf)]" />}
+                      <Avatar id={f.id} nombre={f.nombre} />
+                      {/* Sin onClick propio: el clic (también el de teclado) sube a la fila, que es quien abre el panel */}
+                      <button type="button" className="text-left hover:underline underline-offset-2 focus-visible:outline-none">
+                        {f.nombre}
+                      </button>
+                      {!f.vinculado && (
+                        <span className={`text-[10.5px] font-normal ${puedeGestionar ? 'text-[var(--ls-acc)]' : 'text-[var(--ls-t4)]'}`}>{puedeGestionar ? 'sin Rinkel · vincular' : 'sin Rinkel'}</span>
+                      )}
+                    </span>
                   </th>
-                  <td className={`${celda} min-w-[130px]`}>
+                  <td className={`${celda} ${fondo} min-w-[150px]`}>
                     {hayTelefono ? (
                       <div>
                         <div className="flex items-center justify-end gap-2">
-                          <Cambio v={cambioDeLlamadas} contra={contra} />
-                          <span className="text-white font-semibold">{numero(t.llamadas)}</span>
+                          <Delta v={cambioDeLlamadas} contra={contra} />
+                          <span className="font-semibold text-[var(--ls-t1)]">{numero(t.llamadas)}</span>
                         </div>
-                        <div className="mt-1 h-[3px] rounded-full bg-white/[0.06] overflow-hidden" aria-hidden>
-                          <div className="h-full rounded-full bg-[#FF6600]/70" style={{ width: `${anchoDeBarra}%` }} />
+                        <div className="mt-1 h-[3px] overflow-hidden rounded-full bg-[var(--ls-sup3)]" aria-hidden>
+                          <div
+                            className="rend-crece-x h-full rounded-full transition-[width] duration-700 ease-out bg-[linear-gradient(90deg,var(--ls-acc-graf),color-mix(in_srgb,var(--ls-acc-graf)_65%,white))]"
+                            style={{ width: `${anchoDeBarra}%`, '--d': indice } as CSSProperties}
+                          />
                         </div>
                       </div>
                     ) : (
                       <span className={muda}>—</span>
                     )}
                   </td>
-                  <td className={`${celda} ${hayTelefono && t.llamadas > 0 ? 'text-white/70' : muda}`}>{hayTelefono && t.llamadas > 0 ? `${Math.round(contacto(t) * 100)} %` : '—'}</td>
-                  <td className={`${celda} ${hayTelefono ? 'text-white/70' : muda}`}>
+                  <td className={`${celda} ${fondo} ${hayTelefono && t.llamadas > 0 ? 'text-[var(--ls-t2)]' : muda}`}>{hayTelefono && t.llamadas > 0 ? `${Math.round(contacto(t) * 100)} %` : '—'}</td>
+                  <td className={`${celda} ${fondo} ${hayTelefono ? 'text-[var(--ls-t2)]' : muda}`}>
                     {hayTelefono ? (
                       <span className="inline-flex items-center justify-end gap-2">
-                        <Cambio v={cambioDeConversaciones} contra={contra} />
+                        <Delta v={cambioDeConversaciones} contra={contra} />
                         {numero(t.conversaciones)}
                       </span>
                     ) : (
                       '—'
                     )}
                   </td>
-                  <td className={`${celda} ${hayTelefono ? 'text-white/70' : muda}`}>{hayTelefono ? tiempoHablado(t.segundos) : '—'}</td>
-                  <td className={`${celda} text-white/70`}>{numero(t.whatsapp)}</td>
-                  <td className={`${celda} text-white/70`}>{numero(t.correos)}</td>
-                  <td className={`${celda} text-white/70`}>{numero(t.respuestas)}</td>
-                  <td className={`${celda} text-white/70`}>{numero(t.citas)}</td>
-                  <td className="px-2 py-1.5 border-t border-white/[0.06] text-right">
-                    {hayTelefono ? <span className="inline-block align-middle"><Tendencia puntos={f.resultado.tendencia} /></span> : <span className={muda}>—</span>}
+                  <td className={`${celda} ${fondo} ${hayTelefono ? 'text-[var(--ls-t2)]' : muda}`}>{hayTelefono ? tiempoHablado(t.segundos) : '—'}</td>
+                  <td className={`${celda} ${fondo} text-[var(--ls-t2)]`}>{numero(t.whatsapp)}</td>
+                  <td className={`${celda} ${fondo} text-[var(--ls-t2)]`}>{numero(t.correos)}</td>
+                  <td className={`${celda} ${fondo} text-[var(--ls-t2)]`}>{numero(t.respuestas)}</td>
+                  <td className={`${celda} ${fondo} text-[var(--ls-t2)]`}>{numero(t.citas)}</td>
+                  <td className={`${celda} ${fondo} !py-0`}>
+                    {hayTelefono ? (
+                      <span className="inline-block align-middle">
+                        <Tendencia puntos={f.resultado.tendencia} indice={indice} />
+                      </span>
+                    ) : (
+                      <span className={muda}>—</span>
+                    )}
                   </td>
                 </tr>
               )
@@ -237,48 +250,45 @@ export function ComparativaDelEquipo({ filas, periodo, hoy, comparacion, selecci
           </tbody>
           <tfoot>
             <tr>
-              <th scope="row" className="text-left font-semibold text-white pl-0 pr-3 py-2 border-t border-white/15 sticky left-0 z-10 bg-[var(--ls-sup)]">
+              <th scope="row" className={`${pie} sticky left-0 z-10 text-left`}>
                 Total
               </th>
-              <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">
+              <td className={`${pie} text-right`}>
                 <span className="inline-flex items-center justify-end gap-2">
-                  <Cambio v={cambioDelTotal} contra={contra} />
+                  <Delta v={cambioDelTotal} contra={contra} />
                   {numero(totalDeTelefono.llamadas)}
                 </span>
               </td>
-              <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">{totalDeTelefono.llamadas > 0 ? `${Math.round(contacto(totalDeTelefono) * 100)} %` : '—'}</td>
-              <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">{numero(totalDeTelefono.conversaciones)}</td>
-              <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">{tiempoHablado(totalDeTelefono.segundos)}</td>
-              <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">{numero(total.whatsapp)}</td>
-              <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">{numero(total.correos)}</td>
-              <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">{numero(total.respuestas)}</td>
-              <td className="text-right tabular-nums font-semibold text-white px-2 py-2 border-t border-white/15">{numero(total.citas)}</td>
-              <td className="border-t border-white/15" />
+              <td className={`${pie} text-right`}>{totalDeTelefono.llamadas > 0 ? `${Math.round(contacto(totalDeTelefono) * 100)} %` : '—'}</td>
+              <td className={`${pie} text-right`}>{numero(totalDeTelefono.conversaciones)}</td>
+              <td className={`${pie} text-right`}>{tiempoHablado(totalDeTelefono.segundos)}</td>
+              <td className={`${pie} text-right`}>{numero(total.whatsapp)}</td>
+              <td className={`${pie} text-right`}>{numero(total.correos)}</td>
+              <td className={`${pie} text-right`}>{numero(total.respuestas)}</td>
+              <td className={`${pie} text-right`}>{numero(total.citas)}</td>
+              <td className={pie} />
             </tr>
             {filas.length > 1 && (
-              <tr>
-                <th scope="row" className="text-left font-normal text-white/50 pl-0 pr-3 py-1.5 sticky left-0 z-10 bg-[var(--ls-sup)]">
+              <tr className="text-[var(--ls-t4)]">
+                <th scope="row" className="sticky left-0 z-10 h-8 bg-[var(--ls-sup)] px-2.5 text-left text-[12px] font-normal">
                   Media por persona
                 </th>
-                <td className="text-right tabular-nums text-white/50 px-2 py-1.5">{conRinkel.length > 0 ? numero(totalDeTelefono.llamadas / conRinkel.length) : '—'}</td>
-                <td className="text-right tabular-nums text-white/50 px-2 py-1.5" />
-                <td className="text-right tabular-nums text-white/50 px-2 py-1.5">{conRinkel.length > 0 ? numero(totalDeTelefono.conversaciones / conRinkel.length) : '—'}</td>
-                <td className="text-right tabular-nums text-white/50 px-2 py-1.5">{conRinkel.length > 0 ? tiempoHablado(totalDeTelefono.segundos / conRinkel.length) : '—'}</td>
-                <td className="text-right tabular-nums text-white/50 px-2 py-1.5">{numero(total.whatsapp / filas.length)}</td>
-                <td className="text-right tabular-nums text-white/50 px-2 py-1.5">{numero(total.correos / filas.length)}</td>
-                <td className="text-right tabular-nums text-white/50 px-2 py-1.5">{numero(total.respuestas / filas.length)}</td>
-                <td className="text-right tabular-nums text-white/50 px-2 py-1.5">{numero(total.citas / filas.length)}</td>
-                <td />
+                <td className="h-8 px-2.5 text-right tabular-nums">{conRinkel.length > 0 ? numero(totalDeTelefono.llamadas / conRinkel.length) : '—'}</td>
+                <td className="h-8 px-2.5" />
+                <td className="h-8 px-2.5 text-right tabular-nums">{conRinkel.length > 0 ? numero(totalDeTelefono.conversaciones / conRinkel.length) : '—'}</td>
+                <td className="h-8 px-2.5 text-right tabular-nums">{conRinkel.length > 0 ? tiempoHablado(totalDeTelefono.segundos / conRinkel.length) : '—'}</td>
+                <td className="h-8 px-2.5 text-right tabular-nums">{numero(total.whatsapp / filas.length)}</td>
+                <td className="h-8 px-2.5 text-right tabular-nums">{numero(total.correos / filas.length)}</td>
+                <td className="h-8 px-2.5 text-right tabular-nums">{numero(total.respuestas / filas.length)}</td>
+                <td className="h-8 px-2.5 text-right tabular-nums">{numero(total.citas / filas.length)}</td>
+                <td className="h-8" />
               </tr>
             )}
           </tfoot>
         </table>
       </div>
 
-      <p className="text-[10px] text-white/30 mt-2">
-        Llamadas, contacto y tiempo salen de Rinkel. WhatsApp y correos son conversaciones —clientes distintos con los que se habló cada día, por muchas interacciones que se apunten— y salen, igual que las respuestas, de las notas de
-        Cold Calling. Las citas, de la Agenda. Un clic en una persona abre su panel; un clic en una cabecera ordena.
-      </p>
+      <p className="border-t border-[var(--ls-linea)] px-3 py-1.5 text-[11px] text-[var(--ls-t4)]">Pulsa a una persona para abrir su panel y una cabecera para ordenar. La barra de llamadas compara con quien más ha llamado.</p>
     </section>
   )
 }

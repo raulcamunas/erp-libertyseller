@@ -172,6 +172,7 @@ console.log('\n=== las cifras grandes del equipo ===')
   ok('citas: 3 contra 2, +1', k[7].cambio.texto === '+1' && k[7].cambio.sentido === 'sube')
   ok('cada cifra lleva sus siete días y los de la anterior, para dibujar las barras', k[0].diario.join() === '70,80,50,70,40,0,0' && k[0].diarioAnterior.join() === '60,60,60,60,60,0,0', j(k[0].diario))
   ok('pulsar una cifra enseña su fila de la matriz', k.every((x) => METRICAS.some((m) => m.id === x.metrica)))
+  ok('cada cifra lleva su número en bruto y su unidad, para que la tarjeta cuente hasta él', k[0].bruto === 310 && k[0].unidad === 'n' && k[1].bruto === 29 && k[1].unidad === 'pct' && k[3].bruto === 4400 && k[3].unidad === 'tiempo' && k[7].bruto === 3, j(k.map((x) => [x.bruto, x.unidad])))
 
   const parcial = PERSONAS.map((p) => resultadoSemanal(p, porPersona.get(p.id), enCurso))
   const kp = kpisDelEquipo(parcial, enCurso)
