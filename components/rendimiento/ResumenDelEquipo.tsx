@@ -37,7 +37,7 @@ const numero = (n: number) => n.toLocaleString('es-ES')
 
 const CABECERAS: ReadonlyArray<{ clave: string; texto: string; ayuda?: string; alineacion?: string }> = [
   { clave: 'llamadas', texto: 'Llamadas', ayuda: 'Llamadas hechas (salientes)' },
-  { clave: 'contestadas', texto: 'Contest.', ayuda: 'Llamadas hechas que se contestaron' },
+  { clave: 'contestadas', texto: 'Contest.', ayuda: 'Llamadas hechas que contestó una persona (10 segundos o más; los contestadores no cuentan)' },
   { clave: 'conversaciones', texto: 'Conv.', ayuda: 'Conversaciones: contestadas de más de 1 minuto' },
   { clave: 'tiempo', texto: 'Al teléf.', ayuda: 'Tiempo al teléfono' },
   { clave: 'whatsapp', texto: 'WhatsApp', ayuda: 'Conversaciones de WhatsApp: clientes distintos con los que se habló ese día, por muchas interacciones que se apunten' },

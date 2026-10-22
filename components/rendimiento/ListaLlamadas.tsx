@@ -3,7 +3,7 @@
 import { Loader2, Mic, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { etiquetaDeDia, horaMadrid } from '@/lib/rendimiento/dia'
-import { duracionCorta } from '@/lib/rendimiento/metricas'
+import { duracionCorta, esContestador, estaContestada } from '@/lib/rendimiento/metricas'
 import { telefonoLegible } from '@/lib/rendimiento/telefonos'
 import { ReproductorGrabacion } from './ReproductorGrabacion'
 import type { LlamadaGuardada } from './tipos'
@@ -33,14 +33,14 @@ interface Props {
 
 type Filtro = 'todas' | 'contestadas' | 'sin_contestar' | 'recibidas'
 
-const FILTROS: ReadonlyArray<{ id: Filtro; etiqueta: string }> = [
+const FILTROS: ReadonlyArray<{ id: Filtro; etiqueta: string; ayuda?: string }> = [
   { id: 'todas', etiqueta: 'Todas' },
-  { id: 'contestadas', etiqueta: 'Contestadas' },
-  { id: 'sin_contestar', etiqueta: 'Sin contestar' },
+  { id: 'contestadas', etiqueta: 'Contestadas', ayuda: 'Las que contestó una persona: duran 10 segundos o más' },
+  { id: 'sin_contestar', etiqueta: 'Sin contestar', ayuda: 'Incluye los contestadores automáticos: las que duran menos de 10 segundos' },
   { id: 'recibidas', etiqueta: 'Recibidas' },
 ]
 
-const contestada = (l: LlamadaGuardada) => l.estado === 'ANSWERED'
+const contestada = estaContestada
 const recibida = (l: LlamadaGuardada) => l.direccion === 'inbound'
 
 const CUMPLE: Record<Filtro, (l: LlamadaGuardada) => boolean> = {
@@ -60,6 +60,8 @@ function IconoDeLlamada({ llamada }: { llamada: LlamadaGuardada }) {
 
 function textoDeEstado(l: LlamadaGuardada): string {
   if (contestada(l)) return recibida(l) ? 'Recibida' : 'Contestada'
+  // Rinkel la da por contestada pero duró menos de 10 s: un contestador automático
+  if (esContestador(l)) return recibida(l) ? 'Perdida' : 'Contestador'
   return recibida(l) ? 'Perdida' : 'Sin contestar'
 }
 
@@ -102,6 +104,7 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
               type="button"
               onClick={() => setFiltro(f.id)}
               aria-pressed={filtro === f.id}
+              title={f.ayuda}
               disabled={f.id !== 'todas' && cuantas[f.id] === 0}
               className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-30 ${
                 filtro === f.id ? 'border-[#FF6600]/50 bg-[#FF6600]/15 text-white' : 'border-white/10 text-white/50 hover:text-white/80'
@@ -148,7 +151,17 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
 
                   <div className="text-right shrink-0">
                     <p className="text-[12px] text-white/80 tabular-nums">{horaMadrid(l.fecha)}</p>
-                    <p className="text-[11px] text-white/40 tabular-nums">{contestada(l) ? duracionCorta(l.duracion_s) : lead ? textoDeEstado(l) : '—'}</p>
+                    <p className="text-[11px] text-white/40 tabular-nums">
+                      {contestada(l)
+                        ? duracionCorta(l.duracion_s)
+                        : esContestador(l)
+                          ? lead
+                            ? `Contestador · ${duracionCorta(l.duracion_s)}`
+                            : duracionCorta(l.duracion_s)
+                          : lead
+                            ? textoDeEstado(l)
+                            : '—'}
+                    </p>
                   </div>
 
                   {conGrabacion &&

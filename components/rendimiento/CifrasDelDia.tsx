@@ -40,15 +40,19 @@ function Tarjeta({
   valor,
   detalle,
   destacada = false,
+  ayuda,
 }: {
   icono: ReactNode
   titulo: string
   valor: string
   detalle: string
   destacada?: boolean
+  /** Lo que sale al dejar el ratón encima: para explicar cómo se cuenta */
+  ayuda?: string
 }) {
   return (
     <div
+      title={ayuda}
       className={`relative overflow-hidden rounded-2xl border p-3.5 ${
         destacada ? 'border-white/10 bg-gradient-to-br from-[#FF6600]/[0.13] via-white/[0.03] to-transparent' : 'border-white/10 bg-white/[0.02]'
       }`}
@@ -73,6 +77,7 @@ export function CifrasDelDia({ quien, llamadas, actividad, citas, conRinkel, car
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
         <Tarjeta
           destacada
+          ayuda="Cuenta como contestada la llamada que dura 10 segundos o más: por debajo es un contestador automático y va con las no contestadas"
           icono={<PhoneCall className="h-3 w-3" />}
           titulo="Llamadas hechas"
           valor={sinRinkel ? '—' : numero(llamadas.realizadas)}

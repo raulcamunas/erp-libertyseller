@@ -14,12 +14,36 @@ import { diaMadrid, diasDelMes, indiceDeSemana } from './dia'
  */
 
 /**
+ * Cuánto tiene que durar una llamada para contarla como CONTESTADA.
+ *
+ * Por debajo de 10 segundos no habló una persona: es un contestador automático o un buzón de voz que
+ * «descuelga» para dejar grabar un mensaje. Rinkel las marca ANSWERED porque la línea se abrió, pero para medir
+ * el trabajo de un comercial son llamadas SIN contestar, y contarlas como contestadas inflaba el porcentaje de
+ * contacto.
+ *
+ * Es una convención de lectura, no un dato de Rinkel: en la base el estado sigue siendo el de Rinkel y la regla
+ * se aplica AL LEER, así que vale también para todo el histórico. La misma cifra está escrita en la función SQL
+ * del resumen diario (migración 235): si se cambia aquí, hay que cambiarla allí.
+ */
+export const SEGUNDOS_MINIMOS_PARA_CONTESTADA = 10
+
+/** ¿Cuenta como contestada? Rinkel la dio por ANSWERED Y duró lo bastante para no ser un contestador */
+export function estaContestada(l: { estado: string; duracion_s: number }): boolean {
+  return l.estado === 'ANSWERED' && l.duracion_s >= SEGUNDOS_MINIMOS_PARA_CONTESTADA
+}
+
+/** Rinkel la dio por contestada pero duró menos del mínimo: un contestador automático */
+export function esContestador(l: { estado: string; duracion_s: number }): boolean {
+  return l.estado === 'ANSWERED' && l.duracion_s < SEGUNDOS_MINIMOS_PARA_CONTESTADA
+}
+
+/**
  * Cuánto tiene que durar una llamada contestada para contarla como CONVERSACIÓN.
  *
- * «Contestada» no basta: en las llamadas reales de una mañana, la mitad de las que Rinkel da por
- * contestadas duran menos de 32 segundos (buzones de voz, quien descuelga y cuelga, un «ahora no
- * puedo»). Un minuto es lo que separa «alguien cogió» de «se habló». Es una convención de lectura, no
- * un dato de Rinkel, y por eso está aquí con nombre y no suelta por el código.
+ * «Contestada» no basta: aun descontados los contestadores, en las llamadas reales de una mañana muchas de las
+ * que contesta alguien duran menos de 40 segundos (quien descuelga y cuelga, un «ahora no puedo»). Un minuto es
+ * lo que separa «alguien cogió» de «se habló». Es una convención de lectura, no un dato de Rinkel, y por eso está
+ * aquí con nombre y no suelta por el código.
  */
 export const SEGUNDOS_DE_CONVERSACION = 60
 
@@ -42,11 +66,11 @@ export interface ResumenDeLlamadas {
   /** Las que hizo el comercial: es «llamadas hechas hoy» */
   realizadas: number
   recibidas: number
-  /** De las realizadas, a cuántas respondieron */
+  /** De las realizadas, a cuántas respondió una persona: dura SEGUNDOS_MINIMOS_PARA_CONTESTADA o más (un contestador no cuenta) */
   contestadas: number
   /** Contestadas / realizadas, de 0 a 1 */
   tasaDeContacto: number
-  /** Lo que se estuvo al teléfono: la suma de las contestadas, entrantes y salientes */
+  /** Lo que se estuvo al teléfono: la suma de las contestadas, entrantes y salientes (sin contestadores) */
   segundosHablados: number
   /** Las contestadas (de cualquier sentido) que pasaron de SEGUNDOS_DE_CONVERSACION */
   conversaciones: number
@@ -87,7 +111,7 @@ export function resumenDeLlamadas(llamadas: readonly LlamadaParaMetricas[]): Res
   for (const l of llamadas) {
     const salio = l.direccion === 'outbound'
     const entro = l.direccion === 'inbound'
-    const respondida = l.estado === 'ANSWERED'
+    const respondida = estaContestada(l)
     if (salio) {
       realizadas += 1
       if (respondida) contestadas += 1

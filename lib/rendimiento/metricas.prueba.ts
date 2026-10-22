@@ -1,9 +1,12 @@
 import {
   SEGUNDOS_DE_CONVERSACION,
+  SEGUNDOS_MINIMOS_PARA_CONTESTADA,
   actividadDeNotas,
   agruparPorDia,
   citasAgendadasEl,
   duracionCorta,
+  esContestador,
+  estaContestada,
   intensidad,
   mesDeLlamadas,
   resumenDeLlamadas,
@@ -60,6 +63,35 @@ console.log('\n=== un día de llamadas ===')
   ok('con grabación: las contestadas', r.conGrabacion === 6, String(r.conGrabacion))
   ok('números distintos a los que se llamó (solo realizadas)', r.numerosDistintos === 7, String(r.numerosDistintos))
   ok('la primera y la última', r.primera === '2026-10-21T08:24:00Z' && r.ultima === '2026-10-21T11:10:00Z', `${r.primera} · ${r.ultima}`)
+}
+
+console.log('\n=== un contestador automático no cuenta como contestada ===')
+{
+  ok(`el mínimo es de ${SEGUNDOS_MINIMOS_PARA_CONTESTADA} segundos`, SEGUNDOS_MINIMOS_PARA_CONTESTADA === 10)
+  ok('menos de 10 s no es contestada: 0, 3, 7 y 9 s', [0, 3, 7, 9].every((d) => !estaContestada({ estado: 'ANSWERED', duracion_s: d })))
+  ok('10 s ya sí, y 11, 60 y 600', [10, 11, 60, 600].every((d) => estaContestada({ estado: 'ANSWERED', duracion_s: d })))
+  ok('una perdida nunca lo es, dure lo que dure', !estaContestada({ estado: 'MISSED', duracion_s: 90 }) && !estaContestada({ estado: 'MISSED', duracion_s: 0 }))
+  ok('y es contestador la que Rinkel da por contestada y dura menos de 10 s, nada más', esContestador({ estado: 'ANSWERED', duracion_s: 7 }) && !esContestador({ estado: 'ANSWERED', duracion_s: 10 }) && !esContestador({ estado: 'MISSED', duracion_s: 3 }))
+
+  const r = resumenDeLlamadas([
+    llamada('10:00', 'ANSWERED', 7),
+    llamada('10:05', 'ANSWERED', 3),
+    llamada('10:10', 'ANSWERED', 9),
+    llamada('10:15', 'ANSWERED', 10),
+    llamada('10:20', 'ANSWERED', 95),
+    llamada('10:25', 'MISSED', 20),
+  ])
+  ok('se hicieron 6', r.realizadas === 6)
+  ok('contestadas: solo las de 10 s o más (2), no las tres de contestador', r.contestadas === 2, String(r.contestadas))
+  ok('el porcentaje de contacto: 2 de 6', Math.abs(r.tasaDeContacto - 2 / 6) < 1e-9, String(r.tasaDeContacto))
+  ok('el tiempo hablado no suma los contestadores: 10 + 95 = 105 s', r.segundosHablados === 105, String(r.segundosHablados))
+  ok('una conversación sigue siendo de 60 s o más: 1', r.conversaciones === 1)
+
+  const entrantes = resumenDeLlamadas([llamada('11:00', 'ANSWERED', 5, { direccion: 'inbound' }), llamada('11:05', 'ANSWERED', 40, { direccion: 'inbound' })])
+  ok('también en las recibidas: colgar a los 5 s no suma tiempo hablado', entrantes.recibidas === 2 && entrantes.segundosHablados === 40, String(entrantes.segundosHablados))
+
+  const soloContestadores = resumenDeLlamadas([llamada('12:00', 'ANSWERED', 4), llamada('12:05', 'ANSWERED', 6)])
+  ok('un día de solo contestadores: 0 contestadas y 0 % de contacto, sin romper nada', soloContestadores.contestadas === 0 && soloContestadores.tasaDeContacto === 0 && soloContestadores.segundosHablados === 0)
 }
 
 console.log('\n=== un día sin llamadas ===')
