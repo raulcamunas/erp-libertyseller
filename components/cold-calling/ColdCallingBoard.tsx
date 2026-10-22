@@ -1,190 +1,101 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { createClient } from '@/lib/supabase/client'
+import { AlertTriangle, MousePointerClick, RefreshCw, Search, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
-  Search,
-  MousePointerClick,
-  Phone,
-  Target,
-  TrendingUp,
-  Users,
-  Layers,
-  ArrowUpDown,
-  Euro,
-  X,
-  Table2,
-  PanelRight,
-  ChevronLeft,
-  CalendarClock,
-  AlertTriangle,
-  Signal,
-  Link2,
-} from 'lucide-react'
-import {
-  ColdLead,
-  ColdLeadStatus,
-  ColdSort,
-  COLD_STATUSES,
-  COLD_STATUS_LABELS,
-  COLD_STATUS_DOTS,
-  COLD_SORT_LABELS,
-  COLD_NIVEL_DOTS,
-  COLD_NIVEL_LABELS,
-  esTiendaOnline,
-  pesoOrden,
-  colorForList,
-  formatRevenue,
-} from '@/lib/types/cold-leads'
-import { CalendarPerson } from '@/lib/types/appointments'
-import { UserProfile } from '@/lib/supabase/get-user-profile'
+  SIN_FILTROS,
+  contarNiveles,
+  normalizarFiltros,
+  panorama,
+  rellamadasDe,
+  resumenDeCartera,
+  type FiltrosDeCartera,
+} from '@/lib/cold-calling/cartera'
+import { diaConSemana, diaLocal } from '@/lib/cold-calling/fechas'
+import { AVISO, BOTON, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { useIsMobile } from '@/lib/use-is-mobile'
-import { ColdLeadDetail } from './ColdLeadDetail'
-import { ColdLeadsTable } from './ColdLeadsTable'
+import type { CalendarPerson } from '@/lib/types/appointments'
+import type { UserProfile } from '@/lib/supabase/get-user-profile'
+import type { ColdLead } from '@/lib/types/cold-leads'
+import { PANEL } from '@/components/rendimiento/ui'
+import { BarraDeCartera, type VistaDeCartera } from './BarraDeCartera'
 import { DiagnosticoDeVinculos } from './DiagnosticoDeVinculos'
+import { FichaDelLead } from './FichaDelLead'
+import { FiltrosDeLista } from './FiltrosDeLista'
+import { ListaDeLeads, ListaPorSecciones, type SeccionDeLista } from './ListaDeLeads'
+import { NavegadorDeDias } from './NavegadorDeDias'
+import { TablaDeLeads } from './TablaDeLeads'
+import { Tecla } from './ui'
+import { useCartera } from './useCartera'
+import { usePreferencias } from './usePreferencias'
 import { useSincronizarRinkel } from './useSincronizarRinkel'
 
-interface ColdCallingBoardProps {
+/**
+ * COLD CALLING: LA CARTERA DE LEADS DE UNA PERSONA.
+ *
+ * Tres vistas de la misma cartera:
+ *   · FICHA      la lista a la izquierda y la ficha del lead a la derecha: para trabajar un lead a fondo y pasar al siguiente.
+ *   · TABLA      como el Excel de siempre: muchos leads a la vez, con el estado y la rellamada editables en la fila.
+ *   · RELLAMADAS la agenda del día: a quién se prometió volver a llamar. NO se parece a las otras dos y se salta los filtros (ver
+ *                las reglas de lib/cold-calling/cartera.ts: una rellamada es un compromiso con una persona, no una prospección).
+ *
+ * LAS REGLAS DE FILTRAR, ORDENAR Y CONTAR viven en lib/cold-calling/cartera.ts, con sus pruebas. Aquí solo se pinta y se reparte el estado.
+ *
+ * `puedeVerTodos` ya NO significa «es admin»: desde la migración 212 lo pone también a true el permiso suelto 'equipo-comercial' del manager
+ * de captación, que no es admin ni partner. Lo que abre, y nada más: el selector de comercial, y que `canEdit` deje tocar estado, fecha de
+ * rellamada, notas y «vende en Amazon» en un lead ajeno. NO reasigna: la ficha no tiene control de `assigned_to` y el trigger de la 212
+ * rechaza el cambio. Quien recorta de verdad son las políticas RLS: esto solo evita la pantalla vacía.
+ */
+
+interface Props {
   initialLeads: ColdLead[]
+  /** 'all' o el id de la persona cuya cartera trae `initialLeads` */
+  initialOwner: string
+  /** La carga del servidor falló en algún tramo: la cartera está INCOMPLETA y hay que decirlo */
+  initialIncompleta: boolean
   team: CalendarPerson[]
   currentUser: UserProfile
-  /**
-   * ¿Ve y trabaja la cartera de TODO el equipo, o solo la suya?
-   *
-   * SE LLAMABA `isAdmin` Y SE HA RENOMBRADO A PROPÓSITO. Desde la migración 212
-   * ya no significa «es admin»: lo pone también a true el permiso suelto
-   * 'equipo-comercial' del manager de captación, que NO es admin ni partner y que
-   * no ve ni Tesorería ni sueldos. Dejarle el nombre viejo invitaba a colgar de
-   * esta bandera el siguiente botón que sí fuera de dirección.
-   *
-   * Lo que abre, y nada más: el filtro de comercial arranca en «todos», sale el
-   * selector de comercial, y `canEdit` deja tocar estado, fecha de rellamada,
-   * notas y vende_en_amazon en un lead ajeno. NO reasigna: la ficha no tiene
-   * control de `assigned_to` y el trigger de la 212 rechaza el cambio.
-   */
   puedeVerTodos: boolean
 }
 
-/** Cuántas filas se pintan de golpe: la lista completa son miles */
-const PAGE = 400
-
 /**
- * El día de HOY en el calendario de quien está mirando la pantalla.
- *
- * Y no `new Date().toISOString().slice(0, 10)`, que es lo que había y da el día
- * en UTC. En España vamos por delante de UTC —dos horas en verano— así que
- * entre las 00:00 y las 02:00 el «hoy» de UTC todavía es ayer: las rellamadas
- * de hoy no aparecían hasta las dos de la madrugada. Poca gente llama a esa
- * hora, pero una lista de rellamadas que se equivoca de día no sirve para nada
- * y el arreglo son cuatro líneas.
- *
- * `next_call_date` se escribe con un <input type="date">, que da días del
- * calendario del usuario. Comparar contra UTC es comparar dos cosas distintas.
+ * El día de HOY en el calendario de quien mira, y se renueva solo si la pantalla se queda abierta pasada la medianoche. En el servidor vale
+ * '' (no sabe en qué calendario está quien mira): así servidor y navegador pintan lo mismo al hidratar y nadie ve un «hoy» equivocado.
  */
-function diaLocal(fecha: Date = new Date()): string {
-  const y = fecha.getFullYear()
-  const m = String(fecha.getMonth() + 1).padStart(2, '0')
-  const d = String(fecha.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+function useHoy(): string {
+  return useSyncExternalStore(
+    (avisar) => {
+      const reloj = setInterval(avisar, 60_000)
+      document.addEventListener('visibilitychange', avisar)
+      return () => {
+        clearInterval(reloj)
+        document.removeEventListener('visibilitychange', avisar)
+      }
+    },
+    () => diaLocal(),
+    () => ''
+  )
 }
 
-/** «12 de agosto», para los títulos. El input ya enseña la fecha en corto */
-function diaLargo(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  if (!y || !m || !d) return iso
-  return new Date(y, m - 1, d).toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'long',
-  })
-}
+export function ColdCallingBoard({ initialLeads, initialOwner, initialIncompleta, team, currentUser, puedeVerTodos }: Props) {
+  const hoy = useHoy()
+  const esMovil = useIsMobile()
+  const cartera = useCartera({ inicial: initialLeads, propietarioInicial: initialOwner, incompletaInicial: initialIncompleta, userId: currentUser.id })
+  const { leads, propietario, cargando, incompleta, parchear } = cartera
 
-function sumarDias(iso: string, dias: number): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  return diaLocal(new Date(y, m - 1, d + dias))
-}
-
-/** Atajos del filtro de facturación, en euros al mes */
-const REVENUE_PRESETS: Array<{ label: string; min: string; max: string }> = [
-  { label: '+ de 100k', min: '100000', max: '' },
-  { label: '50k – 100k', min: '50000', max: '100000' },
-  { label: '20k – 50k', min: '20000', max: '50000' },
-  { label: '- de 20k', min: '', max: '20000' },
-]
-
-export function ColdCallingBoard({
-  initialLeads,
-  team,
-  currentUser,
-  puedeVerTodos,
-}: ColdCallingBoardProps) {
-  const supabase = createClient()
-  const [leads, setLeads] = useState<ColdLead[]>(initialLeads)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<ColdLeadStatus | 'all'>('all')
-  const [ownerFilter, setOwnerFilter] = useState<string>(puedeVerTodos ? 'all' : currentUser.id)
-  const [listFilter, setListFilter] = useState<string>('all')
-  /**
-   * QUÉ CLASE DE LEAD SE ESTÁ TRABAJANDO.
-   *
-   * No es un adorno: sin él las tiendas online quedan enterradas. La pantalla
-   * pinta 400 filas de una lista de casi 6.000 y las 2.000 tiendas ordenan por
-   * una cifra distinta a la de los sellers, así que el comercial abriría el
-   * Cold Calling y no vería ni una.
-   *
-   * Y separa dos formas de llamar que no se parecen: al seller de Amazon se le
-   * habla de su cuenta; a la tienda, de entrar. Mezclarlas en la misma lista de
-   * trabajo es cambiar de discurso cada dos filas.
-   */
-  /**
-   * EL NIVEL, QUE ES EL ORDEN DE TRABAJO DE LA LISTA NUEVA.
-   *
-   * 1 potencial alto, 2 muy buenos números, 3 leads correctos. Solo lo traen
-   * las tiendas online, así que este filtro solo se pinta cuando se está
-   * mirando una lista suya: a un vendedor de Amazon el nivel no le aplica y un
-   * filtro que deja la pantalla vacía sin explicar por qué es peor que no
-   * tenerlo.
-   */
-  const [nivelFilter, setNivelFilter] = useState<number | 'all'>('all')
-  const [minRev, setMinRev] = useState('')
-  const [maxRev, setMaxRev] = useState('')
-  const [sort, setSort] = useState<ColdSort>('due_first')
-  const [visible, setVisible] = useState(PAGE)
-  // Muchos vienen del Excel y se manejan mejor en tabla; la ficha es para
-  // trabajar un lead a fondo; «rellamadas» es la agenda del día y NO se parece
-  // a las otras dos: ver más abajo por qué se salta los filtros.
-  const [view, setView] = useState<'ficha' | 'tabla' | 'rellamadas'>('ficha')
-
-  /**
-   * El día que se está mirando en la vista de rellamadas.
-   *
-   * NO SE GUARDA EN LAS PREFERENCIAS a propósito, al revés que el resto. Una
-   * fecha recordada de ayer abriría la pantalla en un día que ya pasó, con la
-   * lista vacía y sin ninguna pista de por qué. Aquí lo útil es siempre volver
-   * a hoy; mirar otro día es una decisión del momento.
-   */
-  const [diaRellamadas, setDiaRellamadas] = useState(() => diaLocal())
-
-  /**
-   * Si además se enseñan las que se pasaron de fecha.
-   *
-   * Apagado por defecto: la vista es «las rellamadas de este día» y meter las
-   * de días anteriores la convertiría en otra cosa. Pero el interruptor existe
-   * —y con su número al lado— porque una rellamada que se quedó sin hacer no
-   * desaparece del trabajo pendiente, solo de la pantalla, y esa es justo la
-   * forma de perder un cliente sin enterarse.
-   */
-  const [conAtrasadas, setConAtrasadas] = useState(false)
-  // En móvil se enseña la lista o la ficha, nunca las dos
-  const isMobile = useIsMobile()
-
-  /**
-   * LAS LLAMADAS DE RINKEL SE APUNTAN SOLAS EN EL LEAD (migración 237). Mientras esta pantalla está abierta se pide cada minuto una
-   * lectura rápida de la cuenta de Rinkel de quien mira; si han llegado llamadas nuevas, `version` sube y el historial del lead
-   * abierto las vuelve a pedir. Los intentos, el último contacto y el estado del lead llegan solos por el canal en tiempo real.
-   */
+  const [vista, setVista] = useState<VistaDeCartera>('ficha')
+  const [filtros, setFiltros] = useState<FiltrosDeCartera>(SIN_FILTROS)
+  const [seleccionado, setSeleccionado] = useState<string | null>(null)
+  const [diaElegido, setDiaElegido] = useState<string | null>(null)
+  const [comprobando, setComprobando] = useState(false)
   const [versionDeLlamadas, setVersionDeLlamadas] = useState(0)
+  const caja = useRef<HTMLInputElement>(null)
+
+  /**
+   * LAS LLAMADAS DE RINKEL SE APUNTAN SOLAS EN EL LEAD (migración 237). Mientras esta pantalla está abierta se pide cada minuto una lectura
+   * rápida de la cuenta de Rinkel de quien mira; si han llegado llamadas nuevas, `version` sube y el historial del lead abierto las vuelve
+   * a pedir. Los intentos, el último contacto y el estado del lead llegan solos por el canal en tiempo real.
+   */
   useSincronizarRinkel(true, () => setVersionDeLlamadas((v) => v + 1))
 
   /** Quién es quién, para que el historial diga «Maoli» y no un identificador */
@@ -195,1046 +106,272 @@ export function ColdCallingBoard({
     return mapa
   }, [team, currentUser])
 
-  /** La comprobación de teléfonos y llamadas: solo la ve quien supervisa; enlazar ahora, solo un administrador */
-  const [comprobando, setComprobando] = useState(false)
+  const preferenciasListas = usePreferencias(currentUser.id, puedeVerTodos, { vista, filtros, propietario: puedeVerTodos ? propietario : null }, (leidas) => {
+    if (leidas.vista) setVista(leidas.vista)
+    if (leidas.filtros) setFiltros(leidas.filtros)
+    if (puedeVerTodos && leidas.propietario && leidas.propietario !== initialOwner && (leidas.propietario === 'all' || team.some((t) => t.id === leidas.propietario))) cartera.cambiarPropietario(leidas.propietario)
+  })
 
-  // La sesión de trabajo se recuerda: si Maoli se pasa el día en «+100k,
-  // sin contactar, vista tabla», mañana entra exactamente ahí. La clave
-  // lleva el id del usuario por si comparten ordenador.
-  const prefsKey = `coldCalling:${currentUser.id}`
-  const [prefsLoaded, setPrefsLoaded] = useState(false)
+  /* ---------------- lo que se calcula de la cartera ---------------- */
 
+  // Un filtro de lista o de nivel que ya no tiene nada que filtrar se quita solo (regla 5 de cartera.ts)
+  const filtrosEfectivos = useMemo(() => normalizarFiltros(filtros, leads), [filtros, leads])
+  const pan = useMemo(() => panorama(leads, filtrosEfectivos), [leads, filtrosEfectivos])
+  const resumen = useMemo(() => resumenDeCartera(leads, hoy), [leads, hoy])
+  const diaRellamadas = diaElegido ?? hoy
+  const rell = useMemo(() => rellamadasDe(leads, diaRellamadas, hoy), [leads, diaRellamadas, hoy])
+  // Si hay filtro de nivel (tiendas) o de facturación (vendedores) lo decide LA LISTA que se mira, no lo que dejen la búsqueda o el estado: con
+  // una búsqueda que no encuentra nada los chips de nivel no pueden convertirse en un rango de facturación
+  const nivelesDeLaLista = useMemo(() => contarNiveles(leads, filtrosEfectivos.lista), [leads, filtrosEfectivos.lista])
+  const hayNiveles = nivelesDeLaLista[1] + nivelesDeLaLista[2] + nivelesDeLaLista[3] > 0
+
+  const secciones = useMemo<SeccionDeLista[]>(
+    () => [
+      ...(diaRellamadas === hoy && rell.atrasadas.length > 0 ? [{ id: 'atrasadas', titulo: 'Atrasadas', nota: 'las que llevan más tiempo cayéndose, primero', tono: 'ambar' as const, leads: rell.atrasadas }] : []),
+      { id: 'dia', titulo: diaRellamadas === hoy ? 'Para hoy' : diaConSemana(diaRellamadas), tono: 'cian' as const, leads: rell.delDia },
+    ],
+    [rell, diaRellamadas, hoy]
+  )
+
+  /** La lista por la que se navega con «Siguiente» y las flechas: la que se está viendo */
+  const navegacion = useMemo(() => (vista === 'rellamadas' ? [...rell.atrasadas, ...rell.delDia] : pan.visibles), [vista, rell, pan.visibles])
+
+  /** Cambia cuando cambia lo que se está mirando: la lista vuelve arriba y las primeras filas vuelven a entrar */
+  const generacion = `${vista}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
+
+  const leadSeleccionado = useMemo(() => (seleccionado ? (leads.find((l) => l.id === seleccionado) ?? null) : null), [leads, seleccionado])
+  const indiceSeleccionado = useMemo(() => (seleccionado ? navegacion.findIndex((l) => l.id === seleccionado) : -1), [navegacion, seleccionado])
+
+  /**
+   * SI EL LEAD SELECCIONADO SALE DE LA LISTA (se le cambió el estado y ya no cumple el filtro), «Siguiente» no vuelve al principio: va al
+   * que ocupa ahora el sitio que él dejó, que es el que le seguía. Así el comercial que clasifica «Sin contactar» uno detrás de otro no
+   * pierde su sitio cada vez.
+   */
+  const posicionPrevia = useRef(0)
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(prefsKey)
-      if (raw) {
-        const p = JSON.parse(raw)
-        if (p.view === 'tabla' || p.view === 'ficha' || p.view === 'rellamadas') {
-          setView(p.view)
-        }
-        if (typeof p.statusFilter === 'string') setStatusFilter(p.statusFilter)
-        if (typeof p.listFilter === 'string') setListFilter(p.listFilter)
-        if (p.nivelFilter === 1 || p.nivelFilter === 2 || p.nivelFilter === 3) {
-          setNivelFilter(p.nivelFilter)
-        }
-        if (typeof p.minRev === 'string') setMinRev(p.minRev)
-        if (typeof p.maxRev === 'string') setMaxRev(p.maxRev)
-        if (typeof p.sort === 'string') setSort(p.sort)
-        if (puedeVerTodos && typeof p.ownerFilter === 'string') setOwnerFilter(p.ownerFilter)
+    if (indiceSeleccionado >= 0) posicionPrevia.current = indiceSeleccionado
+  }, [indiceSeleccionado])
+
+  const mover = useCallback(
+    (delta: 1 | -1) => {
+      if (navegacion.length === 0) return
+      const base = indiceSeleccionado >= 0 ? indiceSeleccionado + delta : delta === 1 ? posicionPrevia.current : posicionPrevia.current - 1
+      const destino = Math.max(0, Math.min(navegacion.length - 1, base))
+      setSeleccionado(navegacion[destino].id)
+    },
+    [navegacion, indiceSeleccionado]
+  )
+
+  // En pantallas anchas la ficha nunca está vacía: si no hay nada elegido, se abre el primero de la lista. En el móvil NO: ahí se ve la lista o la
+  // ficha, nunca las dos, y entrar directamente en una ficha sin haber elegido nada desorienta. `esMovil` arranca en false hasta que el primer
+  // efecto de su hook mide la pantalla, así que aquí se mira la pantalla directamente
+  // Y no antes de haber leído las preferencias: con los filtros de ayer puestos, el primero de la lista NO es el primero de la cartera entera
+  useEffect(() => {
+    if (!preferenciasListas || esMovil || vista === 'tabla' || leadSeleccionado || navegacion.length === 0) return
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) return
+    setSeleccionado(navegacion[0].id)
+  }, [preferenciasListas, esMovil, vista, leadSeleccionado, navegacion])
+
+  // Teclado: ↑ ↓ cambian de lead y «/» va a la búsqueda. Nada de esto actúa mientras se escribe o hay un diálogo abierto
+  useEffect(() => {
+    if (vista === 'tabla') return
+    const alPulsar = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || document.querySelector('[role="dialog"]')) return
+      const el = e.target as HTMLElement | null
+      const escribiendo = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
+      if (escribiendo) return
+      if (e.key === '/' && vista === 'ficha') {
+        e.preventDefault()
+        caja.current?.focus()
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        mover(1)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        mover(-1)
       }
-    } catch {
-      // preferencias corruptas: se ignoran y se arranca en limpio
     }
-    setPrefsLoaded(true)
-  }, [prefsKey, puedeVerTodos])
+    window.addEventListener('keydown', alPulsar)
+    return () => window.removeEventListener('keydown', alPulsar)
+  }, [vista, mover])
 
-  useEffect(() => {
-    // No se guarda hasta haber leído lo anterior, o el estado inicial
-    // pisaría lo que dejó el usuario la última vez.
-    if (!prefsLoaded) return
-    window.localStorage.setItem(
-      prefsKey,
-      JSON.stringify({
-        view,
-        statusFilter,
-        listFilter,
-        nivelFilter,
-        minRev,
-        maxRev,
-        sort,
-        ownerFilter,
-      })
-    )
-  }, [
-    prefsLoaded,
-    prefsKey,
-    view,
-    statusFilter,
-    listFilter,
-    nivelFilter,
-    minRev,
-    maxRev,
-    sort,
-    ownerFilter,
-  ])
+  const cambiarFiltros = useCallback((cambios: Partial<FiltrosDeCartera>) => setFiltros((previos) => ({ ...previos, ...cambios })), [])
+  const elegirVista = useCallback((v: VistaDeCartera) => {
+    setVista(v)
+    // Entrar en la agenda siempre te deja en HOY: el día no se recuerda (ver NavegadorDeDias)
+    if (v === 'rellamadas') setDiaElegido(null)
+  }, [])
 
-  const hasFilters =
-    statusFilter !== 'all' ||
-    listFilter !== 'all' ||
-    nivelFilter !== 'all' ||
-    minRev !== '' ||
-    maxRev !== '' ||
-    search !== '' ||
-    sort !== 'due_first'
+  const abrirFicha = useCallback((id: string) => {
+    setSeleccionado(id)
+    setVista('ficha')
+  }, [])
 
-  function resetFilters() {
-    setStatusFilter('all')
-    setListFilter('all')
-    setNivelFilter('all')
-    setMinRev('')
-    setMaxRev('')
-    setSearch('')
-    setSort('due_first')
-  }
+  /* ---------------- piezas ---------------- */
 
-  useEffect(() => {
-    const channel = supabase
-      .channel(`cold_leads_${currentUser.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'cold_leads' },
-        (payload) => {
-          if (payload.eventType === 'DELETE') {
-            const old = payload.old as { id: string }
-            setLeads((prev) => prev.filter((l) => l.id !== old.id))
-            return
+  const cajaDeBusqueda = (
+    <label className="relative flex min-w-0 flex-1 items-center">
+      <Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-[var(--ls-t4)]" aria-hidden />
+      <input
+        ref={caja}
+        value={filtros.busqueda}
+        onChange={(e) => cambiarFiltros({ busqueda: e.target.value })}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            cambiarFiltros({ busqueda: '' })
+            e.currentTarget.blur()
           }
-          const row = payload.new as ColdLead
-          setLeads((prev) =>
-            prev.some((l) => l.id === row.id)
-              ? prev.map((l) => (l.id === row.id ? { ...l, ...row } : l))
-              : [...prev, row]
-          )
-        }
-      )
-      .subscribe()
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [supabase, currentUser.id])
-
-  const scoped = useMemo(
-    () => (ownerFilter === 'all' ? leads : leads.filter((l) => l.assigned_to === ownerFilter)),
-    [leads, ownerFilter]
+        }}
+        placeholder="Buscar tienda, empresa, teléfono…"
+        aria-label="Buscar en la cartera"
+        className="h-7 w-full rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-8 pr-14 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] hover:border-[var(--ls-linea2)] focus:border-[var(--ls-acc-graf)] focus:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)]"
+      />
+      <span className="absolute right-2 flex items-center">
+        {filtros.busqueda ? (
+          <button type="button" onClick={() => cambiarFiltros({ busqueda: '' })} className="text-[var(--ls-t4)] hover:text-[var(--ls-t1)]" aria-label="Borrar la búsqueda">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <Tecla>/</Tecla>
+        )}
+      </span>
+    </label>
   )
 
-  /** Listas de origen presentes en la cartera visible, para el desplegable */
-  const availableLists = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const l of scoped) {
-      const key = l.source_list || 'Sin lista'
-      map.set(key, (map.get(key) ?? 0) + 1)
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1])
-  }, [scoped])
+  const hayFiltrosPuestos = filtrosEfectivos.estado !== 'all' || filtrosEfectivos.lista !== 'all' || filtrosEfectivos.nivel !== 'all' || filtrosEfectivos.minRev !== '' || filtrosEfectivos.maxRev !== '' || filtrosEfectivos.busqueda.trim() !== ''
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    // pesoOrden() y no `revenue_monthly` a secas: una tienda online lo trae
-    // nulo —su cifra está en ventas_estimadas_usd— y valdría 0 al ordenar, con
-    // lo que las 2.000 caerían al final de la lista y no se verían nunca. Solo
-    // ordena: las dos cifras no se suman ni se comparan entre sí.
-    const byPeso = (a: ColdLead, b: ColdLead) => pesoOrden(b) - pesoOrden(a)
+  const vacio =
+    leads.length === 0 && !cargando ? (
+      <p className="max-w-[260px] text-center text-[12.5px] leading-relaxed text-[var(--ls-t4)]">Todavía no hay leads en esta cartera.</p>
+    ) : vista === 'rellamadas' ? (
+      <div className="max-w-[300px] text-center">
+        <p className="text-[12.5px] text-[var(--ls-t3)]">{diaRellamadas === hoy ? 'No hay ninguna rellamada apuntada para hoy.' : `No hay ninguna rellamada apuntada para el ${diaConSemana(diaRellamadas)}.`}</p>
+        <p className="mt-1 text-[11.5px] leading-snug text-[var(--ls-t4)]">Aquí sale todo lo que tenga fecha en «Rellamar el», sin importar la facturación ni ningún otro filtro.</p>
+      </div>
+    ) : (
+      <div className="text-center">
+        <p className="text-[12.5px] text-[var(--ls-t3)]">Ningún lead con estos filtros.</p>
+        {hayFiltrosPuestos && (
+          <button type="button" onClick={() => setFiltros(SIN_FILTROS)} className={`${BOTON.chip} mt-2`}>
+            <X className="h-3 w-3" aria-hidden /> Limpiar filtros
+          </button>
+        )}
+      </div>
+    )
 
-    return scoped
-      .filter((l) => (nivelFilter === 'all' ? true : l.nivel === nivelFilter))
-      .filter((l) => (statusFilter === 'all' ? true : l.status === statusFilter))
-      .filter((l) =>
-        listFilter === 'all' ? true : (l.source_list || 'Sin lista') === listFilter
-      )
-      .filter((l) => {
-        // Rango de facturación. Si hay rango activo, los leads sin importe
-        // quedan fuera: no se puede afirmar que caigan dentro.
-        //
-        // Y NO se aplica cuando se están mirando tiendas online: ninguna tiene
-        // `revenue_monthly`, así que un rango olvidado en las preferencias de
-        // ayer dejaría la pantalla vacía sin decir por qué. El rango tampoco se
-        // enseña en ese caso (ver más abajo), porque comparar euros observados
-        // con dólares estimados no significa nada.
-        //
-        // Antes esto miraba el filtro de «tipo de lead», que era una fila de
-        // botones aparte. Se quitó por confusa —la lista ya dice qué se está
-        // mirando— así que ahora se deduce de la lista elegida. El efecto es el
-        // mismo y hay un botón menos.
-        if (l.tipo_lead === 'tienda_online') return true
-        const min = minRev.trim() === '' ? null : Number(minRev)
-        const max = maxRev.trim() === '' ? null : Number(maxRev)
-        if (min === null && max === null) return true
-        const rev = l.revenue_monthly == null ? null : Number(l.revenue_monthly)
-        if (rev == null) return false
-        if (min !== null && !Number.isNaN(min) && rev < min) return false
-        if (max !== null && !Number.isNaN(max) && rev > max) return false
-        return true
-      })
-      .filter((l) => {
-        if (!q) return true
-        // `ciudad` y `web` entran en la búsqueda porque en las tiendas online
-        // son los dos campos por los que se busca de verdad: `province` viene
-        // vacía y el nombre de la tienda suele ser el dominio.
-        return [
-          l.store_name,
-          l.company,
-          l.phone,
-          l.email,
-          l.province,
-          l.category,
-          l.ciudad,
-          l.web,
-        ]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(q))
-      })
-      .sort((a, b) => {
-        if (sort === 'revenue_desc') return byPeso(a, b)
-        if (sort === 'revenue_asc') return -byPeso(a, b)
-        if (sort === 'name') return a.store_name.localeCompare(b.store_name, 'es')
-        if (sort === 'prioridad') {
-          // El orden de trabajo de la lista nueva: primero el nivel que la
-          // propia lista marca como prioritario y, dentro del nivel, las que
-          // más venden (estimado). Los leads sin nivel —los de Amazon— van
-          // detrás en vez de colarse arriba con un nulo.
-          const an = a.nivel ?? 99
-          const bn = b.nivel ?? 99
-          if (an !== bn) return an - bn
-          return byPeso(a, b)
-        }
-        // due_first: rellamadas pendientes arriba y, dentro de eso, los
-        // sellers que más facturan, que es donde está el dinero.
-        const ad = a.next_call_date ?? ''
-        const bd = b.next_call_date ?? ''
-        if (ad && bd && ad !== bd) return ad.localeCompare(bd)
-        if (ad && !bd) return -1
-        if (!ad && bd) return 1
-        return byPeso(a, b)
-      })
-  }, [scoped, search, statusFilter, listFilter, nivelFilter, minRev, maxRev, sort])
-
-  // Al cambiar de filtro se vuelve al principio de la lista
-  useEffect(() => {
-    setVisible(PAGE)
-  }, [search, statusFilter, ownerFilter, listFilter, nivelFilter, minRev, maxRev, sort])
-
-  // Si al cambiar de comercial la lista elegida ya no existe, se resetea
-  useEffect(() => {
-    if (listFilter !== 'all' && !availableLists.some(([name]) => name === listFilter)) {
-      setListFilter('all')
-    }
-  }, [availableLists, listFilter])
-
-  /** Cuántos hay de cada clase, para que los chips digan un número y no solo
-      un nombre. Sale de `scoped` —la cartera de quien mira— y no de `filtered`,
-      que ya lleva este filtro aplicado. */
-  /**
-   * CUÁNTAS HAY DE CADA NIVEL EN LO QUE SE ESTÁ MIRANDO.
-   *
-   * Se cuenta sobre la LISTA ya elegida y no sobre la cartera entera: el nivel
-   * solo tiene sentido dentro de una lista de tiendas, y contar los de todas
-   * daría números que no cuadran con lo que se ve.
-   */
-  const enLaLista = useMemo(
-    () =>
-      listFilter === 'all'
-        ? scoped
-        : scoped.filter((l) => (l.source_list || 'Sin lista') === listFilter),
-    [scoped, listFilter]
-  )
-
-  const nivelCounts = useMemo(() => {
-    const c: Record<number, number> = { 1: 0, 2: 0, 3: 0 }
-    for (const l of enLaLista) if (l.nivel === 1 || l.nivel === 2 || l.nivel === 3) c[l.nivel]++
-    return c
-  }, [enLaLista])
-
-  /**
-   * SI EN LO QUE SE MIRA NO QUEDA NINGÚN LEAD DEL NIVEL FILTRADO, SE QUITA EL
-   * FILTRO. Sin esto se queda sin salida, y no es hipotético: los botones de
-   * nivel solo se pintan cuando hay tiendas, y el filtro se recuerda de un día
-   * para otro en localStorage. Quien deje puesto «Nivel 1» y mañana abra una
-   * lista de vendedores de Amazon vería la pantalla vacía, sin los botones
-   * —porque ya no hay niveles que contar— y por tanto sin ningún sitio donde
-   * deshacerlo. Parece que le han desaparecido los leads.
-   */
-  useEffect(() => {
-    if (nivelFilter !== 'all' && nivelCounts[nivelFilter] === 0) setNivelFilter('all')
-  }, [nivelCounts, nivelFilter])
-
-  const counts = useMemo(() => {
-    const map = new Map<ColdLeadStatus, number>()
-    for (const l of scoped) map.set(l.status, (map.get(l.status) ?? 0) + 1)
-    return map
-  }, [scoped])
-
-  /**
-   * LAS RELLAMADAS SALEN DE `scoped`, NO DE `filtered`. ESO ES TODO EL PUNTO.
-   *
-   * `filtered` lleva encima el rango de facturación, el estado, la lista de
-   * origen y la búsqueda, y esos filtros son de PROSPECTAR: sirven para decidir
-   * a quién llamar de una cartera de miles. Una rellamada ya no es eso — es un
-   * compromiso con una persona concreta a la que se le dijo «te llamo el
-   * martes» —, y filtrarla por facturación la haría desaparecer sin avisar.
-   *
-   * El caso que lo motiva es literal: con el filtro puesto en +6.000 €/mes, una
-   * rellamada apalabrada con un seller de 4.000 no sale en pantalla. La llamada
-   * no se hace, nadie se entera, y el fallo es invisible porque la pantalla
-   * enseña exactamente lo que se le ha pedido.
-   *
-   * Lo único que SÍ se respeta es de quién es el lead (`scoped`), que no es un
-   * filtro sino a quién pertenece el trabajo: un comercial no tiene por qué ver
-   * la agenda de otro.
-   *
-   * Se descartan los 'no_interesa' porque un lead cerrado en falso puede
-   * arrastrar una fecha vieja, y esa fecha ya no significa nada.
-   */
-  const rellamadas = useMemo(() => {
-    const hoy = diaLocal()
-    const pendientes = scoped.filter((l) => l.next_call_date && l.status !== 'no_interesa')
-
-    // Mismo criterio que la lista: una tienda online no tiene
-    // `revenue_monthly`, y ordenando por él todas las rellamadas de tiendas
-    // caerían al final del día por detrás de cualquier seller.
-    const porFacturacion = (a: ColdLead, b: ColdLead) => pesoOrden(b) - pesoOrden(a)
-
-    const delDia = pendientes
-      .filter((l) => l.next_call_date === diaRellamadas)
-      .sort(porFacturacion)
-
-    // Atrasadas = se pasó el día y siguen ahí. Solo tiene sentido hablar de
-    // ellas cuando se mira HOY: puestos a mirar el jueves que viene, «atrasado»
-    // no quiere decir nada.
-    const atrasadas =
-      diaRellamadas === hoy
-        ? pendientes
-            .filter((l) => l.next_call_date! < hoy)
-            // Las más viejas primero: son las que llevan más tiempo cayéndose.
-            .sort((a, b) => a.next_call_date!.localeCompare(b.next_call_date!))
-        : []
-
-    return { delDia, atrasadas, hoy }
-  }, [scoped, diaRellamadas])
-
-  /** Lo que se pinta: el día elegido y, si se pide, las atrasadas delante */
-  const rellamadasVisibles = useMemo(
-    () =>
-      conAtrasadas ? [...rellamadas.atrasadas, ...rellamadas.delDia] : rellamadas.delDia,
-    [conAtrasadas, rellamadas]
-  )
-
-  /**
-   * El número del botón: SIEMPRE las de hoy, mire el usuario el día que mire.
-   *
-   * Si contara el día seleccionado, ponerse a mirar el viernes cambiaría el
-   * contador y el botón dejaría de responder a lo que dice que cuenta.
-   */
-  const rellamadasHoy = useMemo(() => {
-    const hoy = diaLocal()
-    return scoped.filter(
-      (l) => l.next_call_date === hoy && l.status !== 'no_interesa'
-    ).length
-  }, [scoped])
-
-  const stats = useMemo(() => {
-    const worked = scoped.filter((l) => l.status !== 'pendiente').length
-    const qualified = scoped.filter((l) => l.status === 'cita_cualificada').length
-    // diaLocal() y no toISOString(): ver la nota de esa función. Aquí es «hoy y
-    // lo que se pasó», que es la cifra de trabajo pendiente.
-    const today = diaLocal()
-    const dueToday = scoped.filter(
-      (l) => l.next_call_date && l.next_call_date <= today && l.status !== 'no_interesa'
-    ).length
-    return {
-      total: scoped.length,
-      worked,
-      qualified,
-      dueToday,
-      rate: worked > 0 ? (qualified / worked) * 100 : 0,
-    }
-  }, [scoped])
-
-  const selected = leads.find((l) => l.id === selectedId) ?? null
-
-  function handlePatched(id: string, patch: Partial<ColdLead>) {
-    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)))
-  }
-
-  /** Salta al siguiente lead de la lista filtrada, para encadenar llamadas */
-  function goNext() {
-    const idx = filtered.findIndex((l) => l.id === selectedId)
-    const next = filtered[idx + 1]
-    if (next) {
-      setSelectedId(next.id)
-      if (idx + 1 >= visible - 5) setVisible((v) => v + PAGE)
-    }
-  }
+  const puedeEditar = (l: ColdLead) => puedeVerTodos || l.assigned_to === currentUser.id
 
   return (
-    <div className="flex flex-col h-full gap-3 min-w-0">
-      {/* Métricas */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
-        {[
-          { icon: Users, label: 'Leads en cartera', value: String(stats.total) },
-          {
-            icon: Phone,
-            label: 'Trabajados',
-            value: `${stats.worked}`,
-            hint: `de ${stats.total}`,
-          },
-          {
-            icon: Target,
-            label: 'Citas cualificadas',
-            value: String(stats.qualified),
-            hint: stats.worked > 0 ? `${stats.rate.toFixed(1)}% de conversión` : undefined,
-          },
-          {
-            icon: TrendingUp,
-            label: 'Rellamadas para hoy',
-            value: String(stats.dueToday),
-          },
-        ].map((s) => (
-          <div
-            key={s.label}
-            className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2"
-          >
-            <p className="text-[10px] uppercase tracking-wider text-white/35 flex items-center gap-1.5">
-              <s.icon className="h-3 w-3" /> {s.label}
-            </p>
-            <p className="text-white font-semibold text-[15px] mt-0.5 flex items-baseline gap-1.5">
-              {s.value}
-              {s.hint && (
-                <span className="text-[11px] font-normal text-white/35">{s.hint}</span>
-              )}
-            </p>
-          </div>
-        ))}
-      </div>
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2.5">
+      <BarraDeCartera
+        resumen={resumen}
+        vista={vista}
+        onVista={elegirVista}
+        puedeVerTodos={puedeVerTodos}
+        team={team}
+        propietario={propietario}
+        onPropietario={cartera.cambiarPropietario}
+        cargando={cargando}
+        onTelefonos={() => setComprobando(true)}
+      />
 
-      {/* Filtros por estado, con los colores del Excel.
-          En la agenda de rellamadas NO se enseñan, y no es por ahorrar sitio:
-          si se vieran puestos y no hicieran nada, cualquiera diría que la
-          pantalla está rota. Se esconden porque ahí no se aplican. */}
-      {view !== 'rellamadas' && (
-      <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0">
-        <button
-          type="button"
-          onClick={() => setStatusFilter('all')}
-          className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-            statusFilter === 'all'
-              ? 'border-white/25 bg-white/[0.08] text-white'
-              : 'border-white/10 text-white/40 hover:text-white/80'
-          }`}
-        >
-          Todos ({scoped.length})
-        </button>
-        {COLD_STATUSES.map((s) => {
-          const active = statusFilter === s
-          return (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setStatusFilter(s)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors flex items-center gap-1.5 ${
-                active ? 'text-white ring-1 ring-white/20' : 'border-white/10 text-white/40 hover:text-white/80'
-              }`}
-              style={
-                active
-                  ? {
-                      backgroundColor: `${COLD_STATUS_DOTS[s]}26`,
-                      borderColor: `${COLD_STATUS_DOTS[s]}80`,
-                    }
-                  : undefined
-              }
-            >
-              <span
-                className="h-2 w-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: COLD_STATUS_DOTS[s] }}
-              />
-              {COLD_STATUS_LABELS[s]} ({counts.get(s) ?? 0})
-            </button>
-          )
-        })}
-
-      </div>
-      )}
-
-      {/* EL NIVEL, que es el orden de trabajo de la lista de tiendas.
-          Solo aparece cuando en la lista que se está mirando hay niveles que
-          contar, o sea cuando son tiendas online. En una lista de vendedores de
-          Amazon esta fila no existe: a ellos el nivel no les aplica.
-
-          Aquí había antes una fila de «Tipo de lead» (Todos · Vendedores de
-          Amazon · Tiendas online). Se quitó porque decía dos veces lo mismo: la
-          lista de abajo ya separa unos de otros —«No Amazon V1» son tiendas y
-          «José V2» son vendedores— y tener los dos filtros invitaba a cruzarlos
-          y quedarse con la pantalla vacía. */}
-      {view !== 'rellamadas' &&
-        nivelCounts[1] + nivelCounts[2] + nivelCounts[3] > 0 && (
-        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-          <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
-            <Signal className="h-3 w-3" /> Nivel
-          </span>
-          <button
-            type="button"
-            onClick={() => setNivelFilter('all')}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-              nivelFilter === 'all'
-                ? 'border-white/25 bg-white/[0.08] text-white'
-                : 'border-white/10 text-white/40 hover:text-white/80'
-            }`}
-          >
-            Todos ({nivelCounts[1] + nivelCounts[2] + nivelCounts[3]})
+      {incompleta && !cargando && (
+        <div className={`${AVISO.base} ${AVISO.conTono} items-center`} style={{ borderLeftColor: COLOR_ESTADO.ambar }} role="alert">
+          <AlertTriangle className={`${AVISO.icono} !mt-0 text-[var(--ls-e-ambar)]`} aria-hidden />
+          <p className="flex-1">
+            <span className={AVISO.fuerte}>La cartera ha llegado incompleta.</span> Algún tramo no se ha podido leer, así que puede que falten leads.
+          </p>
+          <button type="button" onClick={() => void cartera.recargar()} className={`${BOTON.base} ${BOTON.secundario}`}>
+            <RefreshCw className="h-3 w-3" aria-hidden /> Reintentar
           </button>
-          {[1, 2, 3].map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => setNivelFilter(n)}
-              disabled={nivelCounts[n] === 0}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                nivelFilter === n
-                  ? 'border-white/25 bg-white/[0.08] text-white'
-                  : 'border-white/10 text-white/40 hover:text-white/80'
-              }`}
-            >
-              <span
-                className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle"
-                style={{ background: COLD_NIVEL_DOTS[n] }}
-              />
-              {COLD_NIVEL_LABELS[n]} ({nivelCounts[n]})
-            </button>
-          ))}
-          <span className="text-[10px] text-amber-300/60">
-            Tiendas que aún no venden en Amazon. Comprueba lo primero si ya
-            están dentro.
-          </span>
         </div>
       )}
 
-      {/* Lista de origen y orden */}
-      <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-        {view !== 'rellamadas' && (
-        <>
-        <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
-          <Layers className="h-3 w-3" /> Lista
-        </span>
-        <button
-          type="button"
-          onClick={() => setListFilter('all')}
-          className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-            listFilter === 'all'
-              ? 'border-white/25 bg-white/[0.08] text-white'
-              : 'border-white/10 text-white/40 hover:text-white/80'
-          }`}
-        >
-          Todas ({scoped.length})
-        </button>
-        {availableLists.map(([name, count]) => {
-          const active = listFilter === name
-          const color = colorForList(name)
-          return (
-            <button
-              key={name}
-              type="button"
-              onClick={() => setListFilter(name)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors flex items-center gap-1.5 ${
-                active
-                  ? 'text-white ring-1 ring-white/20'
-                  : 'border-white/10 text-white/40 hover:text-white/80'
-              }`}
-              style={
-                active
-                  ? { backgroundColor: `${color}26`, borderColor: `${color}80` }
-                  : undefined
-              }
-            >
-              <span
-                className="h-2 w-2 rounded-sm flex-shrink-0"
-                style={{ backgroundColor: color }}
-              />
-              {name} ({count})
-            </button>
-          )
-        })}
-        </>
-        )}
-
-        <div className="ml-auto flex items-center gap-2">
-          {/* LA SALIDA DE LOS FILTROS, EN UNA FILA QUE SE PINTA SIEMPRE.
-              Vivía dentro del bloque del rango de facturación, que ahora se
-              esconde también cuando se están mirando solo tiendas online: el
-              único botón para deshacer los filtros desaparecía justo en la
-              pantalla donde más falta hace, la que se ha quedado vacía. Y como
-              los filtros se recuerdan de un día para otro, quien se lo
-              encuentre así va a pensar que ha perdido leads, no que tiene un
-              filtro puesto. */}
-          {view !== 'rellamadas' && hasFilters && (
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="px-2.5 py-1 rounded-full border border-white/10 text-[11px] font-medium text-white/45 hover:text-white hover:border-white/25 transition-colors flex items-center gap-1.5"
-            >
-              <X className="h-3 w-3" /> Limpiar filtros
-            </button>
-          )}
-
-          {/* Cambio de vista: ficha, tabla estilo Excel o la agenda del día */}
-          <div className="flex items-center rounded-full border border-white/10 bg-white/[0.03] p-0.5">
-            {/* `badge: null` en las dos primeras y no ausente: con la propiedad
-                opcional, TypeScript ve `number | undefined` en toda la lista y
-                el `in` no lo estrecha dentro del map. */}
-            {([
-              { id: 'ficha' as const, icon: PanelRight, label: 'Ficha', badge: null },
-              { id: 'tabla' as const, icon: Table2, label: 'Tabla', badge: null },
-              {
-                id: 'rellamadas' as const,
-                icon: CalendarClock,
-                label: 'Rellamadas de hoy',
-                // El número va SIEMPRE, incluso a cero: un botón que solo
-                // aparece cuando hay trabajo es un botón que nadie busca
-                // cuando no lo ve, y «0» es una respuesta, no un hueco.
-                badge: rellamadasHoy as number | null,
-              },
-            ]).map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                onClick={() => {
-                  setView(v.id)
-                  // Entrar en la agenda siempre te deja en HOY. Ver el
-                  // comentario de diaRellamadas.
-                  if (v.id === 'rellamadas') setDiaRellamadas(diaLocal())
-                }}
-                className={`h-6 px-2.5 rounded-full text-[11px] font-medium flex items-center gap-1.5 transition-colors ${
-                  view === v.id
-                    ? 'bg-[#FF6600] text-white'
-                    : 'text-white/45 hover:text-white'
-                }`}
-              >
-                <v.icon className="h-3 w-3" />
-                {v.label}
-                {v.badge !== null && (
-                  <span
-                    className={`tabular-nums rounded-full px-1.5 leading-[16px] text-[10px] font-semibold ${
-                      view === v.id
-                        ? 'bg-white/25 text-white'
-                        : v.badge > 0
-                          ? 'bg-[#FF6600]/25 text-[#FF9A4D]'
-                          : 'bg-white/[0.06] text-white/30'
-                    }`}
-                  >
-                    {v.badge}
-                  </span>
-                )}
-              </button>
-            ))}
+      {vista === 'rellamadas' ? (
+        <NavegadorDeDias dia={diaRellamadas} hoy={hoy} onDia={(d) => setDiaElegido(d === hoy ? null : d)} delDia={rell.delDia.length} atrasadas={rell.atrasadas.length} />
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          {vista === 'tabla' && <div className="flex w-[260px] max-w-full">{cajaDeBusqueda}</div>}
+          <div className="min-w-0 flex-1">
+            <FiltrosDeLista
+              filtros={filtrosEfectivos}
+              onCambiar={cambiarFiltros}
+              porEstado={pan.porEstado}
+              total={pan.totalSinEstado}
+              listas={pan.listas}
+              niveles={pan.niveles}
+              hayNiveles={hayNiveles}
+              coinciden={pan.visibles.length}
+            />
           </div>
-
-          {/* El orden tampoco aplica en la agenda: ahí manda la fecha y, a
-              igualdad de día, quién más factura. */}
-          {view !== 'rellamadas' && (
-            <>
-              <ArrowUpDown className="h-3 w-3 text-white/30" />
-
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as ColdSort)}
-                title="Ordenar la lista"
-                className="h-7 rounded-full border border-white/10 bg-white/[0.03] pl-2.5 pr-2 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer"
-              >
-                {(Object.keys(COLD_SORT_LABELS) as ColdSort[]).map((s) => (
-                  <option key={s} value={s} className="bg-[#1a1a1a]">
-                    {COLD_SORT_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
-
-          {/* El comercial SÍ se mantiene: no es un filtro de prospección sino
-              de quién es el trabajo, y un admin necesita poder mirar la agenda
-              de cada uno. */}
-          {puedeVerTodos && (
-            <button
-              type="button"
-              onClick={() => setComprobando(true)}
-              title="Comprobar que las llamadas de Rinkel se enlazan con los teléfonos de los leads"
-              className="h-7 px-2.5 rounded-full border border-white/10 bg-white/[0.03] text-[11px] font-medium text-white/60 hover:text-white hover:border-white/25 transition-colors flex items-center gap-1.5"
-            >
-              <Link2 className="h-3 w-3" /> Teléfonos
-            </button>
-          )}
-
-          {puedeVerTodos && team.length > 0 && (
-            <select
-              value={ownerFilter}
-              onChange={(e) => setOwnerFilter(e.target.value)}
-              className="h-7 rounded-full border border-white/10 bg-white/[0.03] px-2.5 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer"
-            >
-              <option value="all" className="bg-[#1a1a1a]">
-                Todos los comerciales
-              </option>
-              {team.map((p) => (
-                <option key={p.id} value={p.id} className="bg-[#1a1a1a]">
-                  {p.full_name || p.email}
-                </option>
-              ))}
-            </select>
-          )}
         </div>
-      </div>
-
-      {/* Rango de facturación. EL FILTRO QUE MÁS DAÑO HACÍA EN LAS RELLAMADAS:
-          con «desde 6.000» puesto, una rellamada apalabrada con un seller de
-          4.000 desaparecía de la pantalla y la llamada no se hacía. Por eso en
-          esa vista ni se enseña ni se aplica.
-
-          Y tampoco se enseña mirando solo tiendas online: ninguna tiene
-          facturación observada, así que el rango las dejaría todas fuera y la
-          pantalla se quedaría vacía sin explicar por qué. */}
-      {view !== 'rellamadas' && nivelCounts[1] + nivelCounts[2] + nivelCounts[3] === 0 && (
-      <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-        <span className="text-[10px] uppercase tracking-wider text-white/30 flex items-center gap-1.5">
-          <Euro className="h-3 w-3" /> Facturación
-        </span>
-        <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2 py-1">
-          <input
-            value={minRev}
-            onChange={(e) => setMinRev(e.target.value.replace(/[^\d]/g, ''))}
-            inputMode="numeric"
-            placeholder="desde"
-            className="w-20 bg-transparent text-[11px] text-white outline-none placeholder:text-white/25 tabular-nums"
-          />
-          <span className="text-white/20 text-[11px]">–</span>
-          <input
-            value={maxRev}
-            onChange={(e) => setMaxRev(e.target.value.replace(/[^\d]/g, ''))}
-            inputMode="numeric"
-            placeholder="hasta"
-            className="w-20 bg-transparent text-[11px] text-white outline-none placeholder:text-white/25 tabular-nums"
-          />
-          <span className="text-white/25 text-[11px]">€/mes</span>
-          {(minRev || maxRev) && (
-            <button
-              type="button"
-              onClick={() => {
-                setMinRev('')
-                setMaxRev('')
-              }}
-              className="text-white/30 hover:text-white transition-colors"
-              title="Quitar el filtro de facturación"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
-        </div>
-
-        {REVENUE_PRESETS.map((p) => {
-          const active = minRev === p.min && maxRev === p.max
-          return (
-            <button
-              key={p.label}
-              type="button"
-              onClick={() => {
-                if (active) {
-                  setMinRev('')
-                  setMaxRev('')
-                } else {
-                  setMinRev(p.min)
-                  setMaxRev(p.max)
-                }
-              }}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-                active
-                  ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
-                  : 'border-white/10 text-white/40 hover:text-white/80'
-              }`}
-            >
-              {p.label}
-            </button>
-          )
-        })}
-
-        {(minRev || maxRev) && (
-          <span className="text-[11px] text-white/35">
-            {filtered.length} {filtered.length === 1 ? 'lead' : 'leads'} en ese rango
-          </span>
-        )}
-
-        {/* «Limpiar filtros» ya no está aquí: se subió a la fila de la lista y
-            el orden, que se pinta siempre. Ver el comentario de allí. */}
-      </div>
       )}
 
-      {view === 'rellamadas' ? (
-        <div className="flex-1 min-h-0 min-w-0 flex flex-col gap-2">
-          {/* La barra del día */}
-          <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-            {[
-              { etiqueta: 'Hoy', dia: rellamadas.hoy },
-              { etiqueta: 'Mañana', dia: sumarDias(rellamadas.hoy, 1) },
-            ].map((d) => (
-              <button
-                key={d.etiqueta}
-                type="button"
-                onClick={() => setDiaRellamadas(d.dia)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-                  diaRellamadas === d.dia
-                    ? 'border-[#FF6600]/60 bg-[#FF6600]/15 text-white'
-                    : 'border-white/10 text-white/40 hover:text-white/80'
-                }`}
-              >
-                {d.etiqueta}
-              </button>
-            ))}
-
-            <input
-              type="date"
-              value={diaRellamadas}
-              onChange={(e) => setDiaRellamadas(e.target.value || rellamadas.hoy)}
-              title="Mirar las rellamadas de otro día"
-              className="h-7 rounded-full border border-white/10 bg-white/[0.03] px-2.5 text-[11px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer [color-scheme:dark]"
-            />
-
-            <span className="text-[11px] text-white/45">
-              <strong className="text-white tabular-nums">{rellamadas.delDia.length}</strong>{' '}
-              {rellamadas.delDia.length === 1 ? 'rellamada' : 'rellamadas'} para el{' '}
-              {diaLargo(diaRellamadas)}
-            </span>
-
-            {/* Las que se pasaron de fecha. Solo sale el interruptor si las hay:
-                un aviso permanente en cero deja de leerse a la semana. */}
-            {rellamadas.atrasadas.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setConAtrasadas((v) => !v)}
-                title="Rellamadas de días anteriores que siguen sin hacerse"
-                className={`ml-auto px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors flex items-center gap-1.5 ${
-                  conAtrasadas
-                    ? 'border-amber-400/60 bg-amber-400/15 text-white'
-                    : 'border-amber-400/25 text-amber-300/80 hover:text-amber-200'
-                }`}
-              >
-                <AlertTriangle className="h-3 w-3" />
-                {rellamadas.atrasadas.length}{' '}
-                {rellamadas.atrasadas.length === 1 ? 'atrasada' : 'atrasadas'}
-                <span className="text-white/40 font-normal">
-                  {conAtrasadas ? '· quitar' : '· ver'}
-                </span>
-              </button>
-            )}
-          </div>
-
-          {rellamadasVisibles.length === 0 ? (
-            <div className="flex-1 min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col items-center justify-center gap-2 px-6 text-center">
-              <CalendarClock className="h-6 w-6 text-white/20" />
-              <p className="text-[13px] text-white/35">
-                {diaRellamadas === rellamadas.hoy
-                  ? 'No hay ninguna rellamada apuntada para hoy.'
-                  : `No hay ninguna rellamada apuntada para el ${diaLargo(diaRellamadas)}.`}
-              </p>
-              <p className="text-[11px] text-white/25 max-w-[420px]">
-                Aquí sale todo lo que tenga fecha en «Rellamar el», sin importar la
-                facturación ni ningún otro filtro.
-              </p>
-            </div>
-          ) : (
-            /* La misma tabla que la vista de Excel, y a propósito: la fecha de
-               «Rellamar el» y el estado se editan ahí mismo, que es justo lo que
-               el comercial hace al colgar — apuntar el día siguiente. */
-            <ColdLeadsTable
-              leads={rellamadasVisibles}
-              currentUserId={currentUser.id}
-              currentUser={currentUser}
-              puedeVerTodos={puedeVerTodos}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onOpenDetail={(id) => {
-                setSelectedId(id)
-                setView('ficha')
-              }}
-              onPatched={handlePatched}
-              nombres={nombres}
-              version={versionDeLlamadas}
-            />
-          )}
-        </div>
-      ) : view === 'tabla' ? (
-        <div className="flex-1 min-h-0 min-w-0 flex flex-col gap-2">
-          <ColdLeadsTable
-            leads={filtered.slice(0, visible)}
+      <div className="min-h-0 min-w-0 flex-1">
+        {vista === 'tabla' ? (
+          <TablaDeLeads
+            leads={pan.visibles}
             currentUserId={currentUser.id}
-              currentUser={currentUser}
+            currentUser={currentUser}
             puedeVerTodos={puedeVerTodos}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onOpenDetail={(id) => {
-              setSelectedId(id)
-              setView('ficha')
-            }}
-            onPatched={handlePatched}
+            selectedId={seleccionado}
+            onSelect={setSeleccionado}
+            onOpenDetail={abrirFicha}
+            onPatched={parchear}
             nombres={nombres}
             version={versionDeLlamadas}
+            hoy={hoy}
+            generacion={generacion}
           />
-          {visible < filtered.length && (
-            <button
-              onClick={() => setVisible((v) => v + PAGE)}
-              className="flex-shrink-0 rounded-lg border border-dashed border-white/12 py-2 text-[11px] text-white/45 hover:text-white hover:border-white/25 transition-colors"
-            >
-              Ver más ({filtered.length - visible} restantes)
-            </button>
-          )}
-        </div>
-      ) : (
+        ) : (
+          <div className="grid h-full min-h-0 grid-cols-1 gap-2.5 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+            <div className={`${PANEL} min-h-0 flex-col overflow-hidden ${esMovil && seleccionado ? 'hidden' : 'flex'}`}>
+              {vista === 'ficha' && <div className="shrink-0 border-b border-[var(--ls-linea)] p-2">{cajaDeBusqueda}</div>}
+              {vista === 'ficha' ? (
+                <ListaDeLeads
+                  leads={pan.visibles}
+                  seleccionado={seleccionado}
+                  onSeleccionar={setSeleccionado}
+                  hoy={hoy}
+                  mostrarLista={filtrosEfectivos.lista === 'all' && pan.listas.length > 1}
+                  generacion={generacion}
+                  cargando={cargando}
+                  vacio={vacio}
+                />
+              ) : (
+                <ListaPorSecciones secciones={secciones} seleccionado={seleccionado} onSeleccionar={setSeleccionado} hoy={hoy} vacio={vacio} />
+              )}
+            </div>
 
-      /* Lista + ficha */
-      <div className="flex-1 min-h-0 min-w-0 grid grid-cols-1 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] gap-3">
-        <div
-          className={`flex-col min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden ${
-            isMobile && selectedId ? 'hidden' : 'flex'
-          }`}
-        >
-          <div className="p-2.5 border-b border-white/[0.06] flex-shrink-0">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/30" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar tienda, empresa, teléfono..."
-                className="w-full bg-white/[0.04] border border-white/10 rounded-lg pl-8 pr-2.5 py-1.5 text-[12px] text-white outline-none focus:border-[#FF6600] transition-colors placeholder:text-white/25"
-              />
+            <div className={`${PANEL} min-h-0 overflow-hidden ${esMovil && !seleccionado ? 'hidden' : 'block'}`}>
+              {leadSeleccionado ? (
+                <div key={leadSeleccionado.id} className="rend-desliza h-full">
+                  <FichaDelLead
+                    lead={leadSeleccionado}
+                    currentUser={currentUser}
+                    canEdit={puedeEditar(leadSeleccionado)}
+                    onPatched={(campos) => parchear(leadSeleccionado.id, campos)}
+                    onSiguiente={() => mover(1)}
+                    onAnterior={() => mover(-1)}
+                    posicion={indiceSeleccionado >= 0 ? { indice: indiceSeleccionado, total: navegacion.length } : null}
+                    hoy={hoy}
+                    nombres={nombres}
+                    version={versionDeLlamadas}
+                    onVolver={esMovil ? () => setSeleccionado(null) : undefined}
+                  />
+                </div>
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+                  <MousePointerClick className="h-6 w-6 text-[var(--ls-t4)]" aria-hidden />
+                  <p className="text-[12.5px] text-[var(--ls-t3)]">{cargando ? 'Cargando leads…' : 'Elige un lead de la izquierda para ver su ficha y empezar a llamar.'}</p>
+                </div>
+              )}
             </div>
           </div>
-
-          <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
-            {filtered.length === 0 ? (
-              <p className="text-[12px] text-white/30 text-center py-8 px-4">
-                Ningún lead con estos filtros.
-              </p>
-            ) : (
-              <>
-                {filtered.slice(0, visible).map((l) => {
-                  const active = l.id === selectedId
-                  const overdue = l.next_call_date && l.next_call_date <= diaLocal()
-                  return (
-                    <button
-                      key={l.id}
-                      onClick={() => setSelectedId(l.id)}
-                      className={`w-full text-left rounded-xl border px-2.5 py-2 transition-colors ${
-                        active
-                          ? 'border-[#FF6600]/50 bg-[#FF6600]/[0.08]'
-                          : 'border-transparent hover:border-white/10 hover:bg-white/[0.03]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-2 w-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: COLD_STATUS_DOTS[l.status] }}
-                          title={COLD_STATUS_LABELS[l.status]}
-                        />
-                        <span className="text-[13px] font-semibold text-white truncate flex-1 min-w-0">
-                          {l.store_name}
-                        </span>
-                        {/* En una tienda online esta cifra son dólares
-                            estimados, no facturación, y formatRevenue() les
-                            pondría « €» encima. En la lista compacta no cabe la
-                            advertencia, así que ahí va el nivel —que es su
-                            criterio de prioridad— y la cifra se queda en la
-                            ficha, donde sí se puede explicar. */}
-                        {esTiendaOnline(l)
-                          ? l.nivel != null && (
-                              <span
-                                className="text-[10px] flex-shrink-0 tabular-nums"
-                                style={{ color: COLD_NIVEL_DOTS[l.nivel] }}
-                                title={COLD_NIVEL_LABELS[l.nivel]}
-                              >
-                                N{l.nivel}
-                              </span>
-                            )
-                          : l.revenue_monthly != null && (
-                              <span className="text-[10px] text-white/35 flex-shrink-0 tabular-nums">
-                                {formatRevenue(l.revenue_monthly)}
-                              </span>
-                            )}
-                      </div>
-                      <p className="text-[11px] text-white/40 truncate pl-4">
-                        {l.company || 'Sin empresa'}
-                      </p>
-                      <div className="flex items-center gap-1.5 pl-4 mt-0.5 min-w-0">
-                        {l.source_list && (
-                          <span
-                            className="text-[9px] font-medium px-1.5 py-0.5 rounded border leading-none whitespace-nowrap flex-shrink-0"
-                            style={{
-                              color: colorForList(l.source_list),
-                              borderColor: `${colorForList(l.source_list)}55`,
-                              backgroundColor: `${colorForList(l.source_list)}1a`,
-                            }}
-                          >
-                            {l.source_list}
-                          </span>
-                        )}
-                        {l.phone && (
-                          <span className="text-[10px] text-white/25 truncate">{l.phone}</span>
-                        )}
-                        {overdue && (
-                          <span className="text-[10px] text-cyan-300 flex-shrink-0">
-                            rellamar
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  )
-                })}
-                {visible < filtered.length && (
-                  <button
-                    onClick={() => setVisible((v) => v + PAGE)}
-                    className="w-full rounded-lg border border-dashed border-white/12 py-2 text-[11px] text-white/45 hover:text-white hover:border-white/25 transition-colors"
-                  >
-                    Ver más ({filtered.length - visible} restantes)
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div
-          className={`min-h-0 rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden flex-col ${
-            isMobile && !selectedId ? 'hidden' : 'flex'
-          }`}
-        >
-          {isMobile && selectedId && (
-            <button
-              type="button"
-              onClick={() => setSelectedId(null)}
-              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium text-white/60 hover:text-white border-b border-white/[0.06] transition-colors"
-            >
-              <ChevronLeft className="h-4 w-4" /> Volver a la lista
-            </button>
-          )}
-          <AnimatePresence mode="wait">
-            {selected ? (
-              <motion.div
-                key={selected.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-                className="h-full"
-              >
-                <ColdLeadDetail
-                  lead={selected}
-                  currentUser={currentUser}
-                  canEdit={puedeVerTodos || selected.assigned_to === currentUser.id}
-                  onPatched={(patch) => handlePatched(selected.id, patch)}
-                  onNext={goNext}
-                  nombres={nombres}
-                  version={versionDeLlamadas}
-                />
-              </motion.div>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
-                <MousePointerClick className="h-6 w-6 text-white/20" />
-                <p className="text-[13px] text-white/35">
-                  Elige un lead de la izquierda para ver su ficha y empezar a llamar.
-                </p>
-              </div>
-            )}
-          </AnimatePresence>
-        </div>
+        )}
       </div>
-      )}
 
-      {puedeVerTodos && (
-        <DiagnosticoDeVinculos abierto={comprobando} onCerrar={() => setComprobando(false)} esAdmin={currentUser.role === 'admin'} />
-      )}
+      {puedeVerTodos && <DiagnosticoDeVinculos abierto={comprobando} onCerrar={() => setComprobando(false)} esAdmin={currentUser.role === 'admin'} />}
     </div>
   )
 }

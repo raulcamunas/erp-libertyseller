@@ -1,0 +1,272 @@
+import {
+  SIN_FILTROS,
+  contarNiveles,
+  contarPorEstado,
+  cuantosFiltros,
+  fechaDeRellamada,
+  filtrar,
+  filtrarYOrdenar,
+  hayFiltros,
+  listasDisponibles,
+  normalizarFiltros,
+  ordenar,
+  panorama,
+  rellamadasDe,
+  resumenDeCartera,
+  type FiltrosDeCartera,
+} from '@/lib/cold-calling/cartera'
+import type { ColdLead } from '@/lib/types/cold-leads'
+
+let fallos = 0
+const ok = (n: string, bien: boolean, d = '') => {
+  if (!bien) fallos++
+  console.log(`  ${bien ? 'OK   ' : 'FALLA'} ${n}${bien || !d ? '' : ` -> ${d}`}`)
+}
+
+/**
+ * LA CARTERA: FILTRAR, ORDENAR, CONTAR Y LAS RELLAMADAS.
+ *
+ * Cada caso es una regla que existe por un fallo que ya pasó y no daba ningún error (ver el principio de cartera.ts):
+ * una rellamada que desaparece detrás de un filtro, unas tiendas que no se ven nunca, una pantalla vacía sin explicación.
+ */
+
+let n = 0
+const lead = (extra: Partial<ColdLead> = {}): ColdLead =>
+  ({
+    id: `l${String(++n).padStart(4, '0')}`,
+    store_name: `Tienda ${n}`,
+    company: null,
+    revenue_monthly: null,
+    phone: null,
+    email: null,
+    province: null,
+    category: null,
+    ciudad: null,
+    web: null,
+    tipo_lead: 'seller_amazon',
+    nivel: null,
+    ventas_estimadas_usd: null,
+    assigned_to: 'maoli',
+    status: 'pendiente',
+    follow_up: null,
+    next_call_date: null,
+    last_contacted_at: null,
+    call_attempts: 0,
+    source_list: null,
+    ...extra,
+  }) as ColdLead
+
+const tienda = (extra: Partial<ColdLead> = {}) => lead({ tipo_lead: 'tienda_online', ...extra })
+const f = (extra: Partial<FiltrosDeCartera>): FiltrosDeCartera => ({ ...SIN_FILTROS, ...extra })
+const ids = (ls: ColdLead[]) => ls.map((l) => l.store_name).join(' · ')
+
+console.log('\n=== filtrar ===')
+{
+  const a = lead({ store_name: 'Alfa', status: 'no_contesta', source_list: 'José V2', nivel: null, revenue_monthly: 80000 })
+  const b = lead({ store_name: 'Beta', status: 'seguimiento', source_list: 'José V2', revenue_monthly: 30000 })
+  const c = tienda({ store_name: 'Gamma', status: 'pendiente', source_list: 'No Amazon V1', nivel: 1, ventas_estimadas_usd: 500000 })
+  const d = tienda({ store_name: 'Delta', status: 'pendiente', source_list: 'No Amazon V1', nivel: 2 })
+  const sinLista = lead({ store_name: 'Epsilon', revenue_monthly: 10000 })
+  const todos = [a, b, c, d, sinLista]
+
+  ok('sin filtros no quita nada', filtrar(todos, SIN_FILTROS).length === 5)
+  ok('por estado', ids(filtrar(todos, f({ estado: 'no_contesta' }))) === 'Alfa')
+  ok('por lista', ids(filtrar(todos, f({ lista: 'No Amazon V1' }))) === 'Gamma · Delta')
+  ok('«Sin lista» es una lista como las demás', ids(filtrar(todos, f({ lista: 'Sin lista' }))) === 'Epsilon')
+  ok('por nivel', ids(filtrar(todos, f({ nivel: 2 }))) === 'Delta')
+  ok('los filtros se suman', ids(filtrar(todos, f({ lista: 'José V2', estado: 'seguimiento' }))) === 'Beta')
+  ok('un filtro que no deja pasar a nadie da una lista vacía', filtrar(todos, f({ lista: 'José V2', estado: 'cita_cualificada' })).length === 0)
+}
+
+console.log('\n=== buscar ===')
+{
+  const a = lead({ store_name: 'Sklum', company: 'Sklum Home and Deco SL', phone: '+34 910 21 04 65', email: 'info@sklum.com' })
+  const b = tienda({ store_name: 'ECOALF', ciudad: 'Madrid', web: 'https://ecoalf.com' })
+  const c = lead({ store_name: 'Verdecora', province: 'Madrid', category: 'Jardín' })
+  const todos = [a, b, c]
+  ok('por nombre, sin importar mayúsculas', filtrar(todos, f({ busqueda: 'SKLUM' })).length === 1 && filtrar(todos, f({ busqueda: 'SKLUM' }))[0] === a)
+  ok('por empresa', filtrar(todos, f({ busqueda: 'home and deco' })).length === 1)
+  ok('por teléfono, como esté escrito', filtrar(todos, f({ busqueda: '910 21' })).length === 1)
+  ok('por correo', filtrar(todos, f({ busqueda: 'info@' })).length === 1)
+  ok('por la ciudad de una tienda online (su provincia viene vacía)', filtrar(todos, f({ busqueda: 'madrid' })).length === 2)
+  ok('por la web, porque el nombre de una tienda suele ser su dominio', filtrar(todos, f({ busqueda: 'ecoalf.com' })).length === 1)
+  ok('por categoría', filtrar(todos, f({ busqueda: 'jardín' })).length === 1)
+  ok('con espacios alrededor', filtrar(todos, f({ busqueda: '  sklum  ' })).length === 1)
+  ok('no cruza campos: el final de uno y el principio de otro no hacen una coincidencia', filtrar([lead({ store_name: 'abc', company: 'def' })], f({ busqueda: 'cd' })).length === 0)
+  ok('una búsqueda vacía no filtra', filtrar(todos, f({ busqueda: '   ' })).length === 3)
+}
+
+console.log('\n=== el rango de facturación ===')
+{
+  const grande = lead({ store_name: 'Grande', revenue_monthly: 120000 })
+  const mediano = lead({ store_name: 'Mediano', revenue_monthly: 60000 })
+  const pequeno = lead({ store_name: 'Pequeño', revenue_monthly: 10000 })
+  const sinImporte = lead({ store_name: 'Sin importe', revenue_monthly: null })
+  const online = tienda({ store_name: 'Online', revenue_monthly: null, ventas_estimadas_usd: 900000 })
+  const todos = [grande, mediano, pequeno, sinImporte, online]
+  ok('desde', ids(filtrar(todos, f({ minRev: '50000' }))) === 'Grande · Mediano · Online')
+  ok('hasta', ids(filtrar(todos, f({ maxRev: '50000' }))) === 'Pequeño · Online')
+  ok('desde y hasta', ids(filtrar(todos, f({ minRev: '20000', maxRev: '100000' }))) === 'Mediano · Online')
+  ok('un seller SIN importe queda fuera cuando hay rango (no se puede afirmar que caiga dentro)', !filtrar(todos, f({ minRev: '1' })).includes(sinImporte) && !filtrar(todos, f({ maxRev: '999999999' })).includes(sinImporte))
+  ok('una TIENDA ONLINE no se filtra por rango: no tiene facturación observada y se quedaría la pantalla vacía', filtrar([online], f({ minRev: '50000' })).length === 1 && filtrar([online], f({ maxRev: '10' })).length === 1)
+  ok('sin rango, el seller sin importe sí sale', filtrar(todos, SIN_FILTROS).includes(sinImporte))
+  ok('en el límite entra', filtrar(todos, f({ minRev: '60000' })).includes(mediano) && filtrar(todos, f({ maxRev: '60000' })).includes(mediano))
+}
+
+console.log('\n=== ordenar ===')
+{
+  const grande = lead({ store_name: 'Grande', revenue_monthly: 120000 })
+  const mediano = lead({ store_name: 'Mediano', revenue_monthly: 60000 })
+  const pequeno = lead({ store_name: 'Pequeño', revenue_monthly: 10000 })
+  const online = tienda({ store_name: 'Online', ventas_estimadas_usd: 90000, nivel: 1 })
+  const onlineMenor = tienda({ store_name: 'Online menor', ventas_estimadas_usd: 5000, nivel: 2 })
+  const todos = [pequeno, online, grande, onlineMenor, mediano]
+
+  ok('más facturación: cada tipo con SU cifra, sin que las tiendas caigan al final por no tener importe', ids(ordenar(todos, 'revenue_desc')) === 'Grande · Online · Mediano · Pequeño · Online menor', ids(ordenar(todos, 'revenue_desc')))
+  ok('menos facturación', ids(ordenar(todos, 'revenue_asc')) === 'Online menor · Pequeño · Mediano · Online · Grande')
+  ok('por nombre, con los acentos en su sitio', ids(ordenar([lead({ store_name: 'Zeta' }), lead({ store_name: 'Árbol' }), lead({ store_name: 'Beta' })], 'name')) === 'Árbol · Beta · Zeta')
+  ok('por prioridad: primero el nivel, y dentro el que más vende; los de Amazon (sin nivel) detrás', ids(ordenar(todos, 'prioridad')) === 'Online · Online menor · Grande · Mediano · Pequeño', ids(ordenar(todos, 'prioridad')))
+  ok('no toca el array original', todos[0] === pequeno && todos.length === 5)
+
+  const hoyMismo = lead({ store_name: 'Hoy', next_call_date: '2026-10-22', revenue_monthly: 1000 })
+  const ayer = lead({ store_name: 'Ayer', next_call_date: '2026-10-21', revenue_monthly: 500 })
+  const manana = lead({ store_name: 'Mañana', next_call_date: '2026-10-23', revenue_monthly: 99999 })
+  const mismoDiaGrande = lead({ store_name: 'Hoy grande', next_call_date: '2026-10-22', revenue_monthly: 50000 })
+  const sinFecha = lead({ store_name: 'Sin fecha', revenue_monthly: 999999 })
+  const cerradoConFecha = lead({ store_name: 'Cerrado', status: 'no_interesa', next_call_date: '2026-09-01', revenue_monthly: 5 })
+  const r = ordenar([sinFecha, manana, hoyMismo, cerradoConFecha, ayer, mismoDiaGrande], 'due_first')
+  ok('rellamadas primero: la fecha más antigua arriba y, a igual día, el que más factura', ids(r.slice(0, 4)) === 'Ayer · Hoy grande · Hoy · Mañana', ids(r))
+  ok('sin fecha detrás, por lo que facturan', r[4] === sinFecha)
+  ok('un lead CERRADO con una fecha vieja no sube al principio: esa fecha ya no significa nada', r[r.length - 1] === cerradoConFecha && fechaDeRellamada(cerradoConFecha) === null, ids(r))
+}
+
+console.log('\n=== contar ===')
+{
+  const a = lead({ status: 'no_contesta', source_list: 'A', nivel: null })
+  const b = lead({ status: 'no_contesta', source_list: 'A' })
+  const c = tienda({ status: 'pendiente', source_list: 'B', nivel: 1 })
+  const d = tienda({ status: 'pendiente', source_list: 'B', nivel: 1 })
+  const e = tienda({ status: 'pendiente', source_list: 'B', nivel: 3 })
+  const g = tienda({ status: 'seguimiento', source_list: 'C', nivel: 2 })
+  const cartera = [a, b, c, d, e, g, lead({ source_list: null })]
+  const porEstado = contarPorEstado(cartera)
+  ok('por estado', porEstado.get('no_contesta') === 2 && porEstado.get('pendiente') === 4 && porEstado.get('seguimiento') === 1 && !porEstado.has('cita_cualificada'))
+  const listas = listasDisponibles(cartera)
+  ok('las listas, de la más grande a la más pequeña', listas[0][0] === 'B' && listas[0][1] === 3 && listas[1][0] === 'A' && listas[1][1] === 2)
+  ok('y a igualdad, por nombre; «Sin lista» cuenta como una', listas.map((x) => x[0]).join() === 'B,A,C,Sin lista', listas.map((x) => x[0]).join())
+  const niveles = contarNiveles(cartera, 'B')
+  ok('los niveles se cuentan DENTRO de la lista elegida', niveles[1] === 2 && niveles[2] === 0 && niveles[3] === 1)
+  ok('con «todas», se cuentan todos', contarNiveles(cartera, 'all')[2] === 1)
+  ok('una lista de vendedores de Amazon no tiene niveles', contarNiveles(cartera, 'A')[1] === 0 && contarNiveles(cartera, 'A')[2] === 0)
+}
+
+console.log('\n=== un filtro que ya no tiene nada que filtrar se quita solo ===')
+{
+  const sellers = [lead({ source_list: 'José V2' }), lead({ source_list: 'José V2' })]
+  const tiendas = [tienda({ source_list: 'No Amazon V1', nivel: 1 }), tienda({ source_list: 'No Amazon V1', nivel: 2 })]
+  const cartera = [...sellers, ...tiendas]
+
+  const conNivelAjeno = f({ nivel: 1, lista: 'José V2' })
+  const r1 = normalizarFiltros(conNivelAjeno, cartera)
+  ok('«Nivel 1» recordado y abierta una lista de sellers: se quita el nivel y la lista se queda', r1.nivel === 'all' && r1.lista === 'José V2')
+  const r2 = normalizarFiltros(f({ lista: 'Lista que ya no existe' }), cartera)
+  ok('una lista que ya no está en esta cartera se quita', r2.lista === 'all')
+  const r3 = normalizarFiltros(f({ lista: 'Lista que ya no existe', nivel: 1 }), cartera)
+  ok('y entonces el nivel se mira sobre todas las listas', r3.lista === 'all' && r3.nivel === 1)
+  const buenos = f({ lista: 'No Amazon V1', nivel: 2, estado: 'pendiente', busqueda: 'x', minRev: '5' })
+  ok('si no hay nada que quitar devuelve LOS MISMOS filtros (misma referencia: no provoca otro pintado)', normalizarFiltros(buenos, cartera) === buenos)
+  ok('un nivel que no es 1, 2 ni 3 se quita', normalizarFiltros(f({ nivel: 7 }), cartera).nivel === 'all')
+  ok('lo demás no se toca', normalizarFiltros(f({ nivel: 1, lista: 'José V2', estado: 'seguimiento', busqueda: 'abc' }), cartera).estado === 'seguimiento' && normalizarFiltros(f({ nivel: 1, lista: 'José V2', busqueda: 'abc' }), cartera).busqueda === 'abc')
+}
+
+console.log('\n=== ¿hay algo puesto? ===')
+{
+  ok('sin filtros', !hayFiltros(SIN_FILTROS) && cuantosFiltros(SIN_FILTROS) === 0)
+  ok('cada uno cuenta', hayFiltros(f({ busqueda: 'a' })) && hayFiltros(f({ estado: 'pendiente' })) && hayFiltros(f({ lista: 'x' })) && hayFiltros(f({ nivel: 1 })) && hayFiltros(f({ minRev: '1' })) && hayFiltros(f({ maxRev: '1' })))
+  ok('cambiar el orden también: cambia lo que se ve', hayFiltros(f({ orden: 'name' })))
+  ok('la insignia del botón cuenta filtros, no la búsqueda ni el orden', cuantosFiltros(f({ busqueda: 'a', orden: 'name' })) === 0 && cuantosFiltros(f({ estado: 'pendiente', lista: 'x', nivel: 2, minRev: '1', maxRev: '9' })) === 4)
+}
+
+console.log('\n=== el resumen ===')
+{
+  const hoy = '2026-10-22'
+  const cartera = [
+    lead({ status: 'pendiente' }),
+    lead({ status: 'no_contesta', next_call_date: '2026-10-22' }),
+    lead({ status: 'programado', next_call_date: '2026-10-19' }),
+    lead({ status: 'seguimiento', next_call_date: '2026-10-30' }),
+    lead({ status: 'cita_cualificada' }),
+    lead({ status: 'no_interesa', next_call_date: '2026-09-01' }),
+  ]
+  const r = resumenDeCartera(cartera, hoy)
+  ok('total, trabajados (todos menos «Sin contactar») y cualificados', r.total === 6 && r.trabajados === 5 && r.cualificados === 1)
+  ok('la conversión es cualificados entre trabajados', Math.abs(r.conversion - 1 / 5) < 1e-9)
+  ok('las rellamadas por hacer son las de hoy Y las atrasadas, sin las de más adelante ni las de un lead cerrado', r.paraLlamar === 2 && r.atrasadas === 1)
+  const vacio = resumenDeCartera([], hoy)
+  ok('una cartera vacía no divide por cero', vacio.total === 0 && vacio.conversion === 0 && vacio.paraLlamar === 0)
+}
+
+console.log('\n=== las rellamadas NO se filtran ===')
+{
+  const hoy = '2026-10-22'
+  const cuatroMil = lead({ store_name: 'Apalabrada', status: 'programado', next_call_date: '2026-10-22', revenue_monthly: 4000, source_list: 'José V2' })
+  const grande = lead({ store_name: 'Grande', status: 'no_contesta', next_call_date: '2026-10-22', revenue_monthly: 90000 })
+  const online = tienda({ store_name: 'Tienda', next_call_date: '2026-10-22', ventas_estimadas_usd: 700000, nivel: 1, source_list: 'No Amazon V1' })
+  const atrasada = lead({ store_name: 'Atrasada', next_call_date: '2026-10-15' })
+  const masAntigua = lead({ store_name: 'Más antigua', next_call_date: '2026-10-01' })
+  const manana = lead({ store_name: 'Mañana', next_call_date: '2026-10-23' })
+  const cerrada = lead({ store_name: 'Cerrada', status: 'no_interesa', next_call_date: '2026-10-22' })
+  const sinFecha = lead({ store_name: 'Sin fecha' })
+  const cartera = [cuatroMil, grande, online, atrasada, masAntigua, manana, cerrada, sinFecha]
+
+  const filtrosDeProspectar = f({ minRev: '6000', lista: 'No Amazon V1' })
+  ok('con un filtro de facturación puesto, la prospección esconde la rellamada de 4.000…', !filtrar(cartera, filtrosDeProspectar).includes(cuatroMil))
+  const r = rellamadasDe(cartera, hoy, hoy)
+  ok('…pero la agenda de rellamadas SÍ la enseña: sale de la cartera de la persona, no de lo filtrado', r.delDia.includes(cuatroMil))
+  ok('las de hoy, las que más factura primero (cada tipo con su cifra)', ids(r.delDia) === 'Tienda · Grande · Apalabrada', ids(r.delDia))
+  ok('las atrasadas, las más viejas primero, solo mirando HOY', ids(r.atrasadas) === 'Más antigua · Atrasada', ids(r.atrasadas))
+  ok('un lead cerrado no es una rellamada, ni de hoy ni atrasada', !r.delDia.includes(cerrada) && !r.atrasadas.includes(cerrada))
+  ok('lo de más adelante y lo que no tiene fecha, fuera', !r.delDia.includes(manana) && !r.atrasadas.includes(manana) && !r.delDia.includes(sinFecha))
+  const otroDia = rellamadasDe(cartera, '2026-10-23', hoy)
+  ok('mirando otro día: solo ese día, y sin «atrasadas» (ahí no quieren decir nada)', ids(otroDia.delDia) === 'Mañana' && otroDia.atrasadas.length === 0)
+  ok('un día sin nada', rellamadasDe(cartera, '2026-12-25', hoy).delDia.length === 0)
+}
+
+console.log('\n=== filtrar y ordenar a la vez ===')
+{
+  const a = lead({ store_name: 'A', status: 'pendiente', revenue_monthly: 100 })
+  const b = lead({ store_name: 'B', status: 'pendiente', revenue_monthly: 900 })
+  const c = lead({ store_name: 'C', status: 'seguimiento', revenue_monthly: 500 })
+  ok('filtra y ordena', ids(filtrarYOrdenar([a, b, c], f({ estado: 'pendiente', orden: 'revenue_desc' }))) === 'B · A')
+}
+
+console.log('\n=== los números de los chips dicen lo que saldría al pulsarlos ===')
+{
+  const a = lead({ store_name: 'A', status: 'pendiente', source_list: 'No Amazon V1', nivel: 1, ventas_estimadas_usd: 9, tipo_lead: 'tienda_online' })
+  const b = lead({ store_name: 'B', status: 'pendiente', source_list: 'No Amazon V1', nivel: 2, tipo_lead: 'tienda_online' })
+  const c = lead({ store_name: 'C', status: 'no_contesta', source_list: 'No Amazon V1', nivel: 1, tipo_lead: 'tienda_online' })
+  const d = lead({ store_name: 'D', status: 'pendiente', source_list: 'José V2', revenue_monthly: 500 })
+  const e = lead({ store_name: 'E', status: 'seguimiento', source_list: 'José V2', revenue_monthly: 900 })
+  const todos = [a, b, c, d, e]
+
+  const sin = panorama(todos, SIN_FILTROS)
+  ok('sin filtros, todo cuenta', sin.visibles.length === 5 && sin.totalSinEstado === 5 && sin.porEstado.get('pendiente') === 3)
+
+  const enLista = panorama(todos, f({ lista: 'No Amazon V1' }))
+  ok('con una lista elegida, los estados cuentan DENTRO de esa lista (no la cartera entera)', enLista.porEstado.get('pendiente') === 2 && enLista.porEstado.get('no_contesta') === 1 && !enLista.porEstado.has('seguimiento'), JSON.stringify([...enLista.porEstado]))
+  ok('«Todos» cuenta lo mismo que la suma de los estados', enLista.totalSinEstado === 3)
+  ok('y los niveles también, dentro de la lista', enLista.niveles[1] === 2 && enLista.niveles[2] === 1)
+
+  const pendientes = panorama(todos, f({ estado: 'pendiente' }))
+  ok('con un estado puesto, las LISTAS cuentan los de ese estado', pendientes.listas.find(([n]) => n === 'No Amazon V1')?.[1] === 2 && pendientes.listas.find(([n]) => n === 'José V2')?.[1] === 1)
+  ok('pero los estados siguen contando todos (para poder cambiar de estado)', pendientes.porEstado.get('seguimiento') === 1 && pendientes.porEstado.get('no_contesta') === 1)
+  ok('lo que se ve es lo que cumple TODO', pendientes.visibles.length === 3 && pendientes.visibles.every((l) => l.status === 'pendiente'))
+
+  const nivel1 = panorama(todos, f({ lista: 'No Amazon V1', nivel: 1 }))
+  ok('con un nivel puesto, los niveles siguen contando todos los de la lista (para poder cambiar de nivel)', nivel1.niveles[1] === 2 && nivel1.niveles[2] === 1)
+  ok('y los estados cuentan solo los de ese nivel', nivel1.porEstado.get('pendiente') === 1 && nivel1.porEstado.get('no_contesta') === 1)
+  ok('el orden elegido se aplica a lo visible', panorama(todos, f({ orden: 'name' })).visibles.map((l) => l.store_name).join('') === 'ABCDE')
+}
+
+console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
+if (fallos > 0) process.exit(1)

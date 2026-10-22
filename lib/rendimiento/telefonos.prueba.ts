@@ -1,4 +1,4 @@
-import { claveDeTelefono, clavesDeTelefonos, telefonoLegible } from '@/lib/rendimiento/telefonos'
+import { claveDeTelefono, clavesDeTelefonos, telefonoLegible, trocearTelefonos } from '@/lib/rendimiento/telefonos'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -70,6 +70,18 @@ console.log('\n=== otros formatos reales de un campo con varios teléfonos ===')
   ok('una tira de dieciocho cifras donde un trozo no es un número español NO se adivina', claves('931112244 123456789') === '[]')
   ok('una tira que no es múltiplo de nueve ni de once tampoco', claves('9311122446001122') === '[]')
   ok('uno de otro país suelto sigue siendo uno solo', claves('+44 20 7946 0958') === '["+442079460958"]')
+}
+
+console.log('\n=== trocear un campo para enseñarlo ===')
+{
+  const t = (x: unknown) => JSON.stringify(trocearTelefonos(x))
+  ok('uno solo, tal como se escribió', t('+34 910 21 04 65') === '["+34 910 21 04 65"]')
+  ok('varios separados por barra, como se escribieron', t('931112244 / 600 11 22 33') === '["931112244","600 11 22 33"]')
+  ok('por « y », por punto y coma y por salto de línea', t('931112244 y 600112233') === '["931112244","600112233"]' && t('931112244; 600112233') === '["931112244","600112233"]' && t('931112244\n600112233') === '["931112244","600112233"]')
+  ok('sin la extensión', t('910 21 04 65 ext. 2') === '["910 21 04 65"]')
+  ok('un trozo con menos de siete cifras no es un teléfono y se descarta', t('931112244 / 12') === '["931112244"]')
+  ok('si nada se puede partir, vuelve entero', t('llamar por la mañana') === '["llamar por la mañana"]')
+  ok('vacío o nulo, nada', t(null) === '[]' && t('') === '[]' && t('   ') === '[]' && t(undefined) === '[]')
 }
 
 console.log('\n=== cómo se lee en pantalla ===')

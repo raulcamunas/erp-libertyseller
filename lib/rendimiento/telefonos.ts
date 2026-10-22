@@ -93,6 +93,22 @@ export function clavesDeTelefonos(texto: unknown): string[] {
   return claves
 }
 
+/**
+ * Los teléfonos de un campo tal como se escribieron, uno por uno, para enseñarlos y copiarlos por separado: «931112244 / 600 11 22 33»
+ * da dos. Solo se quedan los trozos con siete cifras o más (una extensión suelta no es un teléfono). Si el campo no se puede partir
+ * así, vuelve entero.
+ */
+export function trocearTelefonos(texto: unknown): string[] {
+  if (texto === null || texto === undefined) return []
+  const entero = String(texto).trim()
+  if (!entero) return []
+  const trozos = entero
+    .split(SEPARADOR)
+    .map((t) => t.replace(EXTENSION, '').trim())
+    .filter((t) => t.replace(/\D/g, '').length >= 7)
+  return trozos.length > 0 ? trozos : [entero]
+}
+
 /** El teléfono tal como se lee en pantalla: «+34 600 11 22 33». Si no es español se devuelve como llegó */
 export function telefonoLegible(e164: string | null | undefined): string {
   if (!e164) return 'Número oculto'
