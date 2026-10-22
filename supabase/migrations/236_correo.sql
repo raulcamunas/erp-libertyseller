@@ -232,8 +232,8 @@ CREATE TABLE IF NOT EXISTS public.correo_mensajes (
   vista_previa TEXT NOT NULL DEFAULT '',
 
   leido BOOLEAN NOT NULL DEFAULT false,
-  -- [{"nombre": "oferta.pdf", "tipo": "application/pdf", "tamano": 48213, "parte": "2", "cid": null}, …]
-  -- El fichero NO está aquí: se pide al servidor de correo con `parte` al descargarlo
+  -- [{"nombre": "oferta.pdf", "tipo": "application/pdf", "tamano": 48213, "n": 0}, …]
+  -- El fichero NO está aquí: se vuelve a pedir el correo al servidor de correo y se saca el adjunto número `n`
   adjuntos JSONB NOT NULL DEFAULT '[]'::jsonb,
   tamano INTEGER,
 
