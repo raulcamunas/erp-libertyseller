@@ -462,6 +462,7 @@ export async function middleware(request: NextRequest) {
           // comerciales y a quien supervisa al equipo; el filtro de verdad son las políticas RLS de las
           // tablas rinkel_*, que dejan leer lo propio (o todo a quien supervisa) y nada más.
           '/dashboard/rendimiento': 'rendimiento',
+          '/dashboard/rendimiento/informe': 'rendimiento',
         }
 
         const appId = routeToAppId[pathname]

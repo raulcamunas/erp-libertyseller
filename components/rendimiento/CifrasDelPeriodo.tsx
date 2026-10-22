@@ -46,7 +46,7 @@ function detalleDeConversaciones(conversaciones: number, apuntes: number): strin
 }
 
 /** Lo que ha cambiado, con su color: verde si sube, rojo si baja. En estas cifras más es siempre mejor */
-function Cambio({ v, contra }: { v: Variacion | null; contra: string }) {
+export function Cambio({ v, contra }: { v: Variacion | null; contra: string }) {
   if (!v) return null
   if (v.sentido === 'sinBase') {
     return (

@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronLeft, ChevronRight, Loader2, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileBarChart, Loader2, Users } from 'lucide-react'
 import { sumarDias } from '@/lib/rendimiento/dia'
 import { empiezaEnElFuturo, etiquetaDePeriodo, moverPeriodo, type Periodo } from '@/lib/rendimiento/periodos'
 
@@ -13,7 +13,8 @@ import { empiezaEnElFuturo, etiquetaDePeriodo, moverPeriodo, type Periodo } from
  * (un día salta los fines de semana) y no dejan avanzar a uno que todavía no ha empezado.
  *
  * Quien supervisa elige además de quién es el panel: «Todo el equipo» o una persona. Cambiar de persona no cambia
- * el periodo: es lo que se quiere cuando se compara a dos personas en la misma semana.
+ * el periodo: es lo que se quiere cuando se compara a dos personas en la misma semana. Y tiene un enlace al informe
+ * semanal, la página de la semana entera para la reunión del lunes.
  */
 
 export interface PersonaDelSelector {
@@ -34,13 +35,15 @@ interface Props {
   personaId?: string | null
   yoId?: string
   onPersona?: (id: string | null) => void
+  /** Solo para quien supervisa: la dirección del informe semanal. Sin esto no hay enlace */
+  enlaceInforme?: string
 }
 
 const CHIP = 'px-3 h-8 rounded-full border text-[12px] font-medium transition-colors'
 const CHIP_ACTIVO = 'border-[#FF6600]/50 bg-[#FF6600]/15 text-white'
 const CHIP_QUIETO = 'border-white/10 text-white/55 hover:text-white hover:border-white/25'
 
-export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, personaId, yoId, onPersona }: Props) {
+export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, personaId, yoId, onPersona, enlaceInforme }: Props) {
   const ayer = sumarDias(hoy, -1)
   const siguiente = moverPeriodo(periodo, 1)
   const puedeAvanzar = !empiezaEnElFuturo(siguiente, hoy)
@@ -89,7 +92,18 @@ export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, pe
         {cargando && <Loader2 className="h-4 w-4 animate-spin text-white/40" aria-label="Cargando" />}
       </div>
 
-      {personas && onPersona && (
+      {((personas && onPersona) || enlaceInforme) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {enlaceInforme && (
+            <a
+              href={enlaceInforme}
+              title="La semana entera del equipo en una página, para la reunión del lunes"
+              className={`${CHIP} ${CHIP_QUIETO} inline-flex items-center gap-1.5`}
+            >
+              <FileBarChart className="h-3.5 w-3.5" /> Informe semanal
+            </a>
+          )}
+          {personas && onPersona && (
         <div className="flex items-center gap-2">
           <label htmlFor="persona-rendimiento" className="text-[12px] text-white/45 flex items-center gap-1.5">
             <Users className="h-3.5 w-3.5" /> Ver
@@ -110,6 +124,8 @@ export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, pe
               </option>
             ))}
           </select>
+        </div>
+          )}
         </div>
       )}
     </div>

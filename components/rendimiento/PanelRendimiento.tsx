@@ -9,7 +9,7 @@ import { agruparConversaciones, citasAgendadas, itemsDeActividad, type FiltroDeA
 import { diaMadrid, etiquetaDeDia, horaMadrid, mesDe, rangoDelMes, sumarMeses } from '@/lib/rendimiento/dia'
 import { eventosDeLinea, minutoDeLaHora, type EventoDeLinea } from '@/lib/rendimiento/linea'
 import { agruparPorDia, mesDeLlamadas, resumenDeLlamadas } from '@/lib/rendimiento/metricas'
-import { contieneHoy, diasDelRango, etiquetaDeRango, rangoDe, recortarA, type Periodo } from '@/lib/rendimiento/periodos'
+import { contieneHoy, diasDelRango, etiquetaDeRango, lunesDe, rangoDe, recortarA, type Periodo } from '@/lib/rendimiento/periodos'
 import { BarraDePeriodo } from './BarraDePeriodo'
 import { CalendarioLlamadas } from './CalendarioLlamadas'
 import { CifrasDelPeriodo, type DestinoDeTarjeta } from './CifrasDelPeriodo'
@@ -362,7 +362,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
       }
       try {
         const rango = { desde: dia, hasta: dia }
-        const [llamadasDelEquipo, notas, citas] = await Promise.all([leerLlamadasDelEquipo(supabase, dia), leerNotas(supabase, rango), leerCitas(supabase, rango)])
+        const [llamadasDelEquipo, notas, citas] = await Promise.all([leerLlamadasDelEquipo(supabase, rango), leerNotas(supabase, rango), leerCitas(supabase, rango)])
         if (numero !== peticionEquipo.current) return
         const leido = { clave: dia, llamadas: llamadasDelEquipo, notas, citas }
         if (dia < hoy) cacheEquipo.current.set(dia, leido)
@@ -562,6 +562,11 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
   const vinculo = persona ? (vinculos.get(persona.id) ?? null) : null
   const conRinkel = vinculo !== null || (resultadoPersona ? resultadoPersona.actual.llamadas + resultadoPersona.actual.recibidas > 0 : false)
   const numerosDistintos = periodo.tipo === 'dia' ? resumenDeLlamadas(llamadasDelDia).numerosDistintos : null
+  // El informe semanal abre en la semana que se está mirando; desde «Hoy» o desde un mes, en la última semana completa
+  const enlaceDelInforme =
+    periodo.tipo === 'mes' || (periodo.tipo === 'dia' && periodo.ancla === hoy)
+      ? '/dashboard/rendimiento/informe'
+      : `/dashboard/rendimiento/informe?semana=${lunesDe(periodo.ancla)}`
 
   return (
     <div className="space-y-4">
@@ -574,6 +579,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
         personaId={personaId}
         yoId={yo.id}
         onPersona={puedeSupervisar ? cambiarDePersona : undefined}
+        enlaceInforme={puedeSupervisar ? enlaceDelInforme : undefined}
       />
 
       {errorResumen && (

@@ -5,6 +5,7 @@ import {
   citasAgendadas,
   clientesDe,
   contarPorFiltro,
+  respuestasDe,
   filtrarActividad,
   itemsDeActividad,
   type CitaDeActividad,
@@ -85,6 +86,21 @@ console.log('\n=== las citas ===')
   // El 25 de octubre cambia la hora: el 23 Madrid va dos horas por delante de UTC y el 27, solo una
   ok('y para cuándo es, también en Madrid y con el cambio de hora de por medio (16:00 el 23, 10:00 el 27)', a[0].paraDia === '2026-10-23' && a[0].paraHora === '16:00' && a[1].paraDia === '2026-10-27' && a[1].paraHora === '10:00')
   ok('con el cliente y su empresa, y el estado', a[1].cliente === 'Marta Ruiz' && a[1].empresa === 'Hogar Total SL' && a[0].empresa === null && a[0].estado === 'confirmed')
+}
+
+console.log('\n=== lo que contestaron los clientes ===')
+{
+  const conv = agruparConversaciones([
+    nota('whatsapp', 'lead-A', '08:00'),
+    nota('whatsapp', 'lead-A', '08:30', { es_respuesta: true, body: 'me interesa' }),
+    nota('email', 'lead-B', '07:00', { es_respuesta: true, body: 'mándame precios' }),
+    nota('whatsapp', 'lead-A', '09:00', { es_respuesta: true, body: 'y el jueves?' }),
+    { ...nota('whatsapp', 'lead-C', '08:00', { es_respuesta: true, body: 'ahora no' }), occurred_at: '2026-10-22T08:00:00Z' },
+  ])
+  const r = respuestasDe(conv)
+  ok('cada vez que contestaron, con lo que dijeron, por día y hora (no por conversación)', r.map((x) => x.texto).join('|') === 'mándame precios|me interesa|y el jueves?|ahora no', r.map((x) => x.texto).join('|'))
+  ok('con su canal, su cliente y su hora de Madrid', r[0].canal === 'correo' && r[0].leadId === 'lead-B' && r[0].hora === '09:00' && r[1].canal === 'whatsapp' && r[1].hora === '10:30' && r[3].dia === '2026-10-22')
+  ok('lo que envió el comercial no es una respuesta', respuestasDe(agruparConversaciones([nota('whatsapp', 'lead-A', '08:00')])).length === 0 && respuestasDe([]).length === 0)
 }
 
 console.log('\n=== el estado de una cita ===')

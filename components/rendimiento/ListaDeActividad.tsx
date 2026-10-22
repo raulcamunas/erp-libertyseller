@@ -60,6 +60,10 @@ interface Props {
   error?: string | null
   /** Cambia al cambiar de persona o de periodo: cierra lo abierto y vuelve a la primera página */
   clave: string
+  /** Sin el marco ni el título: para meterla dentro de otra tarjeta, como en el informe semanal */
+  sinMarco?: boolean
+  /** El id de la sección, para ir a ella desde las tarjetas. Si hay varias en la página, null en todas menos una */
+  anclaId?: string | null
 }
 
 function TarjetaDeConversacion({ c, cliente, abierta, onAlternar }: { c: Conversacion; cliente: NombreDeLead | undefined; abierta: boolean; onAlternar: () => void }) {
@@ -164,7 +168,7 @@ function resumenDelDia(items: ItemDeActividad[]): string {
   return partes.join(' · ')
 }
 
-export function ListaDeActividad({ persona, periodo, hoy, items, filtro, onFiltro, nombres, cargando, error = null, clave }: Props) {
+export function ListaDeActividad({ persona, periodo, hoy, items, filtro, onFiltro, nombres, cargando, error = null, clave, sinMarco = false, anclaId = 'detalle-actividad' }: Props) {
   const [limite, setLimite] = useState(POR_PAGINA)
   const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set())
 
@@ -207,16 +211,22 @@ export function ListaDeActividad({ persona, periodo, hoy, items, filtro, onFiltr
   const etiquetaDelDia = (dia: string) => (dia === hoy ? 'Hoy' : dia === sumarDias(hoy, -1) ? 'Ayer' : primeraMayuscula(etiquetaDeDia(dia)))
 
   return (
-    <section id="detalle-actividad" className="scroll-mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4" aria-label="Detalle de la actividad">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-2.5">
-        <h2 className="text-[13px] font-semibold text-white">Detalle de la actividad</h2>
-        <p className="text-[12px] text-white/40 flex items-center gap-2">
-          {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          <span className="truncate">
-            {persona} · {etiquetaDePeriodo(periodo, hoy)}
-          </span>
-        </p>
-      </div>
+    <section
+      id={anclaId ?? undefined}
+      className={sinMarco ? 'scroll-mt-4' : 'scroll-mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4'}
+      aria-label="Detalle de la actividad"
+    >
+      {!sinMarco && (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-2.5">
+          <h2 className="text-[13px] font-semibold text-white">Detalle de la actividad</h2>
+          <p className="text-[12px] text-white/40 flex items-center gap-2">
+            {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            <span className="truncate">
+              {persona} · {etiquetaDePeriodo(periodo, hoy)}
+            </span>
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="flex flex-wrap gap-1" role="group" aria-label="Filtrar la actividad">

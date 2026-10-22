@@ -1,6 +1,7 @@
 import type { createClient } from '@/lib/supabase/client'
 import { fetchAll, trocear } from '@/lib/supabase/paginacion'
 import type { CitaDeActividad, NotaDeActividad } from '@/lib/rendimiento/actividad'
+import type { FilaDiaria } from '@/lib/rendimiento/comparativa'
 import { inicioDelDia, sumarDias } from '@/lib/rendimiento/dia'
 import type { LlamadaParaLinea } from '@/lib/rendimiento/linea'
 import type { NombreDeLead } from './ListaLlamadas'
@@ -66,9 +67,9 @@ export async function leerCitas(supabase: Supabase, rango: Rango, comercial?: st
   })
 }
 
-/** Las llamadas de un día de todo el equipo: para dibujar la línea de cada comercial */
-export async function leerLlamadasDelEquipo(supabase: Supabase, dia: string): Promise<LlamadaDeEquipo[]> {
-  const { desde, hasta } = instantes({ desde: dia, hasta: dia })
+/** Las llamadas de todo el equipo en un periodo: para dibujar la línea de cada comercial y el mapa de franjas horarias */
+export async function leerLlamadasDelEquipo(supabase: Supabase, rango: Rango): Promise<LlamadaDeEquipo[]> {
+  const { desde, hasta } = instantes(rango)
   return fetchAll<LlamadaDeEquipo>((de, a) =>
     supabase
       .from('rinkel_llamadas')
@@ -79,6 +80,31 @@ export async function leerLlamadasDelEquipo(supabase: Supabase, dia: string): Pr
       .order('id', { ascending: true })
       .range(de, a)
   )
+}
+
+export interface SemanaLeida {
+  /** El lunes de la semana */
+  clave: string
+  /** Una fila por persona y día, de la semana y de la anterior (catorce días): de ahí salen las cifras y la comparación */
+  filas: FilaDiaria[]
+  /** Lo de la semana en crudo, de todo el equipo: para las franjas horarias, el horario y el detalle de cada persona */
+  llamadas: LlamadaDeEquipo[]
+  notas: NotaConAutor[]
+  citas: CitaConComercial[]
+}
+
+/** Todo lo que necesita el informe semanal de una semana */
+export async function leerSemanaDelEquipo(supabase: Supabase, lunes: string): Promise<SemanaLeida> {
+  const semana = { desde: lunes, hasta: sumarDias(lunes, 6) }
+  const conLaAnterior = { desde: sumarDias(lunes, -7), hasta: semana.hasta }
+  const [filas, llamadas, notas, citas] = await Promise.all([
+    // La función ordena por día y persona, así que paginar de 1.000 en 1.000 no repite ni se salta filas
+    fetchAll<FilaDiaria>((de, a) => supabase.rpc('rendimiento_resumen_diario', { p_desde: conLaAnterior.desde, p_hasta: conLaAnterior.hasta }).range(de, a)),
+    leerLlamadasDelEquipo(supabase, semana),
+    leerNotas(supabase, semana),
+    leerCitas(supabase, semana),
+  ])
+  return { clave: lunes, filas, llamadas, notas, citas }
 }
 
 /**

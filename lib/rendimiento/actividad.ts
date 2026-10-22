@@ -229,6 +229,27 @@ export function contarPorFiltro(items: readonly ItemDeActividad[]): Record<Filtr
   return cuenta
 }
 
+export interface RespuestaDeCliente {
+  id: string
+  dia: string
+  hora: string
+  canal: Canal
+  leadId: string
+  /** Lo que se apuntó que contestó el cliente */
+  texto: string
+}
+
+/** Cada vez que un cliente contestó, con lo que dijo, por día y hora: lo que se lee para ver qué respondieron */
+export function respuestasDe(conversaciones: readonly Conversacion[]): RespuestaDeCliente[] {
+  const respuestas: RespuestaDeCliente[] = []
+  for (const c of conversaciones) {
+    for (const i of c.interacciones) {
+      if (i.esRespuesta) respuestas.push({ id: i.id, dia: c.dia, hora: i.hora, canal: c.canal, leadId: c.leadId, texto: i.texto })
+    }
+  }
+  return respuestas.sort((a, b) => a.dia.localeCompare(b.dia) || a.hora.localeCompare(b.hora) || a.id.localeCompare(b.id))
+}
+
 /** Los identificadores de los clientes que salen en una lista, para ir a buscar sus nombres */
 export function clientesDe(conversaciones: readonly Conversacion[]): string[] {
   return [...new Set(conversaciones.map((c) => c.leadId))]
