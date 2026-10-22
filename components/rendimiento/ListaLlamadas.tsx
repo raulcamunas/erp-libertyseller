@@ -89,7 +89,7 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
   const nombreDelDia = dia === hoy ? 'de hoy' : `del ${etiquetaDeDia(dia)}`
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 flex flex-col min-h-0">
+    <div id="llamadas-del-dia" className="scroll-mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 flex flex-col min-h-0">
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <h2 className="text-[13px] font-semibold text-white">Llamadas {nombreDelDia}</h2>
         <span className="text-[12px] text-white/40 flex items-center gap-2 tabular-nums">

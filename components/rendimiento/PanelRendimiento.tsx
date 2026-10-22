@@ -5,14 +5,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { indexar, resultadoDePersona, tramosDeComparacion, ventanaDeDatos, type FilaDiaria } from '@/lib/rendimiento/comparativa'
-import { mesDe, rangoDelMes, sumarMeses } from '@/lib/rendimiento/dia'
+import { agruparConversaciones, citasAgendadas, itemsDeActividad, type FiltroDeActividad } from '@/lib/rendimiento/actividad'
+import { diaMadrid, etiquetaDeDia, horaMadrid, mesDe, rangoDelMes, sumarMeses } from '@/lib/rendimiento/dia'
+import { eventosDeLinea, minutoDeLaHora, type EventoDeLinea } from '@/lib/rendimiento/linea'
 import { agruparPorDia, mesDeLlamadas, resumenDeLlamadas } from '@/lib/rendimiento/metricas'
 import { contieneHoy, diasDelRango, etiquetaDeRango, rangoDe, recortarA, type Periodo } from '@/lib/rendimiento/periodos'
 import { BarraDePeriodo } from './BarraDePeriodo'
 import { CalendarioLlamadas } from './CalendarioLlamadas'
-import { CifrasDelPeriodo } from './CifrasDelPeriodo'
+import { CifrasDelPeriodo, type DestinoDeTarjeta } from './CifrasDelPeriodo'
 import { ComparativaDelEquipo, type FilaDeComparativa } from './ComparativaDelEquipo'
+import { LineaDelDia } from './LineaDelDia'
+import { LineaDelEquipo } from './LineaDelEquipo'
+import { ListaDeActividad } from './ListaDeActividad'
 import { ListaLlamadas, type NombreDeLead } from './ListaLlamadas'
+import { leerCitas, leerLlamadasDelEquipo, leerNombres, leerNotas, type CitaConComercial, type LlamadaDeEquipo, type NotaConAutor } from './lecturas'
 import { CAMPOS_DEL_VINCULO, CAMPOS_DE_LLAMADA, type LlamadaGuardada, type Miembro, type VinculoVisible } from './tipos'
 import { VincularRinkel } from './VincularRinkel'
 
@@ -26,8 +32,10 @@ import { VincularRinkel } from './VincularRinkel'
  * LAS CIFRAS SALEN DE UNA FUNCIÓN DE LA BASE (rendimiento_resumen_diario, migración 235) que devuelve una fila por
  * persona y día: ni las llamadas ni las notas de varios meses viajan al navegador. De esas filas se suman las
  * cifras del periodo, se calcula la referencia con la que comparar y se pinta la tendencia (lib/rendimiento/comparativa.ts).
- * Lo único que sigue bajando «en crudo» son las llamadas del mes de la persona elegida, para el calendario y para
- * escuchar las de un día.
+ * Lo único que baja «en crudo» es el detalle de UNA persona: sus llamadas (para el calendario, para escuchar las de un
+ * día y para la línea del día), lo que apuntó en Cold Calling y las citas que agendó (para ver con qué cliente y qué
+ * comentario puso en cada momento). Y, al mirar un día de todo el equipo, la actividad de ese día para dibujar la línea
+ * de cada comercial.
  *
  * TODO SE LEE CON LA SESIÓN DE QUIEN MIRA, así que las políticas de la base deciden qué ve cada uno: lo suyo, o lo
  * de todo el equipo si supervisa. Cambiar de persona o de periodo no recarga la página: la dirección se actualiza
@@ -54,7 +62,39 @@ interface Props {
 
 const REFRESCO_MS = 120_000
 
-type Opciones = { forzar?: boolean; silencioso?: boolean }
+/** forzar: volver a leer aunque esté guardado. silencioso: sin atenuar la pantalla. todo: también lo que ya no cambia */
+type Opciones = { forzar?: boolean; silencioso?: boolean; todo?: boolean }
+
+type MesPedido = { anio: number; mes: number }
+const claveDeMes = (id: string, m: MesPedido) => `${id}|${m.anio}-${m.mes}`
+const claveDeMeses = (id: string, meses: readonly MesPedido[]) => `${id}|${meses.map((m) => `${m.anio}-${m.mes}`).join(',')}`
+
+interface ActividadDePersona {
+  clave: string
+  notas: NotaConAutor[]
+  citas: CitaConComercial[]
+}
+
+interface ActividadDelEquipo {
+  clave: string
+  llamadas: LlamadaDeEquipo[]
+  notas: NotaConAutor[]
+  citas: CitaConComercial[]
+}
+
+function agruparPor<T>(lista: readonly T[], clave: (x: T) => string | null): Map<string, T[]> {
+  const grupos = new Map<string, T[]>()
+  for (const x of lista) {
+    const k = clave(x)
+    if (k === null) continue
+    const grupo = grupos.get(k)
+    if (grupo) grupo.push(x)
+    else grupos.set(k, [x])
+  }
+  return grupos
+}
+
+const primeraMayuscula = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t)
 
 export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, esComercial, hoy, vinculosIniciales, personaInicial, periodoInicial }: Props) {
   const supabase = useMemo(() => createClient(), [])
@@ -68,6 +108,10 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
   const [mesVisible, setMesVisible] = useState(() => mesDe(recortarA(rangoDe(periodoInicial), hoy)?.hasta ?? hoy))
   const [vinculos, setVinculos] = useState<ReadonlyMap<string, VinculoVisible>>(() => new Map(vinculosIniciales.map((v) => [v.user_id, v])))
   const [nombres, setNombres] = useState<ReadonlyMap<string, NombreDeLead>>(new Map())
+  /** Qué se enseña en el detalle de la actividad: todo, solo WhatsApp, solo respuestas... */
+  const [filtroActividad, setFiltroActividad] = useState<FiltroDeActividad>('todo')
+  /** Los minutos desde las 00:00 de ahora mismo en Madrid. null hasta que el navegador lo mide (así no baila entre servidor y navegador) */
+  const [ahoraMin, setAhoraMin] = useState<number | null>(null)
 
   const persona = useMemo(() => {
     if (personaId === null) return null
@@ -144,59 +188,83 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
     [equipoVivo, resultadoDe]
   )
 
-  /* ---------------------------- las llamadas en crudo de la persona: calendario y lista ---------------------------- */
+  /* ---------------------------- las llamadas en crudo de la persona: calendario, lista y línea del día ---------------------------- */
 
-  const claveDelMes = persona ? `${persona.id}|${mesVisible.anio}-${mesVisible.mes}` : null
+  // Se leen los meses que hacen falta: el que enseña el calendario y los que toca el periodo (una semana puede cruzar de mes)
+  const mesesAPedir = useMemo(() => {
+    const meses = new Map<string, MesPedido>()
+    const poner = (m: MesPedido) => meses.set(`${m.anio}-${m.mes}`, m)
+    poner(mesVisible)
+    const hastaHoy = recortarA(rangoDelPeriodo, hoy)
+    if (hastaHoy) {
+      poner(mesDe(hastaHoy.desde))
+      poner(mesDe(hastaHoy.hasta))
+    }
+    return [...meses.values()]
+  }, [mesVisible, rangoDelPeriodo, hoy])
+  const claveDeLlamadas = persona ? claveDeMeses(persona.id, mesesAPedir) : null
   const [llamadasMes, setLlamadasMes] = useState<{ clave: string; llamadas: LlamadaGuardada[] } | null>(null)
   const [cargandoMes, setCargandoMes] = useState(false)
   const cacheMes = useRef(new Map<string, LlamadaGuardada[]>())
   const peticionMes = useRef(0)
 
-  const cargarLlamadasMes = useCallback(
-    async (id: string, anio: number, mes: number, opciones: Opciones = {}) => {
-      const clave = `${id}|${anio}-${mes}`
+  const cargarLlamadas = useCallback(
+    async (id: string, meses: readonly MesPedido[], opciones: Opciones = {}) => {
+      const clave = claveDeMeses(id, meses)
       const numero = ++peticionMes.current
-      if (!opciones.forzar) {
-        const guardado = cacheMes.current.get(clave)
-        if (guardado) {
-          setLlamadasMes({ clave, llamadas: guardado })
-          setCargandoMes(false)
-          return
-        }
+      const mesDeHoy = mesDe(hoy)
+      // Un mes que ya ha pasado no cambia: solo se vuelve a leer si se pide todo (por ejemplo, al vincular la clave de Rinkel)
+      const hayQueLeer = (m: MesPedido) => {
+        if (!cacheMes.current.has(claveDeMes(id, m))) return true
+        if (!opciones.forzar) return false
+        return opciones.todo === true || (m.anio === mesDeHoy.anio && m.mes === mesDeHoy.mes)
+      }
+      const juntar = () => meses.flatMap((m) => cacheMes.current.get(claveDeMes(id, m)) ?? [])
+      const pendientes = meses.filter(hayQueLeer)
+      if (pendientes.length === 0) {
+        setLlamadasMes({ clave, llamadas: juntar() })
+        setCargandoMes(false)
+        return
       }
       if (!opciones.silencioso) setCargandoMes(true)
       try {
-        const { desde, hasta } = rangoDelMes(anio, mes)
-        const llamadas = await fetchAll<LlamadaGuardada>((de, a) =>
-          supabase
-            .from('rinkel_llamadas')
-            .select(CAMPOS_DE_LLAMADA)
-            .eq('user_id', id)
-            .gte('fecha', desde.toISOString())
-            .lt('fecha', hasta.toISOString())
-            .order('fecha', { ascending: true })
-            .order('id', { ascending: true })
-            .range(de, a)
+        const leidos = await Promise.all(
+          pendientes.map(async (m) => {
+            const { desde, hasta } = rangoDelMes(m.anio, m.mes)
+            const delMes = await fetchAll<LlamadaGuardada>((de, a) =>
+              supabase
+                .from('rinkel_llamadas')
+                .select(CAMPOS_DE_LLAMADA)
+                .eq('user_id', id)
+                .gte('fecha', desde.toISOString())
+                .lt('fecha', hasta.toISOString())
+                .order('fecha', { ascending: true })
+                .order('id', { ascending: true })
+                .range(de, a)
+            )
+            return { m, delMes }
+          })
         )
         if (numero !== peticionMes.current) return
-        cacheMes.current.set(clave, llamadas)
-        setLlamadasMes({ clave, llamadas })
+        for (const { m, delMes } of leidos) cacheMes.current.set(claveDeMes(id, m), delMes)
+        setLlamadasMes({ clave, llamadas: juntar() })
       } catch (error) {
         if (numero !== peticionMes.current) return
-        console.error('Rendimiento: no se han podido leer las llamadas del mes', error)
-        setLlamadasMes({ clave, llamadas: [] })
+        console.error('Rendimiento: no se han podido leer las llamadas', error)
+        // Una lectura en segundo plano que falla no borra lo que ya se ve; la primera sí deja el hueco, y se nota
+        if (!opciones.silencioso) setLlamadasMes({ clave, llamadas: [] })
       } finally {
         if (numero === peticionMes.current) setCargandoMes(false)
       }
     },
-    [supabase]
+    [supabase, hoy]
   )
 
   useEffect(() => {
-    if (persona) void cargarLlamadasMes(persona.id, mesVisible.anio, mesVisible.mes)
-  }, [persona, mesVisible.anio, mesVisible.mes, cargarLlamadasMes])
+    if (persona) void cargarLlamadas(persona.id, mesesAPedir)
+  }, [persona, mesesAPedir, cargarLlamadas])
 
-  const llamadas = useMemo(() => (llamadasMes && llamadasMes.clave === claveDelMes ? llamadasMes.llamadas : []), [llamadasMes, claveDelMes])
+  const llamadas = useMemo(() => (llamadasMes && llamadasMes.clave === claveDeLlamadas ? llamadasMes.llamadas : []), [llamadasMes, claveDeLlamadas])
   const delMes = useMemo(() => mesDeLlamadas(mesVisible.anio, mesVisible.mes, llamadas), [mesVisible, llamadas])
   const porDiaDeLlamadas = useMemo(() => agruparPorDia(llamadas), [llamadas])
 
@@ -211,29 +279,145 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
 
   const llamadasDelDia = useMemo(() => porDiaDeLlamadas.get(diaFoco) ?? [], [porDiaDeLlamadas, diaFoco])
 
-  /* ---------------------------- los nombres de los leads del día ---------------------------- */
+  /* ---------------------------- lo que apuntó la persona: conversaciones y citas del periodo ---------------------------- */
+
+  const claveDeActividad = persona ? `${persona.id}|${rangoDelPeriodo.desde}|${rangoDelPeriodo.hasta}` : null
+  const [actividad, setActividad] = useState<ActividadDePersona | null>(null)
+  const [cargandoActividad, setCargandoActividad] = useState(false)
+  const [errorActividad, setErrorActividad] = useState<string | null>(null)
+  const cacheActividad = useRef(new Map<string, ActividadDePersona>())
+  const peticionActividad = useRef(0)
+
+  const cargarActividad = useCallback(
+    async (id: string, rango: { desde: string; hasta: string }, opciones: Opciones = {}) => {
+      const clave = `${id}|${rango.desde}|${rango.hasta}`
+      const numero = ++peticionActividad.current
+      if (!opciones.forzar) {
+        const guardado = cacheActividad.current.get(clave)
+        if (guardado) {
+          setActividad(guardado)
+          setErrorActividad(null)
+          setCargandoActividad(false)
+          return
+        }
+      }
+      if (!opciones.silencioso) {
+        setCargandoActividad(true)
+        setErrorActividad(null)
+      }
+      try {
+        const [notas, citas] = await Promise.all([leerNotas(supabase, rango, id), leerCitas(supabase, rango, id)])
+        if (numero !== peticionActividad.current) return
+        const leida = { clave, notas, citas }
+        // Un periodo que ya ha acabado no cambia, y solo entonces se guarda. Si incluye hoy, se vuelve a leer siempre
+        if (rango.hasta < hoy) cacheActividad.current.set(clave, leida)
+        setActividad(leida)
+        setErrorActividad(null)
+      } catch (error) {
+        if (numero !== peticionActividad.current) return
+        console.error('Rendimiento: no se ha podido leer el detalle de la actividad', error)
+        if (!opciones.silencioso) setErrorActividad('No se ha podido leer el detalle de la actividad. Recarga la página.')
+      } finally {
+        if (numero === peticionActividad.current) setCargandoActividad(false)
+      }
+    },
+    [supabase, hoy]
+  )
 
   useEffect(() => {
-    const faltan = [...new Set(llamadasDelDia.map((l) => l.lead_id).filter((id): id is string => id !== null))].filter((id) => !nombres.has(id))
-    if (faltan.length === 0) return
-    let vivo = true
-    void (async () => {
-      const encontrados = new Map(nombres)
-      for (let i = 0; i < faltan.length; i += 100) {
-        const trozo = faltan.slice(i, i + 100)
-        const { data } = await supabase.from('cold_leads').select('id, store_name, company').in('id', trozo)
-        for (const fila of (data ?? []) as Array<{ id: string; store_name: string; company: string | null }>) {
-          encontrados.set(fila.id, { nombre: fila.store_name, empresa: fila.company })
+    if (persona) void cargarActividad(persona.id, rangoDelPeriodo)
+  }, [persona, rangoDelPeriodo, cargarActividad])
+
+  // Lo que hay en pantalla puede ser de la persona o del periodo anterior mientras llega lo nuevo: eso no se enseña como bueno
+  const actividadActual = actividad && actividad.clave === claveDeActividad ? actividad : null
+  const conversaciones = useMemo(() => agruparConversaciones(actividadActual?.notas ?? []), [actividadActual])
+  const itemsDeLaLista = useMemo(() => itemsDeActividad(conversaciones, citasAgendadas(actividadActual?.citas ?? [])), [conversaciones, actividadActual])
+  const leyendoActividad = persona !== null && actividadActual === null && errorActividad === null
+
+  /* ---------------------------- el día de todo el equipo, para su línea ---------------------------- */
+
+  const mirandoEquipoEnUnDia = puedeSupervisar && personaId === null && periodo.tipo === 'dia'
+  const claveDeEquipo = mirandoEquipoEnUnDia ? periodo.ancla : null
+  const [diaDeEquipo, setDiaDeEquipo] = useState<ActividadDelEquipo | null>(null)
+  const [cargandoEquipo, setCargandoEquipo] = useState(false)
+  const [errorEquipo, setErrorEquipo] = useState<string | null>(null)
+  const cacheEquipo = useRef(new Map<string, ActividadDelEquipo>())
+  const peticionEquipo = useRef(0)
+
+  const cargarDiaDeEquipo = useCallback(
+    async (dia: string, opciones: Opciones = {}) => {
+      const numero = ++peticionEquipo.current
+      if (!opciones.forzar) {
+        const guardado = cacheEquipo.current.get(dia)
+        if (guardado) {
+          setDiaDeEquipo(guardado)
+          setErrorEquipo(null)
+          setCargandoEquipo(false)
+          return
         }
-        // Un lead que ya no existe o que no se puede ver se apunta vacío para no volver a pedirlo en bucle
-        for (const id of trozo) if (!encontrados.has(id)) encontrados.set(id, { nombre: '', empresa: null })
       }
-      if (vivo) setNombres(encontrados)
-    })()
-    return () => {
-      vivo = false
+      if (!opciones.silencioso) {
+        setCargandoEquipo(true)
+        setErrorEquipo(null)
+      }
+      try {
+        const rango = { desde: dia, hasta: dia }
+        const [llamadasDelEquipo, notas, citas] = await Promise.all([leerLlamadasDelEquipo(supabase, dia), leerNotas(supabase, rango), leerCitas(supabase, rango)])
+        if (numero !== peticionEquipo.current) return
+        const leido = { clave: dia, llamadas: llamadasDelEquipo, notas, citas }
+        if (dia < hoy) cacheEquipo.current.set(dia, leido)
+        setDiaDeEquipo(leido)
+        setErrorEquipo(null)
+      } catch (error) {
+        if (numero !== peticionEquipo.current) return
+        console.error('Rendimiento: no se ha podido leer la actividad del equipo', error)
+        if (!opciones.silencioso) setErrorEquipo('No se ha podido leer la actividad del equipo. Recarga la página.')
+      } finally {
+        if (numero === peticionEquipo.current) setCargandoEquipo(false)
+      }
+    },
+    [supabase, hoy]
+  )
+
+  useEffect(() => {
+    if (claveDeEquipo) void cargarDiaDeEquipo(claveDeEquipo)
+  }, [claveDeEquipo, cargarDiaDeEquipo])
+
+  /* ---------------------------- los nombres de los clientes ---------------------------- */
+
+  const idsDeClientes = useMemo(() => {
+    const ids = new Set<string>()
+    for (const l of llamadasDelDia) if (l.lead_id) ids.add(l.lead_id)
+    for (const c of conversaciones) ids.add(c.leadId)
+    if (diaDeEquipo) {
+      for (const l of diaDeEquipo.llamadas) if (l.lead_id) ids.add(l.lead_id)
+      for (const n of diaDeEquipo.notas) ids.add(n.lead_id)
     }
-  }, [llamadasDelDia, nombres, supabase])
+    return [...ids]
+  }, [llamadasDelDia, conversaciones, diaDeEquipo])
+
+  const nombresPedidos = useRef(new Set<string>())
+  useEffect(() => {
+    const faltan = idsDeClientes.filter((id) => !nombresPedidos.current.has(id))
+    if (faltan.length === 0) return
+    faltan.forEach((id) => nombresPedidos.current.add(id))
+    void (async () => {
+      try {
+        const encontrados = await leerNombres(supabase, faltan)
+        // Un cliente que ya no existe o que no se puede ver se apunta vacío para no volver a pedirlo en bucle
+        for (const id of faltan) if (!encontrados.has(id)) encontrados.set(id, { nombre: '', empresa: null })
+        setNombres((antes) => {
+          const ahora = new Map(antes)
+          encontrados.forEach((v, k) => ahora.set(k, v))
+          return ahora
+        })
+      } catch (error) {
+        console.error('Rendimiento: no se han podido leer los nombres de los clientes', error)
+        // Si ha fallado, se podrá volver a pedir la próxima vez que cambie la lista
+        faltan.forEach((id) => nombresPedidos.current.delete(id))
+      }
+    })()
+  }, [idsDeClientes, supabase])
 
   const nombresUtiles = useMemo(() => {
     const m = new Map<string, NombreDeLead>()
@@ -242,6 +426,44 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
     })
     return m
   }, [nombres])
+
+  /* ---------------------------- la línea del día ---------------------------- */
+
+  const clienteDe = useCallback((id: string) => nombresUtiles.get(id)?.nombre ?? null, [nombresUtiles])
+
+  // La hora de ahora mismo, para marcar «ahora» y lo que lleva alguien sin actividad. Solo corre si se está mirando hoy
+  const miraHoy = diaFoco === hoy || claveDeEquipo === hoy
+  useEffect(() => {
+    if (!miraHoy) return
+    const medir = () => setAhoraMin(minutoDeLaHora(horaMadrid(new Date())))
+    medir()
+    const reloj = setInterval(medir, 60_000)
+    return () => clearInterval(reloj)
+  }, [miraHoy])
+
+  const eventosDeLaPersona = useMemo(
+    () =>
+      eventosDeLinea({
+        llamadas: llamadasDelDia,
+        notas: (actividadActual?.notas ?? []).filter((n) => diaMadrid(n.occurred_at) === diaFoco),
+        citas: (actividadActual?.citas ?? []).filter((c) => diaMadrid(c.created_at) === diaFoco),
+        cliente: clienteDe,
+      }),
+    [llamadasDelDia, actividadActual, diaFoco, clienteDe]
+  )
+
+  const personasDeLinea = useMemo(() => equipoVivo.filter((m) => m.comercial).map((m) => ({ id: m.id, nombre: m.nombre, vinculado: m.vinculado })), [equipoVivo])
+  const eventosPorPersona = useMemo(() => {
+    const mapa = new Map<string, EventoDeLinea[]>()
+    if (!diaDeEquipo) return mapa
+    const llamadasDe = agruparPor(diaDeEquipo.llamadas, (l) => l.user_id)
+    const notasDe = agruparPor(diaDeEquipo.notas, (n) => n.author_id)
+    const citasDe = agruparPor(diaDeEquipo.citas, (c) => c.comercial_id)
+    for (const p of personasDeLinea) {
+      mapa.set(p.id, eventosDeLinea({ llamadas: llamadasDe.get(p.id) ?? [], notas: notasDe.get(p.id) ?? [], citas: citasDe.get(p.id) ?? [], cliente: clienteDe }))
+    }
+    return mapa
+  }, [diaDeEquipo, personasDeLinea, clienteDe])
 
   /* ---------------------------- moverse ---------------------------- */
 
@@ -262,6 +484,20 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
   const cambiarDePersona = (id: string | null) => {
     setPersonaId(id)
     setFocoManual(null)
+    setFiltroActividad('todo')
+  }
+
+  /** Pulsar una tarjeta de cifras lleva a la lista que hay detrás: las llamadas, o el detalle ya filtrado */
+  const irA = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  const abrirTarjeta = (destino: DestinoDeTarjeta) => {
+    if (destino === 'llamadas') {
+      irA('llamadas-del-dia')
+      return
+    }
+    setFiltroActividad(destino)
+    irA('detalle-actividad')
   }
 
   // La dirección refleja quién y cuándo, para recargar o compartir en el mismo sitio. Sin pasar por el servidor
@@ -292,21 +528,25 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
     cacheMes.current.clear()
     await Promise.all([
       cargarResumen(ventana, { forzar: true, silencioso: true }),
-      cargarLlamadasMes(persona.id, mesVisible.anio, mesVisible.mes, { forzar: true, silencioso: true }),
+      cargarLlamadas(persona.id, mesesAPedir, { forzar: true, todo: true, silencioso: true }),
     ])
-  }, [supabase, persona, ventana, mesVisible, cargarResumen, cargarLlamadasMes])
+  }, [supabase, persona, ventana, mesesAPedir, cargarResumen, cargarLlamadas])
 
   // Mientras la pestaña está abierta en un periodo que incluye hoy, se va refrescando sola: el proceso automático trae llamadas nuevas
-  const estadoParaRefrescar = useRef({ ventana, persona, mesVisible })
-  estadoParaRefrescar.current = { ventana, persona, mesVisible }
+  const estadoParaRefrescar = useRef({ ventana, persona, meses: mesesAPedir, rango: rangoDelPeriodo, diaDeEquipo: claveDeEquipo })
+  estadoParaRefrescar.current = { ventana, persona, meses: mesesAPedir, rango: rangoDelPeriodo, diaDeEquipo: claveDeEquipo }
   const incluyeHoy = contieneHoy(periodo, hoy)
   useEffect(() => {
     if (!incluyeHoy) return
     const volverALeer = () => {
       if (document.visibilityState !== 'visible') return
-      const { ventana: v, persona: p, mesVisible: m } = estadoParaRefrescar.current
+      const { ventana: v, persona: p, meses, rango, diaDeEquipo: dia } = estadoParaRefrescar.current
       void cargarResumen(v, { forzar: true, silencioso: true })
-      if (p) void cargarLlamadasMes(p.id, m.anio, m.mes, { forzar: true, silencioso: true })
+      if (p) {
+        void cargarLlamadas(p.id, meses, { forzar: true, silencioso: true })
+        void cargarActividad(p.id, rango, { forzar: true, silencioso: true })
+      }
+      if (dia) void cargarDiaDeEquipo(dia, { forzar: true, silencioso: true })
     }
     const reloj = setInterval(volverALeer, REFRESCO_MS)
     document.addEventListener('visibilitychange', volverALeer)
@@ -314,7 +554,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
       clearInterval(reloj)
       document.removeEventListener('visibilitychange', volverALeer)
     }
-  }, [incluyeHoy, cargarResumen, cargarLlamadasMes])
+  }, [incluyeHoy, cargarResumen, cargarLlamadas, cargarActividad, cargarDiaDeEquipo])
 
   /* ---------------------------- lo que se pinta ---------------------------- */
 
@@ -341,6 +581,11 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
           {errorResumen}
         </p>
       )}
+      {errorEquipo && (
+        <p className="text-[12px] text-amber-300" role="alert">
+          {errorEquipo}
+        </p>
+      )}
 
       {persona && !esPropio && (
         <div className="rounded-xl border border-[#FF6600]/25 bg-[#FF6600]/[0.06] px-3 py-2 text-[12px] text-white/70 flex items-center gap-2">
@@ -365,6 +610,21 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
         />
       )}
 
+      {mirandoEquipoEnUnDia && personasDeLinea.length > 0 && (
+        diaDeEquipo ? (
+          <LineaDelEquipo
+            titulo={`Línea del día · ${diaDeEquipo.clave === hoy ? 'Hoy' : primeraMayuscula(etiquetaDeDia(diaDeEquipo.clave))}`}
+            personas={personasDeLinea}
+            eventosPorPersona={eventosPorPersona}
+            ahora={diaDeEquipo.clave === hoy ? ahoraMin : null}
+            cargando={cargandoEquipo || diaDeEquipo.clave !== claveDeEquipo}
+            onElegir={cambiarDePersona}
+          />
+        ) : (
+          !errorEquipo && <p className="text-[12px] text-white/40 px-1">Leyendo la actividad del equipo…</p>
+        )
+      )}
+
       {persona ? (
         <>
           <VincularRinkel
@@ -387,8 +647,16 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
               conRinkel={conRinkel}
               cargando={cargandoCifras}
               numerosDistintos={numerosDistintos}
+              onAbrir={abrirTarjeta}
             />
           </div>
+
+          <LineaDelDia
+            titulo={`Línea del día · ${diaFoco === hoy ? 'Hoy' : primeraMayuscula(etiquetaDeDia(diaFoco))}`}
+            eventos={eventosDeLaPersona}
+            ahora={diaFoco === hoy ? ahoraMin : null}
+            cargando={cargandoMes || leyendoActividad}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 items-start">
             <CalendarioLlamadas
@@ -416,6 +684,19 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
               onAislarDia={periodo.tipo !== 'dia' ? () => cambiarPeriodo({ tipo: 'dia', ancla: diaFoco }) : undefined}
             />
           </div>
+
+          <ListaDeActividad
+            persona={persona.nombre}
+            periodo={periodo}
+            hoy={hoy}
+            items={itemsDeLaLista}
+            filtro={filtroActividad}
+            onFiltro={setFiltroActividad}
+            nombres={nombresUtiles}
+            cargando={leyendoActividad || cargandoActividad}
+            error={errorActividad}
+            clave={`${persona.id}|${periodo.tipo}|${periodo.ancla}`}
+          />
         </>
       ) : (
         <p className="text-[12px] text-white/40 px-1">Elige a una persona en la tabla, o arriba en «Ver», para ver su calendario, sus llamadas y escuchar sus grabaciones.</p>

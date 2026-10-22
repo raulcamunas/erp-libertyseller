@@ -1,6 +1,6 @@
 'use client'
 
-import { CalendarCheck, Clock, Mail, MessageCircle, MessageSquareReply, Minus, PhoneCall, PhoneIncoming, TrendingDown, TrendingUp } from 'lucide-react'
+import { CalendarCheck, ChevronRight, Clock, Mail, MessageCircle, MessageSquareReply, Minus, PhoneCall, PhoneIncoming, TrendingDown, TrendingUp } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { contacto, llamadasPorDiaLaborable, variacion, variacionDePuntos, type Comparacion, type ResultadoDePersona, type Variacion } from '@/lib/rendimiento/comparativa'
 import { rangoDe, type Periodo } from '@/lib/rendimiento/periodos'
@@ -16,7 +16,13 @@ import { tiempoHablado } from '@/lib/rendimiento/metricas'
  *
  * WhatsApp y correos cuentan CONVERSACIONES, no apuntes: varias interacciones con el mismo cliente el mismo día son
  * una sola. Debajo de la cifra se ve cuántas interacciones se apuntaron.
+ *
+ * Con `onAbrir`, cada tarjeta se puede pulsar para ir a la lista que hay detrás de su cifra: las llamadas, o las
+ * conversaciones, respuestas y citas con el cliente y el comentario de cada una.
  */
+
+/** Lo que hay detrás de cada tarjeta */
+export type DestinoDeTarjeta = 'llamadas' | 'whatsapp' | 'correos' | 'respuestas' | 'citas'
 
 interface Props {
   periodo: Periodo
@@ -28,6 +34,8 @@ interface Props {
   cargando: boolean
   /** Solo en un día: a cuántos números distintos se llamó (sale de las llamadas de ese día) */
   numerosDistintos: number | null
+  /** Pulsar una tarjeta. Sin esto las tarjetas son solo para mirar */
+  onAbrir?: (destino: DestinoDeTarjeta) => void
 }
 
 const numero = (n: number) => Math.round(n).toLocaleString('es-ES')
@@ -65,6 +73,7 @@ function Tarjeta({
   contra,
   destacada = false,
   ayuda,
+  onAbrir,
 }: {
   icono: ReactNode
   titulo: string
@@ -74,24 +83,41 @@ function Tarjeta({
   contra: string
   destacada?: boolean
   ayuda?: string
+  onAbrir?: () => void
 }) {
-  return (
-    <div
-      title={ayuda}
-      className={`relative overflow-hidden rounded-2xl border p-3.5 ${
-        destacada ? 'border-white/10 bg-gradient-to-br from-[#FF6600]/[0.13] via-white/[0.03] to-transparent' : 'border-white/10 bg-white/[0.02]'
-      }`}
-    >
+  const clases = `group relative overflow-hidden rounded-2xl border p-3.5 ${
+    destacada ? 'border-white/10 bg-gradient-to-br from-[#FF6600]/[0.13] via-white/[0.03] to-transparent' : 'border-white/10 bg-white/[0.02]'
+  }`
+  const contenido = (
+    <>
       <p className="text-[10px] uppercase tracking-[0.14em] text-white/40 flex items-center gap-1.5">
         <span className="text-[#FF6600]">{icono}</span>
         {titulo}
+        {onAbrir && <ChevronRight className="ml-auto h-3 w-3 text-white/20 transition-colors group-hover:text-white/60" aria-hidden />}
       </p>
       <div className="flex items-baseline justify-between gap-2 mt-2">
         <p className="text-white font-bold text-[34px] leading-none tabular-nums">{valor}</p>
         <Cambio v={cambio} contra={contra} />
       </div>
       <p className="text-[11px] text-white/40 mt-1.5 leading-snug min-h-[1.5em]">{detalle}</p>
-    </div>
+    </>
+  )
+  if (!onAbrir) {
+    return (
+      <div title={ayuda} className={clases}>
+        {contenido}
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onAbrir}
+      title={ayuda ? `${ayuda}. Pulsa para ver el detalle` : 'Pulsa para ver el detalle'}
+      className={`${clases} w-full text-left transition-colors hover:border-[#FF6600]/40 hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FF6600]/60`}
+    >
+      {contenido}
+    </button>
   )
 }
 
@@ -106,7 +132,7 @@ function Dato({ icono, valor, texto, cambio, contra }: { icono?: ReactNode; valo
   )
 }
 
-export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRinkel, cargando, numerosDistintos }: Props) {
+export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRinkel, cargando, numerosDistintos, onAbrir }: Props) {
   const actual = resultado?.actual
   const base = resultado?.base ?? null
   const contra = comparacion?.texto ?? 'el periodo anterior'
@@ -130,6 +156,7 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
           detalle={sinRinkel ? 'Vincula Rinkel para verlas' : llamadas === 0 ? 'Ninguna llamada saliente' : `${numero(actual?.contestadas ?? 0)} contestadas · ${Math.round(tasa * 100)} %`}
           cambio={sinRinkel ? null : cambio(actual?.llamadas, base?.llamadas)}
           contra={contra}
+          onAbrir={onAbrir && !sinRinkel ? () => onAbrir('llamadas') : undefined}
         />
         <Tarjeta
           icono={<MessageCircle className="h-3 w-3" />}
@@ -138,6 +165,7 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
           detalle={detalleDeConversaciones(actual?.whatsapp ?? 0, actual?.whatsappApuntes ?? 0)}
           cambio={cambio(actual?.whatsapp, base?.whatsapp)}
           contra={contra}
+          onAbrir={onAbrir ? () => onAbrir('whatsapp') : undefined}
         />
         <Tarjeta
           icono={<Mail className="h-3 w-3" />}
@@ -146,6 +174,7 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
           detalle={detalleDeConversaciones(actual?.correos ?? 0, actual?.correosApuntes ?? 0)}
           cambio={cambio(actual?.correos, base?.correos)}
           contra={contra}
+          onAbrir={onAbrir ? () => onAbrir('correos') : undefined}
         />
         <Tarjeta
           icono={<MessageSquareReply className="h-3 w-3" />}
@@ -154,6 +183,7 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
           detalle="Clientes que han contestado"
           cambio={cambio(actual?.respuestas, base?.respuestas)}
           contra={contra}
+          onAbrir={onAbrir ? () => onAbrir('respuestas') : undefined}
         />
         <Tarjeta
           icono={<CalendarCheck className="h-3 w-3" />}
@@ -162,6 +192,7 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
           detalle="De la Agenda"
           cambio={cambio(actual?.citas, base?.citas)}
           contra={contra}
+          onAbrir={onAbrir ? () => onAbrir('citas') : undefined}
         />
       </div>
 
