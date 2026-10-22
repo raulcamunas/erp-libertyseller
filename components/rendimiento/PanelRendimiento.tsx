@@ -155,7 +155,7 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
         leer<NotaDelDia>('las notas de Cold Calling', avisos, (de, a2) =>
           supabase
             .from('cold_lead_notes')
-            .select('kind, es_respuesta, occurred_at')
+            .select('kind, es_respuesta, occurred_at, lead_id')
             .eq('author_id', usuario.id)
             .gte('occurred_at', d)
             .lt('occurred_at', h)
@@ -229,7 +229,7 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
         leer<NotaDelDia & { author_id: string }>('las notas del equipo', avisos, (de, a2) =>
           supabase
             .from('cold_lead_notes')
-            .select('id, author_id, kind, es_respuesta, occurred_at')
+            .select('id, author_id, kind, es_respuesta, occurred_at, lead_id')
             .gte('occurred_at', ini)
             .lt('occurred_at', fin)
             .order('occurred_at', { ascending: true })

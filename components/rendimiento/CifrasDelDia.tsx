@@ -7,9 +7,12 @@ import { tiempoHablado, type ActividadDeNotas, type ResumenDeLlamadas } from '@/
 /**
  * LAS CIFRAS DE UN DÍA: las mismas cinco que se apuntaban a mano en el recap, y debajo lo que sale de Rinkel.
  *
- * Llamadas hechas, WhatsApp enviados, correos enviados, respuestas de clientes y citas agendadas.
+ * Llamadas hechas, conversaciones de WhatsApp, conversaciones por correo, respuestas de clientes y citas agendadas.
  * Si la persona no tiene Rinkel vinculado no se pinta un 0 en las llamadas —un cero es una afirmación—, sino
  * un guion con la explicación.
+ *
+ * WhatsApp y correos cuentan CONVERSACIONES, no apuntes: varias interacciones con el mismo cliente el mismo día son
+ * una sola. Debajo de la cifra se ve cuántas interacciones se apuntaron, para que se entienda la diferencia.
  */
 
 interface Props {
@@ -24,6 +27,12 @@ interface Props {
 }
 
 const numero = (n: number) => n.toLocaleString('es-ES')
+
+/** «conversaciones · 12 interacciones apuntadas» */
+function detalleDeConversaciones(conversaciones: number, apuntes: number): string {
+  if (conversaciones === 0) return 'Sin conversaciones'
+  return `${conversaciones === 1 ? 'conversación' : 'conversaciones'} · ${numero(apuntes)} ${apuntes === 1 ? 'interacción apuntada' : 'interacciones apuntadas'}`
+}
 
 function Tarjeta({
   icono,
@@ -77,11 +86,16 @@ export function CifrasDelDia({ quien, llamadas, actividad, citas, conRinkel, car
         />
         <Tarjeta
           icono={<MessageCircle className="h-3 w-3" />}
-          titulo="WhatsApp enviados"
+          titulo="WhatsApp"
           valor={numero(actividad.whatsapp)}
-          detalle="De Cold Calling"
+          detalle={detalleDeConversaciones(actividad.whatsapp, actividad.whatsappApuntes)}
         />
-        <Tarjeta icono={<Mail className="h-3 w-3" />} titulo="Correos enviados" valor={numero(actividad.correos)} detalle="De Cold Calling" />
+        <Tarjeta
+          icono={<Mail className="h-3 w-3" />}
+          titulo="Correos"
+          valor={numero(actividad.correos)}
+          detalle={detalleDeConversaciones(actividad.correos, actividad.correosApuntes)}
+        />
         <Tarjeta
           icono={<MessageSquareReply className="h-3 w-3" />}
           titulo="Respuestas"

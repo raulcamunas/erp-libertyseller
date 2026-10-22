@@ -51,8 +51,9 @@ export function ColdLeadNotes({ leadId, currentUser, onLogged }: ColdLeadNotesPr
   const [kind, setKind] = useState<ColdNoteKind>('llamada')
   const [body, setBody] = useState('')
   /**
-   * La interacción es lo que escribió el CLIENTE, no lo que mandamos. Alimenta «respuestas de hoy» del panel
-   * «Mi rendimiento», y una nota marcada así no cuenta además como correo o WhatsApp enviado.
+   * La interacción es lo que escribió el CLIENTE, no lo que mandamos. Alimenta las «respuestas» del panel
+   * «Mi rendimiento» (clientes distintos que han contestado ese día). La conversación del canal cuenta igual,
+   * marcada o no: varias interacciones con el mismo cliente el mismo día son UNA conversación.
    */
   const [esRespuesta, setEsRespuesta] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -167,6 +168,11 @@ export function ColdLeadNotes({ leadId, currentUser, onLogged }: ColdLeadNotesPr
             />
             <span className="text-[11px] text-white/60">Es una respuesta del cliente</span>
           </label>
+        )}
+        {CANALES_CON_RESPUESTA.has(kind) && (
+          <p className="text-[10px] text-white/30 leading-snug">
+            Varias interacciones con el mismo cliente el mismo día cuentan como 1 conversación.
+          </p>
         )}
 
         <div className="flex items-center gap-2">

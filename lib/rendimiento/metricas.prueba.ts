@@ -114,30 +114,72 @@ console.log('\n=== la intensidad del color ===')
   ok('el borde: justo el 25 % es claro y justo el 75 % no llega a lo más oscuro', intensidad(25, 100) === 1 && intensidad(75, 100) === 3)
 }
 
-console.log('\n=== mensajes, correos, respuestas ===')
+console.log('\n=== conversaciones: un cliente son varias interacciones pero UNA conversación al día ===')
 {
-  const notas = [
-    { kind: 'whatsapp', es_respuesta: false, occurred_at: '2026-10-21T10:00:00Z' },
-    { kind: 'whatsapp', es_respuesta: null, occurred_at: '2026-10-21T11:00:00Z' },
-    { kind: 'whatsapp', es_respuesta: true, occurred_at: '2026-10-21T12:00:00Z' },
-    { kind: 'email', es_respuesta: false, occurred_at: '2026-10-21T10:30:00Z' },
-    { kind: 'email', es_respuesta: false, occurred_at: '2026-10-21T10:40:00Z' },
-    { kind: 'email', es_respuesta: true, occurred_at: '2026-10-21T10:50:00Z' },
-    { kind: 'llamada', es_respuesta: false, occurred_at: '2026-10-21T09:00:00Z' },
-    { kind: 'llamada', es_respuesta: true, occurred_at: '2026-10-21T09:10:00Z' },
-    { kind: 'linkedin', es_respuesta: false, occurred_at: '2026-10-21T09:20:00Z' },
-    { kind: 'nota', es_respuesta: false, occurred_at: '2026-10-21T09:30:00Z' },
-    { kind: 'email', es_respuesta: false, occurred_at: '2026-10-20T10:30:00Z' },
-    { kind: 'email', es_respuesta: false, occurred_at: '2026-10-21T22:30:00Z' }, // 00:30 del 22
-  ]
-  const a = actividadDeNotas(notas, '2026-10-21')
-  ok('WhatsApp enviados: 2 (la respuesta marcada no cuenta como enviado)', a.whatsapp === 2, String(a.whatsapp))
-  ok('correos enviados: 2 (la respuesta marcada no cuenta como enviado)', a.correos === 2, String(a.correos))
-  ok('respuestas: 3, del canal que sean (whatsapp, email y llamada)', a.respuestas === 3, String(a.respuestas))
-  ok('llamadas anotadas: 1', a.llamadasAnotadas === 1)
-  ok('LinkedIn: 1, y una nota de texto no cuenta en nada', a.linkedin === 1)
-  ok('un correo de ayer y uno de las 00:30 de mañana quedan fuera', a.correos === 2)
-  ok('un día sin notas', JSON.stringify(actividadDeNotas([], '2026-10-21')) === '{"whatsapp":0,"correos":0,"respuestas":0,"llamadasAnotadas":0,"linkedin":0}')
+  type N = { kind: string; es_respuesta: boolean | null; occurred_at: string; lead_id?: string | null }
+  const nota = (kind: string, lead: string | null, hora: string, respuesta: boolean | null = false, dia = '21'): N => ({
+    kind,
+    es_respuesta: respuesta,
+    lead_id: lead,
+    // La hora es UTC, así que 08:00Z son las 10:00 de Madrid (verano, UTC+2)
+    occurred_at: `2026-10-${dia}T${hora}:00Z`,
+  })
+  const dia21 = (notas: N[]) => actividadDeNotas(notas, '2026-10-21')
+
+  // El caso que se pidió: siete interacciones de WhatsApp con el mismo cliente el mismo día = 1 conversación
+  const siete = Array.from({ length: 7 }, (_, i) => nota('whatsapp', 'lead-A', `${String(8 + i).padStart(2, '0')}:00`))
+  const a7 = dia21(siete)
+  ok('7 interacciones de WhatsApp con el mismo cliente: 1 conversación', a7.whatsapp === 1, String(a7.whatsapp))
+  ok('y se sigue sabiendo que se apuntaron 7', a7.whatsappApuntes === 7)
+
+  const mezcla = dia21([
+    nota('whatsapp', 'lead-A', '08:00'),
+    nota('whatsapp', 'lead-A', '08:10'),
+    nota('whatsapp', 'lead-A', '09:00', true),
+    nota('whatsapp', 'lead-A', '09:05', true),
+    nota('whatsapp', 'lead-A', '09:10', true),
+    nota('whatsapp', 'lead-A', '09:20', true),
+    nota('whatsapp', 'lead-A', '09:30', true),
+  ])
+  ok('enviados y recibidos del mismo cliente, todo documentado: 1 conversación', mezcla.whatsapp === 1 && mezcla.whatsappApuntes === 7, JSON.stringify(mezcla))
+  ok('y ese cliente cuenta UNA respuesta, no cinco', mezcla.respuestas === 1, String(mezcla.respuestas))
+
+  const soloRecibidos = dia21([nota('whatsapp', 'lead-B', '08:00', true), nota('whatsapp', 'lead-B', '08:05', true), nota('whatsapp', 'lead-B', '08:09', true)])
+  ok('varios WhatsApp que RECIBE y documenta: 1 conversación y 1 respuesta', soloRecibidos.whatsapp === 1 && soloRecibidos.respuestas === 1)
+
+  const tres = dia21([nota('whatsapp', 'lead-A', '08:00'), nota('whatsapp', 'lead-B', '08:00'), nota('whatsapp', 'lead-C', '08:00'), nota('whatsapp', 'lead-A', '09:00')])
+  ok('tres clientes distintos son tres conversaciones, y un cuarto apunte al primero no suma', tres.whatsapp === 3 && tres.whatsappApuntes === 4)
+
+  const correos = dia21([nota('email', 'lead-A', '08:00'), nota('email', 'lead-A', '08:30'), nota('email', 'lead-B', '09:00')])
+  ok('los correos, igual: 2 conversaciones de 3 apuntes', correos.correos === 2 && correos.correosApuntes === 3)
+
+  const dosCanales = dia21([nota('whatsapp', 'lead-A', '08:00'), nota('email', 'lead-A', '08:10')])
+  ok('el mismo cliente por WhatsApp y por correo el mismo día: una conversación en cada canal', dosCanales.whatsapp === 1 && dosCanales.correos === 1)
+
+  const respuestasEnDosCanales = dia21([nota('whatsapp', 'lead-A', '08:00', true), nota('email', 'lead-A', '08:10', true), nota('email', 'lead-B', '08:20', true)])
+  ok('un cliente que contesta por dos canales es UNA respuesta: 2 respuestas de 2 clientes', respuestasEnDosCanales.respuestas === 2, String(respuestasEnDosCanales.respuestas))
+
+  const variosDias = [nota('whatsapp', 'lead-A', '08:00'), nota('whatsapp', 'lead-A', '09:00'), nota('whatsapp', 'lead-A', '08:00', false, '22'), nota('whatsapp', 'lead-A', '08:00', false, '20')]
+  ok('el mismo cliente en días distintos cuenta una vez CADA día', actividadDeNotas(variosDias, '2026-10-21').whatsapp === 1 && actividadDeNotas(variosDias, '2026-10-22').whatsapp === 1 && actividadDeNotas(variosDias, '2026-10-20').whatsapp === 1)
+  const medianoche = [nota('whatsapp', 'lead-A', '21:30'), nota('whatsapp', 'lead-A', '22:30')]
+  ok('el día es el de Madrid: las 23:30 son del 21 y las 00:30 son del 22', actividadDeNotas(medianoche, '2026-10-21').whatsapp === 1 && actividadDeNotas(medianoche, '2026-10-22').whatsapp === 1 && actividadDeNotas(medianoche, '2026-10-21').whatsappApuntes === 1)
+
+  const sinLead = dia21([nota('whatsapp', null, '08:00'), nota('whatsapp', null, '08:10'), { kind: 'whatsapp', es_respuesta: false, occurred_at: '2026-10-21T08:20:00Z' }])
+  ok('una nota sin cliente no se pierde ni se funde con otra: cuenta como la suya', sinLead.whatsapp === 3)
+
+  const otros = dia21([
+    nota('llamada', 'lead-A', '07:00'),
+    nota('llamada', 'lead-A', '07:10'),
+    nota('llamada', 'lead-B', '07:20', true),
+    nota('linkedin', 'lead-A', '07:30'),
+    nota('linkedin', 'lead-A', '07:40'),
+    nota('nota', 'lead-A', '07:50'),
+  ])
+  ok('llamadas anotadas: 2 clientes distintos', otros.llamadasAnotadas === 2)
+  ok('LinkedIn: 1 conversación, y una nota de texto no cuenta en nada', otros.linkedin === 1 && otros.whatsapp === 0 && otros.correos === 0)
+  ok('una respuesta marcada en una llamada anotada cuenta como respuesta de ese cliente', otros.respuestas === 1)
+
+  ok('un día sin notas: todo a cero', JSON.stringify(actividadDeNotas([], '2026-10-21')) === '{"whatsapp":0,"whatsappApuntes":0,"correos":0,"correosApuntes":0,"respuestas":0,"llamadasAnotadas":0,"linkedin":0}')
 }
 
 console.log('\n=== citas ===')

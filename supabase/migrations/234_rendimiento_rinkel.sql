@@ -162,7 +162,7 @@ ALTER TABLE public.cold_lead_notes
   ADD COLUMN IF NOT EXISTS es_respuesta BOOLEAN NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.cold_lead_notes.es_respuesta IS
-  'true = la nota recoge una respuesta del cliente (un correo o un WhatsApp que ha escrito el, o lo que dijo al telefono), no algo que haya enviado el comercial. Cuenta como «respuesta de cliente» en el panel de rendimiento y NO como correo o WhatsApp enviado.';
+  'true = la nota recoge una respuesta del cliente (un correo o un WhatsApp que ha escrito el, o lo que dijo al telefono), no algo que haya enviado el comercial. En el panel de rendimiento cuenta como «respuesta» de ese cliente ese dia, y la conversacion del canal cuenta igual: varias notas del mismo cliente el mismo dia son UNA conversacion.';
 
 -- El panel pregunta «las notas de esta persona entre estas fechas»
 CREATE INDEX IF NOT EXISTS cold_lead_notes_autor_fecha_idx

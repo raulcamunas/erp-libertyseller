@@ -187,41 +187,79 @@ export interface NotaParaMetricas {
   kind: string
   es_respuesta: boolean | null
   occurred_at: string
+  /**
+   * El lead (el cliente) al que se apuntó la interacción. Lo que cuenta es CUÁNTOS CLIENTES DISTINTOS, no cuántas
+   * notas. Si faltara (la columna es obligatoria, así que no debería), cada nota cuenta como un cliente propio
+   * para no perderla.
+   */
+  lead_id?: string | null
 }
 
 export interface ActividadDeNotas {
-  /** WhatsApp ENVIADOS por el comercial: no cuentan los que anotó como respuesta del cliente */
+  /**
+   * CONVERSACIONES de WhatsApp: clientes DISTINTOS con los que se habló por WhatsApp ese día. Siete interacciones
+   * apuntadas con el mismo cliente son UNA conversación, y da igual si son mensajes que mandó el comercial o que
+   * recibió del cliente: es la conversación con esa persona ese día.
+   */
   whatsapp: number
-  /** Correos ENVIADOS, por lo mismo */
+  /** Interacciones de WhatsApp apuntadas ese día, sin agrupar. De ellas salen las conversaciones de arriba */
+  whatsappApuntes: number
+  /** CONVERSACIONES por correo, con la misma regla */
   correos: number
-  /** Respuestas de clientes, del canal que sean: lo que el comercial marca como respuesta */
+  correosApuntes: number
+  /** Clientes distintos que han contestado ese día (lo que el comercial marca como respuesta), por el canal que sea */
   respuestas: number
-  /** Llamadas que el comercial dejó anotadas en el lead (no son las de Rinkel: no todas se anotan) */
+  /** Clientes distintos a los que el comercial dejó anotada una llamada (no son las de Rinkel: no todas se anotan) */
   llamadasAnotadas: number
+  /** Conversaciones de LinkedIn, con la misma regla. Se guardan; el panel todavía no las enseña */
   linkedin: number
 }
 
 /**
  * Qué hizo un comercial un día, según las notas de Cold Calling.
  *
- * `es_respuesta` manda sobre el tipo: una nota de correo marcada como respuesta es una respuesta de un
- * cliente, no un correo enviado, y contarla en las dos cosas inflaría los correos con lo que escribió
- * el cliente. Las notas de texto libre (`nota`) no cuentan en ninguna: son comentarios, no contactos.
+ * LA UNIDAD ES LA CONVERSACIÓN, NO LA NOTA. Lo que importa a quien mira el rendimiento es con cuántos clientes
+ * se habló, no cuántas veces se pulsó «Registrar»: apuntar siete WhatsApp de una misma charla no es siete
+ * conversaciones. Se cuenta un cliente por canal y por día, y el día es el de Madrid.
+ *
+ * `es_respuesta` suma a «respuestas» (clientes que contestaron) y NO resta nada a la conversación del canal: un
+ * cliente que escribe por WhatsApp y al que se le contesta es una conversación de WhatsApp, y además es una
+ * respuesta. Las notas de texto libre (`nota`) no cuentan en ninguna: son comentarios, no contactos.
  */
 export function actividadDeNotas(notas: readonly NotaParaMetricas[], dia: string): ActividadDeNotas {
-  const a: ActividadDeNotas = { whatsapp: 0, correos: 0, respuestas: 0, llamadasAnotadas: 0, linkedin: 0 }
-  for (const n of notas) {
-    if (diaMadrid(n.occurred_at) !== dia) continue
-    if (n.es_respuesta === true) {
-      a.respuestas += 1
-      continue
-    }
-    if (n.kind === 'whatsapp') a.whatsapp += 1
-    else if (n.kind === 'email') a.correos += 1
-    else if (n.kind === 'llamada') a.llamadasAnotadas += 1
-    else if (n.kind === 'linkedin') a.linkedin += 1
+  const porCanal = {
+    whatsapp: new Set<string>(),
+    email: new Set<string>(),
+    llamada: new Set<string>(),
+    linkedin: new Set<string>(),
   }
-  return a
+  const respondieron = new Set<string>()
+  let whatsappApuntes = 0
+  let correosApuntes = 0
+
+  notas.forEach((n, i) => {
+    if (diaMadrid(n.occurred_at) !== dia) return
+    const cliente = n.lead_id ?? `sin-lead-${i}`
+    if (n.es_respuesta === true) respondieron.add(cliente)
+    if (n.kind === 'whatsapp') {
+      porCanal.whatsapp.add(cliente)
+      whatsappApuntes += 1
+    } else if (n.kind === 'email') {
+      porCanal.email.add(cliente)
+      correosApuntes += 1
+    } else if (n.kind === 'llamada') porCanal.llamada.add(cliente)
+    else if (n.kind === 'linkedin') porCanal.linkedin.add(cliente)
+  })
+
+  return {
+    whatsapp: porCanal.whatsapp.size,
+    whatsappApuntes,
+    correos: porCanal.email.size,
+    correosApuntes,
+    respuestas: respondieron.size,
+    llamadasAnotadas: porCanal.llamada.size,
+    linkedin: porCanal.linkedin.size,
+  }
 }
 
 /** Cuántas citas se agendaron ese día (por el día en que se CREARON, no por el día de la cita) */

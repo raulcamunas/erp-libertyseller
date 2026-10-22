@@ -18,11 +18,13 @@ export interface LlamadaGuardada {
   grabacion_hasta: string | null
 }
 
-/** Lo justo de una nota de Cold Calling para contar mensajes, correos y respuestas */
+/** Lo justo de una nota de Cold Calling para contar conversaciones, correos y respuestas */
 export interface NotaDelDia {
   kind: string
   es_respuesta: boolean | null
   occurred_at: string
+  /** El cliente: varias notas del mismo cliente el mismo día son UNA conversación */
+  lead_id: string | null
 }
 
 /** El estado de la cuenta de Rinkel de una persona (rinkel_vinculos). La clave NO está aquí: no sale de la base */

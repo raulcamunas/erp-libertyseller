@@ -40,9 +40,9 @@ const CABECERAS: ReadonlyArray<{ clave: string; texto: string; ayuda?: string; a
   { clave: 'contestadas', texto: 'Contest.', ayuda: 'Llamadas hechas que se contestaron' },
   { clave: 'conversaciones', texto: 'Conv.', ayuda: 'Conversaciones: contestadas de más de 1 minuto' },
   { clave: 'tiempo', texto: 'Al teléf.', ayuda: 'Tiempo al teléfono' },
-  { clave: 'whatsapp', texto: 'WhatsApp' },
-  { clave: 'correos', texto: 'Correos' },
-  { clave: 'respuestas', texto: 'Respuestas' },
+  { clave: 'whatsapp', texto: 'WhatsApp', ayuda: 'Conversaciones de WhatsApp: clientes distintos con los que se habló ese día, por muchas interacciones que se apunten' },
+  { clave: 'correos', texto: 'Correos', ayuda: 'Conversaciones por correo: clientes distintos con los que se habló ese día' },
+  { clave: 'respuestas', texto: 'Respuestas', ayuda: 'Clientes distintos que han contestado ese día' },
   { clave: 'citas', texto: 'Citas' },
 ]
 
@@ -144,7 +144,7 @@ export function ResumenDelEquipo({ filas, dia, hoy, cargando, seleccionada, pued
       </div>
 
       <p className="text-[10px] text-white/30 mt-2">
-        Llamadas, contestadas y tiempo salen de Rinkel; WhatsApp, correos y respuestas de las notas de Cold Calling; las citas, de la Agenda. Un clic en una persona abre su panel.
+        Llamadas, contestadas y tiempo salen de Rinkel. WhatsApp y correos son conversaciones —clientes distintos con los que se habló ese día, por muchas interacciones que se apunten— y salen, igual que las respuestas, de las notas de Cold Calling. Las citas, de la Agenda. Un clic en una persona abre su panel.
       </p>
     </section>
   )
