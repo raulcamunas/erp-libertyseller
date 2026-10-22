@@ -49,8 +49,8 @@ export class ErrorRinkel extends Error {
 
 /** Lo que se le dice a quien pulsa el botón: frases nuestras, nunca el cuerpo de la respuesta de Rinkel */
 export const MENSAJE_DE_ERROR: Record<CodigoErrorRinkel, string> = {
-  clave_invalida: 'Rinkel no reconoce esta clave. Comprueba que está copiada entera y que es la de tu cuenta.',
-  sin_permiso: 'Tu plan de Rinkel no deja usar la API con esta clave, o no tiene permiso para leer las llamadas.',
+  clave_invalida: 'Rinkel no reconoce esta clave. Comprueba que está copiada entera y que es la clave de la API de Rinkel.',
+  sin_permiso: 'El plan de Rinkel de esta cuenta no deja usar la API con esta clave, o la clave no tiene permiso para leer las llamadas.',
   limite: 'Rinkel está recibiendo demasiadas peticiones. Espera un minuto y vuelve a probar.',
   no_encontrada: 'Rinkel no encuentra esa grabación: puede haber caducado (se guardan 90 días).',
   servidor: 'Rinkel ha tenido un fallo. Vuelve a probar en unos minutos.',

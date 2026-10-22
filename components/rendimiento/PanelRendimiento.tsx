@@ -63,6 +63,11 @@ interface Props {
   vinculoInicial: VinculoVisible | null
   /** Quien mira es del equipo comercial. Si no (un administrador), la invitación a vincular Rinkel no se resalta */
   esComercial?: boolean
+  /**
+   * Quien mira es administrador: en el panel de otra persona puede vincular, cambiar, sincronizar o desvincular
+   * su clave de Rinkel. Solo decide qué se pinta; la ruta vuelve a comprobar el rol.
+   */
+  puedeGestionar?: boolean
 }
 
 const REFRESCO_MS = 120_000
@@ -83,7 +88,7 @@ async function leer<T>(
   }
 }
 
-export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vinculoInicial, esComercial = true }: Props) {
+export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vinculoInicial, esComercial = true, puedeGestionar = false }: Props) {
   const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
   const [cambiandoDePersona, empezarCambio] = useTransition()
@@ -104,6 +109,10 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
   const [cargandoEquipo, setCargandoEquipo] = useState(false)
   const cacheEquipo = useRef(new Map<string, FilaDelEquipo[]>())
   const peticionEquipo = useRef(0)
+  // Quién tiene Rinkel vinculado. Lo que trae el servidor es la foto de cuando se abrió la página: si un
+  // administrador vincula o quita una clave aquí mismo, la tabla del equipo y el selector tienen que enterarse
+  const [conRinkel, setConRinkel] = useState<ReadonlySet<string>>(() => new Set(equipo.filter((m) => m.vinculado).map((m) => m.id)))
+  const equipoVivo = useMemo(() => equipo.map((m) => ({ ...m, vinculado: conRinkel.has(m.id) })), [equipo, conRinkel])
   const verEquipo = puedeSupervisar && equipo.filter((m) => m.comercial).length > 0
   const mesActual = useRef({ anio, mes })
   mesActual.current = { anio, mes }
@@ -241,7 +250,7 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
       ])
       if (numeroDePeticion !== peticionEquipo.current) return
 
-      const filas: FilaDelEquipo[] = equipo
+      const filas: FilaDelEquipo[] = equipoVivo
         .filter((m) => m.comercial)
         .map((m) => ({
           id: m.id,
@@ -255,13 +264,19 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
       setFilasEquipo(filas)
       setCargandoEquipo(false)
     },
-    [supabase, equipo, verEquipo]
+    [supabase, equipoVivo, verEquipo]
   )
 
   /** Vuelve a leer el estado de la cuenta de Rinkel y las llamadas del mes: lo llama el cuadro de vinculación */
   const refrescar = useCallback(async () => {
     const { data } = await supabase.from('rinkel_vinculos').select(CAMPOS_DEL_VINCULO).eq('user_id', usuario.id).maybeSingle()
     setVinculo((data as VinculoVisible | null) ?? null)
+    setConRinkel((antes) => {
+      const ahora = new Set(antes)
+      if (data) ahora.add(usuario.id)
+      else ahora.delete(usuario.id)
+      return ahora
+    })
     cache.current.clear()
     cacheEquipo.current.clear()
     await Promise.all([
@@ -381,7 +396,7 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
             disabled={cambiandoDePersona}
             className="h-9 rounded-full border border-white/10 bg-white/[0.03] px-3 text-[13px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer disabled:opacity-50"
           >
-            {equipo.map((m) => (
+            {equipoVivo.map((m) => (
               <option key={m.id} value={m.id} className="bg-[#1a1a1a]">
                 {m.id === yo ? `${m.nombre} (yo)` : m.nombre}
                 {m.vinculado ? '' : ' · sin Rinkel'}
@@ -395,7 +410,8 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
         <div className="rounded-xl border border-[#FF6600]/25 bg-[#FF6600]/[0.06] px-3 py-2 text-[12px] text-white/70 flex items-center gap-2">
           <Eye className="h-3.5 w-3.5 text-[#FF6600] shrink-0" />
           <span>
-            Estás viendo el rendimiento de <span className="font-semibold text-white">{usuario.nombre}</span>. Solo de lectura.
+            Estás viendo el rendimiento de <span className="font-semibold text-white">{usuario.nombre}</span>.{' '}
+            {puedeGestionar ? 'Como administrador puedes vincular, cambiar o quitar su clave de Rinkel.' : 'Solo de lectura.'}
           </span>
         </div>
       )}
@@ -407,11 +423,19 @@ export function PanelRendimiento({ usuario, yo, equipo, puedeSupervisar, hoy, vi
           hoy={hoy}
           cargando={cargandoEquipo}
           seleccionada={usuario.id}
+          puedeGestionar={puedeGestionar}
           onElegir={cambiarDePersona}
         />
       )}
 
-      <VincularRinkel persona={usuario} esPropio={esPropio} vinculo={vinculo} onCambio={refrescar} destacar={esComercial} />
+      <VincularRinkel
+        persona={usuario}
+        esPropio={esPropio}
+        puedeGestionar={puedeGestionar}
+        vinculo={vinculo}
+        onCambio={refrescar}
+        destacar={esPropio ? esComercial : true}
+      />
 
       <div className="space-y-2.5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

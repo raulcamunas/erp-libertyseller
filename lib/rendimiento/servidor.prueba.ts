@@ -2,7 +2,7 @@ import type { createServiceClient } from '@/lib/supabase/service'
 import { decryptToken } from '@/lib/amazon/crypto'
 import { pedirTurnoDeLectura } from '@/lib/fba/lectura-en-curso'
 import { MENSAJE_DE_ERROR, type DepsRinkel } from '@/lib/rendimiento/rinkel'
-import { contarLlamadas, desvincularClave, guardarLlamadas, huellaDeClave, leadsPorTelefonoDe, leerCuentaDe, vincularClave } from '@/lib/rendimiento/servidor'
+import { autorizarObjetivo, contarLlamadas, desvincularClave, esComercial, guardarLlamadas, huellaDeClave, leadsPorTelefonoDe, leerCuentaDe, vincularClave } from '@/lib/rendimiento/servidor'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -253,6 +253,85 @@ async function main() {
     ok('con su propia clave sí', otra.ok && b.tabla('rinkel_claves').length === 2)
     const mismaDeNuevo = await vincularClave(servicio(b), MAOLI, CLAVE_DE_MAOLI, { presupuestoMs: 600_000, rinkel: rinkel() })
     ok('quien ya la tiene puede volver a vincularla (se reinicia la importación)', mismaDeNuevo.ok && b.tabla('rinkel_claves').filter((c) => c.user_id === MAOLI).length === 1)
+  }
+
+  console.log('\n=== un administrador sobre otra persona ===')
+  {
+    const ADMIN = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const ELLA = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const OTRO = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const EXTERNA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const base = () => {
+      const b = new Base()
+      b.tabla('profiles').push(
+        { id: ADMIN, full_name: 'Raúl', email: 'raul@x', is_comercial: false },
+        { id: ELLA, full_name: 'Daniela Soto', email: 'daniela@x', is_comercial: true },
+        { id: OTRO, full_name: 'Alejandro Ruiz', email: 'alejandro@x', is_comercial: true },
+        { id: EXTERNA, full_name: 'Yamila', email: 'yamila@x', is_comercial: false }
+      )
+      return b
+    }
+    const admin = { userId: ADMIN, role: 'admin' }
+
+    let b = base()
+    const propia = await autorizarObjetivo(servicio(b), admin, undefined, 'vincular')
+    ok('sin pedir a nadie: la propia, y sin tocar la base', propia.ok && propia.userId === ADMIN && !propia.deOtra && b.consultas.length === 0)
+
+    b = base()
+    const noAdmin = await autorizarObjetivo(servicio(b), { userId: OTRO, role: 'employee' }, ELLA, 'vincular')
+    ok('quien no es administrador sobre otra persona: 403, y ni se mira la base', !noAdmin.ok && noAdmin.estado === 403 && b.consultas.length === 0)
+    const socio = await autorizarObjetivo(servicio(b), { userId: OTRO, role: 'partner' }, ELLA, 'desvincular')
+    ok('un socio tampoco, ni siquiera para quitar', !socio.ok && socio.estado === 403)
+
+    b = base()
+    const sobreElla = await autorizarObjetivo(servicio(b), admin, ELLA, 'vincular')
+    ok('el administrador sobre una comercial: puede, y la acción es sobre ELLA', sobreElla.ok && sobreElla.userId === ELLA && sobreElla.deOtra)
+
+    for (const accion of ['vincular', 'sincronizar'] as const) {
+      const r = await autorizarObjetivo(servicio(b), admin, EXTERNA, accion)
+      ok(`sobre alguien que no es comercial: ${accion} se rechaza (409)`, !r.ok && r.estado === 409)
+    }
+    const quitar = await autorizarObjetivo(servicio(b), admin, EXTERNA, 'desvincular')
+    ok('pero quitarle una clave que se quedó guardada sí se deja', quitar.ok && quitar.userId === EXTERNA)
+
+    for (const accion of ['vincular', 'sincronizar', 'desvincular'] as const) {
+      const r = await autorizarObjetivo(servicio(b), admin, 'ffffffff-ffff-4fff-8fff-ffffffffffff', accion)
+      ok(`una persona que no existe: ${accion} da 404`, !r.ok && r.estado === 404)
+    }
+    const malo = await autorizarObjetivo(servicio(b), admin, 'no-soy-un-id', 'vincular')
+    ok('un identificador que no lo es: 400', !malo.ok && malo.estado === 400)
+
+    b = base()
+    b.falla.set('select profiles', 'la base no contesta')
+    let lanza = false
+    try {
+      await autorizarObjetivo(servicio(b), admin, ELLA, 'vincular')
+    } catch {
+      lanza = true
+    }
+    ok('si la base falla al comprobar a la persona NO se da por buena: lanza', lanza)
+    ok('esComercial distingue los tres casos', (await esComercial(servicio(base()), ELLA)) === 'si' && (await esComercial(servicio(base()), EXTERNA)) === 'no' && (await esComercial(servicio(base()), 'x')) === 'no_existe')
+
+    // El gesto entero: el administrador pega la clave de ELLA. Todo queda a nombre de ELLA, nada a nombre del administrador
+    b = base()
+    b.tabla('cold_leads').push({ id: 'lead-ella', assigned_to: ELLA, phone: '622 00 00 05', telefonos_extra: null }, { id: 'lead-admin', assigned_to: ADMIN, phone: '622 00 00 06', telefonos_extra: null })
+    const decision = await autorizarObjetivo(servicio(b), admin, ELLA, 'vincular')
+    if (!decision.ok) throw new Error(decision.mensaje)
+    const llamadas = Array.from({ length: 10 }, (_, i) => llamadaCruda(i + 1, `+3462200${String(i + 1).padStart(4, '0')}`))
+    const v = await vincularClave(servicio(b), decision.userId, CLAVE_DE_DANIELA, { presupuestoMs: 600_000, rinkel: rinkelFalso({ llamadas }).deps, revelarQuien: true })
+    ok('la vincula', v.ok)
+    ok('la clave y el vínculo quedan a nombre de ELLA', b.tabla('rinkel_claves').every((c) => c.user_id === ELLA) && b.tabla('rinkel_vinculos').every((c) => c.user_id === ELLA) && b.tabla('rinkel_claves').length === 1)
+    ok('las llamadas, también, y casadas con los leads de ELLA (no con los del administrador)', b.tabla('rinkel_llamadas').length === 10 && b.tabla('rinkel_llamadas').every((l) => l.user_id === ELLA) && b.tabla('rinkel_llamadas').find((l) => l.rinkel_id === 'rk-0005')?.lead_id === 'lead-ella' && b.tabla('rinkel_llamadas').find((l) => l.rinkel_id === 'rk-0006')?.lead_id === null)
+    ok('el administrador no queda con ninguna fila', ![...b.tablas.values()].flat().some((f) => f.user_id === ADMIN))
+
+    // Y si pega por error la clave de otra persona, se le dice de quién es
+    const ya = await vincularClave(servicio(b), OTRO, CLAVE_DE_DANIELA, { presupuestoMs: 600_000, rinkel: rinkelFalso({ llamadas }).deps, revelarQuien: true })
+    ok('la misma cuenta pegada a otra persona: 409 y, al administrador, se le dice quién la tiene', !ya.ok && ya.estado === 409 && ya.mensaje.includes('Daniela Soto'), JSON.stringify(ya))
+    const yaSin = await vincularClave(servicio(b), OTRO, CLAVE_DE_DANIELA, { presupuestoMs: 600_000, rinkel: rinkelFalso({ llamadas }).deps })
+    ok('sin esa opción (cualquier otro) no se dice', !yaSin.ok && yaSin.estado === 409 && !yaSin.mensaje.includes('Daniela'))
+    b.tabla('profiles').length = 0
+    const yaSinPerfil = await vincularClave(servicio(b), OTRO, CLAVE_DE_DANIELA, { presupuestoMs: 600_000, rinkel: rinkelFalso({ llamadas }).deps, revelarQuien: true })
+    ok('y si de quien la tiene no hay nombre, el aviso sigue siendo claro y sin paréntesis vacíos', !yaSinPerfil.ok && yaSinPerfil.estado === 409 && !yaSinPerfil.mensaje.includes('()') && !yaSinPerfil.mensaje.includes('(null)'))
   }
 
   console.log('\n=== leer la cuenta de alguien ===')

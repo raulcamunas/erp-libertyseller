@@ -14,6 +14,7 @@ import {
   type CuentaDeRinkel,
   type DepsRinkel,
 } from './rinkel'
+import { decidirObjetivo, type DecisionDeObjetivo } from './gestion'
 import { ESTADO_INICIAL, sincronizarCuenta, type EstadoDeSincronizacion, type FilaParaGuardar } from './sincronizar'
 import { clavesDeTelefonos } from './telefonos'
 
@@ -33,7 +34,8 @@ import { clavesDeTelefonos } from './telefonos'
  *   · Nunca se le devuelve a quien la escribió, ni a un supervisor. Lo único que se enseña es su final («…8f90»).
  *   · Los errores que salen de aquí son frases FIJAS. Esta ruta maneja un secreto, así que no se reenvía el
  *     texto de una excepción (ver el aviso de errorResponse en lib/amazon/api.ts).
- *   · Solo su dueño la vincula o la desvincula. Un supervisor ve el estado de las cuentas del equipo, no las claves.
+ *   · Solo su dueño la vincula o la desvincula, o un ADMINISTRADOR en su nombre (ver gestion.ts). Un supervisor
+ *     ve el estado de las cuentas del equipo, no las claves, y tampoco las pone ni las quita.
  *
  * Una misma cuenta de Rinkel no se puede vincular a dos personas (huella única): contaría cada llamada dos veces
  * en los totales del equipo.
@@ -134,6 +136,52 @@ export async function guardarLlamadas(service: Servicio, filas: FilaParaGuardar[
     const { error } = await service.from('rinkel_llamadas').upsert(bloque, { onConflict: 'user_id,rinkel_id' })
     if (error) throw new Error('No se han podido guardar las llamadas.', { cause: error })
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Sobre quién se actúa                                                */
+/* ------------------------------------------------------------------ */
+
+/** ¿Es del equipo comercial? Un administrador solo puede ponerle la clave a quien lo es (o quitársela a cualquiera) */
+export async function esComercial(service: Servicio, userId: string): Promise<'si' | 'no' | 'no_existe'> {
+  const { data, error } = await service.from('profiles').select('id, is_comercial').eq('id', userId).maybeSingle()
+  if (error) throw new Error('No se ha podido comprobar a esa persona.', { cause: error })
+  if (!data) return 'no_existe'
+  return (data as { is_comercial: boolean | null }).is_comercial === true ? 'si' : 'no'
+}
+
+async function nombreDe(service: Servicio, userId: string): Promise<string | null> {
+  const { data } = await service.from('profiles').select('full_name, email').eq('id', userId).maybeSingle()
+  const p = data as { full_name: string | null; email: string | null } | null
+  return p?.full_name?.trim() || p?.email || null
+}
+
+export type ResultadoDeAutorizar = DecisionDeObjetivo
+
+/**
+ * Decide sobre la clave de QUIÉN se va a actuar en esta petición, con el rol de quien la hace.
+ *
+ *   · Sin `usuario`, o con el propio: la suya. Sin tocar la base.
+ *   · Con otra persona y sin ser administrador: 403, sin tocar la base.
+ *   · Con otra persona y siendo administrador: la persona tiene que existir y estar marcada como comercial
+ *     para vincular o sincronizar. QUITAR la clave se deja hacer aunque ya no sea comercial (alguien que pasa a
+ *     otro puesto no puede dejar su clave guardada sin que nadie pueda borrarla).
+ */
+export async function autorizarObjetivo(
+  service: Servicio,
+  sesion: { userId: string; role: string },
+  pedido: unknown,
+  accion: 'vincular' | 'sincronizar' | 'desvincular'
+): Promise<ResultadoDeAutorizar> {
+  const d = decidirObjetivo(sesion, pedido)
+  if (!d.ok || !d.deOtra) return d
+
+  const pertenece = await esComercial(service, d.userId)
+  if (pertenece === 'no_existe') return { ok: false, estado: 404, mensaje: 'Esa persona no existe.' }
+  if (pertenece === 'no' && accion !== 'desvincular') {
+    return { ok: false, estado: 409, mensaje: 'Esa persona no está marcada como comercial, así que no tiene panel de rendimiento.' }
+  }
+  return d
 }
 
 /* ------------------------------------------------------------------ */
@@ -262,6 +310,14 @@ export type ResultadoDeVincular =
   | { ok: true; cuenta: CuentaDeRinkel; finalClave: string; lectura: ResultadoDeLeerCuenta }
   | { ok: false; estado: number; mensaje: string }
 
+export interface OpcionesDeVincular extends OpcionesDeLeerCuenta {
+  /**
+   * Si la cuenta ya la tiene otra persona, decir QUIÉN. Solo para un administrador, que ve todo el equipo de
+   * todos modos y así no tiene que adivinar a quién le ha pegado por error la clave de quién.
+   */
+  revelarQuien?: boolean
+}
+
 /**
  * Vincula la clave de Rinkel de una persona: la comprueba contra Rinkel, la guarda cifrada y empieza a
  * importar su histórico.
@@ -273,7 +329,7 @@ export async function vincularClave(
   service: Servicio,
   userId: string,
   entrada: unknown,
-  opciones: OpcionesDeLeerCuenta
+  opciones: OpcionesDeVincular
 ): Promise<ResultadoDeVincular> {
   if (!hasTokenKey()) {
     return { ok: false, estado: 503, mensaje: 'El servidor no tiene configurada la clave de cifrado, así que no puede guardar la clave de Rinkel. Avisa a Liberty Seller.' }
@@ -300,7 +356,8 @@ export async function vincularClave(
       : { ok: false, estado: 500, mensaje: 'No se ha podido comprobar la clave. Vuelve a probar en un momento.' }
   }
   if (existente && (existente as { user_id: string }).user_id !== userId) {
-    return { ok: false, estado: 409, mensaje: 'Esta cuenta de Rinkel ya está vinculada a otra persona del equipo.' }
+    const quien = opciones.revelarQuien ? await nombreDe(service, (existente as { user_id: string }).user_id) : null
+    return { ok: false, estado: 409, mensaje: `Esta cuenta de Rinkel ya está vinculada a otra persona del equipo${quien ? ` (${quien})` : ''}.` }
   }
 
   let cifrada: string

@@ -28,6 +28,8 @@ interface Props {
   cargando: boolean
   /** La persona cuyo panel se está viendo */
   seleccionada: string
+  /** Quien mira es administrador: a quien no tiene Rinkel se le puede poner la clave desde su panel */
+  puedeGestionar?: boolean
   onElegir: (id: string) => void
 }
 
@@ -44,7 +46,7 @@ const CABECERAS: ReadonlyArray<{ clave: string; texto: string; ayuda?: string; a
   { clave: 'citas', texto: 'Citas' },
 ]
 
-export function ResumenDelEquipo({ filas, dia, hoy, cargando, seleccionada, onElegir }: Props) {
+export function ResumenDelEquipo({ filas, dia, hoy, cargando, seleccionada, puedeGestionar = false, onElegir }: Props) {
   const conRinkel = filas.filter((f) => f.vinculado)
   const suma = (f: (x: FilaDelEquipo) => number) => filas.reduce((s, x) => s + f(x), 0)
   const sumaLlamadas = (f: (x: FilaDelEquipo) => number) => conRinkel.reduce((s, x) => s + f(x), 0)
@@ -99,7 +101,11 @@ export function ResumenDelEquipo({ filas, dia, hoy, cargando, seleccionada, onEl
                     <button type="button" className="text-left hover:underline underline-offset-2">
                       {f.nombre}
                     </button>
-                    {!f.vinculado && <span className="ml-2 text-[10px] font-normal text-white/30">sin Rinkel</span>}
+                    {!f.vinculado && (
+                      <span className={`ml-2 text-[10px] font-normal ${puedeGestionar ? 'text-[#FF6600]/70' : 'text-white/30'}`}>
+                        {puedeGestionar ? 'sin Rinkel · vincular' : 'sin Rinkel'}
+                      </span>
+                    )}
                   </th>
                   <td className={`${celda} ${f.vinculado ? 'text-white font-semibold' : 'text-white/25'}`}>{f.vinculado ? numero(f.llamadas.realizadas) : '—'}</td>
                   <td className={`${celda} ${f.vinculado ? 'text-white/70' : 'text-white/25'}`}>{f.vinculado ? numero(f.llamadas.contestadas) : '—'}</td>

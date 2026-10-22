@@ -102,6 +102,8 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
           vinculoInicial={vinculos.get(elegida.id) ?? null}
           // Quien no supervisa solo está aquí si es comercial; quien supervisa puede ser un administrador que no llama
           esComercial={!puedeSupervisar || comerciales.has(user.id)}
+          // Solo un administrador pone o quita la clave de Rinkel de otra persona (la ruta lo vuelve a comprobar)
+          puedeGestionar={profile.role === 'admin'}
         />
       )}
     </div>

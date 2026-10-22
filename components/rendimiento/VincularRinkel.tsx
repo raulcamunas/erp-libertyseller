@@ -14,6 +14,10 @@ import type { VinculoVisible } from './tipos'
  * navegador una sola vez, hacia nuestra ruta, que la comprueba contra Rinkel y la guarda cifrada; no se vuelve a
  * mostrar ni se puede leer desde aquí (ni por el propio dueño ni por quien supervisa).
  *
+ * UN ADMINISTRADOR puede hacerlo también por otra persona: ve su panel, pega su clave y queda a nombre de ella
+ * (la ruta manda `usuario`). Quien solo supervisa no: ve el estado de la cuenta y nada más. El permiso de verdad
+ * lo comprueba la ruta; `puedeGestionar` solo decide si se pintan los botones.
+ *
  * LA IMPORTACIÓN SE HACE POR TRAMOS. Una cuenta con meses de uso tiene miles de llamadas y no caben en una sola
  * petición, así que la ruta lee unos 40 segundos y dice cuánto queda; esta pantalla insiste mientras quede algo
  * y enseña el avance. Si se cierra la pestaña a medias no se pierde nada: lo leído está guardado y lo sigue el
@@ -32,12 +36,16 @@ type Respuesta =
   | { ok: true; resumen?: Resumen; ocupada?: boolean; sinVinculo?: boolean; recienLeido?: boolean }
   | { ok: false; mensaje: string }
 
-async function pedir(cuerpo: { accion: 'vincular'; clave: string } | { accion: 'sincronizar' } | { accion: 'desvincular' }): Promise<Respuesta> {
+async function pedir(
+  cuerpo: { accion: 'vincular'; clave: string } | { accion: 'sincronizar' } | { accion: 'desvincular' },
+  /** El id de la otra persona, si es un administrador actuando por ella. Sin esto, la cuenta de quien pide */
+  usuario?: string
+): Promise<Respuesta> {
   try {
     const r = await fetch('/api/rendimiento/rinkel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cuerpo),
+      body: JSON.stringify(usuario ? { ...cuerpo, usuario } : cuerpo),
       cache: 'no-store',
     })
     const json = (await r.json().catch(() => null)) as Record<string, unknown> | null
@@ -55,8 +63,10 @@ const hace = (iso: string) => formatDistanceToNow(new Date(Math.min(Date.parse(i
 
 interface Props {
   persona: { id: string; nombre: string }
-  /** Es su propio panel: solo así se puede vincular, sincronizar o desvincular */
+  /** Es su propio panel */
   esPropio: boolean
+  /** Quien mira es administrador: puede vincular, cambiar, sincronizar o desvincular la clave de otra persona */
+  puedeGestionar?: boolean
   vinculo: VinculoVisible | null
   /** Pide al panel que vuelva a leer el vínculo y las llamadas de la base */
   onCambio: () => Promise<void>
@@ -67,7 +77,12 @@ interface Props {
   destacar?: boolean
 }
 
-export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar = true }: Props) {
+export function VincularRinkel({ persona, esPropio, puedeGestionar = false, vinculo, onCambio, destacar = true }: Props) {
+  /** Se puede actuar sobre esta cuenta: la propia, o la de otra persona siendo administrador */
+  const puedeActuar = esPropio || puedeGestionar
+  /** Sobre quién se pide: nadie (la cuenta de quien pide) si es la propia; la persona del panel si no */
+  const sobre = esPropio ? undefined : persona.id
+  const suyas = esPropio ? 'tus' : 'sus'
   const [clave, setClave] = useState('')
   const [cambiando, setCambiando] = useState(false)
   const [trabajando, setTrabajando] = useState<null | 'comprobando' | 'importando' | 'quitando'>(null)
@@ -108,7 +123,7 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
           }
           if (!resumen.pendiente) return 'hecho'
         }
-        const r = await pedir({ accion: 'sincronizar' })
+        const r = await pedir({ accion: 'sincronizar' }, sobre)
         if (!r.ok) {
           setError(r.mensaje)
           return 'error'
@@ -145,14 +160,14 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
     setClave('')
     setError(null)
     setTrabajando('comprobando')
-    const r = await pedir({ accion: 'vincular', clave: pegada })
+    const r = await pedir({ accion: 'vincular', clave: pegada }, sobre)
     if (!r.ok) {
       setTrabajando(null)
       setError(r.mensaje)
       return
     }
     setCambiando(false)
-    toast.success('Rinkel vinculado. Leyendo tus llamadas…')
+    toast.success(esPropio ? 'Rinkel vinculado. Leyendo tus llamadas…' : `Rinkel de ${persona.nombre} vinculado. Leyendo sus llamadas…`)
     await importar(r.resumen)
   }
 
@@ -160,21 +175,21 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
     if (trabajando) return
     const resultado = await importar()
     if (resultado === 'reciente') toast.info('Ya estaba al día: se acaba de leer.')
-    else if (resultado === 'ocupada') toast.info('Ya se están leyendo tus llamadas. Se verán en un momento.')
+    else if (resultado === 'ocupada') toast.info(`Ya se están leyendo ${suyas} llamadas. Se verán en un momento.`)
     else if (resultado === 'hecho') toast.success('Llamadas al día.')
   }
 
   async function desvincular() {
     setTrabajando('quitando')
     setError(null)
-    const r = await pedir({ accion: 'desvincular' })
+    const r = await pedir({ accion: 'desvincular' }, sobre)
     setTrabajando(null)
     setConfirmaQuitar(false)
     if (!r.ok) {
       setError(r.mensaje)
       return
     }
-    toast.success('Rinkel desvinculado. Las llamadas ya leídas se quedan.')
+    toast.success(esPropio ? 'Rinkel desvinculado. Las llamadas ya leídas se quedan.' : `Rinkel de ${persona.nombre} desvinculado. Las llamadas ya leídas se quedan.`)
     await onCambio()
   }
 
@@ -184,9 +199,9 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /* ---------------------------- mirando a otra persona ---------------------------- */
+  /* ---------------------------- mirando a otra persona, sin poder tocarla ---------------------------- */
 
-  if (!esPropio) {
+  if (!puedeActuar) {
     return (
       <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
         {vinculo ? (
@@ -218,7 +233,7 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
   const formulario = (
     <form onSubmit={vincular} className="space-y-2">
       <label htmlFor="clave-rinkel" className="block text-[11px] font-medium text-white/60">
-        Clave de la API de Rinkel
+        {esPropio ? 'Clave de la API de Rinkel' : `Clave de la API de Rinkel de ${persona.nombre}`}
       </label>
       <div className="flex flex-col sm:flex-row gap-2">
         <input
@@ -244,11 +259,11 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
           className="h-10 px-4 rounded-lg bg-[#FF6600] text-[13px] font-semibold text-white disabled:opacity-40 transition-opacity flex items-center justify-center gap-2 shrink-0"
         >
           {trabajando === 'comprobando' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-          {trabajando === 'comprobando' ? 'Comprobando…' : vinculo ? 'Cambiar clave' : 'Vincular y leer mis llamadas'}
+          {trabajando === 'comprobando' ? 'Comprobando…' : vinculo ? 'Cambiar clave' : esPropio ? 'Vincular y leer mis llamadas' : 'Vincular y leer sus llamadas'}
         </button>
       </div>
       <p className="text-[11px] text-white/35 leading-relaxed">
-        La clave se guarda cifrada y no se vuelve a mostrar. Solo sirve para LEER tus llamadas y sus grabaciones: el ERP no llama ni cambia nada en Rinkel.{' '}
+        La clave se guarda cifrada y no se vuelve a mostrar. Solo sirve para LEER las llamadas y las grabaciones de la cuenta: el ERP no llama ni cambia nada en Rinkel.{' '}
         <a
           href="https://developers.rinkel.com"
           target="_blank"
@@ -277,13 +292,17 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
             <KeyRound className={`h-5 w-5 ${destacar ? 'text-[#FF6600]' : 'text-white/50'}`} />
           </span>
           <div>
-            <h2 className="text-[14px] font-semibold text-white">{destacar ? 'Vincula tu Rinkel' : 'Vincula tu Rinkel (si llamas con él)'}</h2>
+            <h2 className="text-[14px] font-semibold text-white">
+              {!esPropio ? `Vincula el Rinkel de ${persona.nombre}` : destacar ? 'Vincula tu Rinkel' : 'Vincula tu Rinkel (si llamas con él)'}
+            </h2>
             <p className="text-[12px] text-white/55 leading-relaxed mt-0.5">
-              Con tu clave, el ERP lee todas tus llamadas —las de hoy y las de los días anteriores— y las enseña en el calendario, con su grabación para escucharla.
+              {esPropio
+                ? 'Con tu clave, el ERP lee todas tus llamadas —las de hoy y las de los días anteriores— y las enseña en el calendario, con su grabación para escucharla.'
+                : `Con su clave, el ERP lee todas sus llamadas —las de hoy y las de los días anteriores— y las enseña en el calendario, con su grabación para escucharla. ${persona.nombre} la verá vinculada en su panel y podrá cambiarla o quitarla.`}
             </p>
           </div>
         </div>
-        {trabajando === 'importando' ? <Progreso importadas={progreso?.importadas ?? null} total={progreso?.total ?? null} leyendo /> : formulario}
+        {trabajando === 'importando' ? <Progreso importadas={progreso?.importadas ?? null} total={progreso?.total ?? null} leyendo suyas={suyas} /> : formulario}
         {mensajeDeError}
       </div>
     )
@@ -304,7 +323,7 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
           )}
           <p className="text-[11px] text-white/40 mt-0.5" suppressHydrationWarning>
             {trabajando === 'importando'
-              ? 'Leyendo tus llamadas…'
+              ? `Leyendo ${suyas} llamadas…`
               : vinculo.ultimo_sync_at
                 ? `Última lectura ${hace(vinculo.ultimo_sync_at)} · se actualiza solo cada pocos minutos`
                 : 'Todavía no se ha leído nada'}
@@ -357,13 +376,13 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
 
       {confirmaQuitar && (
         <p className="text-[11px] text-white/40 mt-2">
-          Se borra la clave y dejan de leerse llamadas nuevas. Las ya leídas se quedan, pero sus grabaciones no se podrán escuchar hasta que vuelvas a vincular.
+          Se borra la clave y dejan de leerse llamadas nuevas. Las ya leídas se quedan, pero no se podrán escuchar sus grabaciones hasta que se vuelva a vincular.
         </p>
       )}
 
       {(trabajando === 'importando' || !vinculo.historico_completo) && (
         <div className="mt-3">
-          <Progreso importadas={progreso?.importadas ?? null} total={total} leyendo={trabajando === 'importando'} />
+          <Progreso importadas={progreso?.importadas ?? null} total={total} leyendo={trabajando === 'importando'} suyas={suyas} />
         </div>
       )}
 
@@ -377,14 +396,14 @@ export function VincularRinkel({ persona, esPropio, vinculo, onCambio, destacar 
   )
 }
 
-function Progreso({ importadas, total, leyendo }: { importadas: number | null; total: number | null; leyendo: boolean }) {
+function Progreso({ importadas, total, leyendo, suyas }: { importadas: number | null; total: number | null; leyendo: boolean; suyas: 'tus' | 'sus' }) {
   const porcentaje = importadas !== null && total && total > 0 ? Math.min(100, Math.round((importadas / total) * 100)) : null
   return (
     <div role="status" aria-live="polite">
       <div className="flex items-center justify-between text-[12px] text-white/60 mb-1.5">
         <span className="flex items-center gap-1.5">
           {leyendo && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {leyendo ? 'Leyendo tus llamadas…' : 'Falta terminar de leer tus llamadas antiguas'}
+          {leyendo ? `Leyendo ${suyas} llamadas…` : `Falta terminar de leer ${suyas} llamadas antiguas`}
         </span>
         <span className="tabular-nums">{importadas !== null ? `${numero(importadas)}${total ? ` de ${numero(total)}` : ''}` : total ? `${numero(total)} en total` : ''}</span>
       </div>

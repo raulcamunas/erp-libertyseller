@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { fail, requireAppAccess } from '@/lib/amazon/api'
 import {
   FALTA_MIGRACION_RENDIMIENTO,
+  autorizarObjetivo,
   desvincularClave,
   esFaltaDeMigracion,
   leerCuentaDe,
@@ -18,10 +19,13 @@ import { createServiceClient } from '@/lib/supabase/service'
  * POST { accion: 'vincular', clave }   · comprueba la clave contra Rinkel, la guarda cifrada y empieza a importar
  * POST { accion: 'sincronizar' }       · lee lo que falte; se repite mientras la respuesta diga `pendiente`
  * POST { accion: 'desvincular' }       · borra la clave y el estado; las llamadas ya importadas se quedan
+ * Las tres admiten además `usuario` (el id de otra persona): ver abajo.
  *
- * SIEMPRE LA CUENTA DE QUIEN LLAMA. El usuario sale de la sesión, nunca del cuerpo: nadie puede vincular, leer
- * ni desvincular la clave de otra persona, tampoco un administrador (una clave de Rinkel da acceso a todas las
- * grabaciones de su dueño, y quien la escribió es quien responde de ella).
+ * DE QUIÉN ES LA CLAVE. Por defecto, de quien llama: ese usuario sale de la sesión. Un ADMINISTRADOR puede
+ * actuar sobre la clave de otra persona del equipo comercial mandando su id en `usuario`; cualquier otro que lo
+ * mande recibe un 403. La regla entera, con sus casos, está en lib/rendimiento/gestion.ts y en
+ * autorizarObjetivo() (lib/rendimiento/servidor.ts), que es lo que se prueba. Una clave de Rinkel abre todas las
+ * grabaciones de su dueño, así que la puerta es el rol de administrador, no «puede ver al equipo».
  *
  * LAS RESPUESTAS SON FRASES FIJAS. Esta ruta maneja un secreto, así que no se reenvía el texto de ninguna
  * excepción —ver el aviso de errorResponse en lib/amazon/api.ts— y la clave no se escribe en ningún registro.
@@ -68,7 +72,7 @@ export async function POST(request: NextRequest) {
   const cuerpo = await leerCuerpoConTope(request, MAX_BYTES_CUERPO)
   if (cuerpo instanceof NextResponse) return cuerpo
 
-  let json: { accion?: unknown; clave?: unknown }
+  let json: { accion?: unknown; clave?: unknown; usuario?: unknown }
   try {
     json = JSON.parse(cuerpo.texto) as typeof json
   } catch {
@@ -79,10 +83,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const service = createServiceClient()
-    const userId = sesion.userId
+
+    const objetivo = await autorizarObjetivo(service, sesion, json.usuario, accion)
+    if (!objetivo.ok) return fail(objetivo.estado, objetivo.mensaje)
+    const userId = objetivo.userId
+    // Queda rastro de que un administrador ha tocado la cuenta de otra persona: solo ids, nunca la clave
+    if (objetivo.deOtra) console.info('Rendimiento · un administrador gestiona la cuenta de Rinkel de otra persona', { administrador: sesion.userId, persona: userId, accion })
 
     if (accion === 'vincular') {
-      const r = await vincularClave(service, userId, json.clave, { presupuestoMs: PRESUPUESTO_MS })
+      // Al administrador, si pega por error la clave de otra persona, se le dice de quién es
+      const r = await vincularClave(service, userId, json.clave, { presupuestoMs: PRESUPUESTO_MS, revelarQuien: sesion.role === 'admin' })
       if (!r.ok) return fail(r.estado, r.mensaje)
       return NextResponse.json(
         {
@@ -102,12 +112,12 @@ export async function POST(request: NextRequest) {
 
     // sincronizar
     const vinculo = await leerVinculo(service, userId)
-    if (!vinculo) return fail(409, 'Todavía no has vinculado tu clave de Rinkel.')
+    if (!vinculo) return fail(409, 'Todavía no hay una clave de Rinkel vinculada.')
     if (vinculo.historico_completo && vinculo.ultimo_intento_at && Date.now() - Date.parse(vinculo.ultimo_intento_at) < ENTRE_LECTURAS_MS) {
       return NextResponse.json({ ok: true, recienLeido: true }, { headers: SIN_CACHE })
     }
     const lectura = await leerCuentaDe(service, userId, { presupuestoMs: PRESUPUESTO_MS })
-    if (lectura.tipo === 'sin_vinculo') return fail(409, 'Todavía no has vinculado tu clave de Rinkel.')
+    if (lectura.tipo === 'sin_vinculo') return fail(409, 'Todavía no hay una clave de Rinkel vinculada.')
     return NextResponse.json({ ok: true, ...respuestaDeLectura(lectura) }, { headers: SIN_CACHE })
   } catch (error) {
     registrar(`Rendimiento · ${accion}: fallo`, error)
