@@ -10,6 +10,8 @@ export interface RespuestaDeRedactar {
   ok: boolean
   /** El id del registro del borrador; null si la migración 242 no está lanzada. Se manda de vuelta al enviar */
   id: string | null
+  /** La versión de la IA que lo escribió (no se enseña): se devuelve al redactar de nuevo el mismo correo para mantenerla */
+  versionId: string | null
   asunto: string
   texto: string
   angulo: string

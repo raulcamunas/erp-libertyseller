@@ -81,7 +81,7 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
   const [iaAbierta, setIaAbierta] = useState(false)
   const [iaPide, setIaPide] = useState('')
   const [iaRedactando, setIaRedactando] = useState(false)
-  const [iaBorrador, setIaBorrador] = useState<{ id: string | null; ejemplos: number; aviso: string | null } | null>(null)
+  const [iaBorrador, setIaBorrador] = useState<{ id: string | null; versionId: string | null; ejemplos: number; aviso: string | null } | null>(null)
   const iaArrancada = useRef(false)
   const entradaPara = useRef<HTMLInputElement>(null)
   const entradaTexto = useRef<HTMLTextAreaElement>(null)
@@ -136,6 +136,8 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
       leadId: borrador.lead.id,
       buzonId: buzon.id,
       indicaciones: pide || undefined,
+      // La misma versión de la IA que escribió el primer borrador de este correo (no se enseña ni se elige: ver app/api/correo/redactar-ia/route.ts)
+      versionId: iaBorrador?.versionId ?? undefined,
       anterior: hayBase ? { asunto: asunto.trim() || '(sin asunto)', texto: cuerpoEscrito(texto, buzon.firma) } : undefined,
     })
     setIaRedactando(false)
@@ -143,7 +145,7 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
     // El asunto solo se cambia en un mensaje nuevo: al contestar se queda el «Re: …» de la conversación
     if (borrador.modo === 'nuevo') setAsunto(r.datos.asunto)
     setTexto(ponerBorradorIa(buzon.firma, r.datos.texto))
-    setIaBorrador({ id: r.datos.id, ejemplos: r.datos.ejemplos, aviso: r.datos.aviso })
+    setIaBorrador({ id: r.datos.id, versionId: r.datos.versionId ?? iaBorrador?.versionId ?? null, ejemplos: r.datos.ejemplos, aviso: r.datos.aviso })
     setIaPide('')
     requestAnimationFrame(() => {
       const el = entradaTexto.current

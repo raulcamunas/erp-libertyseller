@@ -577,6 +577,18 @@ export const PERMISO_EQUIPO_COMERCIAL = 'equipo-comercial'
 export const PERMISO_CORREO_SUPERVISION = 'correo-supervision'
 
 /**
+ * EL PERMISO DE «CONFIGURACIÓN DE CORREOS» (Mi rendimiento → botón «Configuración de correos»).
+ *
+ * También SUELTO: una casilla en Gestión de Usuarios, sin tarjeta ni entrada de menú (la mini app vive dentro de Mi rendimiento). La tiene
+ * quien afina el correo que escribe la IA y mide cuál convierte más —la supervisora del equipo comercial—; un administrador entra siempre.
+ * Con ella se puede cambiar lo que la IA le dice a los clientes de todo el equipo, así que no se reparte a los comerciales.
+ *
+ * EL ID TIENE QUE COINCIDIR LETRA POR LETRA con el de middleware.ts (routeToAppId), el de la página y el de requerirConfigCorreos()
+ * (lib/correo/laboratorio-rutas.ts): si baila en uno, la casilla se marca, no da ningún error y no pasa nada.
+ */
+export const PERMISO_CONFIG_CORREOS = 'config-correos'
+
+/**
  * El id de Tax Reports, escrito UNA vez.
  *
  * Lo usan la entrada de `apps`, el redirect de la página y el
@@ -641,6 +653,15 @@ export const PERMISOS_SUELTOS: ReadonlyArray<{ id: string; name: string; descrip
       'y no conecta ni desconecta buzones, y cada vez que mira uno queda anotado y su dueño lo ve. ' +
       'Hace falta además la casilla «Correo». Distinta de «Supervisión del equipo comercial», que ' +
       'solo abre los buzones de los comerciales.',
+  },
+  {
+    id: PERMISO_CONFIG_CORREOS,
+    name: 'Configuración de correos',
+    description:
+      'Abre, dentro de Mi rendimiento, la configuración de los correos que escribe la IA: las instrucciones ' +
+      'de cada versión, los correos de ejemplo propios, la prueba con un lead y los resultados (qué versión ' +
+      'consigue más respuestas). Lo que cambia ahí lo usa TODO el equipo comercial al redactar con IA. No lee ' +
+      'ningún buzón ni envía correos. Hace falta además la casilla de Mi rendimiento.',
   },
 ]
 

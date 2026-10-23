@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail } from '@/lib/amazon/api'
 import { contextoParaIa, tipoDeLead } from '@/lib/correo/ia-contexto'
-import { ejemplosParaLead } from '@/lib/correo/ia-ejemplos'
 import { redactarConIa } from '@/lib/correo/ia-generar'
+import { resolverConfiguracion } from '@/lib/correo/ia-laboratorio-servidor'
 import { construirMensajes } from '@/lib/correo/ia-prompt'
 import {
   LIMITE_POR_DIA,
@@ -28,9 +28,16 @@ import { createServiceClient } from '@/lib/supabase/service'
  *   buzonId      el buzón desde el que va a salir (propio: de él se sacan los correos que ya se cruzaron con ese lead)
  *   indicaciones (opcional) lo que quiere que diga o cambie: «más corto», «menciona que le llamé»…
  *   anterior     (opcional) { asunto, texto } del borrador que quiere cambiar
+ *   versionId    (opcional) la versión de la IA del primer borrador de este correo: al redactar de nuevo se mantiene (ver más abajo)
  *
- * Devuelve { ok, id, asunto, texto, angulo, ejemplos, aviso }. `id` es el del registro del borrador (null si la migración 242 no está
+ * Devuelve { ok, id, versionId, asunto, texto, angulo, ejemplos, aviso }. `id` es el del registro del borrador (null si la migración 242 no está
  * lanzada): el cuadro de correo lo manda de vuelta al enviar para apuntar lo que salió de verdad.
+ *
+ * LA VERSIÓN. Cada borrador lo escribe una VERSIÓN de la IA (Mi rendimiento → Configuración de correos): se sortea entre las que están en
+ * marcha, en proporción a su peso, y queda apuntada. El comercial no la elige ni la ve; el cuadro de correo se limita a devolverla en
+ * `versionId` cuando pide redactar de nuevo el mismo correo, para que la comparación entre versiones sea limpia (si pudiera redactar hasta
+ * que le saliera la que le gusta, estaría eligiendo). Sin versiones (migración 243 sin lanzar, o ninguna en marcha) se usa la configuración
+ * de siempre.
  *
  * La IA NUNCA recibe la facturación ni las ventas estimadas del lead, ni sus teléfonos y correos (lib/correo/ia-contexto.ts), y lo que
  * devuelve se descarta si habla de dinero (lib/correo/ia-generar.ts). El error de la IA nunca se reenvía tal cual a la pantalla:
@@ -57,6 +64,7 @@ export async function POST(request: NextRequest) {
   const asuntoPrevio = textoDe(previo?.asunto, 200)
   const textoPrevio = textoDe(previo?.texto, 3000)
   const anterior = asuntoPrevio && textoPrevio ? { asunto: asuntoPrevio, texto: textoPrevio } : null
+  const versionPedida = typeof cuerpo.versionId === 'string' && UUID.test(cuerpo.versionId) ? cuerpo.versionId.toLowerCase() : null
 
   try {
     const service = createServiceClient()
@@ -78,8 +86,11 @@ export async function POST(request: NextRequest) {
       cargarGanadores(service),
     ])
 
-    const ejemplos = ejemplosParaLead(ganadores, tipoDeLead(lead), 4)
+    // Con qué se escribe este borrador: las instrucciones, los ejemplos y el modelo de la versión que toca (o los de siempre)
+    const configuracion = await resolverConfiguracion(service, { versionPedida, tipo: tipoDeLead(lead), ganadores })
+    const ejemplos = configuracion.ejemplos
     const mensajes = construirMensajes({
+      instrucciones: configuracion.instrucciones,
       contexto: contextoParaIa({ lead, notas, llamadas, correos, ahora: Date.now() }),
       ejemplos,
       indicaciones,
@@ -88,9 +99,9 @@ export async function POST(request: NextRequest) {
       tieneFirma: Boolean(auth.buzon.firma?.trim()),
     })
 
-    const resultado = await redactarConIa(mensajes)
+    const resultado = await redactarConIa(mensajes, configuracion.modelo ? { modelo: configuracion.modelo } : {})
     // Qué se ha gastado y con qué, sin el texto: es contenido de un lead y de un correo
-    console.log('[correo-ia] redacción', { modelo: resultado.modelo, ok: resultado.borrador !== null, llamadas: resultado.llamadas, tokens: resultado.tokens, ejemplos: ejemplos.length, notas: notas.length, correos: correos.length })
+    console.log('[correo-ia] redacción', { modelo: resultado.modelo, version: configuracion.version?.nombre ?? null, ok: resultado.borrador !== null, llamadas: resultado.llamadas, tokens: resultado.tokens, ejemplos: ejemplos.length, notas: notas.length, correos: correos.length })
     if (!resultado.borrador) return fail(resultado.problemas.includes('dinero') ? 422 : 503, resultado.aviso ?? 'No se ha podido redactar el correo.')
 
     const id = await guardarBorrador(service, {
@@ -103,9 +114,10 @@ export async function POST(request: NextRequest) {
       texto: resultado.borrador.texto,
       indicaciones,
       ejemplos: ejemplos.length,
+      version_id: configuracion.version?.id ?? null,
     })
     return NextResponse.json(
-      { ok: true, id, asunto: resultado.borrador.asunto, texto: resultado.borrador.texto, angulo: resultado.borrador.angulo, ejemplos: ejemplos.length, aviso: resultado.aviso },
+      { ok: true, id, versionId: configuracion.version?.id ?? null, asunto: resultado.borrador.asunto, texto: resultado.borrador.texto, angulo: resultado.borrador.angulo, ejemplos: ejemplos.length, aviso: resultado.aviso },
       { headers: SIN_CACHE }
     )
   } catch (error) {

@@ -52,6 +52,8 @@ interface Props {
   puedeGestionar: boolean
   /** Tiene el permiso «Actividad del equipo» (o es administrador): se le enseña el botón que lleva a esa pantalla */
   puedeVerActividad?: boolean
+  /** Para quien puede abrir «Configuración de correos»: administrador o con la casilla suelta */
+  puedeConfigurarCorreos?: boolean
   /** Quien mira es del equipo comercial. Si no (un administrador), la invitación a vincular Rinkel no se resalta */
   esComercial: boolean
   /** El día de hoy en Madrid, «2026-10-22». Lo pone el servidor para que no baile entre servidor y navegador */
@@ -99,7 +101,7 @@ function agruparPor<T>(lista: readonly T[], clave: (x: T) => string | null): Map
 
 const primeraMayuscula = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t)
 
-export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, puedeVerActividad = false, esComercial, hoy, vinculosIniciales, personaInicial, periodoInicial }: Props) {
+export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, puedeVerActividad = false, puedeConfigurarCorreos = false, esComercial, hoy, vinculosIniciales, personaInicial, periodoInicial }: Props) {
   const supabase = useMemo(() => createClient(), [])
 
   /* ---------------------------- quién y cuándo ---------------------------- */
@@ -589,6 +591,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
         onPersona={puedeSupervisar ? cambiarDePersona : undefined}
         enlaceInforme={puedeSupervisar ? enlaceDelInforme : undefined}
         enlaceActividad={puedeVerActividad ? '/dashboard/actividad' : undefined}
+        enlaceCorreos={puedeConfigurarCorreos ? '/dashboard/rendimiento/correos' : undefined}
       />
 
       {errorResumen && (

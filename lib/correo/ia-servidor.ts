@@ -1,4 +1,5 @@
 import type { AmazonSupabase } from '@/lib/amazon/api'
+import { isMissingSchema } from '@/lib/plataforma/eventos'
 import type { createServiceClient } from '@/lib/supabase/service'
 import { COLUMNAS_A_LEER, type CorreoParaIa, type DatosDeLead, type LlamadaParaIa, type NotaParaIa } from './ia-contexto'
 import { dominioDe, elegirGanadores, type EjemploGanador, type MensajeDeHilo } from './ia-ejemplos'
@@ -182,11 +183,21 @@ export interface FilaDeBorrador {
   texto: string
   indicaciones: string | null
   ejemplos: number
+  /** La versión de la IA que lo escribió (migración 243). null = la de siempre */
+  version_id?: string | null
 }
 
-/** Apunta un borrador. Devuelve su id, o null si no se ha podido (tabla sin crear): el correo sale igual */
+/**
+ * Apunta un borrador. Devuelve su id, o null si no se ha podido (tabla sin crear): el correo sale igual.
+ * Si la columna `version_id` no existe (la 243 sin lanzar) se apunta igualmente, sin ella: perder la versión es mejor que perder el borrador.
+ */
 export async function guardarBorrador(service: Servicio, fila: FilaDeBorrador): Promise<string | null> {
-  const { data, error } = await service.from('correo_ia_borradores').insert(fila).select('id').single()
+  const insertar = (f: Omit<FilaDeBorrador, 'version_id'> & { version_id?: string | null }) => service.from('correo_ia_borradores').insert(f).select('id').single()
+  let { data, error } = await insertar(fila)
+  if (error && fila.version_id !== undefined && isMissingSchema(error)) {
+    const { version_id: _sinVersion, ...sinVersion } = fila
+    ;({ data, error } = await insertar(sinVersion))
+  }
   if (error) {
     console.warn('[correo-ia] no se ha podido apuntar el borrador', { codigo: (error as { code?: string }).code ?? null })
     return null

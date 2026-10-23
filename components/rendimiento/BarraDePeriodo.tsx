@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronLeft, ChevronRight, Eye, FileBarChart, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, FileBarChart, MailCheck, Users } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { sumarDias } from '@/lib/rendimiento/dia'
@@ -44,6 +44,8 @@ interface Props {
   enlaceInforme?: string
   /** Solo para quien tiene el permiso «Actividad del equipo» (o es administrador): la dirección de esa pantalla. Sin esto no hay botón */
   enlaceActividad?: string
+  /** Solo para quien tiene el permiso «Configuración de correos» (o es administrador): la dirección de esa pantalla. Sin esto no hay botón */
+  enlaceCorreos?: string
 }
 
 const useEfectoDeDiseno = typeof window !== 'undefined' ? useLayoutEffect : useEffect
@@ -51,7 +53,7 @@ const useEfectoDeDiseno = typeof window !== 'undefined' ? useLayoutEffect : useE
 const BOTON_ICONO =
   'flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--ls-t3)]'
 
-export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, personaId, yoId, onPersona, enlaceInforme, enlaceActividad }: Props) {
+export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, personaId, yoId, onPersona, enlaceInforme, enlaceActividad, enlaceCorreos }: Props) {
   const ayer = sumarDias(hoy, -1)
   const siguiente = moverPeriodo(periodo, 1)
   const puedeAvanzar = !empiezaEnElFuturo(siguiente, hoy)
@@ -125,7 +127,7 @@ export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, pe
         </div>
       </div>
 
-      {((personas && onPersona) || enlaceInforme || enlaceActividad) && (
+      {((personas && onPersona) || enlaceInforme || enlaceActividad || enlaceCorreos) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {enlaceInforme && (
             <a
@@ -143,6 +145,15 @@ export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, pe
               className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2.5 text-[12px] text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"
             >
               <Eye className="h-3.5 w-3.5 text-[var(--ls-acc)]" /> Actividad del equipo
+            </Link>
+          )}
+          {enlaceCorreos && (
+            <Link
+              href={enlaceCorreos}
+              title="Afina los correos que escribe la IA, prueba versiones y mira cuál consigue más respuestas"
+              className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2.5 text-[12px] text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"
+            >
+              <MailCheck className="h-3.5 w-3.5 text-[var(--ls-acc)]" /> Configuración de correos
             </Link>
           )}
           {personas && onPersona && (

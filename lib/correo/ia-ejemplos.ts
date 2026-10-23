@@ -98,6 +98,14 @@ const NO_ES_UNA_PERSONA = /no-?reply|noreply|donotreply|do-not-reply|mailer-daem
 /** El dominio de una dirección, en minúsculas */
 export const dominioDe = (direccion: string): string => direccion.trim().toLowerCase().split('@').pop() ?? ''
 
+/**
+ * ¿Lo escribió una PERSONA DE FUERA? No automático, no de un dominio de los buzones del equipo (los comerciales probándose los correos
+ * a sí mismos) y no un «no-reply», un aviso o una cola de soporte. Es lo que hace que un correo entrante cuente como una respuesta de verdad.
+ */
+export function esPersonaDeFuera(m: { deDireccion: string; automatico: boolean }, dominiosPropios: ReadonlySet<string>): boolean {
+  return !m.automatico && !dominiosPropios.has(dominioDe(m.deDireccion)) && !NO_ES_UNA_PERSONA.test(m.deDireccion)
+}
+
 /** Quita correos y teléfonos de un texto: lo que sale hacia la IA no lleva datos de contacto de nadie */
 export function sinDatosDeContacto(texto: string): string {
   return texto
@@ -254,12 +262,7 @@ export function elegirGanadores(
     // Un frío: el hilo empieza con un correo escrito por una persona del equipo
     if (primero.direccion !== 'saliente' || primero.automatico || !opciones.dominiosPropios.has(dominioDe(primero.deDireccion))) continue
 
-    const buenas = lista.slice(1).filter((m) => {
-      if (m.direccion !== 'entrante' || m.automatico) return false
-      if (opciones.dominiosPropios.has(dominioDe(m.deDireccion))) return false
-      if (NO_ES_UNA_PERSONA.test(m.deDireccion)) return false
-      return !esRechazo(m.texto)
-    })
+    const buenas = lista.slice(1).filter((m) => m.direccion === 'entrante' && esPersonaDeFuera(m, opciones.dominiosPropios) && !esRechazo(m.texto))
     if (buenas.length === 0) continue
 
     const asunto = primero.asunto.replace(/\s+/g, ' ').trim()

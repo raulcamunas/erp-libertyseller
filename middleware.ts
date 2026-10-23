@@ -463,6 +463,9 @@ export async function middleware(request: NextRequest) {
           // tablas rinkel_*, que dejan leer lo propio (o todo a quien supervisa) y nada más.
           '/dashboard/rendimiento': 'rendimiento',
           '/dashboard/rendimiento/informe': 'rendimiento',
+          // Configuración de correos (dentro de Mi rendimiento): la abre quien tenga la casilla suelta; un admin entra siempre. El filtro de
+          // verdad es requireAppAccess en /api/correo/laboratorio/* (las tablas están cerradas al navegador); el id va letra por letra como en lib/config/apps.ts
+          '/dashboard/rendimiento/correos': 'config-correos',
           // Correo: cada comercial lee y escribe desde SU buzón. El permiso lo reparte la migración 236 a los
           // comerciales y a quien supervisa; el filtro de verdad está en las rutas /api/correo, que deciden qué
           // buzón abre cada persona (las tablas correo_* están cerradas al navegador).

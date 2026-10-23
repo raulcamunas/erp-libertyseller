@@ -1,4 +1,21 @@
-import { ANGULOS, ESQUEMA_BORRADOR, INSTRUCCIONES, construirMensajes, leerBorrador, mensajeDeCorreccion, palabrasDe, revisarBorrador } from '@/lib/correo/ia-prompt'
+import {
+  ANGULOS,
+  CLAVES_DE_SECCION,
+  ESQUEMA_BORRADOR,
+  INSTRUCCIONES,
+  PRESENTACION_FIJA,
+  REGLAS_FIJAS,
+  REGLA_DE_INDICACIONES,
+  SECCIONES_BASE,
+  SECCIONES_DE_LA_VERSION,
+  compilarInstrucciones,
+  construirMensajes,
+  leerBorrador,
+  mensajeDeCorreccion,
+  palabrasDe,
+  revisarBorrador,
+  validarSecciones,
+} from '@/lib/correo/ia-prompt'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -89,6 +106,51 @@ console.log('\n=== mensajeDeCorreccion ===')
   ok('explica cada problema', m.includes('facturación') && m.includes('hueco por rellenar'))
   ok('pide el mismo formato', m.includes('mismo formato'))
   ok('un solo problema', mensajeDeCorreccion(['largo']).includes('150 palabras'))
+}
+
+console.log('\n=== las instrucciones en piezas ===')
+{
+  ok('la versión original compila a las instrucciones de siempre', compilarInstrucciones(SECCIONES_BASE) === INSTRUCCIONES)
+  ok('las cinco secciones se enseñan en el editor, en orden', SECCIONES_DE_LA_VERSION.map((x) => x.clave).join() === CLAVES_DE_SECCION.join() && SECCIONES_DE_LA_VERSION.every((x) => x.titulo && x.ayuda && x.filas > 0))
+  ok('la sección «extra» de la original está vacía', SECCIONES_BASE.extra === '')
+
+  const vacia = compilarInstrucciones({ queHacemos: '', comoEscribes: '', comoPersuades: '', segunElCaso: '', extra: '' })
+  ok('con todo vacío siguen la presentación y las reglas fijas', vacia.includes(PRESENTACION_FIJA) && vacia.includes(REGLAS_FIJAS) && vacia.includes(REGLA_DE_INDICACIONES))
+  ok('las reglas fijas dicen lo de la facturación', REGLAS_FIJAS.includes('NUNCA menciones facturación') && REGLAS_FIJAS.includes('No inventes'))
+
+  const mia = compilarInstrucciones({ ...SECCIONES_BASE, comoEscribes: 'CÓMO ESCRIBES:\n- Trata de usted.', extra: 'Menciona siempre que la primera reunión es gratuita.' })
+  ok('lo que se edita entra', mia.includes('Trata de usted.') && !mia.includes('Tuteas a la persona'))
+  ok('lo que NO se edita sigue', mia.includes(REGLAS_FIJAS) && mia.includes(PRESENTACION_FIJA))
+  ok('«extra» va en su bloque, después de «según el caso»', mia.indexOf('SEGÚN EL CASO') < mia.indexOf('INSTRUCCIONES ADICIONALES DE ESTA VERSIÓN') && mia.includes('valen mientras no contradigan'))
+  ok('las reglas fijas van antes que «según el caso» (como siempre)', mia.indexOf('LO QUE NUNCA HACES') < mia.indexOf('SEGÚN EL CASO'))
+  ok('si el editor intenta ocultar las reglas poniendo su propio texto, las reglas siguen una sola vez', (mia.match(/LO QUE NUNCA HACES:/g) ?? []).length === 1)
+  ok('sin «extra» no hay bloque extra', !compilarInstrucciones(SECCIONES_BASE).includes('INSTRUCCIONES ADICIONALES'))
+
+  const m = construirMensajes({ instrucciones: 'MIS INSTRUCCIONES', contexto: 'C', ejemplos: [], indicaciones: null, anterior: null, miNombre: null, tieneFirma: false })
+  ok('construirMensajes usa las instrucciones de la versión', m.system === 'MIS INSTRUCCIONES')
+  ok('y las de siempre si no se le pasan', construirMensajes({ contexto: 'C', ejemplos: [], indicaciones: null, anterior: null, miNombre: null, tieneFirma: false }).system === INSTRUCCIONES)
+}
+
+console.log('\n=== validarSecciones ===')
+{
+  const buenas = validarSecciones({ ...SECCIONES_BASE })
+  ok('las originales valen y no traen avisos', buenas.ok && buenas.avisos.length === 0)
+  ok('devuelve solo las cinco claves, recortadas', buenas.ok && Object.keys(buenas.secciones).join() === CLAVES_DE_SECCION.join())
+  const sucia = validarSecciones({ ...SECCIONES_BASE, extra: '  \r\n algo   ', sobrante: 'x' })
+  ok('recorta y normaliza, y ignora claves de más', sucia.ok && sucia.secciones.extra === 'algo' && !('sobrante' in sucia.secciones))
+  ok('sin objeto o con algo que no es texto: error', !validarSecciones(null).ok && !validarSecciones('x').ok && !validarSecciones({ ...SECCIONES_BASE, extra: 5 }).ok)
+  const corta = validarSecciones({ queHacemos: 'poco', comoEscribes: '', comoPersuades: '', segunElCaso: '', extra: '' })
+  ok('demasiado corto: error que lo explica', !corta.ok && /demasiado cortas/.test(corta.error))
+  const larga = validarSecciones({ ...SECCIONES_BASE, extra: 'x'.repeat(5001) })
+  ok('una sección larguísima: error con su nombre', !larga.ok && /Instrucciones extra/.test(larga.error) && /demasiado larga/.test(larga.error))
+  const todoLargo = validarSecciones({ queHacemos: 'x'.repeat(4900), comoEscribes: 'x'.repeat(4900), comoPersuades: 'x'.repeat(4900), segunElCaso: '', extra: '' })
+  ok('todas juntas pasando el tope: error', !todoLargo.ok && /juntas/.test(todoLargo.error))
+  const dinero = validarSecciones({ ...SECCIONES_BASE, extra: 'Menciona la facturación estimada de la empresa para dar credibilidad.' })
+  ok('pedir hablar de dinero se guarda pero avisa', dinero.ok && dinero.avisos.length === 1 && /regla que no se puede quitar/.test(dinero.avisos[0]))
+  const inventa = validarSecciones({ ...SECCIONES_BASE, extra: 'Inventa un caso de éxito de un cliente parecido.' })
+  ok('pedir inventar avisa', inventa.ok && inventa.avisos.some((a) => /inventar/.test(a)))
+  const normal = validarSecciones({ ...SECCIONES_BASE, extra: 'Dile que la reunión no cuesta nada y que hablamos de ventas en Amazon en general.' })
+  ok('hablar de «ventas en Amazon» en general no es pedir facturación', normal.ok && normal.avisos.length === 0, JSON.stringify(normal))
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
