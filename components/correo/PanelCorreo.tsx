@@ -2,7 +2,8 @@
 
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertCircle, ChevronDown, Eye, KeyRound, Mail, PenSquare, Plus, RefreshCw, Settings, Users } from 'lucide-react'
+import { AlertCircle, ChevronDown, Eye, KeyRound, Mail, PenSquare, Plus, RefreshCw, Settings, Users, Workflow } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Avatar, Esqueleto } from '@/components/rendimiento/ui'
@@ -52,6 +53,17 @@ interface Props {
   activa: boolean
 }
 
+// La pantalla de Secuencias se baja la primera vez que se abre: quien no la usa no carga ni una línea de ella
+const PantallaDeSecuencias = dynamic(() => import('./secuencias/PantallaDeSecuencias').then((m) => m.PantallaDeSecuencias), {
+  ssr: false,
+  loading: () => (
+    <div className="space-y-3" aria-busy="true" aria-label="Cargando las secuencias">
+      <Esqueleto className="h-24 w-full" />
+      <Esqueleto className="h-52 w-full" />
+    </div>
+  ),
+})
+
 const hace = (iso: string) => formatDistanceToNow(new Date(Math.min(Date.parse(iso), Date.now())), { locale: es, addSuffix: true })
 const esperar = (ms: number) => new Promise((resolver) => setTimeout(resolver, ms))
 const EN_SEGUNDO_PLANO_MS = 60_000
@@ -66,6 +78,10 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
   const [conectando, setConectando] = useState(false)
   const [selectorAbierto, setSelectorAbierto] = useState(false)
   const [ajustes, setAjustes] = useState(false)
+  // Los seguimientos automáticos: si se ofrece el botón, si se está viendo la pantalla y si ya se montó (una vez montada se queda, con su pestaña y su filtro)
+  const [verSecuencias, setVerSecuencias] = useState(false)
+  const [enSecuencias, setEnSecuencias] = useState(false)
+  const [secuenciasMontadas, setSecuenciasMontadas] = useState(false)
 
   const [vista, setVista] = useState<VistaDeCorreo>('todos')
   const [soloNoLeidos, setSoloNoLeidos] = useState(false)
@@ -413,6 +429,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
       if (!destino) return
       setEnEquipo(false)
       setConectando(false)
+      setEnSecuencias(false)
       if (destino.id !== buzonId) elegirBuzon(destino.id)
       void abrir(peticion.hiloId)
       return
@@ -435,6 +452,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
 
   async function alEnviar(hiloEnviado: string, borrador: BorradorDeCorreo, asuntoEnviado: string, detalle: DetalleDeEnvio) {
     setRedactando(null)
+    setEnSecuencias(false)
     // Un correo que sale desde la ficha de un lead se apunta solo en su historial (y sella su último contacto): el comercial no escribe nada
     if (borrador.lead) {
       const cuando = new Date().toISOString()
@@ -452,6 +470,25 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
     setEnEquipo(false)
     cerrarHilo()
     setBuzonId(id)
+  }
+
+  // ¿Se ofrece «Secuencias»? Un administrador siempre; el resto, con el motor en marcha. Un fallo = no se ofrece: Correo funciona igual sin ello
+  const hayBuzones = buzones !== null
+  useEffect(() => {
+    if (!hayBuzones) return
+    let vivo = true
+    void pedir<{ visible?: boolean }>('/api/correo/secuencias/estado').then((r) => {
+      if (vivo && r.ok) setVerSecuencias(r.datos.visible === true)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [hayBuzones])
+
+  function abrirSecuencias() {
+    setSecuenciasMontadas(true)
+    setEnSecuencias(true)
+    setSelectorAbierto(false)
   }
 
   /* ------------------------------ qué se pinta ------------------------------ */
@@ -580,9 +617,17 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
 
   return (
     <>
-      <div className="flex h-[calc(100dvh-10.5rem)] min-h-[540px] flex-col overflow-hidden rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+      {/* Con las Secuencias a la vista la bandeja se oculta sin desmontarla (como hace el ERP con sus apps): conserva el hilo abierto, la búsqueda y el scroll */}
+      <div className={`flex flex-col overflow-hidden rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] ${enSecuencias ? 'pointer-events-none invisible h-0 min-h-0 border-0' : 'h-[calc(100dvh-10.5rem)] min-h-[540px]'}`} aria-hidden={enSecuencias ? true : undefined}>
         <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-[var(--ls-linea)] px-3 py-1.5">
-          {selector}
+          <div className="flex min-w-0 items-center gap-2">
+            {selector}
+            {verSecuencias && (
+              <button type="button" onClick={abrirSecuencias} className={BOTON_SECUNDARIO} title="Los seguimientos automáticos: qué sale hoy, la cola de leads y cómo va cada uno">
+                <Workflow className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden /> Secuencias
+              </button>
+            )}
+          </div>
           {!enEquipo && buzon && (
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="hidden truncate pr-1 text-[11.5px] text-[var(--ls-t4)] md:inline" suppressHydrationWarning>
@@ -669,6 +714,12 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
           <div className="flex flex-1 items-center justify-center p-8 text-center text-[13px] text-[var(--ls-t3)]">Elige un buzón arriba para ver sus correos.</div>
         )}
       </div>
+
+      {secuenciasMontadas && (
+        <div className={enSecuencias ? '' : 'hidden'}>
+          <PantallaDeSecuencias onVolver={() => setEnSecuencias(false)} visible={activa && enSecuencias} />
+        </div>
+      )}
 
       {redactando && buzon && <Redactar buzon={buzon} yoId={yo.id} esAdmin={esAdmin} borrador={redactando} onCerrar={() => setRedactando(null)} onEnviado={(id, asunto, detalle) => void alEnviar(id, redactando, asunto, detalle)} />}
       {ajustes && buzon && (

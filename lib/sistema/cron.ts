@@ -254,6 +254,26 @@ export const TAREAS_CRON = [
       'haya leído en el webmail. Solo lee: no envía, no borra ni marca nada en el servidor de correo.',
   },
   {
+    /**
+     * CADA MINUTO, Y EL INTERRUPTOR REAL ESTÁ EN CORREO → SECUENCIAS → AJUSTES.
+     *
+     * Es el motor de los seguimientos automáticos de correo (lib/correo/secuencias/motor.ts): vigila si algún lead ha contestado, reparte las horas,
+     * y manda los seguimientos que ya llegan a su hora, repartidos entre todos los buzones de 9 a 18 (hora de Madrid) de lunes a viernes. NACE
+     * APAGADO Y EN ENSAYO: aunque este proceso corra cada minuto, mientras el interruptor de las secuencias esté apagado cada pasada contesta «apagado»
+     * y no toca nada. Apagarlo AQUÍ lo detiene del todo (ni vigila ni envía), pero lo normal es pararlo desde la pantalla de Secuencias.
+     *
+     * Cada minuto porque los envíos se reparten al segundo (nunca dos a la vez) y una respuesta del lead tiene que cortar la secuencia en cuanto entra.
+     */
+    id: 'correo-secuencias',
+    nombre: 'Seguimientos de correo',
+    ruta: '/api/correo/secuencias/cron',
+    cadaMinutos: 1,
+    que:
+      'Manda los seguimientos automáticos de correo a su hora, desde el buzón de cada comercial y en el mismo hilo, entre las 9:00 y las 18:00 ' +
+      '(hora de Madrid, de lunes a viernes). Antes de cada envío lee el buzón y la ficha del lead: si ha contestado, ha rebotado o se ha hablado con él, ' +
+      'no sale. Con el interruptor de Correo → Secuencias apagado (o en ensayo) no envía nada.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',

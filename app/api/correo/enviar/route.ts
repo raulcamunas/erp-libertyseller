@@ -3,7 +3,10 @@ import { UUID, fail } from '@/lib/amazon/api'
 import { leerLista } from '@/lib/correo/direcciones'
 import { MAX_ADJUNTOS, MAX_BYTES_ADJUNTOS, MAX_ENVIOS_POR_MINUTO, MENSAJE_DE_PROBLEMA, comprobarEntrada, type AdjuntoParaEnviar, type EntradaDeEnvio } from '@/lib/correo/enviar'
 import { marcarBorradorEnviado } from '@/lib/correo/ia-servidor'
-import { SIN_CACHE, requerirCorreo, respuestaDeFallo } from '@/lib/correo/rutas'
+import { textoSinFirma } from '@/lib/correo/plantillas'
+import { SIN_CACHE, registrar, requerirCorreo, respuestaDeFallo } from '@/lib/correo/rutas'
+import { almacenDeSecuencias } from '@/lib/correo/secuencias/almacen'
+import { inscribir, type ResultadoDeInscribir } from '@/lib/correo/secuencias/inscripcion'
 import { autorizarBuzon, cargarContextoDeRespuesta, contarEnviosRecientes, enviarDesdeBuzon } from '@/lib/correo/servidor'
 import { comprobarTamañoPeticion } from '@/lib/subidas-limite'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -19,6 +22,8 @@ import { createServiceClient } from '@/lib/supabase/service'
  *   modo         'responder' (por defecto si hay respondeA) o 'reenviar'
  *   sinCita      '1' para no citar el mensaje original al contestar
  *   iaId         (opcional) id del borrador que escribió la IA y que el comercial ha editado y envía: se apunta lo que salió de verdad
+ *   secuencia    (opcional) JSON { leadId, seguimientos: [{ texto, asunto? }], iaModelo? }: tras enviar, se programan esos seguimientos automáticos (ver
+ *                lib/correo/secuencias). Solo vale para un primer correo a UN destinatario; el correo sale igual aunque no se puedan programar
  *   adjuntos     uno o varios ficheros
  *
  * Una dirección que no vale NO se descarta en silencio: se devuelve un 400 con la que falla, porque quien envía tiene que
@@ -33,6 +38,23 @@ const MAX_BYTES_PETICION = MAX_BYTES_ADJUNTOS + 2 * 1024 * 1024
 const MAX_CAMPO_DE_TEXTO = 120_000
 
 const texto = (v: FormDataEntryValue | null, maximo: number): string => (typeof v === 'string' ? v.slice(0, maximo) : '')
+
+/** El campo `secuencia` del formulario, si viene y tiene sentido; si no, null (el correo se envía igual, sin seguimientos) */
+function leerPeticionDeSecuencia(valor: FormDataEntryValue | null): { leadId: string; seguimientos: Array<{ texto: string; asunto?: string }>; iaModelo: string | null } | null {
+  if (typeof valor !== 'string' || valor === '' || valor.length > 60_000) return null
+  try {
+    const o = JSON.parse(valor) as { leadId?: unknown; seguimientos?: unknown; iaModelo?: unknown }
+    if (typeof o.leadId !== 'string' || !UUID.test(o.leadId) || !Array.isArray(o.seguimientos) || o.seguimientos.length === 0 || o.seguimientos.length > 4) return null
+    const seguimientos: Array<{ texto: string; asunto?: string }> = []
+    for (const s of o.seguimientos as Array<{ texto?: unknown; asunto?: unknown }>) {
+      if (!s || typeof s.texto !== 'string') return null
+      seguimientos.push({ texto: s.texto.slice(0, 8000), ...(typeof s.asunto === 'string' && s.asunto.trim() !== '' ? { asunto: s.asunto.slice(0, 300) } : {}) })
+    }
+    return { leadId: o.leadId.toLowerCase(), seguimientos, iaModelo: typeof o.iaModelo === 'string' ? o.iaModelo.slice(0, 60) : null }
+  } catch {
+    return null
+  }
+}
 
 export async function POST(request: NextRequest) {
   const sesion = await requerirCorreo()
@@ -96,7 +118,37 @@ export async function POST(request: NextRequest) {
     if (typeof iaId === 'string' && UUID.test(iaId)) {
       await marcarBorradorEnviado(service, { id: iaId.toLowerCase(), userId: sesion.userId, hiloId: r.hiloId, asunto: entrada.asunto, texto: entrada.texto })
     }
-    return NextResponse.json({ ok: true, hiloId: r.hiloId, copiadoAEnviados: r.copiadoAEnviados, rechazados: r.rechazados }, { headers: SIN_CACHE })
+
+    // Los seguimientos automáticos: el correo YA HA SALIDO, así que pase lo que pase aquí no se devuelve un error de envío
+    let secuencia: unknown = undefined
+    const pedida = leerPeticionDeSecuencia(formulario.get('secuencia'))
+    if (pedida) {
+      if (respondeA) secuencia = { ok: false, mensaje: 'Los seguimientos automáticos solo se programan en un primer correo, no al contestar.' }
+      else if (para.personas.length !== 1 || cc.personas.length > 0) secuencia = { ok: false, mensaje: 'Los seguimientos automáticos solo se programan cuando el correo va a una sola dirección.' }
+      else {
+        try {
+          const resultado: ResultadoDeInscribir = await inscribir(
+            { almacen: almacenDeSecuencias(service) },
+            {
+              leadId: pedida.leadId,
+              buzonId: auth.buzon.id,
+              userId: sesion.userId,
+              destinatario: para.personas[0].direccion,
+              primerCorreo: { asunto: entrada.asunto, texto: textoSinFirma(entrada.texto, auth.buzon.firma).trim(), messageId: r.messageId, hiloId: r.hiloId, enviadoAt: r.fecha.getTime() },
+              seguimientos: pedida.seguimientos,
+              iaModelo: pedida.iaModelo,
+            }
+          )
+          secuencia = resultado.ok
+            ? { ok: true, aviso: resultado.aviso, pasos: resultado.pasos.map((p) => ({ orden: p.orden, etiqueta: p.etiqueta, programadoAt: p.programadoAt })) }
+            : { ok: false, mensaje: resultado.mensaje }
+        } catch (error) {
+          registrar('Correo · enviar: no se han podido programar los seguimientos', error)
+          secuencia = { ok: false, mensaje: 'El correo ha salido, pero no se han podido programar los seguimientos. Vuelve a intentarlo desde la ficha del lead.' }
+        }
+      }
+    }
+    return NextResponse.json({ ok: true, hiloId: r.hiloId, copiadoAEnviados: r.copiadoAEnviados, rechazados: r.rechazados, ...(secuencia !== undefined ? { secuencia } : {}) }, { headers: SIN_CACHE })
   } catch (error) {
     return respuestaDeFallo('Correo · enviar: fallo', error)
   }

@@ -10,6 +10,8 @@ import { camposSinRellenar, insertarPlantilla, rellenarPlantilla, textoSinFirma,
 import type { BorradorDeCorreo } from '@/lib/correo/redactar'
 import type { BuzonVisible } from '@/lib/correo/tipos'
 import { enviarJson, pedir } from './api'
+import { BloqueDeSeguimientos, useSeguimientos } from './secuencias/BloqueDeSeguimientos'
+import { ComprobacionDeCorreo, comprobarAhora, direccionesDelCampo, hayDireccionMala, useComprobacion } from './secuencias/ComprobacionDeCorreo'
 import { SelectorDePlantillas } from './SelectorDePlantillas'
 import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from './ui'
 
@@ -57,6 +59,8 @@ interface RespuestaDeEnvio {
   hiloId: string
   copiadoAEnviados: boolean
   rechazados: string[]
+  /** Qué pasó con los seguimientos automáticos, si se pidieron (el correo ya ha salido pase lo que pase aquí) */
+  secuencia?: { ok: true; aviso: string | null; pasos: Array<{ orden: number; etiqueta: string; programadoAt: number | null }> } | { ok: false; mensaje: string }
 }
 
 const TITULO: Record<BorradorDeCorreo['modo'], string> = {
@@ -83,6 +87,11 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
   const [iaRedactando, setIaRedactando] = useState(false)
   const [iaBorrador, setIaBorrador] = useState<{ id: string | null; versionId: string | null; ejemplos: number; aviso: string | null } | null>(null)
   const iaArrancada = useRef(false)
+  // Sube cada vez que la IA acaba de escribir el correo: los seguimientos automáticos se escriben (o se reescriben) a partir del nuevo
+  const [disparoIa, setDisparoIa] = useState(0)
+  // Hay una dirección que parece incorrecta y se está pidiendo confirmación para enviar igualmente
+  const [confirmaMala, setConfirmaMala] = useState(false)
+  const bloqueSeguimientos = useRef<HTMLDivElement>(null)
   const entradaPara = useRef<HTMLInputElement>(null)
   const entradaTexto = useRef<HTMLTextAreaElement>(null)
   const entradaFicheros = useRef<HTMLInputElement>(null)
@@ -104,6 +113,13 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
     intentar()
     return () => cancelAnimationFrame(cuadro)
   }, [borrador.para])
+
+  const seg = useSeguimientos({ buzonId: buzon.id, leadId: borrador.lead?.id ?? null, modo: borrador.modo, para, cc, asunto, texto, firma: buzon.firma, disparo: disparoIa })
+  // ¿Es un buen correo? Direcciones y texto, solo en un correo nuevo (al contestar, la dirección ya es la de la conversación)
+  const cuerpoSinFirma = cuerpoEscrito(texto, buzon.firma)
+  const comprobacion = useComprobacion({ direcciones: direccionesDelCampo(`${para},${cc}`), asunto, texto: cuerpoSinFirma, esRespuesta: false, activa: borrador.modo === 'nuevo' })
+  // Tocar las direcciones retira la pregunta de «¿enviar igualmente?»
+  useEffect(() => setConfirmaMala(false), [para, cc])
 
   const bytes = adjuntos.reduce((suma, f) => suma + f.size, 0)
   const tocado = texto !== borrador.texto || para !== borrador.para || cc !== borrador.cc || asunto !== borrador.asunto || adjuntos.length > 0
@@ -146,6 +162,7 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
     if (borrador.modo === 'nuevo') setAsunto(r.datos.asunto)
     setTexto(ponerBorradorIa(buzon.firma, r.datos.texto))
     setIaBorrador({ id: r.datos.id, versionId: r.datos.versionId ?? iaBorrador?.versionId ?? null, ejemplos: r.datos.ejemplos, aviso: r.datos.aviso })
+    setDisparoIa((n) => n + 1)
     setIaPide('')
     requestAnimationFrame(() => {
       const el = entradaTexto.current
@@ -197,15 +214,61 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
     if (entradaFicheros.current) entradaFicheros.current.value = ''
   }
 
-  async function enviar(e?: FormEvent) {
+  /** Cambia una dirección por la que se propone (una errata clara: «gmial.com» por «gmail.com») en «Para» y en «Cc» */
+  function usarSugerencia(de: string, a: string) {
+    const exacta = new RegExp(de.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+    setPara((p) => p.replace(exacta, a))
+    setCc((c) => c.replace(exacta, a))
+  }
+
+  /** Un solo envío a la vez: entre la revisión de la dirección y el envío hay esperas, y un segundo clic no debe lanzar otro */
+  const envioEnCurso = useRef(false)
+  async function enviar(e?: FormEvent, aunqueSeaMala = false) {
     e?.preventDefault()
-    if (enviando || iaRedactando) return
+    if (envioEnCurso.current) return
+    envioEnCurso.current = true
+    try {
+      await prepararYEnviar(aunqueSeaMala)
+    } finally {
+      envioEnCurso.current = false
+    }
+  }
+
+  async function prepararYEnviar(aunqueSeaMala: boolean) {
+    if (enviando || iaRedactando || seg.generando) return
     if (!para.trim()) return setError('Falta al menos un destinatario.')
     if (!asunto.trim() && borrador.modo === 'nuevo') return setError('Escribe un asunto.')
     if (!texto.trim() && adjuntos.length === 0) return setError('El mensaje está vacío.')
     // Un campo de plantilla sin rellenar («Hola {{nombre}}») NO sale: es el error que no se puede deshacer una vez enviado
     const pendientes = camposSinRellenar(`${asunto}\n${texto}`)
     if (pendientes.length > 0) return setError(`Quedan campos sin rellenar: ${pendientes.join(', ')}. Escríbelos, o bórralos, antes de enviar.`)
+
+    // ¿Es un buen correo? Una dirección que seguramente no existe hace rebotar el correo, y los rebotes dañan la reputación del buzón: se pregunta antes.
+    // Si lo escrito cambió hace un instante y la revisión aún no ha llegado, se pide ahora (con un máximo de espera: nunca debe impedir enviar)
+    if (borrador.modo === 'nuevo' && !aunqueSeaMala) {
+      let veredicto = comprobacion.vigente ? comprobacion.resultado : null
+      if (!comprobacion.vigente) {
+        veredicto = await Promise.race([comprobarAhora({ direcciones: direccionesDelCampo(`${para},${cc}`), asunto, texto: cuerpoSinFirma, esRespuesta: false }), new Promise<null>((fin) => setTimeout(() => fin(null), 3500))])
+        comprobacion.fijar(veredicto)
+      }
+      if (hayDireccionMala(veredicto).length > 0) {
+        setError(null)
+        setConfirmaMala(true)
+        return
+      }
+    }
+
+    // Los seguimientos automáticos: con el interruptor encendido y sin escribir, este primer «Enviar» los escribe y se detiene para que se lean.
+    // Si la IA no ha podido (hay un error), el correo se puede enviar igualmente, sin seguimientos
+    if (!aunqueSeaMala && seg.pideEscribirlosAntes && !seg.error) {
+      setError(null)
+      if (await seg.generar()) {
+        toast.info('Revisa los seguimientos y pulsa Enviar otra vez.')
+        requestAnimationFrame(() => bloqueSeguimientos.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+      }
+      return
+    }
+    if (!aunqueSeaMala && seg.bloqueo) return setError(seg.bloqueo)
 
     setError(null)
     setEnviando(true)
@@ -222,6 +285,9 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
     }
     // Si el mensaje sale de un borrador de la IA se apunta lo que salió de verdad (editado), para medir si funciona
     if (iaBorrador?.id) f.set('iaId', iaBorrador.id)
+    // Los seguimientos van con el correo; si se envía a una dirección que parece mala, no se programa ninguno
+    const secuenciaPedida = aunqueSeaMala ? null : seg.paraEnviar()
+    if (secuenciaPedida) f.set('secuencia', JSON.stringify(secuenciaPedida))
     for (const a of adjuntos) f.append('adjuntos', a, a.name)
 
     const r = await pedir<RespuestaDeEnvio>('/api/correo/enviar', { method: 'POST', body: f })
@@ -232,6 +298,11 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
     if (r.datos.rechazados.length > 0) toast.warning(`Enviado, pero el servidor no ha entregado a: ${r.datos.rechazados.join(', ')}`)
     else if (!r.datos.copiadoAEnviados) toast.warning('Enviado. No se ha podido guardar la copia en la carpeta Enviados del webmail.')
     else if (!sinAvisoDeExito) toast.success('Mensaje enviado.')
+    if (r.datos.secuencia?.ok) {
+      toast.success(`Seguimientos programados: ${r.datos.secuencia.pasos.map((x) => x.etiqueta).join(' y ')}${seg.estado?.ensayo ? ' (en pruebas: todavía no salen).' : '.'}`, { duration: 9000 })
+      if (r.datos.secuencia.aviso) toast.warning(r.datos.secuencia.aviso, { duration: 9000 })
+    } else if (r.datos.secuencia) toast.warning(r.datos.secuencia.mensaje, { duration: 12000 })
+    else if (!secuenciaPedida && seg.elegible && seg.activo) toast.warning('El correo se ha enviado sin seguimientos automáticos.', { duration: 9000 })
     onEnviado(r.datos.hiloId, asunto.trim(), { para: para.trim(), texto, conAviso })
   }
 
@@ -292,6 +363,7 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
               ref={entradaTexto}
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
+              onBlur={seg.alSalirDelTexto}
               readOnly={iaRedactando}
               rows={14}
               aria-label="Mensaje"
@@ -316,6 +388,25 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
               </span>
             </p>
           )}
+
+          <ComprobacionDeCorreo resultado={comprobacion.resultado} onUsarSugerencia={usarSugerencia} />
+          {confirmaMala && (
+            <div className="sec-sube flex flex-wrap items-center gap-2 rounded-[8px] border border-[var(--ls-e-rojo)] bg-[color-mix(in_srgb,var(--ls-e-rojo)_8%,transparent)] px-3 py-2" role="alertdialog" aria-label="Confirmar el envío a una dirección dudosa">
+              <p className="min-w-0 flex-1 text-[12px] leading-snug text-[var(--ls-t1)]">
+                Hay una dirección que seguramente no existe.
+                {seg.elegible && seg.activo ? ' Si envías igualmente, no se programarán seguimientos.' : ''} ¿Enviar de todas formas?
+              </p>
+              <button type="button" onClick={() => void enviar(undefined, true)} disabled={enviando} className={`${BOTON_SECUNDARIO} border-[var(--ls-e-rojo)] text-[var(--ls-e-rojo)]`}>
+                Enviar igualmente
+              </button>
+              <button type="button" onClick={() => setConfirmaMala(false)} className="h-8 px-2 text-[12px] text-[var(--ls-t4)] hover:text-[var(--ls-t1)]">
+                Corregir
+              </button>
+            </div>
+          )}
+          <div ref={bloqueSeguimientos}>
+            <BloqueDeSeguimientos seg={seg} />
+          </div>
 
           {borrador.respondeA && (
             <label className="flex cursor-pointer select-none items-center gap-2 text-[12px] text-[var(--ls-t3)]">
@@ -353,9 +444,9 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
         </div>
 
         <footer className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] px-4 py-3">
-          <button type="submit" disabled={enviando || iaRedactando} className={BOTON_PRIMARIO}>
-            {enviando ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
-            {enviando ? 'Enviando…' : 'Enviar'}
+          <button type="submit" disabled={enviando || iaRedactando || seg.generando} className={BOTON_PRIMARIO}>
+            {enviando || seg.generando ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
+            {enviando ? 'Enviando…' : seg.generando ? 'Escribiendo seguimientos…' : seg.pideEscribirlosAntes && !seg.error ? 'Revisar y enviar' : 'Enviar'}
           </button>
           <input ref={entradaFicheros} type="file" multiple onChange={(e) => añadir(e.target.files)} className="sr-only" tabIndex={-1} aria-hidden />
           {borrador.lead && (

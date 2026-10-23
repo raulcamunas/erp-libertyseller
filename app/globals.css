@@ -1972,3 +1972,66 @@ html.light .inicio-tarjeta:focus-visible {
   .inicio-tarjeta:focus-visible .inicio-icono { transform: none; }
   .inicio-tarjeta:hover .inicio-flecha { translate: none; }
 }
+
+
+/* =====================================================================
+   CORREO · SECUENCIAS · MOVIMIENTO
+   =====================================================================
+   La pantalla de seguimientos automáticos (components/correo/secuencias/*): la línea de tiempo de cada lead, el reparto del día por buzón y el
+   bloque de seguimientos del cuadro de redactar. Los nodos de una línea de tiempo aparecen uno tras otro, el tramo entre dos se va llenando de izquierda
+   a derecha, el siguiente envío late con un anillo, un correo que acaba de salir hace un destello verde, y la raya de «ahora» respira.
+
+   MOVIMIENTO. Igual que los bloques de Rendimiento y de Inicio: TODA `animation` va dentro de `prefers-reduced-motion: no-preference`, el escalón de cada
+   pieza se pone con `style={{ '--d': n }}`, `translate` y `scale` van como propiedades sueltas (no pisan los `transform` de Tailwind) y las entradas llevan
+   `backwards` y no `both`: al acabar se quitan solas y el elemento puede reaccionar al ratón.
+
+   CÓMO SE DESHACE: borrando este bloque. Los componentes siguen funcionando, solo que sin movimiento (las clases `sec-*` dejarían de existir).
+   ===================================================================== */
+@keyframes sec-nodo {
+  from { opacity: 0; scale: 0.3; }
+  60%  { opacity: 1; scale: 1.18; }
+  to   { opacity: 1; scale: none; }
+}
+@keyframes sec-tramo {
+  from { scale: 0 1; }
+  to   { scale: none; }
+}
+@keyframes sec-pulso {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ls-acc-graf) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 9px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes sec-destello {
+  0%   { scale: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--ls-e-verde) 70%, transparent); }
+  35%  { scale: 1.55; }
+  100% { scale: none; box-shadow: 0 0 0 16px transparent; }
+}
+@keyframes sec-ahora {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+@keyframes sec-sube {
+  from { opacity: 0; translate: 0 6px; }
+  to   { opacity: 1; translate: none; }
+}
+@keyframes sec-vuela {
+  0%   { opacity: 0; translate: -40% 0; }
+  18%  { opacity: 1; }
+  82%  { opacity: 1; }
+  100% { opacity: 0; translate: 140% 0; }
+}
+@keyframes sec-barra {
+  from { scale: 0 1; }
+  to   { scale: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sec-nodo     { animation: sec-nodo 0.42s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 80ms); }
+  .sec-tramo    { transform-origin: left center; animation: sec-tramo 0.75s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 80ms + 140ms); }
+  .sec-pulso    { animation: sec-pulso 2.1s ease-out infinite; }
+  .sec-destello { animation: sec-destello 1.2s ease-out 1; }
+  .sec-ahora    { animation: sec-ahora 2.6s ease-in-out infinite; }
+  .sec-sube     { animation: sec-sube 0.36s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 40ms); }
+  .sec-vuela    { animation: sec-vuela 2.8s linear infinite; }
+  .sec-barra    { transform-origin: left center; animation: sec-barra 0.8s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 60ms); }
+}

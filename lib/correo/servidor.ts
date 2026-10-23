@@ -352,7 +352,7 @@ export function copiarAEnviadosDe(buzon: FilaDeBuzon, password: string): (crudo:
   }
 }
 
-export async function enviarDesdeBuzon(service: Servicio, buzon: FilaDeBuzon, entrada: EntradaDeEnvio): Promise<ResultadoDeEnviar> {
+export async function enviarDesdeBuzon(service: Servicio, buzon: FilaDeBuzon, entrada: EntradaDeEnvio, opciones: { id?: string } = {}): Promise<ResultadoDeEnviar> {
   const contrasena = await leerContrasena(service, buzon.id)
   if ('sinContrasena' in contrasena) return { tipo: 'error', codigo: 'credenciales', mensaje: 'Este buzón está desconectado. Vuelve a conectarlo para poder enviar.', estado: 409 }
   if ('ilegible' in contrasena) return { tipo: 'error', codigo: 'contrasena', mensaje: MENSAJE_DE_CONTRASENA_ILEGIBLE, estado: 422 }
@@ -360,7 +360,8 @@ export async function enviarDesdeBuzon(service: Servicio, buzon: FilaDeBuzon, en
   let transporte: Awaited<ReturnType<typeof crearTransporte>> | null = null
   try {
     transporte = await crearTransporte(buzon, contrasena.password)
-    const resultado = await enviarCorreo({ almacen: almacenSupabase(service), transporte, copiarAEnviados: copiarAEnviadosDe(buzon, contrasena.password) }, buzon, entrada)
+    // `opciones.id` fija el Message-ID (`id@dominio`): las secuencias lo apuntan ANTES de enviar para poder comprobar después si un envío cortado llegó a salir
+    const resultado = await enviarCorreo({ almacen: almacenSupabase(service), transporte, copiarAEnviados: copiarAEnviadosDe(buzon, contrasena.password) }, buzon, entrada, opciones)
     return { tipo: 'enviado', resultado }
   } catch (error) {
     if (esFalloDeBase(error)) {

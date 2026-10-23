@@ -74,6 +74,7 @@ RUN { \
       echo "* * * * * /app/scripts/rinkel-llamadas.sh"; \
       echo "* * * * * /app/scripts/rinkel-transcribir.sh"; \
       echo "* * * * * /app/scripts/correo-sync.sh"; \
+      echo "* * * * * /app/scripts/correo-secuencias.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto
