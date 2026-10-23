@@ -147,10 +147,33 @@ export class AmazonApiError extends Error {
   }
 }
 
+/**
+ * UN ERROR DE LA BASE DE DATOS, DICHO CON SUS PALABRAS.
+ *
+ * Los errores de Supabase/PostgREST NO son `Error`: son objetos sueltos
+ * `{ message, code, details, hint }` que el código lanza con `if (error) throw error`. Sin esto,
+ * `humanMessageOf` los veía como «algo que no es un Error» y los pintaba como «Ha fallado la
+ * llamada a Amazon y no ha dicho por qué»: así estuvo el stock de Entrais dos días sin
+ * enviarse (131 pasadas con la misma frase), porque lo que fallaba no era Amazon sino la base
+ * de datos, y nadie podía saberlo.
+ *
+ * SOLO `message` y `code`: `details` suele traer la fila entera que ha fallado y este texto se
+ * guarda en el historial, sale en la campana y se copia en chats.
+ */
+function describeDbError(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null) return null
+  const { message, code } = error as { message?: unknown; code?: unknown }
+  if (typeof message !== 'string' || message.trim() === '') return null
+  const codigo = typeof code === 'string' && code !== '' ? ` (${code})` : ''
+  return `Error de la base de datos${codigo}: ${message.trim().slice(0, 300)}`
+}
+
 /** Mensaje para pantalla de cualquier cosa que se haya lanzado */
 export function humanMessageOf(error: unknown): string {
   if (error instanceof AmazonApiError) return error.humanMessage
   if (error instanceof Error && error.message) return error.message
+  const deLaBase = describeDbError(error)
+  if (deLaBase) return deLaBase
   return 'Ha fallado la llamada a Amazon y no ha dicho por qué. Vuelve a intentarlo dentro de un rato.'
 }
 
