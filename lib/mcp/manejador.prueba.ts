@@ -166,7 +166,7 @@ async function principal() {
   // `openid` hace que Supabase fabrique un ID token al canjear el código y en este proyecto falla con un 500
   // («Error generating ID token»): Claude se queda en «No se pudo conectar». Claude pide lo que se anuncia aquí.
   ok('los metadatos de recurso piden solo `email`', JSON.stringify(metadatosRecurso(BASE, SUPABASE).scopes_supported) === '["email"]')
-  ok('y NUNCA anuncian `openid`', !metadatosRecurso(BASE, SUPABASE).scopes_supported.some((s) => s === 'openid'))
+  ok('y NUNCA anuncian `openid`', !(metadatosRecurso(BASE, SUPABASE).scopes_supported as string[]).includes('openid'))
   ok('el aviso del 401 también dice qué permiso pedir', avisoDeAutenticacion(BASE, false).includes('scope="email"'))
   ok('el aviso de un token caducado conserva el permiso', avisoDeAutenticacion(BASE, true).includes('scope="email"'))
   ok('ni el aviso menciona `openid`', !/openid/.test(avisoDeAutenticacion(BASE, true)))
