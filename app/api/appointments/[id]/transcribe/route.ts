@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import OpenAI, { toFile } from 'openai'
+import OpenAI from 'openai'
+import { audioDesdeBytes } from '@/lib/transcripcion/audio'
+import { MODELO_DE_VOZ_POR_DEFECTO } from '@/lib/transcripcion/reglas'
+import { transcribirAudio } from '@/lib/transcripcion/voz'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-// Límite de Whisper: 25MB por archivo
+// Límite de OpenAI para transcribir: 25MB por archivo
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024
+
+/**
+ * LA VOZ: `gpt-transcribe` (0,0045 $/min), el mismo modelo que transcribe las llamadas de Rinkel (lib/transcripcion/). Antes era `whisper-1` (0,006 $/min), que
+ * OpenAI APAGA el 26 feb 2027 junto con los demás modelos viejos de transcripción: pasado ese día esta ruta habría dejado de funcionar. Se cambia en el
+ * servidor sin tocar código con TRANSCRIPCION_MODELO_VOZ.
+ *
+ * Las dos pistas (el contexto y las palabras clave) ayudan a acertar la marca y la jerga: sin ellas una llamada de prueba oyó «delivery seller» por «Liberty Seller».
+ * No se le dice el idioma: lo detecta solo (probado con español e inglés).
+ */
+const PISTAS_DE_LA_CITA = {
+  prompt: 'Sesión de consultoría estratégica sobre vender en Amazon, entre un comercial de Liberty Seller, una agencia de gestión de cuentas de Amazon, y un posible cliente.',
+  palabras: 'Liberty Seller, Amazon',
+}
 
 const SUMMARY_SYSTEM_PROMPT = `Eres un asistente que ayuda a un equipo comercial de Liberty Seller
 (agencia de gestión de cuentas de Amazon) a repasar sus llamadas de venta.
@@ -62,22 +78,23 @@ export async function POST(
 
     const contentLength = Number(audioRes.headers.get('content-length') || 0)
     if (contentLength && contentLength > MAX_AUDIO_BYTES) {
-      throw new Error('El audio supera los 25MB, el límite de Whisper para transcribir')
+      throw new Error('El audio supera los 25MB, el límite de OpenAI para transcribir')
     }
 
-    const buffer = Buffer.from(await audioRes.arrayBuffer())
-    if (buffer.byteLength > MAX_AUDIO_BYTES) {
-      throw new Error('El audio supera los 25MB, el límite de Whisper para transcribir')
+    const bytes = new Uint8Array(await audioRes.arrayBuffer())
+    if (bytes.byteLength > MAX_AUDIO_BYTES) {
+      throw new Error('El audio supera los 25MB, el límite de OpenAI para transcribir')
     }
 
-    const file = await toFile(buffer, appt.recording_filename || 'grabacion.mp3')
-
-    const transcriptionRes = await openai.audio.transcriptions.create({
-      file,
-      model: 'whisper-1',
-      language: 'es',
+    // El formato se reconoce por los bytes del archivo (y, si no basta, por la cabecera y por el nombre): un mp4 de una videollamada también vale
+    const audio = audioDesdeBytes(bytes, { tipoMime: audioRes.headers.get('content-type'), nombre: appt.recording_filename })
+    const voz = await transcribirAudio({
+      audio,
+      modelo: process.env.TRANSCRIPCION_MODELO_VOZ?.trim() || MODELO_DE_VOZ_POR_DEFECTO,
+      clave: process.env.OPENAI_API_KEY ?? '',
+      pistas: PISTAS_DE_LA_CITA,
     })
-    const transcription = transcriptionRes.text?.trim() || ''
+    const transcription = voz.texto
 
     if (!transcription) throw new Error('La transcripción salió vacía')
 

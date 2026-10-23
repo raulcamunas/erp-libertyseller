@@ -1,4 +1,4 @@
-import { ErrorDeAudio, MENSAJE_DE_AUDIO, descargarAudio, formatoPorBytes, formatoPorTipo } from '@/lib/transcripcion/audio'
+import { ErrorDeAudio, MENSAJE_DE_AUDIO, audioDesdeBytes, descargarAudio, formatoPorBytes, formatoPorNombre, formatoPorTipo } from '@/lib/transcripcion/audio'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -49,6 +49,31 @@ console.log('\n=== el formato por la cabecera ===')
   ok('audio/x-wav', formatoPorTipo('audio/x-wav') === 'wav')
   ok('audio/mp4', formatoPorTipo('audio/mp4') === 'm4a')
   ok('application/octet-stream: nada', formatoPorTipo('application/octet-stream') === null && formatoPorTipo(null) === null)
+}
+
+console.log('\n=== el formato por el nombre del fichero ===')
+{
+  ok('mp3, wav, m4a, webm, ogg y flac', formatoPorNombre('a.mp3') === 'mp3' && formatoPorNombre('A.WAV') === 'wav' && formatoPorNombre('x.m4a') === 'm4a' && formatoPorNombre('x.webm') === 'webm' && formatoPorNombre('x.ogg') === 'ogg' && formatoPorNombre('x.flac') === 'flac')
+  ok('un mp4 (una videollamada grabada) va como m4a, que es el mismo contenedor para OpenAI; mpeg y mpga son mp3', formatoPorNombre('reunion.mp4') === 'm4a' && formatoPorNombre('a.mpeg') === 'mp3' && formatoPorNombre('a.mpga') === 'mp3')
+  ok('lo que no es audio, o sin nombre: null', formatoPorNombre('foto.png') === null && formatoPorNombre('sin_extension') === null && formatoPorNombre(null) === null && formatoPorNombre(undefined) === null && formatoPorNombre('') === null)
+}
+
+console.log('\n=== un audio que ya está en memoria ===')
+{
+  const a = audioDesdeBytes(WAV, { tipoMime: 'audio/mpeg', nombre: 'x.mp3' })
+  ok('los bytes mandan sobre la cabecera y el nombre', a.extension === 'wav' && a.mime === 'audio/wav' && a.bytes === WAV)
+  ok('sin bytes que valgan, la cabecera', audioDesdeBytes(relleno(64), { tipoMime: 'audio/mpeg', nombre: 'x.wav' }).extension === 'mp3')
+  ok('y sin cabecera, el nombre del fichero', audioDesdeBytes(relleno(64), { tipoMime: 'application/octet-stream', nombre: 'grabacion.m4a' }).extension === 'm4a' && audioDesdeBytes(relleno(64), { nombre: 'reunion.webm' }).mime === 'audio/webm')
+  const falla = (f: () => unknown, codigo: string) => {
+    try {
+      f()
+      return false
+    } catch (e) {
+      return e instanceof ErrorDeAudio && e.codigo === codigo
+    }
+  }
+  ok('sin nada que lo identifique: «formato»', falla(() => audioDesdeBytes(relleno(64), { tipoMime: 'text/html', nombre: 'foto.png' }), 'formato') && falla(() => audioDesdeBytes(relleno(64)), 'formato'))
+  ok('vacío: «vacio»', falla(() => audioDesdeBytes(new Uint8Array(0), { nombre: 'x.mp3' }), 'vacio'))
 }
 
 /* ---------------- un fetch falso que sirve un cuerpo por trozos ---------------- */

@@ -79,6 +79,41 @@ export function formatoPorTipo(tipo: string | null): ExtensionDeAudio | null {
   return null
 }
 
+/** El formato por la extensión del nombre del fichero («grabacion.mp4»). Lo último que se mira: el nombre lo puso una persona */
+export function formatoPorNombre(nombre: string | null | undefined): ExtensionDeAudio | null {
+  const m = /\.([a-z0-9]{2,5})$/i.exec((nombre ?? '').trim())
+  switch (m?.[1].toLowerCase()) {
+    case 'mp3':
+    case 'mpeg':
+    case 'mpga':
+      return 'mp3'
+    case 'wav':
+      return 'wav'
+    case 'm4a':
+    case 'mp4':
+      return 'm4a'
+    case 'webm':
+      return 'webm'
+    case 'ogg':
+      return 'ogg'
+    case 'flac':
+      return 'flac'
+    default:
+      return null
+  }
+}
+
+/**
+ * Un audio que ya está en memoria (porque se bajó de otro sitio) listo para mandarlo a transcribir: se reconoce el formato por los primeros bytes, y solo si
+ * eso no basta por la cabecera `content-type` y por el nombre del fichero. Lo usa la transcripción de las citas; descargarAudio lo usa al acabar de bajar.
+ */
+export function audioDesdeBytes(bytes: Uint8Array, opciones: { tipoMime?: string | null; nombre?: string | null } = {}): AudioDescargado {
+  if (bytes.length === 0) throw new ErrorDeAudio('vacio', MENSAJE_DE_AUDIO.vacio)
+  const extension = formatoPorBytes(bytes) ?? formatoPorTipo(opciones.tipoMime ?? null) ?? formatoPorNombre(opciones.nombre)
+  if (!extension) throw new ErrorDeAudio('formato', MENSAJE_DE_AUDIO.formato)
+  return { bytes, extension, mime: MIME[extension] }
+}
+
 export interface OpcionesDeAudio {
   fetch?: typeof fetch
   /** Lo que se espera a que termine la descarga */
@@ -145,7 +180,5 @@ export async function descargarAudio(url: string, opciones: OpcionesDeAudio = {}
     posicion += t.length
   }
 
-  const extension = formatoPorBytes(bytes) ?? formatoPorTipo(respuesta.headers.get('content-type'))
-  if (!extension) throw new ErrorDeAudio('formato', MENSAJE_DE_AUDIO.formato)
-  return { bytes, extension, mime: MIME[extension] }
+  return audioDesdeBytes(bytes, { tipoMime: respuesta.headers.get('content-type') })
 }
