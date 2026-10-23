@@ -13,6 +13,7 @@ import {
 } from '@/lib/cold-calling/cartera'
 import { diaConSemana, diaLocal } from '@/lib/cold-calling/fechas'
 import { alEnviarseCorreoDeLead } from '@/lib/correo/peticiones'
+import { CorreoRapido } from './CorreoRapido'
 import { AVISO, BOTON, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { useIsMobile } from '@/lib/use-is-mobile'
 import type { CalendarPerson } from '@/lib/types/appointments'
@@ -410,6 +411,8 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
       </div>
 
       {puedeVerTodos && <DiagnosticoDeVinculos abierto={comprobando} onCerrar={() => setComprobando(false)} esAdmin={currentUser.role === 'admin'} />}
+      {/* Escribir a un lead (su correo o «Correo con IA») se hace en una ventana encima de la ficha, sin salir a Correo */}
+      <CorreoRapido yoId={currentUser.id} esAdmin={currentUser.role === 'admin'} />
     </div>
   )
 }

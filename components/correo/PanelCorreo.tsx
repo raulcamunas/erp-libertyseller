@@ -9,13 +9,14 @@ import { Avatar, Esqueleto } from '@/components/rendimiento/ui'
 import { ponerCorreoSinLeer } from '@/lib/avisos/contadores'
 import { apuntarCorreoEnLead } from '@/lib/correo/lead-cliente'
 import { avisarCorreoEnviadoALead, escucharPeticiones, type PeticionAlCorreo } from '@/lib/correo/peticiones'
+import { textoSinFirma } from '@/lib/correo/plantillas'
 import { borradorDe, type BorradorDeCorreo, type ModoDeRedactar } from '@/lib/correo/redactar'
 import type { BuzonVisible, HiloAbierto, HiloDeLista, MensajeDeHilo, RespuestaDeSincronizar, VistaDeCorreo } from '@/lib/correo/tipos'
 import { enviarJson, pedir } from './api'
 import { AjustesDeBuzon } from './AjustesDeBuzon'
 import { ConectarBuzon } from './ConectarBuzon'
 import { ListaDeHilos } from './ListaDeHilos'
-import { Redactar } from './Redactar'
+import { Redactar, type DetalleDeEnvio } from './Redactar'
 import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, Aviso } from './ui'
 import { VistaDeHilo } from './VistaDeHilo'
 import { VistaEquipo } from './VistaEquipo'
@@ -432,12 +433,12 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peticion, buzones])
 
-  async function alEnviar(hiloEnviado: string, borrador: BorradorDeCorreo, asuntoEnviado: string) {
+  async function alEnviar(hiloEnviado: string, borrador: BorradorDeCorreo, asuntoEnviado: string, detalle: DetalleDeEnvio) {
     setRedactando(null)
     // Un correo que sale desde la ficha de un lead se apunta solo en su historial (y sella su último contacto): el comercial no escribe nada
     if (borrador.lead) {
       const cuando = new Date().toISOString()
-      void apuntarCorreoEnLead({ leadId: borrador.lead.id, userId: yo.id, asunto: asuntoEnviado, cuando }).then((hecho) => {
+      void apuntarCorreoEnLead({ leadId: borrador.lead.id, userId: yo.id, asunto: asuntoEnviado, cuando, para: detalle.para, texto: textoSinFirma(detalle.texto, buzonRef.current?.firma) }).then((hecho) => {
         if (hecho) avisarCorreoEnviadoALead({ leadId: borrador.lead!.id, asunto: asuntoEnviado, cuando })
       })
     }
@@ -669,7 +670,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
         )}
       </div>
 
-      {redactando && buzon && <Redactar buzon={buzon} yoId={yo.id} esAdmin={esAdmin} borrador={redactando} onCerrar={() => setRedactando(null)} onEnviado={(id, asunto) => void alEnviar(id, redactando, asunto)} />}
+      {redactando && buzon && <Redactar buzon={buzon} yoId={yo.id} esAdmin={esAdmin} borrador={redactando} onCerrar={() => setRedactando(null)} onEnviado={(id, asunto, detalle) => void alEnviar(id, redactando, asunto, detalle)} />}
       {ajustes && buzon && (
         <AjustesDeBuzon
           buzon={buzon}

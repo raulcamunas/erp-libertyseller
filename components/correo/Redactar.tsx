@@ -33,8 +33,23 @@ interface Props {
   esAdmin: boolean
   borrador: BorradorDeCorreo
   onCerrar: () => void
-  /** Se ha enviado: el hilo en el que ha quedado y el asunto con el que salió */
-  onEnviado: (hiloId: string, asunto: string) => void
+  /** Se ha enviado: el hilo en el que ha quedado, el asunto con el que salió y lo que salió (a quién y el texto, con la firma) */
+  onEnviado: (hiloId: string, asunto: string, detalle: DetalleDeEnvio) => void
+  /**
+   * Quien abre este cuadro desde otra pantalla (la ventana rápida de Cold Calling) enseña él su propio aviso de «enviado» (con lo que apuntó en
+   * el historial). Con esto a true no se enseña el de siempre; los avisos de algo que falló (un destinatario rechazado, la copia en Enviados)
+   * se enseñan igual.
+   */
+  sinAvisoDeExito?: boolean
+}
+
+export interface DetalleDeEnvio {
+  /** A quién se envió, tal como estaba escrito en «Para» */
+  para: string
+  /** El texto tal como salió (con la firma debajo) */
+  texto: string
+  /** true si ya se ha enseñado un aviso de que algo no fue del todo bien (un destinatario rechazado o sin copia en Enviados) */
+  conAviso: boolean
 }
 
 interface RespuestaDeEnvio {
@@ -51,7 +66,7 @@ const TITULO: Record<BorradorDeCorreo['modo'], string> = {
   reenviar: 'Reenviar',
 }
 
-export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }: Props) {
+export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, sinAvisoDeExito = false }: Props) {
   const [para, setPara] = useState(borrador.para)
   const [cc, setCc] = useState(borrador.cc)
   const [mostrarCc, setMostrarCc] = useState(borrador.cc !== '')
@@ -211,10 +226,11 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }
     setEnviando(false)
     if (!r.ok) return setError(r.mensaje)
 
+    const conAviso = r.datos.rechazados.length > 0 || !r.datos.copiadoAEnviados
     if (r.datos.rechazados.length > 0) toast.warning(`Enviado, pero el servidor no ha entregado a: ${r.datos.rechazados.join(', ')}`)
     else if (!r.datos.copiadoAEnviados) toast.warning('Enviado. No se ha podido guardar la copia en la carpeta Enviados del webmail.')
-    else toast.success('Mensaje enviado.')
-    onEnviado(r.datos.hiloId, asunto.trim())
+    else if (!sinAvisoDeExito) toast.success('Mensaje enviado.')
+    onEnviado(r.datos.hiloId, asunto.trim(), { para: para.trim(), texto, conAviso })
   }
 
   function teclas(e: KeyboardEvent) {
