@@ -149,9 +149,9 @@
     height: 100%;
     background: 
       radial-gradient(circle at 20% 30%, var(--glow-1) 0%, transparent 50%),
-      radial-gradient(circle at 80% 70%, rgba(0, 115, 255, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(255, 140, 40, 0.07) 0%, transparent 50%),
       radial-gradient(circle at 50% 50%, var(--glow-2) 0%, transparent 50%),
-      radial-gradient(circle at 40% 80%, rgba(0, 115, 255, 0.05) 0%, transparent 50%);
+      radial-gradient(circle at 40% 80%, rgba(255, 102, 0, 0.04) 0%, transparent 50%);
     filter: blur(120px);
     z-index: -1;
     pointer-events: none;
@@ -1163,7 +1163,7 @@ html.light .fba-cockpit {
   --ini-acc-a: #FF6600;
   --ini-acc-b: #FFB067;
   --ini-luz-1: rgba(255, 102, 0, 0.30);
-  --ini-luz-2: rgba(0, 115, 255, 0.20);
+  --ini-luz-2: rgba(255, 150, 40, 0.20);
   --ini-foco: rgba(255, 102, 0, 0.16);
   --ini-haz: #FF8A3D;
 }
@@ -1173,7 +1173,7 @@ html.light .inicio-tarjeta {
   --ini-acc-a: #D25400;
   --ini-acc-b: #FF8A2B;
   --ini-luz-1: rgba(255, 102, 0, 0.20);
-  --ini-luz-2: rgba(0, 115, 255, 0.12);
+  --ini-luz-2: rgba(255, 150, 40, 0.14);
   --ini-foco: rgba(255, 102, 0, 0.12);
   --ini-haz: #D25400;
 }
@@ -1336,7 +1336,7 @@ html.light .inicio-tarjeta {
 html.light .acceso-tarjeta {
   box-shadow: 0 30px 70px -30px rgba(20, 22, 26, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
-/* El borde en degradado: naranja arriba a la izquierda, azul abajo a la derecha, nada en medio */
+/* El borde en degradado: naranja arriba a la izquierda, ámbar abajo a la derecha, nada en medio */
 .acceso-tarjeta::before {
   content: '';
   position: absolute;
@@ -1344,7 +1344,7 @@ html.light .acceso-tarjeta {
   padding: 1px;
   border-radius: inherit;
   pointer-events: none;
-  background: linear-gradient(140deg, rgba(255, 102, 0, 0.6), transparent 32%, transparent 68%, rgba(0, 115, 255, 0.4));
+  background: linear-gradient(140deg, rgba(255, 102, 0, 0.6), transparent 32%, transparent 68%, rgba(255, 170, 80, 0.35));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
@@ -1611,11 +1611,11 @@ html.light .acceso-tarjeta {
 /* La cabecera lleva más luz que el resto de la pantalla */
 .inicio-hero {
   --ini-luz-1: rgba(255, 102, 0, 0.42);
-  --ini-luz-2: rgba(0, 115, 255, 0.28);
+  --ini-luz-2: rgba(255, 150, 40, 0.30);
 }
 html.light .inicio-hero {
   --ini-luz-1: rgba(255, 102, 0, 0.26);
-  --ini-luz-2: rgba(0, 115, 255, 0.16);
+  --ini-luz-2: rgba(255, 150, 40, 0.18);
 }
 .inicio-hero {
   min-height: 210px;
