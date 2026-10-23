@@ -1140,3 +1140,835 @@ html.light .fba-cockpit {
   /* Con el ratón encima el aviso se queda: la cuenta atrás se para */
   .rend-aviso:hover .rend-cuenta-atras { animation-play-state: paused; }
 }
+
+
+/* =====================================================================
+   INICIO Y ACCESO · ESCENA Y MOVIMIENTO
+   =====================================================================
+   La pantalla de inicio de sesión (app/auth/login/page.tsx, clases `acceso-*`) y la de Inicio (components/inicio/*, clases `inicio-*`): un fondo
+   con rejilla y luces que se desplazan despacio, una entrada escalonada y tarjetas que se iluminan por donde pasa el ratón.
+
+   LOS COLORES SALEN DE LOS TOKENS (--ls-*) y de seis variables propias (`--ini-*`) que cambian en `html.light`, así que sirven en los dos temas sin
+   reglas aparte. Las tarjetas de aplicación son opacas, sin `backdrop-filter`: el administrador ve hasta treinta y se pintan todas a la vez.
+
+   MOVIMIENTO. Igual que el bloque «Mi rendimiento · movimiento»: TODA `animation` va dentro de `prefers-reduced-motion: no-preference`, el escalón de
+   cada pieza se pone con `style={{ '--d': n }}`, `translate` y `scale` van como propiedades sueltas (no pisan los `transform` de Tailwind ni los del
+   `:hover`) y las entradas llevan `backwards` y no `both`: al acabar se quitan solas y la tarjeta puede subir al pasar el ratón.
+
+   CÓMO SE DESHACE: borrando este bloque. Los componentes siguen funcionando, solo que sin fondo ni movimiento.
+   ===================================================================== */
+.acceso-escena,
+.inicio-hero,
+.inicio-tarjeta {
+  --ini-acc-a: #FF6600;
+  --ini-acc-b: #FFB067;
+  --ini-luz-1: rgba(255, 102, 0, 0.30);
+  --ini-luz-2: rgba(0, 115, 255, 0.20);
+  --ini-foco: rgba(255, 102, 0, 0.16);
+  --ini-haz: #FF8A3D;
+}
+html.light .acceso-escena,
+html.light .inicio-hero,
+html.light .inicio-tarjeta {
+  --ini-acc-a: #D25400;
+  --ini-acc-b: #FF8A2B;
+  --ini-luz-1: rgba(255, 102, 0, 0.20);
+  --ini-luz-2: rgba(0, 115, 255, 0.12);
+  --ini-foco: rgba(255, 102, 0, 0.12);
+  --ini-haz: #D25400;
+}
+
+/* ---------- Inicio de sesión: la escena ---------- */
+.acceso-escena {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  isolation: isolate;
+}
+@media (min-width: 1024px) {
+  .acceso-escena { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
+}
+.acceso-fondo {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* La rejilla se apaga hacia los bordes: solo se nota detrás del titular */
+.acceso-rejilla {
+  position: absolute;
+  inset: 0;
+  opacity: 0.55;
+  background-image:
+    linear-gradient(to right, var(--ls-linea) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ls-linea) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 65% at 32% 42%, #000 15%, transparent 78%);
+          mask-image: radial-gradient(ellipse 75% 65% at 32% 42%, #000 15%, transparent 78%);
+}
+.acceso-luz {
+  position: absolute;
+  width: 52vmax;
+  height: 52vmax;
+  border-radius: 9999px;
+}
+.acceso-luz-1 {
+  top: -22vmax;
+  left: -14vmax;
+  background: radial-gradient(circle at center, var(--ini-luz-1) 0%, transparent 62%);
+}
+.acceso-luz-2 {
+  right: -20vmax;
+  bottom: -26vmax;
+  background: radial-gradient(circle at center, var(--ini-luz-2) 0%, transparent 62%);
+}
+
+/* ---------- Inicio de sesión: qué hay dentro (solo en pantallas anchas) ---------- */
+.acceso-hero {
+  position: relative;
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 48px;
+  padding: 56px clamp(48px, 7vw, 112px);
+}
+@media (min-width: 1024px) {
+  .acceso-hero { display: flex; }
+}
+.acceso-titular {
+  max-width: 15ch;
+  font-size: clamp(2.5rem, 4.6vw, 4.25rem);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+  color: var(--ls-t1);
+}
+/* El fondo es el doble de ancho y tiene el dibujo repetido dos veces: al desplazarlo medio fondo el bucle no se nota */
+.acceso-acento {
+  background: linear-gradient(100deg, var(--ini-acc-a) 0%, var(--ini-acc-b) 25%, var(--ini-acc-a) 50%, var(--ini-acc-b) 75%, var(--ini-acc-a) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+.acceso-sub {
+  max-width: 30rem;
+  margin-top: 22px;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  color: var(--ls-t3);
+}
+.acceso-modulos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 36rem;
+  margin: 44px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.acceso-modulo {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  height: 100%;
+  padding: 16px 18px;
+  border: 1px solid var(--ls-linea);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ls-sup) 72%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+          backdrop-filter: blur(10px);
+}
+.acceso-modulo-icono {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--ls-acc);
+  background: var(--ls-acc-suave);
+}
+.acceso-modulo b {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ls-t1);
+}
+.acceso-modulo span:not(.acceso-modulo-icono) {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ls-t3);
+}
+.acceso-pie {
+  font-size: 13px;
+  color: var(--ls-t4);
+}
+
+/* ---------- Inicio de sesión: el formulario ---------- */
+.acceso-panel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.acceso-tarjeta {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  padding: 40px 36px 34px;
+  border: 1px solid var(--ls-linea);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--ls-sup) 80%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+          backdrop-filter: blur(22px) saturate(140%);
+  box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+html.light .acceso-tarjeta {
+  box-shadow: 0 30px 70px -30px rgba(20, 22, 26, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+/* El borde en degradado: naranja arriba a la izquierda, azul abajo a la derecha, nada en medio */
+.acceso-tarjeta::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(140deg, rgba(255, 102, 0, 0.6), transparent 32%, transparent 68%, rgba(0, 115, 255, 0.4));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.acceso-logo-movil {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 26px;
+}
+@media (min-width: 1024px) {
+  .acceso-logo-movil { display: none; }
+}
+.acceso-sello {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 18px;
+  border: 1px solid color-mix(in srgb, var(--ls-acc-graf) 32%, transparent);
+  border-radius: 16px;
+  color: var(--ls-acc);
+  background: linear-gradient(145deg, var(--ls-acc-suave), transparent 130%), var(--ls-sup2);
+}
+.acceso-sello::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid var(--ls-acc-graf);
+  border-radius: inherit;
+  opacity: 0;
+}
+.acceso-h1 {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  color: var(--ls-t1);
+}
+.acceso-lead {
+  margin: 6px 0 26px;
+  font-size: 14.5px;
+  color: var(--ls-t3);
+}
+.acceso-form {
+  display: grid;
+  gap: 18px;
+}
+.acceso-etiqueta {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ls-t3);
+}
+.acceso-caja { position: relative; }
+.acceso-icono {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  width: 18px;
+  height: 18px;
+  translate: 0 -50%;
+  color: var(--ls-t4);
+  pointer-events: none;
+  transition: color 0.2s ease;
+}
+.acceso-caja:focus-within .acceso-icono { color: var(--ls-acc-graf); }
+.acceso-caja .acceso-input {
+  height: 52px;
+  padding: 0 16px 0 46px;
+  border: 1px solid var(--ls-linea2);
+  border-radius: 14px;
+  color: var(--ls-t1);
+  background: color-mix(in srgb, var(--ls-sup2) 85%, transparent);
+  box-shadow: none;
+}
+.acceso-caja .acceso-input-clave { padding-right: 50px; }
+.acceso-caja .acceso-input::placeholder { color: var(--ls-t4); }
+.acceso-caja .acceso-input:focus {
+  border-color: var(--ls-acc-graf);
+  background: var(--ls-sup2);
+  box-shadow: 0 0 0 4px var(--ls-acc-suave);
+}
+/* El relleno automático de Chrome pinta los campos de azul claro: se tapa con el color de la tarjeta */
+.acceso-caja .acceso-input:-webkit-autofill,
+.acceso-caja .acceso-input:-webkit-autofill:hover,
+.acceso-caja .acceso-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--ls-t1);
+  caret-color: var(--ls-t1);
+  -webkit-box-shadow: 0 0 0 1000px var(--ls-sup2) inset;
+          box-shadow: 0 0 0 1000px var(--ls-sup2) inset;
+  transition: background-color 9999s ease-out 0s;
+}
+.acceso-caja .acceso-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--ls-sup2) inset, 0 0 0 4px var(--ls-acc-suave);
+          box-shadow: 0 0 0 1000px var(--ls-sup2) inset, 0 0 0 4px var(--ls-acc-suave);
+}
+.acceso-ojo {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  translate: 0 -50%;
+  border-radius: 10px;
+  color: var(--ls-t4);
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+.acceso-ojo:hover { color: var(--ls-t1); background: var(--ls-sup3); }
+.acceso-ojo:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 1px; }
+.acceso-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.acceso-form .acceso-aviso { margin-bottom: 0; }
+.acceso-aviso > svg { margin-top: 2px; }
+.acceso-aviso-ambar {
+  border-color: color-mix(in srgb, var(--ls-e-ambar) 35%, transparent);
+  color: var(--ls-e-ambar);
+  background: color-mix(in srgb, var(--ls-e-ambar) 12%, transparent);
+}
+.acceso-aviso-rojo {
+  border-color: color-mix(in srgb, var(--ls-e-rojo) 35%, transparent);
+  color: var(--ls-e-rojo);
+  background: color-mix(in srgb, var(--ls-e-rojo) 12%, transparent);
+}
+/* El botón: un destello cruza por encima al pasar el ratón y la flecha se adelanta */
+.acceso-boton {
+  position: relative;
+  height: 52px;
+  margin-top: 6px;
+  gap: 10px;
+  overflow: hidden;
+  border-radius: 14px;
+  font-size: 14px;
+}
+.acceso-boton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  translate: -130% 0;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.38) 50%, transparent 75%);
+  pointer-events: none;
+  transition: translate 0.75s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+.acceso-boton:hover:not(:disabled)::after { translate: 130% 0; }
+.acceso-flecha { transition: translate 0.25s cubic-bezier(0.22, 0.8, 0.3, 1); }
+.acceso-boton:hover:not(:disabled) .acceso-flecha { translate: 4px 0; }
+
+/* ---------- Inicio: la cabecera ---------- */
+.inicio-hero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  padding: clamp(24px, 4vw, 44px);
+  border: 1px solid var(--ls-linea);
+  border-radius: 28px;
+  background: var(--ls-sup);
+}
+.inicio-hero::before {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  z-index: -1;
+  opacity: 0.9;
+  background:
+    radial-gradient(34% 46% at 22% 30%, var(--ini-luz-1) 0%, transparent 70%),
+    radial-gradient(30% 42% at 82% 78%, var(--ini-luz-2) 0%, transparent 70%);
+}
+.inicio-etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ls-acc);
+}
+.inicio-etiqueta::before {
+  content: '';
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ini-acc-a);
+}
+.inicio-titulo {
+  margin-top: 12px;
+  font-size: clamp(2rem, 3.6vw, 3.25rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  color: var(--ls-t1);
+}
+.inicio-palabra { display: inline-block; }
+.inicio-acento {
+  background: linear-gradient(100deg, var(--ini-acc-a) 0%, var(--ini-acc-b) 50%, var(--ini-acc-a) 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+.inicio-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 14px;
+  font-size: 14.5px;
+  color: var(--ls-t3);
+}
+.inicio-separador {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--ls-t4);
+}
+.inicio-rol {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border: 1px solid var(--ls-linea2);
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ls-t2);
+  background: color-mix(in srgb, var(--ls-sup2) 85%, transparent);
+}
+.inicio-punto {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--ls-e-verde);
+}
+.inicio-punto::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--ls-e-verde);
+  opacity: 0;
+}
+/* En la línea de la fecha el rol es una pastilla pequeña */
+.inicio-meta .inicio-rol {
+  padding: 3px 12px;
+  font-size: 12.5px;
+}
+/* La cabecera lleva más luz que el resto de la pantalla */
+.inicio-hero {
+  --ini-luz-1: rgba(255, 102, 0, 0.42);
+  --ini-luz-2: rgba(0, 115, 255, 0.28);
+}
+html.light .inicio-hero {
+  --ini-luz-1: rgba(255, 102, 0, 0.26);
+  --ini-luz-2: rgba(0, 115, 255, 0.16);
+}
+.inicio-hero {
+  min-height: 210px;
+  display: flex;
+  align-items: center;
+}
+.inicio-hero-rejilla {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(to right, var(--ls-linea) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ls-linea) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 120% at 20% 50%, #000 0%, transparent 75%);
+          mask-image: radial-gradient(ellipse 70% 120% at 20% 50%, #000 0%, transparent 75%);
+}
+
+/* La órbita: el punto naranja en el centro y las aplicaciones dando vueltas. El anillo gira y cada icono gira al revés para quedarse derecho */
+.inicio-orbita {
+  position: absolute;
+  top: 50%;
+  right: clamp(16px, 4%, 80px);
+  width: 200px;
+  height: 200px;
+  margin-top: -100px;
+  pointer-events: none;
+}
+/* Se esconde según lo ancha que sea LA CABECERA y no la ventana: con la barra lateral abierta la ventana engaña (a 1100 px de ventana la cabecera mide 780) */
+.inicio-hero {
+  container-type: inline-size;
+  container-name: inicio-hero;
+}
+@container inicio-hero (max-width: 899px) {
+  .inicio-orbita { display: none; }
+}
+.inicio-orbita-giro {
+  position: absolute;
+  inset: 0;
+}
+.inicio-orbita-anillo {
+  position: absolute;
+  inset: 10%;
+  border: 1px solid var(--ls-linea2);
+  border-radius: 9999px;
+}
+.inicio-orbita-anillo-2 {
+  inset: 30%;
+  border-style: dashed;
+  opacity: 0.6;
+}
+/* Un punto sin tamaño sobre el anillo; el icono se centra en él con márgenes negativos (sin `translate`, que es del movimiento) */
+.inicio-orbita-pos {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.inicio-orbita-chip {
+  position: absolute;
+  top: -22px;
+  left: -22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--ls-linea2);
+  border-radius: 14px;
+  color: var(--ls-acc);
+  background: var(--ls-sup2);
+  box-shadow: 0 10px 22px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+html.light .inicio-orbita-chip {
+  box-shadow: 0 10px 22px -10px rgba(20, 22, 26, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.inicio-orbita-centro {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 9999px;
+  color: #fff;
+  background: radial-gradient(circle at 35% 30%, #FF9A4D, #FF6600 60%, #D14F00);
+  box-shadow: 0 0 0 6px rgba(255, 102, 0, 0.12), 0 0 40px 6px rgba(255, 102, 0, 0.4);
+}
+
+/* ---------- Inicio: las aplicaciones ---------- */
+.inicio-seccion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 34px 2px 16px;
+}
+.inicio-seccion h2 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ls-t3);
+}
+.inicio-seccion span {
+  padding: 2px 9px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ls-t2);
+  background: var(--ls-sup3);
+}
+.inicio-seccion::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--ls-linea2), transparent);
+}
+.inicio-vacio {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 24px;
+  border: 1px dashed var(--ls-linea2);
+  border-radius: 20px;
+  color: var(--ls-t3);
+}
+.inicio-rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px;
+}
+@media (max-width: 639px) {
+  .inicio-tarjeta { min-height: 0; }
+}
+.inicio-tarjeta {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 188px;
+  padding: 22px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--ls-linea2);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 55%), var(--ls-sup);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: transform 0.35s cubic-bezier(0.22, 0.8, 0.3, 1), border-color 0.25s ease, box-shadow 0.35s ease;
+}
+/* El halo de dentro y el borde que se enciende siguen al ratón (`--mx` y `--my` los escribe components/inicio/TarjetaDeApp.tsx) */
+.inicio-tarjeta::before,
+.inicio-tarjeta::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.inicio-tarjeta::before {
+  z-index: -1;
+  background: radial-gradient(280px circle at var(--mx, 50%) var(--my, 0%), var(--ini-foco), transparent 72%);
+}
+.inicio-tarjeta::after {
+  padding: 1px;
+  border-radius: inherit;
+  background: radial-gradient(170px circle at var(--mx, 50%) var(--my, 0%), var(--ini-haz), transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.inicio-tarjeta:hover,
+.inicio-tarjeta:focus-visible {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--ls-linea2) 65%, var(--ls-acc-graf));
+  box-shadow: 0 22px 44px -22px rgba(0, 0, 0, 0.6);
+}
+html.light .inicio-tarjeta:hover,
+html.light .inicio-tarjeta:focus-visible {
+  box-shadow: 0 18px 38px -20px rgba(20, 22, 26, 0.28);
+}
+.inicio-tarjeta:hover::before,
+.inicio-tarjeta:hover::after,
+.inicio-tarjeta:focus-visible::before,
+.inicio-tarjeta:focus-visible::after { opacity: 1; }
+.inicio-tarjeta:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 3px; }
+.inicio-icono {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 18px;
+  border: 1px solid color-mix(in srgb, var(--ls-acc-graf) 30%, transparent);
+  border-radius: 15px;
+  color: var(--ls-acc);
+  background: linear-gradient(145deg, var(--ls-acc-suave), transparent 140%), var(--ls-sup2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease;
+}
+.inicio-tarjeta:hover .inicio-icono,
+.inicio-tarjeta:focus-visible .inicio-icono {
+  transform: translateY(-2px) rotate(-6deg) scale(1.08);
+  box-shadow: 0 10px 26px -8px color-mix(in srgb, var(--ls-acc-graf) 60%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.inicio-app-nombre {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ls-t1);
+  transition: color 0.2s ease;
+}
+.inicio-tarjeta:hover .inicio-app-nombre { color: var(--ls-acc); }
+.inicio-app-desc {
+  display: -webkit-box;
+  margin-top: 6px;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ls-t3);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.inicio-pie {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+.inicio-flecha {
+  color: var(--ls-t4);
+  opacity: 0.7;
+  transition: translate 0.3s cubic-bezier(0.22, 0.8, 0.3, 1), color 0.2s ease, opacity 0.2s ease;
+}
+.inicio-tarjeta:hover .inicio-flecha {
+  color: var(--ls-acc);
+  opacity: 1;
+  translate: 3px -3px;
+}
+
+/* ---------- Movimiento ---------- */
+@keyframes acceso-aparece {
+  from { opacity: 0; translate: 0 16px; scale: 0.985; }
+  to   { opacity: 1; translate: none; scale: none; }
+}
+@keyframes acceso-deriva-1 {
+  from { translate: 0 0; scale: 1; }
+  to   { translate: 6vmax 5vmax; scale: 1.12; }
+}
+@keyframes acceso-deriva-2 {
+  from { translate: 0 0; scale: 1; }
+  to   { translate: -7vmax -4vmax; scale: 1.08; }
+}
+@keyframes acceso-flota {
+  0%, 100% { translate: 0 0; }
+  50%      { translate: 0 -6px; }
+}
+@keyframes acceso-brillo {
+  from { background-position: 0% 0; }
+  to   { background-position: 100% 0; }
+}
+@keyframes acceso-sacude {
+  0%, 100% { translate: 0 0; }
+  20%      { translate: -7px 0; }
+  40%      { translate: 6px 0; }
+  60%      { translate: -4px 0; }
+  80%      { translate: 3px 0; }
+}
+@keyframes acceso-pulso {
+  from { opacity: 0.6; scale: 1; }
+  to   { opacity: 0; scale: 1.7; }
+}
+@keyframes inicio-hero {
+  from { opacity: 0; translate: 0 22px; scale: 0.985; }
+  to   { opacity: 1; translate: none; scale: none; }
+}
+@keyframes inicio-palabra {
+  from { opacity: 0; translate: 0 0.4em; filter: blur(8px); }
+  to   { opacity: 1; translate: none; filter: blur(0); }
+}
+@keyframes inicio-aparece {
+  from { opacity: 0; translate: 0 18px; scale: 0.97; }
+  to   { opacity: 1; translate: none; scale: none; }
+}
+@keyframes inicio-aurora-1 {
+  from { translate: 0 0; scale: 1; }
+  to   { translate: 5% 4%; scale: 1.1; }
+}
+@property --ini-angulo {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes inicio-gira {
+  to { --ini-angulo: 360deg; }
+}
+@keyframes inicio-latido {
+  from { opacity: 0.55; scale: 1; }
+  to   { opacity: 0; scale: 2.6; }
+}
+@keyframes inicio-vuelta {
+  from { rotate: 0deg; }
+  to   { rotate: 360deg; }
+}
+@keyframes inicio-respira {
+  0%, 100% { scale: 1; }
+  50%      { scale: 1.08; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .acceso-entra  { animation: acceso-aparece 0.7s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 80ms + 80ms); }
+  .acceso-luz-1  { animation: acceso-deriva-1 22s ease-in-out infinite alternate; }
+  .acceso-luz-2  { animation: acceso-deriva-2 26s ease-in-out infinite alternate; }
+  .acceso-flota  { animation: acceso-flota 7s ease-in-out infinite; animation-delay: calc(var(--d, 0) * -1.7s); }
+  .acceso-acento { animation: acceso-brillo 9s linear infinite; }
+  .acceso-sacude { animation: acceso-sacude 0.45s ease-in-out; }
+  .acceso-sello::after { animation: acceso-pulso 2.6s ease-out infinite; }
+
+  .inicio-hero-entra { animation: inicio-hero 0.8s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; }
+  .inicio-hero::before { animation: inicio-aurora-1 16s ease-in-out infinite alternate; }
+  /* Un haz de luz que da la vuelta por el borde de la cabecera. Es lo único de Inicio que se mueve solo y por eso se nota */
+  .inicio-hero::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1.5px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: conic-gradient(from var(--ini-angulo), transparent 0deg, transparent 250deg, var(--ini-haz) 322deg, transparent 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    animation: inicio-gira 9s linear infinite;
+  }
+  .inicio-palabra,
+  .inicio-entra   { animation: inicio-palabra 0.75s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 90ms + 250ms); }
+  .inicio-aparece { animation: inicio-aparece 0.65s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 55ms + 150ms); }
+  .inicio-punto::after { animation: inicio-latido 2.2s ease-out infinite; }
+  .inicio-orbita-giro   { animation: inicio-vuelta 90s linear infinite; }
+  .inicio-orbita-anillo-2 { animation: inicio-vuelta 60s linear infinite reverse; }
+  .inicio-orbita-chip   { animation: inicio-vuelta 90s linear infinite reverse; }
+  .inicio-orbita-centro { animation: inicio-respira 4s ease-in-out infinite; }
+}
+
+/* Quien pide menos movimiento ve la tarjeta quieta al pasar el ratón: solo cambian los colores */
+@media (prefers-reduced-motion: reduce) {
+  .inicio-tarjeta:hover,
+  .inicio-tarjeta:focus-visible,
+  .inicio-tarjeta:hover .inicio-icono,
+  .inicio-tarjeta:focus-visible .inicio-icono { transform: none; }
+  .inicio-tarjeta:hover .inicio-flecha { translate: none; }
+}
