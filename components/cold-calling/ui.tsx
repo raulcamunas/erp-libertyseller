@@ -1,7 +1,8 @@
 import { CalendarClock, CheckCircle2, Circle, Flame, Mail, PhoneMissed, XCircle, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { ventasCompactas } from '@/lib/cold-calling/cifras'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
-import { COLD_NIVEL_LABELS, type ColdLead, type ColdLeadStatus, esTiendaOnline } from '@/lib/types/cold-leads'
+import { AVISO_VENTAS_ESTIMADAS, COLD_NIVEL_LABELS, type ColdLead, type ColdLeadStatus, esTiendaOnline, formatVentasEstimadas } from '@/lib/types/cold-leads'
 
 /**
  * LAS PIEZAS VISUALES COMUNES DE COLD CALLING: el glifo de cada estado, las insignias de lista y de nivel.
@@ -76,12 +77,25 @@ export function InsigniaDeNivel({ nivel, corta = false }: { nivel: number; corta
 /* ------------------------------------------------------------------ */
 
 /**
- * La cifra que acompaña al nombre en la lista. En un vendedor de Amazon es su facturación mensual («80 k€»); en una tienda online
- * NO hay facturación —su cifra son dólares estimados por un modelo de tráfico, que no se dicen en la llamada—, así que lo que sale
- * es su nivel, que es su criterio de prioridad. Esa cifra se queda en la ficha, donde cabe la advertencia.
+ * La cifra que acompaña al nombre en la lista. En un vendedor de Amazon es su facturación mensual («80 k€»). En una tienda online NO hay
+ * facturación observada: lo que hay son dólares estimados por un modelo de tráfico, y es lo que se enseña, SIEMPRE con «≈» delante y el
+ * símbolo del dólar (nunca el del euro: no se puede leer como una cifra afirmada), y junto a su nivel. En la lista basta; la advertencia
+ * completa («sirve para priorizar, no se dice en la llamada») va en el texto que sale al pasar el ratón y, entera, en la ficha.
  */
-export function CifraDeLista({ lead }: { lead: Pick<ColdLead, 'tipo_lead' | 'nivel' | 'revenue_monthly'> }) {
-  if (esTiendaOnline(lead)) return lead.nivel != null ? <InsigniaDeNivel nivel={lead.nivel} corta /> : null
+export function CifraDeLista({ lead }: { lead: Pick<ColdLead, 'tipo_lead' | 'nivel' | 'revenue_monthly' | 'ventas_estimadas_usd'> }) {
+  if (esTiendaOnline(lead)) {
+    const ventas = ventasCompactas(lead.ventas_estimadas_usd)
+    return (
+      <>
+        {ventas && (
+          <span title={`Ventas estimadas: ${formatVentasEstimadas(lead.ventas_estimadas_usd)} al mes. ${AVISO_VENTAS_ESTIMADAS}`} className="shrink-0 text-[11px] tabular-nums text-[var(--ls-t3)]">
+            ≈ {ventas}
+          </span>
+        )}
+        {lead.nivel != null && <InsigniaDeNivel nivel={lead.nivel} corta />}
+      </>
+    )
+  }
   if (lead.revenue_monthly == null) return null
   const n = Number(lead.revenue_monthly)
   return <span className="shrink-0 text-[11px] tabular-nums text-[var(--ls-t4)]">{n >= 1000 ? `${Math.round(n / 1000).toLocaleString('es-ES')} k€` : `${Math.round(n)} €`}</span>

@@ -20,7 +20,11 @@ interface Opciones {
   total: number
   /** Alto de cada fila, en píxeles. Fijo: es lo que hace posible no medir */
   alto: number
-  /** Filas extra por arriba y por abajo, para que no se vea el hueco al desplazar rápido */
+  /**
+   * Filas extra por arriba y por abajo, para que no se vea el hueco al desplazar rápido. 14 filas son unos 730 px a cada lado: más que una
+   * pantalla de móvil, que es donde un empujón del dedo recorre muchas filas antes de que la ventana se entere (el evento de scroll llega
+   * y la nueva ventana se pinta un cuadro después). Montar 14 filas de más cuesta menos que una franja en blanco al hacer scroll.
+   */
   sobrescan?: number
   /**
    * El elemento que hace scroll. Es el ELEMENTO (guardado en un estado con `ref={setContenedor}`) y no un objeto `useRef`: la lista se
@@ -42,7 +46,7 @@ export interface VentanaDeLista {
 /** Las filas que se pintan antes de saber cuánto mide la ventana (el servidor y el primer pintado del navegador) */
 const FILAS_INICIALES = 24
 
-export function useVentana({ total, alto, sobrescan = 6, contenedor }: Opciones): VentanaDeLista {
+export function useVentana({ total, alto, sobrescan = 14, contenedor }: Opciones): VentanaDeLista {
   const [tramo, setTramo] = useState({ inicio: 0, fin: FILAS_INICIALES })
 
   useEffect(() => {

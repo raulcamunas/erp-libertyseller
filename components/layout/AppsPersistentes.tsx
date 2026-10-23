@@ -60,8 +60,10 @@ function Ranura({ activa, children }: { activa: boolean; children: ReactNode }) 
     <div
       // Oculta sin `display: none` (ver arriba): sin altura, fuera del flujo, invisible y sin recibir clics ni foco. Conserva su anchura
       // para que, al volver, medir la lista no empiece de cero
-      className={activa ? 'rend-fundido' : 'pointer-events-none invisible absolute left-0 top-0 h-0 w-full overflow-hidden'}
+      // El relleno de la página va en la que se ve, y el marcador `data-app-persistente` es lo que usa el layout para esconder su recuadro vacío
+      className={activa ? 'rend-fundido p-6 lg:p-8' : 'pointer-events-none invisible absolute left-0 top-0 h-0 w-full overflow-hidden'}
       aria-hidden={activa ? undefined : true}
+      data-app-persistente={activa ? '' : undefined}
     >
       {children}
     </div>

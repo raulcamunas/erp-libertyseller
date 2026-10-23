@@ -57,8 +57,9 @@ export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, mostrarL
       onClick={() => onSeleccionar(lead.id)}
       aria-current={activa ? 'true' : undefined}
       title={COLD_STATUS_LABELS[lead.status]}
+      // El fondo de «pasar el ratón» solo con ratón: en el móvil el último toque lo dejaba pegado y parecía la fila seleccionada
       className={`group relative flex w-full items-center gap-2.5 border-b border-[var(--ls-linea)] px-3 text-left outline-none transition-colors focus-visible:bg-[var(--ls-sup3)] ${entrada !== null ? 'rend-entra' : ''} ${
-        activa ? 'bg-[var(--ls-sel)]' : 'hover:bg-[var(--ls-sup3)]'
+        activa ? 'bg-[var(--ls-sel)]' : '[@media(hover:hover)]:hover:bg-[var(--ls-sup3)]'
       }`}
       style={{ height: ALTO_DE_FILA, ...(entrada !== null ? ({ '--d': entrada } as CSSProperties) : null) }}
     >
@@ -107,7 +108,16 @@ interface PropsDeLista {
 
 export function ListaDeLeads({ leads, seleccionado, onSeleccionar, hoy, mostrarLista, generacion, cargando, vacio }: PropsDeLista) {
   const [contenedor, setContenedor] = useState<HTMLDivElement | null>(null)
-  const { inicio, fin, alturaTotal, desplazarA } = useVentana({ total: leads.length, alto: ALTO_DE_FILA, contenedor })
+  const { inicio, fin, desplazarA } = useVentana({ total: leads.length, alto: ALTO_DE_FILA, contenedor })
+
+  // Las diez primeras filas entran con un ligero ascenso, pero SOLO cuando la lista es nueva (al abrir o al cambiar un filtro). Antes lo
+  // repetían cada vez que se volvía arriba haciendo scroll, porque las filas se montan de nuevo al entrar en la ventana
+  const [conEntrada, setConEntrada] = useState(true)
+  useEffect(() => {
+    setConEntrada(true)
+    const parar = setTimeout(() => setConEntrada(false), 900)
+    return () => clearTimeout(parar)
+  }, [generacion])
 
   // Un filtro o un orden nuevos: otra lista, y se empieza por arriba
   useEffect(() => {
@@ -142,15 +152,18 @@ export function ListaDeLeads({ leads, seleccionado, onSeleccionar, hoy, mostrarL
   if (leads.length === 0) return <div className="flex flex-1 items-center justify-center px-6 py-10">{vacio}</div>
 
   return (
-    <div ref={setContenedor} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" role="list" aria-label="Leads">
-      <div className="relative" style={{ height: alturaTotal }}>
-        <div key={generacion} style={{ transform: `translateY(${inicio * ALTO_DE_FILA}px)` }}>
-          {leads.slice(inicio, fin).map((lead, i) => (
-            <div role="listitem" key={lead.id}>
-              <FilaDeLead lead={lead} activa={lead.id === seleccionado} hoy={hoy} mostrarLista={mostrarLista} onSeleccionar={onSeleccionar} entrada={inicio + i < 10 ? inicio + i : null} />
-            </div>
-          ))}
-        </div>
+    // `overflow-anchor: none`: el navegador no debe «anclar» el scroll a una fila cuando las de arriba entran y salen de la ventana
+    <div ref={setContenedor} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]" role="list" aria-label="Leads">
+      {/* LA VENTANA SE COLOCA CON RELLENOS Y NO CON `transform`. Antes era `translateY(inicio × alto)` y la regla global de app/globals.css anima
+          el `transform` de TODOS los elementos (200 ms): cada vez que el scroll pasaba una fila, las pintadas se deslizaban hasta su sitio
+          en vez de quedarse quietas, y eso es lo que se notaba como «va con lag». Con el relleno de arriba y el de abajo el alto total es el
+          mismo (leads × alto) y no hay nada que animar */}
+      <div key={generacion} style={{ paddingTop: inicio * ALTO_DE_FILA, paddingBottom: Math.max(0, leads.length - fin) * ALTO_DE_FILA }}>
+        {leads.slice(inicio, fin).map((lead, i) => (
+          <div role="listitem" key={lead.id}>
+            <FilaDeLead lead={lead} activa={lead.id === seleccionado} hoy={hoy} mostrarLista={mostrarLista} onSeleccionar={onSeleccionar} entrada={conEntrada && inicio + i < 10 ? inicio + i : null} />
+          </div>
+        ))}
       </div>
     </div>
   )
