@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { clavesDelLead } from '@/lib/cold-calling/vinculos'
 import { diaConSemana, haceCuanto, sumarDias } from '@/lib/cold-calling/fechas'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
-import { emailsDelLead, telefonosDelLead } from '@/lib/cold-calling/contactos'
+import { emailsDelLead, normalizarTelefono, telefonosDelLead } from '@/lib/cold-calling/contactos'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import {
@@ -257,19 +257,49 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               <Phone className="h-3.5 w-3.5" aria-hidden /> Sin teléfono
             </span>
           )}
-          {telefonos.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => copiar(t, 'telefono')}
-              title={esAutonomo ? 'Autónomo: no se llama en frío' : 'Copiar el teléfono'}
-              className={`group inline-flex h-8 items-center gap-2 rounded-[8px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2.5 text-[13.5px] font-semibold tabular-nums text-[var(--ls-t1)] transition-colors hover:border-[var(--ls-acc-graf)] hover:bg-[var(--ls-sup3)] ${esAutonomo ? 'opacity-70' : ''}`}
-            >
-              <Phone className="h-3.5 w-3.5 text-[var(--ls-t3)]" aria-hidden />
-              {t}
-              {copiado === 'telefono' ? <Check className="rend-pop h-3.5 w-3.5 text-[var(--ls-e-verde)]" aria-hidden /> : <Copy className="h-3.5 w-3.5 text-[var(--ls-t4)] transition-colors group-hover:text-[var(--ls-t1)]" aria-hidden />}
-            </button>
-          ))}
+          {telefonos.map((t) => {
+            // Un teléfono que se puede marcar es un ENLACE `tel:` de verdad, no un botón: así lo reconoce la extensión «Rinkel Webphone» (y cualquier
+            // otra de clic para llamar), que con el botón de antes —solo copiaba— no lo detectaba. Copiar sigue a un clic, en su botón de al lado.
+            // Un autónomo no se llama en frío (criterio de la Leyenda del Excel): su teléfono se queda como antes, solo para copiar.
+            const marcable = esAutonomo ? null : normalizarTelefono(t)
+            const iconoDeCopiar = copiado === 'telefono' ? <Check className="rend-pop h-3.5 w-3.5 text-[var(--ls-e-verde)]" aria-hidden /> : <Copy className="h-3.5 w-3.5 text-[var(--ls-t4)] transition-colors group-hover:text-[var(--ls-t1)]" aria-hidden />
+            if (!marcable) {
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => copiar(t, 'telefono')}
+                  title={esAutonomo ? 'Autónomo: no se llama en frío' : 'Copiar el teléfono'}
+                  className={`group inline-flex h-8 items-center gap-2 rounded-[8px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2.5 text-[13.5px] font-semibold tabular-nums text-[var(--ls-t1)] transition-colors hover:border-[var(--ls-acc-graf)] hover:bg-[var(--ls-sup3)] ${esAutonomo ? 'opacity-70' : ''}`}
+                >
+                  <Phone className="h-3.5 w-3.5 text-[var(--ls-t3)]" aria-hidden />
+                  {t}
+                  {iconoDeCopiar}
+                </button>
+              )
+            }
+            return (
+              <span key={t} className="group inline-flex h-8 items-stretch overflow-hidden rounded-[8px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] transition-colors hover:border-[var(--ls-acc-graf)]">
+                <a
+                  href={`tel:${marcable}`}
+                  title="Llamar (con la extensión de Rinkel)"
+                  className="inline-flex items-center gap-2 px-2.5 text-[13.5px] font-semibold tabular-nums text-[var(--ls-t1)] transition-colors hover:bg-[var(--ls-sup3)]"
+                >
+                  <Phone className="h-3.5 w-3.5 text-[var(--ls-t3)] transition-colors group-hover:text-[var(--ls-e-verde)]" aria-hidden />
+                  {t}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copiar(t, 'telefono')}
+                  title="Copiar el teléfono"
+                  aria-label="Copiar el teléfono"
+                  className="inline-flex w-8 items-center justify-center border-l border-[var(--ls-linea2)] transition-colors hover:bg-[var(--ls-sup3)]"
+                >
+                  {iconoDeCopiar}
+                </button>
+              </span>
+            )
+          })}
           {correos.map((correo) => (
             // Lleva a Correo con el mensaje ya abierto y dirigido a él. Cold Calling se queda donde está (lib/correo/peticiones.ts)
             <button key={correo} type="button" onClick={() => escribirAlLead(lead, correo)} title={`Escribir a ${correo}`} className={`${BOTON.base} ${BOTON.secundario} !h-8 max-w-[240px] !px-2.5 !text-[12px]`}>
