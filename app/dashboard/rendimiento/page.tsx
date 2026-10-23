@@ -109,6 +109,13 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
   const esComercial = !puedeSupervisar || comerciales.has(user.id)
   // Solo un administrador pone o quita la clave de Rinkel de otra persona (la ruta lo vuelve a comprobar)
   const puedeGestionar = profile.role === 'admin'
+  // El botón «Actividad del equipo» (al lado del informe semanal) solo lo ve quien puede abrir esa pantalla: un administrador o quien
+  // tenga la casilla «Actividad del equipo» (app 'actividad'). La pantalla y sus rutas lo vuelven a comprobar
+  let puedeVerActividad = profile.role === 'admin'
+  if (!puedeVerActividad) {
+    const { data: permisoActividad } = await supabase.from('user_app_permissions').select('can_access').eq('user_id', user.id).eq('app_id', 'actividad').maybeSingle()
+    puedeVerActividad = permisoActividad?.can_access === true
+  }
 
   return (
     <div className="space-y-3 pb-10">
@@ -136,6 +143,7 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
           equipo={equipo}
           puedeSupervisar={puedeSupervisar}
           puedeGestionar={puedeGestionar}
+          puedeVerActividad={puedeVerActividad}
           esComercial={esComercial}
           hoy={hoy}
           vinculosIniciales={vinculosVisibles}

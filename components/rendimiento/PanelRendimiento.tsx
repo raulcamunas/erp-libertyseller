@@ -50,6 +50,8 @@ interface Props {
   puedeSupervisar: boolean
   /** Es administrador: en el panel de otra persona puede vincular, cambiar o quitar su clave de Rinkel */
   puedeGestionar: boolean
+  /** Tiene el permiso «Actividad del equipo» (o es administrador): se le enseña el botón que lleva a esa pantalla */
+  puedeVerActividad?: boolean
   /** Quien mira es del equipo comercial. Si no (un administrador), la invitación a vincular Rinkel no se resalta */
   esComercial: boolean
   /** El día de hoy en Madrid, «2026-10-22». Lo pone el servidor para que no baile entre servidor y navegador */
@@ -97,7 +99,7 @@ function agruparPor<T>(lista: readonly T[], clave: (x: T) => string | null): Map
 
 const primeraMayuscula = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t)
 
-export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, esComercial, hoy, vinculosIniciales, personaInicial, periodoInicial }: Props) {
+export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, puedeVerActividad = false, esComercial, hoy, vinculosIniciales, personaInicial, periodoInicial }: Props) {
   const supabase = useMemo(() => createClient(), [])
 
   /* ---------------------------- quién y cuándo ---------------------------- */
@@ -586,6 +588,7 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
         yoId={yo.id}
         onPersona={puedeSupervisar ? cambiarDePersona : undefined}
         enlaceInforme={puedeSupervisar ? enlaceDelInforme : undefined}
+        enlaceActividad={puedeVerActividad ? '/dashboard/actividad' : undefined}
       />
 
       {errorResumen && (

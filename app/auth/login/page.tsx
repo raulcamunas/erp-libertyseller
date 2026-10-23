@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Por qué se ha vuelto aquí: si es que la sesión se cerró por llevar un rato sin hacer nada (lib/actividad/inactividad.ts).
+  // Se lee en un efecto y no en el primer pintado para que servidor y navegador pinten lo mismo
+  const [porInactividad, setPorInactividad] = useState(false)
+  useEffect(() => {
+    setPorInactividad(new URLSearchParams(window.location.search).get('motivo') === 'inactividad')
+  }, [])
   const router = useRouter()
   const supabase = createClient()
 
@@ -64,6 +70,11 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {porInactividad && (
+            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300" role="status">
+              Tu sesión se ha cerrado por llevar un rato sin actividad. Inicia sesión para seguir.
+            </div>
+          )}
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="email" className="label-uppercase text-white/70">

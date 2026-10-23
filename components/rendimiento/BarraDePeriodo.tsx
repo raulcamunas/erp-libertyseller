@@ -1,6 +1,7 @@
 'use client'
 
-import { ChevronLeft, ChevronRight, FileBarChart, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, FileBarChart, Users } from 'lucide-react'
+import Link from 'next/link'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { sumarDias } from '@/lib/rendimiento/dia'
 import { empiezaEnElFuturo, etiquetaDePeriodo, moverPeriodo, type Periodo } from '@/lib/rendimiento/periodos'
@@ -9,7 +10,7 @@ import { BarraDeCarga } from './ui'
 /**
  * LA BARRA DE PERIODO: arriba del todo, y manda sobre toda la página.
  *
- *   [Hoy|Ayer|Semana|Mes]   ‹ Esta semana · 19–25 oct ›        [Informe semanal]  Ver: [Todo el equipo ▾]
+ *   [Hoy|Ayer|Semana|Mes]   ‹ Esta semana · 19–25 oct ›        [Informe semanal] [Actividad del equipo]  Ver: [Todo el equipo ▾]
  *
  * Hoy y Ayer son un día; Semana y Mes son el que contiene el día en el que se esté. La opción elegida la marca una
  * pastilla que se desliza de una a otra, el nombre del periodo entra desde un lado cada vez que cambia y una raya
@@ -41,6 +42,8 @@ interface Props {
   onPersona?: (id: string | null) => void
   /** Solo para quien supervisa: la dirección del informe semanal. Sin esto no hay enlace */
   enlaceInforme?: string
+  /** Solo para quien tiene el permiso «Actividad del equipo» (o es administrador): la dirección de esa pantalla. Sin esto no hay botón */
+  enlaceActividad?: string
 }
 
 const useEfectoDeDiseno = typeof window !== 'undefined' ? useLayoutEffect : useEffect
@@ -48,7 +51,7 @@ const useEfectoDeDiseno = typeof window !== 'undefined' ? useLayoutEffect : useE
 const BOTON_ICONO =
   'flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--ls-t3)]'
 
-export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, personaId, yoId, onPersona, enlaceInforme }: Props) {
+export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, personaId, yoId, onPersona, enlaceInforme, enlaceActividad }: Props) {
   const ayer = sumarDias(hoy, -1)
   const siguiente = moverPeriodo(periodo, 1)
   const puedeAvanzar = !empiezaEnElFuturo(siguiente, hoy)
@@ -122,7 +125,7 @@ export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, pe
         </div>
       </div>
 
-      {((personas && onPersona) || enlaceInforme) && (
+      {((personas && onPersona) || enlaceInforme || enlaceActividad) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {enlaceInforme && (
             <a
@@ -132,6 +135,15 @@ export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, pe
             >
               <FileBarChart className="h-3.5 w-3.5 text-[var(--ls-acc)]" /> Informe semanal
             </a>
+          )}
+          {enlaceActividad && (
+            <Link
+              href={enlaceActividad}
+              title="Cuándo entra cada persona al ERP, qué hace y cuánto rato está activa"
+              className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2.5 text-[12px] text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"
+            >
+              <Eye className="h-3.5 w-3.5 text-[var(--ls-acc)]" /> Actividad del equipo
+            </Link>
           )}
           {personas && onPersona && (
             <div className="flex items-center gap-2">

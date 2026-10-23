@@ -5,6 +5,8 @@ import { AppSidebar } from '@/components/layout/AppSidebar'
 import { AppsPersistentes } from '@/components/layout/AppsPersistentes'
 import { AvisosEnVivo } from '@/components/avisos/AvisosEnVivo'
 import { RegistroDeActividad } from '@/components/actividad/RegistroDeActividad'
+import { debeCerrarseLaSesion, limiteDeInactividadMin } from '@/lib/actividad/inactividad'
+import { ultimoEventoDe } from '@/lib/actividad/inactividad-servidor'
 import { Toaster } from '@/components/ui/sonner'
 
 export default async function DashboardLayout({
@@ -23,6 +25,27 @@ export default async function DashboardLayout({
 
   if (!profile) {
     redirect('/auth/login')
+  }
+
+  // LA SESIÓN DE UN EMPLEADO CADUCA POR INACTIVIDAD (lib/actividad/inactividad.ts). Esta es la capa del servidor: la de un
+  // navegador que se cerró, o de un ordenador que durmió, y la persona vuelve a abrir el ERP. Si pasó más del límite desde su
+  // última actividad real, no entra: /auth/inactividad le cierra la sesión y le lleva al inicio de sesión. Solo a empleados, y
+  // si no se sabe cuándo fue la última actividad (la tabla no existe, la base no contesta) no se echa a nadie.
+  const limiteInactividadMin = limiteDeInactividadMin(process.env.INACTIVIDAD_MINUTOS)
+  if (profile.role === 'employee') {
+    const ultimoEventoMs = await ultimoEventoDe(user.id)
+    const inicio = user.last_sign_in_at ? Date.parse(user.last_sign_in_at) : Number.NaN
+    if (
+      debeCerrarseLaSesion({
+        rol: profile.role,
+        ahoraMs: Date.now(),
+        ultimoEventoMs,
+        inicioDeSesionMs: Number.isFinite(inicio) ? inicio : null,
+        limiteMin: limiteInactividadMin,
+      })
+    ) {
+      redirect('/auth/inactividad')
+    }
   }
 
   return (
@@ -49,7 +72,7 @@ export default async function DashboardLayout({
           ahí dentro `fixed` sería relativo a ese recuadro y no a la ventana */}
       <AvisosEnVivo perfil={profile} />
       {/* El registro de actividad: no pinta nada y solo se monta para los empleados. Lo lee quien supervisa en /dashboard/actividad */}
-      {profile.role === 'employee' && <RegistroDeActividad />}
+      {profile.role === 'employee' && <RegistroDeActividad limiteMin={limiteInactividadMin} />}
     </div>
   )
 }
