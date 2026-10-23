@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { fail } from '@/lib/amazon/api'
+import { UUID, fail } from '@/lib/amazon/api'
 import { leerLista } from '@/lib/correo/direcciones'
 import { MAX_ADJUNTOS, MAX_BYTES_ADJUNTOS, MAX_ENVIOS_POR_MINUTO, MENSAJE_DE_PROBLEMA, comprobarEntrada, type AdjuntoParaEnviar, type EntradaDeEnvio } from '@/lib/correo/enviar'
+import { marcarBorradorEnviado } from '@/lib/correo/ia-servidor'
 import { SIN_CACHE, requerirCorreo, respuestaDeFallo } from '@/lib/correo/rutas'
 import { autorizarBuzon, cargarContextoDeRespuesta, contarEnviosRecientes, enviarDesdeBuzon } from '@/lib/correo/servidor'
 import { comprobarTamañoPeticion } from '@/lib/subidas-limite'
@@ -17,6 +18,7 @@ import { createServiceClient } from '@/lib/supabase/service'
  *   respondeA    (opcional) id del mensaje al que se contesta o que se reenvía; tiene que ser del mismo buzón
  *   modo         'responder' (por defecto si hay respondeA) o 'reenviar'
  *   sinCita      '1' para no citar el mensaje original al contestar
+ *   iaId         (opcional) id del borrador que escribió la IA y que el comercial ha editado y envía: se apunta lo que salió de verdad
  *   adjuntos     uno o varios ficheros
  *
  * Una dirección que no vale NO se descarta en silencio: se devuelve un 400 con la que falla, porque quien envía tiene que
@@ -87,6 +89,13 @@ export async function POST(request: NextRequest) {
     const resultado = await enviarDesdeBuzon(service, auth.buzon, entrada)
     if (resultado.tipo === 'error') return fail(resultado.estado, resultado.mensaje)
     const r = resultado.resultado
+
+    // Si el mensaje salió de un borrador de la IA, se apunta lo que salió DE VERDAD (editado) y en qué conversación quedó. Si esto falla no
+    // se avisa de nada: el correo ya salió, y el registro solo sirve para medir
+    const iaId = formulario.get('iaId')
+    if (typeof iaId === 'string' && UUID.test(iaId)) {
+      await marcarBorradorEnviado(service, { id: iaId.toLowerCase(), userId: sesion.userId, hiloId: r.hiloId, asunto: entrada.asunto, texto: entrada.texto })
+    }
     return NextResponse.json({ ok: true, hiloId: r.hiloId, copiadoAEnviados: r.copiadoAEnviados, rechazados: r.rechazados }, { headers: SIN_CACHE })
   } catch (error) {
     return respuestaDeFallo('Correo · enviar: fallo', error)

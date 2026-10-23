@@ -427,7 +427,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
     setConectando(false)
     if (mio.id !== buzonId) elegirBuzon(mio.id)
     const base = borradorDe('nuevo', null, { miDireccion: mio.direccion, firma: mio.firma })
-    setRedactando({ ...base, para: peticion.para, asunto: peticion.asunto ?? '', texto: peticion.texto ?? base.texto, lead: peticion.lead ?? null })
+    setRedactando({ ...base, para: peticion.para, asunto: peticion.asunto ?? '', texto: peticion.texto ?? base.texto, lead: peticion.lead ?? null, generarIa: peticion.ia === true && Boolean(peticion.lead) })
     // `elegirBuzon` y `abrir` son funciones de este mismo componente que se redefinen en cada pintado: depender de ellas relanzaría este efecto
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peticion, buzones])

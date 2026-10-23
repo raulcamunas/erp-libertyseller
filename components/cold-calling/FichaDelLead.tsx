@@ -1,6 +1,6 @@
 'use client'
 
-import { AlertTriangle, CalendarClock, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, Mail, Phone, ShoppingBag, X } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, Mail, Phone, ShoppingBag, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { clavesDelLead } from '@/lib/cold-calling/vinculos'
@@ -276,6 +276,17 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">{correo}</span>
             </button>
           ))}
+          {correos.length > 0 && (
+            // Abre el mismo mensaje y la IA ya está escribiendo el borrador con los datos y el historial del lead (sin facturación). Se edita antes de enviar
+            <button
+              type="button"
+              onClick={() => escribirAlLead(lead, correos[0], { ia: true })}
+              title="Abre el correo y la IA lo escribe con los datos y el historial de este lead (sin facturación). Lo editas antes de enviar"
+              className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}
+            >
+              <Sparkles className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden /> Correo con IA
+            </button>
+          )}
           {canEdit && <AnadirContacto lead={lead} guardar={patch} listo={'telefonos_extra' in lead && 'emails_extra' in lead} />}
           {esTienda && lead.web && (
             <a href={lead.web} target="_blank" rel="noopener noreferrer" className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}>

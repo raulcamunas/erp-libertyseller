@@ -31,6 +31,8 @@ export interface BorradorDeCorreo {
   conCita: boolean
   /** Si el mensaje se abre desde la ficha de un lead de Cold Calling: al enviarlo se apunta en su historial, y las plantillas rellenan su nombre */
   lead?: LeadDeOrigen | null
+  /** Abrir el mensaje ya pidiéndole el borrador a la IA (el chip «Correo con IA» de la ficha). Solo con `lead` */
+  generarIa?: boolean
 }
 
 const lista = (personas: Persona[]): string => personas.map(etiquetaDePersona).join(', ')

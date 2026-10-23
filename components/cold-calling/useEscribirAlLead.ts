@@ -20,7 +20,7 @@ export const primerEmail = (email: string | null | undefined): string | null => 
 export function useEscribirAlLead() {
   const router = useRouter()
   return useCallback(
-    (lead: Pick<ColdLead, 'id' | 'store_name' | 'company' | 'email'> & { decisor?: string | null }, direccion?: string) => {
+    (lead: Pick<ColdLead, 'id' | 'store_name' | 'company' | 'email'> & { decisor?: string | null }, direccion?: string, opciones?: { ia?: boolean }) => {
       // Sin dirección concreta, a la primera del campo `email`. Con ella (un correo extra de la ficha), a esa
       const para = direccion?.includes('@') ? direccion : primerEmail(lead.email)
       if (!para) return
@@ -28,6 +28,8 @@ export function useEscribirAlLead() {
         tipo: 'redactar',
         para,
         lead: { id: lead.id, nombre: lead.store_name, empresa: lead.company || null, contacto: lead.decisor || null },
+        // «Correo con IA»: el mensaje se abre y la IA ya está escribiendo el borrador (components/correo/Redactar.tsx)
+        ia: opciones?.ia === true,
       })
       router.push('/dashboard/correo')
     },

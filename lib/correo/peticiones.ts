@@ -24,7 +24,7 @@ export interface LeadDeOrigen {
 
 export type PeticionAlCorreo =
   /** Abrir el cuadro de «Nuevo mensaje» ya dirigido a alguien */
-  | { tipo: 'redactar'; para: string; asunto?: string; texto?: string; lead?: LeadDeOrigen }
+  | { tipo: 'redactar'; para: string; asunto?: string; texto?: string; lead?: LeadDeOrigen; ia?: boolean }
   /** Abrir una conversación concreta (el aviso de «correo nuevo») */
   | { tipo: 'hilo'; buzonId: string; hiloId: string }
 

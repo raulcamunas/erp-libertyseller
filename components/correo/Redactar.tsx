@@ -1,13 +1,15 @@
 'use client'
 
-import { AlertCircle, Loader2, Paperclip, Send, X } from 'lucide-react'
+import { AlertCircle, Loader2, Paperclip, Send, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { toast } from 'sonner'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { tamanoLegible } from '@/lib/correo/formato'
+import { SUGERENCIAS_DE_CAMBIO, cuerpoEscrito, hayCuerpoEscrito, ponerBorradorIa, sumarIndicacion, type RespuestaDeRedactar } from '@/lib/correo/ia-cliente'
 import { camposSinRellenar, insertarPlantilla, rellenarPlantilla, textoSinFirma, type PlantillaDeCorreo } from '@/lib/correo/plantillas'
 import type { BorradorDeCorreo } from '@/lib/correo/redactar'
 import type { BuzonVisible } from '@/lib/correo/tipos'
-import { pedir } from './api'
+import { enviarJson, pedir } from './api'
 import { SelectorDePlantillas } from './SelectorDePlantillas'
 import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from './ui'
 
@@ -60,6 +62,12 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmaCerrar, setConfirmaCerrar] = useState(false)
+  // Redactar con IA: solo si el mensaje se abrió desde la ficha de un lead (hay a quién conocer). El borrador es una ayuda: se edita antes de enviar
+  const [iaAbierta, setIaAbierta] = useState(false)
+  const [iaPide, setIaPide] = useState('')
+  const [iaRedactando, setIaRedactando] = useState(false)
+  const [iaBorrador, setIaBorrador] = useState<{ id: string | null; ejemplos: number; aviso: string | null } | null>(null)
+  const iaArrancada = useRef(false)
   const entradaPara = useRef<HTMLInputElement>(null)
   const entradaTexto = useRef<HTMLTextAreaElement>(null)
   const entradaFicheros = useRef<HTMLInputElement>(null)
@@ -97,6 +105,47 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }
   /** Lo que se sabe para rellenar los campos de una plantilla. {{nombre}} no está: lo escribe quien envía (ver lib/correo/plantillas.ts) */
   const datosDeRelleno = { empresa: borrador.lead?.empresa || borrador.lead?.nombre || null, mi_nombre: buzon.nombre || null, mi_correo: buzon.direccion }
 
+  /**
+   * Le pide a la IA el borrador de este lead y lo pone en el mensaje (asunto y cuerpo, con la firma del buzón debajo). Si ya hay un
+   * borrador suyo, o algo escrito, parte de ello: «más corto» cambia lo que hay, no lo tira. Sin indicaciones sobre un borrador suyo se le pide
+   * una versión distinta (si el comercial pulsa «Volver a redactar» sin más, es que esa no le valía).
+   */
+  async function redactarConIa(indicaciones: string) {
+    if (!borrador.lead || iaRedactando || enviando) return
+    setError(null)
+    setIaAbierta(false)
+    setIaRedactando(true)
+    const hayBase = hayCuerpoEscrito(texto, buzon.firma)
+    const pide = indicaciones.trim() || (iaBorrador && hayBase ? 'Escribe una versión distinta, con otro enfoque.' : '')
+    const r = await enviarJson<RespuestaDeRedactar>('/api/correo/redactar-ia', 'POST', {
+      leadId: borrador.lead.id,
+      buzonId: buzon.id,
+      indicaciones: pide || undefined,
+      anterior: hayBase ? { asunto: asunto.trim() || '(sin asunto)', texto: cuerpoEscrito(texto, buzon.firma) } : undefined,
+    })
+    setIaRedactando(false)
+    if (!r.ok) return setError(r.mensaje)
+    // El asunto solo se cambia en un mensaje nuevo: al contestar se queda el «Re: …» de la conversación
+    if (borrador.modo === 'nuevo') setAsunto(r.datos.asunto)
+    setTexto(ponerBorradorIa(buzon.firma, r.datos.texto))
+    setIaBorrador({ id: r.datos.id, ejemplos: r.datos.ejemplos, aviso: r.datos.aviso })
+    setIaPide('')
+    requestAnimationFrame(() => {
+      const el = entradaTexto.current
+      el?.focus()
+      el?.setSelectionRange(0, 0)
+      el?.scrollTo({ top: 0 })
+    })
+  }
+
+  // Desde el chip «Correo con IA» de la ficha el mensaje se abre y el borrador ya se está pidiendo. Una sola vez aunque React monte dos veces
+  useEffect(() => {
+    if (!borrador.generarIa || iaArrancada.current) return
+    iaArrancada.current = true
+    void redactarConIa('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function aplicarPlantilla(p: PlantillaDeCorreo) {
     // El asunto solo se cambia en un mensaje nuevo: al contestar se queda el «Re: …» de la conversación
     if (borrador.modo === 'nuevo' && p.asunto.trim()) setAsunto(rellenarPlantilla(p.asunto, datosDeRelleno))
@@ -133,7 +182,7 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }
 
   async function enviar(e?: FormEvent) {
     e?.preventDefault()
-    if (enviando) return
+    if (enviando || iaRedactando) return
     if (!para.trim()) return setError('Falta al menos un destinatario.')
     if (!asunto.trim() && borrador.modo === 'nuevo') return setError('Escribe un asunto.')
     if (!texto.trim() && adjuntos.length === 0) return setError('El mensaje está vacío.')
@@ -154,6 +203,8 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }
       f.set('modo', borrador.modo === 'reenviar' ? 'reenviar' : 'responder')
       if (!conCita) f.set('sinCita', '1')
     }
+    // Si el mensaje sale de un borrador de la IA se apunta lo que salió de verdad (editado), para medir si funciona
+    if (iaBorrador?.id) f.set('iaId', iaBorrador.id)
     for (const a of adjuntos) f.append('adjuntos', a, a.name)
 
     const r = await pedir<RespuestaDeEnvio>('/api/correo/enviar', { method: 'POST', body: f })
@@ -218,14 +269,35 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }
             <span className="w-14 shrink-0 text-[12px] text-[var(--ls-t3)]">Asunto</span>
             <input value={asunto} onChange={(e) => setAsunto(e.target.value)} maxLength={500} className={CAMPO} />
           </label>
-          <textarea
-            ref={entradaTexto}
-            value={texto}
-            onChange={(e) => setTexto(e.target.value)}
-            rows={14}
-            aria-label="Mensaje"
-            className="w-full resize-y rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-3 text-[13px] leading-relaxed text-[var(--ls-t1)] outline-none transition-colors focus:border-[var(--ls-acc-graf)]"
-          />
+          <div className="relative">
+            <textarea
+              ref={entradaTexto}
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+              readOnly={iaRedactando}
+              rows={14}
+              aria-label="Mensaje"
+              aria-busy={iaRedactando}
+              className={`w-full resize-y rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-3 text-[13px] leading-relaxed text-[var(--ls-t1)] outline-none transition-[colors,opacity] focus:border-[var(--ls-acc-graf)] ${iaRedactando ? 'opacity-40' : ''}`}
+            />
+            {iaRedactando && (
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-[var(--ls-t2)]" role="status">
+                <Loader2 className="h-5 w-5 animate-spin text-[var(--ls-acc)]" aria-hidden />
+                <p className="text-[13px] font-medium">Redactando el correo con IA…</p>
+                <p className="text-[11.5px] text-[var(--ls-t3)]">Suele tardar unos segundos. Después lo puedes editar.</p>
+              </div>
+            )}
+          </div>
+          {iaBorrador && !iaRedactando && (
+            <p className="flex items-start gap-2 text-[11.5px] leading-snug text-[var(--ls-t3)]">
+              <Sparkles className="mt-px h-3.5 w-3.5 shrink-0 text-[var(--ls-acc)]" aria-hidden />
+              <span>
+                Borrador de la IA: léelo y edítalo antes de enviar.
+                {iaBorrador.ejemplos > 0 ? ` Se ha basado en ${iaBorrador.ejemplos} ${iaBorrador.ejemplos === 1 ? 'correo' : 'correos'} del equipo que obtuvieron respuesta.` : ''}
+                {iaBorrador.aviso ? <span className="text-[var(--ls-e-ambar)]"> {iaBorrador.aviso}</span> : null}
+              </span>
+            </p>
+          )}
 
           {borrador.respondeA && (
             <label className="flex cursor-pointer select-none items-center gap-2 text-[12px] text-[var(--ls-t3)]">
@@ -263,11 +335,66 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado }
         </div>
 
         <footer className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] px-4 py-3">
-          <button type="submit" disabled={enviando} className={BOTON_PRIMARIO}>
+          <button type="submit" disabled={enviando || iaRedactando} className={BOTON_PRIMARIO}>
             {enviando ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
             {enviando ? 'Enviando…' : 'Enviar'}
           </button>
           <input ref={entradaFicheros} type="file" multiple onChange={(e) => añadir(e.target.files)} className="sr-only" tabIndex={-1} aria-hidden />
+          {borrador.lead && (
+            <Popover open={iaAbierta && !iaRedactando} onOpenChange={setIaAbierta}>
+              <PopoverTrigger asChild>
+                <button type="button" disabled={enviando || iaRedactando} className={BOTON_SECUNDARIO} title="La IA escribe el correo con los datos y el historial de este lead (sin facturación)">
+                  {iaRedactando ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Sparkles className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden />}
+                  {iaRedactando ? 'Redactando…' : iaBorrador ? 'Volver a redactar' : 'Redactar con IA'}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                side="top"
+                sideOffset={8}
+                collisionPadding={12}
+                className="z-[80] w-[min(360px,calc(100vw-1.5rem))] space-y-2.5 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] p-3 text-[var(--ls-t2)] shadow-2xl"
+                onOpenAutoFocus={(e) => {
+                  e.preventDefault()
+                  document.getElementById('ia-indicaciones')?.focus()
+                }}
+                // Lo que se teclea aquí no es del mensaje: Ctrl+Intro redacta (no envía) y Escape cierra solo este cuadro
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <p className="text-[12px] leading-snug text-[var(--ls-t3)]">
+                  {hayCuerpoEscrito(texto, buzon.firma) ? 'Parte de lo que hay escrito y lo sustituye por el nuevo borrador.' : 'Escribe el correo con los datos y el historial de este lead.'} No dirá nada de facturación.
+                </p>
+                <textarea
+                  id="ia-indicaciones"
+                  value={iaPide}
+                  onChange={(e) => setIaPide(e.target.value.slice(0, 600))}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                      e.preventDefault()
+                      void redactarConIa(iaPide)
+                    }
+                  }}
+                  rows={3}
+                  placeholder="Opcional: qué quieres que diga o cambie…"
+                  aria-label="Indicaciones para la IA"
+                  className="w-full resize-none rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-2.5 text-[12.5px] leading-snug text-[var(--ls-t1)] outline-none transition-colors placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)]"
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {SUGERENCIAS_DE_CAMBIO.map((s) => (
+                    <button key={s} type="button" onClick={() => setIaPide(sumarIndicacion(iaPide, s))} className="inline-flex h-6 items-center rounded-[6px] border border-[var(--ls-linea)] px-2 text-[11.5px] text-[var(--ls-t3)] transition-colors hover:border-[var(--ls-linea2)] hover:text-[var(--ls-t1)]">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-[var(--ls-t4)]">Ctrl + Intro</span>
+                  <button type="button" onClick={() => void redactarConIa(iaPide)} className={`${BOTON_PRIMARIO} !h-8 !px-3 !text-[12.5px]`}>
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden /> {iaBorrador ? 'Volver a redactar' : 'Redactar'}
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
           <SelectorDePlantillas yoId={yoId} esAdmin={esAdmin} actual={{ asunto, texto: textoSinFirma(texto, buzon.firma) }} onAplicar={aplicarPlantilla} onInsertarCampo={insertarCampo} conAsunto={borrador.modo === 'nuevo'} />
           <button type="button" onClick={() => entradaFicheros.current?.click()} disabled={enviando} className={BOTON_SECUNDARIO}>
             <Paperclip className="h-3.5 w-3.5" aria-hidden /> Adjuntar
