@@ -53,7 +53,7 @@ async function principal() {
     const r = await m.POST(post(ping))
     ok('401', r.status === 401)
     const aviso = r.headers.get('www-authenticate') ?? ''
-    ok('con el aviso que abre el inicio de sesión', aviso === `Bearer resource_metadata="${BASE}/api/mcp/metadata"`, aviso)
+    ok('con el aviso que abre el inicio de sesión (y el permiso que hay que pedir)', aviso === `Bearer resource_metadata="${BASE}/api/mcp/metadata", scope="email"`, aviso)
     ok('el cuerpo es un error JSON-RPC legible', ((await r.json()) as any).error.message === 'Falta el token de acceso.')
     ok('no se cachea', r.headers.get('cache-control') === 'no-store')
   }
@@ -163,7 +163,13 @@ async function principal() {
   ok('ni en el emisor de Supabase', emisorSupabase(`${SUPABASE}/`) === `${SUPABASE}/auth/v1`)
   ok('el aviso de un token caducado', avisoDeAutenticacion(BASE, true).includes('invalid_token'))
   ok('el aviso sin token no menciona error', !avisoDeAutenticacion(BASE, false).includes('error='))
-  ok('los metadatos de recurso, directos', metadatosRecurso(BASE, SUPABASE).scopes_supported.includes('openid'))
+  // `openid` hace que Supabase fabrique un ID token al canjear el código y en este proyecto falla con un 500
+  // («Error generating ID token»): Claude se queda en «No se pudo conectar». Claude pide lo que se anuncia aquí.
+  ok('los metadatos de recurso piden solo `email`', JSON.stringify(metadatosRecurso(BASE, SUPABASE).scopes_supported) === '["email"]')
+  ok('y NUNCA anuncian `openid`', !metadatosRecurso(BASE, SUPABASE).scopes_supported.some((s) => s === 'openid'))
+  ok('el aviso del 401 también dice qué permiso pedir', avisoDeAutenticacion(BASE, false).includes('scope="email"'))
+  ok('el aviso de un token caducado conserva el permiso', avisoDeAutenticacion(BASE, true).includes('scope="email"'))
+  ok('ni el aviso menciona `openid`', !/openid/.test(avisoDeAutenticacion(BASE, true)))
 
   console.log('\n=== el limitador, aparte ===')
   {

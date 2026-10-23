@@ -35,14 +35,27 @@ export function emisorSupabase(supabaseUrl: string): string {
   return `${supabaseUrl.replace(/\/+$/, '')}/auth/v1`
 }
 
+/**
+ * LOS PERMISOS («scopes») QUE CLAUDE LE PIDE A SUPABASE: SOLO `email`, NUNCA `openid`.
+ *
+ * Con `openid`, Supabase tiene que fabricar además un token de identidad (ID token) al canjear
+ * el código, y en este proyecto eso falla con un 500 («Error generating ID token»). Claude pide
+ * lo que se anuncia aquí, así que se quedaba en «No se pudo conectar» justo después de pulsar
+ * «Permitir», sin que el ERP llegara a ver ninguna llamada.
+ *
+ * Medido de punta a punta el 23 oct 2026 (registro, consentimiento, canje, llamadas y
+ * renovación del token): con `email` todo funciona. Lo que Supabase entiende por «scope» es
+ * información de identidad, no permisos: lo que se puede hacer lo decide el rol del perfil,
+ * en cada llamada.
+ */
+export const SCOPES_DEL_CONECTOR = ['email'] as const
+
 export function metadatosRecurso(base: string, supabaseUrl: string) {
   return {
     resource: urlRecurso(base),
     authorization_servers: [emisorSupabase(supabaseUrl)],
     bearer_methods_supported: ['header'],
-    // Lo que Supabase entiende por «scope» es información de OIDC, no permisos: lo
-    // que se puede hacer lo decide el rol del perfil, en cada llamada.
-    scopes_supported: ['openid', 'email', 'profile'],
+    scopes_supported: [...SCOPES_DEL_CONECTOR],
     resource_name: 'ERP de Liberty Seller (solo equipo)',
   }
 }
@@ -52,7 +65,8 @@ export function metadatosRecurso(base: string, supabaseUrl: string) {
  * decirlo, y es lo que hace que Claude renueve el token en vez de quedarse parado.
  */
 export function avisoDeAutenticacion(base: string, invalido: boolean): string {
-  const partes = [`resource_metadata="${urlMetadatos(base)}"`]
+  // `scope` en el aviso es lo PRIMERO que mira un cliente de MCP para saber qué pedir
+  const partes = [`resource_metadata="${urlMetadatos(base)}"`, `scope="${SCOPES_DEL_CONECTOR.join(' ')}"`]
   if (invalido) partes.push('error="invalid_token"', 'error_description="El token no es válido o ha caducado"')
   return `Bearer ${partes.join(', ')}`
 }
