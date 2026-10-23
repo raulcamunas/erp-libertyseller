@@ -72,6 +72,7 @@ RUN { \
       echo "* * * * * /app/scripts/stock-verificacion.sh"; \
       echo "* * * * * /app/scripts/cumplimiento.sh"; \
       echo "* * * * * /app/scripts/rinkel-llamadas.sh"; \
+      echo "* * * * * /app/scripts/rinkel-transcribir.sh"; \
       echo "* * * * * /app/scripts/correo-sync.sh"; \
     } > /etc/crontabs/root
 

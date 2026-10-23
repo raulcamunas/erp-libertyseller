@@ -1,11 +1,14 @@
 'use client'
 
-import { Loader2, Mic, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, Play, Voicemail } from 'lucide-react'
+import { Loader2, Mic, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, Play, Sparkles, Voicemail } from 'lucide-react'
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { etiquetaDeDia, horaMadrid } from '@/lib/rendimiento/dia'
 import { duracionCorta, esContestador, estaContestada } from '@/lib/rendimiento/metricas'
 import { telefonoLegible } from '@/lib/rendimiento/telefonos'
+import { primeraFrase, vistaDelResumen } from '@/lib/transcripcion/pantalla'
+import { ResumenDeLlamada } from '@/components/transcripcion/ResumenDeLlamada'
+import { useResumenesDeLlamadas } from '@/components/transcripcion/useResumenesDeLlamadas'
 import { ReproductorGrabacion } from './ReproductorGrabacion'
 import type { LlamadaGuardada } from './tipos'
 import { CabeceraDePanel, ChipDeFiltro, PANEL } from './ui'
@@ -22,6 +25,10 @@ import { CabeceraDePanel, ChipDeFiltro, PANEL } from './ui'
  *
  * CADA LLAMADA lleva un icono con el color de lo que pasó (verde: la contestó alguien; cian: recibida; gris: nadie o
  * un contestador; rojo: perdida), siempre con su palabra al lado: el color nunca va solo.
+ *
+ * LO QUE SE HABLÓ: si la IA ya ha resumido la llamada (proceso `rinkel-transcribir`, migración 244), su primera frase sale en una tercera línea de
+ * la fila, y un botón abre el resumen entero (interés, siguiente paso, línea de la conversación y transcripción). Así quien supervisa repasa el
+ * día sin escuchar cada grabación.
  */
 
 export interface NombreDeLead {
@@ -91,10 +98,13 @@ const grabacionCaducada = (l: LlamadaGuardada) => l.grabacion_hasta !== null && 
 export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel, esPropio, onAislarDia }: Props) {
   const [filtro, setFiltro] = useState<Filtro>('todas')
   const [abierta, setAbierta] = useState<string | null>(null)
+  const [conResumen, setConResumen] = useState<string | null>(null)
+  const resumenes = useResumenesDeLlamadas(llamadas)
 
   // Al cambiar de día no se arrastra ni la grabación abierta ni un filtro que ya no tiene nada
   useEffect(() => {
     setAbierta(null)
+    setConResumen(null)
     setFiltro('todas')
   }, [dia])
 
@@ -153,6 +163,9 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
               const conGrabacion = l.grabacion_id !== null
               const caducada = conGrabacion && grabacionCaducada(l)
               const abierto = abierta === l.id
+              const resumen = resumenes.get(l.id)
+              const vista = vistaDelResumen(resumen)
+              const resumenAbierto = conResumen === l.id
 
               return (
                 <li key={l.id} className={`rend-entra rounded-[8px] border transition-colors ${abierto ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-sup2)]' : 'border-transparent bg-[var(--ls-sup)] hover:border-[var(--ls-linea)] hover:bg-[var(--ls-sup2)]'}`} style={{ '--d': Math.min(i, 14) } as CSSProperties}>
@@ -164,6 +177,11 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[12.5px] text-[var(--ls-t1)]">{lead ? lead.nombre : telefono}</p>
                       <p className="truncate text-[11px] text-[var(--ls-t4)]">{lead ? `${telefono}${lead.empresa ? ` · ${lead.empresa}` : ''}` : textoDeEstado(l)}</p>
+                      {vista === 'resumen' && resumen?.resumen && (
+                        <p className="mt-px truncate text-[11px] text-[var(--ls-t3)]" title={resumen.resumen}>
+                          {primeraFrase(resumen.resumen)}
+                        </p>
+                      )}
                     </div>
 
                     <div className="shrink-0 text-right">
@@ -172,6 +190,23 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
                         {contestada(l) ? duracionCorta(l.duracion_s) : esContestador(l) ? (lead ? `Contestador · ${duracionCorta(l.duracion_s)}` : duracionCorta(l.duracion_s)) : lead ? textoDeEstado(l) : '—'}
                       </p>
                     </div>
+
+                    {vista === 'resumen' && (
+                      <button
+                        type="button"
+                        onClick={() => setConResumen(resumenAbierto ? null : l.id)}
+                        aria-expanded={resumenAbierto}
+                        aria-label="Ver lo que se habló en la llamada"
+                        title="Ver lo que se habló"
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border transition-colors ${
+                          resumenAbierto
+                            ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] text-[var(--ls-acc)]'
+                            : 'border-[var(--ls-linea)] text-[var(--ls-t3)] hover:border-[var(--ls-acc-graf)] hover:text-[var(--ls-acc)]'
+                        }`}
+                      >
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    )}
 
                     {conGrabacion &&
                       (caducada ? (
@@ -198,6 +233,12 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
                   {abierto && (
                     <div className="px-2 pb-2">
                       <ReproductorGrabacion llamadaId={l.id} onCerrar={() => setAbierta(null)} />
+                    </div>
+                  )}
+
+                  {resumenAbierto && resumen && (
+                    <div className="px-2 pb-2">
+                      <ResumenDeLlamada resumen={resumen} />
                     </div>
                   )}
                 </li>

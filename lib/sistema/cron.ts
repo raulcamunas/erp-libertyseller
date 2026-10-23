@@ -213,6 +213,27 @@ export const TAREAS_CRON = [
   },
   {
     /**
+     * CADA DOS MINUTOS, Y ES EL INTERRUPTOR DEL GASTO.
+     *
+     * Pasa a texto las llamadas contestadas de Rinkel que ya tienen grabación y están enlazadas con un lead, y deja en la ficha del lead
+     * el resumen, la línea de la conversación y el siguiente paso (lib/transcripcion/motor.ts). El gasto es casi todo el audio: unos
+     * 0,0045 $ por minuto con `gpt-transcribe`, y con las 35–50 llamadas al día de hoy son unos 4–5 $ al mes. Apagar este proceso desde
+     * Sistema detiene el gasto en el acto; el tope de minutos al día de la fila de ajustes (migración 244) lo vigila además por dentro.
+     *
+     * Cada dos minutos porque una grabación aparece en Rinkel unos minutos después de colgar (y se lee cada dos): así el resumen sale al
+     * poco de acabar la llamada, sin que nadie tenga que pedirlo.
+     */
+    id: 'rinkel-transcribir',
+    nombre: 'Transcripción de llamadas',
+    ruta: '/api/rendimiento/transcribir',
+    cadaMinutos: 2,
+    que:
+      'Pasa a texto con IA las llamadas contestadas de Rinkel que tienen grabación y lead, y deja en la ficha el resumen, la ' +
+      'línea de la conversación y el siguiente paso. Cada llamada se transcribe una sola vez (unos 0,005 $ por minuto de audio). ' +
+      'Apagarlo aquí detiene el gasto. Solo lee de Rinkel.',
+  },
+  {
+    /**
      * CADA COMERCIAL TIENE SU BUZÓN, Y CADA UNO SE LEE POR SEPARADO.
      *
      * Cada persona conecta su buzón de Hostinger en «Correo» y esta tarea trae los mensajes nuevos de TODOS los

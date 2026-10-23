@@ -16,6 +16,8 @@ import {
 import { COLD_NOTE_LABELS, type ColdLeadNote, type ColdNoteKind } from '@/lib/types/cold-leads'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import { ReproductorGrabacion } from '@/components/rendimiento/ReproductorGrabacion'
+import { ResumenDeLlamada } from '@/components/transcripcion/ResumenDeLlamada'
+import { useResumenesDeLlamadas } from '@/components/transcripcion/useResumenesDeLlamadas'
 
 /**
  * EL HISTORIAL DE UN LEAD.
@@ -26,6 +28,10 @@ import { ReproductorGrabacion } from '@/components/rendimiento/ReproductorGrabac
  *
  * Una llamada no es una nota: no se borra desde aquí ni se edita. Vive en `rinkel_llamadas` y se lee con las mismas
  * políticas RLS que «Mi rendimiento» (cada comercial ve las suyas; quien supervisa, las de todos).
+ *
+ * DEBAJO DE CADA LLAMADA con conversación sale lo que se habló: un resumen, el interés del cliente, el siguiente paso y —plegadas— la línea de la
+ * conversación y la transcripción entera. Lo escribe la IA a partir de la grabación unos minutos después de colgar (proceso `rinkel-transcribir`,
+ * migración 244); la ficha lo recoge sola, sin que nadie apunte nada. Va en la llamada y no como una nota aparte: no hay dos apuntes de lo mismo.
  */
 
 interface Props {
@@ -201,6 +207,8 @@ export function HistorialDelLead({ leadId, currentUser, nombres, version = 0, on
 
   const elementos = useMemo(() => fusionarHistorial(notas, llamadas), [notas, llamadas])
   const ahora = Date.now()
+  // Lo que se habló en cada llamada (resumen, línea de la conversación, siguiente paso). Lo escribe la IA unos minutos después de colgar
+  const resumenes = useResumenesDeLlamadas(llamadas)
 
   return (
     <div className="space-y-2.5">
@@ -303,6 +311,7 @@ export function HistorialDelLead({ leadId, currentUser, nombres, version = 0, on
                       )}
                     </div>
                     {abierto && <ReproductorGrabacion llamadaId={l.id} onCerrar={() => setAbierta(null)} />}
+                    {resumenes.get(l.id) && <ResumenDeLlamada resumen={resumenes.get(l.id)!} />}
                   </div>
                 </li>
               )
