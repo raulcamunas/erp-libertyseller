@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/auth/api'
+import { parametrosDeIa } from '@/lib/ia/modelo'
 import OpenAI from 'openai'
 
 // Lazy initialization - solo se crea cuando se necesita
@@ -148,20 +149,18 @@ Analiza estos datos y proporciona tu diagnóstico siguiendo la estructura requer
       })
     }
 
-    // Llamar a OpenAI con timeout
+    // Llamar a OpenAI con timeout. 30 s y no 10: gpt-6-luna piensa un poco antes de escribir, y el diagnóstico completo (~600 tokens) tarda 8-12 s
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 segundos
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
 
     try {
       const completion = await openai.chat.completions.create(
         {
-          model: 'gpt-4o',
+          ...parametrosDeIa({ maxSalida: 4000 }),
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             { role: 'user', content: userPrompt },
           ],
-          temperature: 0.4,
-          max_tokens: 1500,
         },
         { signal: controller.signal }
       )

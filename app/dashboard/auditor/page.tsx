@@ -64,7 +64,7 @@ export default function AuditorPage() {
               <div>
                 <h3 className="font-semibold text-white mb-1">Análisis IA</h3>
                 <p className="text-sm text-white/70">
-                  GPT-4o genera un informe estratégico personalizado con plan de acción
+                  La IA genera un informe estratégico personalizado con plan de acción
                 </p>
               </div>
             </div>

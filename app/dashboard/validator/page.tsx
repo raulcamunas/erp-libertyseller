@@ -54,7 +54,7 @@ export default function ValidatorPage() {
               <div>
                 <h3 className="font-semibold text-white mb-1">Análisis IA</h3>
                 <p className="text-sm text-white/70">
-                  GPT-4o evalúa rentabilidad, competencia y da un veredicto GO/NO GO
+                  La IA evalúa rentabilidad, competencia y da un veredicto GO/NO GO
                 </p>
               </div>
             </div>

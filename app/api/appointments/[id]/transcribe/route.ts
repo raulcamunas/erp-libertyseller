@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parametrosDeIa } from '@/lib/ia/modelo'
 import { createClient } from '@/lib/supabase/server'
 import OpenAI from 'openai'
 import { audioDesdeBytes } from '@/lib/transcripcion/audio'
@@ -99,12 +100,11 @@ export async function POST(
     if (!transcription) throw new Error('La transcripción salió vacía')
 
     const summaryRes = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      ...parametrosDeIa({ maxSalida: 4000 }),
       messages: [
         { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
         { role: 'user', content: transcription },
       ],
-      temperature: 0.4,
     })
     const summary = summaryRes.choices[0]?.message?.content?.trim() || ''
 

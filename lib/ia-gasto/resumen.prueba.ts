@@ -63,7 +63,7 @@ console.log('\n=== qué es cada concepto ===')
   ok('«gpt-4o-mini-transcribe-2025-12-15 audio» (así lo llama OpenAI de verdad) es la familia gpt-4o-mini-transcribe', familiaDeModelo('gpt-4o-mini-transcribe-2025-12-15 audio') === 'gpt-4o-mini-transcribe' && familiaDeModelo('gpt-4o-mini-transcribe-2025-12-15 text') === 'gpt-4o-mini-transcribe')
   ok('y la de cuatro cifras de los modelos viejos', familiaDeModelo('gpt-4-0613') === 'gpt-4' && familiaDeModelo('gpt-6-luna') === 'gpt-6-luna' && familiaDeModelo('whisper-1') === 'whisper-1')
 
-  ok('para qué se usa cada modelo (pista)', usoHabitual('gpt-5.6-terra-2026-03-01') === 'Correo con IA' && usoHabitual('gpt-5.5') === 'Remesas: propuesta con IA' && usoHabitual('gpt-transcribe') === 'Transcripción de las llamadas de Rinkel' && usoHabitual('gpt-6-luna') === 'Resumen de las llamadas de Rinkel' && usoHabitual('whisper-1') === 'Transcripción de las citas')
+  ok('para qué se usa cada modelo (pista)', usoHabitual('gpt-5.6-terra-2026-03-01') === 'Correo con IA' && usoHabitual('gpt-5.5') === 'Remesas: propuesta con IA' && usoHabitual('gpt-transcribe') === 'Transcripción de las llamadas de Rinkel' && usoHabitual('gpt-6-luna') === 'Llamadas de Rinkel, citas, auditor, listing, marketing, tracker y validador' && usoHabitual('whisper-1') === 'Transcripción de las citas')
   ok('gpt-4o y gpt-4o-mini no se confunden', usoHabitual('gpt-4o-2024-08-06') === 'Auditor, listing, marketing, tracker y validador' && usoHabitual('gpt-4o-mini-2024-07-18') === 'Resumen de citas y marketing')
   ok('el transcribe de gpt-4o no cae en el de gpt-4o-mini', usoHabitual('gpt-4o-mini-transcribe') === 'Transcripción de audio')
   ok('lo desconocido: «Otros usos»', usoHabitual('modelo-nuevo') === 'Otros usos')

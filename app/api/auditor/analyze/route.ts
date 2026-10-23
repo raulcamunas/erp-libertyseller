@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { parametrosDeIa } from '@/lib/ia/modelo'
 import { ComputedMetrics } from '@/lib/auditor/calculator'
 import { BusinessModel } from '@/lib/parsers/helium'
 
@@ -61,7 +62,7 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
 {
   "headline": "Frase de impacto de 1 línea (máximo 120 caracteres)",
   "executive_summary": "2 párrafos de análisis brutalmente honesto. Párrafo 1: El problema. Párrafo 2: La solución. Usa datos específicos.",
-  "money_left_on_table": "Cifra estimada en € anuales (ej: '€45.000 anuales')",
+  "money_left_on_table": "SOLO la cifra estimada en € anuales, sin notas ni aclaraciones y nunca vacía (ej: '€45.000 anuales')",
   "action_plan": [
     { "title": "Acción 1", "impact": "High", "description": "Descripción detallada de la acción y su impacto" },
     { "title": "Acción 2", "impact": "High", "description": "Descripción detallada" },
@@ -108,7 +109,7 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
 {
   "headline": "Frase de impacto de 1 línea (máximo 120 caracteres)",
   "executive_summary": "2 párrafos de análisis brutalmente honesto. Párrafo 1: El problema (fugas de tráfico, dependencia de ads). Párrafo 2: La solución (SEO, A+, branding). Usa datos específicos.",
-  "money_left_on_table": "Cifra estimada en € anuales (ej: '€120.000 anuales')",
+  "money_left_on_table": "SOLO la cifra estimada en € anuales, sin notas ni aclaraciones y nunca vacía (ej: '€120.000 anuales')",
   "action_plan": [
     { "title": "Acción 1", "impact": "High", "description": "Descripción detallada de la acción y su impacto" },
     { "title": "Acción 2", "impact": "High", "description": "Descripción detallada" },
@@ -134,7 +135,7 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
 {
   "headline": "Frase de impacto de 1 línea (máximo 120 caracteres)",
   "executive_summary": "2 párrafos de análisis brutalmente honesto",
-  "money_left_on_table": "Cifra estimada en € anuales",
+  "money_left_on_table": "SOLO la cifra estimada en € anuales, sin notas ni aclaraciones y nunca vacía (ej: '€60.000 anuales')",
   "action_plan": [
     { "title": "Acción 1", "impact": "High", "description": "Descripción detallada" },
     { "title": "Acción 2", "impact": "Medium", "description": "Descripción detallada" }
@@ -180,22 +181,28 @@ export async function POST(request: NextRequest) {
 
     // Llamar a OpenAI
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      ...parametrosDeIa({ maxSalida: 6000 }),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.7,
       response_format: { type: 'json_object' },
     })
 
     const aiResponse = JSON.parse(completion.choices[0].message.content || '{}')
 
+    // Una respuesta sin titular ni plan de acción no es un análisis (una vez, probando gpt-6-luna, llegaron vacías): que caiga al análisis de reserva de
+    // abajo en vez de enseñarle al posible cliente «Análisis no disponible»
+    if (!aiResponse.headline || !Array.isArray(aiResponse.action_plan) || aiResponse.action_plan.length === 0) {
+      throw new Error('La IA no ha devuelto el análisis')
+    }
+
     // Validar y normalizar la respuesta
     const response: AnalyzeResponse = {
       headline: aiResponse.headline || 'Análisis de Oportunidades de Crecimiento',
       executive_summary: aiResponse.executive_summary || 'Análisis no disponible',
-      money_left_on_table: aiResponse.money_left_on_table || '€0 anuales',
+      // Sin cifra, la de la propia auditoría (la IA suele repetirla): mejor que «€0 anuales», que parece un error
+      money_left_on_table: aiResponse.money_left_on_table || `€${Math.round(computed_metrics.total_opportunity_value || 0).toLocaleString('es-ES')} anuales`,
       action_plan: Array.isArray(aiResponse.action_plan) && aiResponse.action_plan.length > 0
         ? aiResponse.action_plan.map((action: any) => ({
             title: action.title || 'Acción sin título',

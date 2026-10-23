@@ -13,7 +13,7 @@ import type { RespuestaDeGasto } from '@/lib/ia-gasto/servidor'
  * La cifra es la que cobra OpenAI (se lee de su cuenta con una clave de administrador, lib/ia-gasto/), no una estimación del ERP: hoy, este mes y su
  * previsión, el mes anterior, los últimos 30 días y los 12 meses, un gráfico día a día, y el mes por modelo con para qué se usa habitualmente cada uno.
  *
- * El desglose es por MODELO y no por función porque OpenAI solo dice el modelo y varias funciones comparten uno (gpt-4o lo usan seis pantallas). Los
+ * El desglose es por MODELO y no por función porque OpenAI solo dice el modelo y varias funciones comparten uno (gpt-6-luna lo usan ocho pantallas). Los
  * días son los de UTC, que es como los corta OpenAI, y el de hoy se va rellenando a lo largo del día.
  */
 
@@ -278,7 +278,7 @@ export function GastoEnIa() {
 
         <p className={`${TIPO.s} ${TEXTO.t4} leading-[1.45]`}>
           Es la cifra de OpenAI, no una estimación. Solo deja mirar el último año; los días son los de UTC y puede tardar un rato en reflejar lo último. OpenAI solo
-          dice el modelo, no la función: varias pantallas comparten modelo (gpt-4o lo usan el auditor, el listing, marketing, el tracker y el validador), así que
+          dice el modelo, no la función: varias pantallas comparten modelo (gpt-6-luna lo usan las llamadas, las citas, el auditor, el listing, marketing, el tracker y el validador), así que
           «para qué se usa» es lo habitual y no una cuenta exacta.
         </p>
       </div>

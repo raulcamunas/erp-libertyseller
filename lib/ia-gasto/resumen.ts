@@ -6,8 +6,8 @@
  * Los datos vienen de `GET /v1/organization/costs` de OpenAI (lib/ia-gasto/openai.ts): un «cubo» por día (en UTC) con una fila por concepto
  * —un modelo y si es entrada, salida o caché, p. ej. «gpt-6-luna, input»— y por proyecto. Es la cifra de la factura, no una estimación del ERP.
  *
- * LO QUE ESTO NO SABE: qué función del ERP gastó cada céntimo. OpenAI solo dice el MODELO, y varias funciones comparten modelo (gpt-4o lo usan
- * el auditor, el listing builder, tres pantallas de marketing, el tracker y el validador). Por eso el desglose es por modelo, con una pista de
+ * LO QUE ESTO NO SABE: qué función del ERP gastó cada céntimo. OpenAI solo dice el MODELO, y varias funciones comparten modelo (gpt-6-luna lo usan
+ * las llamadas de Rinkel, el auditor, el listing builder, tres pantallas de marketing, el tracker, el validador y las citas; hasta el 23 oct 2026 los dos últimos grupos eran gpt-4o). Por eso el desglose es por modelo, con una pista de
  * para qué se usa habitualmente (`USO_HABITUAL`), y no por función. Para saber la función exacta haría falta que el propio ERP apuntara cada llamada.
  *
  * LOS DÍAS Y LOS MESES SON LOS DE UTC, que es como los corta OpenAI: el cubo de «hoy» llega a medias (se va rellenando) y el último mes se
@@ -107,13 +107,13 @@ export function familiaDeModelo(modelo: string): string {
 }
 
 /**
- * Para qué se usa HABITUALMENTE cada modelo en este ERP. Es una pista y no una cuenta: gpt-4o y gpt-4o-mini los comparten varias pantallas, y el
+ * Para qué se usa HABITUALMENTE cada modelo en este ERP. Es una pista y no una cuenta: gpt-6-luna lo comparten varias pantallas (y, hasta el 23 oct 2026, gpt-4o y gpt-4o-mini), y el
  * modelo del correo con IA y el de las remesas se pueden cambiar en el servidor (CORREO_IA_MODELO, FBA_IA_MODELO) o por versión en «Configuración de
  * correos». El orden importa: la primera que encaja gana.
  */
 export const USO_HABITUAL: ReadonlyArray<{ patron: RegExp; uso: string }> = [
   { patron: /^gpt-transcribe/, uso: 'Transcripción de las llamadas de Rinkel' },
-  { patron: /^gpt-6-luna/, uso: 'Resumen de las llamadas de Rinkel' },
+  { patron: /^gpt-6-luna/, uso: 'Llamadas de Rinkel, citas, auditor, listing, marketing, tracker y validador' },
   { patron: /^whisper/, uso: 'Transcripción de las citas' },
   { patron: /^gpt-4o-(mini-)?transcribe/, uso: 'Transcripción de audio' },
   { patron: /^gpt-5\.6-terra/, uso: 'Correo con IA' },

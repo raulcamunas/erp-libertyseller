@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/auth/api'
+import { parametrosDeIa } from '@/lib/ia/modelo'
 import { createClient } from '@/lib/supabase/server'
 import OpenAI from 'openai'
 import { nanoid } from 'nanoid'
@@ -194,18 +195,17 @@ Genera un reporte completo y profesional siguiendo el formato requerido.`
     
     if (openai) {
       try {
+        // 60 s y no 15: si la IA no llega a tiempo se guarda y se enseña al cliente el reporte básico de abajo, y gpt-6-luna piensa un poco antes de escribir
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 15000)
+        const timeoutId = setTimeout(() => controller.abort(), 60000)
 
         const completion = await openai.chat.completions.create(
           {
-            model: 'gpt-4o',
+            ...parametrosDeIa({ maxSalida: 6000 }),
             messages: [
               { role: 'system', content: SYSTEM_PROMPT },
               { role: 'user', content: userPrompt },
             ],
-            temperature: 0.4,
-            max_tokens: 2000,
           },
           { signal: controller.signal }
         )

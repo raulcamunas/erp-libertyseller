@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/auth/api'
+import { parametrosDeIa } from '@/lib/ia/modelo'
 import * as XLSX from 'xlsx'
 import { comprobarTamañoPeticion, comprobarTamañoFichero } from '@/lib/subidas-limite'
 
@@ -549,7 +550,7 @@ function filterForAIReview(proposals: CandidateChange[]): CandidateChange[] {
 }
 
 // ============================================================================
-// FASE 2C: DECISIÓN DE LA IA (GPT-4o-mini)
+// FASE 2C: DECISIÓN DE LA IA (el modelo de lib/ia/modelo.ts)
 // ============================================================================
 
 async function validateWithAI(
@@ -612,19 +613,18 @@ Responde SOLO con un JSON válido con este formato:
 }`
 
   try {
+    // 60 s y no 10: una decisión por propuesta son ~40 tokens de respuesta, y gpt-6-luna piensa un poco antes de escribir
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000)
 
     const completion = await openai.chat.completions.create(
       {
-        model: 'gpt-4o-mini',
+        ...parametrosDeIa({ maxSalida: 16000 }),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: JSON.stringify(payload, null, 2) },
         ],
-        temperature: 0.4,
         response_format: { type: 'json_object' },
-        max_tokens: 2000,
       },
       { signal: controller.signal }
     )

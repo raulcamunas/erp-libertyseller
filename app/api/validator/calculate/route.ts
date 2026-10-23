@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/auth/api'
+import { parametrosDeIa } from '@/lib/ia/modelo'
 import OpenAI from 'openai'
 import { parseCSV, parseNum, getVal } from '@/lib/utils/csv-parser'
 import { comprobarTamañoPeticion, comprobarTamañoFichero } from '@/lib/subidas-limite'
@@ -212,12 +213,11 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
     let ai_analysis
     try {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        ...parametrosDeIa({ maxSalida: 4000 }),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.7,
         response_format: { type: 'json_object' },
       })
 

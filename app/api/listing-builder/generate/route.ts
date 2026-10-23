@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/auth/api'
+import { parametrosDeIa } from '@/lib/ia/modelo'
 import OpenAI from 'openai'
 import { parseCSV, getVal, parseNum } from '@/lib/utils/csv-parser'
 
@@ -177,9 +178,8 @@ Devuelve este JSON EXACTO:
 }`
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      ...parametrosDeIa({ maxSalida: 8000 }),
       messages: [{ role: 'system', content: systemPrompt }],
-      temperature: 0.5,
       response_format: { type: 'json_object' },
     })
 

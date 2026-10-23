@@ -24,7 +24,8 @@ import type { RespuestaIa } from './reposicion'
  * OpenAI, con la clave `OPENAI_API_KEY` que el servidor ya tiene. No hay que dar de alta
  * nada nuevo para que esto funcione.
  *
- * El modelo es `gpt-5.5`, de los que razonan, y no el `gpt-4o` que usan esas otras pantallas.
+ * El modelo es `gpt-5.5`, de los que razonan, y no el ligero que usan esas otras pantallas (lib/ia/modelo.ts: hoy
+ * `gpt-6-luna`; entonces `gpt-4o`, y la medición de aquí es con él).
  * Medido con el inventario real de ShoesF, `gpt-4o` se limitaba a repetir los números del
  * mensaje: comentó 32 de 72 referencias, con motivos del tipo «agotado, vende 0,25 al día»,
  * no cambió ni una cantidad y su resumen no decía nada. Una propuesta con IA que no piensa no
