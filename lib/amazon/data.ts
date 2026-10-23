@@ -2143,8 +2143,23 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
    */
   const REINTENTOS_ANTES_DE_RENDIRSE = 5
   const haceUnaSemana = new Date(Date.now() - 7 * 86_400_000).toISOString()
-  const rechazosPrevios = await fetchAll<{ sku: string; marketplace_id: string; field: string; error_message: string | null }>(
-    (a, b) =>
+  type RechazoPrevio = { sku: string; marketplace_id: string; field: string; error_message: string | null }
+  /**
+   * ESTA CONSULTA NO PUEDE TUMBAR EL ENVÍO.
+   *
+   * Es una comodidad —no gastar cupo en lo que Amazon rechaza una y otra vez—, no una condición
+   * para mandar. Y es la más pesada de todas: amazon_submissions de Entrais pasa de 280.000 filas
+   * y esta lectura tarda de 3 a 6 segundos EN CALMA. El 21 oct 2026 se pasó del tiempo máximo de
+   * la base de datos (57014) y, como un fallo aquí reventaba el lote entero, el stock de Entrais
+   * estuvo DOS DÍAS sin llegar a Amazon (131 pasadas seguidas con el mismo error).
+   *
+   * Si no se puede leer, se manda igual y los reincidentes se vuelven a intentar: cuesta algo de
+   * cupo, que es mucho mejor que no mandar nada. (La migración 239 le pone un índice para que
+   * deje de ser lenta.)
+   */
+  let rechazosPrevios: RechazoPrevio[] = []
+  try {
+    rechazosPrevios = await fetchAll<RechazoPrevio>((a, b) =>
       service
         .from('amazon_submissions')
         .select('sku, marketplace_id, field, error_message')
@@ -2155,7 +2170,13 @@ export async function sendChanges(input: SendChangesInput): Promise<SendChangesR
         .order('sku')
         .order('id')
         .range(a, b)
-  )
+    )
+  } catch (error) {
+    console.warn(
+      '[amazon] no se han podido leer los rechazos de la última semana; se envía sin apartar a los reincidentes:',
+      humanMessageOf(error)
+    )
+  }
   const veces = new Map<string, { n: number; motivo: string | null }>()
   for (const r of rechazosPrevios) {
     const clave = `${r.marketplace_id}|${r.sku}|${r.field}`
