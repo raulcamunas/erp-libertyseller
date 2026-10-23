@@ -33,22 +33,23 @@ const numero = (n: number) => n.toLocaleString('es-ES')
  * Cada cajita enseña glifo y número; la pulsada se «abre» y escribe además su nombre. Lo que se pidió es que eso no descuadre nada: antes
  * la abierta se ensanchaba y empujaba a todo lo que tenía detrás (los niveles, el recuento), que saltaba de sitio con cada clic.
  *
- * Ahora el grupo mide SIEMPRE lo mismo (540 px desde pantallas medianas) y reparte ese ancho como un acordeón: con todas cerradas las
- * siete miden igual (~74 px) y al abrir una esa crece (3 partes frente a 1) y las otras ceden lo justo.
+ * Ahora el grupo mide SIEMPRE lo mismo (512 px desde pantallas medianas) y reparte ese ancho como un acordeón: con todas cerradas las
+ * siete miden igual (~70 px) y al abrir una esa crece (3 partes frente a 1) y las otras ceden lo justo.
  *
- * LA CUENTA, que no es la ingenua: el relleno y el borde de cada cajita (18 px) NO se reparten, solo el resto. Con 540 px de grupo, 24 de
- * huecos y 7 × 18 de relleno quedan 390 px por repartir: la abierta mide 18 + 390 × 3/9 = 148 px (cabe «Sin contactar», el nombre más largo,
- * que por eso los nombres son CORTOS) y cada cerrada 18 + 390/9 = 61 px (glifo, hueco y una cifra de hasta cuatro dígitos, «9999»). Una
+ * LA CUENTA, que no es la ingenua: el relleno y el borde de cada cajita (14 px) NO se reparten, solo el resto. Con 512 px de grupo, 24 de
+ * huecos y 7 × 14 de relleno quedan 390 px por repartir: la abierta mide 14 + 390 × 3/9 = 144 px (cabe «Sin contactar», el nombre más largo,
+ * que por eso los nombres son CORTOS) y cada cerrada 14 + 390/9 = 57 px (glifo, hueco y una cifra de hasta cuatro dígitos, «9999»). Una
  * cifra de cinco dígitos no cabría en una cerrada: si la cartera llega ahí, hay que subir el ancho del grupo y no el reparto. Medido en la
  * vista previa con las siete abiertas una a una: el grupo no se mueve ni un píxel y nada queda recortado.
  *
  * En pantallas estrechas (menos de `md`) las cajitas se parten en líneas y cada una mide lo que mida: allí no hay nada que descuadrar.
  */
-const GRUPO_DE_ESTADOS = 'md:w-[540px] md:flex-nowrap'
+const GRUPO_DE_ESTADOS = 'md:w-[512px] md:flex-nowrap'
 const CAJITA_CERRADA = 'md:flex-[1_1_0%]'
 const CAJITA_ABIERTA = 'md:flex-[3_1_0%]'
 const ANIMACION_DE_CAJITA = '[transition:flex-grow_0.28s_cubic-bezier(0.22,0.8,0.3,1),background-color_0.2s,border-color_0.2s,color_0.2s]'
-const ANCHO_DE_NIVEL = 'min-w-[68px] justify-center'
+/** Los niveles miden lo mismo con una cifra que con cuatro («N1 5000» cabe): si su ancho cambiara con la cifra, la fila podría cambiar de línea al pulsar un estado */
+const ANCHO_DE_NIVEL = 'w-[76px] justify-center'
 const ANCHO_DE_TODOS = 'min-w-[88px] justify-center'
 
 /** El chip de este módulo: el del sistema de diseño, con el anillo de foco en el acento y no el azul del navegador */
@@ -141,7 +142,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
                 onClick={() => onCambiar({ estado: activo ? 'all' : s })}
                 aria-pressed={activo}
                 title={`${COLD_STATUS_LABELS[s]}: ${numero(cuantos)}`}
-                className={`${CHIP} min-w-[64px] justify-center overflow-hidden md:min-w-0 ${ANIMACION_DE_CAJITA} ${activo ? `${CAJITA_ABIERTA} !text-[var(--ls-t1)] font-medium` : CAJITA_CERRADA}`}
+                className={`${CHIP} min-w-[64px] justify-center overflow-hidden !px-1.5 md:min-w-0 ${ANIMACION_DE_CAJITA} ${activo ? `${CAJITA_ABIERTA} !text-[var(--ls-t1)] font-medium` : CAJITA_CERRADA}`}
                 style={activo ? { background: tinte(tono, 16), borderColor: COLOR_ESTADO[tono] } : undefined}
               >
                 <GlifoDeEstado estado={s} tamano={12} />
@@ -219,18 +220,28 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
         </Popover>
       )}
 
-      <div className="ml-auto flex items-center gap-1.5">
-        <span className="hidden text-[11.5px] tabular-nums text-[var(--ls-t4)] md:inline">
+      {/* LO DE LA DERECHA MIDE SIEMPRE LO MISMO: recuento, quitar filtros y orden. Antes el recuento cambiaba de ancho con sus dígitos («32
+          leads» / «2086 leads») y «Limpiar» aparecía y desaparecía: la fila cabía justa y, con cuatro dígitos o con un filtro puesto, este grupo
+          saltaba a la línea de abajo y todo lo de debajo se movía. Ahora el recuento tiene el hueco de cinco dígitos, el botón de quitar filtros
+          está siempre (invisible si no hay nada que quitar) y es un icono, y quien decide si cabe en la línea es solo el ancho de la ventana. */}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <span className="hidden w-[72px] text-right text-[11.5px] tabular-nums text-[var(--ls-t4)] md:inline-block">
           {numero(coinciden)} {coinciden === 1 ? 'lead' : 'leads'}
         </span>
-        {hayFiltros(filtros) && (
-          <button type="button" onClick={() => onCambiar({ ...SIN_FILTROS })} className={`${BOTON.chip} rend-entra`}>
-            <X className="h-3 w-3" aria-hidden /> Limpiar
-          </button>
-        )}
-        <label className="relative inline-flex items-center" title="Ordenar la lista">
+        <button
+          type="button"
+          onClick={() => onCambiar({ ...SIN_FILTROS })}
+          title="Quitar todos los filtros"
+          aria-label="Quitar todos los filtros"
+          tabIndex={hayFiltros(filtros) ? 0 : -1}
+          className={`${CHIP} w-6 justify-center !px-0 ${hayFiltros(filtros) ? 'rend-entra' : 'invisible'}`}
+        >
+          <X className="h-3 w-3" aria-hidden />
+        </button>
+        {/* De ancho fijo: un <select> mide lo que su opción más larga en unos navegadores y lo que la elegida en otros, y no debe cambiar de ancho al ordenar */}
+        <label className="relative inline-flex w-[144px] items-center" title="Ordenar la lista">
           <ArrowUpDown className="pointer-events-none absolute left-2 h-3 w-3 text-[var(--ls-t4)]" aria-hidden />
-          <select value={filtros.orden} onChange={(e) => onCambiar({ orden: e.target.value as ColdSort })} aria-label="Ordenar la lista" className={`${BOTON.chip} cursor-pointer appearance-none !pl-6 !pr-2 outline-none`}>
+          <select value={filtros.orden} onChange={(e) => onCambiar({ orden: e.target.value as ColdSort })} aria-label="Ordenar la lista" className={`${CHIP} w-full cursor-pointer appearance-none text-ellipsis !pl-6 !pr-2`}>
             {(Object.keys(COLD_SORT_LABELS) as ColdSort[]).map((o) => (
               <option key={o} value={o} className="bg-[var(--ls-sup)]">
                 {COLD_SORT_LABELS[o]}
