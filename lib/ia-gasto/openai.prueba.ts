@@ -1,4 +1,4 @@
-import { ErrorDeGasto, MENSAJE_DE_GASTO, claveDeAdministrador, leerCostes, leerProyectos } from '@/lib/ia-gasto/openai'
+import { ErrorDeGasto, MENSAJE_DE_GASTO, claveDeAdministrador, inicioQueAceptaOpenAi, leerClavesDeApi, leerCostes, leerProyectos, olvidarElPiso } from '@/lib/ia-gasto/openai'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -42,7 +42,7 @@ const run = async () => {
     const p = f.peticiones[0]
     ok('va a /v1/organization/costs con GET y la clave en la cabecera', p.url.origin === 'https://api.openai.com' && p.url.pathname === '/v1/organization/costs' && p.init.method === 'GET' && (p.init.headers as Record<string, string>).Authorization === 'Bearer sk-admin-secreta')
     ok('pide días, 180 cubos y desde la fecha dada (en segundos)', p.url.searchParams.get('bucket_width') === '1d' && p.url.searchParams.get('limit') === '180' && p.url.searchParams.get('start_time') === String(seg('2026-01-01')))
-    ok('desglosa por proyecto y por concepto con la forma de lista del SDK de OpenAI (group_by[])', JSON.stringify(p.url.searchParams.getAll('group_by[]')) === JSON.stringify(['project_id', 'line_item']))
+    ok('desglosa por proyecto, por clave de API y por concepto con la forma de lista del SDK de OpenAI (group_by[])', JSON.stringify(p.url.searchParams.getAll('group_by[]')) === JSON.stringify(['project_id', 'api_key_id', 'line_item']))
     ok('la clave NO va en la dirección', !p.url.toString().includes('sk-admin'))
     ok('devuelve las filas de los dos días', filas.length === 2 && filas[0].dia === '2026-10-22' && filas[1].dolares === 0.25)
   }
@@ -107,16 +107,86 @@ const run = async () => {
     }
   }
 
-  console.log('\n=== los nombres de los proyectos ===')
+  console.log('\n=== los nombres de los proyectos y de las claves ===')
   {
     const f = falso(() => json({ data: [{ id: 'proj_a', name: ' ERP ' }, { id: 'proj_b', name: 'Traductor' }, { id: 'proj_c' }, null], has_more: false }))
     const m = await leerProyectos('k', { fetch: f.fetch })
-    ok('lee id y nombre y salta lo que no tiene nombre', m.size === 2 && m.get('proj_a') === 'ERP' && m.get('proj_b') === 'Traductor')
+    ok('lee id y nombre y salta lo que no tiene nombre', m.length === 2 && m[0].id === 'proj_a' && m[0].nombre === 'ERP' && m[1].nombre === 'Traductor')
     ok('pide /v1/organization/projects', f.peticiones[0].url.pathname === '/v1/organization/projects')
     const mal = await leerProyectos('k', { fetch: falso(() => json({}, 403)).fetch })
-    ok('si no se puede leer, un mapa vacío (solo servía para enseñar el nombre)', mal.size === 0)
+    ok('si no se puede leer, una lista vacía (solo servía para enseñar el nombre)', mal.length === 0)
     const raro = await leerProyectos('k', { fetch: falso(() => json({ data: 'x' })).fetch })
-    ok('con una respuesta rara, también vacío', raro.size === 0)
+    ok('con una respuesta rara, también vacía', raro.length === 0)
+  }
+  {
+    const f = falso((n, p) => json(p.url.pathname.includes('proj_a') ? { data: [{ id: 'key_1', name: 'LibertyERP', redacted_value: 'sk-proj-********************rlkA' }, { id: 'key_2', name: '  ', redacted_value: 'sk-…AoAA' }, { id: 'key_3', redacted_value: '' }, { name: 'sin id' }] } : { data: [{ id: 'key_9', name: 'n8n', redacted_value: 'sk-…zzzz' }] }))
+    const claves = await leerClavesDeApi('k', [{ id: 'proj_a' }, { id: 'proj_b' }], { fetch: f.fetch })
+    ok('pide las claves de cada proyecto', f.peticiones.length === 2 && f.peticiones[0].url.pathname === '/v1/organization/projects/proj_a/api_keys' && f.peticiones[1].url.pathname === '/v1/organization/projects/proj_b/api_keys')
+    ok('de cada una, id, nombre y cómo termina (nunca el valor)', claves.length === 4 && claves[0].id === 'key_1' && claves[0].nombre === 'LibertyERP' && claves[0].terminaEn === 'rlkA' && claves[0].proyecto === 'proj_a')
+    ok('sin nombre: «Sin nombre»; sin valor visible: sin final; sin id: se salta', claves[1].nombre === 'Sin nombre' && claves[1].terminaEn === 'AoAA' && claves[2].terminaEn === null && claves[3].id === 'key_9' && claves[3].proyecto === 'proj_b')
+    const mal = await leerClavesDeApi('k', [{ id: 'proj_a' }], { fetch: falso(() => json({}, 500)).fetch })
+    ok('si OpenAI falla, una lista vacía y el gasto se enseña sin nombres', mal.length === 0)
+  }
+
+  console.log('\n=== los dos límites de OpenAI que solo salen con datos reales ===')
+  {
+    const e400 = (mensaje: string) => new Response(JSON.stringify({ error: { message: mensaje, type: 'invalid_request_error', code: 'reporting_lookback_exceeded' } }), { status: 400 })
+    const unAnio = 'Usage and cost data are available for the past year. For older data, contact Support through the Help Center: https://help.openai.com/en/articles/6614161. Earliest supported start date: 2025-10-23 (UTC).'
+    const porClave = 'group_by=api_key_id is not available for this time range. Try a start_time on or after 1764979200.'
+
+    ok('de «Earliest supported start date» saca el instante', inicioQueAceptaOpenAi(new ErrorDeGasto('respuesta', 'x', 400, unAnio)) === Date.parse('2025-10-23T00:00:00Z') / 1000)
+    ok('de «start_time on or after N» saca N', inicioQueAceptaOpenAi(new ErrorDeGasto('respuesta', 'x', 400, porClave)) === 1764979200)
+    ok('un 400 que no dice desde cuándo: null', inicioQueAceptaOpenAi(new ErrorDeGasto('respuesta', 'x', 400, 'Invalid value for limit')) === null && inicioQueAceptaOpenAi(new ErrorDeGasto('respuesta', 'x', 400, null)) === null)
+    ok('solo en un 400', inicioQueAceptaOpenAi(new ErrorDeGasto('respuesta', 'x', 500, unAnio)) === null)
+
+    olvidarElPiso()
+    const f1 = falso((n) => (n === 1 ? e400(unAnio) : json({ data: [cubo('2026-10-23', 1)], has_more: false })))
+    const filas = await leerCostes('k', seg('2025-09-18'), { fetch: f1.fetch })
+    ok('pidió 400 días, OpenAI dijo «solo desde el 23 oct 2025»: se vuelve a pedir desde ahí y sale bien', filas.length === 1 && f1.peticiones.length === 2 && f1.peticiones[0].url.searchParams.get('start_time') === String(seg('2025-09-18')) && f1.peticiones[1].url.searchParams.get('start_time') === String(seg('2025-10-23')))
+
+    // Los dos límites a la vez: primero uno y luego el otro
+    olvidarElPiso()
+    const f2 = falso((n) => (n === 1 ? e400(unAnio) : n === 2 ? e400(porClave) : json({ data: [cubo('2026-10-23', 1)], has_more: false })))
+    const filas2 = await leerCostes('k', seg('2025-09-18'), { fetch: f2.fetch })
+    ok('con los dos límites seguidos, se corrige dos veces y sale', filas2.length === 1 && f2.peticiones.length === 3 && f2.peticiones[2].url.searchParams.get('start_time') === '1764979200')
+
+    // Lo aprendido se recuerda: la siguiente lectura ya empieza donde vale
+    const f3 = falso(() => json({ data: [cubo('2026-10-23', 1)], has_more: false }))
+    await leerCostes('k', seg('2025-09-18'), { fetch: f3.fetch })
+    ok('la siguiente lectura ya empieza donde vale (no gasta una petición en un 400)', f3.peticiones.length === 1 && f3.peticiones[0].url.searchParams.get('start_time') === '1764979200')
+
+    // No se queda dando vueltas
+    olvidarElPiso()
+    let n4 = 0
+    const f4 = falso(() => e400(`Try a start_time on or after ${1764979200 + ++n4 * 1000}.`))
+    try {
+      await leerCostes('k', seg('2025-09-18'), { fetch: f4.fetch })
+      ok('un servidor que siempre dice «más tarde»', false, 'no ha fallado')
+    } catch (e) {
+      ok('un servidor que siempre dice «más tarde»: se rinde a los dos reintentos y falla con el motivo', e instanceof ErrorDeGasto && e.codigo === 'respuesta' && f4.peticiones.length === 3 && /start_time on or after/.test(e.detalle ?? ''))
+    }
+
+    // Un 400 que no tiene arreglo enseña lo que dice OpenAI, sin claves
+    olvidarElPiso()
+    const f5 = falso(() => new Response(JSON.stringify({ error: { message: 'Invalid value: sk-admin-abc***xyz1 is not supported for limit.' } }), { status: 400 }))
+    try {
+      await leerCostes('k', seg('2026-01-01'), { fetch: f5.fetch })
+      ok('un 400 sin arreglo', false, 'no ha fallado')
+    } catch (e) {
+      ok('un 400 sin arreglo: «respuesta», con lo que dijo OpenAI y SIN nada que parezca una clave', e instanceof ErrorDeGasto && e.codigo === 'respuesta' && e.estado === 400 && /not supported for limit/.test(e.detalle ?? '') && !/abc\*\*\*/.test(e.detalle ?? ''))
+      ok('y sin reintentar', f5.peticiones.length === 1)
+    }
+
+    // El reintento solo vale en la primera página: un 400 a mitad no se esconde
+    olvidarElPiso()
+    const f6 = falso((n) => (n === 1 ? json({ data: [cubo('2026-10-21', 1)], has_more: true, next_page: 'p2' }) : e400(porClave)))
+    try {
+      await leerCostes('k', seg('2026-01-01'), { fetch: f6.fetch })
+      ok('un 400 en la segunda página', false, 'no ha fallado')
+    } catch (e) {
+      ok('un 400 en la segunda página no se corrige a ciegas: falla', e instanceof ErrorDeGasto && f6.peticiones.length === 2)
+    }
+    olvidarElPiso()
   }
 }
 

@@ -1,5 +1,5 @@
-import { ErrorDeGasto, MENSAJE_DE_GASTO, NOMBRES_DE_LA_CLAVE, claveDeAdministrador, leerCostes, leerProyectos, type CodigoDeErrorDeGasto, type DepsDeGasto } from './openai'
-import { resumirGasto, type ResumenDeGasto } from './resumen'
+import { ErrorDeGasto, MENSAJE_DE_GASTO, NOMBRES_DE_LA_CLAVE, claveDeAdministrador, leerClavesDeApi, leerCostes, leerProyectos, type CodigoDeErrorDeGasto, type DepsDeGasto } from './openai'
+import { identificarClaveDelErp, resumirGasto, type ResumenDeGasto } from './resumen'
 
 /**
  * EL GASTO EN IA QUE SE ENSEÑA EN SISTEMA, CON CACHÉ.
@@ -22,8 +22,8 @@ export type RespuestaDeGasto =
 export const VIDA_DE_LA_CACHE_MS = 5 * 60_000
 /** Con «Actualizar» no se puede pedir más a menudo que esto */
 export const ESPERA_ENTRE_ACTUALIZACIONES_MS = 20_000
-/** Cuánto se mira hacia atrás: doce meses y un poco, para tener completo el mes de hace un año */
-const DIAS_HACIA_ATRAS = 400
+/** Cuánto se mira hacia atrás: OpenAI solo deja el último año (pedir más es un 400), así que 364 días para no rozar el límite */
+const DIAS_HACIA_ATRAS = 364
 
 interface Guardado {
   resumen: ResumenDeGasto
@@ -62,14 +62,22 @@ export async function gastoDeIa(op: OpcionesDeGasto = {}): Promise<RespuestaDeGa
 
   try {
     const desdeSeg = Math.floor(t / 1000) - DIAS_HACIA_ATRAS * 86_400
-    const [filas, proyectos] = await Promise.all([leerCostes(clave, desdeSeg, op.deps), leerProyectos(clave, op.deps)])
-    const resumen = resumirGasto(filas, t, proyectos)
+    // Los costes y los nombres (de proyectos y de claves) se piden a la vez; los nombres solo sirven para enseñar «LibertyERP» en vez de un identificador
+    const nombres = (async () => {
+      const proyectos = await leerProyectos(clave, op.deps)
+      return { proyectos, claves: await leerClavesDeApi(clave, proyectos, op.deps) }
+    })()
+    const [filas, { proyectos, claves }] = await Promise.all([leerCostes(clave, desdeSeg, op.deps), nombres])
+    // La cuenta de OpenAI se comparte con otras cosas (n8n…): lo del ERP es lo de SU clave, que se reconoce por cómo termina la OPENAI_API_KEY del servidor
+    const claveDelErp = identificarClaveDelErp(claves, (op.entorno ?? process.env).OPENAI_API_KEY)
+    const resumen = resumirGasto(filas, t, { proyectos: new Map(proyectos.map((p) => [p.id, p.nombre])), claves, claveDelErp })
     guardado = { resumen, actualizadoAt: t }
     return { estado: 'ok', resumen, actualizadoAt: new Date(t).toISOString(), desactualizado: false }
   } catch (e) {
-    const error = e instanceof ErrorDeGasto ? e : new ErrorDeGasto('respuesta', MENSAJE_DE_GASTO.respuesta)
-    // Solo el código y el estado: nunca el cuerpo de la respuesta de OpenAI
-    console.error('[gasto-ia] no se ha podido leer el gasto', { codigo: error.codigo, estado: error.estado })
+    // Un fallo que no es de OpenAI (un error nuestro al montar el resumen) no se disfraza de «OpenAI ha contestado algo raro»: se dice que es interno
+    const error = e instanceof ErrorDeGasto ? e : new ErrorDeGasto('respuesta', MENSAJE_DE_GASTO.respuesta, null, `Error interno del ERP (${e instanceof Error ? e.name : 'desconocido'})`)
+    // Solo el código, el estado y la frase ya limpia (permiso que falta, o lo que no le gusta a OpenAI): nunca el cuerpo de su respuesta
+    console.error('[gasto-ia] no se ha podido leer el gasto', { codigo: error.codigo, estado: error.estado, detalle: error.detalle, interno: e instanceof ErrorDeGasto ? undefined : e instanceof Error ? e.message.slice(0, 160) : 'sin mensaje' })
     if (guardado) {
       return { estado: 'ok', resumen: guardado.resumen, actualizadoAt: new Date(guardado.actualizadoAt).toISOString(), desactualizado: true, motivo: error.message }
     }

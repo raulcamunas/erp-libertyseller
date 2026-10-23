@@ -8,18 +8,22 @@ const ok = (n: string, bien: boolean, d = '') => {
 
 const seg = (dia: string) => Date.parse(`${dia}T00:00:00Z`) / 1000
 const json = (cuerpo: unknown, estado = 200) => new Response(JSON.stringify(cuerpo), { status: estado, headers: { 'content-type': 'application/json' } })
-const cubo = (dia: string, valor: number) => ({ start_time: seg(dia), results: [{ amount: { value: valor, currency: 'usd' }, line_item: 'gpt-4o-2024-08-06, input', project_id: 'proj_a' }] })
+const cubo = (dia: string, valor: number, clave = 'key_erp') => ({ start_time: seg(dia), results: [{ amount: { value: valor, currency: 'usd' }, line_item: 'gpt-4o-2024-08-06, input', project_id: 'proj_a', api_key_id: clave }] })
 
 const AHORA = Date.parse('2026-10-23T15:00:00Z')
 const ENTORNO = { OPENAI_ADMIN_KEY: 'sk-admin-secreta' }
 
 function mundo(responderCostes: (n: number) => Response) {
-  const llamadas = { costes: 0, proyectos: 0 }
+  const llamadas = { costes: 0, proyectos: 0, claves: 0 }
   const f = (async (url: string | URL | Request) => {
     const u = new URL(String(url))
+    if (u.pathname.endsWith('/api_keys')) {
+      llamadas.claves++
+      return json({ data: [{ id: 'key_erp', name: 'LibertyERP', redacted_value: 'sk-proj-****rlkA' }, { id: 'key_n8n', name: 'n8n', redacted_value: 'sk-proj-****AoAA' }] })
+    }
     if (u.pathname.endsWith('/projects')) {
       llamadas.proyectos++
-      return json({ data: [{ id: 'proj_a', name: 'ERP' }] })
+      return json({ data: [{ id: 'proj_a', name: 'Default project' }] })
     }
     llamadas.costes++
     return responderCostes(llamadas.costes)
@@ -42,7 +46,7 @@ const run = async () => {
     const m = mundo(() => json({ data: [cubo('2026-10-22', 1), cubo('2026-10-23', 0.5)], has_more: false }))
     const r = await gastoDeIa({ entorno: ENTORNO, ahora: () => AHORA, deps: m.deps })
     ok('devuelve el resumen con la hora de la lectura', r.estado === 'ok' && r.desactualizado === false && r.resumen.esteMes === 1.5 && r.resumen.hoy === 0.5 && r.actualizadoAt === new Date(AHORA).toISOString())
-    ok('pide los costes y los nombres de proyecto una vez cada uno', m.llamadas.costes === 1 && m.llamadas.proyectos === 1)
+    ok('pide los costes, los proyectos y las claves una vez cada uno', m.llamadas.costes === 1 && m.llamadas.proyectos === 1 && m.llamadas.claves === 1)
 
     const otra = await gastoDeIa({ entorno: ENTORNO, ahora: () => AHORA + 60_000, deps: m.deps })
     ok('un minuto después sale de la caché (sin volver a pedir a OpenAI)', otra.estado === 'ok' && m.llamadas.costes === 1)
@@ -50,7 +54,28 @@ const run = async () => {
     ok('pasados los cinco minutos se vuelve a pedir', tarde.estado === 'ok' && m.llamadas.costes === 2)
   }
 
-  console.log('\n=== «Actualizar» ===')
+  console.log('\n=== lo del ERP frente al resto de la cuenta ===')
+{
+  vaciarLaCache()
+  const m = mundo(() => json({ data: [cubo('2026-10-23', 1, 'key_erp'), cubo('2026-10-22', 10, 'key_n8n'), cubo('2026-10-22', 2, 'key_erp')], has_more: false }))
+  const r = await gastoDeIa({ entorno: { ...ENTORNO, OPENAI_API_KEY: 'sk-proj-aaaaaaaaaaaaaaaarlkA' }, ahora: () => AHORA, deps: m.deps })
+  ok('reconoce la clave del ERP por cómo termina su OPENAI_API_KEY y cuenta solo lo suyo', r.estado === 'ok' && r.resumen.alcance.tipo === 'erp' && r.resumen.alcance.nombre === 'LibertyERP' && r.resumen.esteMes === 3 && r.resumen.hoy === 1)
+  ok('y la cuenta entera aparte, con sus claves por nombre', r.estado === 'ok' && r.resumen.cuenta.esteMes === 13 && r.resumen.porClave.map((k) => k.nombre).join() === 'n8n,LibertyERP' && r.resumen.porClave[1].esErp)
+}
+{
+  vaciarLaCache()
+  const m = mundo(() => json({ data: [cubo('2026-10-23', 1, 'key_erp'), cubo('2026-10-22', 10, 'key_n8n')], has_more: false }))
+  const r = await gastoDeIa({ entorno: ENTORNO, ahora: () => AHORA, deps: m.deps })
+  ok('sin la clave de la IA en el entorno, la reconoce por el nombre («LibertyERP» tiene «erp»)', r.estado === 'ok' && r.resumen.alcance.tipo === 'erp' && r.resumen.esteMes === 1)
+}
+{
+  vaciarLaCache()
+  const m = mundo(() => json({ data: [cubo('2026-10-23', 1, 'key_erp'), cubo('2026-10-22', 10, 'key_n8n')], has_more: false }))
+  const r = await gastoDeIa({ entorno: { ...ENTORNO, OPENAI_API_KEY: 'sk-proj-aaaaaaaaaaaaaaaazzzz' }, ahora: () => AHORA, deps: m.deps })
+  ok('si el final de la clave no coincide con ninguna, el nombre sigue sirviendo', r.estado === 'ok' && r.resumen.alcance.tipo === 'erp')
+}
+
+console.log('\n=== «Actualizar» ===')
   {
     vaciarLaCache()
     const m = mundo(() => json({ data: [cubo('2026-10-23', 1)], has_more: false }))

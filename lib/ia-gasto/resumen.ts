@@ -21,6 +21,8 @@ export interface FilaDeCoste {
   concepto: string | null
   /** «proj_…», o null si no desglosó por proyecto */
   proyecto: string | null
+  /** «key_…»: la clave de API que hizo el gasto, o null si no desglosó por clave (o ya no existe) */
+  clave: string | null
   /** Dólares. Una devolución o un ajuste pueden salir en negativo */
   dolares: number
 }
@@ -71,7 +73,7 @@ export function normalizarCostes(cuerpo: unknown): PaginaDeCostes | null {
       if (valor === null) continue
       const moneda = texto(importe?.currency)
       if (moneda && moneda.toLowerCase() !== 'usd') continue
-      filas.push({ dia, concepto: texto(f.line_item), proyecto: texto(f.project_id), dolares: valor })
+      filas.push({ dia, concepto: texto(f.line_item), proyecto: texto(f.project_id), clave: texto(f.api_key_id), dolares: valor })
     }
   }
   return { filas, hayMas: o.has_more === true, siguiente: texto(o.next_page) }
@@ -100,7 +102,8 @@ export function separarConcepto(concepto: string | null): { modelo: string; tipo
 
 /** La familia del modelo sin la fecha de la versión: «gpt-4o-2024-08-06» -> «gpt-4o», «gpt-5.6-terra-2026-03-01» -> «gpt-5.6-terra» */
 export function familiaDeModelo(modelo: string): string {
-  return modelo.replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/-\d{4}$/, '')
+  // Algunos conceptos de audio llevan una palabra pegada al modelo sin coma: «gpt-4o-mini-transcribe-2025-12-15 audio»
+  return modelo.replace(/\s+(audio|text)$/i, '').replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/-\d{4}$/, '')
 }
 
 /**
@@ -125,6 +128,33 @@ export function usoHabitual(modelo: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Las claves de API                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Una clave de API de la cuenta de OpenAI, tal como la lista OpenAI (el valor de la clave NUNCA llega: solo cómo termina) */
+export interface ClaveDeApi {
+  id: string
+  nombre: string
+  /** Los cuatro últimos caracteres, que es lo único que enseña OpenAI de una clave */
+  terminaEn: string | null
+  proyecto: string | null
+}
+
+/**
+ * ¿Cuál de las claves de la cuenta es la del ERP? La cuenta de OpenAI se comparte con otras cosas (n8n, la web…), así que para decir «lo que gasta el ERP» hay que
+ * separar su clave. Se busca por cómo termina la `OPENAI_API_KEY` del servidor y, si eso no da una sola, por el nombre («LibertyERP»). Si tampoco hay una sola,
+ * null: mejor enseñar el gasto de toda la cuenta y decirlo que atribuir al ERP lo de otro.
+ */
+export function identificarClaveDelErp(claves: readonly ClaveDeApi[], claveDeLaIa: string | undefined | null): string | null {
+  const final = claveDeLaIa && claveDeLaIa.length >= 8 ? claveDeLaIa.slice(-4) : null
+  const porFinal = final ? claves.filter((c) => c.terminaEn === final) : []
+  if (porFinal.length === 1) return porFinal[0].id
+  const candidatas = porFinal.length > 1 ? porFinal : claves
+  const porNombre = candidatas.filter((c) => /erp/i.test(c.nombre))
+  return porNombre.length === 1 ? porNombre[0].id : null
+}
+
+/* ------------------------------------------------------------------ */
 /* El resumen                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -143,7 +173,27 @@ export interface GastoDeUnProyecto {
   dolares: number
 }
 
+export interface GastoDeUnaClave {
+  /** null = gasto que OpenAI no atribuye a ninguna clave */
+  id: string | null
+  /** «LibertyERP», «n8n»… , o «Clave borrada» si ya no existe */
+  nombre: string
+  esteMes: number
+  /** Lo leído (hasta 12 meses) */
+  total: number
+  esErp: boolean
+}
+
+export interface TotalesDeGasto {
+  esteMes: number
+  mesAnterior: number
+  ultimos30: number
+  total: number
+}
+
 export interface ResumenDeGasto {
+  /** De quién son las cifras de arriba: de la clave del ERP o, si no se ha podido separar, de toda la cuenta de OpenAI */
+  alcance: { tipo: 'erp' | 'cuenta'; nombre: string }
   /** El último día con datos que se ha leído, o null si OpenAI no ha devuelto ninguno */
   ultimoDia: string | null
   /** El primer día con gasto de lo leído (los últimos 12 meses como mucho) */
@@ -157,7 +207,7 @@ export interface ResumenDeGasto {
   total: number
   /** Lo que se gasta de media al día en lo que va de mes (sin contar hoy, que va a medias) */
   mediaDiaria: number | null
-  /** A ese ritmo, cuánto se llevaría el mes entero. null los primeros días, que no dan para una media */
+  /** Lo gastado hasta hoy más el ritmo medio de los días que quedan: cuánto se llevaría el mes entero. null los primeros días, que no dan para una media */
   previsionDelMes: number | null
   /** Los últimos 30 días, de más antiguo a más reciente, con los ceros incluidos */
   dias: Array<{ dia: string; dolares: number }>
@@ -167,6 +217,17 @@ export interface ResumenDeGasto {
   porModelo: GastoDeUnModelo[]
   /** Este mes por proyecto, solo si el gasto está repartido entre más de uno */
   porProyecto: GastoDeUnProyecto[]
+  /** TODA la cuenta de OpenAI (todas las claves): el contexto de la cifra del ERP */
+  cuenta: TotalesDeGasto
+  /** Cada clave de la cuenta, de la que más ha gastado a la que menos */
+  porClave: GastoDeUnaClave[]
+}
+
+export interface OpcionesDelResumen {
+  proyectos?: ReadonlyMap<string, string>
+  claves?: readonly ClaveDeApi[]
+  /** El id de la clave del ERP, si se ha podido identificar (identificarClaveDelErp) */
+  claveDelErp?: string | null
 }
 
 const redondear = (x: number): number => Math.round(x * 1e6) / 1e6
@@ -179,23 +240,48 @@ function diasDelMes(mes: string): number {
   return new Date(Date.UTC(a, m, 0)).getUTCDate()
 }
 
-export function resumirGasto(filas: readonly FilaDeCoste[], ahoraMs: number, nombresDeProyecto: ReadonlyMap<string, string> = new Map()): ResumenDeGasto {
+/** Los cortes de tiempo que usan todas las cuentas: hoy, ayer, este mes, el anterior y el primer día de los últimos 30 */
+function cortes(ahoraMs: number) {
   const hoy = new Date(ahoraMs).toISOString().slice(0, 10)
-  const ayer = sumarDias(hoy, -1)
   const mesActual = hoy.slice(0, 7)
-  const mesPrevio = sumarDias(`${mesActual}-01`, -1).slice(0, 7)
-  const hace30 = sumarDias(hoy, -29)
+  return { hoy, ayer: sumarDias(hoy, -1), mesActual, mesPrevio: sumarDias(`${mesActual}-01`, -1).slice(0, 7), hace30: sumarDias(hoy, -29) }
+}
+
+function totales(filas: readonly FilaDeCoste[], c: ReturnType<typeof cortes>): TotalesDeGasto {
+  let esteMes = 0
+  let mesAnterior = 0
+  let ultimos30 = 0
+  let total = 0
+  for (const f of filas) {
+    total += f.dolares
+    const mes = f.dia.slice(0, 7)
+    if (mes === c.mesActual) esteMes += f.dolares
+    else if (mes === c.mesPrevio) mesAnterior += f.dolares
+    if (f.dia >= c.hace30 && f.dia <= c.hoy) ultimos30 += f.dolares
+  }
+  return { esteMes: redondear(esteMes), mesAnterior: redondear(mesAnterior), ultimos30: redondear(ultimos30), total: redondear(total) }
+}
+
+export function resumirGasto(filas: readonly FilaDeCoste[], ahoraMs: number, opciones: OpcionesDelResumen = {}): ResumenDeGasto {
+  const c = cortes(ahoraMs)
+  const { hoy, ayer, mesActual, hace30 } = c
+  const nombresDeProyecto = opciones.proyectos ?? new Map<string, string>()
+  const claves = new Map((opciones.claves ?? []).map((k) => [k.id, k]))
+
+  // Si OpenAI no atribuyó ninguna fila a una clave, no hay forma de separar nada: las cifras son las de toda la cuenta
+  const hayClaves = filas.some((f) => f.clave !== null)
+  const claveDelErp = hayClaves && opciones.claveDelErp ? opciones.claveDelErp : null
+  const foco = claveDelErp ? filas.filter((f) => f.clave === claveDelErp) : filas
+  const alcance: ResumenDeGasto['alcance'] = claveDelErp ? { tipo: 'erp', nombre: claves.get(claveDelErp)?.nombre ?? 'ERP' } : { tipo: 'cuenta', nombre: 'Toda la cuenta de OpenAI' }
 
   const porDia = new Map<string, number>()
   const porMes = new Map<string, number>()
   const modelosDelMes = new Map<string, number>()
   const proyectosDelMes = new Map<string, number>()
-  let total = 0
   let primerDia: string | null = null
   let ultimoDia: string | null = null
 
-  for (const f of filas) {
-    total += f.dolares
+  for (const f of foco) {
     porDia.set(f.dia, (porDia.get(f.dia) ?? 0) + f.dolares)
     porMes.set(f.dia.slice(0, 7), (porMes.get(f.dia.slice(0, 7)) ?? 0) + f.dolares)
     if (primerDia === null || f.dia < primerDia) primerDia = f.dia
@@ -211,24 +297,23 @@ export function resumirGasto(filas: readonly FilaDeCoste[], ahoraMs: number, nom
     const dia = sumarDias(hace30, i)
     return { dia, dolares: redondear(porDia.get(dia) ?? 0) }
   })
-  const ultimos30 = dias.reduce((s, d) => s + d.dolares, 0)
 
   // Los últimos 12 meses, aunque alguno no tenga gasto
   const meses: ResumenDeGasto['meses'] = []
   for (let i = 11; i >= 0; i--) {
     const [a, m] = mesActual.split('-').map(Number)
-    const d = new Date(Date.UTC(a, m - 1 - i, 1))
-    const mes = d.toISOString().slice(0, 7)
+    const mes = new Date(Date.UTC(a, m - 1 - i, 1)).toISOString().slice(0, 7)
     meses.push({ mes, dolares: redondear(porMes.get(mes) ?? 0) })
   }
 
-  const esteMes = redondear(porMes.get(mesActual) ?? 0)
+  const t = totales(foco, c)
   // La media y la previsión cuentan los días COMPLETOS del mes (el de hoy va a medias); con menos de tres no se da: sale una cifra que engaña
   const diaDelMes = Number(hoy.slice(8))
   const completos = diaDelMes - 1
-  const gastoCompleto = esteMes - (porDia.get(hoy) ?? 0)
+  const gastoCompleto = t.esteMes - (porDia.get(hoy) ?? 0)
   const mediaDiaria = completos >= 3 ? redondear(gastoCompleto / completos) : null
-  const previsionDelMes = mediaDiaria === null ? null : redondear(mediaDiaria * diasDelMes(mesActual))
+  // Lo que ya se ha gastado (hoy incluido) más el ritmo medio de los días que quedan: así nunca sale menos de lo que ya hay
+  const previsionDelMes = mediaDiaria === null ? null : redondear(t.esteMes + mediaDiaria * (diasDelMes(mesActual) - diaDelMes))
 
   const totalModelos = [...modelosDelMes.values()].reduce((s, v) => s + Math.max(v, 0), 0)
   const porModelo: GastoDeUnModelo[] = [...modelosDelMes.entries()]
@@ -241,21 +326,43 @@ export function resumirGasto(filas: readonly FilaDeCoste[], ahoraMs: number, nom
       ? [...proyectosDelMes.entries()].map(([id, dolares]) => ({ id, nombre: nombresDeProyecto.get(id) ?? null, dolares: redondear(dolares) })).sort((a, b) => b.dolares - a.dolares)
       : []
 
+  // Cada clave de la cuenta, con TODO lo leído (no solo el foco): es lo que dice dónde está el resto del gasto
+  const porIdDeClave = new Map<string | null, { esteMes: number; total: number }>()
+  for (const f of filas) {
+    const g = porIdDeClave.get(f.clave) ?? { esteMes: 0, total: 0 }
+    g.total += f.dolares
+    if (f.dia.slice(0, 7) === mesActual) g.esteMes += f.dolares
+    porIdDeClave.set(f.clave, g)
+  }
+  const porClave: GastoDeUnaClave[] = [...porIdDeClave.entries()]
+    .map(([id, g]) => ({
+      id,
+      nombre: id === null ? 'Sin clave' : (claves.get(id)?.nombre ?? 'Clave borrada'),
+      esteMes: redondear(g.esteMes),
+      total: redondear(g.total),
+      esErp: id !== null && id === claveDelErp,
+    }))
+    .filter((k) => Math.abs(k.total) >= 0.000001)
+    .sort((a, b) => b.total - a.total)
+
   return {
+    alcance,
     ultimoDia,
     primerDia,
     hoy: redondear(porDia.get(hoy) ?? 0),
     ayer: redondear(porDia.get(ayer) ?? 0),
-    esteMes,
-    mesAnterior: redondear(porMes.get(mesPrevio) ?? 0),
-    ultimos30: redondear(ultimos30),
-    total: redondear(total),
+    esteMes: t.esteMes,
+    mesAnterior: t.mesAnterior,
+    ultimos30: t.ultimos30,
+    total: t.total,
     mediaDiaria,
     previsionDelMes,
     dias,
     meses,
     porModelo,
     porProyecto,
+    cuenta: totales(filas, c),
+    porClave,
   }
 }
 

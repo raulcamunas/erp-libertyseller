@@ -114,6 +114,38 @@ function PorMes({ meses }: { meses: ResumenDeGasto['meses'] }) {
   )
 }
 
+/** Toda la cuenta de OpenAI: lo del ERP frente a lo de las demás claves (n8n, otras webs…) */
+function PorClave({ claves, cuenta }: { claves: ResumenDeGasto['porClave']; cuenta: ResumenDeGasto['cuenta'] }) {
+  if (claves.length === 0) return null
+  const maximo = Math.max(...claves.map((k) => k.total), 0)
+  return (
+    <div className={`${SUPERFICIE.sup2} ${RADIO.r2} border ${LINEA.normal} px-[10px] py-[8px]`}>
+      <div className="mb-[6px] flex flex-wrap items-baseline justify-between gap-x-3">
+        <p className={`${TIPO.xs} ${TEXTO.t4}`}>Toda la cuenta de OpenAI, por clave de API (12 meses)</p>
+        <p className={`${TIPO.s} ${TEXTO.t3} ${TIPO.num}`}>
+          Este mes {enDolares(cuenta.esteMes)} · 12 meses {enDolares(cuenta.total)}
+        </p>
+      </div>
+      <ul className="space-y-[5px]">
+        {claves.map((k) => (
+          <li key={k.id ?? 'sin-clave'} className="flex items-center gap-2">
+            <span className={`w-[190px] shrink-0 truncate ${TIPO.m} ${k.esErp ? TEXTO.t1 : TEXTO.t2}`} title={k.nombre}>
+              {k.nombre}
+              {k.esErp && <span className={`ml-[6px] ${TIPO.s}`} style={{ color: COLOR_ESTADO.naranja }}>ERP</span>}
+            </span>
+            <div className="h-[5px] min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--ls-sup3)]">
+              <div className="h-full rounded-full" style={{ width: `${maximo > 0 ? Math.max(Math.round((k.total / maximo) * 100), 1) : 0}%`, background: k.esErp ? 'var(--ls-acc)' : 'var(--ls-t4)' }} />
+            </div>
+            <span className={`w-[150px] shrink-0 text-right ${TIPO.s} ${TEXTO.t2} ${TIPO.num}`}>
+              {enDolares(k.total)} <span className={TEXTO.t4}>· mes {enDolares(k.esteMes)}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function GastoEnIa() {
   const [datos, setDatos] = useState<RespuestaDeGasto | null>(null)
   const [falloDeRed, setFalloDeRed] = useState<string | null>(null)
@@ -147,7 +179,11 @@ export function GastoEnIa() {
           <Sparkles className="h-[13px] w-[13px] shrink-0" style={{ color: COLOR_ESTADO.naranja }} aria-hidden />
           <h3 className={`${TITULO.seccion}`}>Gasto en IA</h3>
         </div>
-        <p className={`${TIPO.s} ${TEXTO.t4}`}>Lo que cobra OpenAI por toda la IA del ERP: correos, remesas, llamadas, citas, auditor, marketing…</p>
+        <p className={`${TIPO.s} ${TEXTO.t4}`}>
+          {datos?.estado === 'ok' && datos.resumen.alcance.tipo === 'erp'
+            ? `Lo que cobra OpenAI por la clave «${datos.resumen.alcance.nombre}», la de toda la IA del ERP: correos, remesas, llamadas, citas, auditor, marketing…`
+            : 'Lo que cobra OpenAI por la IA: correos, remesas, llamadas, citas, auditor, marketing…'}
+        </p>
       </div>
       {datos?.estado === 'ok' && (
         <div className="flex items-center gap-2">
@@ -198,6 +234,12 @@ export function GastoEnIa() {
           </Aviso>
         )}
 
+        {r.alcance.tipo === 'cuenta' && (
+          <Aviso tono="ambar" icono={AlertTriangle}>
+            No se ha podido saber cuál es la clave del ERP, así que las cifras son las de TODA la cuenta de OpenAI (incluidas otras claves). Abajo se ve cuánto gasta cada clave.
+          </Aviso>
+        )}
+
         <div className="grid grid-cols-2 gap-[8px] md:grid-cols-5">
           <Cifra titulo="Hoy" valor={enDolares(r.hoy)} nota="se va rellenando" />
           <Cifra titulo={`Este mes (${mesLargo(mesActual)})`} valor={enDolares(r.esteMes)} nota={r.previsionDelMes !== null && r.esteMes > 0 ? `a este ritmo, ≈ ${enDolares(r.previsionDelMes)}` : null} />
@@ -232,8 +274,10 @@ export function GastoEnIa() {
           </div>
         </div>
 
+        <PorClave claves={r.porClave} cuenta={r.cuenta} />
+
         <p className={`${TIPO.s} ${TEXTO.t4} leading-[1.45]`}>
-          Es la cifra de OpenAI, no una estimación. Los días son los de UTC (como los corta OpenAI) y puede tardar un rato en reflejar lo último. OpenAI solo
+          Es la cifra de OpenAI, no una estimación. Solo deja mirar el último año; los días son los de UTC y puede tardar un rato en reflejar lo último. OpenAI solo
           dice el modelo, no la función: varias pantallas comparten modelo (gpt-4o lo usan el auditor, el listing, marketing, el tracker y el validador), así que
           «para qué se usa» es lo habitual y no una cuenta exacta.
         </p>
