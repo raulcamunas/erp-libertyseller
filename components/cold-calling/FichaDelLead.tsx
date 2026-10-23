@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { clavesDelLead } from '@/lib/cold-calling/vinculos'
 import { diaConSemana, haceCuanto, sumarDias } from '@/lib/cold-calling/fechas'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
-import { trocearTelefonos } from '@/lib/rendimiento/telefonos'
+import { emailsDelLead, telefonosDelLead } from '@/lib/cold-calling/contactos'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import {
@@ -27,6 +27,7 @@ import {
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, InsigniaDeNivel, Tecla, tinte } from './ui'
+import { AnadirContacto } from './AnadirContacto'
 import { useEscribirAlLead } from './useEscribirAlLead'
 
 /**
@@ -137,7 +138,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
       if (error) {
         console.error('Error guardando el lead:', error)
         toast.error('No se pudo guardar')
-        return
+        return false
       }
       // HAY QUE REFRESCAR TAMBIÉN `detalle`, NO SOLO LA LISTA. La ficha se pinta con `{ ...delaLista, ...detalle }` y `detalle` va la
       // ÚLTIMA: lo que se pidió aparte al abrir el lead gana. Guardar un campo que vive en esa segunda consulta y avisar solo a la
@@ -152,6 +153,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
         return nuevo
       })
       onPatched(campos)
+      return true
     },
     [supabase, lead.id, onPatched]
   )
@@ -188,7 +190,9 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
     toast.success(que === 'telefono' ? 'Teléfono copiado' : 'Copiado')
   }
 
-  const telefonos = useMemo(() => trocearTelefonos(lead.phone), [lead.phone])
+  // Todos los teléfonos y correos de la ficha: los principales y los extra, sin repetidos. La cajita «+» añade más
+  const telefonos = useMemo(() => telefonosDelLead(lead), [lead.phone, lead.telefonos_extra]) // eslint-disable-line react-hooks/exhaustive-deps
+  const correos = useMemo(() => emailsDelLead(lead), [lead.email, lead.emails_extra]) // eslint-disable-line react-hooks/exhaustive-deps
   /** Un teléfono escrito que no da ninguna clave no recibirá nunca una llamada de Rinkel, y no da ningún error */
   const telefonoSinReconocer = telefonos.length > 0 && clavesDelLead(lead).length === 0 && /\d/.test(lead.phone ?? '')
 
@@ -266,12 +270,13 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               {copiado === 'telefono' ? <Check className="rend-pop h-3.5 w-3.5 text-[var(--ls-e-verde)]" aria-hidden /> : <Copy className="h-3.5 w-3.5 text-[var(--ls-t4)] transition-colors group-hover:text-[var(--ls-t1)]" aria-hidden />}
             </button>
           ))}
-          {lead.email && (
+          {correos.map((correo) => (
             // Lleva a Correo con el mensaje ya abierto y dirigido a él. Cold Calling se queda donde está (lib/correo/peticiones.ts)
-            <button type="button" onClick={() => escribirAlLead(lead)} title={`Escribir a ${lead.email}`} className={`${BOTON.base} ${BOTON.secundario} !h-8 max-w-[240px] !px-2.5 !text-[12px]`}>
-              <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">{lead.email}</span>
+            <button key={correo} type="button" onClick={() => escribirAlLead(lead, correo)} title={`Escribir a ${correo}`} className={`${BOTON.base} ${BOTON.secundario} !h-8 max-w-[240px] !px-2.5 !text-[12px]`}>
+              <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">{correo}</span>
             </button>
-          )}
+          ))}
+          {canEdit && <AnadirContacto lead={lead} guardar={patch} listo={'telefonos_extra' in lead && 'emails_extra' in lead} />}
           {esTienda && lead.web && (
             <a href={lead.web} target="_blank" rel="noopener noreferrer" className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}>
               <Globe className="h-3.5 w-3.5" aria-hidden /> Abrir la tienda <ExternalLink className="h-3 w-3 text-[var(--ls-t4)]" aria-hidden />

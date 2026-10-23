@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
  *
  * La pasada de fondo lee Rinkel cada pocos minutos, y eso deja al comercial mirando un lead sin su llamada hasta que toca. Mientras
  * Cold Calling está abierta y a la vista se le pide al servidor una lectura RÁPIDA de la cuenta de Rinkel de quien mira (solo las
- * últimas dos horas, una petición a Rinkel) cada minuto. Si han llegado llamadas nuevas se avisa para que la ficha vuelva a
+ * últimas dos horas, una petición a Rinkel) cada medio minuto (cada minuto hasta el 23 oct 2026). Si han llegado llamadas nuevas se avisa para que la ficha vuelva a
  * pedir las de su lead.
  *
  * Se para solo, y para siempre en esta pantalla abierta, cuando el servidor dice que no hay nada que leer: no hay clave de Rinkel
@@ -15,9 +15,9 @@ import { useEffect, useRef } from 'react'
  * nunca llega a molestar a nadie.
  */
 
-const CADA_MS = 60_000
+const CADA_MS = 30_000
 /** Una lectura no se repite antes de esto, vuelva la pestaña a la vista cuantas veces vuelva */
-const MINIMO_ENTRE_LECTURAS_MS = 45_000
+const MINIMO_ENTRE_LECTURAS_MS = 25_000
 
 interface Respuesta {
   resumen?: { importadas?: unknown }
@@ -59,7 +59,7 @@ export function useSincronizarRinkel(activo: boolean, alLlegarLlamadas: () => vo
           importadas = total
         }
       } catch {
-        // Sin red o el servidor reiniciándose: se vuelve a intentar en el siguiente minuto
+        // Sin red o el servidor reiniciándose: se vuelve a intentar en la siguiente lectura
       } finally {
         enCurso = false
       }

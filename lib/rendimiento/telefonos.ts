@@ -18,6 +18,18 @@
  */
 
 /**
+ * EL «.0» QUE DEJA UN EXCEL. Un teléfono que pasó por una hoja de cálculo como NÚMERO llega a la base con un decimal pegado:
+ * «653476608.0». Mirando la pantalla parece lo mismo, pero al copiarlo y pegarlo en WhatsApp o en Rinkel no se reconoce, y
+ * para el enlace con las llamadas es un número de diez cifras, o sea ninguno (714 leads estaban así el 23 oct 2026).
+ *
+ * Se quita SOLO si el texto entero es un número con ceros decimales («653476608.0», «+34653476608.00»). Lo que lleve
+ * puntos como separador («600.112.233») no se toca: ahí el punto es del número.
+ */
+export function quitarCeroDecimal(texto: string): string {
+  return texto.replace(/^(\s*\+?\d+)\.0+(\s*)$/, '$1$2')
+}
+
+/**
  * La clave de un solo número, o null si no parece un teléfono.
  *
  * Con «+» o «00» delante manda el prefijo que traiga: «+34…» es España, lo demás es de fuera. Sin
@@ -27,7 +39,7 @@
  */
 export function claveDeTelefono(crudo: unknown): string | null {
   if (crudo === null || crudo === undefined) return null
-  const texto = String(crudo).trim()
+  const texto = quitarCeroDecimal(String(crudo).trim())
   if (!texto) return null
 
   const llevaMas = texto.startsWith('+')
@@ -104,9 +116,9 @@ export function trocearTelefonos(texto: unknown): string[] {
   if (!entero) return []
   const trozos = entero
     .split(SEPARADOR)
-    .map((t) => t.replace(EXTENSION, '').trim())
+    .map((t) => quitarCeroDecimal(t.replace(EXTENSION, '').trim()))
     .filter((t) => t.replace(/\D/g, '').length >= 7)
-  return trozos.length > 0 ? trozos : [entero]
+  return trozos.length > 0 ? trozos : [quitarCeroDecimal(entero)]
 }
 
 /** El teléfono tal como se lee en pantalla: «+34 600 11 22 33». Si no es español se devuelve como llegó */

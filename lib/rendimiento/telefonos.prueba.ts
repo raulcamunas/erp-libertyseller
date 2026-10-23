@@ -1,4 +1,4 @@
-import { claveDeTelefono, clavesDeTelefonos, telefonoLegible, trocearTelefonos } from '@/lib/rendimiento/telefonos'
+import { claveDeTelefono, clavesDeTelefonos, quitarCeroDecimal, telefonoLegible, trocearTelefonos } from '@/lib/rendimiento/telefonos'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -82,6 +82,24 @@ console.log('\n=== trocear un campo para enseñarlo ===')
   ok('un trozo con menos de siete cifras no es un teléfono y se descarta', t('931112244 / 12') === '["931112244"]')
   ok('si nada se puede partir, vuelve entero', t('llamar por la mañana') === '["llamar por la mañana"]')
   ok('vacío o nulo, nada', t(null) === '[]' && t('') === '[]' && t('   ') === '[]' && t(undefined) === '[]')
+}
+
+console.log('\n=== el «.0» que deja un Excel ===')
+{
+  ok('«653476608.0» pierde el decimal', quitarCeroDecimal('653476608.0') === '653476608')
+  ok('con más ceros', quitarCeroDecimal('653476608.000') === '653476608')
+  ok('con el más delante', quitarCeroDecimal('+34653476608.0') === '+34653476608')
+  ok('con espacios alrededor', quitarCeroDecimal('  653476608.0  ') === '  653476608  ')
+  ok('un número normal no se toca', quitarCeroDecimal('653476608') === '653476608')
+  ok('los puntos de separador no se tocan', quitarCeroDecimal('600.112.233') === '600.112.233')
+  ok('un decimal que no es cero no se toca', quitarCeroDecimal('653476608.5') === '653476608.5')
+  ok('un texto con más cosas no se toca', quitarCeroDecimal('653476608.0 ext 2') === '653476608.0 ext 2')
+  ok('la clave de «653476608.0» es la de siempre (antes era null: diez cifras)', claveDeTelefono('653476608.0') === '653476608', String(claveDeTelefono('653476608.0')))
+  ok('y la de «+34653476608.0»', claveDeTelefono('+34653476608.0') === '653476608')
+  ok('un fijo con «.0»', claveDeTelefono('948310760.0') === '948310760')
+  ok('troceado: sale limpio para copiarlo', JSON.stringify(trocearTelefonos('653476608.0')) === '["653476608"]', JSON.stringify(trocearTelefonos('653476608.0')))
+  ok('troceado con varios, uno con «.0»', JSON.stringify(trocearTelefonos('653476608.0 / 931112244')) === '["653476608","931112244"]')
+  ok('las claves de varios', JSON.stringify(clavesDeTelefonos('653476608.0; 931112244')) === '["653476608","931112244"]')
 }
 
 console.log('\n=== cómo se lee en pantalla ===')

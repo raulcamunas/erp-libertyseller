@@ -197,13 +197,16 @@ export const TAREAS_CRON = [
      * o dos peticiones por cuenta; el histórico de una cuenta recién vinculada lo va completando por tramos
      * (lib/rendimiento/sincronizar.ts).
      *
-     * Cada diez minutos porque la lista de llamadas del día es lo que mira un supervisor para saber cómo va el
-     * equipo, y una grabación aparece en Rinkel unos minutos después de colgar.
+     * Cada DOS minutos (eran diez hasta el 23 oct 2026, que Raúl pidió que se actualizara lo antes posible): la lista
+     * de llamadas del día es lo que mira un supervisor para saber cómo va el equipo, y una grabación aparece en
+     * Rinkel unos minutos después de colgar. Cuesta una o dos peticiones por cuenta y unos 6 s por pasada con las
+     * cinco cuentas. Mientras alguien tiene Cold Calling abierto, su propia pantalla lee su cuenta cada 30 s
+     * (components/cold-calling/useSincronizarRinkel.ts). Se cambia desde Sistema sin tocar código.
      */
     id: 'rinkel-llamadas',
     nombre: 'Llamadas de Rinkel',
     ruta: '/api/rendimiento/cron',
-    cadaMinutos: 10,
+    cadaMinutos: 2,
     que:
       'Lee de Rinkel las llamadas nuevas de cada comercial que ha vinculado su clave, con la grabación de ' +
       'las que la tienen, para el panel «Mi rendimiento». No escribe nada en Rinkel.',

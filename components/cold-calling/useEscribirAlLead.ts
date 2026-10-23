@@ -20,8 +20,9 @@ export const primerEmail = (email: string | null | undefined): string | null => 
 export function useEscribirAlLead() {
   const router = useRouter()
   return useCallback(
-    (lead: Pick<ColdLead, 'id' | 'store_name' | 'company' | 'email'> & { decisor?: string | null }) => {
-      const para = primerEmail(lead.email)
+    (lead: Pick<ColdLead, 'id' | 'store_name' | 'company' | 'email'> & { decisor?: string | null }, direccion?: string) => {
+      // Sin dirección concreta, a la primera del campo `email`. Con ella (un correo extra de la ficha), a esa
+      const para = direccion?.includes('@') ? direccion : primerEmail(lead.email)
       if (!para) return
       pedirAlCorreo({
         tipo: 'redactar',

@@ -15,7 +15,7 @@ import { createServiceClient } from '@/lib/supabase/service'
  *     de las demás. Lo que no cabe se sigue en la próxima (el cursor de la cuenta queda guardado).
  *   · Si una cuenta falla —clave revocada, Rinkel caído— se apunta en ella y se sigue con las otras.
  *
- * Solo LEE de Rinkel. El reloj lo decide `tocaAhora()` desde la tabla cron_config (10 minutos por defecto),
+ * Solo LEE de Rinkel. El reloj lo decide `tocaAhora()` desde la tabla cron_config (2 minutos por defecto),
  * como el resto de tareas.
  */
 export const dynamic = 'force-dynamic'
