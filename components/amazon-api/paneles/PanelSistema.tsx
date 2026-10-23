@@ -25,6 +25,7 @@ import {
   TITULO,
 } from '@/lib/estilo/denso'
 import { ListaInfo, SeccionInfo } from '@/components/ui/BotonInfo'
+import { GastoEnIa } from '@/components/sistema/GastoEnIa'
 import { Aviso, Cargando, hace, nombreMarketplace } from '@/components/plataforma/comun'
 import { AMAZON_JOB_TIPO_LABELS } from '@/lib/plataforma/tipos'
 import { TAREAS_CRON, estaParada } from '@/lib/sistema/cron'
@@ -211,6 +212,11 @@ export function PanelSistema() {
           Lánzalos aquí abajo: lo que conteste es exactamente lo que recibe el cron.
         </Aviso>
       )}
+
+      {/* El gasto en IA (lo que cobra OpenAI). Va arriba porque es lo que se viene a mirar; lo de debajo es la vigilancia de los procesos */}
+      <GastoEnIa />
+
+      <h3 className={`mt-[6px] ${TITULO.seccion} ${TEXTO.t1}`}>Procesos automáticos</h3>
 
       {/* ESTA LÍNEA EXISTE PORQUE LA PANTALLA CONFUNDÍA, Y CON RAZÓN.
           Hay dos horarios en el ERP con controles calcados en pestañas
