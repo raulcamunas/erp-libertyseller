@@ -1,6 +1,7 @@
 import {
   CAMPOS_DEL_LEAD,
   COLUMNAS_A_LEER,
+  avisosDelLead,
   contextoParaIa,
   duracionLegible,
   enMinusculas,
@@ -174,6 +175,16 @@ console.log('\n=== contextoParaIa: el bloque de correos ===')
 
   const conRespuesta = contextoParaIa({ lead, notas: [], llamadas: [], correos: [{ direccion: 'saliente', fecha: dias(4), asunto: 'Hola', texto: 'Texto' }, { direccion: 'entrante', fecha: dias(3), asunto: 'Re: Hola', texto: 'Vale' }], ahora: AHORA })
   ok('si ha contestado, se dice', conRespuesta.includes('nos ha contestado una vez') && !conRespuesta.includes('NO ha contestado'))
+}
+
+console.log('\n=== avisosDelLead ===')
+{
+  ok('un lead normal no lleva avisos', avisosDelLead({ status: 'seguimiento' }).length === 0 && avisosDelLead({}).length === 0)
+  ok('«No le interesa»: dos o tres líneas, sin vender', /dos o tres líneas/.test(avisosDelLead({ status: 'no_interesa' }).join('')))
+  ok('cita cualificada: confirmarla, no vender desde cero', /confirmarla o prepararla/.test(avisosDelLead({ status: 'cita_cualificada' }).join('')))
+  const t = contextoParaIa({ lead: { store_name: 'Acme', status: 'no_interesa' }, notas: [], llamadas: [], correos: [], ahora: AHORA })
+  ok('los avisos van en su propio bloque, justo tras los datos', t.indexOf('AVISOS PARA ESTE CORREO') > t.indexOf('DATOS DE LA EMPRESA') && t.indexOf('AVISOS PARA ESTE CORREO') < t.indexOf('CORREOS ANTERIORES'))
+  ok('sin avisos no hay bloque', !contextoParaIa({ lead: { store_name: 'Acme', status: 'seguimiento' }, notas: [], llamadas: [], correos: [], ahora: AHORA }).includes('AVISOS PARA ESTE CORREO'))
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

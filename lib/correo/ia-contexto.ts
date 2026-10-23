@@ -241,6 +241,21 @@ export function situacionDeCorreos(correos: readonly CorreoParaIa[], ahora: numb
   return { enviados: nuestros.length, recibidos: suyos.length, diasDesdeElUltimoNuestro: ultimo === null ? null : Math.max(0, Math.floor((ahora - ultimo) / DIA_MS)), seguimiento: nuestros.length > 0 }
 }
 
+/**
+ * Avisos que dependen del estado del lead. Van APARTE de los datos, con su propio encabezado: una línea de «marcado como No le interesa»
+ * entre quince datos de la empresa se le escapa a la IA (la probamos con un lead así y escribió un correo de venta entero).
+ */
+export function avisosDelLead(lead: DatosDeLead): string[] {
+  const avisos: string[] = []
+  if (lead.status === 'no_interesa') {
+    avisos.push('- Este lead consta como «No le interesa»: salvo que las notas digan lo contrario, escribe SOLO dos o tres líneas amables, sin vender nada y dejando la puerta abierta.')
+  }
+  if (lead.status === 'cita_cualificada') {
+    avisos.push('- Consta una cita cualificada: si las notas la confirman, el correo es para confirmarla o prepararla, no para vender desde cero.')
+  }
+  return avisos
+}
+
 /* ------------------------------------------------------------------ */
 /* El contexto entero                                                  */
 /* ------------------------------------------------------------------ */
@@ -257,6 +272,8 @@ export interface EntradaDeContexto {
 export function contextoParaIa(e: EntradaDeContexto): string {
   const bloques: string[] = []
   bloques.push(['DATOS DE LA EMPRESA A LA QUE SE ESCRIBE', ...resumenDeLead(e.lead, e.ahora)].join('\n'))
+  const avisos = avisosDelLead(e.lead)
+  if (avisos.length > 0) bloques.push(['AVISOS PARA ESTE CORREO (importan más que lo demás)', ...avisos].join('\n'))
 
   const notas = resumenDeNotas(e.notas, e.ahora)
   if (notas.length > 0) bloques.push(['HISTORIAL DE CONTACTO DEL COMERCIAL (lo más reciente primero)', ...notas].join('\n'))
