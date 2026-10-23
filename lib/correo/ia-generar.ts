@@ -14,12 +14,24 @@ import { ESQUEMA_BORRADOR, leerBorrador, mensajeDeCorreccion, revisarBorrador, t
  * más que lo corrija. Si a la segunda sigue hablando de dinero NO se enseña (la regla que más importa es que no diga nada de facturación)
  * y el aviso lo explica. Un hueco o un exceso de largo en la segunda vez sí se enseña: el comercial lo ve y lo edita.
  *
- * MODELO: el mismo que ya usa «Propuesta con IA» de Remesas (OPENAI_API_KEY del servidor, nada nuevo que dar de alta), de los que
- * razonan, porque un correo frío con datos reales de la empresa pide que piense antes de escribir. Se cambia sin tocar código con
- * CORREO_IA_MODELO y CORREO_IA_ESFUERZO (low, medium, high).
+ * MODELO: `gpt-5.6-terra`, de los que razonan (la clave OPENAI_API_KEY del servidor ya sirve: nada nuevo que dar de alta). Se cambia sin
+ * tocar código con CORREO_IA_MODELO y CORREO_IA_ESFUERZO (low, medium, high).
+ *
+ * Por qué ése (probado el 23 oct 2026 con los mismos leads reales y el mismo encargo, precios de rastreadores de terceros):
+ *
+ *   gpt-5.5          0,022 $ por correo   el mejor, y el que se usó al principio
+ *   gpt-5.6-terra    0,009 $              casi igual de bueno: 2,6 veces más barato
+ *   gpt-5.6-luna     0,001 $              también bueno, 20 veces más barato; algo más genérico
+ *   gpt-5.4-mini     0,004 $              más jerga y más largo
+ *   gpt-5-mini       0,002 $              frases confusas y cuenta el tramo exacto del catálogo
+ *   gpt-5.4-nano     0,001 $              suelta jerga interna («cita cualificada») al cliente
+ *
+ * En 12 leads al azar ni 5.5, ni terra ni luna se inventaron un correo ni una conversación previos, ni hablaron de dinero. Entre terra y
+ * luna se eligió terra: ahorrar los ~25 $ al mes que separan a luna de terra (con 150 correos al día: 28 $ frente a 3 $) no compensa ningún matiz de redacción
+ * en un correo del que depende una cita. Si se quiere lo más barato posible, luna es la segunda opción.
  */
 
-export const MODELO_DE_CORREO_POR_DEFECTO = 'gpt-5.5'
+export const MODELO_DE_CORREO_POR_DEFECTO = 'gpt-5.6-terra'
 /** Un correo cabe en menos de un minuto incluso razonando; más que esto es que algo va mal y el comercial prefiere seguir a mano */
 export const TIEMPO_MAXIMO_DEL_CORREO_MS = 75_000
 
