@@ -467,6 +467,9 @@ export async function middleware(request: NextRequest) {
           // comerciales y a quien supervisa; el filtro de verdad está en las rutas /api/correo, que deciden qué
           // buzón abre cada persona (las tablas correo_* están cerradas al navegador).
           '/dashboard/correo': 'correo',
+          // Actividad del equipo: la ven los administradores y quien tenga la casilla. El filtro de verdad es requireAppAccess('actividad')
+          // en /api/actividad/equipo y /persona (la tabla está cerrada al navegador); el id va letra por letra como en lib/config/apps.ts
+          '/dashboard/actividad': 'actividad',
         }
 
         const appId = routeToAppId[pathname]

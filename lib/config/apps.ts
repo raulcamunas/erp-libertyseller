@@ -25,6 +25,7 @@ import {
   FileSpreadsheet,
   Gauge,
   Mail,
+  Eye,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -137,6 +138,19 @@ export const apps: AppConfig[] = [
     route: '/dashboard/correo',
     status: 'new',
     category: 'productivity'
+  },
+  {
+    // El registro de lo que hace cada empleado dentro del ERP: cuándo entra, qué pantallas pisa, qué botones pulsa y cuánto
+    // rato está activo. Lo ve un administrador y quien tenga esta casilla en Gestión de Usuarios; los empleados no ven ni
+    // la pantalla ni los datos (la tabla actividad_registro está cerrada al navegador, migración 240). El id va LETRA POR
+    // LETRA igual que en middleware.ts y que en el requireAppAccess('actividad') de /api/actividad/equipo y /persona.
+    id: 'actividad',
+    name: 'Actividad del equipo',
+    description: 'Cuándo entra cada persona al ERP, qué hace y cuánto rato está activa',
+    icon: Eye,
+    route: '/dashboard/actividad',
+    status: 'new',
+    category: 'analytics'
   },
   {
     // Vive al lado de Tesorería porque bebe de ella: los importes de cada mes

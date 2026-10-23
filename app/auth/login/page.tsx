@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Logo } from '@/components/ui/Logo'
 import { useRouter } from 'next/navigation'
 import { destinoTrasLogin } from '@/lib/mcp/consentimiento'
+import { enviarLote, idDeSesion } from '@/lib/actividad/cliente'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -31,6 +32,8 @@ export default function LoginPage() {
       if (signInError) throw signInError
 
       if (data.user) {
+        // Se apunta la hora del inicio de sesión (la ruta solo guarda la de los empleados y calla siempre: no cambia nada aquí)
+        enviarLote(idDeSesion().id, [{ t: 'login', ruta: '/auth/login' }])
         // Si se llegó desde la pantalla de consentimiento del conector MCP, se vuelve
         // a ella; cualquier otro destino se ignora (lista cerrada, ver destinoTrasLogin).
         // Se lee de la dirección y no con useSearchParams para no obligar a esta

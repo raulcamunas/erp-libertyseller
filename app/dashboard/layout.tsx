@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { AppSidebar } from '@/components/layout/AppSidebar'
 import { AppsPersistentes } from '@/components/layout/AppsPersistentes'
 import { AvisosEnVivo } from '@/components/avisos/AvisosEnVivo'
+import { RegistroDeActividad } from '@/components/actividad/RegistroDeActividad'
 import { Toaster } from '@/components/ui/sonner'
 
 export default async function DashboardLayout({
@@ -47,6 +48,8 @@ export default async function DashboardLayout({
       {/* Correo nuevo y noticias del equipo, abajo a la derecha, en cualquier pantalla. Fuera del recuadro animado de arriba a propósito:
           ahí dentro `fixed` sería relativo a ese recuadro y no a la ventana */}
       <AvisosEnVivo perfil={profile} />
+      {/* El registro de actividad: no pinta nada y solo se monta para los empleados. Lo lee quien supervisa en /dashboard/actividad */}
+      {profile.role === 'employee' && <RegistroDeActividad />}
     </div>
   )
 }
