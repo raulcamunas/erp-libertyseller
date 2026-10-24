@@ -1,4 +1,5 @@
-import type { DatosBasicosDeLead, EventoLeido, ResumenDelFlujo } from './almacen'
+import type { DatosBasicosDeLead, EventoLeido, RespuestaLeida, ResumenDelFlujo } from './almacen'
+import { CLASES_DE_RESPUESTA, ETIQUETA_DE_CLASE, TONO_DE_CLASE, type AccionConUnaRespuesta, type ClaseDeRespuesta, type Confianza } from './clases'
 import type { SalientesPorHora } from './capacidad'
 import { diaCorto, diaDeMadrid, diaRelativo, esDiaHabil, partesDeMadrid, siguienteDiaHabil } from './fechas'
 import type { EstadoDeInscripcion, EstadoDePaso, InscripcionDelMotor, PasoDelMotor } from './tipos'
@@ -345,9 +346,11 @@ export interface DetalleDeSecuencia {
   pasos: PasoDeDetalle[]
   eventos: EventoDeDetalle[]
   permisos: { puedeAdministrar: boolean; puedeEditar: boolean }
+  /** Lo que la IA entendió de la respuesta del lead, si ha contestado y se ha leído */
+  respuesta: RespuestaParaLaPantalla | null
 }
 
-export function armarDetalle(e: { item: ItemDeCola; pasos: readonly PasoDelMotor[]; eventos: readonly EventoLeido[]; permisos: DetalleDeSecuencia['permisos'] }): DetalleDeSecuencia {
+export function armarDetalle(e: { item: ItemDeCola; pasos: readonly PasoDelMotor[]; eventos: readonly EventoLeido[]; permisos: DetalleDeSecuencia['permisos']; respuesta?: RespuestaParaLaPantalla | null }): DetalleDeSecuencia {
   const porId = new Map(e.pasos.map((p) => [p.id, p]))
   return {
     secuencia: e.item,
@@ -357,6 +360,115 @@ export function armarDetalle(e: { item: ItemDeCola; pasos: readonly PasoDelMotor
     }),
     eventos: e.eventos.map((x) => ({ id: x.id, tipo: x.tipo, detalle: x.detalle, en: x.en, pasoId: x.pasoId })),
     permisos: e.permisos,
+    respuesta: e.respuesta ?? null,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Las respuestas de los leads leídas por la IA                        */
+/* ------------------------------------------------------------------ */
+
+export interface RespuestaParaLaPantalla {
+  mensajeId: string
+  leadId: string
+  lead: string
+  buzonId: string
+  propietario: string
+  inscripcionId: string | null
+  clase: ClaseDeRespuesta
+  etiqueta: string
+  tono: 'bien' | 'mal' | 'espera' | 'neutro'
+  confianza: Confianza
+  resumen: string
+  evidencia: string
+  /** El día de la rellamada que pidió («más adelante») */
+  fechaPedida: string | null
+  accion: AccionConUnaRespuesta
+  /** Se ha hecho de verdad (envío real); false = es lo que se habría hecho (ensayo) o no se atrevió */
+  aplicada: boolean
+  modo: 'ensayo' | 'real'
+  nota: string | null
+  /** Cuándo entró la respuesta */
+  en: number
+}
+
+export interface ResumenDeRespuestas {
+  /** Cuántos días hacia atrás se cuenta */
+  dias: number
+  /** Las leídas en ese tiempo */
+  total: number
+  /** Cuántas de cada clase, de más a menos */
+  porClase: Array<{ clase: ClaseDeRespuesta; etiqueta: string; tono: RespuestaParaLaPantalla['tono']; n: number }>
+  /** Esperando su turno (o el siguiente intento) y las que la IA no pudo leer tras varios intentos */
+  pendientes: number
+  fallidas: number
+  /** Las últimas, de la más reciente a la más antigua */
+  recientes: RespuestaParaLaPantalla[]
+}
+
+export function respuestaParaLaPantalla(r: RespuestaLeida, leads: ReadonlyMap<string, DatosBasicosDeLead>, propietarios: ReadonlyMap<string, string>): RespuestaParaLaPantalla {
+  return {
+    mensajeId: r.mensajeId,
+    leadId: r.leadId,
+    lead: leads.get(r.leadId)?.nombre ?? 'Un lead',
+    buzonId: r.buzonId,
+    propietario: propietarios.get(r.buzonId) ?? '',
+    inscripcionId: r.inscripcionId,
+    clase: r.clase,
+    etiqueta: ETIQUETA_DE_CLASE[r.clase],
+    tono: TONO_DE_CLASE[r.clase],
+    confianza: r.confianza,
+    resumen: r.resumen,
+    evidencia: r.evidencia,
+    fechaPedida: r.fechaPedida,
+    accion: r.accion,
+    aplicada: r.aplicada,
+    modo: r.modo,
+    nota: r.nota,
+    en: r.recibidaAt,
+  }
+}
+
+export function armarRespuestas(e: {
+  dias: number
+  recientes: readonly RespuestaLeida[]
+  conteo: { porClase: Record<string, number>; pendientes: number; fallidas: number }
+  leads: ReadonlyMap<string, DatosBasicosDeLead>
+  propietarios: ReadonlyMap<string, string>
+}): ResumenDeRespuestas {
+  const porClase = CLASES_DE_RESPUESTA.map((clase) => ({ clase, etiqueta: ETIQUETA_DE_CLASE[clase], tono: TONO_DE_CLASE[clase], n: e.conteo.porClase[clase] ?? 0 }))
+    .filter((c) => c.n > 0)
+    .sort((a, b) => b.n - a.n)
+  return {
+    dias: e.dias,
+    total: porClase.reduce((suma, c) => suma + c.n, 0),
+    porClase,
+    pendientes: e.conteo.pendientes,
+    fallidas: e.conteo.fallidas,
+    recientes: e.recientes.map((r) => respuestaParaLaPantalla(r, e.leads, e.propietarios)),
+  }
+}
+
+/** «lun 11 ene» y, si no es del año en que entró la respuesta, «lun 11 ene 2027» */
+function diaDeRellamada(dia: string, entro: number): string {
+  return dia.slice(0, 4) === diaDeMadrid(entro).slice(0, 4) ? diaCorto(dia) : `${diaCorto(dia)} ${dia.slice(0, 4)}`
+}
+
+/** La frase con la que la pantalla cuenta qué se ha hecho (o se habría hecho) con una respuesta */
+export function queSeHizo(r: Pick<RespuestaParaLaPantalla, 'accion' | 'aplicada' | 'modo' | 'fechaPedida' | 'nota' | 'en'>): string {
+  const ensayo = r.modo === 'ensayo'
+  const hecho = !ensayo && r.aplicada
+  switch (r.accion) {
+    case 'cerrar':
+      return hecho ? 'Pasado a «No le interesa»' : ensayo ? 'Lo pasaría a «No le interesa»' : 'No se ha podido pasar a «No le interesa»'
+    case 'rellamar': {
+      const para = r.fechaPedida ? ` para el ${diaDeRellamada(r.fechaPedida, r.en)}` : ''
+      return hecho ? `Rellamada puesta${para}` : ensayo ? `Pondría la rellamada${para}` : 'No se ha podido poner la rellamada'
+    }
+    case 'revisar':
+      return ensayo ? 'Dejaría una nota para que lo mire una persona' : 'Nota en el lead para que lo mire una persona'
+    case 'ninguna':
+      return r.nota ? (ensayo ? 'Lo anotaría en el lead' : 'Anotado en el lead') : 'No hace falta hacer nada'
   }
 }
 

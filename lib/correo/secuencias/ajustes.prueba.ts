@@ -1,5 +1,5 @@
 import { validarAjustes, validarAjustesDeBuzon } from '@/lib/correo/secuencias/ajustes'
-import { AJUSTES_POR_DEFECTO } from '@/lib/correo/secuencias/reglas'
+import { AJUSTES_POR_DEFECTO, leerAjustes } from '@/lib/correo/secuencias/reglas'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -71,6 +71,30 @@ console.log('\n=== los ajustes de un buzón ===')
   ok('las horas de llamadas al revés', !validarAjustesDeBuzon({ llamadasDesdeMin: 900, llamadasHastaMin: 800 }).ok)
   ok('un tope fuera de rango o raro', !validarAjustesDeBuzon({ topeDiario: 0 }).ok && !validarAjustesDeBuzon({ topeDiario: 5000 }).ok && !validarAjustesDeBuzon({ topeDiario: 'mucho' }).ok)
   ok('vacío', !validarAjustesDeBuzon({}).ok)
+}
+
+console.log('\n=== las respuestas de los leads ===')
+{
+  const B = { ...A, respuestasDisponible: true }
+  const r = validarAjustes({ respuestasCerrarNo: false }, B)
+  ok('apagar el cierre automático guarda esa columna y deja lo demás', r.ok && r.cambios.columnas.respuestas_cerrar_no === false && Object.keys(r.cambios.columnas).length === 1 && r.cambios.resultado.respuestasCerrarNo === false && r.cambios.resultado.respuestasIa === true)
+  const t = validarAjustes({ respuestasIa: false, respuestasRellamada: false }, B)
+  ok('apagar la lectura entera y la rellamada a la vez', t.ok && t.cambios.columnas.respuestas_ia === false && t.cambios.columnas.respuestas_rellamada === false)
+  ok('un valor que no es verdadero o falso', err(validarAjustes({ respuestasIa: 'no' }, B)).includes('verdadero o falso') && err(validarAjustes({ respuestasCerrarNo: 0 }, B)).includes('verdadero o falso'))
+  ok('sin la migración 246 se dice claro en vez de fallar al guardar', err(validarAjustes({ respuestasIa: false }, A)).includes('246_correo_respuestas_ia.sql'))
+  ok('«respuestasDisponible» no se puede cambiar desde fuera', err(validarAjustes({ respuestasDisponible: true }, A)).includes('ningún cambio'))
+  ok('pasar a envío real sigue pidiendo confirmación aunque se toque esto a la vez', err(validarAjustes({ activa: true, modoEnsayo: false, respuestasIa: true }, B)).includes('confirmar'))
+}
+
+console.log('\n=== leer los ajustes de la base ===')
+{
+  const sin = leerAjustes({ id: true, activa: true, modo_ensayo: false })
+  ok('una base sin la migración 246: no hay columnas, se nota y los tres nacen encendidos', sin.respuestasDisponible === false && sin.respuestasIa && sin.respuestasCerrarNo && sin.respuestasRellamada)
+  const con = leerAjustes({ id: true, respuestas_ia: true, respuestas_cerrar_no: false, respuestas_rellamada: true })
+  ok('con la migración: se leen tal cual y se sabe que está', con.respuestasDisponible === true && con.respuestasIa && !con.respuestasCerrarNo && con.respuestasRellamada)
+  const nulos = leerAjustes({ id: true, respuestas_ia: null, respuestas_cerrar_no: null, respuestas_rellamada: null })
+  ok('un nulo no apaga nada: solo un «false» de verdad lo hace', nulos.respuestasIa && nulos.respuestasCerrarNo && nulos.respuestasRellamada)
+  ok('sin fila (ni tabla): los de siempre y sin respuestas disponibles', leerAjustes(null).respuestasDisponible === false)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

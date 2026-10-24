@@ -43,9 +43,17 @@ export function validarAjustes(entrada: unknown, actuales: AjustesDelMotor): Res
   const resultado: AjustesDelMotor = { ...actuales, rampa: actuales.rampa.map((t) => ({ ...t })), festivos: [...actuales.festivos] }
   const avisos: string[] = []
 
-  for (const [clave, columna] of [['activa', 'activa'], ['modoEnsayo', 'modo_ensayo']] as const) {
+  for (const [clave, columna] of [
+    ['activa', 'activa'],
+    ['modoEnsayo', 'modo_ensayo'],
+    ['respuestasIa', 'respuestas_ia'],
+    ['respuestasCerrarNo', 'respuestas_cerrar_no'],
+    ['respuestasRellamada', 'respuestas_rellamada'],
+  ] as const) {
     if (entrada[clave] === undefined) continue
     if (typeof entrada[clave] !== 'boolean') return { ok: false, error: `«${clave}» tiene que ser verdadero o falso.` }
+    // Sin la migración 246 la base no tiene estas columnas: se dice claro en vez de fallar al guardar
+    if (clave.startsWith('respuestas') && !actuales.respuestasDisponible) return { ok: false, error: 'Falta lanzar la migración 246_correo_respuestas_ia.sql en el editor SQL de Supabase para poder cambiar esto.' }
     columnas[columna] = entrada[clave]
     resultado[clave] = entrada[clave] as boolean
   }

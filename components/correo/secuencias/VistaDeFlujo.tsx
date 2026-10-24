@@ -8,6 +8,7 @@ import { MINIMO_PARA_UNA_TASA } from '@/lib/correo/secuencias/vistas'
 import type { EstadoDeInscripcion } from '@/lib/correo/secuencias/tipos'
 import type { Tablero } from './datos'
 import { COLOR_DE_TONO, ESTILO_DE_EVENTO } from './LineaDeTiempo'
+import { PanelDeRespuestas } from './RespuestasLeidas'
 
 /**
  * EL FLUJO: QUÉ HA PASADO CON LAS SECUENCIAS DE LOS ÚLTIMOS 30 DÍAS.
@@ -87,6 +88,8 @@ export function VistaDeFlujo({ tablero, ahora, onAbrir }: { tablero: Tablero; ah
           ))}
         </ul>
       </section>
+
+      <PanelDeRespuestas tablero={tablero} ahora={ahora} onAbrir={onAbrir} />
 
       <div className="grid gap-3 lg:grid-cols-2">
         <section className={PANEL} aria-label="Estados">

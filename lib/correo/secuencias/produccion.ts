@@ -2,13 +2,13 @@ import type { createServiceClient } from '@/lib/supabase/service'
 import type { EntradaDeEnvio } from '../enviar'
 import { cargarBuzon, enviarDesdeBuzon, sincronizarBuzonPorId } from '../servidor'
 import { almacenDeSecuencias } from './almacen'
-import { revisarConIa } from './ia'
+import { clasificarRespuestaConIa, revisarConIa } from './ia'
 import type { CodigoDeFalloDeEnvio, DependenciasDelMotor, ResultadoDelEnvio } from './motor'
 
 /**
- * LO QUE EL MOTOR DE SECUENCIAS USA DE VERDAD: EL ALMACÉN, LA LECTURA DEL BUZÓN, EL ENVÍO Y LA IA — SOLO SERVIDOR.
+ * LO QUE EL MOTOR DE SECUENCIAS USA DE VERDAD: EL ALMACÉN, LA LECTURA DEL BUZÓN, EL ENVÍO Y LA IA (REVISAR SEGUIMIENTOS Y LEER RESPUESTAS) — SOLO SERVIDOR.
  * ================================================================================================================
- * El motor (motor.ts) no sabe de correos ni de OpenAI: recibe estas cuatro piezas. Aquí se conectan a las de siempre del módulo de correo
+ * El motor (motor.ts) no sabe de correos ni de OpenAI: recibe estas piezas. Aquí se conectan a las de siempre del módulo de correo
  * (lib/correo/servidor.ts), de modo que un seguimiento sale por el MISMO camino que un correo que escribe una persona: el mismo servidor SMTP del
  * buzón, la misma copia en Enviados, el mismo guardado en el hilo.
  */
@@ -64,5 +64,6 @@ export function dependenciasDeProduccion(service: Servicio): DependenciasDelMoto
       return { ok: false, codigo: codigoDeFallo(r.codigo), mensaje: r.mensaje }
     },
     revisar: (mensajes, original) => revisarConIa(mensajes, original),
+    clasificar: (mensajes) => clasificarRespuestaConIa(mensajes),
   }
 }

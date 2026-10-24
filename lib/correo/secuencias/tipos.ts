@@ -116,6 +116,7 @@ export const TIPOS_DE_EVENTO = [
   'cancelada',
   'editado',
   'respuesta',
+  'respuesta_ia',
   'rebote',
   'fuera_de_oficina',
   'parada',

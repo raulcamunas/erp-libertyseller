@@ -56,6 +56,10 @@ export async function POST(request: NextRequest) {
       pausados: pasada.pausados,
       fallidos: pasada.fallidos,
       ensayados: pasada.ensayados,
+      respuestas_leidas: pasada.respuestasLeidas,
+      respuestas_cerradas: pasada.respuestasCerradas,
+      respuestas_con_rellamada: pasada.respuestasConRellamada,
+      respuestas_fallidas: pasada.respuestasFallidas,
       errores: pasada.errores.slice(0, 10),
       resumen: pasada.resumen,
     }

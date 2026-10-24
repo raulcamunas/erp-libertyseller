@@ -202,7 +202,7 @@ export const ESQUEMA: Readonly<Record<string, EsquemaDeTabla>> = {
     columnas: [
       'id', 'store_name', 'company', 'status', 'assigned_to', 'email', 'emails_extra', 'phone', 'category', 'subcategory', 'province', 'ciudad', 'tipo_lead',
       'vende_en_amazon', 'tipo_empresa', 'plataforma', 'n_productos', 'anos_tienda', 'amazon_start', 'web', 'instagram', 'follow_up', 'call_attempts',
-      'last_contacted_at', 'updated_at',
+      'last_contacted_at', 'next_call_date', 'updated_at',
     ],
   },
   cold_lead_notes: { columnas: ['id', 'lead_id', 'author_id', 'kind', 'body', 'occurred_at', 'created_at', 'es_respuesta'], requeridas: ['lead_id', 'kind', 'body'] },
@@ -221,7 +221,15 @@ export const ESQUEMA: Readonly<Record<string, EsquemaDeTabla>> = {
     columnas: [
       'id', 'activa', 'modo_ensayo', 'ventana_desde_min', 'ventana_hasta_min', 'hueco_global_s', 'hueco_buzon_s', 'peso_manana_pct', 'rampa', 'tope_hora',
       'dias_hasta_no_interesa', 'freno_rebotes_pct', 'freno_minimo_envios', 'festivos', 'vigilancia_at', 'purgado_at', 'actualizada_at', 'actualizada_por',
+      'respuestas_ia', 'respuestas_cerrar_no', 'respuestas_rellamada', 'respuestas_at',
     ],
+  },
+  correo_respuestas_ia: {
+    columnas: [
+      'mensaje_id', 'lead_id', 'buzon_id', 'inscripcion_id', 'estado', 'intentos', 'proximo_intento_at', 'reclamado_at', 'clase', 'confianza', 'resumen', 'evidencia',
+      'fecha_pedida', 'modelo', 'modo', 'accion', 'aplicada', 'nota', 'recibida_at', 'creada_at', 'actualizada_at',
+    ],
+    requeridas: ['mensaje_id', 'lead_id', 'buzon_id', 'recibida_at'],
   },
   correo_secuencia_buzones: {
     columnas: [
@@ -473,6 +481,17 @@ export class BaseEnMemoria {
       defecto('llamadas_desde_min', 600)
       defecto('llamadas_hasta_min', 840)
     }
+    if (tabla === 'correo_secuencia_ajustes') {
+      // Los de la migración 246 nacen encendidos
+      defecto('respuestas_ia', true)
+      defecto('respuestas_cerrar_no', true)
+      defecto('respuestas_rellamada', true)
+    }
+    if (tabla === 'correo_respuestas_ia') {
+      defecto('estado', 'pendiente')
+      defecto('intentos', 0)
+      defecto('aplicada', false)
+    }
     if (tabla === 'cold_lead_notes') defecto('es_respuesta', false)
     if (tabla === 'correo_direcciones_malas') {
       defecto('estado', 'mala')
@@ -504,6 +523,7 @@ export class BaseEnMemoria {
     if (tabla === 'correo_secuencia_pasos' && otras.some((f) => f.inscripcion_id === fila.inscripcion_id && f.orden === fila.orden)) return 'correo_secuencia_pasos_uno_por_orden'
     if (tabla === 'correo_secuencia_buzones' && otras.some((f) => f.buzon_id === fila.buzon_id)) return 'correo_secuencia_buzones_pkey'
     if (tabla === 'correo_direcciones_malas' && otras.some((f) => f.direccion === fila.direccion)) return 'correo_direcciones_malas_pkey'
+    if (tabla === 'correo_respuestas_ia' && otras.some((f) => f.mensaje_id === fila.mensaje_id)) return 'correo_respuestas_ia_pkey'
     if (tabla !== 'correo_secuencia_ajustes' && 'id' in fila && fila.id !== null && otras.some((f) => f.id === fila.id)) return `${tabla}_pkey`
     return null
   }
@@ -518,6 +538,15 @@ export class BaseEnMemoria {
     }
     if (tabla === 'correo_secuencia_eventos' && fila.inscripcion_id === null && fila.buzon_id === null) return { code: '23514', message: 'correo_secuencia_eventos_de_alguien' }
     if (tabla === 'cold_lead_notes' && !['llamada', 'email', 'whatsapp', 'linkedin', 'nota'].includes(String(fila.kind))) return { code: '23514', message: 'kind no válido' }
+    if (tabla === 'correo_respuestas_ia') {
+      if (!['pendiente', 'procesando', 'hecha', 'fallida'].includes(String(fila.estado))) return { code: '23514', message: 'estado de respuesta no válido' }
+      if (fila.clase !== null && !['interesado', 'pide_info', 'no_interesa', 'baja', 'mas_tarde', 'derivacion', 'fuera_de_oficina', 'otro'].includes(String(fila.clase))) return { code: '23514', message: 'clase no válida' }
+      if (fila.confianza !== null && !['alta', 'media', 'baja'].includes(String(fila.confianza))) return { code: '23514', message: 'confianza no válida' }
+      if (fila.accion !== null && !['ninguna', 'cerrar', 'rellamar', 'revisar'].includes(String(fila.accion))) return { code: '23514', message: 'acción no válida' }
+      if (fila.modo !== null && !['ensayo', 'real'].includes(String(fila.modo))) return { code: '23514', message: 'modo no válido' }
+      if (typeof fila.resumen === 'string' && fila.resumen.length > 300) return { code: '23514', message: 'resumen demasiado largo' }
+    }
+    if (tabla === 'cold_leads' && !['pendiente', 'no_contesta', 'programado', 'email_enviado', 'seguimiento', 'cita_cualificada', 'no_interesa'].includes(String(fila.status))) return { code: '23514', message: 'estado de lead no válido' }
     return null
   }
 
@@ -640,6 +669,74 @@ export class BaseEnMemoria {
           p.actualizado_at = new Date(hora).toISOString()
         }
         return { data: candidatos.map(copia), error: null, count: null }
+      }
+      case 'correo_respuestas_reclamar': {
+        const desde = iso(a.p_desde)
+        const hora = iso(a.p_ahora)
+        const limite = Math.max(Number(a.p_limite ?? 8), 0)
+        const bloqueo = Number(a.p_bloqueo_min ?? 10) * 60_000
+        const apuntados = new Set(this.filas('correo_respuestas_ia').map((r) => r.mensaje_id))
+        const buzonDe = new Map(this.filas('correo_buzones').map((b) => [b.id, b]))
+        const participa = (buzonId: unknown): boolean => this.filas('correo_secuencia_buzones').find((x) => x.buzon_id === buzonId)?.participa !== false
+        const direccionesDe = (l: Fila): string[] =>
+          `${l.email ?? ''} ${l.emails_extra ?? ''}`
+            .toLowerCase()
+            .split(/[\s/,;]+/)
+            .filter(Boolean)
+        const inscripciones = this.filas('correo_secuencia_inscripciones')
+        const masReciente = (lista: Fila[]): Fila | undefined => [...lista].sort((x, y) => iso(y.creada_at) - iso(x.creada_at))[0]
+        const nuevos = this.filas('correo_mensajes').filter((m) => m.direccion === 'entrante' && m.automatico !== true && iso(m.creado_at) >= desde && iso(m.creado_at) <= hora && !apuntados.has(m.id) && participa(m.buzon_id))
+        for (const m of nuevos) {
+          const creado = iso(m.creado_at)
+          const remitente = String(m.de_direccion ?? '').trim().toLowerCase()
+          const dueno = buzonDe.get(m.buzon_id)?.user_id
+          let leadId: unknown = null
+          let inscripcionId: unknown = null
+          // 1a. Por la dirección de quien escribe: gana el lead de la persona dueña del buzón y, después, el tocado más recientemente
+          const candidatos = this.filas('cold_leads')
+            .filter((l) => direccionesDe(l).includes(remitente))
+            .sort((x, y) => Number(y.assigned_to === dueno) - Number(x.assigned_to === dueno) || (y.updated_at ? iso(y.updated_at) : 0) - (x.updated_at ? iso(x.updated_at) : 0))
+          if (candidatos.length > 0) {
+            leadId = candidatos[0].id
+            inscripcionId = masReciente(inscripciones.filter((i) => i.lead_id === leadId && i.buzon_id === m.buzon_id && iso(i.primer_envio_at) <= creado))?.id ?? null
+          } else {
+            // 1b. Por el hilo del primer correo de una secuencia
+            const porHilo = masReciente(inscripciones.filter((i) => i.buzon_id === m.buzon_id && i.hilo_id !== null && i.hilo_id === m.hilo_id && iso(i.primer_envio_at) <= creado))
+            if (porHilo) {
+              leadId = porHilo.lead_id
+              inscripcionId = porHilo.id
+            }
+          }
+          if (leadId === null) continue
+          const r = this.insertar('correo_respuestas_ia', [{ mensaje_id: m.id, lead_id: leadId, buzon_id: m.buzon_id, inscripcion_id: inscripcionId, recibida_at: m.creado_at }])
+          if (r.error) return r
+        }
+        // 2. Reservar lo que toca leer
+        const candidatas = this.filas('correo_respuestas_ia')
+          .filter((r) => (r.estado === 'pendiente' && (r.proximo_intento_at === null || iso(r.proximo_intento_at) <= hora)) || (r.estado === 'procesando' && r.reclamado_at !== null && iso(r.reclamado_at) < hora - bloqueo))
+          .sort((x, y) => iso(x.recibida_at) - iso(y.recibida_at))
+          .slice(0, limite)
+        const salida = candidatas.map((r) => {
+          r.estado = 'procesando'
+          r.reclamado_at = new Date(hora).toISOString()
+          r.intentos = (r.intentos as number) + 1
+          r.actualizada_at = new Date(hora).toISOString()
+          const m = this.filas('correo_mensajes').find((x) => x.id === r.mensaje_id) as Fila
+          return {
+            mensaje_id: r.mensaje_id,
+            lead_id: r.lead_id,
+            buzon_id: r.buzon_id,
+            inscripcion_id: r.inscripcion_id,
+            intentos: r.intentos,
+            de_direccion: m.de_direccion,
+            asunto: m.asunto,
+            texto: String(m.texto ?? '').slice(0, 8000),
+            fecha: m.fecha,
+            hilo_id: m.hilo_id,
+            recibida_at: r.recibida_at,
+          }
+        })
+        return { data: salida, error: null, count: null }
       }
       case 'correo_secuencia_purgar': {
         const dias = Number(a.p_dias ?? 180)

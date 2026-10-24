@@ -86,6 +86,7 @@ export const ESTILO_DE_EVENTO: Record<string, { Icono: LucideIcon; tono: TonoDeN
   cancelada: { Icono: Ban, tono: 'gris' },
   editado: { Icono: Pencil, tono: 'gris' },
   respuesta: { Icono: MessageSquareReply, tono: 'verde' },
+  respuesta_ia: { Icono: Sparkles, tono: 'acento' },
   rebote: { Icono: MailX, tono: 'rojo' },
   fuera_de_oficina: { Icono: Hourglass, tono: 'ambar' },
   parada: { Icono: ShieldAlert, tono: 'rojo' },

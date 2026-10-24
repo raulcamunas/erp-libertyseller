@@ -1,7 +1,10 @@
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import type { createServiceClient } from '@/lib/supabase/service'
 import { COLUMNAS_A_LEER, type DatosDeLead } from '../ia-contexto'
+import { direccionesDeLead } from '../ia-servidor'
 import type { SalientesPorHora } from './capacidad'
+import type { AccionConUnaRespuesta, ClaseDeRespuesta, Confianza } from './clases'
+import { ESTADOS_QUE_SE_PUEDEN_TOCAR } from './clasificar'
 import { diaDeMadrid, instanteDeMadrid } from './fechas'
 import { leerAjustes as leerAjustesDeFila, leerPasos, type AjustesDelMotor } from './reglas'
 import type { EntranteParaControl } from './respuestas'
@@ -129,6 +132,8 @@ export interface LecturaDeAjustes {
   ajustes: AjustesDelMotor
   vigilanciaAt: number | null
   purgadoAt: number | null
+  /** Hasta cuándo se han mirado los correos que entraban en busca de respuestas de leads */
+  respuestasAt: number | null
 }
 
 export interface CambiosDeBuzonDelMotor {
@@ -272,6 +277,101 @@ export interface ResumenDelFlujo {
 
 const CAMPOS_DE_PASO = '*'
 
+/** Un correo entrante que parece la respuesta de un lead y toca leer (lo reserva `reclamarRespuestas`) */
+export interface RespuestaPorLeer {
+  mensajeId: string
+  leadId: string
+  buzonId: string
+  inscripcionId: string | null
+  /** Cuántas veces se ha cogido ya (con esta, ya contada) */
+  intentos: number
+  deDireccion: string
+  asunto: string
+  /** Sin recortar la parte citada: quien lee la limpia (clasificar.ts) */
+  texto: string
+  fecha: number
+  hiloId: string | null
+  /** Cuándo entró el correo en el ERP */
+  recibidaAt: number
+}
+
+/** Lo que se guarda de una respuesta ya leída */
+export interface LecturaDeRespuesta {
+  clase: ClaseDeRespuesta
+  confianza: Confianza
+  resumen: string
+  evidencia: string
+  /** El día de la rellamada pedida (AAAA-MM-DD) */
+  fechaPedida: string | null
+  modelo: string
+  modo: 'ensayo' | 'real'
+  accion: AccionConUnaRespuesta
+  nota: string | null
+}
+
+/** Una respuesta leída, como la enseña la pantalla */
+export interface RespuestaLeida {
+  mensajeId: string
+  leadId: string
+  buzonId: string
+  inscripcionId: string | null
+  clase: ClaseDeRespuesta
+  confianza: Confianza
+  resumen: string
+  evidencia: string
+  fechaPedida: string | null
+  modo: 'ensayo' | 'real'
+  accion: AccionConUnaRespuesta
+  aplicada: boolean
+  nota: string | null
+  recibidaAt: number
+}
+
+/** Un lead que tiene esta dirección entre las suyas */
+export interface LeadConDireccion {
+  id: string
+  status: string
+  assigned_to: string | null
+}
+
+type FilaDeRespuesta = {
+  mensaje_id: string
+  lead_id: string
+  buzon_id: string
+  inscripcion_id: string | null
+  clase: ClaseDeRespuesta | null
+  confianza: Confianza | null
+  resumen: string | null
+  evidencia: string | null
+  fecha_pedida: string | null
+  modo: 'ensayo' | 'real' | null
+  accion: AccionConUnaRespuesta | null
+  aplicada: boolean
+  nota: string | null
+  recibida_at: string
+}
+
+const CAMPOS_DE_RESPUESTA = 'mensaje_id, lead_id, buzon_id, inscripcion_id, clase, confianza, resumen, evidencia, fecha_pedida, modo, accion, aplicada, nota, recibida_at'
+
+function respuestaLeida(f: FilaDeRespuesta): RespuestaLeida {
+  return {
+    mensajeId: f.mensaje_id,
+    leadId: f.lead_id,
+    buzonId: f.buzon_id,
+    inscripcionId: f.inscripcion_id,
+    clase: f.clase ?? 'otro',
+    confianza: f.confianza ?? 'baja',
+    resumen: f.resumen ?? '',
+    evidencia: f.evidencia ?? '',
+    fechaPedida: f.fecha_pedida,
+    modo: f.modo ?? 'ensayo',
+    accion: f.accion ?? 'ninguna',
+    aplicada: f.aplicada === true,
+    nota: f.nota,
+    recibidaAt: aMs(f.recibida_at) ?? 0,
+  }
+}
+
 export function almacenDeSecuencias(service: Servicio) {
   /* ---------------- ajustes y buzones ---------------- */
 
@@ -282,7 +382,12 @@ export function almacenDeSecuencias(service: Servicio) {
       throw fallo('No se han podido leer los ajustes de las secuencias.', error)
     }
     const fila = (data ?? null) as Record<string, unknown> | null
-    return { ajustes: leerAjustesDeFila(fila), vigilanciaAt: aMs(fila?.vigilancia_at as string | null | undefined), purgadoAt: aMs(fila?.purgado_at as string | null | undefined) }
+    return {
+      ajustes: leerAjustesDeFila(fila),
+      vigilanciaAt: aMs(fila?.vigilancia_at as string | null | undefined),
+      purgadoAt: aMs(fila?.purgado_at as string | null | undefined),
+      respuestasAt: aMs(fila?.respuestas_at as string | null | undefined),
+    }
   }
 
   async function guardarAjustes(cambios: Record<string, unknown>, userId: string | null, ahora: number): Promise<void> {
@@ -796,6 +901,159 @@ export function almacenDeSecuencias(service: Servicio) {
     return true
   }
 
+  /** Pone el día de «Rellamar el» del lead. Si nadie lo trabaja pasa a «Rellamada programada»; si ya lo lleva una persona («En seguimiento») solo se pone la fecha. `no` = no se ha tocado nada */
+  async function ponerRellamada(leadId: string, fecha: string, ahora: number): Promise<'programado' | 'solo_fecha' | 'no'> {
+    const cambiado = await service.from('cold_leads').update({ status: 'programado', next_call_date: fecha, updated_at: aIso(ahora) }).eq('id', leadId).in('status', [...ESTADOS_QUE_SE_PUEDEN_TOCAR]).select('id')
+    if (cambiado.error) throw fallo('No se ha podido poner la rellamada del lead.', cambiado.error)
+    if ((cambiado.data ?? []).length > 0) return 'programado'
+    const soloFecha = await service.from('cold_leads').update({ next_call_date: fecha, updated_at: aIso(ahora) }).eq('id', leadId).eq('status', 'seguimiento').select('id')
+    if (soloFecha.error) throw fallo('No se ha podido poner la rellamada del lead.', soloFecha.error)
+    return (soloFecha.data ?? []).length > 0 ? 'solo_fecha' : 'no'
+  }
+
+  /** Los leads que tienen esta dirección entre las suyas (`email` o `emails_extra`) */
+  async function leadsPorDireccion(direccion: string, limite = 20): Promise<LeadConDireccion[]> {
+    const d = direccion.trim().toLowerCase()
+    if (!d.includes('@') || d.length > 320) return []
+    const patron = `%${d.replace(/[%_\\]/g, (c) => `\\${c}`)}%`
+    const leer = async (columna: 'email' | 'emails_extra') => {
+      const { data, error } = await service.from('cold_leads').select('id, status, assigned_to, email, emails_extra').ilike(columna, patron).limit(limite)
+      if (error) throw fallo('No se han podido buscar los leads de esa dirección.', error)
+      return (data ?? []) as Array<LeadConDireccion & { email: string | null; emails_extra: string | null }>
+    }
+    const [porCorreo, porExtra] = await Promise.all([leer('email'), leer('emails_extra')])
+    const vistos = new Map<string, LeadConDireccion>()
+    // La base filtra por texto («ana@x.es» está dentro de «joana@x.es»): aquí se remata con la lista exacta de direcciones del lead
+    for (const l of [...porCorreo, ...porExtra]) if (direccionesDeLead(l as unknown as Record<string, unknown>).includes(d)) vistos.set(l.id, { id: l.id, status: l.status, assigned_to: l.assigned_to })
+    return [...vistos.values()]
+  }
+
+  /** ¿Tiene el lead una nota del sistema (sin autor) que empiece así y trate de algo ocurrido desde `desde`? Para no repetir el mismo aviso cada vez que se vuelve a mirar el mismo correo. Se mira CUÁNDO OCURRIÓ lo que cuenta (`occurred_at`, que se escribe siempre) y no cuándo se apuntó */
+  async function hayNotaDelSistema(leadId: string, comienzo: string, desde: number): Promise<boolean> {
+    const escapado = comienzo.replace(/[%_\\]/g, (c) => `\\${c}`)
+    const { data, error } = await service.from('cold_lead_notes').select('id').eq('lead_id', leadId).is('author_id', null).ilike('body', `${escapado}%`).gte('occurred_at', aIso(desde)).limit(1)
+    if (error) throw fallo('No se ha podido leer el historial del lead.', error)
+    return (data ?? []).length > 0
+  }
+
+  /* ---------------- las respuestas de los leads ---------------- */
+
+  /** Apunta los correos nuevos que parecen respuestas de leads y reserva hasta `limite` para leerlos (ver la función SQL: dos pasadas no cogen el mismo). Sin la migración 246, no hay ninguno */
+  async function reclamarRespuestas(desde: number, ahora: number, limite: number, bloqueoMin = 10): Promise<RespuestaPorLeer[]> {
+    const { data, error } = await service.rpc('correo_respuestas_reclamar', { p_desde: aIso(desde), p_ahora: aIso(ahora), p_limite: limite, p_bloqueo_min: bloqueoMin })
+    if (error) {
+      if (isMissingSchema(error)) return []
+      throw fallo('No se han podido reservar las respuestas de los leads.', error)
+    }
+    return ((data ?? []) as Array<Record<string, unknown>>).map((f) => ({
+      mensajeId: String(f.mensaje_id),
+      leadId: String(f.lead_id),
+      buzonId: String(f.buzon_id),
+      inscripcionId: (f.inscripcion_id as string | null) ?? null,
+      intentos: Number(f.intentos) || 1,
+      deDireccion: String(f.de_direccion ?? ''),
+      asunto: String(f.asunto ?? ''),
+      texto: String(f.texto ?? ''),
+      fecha: aMs(f.fecha as string | null) ?? 0,
+      hiloId: (f.hilo_id as string | null) ?? null,
+      recibidaAt: aMs(f.recibida_at as string | null) ?? 0,
+    }))
+  }
+
+  /** Guarda lo que se ha entendido de una respuesta. Solo si sigue reservada (otra pasada no la pisa). Devuelve si quedó guardada */
+  async function guardarLecturaDeRespuesta(mensajeId: string, l: LecturaDeRespuesta, ahora: number): Promise<boolean> {
+    const { data, error } = await service
+      .from('correo_respuestas_ia')
+      .update({
+        estado: 'hecha',
+        clase: l.clase,
+        confianza: l.confianza,
+        resumen: l.resumen.slice(0, 300),
+        evidencia: l.evidencia.slice(0, 400),
+        fecha_pedida: l.fechaPedida,
+        modelo: l.modelo.slice(0, 60),
+        modo: l.modo,
+        accion: l.accion,
+        aplicada: false,
+        nota: l.nota ? l.nota.slice(0, 1000) : null,
+        proximo_intento_at: null,
+        actualizada_at: aIso(ahora),
+      })
+      .eq('mensaje_id', mensajeId)
+      .eq('estado', 'procesando')
+      .select('mensaje_id')
+    if (error) throw fallo('No se ha podido guardar lo que dice la respuesta.', error)
+    return (data ?? []).length > 0
+  }
+
+  /** Apunta lo que de verdad se hizo con la respuesta (si se aplicó, y la acción y la nota finales si cambiaron al intentarlo) */
+  async function anotarAplicacion(mensajeId: string, cambios: { aplicada: boolean; accion?: AccionConUnaRespuesta; nota?: string | null }, ahora: number): Promise<void> {
+    const { error } = await service
+      .from('correo_respuestas_ia')
+      .update({ aplicada: cambios.aplicada, ...(cambios.accion ? { accion: cambios.accion } : {}), ...(cambios.nota !== undefined ? { nota: cambios.nota ? cambios.nota.slice(0, 1000) : null } : {}), actualizada_at: aIso(ahora) })
+      .eq('mensaje_id', mensajeId)
+    if (error) throw fallo('No se ha podido apuntar lo que se hizo con la respuesta.', error)
+  }
+
+  /** La IA no ha podido: la respuesta vuelve a la cola para otro intento, o se da por fallida */
+  async function soltarRespuesta(mensajeId: string, como: { estado: 'pendiente' | 'fallida'; proximoIntentoAt: number | null }, ahora: number): Promise<void> {
+    const { error } = await service
+      .from('correo_respuestas_ia')
+      .update({ estado: como.estado, proximo_intento_at: como.proximoIntentoAt === null ? null : aIso(como.proximoIntentoAt), actualizada_at: aIso(ahora) })
+      .eq('mensaje_id', mensajeId)
+      .eq('estado', 'procesando')
+    if (error) throw fallo('No se ha podido devolver la respuesta a la cola.', error)
+  }
+
+  /** Las últimas respuestas leídas de estos buzones (null = todos), de la más reciente a la más antigua */
+  async function respuestasRecientes(buzonIds: readonly string[] | null, desde: number, limite = 12): Promise<RespuestaLeida[]> {
+    if (buzonIds !== null && buzonIds.length === 0) return []
+    let q = service.from('correo_respuestas_ia').select(CAMPOS_DE_RESPUESTA).eq('estado', 'hecha').gte('recibida_at', aIso(desde))
+    if (buzonIds !== null) q = q.in('buzon_id', [...buzonIds])
+    const { data, error } = await q.order('recibida_at', { ascending: false }).limit(limite)
+    if (error) {
+      if (isMissingSchema(error)) return []
+      throw fallo('No se han podido leer las respuestas de los leads.', error)
+    }
+    return ((data ?? []) as unknown as FilaDeRespuesta[]).map(respuestaLeida)
+  }
+
+  /** Cuántas respuestas hay de cada clase desde `desde`, y cuántas esperan o han fallado */
+  async function contarRespuestas(buzonIds: readonly string[] | null, desde: number): Promise<{ porClase: Record<string, number>; pendientes: number; fallidas: number }> {
+    const cuenta = { porClase: {} as Record<string, number>, pendientes: 0, fallidas: 0 }
+    if (buzonIds !== null && buzonIds.length === 0) return cuenta
+    const filas = await leerPaginas<{ clase: string | null; estado: string }>(
+      (a, b) => {
+        let q = service.from('correo_respuestas_ia').select('clase, estado').gte('recibida_at', aIso(desde))
+        if (buzonIds !== null) q = q.in('buzon_id', [...buzonIds])
+        return q.order('recibida_at', { ascending: false }).range(a, b)
+      },
+      'No se han podido contar las respuestas de los leads.',
+      5000
+    ).catch((e) => {
+      if (isMissingSchema((e as { cause?: unknown }).cause)) return null
+      throw e
+    })
+    if (filas === null) return cuenta
+    for (const f of filas) {
+      if (f.estado === 'hecha' && f.clase) cuenta.porClase[f.clase] = (cuenta.porClase[f.clase] ?? 0) + 1
+      else if (f.estado === 'fallida') cuenta.fallidas++
+      else if (f.estado === 'pendiente' || f.estado === 'procesando') cuenta.pendientes++
+    }
+    return cuenta
+  }
+
+  /** La respuesta leída de la secuencia de un lead (la más reciente), para enseñarla en su detalle */
+  async function respuestaDeInscripcion(inscripcionId: string): Promise<RespuestaLeida | null> {
+    const { data, error } = await service.from('correo_respuestas_ia').select(CAMPOS_DE_RESPUESTA).eq('inscripcion_id', inscripcionId).eq('estado', 'hecha').order('recibida_at', { ascending: false }).limit(1)
+    if (error) {
+      if (isMissingSchema(error)) return null
+      throw fallo('No se ha podido leer la respuesta del lead.', error)
+    }
+    const fila = ((data ?? []) as unknown as FilaDeRespuesta[])[0]
+    return fila ? respuestaLeida(fila) : null
+  }
+
   /* ---------------- carga y salud de los buzones ---------------- */
 
   async function salientesPorHora(desde: number, buzonIds: readonly string[] | null = null): Promise<SalientesPorHora[]> {
@@ -1174,6 +1432,16 @@ export function almacenDeSecuencias(service: Servicio) {
     correosManualesA,
     cambiarEstadoDelLead,
     apuntarNotaEnLead,
+    ponerRellamada,
+    leadsPorDireccion,
+    hayNotaDelSistema,
+    reclamarRespuestas,
+    guardarLecturaDeRespuesta,
+    anotarAplicacion,
+    soltarRespuesta,
+    respuestasRecientes,
+    contarRespuestas,
+    respuestaDeInscripcion,
     salientesPorHora,
     cargaDelBuzon,
     ultimoEnvioDelSistema,

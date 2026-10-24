@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { MODELO_DE_IA_POR_DEFECTO, parametrosDeIa } from '../../ia/modelo'
 import { motivoDelFallo, type ClienteDeCorreoIa } from '../ia-generar'
+import { ESQUEMA_DE_CLASIFICACION, leerClasificacion, type Clasificacion } from './clasificar'
 import {
   ESQUEMA_REVISION,
   esquemaDeSeguimientos,
@@ -14,7 +15,7 @@ import {
 } from './seguimientos'
 
 /**
- * LAS DOS LLAMADAS A LA IA DE LAS SECUENCIAS — SOLO SERVIDOR.
+ * LAS TRES LLAMADAS A LA IA DE LAS SECUENCIAS — SOLO SERVIDOR.
  * ============================================================
  * Se comprueban con ia.prueba.ts, con un cliente falso: no llaman a OpenAI de verdad. El encargo ya viene construido (seguimientos.ts).
  *
@@ -29,6 +30,7 @@ import {
 
 export const TIEMPO_MAXIMO_DE_SEGUIMIENTOS_MS = 60_000
 export const TIEMPO_MAXIMO_DE_REVISION_MS = 40_000
+export const TIEMPO_MAXIMO_DE_CLASIFICACION_MS = 40_000
 
 /** Dólares por millón de tokens (entrada, salida) de `gpt-6-luna`, medidos el 23 oct 2026. Con otro modelo no se calcula: el registro dice «null» antes que inventar */
 const PRECIO_DE_LUNA = { entrada: 0.1, salida: 0.5 }
@@ -218,6 +220,63 @@ export async function revisarConIa(
     return { revision, modelo, aviso: null, tokens: tokensDe(gasto) }
   } catch (error) {
     apuntarFallo('revisar un seguimiento', error)
+    return sin(motivoDelFallo(error))
+  } finally {
+    clearTimeout(temporizador)
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. Leer la respuesta de un lead                                     */
+/* ------------------------------------------------------------------ */
+
+export interface ResultadoDeClasificacionConIa {
+  /** Lo que ha entendido la IA, SIN comprobar todavía (clasificar.ts lo comprueba antes de actuar). null = no se ha podido: el aviso dice por qué y quien llama reintenta */
+  clasificacion: Clasificacion | null
+  modelo: string
+  aviso: string | null
+  tokens: { entrada: number; salida: number } | null
+}
+
+/**
+ * Una sola llamada: la IA clasifica lo que ha contestado un lead (interesado, no le interesa, escríbeme en enero…). El texto de la respuesta es de un
+ * tercero: el encargo (clasificar.ts) le dice a la IA que no son órdenes, y aun así lo que devuelve se comprueba antes de tocar nada.
+ */
+export async function clasificarRespuestaConIa(mensajes: { system: string; usuario: string }, opciones: OpcionesDeIa = {}): Promise<ResultadoDeClasificacionConIa> {
+  const modelo = modeloDeSecuencias()
+  const gasto = nuevoGasto()
+  const sin = (aviso: string): ResultadoDeClasificacionConIa => ({ clasificacion: null, modelo, aviso, tokens: tokensDe(gasto) })
+
+  const cliente = clienteDe(opciones)
+  if (!cliente) return sin('La IA no está configurada en el servidor (falta OPENAI_API_KEY).')
+
+  const control = new AbortController()
+  const temporizador = setTimeout(() => control.abort(), opciones.tiempoMaximoMs ?? TIEMPO_MAXIMO_DE_CLASIFICACION_MS)
+  try {
+    gasto.llamadas++
+    const completion = await cliente.chat.completions.create(
+      {
+        ...parametrosDeIa({ esfuerzo: 'low', maxSalida: 4000 }, entornoDeSecuencias()),
+        response_format: { type: 'json_schema', json_schema: { name: 'clasificacion_de_una_respuesta', strict: true, schema: ESQUEMA_DE_CLASIFICACION } },
+        messages: [
+          { role: 'system', content: mensajes.system },
+          { role: 'user', content: mensajes.usuario },
+        ],
+      },
+      { signal: control.signal }
+    )
+    if (completion.usage) {
+      gasto.hubo = true
+      gasto.entrada += completion.usage.prompt_tokens ?? 0
+      gasto.salida += completion.usage.completion_tokens ?? 0
+    }
+    const eleccion = completion.choices?.[0]
+    if (eleccion?.message?.refusal) return sin('La IA se ha negado a leer la respuesta.')
+    const leida = leerClasificacion(eleccion?.message?.content)
+    if (!leida) return sin(eleccion?.finish_reason === 'length' ? 'La respuesta de la IA se ha cortado.' : 'La IA ha devuelto algo que no se entiende.')
+    return { clasificacion: leida, modelo, aviso: null, tokens: tokensDe(gasto) }
+  } catch (error) {
+    apuntarFallo('leer la respuesta de un lead', error)
     return sin(motivoDelFallo(error))
   } finally {
     clearTimeout(temporizador)

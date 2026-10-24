@@ -32,6 +32,14 @@ export interface AjustesDelMotor {
   frenoRebotesPct: number
   frenoMinimoEnvios: number
   festivos: string[]
+  /** Leer con IA las respuestas de los leads (con el motor en ensayo solo las apunta; en envío real también actúa en la ficha) */
+  respuestasIa: boolean
+  /** Pasar el lead a «No le interesa» cuando dice que no */
+  respuestasCerrarNo: boolean
+  /** Poner la rellamada cuando pide que le escribamos más adelante */
+  respuestasRellamada: boolean
+  /** La migración 246 está lanzada (existen las columnas de arriba). Solo se lee: no se guarda ni se cambia desde la pantalla */
+  respuestasDisponible: boolean
 }
 
 export const RAMPA_POR_DEFECTO: TramoDeRampa[] = [
@@ -55,6 +63,10 @@ export const AJUSTES_POR_DEFECTO: AjustesDelMotor = {
   frenoRebotesPct: 4,
   frenoMinimoEnvios: 20,
   festivos: ['2026-12-08', '2026-12-25', '2027-01-01', '2027-01-06', '2027-03-26', '2027-10-12', '2027-11-01', '2027-12-06', '2027-12-08'],
+  respuestasIa: true,
+  respuestasCerrarNo: true,
+  respuestasRellamada: true,
+  respuestasDisponible: false,
 }
 
 /** Cuántos días hábiles dura una secuencia por defecto: el primer correo y los seguimientos a los 3 y a los 7 */
@@ -126,6 +138,11 @@ export function leerAjustes(fila: Record<string, unknown> | null | undefined): A
     frenoRebotesPct: entero(fila.freno_rebotes_pct, 1, 100, d.frenoRebotesPct),
     frenoMinimoEnvios: entero(fila.freno_minimo_envios, 5, 1000, d.frenoMinimoEnvios),
     festivos,
+    // Estos tres, al revés que el motor: solo un `false` de verdad los apaga (nacen encendidos; el motor, en cambio, nace apagado)
+    respuestasIa: fila.respuestas_ia !== false,
+    respuestasCerrarNo: fila.respuestas_cerrar_no !== false,
+    respuestasRellamada: fila.respuestas_rellamada !== false,
+    respuestasDisponible: 'respuestas_ia' in fila,
   }
 }
 

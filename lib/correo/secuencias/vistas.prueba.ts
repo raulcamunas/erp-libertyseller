@@ -1,7 +1,7 @@
-import type { DatosBasicosDeLead, ResumenDelFlujo } from '@/lib/correo/secuencias/almacen'
+import type { DatosBasicosDeLead, RespuestaLeida, ResumenDelFlujo } from '@/lib/correo/secuencias/almacen'
 import { instanteDeMadrid } from '@/lib/correo/secuencias/fechas'
 import type { EstadoDePaso, InscripcionDelMotor, PasoDelMotor } from '@/lib/correo/secuencias/tipos'
-import { armarFlujo, armarHoy, armarItemDeCola, armarProximos, estadoDeSalida, hace, pasoDeCola } from '@/lib/correo/secuencias/vistas'
+import { armarDetalle, armarFlujo, armarHoy, armarItemDeCola, armarProximos, armarRespuestas, estadoDeSalida, hace, pasoDeCola, queSeHizo, respuestaParaLaPantalla } from '@/lib/correo/secuencias/vistas'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -113,6 +113,49 @@ console.log('\n=== la cola ===')
   ok('una respondida no tiene siguiente aunque tenga pasos cancelados', respondida.siguiente === null && respondida.tono === 'bien')
   const pausada = armarItemDeCola({ ins: ins({ estado: 'pausada' }), pasos: [paso({ orden: 0, estado: 'enviado' }), paso({ orden: 1, estado: 'pausado' })], lead: undefined, propietario: 'Ana', propio: false })
   ok('una en pausa señala el correo detenido como el siguiente', pausada.siguiente?.orden === 1 && pausada.etiquetaDeEstado === 'En pausa')
+}
+
+console.log('\n=== las respuestas leídas por la IA ===')
+{
+  const lectura = (o: Partial<RespuestaLeida> = {}): RespuestaLeida => ({
+    mensajeId: 'm1', leadId: 'l1', buzonId: 'b1', inscripcionId: 'i1', clase: 'no_interesa', confianza: 'alta', resumen: 'No les interesa por ahora.', evidencia: 'no nos interesa', fechaPedida: null,
+    modo: 'real', accion: 'cerrar', aplicada: true, nota: 'La IA ha leído su respuesta: no le interesa.', recibidaAt: instanteDeMadrid(HOY, 600), ...o,
+  })
+  const leads = new Map([lead('l1', 'Casa Luz'), lead('l2', 'Muebles Sol')])
+  const propietarios = new Map([['b1', 'Ana López']])
+
+  const una = respuestaParaLaPantalla(lectura(), leads, propietarios)
+  ok('la respuesta lleva el nombre del lead, su dueño, la clase en palabras y su color', una.lead === 'Casa Luz' && una.propietario === 'Ana López' && una.etiqueta === 'No le interesa' && una.tono === 'mal' && una.en === instanteDeMadrid(HOY, 600))
+  const huerfana = respuestaParaLaPantalla(lectura({ leadId: 'l9', buzonId: 'b9' }), leads, propietarios)
+  ok('si el lead ya no está, se llama «Un lead» y no se rompe', huerfana.lead === 'Un lead' && huerfana.propietario === '')
+
+  const r = armarRespuestas({
+    dias: 30,
+    recientes: [lectura(), lectura({ mensajeId: 'm2', leadId: 'l2', inscripcionId: null, clase: 'interesado', accion: 'ninguna', aplicada: false, recibidaAt: instanteDeMadrid(HOY, 500) })],
+    conteo: { porClase: { interesado: 2, no_interesa: 5, mas_tarde: 1, otro: 0 }, pendientes: 3, fallidas: 1 },
+    leads,
+    propietarios,
+  })
+  ok('cuenta por clase, de más a menos y sin las que no tienen ninguna', r.porClase.map((c) => `${c.clase}:${c.n}`).join() === 'no_interesa:5,interesado:2,mas_tarde:1')
+  ok('el total es la suma de las clases, y lleva los pendientes, las fallidas y los días', r.total === 8 && r.pendientes === 3 && r.fallidas === 1 && r.dias === 30)
+  ok('las recientes llegan en el mismo orden y sin secuencia si el lead no tenía', r.recientes.length === 2 && r.recientes[0].inscripcionId === 'i1' && r.recientes[1].inscripcionId === null)
+  const vacio = armarRespuestas({ dias: 30, recientes: [], conteo: { porClase: {}, pendientes: 0, fallidas: 0 }, leads, propietarios })
+  ok('sin ninguna leída, todo a cero', vacio.total === 0 && vacio.porClase.length === 0 && vacio.recientes.length === 0)
+
+  const base = { en: instanteDeMadrid('2026-10-28', 600), fechaPedida: null, nota: 'Una nota.' as string | null, aplicada: true, modo: 'real' as const }
+  ok('cerrar en real, hecho', queSeHizo({ ...base, accion: 'cerrar' }) === 'Pasado a «No le interesa»')
+  ok('cerrar en ensayo, solo «lo pasaría»', queSeHizo({ ...base, accion: 'cerrar', modo: 'ensayo', aplicada: false }) === 'Lo pasaría a «No le interesa»')
+  ok('cerrar en real pero con la ficha cambiada, lo dice', queSeHizo({ ...base, accion: 'cerrar', aplicada: false }) === 'No se ha podido pasar a «No le interesa»')
+  ok('la rellamada dice para qué día', queSeHizo({ ...base, accion: 'rellamar', fechaPedida: '2026-11-16' }) === 'Rellamada puesta para el lun 16 nov', queSeHizo({ ...base, accion: 'rellamar', fechaPedida: '2026-11-16' }))
+  ok('en ensayo, «pondría» y el día', queSeHizo({ ...base, accion: 'rellamar', fechaPedida: '2026-11-16', modo: 'ensayo', aplicada: false }) === 'Pondría la rellamada para el lun 16 nov')
+  ok('si el día es de otro año que el de la respuesta, lleva el año', queSeHizo({ ...base, accion: 'rellamar', fechaPedida: '2027-01-11' }) === 'Rellamada puesta para el lun 11 ene 2027', queSeHizo({ ...base, accion: 'rellamar', fechaPedida: '2027-01-11' }))
+  ok('revisar: nota para que lo mire una persona (o «dejaría» en ensayo)', queSeHizo({ ...base, accion: 'revisar' }) === 'Nota en el lead para que lo mire una persona' && queSeHizo({ ...base, accion: 'revisar', modo: 'ensayo', aplicada: false }) === 'Dejaría una nota para que lo mire una persona')
+  ok('sin acción: anotado en el lead, o nada que hacer si ni nota lleva', queSeHizo({ ...base, accion: 'ninguna' }) === 'Anotado en el lead' && queSeHizo({ ...base, accion: 'ninguna', modo: 'ensayo', aplicada: false }) === 'Lo anotaría en el lead' && queSeHizo({ ...base, accion: 'ninguna', nota: null }) === 'No hace falta hacer nada')
+
+  const item = armarItemDeCola({ ins: ins({ estado: 'respondida' }), pasos: [paso({ orden: 0, estado: 'enviado' })], lead: undefined, propietario: 'Ana', propio: true })
+  const sin = armarDetalle({ item, pasos: [], eventos: [], permisos: { puedeAdministrar: true, puedeEditar: true } })
+  const con = armarDetalle({ item, pasos: [], eventos: [], permisos: { puedeAdministrar: true, puedeEditar: true }, respuesta: una })
+  ok('el detalle lleva la lectura si la hay y null si no', sin.respuesta === null && con.respuesta?.clase === 'no_interesa')
 }
 
 console.log('\n=== el embudo ===')

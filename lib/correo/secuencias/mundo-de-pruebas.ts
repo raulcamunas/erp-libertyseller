@@ -3,7 +3,8 @@ import { almacenDeSecuencias, type AlmacenDeSecuencias } from './almacen'
 import { instanteDeMadrid } from './fechas'
 import { inscribir, type PeticionDeInscripcion, type ResultadoDeInscribir } from './inscripcion'
 import type { DependenciasDelMotor, EnvioDeSeguimiento, ResultadoDelEnvio } from './motor'
-import type { ResultadoDeRevisionConIa } from './ia'
+import type { ResultadoDeClasificacionConIa, ResultadoDeRevisionConIa } from './ia'
+import type { Clasificacion } from './clasificar'
 import type { Revision } from './seguimientos'
 
 /**
@@ -48,6 +49,10 @@ export interface Mundo {
   revisiones: Array<{ system: string; usuario: string; original: string }>
   /** Lo que contestará la IA, en orden; si se acaba, «enviar» */
   respuestasDeIa: Array<Revision | null>
+  /** Lo que contestará la IA al leer la respuesta de un lead, en orden (null = no puede); si se acaba, «otra cosa» */
+  clasificaciones: Array<Clasificacion | null>
+  /** Cada vez que el motor le ha pedido a la IA que lea una respuesta */
+  clasificados: Array<{ system: string; usuario: string }>
   /** Lo que contestará el correo al enviar, en orden; si se acaba, «ha salido» */
   resultadosDeEnvio: ResultadoDelEnvio[]
   /** Se ejecuta justo antes de cada envío (para provocar cosas «mientras se envía») */
@@ -96,6 +101,8 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
   const sincronizaciones: string[] = []
   const revisiones: Mundo['revisiones'] = []
   const respuestasDeIa: Array<Revision | null> = []
+  const clasificaciones: Array<Clasificacion | null> = []
+  const clasificados: Mundo['clasificados'] = []
   const resultadosDeEnvio: ResultadoDelEnvio[] = []
   const alEnviar: Array<() => Promise<void>> = []
   let idDeEnvio = 0
@@ -112,6 +119,8 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
     sincronizaciones,
     revisiones,
     respuestasDeIa,
+    clasificaciones,
+    clasificados,
     resultadosDeEnvio,
     alEnviar,
     ausentes: soloEnMemoria?.ausentes ?? null,
@@ -203,6 +212,11 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
       revisiones.push({ ...mensajes, original })
       const siguiente = respuestasDeIa.length > 0 ? respuestasDeIa.shift()! : { decision: 'enviar' as const, motivo: 'No cambia nada.', texto: '' }
       return { revision: siguiente, modelo: 'gpt-6-luna', aviso: siguiente ? null : 'La IA no está disponible.', tokens: null }
+    },
+    async clasificar(mensajes): Promise<ResultadoDeClasificacionConIa> {
+      clasificados.push({ ...mensajes })
+      const siguiente = clasificaciones.length > 0 ? clasificaciones.shift()! : { clase: 'otro' as const, confianza: 'alta' as const, evidencia: '', resumen: 'Otra cosa.', fecha: null }
+      return { clasificacion: siguiente, modelo: 'gpt-6-luna', aviso: siguiente ? null : 'La IA no está disponible.', tokens: null }
     },
   }
   m.deps = deps

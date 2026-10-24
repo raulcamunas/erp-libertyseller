@@ -1,5 +1,5 @@
 import type { ClienteDeCorreoIa } from '@/lib/correo/ia-generar'
-import { costeAproximado, escribirSeguimientos, modeloDeSecuencias, revisarConIa } from '@/lib/correo/secuencias/ia'
+import { clasificarRespuestaConIa, costeAproximado, escribirSeguimientos, modeloDeSecuencias, revisarConIa } from '@/lib/correo/secuencias/ia'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -155,6 +155,33 @@ async function main() {
     ok('IA caída: no hay decisión', caida.revision === null && /problema/.test(caida.aviso ?? ''))
     const rechazo = await revisarConIa(MENSAJES, S2, { cliente: falso([{ refusal: 'no' }]).cliente })
     ok('si se niega: no hay decisión', rechazo.revision === null)
+  }
+
+  console.log('\n=== leer la respuesta de un lead ===')
+  {
+    const buena = { clase: 'mas_tarde', confianza: 'alta', evidencia: 'escríbeme en enero', resumen: 'Pide que le escribamos en enero.', fecha: '2027-01-11' }
+    const f = falso([buena])
+    const r = await clasificarRespuestaConIa(MENSAJES, { cliente: f.cliente })
+    ok('devuelve lo que ha entendido, sin aviso', r.clasificacion?.clase === 'mas_tarde' && r.clasificacion.fecha === '2027-01-11' && r.aviso === null && r.tokens?.entrada === 1500 && r.modelo === 'gpt-6-luna')
+    const a = f.llamadas[0].args
+    const formato = a.response_format as { json_schema: { name: string; strict: boolean } }
+    ok('una sola llamada, luna, esquema estricto, esfuerzo bajo y sin temperatura', f.llamadas.length === 1 && a.model === 'gpt-6-luna' && a.reasoning_effort === 'low' && !('temperature' in a) && formato.json_schema.strict === true && formato.json_schema.name === 'clasificacion_de_una_respuesta')
+    ok('le manda el sistema y el usuario tal cual', (a.messages as Array<{ role: string; content: string }>).map((m) => `${m.role}:${m.content}`).join('|') === 'system:sistema|user:usuario')
+    const ilegible = await clasificarRespuestaConIa(MENSAJES, { cliente: falso([{ raw: 'creo que es un no' }]).cliente })
+    ok('algo ilegible: no hay lectura (quien llama espera y reintenta)', ilegible.clasificacion === null && /no se entiende/.test(ilegible.aviso ?? ''))
+    const claseRara = await clasificarRespuestaConIa(MENSAJES, { cliente: falso([{ clase: 'quizas', confianza: 'alta', evidencia: 'x', resumen: 'x', fecha: null }]).cliente })
+    ok('una clase que no existe tampoco vale', claseRara.clasificacion === null)
+    const cortada = await clasificarRespuestaConIa(MENSAJES, { cliente: falso([{ raw: '{"clase":', corte: true }]).cliente })
+    ok('una respuesta cortada se dice', cortada.clasificacion === null && /cortado/.test(cortada.aviso ?? ''))
+    const caida = await clasificarRespuestaConIa(MENSAJES, { cliente: falso([Object.assign(new Error('x'), { status: 503 })]).cliente })
+    ok('IA caída: no hay lectura y un aviso en español', caida.clasificacion === null && /problema/.test(caida.aviso ?? ''))
+    const rechazo = await clasificarRespuestaConIa(MENSAJES, { cliente: falso([{ refusal: 'no' }]).cliente })
+    ok('si se niega: no hay lectura', rechazo.clasificacion === null && /negado/.test(rechazo.aviso ?? ''))
+    const sinClave = process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEY
+    const sinIa = await clasificarRespuestaConIa(MENSAJES)
+    if (sinClave !== undefined) process.env.OPENAI_API_KEY = sinClave
+    ok('sin clave no lanza: dice que falta', sinIa.clasificacion === null && /OPENAI_API_KEY/.test(sinIa.aviso ?? ''))
   }
 
   console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

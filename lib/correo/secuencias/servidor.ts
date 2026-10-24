@@ -14,6 +14,8 @@ import {
   armarHoy,
   armarItemDeCola,
   armarProximos,
+  armarRespuestas,
+  respuestaParaLaPantalla,
   type ActividadReciente,
   type BuzonParaVista,
   type DetalleDeSecuencia,
@@ -21,6 +23,7 @@ import {
   type Flujo,
   type GrupoDeColaCliente,
   type ItemDeCola,
+  type ResumenDeRespuestas,
   type TableroDeHoy,
 } from './vistas'
 
@@ -114,6 +117,8 @@ export type TableroDeSecuencias =
       flujo: Flujo
       actividad: ActividadReciente[]
       conteos: Record<EstadoDeInscripcion, number>
+      /** Lo que la IA ha entendido de las respuestas de los leads (últimos 30 días) */
+      respuestas: ResumenDeRespuestas
     }
 
 export const FALTA_LA_MIGRACION_245 = 'Falta lanzar la migración 245_correo_secuencias.sql en el editor SQL de Supabase: hasta entonces las secuencias no pueden funcionar. El resto de Correo no se ve afectado.'
@@ -130,7 +135,7 @@ export async function tablero(almacen: Almacen, quien: QuienPide, opciones: { ah
   const hoy = diaDeMadrid(ahora)
   const inicioDeHoy = instanteDeMadrid(hoy, 0)
 
-  const [pasosDeHoy, salientes, conteos, vivas, resumen, eventos, pasosFuturos] = await Promise.all([
+  const [pasosDeHoy, salientes, conteos, vivas, resumen, eventos, pasosFuturos, respuestasRecientes, conteoDeRespuestas] = await Promise.all([
     almacen.pasosEnElRango(ids, inicioDeHoy, inicioDeHoy + 86_400_000),
     almacen.salientesPorHora(ahora - 14 * 86_400_000, ids),
     almacen.contarPorEstado(ids),
@@ -138,12 +143,15 @@ export async function tablero(almacen: Almacen, quien: QuienPide, opciones: { ah
     almacen.resumen(ahora - 30 * 86_400_000, ids),
     almacen.eventosRecientes(ids, 40),
     almacen.pasosEnElRango(ids, inicioDeHoy, inicioDeHoy + 45 * 86_400_000),
+    almacen.respuestasRecientes(ids, ahora - 30 * 86_400_000, 12),
+    almacen.contarRespuestas(ids, ahora - 30 * 86_400_000),
   ])
 
   // Los nombres de los leads y las secuencias de lo que se va a enseñar
   const insIds = [...new Set([...pasosDeHoy.map((p) => p.inscripcionId), ...eventos.map((e) => e.inscripcionId).filter((x): x is string => !!x)])]
   const inscripciones = new Map((await almacen.inscripcionesPorIds(insIds)).map((i) => [i.id, i]))
   const leads = await almacen.leadsBasicos([...inscripciones.values()].map((i) => i.leadId))
+  const leadsDeRespuestas = await almacen.leadsBasicos([...new Set(respuestasRecientes.map((r) => r.leadId))])
   const todosLosPasos = await almacen.pasosDeInscripciones(insIds)
   const totales = new Map<string, number>()
   for (const p of todosLosPasos) if (p.orden > 0) totales.set(p.inscripcionId, (totales.get(p.inscripcionId) ?? 0) + 1)
@@ -199,6 +207,7 @@ export async function tablero(almacen: Almacen, quien: QuienPide, opciones: { ah
     flujo: armarFlujo(resumen, 30),
     actividad: armarActividad(eventos, inscripciones, leads),
     conteos,
+    respuestas: armarRespuestas({ dias: 30, recientes: respuestasRecientes, conteo: conteoDeRespuestas, leads: leadsDeRespuestas, propietarios: new Map(visibles.map((b) => [b.id, b.propietario.nombre])) }),
   }
 }
 
@@ -276,9 +285,15 @@ async function cargarConAcceso(almacen: Almacen, quien: QuienPide, id: string) {
 export async function detalleDeSecuencia(almacen: Almacen, quien: QuienPide, id: string): Promise<DetalleDeSecuencia | null> {
   const c = await cargarConAcceso(almacen, quien, id)
   if (!c) return null
-  const [pasos, eventos, leads] = await Promise.all([almacen.pasosDe(id), almacen.eventosDe(id), almacen.leadsBasicos([c.ins.leadId])])
+  const [pasos, eventos, leads, respuesta] = await Promise.all([almacen.pasosDe(id), almacen.eventosDe(id), almacen.leadsBasicos([c.ins.leadId]), almacen.respuestaDeInscripcion(id)])
   const item = armarItemDeCola({ ins: c.ins, pasos, lead: leads.get(c.ins.leadId), propietario: c.buzon.propietario.nombre, propio: c.esDueno })
-  return armarDetalle({ item, pasos, eventos, permisos: { puedeAdministrar: c.puedeAdministrar, puedeEditar: c.esDueno } })
+  return armarDetalle({
+    item,
+    pasos,
+    eventos,
+    permisos: { puedeAdministrar: c.puedeAdministrar, puedeEditar: c.esDueno },
+    respuesta: respuesta ? respuestaParaLaPantalla(respuesta, leads, new Map([[c.buzon.id, c.buzon.propietario.nombre]])) : null,
+  })
 }
 
 export type AccionSobreSecuencia =

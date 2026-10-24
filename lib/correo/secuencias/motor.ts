@@ -7,7 +7,8 @@ import type { AlmacenDeSecuencias, LeadDelMotor, NotaLeida, LlamadaLeida } from 
 import { constructorDeCapacidad } from './capacidad'
 import { decidirSalida, evaluarParada, type Decision, type HechosDeParada, type HechosDeSalida, type NotaParaControl } from './control'
 import { diaCorto, diaDeMadrid, horaDeMadrid, instanteDeMadrid, siguienteDiaHabil, sumarDiasHabiles } from './fechas'
-import type { ResultadoDeRevisionConIa } from './ia'
+import type { ResultadoDeClasificacionConIa, ResultadoDeRevisionConIa } from './ia'
+import { leerRespuestasDeLosLeads } from './leer-respuestas'
 import { planificar, type Asignacion } from './planificador'
 import { DOMINIOS_LIBRES, dominioDeDireccion, esDominioLibre, topeDelBuzonEnElDia, type AjustesDelMotor } from './reglas'
 import { lecturaDelBuzon, type EntranteParaControl } from './respuestas'
@@ -24,6 +25,8 @@ import { ESTADOS_DE_PASO_ABIERTOS, type BuzonDelMotor, type DecisionGuardada, ty
  *
  *   1. VIGILAR. Cruza lo que ha entrado en los buzones desde la última vez con las secuencias vivas: si el lead (o alguien de su empresa) ha
  *      contestado, o su dirección ha rebotado, la secuencia se corta en el acto. No espera a que le toque el siguiente envío.
+ *      A continuación, LEER LAS RESPUESTAS (leer-respuestas.ts): la IA clasifica lo que han contestado los leads y, solo en envío real, se actúa en su
+ *      ficha («No le interesa», rellamada, una nota). En ensayo solo se apunta lo que se habría hecho.
  *   2. MANTENER. Sella desde cuándo cuenta la rampa de cada buzón, aplica el freno si un buzón rebota demasiado, pasa a «No interesa» a quien no
  *      contestó a nada, devuelve a la cola lo que el ensayo había aparcado, reparte de nuevo lo que se pasó de hora, da hora a lo que no la tiene
  *      y, una vez al día, limpia lo viejo.
@@ -73,6 +76,8 @@ export interface DependenciasDelMotor {
   enviar: (e: EnvioDeSeguimiento) => Promise<ResultadoDelEnvio>
   /** La IA que lee lo nuevo de la ficha (ia.ts) */
   revisar: (mensajes: { system: string; usuario: string }, original: string) => Promise<ResultadoDeRevisionConIa>
+  /** La IA que lee lo que contesta un lead (ia.ts). Sin ella no se leen las respuestas (el resto del motor sigue igual) */
+  clasificar?: (mensajes: { system: string; usuario: string }) => Promise<ResultadoDeClasificacionConIa>
   nuevoId?: () => string
 }
 
@@ -101,6 +106,11 @@ export interface ResumenDePasada {
   pausados: number
   fallidos: number
   ensayados: number
+  /** Respuestas de leads leídas con IA, y de ellas cuántas han cerrado un lead, puesto una rellamada o se han dado por falladas */
+  respuestasLeidas: number
+  respuestasCerradas: number
+  respuestasConRellamada: number
+  respuestasFallidas: number
   errores: string[]
   resumen: string
 }
@@ -158,7 +168,7 @@ const CLASE_DE_NOTA: Record<string, string> = { llamada: 'llamada', email: 'corr
 const motivoCorto = (m: string): string => m.replace(/\s+/g, ' ').trim().slice(0, 300)
 
 function resumenVacio(): ResumenDePasada {
-  return { saltado: null, vigilados: 0, respondidas: 0, rebotes: 0, frenos: 0, noInteresa: 0, reprogramados: 0, planificados: 0, sinHueco: 0, reservados: 0, enviados: 0, aplazados: 0, parados: 0, pausados: 0, fallidos: 0, ensayados: 0, errores: [], resumen: '' }
+  return { saltado: null, vigilados: 0, respondidas: 0, rebotes: 0, frenos: 0, noInteresa: 0, reprogramados: 0, planificados: 0, sinHueco: 0, reservados: 0, enviados: 0, aplazados: 0, parados: 0, pausados: 0, fallidos: 0, ensayados: 0, respuestasLeidas: 0, respuestasCerradas: 0, respuestasConRellamada: 0, respuestasFallidas: 0, errores: [], resumen: '' }
 }
 
 function redactarResumen(r: ResumenDePasada): string {
@@ -171,6 +181,10 @@ function redactarResumen(r: ResumenDePasada): string {
   si(r.ensayados, 'en ensayo')
   si(r.aplazados, r.aplazados === 1 ? 'aplazado' : 'aplazados')
   si(r.respondidas, r.respondidas === 1 ? 'respuesta' : 'respuestas')
+  si(r.respuestasLeidas, r.respuestasLeidas === 1 ? 'respuesta leída con IA' : 'respuestas leídas con IA')
+  si(r.respuestasCerradas, r.respuestasCerradas === 1 ? 'lead cerrado por su respuesta' : 'leads cerrados por su respuesta')
+  si(r.respuestasConRellamada, r.respuestasConRellamada === 1 ? 'rellamada puesta' : 'rellamadas puestas')
+  si(r.respuestasFallidas, r.respuestasFallidas === 1 ? 'respuesta sin poder leer' : 'respuestas sin poder leer')
   si(r.rebotes, r.rebotes === 1 ? 'rebote' : 'rebotes')
   si(r.parados, r.parados === 1 ? 'parada' : 'paradas')
   si(r.pausados, r.pausados === 1 ? 'pausada' : 'pausadas')
@@ -226,6 +240,11 @@ export async function ejecutarPasada(deps: DependenciasDelMotor, opciones: Opcio
     await vigilar(deps, lectura.vigilanciaAt, buzones, r)
   } catch (e) {
     apuntarErrorDeFase(r, 'vigilar', e)
+  }
+  try {
+    await leerRespuestasDeLosLeads(deps, ajustes, lectura.respuestasAt, r, (e) => apuntarErrorDeFase(r, 'respuestas', e))
+  } catch (e) {
+    apuntarErrorDeFase(r, 'respuestas', e)
   }
   try {
     await mantener(deps, ajustes, lectura.purgadoAt, buzones, r)
@@ -291,11 +310,30 @@ async function vigilar(deps: DependenciasDelMotor, vigilanciaAt: number | null, 
   const dominiosPropios = new Set(buzones.map((b) => dominioDe(b.direccion)))
   for (const aviso of await almacen.rebotesRecientes(desde)) {
     if (motivoDeRebote(aviso.texto) !== 'inexistente') continue
-    for (const direccion of extraerDireccionesFallidas(aviso.texto, dominiosPropios)) await almacen.marcarDireccionMala(direccion, 'el servidor dijo que no existe', 'rebote', aviso.creadoAt, ahora)
+    for (const direccion of extraerDireccionesFallidas(aviso.texto, dominiosPropios)) {
+      await almacen.marcarDireccionMala(direccion, 'el servidor dijo que no existe', 'rebote', aviso.creadoAt, ahora)
+      // …y se cuenta en la ficha de los leads que tienen esa dirección, aunque el correo no fuera de ninguna secuencia
+      await apuntarReboteEnLosLeads(deps, direccion, aviso.creadoAt)
+    }
   }
 
   // Solo se avanza la marca si todo ha ido bien: si algo falla, la próxima pasada vuelve a mirar el mismo tramo
   await almacen.guardarAjustes({ vigilancia_at: iso(ahora) }, null, ahora)
+}
+
+/**
+ * Un correo a esta dirección ha rebotado porque no existe: se cuenta en la ficha de los leads que la tienen, para que el comercial lo sepa y busque otra.
+ * Una sola vez por rebote: si la secuencia del lead ya lo contó (con las mismas primeras palabras), o se vuelve a mirar el mismo aviso en la pasada
+ * siguiente (las ventanas se solapan), no se repite.
+ */
+async function apuntarReboteEnLosLeads(deps: DependenciasDelMotor, direccion: string, cuando: number): Promise<void> {
+  const { almacen } = deps
+  const ahora = (deps.ahora ?? Date.now)()
+  const comienzo = `El correo a ${direccion} ha rebotado`
+  for (const lead of await almacen.leadsPorDireccion(direccion)) {
+    if (await almacen.hayNotaDelSistema(lead.id, comienzo, ahora - 3 * 86_400_000)) continue
+    await almacen.apuntarNotaEnLead({ leadId: lead.id, cuerpo: `${comienzo}: el servidor dice que esa dirección no existe o no admite correo. Conviene buscar otra dirección.`, clase: 'nota', ocurrioAt: cuando })
+  }
 }
 
 /** Corta una secuencia: la deja en el estado que toque, cancela lo que quedaba por salir y lo apunta en el rastro (y, si se pide, en la ficha del lead) */

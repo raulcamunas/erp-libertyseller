@@ -1,6 +1,6 @@
 'use client'
 
-import { FlaskConical, Gauge, Loader2, Plus, Power, Rocket, ShieldAlert, Trash2 } from 'lucide-react'
+import { FlaskConical, Gauge, Loader2, Plus, Power, Rocket, ShieldAlert, Sparkles, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Avatar, CabeceraDePanel, PANEL, Revelar } from '@/components/rendimiento/ui'
@@ -14,7 +14,7 @@ import { cuando, type Tablero } from './datos'
  * LOS AJUSTES DEL MOTOR — SOLO UN ADMINISTRADOR LOS CAMBIA.
  *
  * El interruptor de tres posiciones (apagado · ensayo · envío real), el horario, los huecos entre envíos, la rampa de volumen, el freno por rebotes, los festivos,
- * cada buzón y las direcciones que han rebotado. Cualquiera que pueda ver Secuencias ve esto (para saber cómo funciona), pero los controles solo se activan para
+ * qué hace la IA con las respuestas de los leads, cada buzón y las direcciones que han rebotado. Cualquiera que pueda ver Secuencias ve esto (para saber cómo funciona), pero los controles solo se activan para
  * un administrador, y el servidor lo vuelve a comprobar. Pasar a «envío real» pide confirmación expresa.
  */
 
@@ -34,6 +34,28 @@ function Campo({ etiqueta, ayuda, children }: { etiqueta: string; ayuda?: string
       {children}
       {ayuda && <span className="mt-1 block text-[10.5px] leading-snug text-[var(--ls-t4)]">{ayuda}</span>}
     </label>
+  )
+}
+
+function Interruptor({ titulo, texto, activo, desactivado, onCambio }: { titulo: string; texto: string; activo: boolean; desactivado: boolean; onCambio: (v: boolean) => void }) {
+  return (
+    <div className={`flex items-start gap-3 ${desactivado ? 'opacity-60' : ''}`}>
+      <div className="min-w-0 flex-1">
+        <p className="text-[12.5px] font-medium text-[var(--ls-t1)]">{titulo}</p>
+        <p className="mt-0.5 text-[11.5px] leading-snug text-[var(--ls-t3)]">{texto}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={activo}
+        aria-label={titulo}
+        disabled={desactivado}
+        onClick={() => onCambio(!activo)}
+        className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full border transition-colors disabled:cursor-default ${activo ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-relleno)]' : 'border-[var(--ls-linea2)] bg-[var(--ls-sup3)]'}`}
+      >
+        <span className={`absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${activo ? 'translate-x-4' : ''}`} aria-hidden />
+      </button>
+    </div>
   )
 }
 
@@ -252,6 +274,37 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
               </button>
             </div>
           )}
+        </div>
+      </section>
+
+      <section className={PANEL} aria-label="Respuestas de los leads">
+        <CabeceraDePanel icono={<Sparkles className="h-3.5 w-3.5" aria-hidden />} titulo="Respuestas de los leads" contexto="· lo que hace la IA cuando alguien contesta" />
+        <div className="space-y-3.5 p-3">
+          <p className="text-[11.5px] leading-snug text-[var(--ls-t3)]">
+            Cuando un lead contesta a un correo, la IA lee su respuesta y deja en su historial qué ha dicho. Con el motor en <strong className="font-semibold text-[var(--ls-t2)]">ensayo</strong> solo lo apunta en Secuencias → Flujo; con{' '}
+            <strong className="font-semibold text-[var(--ls-t2)]">envío real</strong> además mueve la ficha. Solo actúa si está segura, y no toca los leads que ya están en seguimiento o con cita, ni los de otro comercial: a esos les deja una nota para que los mire una persona.
+          </p>
+          {!base.respuestasDisponible && (
+            <p className="flex items-start gap-2 rounded-[8px] border border-[var(--ls-e-ambar)] bg-[color-mix(in_srgb,var(--ls-e-ambar)_10%,transparent)] px-3 py-2 text-[11.5px] leading-snug text-[var(--ls-t1)]">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--ls-e-ambar)]" aria-hidden />
+              <span>Falta lanzar la migración 246_correo_respuestas_ia.sql en el editor SQL de Supabase. Hasta entonces estos interruptores no se pueden cambiar y la IA no lee nada.</span>
+            </p>
+          )}
+          <Interruptor titulo="Leer las respuestas con la IA" texto="Apaga todo lo de abajo de golpe. Cada lectura cuesta una fracción de céntimo." activo={form.respuestasIa} desactivado={solo || !base.respuestasDisponible} onCambio={(v) => set('respuestasIa', v)} />
+          <Interruptor
+            titulo="Pasar a «No le interesa» a quien dice que no"
+            texto="Solo cuando lo dice con claridad («no, gracias», «no nos interesa») o pide que no se le escriba más. Si la IA duda, deja una nota."
+            activo={form.respuestasCerrarNo}
+            desactivado={solo || !base.respuestasDisponible || !form.respuestasIa}
+            onCambio={(v) => set('respuestasCerrarNo', v)}
+          />
+          <Interruptor
+            titulo="Poner la rellamada a quien pide que le escribas más adelante"
+            texto="«Escríbeme en enero» deja la fecha en «Rellamar el» de Cold Calling y el lead en «Programado». Si no da fecha, se pone a 30 días."
+            activo={form.respuestasRellamada}
+            desactivado={solo || !base.respuestasDisponible || !form.respuestasIa}
+            onCambio={(v) => set('respuestasRellamada', v)}
+          />
         </div>
       </section>
 

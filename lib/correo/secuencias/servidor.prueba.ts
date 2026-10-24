@@ -71,6 +71,7 @@ async function main() {
     ok('los próximos días traen sus 4 seguimientos (2 el lunes 2 y 2 el viernes 6), no los de Alejandro', t.proximos.reduce((s, d) => s + d.total, 0) === 4, JSON.stringify(t.proximos.map((d) => `${d.dia}:${d.total}`)))
     ok('el rastro reciente es solo de lo suyo', t.actividad.length > 0 && t.actividad.every((x) => x.buzonId === B1))
     ok('los ajustes viajan para enseñarlos', t.ajustes.ventanaDesdeMin === 540 && t.ajustes.rampa.length === 4)
+    ok('y la lectura de respuestas viaja vacía mientras nadie contesta', t.respuestas.total === 0 && t.respuestas.recientes.length === 0 && t.respuestas.pendientes === 0 && t.respuestas.dias === 30 && t.ajustes.respuestasIa)
     const r = await tablero(m.almacen, RAUL, { ahora: T0 + HORA })
     if (!r.disponible) throw new Error('no disponible')
     ok('un administrador ve los dos buzones y puede administrar', r.buzones.length === 2 && r.puedeAdministrar && r.proximos.reduce((s, d) => s + d.total, 0) === 6)
@@ -78,6 +79,58 @@ async function main() {
     ok('y puede quedarse con uno', uno.disponible && uno.buzones.length === 1 && uno.buzones[0].id === B2)
     const nada = await tablero(m.almacen, JHANNA_NADA, { ahora: T0 })
     ok('sin permisos no ve nada (pero no es un error)', nada.disponible && nada.buzones.length === 0 && nada.proximos.every((d) => d.total === 0))
+  }
+
+  console.log('\n=== lo que contestan los leads: en el tablero y en el detalle ===')
+  {
+    const NO = { clase: 'no_interesa' as const, confianza: 'alta' as const, evidencia: 'no nos interesa', resumen: 'No les interesa.', fecha: null }
+    const MAS_TARDE = { clase: 'mas_tarde' as const, confianza: 'alta' as const, evidencia: 'escríbeme en enero', resumen: 'Pide que le escribamos en enero.', fecha: '2027-01-11' }
+    const m = await crearMundo(entorno)
+    const a = await m.secuenciaNueva(1)
+    const b = await m.secuenciaNueva(2, { buzon: B2 })
+    const c = await m.secuenciaNueva(3)
+    if (!a.resultado.ok || !b.resultado.ok || !c.resultado.ok) throw new Error('alta')
+    const antes = await tablero(m.almacen, RAUL, { ahora: T0 + HORA })
+    ok('antes de que conteste nadie, todo a cero', antes.disponible && antes.respuestas.total === 0 && antes.respuestas.recientes.length === 0)
+
+    // Ana: un «no» seguro. Alejandro: «escríbeme en enero»
+    m.reloj.ahora = T0 + 2 * HORA
+    m.clasificaciones.push(NO)
+    await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Gracias, pero ahora mismo no nos interesa.', cuando: T0 + 2 * HORA - MIN })
+    await ejecutarPasada(m.deps)
+    m.reloj.ahora = T0 + 2 * HORA + 6 * MIN
+    m.clasificaciones.push(MAS_TARDE)
+    await m.entrante({ buzon: B2, de: b.email, hilo: b.hiloId, texto: 'Ahora no es buen momento. Escríbeme en enero.', cuando: T0 + 2 * HORA + 5 * MIN })
+    await ejecutarPasada(m.deps)
+
+    const deAna = await tablero(m.almacen, ANA, { ahora: m.reloj.ahora })
+    if (!deAna.disponible) throw new Error('no disponible')
+    ok('Ana ve solo la lectura de su respuesta, con el lead, la clase y lo que se hizo', deAna.respuestas.total === 1 && deAna.respuestas.porClase[0].clase === 'no_interesa' && deAna.respuestas.recientes.length === 1 && deAna.respuestas.recientes[0].lead === 'Tienda 1' && deAna.respuestas.recientes[0].propietario === 'Ana' && deAna.respuestas.recientes[0].accion === 'cerrar' && deAna.respuestas.recientes[0].aplicada, JSON.stringify(deAna.respuestas))
+    const deAle = await tablero(m.almacen, ALE, { ahora: m.reloj.ahora })
+    ok('Alejandro, la suya, con el día de la rellamada', deAle.disponible && deAle.respuestas.total === 1 && deAle.respuestas.recientes[0].clase === 'mas_tarde' && deAle.respuestas.recientes[0].fechaPedida === '2027-01-11' && deAle.respuestas.recientes[0].propietario === 'Alejandro', JSON.stringify(deAle.disponible && deAle.respuestas))
+    const deRaul = await tablero(m.almacen, RAUL, { ahora: m.reloj.ahora })
+    ok('un administrador ve las dos, la más reciente primero', deRaul.disponible && deRaul.respuestas.total === 2 && deRaul.respuestas.recientes.map((r) => r.clase).join() === 'mas_tarde,no_interesa')
+    const unBuzon = await tablero(m.almacen, RAUL, { ahora: m.reloj.ahora, buzonId: B2 })
+    ok('y si se queda con un buzón, solo cuenta ese', unBuzon.disponible && unBuzon.respuestas.total === 1)
+    const nadie = await tablero(m.almacen, JHANNA_NADA, { ahora: m.reloj.ahora })
+    ok('quien no ve ningún buzón no ve ninguna respuesta (una lista vacía no es «todos»)', nadie.disponible && nadie.respuestas.total === 0 && nadie.respuestas.recientes.length === 0)
+    const antiguo = await tablero(m.almacen, RAUL, { ahora: m.reloj.ahora + 40 * 86_400_000 })
+    ok('pasados 30 días ya no cuentan', antiguo.disponible && antiguo.respuestas.total === 0)
+
+    const dA = await detalleDeSecuencia(m.almacen, ANA, a.resultado.inscripcionId)
+    ok('el detalle de su secuencia trae lo que entendió la IA, con la frase en que se apoya', dA?.respuesta?.clase === 'no_interesa' && dA.respuesta.evidencia === 'no nos interesa' && dA.respuesta.lead === 'Tienda 1' && dA.respuesta.modo === 'real', JSON.stringify(dA?.respuesta))
+    const dC = await detalleDeSecuencia(m.almacen, ANA, c.resultado.inscripcionId)
+    ok('y el de una a la que nadie ha contestado, nada', !!dC && dC.respuesta === null)
+    ok('Ana no abre la de Alejandro, así que tampoco ve su lectura', (await detalleDeSecuencia(m.almacen, ANA, b.resultado.inscripcionId)) === null)
+  }
+  {
+    const m = await crearMundo(entorno)
+    m.ausentes?.add('correo_respuestas_ia')
+    const a = await m.secuenciaNueva(1)
+    if (!a.resultado.ok) throw new Error('alta')
+    const t = await tablero(m.almacen, RAUL, { ahora: T0 + HORA })
+    const d = await detalleDeSecuencia(m.almacen, RAUL, a.resultado.inscripcionId)
+    ok('sin la tabla de la migración 246, el tablero y el detalle siguen funcionando sin respuestas', t.disponible && t.respuestas.total === 0 && !!d && d.respuesta === null)
   }
 
   console.log('\n=== la cola ===')

@@ -9,6 +9,7 @@ import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from '../ui'
 import { ChipDeEstado } from './ColaDeLeads'
 import { accionar, cuando, useDetalle, type CuerpoDeAccion } from './datos'
 import { COLOR_DE_TONO, ESTILO_DE_EVENTO, LineaMini, Nodo, estiloDelPaso } from './LineaDeTiempo'
+import { TarjetaDeLectura } from './RespuestasLeidas'
 
 /**
  * EL DETALLE DE UNA SECUENCIA: SU LÍNEA DE TIEMPO, SUS CORREOS Y TODO LO QUE HA PASADO.
@@ -215,9 +216,11 @@ export function PanelDeSecuencia({ id, ahora, onCerrar, alCambiar }: Props) {
                 <LineaMini item={s} ahora={ahora} />
               </div>
 
-              {s.motivo && s.estado !== 'activa' && (
+              {/* Si la IA ya ha leído lo que contestó, la tarjeta lo cuenta mejor que el motivo de una línea */}
+              {s.motivo && s.estado !== 'activa' && !(detalle.respuesta && s.estado === 'respondida') && (
                 <p className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-[12px] leading-snug text-[var(--ls-t2)]">{s.motivo}</p>
               )}
+              {detalle.respuesta && <TarjetaDeLectura r={detalle.respuesta} ahora={ahora} />}
 
               {p.puedeAdministrar && viva && (
                 <div className="flex flex-wrap items-center gap-2">
