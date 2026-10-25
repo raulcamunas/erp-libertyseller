@@ -84,14 +84,14 @@ function TarjetaDePaso({
             {paso.etiqueta}
           </span>
           {hora && <span className="text-[11.5px] tabular-nums text-[var(--ls-t4)]">· {cuando(hora, ahora)}</span>}
-          {paso.adaptado && <span className="rounded-[4px] bg-[var(--ls-acc-suave)] px-1.5 text-[10.5px] font-medium text-[var(--ls-acc)]">adaptado por la IA</span>}
+          {paso.adaptado && <span className="rounded-[4px] bg-[var(--ls-acc-suave)] px-1.5 text-[10.5px] font-medium text-[var(--ls-acc)]">{paso.revision?.escrito ? 'escrito por la IA al enviar' : 'adaptado por la IA'}</span>}
         </header>
 
         {paso.esperando && <p className="mt-1.5 text-[11.5px] text-[var(--ls-e-ambar)]">Espera: {paso.esperando}</p>}
         {paso.motivo && paso.estado !== 'pendiente' && paso.estado !== 'enviado' && <p className="mt-1.5 text-[11.5px] leading-snug text-[var(--ls-t3)]">{paso.motivo}</p>}
         {paso.revision && (
           <p className="mt-1.5 text-[11.5px] leading-snug text-[var(--ls-t3)]">
-            <span className="font-medium text-[var(--ls-t2)]">La IA leyó lo nuevo de la ficha:</span> {paso.revision.motivo}
+            <span className="font-medium text-[var(--ls-t2)]">{paso.revision.escrito ? 'La IA lo escribió con todo lo que consta del lead:' : 'La IA leyó lo nuevo de la ficha:'}</span> {paso.revision.motivo}
           </p>
         )}
 
@@ -114,13 +114,28 @@ function TarjetaDePaso({
             <p className="text-[12px] text-[var(--ls-t3)]">
               <span className="text-[var(--ls-t4)]">Asunto:</span> {paso.asunto}
             </p>
-            <TextoPlegable texto={salio && paso.textoEnviado ? paso.textoEnviado : paso.texto} />
-            {paso.adaptado && paso.textoEnviado && (
-              <button type="button" onClick={() => setVerOriginal((v) => !v)} className="text-[11.5px] text-[var(--ls-t3)] underline underline-offset-2 hover:text-[var(--ls-t1)]">
-                {verOriginal ? 'Ocultar el texto original' : 'Ver el texto original'}
-              </button>
+            {paso.textoDeEnsayo ? (
+              <>
+                <div className="rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-2.5">
+                  <p className="mb-1 text-[11px] font-semibold text-[var(--ls-t3)]">Esto es lo que habría enviado la IA (ensayo)</p>
+                  <TextoPlegable texto={paso.textoDeEnsayo} />
+                </div>
+                <button type="button" onClick={() => setVerOriginal((v) => !v)} className="text-[11.5px] text-[var(--ls-t3)] underline underline-offset-2 hover:text-[var(--ls-t1)]">
+                  {verOriginal ? 'Ocultar el borrador' : 'Ver el borrador programado'}
+                </button>
+                {verOriginal && <div className="rounded-[6px] bg-[var(--ls-sup2)] p-2.5"><TextoPlegable texto={paso.texto} /></div>}
+              </>
+            ) : (
+              <>
+                <TextoPlegable texto={salio && paso.textoEnviado ? paso.textoEnviado : paso.texto} />
+                {paso.adaptado && paso.textoEnviado && (
+                  <button type="button" onClick={() => setVerOriginal((v) => !v)} className="text-[11.5px] text-[var(--ls-t3)] underline underline-offset-2 hover:text-[var(--ls-t1)]">
+                    {verOriginal ? (paso.revision?.escrito ? 'Ocultar el borrador' : 'Ocultar el texto original') : paso.revision?.escrito ? 'Ver el borrador programado' : 'Ver el texto original'}
+                  </button>
+                )}
+                {verOriginal && <div className="rounded-[6px] bg-[var(--ls-sup2)] p-2.5"><TextoPlegable texto={paso.texto} /></div>}
+              </>
             )}
-            {verOriginal && <div className="rounded-[6px] bg-[var(--ls-sup2)] p-2.5"><TextoPlegable texto={paso.texto} /></div>}
           </div>
         )}
 

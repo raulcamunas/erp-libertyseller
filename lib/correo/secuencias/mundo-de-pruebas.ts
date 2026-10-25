@@ -3,9 +3,9 @@ import { almacenDeSecuencias, type AlmacenDeSecuencias } from './almacen'
 import { instanteDeMadrid } from './fechas'
 import { inscribir, type PeticionDeInscripcion, type ResultadoDeInscribir } from './inscripcion'
 import type { DependenciasDelMotor, EnvioDeSeguimiento, ResultadoDelEnvio } from './motor'
-import type { ResultadoDeClasificacionConIa, ResultadoDeRevisionConIa } from './ia'
+import type { ResultadoDeClasificacionConIa, ResultadoDeRedaccionConIa, ResultadoDeRevisionConIa } from './ia'
 import type { Clasificacion } from './clasificar'
-import type { Revision } from './seguimientos'
+import type { Redaccion, Revision } from './seguimientos'
 
 /**
  * EL MUNDO DE PRUEBAS DEL MOTOR DE SECUENCIAS — SOLO PARA LAS PRUEBAS.
@@ -53,6 +53,10 @@ export interface Mundo {
   clasificaciones: Array<Clasificacion | null>
   /** Cada vez que el motor le ha pedido a la IA que lea una respuesta */
   clasificados: Array<{ system: string; usuario: string }>
+  /** Lo que contestará la IA al escribir un seguimiento con el historial, en orden (null = no puede); si se acaba, un texto bueno */
+  redacciones: Array<Redaccion | null>
+  /** Cada vez que el motor le ha pedido a la IA que escriba un seguimiento, con lo que se le dio y los textos ya enviados contra los que se compara */
+  redactados: Array<{ system: string; usuario: string; anteriores: string[] }>
   /** Lo que contestará el correo al enviar, en orden; si se acaba, «ha salido» */
   resultadosDeEnvio: ResultadoDelEnvio[]
   /** Se ejecuta justo antes de cada envío (para provocar cosas «mientras se envía») */
@@ -77,6 +81,8 @@ export interface Mundo {
 export const TEXTO_PRIMERO =
   'Hola,\n\nHe estado viendo vuestra tienda de decoración y creo que hay una oportunidad clara en Amazon para vuestras lámparas y textiles. En Liberty Seller nos encargamos de todo el alta, sin cargar a vuestro equipo. ¿Te viene mejor una videollamada de 10-15 minutos esta semana o la próxima?\n\nUn saludo,'
 export const TEXTO_S1 = 'Hola,\n\nTe escribí hace unos días sobre vuestro catálogo. Una idea distinta: revisar cómo aparecen vuestras lámparas cuando alguien busca por estilo y no por marca. Si te encaja, lo vemos en diez minutos.\n\nUn saludo,'
+/** Lo que escribe la IA de mentira cuando no se le dice otra cosa: un seguimiento distinto del programado, sin dinero ni huecos */
+export const TEXTO_REDACTADO = 'Hola,\n\nHe pensado en lo que me comentaste de la logística y te preparo un ejemplo de cómo se gestionaría vuestro stock. Si te encaja, lo vemos juntos en diez minutos esta semana.\n\nUn saludo,'
 export const TEXTO_S2 = 'Hola,\n\nNo quiero ser pesado, así que este es mi último mensaje. Si ahora no es buen momento, dímelo con una palabra y lo dejamos para más adelante.\n\nUn saludo,'
 
 let contadorDeMundos = 0
@@ -89,7 +95,7 @@ export const HILO_POR_DEFECTO: Record<string, string> = { [B1]: identificador('d
 export const CARPETA_DE_ENTRADA: Record<string, string> = { [B1]: identificador('c', 1), [B2]: identificador('c', 2) }
 export const CARPETA_DE_ENVIADOS: Record<string, string> = { [B1]: identificador('c', 3), [B2]: identificador('c', 4) }
 
-export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean; ensayo?: boolean; ahora?: number; ajustes?: Fila } = {}): Promise<Mundo> {
+export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean; ensayo?: boolean; ahora?: number; ajustes?: Fila; redactar?: boolean } = {}): Promise<Mundo> {
   const reloj = { ahora: opciones.ahora ?? T0 }
   const { service, soloEnMemoria } = await entorno.nuevo(() => reloj.ahora)
   const almacen = almacenDeSecuencias(service as unknown as Parameters<typeof almacenDeSecuencias>[0])
@@ -103,6 +109,8 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
   const respuestasDeIa: Array<Revision | null> = []
   const clasificaciones: Array<Clasificacion | null> = []
   const clasificados: Mundo['clasificados'] = []
+  const redacciones: Array<Redaccion | null> = []
+  const redactados: Mundo['redactados'] = []
   const resultadosDeEnvio: ResultadoDelEnvio[] = []
   const alEnviar: Array<() => Promise<void>> = []
   let idDeEnvio = 0
@@ -121,6 +129,8 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
     respuestasDeIa,
     clasificaciones,
     clasificados,
+    redacciones,
+    redactados,
     resultadosDeEnvio,
     alEnviar,
     ausentes: soloEnMemoria?.ausentes ?? null,
@@ -173,7 +183,9 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
     { buzon_id: B1, participa: true, rampa_inicio: '2026-10-01', llamadas_desde_min: 600, llamadas_hasta_min: 840 },
     { buzon_id: B2, participa: true, rampa_inicio: '2026-10-01', llamadas_desde_min: 600, llamadas_hasta_min: 960 },
   ])
-  await m.ajustes({ activa: opciones.activa ?? true, modo_ensayo: opciones.ensayo ?? false, ...(opciones.ajustes ?? {}) })
+  // Escribir cada seguimiento al enviarlo (migración 249) nace encendido en la base, pero los escenarios de siempre parten del comportamiento de siempre:
+  // cada escenario nuevo lo pide con `redactar: true`
+  await m.ajustes({ activa: opciones.activa ?? true, modo_ensayo: opciones.ensayo ?? false, redactar_al_enviar: opciones.redactar ?? false, ...(opciones.ajustes ?? {}) })
 
   /* ---- el correo y la IA de mentira ---- */
   const deps: DependenciasDelMotor = {
@@ -212,6 +224,11 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
       revisiones.push({ ...mensajes, original })
       const siguiente = respuestasDeIa.length > 0 ? respuestasDeIa.shift()! : { decision: 'enviar' as const, motivo: 'No cambia nada.', texto: '' }
       return { revision: siguiente, modelo: 'gpt-6-luna', aviso: siguiente ? null : 'La IA no está disponible.', tokens: null }
+    },
+    async redactar(mensajes, anteriores): Promise<ResultadoDeRedaccionConIa> {
+      redactados.push({ ...mensajes, anteriores: [...anteriores] })
+      const siguiente = redacciones.length > 0 ? redacciones.shift()! : { decision: 'escribir' as const, motivo: 'Escrito con lo que consta del lead.', texto: TEXTO_REDACTADO }
+      return { redaccion: siguiente, modelo: 'gpt-6-luna', aviso: siguiente ? null : 'La IA no está disponible.', tokens: null, llamadas: 1 }
     },
     async clasificar(mensajes): Promise<ResultadoDeClasificacionConIa> {
       clasificados.push({ ...mensajes })

@@ -277,6 +277,26 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
         </div>
       </section>
 
+      <section className={PANEL} aria-label="Cómo se escriben los seguimientos">
+        <CabeceraDePanel icono={<Sparkles className="h-3.5 w-3.5" aria-hidden />} titulo="Cómo se escriben los seguimientos" contexto="· a medida de cada lead" />
+        <div className="space-y-3.5 p-3">
+          {!base.redactarAlEnviarDisponible && (
+            <p className="flex items-start gap-2 rounded-[8px] border border-[var(--ls-e-ambar)] bg-[color-mix(in_srgb,var(--ls-e-ambar)_10%,transparent)] px-3 py-2 text-[11.5px] leading-snug text-[var(--ls-t1)]">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--ls-e-ambar)]" aria-hidden />
+              <span>Falta lanzar la migración 249_correo_redactar_al_enviar.sql en el editor SQL de Supabase. Hasta entonces los seguimientos salen con el texto que se programó (revisado con la IA solo si hay algo nuevo en la ficha).</span>
+            </p>
+          )}
+          <Interruptor
+            titulo="Escribir cada seguimiento justo antes de enviarlo"
+            texto="La IA lee todo lo que consta del lead en ese momento (lo que se habló en las llamadas, el interés que mostró, las notas, lo que ya se le envió) y escribe el correo a medida. El texto que se ve al programar queda de borrador, y es el que sale si la IA no puede. Si hay algo que pide que lo mire una persona (dijo que no le interesa, pidió esperar…), lo deja en pausa en vez de escribir."
+            activo={form.redactarAlEnviar}
+            desactivado={solo || !base.redactarAlEnviarDisponible}
+            onCambio={(v) => set('redactarAlEnviar', v)}
+          />
+          <p className="text-[11px] leading-snug text-[var(--ls-t4)]">En modo Ensayo la IA también escribe, y en cada seguimiento ves el texto que habría enviado.</p>
+        </div>
+      </section>
+
       <section className={PANEL} aria-label="Respuestas de los leads">
         <CabeceraDePanel icono={<Sparkles className="h-3.5 w-3.5" aria-hidden />} titulo="Respuestas de los leads" contexto="· lo que hace la IA cuando alguien contesta" />
         <div className="space-y-3.5 p-3">

@@ -207,7 +207,7 @@ export const ESQUEMA: Readonly<Record<string, EsquemaDeTabla>> = {
   },
   cold_lead_notes: { columnas: ['id', 'lead_id', 'author_id', 'kind', 'body', 'occurred_at', 'created_at', 'es_respuesta'], requeridas: ['lead_id', 'kind', 'body'] },
   rinkel_llamadas: { columnas: ['id', 'user_id', 'rinkel_id', 'fecha', 'direccion', 'duracion_s', 'estado', 'lead_id'] },
-  rinkel_transcripciones: { columnas: ['llamada_id', 'user_id', 'estado', 'tipo', 'resumen', 'hecha_at'] },
+  rinkel_transcripciones: { columnas: ['llamada_id', 'user_id', 'estado', 'tipo', 'resumen', 'siguiente_paso', 'interes', 'hecha_at'] },
   correo_buzones: {
     columnas: ['id', 'user_id', 'direccion', 'nombre', 'firma', 'usuario', 'imap_host', 'smtp_host', 'desde_fecha', 'credenciales_invalidas', 'ultimo_sync_at', 'ultimo_error', 'fallos_seguidos', 'ultimo_intento_at'],
   },
@@ -226,7 +226,7 @@ export const ESQUEMA: Readonly<Record<string, EsquemaDeTabla>> = {
     columnas: [
       'id', 'activa', 'modo_ensayo', 'ventana_desde_min', 'ventana_hasta_min', 'hueco_global_s', 'hueco_buzon_s', 'peso_manana_pct', 'rampa', 'tope_hora',
       'dias_hasta_no_interesa', 'freno_rebotes_pct', 'freno_minimo_envios', 'festivos', 'vigilancia_at', 'purgado_at', 'actualizada_at', 'actualizada_por',
-      'respuestas_ia', 'respuestas_cerrar_no', 'respuestas_rellamada', 'respuestas_at',
+      'respuestas_ia', 'respuestas_cerrar_no', 'respuestas_rellamada', 'respuestas_at', 'redactar_al_enviar',
     ],
   },
   correo_respuestas_ia: {
@@ -493,6 +493,8 @@ export class BaseEnMemoria {
       defecto('respuestas_ia', true)
       defecto('respuestas_cerrar_no', true)
       defecto('respuestas_rellamada', true)
+      // El de la migración 249 también
+      defecto('redactar_al_enviar', true)
     }
     if (tabla === 'correo_respuestas_ia') {
       defecto('estado', 'pendiente')

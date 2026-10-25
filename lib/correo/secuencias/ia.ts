@@ -3,14 +3,19 @@ import { MODELO_DE_IA_POR_DEFECTO, parametrosDeIa } from '../../ia/modelo'
 import { motivoDelFallo, type ClienteDeCorreoIa } from '../ia-generar'
 import { ESQUEMA_DE_CLASIFICACION, leerClasificacion, type Clasificacion } from './clasificar'
 import {
+  ESQUEMA_DE_REDACCION,
   ESQUEMA_REVISION,
   esquemaDeSeguimientos,
+  leerRedaccion,
   leerRevision,
   leerSeguimientos,
+  mensajeDeCorreccionDeRedaccion,
   mensajeDeCorreccionDeSeguimientos,
   revisarSeguimientos,
+  validarRedaccion,
   validarRevision,
   type ProblemaDeSeguimiento,
+  type Redaccion,
   type Revision,
 } from './seguimientos'
 
@@ -30,6 +35,7 @@ import {
 
 export const TIEMPO_MAXIMO_DE_SEGUIMIENTOS_MS = 60_000
 export const TIEMPO_MAXIMO_DE_REVISION_MS = 40_000
+export const TIEMPO_MAXIMO_DE_REDACCION_MS = 60_000
 export const TIEMPO_MAXIMO_DE_CLASIFICACION_MS = 40_000
 
 /** Dólares por millón de tokens (entrada, salida) de `gpt-6-luna`, medidos el 23 oct 2026. Con otro modelo no se calcula: el registro dice «null» antes que inventar */
@@ -220,6 +226,77 @@ export async function revisarConIa(
     return { revision, modelo, aviso: null, tokens: tokensDe(gasto) }
   } catch (error) {
     apuntarFallo('revisar un seguimiento', error)
+    return sin(motivoDelFallo(error))
+  } finally {
+    clearTimeout(temporizador)
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 2 bis. Escribir un seguimiento justo antes de que salga             */
+/* ------------------------------------------------------------------ */
+
+export interface ResultadoDeRedaccionConIa {
+  /** Lo que ha decidido la IA, ya comprobado. null = no se ha podido (el aviso dice por qué) y quien llama espera y reintenta */
+  redaccion: Redaccion | null
+  modelo: string
+  aviso: string | null
+  tokens: { entrada: number; salida: number } | null
+  /** Cuántas veces se ha llamado a la IA (2 si hubo que pedir una corrección) */
+  llamadas: number
+}
+
+/**
+ * La IA escribe el seguimiento que va a salir leyendo todo el historial del lead, o dice que hay que pausar. Dos vueltas como mucho: si lo escrito
+ * habla de dinero, deja huecos, es muy largo o muy corto o repite lo ya enviado, se le pide UNA corrección; si sigue sin valer, no hay redacción
+ * (null) y el motor decide: esperar y reintentar o, si no hay manera, mandar el borrador de siempre o pausar.
+ */
+export async function redactarConIa(mensajes: { system: string; usuario: string }, anteriores: readonly string[], opciones: OpcionesDeIa = {}): Promise<ResultadoDeRedaccionConIa> {
+  const modelo = modeloDeSecuencias()
+  const gasto = nuevoGasto()
+  const sin = (aviso: string): ResultadoDeRedaccionConIa => ({ redaccion: null, modelo, aviso, tokens: tokensDe(gasto), llamadas: gasto.llamadas })
+
+  const cliente = clienteDe(opciones)
+  if (!cliente) return sin('La IA no está configurada en el servidor (falta OPENAI_API_KEY).')
+
+  const control = new AbortController()
+  const temporizador = setTimeout(() => control.abort(), opciones.tiempoMaximoMs ?? TIEMPO_MAXIMO_DE_REDACCION_MS)
+  try {
+    const conversacion: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: mensajes.system },
+      { role: 'user', content: mensajes.usuario },
+    ]
+    let problemasDeLaUltima: ProblemaDeSeguimiento[] = []
+    for (let vuelta = 0; vuelta < 2; vuelta++) {
+      gasto.llamadas++
+      const completion = await cliente.chat.completions.create(
+        {
+          ...parametrosDeIa({ esfuerzo: 'low', maxSalida: 6000 }, entornoDeSecuencias()),
+          response_format: { type: 'json_schema', json_schema: { name: 'seguimiento_escrito_para_un_lead', strict: true, schema: ESQUEMA_DE_REDACCION } },
+          messages: conversacion,
+        },
+        { signal: control.signal }
+      )
+      if (completion.usage) {
+        gasto.hubo = true
+        gasto.entrada += completion.usage.prompt_tokens ?? 0
+        gasto.salida += completion.usage.completion_tokens ?? 0
+      }
+      const eleccion = completion.choices?.[0]
+      if (eleccion?.message?.refusal) return sin('La IA se ha negado a escribir el seguimiento.')
+      const leida = leerRedaccion(eleccion?.message?.content)
+      if (!leida) return sin(eleccion?.finish_reason === 'length' ? 'La respuesta de la IA se ha cortado.' : 'La IA ha devuelto algo que no se entiende.')
+      const validada = validarRedaccion(leida, anteriores)
+      if (validada.ok) return { redaccion: validada.redaccion, modelo, aviso: null, tokens: tokensDe(gasto), llamadas: gasto.llamadas }
+      problemasDeLaUltima = validada.problemas
+      // Hablar de dinero no se corrige dos veces: es la regla que no admite excepciones
+      if (vuelta === 0) {
+        conversacion.push({ role: 'assistant', content: JSON.stringify({ decision: leida.decision, motivo: leida.motivo, texto: leida.texto }) }, { role: 'user', content: mensajeDeCorreccionDeRedaccion(validada.problemas) })
+      }
+    }
+    return sin(`El texto que ha escrito la IA no pasa la revisión (${problemasDeLaUltima.join(', ')}).`)
+  } catch (error) {
+    apuntarFallo('escribir un seguimiento', error)
     return sin(motivoDelFallo(error))
   } finally {
     clearTimeout(temporizador)

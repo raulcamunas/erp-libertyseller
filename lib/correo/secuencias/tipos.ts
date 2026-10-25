@@ -29,12 +29,12 @@ export interface DecisionGuardada {
   motivo?: string
   /** Se miró la ficha con la IA antes de enviar */
   revisadoConIa?: boolean
-  /** Lo que dijo el revisor */
-  revision?: { decision: string; motivo: string }
+  /** Lo que dijo el revisor (o la IA al escribir el seguimiento con el historial: entonces `escrito` es true) */
+  revision?: { decision: string; motivo: string; escrito?: boolean }
   /** Mensajes entrantes que ya atrasaron este envío una vez (un «fuera de oficina» solo atrasa una) */
   ignorar?: string[]
   /** En modo ensayo: lo que habría pasado */
-  ensayo?: { accion: string; motivo: string; en: number }
+  ensayo?: { accion: string; motivo: string; en: number; texto?: string }
   modelo?: string
 }
 

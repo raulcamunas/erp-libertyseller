@@ -214,7 +214,13 @@ export interface LlamadaLeida {
   direccion: string
   duracion_s: number
   estado: string
+  /** De qué fue, según la transcripción: conversacion · buzon_de_voz · sin_contenido. null = aún sin transcribir */
   tipo: string | null
+  /** Lo que entendió la transcripción (migración 244). null si no hay: sin transcribir, o el lead no llegó a hablar */
+  resumen: string | null
+  siguientePaso: string | null
+  /** alto · medio · bajo · ninguno · no_claro */
+  interes: string | null
 }
 
 export interface EventoLeido {
@@ -871,13 +877,21 @@ export function almacenDeSecuencias(service: Servicio) {
       if (isMissingSchema(error)) return []
       throw fallo('No se han podido leer las llamadas del lead.', error)
     }
-    const llamadas = (data ?? []) as Array<Omit<LlamadaLeida, 'tipo'>>
+    const llamadas = (data ?? []) as Array<Omit<LlamadaLeida, 'tipo' | 'resumen' | 'siguientePaso' | 'interes'>>
     if (llamadas.length === 0) return []
-    const tipos = new Map<string, string | null>()
-    const { data: transcripciones, error: errorT } = await service.from('rinkel_transcripciones').select('llamada_id, tipo').in('llamada_id', llamadas.map((l) => l.id)).eq('estado', 'hecha')
-    // Sin la tabla de transcripciones (migración 244) las llamadas valen igual, solo que sin saber de qué fueron
-    if (!errorT) for (const t of (transcripciones ?? []) as Array<{ llamada_id: string; tipo: string | null }>) tipos.set(t.llamada_id, t.tipo)
-    return llamadas.map((l) => ({ ...l, tipo: tipos.get(l.id) ?? null }))
+    const entendido = new Map<string, { tipo: string | null; resumen: string | null; siguientePaso: string | null; interes: string | null }>()
+    const { data: transcripciones, error: errorT } = await service
+      .from('rinkel_transcripciones')
+      .select('llamada_id, tipo, resumen, siguiente_paso, interes')
+      .in('llamada_id', llamadas.map((l) => l.id))
+      .eq('estado', 'hecha')
+    // Sin la tabla de transcripciones (migración 244) las llamadas valen igual, solo que sin saber de qué fueron ni qué se habló
+    if (!errorT) {
+      for (const t of (transcripciones ?? []) as Array<{ llamada_id: string; tipo: string | null; resumen: string | null; siguiente_paso: string | null; interes: string | null }>) {
+        entendido.set(t.llamada_id, { tipo: t.tipo, resumen: t.resumen, siguientePaso: t.siguiente_paso, interes: t.interes })
+      }
+    }
+    return llamadas.map((l) => ({ ...l, tipo: entendido.get(l.id)?.tipo ?? null, resumen: entendido.get(l.id)?.resumen ?? null, siguientePaso: entendido.get(l.id)?.siguientePaso ?? null, interes: entendido.get(l.id)?.interes ?? null }))
   }
 
   /** Cuándo ha escrito el comercial a este destinatario, desde este buzón, después de `desde` (sin contar los correos de la propia secuencia, que se pasan en `propios`) */

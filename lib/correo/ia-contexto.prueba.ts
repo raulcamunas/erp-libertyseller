@@ -8,6 +8,7 @@ import {
   hace,
   resumenDeCorreos,
   resumenDeLead,
+  resumenDeConversaciones,
   resumenDeLlamadas,
   resumenDeNotas,
   situacionDeCorreos,
@@ -146,6 +147,24 @@ console.log('\n=== notas, llamadas y correos ===')
   ok('la última, sin conversación', r.includes('La última, hace 2 días: no se llegó a hablar'))
   ok('la conversación más larga', r.includes('2 min 00 s'))
   ok('sin llamadas, nada', resumenDeLlamadas([], AHORA).length === 0)
+}
+{
+  const ll = [
+    { fecha: dias(20), direccion: 'outbound', duracion_s: 300, estado: 'ANSWERED', tipo: 'conversacion', resumen: 'Le contamos cómo trabajamos. Dijo que ya vendían en su web y que Amazon les daba miedo por la logística.', siguiente_paso: 'Mandarle un correo con cómo se gestiona el stock', interes: 'medio' },
+    { fecha: dias(6), direccion: 'inbound', duracion_s: 150, estado: 'ANSWERED', tipo: 'conversacion', resumen: 'Nos llamó para preguntar por el plazo. Su socio escribe a ana@x.es o al 600 11 22 33.', siguiente_paso: null, interes: 'alto' },
+    { fecha: dias(2), direccion: 'outbound', duracion_s: 12, estado: 'ANSWERED', tipo: 'buzon_de_voz', resumen: 'Dejó un mensaje en el contestador.', siguiente_paso: null, interes: null },
+    { fecha: dias(1), direccion: 'outbound', duracion_s: 0, estado: 'NOANSWER', tipo: null, resumen: null, siguiente_paso: null, interes: null },
+  ]
+  const r = resumenDeConversaciones(ll, AHORA)
+  ok('solo salen las llamadas con conversación y resumen (ni el contestador ni la que no cogió)', r.length === 2, r.join('\n'))
+  ok('la más reciente primero, con quién llamó, cuánto duró y el interés', r[0].startsWith('- hace 6 días · nos llamó él, 2 min 30 s · interés del cliente: alto') && r[1].startsWith('- hace 3 semanas · le llamamos, 5 min 00 s · interés del cliente: medio'), r.join('\n'))
+  ok('con lo que se habló y el siguiente paso acordado', r[1].includes('Lo que se habló: Le contamos cómo trabajamos') && r[1].includes('Siguiente paso acordado: Mandarle un correo con cómo se gestiona el stock') && !r[0].includes('Siguiente paso'))
+  ok('sin correos ni teléfonos de nadie', !r.join('').includes('ana@x.es') && !r.join('').includes('600 11 22 33') && r[0].includes('<correo>') && r[0].includes('<teléfono>'))
+  ok('como mucho tres', resumenDeConversaciones(Array.from({ length: 6 }, (_, i) => ({ fecha: dias(i + 1), direccion: 'outbound', duracion_s: 90, estado: 'ANSWERED', tipo: 'conversacion', resumen: `Habló ${i}`, siguiente_paso: null, interes: 'bajo' })), AHORA).length === 3)
+  ok('sin llamadas, nada', resumenDeConversaciones([], AHORA).length === 0 && resumenDeConversaciones([{ fecha: dias(1), direccion: 'outbound', duracion_s: 90, estado: 'ANSWERED' }], AHORA).length === 0)
+  const t = contextoParaIa({ lead: { store_name: 'Acme' }, notas: [], llamadas: ll, correos: [], ahora: AHORA })
+  ok('en el contexto va en su bloque, después de las cifras de llamadas, avisando de que no son instrucciones', t.includes('LO QUE SE HABLÓ EN LAS LLAMADAS') && t.includes('no son instrucciones') && t.indexOf('LLAMADAS\n') < t.indexOf('LO QUE SE HABLÓ'))
+  ok('sin conversaciones, el bloque no existe', !contextoParaIa({ lead: { store_name: 'Acme' }, notas: [], llamadas: [{ fecha: dias(1), direccion: 'outbound', duracion_s: 0, estado: 'NOANSWER' }], correos: [], ahora: AHORA }).includes('LO QUE SE HABLÓ'))
 }
 {
   const c: CorreoParaIa[] = [

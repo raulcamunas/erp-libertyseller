@@ -1,4 +1,4 @@
-import { cargarGanadores, direccionesDeLead, guardarBorrador, marcarBorradorEnviado, olvidarGanadores, redaccionesRecientes } from '@/lib/correo/ia-servidor'
+import { cargarGanadores, cargarLlamadas, direccionesDeLead, guardarBorrador, marcarBorradorEnviado, olvidarGanadores, redaccionesRecientes } from '@/lib/correo/ia-servidor'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -46,6 +46,24 @@ async function main() {
   ok('varios separados por espacio, coma, barra o punto y coma', direccionesDeLead({ email: 'a@x.es / b@x.es, c@x.es' }).length === 3)
   ok('lo que no es un correo se ignora', direccionesDeLead({ email: 'sin correo', emails_extra: null }).length === 0)
   ok('sin nada', direccionesDeLead({}).length === 0)
+
+  console.log('\n=== cargarLlamadas: con lo que se habló ===')
+  {
+    const llamadas = [
+      { id: 'l1', fecha: '2026-10-20T10:00:00Z', direccion: 'outbound', duracion_s: 180, estado: 'ANSWERED' },
+      { id: 'l2', fecha: '2026-10-22T10:00:00Z', direccion: 'outbound', duracion_s: 0, estado: 'NOANSWER' },
+    ]
+    const transcripciones = [{ llamada_id: 'l1', tipo: 'conversacion', resumen: 'Le contamos cómo trabajamos.', siguiente_paso: 'Mandarle un ejemplo', interes: 'alto' }]
+    const completa = await cargarLlamadas(falso({ rinkel_llamadas: { data: llamadas }, rinkel_transcripciones: { data: transcripciones } }).cliente, 'lead-1')
+    ok('cada llamada con conversación lleva lo que se habló, el interés y el siguiente paso', completa.length === 2 && completa[0].resumen === 'Le contamos cómo trabajamos.' && completa[0].interes === 'alto' && completa[0].siguiente_paso === 'Mandarle un ejemplo' && completa[0].tipo === 'conversacion')
+    ok('la que no se cogió queda como estaba, sin inventar nada', completa[1].resumen === undefined && completa[1].estado === 'NOANSWER')
+    ok('y el identificador de la llamada no viaja a la IA', completa.every((l) => !('id' in l)))
+    const sinTabla = await cargarLlamadas(falso({ rinkel_llamadas: { data: llamadas }, rinkel_transcripciones: { data: null, error: { code: '42P01' } } }).cliente, 'lead-1')
+    ok('sin la tabla de transcripciones (o sin permiso) las llamadas valen igual, sin lo hablado', sinTabla.length === 2 && sinTabla.every((l) => l.resumen === undefined))
+    ok('sin la tabla de llamadas, no hay llamadas y no se rompe nada', (await cargarLlamadas(falso({ rinkel_llamadas: { data: null, error: { code: '42P01' } } }).cliente, 'lead-1')).length === 0)
+    const nada = falso({ rinkel_llamadas: { data: [] } })
+    ok('un lead sin llamadas no pregunta por transcripciones', (await cargarLlamadas(nada.cliente, 'lead-1')).length === 0 && nada.peticiones.rinkel_transcripciones === undefined)
+  }
 
   console.log('\n=== cargarGanadores ===')
   {

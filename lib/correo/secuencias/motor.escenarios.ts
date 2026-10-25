@@ -2,7 +2,7 @@ import { adelantarPaso, cancelarSecuencia, editarPaso, pausarSecuencia, reanudar
 import { diaDeMadrid, horaDeMadrid, instanteDeMadrid, partesDeMadrid, siguienteDiaHabil, sumarDiasHabiles } from './fechas'
 import { inscribir, type ResultadoDeInscribir } from './inscripcion'
 import { ejecutarPasada, fechaDeCierre } from './motor'
-import { B1, B2, DIA, HORA, MIN, T0, TEXTO_PRIMERO, TEXTO_S1, TEXTO_S2, UA, UB, crearMundo, identificador, type Entorno, type Mundo } from './mundo-de-pruebas'
+import { B1, B2, DIA, HORA, MIN, T0, TEXTO_PRIMERO, TEXTO_REDACTADO, TEXTO_S1, TEXTO_S2, UA, UB, crearMundo, identificador, type Entorno, type Mundo } from './mundo-de-pruebas'
 import { AJUSTES_POR_DEFECTO } from './reglas'
 
 /**
@@ -1333,6 +1333,177 @@ export const ESCENARIOS: Escenario[] = [
         await m.entrante({ de: a.email, hilo: a.hiloId, texto: TEXTO_NO, cuando: m.reloj.ahora - MIN })
         const r = await ejecutarPasada(sinIa)
         ok('sin la IA enchufada la secuencia se corta igual y no hay errores', r.respondidas === 1 && r.errores.length === 0 && (await m.leer('correo_respuestas_ia')).length === 0)
+      }
+    },
+  },
+  {
+    nombre: 'Escribir al enviar: la IA escribe cada seguimiento con todo el historial del lead (lo que se habló por teléfono, las notas, lo enviado)',
+    async correr(e, ok) {
+      /** Un seguimiento fijado a las 10:00 de su día, para que las esperas de los reintentos caigan siempre dentro de la ventana de envío */
+      const fijarALas10 = async (m: Mundo, insId: string, orden: number): Promise<number> => {
+        const paso = (await m.pasos(insId))[orden]
+        const hora = instanteDeMadrid(diaDeMadrid(ms(paso.programado_at)), 600)
+        await m.actualizar('correo_secuencia_pasos', { programado_at: iso(hora) }, (q) => q.eq('id', paso.id))
+        return hora
+      }
+      /** Una llamada con conversación, con lo que dejó la transcripción de Rinkel */
+      const conversacion = async (m: Mundo, leadId: string, n: number, cuando: number) => {
+        const id = identificador('a', n)
+        await m.sembrar('rinkel_llamadas', { id, user_id: UA, rinkel_id: `r-${n}`, fecha: m.iso(cuando), direccion: 'outbound', duracion_s: 200, estado: 'ANSWERED', lead_id: leadId })
+        await m.sembrar('rinkel_transcripciones', {
+          llamada_id: id,
+          user_id: UA,
+          estado: 'hecha',
+          tipo: 'conversacion',
+          resumen: 'Le contamos cómo trabajamos. Dijo que la logística le da miedo.',
+          siguiente_paso: 'Mandarle un ejemplo de cómo se gestiona el stock',
+          interes: 'medio',
+          hecha_at: m.iso(cuando + 10 * MIN),
+        })
+      }
+
+      // --- escribe con todo el historial ---
+      {
+        const m = await crearMundo(e, { redactar: true })
+        const { resultado, leadId } = await m.secuenciaNueva(1)
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        await conversacion(m, leadId, 1, T0 - 2 * DIA)
+        await m.nota(leadId, { kind: 'nota', body: 'Tienen web propia con 300 productos y solo venden en España.', cuando: T0 - DIA })
+        m.reloj.ahora = resultado.pasos[0].programadoAt! + 5_000
+        const r = await ejecutarPasada(m.deps)
+        const usuario = m.redactados[0]?.usuario ?? ''
+        ok('la IA recibe lo que se habló por teléfono, con el interés y el siguiente paso acordado', m.redactados.length === 1 && usuario.includes('LO QUE SE HABLÓ EN LAS LLAMADAS') && usuario.includes('interés del cliente: medio') && usuario.includes('Dijo que la logística le da miedo') && usuario.includes('Siguiente paso acordado: Mandarle un ejemplo de cómo se gestiona el stock'), usuario.slice(0, 600))
+        ok('y las notas del comercial, el primer correo y el borrador de siempre', usuario.includes('Tienen web propia') && usuario.includes('[Primer correo') && usuario.includes(TEXTO_PRIMERO.slice(0, 30)) && usuario.includes('BORRADOR DEL SEGUIMIENTO 1 DE 2') && usuario.includes(TEXTO_S1.slice(0, 40)))
+        ok('se le dice cómo se llama quien envía y que la firma va sola', usuario.includes('- Nombre: Ana López') && usuario.includes('NO escribas el nombre'))
+        ok('contra lo ya enviado se comprueba el primer correo', m.redactados[0].anteriores.length === 1 && m.redactados[0].anteriores[0] === TEXTO_PRIMERO, JSON.stringify(m.redactados[0]?.anteriores))
+        ok('sale lo que escribió la IA, con la firma debajo, no el borrador', m.enviados.length === 1 && r.enviados === 1 && r.redactados === 1 && m.enviados[0].texto === `${TEXTO_REDACTADO}\n\nAna López\nLiberty Seller`, m.enviados[0]?.texto)
+        ok('y la revisión de siempre no interviene', m.revisiones.length === 0)
+        const [ins] = await m.leer('correo_secuencia_inscripciones')
+        const paso = (await m.pasos(ins.id as string))[1]
+        ok('el borrador se conserva, lo que salió queda aparte y apuntado como «escrito»', paso.estado === 'enviado' && paso.texto === TEXTO_S1 && paso.texto_enviado === TEXTO_REDACTADO && JSON.stringify(paso.decision).includes('"escrito":true') && JSON.stringify(paso.decision).includes('"decision":"adaptar"'), JSON.stringify(paso.decision))
+        const eventos = await m.eventos(ins.id as string)
+        ok('el rastro dice que lo escribió la IA con lo que consta del lead, y en qué se apoyó', eventos.some((x) => x.tipo === 'enviado' && String(x.detalle).includes('escrito por la IA justo antes con lo que consta del lead')) && eventos.some((x) => x.tipo === 'adaptado' && String(x.detalle).includes('Escrito con lo que consta del lead')))
+        const notas = await m.leer('cold_lead_notes', (q) => q.eq('lead_id', leadId).eq('kind', 'email'))
+        ok('en la ficha queda lo que salió de verdad', notas.length === 1 && String(notas[0].body).includes('He pensado en lo que me comentaste de la logística'))
+
+        // el segundo seguimiento se compara con el que ya salió escrito por la IA (no con el borrador): no se repite
+        const segundo = (await m.pasos(ins.id as string))[2]
+        m.reloj.ahora = ms(segundo.programado_at) + 5_000
+        await ejecutarPasada(m.deps)
+        ok('el segundo se escribe también, y se compara con lo que realmente salió antes', m.redactados.length === 2 && m.redactados[1].anteriores.includes(TEXTO_REDACTADO) && m.redactados[1].anteriores.length === 2 && m.redactados[1].usuario.includes('[Seguimiento 1,') && m.redactados[1].system.includes('el 2 de 2'), JSON.stringify(m.redactados[1]?.anteriores.map((a) => a.slice(0, 20))))
+        ok('y también sale', m.enviados.length === 2)
+      }
+
+      // --- lo nuevo desde el último correo, destacado ---
+      {
+        const m = await crearMundo(e, { redactar: true })
+        const { resultado, leadId } = await m.secuenciaNueva(1)
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        await m.nota(leadId, { kind: 'llamada', body: 'Llamo y no contesta nadie.', cuando: T0 + 2 * HORA })
+        m.reloj.ahora = resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada(m.deps)
+        ok('lo escrito desde el último correo va en su propio bloque, además de en el historial', m.redactados.length === 1 && m.redactados[0].usuario.includes('LO NUEVO EN LA FICHA DESDE EL ÚLTIMO CORREO') && m.redactados[0].usuario.includes('Llamo y no contesta nadie.') && m.enviados.length === 1)
+      }
+
+      // --- la IA dice que mejor lo mire una persona ---
+      {
+        const m = await crearMundo(e, { redactar: true })
+        const { resultado, leadId } = await m.secuenciaNueva(1)
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        await conversacion(m, leadId, 2, T0 - 2 * DIA)
+        m.redacciones.push({ decision: 'pausar', motivo: 'En una llamada dijo que no le interesa.', texto: '' })
+        m.reloj.ahora = resultado.pasos[0].programadoAt! + 5_000
+        const r = await ejecutarPasada(m.deps)
+        const [ins] = await m.leer('correo_secuencia_inscripciones')
+        ok('no sale nada y la secuencia queda en pausa con el motivo de la IA', m.enviados.length === 0 && ins.estado === 'pausada' && ins.codigo === 'pausada_por_revision' && String(ins.motivo).includes('no le interesa') && r.pausados === 1 && r.redactados === 0, `${ins.estado}/${ins.codigo}/${ins.motivo}`)
+        const paso = (await m.pasos(ins.id as string))[1]
+        ok('el seguimiento queda «pausado», con lo que dijo la IA guardado', paso.estado === 'pausado' && JSON.stringify(paso.decision).includes('"escrito":true'))
+      }
+
+      // --- la IA no puede: se espera 5, 15 y 45 minutos y, sin nada nuevo en la ficha, sale el borrador de siempre ---
+      {
+        const m = await crearMundo(e, { redactar: true })
+        const { resultado } = await m.secuenciaNueva(1)
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        m.redacciones.push(null, null, null, null)
+        const [ins] = await m.leer('correo_secuencia_inscripciones')
+        const hora = await fijarALas10(m, ins.id as string, 1)
+        m.reloj.ahora = hora + 5_000
+        await ejecutarPasada(m.deps)
+        let paso = (await m.pasos(ins.id as string))[1]
+        ok('la primera vez que la IA no puede, se espera 5 minutos y no sale nada', m.enviados.length === 0 && ms(paso.siguiente_intento_at) === m.reloj.ahora + 5 * MIN && paso.estado === 'pendiente' && String(paso.motivo).includes('escribir'), `${paso.siguiente_intento_at} ${paso.motivo}`)
+        for (const espera of [15, 45]) {
+          m.reloj.ahora = ms(paso.siguiente_intento_at) + 1_000
+          await ejecutarPasada(m.deps)
+          paso = (await m.pasos(ins.id as string))[1]
+          ok(`y luego ${espera} minutos`, ms(paso.siguiente_intento_at) === m.reloj.ahora + espera * MIN, `${paso.siguiente_intento_at}`)
+        }
+        m.reloj.ahora = ms(paso.siguiente_intento_at) + 1_000
+        const r = await ejecutarPasada(m.deps)
+        paso = (await m.pasos(ins.id as string))[1]
+        ok('a la cuarta, sin nada nuevo en la ficha, sale el texto programado de siempre (no se deja a nadie sin seguimiento por una caída de la IA)', m.enviados.length === 1 && m.enviados[0].texto.startsWith(TEXTO_S1.trim()) && paso.texto_enviado === null && r.redactados === 0, `${m.enviados.length}`)
+      }
+      {
+        const m = await crearMundo(e, { redactar: true })
+        const { resultado, leadId } = await m.secuenciaNueva(1)
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        await m.nota(leadId, { kind: 'llamada', body: 'Llamo y no contesta.', cuando: T0 + 2 * HORA })
+        m.redacciones.push(null, null, null, null)
+        const [ins] = await m.leer('correo_secuencia_inscripciones')
+        const hora = await fijarALas10(m, ins.id as string, 1)
+        m.reloj.ahora = hora + 5_000
+        for (let i = 0; i < 4; i++) {
+          await ejecutarPasada(m.deps)
+          const paso = (await m.pasos(ins.id as string))[1]
+          if (paso.siguiente_intento_at) m.reloj.ahora = ms(paso.siguiente_intento_at) + 1_000
+        }
+        const tras = await m.uno('correo_secuencia_inscripciones', (q) => q.eq('id', ins.id))
+        ok('pero si hay algo nuevo en la ficha que la IA no ha podido leer, a la cuarta se pausa para que lo mire una persona', tras?.estado === 'pausada' && tras.codigo === 'revision_sin_ia' && m.enviados.length === 0, `${tras?.estado}/${tras?.codigo}`)
+      }
+
+      // --- en ensayo: se ve lo que escribiría la IA, sin enviar nada ---
+      {
+        const m = await crearMundo(e, { redactar: true, ensayo: true })
+        const { resultado, leadId } = await m.secuenciaNueva(1)
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        await conversacion(m, leadId, 3, T0 - 2 * DIA)
+        m.reloj.ahora = resultado.pasos[0].programadoAt! + 5_000
+        const r = await ejecutarPasada(m.deps)
+        const [ins] = await m.leer('correo_secuencia_inscripciones')
+        const paso = (await m.pasos(ins.id as string))[1]
+        const decision = paso.decision as { ensayo?: { texto?: string }; revision?: { escrito?: boolean } }
+        ok('en ensayo no sale nada, pero la IA escribe y se guarda el texto que habría enviado', m.enviados.length === 0 && r.ensayados === 1 && m.redactados.length === 1 && decision.ensayo?.texto === TEXTO_REDACTADO && decision.revision?.escrito === true, JSON.stringify(decision).slice(0, 300))
+        ok('el rastro lo cuenta con las palabras de siempre', (await m.eventos(ins.id as string)).some((x) => x.tipo === 'ensayo' && String(x.detalle).includes('escrito de nuevo con lo que consta del lead')))
+        ok('y el borrador no se toca', paso.texto === TEXTO_S1 && paso.texto_enviado === null)
+      }
+
+      // --- apagado, o sin la IA enchufada, sale lo de siempre ---
+      {
+        const m = await crearMundo(e, { redactar: false })
+        const { resultado } = await m.secuenciaNueva(1)
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        m.reloj.ahora = resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada(m.deps)
+        ok('con el ajuste apagado la IA no escribe nada: sale el texto programado', m.redactados.length === 0 && m.enviados.length === 1 && m.enviados[0].texto.startsWith(TEXTO_S1.trim()))
+      }
+      {
+        const m = await crearMundo(e, { redactar: true })
+        const { resultado } = await m.secuenciaNueva(1)
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        m.reloj.ahora = resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada({ ...m.deps, redactar: undefined })
+        ok('con el ajuste encendido pero sin la IA enchufada, también', m.redactados.length === 0 && m.enviados.length === 1 && m.enviados[0].texto.startsWith(TEXTO_S1.trim()))
+      }
+
+      // --- lo de antes de escribir sigue mandando: si contesta, no se gasta ni una llamada a la IA ---
+      {
+        const m = await crearMundo(e, { redactar: true })
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Gracias, lo vemos y os contamos.', cuando: a.resultado.pasos[0].programadoAt! - 10 * MIN })
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        const r = await ejecutarPasada(m.deps)
+        ok('si el lead ha contestado, la secuencia se corta antes de escribir nada y no se llama a la IA', r.respondidas === 1 && m.redactados.length === 0 && m.enviados.length === 0)
       }
     },
   },

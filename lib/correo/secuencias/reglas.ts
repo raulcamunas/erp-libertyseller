@@ -40,6 +40,13 @@ export interface AjustesDelMotor {
   respuestasRellamada: boolean
   /** La migración 246 está lanzada (existen las columnas de arriba). Solo se lee: no se guarda ni se cambia desde la pantalla */
   respuestasDisponible: boolean
+  /**
+   * Escribir cada seguimiento justo antes de enviarlo: la IA lo escribe de nuevo leyendo todo lo que consta del lead en ese momento (llamadas, notas, lo
+   * enviado). El texto de cuando se programó queda de borrador. Apagado, sale el de siempre (revisado con la IA solo si hay algo nuevo en la ficha)
+   */
+  redactarAlEnviar: boolean
+  /** La migración 249 está lanzada (existe la columna de arriba). Solo se lee */
+  redactarAlEnviarDisponible: boolean
 }
 
 export const RAMPA_POR_DEFECTO: TramoDeRampa[] = [
@@ -67,6 +74,8 @@ export const AJUSTES_POR_DEFECTO: AjustesDelMotor = {
   respuestasCerrarNo: true,
   respuestasRellamada: true,
   respuestasDisponible: false,
+  redactarAlEnviar: true,
+  redactarAlEnviarDisponible: false,
 }
 
 /** Cuántos días hábiles dura una secuencia por defecto: el primer correo y los seguimientos a los 3 y a los 7 */
@@ -143,6 +152,9 @@ export function leerAjustes(fila: Record<string, unknown> | null | undefined): A
     respuestasCerrarNo: fila.respuestas_cerrar_no !== false,
     respuestasRellamada: fila.respuestas_rellamada !== false,
     respuestasDisponible: 'respuestas_ia' in fila,
+    // Nace encendido (migración 249), pero SIN la migración vale lo de siempre: el texto programado, revisado solo si hay algo nuevo
+    redactarAlEnviar: fila.redactar_al_enviar !== false,
+    redactarAlEnviarDisponible: 'redactar_al_enviar' in fila,
   }
 }
 

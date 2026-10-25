@@ -1,5 +1,5 @@
 import type { ClienteDeCorreoIa } from '@/lib/correo/ia-generar'
-import { clasificarRespuestaConIa, costeAproximado, escribirSeguimientos, modeloDeSecuencias, revisarConIa } from '@/lib/correo/secuencias/ia'
+import { clasificarRespuestaConIa, costeAproximado, escribirSeguimientos, modeloDeSecuencias, redactarConIa, revisarConIa } from '@/lib/correo/secuencias/ia'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -155,6 +155,52 @@ async function main() {
     ok('IA caída: no hay decisión', caida.revision === null && /problema/.test(caida.aviso ?? ''))
     const rechazo = await revisarConIa(MENSAJES, S2, { cliente: falso([{ refusal: 'no' }]).cliente })
     ok('si se niega: no hay decisión', rechazo.revision === null)
+  }
+
+  console.log('\n=== escribir un seguimiento al enviarlo ===')
+  {
+    const NUEVO = 'Hola, te llamé el martes y no conseguimos hablar. Retomo lo que me dijiste de la logística: te preparo cómo se gestiona el stock desde el almacén y lo vemos en diez minutos cuando te venga bien. Un saludo,'
+    const buena = { decision: 'escribir', motivo: 'Retoma que no cogió la llamada del martes.', texto: NUEVO }
+    const f = falso([buena])
+    const r = await redactarConIa(MENSAJES, [PRIMERO, S1], { cliente: f.cliente })
+    ok('devuelve el texto escrito, con su motivo y sin aviso', r.redaccion?.decision === 'escribir' && r.redaccion.texto === NUEVO && r.redaccion.motivo.includes('martes') && r.aviso === null && r.llamadas === 1)
+    const a = f.llamadas[0].args
+    const formato = a.response_format as { json_schema: { name: string; strict: boolean } }
+    ok('una llamada, luna, esquema estricto, esfuerzo bajo y sin temperatura', f.llamadas.length === 1 && a.model === 'gpt-6-luna' && a.reasoning_effort === 'low' && !('temperature' in a) && formato.json_schema.strict === true && formato.json_schema.name === 'seguimiento_escrito_para_un_lead')
+    ok('cuenta lo que gasta', r.tokens?.entrada === 1500 && r.tokens?.salida === 300 && r.modelo === 'gpt-6-luna')
+
+    const pausa = await redactarConIa(MENSAJES, [PRIMERO], { cliente: falso([{ decision: 'pausar', motivo: 'En una llamada dijo que no le interesa.', texto: '' }]).cliente })
+    ok('si dice «pausar», no hay texto y queda el motivo', pausa.redaccion?.decision === 'pausar' && pausa.redaccion.texto === '' && pausa.redaccion.motivo.includes('no le interesa'))
+
+    const f2 = falso([{ decision: 'escribir', motivo: 'x', texto: 'Hola, vemos que facturáis unos 30.000 € al mes y por eso creemos que os podemos ayudar con una videollamada corta esta semana. Un saludo,' }, buena])
+    const corregida = await redactarConIa(MENSAJES, [PRIMERO], { cliente: f2.cliente })
+    ok('si el primer texto habla de dinero, se le pide una corrección y vale la segunda', corregida.redaccion?.texto === NUEVO && corregida.llamadas === 2 && f2.llamadas.length === 2)
+    const msjs = f2.llamadas[1].args.messages as Array<{ role: string; content: string }>
+    ok('la corrección le dice qué falla y lleva lo que había escrito', msjs.length === 4 && msjs[2].role === 'assistant' && msjs[3].content.includes('facturación') && msjs[3].content.includes('no vale'), msjs[3]?.content)
+
+    const mala = { decision: 'escribir', motivo: 'x', texto: 'Hola, vemos que facturáis unos 30.000 € al mes y por eso creemos que os podemos ayudar con una videollamada corta esta semana. Un saludo,' }
+    const dosMalas = await redactarConIa(MENSAJES, [PRIMERO], { cliente: falso([mala, mala]).cliente })
+    ok('si sigue mal tras la corrección, no hay texto: se dice por qué', dosMalas.redaccion === null && dosMalas.llamadas === 2 && /no pasa la revisión \(dinero\)/.test(dosMalas.aviso ?? ''), dosMalas.aviso ?? '')
+    const repite = await redactarConIa(MENSAJES, [PRIMERO, S1], { cliente: falso([{ decision: 'escribir', motivo: 'x', texto: S1 }, { decision: 'escribir', motivo: 'x', texto: S1 }]).cliente })
+    ok('un texto igual al que ya se envió no vale', repite.redaccion === null && /repite/.test(repite.aviso ?? ''))
+    const hueco = await redactarConIa(MENSAJES, [PRIMERO], { cliente: falso([{ decision: 'escribir', motivo: 'x', texto: 'Hola [Nombre], te llamé el martes y no conseguimos hablar. ¿Te viene bien que lo veamos esta semana en una videollamada corta? Un saludo,' }, buena]).cliente })
+    ok('un hueco por rellenar tampoco, pero lo corrige a la segunda', hueco.redaccion?.texto === NUEVO && hueco.llamadas === 2)
+
+    const ilegible = await redactarConIa(MENSAJES, [PRIMERO], { cliente: falso([{ raw: 'lo escribo mañana' }]).cliente })
+    ok('algo ilegible: no hay texto (quien llama espera y reintenta)', ilegible.redaccion === null && /no se entiende/.test(ilegible.aviso ?? ''))
+    const sinTexto = await redactarConIa(MENSAJES, [PRIMERO], { cliente: falso([{ decision: 'escribir', motivo: 'x', texto: '' }]).cliente })
+    ok('«escribir» sin texto no vale', sinTexto.redaccion === null)
+    const caida = await redactarConIa(MENSAJES, [PRIMERO], { cliente: falso([Object.assign(new Error('x'), { status: 503 })]).cliente })
+    ok('IA caída: no hay texto y un aviso en español', caida.redaccion === null && /problema/.test(caida.aviso ?? ''))
+    const rechazo = await redactarConIa(MENSAJES, [PRIMERO], { cliente: falso([{ refusal: 'no' }]).cliente })
+    ok('si se niega: no hay texto', rechazo.redaccion === null && /negado/.test(rechazo.aviso ?? ''))
+    const cortada = await redactarConIa(MENSAJES, [PRIMERO], { cliente: falso([{ raw: '{"decision":', corte: true }]).cliente })
+    ok('una respuesta cortada se dice', cortada.redaccion === null && /cortado/.test(cortada.aviso ?? ''))
+    const sinClave = process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEY
+    const sinIa = await redactarConIa(MENSAJES, [PRIMERO])
+    if (sinClave !== undefined) process.env.OPENAI_API_KEY = sinClave
+    ok('sin clave no lanza: dice que falta', sinIa.redaccion === null && /OPENAI_API_KEY/.test(sinIa.aviso ?? ''))
   }
 
   console.log('\n=== leer la respuesta de un lead ===')

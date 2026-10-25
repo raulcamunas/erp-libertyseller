@@ -442,6 +442,8 @@ export interface EstadoParaElCuadro {
   diasHastaNoInteresa: number
   topeHoy: number
   enviadosHoy: number
+  /** La IA escribe cada seguimiento de nuevo justo antes de enviarlo: los textos que se ven al programar son un borrador */
+  redactaAlEnviar: boolean
 }
 
 /**
@@ -456,7 +458,7 @@ export async function pantallaVisible(almacen: Almacen, quien: QuienPide): Promi
 
 /** Lo que necesita el cuadro de Correo para enseñar (o no) el bloque de seguimientos de un buzón que es de quien pregunta */
 export async function estadoParaElCuadro(almacen: Almacen, quien: QuienPide, buzonId: string, ahora: number = Date.now()): Promise<EstadoParaElCuadro> {
-  const apagado = (mensaje: string | null): EstadoParaElCuadro => ({ disponible: false, mensaje, activa: false, ensayo: false, pasos: [], diasHastaNoInteresa: 0, topeHoy: 0, enviadosHoy: 0 })
+  const apagado = (mensaje: string | null): EstadoParaElCuadro => ({ disponible: false, mensaje, activa: false, ensayo: false, pasos: [], diasHastaNoInteresa: 0, topeHoy: 0, enviadosHoy: 0, redactaAlEnviar: false })
   const lectura = await almacen.leerAjustes()
   if (!lectura) return apagado(null)
   const [base, buzones] = await Promise.all([almacen.secuenciaBase(), almacen.buzones()])
@@ -477,6 +479,7 @@ export async function estadoParaElCuadro(almacen: Almacen, quien: QuienPide, buz
     diasHastaNoInteresa: ajustes.diasHastaNoInteresa,
     topeHoy: topeDelBuzonEnElDia({ rampa: ajustes.rampa, rampaInicio: buzon.rampaInicio, topeFijo: buzon.topeDiario, dia: hoy, festivos: ajustes.festivos }),
     enviadosHoy: carga.enviadosHoy,
+    redactaAlEnviar: ajustes.redactarAlEnviar && ajustes.redactarAlEnviarDisponible,
   }
 }
 

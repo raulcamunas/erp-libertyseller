@@ -49,11 +49,13 @@ export function validarAjustes(entrada: unknown, actuales: AjustesDelMotor): Res
     ['respuestasIa', 'respuestas_ia'],
     ['respuestasCerrarNo', 'respuestas_cerrar_no'],
     ['respuestasRellamada', 'respuestas_rellamada'],
+    ['redactarAlEnviar', 'redactar_al_enviar'],
   ] as const) {
     if (entrada[clave] === undefined) continue
     if (typeof entrada[clave] !== 'boolean') return { ok: false, error: `«${clave}» tiene que ser verdadero o falso.` }
     // Sin la migración 246 la base no tiene estas columnas: se dice claro en vez de fallar al guardar
     if (clave.startsWith('respuestas') && !actuales.respuestasDisponible) return { ok: false, error: 'Falta lanzar la migración 246_correo_respuestas_ia.sql en el editor SQL de Supabase para poder cambiar esto.' }
+    if (clave === 'redactarAlEnviar' && !actuales.redactarAlEnviarDisponible) return { ok: false, error: 'Falta lanzar la migración 249_correo_redactar_al_enviar.sql en el editor SQL de Supabase para poder cambiar esto.' }
     columnas[columna] = entrada[clave]
     resultado[clave] = entrada[clave] as boolean
   }

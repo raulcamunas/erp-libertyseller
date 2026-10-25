@@ -2,7 +2,7 @@ import type { createServiceClient } from '@/lib/supabase/service'
 import type { EntradaDeEnvio } from '../enviar'
 import { cargarBuzon, enviarDesdeBuzon, sincronizarBuzonPorId } from '../servidor'
 import { almacenDeSecuencias } from './almacen'
-import { clasificarRespuestaConIa, revisarConIa } from './ia'
+import { clasificarRespuestaConIa, redactarConIa, revisarConIa } from './ia'
 import type { CodigoDeFalloDeEnvio, DependenciasDelMotor, ResultadoDelEnvio } from './motor'
 
 /**
@@ -65,5 +65,6 @@ export function dependenciasDeProduccion(service: Servicio): DependenciasDelMoto
     },
     revisar: (mensajes, original) => revisarConIa(mensajes, original),
     clasificar: (mensajes) => clasificarRespuestaConIa(mensajes),
+    redactar: (mensajes, anteriores) => redactarConIa(mensajes, anteriores),
   }
 }

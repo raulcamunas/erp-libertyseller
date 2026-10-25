@@ -55,10 +55,25 @@ export async function cargarNotas(sesion: AmazonSupabase, leadId: string): Promi
 }
 
 export async function cargarLlamadas(sesion: AmazonSupabase, leadId: string): Promise<LlamadaParaIa[]> {
-  const { data, error } = await sesion.from('rinkel_llamadas').select('fecha, direccion, duracion_s, estado').eq('lead_id', leadId).order('fecha', { ascending: false }).limit(30)
+  const { data, error } = await sesion.from('rinkel_llamadas').select('id, fecha, direccion, duracion_s, estado').eq('lead_id', leadId).order('fecha', { ascending: false }).limit(30)
   // Las llamadas son un extra: sin la tabla o sin permiso se redacta igual
   if (error) return []
-  return (data ?? []) as LlamadaParaIa[]
+  const llamadas = (data ?? []) as unknown as Array<LlamadaParaIa & { id: string }>
+  if (llamadas.length === 0) return []
+  // Lo que se habló en las que tuvieron conversación: el resumen que dejó la transcripción, el interés del cliente y el siguiente paso acordado
+  // (migración 244). Sin esa tabla, o sin permiso para leerla, las llamadas valen igual, solo que la IA sabe que hubo llamada y no de qué fue
+  const { data: transcripciones, error: errorT } = await sesion
+    .from('rinkel_transcripciones')
+    .select('llamada_id, tipo, resumen, siguiente_paso, interes')
+    .in('llamada_id', llamadas.map((l) => l.id))
+    .eq('estado', 'hecha')
+  const entendido = new Map<string, Pick<LlamadaParaIa, 'tipo' | 'resumen' | 'siguiente_paso' | 'interes'>>()
+  if (!errorT) {
+    for (const t of (transcripciones ?? []) as unknown as Array<{ llamada_id: string } & Pick<LlamadaParaIa, 'tipo' | 'resumen' | 'siguiente_paso' | 'interes'>>) {
+      entendido.set(t.llamada_id, { tipo: t.tipo, resumen: t.resumen, siguiente_paso: t.siguiente_paso, interes: t.interes })
+    }
+  }
+  return llamadas.map(({ id, ...llamada }) => ({ ...llamada, ...(entendido.get(id) ?? {}) }))
 }
 
 /* ------------------------------------------------------------------ */

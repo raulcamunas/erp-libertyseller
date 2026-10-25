@@ -29,6 +29,8 @@ export interface EstadoDelCuadro {
   diasHastaNoInteresa: number
   topeHoy: number
   enviadosHoy: number
+  /** La IA escribe cada seguimiento de nuevo justo antes de enviarlo: los textos que se ven aquí son un borrador */
+  redactaAlEnviar: boolean
 }
 
 export interface SeguimientoEditable {
@@ -340,6 +342,12 @@ export function BloqueDeSeguimientos({ seg }: { seg: Seguimientos }) {
                   <button type="button" onClick={() => void seg.generar()} className="inline-flex h-6 items-center gap-1 rounded-[5px] border border-[var(--ls-linea2)] px-2 font-medium text-[var(--ls-t1)] hover:bg-[var(--ls-sup3)]">
                     <RefreshCw className="h-3 w-3" aria-hidden /> Reescribirlos
                   </button>
+                </p>
+              )}
+              {e.redactaAlEnviar && (
+                <p className="flex items-start gap-1.5 rounded-[8px] bg-[var(--ls-sup2)] px-2.5 py-1.5 text-[11.5px] leading-snug text-[var(--ls-t3)]">
+                  <Sparkles className="mt-px h-3.5 w-3.5 shrink-0 text-[var(--ls-acc)]" aria-hidden />
+                  <span>Estos textos son el borrador. Justo antes de enviar cada seguimiento, la IA lo escribe de nuevo con todo lo que haya pasado hasta entonces (llamadas, notas, lo que se le haya enviado). Si no puede, sale este.</span>
                 </p>
               )}
               <ul className="space-y-2">

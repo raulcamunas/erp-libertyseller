@@ -7,12 +7,12 @@ import type { AlmacenDeSecuencias, LeadDelMotor, NotaLeida, LlamadaLeida } from 
 import { constructorDeCapacidad } from './capacidad'
 import { decidirSalida, evaluarParada, type Decision, type HechosDeParada, type HechosDeSalida, type NotaParaControl } from './control'
 import { diaCorto, diaDeMadrid, horaDeMadrid, instanteDeMadrid, siguienteDiaHabil, sumarDiasHabiles } from './fechas'
-import type { ResultadoDeClasificacionConIa, ResultadoDeRevisionConIa } from './ia'
+import type { ResultadoDeClasificacionConIa, ResultadoDeRedaccionConIa, ResultadoDeRevisionConIa } from './ia'
 import { leerRespuestasDeLosLeads } from './leer-respuestas'
 import { planificar, type Asignacion } from './planificador'
 import { DOMINIOS_LIBRES, dominioDeDireccion, esDominioLibre, topeDelBuzonEnElDia, type AjustesDelMotor } from './reglas'
 import { lecturaDelBuzon, type EntranteParaControl } from './respuestas'
-import { construirEncargoDeRevision, type NotaParaRevisar } from './seguimientos'
+import { construirEncargoDeRedaccion, construirEncargoDeRevision, type NotaParaRevisar } from './seguimientos'
 import { ESTADOS_DE_PASO_ABIERTOS, type BuzonDelMotor, type DecisionGuardada, type InscripcionDelMotor, type PasoDelMotor, type TipoDeEvento } from './tipos'
 
 /**
@@ -78,6 +78,8 @@ export interface DependenciasDelMotor {
   revisar: (mensajes: { system: string; usuario: string }, original: string) => Promise<ResultadoDeRevisionConIa>
   /** La IA que lee lo que contesta un lead (ia.ts). Sin ella no se leen las respuestas (el resto del motor sigue igual) */
   clasificar?: (mensajes: { system: string; usuario: string }) => Promise<ResultadoDeClasificacionConIa>
+  /** La IA que escribe cada seguimiento justo antes de enviarlo, con todo el historial del lead (ia.ts). Sin ella, o con el ajuste apagado, sale el texto programado */
+  redactar?: (mensajes: { system: string; usuario: string }, anteriores: readonly string[]) => Promise<ResultadoDeRedaccionConIa>
   nuevoId?: () => string
 }
 
@@ -106,6 +108,8 @@ export interface ResumenDePasada {
   pausados: number
   fallidos: number
   ensayados: number
+  /** Seguimientos que la IA ha escrito de nuevo justo antes de enviarlos (o de ensayarlos) con el historial del lead */
+  redactados: number
   /** Respuestas de leads leídas con IA, y de ellas cuántas han cerrado un lead, puesto una rellamada o se han dado por falladas */
   respuestasLeidas: number
   respuestasCerradas: number
@@ -168,7 +172,7 @@ const CLASE_DE_NOTA: Record<string, string> = { llamada: 'llamada', email: 'corr
 const motivoCorto = (m: string): string => m.replace(/\s+/g, ' ').trim().slice(0, 300)
 
 function resumenVacio(): ResumenDePasada {
-  return { saltado: null, vigilados: 0, respondidas: 0, rebotes: 0, frenos: 0, noInteresa: 0, reprogramados: 0, planificados: 0, sinHueco: 0, reservados: 0, enviados: 0, aplazados: 0, parados: 0, pausados: 0, fallidos: 0, ensayados: 0, respuestasLeidas: 0, respuestasCerradas: 0, respuestasConRellamada: 0, respuestasFallidas: 0, errores: [], resumen: '' }
+  return { saltado: null, vigilados: 0, respondidas: 0, rebotes: 0, frenos: 0, noInteresa: 0, reprogramados: 0, planificados: 0, sinHueco: 0, reservados: 0, enviados: 0, aplazados: 0, parados: 0, pausados: 0, fallidos: 0, ensayados: 0, redactados: 0, respuestasLeidas: 0, respuestasCerradas: 0, respuestasConRellamada: 0, respuestasFallidas: 0, errores: [], resumen: '' }
 }
 
 function redactarResumen(r: ResumenDePasada): string {
@@ -179,6 +183,7 @@ function redactarResumen(r: ResumenDePasada): string {
   }
   si(r.enviados, r.enviados === 1 ? 'enviado' : 'enviados')
   si(r.ensayados, 'en ensayo')
+  si(r.redactados, r.redactados === 1 ? 'escrito con el historial' : 'escritos con el historial')
   si(r.aplazados, r.aplazados === 1 ? 'aplazado' : 'aplazados')
   si(r.respondidas, r.respondidas === 1 ? 'respuesta' : 'respuestas')
   si(r.respuestasLeidas, r.respuestasLeidas === 1 ? 'respuesta leída con IA' : 'respuestas leídas con IA')
@@ -638,9 +643,28 @@ async function procesarPaso(deps: DependenciasDelMotor, ajustes: AjustesDelMotor
   let textoFinal = paso.texto
   let revision: DecisionGuardada['revision'] | undefined
   let revisadoConIa = false
+  let escrito = false
   const sinHacer = (): ResultadoDeRevisionConIa | null => null
 
-  if (decision.revisarConIa) {
+  if (ajustes.redactarAlEnviar && ajustes.redactarAlEnviarDisponible && deps.redactar) {
+    // La IA escribe el seguimiento de nuevo con todo lo que consta del lead ahora mismo (y puede decir que mejor lo mire una persona)
+    const w = await redactarAlEnviar(deps, buzon, ins, pasos, paso, decision, lead, notas, llamadas, r)
+    if (w.tipo === 'terminado') return
+    if (w.tipo === 'texto') {
+      revisadoConIa = true
+      escrito = true
+      revision = w.revision
+      if (w.revision.decision === 'pausar' && !ajustes.modoEnsayo) {
+        await pausarPorRevision(deps, ins, paso, w.revision.motivo, r, true)
+        return
+      }
+      if (w.revision.decision === 'adaptar') {
+        textoFinal = w.texto
+        r.redactados++
+      }
+    }
+    // Si la IA no ha podido y no hay nada nuevo en la ficha, sale el texto que se programó
+  } else if (decision.revisarConIa) {
     revisadoConIa = true
     const encargo = construirEncargoDeRevision({
       contexto: contextoParaIa({ lead: lead ?? ({} as LeadDelMotor), notas: notasParaIa(notas), llamadas: llamadasParaIa(llamadas), correos: correosEnviados(ins, pasos), ahora: reloj() }),
@@ -670,11 +694,62 @@ async function procesarPaso(deps: DependenciasDelMotor, ajustes: AjustesDelMotor
   }
 
   if (ajustes.modoEnsayo) {
-    await anotarEnsayo(deps, ins, paso, decision, textoFinal !== paso.texto, revision, r)
+    await anotarEnsayo(deps, ins, paso, decision, textoFinal !== paso.texto, revision, textoFinal, r)
     return
   }
 
-  await enviarSeguimiento(deps, ajustes, buzon, ins, pasos, paso, textoFinal, { adaptado: textoFinal !== paso.texto, revisadoConIa, revision, motivo: decision.motivo }, r)
+  await enviarSeguimiento(deps, ajustes, buzon, ins, pasos, paso, textoFinal, { adaptado: textoFinal !== paso.texto, revisadoConIa, revision, motivo: decision.motivo, escrito }, r)
+}
+
+/**
+ * La IA escribe el seguimiento justo antes de enviarlo, con todo lo que consta del lead (llamadas con lo que se habló, notas, lo enviado). Devuelve:
+ *   · `texto`: lo escrito (decisión «adaptar») o la orden de pausar con su motivo («pausar»).
+ *   · `borrador`: la IA no ha podido tras varios intentos y NO hay nada nuevo en la ficha: sale el texto que se programó, como siempre.
+ *   · `terminado`: el paso ya está resuelto (a la espera de que la IA pueda, o en pausa porque lo tiene que mirar una persona).
+ */
+type ResultadoDeRedactar = { tipo: 'texto'; texto: string; revision: NonNullable<DecisionGuardada['revision']> } | { tipo: 'borrador' } | { tipo: 'terminado' }
+
+async function redactarAlEnviar(
+  deps: DependenciasDelMotor,
+  buzon: BuzonDelMotor,
+  ins: InscripcionDelMotor,
+  pasos: readonly PasoDelMotor[],
+  paso: PasoDelMotor,
+  decision: Extract<Decision, { accion: 'enviar' }>,
+  lead: LeadDelMotor | null,
+  notas: readonly NotaLeida[],
+  llamadas: readonly LlamadaLeida[],
+  r: ResumenDePasada
+): Promise<ResultadoDeRedactar> {
+  const { almacen } = deps
+  const reloj = deps.ahora ?? Date.now
+  const enviadosAntes = pasos.filter((p) => p.estado === 'enviado' && p.orden < paso.orden)
+  const encargo = construirEncargoDeRedaccion({
+    contexto: contextoParaIa({ lead: lead ?? ({} as LeadDelMotor), notas: notasParaIa(notas), llamadas: llamadasParaIa(llamadas), correos: correosEnviados(ins, pasos), ahora: reloj() }),
+    seguimiento: { numero: paso.orden, de: pasos.filter((p) => p.orden > 0).length, asunto: paso.asunto, borrador: paso.texto },
+    enviadosAntes: enviadosAntes.map((p) => ({ hace: hace(iso(p.enviadoAt ?? ins.primerEnvioAt), reloj()), texto: p.textoEnviado ?? p.texto })),
+    notasNuevas: decision.notasNuevas.map((n) => notaParaRevisar(n, reloj())),
+    miNombre: buzon.nombre,
+    tieneFirma: (buzon.firma ?? '').trim() !== '',
+  })
+  const resultado = await deps.redactar!(encargo, enviadosAntes.map((p) => p.textoEnviado ?? p.texto))
+  if (resultado.redaccion) {
+    const { decision: queDice, motivo, texto } = resultado.redaccion
+    return queDice === 'pausar' ? { tipo: 'texto', texto: paso.texto, revision: { decision: 'pausar', motivo, escrito: true } } : { tipo: 'texto', texto, revision: { decision: 'adaptar', motivo, escrito: true } }
+  }
+
+  // La IA no ha podido: se espera y se reintenta (5, 15 y 45 minutos)
+  const intento = paso.intentos
+  if (intento >= REINTENTOS_DE_IA_MS.length + 1) {
+    // Sin nada nuevo en la ficha, el texto programado sigue valiendo; con algo nuevo que no se ha podido leer, lo mira una persona
+    if (!decision.revisarConIa) return { tipo: 'borrador' }
+    await pausarPorProblema(deps, ins, paso, 'La IA no ha podido escribir el seguimiento con lo nuevo de la ficha: lo tiene que mirar una persona.', 'revision_sin_ia', r)
+    return { tipo: 'terminado' }
+  }
+  const espera = REINTENTOS_DE_IA_MS[Math.min(intento - 1, REINTENTOS_DE_IA_MS.length - 1)]
+  await almacen.soltarPaso(paso.id, { siguienteIntentoAt: reloj() + espera, motivo: 'Esperando a que la IA pueda escribir el seguimiento.' }, reloj())
+  r.aplazados++
+  return { tipo: 'terminado' }
 }
 
 /* ---- lo que se le cuenta a la IA y se lee del lead ---- */
@@ -684,7 +759,7 @@ function notasParaIa(notas: readonly NotaLeida[]): NotaParaIa[] {
 }
 
 function llamadasParaIa(llamadas: readonly LlamadaLeida[]): LlamadaParaIa[] {
-  return llamadas.map((l) => ({ fecha: l.fecha, direccion: l.direccion, duracion_s: l.duracion_s, estado: l.estado }))
+  return llamadas.map((l) => ({ fecha: l.fecha, direccion: l.direccion, duracion_s: l.duracion_s, estado: l.estado, tipo: l.tipo, resumen: l.resumen, siguiente_paso: l.siguientePaso, interes: l.interes }))
 }
 
 /** Los correos de esta secuencia que ya han salido, para que la IA sepa qué se le ha dicho */
@@ -775,11 +850,11 @@ async function pausarPorProblema(deps: DependenciasDelMotor, ins: InscripcionDel
   r.pausados++
 }
 
-async function pausarPorRevision(deps: DependenciasDelMotor, ins: InscripcionDelMotor, paso: PasoDelMotor, motivoDeLaIa: string, r: ResumenDePasada): Promise<void> {
+async function pausarPorRevision(deps: DependenciasDelMotor, ins: InscripcionDelMotor, paso: PasoDelMotor, motivoDeLaIa: string, r: ResumenDePasada, escrito = false): Promise<void> {
   const motivo = `La IA ha pausado este seguimiento: ${motivoCorto(motivoDeLaIa)}`
   const { almacen } = deps
   const ahora = (deps.ahora ?? Date.now)()
-  await almacen.marcarPaso(paso.id, 'pausado', { motivo, decision: { en: ahora, accion: 'pausar', codigo: 'revision', motivo, revisadoConIa: true, revision: { decision: 'pausar', motivo: motivoDeLaIa } } }, ahora)
+  await almacen.marcarPaso(paso.id, 'pausado', { motivo, decision: { en: ahora, accion: 'pausar', codigo: 'revision', motivo, revisadoConIa: true, revision: { decision: 'pausar', motivo: motivoDeLaIa, ...(escrito ? { escrito: true } : {}) } } }, ahora)
   await almacen.cambiarInscripcion(ins.id, { estado: 'pausada', motivo, codigo: 'pausada_por_revision' }, ahora)
   await almacen.apuntarEvento({ inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'pausado', detalle: motivo }, ahora)
   r.pausados++
@@ -788,11 +863,21 @@ async function pausarPorRevision(deps: DependenciasDelMotor, ins: InscripcionDel
 /* ---- ensayo ---- */
 
 /** En ensayo no sale nada: se apunta lo que habría pasado y el paso se aparca lejos, hasta que se salga del ensayo */
-async function anotarEnsayo(deps: DependenciasDelMotor, ins: InscripcionDelMotor, paso: PasoDelMotor, d: Extract<Decision, { accion: 'enviar' }>, adaptado: boolean, revision: DecisionGuardada['revision'] | undefined, r: ResumenDePasada): Promise<void> {
+async function anotarEnsayo(deps: DependenciasDelMotor, ins: InscripcionDelMotor, paso: PasoDelMotor, d: Extract<Decision, { accion: 'enviar' }>, adaptado: boolean, revision: DecisionGuardada['revision'] | undefined, textoFinal: string, r: ResumenDePasada): Promise<void> {
   const { almacen } = deps
   const ahora = (deps.ahora ?? Date.now)()
-  const que = revision?.decision === 'pausar' ? `habría dejado la secuencia en pausa (${motivoCorto(revision.motivo)})` : adaptado ? 'habría enviado el seguimiento adaptado a lo nuevo de la ficha' : 'habría enviado el seguimiento'
-  const decision: DecisionGuardada = { en: ahora, accion: 'ensayo', motivo: d.motivo, revisadoConIa: d.revisarConIa, ...(revision ? { revision } : {}), ensayo: { accion: revision?.decision === 'pausar' ? 'pausar' : 'enviar', motivo: que, en: ahora } }
+  const escrito = revision?.escrito === true
+  const que =
+    revision?.decision === 'pausar'
+      ? `habría dejado la secuencia en pausa (${motivoCorto(revision.motivo)})`
+      : escrito && adaptado
+        ? 'habría enviado el seguimiento escrito de nuevo con lo que consta del lead'
+        : adaptado
+          ? 'habría enviado el seguimiento adaptado a lo nuevo de la ficha'
+          : 'habría enviado el seguimiento'
+  // Con un seguimiento escrito de nuevo, el ensayo guarda el texto: es lo que deja ver qué enviaría la IA antes de pasar a envío real
+  const ensayo = { accion: revision?.decision === 'pausar' ? 'pausar' : 'enviar', motivo: que, en: ahora, ...(escrito && adaptado ? { texto: textoFinal.slice(0, 2500) } : {}) }
+  const decision: DecisionGuardada = { en: ahora, accion: 'ensayo', motivo: d.motivo, revisadoConIa: d.revisarConIa || escrito, ...(revision ? { revision } : {}), ensayo }
   await almacen.soltarPaso(paso.id, { siguienteIntentoAt: ahora + APARCADO_DE_ENSAYO_MS, intentos: Math.max(0, paso.intentos - 1), decision }, ahora)
   await almacen.apuntarEvento({ inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'ensayo', detalle: `Ensayo: ${que}.` }, ahora)
   r.ensayados++
@@ -808,7 +893,7 @@ async function enviarSeguimiento(
   pasos: readonly PasoDelMotor[],
   paso: PasoDelMotor,
   texto: string,
-  como: { adaptado: boolean; revisadoConIa: boolean; revision: DecisionGuardada['revision'] | undefined; motivo: string },
+  como: { adaptado: boolean; revisadoConIa: boolean; revision: DecisionGuardada['revision'] | undefined; motivo: string; escrito?: boolean },
   r: ResumenDePasada
 ): Promise<void> {
   const { almacen } = deps
@@ -844,10 +929,10 @@ async function enviarSeguimiento(
     r.enviados++
     const total = pasos.filter((p) => p.orden > 0).length
     await almacen.apuntarEvento(
-      { inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'enviado', detalle: `Seguimiento ${paso.orden} de ${total} enviado a las ${horaDeMadrid(enviadoAt)}${como.adaptado ? ', adaptado por la IA a lo nuevo de la ficha' : ''}${!resultado.ok ? '. Salió, pero no se pudo guardar una copia en el ERP: míralo en la carpeta Enviados del webmail' : ''}.` },
+      { inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'enviado', detalle: `Seguimiento ${paso.orden} de ${total} enviado a las ${horaDeMadrid(enviadoAt)}${como.adaptado ? (como.escrito ? ', escrito por la IA justo antes con lo que consta del lead' : ', adaptado por la IA a lo nuevo de la ficha') : ''}${!resultado.ok ? '. Salió, pero no se pudo guardar una copia en el ERP: míralo en la carpeta Enviados del webmail' : ''}.` },
       ahora
     )
-    if (como.adaptado) await almacen.apuntarEvento({ inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'adaptado', detalle: como.revision?.motivo ?? 'Adaptado por la IA.' }, ahora)
+    if (como.adaptado) await almacen.apuntarEvento({ inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'adaptado', detalle: como.revision?.motivo ?? (como.escrito ? 'Escrito por la IA con lo que consta del lead.' : 'Adaptado por la IA.') }, ahora)
     await almacen.apuntarNotaEnLead({
       leadId: ins.leadId,
       cuerpo: `Seguimiento automático ${paso.orden} de ${total} · correo enviado a ${ins.destinatario}\nAsunto: ${paso.asunto}\n\n${cuerpo}`.slice(0, 8000),

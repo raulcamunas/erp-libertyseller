@@ -330,7 +330,10 @@ export interface PasoDeDetalle extends PasoDeCola {
   textoEnviado: string | null
   messageId: string | null
   intentos: number
-  revision: { decision: string; motivo: string } | null
+  /** Lo que dijo la IA al leer la ficha antes de enviar o, si `escrito`, al escribir el seguimiento con todo el historial del lead */
+  revision: { decision: string; motivo: string; escrito?: boolean } | null
+  /** En ensayo: el texto que habría enviado la IA al escribir el seguimiento con el historial (el borrador no se toca) */
+  textoDeEnsayo: string | null
 }
 
 export interface EventoDeDetalle {
@@ -356,7 +359,7 @@ export function armarDetalle(e: { item: ItemDeCola; pasos: readonly PasoDelMotor
     secuencia: e.item,
     pasos: e.item.pasos.map((p) => {
       const fuente = porId.get(p.id)
-      return { ...p, texto: fuente?.texto ?? '', textoEnviado: fuente?.textoEnviado ?? null, messageId: fuente?.messageId ?? null, intentos: fuente?.intentos ?? 0, revision: fuente?.decision?.revision ?? null }
+      return { ...p, texto: fuente?.texto ?? '', textoEnviado: fuente?.textoEnviado ?? null, messageId: fuente?.messageId ?? null, intentos: fuente?.intentos ?? 0, revision: fuente?.decision?.revision ?? null, textoDeEnsayo: fuente?.decision?.ensayo?.texto ?? null }
     }),
     eventos: e.eventos.map((x) => ({ id: x.id, tipo: x.tipo, detalle: x.detalle, en: x.en, pasoId: x.pasoId })),
     permisos: e.permisos,

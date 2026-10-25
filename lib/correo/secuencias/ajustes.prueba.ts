@@ -86,6 +86,23 @@ console.log('\n=== las respuestas de los leads ===')
   ok('pasar a envío real sigue pidiendo confirmación aunque se toque esto a la vez', err(validarAjustes({ activa: true, modoEnsayo: false, respuestasIa: true }, B)).includes('confirmar'))
 }
 
+console.log('\n=== escribir cada seguimiento al enviarlo ===')
+{
+  const C = { ...A, redactarAlEnviarDisponible: true }
+  const r = validarAjustes({ redactarAlEnviar: false }, C)
+  ok('apagarlo guarda esa columna y deja lo demás', r.ok && r.cambios.columnas.redactar_al_enviar === false && Object.keys(r.cambios.columnas).length === 1 && r.cambios.resultado.redactarAlEnviar === false)
+  ok('y volver a encenderlo', validarAjustes({ redactarAlEnviar: true }, { ...C, redactarAlEnviar: false }).ok)
+  ok('un valor que no es verdadero o falso', err(validarAjustes({ redactarAlEnviar: 'sí' }, C)).includes('verdadero o falso'))
+  ok('sin la migración 249 se dice claro en vez de fallar al guardar', err(validarAjustes({ redactarAlEnviar: false }, A)).includes('249_correo_redactar_al_enviar.sql'))
+  ok('«redactarAlEnviarDisponible» no se puede cambiar desde fuera', err(validarAjustes({ redactarAlEnviarDisponible: true }, A)).includes('ningún cambio'))
+  const sin = leerAjustes({ id: true, activa: true })
+  ok('una base sin la migración 249: no hay columna, se nota y vale el comportamiento de siempre (disponible = false)', sin.redactarAlEnviarDisponible === false && sin.redactarAlEnviar === true)
+  const con = leerAjustes({ id: true, redactar_al_enviar: false })
+  ok('con la migración se lee tal cual', con.redactarAlEnviarDisponible === true && con.redactarAlEnviar === false)
+  ok('un nulo no lo apaga: solo un «false» de verdad', leerAjustes({ id: true, redactar_al_enviar: null }).redactarAlEnviar === true)
+  ok('sin fila (ni tabla): no disponible', leerAjustes(null).redactarAlEnviarDisponible === false)
+}
+
 console.log('\n=== leer los ajustes de la base ===')
 {
   const sin = leerAjustes({ id: true, activa: true, modo_ensayo: false })
