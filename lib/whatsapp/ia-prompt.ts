@@ -76,10 +76,38 @@ export const ENFOQUES_DE_APERTURA: readonly string[] = [
   'Tono muy informal y cercano, como entre dos personas del mismo sector.',
 ]
 
-/** El enfoque que toca para un número entre 0 (incluido) y 1 (excluido): `Math.random()` en la ruta, un valor fijo en las pruebas */
+/**
+ * Formas de cerrar el mensaje. Probando con la API real, con o sin enfoque de apertura, los dos modelos acaban cerrando casi todos los mensajes igual («¿Prefieres
+ * que te lo cuente por aquí?» en la mitad): el cierre se reparte al azar como la apertura.
+ */
+export const CIERRES_DE_MENSAJE: readonly string[] = [
+  'Cierra preguntando cuándo le viene bien que le llames.',
+  'Cierra proponiendo una videollamada breve de unos diez minutos.',
+  'Cierra ofreciendo contárselo por aquí mismo, si prefiere no hablar por teléfono.',
+  'Cierra con una pregunta que se conteste con una palabra: si le interesa que se lo cuentes.',
+  'Cierra preguntando qué día de esta semana le encaja mejor para hablar.',
+]
+
+const elegirDe = (lista: readonly string[], aleatorio: number): string => lista[Math.min(lista.length - 1, Math.max(0, Math.floor(aleatorio * lista.length)))]
+
+/** El enfoque de apertura que toca para un número entre 0 (incluido) y 1 (excluido): `Math.random()` en la ruta, un valor fijo en las pruebas */
 export function elegirEnfoque(aleatorio: number): string {
-  const i = Math.min(ENFOQUES_DE_APERTURA.length - 1, Math.max(0, Math.floor(aleatorio * ENFOQUES_DE_APERTURA.length)))
-  return ENFOQUES_DE_APERTURA[i]
+  return elegirDe(ENFOQUES_DE_APERTURA, aleatorio)
+}
+
+/** La forma de cerrar que toca para un número entre 0 (incluido) y 1 (excluido) */
+export function elegirCierre(aleatorio: number): string {
+  return elegirDe(CIERRES_DE_MENSAJE, aleatorio)
+}
+
+/**
+ * Cómo empezar y cómo cerrar ESTE mensaje, al azar. Solo cuando nadie ha pedido nada concreto (lo que pide el comercial manda siempre) y NO en el de después de
+ * hablar: ese se apoya en lo que se habló y en lo acordado, y una pregunta o un cierre al azar lo descolocaría (probado con la API real: abría con una pregunta
+ * sobre su negocio justo después de darle las gracias por la llamada).
+ */
+export function enfoqueDelMensaje(e: { situacion: SituacionDeWhatsapp; pideAlgo: boolean; aleatorio: () => number }): string | null {
+  if (e.pideAlgo || e.situacion === 'tras_hablar') return null
+  return `${elegirEnfoque(e.aleatorio())} ${elegirCierre(e.aleatorio())}`
 }
 
 /** El sistema entero. Es el mismo para todos los momentos: el momento va en el mensaje del encargo, junto a los datos del lead */

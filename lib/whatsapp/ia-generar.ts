@@ -22,11 +22,13 @@ import { AVISO_DE_PROBLEMA, revisarMensajeDeWhatsapp, type ProblemaDeWhatsapp } 
  * todo el ERP, `gpt-6-luna`): igual que en el correo, un mensaje del que depende una conversación con un cliente no es donde ahorrar. Cómo se pide un modelo
  * que razona (sin temperature, con max_completion_tokens y reasoning_effort) lo decide lib/ia/modelo.ts, igual que en las demás pantallas.
  *
- * Por qué ése (probado el 25 oct 2026 con 10 leads de situaciones distintas, el mismo encargo y los dos modelos): los dos resisten una nota que da órdenes
- * a la IA y ninguno habla de dinero, pero `gpt-5.6-terra` escribe mensajes más cortos y naturales (39-50 palabras frente a 41-55), sigue mejor las reglas
- * («nunca preguntes si ya vende en Amazon») y contesta antes (1,9 s de media frente a 3,2 s: `gpt-6-luna` gasta más en pensar). Cuesta unas diez veces más
- * por mensaje (ESTIMADO con los precios de rastreadores de terceros, no medido: del orden de 0,004 $ frente a 0,0004 $): a 200 mensajes al día, unos 24 $ al mes
- * frente a 2 $. Si se quiere lo más barato, WHATSAPP_IA_MODELO=gpt-6-luna.
+ * Por qué ése (probado el 25 oct 2026 con 10 leads de situaciones distintas, el mismo encargo y los dos modelos, midiendo lo que cobra OpenAI): los dos resisten una
+ * nota que da órdenes a la IA, ninguno habla de dinero y los 10 mensajes de cada uno salieron limpios a la primera. `gpt-5.6-terra` (2 $ por millón de tokens de
+ * entrada, 0,20 en caché, 12 de salida) contesta en 1,9 s de media con mensajes de 38 palabras y más variados; `gpt-6-luna` (0,10 / 0,01 / 0,50) tarda 4,1 s (hasta
+ * 7 s: gasta 166 tokens de media en pensar, terra ninguno), escribe 42 palabras y abre casi siempre igual («Hola, soy Raúl de Liberty Seller.»). Coste MEDIDO por
+ * mensaje, con unos 2.500 tokens de entrada (unos 2.000 en caché si se ha usado hace poco; a la primera tras un rato sin usarlo no hay caché): terra 0,0024 $ con la
+ * caché caliente y 0,0061 $ sin ella; luna 0,0002 $ y 0,0004 $. Unas 11 a 16 veces más barato luna. A 200 mensajes al día en 22 días (4.400 al mes): terra de 11 a
+ * 27 $, luna de 1 a 2 $. Si se prefiere lo barato, WHATSAPP_IA_MODELO=gpt-6-luna.
  */
 
 export const MODELO_DE_WHATSAPP_POR_DEFECTO = 'gpt-5.6-terra'

@@ -6,7 +6,7 @@ import { costeAproximado } from '@/lib/correo/secuencias/ia'
 import { leerCuerpoConTope } from '@/lib/subidas-limite'
 import { escribirWhatsappConIa } from '@/lib/whatsapp/ia-generar'
 import { pedirPermiso } from '@/lib/whatsapp/ia-limite'
-import { construirEncargoDeWhatsapp, contextoParaWhatsapp, elegirEnfoque, whatsappsAnteriores } from '@/lib/whatsapp/ia-prompt'
+import { construirEncargoDeWhatsapp, contextoParaWhatsapp, enfoqueDelMensaje, whatsappsAnteriores } from '@/lib/whatsapp/ia-prompt'
 import { LEAD_SIN_WHATSAPP, esSituacionDeWhatsapp, nombreDePila, nombreParaElMensaje, situacionDelLead } from '@/lib/whatsapp/mensajes'
 
 /**
@@ -73,8 +73,8 @@ export async function POST(request: NextRequest) {
       indicaciones,
       anterior,
       yaEscritos: whatsappsAnteriores(notas),
-      // Sin nada concreto que pedir, una forma de empezar al azar: así los mensajes del equipo no salen todos con el mismo esqueleto
-      enfoque: indicaciones || anterior ? null : elegirEnfoque(Math.random()),
+      // Sin nada concreto que pedir (y fuera del mensaje de después de hablar), una forma de empezar y de cerrar al azar: así los mensajes del equipo no salen todos con el mismo esqueleto
+      enfoque: enfoqueDelMensaje({ situacion, pideAlgo: Boolean(indicaciones || anterior), aleatorio: Math.random }),
     })
     const resultado = await escribirWhatsappConIa(mensajes, whatsappsAnteriores(notas))
     // Qué se ha gastado y con qué, sin el texto: es contenido de un lead

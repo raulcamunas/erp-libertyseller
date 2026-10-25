@@ -3,13 +3,16 @@ import { cuerpoDelApunteDeWhatsapp, SITUACIONES_DE_WHATSAPP, ETIQUETA_DE_SITUACI
 import {
   COMO_ES_UN_WHATSAPP,
   DESCRIPCION_DEL_MOMENTO,
+  CIERRES_DE_MENSAJE,
   ENFOQUES_DE_APERTURA,
   ESQUEMA_DE_WHATSAPP,
   EJEMPLOS_DE_TONO,
   construirEncargoDeWhatsapp,
   construirSistemaDeWhatsapp,
   contextoParaWhatsapp,
+  elegirCierre,
   elegirEnfoque,
+  enfoqueDelMensaje,
   leerMensajeDeWhatsapp,
   mensajeDeCorreccionDeWhatsapp,
   resumenDeCanales,
@@ -149,6 +152,21 @@ console.log('\n=== el encargo ===')
   ok('sin enfoque no hay bloque', !e.usuario.includes('FORMA DE ESTE MENSAJE'))
   ok('si hay un mensaje que cambiar, manda lo que pide el comercial y el enfoque sobra', !construirEncargoDeWhatsapp({ ...base, situacion: 'primer_contacto', enfoque: elegirEnfoque(0), anterior: 'Hola, soy Raúl. ¿Hablamos?' }).usuario.includes('FORMA DE ESTE MENSAJE'))
   ok('el enfoque sale de la lista para cualquier número entre 0 y 1, incluso fuera de rango', [0, 0.2, 0.5, 0.99, 1, -3, 7].every((n) => ENFOQUES_DE_APERTURA.includes(elegirEnfoque(n))) && new Set([0, 0.25, 0.45, 0.65, 0.85].map(elegirEnfoque)).size === ENFOQUES_DE_APERTURA.length)
+
+  ok('el cierre sale de la lista para cualquier número entre 0 y 1, incluso fuera de rango, y salen todos', [0, 0.2, 0.5, 0.99, 1, -3, 7].every((n) => CIERRES_DE_MENSAJE.includes(elegirCierre(n))) && new Set([0, 0.25, 0.45, 0.65, 0.85].map(elegirCierre)).size === CIERRES_DE_MENSAJE.length)
+
+  const aleatorios = (...xs: number[]) => {
+    let i = 0
+    return () => xs[i++ % xs.length]
+  }
+  const frio = enfoqueDelMensaje({ situacion: 'primer_contacto', pideAlgo: false, aleatorio: aleatorios(0, 0.5) })
+  ok('en un primer contacto lleva cómo empezar y cómo cerrar, cada uno con su número', frio === `${elegirEnfoque(0)} ${elegirCierre(0.5)}`, String(frio))
+  ok('en «te he llamado y no contesta» también', enfoqueDelMensaje({ situacion: 'no_contesta', pideAlgo: false, aleatorio: Math.random })?.includes('Cierra') === true)
+  ok('después de hablar NO: se apoya en lo hablado y en lo acordado', enfoqueDelMensaje({ situacion: 'tras_hablar', pideAlgo: false, aleatorio: Math.random }) === null)
+  ok('si el comercial pide algo (indicaciones o un mensaje que cambiar), manda lo suyo', enfoqueDelMensaje({ situacion: 'primer_contacto', pideAlgo: true, aleatorio: Math.random }) === null)
+  ok('con números distintos salen formas distintas', new Set([0, 0.3, 0.6, 0.9].map((n) => enfoqueDelMensaje({ situacion: 'no_contesta', pideAlgo: false, aleatorio: () => n }))).size === 4)
+  const completo = construirEncargoDeWhatsapp({ ...base, situacion: 'no_contesta', enfoque: frio })
+  ok('el encargo lleva las dos indicaciones en el bloque de la forma del mensaje', completo.usuario.includes('FORMA DE ESTE MENSAJE') && completo.usuario.includes(elegirEnfoque(0)) && completo.usuario.includes(elegirCierre(0.5)))
 
   const ya = construirEncargoDeWhatsapp({ ...base, situacion: 'no_contesta', yaEscritos: ['Hola, soy Raúl de Liberty Seller.\n\n¿Hablamos?', '', 'Otro', 'Otro más', 'Uno de más'] })
   ok('lleva lo ya escrito por WhatsApp (tres como mucho, en una línea cada uno)', ya.usuario.includes('LO QUE YA SE LE ESCRIBIÓ POR WHATSAPP') && ya.usuario.includes('- Hola, soy Raúl de Liberty Seller. ¿Hablamos?') && !ya.usuario.includes('Uno de más') && ya.usuario.includes('- Otro más'))
