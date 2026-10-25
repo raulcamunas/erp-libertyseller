@@ -28,6 +28,7 @@ import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, InsigniaDeNivel, Tecla, tinte } from './ui'
 import { AnadirContacto } from './AnadirContacto'
+import { BotonDeWhatsapp } from './BotonDeWhatsapp'
 import { useEscribirAlLead } from './useEscribirAlLead'
 
 /**
@@ -317,6 +318,9 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               <Sparkles className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden /> Correo con IA
             </button>
           )}
+          {/* Abre el chat del móvil del lead con el mensaje ya escrito y lo apunta en su historial (components/cold-calling/BotonDeWhatsapp.tsx).
+              A un autónomo no se le llama en frío ni se le escribe por aquí: se le escribe por email */}
+          {canEdit && !esAutonomo && <BotonDeWhatsapp lead={lead} telefonos={telefonos} currentUser={currentUser} />}
           {canEdit && <AnadirContacto lead={lead} guardar={patch} listo={'telefonos_extra' in lead && 'emails_extra' in lead} />}
           {esTienda && lead.web && (
             <a href={lead.web} target="_blank" rel="noopener noreferrer" className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}>

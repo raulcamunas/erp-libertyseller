@@ -80,6 +80,12 @@ export function alEnviarseCorreoDeLead(oyente: OyenteDeEnvio): () => void {
   }
 }
 
+/**
+ * Algo se ha apuntado en la ficha de un lead desde fuera del historial (un correo, un WhatsApp abierto con su mensaje): Cold Calling refresca su
+ * historial y su último contacto. Es el mismo aviso que el del correo: lo único que se usa de él es el lead y la hora.
+ */
+export const avisarApunteEnLead = avisarCorreoEnviadoALead
+
 /** Solo para las pruebas: deja el módulo como recién cargado */
 export function reiniciarPeticiones(): void {
   pendiente = null
