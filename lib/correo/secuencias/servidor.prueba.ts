@@ -133,6 +133,56 @@ async function main() {
     ok('sin la tabla de la migración 246, el tablero y el detalle siguen funcionando sin respuestas', t.disponible && t.respuestas.total === 0 && !!d && d.respuesta === null)
   }
 
+  console.log('\n=== la salud en el tablero ===')
+  {
+    const m = await crearMundo(entorno)
+    const ahora = T0 + 2 * HORA
+    m.reloj.ahora = ahora
+    await m.actualizar('correo_buzones', { ultimo_sync_at: m.iso(ahora - 2 * MIN) }, (q) => q.in('id', [B1, B2]))
+    await m.sembrar('cron_ejecuciones', { tarea: 'correo-secuencias', iniciado_at: m.iso(ahora - 30_000), terminado_at: m.iso(ahora - 29_000), ok: true, duracion_ms: 900 })
+
+    const admin = await tablero(m.almacen, RAUL, { ahora })
+    if (!admin.disponible) throw new Error('no disponible')
+    ok('con todo en orden, la salud lo dice', admin.salud.nivel === 'ok' && admin.salud.alarmas.length === 0 && admin.salud.resumen === 'Todo en orden', JSON.stringify(admin.salud.alarmas))
+    ok('un administrador ve el motor con su última pasada y los dos buzones', admin.salud.motor?.modo === 'real' && admin.salud.motor.registroDisponible && admin.salud.motor.ultimaPasada?.ok === true && admin.salud.buzones.length === 2)
+    const suyoDeAna = admin.salud.buzones.find((b) => b.buzonId === B1)
+    const carrilDeAna = admin.buzones.find((b) => b.id === B1)
+    ok('las cifras de hoy de cada buzón son las del tablero', suyoDeAna?.hoy?.tope === carrilDeAna?.topeHoy && suyoDeAna?.hoy?.enviados === carrilDeAna?.enviadosHoy && suyoDeAna?.vivas === carrilDeAna?.vivas)
+    ok('y la rampa: el 1 de octubre al 28 de octubre es el día hábil 20 (tope 150)', suyoDeAna?.rampa.diaHabil === 20 && suyoDeAna.rampa.tope === 150, JSON.stringify(suyoDeAna?.rampa))
+
+    const ana = await tablero(m.almacen, ANA, { ahora })
+    if (!ana.disponible) throw new Error('no disponible')
+    ok('Ana ve la salud de su buzón y nada del motor', ana.salud.motor === null && ana.salud.buzones.length === 1 && ana.salud.buzones[0].buzonId === B1)
+
+    // La contraseña de Ana deja de valer
+    await m.actualizar('correo_buzones', { credenciales_invalidas: true }, (q) => q.eq('id', B1))
+    const conProblema = await tablero(m.almacen, RAUL, { ahora })
+    const anaConProblema = await tablero(m.almacen, ANA, { ahora })
+    const aleConProblema = await tablero(m.almacen, ALE, { ahora })
+    if (!conProblema.disponible || !anaConProblema.disponible || !aleConProblema.disponible) throw new Error('no disponible')
+    ok('Raúl ve «el buzón de Ana» en rojo y su tarjeta, la primera', conProblema.salud.nivel === 'problema' && conProblema.salud.alarmas[0]?.titulo === 'El buzón de Ana no se puede conectar' && conProblema.salud.buzones[0].buzonId === B1 && conProblema.salud.buzones[0].conexion.estado === 'contrasena', JSON.stringify(conProblema.salud.alarmas))
+    ok('Ana lo ve dicho a ella: «tu buzón»', anaConProblema.salud.alarmas.length === 1 && anaConProblema.salud.alarmas[0].titulo === 'Tu buzón no se puede conectar')
+    ok('y Alejandro no se entera de lo del buzón de Ana', aleConProblema.salud.alarmas.length === 0 && aleConProblema.salud.nivel === 'ok')
+
+    // El motor deja de pasar
+    await m.actualizar('cron_ejecuciones', { iniciado_at: m.iso(ahora - 25 * MIN) }, (q) => q.eq('tarea', 'correo-secuencias'))
+    const parado = await tablero(m.almacen, RAUL, { ahora })
+    const paradoParaAna = await tablero(m.almacen, ANA, { ahora })
+    if (!parado.disponible || !paradoParaAna.disponible) throw new Error('no disponible')
+    ok('el administrador ve el motor parado', parado.salud.motor?.parado === true && parado.salud.alarmas.some((a) => a.codigo === 'motor_parado'))
+    ok('y la comercial no (es del sistema, no de su buzón)', !paradoParaAna.salud.alarmas.some((a) => a.codigo === 'motor_parado') && paradoParaAna.salud.motor === null)
+  }
+  {
+    const m = await crearMundo(entorno)
+    m.ausentes?.add('cron_ejecuciones')
+    const t = await tablero(m.almacen, RAUL, { ahora: T0 + HORA })
+    ok('sin el registro de procesos el tablero sigue funcionando y dice que no sabe si el motor corre', t.disponible && t.salud.motor?.registroDisponible === false && !t.salud.alarmas.some((a) => a.codigo === 'motor_parado'))
+    const sinConexion = await crearMundo(entorno)
+    await sinConexion.actualizar('correo_buzones', { fallos_seguidos: 7, ultimo_error: 'ETIMEDOUT' }, (q) => q.eq('id', B2))
+    const t2 = await tablero(sinConexion.almacen, RAUL, { ahora: T0 + 5 * MIN })
+    ok('siete fallos seguidos de conexión salen en la salud con el error', t2.disponible && t2.salud.alarmas.some((a) => a.codigo === 'fallando' && a.gravedad === 'roja' && a.detalle.includes('7 fallos seguidos') && a.detalle.includes('ETIMEDOUT')), t2.disponible ? JSON.stringify(t2.salud.alarmas) : '')
+  }
+
   console.log('\n=== la cola ===')
   {
     const m = await crearMundo(entorno)

@@ -267,6 +267,22 @@ export interface SaludDeBuzon {
   rebotes: number
 }
 
+/** Cómo va la conexión de un buzón con su servidor de correo (lo anota la sincronización de Correo) */
+export interface ConexionLeida {
+  ultimoError: string | null
+  fallosSeguidos: number
+  ultimoIntentoAt: number | null
+}
+
+/** Lo que dice el registro de procesos (migración 137) del motor: la última pasada automática y cómo ha ido la última hora */
+export interface PasadasLeidas {
+  ultima: { en: number; ok: boolean | null; error: string | null; duracionMs: number | null } | null
+  enLaUltimaHora: number
+  fallosEnLaUltimaHora: number
+  /** El error de la pasada de la última hora que acabó mal más recientemente (la última puede haber ido bien) */
+  ultimoErrorDeLaHora: string | null
+}
+
 export interface ResumenDelFlujo {
   total: number
   porEstado: Record<string, number>
@@ -1098,6 +1114,61 @@ export function almacenDeSecuencias(service: Servicio) {
     return ((data ?? []) as Array<{ buzon_id: string; enviados: number; rebotes: number }>).map((f) => ({ buzonId: f.buzon_id, enviados: Number(f.enviados), rebotes: Number(f.rebotes) }))
   }
 
+  /** Cómo va la conexión de estos buzones (null = todos): el último error al leerlos y cuántos fallos seguidos llevan */
+  async function conexionDeBuzones(ids: readonly string[] | null): Promise<Map<string, ConexionLeida>> {
+    const salida = new Map<string, ConexionLeida>()
+    if (ids !== null && ids.length === 0) return salida
+    for (const grupo of ids === null ? [null] : trozos([...ids])) {
+      let q = service.from('correo_buzones').select('id, ultimo_error, fallos_seguidos, ultimo_intento_at')
+      if (grupo !== null) q = q.in('id', grupo)
+      const { data, error } = await q
+      if (error) throw fallo('No se ha podido leer cómo van las conexiones de los buzones.', error)
+      for (const f of (data ?? []) as Array<{ id: string; ultimo_error: string | null; fallos_seguidos: number | null; ultimo_intento_at: string | null }>) {
+        salida.set(f.id, { ultimoError: f.ultimo_error, fallosSeguidos: Number(f.fallos_seguidos ?? 0), ultimoIntentoAt: aMs(f.ultimo_intento_at) })
+      }
+    }
+    return salida
+  }
+
+  /**
+   * Las pasadas AUTOMÁTICAS del motor que apuntó el registro de procesos: la última (sea de cuando sea) y cuántas hubo en la última hora y cuántas
+   * acabaron mal. null = el registro no existe todavía (migración 137): entonces no se puede saber si el motor corre.
+   */
+  async function pasadasDelMotor(ahora: number): Promise<PasadasLeidas | null> {
+    const base = () => service.from('cron_ejecuciones').select('iniciado_at, ok, error, duracion_ms').eq('tarea', 'correo-secuencias').is('lanzado_por', null)
+    const [ultima, hora] = await Promise.all([base().order('iniciado_at', { ascending: false }).limit(1), base().gte('iniciado_at', aIso(ahora - 3_600_000)).order('iniciado_at', { ascending: false }).limit(500)])
+    if (ultima.error) {
+      if (isMissingSchema(ultima.error)) return null
+      throw fallo('No se han podido leer las pasadas del motor.', ultima.error)
+    }
+    if (hora.error) throw fallo('No se han podido contar las pasadas del motor.', hora.error)
+    const f = ((ultima.data ?? []) as Array<{ iniciado_at: string; ok: boolean | null; error: string | null; duracion_ms: number | null }>)[0]
+    const recientes = (hora.data ?? []) as Array<{ ok: boolean | null; error: string | null }>
+    return {
+      ultima: f ? { en: aMs(f.iniciado_at) ?? 0, ok: f.ok, error: f.error, duracionMs: f.duracion_ms } : null,
+      enLaUltimaHora: recientes.length,
+      fallosEnLaUltimaHora: recientes.filter((x) => x.ok === false).length,
+      ultimoErrorDeLaHora: recientes.find((x) => x.ok === false && x.error)?.error ?? null,
+    }
+  }
+
+  /** Cuántos correos de secuencias que siguen vivas (en marcha o en pausa) han fallado al enviarse y esperan a una persona */
+  async function enviosFallidos(limite = 200): Promise<number> {
+    const { data, error } = await service.from('correo_secuencia_pasos').select('id, inscripcion_id').eq('estado', 'fallido').limit(limite)
+    if (error) throw fallo('No se han podido contar los envíos fallidos.', error)
+    const filas = (data ?? []) as Array<{ id: string; inscripcion_id: string }>
+    if (filas.length === 0) return 0
+    const vivas = await inscripcionesConEstado(filas.map((f) => f.inscripcion_id), ['activa', 'pausada'])
+    return filas.filter((f) => vivas.has(f.inscripcion_id)).length
+  }
+
+  /** Quiénes administran el ERP: a ellos llegan los avisos de lo que se estropea */
+  async function administradores(): Promise<string[]> {
+    const { data, error } = await service.from('profiles').select('id').eq('role', 'admin')
+    if (error) throw fallo('No se han podido leer los administradores.', error)
+    return ((data ?? []) as Array<{ id: string }>).map((f) => f.id)
+  }
+
   /** ¿Está en el ERP un correo enviado con este Message-ID? (para saber si un envío que se cortó a medias llegó a salir) */
   async function mensajeEnviado(buzonId: string, messageId: string): Promise<{ fecha: number } | null> {
     const { data, error } = await service.from('correo_mensajes').select('fecha').eq('buzon_id', buzonId).eq('direccion', 'saliente').eq('message_id', messageId.toLowerCase()).limit(1)
@@ -1446,6 +1517,10 @@ export function almacenDeSecuencias(service: Servicio) {
     cargaDelBuzon,
     ultimoEnvioDelSistema,
     saludDeBuzones,
+    conexionDeBuzones,
+    pasadasDelMotor,
+    enviosFallidos,
+    administradores,
     mensajeEnviado,
     inscripcionesParaNoInteresa,
     apuntarEvento,

@@ -208,7 +208,12 @@ export const ESQUEMA: Readonly<Record<string, EsquemaDeTabla>> = {
   cold_lead_notes: { columnas: ['id', 'lead_id', 'author_id', 'kind', 'body', 'occurred_at', 'created_at', 'es_respuesta'], requeridas: ['lead_id', 'kind', 'body'] },
   rinkel_llamadas: { columnas: ['id', 'user_id', 'rinkel_id', 'fecha', 'direccion', 'duracion_s', 'estado', 'lead_id'] },
   rinkel_transcripciones: { columnas: ['llamada_id', 'user_id', 'estado', 'tipo', 'resumen', 'hecha_at'] },
-  correo_buzones: { columnas: ['id', 'user_id', 'direccion', 'nombre', 'firma', 'usuario', 'imap_host', 'smtp_host', 'desde_fecha', 'credenciales_invalidas', 'ultimo_sync_at'] },
+  correo_buzones: {
+    columnas: ['id', 'user_id', 'direccion', 'nombre', 'firma', 'usuario', 'imap_host', 'smtp_host', 'desde_fecha', 'credenciales_invalidas', 'ultimo_sync_at', 'ultimo_error', 'fallos_seguidos', 'ultimo_intento_at'],
+  },
+  // El registro de los procesos automáticos (migración 137) y la campana (040): lo que usa la salud de las secuencias
+  cron_ejecuciones: { columnas: ['id', 'tarea', 'iniciado_at', 'terminado_at', 'ok', 'resumen', 'error', 'duracion_ms', 'lanzado_por'], requeridas: ['tarea'] },
+  notifications: { columnas: ['id', 'user_id', 'type', 'title', 'message', 'read', 'created_at'], requeridas: ['user_id', 'type', 'title'] },
   correo_credenciales: { columnas: ['buzon_id', 'secreto_cifrado'] },
   correo_carpetas: { columnas: ['id', 'buzon_id', 'ruta', 'rol'] },
   correo_hilos: { columnas: ['id', 'buzon_id', 'asunto', 'primer_mensaje_at', 'ultimo_mensaje_at'] },
@@ -289,6 +294,8 @@ export class BaseEnMemoria {
   private contadorDeIds = 0
   /** Tablas que «no existen» (la migración sin lanzar): cualquier consulta da PGRST205 */
   ausentes = new Set<string>()
+  /** Los tipos que admite la campana (la restricción de la migración 248 añade `alarma_correo`: quitarlo imita no haberla lanzado) */
+  tiposDeNotificacion = new Set(['comment', 'mention', 'task_assigned', 'task_updated', 'web_lead', 'freno_stock', 'fallo_stock', 'fallo_amazon', 'job_amazon', 'alarma_correo'])
   /** Cada consulta que ha pasado, por si una prueba quiere comprobar qué se ha pedido */
   registro: Consulta[] = []
 
@@ -493,6 +500,15 @@ export class BaseEnMemoria {
       defecto('aplicada', false)
     }
     if (tabla === 'cold_lead_notes') defecto('es_respuesta', false)
+    if (tabla === 'correo_buzones') {
+      defecto('credenciales_invalidas', false)
+      defecto('fallos_seguidos', 0)
+    }
+    if (tabla === 'cron_ejecuciones') defecto('iniciado_at', ahora)
+    if (tabla === 'notifications') {
+      defecto('read', false)
+      defecto('created_at', ahora)
+    }
     if (tabla === 'correo_direcciones_malas') {
       defecto('estado', 'mala')
       defecto('origen', 'rebote')
@@ -546,6 +562,7 @@ export class BaseEnMemoria {
       if (fila.modo !== null && !['ensayo', 'real'].includes(String(fila.modo))) return { code: '23514', message: 'modo no válido' }
       if (typeof fila.resumen === 'string' && fila.resumen.length > 300) return { code: '23514', message: 'resumen demasiado largo' }
     }
+    if (tabla === 'notifications' && !this.tiposDeNotificacion.has(String(fila.type))) return { code: '23514', message: 'new row for relation "notifications" violates check constraint "notifications_type_check"' }
     if (tabla === 'cold_leads' && !['pendiente', 'no_contesta', 'programado', 'email_enviado', 'seguimiento', 'cita_cualificada', 'no_interesa'].includes(String(fila.status))) return { code: '23514', message: 'estado de lead no válido' }
     return null
   }

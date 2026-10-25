@@ -1,33 +1,35 @@
 'use client'
 
-import { Activity, ArrowLeft, CalendarRange, FlaskConical, ListOrdered, Power, RefreshCw, Settings2, Sun, TriangleAlert, Workflow } from 'lucide-react'
+import { Activity, ArrowLeft, CalendarRange, FlaskConical, HeartPulse, ListOrdered, OctagonAlert, Power, RefreshCw, Settings2, Sun, TriangleAlert, Workflow } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { Avatar, BarraDeCarga, Esqueleto, PANEL } from '@/components/rendimiento/ui'
 import { hace } from '@/lib/correo/secuencias/vistas'
 import { Aviso, BOTON_SECUNDARIO } from '../ui'
 import { AjustesDeSecuencias } from './AjustesDeSecuencias'
 import { ColaDeLeads } from './ColaDeLeads'
-import { cuando, useAhora, useRecien, useTablero, type FiltroDeCola, type Tablero } from './datos'
+import { useAhora, useRecien, useTablero, type FiltroDeCola, type Tablero } from './datos'
 import { PanelDeSecuencia } from './PanelDeSecuencia'
 import { VistaDeFlujo } from './VistaDeFlujo'
 import { VistaDeHoy } from './VistaDeHoy'
 import { VistaDeProximos } from './VistaDeProximos'
+import { VistaDeSalud } from './VistaDeSalud'
 
 /**
  * LA PANTALLA DE SECUENCIAS — DENTRO DE CORREO, DETRÁS DE UN BOTÓN.
  *
- * Una cabecera con el estado del motor, cinco pestañas (Hoy · Cola · Próximos días · Flujo · Ajustes) y, al pulsar cualquier lead, su detalle en un panel
+ * Una cabecera con el estado del motor, seis pestañas (Hoy · Cola · Próximos días · Flujo · Salud · Ajustes) y, al pulsar cualquier lead, su detalle en un panel
  * lateral. Cada persona ve lo suyo: el servidor decide qué buzones llegan (el comercial, el suyo; un supervisor o un administrador, todos). La pantalla
  * se queda montada aunque se vuelva a la bandeja (así no pierde la pestaña ni el filtro), pero solo pide datos mientras se ve.
  */
 
-type Pestana = 'hoy' | 'cola' | 'proximos' | 'flujo' | 'ajustes'
+type Pestana = 'hoy' | 'cola' | 'proximos' | 'flujo' | 'salud' | 'ajustes'
 
 const PESTANAS: ReadonlyArray<{ id: Pestana; etiqueta: string; Icono: typeof Sun }> = [
   { id: 'hoy', etiqueta: 'Hoy', Icono: Sun },
   { id: 'cola', etiqueta: 'Cola', Icono: ListOrdered },
   { id: 'proximos', etiqueta: 'Próximos días', Icono: CalendarRange },
   { id: 'flujo', etiqueta: 'Flujo', Icono: Activity },
+  { id: 'salud', etiqueta: 'Salud', Icono: HeartPulse },
   { id: 'ajustes', etiqueta: 'Ajustes', Icono: Settings2 },
 ]
 
@@ -50,26 +52,33 @@ function PildoraDeEstado({ tablero }: { tablero: Tablero }) {
   )
 }
 
-/** Lo que pasa con los buzones y conviene ver nada más entrar: sin conexión, con la clave mal o frenados por demasiados rebotes */
-function AvisosDeBuzon({ tablero, ahora }: { tablero: Tablero; ahora: number }) {
-  const problemas = tablero.buzones.flatMap((b) => {
-    const quien = b.esMio ? 'Tu buzón' : `El buzón de ${b.propietario.nombre}`
-    const salida: Array<{ clave: string; texto: string }> = []
-    if (b.credencialesInvalidas) salida.push({ clave: `${b.id}-cred`, texto: `${quien} no se puede conectar (la contraseña ya no vale). No envía ni recibe hasta que se arregle en los ajustes del buzón.` })
-    else if (!b.conectado) salida.push({ clave: `${b.id}-con`, texto: `${quien} no está conectado.` })
-    if (b.pausadoHasta !== null && b.pausadoHasta > ahora) salida.push({ clave: `${b.id}-pausa`, texto: `${quien} está en pausa hasta ${cuando(b.pausadoHasta, ahora)}${b.motivoPausa ? `: ${b.motivoPausa}` : '.'}` })
-    return salida
-  })
-  if (problemas.length === 0) return null
+/** Lo que está mal y conviene ver nada más entrar, sea la pestaña que sea: sale de la salud (lo mismo que enseña la pestaña «Salud») */
+function AvisosDeSalud({ tablero, onVerSalud }: { tablero: Tablero; onVerSalud: () => void }) {
+  const { alarmas } = tablero.salud
+  if (alarmas.length === 0) return null
   return (
-    <ul className="space-y-1.5" aria-label="Avisos de los buzones">
-      {problemas.slice(0, 4).map((p) => (
-        <li key={p.clave} className="sec-sube flex items-start gap-2 rounded-[8px] border border-l-2 border-[var(--ls-linea)] border-l-[var(--ls-e-ambar)] bg-[var(--ls-sup)] px-3 py-2 text-[12px] leading-snug text-[var(--ls-t2)]">
-          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--ls-e-ambar)]" aria-hidden />
-          {p.texto}
+    <ul className="space-y-1.5" aria-label="Avisos de la salud">
+      {alarmas.slice(0, 3).map((a) => {
+        const roja = a.gravedad === 'roja'
+        const Icono = roja ? OctagonAlert : TriangleAlert
+        const color = roja ? 'var(--ls-e-rojo)' : 'var(--ls-e-ambar)'
+        return (
+          <li key={a.clave} className="sec-sube flex items-start gap-2 rounded-[8px] border border-l-2 border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-[12px] leading-snug text-[var(--ls-t2)]" style={{ borderLeftColor: color }}>
+            <Icono className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color }} aria-hidden />
+            <span className="min-w-0 flex-1">
+              <strong className="font-semibold text-[var(--ls-t1)]">{a.titulo}.</strong> {a.detalle}
+            </span>
+          </li>
+        )
+      })}
+      {alarmas.length > 3 && (
+        <li className="px-1 text-[11.5px] text-[var(--ls-t4)]">
+          y {alarmas.length - 3} más.{' '}
+          <button type="button" onClick={onVerSalud} className="text-[var(--ls-acc)] underline-offset-2 hover:underline">
+            Verlas en Salud
+          </button>
         </li>
-      ))}
-      {problemas.length > 4 && <li className="px-1 text-[11.5px] text-[var(--ls-t4)]">y {problemas.length - 4} avisos más en Ajustes.</li>}
+      )}
     </ul>
   )
 }
@@ -122,14 +131,15 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
     }
   }, [])
 
-  // En Ajustes se ven todos los buzones aunque se esté filtrando por uno
-  const { tablero, falta, error, cargando, desfase, recargar } = useTablero(pestana === 'ajustes' ? null : buzonId, visible)
+  // En Ajustes y en Salud se ven todos los buzones aunque se esté filtrando por uno
+  const todosLosBuzones = pestana === 'ajustes' || pestana === 'salud'
+  const { tablero, falta, error, cargando, desfase, recargar } = useTablero(todosLosBuzones ? null : buzonId, visible)
   const ahora = useAhora(15_000) + desfase
 
   useEffect(() => {
     if (!tablero) return
     setUltima(Date.now())
-    if (!buzonId && pestana !== 'ajustes') setOpciones(tablero.buzones)
+    if (!buzonId && !todosLosBuzones) setOpciones(tablero.buzones)
   }, [tablero]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lo que acaba de salir mientras se mira: su punto hace un destello
@@ -183,7 +193,7 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
           {tablero && <PildoraDeEstado tablero={tablero} />}
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {opciones.length > 1 && pestana !== 'ajustes' && (
+            {opciones.length > 1 && !todosLosBuzones && (
               <label className="flex items-center gap-1.5 text-[11.5px] text-[var(--ls-t3)]">
                 {buzonId ? <Avatar id={buzonId} nombre={opciones.find((b) => b.id === buzonId)?.propietario.nombre ?? '?'} tamano={18} /> : null}
                 <span className="sr-only">Buzón</span>
@@ -235,6 +245,15 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
                 <p.Icono className={`h-3.5 w-3.5 ${activa ? 'text-[var(--ls-acc)]' : ''}`} aria-hidden />
                 {p.etiqueta}
                 {p.id === 'cola' && vivas > 0 && <span className="rounded-[4px] bg-[var(--ls-sup3)] px-1 text-[10.5px] tabular-nums text-[var(--ls-t3)]">{vivas}</span>}
+                {p.id === 'salud' && tablero && tablero.salud.alarmas.length > 0 && (
+                  <span
+                    className="rounded-[4px] px-1 text-[10.5px] font-semibold tabular-nums"
+                    style={{ color: tablero.salud.nivel === 'problema' ? 'var(--ls-e-rojo)' : 'var(--ls-e-ambar)', background: `color-mix(in srgb, ${tablero.salud.nivel === 'problema' ? 'var(--ls-e-rojo)' : 'var(--ls-e-ambar)'} 16%, transparent)` }}
+                    title={tablero.salud.resumen}
+                  >
+                    {tablero.salud.alarmas.length}
+                  </span>
+                )}
                 <span className={`absolute inset-x-2 bottom-0 h-[2px] origin-left rounded-full bg-[var(--ls-acc-graf)] transition-transform duration-300 ${activa ? 'scale-x-100' : 'scale-x-0'}`} aria-hidden />
               </button>
             )
@@ -283,7 +302,7 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
               <strong className="text-[var(--ls-t2)]">Modo ensayo.</strong> El motor vigila, reparte las horas y decide qué haría con cada lead, pero no envía nada. Lo que ves es lo que pasaría de verdad.
             </p>
           )}
-          <AvisosDeBuzon tablero={tablero} ahora={ahora} />
+          {pestana !== 'salud' && <AvisosDeSalud tablero={tablero} onVerSalud={() => elegir('salud')} />}
         </>
       )}
 
@@ -296,6 +315,7 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
             {pestana === 'cola' && <ColaDeLeads filtro={filtroCola} onFiltro={setFiltroCola} tablero={tablero} ahora={ahora} onAbrir={setAbierta} activa={visible} />}
             {pestana === 'proximos' && <VistaDeProximos tablero={tablero} />}
             {pestana === 'flujo' && <VistaDeFlujo tablero={tablero} ahora={ahora} onAbrir={setAbierta} />}
+            {pestana === 'salud' && <VistaDeSalud tablero={tablero} ahora={ahora} />}
             {pestana === 'ajustes' && <AjustesDeSecuencias tablero={tablero} esAdmin={esAdmin} alGuardar={() => void refrescar()} />}
           </div>
         ) : null}

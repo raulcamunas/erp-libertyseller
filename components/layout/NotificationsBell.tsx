@@ -162,6 +162,12 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
       return '/dashboard/amazon-api'
     }
 
+    // Un buzón sin conexión, el motor de seguimientos parado, envíos fallidos o rebotes de más: el mensaje dice qué pasa, y esto lleva a Correo
+    // (Secuencias → Salud lo enseña con todo detalle)
+    if (notification.type === 'alarma_correo') {
+      return '/dashboard/correo'
+    }
+
     if (notification.related_client_id && notification.related_task_id) {
       return `/dashboard/clients/${notification.related_client_id}`
     }

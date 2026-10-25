@@ -6,6 +6,8 @@ import { constructorDeCapacidad } from './capacidad'
 import { diaDeMadrid, instanteDeMadrid, sumarDiasHabiles } from './fechas'
 import { ejecutarPasada, planificarPendientes, type DependenciasDelMotor, type ResumenDePasada } from './motor'
 import { topeDelBuzonEnElDia, type AjustesDelMotor } from './reglas'
+import { armarSalud, type SaludDeSecuencias } from './salud'
+import { medirLaSalud } from './salud-datos'
 import type { BuzonDelMotor, EstadoDeInscripcion } from './tipos'
 import {
   armarActividad,
@@ -119,6 +121,8 @@ export type TableroDeSecuencias =
       conteos: Record<EstadoDeInscripcion, number>
       /** Lo que la IA ha entendido de las respuestas de los leads (últimos 30 días) */
       respuestas: ResumenDeRespuestas
+      /** Cómo van los buzones y el motor: conexión, rebotes, pasadas y las alarmas que hay que atender */
+      salud: SaludDeSecuencias
     }
 
 export const FALTA_LA_MIGRACION_245 = 'Falta lanzar la migración 245_correo_secuencias.sql en el editor SQL de Supabase: hasta entonces las secuencias no pueden funcionar. El resto de Correo no se ve afectado.'
@@ -196,6 +200,31 @@ export async function tablero(almacen: Almacen, quien: QuienPide, opciones: { ah
     }
   })
 
+  // La salud: los mismos números que mira el vigía (vigia.ts). Lo del motor, solo para quien administra
+  const salud = armarSalud(
+    await medirLaSalud(almacen, {
+      ahora,
+      ajustes,
+      conMotor: esAdministrador(quien),
+      buzones: buzones.map((b) => ({
+        id: b.id,
+        direccion: b.direccion,
+        propietario: b.propietario,
+        esMio: b.esMio,
+        participa: b.participa,
+        conectado: b.conectado,
+        credencialesInvalidas: b.credencialesInvalidas,
+        ultimoSyncAt: b.ultimoSyncAt,
+        pausadoHasta: b.pausadoHasta,
+        motivoPausa: b.motivoPausa,
+        topeDiario: b.topeDiario,
+        rampaInicio: b.rampaInicio,
+        hoy: { tope: b.topeHoy, enviados: b.enviadosHoy, manual: b.manualHoy, automaticos: b.automaticosHoy, programados: b.programadosHoy },
+        vivas: b.vivas,
+      })),
+    })
+  )
+
   return {
     disponible: true,
     ahora,
@@ -208,6 +237,7 @@ export async function tablero(almacen: Almacen, quien: QuienPide, opciones: { ah
     actividad: armarActividad(eventos, inscripciones, leads),
     conteos,
     respuestas: armarRespuestas({ dias: 30, recientes: respuestasRecientes, conteo: conteoDeRespuestas, leads: leadsDeRespuestas, propietarios: new Map(visibles.map((b) => [b.id, b.propietario.nombre])) }),
+    salud,
   }
 }
 

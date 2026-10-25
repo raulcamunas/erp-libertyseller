@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { hasTokenKey } from '@/lib/amazon/crypto'
+import { vigilarLaSalud } from '@/lib/correo/secuencias/vigia'
 import { FALTA_MIGRACION_CORREO, esFaltaDeMigracion, esperaTrasFallos, sincronizarBuzonPorId } from '@/lib/correo/servidor'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -142,5 +143,15 @@ export async function POST(request: NextRequest) {
     }
   })
 
-  return NextResponse.json({ ok: true, ...salida })
+  // El vigía de las secuencias de correo: mira cómo van los buzones y el motor y avisa por la campana de lo que se estropee. Va AQUÍ y no en el
+  // motor a propósito: si el motor se para, él no puede avisar de que se ha parado. Nunca tumba esta pasada (ni la alarga: tiene su tope de tiempo)
+  const vigia = await Promise.race([
+    vigilarLaSalud(createServiceClient()).catch((e: unknown) => {
+      console.error('Correo · vigía: no se ha podido mirar la salud', { mensaje: e instanceof Error ? e.message : 'sin mensaje' })
+      return null
+    }),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+  ])
+
+  return NextResponse.json({ ok: true, ...salida, ...(vigia && !vigia.omitido ? { vigia: { alarmas: vigia.alarmas, avisos: vigia.avisos } } : {}) })
 }
