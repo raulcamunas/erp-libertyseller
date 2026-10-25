@@ -1,5 +1,5 @@
 import type { ClienteDeCorreoIa } from '@/lib/correo/ia-generar'
-import { MODELO_DE_WHATSAPP_POR_DEFECTO, TIEMPO_MAXIMO_DE_WHATSAPP_MS, escribirWhatsappConIa } from '@/lib/whatsapp/ia-generar'
+import { ESFUERZO_DE_WHATSAPP_POR_DEFECTO, MODELO_DE_WHATSAPP_POR_DEFECTO, TIEMPO_MAXIMO_DE_WHATSAPP_MS, escribirWhatsappConIa } from '@/lib/whatsapp/ia-generar'
 
 let fallos = 0
 let comprobaciones = 0
@@ -60,10 +60,13 @@ async function main() {
     ok('cuenta los tokens', r.tokens?.entrada === 1000 && r.tokens?.salida === 200)
     const a = llamadas[0].args
     ok('pide JSON con esquema estricto', (a.response_format as { type: string; json_schema: { strict: boolean; name: string } }).type === 'json_schema' && (a.response_format as { json_schema: { strict: boolean } }).json_schema.strict === true)
-    ok('un modelo que razona lleva esfuerzo, tope de salida y NO temperatura', a.reasoning_effort === 'low' && typeof a.max_completion_tokens === 'number' && !('temperature' in a) && !('max_tokens' in a), JSON.stringify(a))
+    ok('un modelo que razona lleva esfuerzo (sin razonar por defecto), tope de salida y NO temperatura', a.reasoning_effort === 'none' && typeof a.max_completion_tokens === 'number' && !('temperature' in a) && !('max_tokens' in a), JSON.stringify(a))
     ok('manda el sistema y el usuario', JSON.stringify(a.messages) === JSON.stringify([{ role: 'system', content: 'sistema' }, { role: 'user', content: 'usuario' }]))
     ok('lleva una señal para poder cortar la espera', llamadas[0].opciones?.signal instanceof AbortSignal)
-    ok('el modelo de serie es el mismo que el de redactar correos con IA', MODELO_DE_WHATSAPP_POR_DEFECTO === 'gpt-5.6-terra')
+    ok('el modelo de serie es el barato y sin razonar', MODELO_DE_WHATSAPP_POR_DEFECTO === 'gpt-6-luna' && ESFUERZO_DE_WHATSAPP_POR_DEFECTO === 'none')
+    const sinEntorno = falso([BUENO])
+    const rSin = await escribirWhatsappConIa(MENSAJES, [], { cliente: sinEntorno.cliente, entorno: {} })
+    ok('sin nada en el entorno usa luna sin razonar', rSin.modelo === 'gpt-6-luna' && sinEntorno.llamadas[0].args.model === 'gpt-6-luna' && sinEntorno.llamadas[0].args.reasoning_effort === 'none')
 
     const clasico = falso([BUENO])
     await escribirWhatsappConIa(MENSAJES, [], { cliente: clasico.cliente, entorno: { IA_MODELO: 'gpt-4.1' } })
@@ -71,9 +74,12 @@ async function main() {
     const otro = falso([BUENO])
     const r2 = await escribirWhatsappConIa(MENSAJES, [], { cliente: otro.cliente, entorno: { IA_MODELO: 'gpt-5.6-terra' } })
     ok('se puede cambiar de modelo desde el servidor', otro.llamadas[0].args.model === 'gpt-5.6-terra' && r2.modelo === 'gpt-5.6-terra')
+    const pensando = falso([BUENO])
+    await escribirWhatsappConIa(MENSAJES, [], { cliente: pensando.cliente, entorno: { IA_MODELO: 'gpt-6-luna', IA_ESFUERZO: 'low' } })
+    ok('el esfuerzo se puede subir desde el servidor', pensando.llamadas[0].args.reasoning_effort === 'low')
     const forzado = falso([BUENO])
-    await escribirWhatsappConIa(MENSAJES, [], { cliente: forzado.cliente, entorno: { IA_MODELO: 'gpt-6-luna', IA_ESFUERZO: 'none' } })
-    ok('el esfuerzo que manda el servidor se respeta', forzado.llamadas[0].args.reasoning_effort === 'none')
+    await escribirWhatsappConIa(MENSAJES, [], { cliente: forzado.cliente, entorno: { IA_MODELO: 'gpt-6-luna', IA_ESFUERZO: 'medium' } })
+    ok('el esfuerzo que manda el servidor se respeta', forzado.llamadas[0].args.reasoning_effort === 'medium')
   }
 
   console.log('\n=== si habla de dinero ===')

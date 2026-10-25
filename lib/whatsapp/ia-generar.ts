@@ -18,20 +18,26 @@ import { AVISO_DE_PROBLEMA, revisarMensajeDeWhatsapp, type ProblemaDeWhatsapp } 
  * enviado a ese lead, se le pide UNA vez más que lo corrija. Si a la segunda sigue hablando de dinero NO se enseña (la regla que no admite excepciones);
  * lo demás sí se enseña, con un aviso, porque el comercial lo ve y lo edita antes de abrir WhatsApp.
  *
- * MODELO: `gpt-5.6-terra`, el mismo que «Redactar con IA» del correo, salvo que el servidor diga otro con WHATSAPP_IA_MODELO. No se mira IA_MODELO (el de
- * todo el ERP, `gpt-6-luna`): igual que en el correo, un mensaje del que depende una conversación con un cliente no es donde ahorrar. Cómo se pide un modelo
- * que razona (sin temperature, con max_completion_tokens y reasoning_effort) lo decide lib/ia/modelo.ts, igual que en las demás pantallas.
+ * MODELO: `gpt-6-luna` SIN razonar (esfuerzo `none`), salvo que el servidor diga otro con WHATSAPP_IA_MODELO (solo para esto) o con IA_ESFUERZO (para todo el ERP).
+ * No se mira IA_MODELO (el de todo el ERP). Cómo se pide un modelo que razona (sin temperature, con max_completion_tokens y reasoning_effort) lo decide
+ * lib/ia/modelo.ts, igual que en las demás pantallas.
  *
- * Por qué ése (probado el 25 oct 2026 con 10 leads de situaciones distintas, el mismo encargo y los dos modelos, midiendo lo que cobra OpenAI): los dos resisten una
- * nota que da órdenes a la IA, ninguno habla de dinero y los 10 mensajes de cada uno salieron limpios a la primera. `gpt-5.6-terra` (2 $ por millón de tokens de
- * entrada, 0,20 en caché, 12 de salida) contesta en 1,9 s de media con mensajes de 38 palabras y más variados; `gpt-6-luna` (0,10 / 0,01 / 0,50) tarda 4,1 s (hasta
- * 7 s: gasta 166 tokens de media en pensar, terra ninguno), escribe 42 palabras y abre casi siempre igual («Hola, soy Raúl de Liberty Seller.»). Coste MEDIDO por
- * mensaje, con unos 2.500 tokens de entrada (unos 2.000 en caché si se ha usado hace poco; a la primera tras un rato sin usarlo no hay caché): terra 0,0024 $ con la
- * caché caliente y 0,0061 $ sin ella; luna 0,0002 $ y 0,0004 $. Unas 11 a 16 veces más barato luna. A 200 mensajes al día en 22 días (4.400 al mes): terra de 11 a
- * 27 $, luna de 1 a 2 $. Si se prefiere lo barato, WHATSAPP_IA_MODELO=gpt-6-luna.
- */
+ * Por qué ése (medido el 25 y el 26 oct 2026 con 10 leads de situaciones distintas y el mismo encargo, con los tokens reales y los precios de la página
+ * oficial de OpenAI; por mensaje, con unos 2.500 tokens de entrada, de los que unos 1.800-2.000 van en caché si se ha usado hace poco y ninguno a la primera tras
+ * un rato sin usarlo):
+ *
+ *                        tiempo    palabras   caché caliente / fría
+ *   gpt-6-luna · none     2,1 s       46       0,00014 $ / 0,00030 $     ← el de ahora
+ *   gpt-6-luna · low      4,0 s       44       0,00023 $ / 0,00040 $     (piensa ~200 tokens antes de escribir)
+ *   gpt-5.6-terra · low   1,8 s       38       0,0024 $  / 0,0061 $      (2 $ de entrada y 12 de salida por millón: 10 a 20 veces más)
+ *
+ * Los tres escribieron 10 de 10 mensajes limpios a la primera, sin hablar de dinero y sin dejarse engañar por una nota que daba órdenes. `terra` varía más las
+ * aperturas y suena algo más natural; `luna` sin razonar es casi igual de bueno por una décima parte del precio y en el doble de tiempo que con `low`. A 200
+ * mensajes al día en 22 días (4.400 al mes): luna·none 1 a 1,5 $, terra 11 a 27 $. Si se prefiere lo más natural, WHATSAPP_IA_MODELO=gpt-5.6-terra. */
 
-export const MODELO_DE_WHATSAPP_POR_DEFECTO = 'gpt-5.6-terra'
+export const MODELO_DE_WHATSAPP_POR_DEFECTO = 'gpt-6-luna'
+/** Escribir 40 palabras con unos datos delante no necesita pensar: sin razonar tarda la mitad y cuesta menos, con la misma calidad (medido, ver arriba) */
+export const ESFUERZO_DE_WHATSAPP_POR_DEFECTO = 'none'
 /** Un WhatsApp cabe en unos segundos; más que esto es que algo va mal y el comercial prefiere seguir con los mensajes de siempre */
 export const TIEMPO_MAXIMO_DE_WHATSAPP_MS = 45_000
 
@@ -97,7 +103,7 @@ export async function escribirWhatsappConIa(mensajes: { system: string; usuario:
       const completion = await cliente.chat.completions.create(
         {
           // Lo que razona no se ve pero cuenta para el tope: sitio de sobra para el razonamiento y para un mensaje de 60 palabras
-          ...parametrosDeIa({ esfuerzo: 'low', maxSalida: 6000 }, entorno),
+          ...parametrosDeIa({ esfuerzo: ESFUERZO_DE_WHATSAPP_POR_DEFECTO, maxSalida: 6000 }, entorno),
           response_format: { type: 'json_schema', json_schema: { name: 'whatsapp_para_un_lead', strict: true, schema: ESQUEMA_DE_WHATSAPP } },
           messages: conversacion,
         },
