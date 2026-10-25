@@ -204,3 +204,12 @@ export function cuerpoDelApunteDeWhatsapp(d: { numero: string; texto: string }):
     .trim()
   return `WhatsApp abierto con este mensaje (+${d.numero}):\n${texto}`
 }
+
+/**
+ * Lo contrario de `cuerpoDelApunteDeWhatsapp`: el mensaje que se abrió, sin la cabecera con el número. La IA lo usa para no repetirle a un lead lo que ya se
+ * le escribió. Un apunte que no tiene esa forma (uno escrito a mano) se devuelve entero.
+ */
+export function textoDelApunteDeWhatsapp(cuerpo: string): string {
+  const m = /^WhatsApp abierto con este mensaje \(\+?[\d\s]*\):\n([\s\S]*)$/.exec(cuerpo.replace(/\r\n?/g, '\n').trim())
+  return (m ? m[1] : cuerpo).trim()
+}

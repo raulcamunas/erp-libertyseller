@@ -33,6 +33,10 @@ for (const t of [
   'un volumen de negocio importante',
   'la cifra de negocio',
   'alcanzar 30.000 € cada mes',
+  // El «vosotros» de un WhatsApp o un correo de tú a tú: «facturáis», «facturaban»
+  'Vi que facturáis unos 15 al mes',
+  'sé que facturáis más de un millón al año',
+  'antes facturaban 20 mil al mes',
 ]) ok(`dinero: «${t}»`, mencionaFacturacion(t))
 
 console.log('\n=== mencionaFacturacion: lo que NO es dinero ===')
@@ -45,6 +49,7 @@ for (const t of [
   'Hola, soy Laura de Liberty Seller',
   'tarifas B2B escalonadas e IVA desglosado',
   'el próximo martes a las 9:30',
+  'os mandamos la factura en dos días',
 ]) ok(`no es dinero: «${t}»`, !mencionaFacturacion(t))
 
 console.log('\n=== esRechazo ===')

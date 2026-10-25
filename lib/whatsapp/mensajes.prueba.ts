@@ -18,6 +18,7 @@ import {
   numerosDeWhatsapp,
   rellenarMensaje,
   situacionDelLead,
+  textoDelApunteDeWhatsapp,
   type MensajeDeWhatsapp,
 } from '@/lib/whatsapp/mensajes'
 
@@ -130,6 +131,10 @@ console.log('\n=== el apunte del historial ===')
   const cuerpo = cuerpoDelApunteDeWhatsapp({ numero: '34612345678', texto: '  Hola, soy Maoli.\r\n\r\n\r\n\r\nUn saludo  \n' })
   ok('dice que se ha ABIERTO con ese mensaje (no que se ha enviado) y a qué número', cuerpo.startsWith('WhatsApp abierto con este mensaje (+34612345678):\n') && !/enviado/i.test(cuerpo), cuerpo)
   ok('lleva el mensaje entero, con los saltos de línea normalizados', cuerpo.endsWith('Hola, soy Maoli.\n\nUn saludo'), JSON.stringify(cuerpo))
+  ok('el texto del apunte se recupera sin la cabecera', textoDelApunteDeWhatsapp(cuerpo) === 'Hola, soy Maoli.\n\nUn saludo', JSON.stringify(textoDelApunteDeWhatsapp(cuerpo)))
+  ok('también con otro prefijo o con el número escrito de otra forma', textoDelApunteDeWhatsapp('WhatsApp abierto con este mensaje (+44 7911 123456):\nHello there') === 'Hello there')
+  ok('un apunte escrito a mano se devuelve entero', textoDelApunteDeWhatsapp('  Le escribí por WhatsApp y no contestó.  ') === 'Le escribí por WhatsApp y no contestó.')
+  ok('lo que se apunta y se recupera es lo mismo', textoDelApunteDeWhatsapp(cuerpoDelApunteDeWhatsapp({ numero: '34600112233', texto: MENSAJE_DE_SERIE.primer_contacto })) === MENSAJE_DE_SERIE.primer_contacto)
 }
 
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)

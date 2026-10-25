@@ -25,6 +25,8 @@ import {
   type ViaDeWhatsapp,
 } from '@/lib/whatsapp/mensajes'
 import { EditorDeMensajesDeWhatsapp } from './EditorDeMensajesDeWhatsapp'
+import { MensajeDeWhatsappConIa } from './MensajeDeWhatsappConIa'
+import { useMensajeDeWhatsappConIa } from './useMensajeDeWhatsappConIa'
 
 /**
  * EL BOTÓN «WHATSAPP» DE LA FICHA DE UN LEAD.
@@ -38,6 +40,8 @@ import { EditorDeMensajesDeWhatsapp } from './EditorDeMensajesDeWhatsapp'
  *     hace aparte, sin hacer esperar a nadie.
  *   · El apunte dice «abierto con este mensaje», no «enviado»: la aplicación no puede saber si luego se pulsa enviar.
  *   · Un mensaje con un campo sin rellenar ({{nombre}}…) NO se abre: es la misma regla que en los correos.
+ *   · «Generar con IA» (components/cold-calling/MensajeDeWhatsappConIa.tsx), dentro del desplegable: la IA escribe el mensaje para el momento de este lead
+ *     leyendo su historial, se edita en un cuadro y se abre igual que los demás. Su estado vive aquí, no en el desplegable: cerrarlo sin querer no lo pierde.
  *   · No se ofrece a un autónomo (a esos no se les llama en frío, la ficha lo dice), a quien ha dicho que no ni a un lead sin móvil.
  */
 
@@ -91,6 +95,7 @@ export function BotonDeWhatsapp({ lead, telefonos, currentUser }: Props) {
   const [lectura, setLectura] = useState<LecturaDeMensajes | null>(null)
   const [numeroElegido, setNumeroElegido] = useState<string | null>(null)
   const ultimoApunte = useRef(0)
+  const zonaIa = useRef<HTMLDivElement>(null)
   const esAdmin = currentUser.role === 'admin'
 
   useEffect(() => {
@@ -110,6 +115,7 @@ export function BotonDeWhatsapp({ lead, telefonos, currentUser }: Props) {
   const situacion = situacionDelLead(lead.status)
   const guardados = lectura?.mensajes ?? null
   const sugerido = useMemo(() => elegirMensaje(mensajesDeLaSituacion(situacion, guardados), lead.id), [situacion, guardados, lead.id])
+  const conIa = useMensajeDeWhatsappConIa(lead.id, situacion)
 
   if (!numero || LEAD_SIN_WHATSAPP.has(lead.status)) return null
 
@@ -245,8 +251,15 @@ export function BotonDeWhatsapp({ lead, telefonos, currentUser }: Props) {
             align="start"
             sideOffset={8}
             collisionPadding={12}
-            className="z-[80] w-[min(400px,calc(100vw-1.5rem))] rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] p-0 text-[var(--ls-t2)] shadow-2xl"
+            className="z-[80] max-h-[var(--radix-popover-content-available-height)] w-[min(400px,calc(100vw-1.5rem))] overflow-y-auto rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] p-0 text-[var(--ls-t2)] shadow-2xl"
             onKeyDown={(e) => e.key === 'Escape' && e.stopPropagation()}
+            // Al abrir, el foco va al cuadro del mensaje de la IA si ya hay uno (escribir ahí no rompe nada) o al botón de generarlo: el primer elemento del
+            // desplegable, por defecto, sería la «X» de descartar el mensaje, y un Intro nada más abrir lo borraría
+            onOpenAutoFocus={(e) => {
+              e.preventDefault()
+              const zona = zonaIa.current
+              ;(zona?.querySelector<HTMLElement>('textarea') ?? zona?.querySelector<HTMLElement>('button:not([disabled])'))?.focus({ preventScroll: true })
+            }}
           >
             <div className="space-y-2 border-b border-[var(--ls-linea)] p-2.5">
               <p className="text-[11.5px] leading-snug text-[var(--ls-t3)]">Se abre el chat con el mensaje ya puesto: tú solo pulsas enviar. Queda apuntado en el historial del lead.</p>
@@ -268,6 +281,20 @@ export function BotonDeWhatsapp({ lead, telefonos, currentUser }: Props) {
                   ))}
                 </div>
               )}
+            </div>
+
+            <div ref={zonaIa} className="border-b border-[var(--ls-linea)] p-2.5">
+              <MensajeDeWhatsappConIa
+                ia={conIa}
+                situacion={situacion}
+                enlaceDe={enlaceDe}
+                alAbrir={(texto) => {
+                  alAbrir(texto)
+                  setAbierto(false)
+                  // El mensaje ya se ha usado: la próxima vez se parte de cero
+                  conIa.descartar()
+                }}
+              />
             </div>
 
             <div className="max-h-[320px] overflow-y-auto p-1.5">

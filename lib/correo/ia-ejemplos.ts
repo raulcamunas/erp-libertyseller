@@ -66,7 +66,7 @@ export function mencionaFacturacion(texto: string): boolean {
   const t = texto
   return (
     /facturaci[oó]n/i.test(t) ||
-    /\bfactur(a|an|as|amos|ar|ando|ado)\b[^.\n]{0,60}(€|euros?|\bmes\b|\ba[ñn]o\b|millon|\bk\b|\d)/i.test(t) ||
+    /\bfactur(a|an|as|amos|[aá]is|ar|ando|ado|aron|aba|aban)\b[^.\n]{0,60}(€|euros?|\bmes\b|\ba[ñn]o\b|millon|\bk\b|\d)/i.test(t) ||
     /\bingresos\b|\bventas\s+(mensuales|anuales|estimadas|totales)\b|\bvolumen\s+de\s+(ventas|negocio)\b|\bcifra\s+de\s+(negocio|ventas)\b|\brevenue\b|\bturnover\b/i.test(t) ||
     // Una cantidad pegada a una moneda, en cualquier orden: «20.200 €», «16.8k €/mes», «€20k», «$5,000», «30 mil euros»
     /\d[\d.,]*\s*(k|m|mil|millones?)?\s*(€|\beur\b|\beuros?\b|\busd\b|\bd[oó]lares\b|\$)/i.test(t) ||
