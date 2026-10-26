@@ -282,7 +282,15 @@ export function almacenDeSupabase(service: Servicio, ahora: () => number = Date.
       const actuales = numero((data as { turnos_intentos?: unknown } | null)?.turnos_intentos)
       if (actuales === null) return
       // Sin hora de intento: la próxima pasada puede volver a probar en cuanto la cuenta de la IA funcione
-      await service.from('rinkel_transcripciones').update({ turnos_intentos: Math.max(0, actuales - 1), turnos_intento_at: null }).eq('llamada_id', llamadaId)
+      const { error } = await service.from('rinkel_transcripciones').update({ turnos_intentos: Math.max(0, actuales - 1), turnos_intento_at: null }).eq('llamada_id', llamadaId)
+      // Es una gentileza (el intento solo se gasta de más): si falla no se rompe nada, pero se apunta para que no pase en silencio
+      if (error) console.error('[transcripcion] no se ha podido devolver el intento de separar quién habla', { codigo: (error as { code?: string }).code ?? null })
+    },
+
+    async abandonarTurnos(llamadaId: string): Promise<void> {
+      // Sin tocar `turnos` (sigue en NULL: la transcripción sale corrida) y con los intentos agotados, para que no vuelva a salir en la lista de pendientes
+      const { error } = await service.from('rinkel_transcripciones').update({ turnos_intentos: INTENTOS_DE_TURNOS, turnos_intento_at: iso() }).eq('llamada_id', llamadaId).is('turnos', null)
+      if (error) throw new Error('No se ha podido dejar la conversación sin separar.', { cause: error })
     },
   }
 }

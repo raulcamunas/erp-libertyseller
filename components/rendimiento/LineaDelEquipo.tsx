@@ -3,7 +3,7 @@
 import { Clock } from 'lucide-react'
 import { useMemo, useState, type CSSProperties } from 'react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { horaDeMinuto, pausasDe, resumenDeLinea, textoDeMinutos, ventanaDeHoras, type EventoDeLinea } from '@/lib/rendimiento/linea'
+import { desgloseDeLlamadas, horaDeMinuto, pausasDe, resumenDeLinea, textoDeMinutos, ventanaDeHoras, type EventoDeLinea } from '@/lib/rendimiento/linea'
 import { DetalleDeMarca, EjeDeHoras, Fondo, Marca } from './LineaDelDia'
 import { CabeceraDePanel, PANEL } from './ui'
 
@@ -74,6 +74,8 @@ export function LineaDelEquipo({ titulo, personas, eventosPorPersona, ahora, car
               const llamadas = eventos.filter((e) => e.carril === 'llamadas')
               const demas = eventos.filter((e) => e.carril !== 'llamadas')
               const mensajes = resumen.porCarril.whatsapp + resumen.porCarril.correos + resumen.porCarril.respuestas + resumen.porCarril.otras
+              // «30 intentos · 4 recibidas»: lo que hace que haya más rayas que llamadas. Vacío si cada llamada fue a un cliente distinto
+              const desglose = desgloseDeLlamadas(resumen.llamadas, { corto: true })
               const enCurso = pausas.find((p) => p.enCurso)
               return (
                 <div key={persona.id} className="rend-entra grid items-center border-t border-[var(--ls-linea)] py-1" style={{ gridTemplateColumns: COLUMNAS, '--d': indice } as CSSProperties}>
@@ -99,9 +101,11 @@ export function LineaDelEquipo({ titulo, personas, eventosPorPersona, ahora, car
                   </div>
 
                   <div className="pl-3 text-[10.5px] leading-snug tabular-nums text-[var(--ls-t4)]">
-                    <p>
-                      <span className="text-[var(--ls-t2)]">{resumen.porCarril.llamadas}</span> llamadas
+                    {/* La cifra de «llamadas» es la de la tabla del equipo: clientes distintos, un cliente una vez al día. Las rayas son cada intento (y cada recibida) */}
+                    <p title="A cuántos clientes distintos ha llamado: la misma cifra que la tabla del equipo (un cliente cuenta una sola llamada al día). Cada raya del dibujo es un intento, o una llamada recibida.">
+                      <span className="text-[var(--ls-t2)]">{resumen.llamadas.clientes}</span> llamadas
                     </p>
+                    {desglose && <p>{desglose}</p>}
                     <p>
                       <span className="text-[var(--ls-t2)]">{mensajes}</span> mensajes
                       {resumen.porCarril.citas > 0 ? ` · ${resumen.porCarril.citas} ${resumen.porCarril.citas === 1 ? 'cita' : 'citas'}` : ''}
@@ -122,7 +126,10 @@ export function LineaDelEquipo({ titulo, personas, eventosPorPersona, ahora, car
         </div>
 
         <div className="mt-2.5">
-          <DetalleDeMarca evento={eventoActivo} vacio="Pasa el ratón o pulsa una marca para ver qué fue y de quién. Las franjas rayadas son huecos de media hora o más sin actividad." />
+          <DetalleDeMarca
+            evento={eventoActivo}
+            vacio="Pasa el ratón o pulsa una marca para ver qué fue y de quién. Las franjas rayadas son huecos de media hora o más sin actividad. La cifra de llamadas cuenta clientes distintos, como la tabla del equipo; cada raya es un intento (o una llamada recibida), por eso puede haber más rayas que llamadas."
+          />
         </div>
       </div>
     </section>

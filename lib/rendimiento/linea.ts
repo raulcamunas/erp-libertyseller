@@ -1,6 +1,6 @@
 import { ETIQUETA_DE_CANAL, canalDe, type CitaDeActividad, type NotaDeActividad } from './actividad'
 import { etiquetaDeDia, diaMadrid, horaMadrid } from './dia'
-import { SEGUNDOS_DE_CONVERSACION, duracionCorta, esContestador, estaContestada } from './metricas'
+import { SEGUNDOS_DE_CONVERSACION, clienteDeLaLlamada, duracionCorta, esContestador, estaContestada } from './metricas'
 import { telefonoLegible } from './telefonos'
 
 /**
@@ -44,6 +44,16 @@ export interface EventoDeLinea {
   titulo: string
   detalle: string
   estilo: Estilo
+  /**
+   * SOLO EN LAS LLAMADAS. Quién es el cliente, con LA MISMA CLAVE que usa la tabla de arriba (`clienteDeLaLlamada`: el lead, si no el número, si no la propia
+   * llamada, con el día delante). Es lo que permite decir «30 intentos a 25 clientes» en la línea sin que se contradiga con la cifra de «Llamadas» de la tabla.
+   */
+  cliente?: string
+  /**
+   * SOLO EN LAS LLAMADAS. Si salió (un intento), entró (una recibida) u otra cosa (ni una ni otra: se dibuja pero no se cuenta, como en las tarjetas). Un evento
+   * sin esto cuenta como un intento a un cliente propio, como se contaba antes de agrupar
+   */
+  sentido?: 'salida' | 'entrada' | 'otra'
 }
 
 export interface LlamadaParaLinea {
@@ -97,7 +107,9 @@ function eventoDeLlamada(l: LlamadaParaLinea, cliente: (leadId: string) => strin
     titulo = salida ? 'Sin contestar' : 'Perdida'
   }
   const hora = horaMadrid(l.fecha)
-  return { id: `llamada-${l.id}`, carril: 'llamadas', minuto: minutoDeLaHora(hora), hora, titulo, detalle: quien, estilo }
+  // Salió / entró con la misma definición que las cifras (resumenDeLlamadas): cualquier otra dirección no se cuenta ni como intento ni como recibida
+  const sentido = l.direccion === 'outbound' ? 'salida' : l.direccion === 'inbound' ? 'entrada' : 'otra'
+  return { id: `llamada-${l.id}`, carril: 'llamadas', minuto: minutoDeLaHora(hora), hora, titulo, detalle: quien, estilo, cliente: clienteDeLaLlamada(l, 0), sentido }
 }
 
 function eventoDeNota(n: NotaDeActividad, cliente: (leadId: string) => string | null): EventoDeLinea {
@@ -183,6 +195,20 @@ export function pausasDe(eventos: readonly EventoDeLinea[], opciones: { minimo?:
   return pausas
 }
 
+/**
+ * LAS LLAMADAS DE LA LÍNEA, CONTADAS COMO LA TABLA. La línea dibuja una raya por llamada (es una línea de tiempo: importa CUÁNDO se marcó), pero la cifra de
+ * «llamadas» de todo el panel cuenta CLIENTES: a un cliente al que se llama tres veces en el día se le cuenta una. Las tres cosas, con la misma regla que
+ * `resumenDeLlamadas` (metricas.ts), para poder decir «30 intentos a 25 clientes y 4 recibidas» y que cuadre con ella.
+ */
+export interface LlamadasDeLinea {
+  /** A cuántos clientes distintos se llamó: ES la cifra de «Llamadas» de la tabla y de las tarjetas */
+  clientes: number
+  /** Las llamadas que salieron, sin agrupar: de ellas salen los `clientes` */
+  intentos: number
+  /** Las que entraron: no cuentan como llamadas hechas, pero también dejan una raya en la línea */
+  recibidas: number
+}
+
 export interface ResumenDeLinea {
   primera: string | null
   ultima: string | null
@@ -191,14 +217,49 @@ export interface ResumenDeLinea {
   pausaMasLarga: Pausa | null
   /** Suma de los huecos señalados que ya han acabado */
   minutosDePausa: number
+  /** Eventos por carril: lo que se DIBUJA (una raya por llamada, un punto por apunte). Para las llamadas, la cifra que se enseña es `llamadas.clientes` */
   porCarril: Record<Carril, number>
+  llamadas: LlamadasDeLinea
   total: number
+}
+
+/** Las llamadas de una lista de eventos, contadas como cuenta la tabla (ver LlamadasDeLinea) */
+export function llamadasDeLaLinea(eventos: readonly EventoDeLinea[]): LlamadasDeLinea {
+  const clientes = new Set<string>()
+  let intentos = 0
+  let recibidas = 0
+  for (const e of eventos) {
+    if (e.carril !== 'llamadas') continue
+    if (e.sentido === 'entrada') recibidas += 1
+    // Sin sentido (un evento que no viene de una llamada de Rinkel): cuenta como un intento a un cliente propio, como se contaba antes de agrupar
+    else if (e.sentido !== 'otra') {
+      intentos += 1
+      clientes.add(e.cliente ?? e.id)
+    }
+  }
+  return { clientes: clientes.size, intentos, recibidas }
+}
+
+/**
+ * Lo que hay que decir para que las rayas de las llamadas y la cifra de «llamadas» no parezcan contradecirse: «30 intentos a 25 clientes · 4 recibidas».
+ * Vacío si no hay nada que explicar (cada llamada fue a un cliente distinto y no hubo ninguna recibida). `corto` omite «a N clientes» (ya está en la cifra
+ * de al lado) para las columnas estrechas: «30 intentos · 4 recibidas».
+ */
+export function desgloseDeLlamadas(l: LlamadasDeLinea, opciones: { corto?: boolean } = {}): string {
+  const partes: string[] = []
+  if (l.intentos !== l.clientes) {
+    const intentos = `${l.intentos} ${l.intentos === 1 ? 'intento' : 'intentos'}`
+    partes.push(opciones.corto ? intentos : `${intentos} a ${l.clientes} ${l.clientes === 1 ? 'cliente' : 'clientes'}`)
+  }
+  if (l.recibidas > 0) partes.push(`${l.recibidas} ${l.recibidas === 1 ? 'recibida' : 'recibidas'}`)
+  return partes.join(' · ')
 }
 
 export function resumenDeLinea(eventos: readonly EventoDeLinea[], pausas: readonly Pausa[]): ResumenDeLinea {
   const porCarril: Record<Carril, number> = { llamadas: 0, whatsapp: 0, correos: 0, respuestas: 0, citas: 0, otras: 0 }
   for (const e of eventos) porCarril[e.carril] += 1
-  if (eventos.length === 0) return { primera: null, ultima: null, tramoActivo: 0, pausaMasLarga: null, minutosDePausa: 0, porCarril, total: 0 }
+  const llamadas = llamadasDeLaLinea(eventos)
+  if (eventos.length === 0) return { primera: null, ultima: null, tramoActivo: 0, pausaMasLarga: null, minutosDePausa: 0, porCarril, llamadas, total: 0 }
   const primera = eventos[0]
   const ultima = eventos[eventos.length - 1]
   const pausaMasLarga = pausas.reduce<Pausa | null>((m, p) => (m === null || p.minutos > m.minutos ? p : m), null)
@@ -209,6 +270,7 @@ export function resumenDeLinea(eventos: readonly EventoDeLinea[], pausas: readon
     pausaMasLarga,
     minutosDePausa: pausas.filter((p) => !p.enCurso).reduce((s, p) => s + p.minutos, 0),
     porCarril,
+    llamadas,
     total: eventos.length,
   }
 }

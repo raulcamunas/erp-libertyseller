@@ -23,7 +23,7 @@ import {
 } from '@/lib/transcripcion/motor'
 import type { LeadParaRellamada } from '@/lib/transcripcion/rellamada'
 import type { ResultadoDelResumen } from '@/lib/transcripcion/resumen'
-import type { ResultadoDeTurnos } from '@/lib/transcripcion/turnos'
+import { INTENTOS_DE_TURNOS, type ResultadoDeTurnos } from '@/lib/transcripcion/turnos'
 import type { TurnoDeLaLlamada } from '@/lib/transcripcion/tipos'
 import { ErrorDeVoz, MENSAJE_DE_VOZ, type ResultadoDeVoz } from '@/lib/transcripcion/voz'
 
@@ -250,7 +250,7 @@ function mundo(c: Config): Mundo {
       if (fallosDeAlmacen.faltaLa253) throw new Error(FALTA_MIGRACION_TURNOS)
       if (fallosDeAlmacen.pendientesDeTurnos) throw new Error('la base no contesta')
       return (c.sinTurnos ?? [])
-        .filter((p) => turnos.get(p.llamadaId)?.turnos === null && (turnos.get(p.llamadaId)?.intentos ?? 0) < 3)
+        .filter((p) => turnos.get(p.llamadaId)?.turnos === null && (turnos.get(p.llamadaId)?.intentos ?? 0) < INTENTOS_DE_TURNOS)
         .slice(0, limite)
         .map((p) => ({ transcripcion: LARGA, intentos: turnos.get(p.llamadaId)!.intentos, direccion: 'outbound', duracionS: 60, comercial: 'Beto Dos', empresa: 'Tienda', ...p }))
     },
@@ -270,6 +270,10 @@ function mundo(c: Config): Mundo {
     async devolverIntentoDeTurnos(llamadaId) {
       const f = turnos.get(llamadaId)!
       f.intentos = Math.max(0, f.intentos - 1)
+    },
+    async abandonarTurnos(llamadaId) {
+      // Como en la base: intentos agotados, turnos sin tocar
+      turnos.get(llamadaId)!.intentos = INTENTOS_DE_TURNOS
     },
   }
 
@@ -653,8 +657,30 @@ const run = async () => {
     {
       let n = 0
       const m = mundo({ pendientes: [], sinTurnos: pendientes(1), turnosDeLaIa: async () => (++n, SIN_TURNOS('La IA ha devuelto algo que no se entiende.')) })
-      for (let i = 0; i < 5; i++) await pasada(m)
-      ok('tras 3 intentos fallados se deja: la transcripción se queda corrida y no se insiste más', n === 3 && hecha(m, 'conv-1').turnos === null && hecha(m, 'conv-1').intentos === 3, `${n} peticiones`)
+      const avisos: Array<string | null> = []
+      for (let i = 0; i < INTENTOS_DE_TURNOS + 3; i++) avisos.push((await pasada(m)).avisoDeTurnos)
+      ok(`tras ${INTENTOS_DE_TURNOS} intentos fallados se deja: la transcripción se queda corrida y no se insiste más`, n === INTENTOS_DE_TURNOS && hecha(m, 'conv-1').turnos === null && hecha(m, 'conv-1').intentos === INTENTOS_DE_TURNOS, `${n} peticiones`)
+      ok('y NO en silencio: la pasada del último intento lo cuenta con un AVISO, y las demás no', avisos.slice(0, INTENTOS_DE_TURNOS - 1).every((a) => a === null) && /tras 10 intentos/.test(avisos[INTENTOS_DE_TURNOS - 1] ?? '') && avisos.slice(INTENTOS_DE_TURNOS).every((a) => a === null), JSON.stringify(avisos))
+    }
+    // UNA CAÍDA LARGA DE LA IA (la que perdía conversaciones con 3 intentos): falla durante nueve pasadas seguidas, vuelve, y la conversación sale separada
+    {
+      let n = 0
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(2), turnosDeLaIa: async () => (++n <= 2 * (INTENTOS_DE_TURNOS - 1) ? SIN_TURNOS('La IA tiene un problema ahora mismo.') : TURNOS_BUENOS) })
+      const r = [] as ResultadoDelMotor[]
+      for (let i = 0; i < INTENTOS_DE_TURNOS + 1; i++) r.push(await pasada(m))
+      ok(`una caída de la IA de ${INTENTOS_DE_TURNOS - 1} pasadas seguidas no pierde ninguna: al volver se separan las dos`, hecha(m, 'conv-1').turnos !== null && hecha(m, 'conv-2').turnos !== null && r.reduce((s, x) => s + x.turnos, 0) === 2, `${n} peticiones`)
+      ok('y sin avisos de «agotada» (ninguna llegó al último intento fallando)', r.every((x) => x.avisoDeTurnos === null), JSON.stringify(r.map((x) => x.avisoDeTurnos)))
+    }
+    // La IA SE NIEGA a una llamada: no se insiste (antes recibía los 3 intentos)
+    {
+      let n = 0
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(2), turnosDeLaIa: async (k) => (++n, k === 1 ? SIN_TURNOS('La IA se ha negado a separar esta llamada.', { reintentable: false }) : TURNOS_BUENOS) })
+      const r1 = await pasada(m)
+      ok('la negativa se deja a la primera y la siguiente conversación sale', r1.turnos === 1 && hecha(m, 'conv-1').turnos === null && hecha(m, 'conv-1').intentos === INTENTOS_DE_TURNOS && hecha(m, 'conv-2').turnos !== null, `${r1.turnos} · ${hecha(m, 'conv-1').intentos}`)
+      ok('lo cuenta con un AVISO (se enseña como texto corrido)', /se ha negado/.test(r1.avisoDeTurnos ?? '') && /texto corrido/.test(r1.avisoDeTurnos ?? '') && /AVISO: /.test(resumenDeLaPasada(r1)), r1.avisoDeTurnos ?? '')
+      await pasada(m)
+      await pasada(m)
+      ok('y no se vuelve a pedir: una sola petición para ella', n === 2, `${n} peticiones`)
     }
     // Fallo de la cuenta de la IA: se para y no gasta el intento de la llamada
     {

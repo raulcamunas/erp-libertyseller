@@ -5,6 +5,7 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import {
   CARRILES,
+  desgloseDeLlamadas,
   horaDeMinuto,
   pausasDe,
   resumenDeLinea,
@@ -191,6 +192,8 @@ export function LineaDelDia({ titulo, eventos, ahora, cargando = false }: Props)
   // Siempre las cinco filas de siempre, para poder comparar un día con otro; «otras notas» solo si las hay
   const carriles = CARRILES.filter((c) => c.id !== 'otras' || resumen.porCarril.otras > 0)
   const enCurso = pausas.find((p) => p.enCurso)
+  // «30 intentos a 25 clientes · 4 recibidas»: por qué hay más rayas que la cifra de llamadas. Vacío si cada llamada fue a un cliente distinto
+  const desglose = desgloseDeLlamadas(resumen.llamadas)
 
   return (
     <section className={`${PANEL} rend-aparece overflow-hidden transition-opacity duration-300 ${cargando ? 'opacity-60' : ''}`} aria-label={titulo}>
@@ -241,7 +244,8 @@ export function LineaDelDia({ titulo, eventos, ahora, cargando = false }: Props)
                   <span className="flex items-center gap-1.5 pr-2 text-[11.5px] text-[var(--ls-t3)]">
                     <span className="h-1.5 w-1.5 rounded-full" style={{ background: COLOR_DE_CARRIL[c.id] }} />
                     {c.etiqueta}
-                    <span className="tabular-nums text-[var(--ls-t4)]">{resumen.porCarril[c.id]}</span>
+                    {/* En «Llamadas», clientes distintos (la cifra de las tarjetas y de la tabla); en el resto, cada apunte */}
+                    <span className="tabular-nums text-[var(--ls-t4)]">{c.id === 'llamadas' ? resumen.llamadas.clientes : resumen.porCarril[c.id]}</span>
                   </span>
                   <div className="relative h-[26px]">
                     {eventos
@@ -274,6 +278,11 @@ export function LineaDelDia({ titulo, eventos, ahora, cargando = false }: Props)
             <span className="flex items-center gap-1.5">
               <span className="h-2.5 w-4 rounded-[2px] border" style={{ backgroundImage: RAYAS_DE_PAUSA, borderColor: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 30%, transparent)` }} /> 30 min o más sin actividad
             </span>
+            {desglose && (
+              <span className="basis-full">
+                Llamadas: {desglose}. Cada raya es un intento (o una recibida); la cifra cuenta un cliente una sola vez al día, como el resto de cifras del panel.
+              </span>
+            )}
           </div>
         </div>
       </div>

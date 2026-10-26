@@ -6,7 +6,7 @@ import { esperaTrasFallo, pistasDeLaLlamada, sinContenido, type PistasDeVoz } fr
 import { decidirRellamadaDeLlamada, type LeadParaRellamada } from './rellamada'
 import { construirEncargo, type ResultadoDelResumen } from './resumen'
 import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, TipoDeLlamada, TurnoDeLaLlamada } from './tipos'
-import { MAX_FRASES_PARA_TURNOS, MIN_FRASES_PARA_TURNOS, armarTurnos, construirEncargoDeTurnos, partirEnFrases, type ResultadoDeTurnos } from './turnos'
+import { INTENTOS_DE_TURNOS, MAX_FRASES_PARA_TURNOS, MIN_FRASES_PARA_TURNOS, armarTurnos, construirEncargoDeTurnos, partirEnFrases, type ResultadoDeTurnos } from './turnos'
 import { ErrorDeVoz, esFalloGeneralDeLaIa, type ResultadoDeVoz } from './voz'
 
 /**
@@ -144,6 +144,8 @@ export interface Almacen {
   guardarTurnos(llamadaId: string, t: TurnosParaGuardar): Promise<void>
   /** El fallo es de la cuenta de la IA y no de la llamada: el intento no cuenta */
   devolverIntentoDeTurnos(llamadaId: string): Promise<void>
+  /** Da la conversación por no separable (la IA se ha negado): agota sus intentos sin tocar `turnos`, así que la transcripción sale corrida y no se vuelve a pedir */
+  abandonarTurnos(llamadaId: string): Promise<void>
 }
 
 /** Una conversación ya resumida que espera que se separe quién habla, con lo que hace falta para pedírselo a la IA */
@@ -516,7 +518,8 @@ export const TURNOS_POR_PASADA = 6
 
 /**
  * Reparte en turnos («Comercial» y «Cliente») la transcripción de las conversaciones ya resumidas a las que les falta. NUNCA lanza ni cambia el resultado de lo ya
- * hecho: lo que no sale se reintenta más tarde (hasta INTENTOS_DE_TURNOS) y, si nunca sale, la transcripción se enseña corrida como siempre.
+ * hecho: lo que no sale se reintenta más tarde (hasta INTENTOS_DE_TURNOS, con diez minutos entre uno y otro: aguanta una caída de la IA de más de una hora) y, si
+ * nunca sale, la transcripción se enseña corrida como siempre y la pasada lo dice con un AVISO. Si la IA se NIEGA a una llamada, no se insiste: se deja a la primera.
  */
 async function separarQuienHabla(almacen: Almacen, deps: DepsDelMotor, op: OpcionesDelMotor, inicio: number, salida: ResultadoDelMotor): Promise<void> {
   try {
@@ -538,6 +541,9 @@ async function separarQuienHabla(almacen: Almacen, deps: DepsDelMotor, op: Opcio
         frases.length
       )
       salida.costeUsd += r.costeUsd
+      // Si este era el ÚLTIMO intento y no ha salido, la transcripción se queda corrida para siempre: eso no puede pasar en silencio
+      const ultimoIntento = p.intentos + 1 >= INTENTOS_DE_TURNOS
+      const avisoDeAgotada = `Una conversación no se ha podido separar por quién habla tras ${INTENTOS_DE_TURNOS} intentos y se enseña como texto corrido.`
       if (!r.marcas) {
         if (r.general) {
           // La cuenta de la IA no deja trabajar (clave, saldo): no es culpa de la llamada y seguir con las demás es martillear
@@ -545,10 +551,20 @@ async function separarQuienHabla(almacen: Almacen, deps: DepsDelMotor, op: Opcio
           salida.avisoDeTurnos = r.aviso
           return
         }
+        if (!r.reintentable) {
+          // La IA se ha negado a esta llamada: pedirlo otra vez no cambia nada. Se deja ya, sin gastar los intentos que quedan
+          await almacen.abandonarTurnos(p.llamadaId)
+          salida.avisoDeTurnos ??= `${r.aviso} Se enseña como texto corrido.`
+          continue
+        }
+        if (ultimoIntento) salida.avisoDeTurnos ??= avisoDeAgotada
         continue
       }
       const turnos = armarTurnos(frases, r.marcas)
-      if (turnos.length === 0) continue
+      if (turnos.length === 0) {
+        if (ultimoIntento) salida.avisoDeTurnos ??= avisoDeAgotada
+        continue
+      }
       await almacen.guardarTurnos(p.llamadaId, { turnos, modelo: r.modelo, costeUsd: r.costeUsd })
       salida.turnos++
     }

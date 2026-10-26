@@ -111,7 +111,7 @@ const VACIO: ResumenDeLlamadas = {
  * de Madrid delante, así que el mismo cliente en dos días son dos. La función SQL del resumen diario (migración 252) usa la misma clave:
  * `COALESCE(lead_id::text, numero, id::text)` por persona y día. Si se cambia aquí, hay que cambiarla allí.
  */
-export function clienteDeLaLlamada(l: LlamadaParaMetricas, posicion: number): string {
+export function clienteDeLaLlamada(l: Pick<LlamadaParaMetricas, 'fecha' | 'numero' | 'id' | 'lead_id'>, posicion: number): string {
   return `${diaMadrid(l.fecha)}|${l.lead_id ?? l.numero ?? l.id ?? `#${posicion}`}`
 }
 

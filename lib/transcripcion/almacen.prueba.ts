@@ -252,7 +252,7 @@ const run = async () => {
     const f = falso(responder)
     const r = await almacenDeSupabase(f.servicio, () => AHORA).pendientesDeTurnos(6)
     const l = f.llamadas[0]
-    ok('pide a rinkel_transcripciones las HECHAS, que son conversación, sin turnos, con intentos por gastar y con texto', l.tabla === 'rinkel_transcripciones' && hay(l, 'eq', 'estado', 'hecha') && hay(l, 'eq', 'tipo', 'conversacion') && hay(l, 'is', 'turnos', null) && hay(l, 'lt', 'turnos_intentos', 3) && hay(l, 'not', 'transcripcion', 'is', null))
+    ok('pide a rinkel_transcripciones las HECHAS, que son conversación, sin turnos, con intentos por gastar y con texto', l.tabla === 'rinkel_transcripciones' && hay(l, 'eq', 'estado', 'hecha') && hay(l, 'eq', 'tipo', 'conversacion') && hay(l, 'is', 'turnos', null) && hay(l, 'lt', 'turnos_intentos', 10) && hay(l, 'not', 'transcripcion', 'is', null))
     ok('las más nuevas primero y con tope', hay(l, 'order', 'hecha_at', { ascending: false }) && hay(l, 'limit', 6))
     ok('un intento fallado espera 10 minutos: sin intento previo o de hace más de 10 min', hay(l, 'or', 'turnos_intento_at.is.null,turnos_intento_at.lt.2026-10-23T14:50:00.000Z'))
     ok('de las llamadas se lee el sentido, la duración y el lead; y se piden los nombres', f.llamadas.some((x) => x.tabla === 'rinkel_llamadas' && hay(x, 'in', 'id', ['c1', 'c2'])) && f.llamadas.some((x) => x.tabla === 'cold_leads') && f.llamadas.some((x) => x.tabla === 'profiles'))
@@ -288,6 +288,23 @@ const run = async () => {
     const z = falso((x) => (cadena(x, 'update') ? {} : { data: { turnos_intentos: 0 } }))
     await almacenDeSupabase(z.servicio).devolverIntentoDeTurnos('c1')
     ok('y nunca baja de cero', (cadena(z.llamadas.find((x) => cadena(x, 'update'))!, 'update')?.[0] as Record<string, unknown>).turnos_intentos === 0)
+
+    // Si devolver el intento falla no se rompe nada (es una gentileza), pero se apunta y sin lo que se dijo en la llamada
+    {
+      const apuntes: string[] = []
+      const original = console.error
+      console.error = (...a: unknown[]) => apuntes.push(JSON.stringify(a))
+      await almacenDeSupabase(falso((x) => (cadena(x, 'update') ? { error: { code: '500', message: 'secreto interno' } } : { data: { turnos_intentos: 2 } })).servicio).devolverIntentoDeTurnos('c1')
+      console.error = original
+      ok('si falla al devolver el intento, no lanza y lo apunta sin el cuerpo del error', apuntes.length === 1 && /devolver el intento/.test(apuntes[0]) && !/secreto/.test(apuntes[0]), apuntes.join(' '))
+    }
+
+    // Dar una conversación por no separable: agota los intentos sin tocar los turnos
+    const a = falso(() => ({}))
+    await almacenDeSupabase(a.servicio, () => AHORA).abandonarTurnos('c1')
+    const ab = cadena(a.llamadas[0], 'update')?.[0] as Record<string, unknown>
+    ok('abandonar agota los intentos y NO toca los turnos (la transcripción sale corrida), solo si siguen sin separar', a.llamadas[0].tabla === 'rinkel_transcripciones' && ab.turnos_intentos === 10 && !('turnos' in ab) && ab.turnos_intento_at === '2026-10-23T15:00:00.000Z' && hay(a.llamadas[0], 'eq', 'llamada_id', 'c1') && hay(a.llamadas[0], 'is', 'turnos', null), j(ab))
+    await falla('un error al abandonar sale como frase nuestra', () => almacenDeSupabase(falso(() => ({ error: { code: '500' } })).servicio).abandonarTurnos('c1'), (m) => /dejar la conversación sin separar/.test(m))
   }
 }
 

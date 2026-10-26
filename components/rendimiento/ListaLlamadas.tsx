@@ -4,7 +4,8 @@ import { Loader2, Mic, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, Play
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { etiquetaDeDia, horaMadrid } from '@/lib/rendimiento/dia'
-import { duracionCorta, esContestador, estaContestada } from '@/lib/rendimiento/metricas'
+import { desgloseDeLlamadas } from '@/lib/rendimiento/linea'
+import { duracionCorta, esContestador, estaContestada, resumenDeLlamadas } from '@/lib/rendimiento/metricas'
 import { telefonoLegible } from '@/lib/rendimiento/telefonos'
 import { primeraFrase, vistaDelResumen } from '@/lib/transcripcion/pantalla'
 import { ResumenDeLlamada } from '@/components/transcripcion/ResumenDeLlamada'
@@ -114,6 +115,11 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
     [ordenadas]
   )
   const visibles = useMemo(() => ordenadas.filter(CUMPLE[filtro]), [ordenadas, filtro])
+  // «30 intentos a 25 clientes · 4 recibidas»: de qué se compone el «N en total» y por qué no es la cifra de llamadas de las tarjetas. Vacío si coinciden
+  const desglose = useMemo(() => {
+    const r = resumenDeLlamadas(llamadas)
+    return desgloseDeLlamadas({ clientes: r.realizadas, intentos: r.intentos, recibidas: r.recibidas })
+  }, [llamadas])
 
   const nombreDelDia = dia === hoy ? 'de hoy' : `del ${etiquetaDeDia(dia)}`
 
@@ -135,6 +141,11 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
       />
 
       <div className="flex min-h-0 flex-1 flex-col p-3 pt-2.5">
+        {desglose && (
+          <p className="mb-2 text-[11px] leading-snug text-[var(--ls-t4)]">
+            {desglose}. Aquí sale cada llamada; en las cifras, un cliente cuenta una sola llamada al día.
+          </p>
+        )}
         {llamadas.length > 0 && (
           <div className="mb-2.5 flex flex-wrap gap-1" role="group" aria-label="Filtrar llamadas">
             {FILTROS.map((f) => (

@@ -1,7 +1,9 @@
 import {
   CARRILES,
+  desgloseDeLlamadas,
   eventosDeLinea,
   horaDeMinuto,
+  llamadasDeLaLinea,
   minutoDeLaHora,
   pausasDe,
   resumenDeLinea,
@@ -10,6 +12,7 @@ import {
   type EventoDeLinea,
   type LlamadaParaLinea,
 } from '@/lib/rendimiento/linea'
+import { resumenDeLlamadas, type LlamadaParaMetricas } from '@/lib/rendimiento/metricas'
 import type { CitaDeActividad, NotaDeActividad } from '@/lib/rendimiento/actividad'
 
 let fallos = 0
@@ -159,6 +162,112 @@ console.log('\n=== las horas que abarca el dibujo ===')
   ok('nunca pasa de medianoche', ventanaDeHoras([evento(1439)]).hasta === 1440)
   ok('minutos y horas', minutoDeLaHora('12:14') === 734 && horaDeMinuto(734) === '12:14' && horaDeMinuto(65) === '01:05')
   ok('cuánto es un hueco', textoDeMinutos(47) === '47 min' && textoDeMinutos(60) === '1 h 00 min' && textoDeMinutos(426) === '7 h 06 min')
+}
+
+console.log('\n=== las llamadas se cuentan como la tabla: clientes, intentos y recibidas ===')
+{
+  // El caso de Maoli: más rayas que llamadas porque a algunos clientes se les llamó varias veces y entraron unas cuantas
+  const dia = [
+    llamada('10:00', 'MISSED', 0, { id: 'a1', lead_id: 'lead-a', numero: '+34611000001' }),
+    llamada('11:00', 'MISSED', 0, { id: 'a2', lead_id: 'lead-a', numero: '+34611000001' }),
+    llamada('12:00', 'ANSWERED', 75, { id: 'a3', lead_id: 'lead-a', numero: '+34611000001' }),
+    llamada('10:30', 'MISSED', 0, { id: 'b1', lead_id: 'lead-b', numero: '+34611000002' }),
+    // Sin lead: el cliente es el número, y el mismo número dos veces es un solo cliente
+    llamada('10:40', 'MISSED', 0, { id: 'n1', lead_id: null, numero: '+34611000003' }),
+    llamada('13:00', 'MISSED', 0, { id: 'n2', lead_id: null, numero: '+34611000003' }),
+    // Número oculto y sin lead: cada llamada es su propio cliente (no se pueden agrupar)
+    llamada('10:50', 'MISSED', 0, { id: 'o1', lead_id: null, numero: null }),
+    llamada('13:10', 'MISSED', 0, { id: 'o2', lead_id: null, numero: null }),
+    // Las que entran
+    llamada('11:30', 'ANSWERED', 40, { id: 'r1', direccion: 'inbound', lead_id: 'lead-a' }),
+    llamada('11:45', 'MISSED', 0, { id: 'r2', direccion: 'inbound', lead_id: null, numero: '+34611000009' }),
+  ]
+  const e = eventosDeLinea({ llamadas: dia, notas: [], citas: [], cliente: sinNombres })
+  const r = resumenDeLinea(e, [])
+  ok('hay una raya por cada llamada, las que salen y las que entran', r.porCarril.llamadas === 10 && e.filter((x) => x.carril === 'llamadas').length === 10)
+  ok('«llamadas» cuenta CLIENTES distintos: a (3 veces), b, el número repetido y los dos ocultos = 5', r.llamadas.clientes === 5, j(r.llamadas))
+  ok('los intentos son las salientes sin agrupar: 3 + 1 + 2 + 2 = 8', r.llamadas.intentos === 8, j(r.llamadas))
+  ok('las recibidas, aparte: 2', r.llamadas.recibidas === 2, j(r.llamadas))
+  ok('cuadra: intentos + recibidas = las rayas', r.llamadas.intentos + r.llamadas.recibidas === r.porCarril.llamadas)
+  ok('una recibida de un lead al que también se llamó NO suma un cliente más', r.llamadas.clientes === 5)
+
+  // LA PARIDAD CON LA TABLA: lo que cuenta resumenDeLlamadas (el de las tarjetas y el calendario) tiene que salir igual
+  const paraMetricas: LlamadaParaMetricas[] = dia.map((l) => ({ ...l, grabacion_id: null }))
+  const t = resumenDeLlamadas(paraMetricas)
+  ok('igual que resumenDeLlamadas: realizadas = clientes, intentos, recibidas', t.realizadas === r.llamadas.clientes && t.intentos === r.llamadas.intentos && t.recibidas === r.llamadas.recibidas, j({ t: [t.realizadas, t.intentos, t.recibidas], r: r.llamadas }))
+
+  ok('el desglose lo dice con palabras', desgloseDeLlamadas(r.llamadas) === '8 intentos a 5 clientes · 2 recibidas', desgloseDeLlamadas(r.llamadas))
+  ok('y en corto, para la columna estrecha, sin repetir los clientes', desgloseDeLlamadas(r.llamadas, { corto: true }) === '8 intentos · 2 recibidas', desgloseDeLlamadas(r.llamadas, { corto: true }))
+}
+
+console.log('\n=== el desglose solo habla cuando hay algo que explicar ===')
+{
+  ok('cada llamada a un cliente distinto y ninguna recibida: nada que explicar', desgloseDeLlamadas({ clientes: 7, intentos: 7, recibidas: 0 }) === '')
+  ok('sin llamadas: nada', desgloseDeLlamadas({ clientes: 0, intentos: 0, recibidas: 0 }) === '')
+  ok('solo recibidas', desgloseDeLlamadas({ clientes: 3, intentos: 3, recibidas: 1 }) === '1 recibida')
+  ok('solo repetidas', desgloseDeLlamadas({ clientes: 4, intentos: 9, recibidas: 0 }) === '9 intentos a 4 clientes')
+  ok('el singular', desgloseDeLlamadas({ clientes: 1, intentos: 2, recibidas: 1 }) === '2 intentos a 1 cliente · 1 recibida')
+  ok('el plural de recibidas', desgloseDeLlamadas({ clientes: 5, intentos: 5, recibidas: 3 }) === '3 recibidas')
+}
+
+console.log('\n=== lo que no es una llamada de Rinkel, y los días ===')
+{
+  // Un evento que ya no trae sentido ni cliente (como los de las pruebas de arriba) cuenta como antes: un intento a un cliente propio
+  const sueltos = llamadasDeLaLinea([evento(600), evento(610), evento(620, 'whatsapp')])
+  ok('sin sentido ni cliente, cada raya es un intento a un cliente propio', j(sueltos) === j({ clientes: 2, intentos: 2, recibidas: 0 }), j(sueltos))
+  const raro = eventosDeLinea({ llamadas: [llamada('10:00', 'ANSWERED', 30, { direccion: 'internal' })], notas: [], citas: [], cliente: sinNombres })
+  ok('una dirección que no es ni salida ni entrada se dibuja pero no se cuenta (como en las tarjetas)', raro.length === 1 && j(llamadasDeLaLinea(raro)) === j({ clientes: 0, intentos: 0, recibidas: 0 }), j(llamadasDeLaLinea(raro)))
+  // El cliente lleva el día delante: el mismo lead en dos días son dos, igual que en el calendario del mes
+  const dosDias = eventosDeLinea({
+    llamadas: [
+      { ...llamada('10:00', 'MISSED', 0, { id: 'd1', lead_id: 'lead-x' }) },
+      { ...llamada('10:00', 'MISSED', 0, { id: 'd2', lead_id: 'lead-x' }), fecha: '2026-10-22T08:00:00Z' },
+    ],
+    notas: [],
+    citas: [],
+    cliente: sinNombres,
+  })
+  ok('el mismo lead en dos días distintos cuenta en los dos', llamadasDeLaLinea(dosDias).clientes === 2 && llamadasDeLaLinea(dosDias).intentos === 2)
+  ok('un día sin llamadas: todo a cero', j(resumenDeLinea([], []).llamadas) === j({ clientes: 0, intentos: 0, recibidas: 0 }))
+}
+
+console.log('\n=== la línea y las tarjetas no pueden contradecirse (al azar) ===')
+{
+  // Una semilla fija: 40 días de mentira con leads repetidos, números repetidos, ocultos, entrantes y de todo. En cada uno, lo que dice la línea tiene que ser
+  // exactamente lo que dice resumenDeLlamadas, que es de donde salen las cifras de las tarjetas y del calendario
+  let semilla = 20261026
+  const azar = () => {
+    semilla = (semilla * 1664525 + 1013904223) >>> 0
+    return semilla / 0x100000000
+  }
+  let dias = 0
+  let distintos = 0
+  for (let d = 0; d < 40; d++) {
+    const n = 1 + Math.floor(azar() * 90)
+    const llamadas: LlamadaParaLinea[] = []
+    for (let i = 0; i < n; i++) {
+      const hora = 7 + Math.floor(azar() * 11)
+      const minuto = Math.floor(azar() * 60)
+      const sentido = azar() < 0.12 ? 'inbound' : 'outbound'
+      const conLead = azar() < 0.6
+      const conNumero = azar() < 0.85
+      llamadas.push({
+        id: `d${d}-${i}`,
+        // Todo dentro del mismo día de Madrid (en octubre, UTC+2)
+        fecha: `2026-10-21T${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}:00Z`,
+        direccion: sentido,
+        estado: azar() < 0.5 ? 'ANSWERED' : 'MISSED',
+        duracion_s: Math.floor(azar() * 120),
+        lead_id: conLead ? `lead-${Math.floor(azar() * 12)}` : null,
+        numero: conNumero ? `+3461100${String(Math.floor(azar() * 9)).padStart(4, '0')}` : null,
+      })
+    }
+    const r = resumenDeLinea(eventosDeLinea({ llamadas, notas: [], citas: [], cliente: sinNombres }), []).llamadas
+    const t = resumenDeLlamadas(llamadas.map((l) => ({ ...l, grabacion_id: null })))
+    dias++
+    if (t.realizadas === r.clientes && t.intentos === r.intentos && t.recibidas === r.recibidas && r.clientes <= r.intentos) distintos++
+  }
+  ok(`en ${dias} días al azar, la línea y las tarjetas dicen lo mismo (clientes, intentos y recibidas)`, distintos === dias, `${distintos} de ${dias}`)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

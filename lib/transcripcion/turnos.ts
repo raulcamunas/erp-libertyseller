@@ -10,8 +10,9 @@ import type { QuienDelTurno, TurnoDeLaLlamada } from './tipos'
  * una conversación, una segunda llamada a la IA de texto reparte las frases en TURNOS y dice de quién es cada uno.
  *
  * LA IA NO REESCRIBE LA TRANSCRIPCIÓN. El texto se parte en frases EN EL CÓDIGO, se le manda numerado y ella solo contesta una lista corta: «desde la frase 5,
- * habla el cliente; desde la 7, el comercial…». Los turnos se arman aquí juntando las frases de cada uno, así que el texto que se enseña es exactamente el
- * que salió de la voz (nada omitido ni parafraseado) y lo que paga es una lista de números, no la conversación entera: unos 0,0003 $ por llamada.
+ * habla el cliente; desde la 7, el comercial…». Los turnos se arman aquí juntando las frases de cada uno, así que el texto que se enseña es el que salió de la
+ * voz (nada omitido ni parafraseado; solo se unifican los espacios y saltos de línea repetidos) y lo que paga es una lista de números, no la conversación
+ * entera: unos 0,0003 $ por llamada.
  *
  * Es una deducción: el comercial es quien se presenta de Liberty Seller y pregunta; el cliente, quien responde por su empresa. En llamadas muy cortas, con
  * ruido o muy entrecortadas puede equivocarse de lado, y la pantalla lo dice. Por eso la transcripción sin separar sigue existiendo.
@@ -20,8 +21,12 @@ import type { QuienDelTurno, TurnoDeLaLlamada } from './tipos'
  * y que NO LANZA: devuelve las marcas o el motivo de que no las haya.
  */
 
-/** Cuántas veces se intenta separar una llamada antes de dejarla como está (el SQL de la migración 253 usa el mismo número) */
-export const INTENTOS_DE_TURNOS = 3
+/**
+ * Cuántas veces se intenta separar una llamada antes de dejarla como está. Con diez minutos entre un intento y otro (almacen.ts) son unos 90 minutos: lo que
+ * hace falta para que una caída de la IA de media hora o de una hora no deje conversaciones sin etiquetar para siempre (con 3 intentos una caída de 25 minutos ya
+ * perdía algunas). Un intento fallado cuesta casi nada: un error del proveedor no se cobra y, si contesta algo ilegible, son céntimos de céntimo.
+ */
+export const INTENTOS_DE_TURNOS = 10
 /** Una llamada con más frases que esto no se separa (media hora de conversación seguida: no merece la respuesta tan larga) */
 export const MAX_FRASES_PARA_TURNOS = 600
 /** Con menos frases no hay turnos que separar (un «¿diga?» y colgar) */

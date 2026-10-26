@@ -90,7 +90,7 @@ async function main() {
     ok('dos turnos seguidos del mismo lado son uno', seguidos.length === 2 && seguidos[0].quien === 'comercial' && seguidos[0].texto === frases.slice(0, 3).join(' ') && seguidos[1].texto === frases.slice(3).join(' '))
     ok('un solo turno: toda la conversación en uno', armarTurnos(frases, [{ desde: 1, quien: 'cliente' }]).length === 1 && armarTurnos(frases, [{ desde: 1, quien: 'cliente' }])[0].texto === LLAMADA)
     ok('sin marcas, sin turnos', armarTurnos(frases, []).length === 0)
-    ok('los números de abajo son los de la migración', INTENTOS_DE_TURNOS === 3 && MIN_FRASES_PARA_TURNOS === 2 && MAX_FRASES_PARA_TURNOS === 600)
+    ok('los números de abajo son los que se han decidido: 10 intentos (unos 90 min de caída de la IA), de 2 a 600 frases', INTENTOS_DE_TURNOS === 10 && MIN_FRASES_PARA_TURNOS === 2 && MAX_FRASES_PARA_TURNOS === 600)
   }
 
   console.log('\n=== la llamada a la IA ===')

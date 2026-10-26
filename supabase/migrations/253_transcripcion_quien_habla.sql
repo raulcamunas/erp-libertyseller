@@ -10,12 +10,12 @@
 --
 -- Se hace APARTE del resumen, en el mismo proceso (`rinkel-transcribir`, cada dos minutos): coge las llamadas ya resumidas que son conversación y todavía no
 -- tienen turnos, las más nuevas primero. Así el resumen no depende de esto, las llamadas que ya estaban transcritas se separan solas en unos minutos, y un
--- fallo de la IA no estropea nada: se reintenta hasta 3 veces (con 10 minutos entre una y otra) y, si no sale, la transcripción se queda corrida como hasta
--- ahora. Cuesta unos 0,0003 $ por llamada (la IA solo contesta una lista corta de números, no reescribe la conversación).
+-- fallo de la IA no estropea nada: se reintenta hasta 10 veces (con 10 minutos entre una y otra: aguanta una caída de más de una hora) y, si no sale, la
+-- transcripción se queda corrida como hasta ahora. Cuesta unos 0,0003 $ por llamada (la IA solo contesta una lista corta de números, no reescribe la conversación).
 --
 --   · `turnos`            [{"quien": "comercial" | "cliente", "texto": "…"}] en el orden en que se habló. NULL = todavía sin separar. [] = no hay nada que
 --                         separar (una sola frase, o demasiado larga) y no se vuelve a intentar.
---   · `turnos_intentos`   Cuántas veces se ha intentado (al llegar a 3 se deja).
+--   · `turnos_intentos`   Cuántas veces se ha intentado (al llegar a 10 se deja; el límite vive en el código, INTENTOS_DE_TURNOS).
 --   · `turnos_intento_at` Cuándo fue el último intento: separa los intentos en el tiempo.
 --   · `modelo_turnos`, `coste_turnos_usd`  Con qué modelo y cuánto costó, para saber a dónde va el dinero.
 --
