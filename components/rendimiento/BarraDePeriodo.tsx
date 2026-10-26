@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronLeft, ChevronRight, Eye, FileBarChart, MailCheck, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, FileBarChart, Sparkles, Users } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { sumarDias } from '@/lib/rendimiento/dia'
@@ -44,7 +44,7 @@ interface Props {
   enlaceInforme?: string
   /** Solo para quien tiene el permiso «Actividad del equipo» (o es administrador): la dirección de esa pantalla. Sin esto no hay botón */
   enlaceActividad?: string
-  /** Solo para quien tiene el permiso «Configuración de correos» (o es administrador): la dirección de esa pantalla. Sin esto no hay botón */
+  /** Solo para quien tiene el permiso «Configuración de la IA» (o es administrador): la dirección de esa pantalla. Sin esto no hay botón */
   enlaceCorreos?: string
 }
 
@@ -150,10 +150,10 @@ export function BarraDePeriodo({ periodo, hoy, cargando, onPeriodo, personas, pe
           {enlaceCorreos && (
             <Link
               href={enlaceCorreos}
-              title="Afina los correos que escribe la IA, prueba versiones y mira cuál consigue más respuestas"
+              title="Calibra lo que escribe la IA (correo y WhatsApp): ajusta, prueba sin enviar nada y publica"
               className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2.5 text-[12px] text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"
             >
-              <MailCheck className="h-3.5 w-3.5 text-[var(--ls-acc)]" /> Configuración de correos
+              <Sparkles className="h-3.5 w-3.5 text-[var(--ls-acc)]" /> Configuración de la IA
             </Link>
           )}
           {personas && onPersona && (

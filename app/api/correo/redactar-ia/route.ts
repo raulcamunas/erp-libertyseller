@@ -33,7 +33,7 @@ import { createServiceClient } from '@/lib/supabase/service'
  * Devuelve { ok, id, versionId, asunto, texto, angulo, ejemplos, aviso }. `id` es el del registro del borrador (null si la migración 242 no está
  * lanzada): el cuadro de correo lo manda de vuelta al enviar para apuntar lo que salió de verdad.
  *
- * LA VERSIÓN. Cada borrador lo escribe una VERSIÓN de la IA (Mi rendimiento → Configuración de correos): se sortea entre las que están en
+ * LA VERSIÓN. Cada borrador lo escribe una VERSIÓN de la IA (Mi rendimiento → Configuración de la IA): se sortea entre las que están en
  * marcha, en proporción a su peso, y queda apuntada. El comercial no la elige ni la ve; el cuadro de correo se limita a devolverla en
  * `versionId` cuando pide redactar de nuevo el mismo correo, para que la comparación entre versiones sea limpia (si pudiera redactar hasta
  * que le saliera la que le gusta, estaría eligiendo). Sin versiones (migración 243 sin lanzar, o ninguna en marcha) se usa la configuración

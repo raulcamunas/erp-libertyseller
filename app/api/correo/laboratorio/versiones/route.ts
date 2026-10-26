@@ -7,14 +7,14 @@ import { SIN_CACHE } from '@/lib/correo/rutas'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
- * LAS VERSIONES DE LA IA (Mi rendimiento → Configuración de correos).
+ * LAS VERSIONES DE LA IA (Mi rendimiento → Configuración de la IA).
  *
  * GET   todo lo que pinta la pantalla de versiones: las versiones con su uso y su porcentaje del reparto, y los ejemplos propios (con cuáles
  *       están bloqueados por una versión que ya ha escrito borradores). La primera vez crea la versión original.
  * POST  crea una versión nueva: { nombre, notas?, secciones, ejemplosIds?, usarGanadores?, modelo?, peso?, activa? }. Nace pausada y sin peso
  *       salvo que se pida otra cosa.
  *
- * Solo quien tenga la casilla «Configuración de correos» (o sea administrador): lo que se cambia aquí lo usa todo el equipo.
+ * Solo quien tenga la casilla «Configuración de la IA» (o sea administrador): lo que se cambia aquí lo usa todo el equipo.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'

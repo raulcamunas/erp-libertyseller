@@ -46,7 +46,7 @@ export interface ClienteDeCorreoIa {
         opciones?: { signal?: AbortSignal }
       ) => Promise<{
         choices?: Array<{ finish_reason?: string | null; message?: { content?: string | null; refusal?: string | null } }>
-        usage?: { prompt_tokens?: number; completion_tokens?: number }
+        usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } }
       }>
     }
   }

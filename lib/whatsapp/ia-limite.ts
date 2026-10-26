@@ -19,19 +19,36 @@ const delProceso: Peticiones = new Map()
 
 export type Permiso = { permitido: true } | { permitido: false; motivo: string }
 
-/** Apunta una petición de esta persona y dice si se le deja, o por qué no. Una petición rechazada NO se apunta */
-export function pedirPermiso(userId: string, ahora = Date.now(), peticiones: Peticiones = delProceso): Permiso {
+export interface Limites {
+  porHora: number
+  porDia: number
+}
+
+export const LIMITES_DE_LOS_COMERCIALES: Limites = { porHora: LIMITE_POR_HORA, porDia: LIMITE_POR_DIA }
+
+/**
+ * Las pruebas de la pantalla de calibrar: quien calibra lanza lotes de casos (diez a la vez, varias veces), así que tiene más hueco que un comercial. Van aparte y con su propia
+ * cuenta (`delLaboratorio`), para que probar no le quite a nadie los mensajes del día.
+ */
+export const LIMITES_DEL_LABORATORIO: Limites = { porHora: 200, porDia: 800 }
+export const delLaboratorio: Peticiones = new Map()
+
+/**
+ * Apunta `cantidad` peticiones de esta persona y dice si se le deja, o por qué no. Una petición rechazada NO se apunta (y un lote no cabe a medias: o entra entero o no entra).
+ * Con `peticiones` y `limites` distintos se lleva otra cuenta (la del laboratorio).
+ */
+export function pedirPermiso(userId: string, ahora = Date.now(), peticiones: Peticiones = delProceso, limites: Limites = LIMITES_DE_LOS_COMERCIALES, cantidad = 1): Permiso {
   const recientes = (peticiones.get(userId) ?? []).filter((t) => ahora - t < DIA_MS)
   const ultimaHora = recientes.filter((t) => ahora - t < HORA_MS).length
-  if (ultimaHora >= LIMITE_POR_HORA) {
+  if (ultimaHora + cantidad > limites.porHora) {
     peticiones.set(userId, recientes)
-    return { permitido: false, motivo: `Has pedido ${LIMITE_POR_HORA} mensajes en la última hora: espera un rato para pedir más.` }
+    return { permitido: false, motivo: `Has pedido ${limites.porHora} mensajes en la última hora: espera un rato para pedir más.` }
   }
-  if (recientes.length >= LIMITE_POR_DIA) {
+  if (recientes.length + cantidad > limites.porDia) {
     peticiones.set(userId, recientes)
-    return { permitido: false, motivo: `Has llegado al límite de ${LIMITE_POR_DIA} mensajes con IA de hoy.` }
+    return { permitido: false, motivo: `Has llegado al límite de ${limites.porDia} mensajes con IA de hoy.` }
   }
-  recientes.push(ahora)
+  for (let i = 0; i < cantidad; i++) recientes.push(ahora)
   peticiones.set(userId, recientes)
 
   // Para que el mapa no crezca con gente que ya no pide

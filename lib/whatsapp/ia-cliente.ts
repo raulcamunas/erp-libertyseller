@@ -18,7 +18,7 @@ export interface PeticionDeMensajeConIa {
   anterior?: string
 }
 
-export type RespuestaDeMensajeConIa = { ok: true; mensaje: string; base: string; aviso: string | null } | { ok: false; error: string }
+export type RespuestaDeMensajeConIa = { ok: true; mensaje: string; base: string; aviso: string | null; maxPalabras: number | null } | { ok: false; error: string }
 
 /** Atajos para cambiar el mensaje con un clic: la etiqueta es lo que se ve y la indicación, lo que se le pide a la IA */
 export const SUGERENCIAS_DE_CAMBIO_DE_WHATSAPP: ReadonlyArray<{ etiqueta: string; indicacion: string }> = [
@@ -51,7 +51,14 @@ export async function pedirMensajeConIa(peticion: PeticionDeMensajeConIa, opcion
       return { ok: false, error: dicho ?? (respuesta.status === 401 ? 'Se ha cerrado tu sesión: vuelve a entrar.' : NO_SE_HA_PODIDO) }
     }
     if (typeof datos.mensaje !== 'string' || datos.mensaje.trim() === '') return { ok: false, error: NO_SE_HA_PODIDO }
-    return { ok: true, mensaje: datos.mensaje, base: typeof datos.base === 'string' ? datos.base : '', aviso: typeof datos.aviso === 'string' && datos.aviso !== '' ? datos.aviso : null }
+    return {
+      ok: true,
+      mensaje: datos.mensaje,
+      base: typeof datos.base === 'string' ? datos.base : '',
+      aviso: typeof datos.aviso === 'string' && datos.aviso !== '' ? datos.aviso : null,
+      // Hasta cuántas palabras se deja pasar con la configuración que está en producción (el mando «Cuánto escribe»): para que el aviso de «largo» de la ficha coincida con el del servidor
+      maxPalabras: typeof datos.maxPalabras === 'number' && datos.maxPalabras > 0 ? datos.maxPalabras : null,
+    }
   } catch (error) {
     if ((error as { name?: string } | null)?.name === 'AbortError') return { ok: false, error: 'La IA ha tardado demasiado en contestar. Vuelve a probar.' }
     return { ok: false, error: 'No hay conexión con el servidor. Vuelve a probar.' }

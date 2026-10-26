@@ -2,12 +2,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail, requireAppAccess } from '@/lib/amazon/api'
 import { cargarLead, cargarLlamadas, cargarNotas } from '@/lib/correo/ia-servidor'
 import { SIN_CACHE, respuestaDeFallo, textoDe } from '@/lib/correo/rutas'
-import { costeAproximado } from '@/lib/correo/secuencias/ia'
+import { createServiceClient } from '@/lib/supabase/service'
 import { leerCuerpoConTope } from '@/lib/subidas-limite'
-import { escribirWhatsappConIa } from '@/lib/whatsapp/ia-generar'
+import { escribirMensaje } from '@/lib/whatsapp/ia-escribir'
+import { perfilEnProduccion } from '@/lib/whatsapp/ia-laboratorio-servidor'
 import { pedirPermiso } from '@/lib/whatsapp/ia-limite'
-import { construirEncargoDeWhatsapp, contextoParaWhatsapp, enfoqueDelMensaje, whatsappsAnteriores } from '@/lib/whatsapp/ia-prompt'
-import { LEAD_SIN_WHATSAPP, esSituacionDeWhatsapp, nombreDePila, nombreParaElMensaje, situacionDelLead } from '@/lib/whatsapp/mensajes'
+import { LEAD_SIN_WHATSAPP, esSituacionDeWhatsapp, nombreDePila } from '@/lib/whatsapp/mensajes'
 
 /**
  * ESCRIBIR CON IA EL WHATSAPP A UN LEAD DE COLD CALLING.
@@ -57,31 +57,31 @@ export async function POST(request: NextRequest) {
     if (!lead) return fail(404, 'No se encuentra ese lead, o no es tuyo.')
     if (LEAD_SIN_WHATSAPP.has(String(lead.status))) return fail(409, 'Este lead consta como «No le interesa»: no se le escribe.')
 
-    const [notas, llamadas, perfil] = await Promise.all([
+    const [notas, llamadas, miPerfil] = await Promise.all([
       cargarNotas(sesion.supabase, leadId),
       cargarLlamadas(sesion.supabase, leadId),
       sesion.supabase.from('profiles').select('full_name, email').eq('id', sesion.userId).maybeSingle(),
     ])
-    const miNombre = nombreDePila((perfil.data as { full_name?: string | null } | null)?.full_name, (perfil.data as { email?: string | null } | null)?.email)
-    const situacion = esSituacionDeWhatsapp(cuerpo.situacion) ? cuerpo.situacion : situacionDelLead(String(lead.status))
+    const miNombre = nombreDePila((miPerfil.data as { full_name?: string | null } | null)?.full_name, (miPerfil.data as { email?: string | null } | null)?.email)
 
-    const mensajes = construirEncargoDeWhatsapp({
-      contexto: contextoParaWhatsapp({ lead, notas, llamadas, ahora: Date.now() }),
-      situacion,
+    // Con qué configuración se escribe: la que haya publicada en la pantalla «Configuración de la IA», o la de serie (nunca falla: ver perfilEnProduccion)
+    const { perfil, version } = await perfilEnProduccion(createServiceClient())
+    const salida = await escribirMensaje({
+      perfil,
+      lead,
+      notas,
+      llamadas,
+      situacion: esSituacionDeWhatsapp(cuerpo.situacion) ? cuerpo.situacion : null,
       miNombre,
-      empresa: nombreParaElMensaje(typeof lead.store_name === 'string' ? lead.store_name : null, typeof lead.company === 'string' ? lead.company : null),
       indicaciones,
       anterior,
-      yaEscritos: whatsappsAnteriores(notas),
-      // Sin nada concreto que pedir (y fuera del mensaje de después de hablar), una forma de empezar y de cerrar al azar: así los mensajes del equipo no salen todos con el mismo esqueleto
-      enfoque: enfoqueDelMensaje({ situacion, pideAlgo: Boolean(indicaciones || anterior), aleatorio: Math.random }),
     })
-    const resultado = await escribirWhatsappConIa(mensajes, whatsappsAnteriores(notas))
+    const { resultado } = salida
     // Qué se ha gastado y con qué, sin el texto: es contenido de un lead
-    console.log('[whatsapp-ia] mensaje', { modelo: resultado.modelo, momento: situacion, ok: resultado.mensaje !== null, llamadas: resultado.llamadas, tokens: resultado.tokens, coste: costeAproximado(resultado.modelo, resultado.tokens), notas: notas.length, conversaciones: llamadas.length })
+    console.log('[whatsapp-ia] mensaje', { modelo: resultado.modelo, version: version?.nombre ?? 'de serie', momento: salida.situacion, ok: resultado.mensaje !== null, llamadas: resultado.llamadas, ms: salida.ms, tokens: resultado.tokens, coste: salida.coste, notas: notas.length, conversaciones: llamadas.length })
     if (!resultado.mensaje) return fail(resultado.problemas.includes('dinero') ? 422 : 503, resultado.aviso ?? 'No se ha podido escribir el mensaje.')
 
-    return NextResponse.json({ ok: true, mensaje: resultado.mensaje.mensaje, base: resultado.mensaje.base, aviso: resultado.aviso }, { headers: SIN_CACHE })
+    return NextResponse.json({ ok: true, mensaje: resultado.mensaje.mensaje, base: resultado.mensaje.base, aviso: resultado.aviso, maxPalabras: salida.maxPalabras }, { headers: SIN_CACHE })
   } catch (error) {
     return respuestaDeFallo('Cold Calling · WhatsApp con IA: fallo', error)
   }

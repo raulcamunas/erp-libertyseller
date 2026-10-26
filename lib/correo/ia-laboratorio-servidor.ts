@@ -8,7 +8,7 @@ import { montarEjemplos, validarEjemplo, validarModelo, validarNombreDeVersion, 
  * LO QUE LA CONFIGURACIÓN DE CORREOS LEE Y ESCRIBE EN LA BASE — SOLO SERVIDOR.
  * ============================================================================
  * Versiones de la IA y ejemplos propios (migración 243). Las tablas están cerradas al navegador: las rutas de /api/correo/laboratorio
- * comprueban el permiso «Configuración de correos» y llaman aquí con el cliente de servicio.
+ * comprueban el permiso «Configuración de la IA» y llaman aquí con el cliente de servicio.
  *
  * LO QUE UNA VERSIÓN YA USADA NO ADMITE. Con un solo borrador apuntado con ella, no se pueden cambiar sus instrucciones, sus ejemplos ni su
  * modelo (se duplica y se edita la copia): si se cambiaran a mitad, las respuestas de antes y de después se mezclarían bajo el mismo nombre

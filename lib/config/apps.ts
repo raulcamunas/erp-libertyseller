@@ -577,10 +577,10 @@ export const PERMISO_EQUIPO_COMERCIAL = 'equipo-comercial'
 export const PERMISO_CORREO_SUPERVISION = 'correo-supervision'
 
 /**
- * EL PERMISO DE «CONFIGURACIÓN DE CORREOS» (Mi rendimiento → botón «Configuración de correos»).
+ * EL PERMISO DE «CONFIGURACIÓN DE LA IA» (Mi rendimiento → botón «Configuración de la IA»; antes «Configuración de correos»: el id no cambia).
  *
  * También SUELTO: una casilla en Gestión de Usuarios, sin tarjeta ni entrada de menú (la mini app vive dentro de Mi rendimiento). La tiene
- * quien afina el correo que escribe la IA y mide cuál convierte más —la supervisora del equipo comercial—; un administrador entra siempre.
+ * quien afina lo que escribe la IA —el correo y el WhatsApp— y mide qué funciona mejor —la supervisora del equipo comercial—; un administrador entra siempre.
  * Con ella se puede cambiar lo que la IA le dice a los clientes de todo el equipo, así que no se reparte a los comerciales.
  *
  * EL ID TIENE QUE COINCIDIR LETRA POR LETRA con el de middleware.ts (routeToAppId), el de la página y el de requerirConfigCorreos()
@@ -656,12 +656,13 @@ export const PERMISOS_SUELTOS: ReadonlyArray<{ id: string; name: string; descrip
   },
   {
     id: PERMISO_CONFIG_CORREOS,
-    name: 'Configuración de correos',
+    name: 'Configuración de la IA',
     description:
-      'Abre, dentro de Mi rendimiento, la configuración de los correos que escribe la IA: las instrucciones ' +
+      'Abre, dentro de Mi rendimiento, la configuración de lo que escribe la IA. En Correo: las instrucciones ' +
       'de cada versión, los correos de ejemplo propios, la prueba con un lead y los resultados (qué versión ' +
-      'consigue más respuestas). Lo que cambia ahí lo usa TODO el equipo comercial al redactar con IA. No lee ' +
-      'ningún buzón ni envía correos. Hace falta además la casilla de Mi rendimiento.',
+      'consigue más respuestas). En WhatsApp: los ajustes del mensaje, la prueba con casos y la publicación de ' +
+      'versiones. Lo que cambia ahí lo usa TODO el equipo comercial al redactar con IA. No lee ' +
+      'ningún buzón ni envía correos ni mensajes. Hace falta además la casilla de Mi rendimiento.',
   },
 ]
 

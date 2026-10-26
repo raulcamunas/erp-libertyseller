@@ -49,9 +49,11 @@ interface Estado {
   generando: boolean
   error: string | null
   situacion: SituacionDeWhatsapp | null
+  /** Hasta cuántas palabras se deja pasar con la configuración con la que se escribió (la que diga el servidor); null = la de siempre */
+  maxPalabras: number | null
 }
 
-const vacio = (clave: string): Estado => ({ clave, texto: null, base: '', avisoDeLaIa: null, editado: false, generando: false, error: null, situacion: null })
+const vacio = (clave: string): Estado => ({ clave, texto: null, base: '', avisoDeLaIa: null, editado: false, generando: false, error: null, situacion: null, maxPalabras: null })
 
 export function useMensajeDeWhatsappConIa(leadId: string, situacion: SituacionDeWhatsapp): MensajeConIa {
   const clave = `${leadId}|${situacion}`
@@ -83,7 +85,7 @@ export function useMensajeDeWhatsappConIa(leadId: string, situacion: SituacionDe
         cambiar(paraClave, { generando: false, error: r.error })
         return
       }
-      cambiar(paraClave, { generando: false, error: null, texto: r.mensaje, base: r.base, avisoDeLaIa: r.aviso, editado: false, situacion })
+      cambiar(paraClave, { generando: false, error: null, texto: r.mensaje, base: r.base, avisoDeLaIa: r.aviso, editado: false, situacion, maxPalabras: r.maxPalabras })
     },
     [clave, leadId, situacion, texto, cambiar]
   )
@@ -96,7 +98,7 @@ export function useMensajeDeWhatsappConIa(leadId: string, situacion: SituacionDe
   }, [clave])
 
   const listo = texto === null ? '' : mensajeListoParaWhatsapp(texto)
-  const problemas = useMemo(() => (listo === '' ? [] : revisarMensajeDeWhatsapp(listo)), [listo])
+  const problemas = useMemo(() => (listo === '' ? [] : revisarMensajeDeWhatsapp(listo, [], e.maxPalabras ? { maxPalabras: e.maxPalabras } : {})), [listo, e.maxPalabras])
   const avisos = useMemo(() => {
     const todos = [...(e.editado || !e.avisoDeLaIa ? [] : [e.avisoDeLaIa]), ...problemas.map((p) => AVISO_DE_PROBLEMA[p])]
     return todos.filter((a, i) => todos.indexOf(a) === i)

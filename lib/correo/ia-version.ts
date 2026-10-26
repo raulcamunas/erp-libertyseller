@@ -1,4 +1,5 @@
 import { ejemplosParaLead, mencionaFacturacion, quitarFrasesConDinero, sinDatosDeContacto, unirLineasPartidas, type EjemploGanador } from './ia-ejemplos'
+import { PRECIOS_OFICIALES, costeDeUso } from '../ia/precios'
 import type { SeccionesDeInstrucciones } from './ia-prompt'
 
 /**
@@ -138,32 +139,23 @@ export function montarEjemplos(datos: {
 /* ------------------------------------------------------------------ */
 
 /**
- * Dólares por millón de tokens (entrada, salida) de los modelos que se pueden elegir en una versión. De rastreadores de terceros (23 oct
- * 2026), NO de la página oficial de OpenAI: sirven para decir «unos 0,9 céntimos», no para facturar.
+ * Dólares por millón de tokens (entrada, salida) de los modelos que se pueden elegir en una versión: los de la página oficial de OpenAI (lib/ia/precios.ts, el único sitio
+ * donde se cambian). Sirven para decir «unos 0,9 céntimos», no para facturar.
  */
-export const PRECIOS_POR_MILLON: Readonly<Record<string, readonly [number, number]>> = {
-  'gpt-5.5': [5, 30],
-  'gpt-5.6-sol': [5, 30],
-  'gpt-5.6-terra': [2, 12],
-  'gpt-5.6-luna': [0.2, 1.2],
-  'gpt-5.4-mini': [0.75, 4.5],
-  'gpt-5.4-nano': [0.2, 1.25],
-  'gpt-5-mini': [0.25, 2],
-}
+export const PRECIOS_POR_MILLON: Readonly<Record<string, readonly [number, number]>> = Object.fromEntries(Object.entries(PRECIOS_OFICIALES).map(([modelo, p]) => [modelo, [p.entrada, p.salida] as const]))
 
 /** Los modelos que ofrece el editor de versiones, del mejor al más barato. El primero es el de siempre */
 export const MODELOS_DEL_EDITOR: ReadonlyArray<{ id: string | null; nombre: string }> = [
   { id: null, nombre: 'El de siempre (gpt-5.6-terra)' },
-  { id: 'gpt-5.6-sol', nombre: 'gpt-5.6-sol · el más capaz' },
+  { id: 'gpt-6-sol', nombre: 'gpt-6-sol · la generación nueva, con la tarifa de terra' },
+  { id: 'gpt-5.6-sol', nombre: 'gpt-5.6-sol · el más capaz de la generación 5.6' },
   { id: 'gpt-5.5', nombre: 'gpt-5.5' },
-  { id: 'gpt-5.6-luna', nombre: 'gpt-5.6-luna · el más barato' },
+  { id: 'gpt-6-luna', nombre: 'gpt-6-luna · el más barato' },
 ]
 
 /** Lo que costó un borrador, en dólares, o null si no se conoce el precio del modelo */
 export function costeAproximado(modelo: string, tokens: { entrada: number; salida: number } | null): number | null {
-  const p = PRECIOS_POR_MILLON[modelo]
-  if (!p || !tokens) return null
-  return (tokens.entrada * p[0] + tokens.salida * p[1]) / 1_000_000
+  return costeDeUso(modelo, tokens)
 }
 
 /* ------------------------------------------------------------------ */

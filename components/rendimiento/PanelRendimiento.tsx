@@ -52,7 +52,7 @@ interface Props {
   puedeGestionar: boolean
   /** Tiene el permiso «Actividad del equipo» (o es administrador): se le enseña el botón que lleva a esa pantalla */
   puedeVerActividad?: boolean
-  /** Para quien puede abrir «Configuración de correos»: administrador o con la casilla suelta */
+  /** Para quien puede abrir «Configuración de la IA»: administrador o con la casilla suelta */
   puedeConfigurarCorreos?: boolean
   /** Quien mira es del equipo comercial. Si no (un administrador), la invitación a vincular Rinkel no se resalta */
   esComercial: boolean

@@ -38,8 +38,10 @@ async function main() {
 
   console.log('\n=== lo que vuelve ===')
   {
-    const bien = await pedirMensajeConIa(PETICION, { fetcher: falso({ json: { ok: true, mensaje: 'Hola, soy Raúl.', base: 'Que vende cerámica', aviso: 'Es largo' } }).fetcher })
-    ok('el mensaje, en qué se apoya y el aviso', bien.ok && bien.mensaje === 'Hola, soy Raúl.' && bien.base === 'Que vende cerámica' && bien.aviso === 'Es largo', JSON.stringify(bien))
+    const bien = await pedirMensajeConIa(PETICION, { fetcher: falso({ json: { ok: true, mensaje: 'Hola, soy Raúl.', base: 'Que vende cerámica', aviso: 'Es largo', maxPalabras: 130 } }).fetcher })
+    ok('el mensaje, en qué se apoya, el aviso y el tope de palabras', bien.ok && bien.mensaje === 'Hola, soy Raúl.' && bien.base === 'Que vende cerámica' && bien.aviso === 'Es largo' && bien.maxPalabras === 130, JSON.stringify(bien))
+    const sinTope = await pedirMensajeConIa(PETICION, { fetcher: falso({ json: { ok: true, mensaje: 'Hola', base: 'x', maxPalabras: 'muchas' } }).fetcher })
+    ok('sin tope de palabras (o uno que no es un número), null: la ficha usa el de siempre', sinTope.ok && sinTope.maxPalabras === null)
     const sinAviso = await pedirMensajeConIa(PETICION, { fetcher: falso({ json: { ok: true, mensaje: 'Hola', base: 'x', aviso: null } }).fetcher })
     ok('sin aviso, null', sinAviso.ok && sinAviso.aviso === null)
     const frase = await pedirMensajeConIa(PETICION, { fetcher: falso({ status: 429, json: { error: 'Has pedido 60 mensajes en la última hora: espera un rato para pedir más.' } }).fetcher })

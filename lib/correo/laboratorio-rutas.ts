@@ -7,7 +7,7 @@ import { FALLO_GENERICO, registrar } from './rutas'
 /**
  * LO QUE COMPARTEN LAS RUTAS DE /api/correo/laboratorio — SOLO SERVIDOR.
  *
- * Aquí se cambia lo que la IA le dice a los clientes de TODO el equipo, así que la puerta es el permiso «Configuración de correos»
+ * Aquí se cambia lo que la IA le dice a los clientes de TODO el equipo, así que la puerta es el permiso «Configuración de la IA»
  * (un administrador entra siempre) y un partner no pasa aunque requireAppAccess lo deje: es una figura externa a la agencia.
  *
  * Ninguna ruta reenvía el texto de una excepción: lo que sale a la pantalla son frases fijas (puede traer parte de un correo o de un lead).

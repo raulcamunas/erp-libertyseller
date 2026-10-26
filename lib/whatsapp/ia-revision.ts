@@ -13,7 +13,7 @@ const palabrasDe = (texto: string): number => texto.trim().split(/\s+/).filter(B
 
 export type ProblemaDeWhatsapp = 'dinero' | 'hueco' | 'largo' | 'corto' | 'enlace' | 'repite'
 
-/** Un WhatsApp se lee en diez segundos: la IA apunta a 25-60 palabras y hasta 90 se deja pasar */
+/** Un WhatsApp se lee en diez segundos: la IA apunta a 25-60 palabras y hasta 90 se deja pasar. El mando «Cuánto escribe» (ia-perfil.ts) cambia el tope: `opciones.maxPalabras` */
 export const PALABRAS_MAXIMAS_DE_WHATSAPP = 90
 export const PALABRAS_MINIMAS_DE_WHATSAPP = 8
 /** Un mensaje más largo no cabe en el enlace de WhatsApp con comodidad (el mismo tope que los mensajes guardados, lib/whatsapp/mensajes.ts) */
@@ -30,12 +30,12 @@ const HAY_ENLACE = /https?:\/\/|\bwww\.|\b[a-z0-9-]{2,}\.(?:com|es|net|org|eu|io
  *   · enlace: lleva una dirección web (un enlace en un primer mensaje es lo primero que castiga WhatsApp)
  *   · repite: es casi el mismo texto que un WhatsApp que ya se le escribió a este lead (`anteriores`)
  */
-export function revisarMensajeDeWhatsapp(texto: string, anteriores: readonly string[] = []): ProblemaDeWhatsapp[] {
+export function revisarMensajeDeWhatsapp(texto: string, anteriores: readonly string[] = [], opciones: { maxPalabras?: number } = {}): ProblemaDeWhatsapp[] {
   const problemas: ProblemaDeWhatsapp[] = []
   if (mencionaFacturacion(texto)) problemas.push('dinero')
   if (HAY_HUECO.test(texto)) problemas.push('hueco')
   const palabras = palabrasDe(texto)
-  if (palabras > PALABRAS_MAXIMAS_DE_WHATSAPP || texto.length > MAX_CARACTERES_DE_WHATSAPP) problemas.push('largo')
+  if (palabras > (opciones.maxPalabras ?? PALABRAS_MAXIMAS_DE_WHATSAPP) || texto.length > MAX_CARACTERES_DE_WHATSAPP) problemas.push('largo')
   if (palabras < PALABRAS_MINIMAS_DE_WHATSAPP) problemas.push('corto')
   if (HAY_ENLACE.test(texto)) problemas.push('enlace')
   if (anteriores.some((a) => a.trim() !== '' && parecido(texto, a) >= PARECIDO_MAXIMO)) problemas.push('repite')

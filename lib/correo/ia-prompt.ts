@@ -8,7 +8,7 @@ import { mencionaFacturacion } from './ia-ejemplos'
  * Las instrucciones salen de lo que el equipo ya escribe: «Liberty Seller, agencia especializada en la gestión, optimización y
  * crecimiento de cuentas en Amazon», una reunión breve por videollamada, el ángulo según la empresa ya venda o no en Amazon. Están
  * partidas en SECCIONES editables (qué hacemos, cómo escribe, cómo persuade, según el caso, extra) y en unas REGLAS FIJAS que no se
- * pueden quitar. Quien supervisa al equipo prueba versiones distintas desde Mi rendimiento → Configuración de correos
+ * pueden quitar. Quien supervisa al equipo prueba versiones distintas desde Mi rendimiento → Configuración de la IA
  * (lib/correo/ia-version.ts reparte las versiones y lib/correo/ia-resultados.ts mide cuál consigue más respuestas); sin ninguna
  * versión elegida se usa `INSTRUCCIONES`, la original.
  *
@@ -23,7 +23,7 @@ export type Angulo = (typeof ANGULOS)[number]
 /**
  * LAS INSTRUCCIONES, EN PIEZAS.
  *
- * Una VERSIÓN de la IA (Mi rendimiento → Configuración de correos) cambia SOLO las secciones editables de abajo. Lo que nunca cambia —la
+ * Una VERSIÓN de la IA (Mi rendimiento → Configuración de la IA) cambia SOLO las secciones editables de abajo. Lo que nunca cambia —la
  * presentación y las REGLAS FIJAS, sobre todo «nada de facturación»— vive aparte y se añade SIEMPRE, escriba lo que escriba quien edita:
  * una versión mal escrita no puede quitarle a la IA lo que Raúl pidió que no hiciera nunca (y lo que la IA devuelve se revisa igualmente,
  * `revisarBorrador`).
@@ -141,13 +141,21 @@ export function validarSecciones(entrada: unknown): ResultadoDeSecciones {
   if (total < 200) return { ok: false, error: 'Las instrucciones son demasiado cortas: la IA necesita saber al menos qué hacemos y cómo escribir.' }
   if (total > MAX_INSTRUCCIONES) return { ok: false, error: `Las instrucciones juntas son demasiado largas (máximo ${MAX_INSTRUCCIONES.toLocaleString('es-ES')} caracteres).` }
 
+  const avisos = avisosDeInstrucciones(CLAVES_DE_SECCION.map((c) => secciones[c]).join('\n'))
+  return { ok: true, secciones, avisos }
+}
+
+/**
+ * Lo que un texto de instrucciones le pide a la IA y las reglas fijas le prohíben: no impide guardar, pero quien edita debe saberlo (no sirve de nada y la revisión de lo
+ * que devuelve lo tirará). Lo comparten el correo y WhatsApp.
+ */
+export function avisosDeInstrucciones(texto: string): string[] {
   const avisos: string[] = []
-  const todo = CLAVES_DE_SECCION.map((c) => secciones[c]).join('\n')
-  if (/\b(menciona|habla|comenta|incluye|cita|di)\b[^.\n]{0,40}\b(factura|facturaci|ventas|ingresos|dinero|euros|precio|tarifa)/i.test(todo)) {
+  if (/\b(menciona|habla|comenta|incluye|cita|di)\b[^.\n]{0,40}\b(factura|facturaci|ventas|ingresos|dinero|euros|precio|tarifa)/i.test(texto)) {
     avisos.push('Pide hablar de facturación, ventas, dinero o precios. Eso choca con una regla que no se puede quitar: la IA no lo hará y, si lo hace, el borrador se descarta.')
   }
-  if (/\b(inventa|invéntate|finge|simula)\b/i.test(todo)) avisos.push('Pide inventar o fingir algo. La regla fija «no inventes» prevalece: la IA solo usa datos reales del lead.')
-  return { ok: true, secciones, avisos }
+  if (/\b(inventa|invéntate|finge|simula)\b/i.test(texto)) avisos.push('Pide inventar o fingir algo. La regla fija «no inventes» prevalece: la IA solo usa datos reales del lead.')
+  return avisos
 }
 
 /** El esquema de la respuesta. Estricto: la IA no puede añadir ni quitar campos */

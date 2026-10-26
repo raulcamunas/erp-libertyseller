@@ -21,7 +21,7 @@ import { TabVersiones } from './TabVersiones'
  *   · Lo que ya funciona  los correos del equipo que consiguieron respuesta, tal como los ve la IA.
  *   · Resultados  qué versión consigue más respuestas, con la cautela que piden tasas tan bajas.
  *
- * Todo se lee y se escribe en /api/correo/laboratorio/* (permiso «Configuración de correos»).
+ * Todo se lee y se escribe en /api/correo/laboratorio/* (permiso «Configuración de la IA»).
  */
 
 type Pestana = 'versiones' | 'ejemplos' | 'funciona' | 'resultados'

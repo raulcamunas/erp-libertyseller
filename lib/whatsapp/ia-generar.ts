@@ -1,7 +1,8 @@
 import OpenAI from 'openai'
 import { motivoDelFallo, type ClienteDeCorreoIa } from '@/lib/correo/ia-generar'
 import { parametrosDeIa } from '@/lib/ia/modelo'
-import { ESQUEMA_DE_WHATSAPP, leerMensajeDeWhatsapp, mensajeDeCorreccionDeWhatsapp, type MensajeEscrito } from './ia-prompt'
+import { PALABRAS_POR_LONGITUD, type PerfilDeWhatsapp } from './ia-perfil'
+import { esquemaDeWhatsapp, leerMensajeDeWhatsapp, mensajeDeCorreccionDeWhatsapp, type MensajeEscrito } from './ia-prompt'
 import { AVISO_DE_PROBLEMA, revisarMensajeDeWhatsapp, type ProblemaDeWhatsapp } from './ia-revision'
 
 /**
@@ -56,12 +57,18 @@ export interface ResultadoDeWhatsappConIa {
   aviso: string | null
   /** Los problemas que seguían en el mensaje devuelto (vacío = limpio) */
   problemas: ProblemaDeWhatsapp[]
-  tokens: { entrada: number; salida: number } | null
+  /** Lo gastado: tokens de entrada (todos), de ellos cuántos iban en caché, y de salida. null = no consta (no se llegó a llamar) */
+  tokens: { entrada: number; salida: number; cache: number } | null
   /** Cuántas veces se ha llamado a la IA (2 si hubo que pedir una corrección) */
   llamadas: number
 }
 
 export interface OpcionesDeWhatsappIa {
+  /**
+   * El perfil con el que se escribe (ia-perfil.ts). De él salen el modelo y el razonamiento (si los fija), la longitud que se pide y el tope de palabras que se
+   * revisa. Sin perfil, lo de serie
+   */
+  perfil?: Pick<PerfilDeWhatsapp, 'modelo' | 'esfuerzo' | 'ajustes'>
   tiempoMaximoMs?: number
   /** Para las pruebas */
   cliente?: ClienteDeCorreoIa
@@ -73,11 +80,15 @@ export interface OpcionesDeWhatsappIa {
 const ORDEN_DE_AVISOS: readonly ProblemaDeWhatsapp[] = ['hueco', 'repite', 'enlace', 'largo', 'corto']
 
 export async function escribirWhatsappConIa(mensajes: { system: string; usuario: string }, anteriores: readonly string[], opciones: OpcionesDeWhatsappIa = {}): Promise<ResultadoDeWhatsappConIa> {
-  const entorno = opciones.entorno ?? entornoDeWhatsapp()
+  const perfil = opciones.perfil
+  // El modelo: el del perfil si fija uno; si no, WHATSAPP_IA_MODELO del servidor; si no, el de siempre
+  const entorno = { ...(opciones.entorno ?? entornoDeWhatsapp()), ...(perfil?.modelo ? { IA_MODELO: perfil.modelo } : {}) }
   const modelo = entorno.IA_MODELO?.trim() || MODELO_DE_WHATSAPP_POR_DEFECTO
+  const longitud = perfil?.ajustes.longitud ?? 'corto'
+  const palabras = PALABRAS_POR_LONGITUD[longitud]
   // Lo gastado se suma en un objeto: una variable que se reasigna dentro del bucle y se lee en una función hace que TypeScript la dé por `null`
-  const gasto = { entrada: 0, salida: 0, hubo: false, llamadas: 0 }
-  const tokensGastados = (): ResultadoDeWhatsappConIa['tokens'] => (gasto.hubo ? { entrada: gasto.entrada, salida: gasto.salida } : null)
+  const gasto = { entrada: 0, salida: 0, cache: 0, hubo: false, llamadas: 0 }
+  const tokensGastados = (): ResultadoDeWhatsappConIa['tokens'] => (gasto.hubo ? { entrada: gasto.entrada, salida: gasto.salida, cache: gasto.cache } : null)
   const sin = (aviso: string, problemas: ProblemaDeWhatsapp[] = []): ResultadoDeWhatsappConIa => ({ mensaje: null, modelo, aviso, problemas, tokens: tokensGastados(), llamadas: gasto.llamadas })
 
   let cliente = opciones.cliente
@@ -103,8 +114,8 @@ export async function escribirWhatsappConIa(mensajes: { system: string; usuario:
       const completion = await cliente.chat.completions.create(
         {
           // Lo que razona no se ve pero cuenta para el tope: sitio de sobra para el razonamiento y para un mensaje de 60 palabras
-          ...parametrosDeIa({ esfuerzo: ESFUERZO_DE_WHATSAPP_POR_DEFECTO, maxSalida: 6000 }, entorno),
-          response_format: { type: 'json_schema', json_schema: { name: 'whatsapp_para_un_lead', strict: true, schema: ESQUEMA_DE_WHATSAPP } },
+          ...parametrosDeIa({ esfuerzo: perfil?.esfuerzo ?? ESFUERZO_DE_WHATSAPP_POR_DEFECTO, maxSalida: 6000 }, entorno),
+          response_format: { type: 'json_schema', json_schema: { name: 'whatsapp_para_un_lead', strict: true, schema: esquemaDeWhatsapp(longitud) } },
           messages: conversacion,
         },
         { signal: control.signal }
@@ -113,6 +124,7 @@ export async function escribirWhatsappConIa(mensajes: { system: string; usuario:
         gasto.hubo = true
         gasto.entrada += completion.usage.prompt_tokens ?? 0
         gasto.salida += completion.usage.completion_tokens ?? 0
+        gasto.cache += completion.usage.prompt_tokens_details?.cached_tokens ?? 0
       }
       const eleccion = completion.choices?.[0]
       if (eleccion?.message?.refusal) return sin('La IA se ha negado a escribir este mensaje.')
@@ -122,10 +134,10 @@ export async function escribirWhatsappConIa(mensajes: { system: string; usuario:
       }
 
       ultimo = leido
-      problemas = revisarMensajeDeWhatsapp(leido.mensaje, anteriores)
+      problemas = revisarMensajeDeWhatsapp(leido.mensaje, anteriores, { maxPalabras: palabras.limite })
       if (problemas.length === 0) break
       if (vuelta === 0) {
-        conversacion.push({ role: 'assistant', content: JSON.stringify({ mensaje: leido.mensaje, base: leido.base }) }, { role: 'user', content: mensajeDeCorreccionDeWhatsapp(problemas) })
+        conversacion.push({ role: 'assistant', content: JSON.stringify({ mensaje: leido.mensaje, base: leido.base }) }, { role: 'user', content: mensajeDeCorreccionDeWhatsapp(problemas, palabras.maximo) })
       }
     }
 

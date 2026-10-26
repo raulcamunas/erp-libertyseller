@@ -116,8 +116,8 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
     const { data: permisoActividad } = await supabase.from('user_app_permissions').select('can_access').eq('user_id', user.id).eq('app_id', 'actividad').maybeSingle()
     puedeVerActividad = permisoActividad?.can_access === true
   }
-  // El botón «Configuración de correos» (los correos que escribe la IA y qué versión convierte más): un administrador o quien tenga la casilla
-  // suelta «Configuración de correos» ('config-correos'). La pantalla y sus rutas lo vuelven a comprobar
+  // El botón «Configuración de la IA» (lo que escriben la IA en el correo y en WhatsApp y qué versión convierte más): un administrador o quien tenga la casilla
+  // suelta «Configuración de la IA» ('config-correos'). La pantalla y sus rutas lo vuelven a comprobar
   let puedeConfigurarCorreos = profile.role === 'admin'
   if (!puedeConfigurarCorreos && profile.role !== 'partner') {
     const { data: permisoCorreos } = await supabase.from('user_app_permissions').select('can_access').eq('user_id', user.id).eq('app_id', 'config-correos').maybeSingle()

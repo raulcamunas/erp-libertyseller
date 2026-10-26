@@ -42,7 +42,7 @@ function falso(respuestas: Array<Record<string, unknown> | Error | { refusal: st
             }
             if ('refusal' in r) return { choices: [{ finish_reason: 'stop', message: { content: null, refusal: r.refusal as string } }] }
             if ('raw' in r) return { choices: [{ finish_reason: (r.finish as string | undefined) ?? 'stop', message: { content: r.raw as string } }] }
-            return { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(r) } }], usage: { prompt_tokens: 1000, completion_tokens: 200 } }
+            return { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(r) } }], usage: { prompt_tokens: 1000, completion_tokens: 200, prompt_tokens_details: { cached_tokens: 800 } } }
           },
         },
       },
@@ -57,7 +57,7 @@ async function main() {
     const r = await escribirWhatsappConIa(MENSAJES, [], { cliente, entorno: { IA_MODELO: 'gpt-6-luna' } })
     ok('devuelve el mensaje y en qué se apoya', r.mensaje?.mensaje === BUENO.mensaje && r.mensaje?.base === BUENO.base && r.aviso === null && r.problemas.length === 0)
     ok('una sola llamada', r.llamadas === 1 && llamadas.length === 1)
-    ok('cuenta los tokens', r.tokens?.entrada === 1000 && r.tokens?.salida === 200)
+    ok('cuenta los tokens, y cuántos iban en caché', r.tokens?.entrada === 1000 && r.tokens?.salida === 200 && r.tokens?.cache === 800)
     const a = llamadas[0].args
     ok('pide JSON con esquema estricto', (a.response_format as { type: string; json_schema: { strict: boolean; name: string } }).type === 'json_schema' && (a.response_format as { json_schema: { strict: boolean } }).json_schema.strict === true)
     ok('un modelo que razona lleva esfuerzo (sin razonar por defecto), tope de salida y NO temperatura', a.reasoning_effort === 'none' && typeof a.max_completion_tokens === 'number' && !('temperature' in a) && !('max_tokens' in a), JSON.stringify(a))
@@ -82,6 +82,31 @@ async function main() {
     ok('el esfuerzo que manda el servidor se respeta', forzado.llamadas[0].args.reasoning_effort === 'medium')
   }
 
+  console.log('\n=== con un perfil ===')
+  {
+    const base = { ajustes: { tono: 'cercano', longitud: 'corto', insistencia: 'normal', emojis: 'ninguno', variar: true } } as const
+    const conModelo = falso([BUENO])
+    const r = await escribirWhatsappConIa(MENSAJES, [], { cliente: conModelo.cliente, perfil: { ...base, modelo: 'gpt-6-sol', esfuerzo: 'low' }, entorno: { IA_MODELO: 'gpt-6-luna' } })
+    ok('el modelo y el razonamiento del perfil mandan sobre los de serie', r.modelo === 'gpt-6-sol' && conModelo.llamadas[0].args.model === 'gpt-6-sol' && conModelo.llamadas[0].args.reasoning_effort === 'low')
+    const sinNada = falso([BUENO])
+    await escribirWhatsappConIa(MENSAJES, [], { cliente: sinNada.cliente, perfil: { ...base, modelo: null, esfuerzo: null }, entorno: { IA_MODELO: 'gpt-6-luna' } })
+    ok('un perfil sin modelo ni razonamiento usa los de siempre', sinNada.llamadas[0].args.model === 'gpt-6-luna' && sinNada.llamadas[0].args.reasoning_effort === 'none')
+
+    const esquemaDe = (c: { llamadas: Llamada[] }) => ((c.llamadas[0].args.response_format as { json_schema: { schema: { properties: { mensaje: { description: string } } } } }).json_schema.schema.properties.mensaje.description)
+    const muyCorto = falso([BUENO])
+    await escribirWhatsappConIa(MENSAJES, [], { cliente: muyCorto.cliente, perfil: { ...base, ajustes: { ...base.ajustes, longitud: 'muy_corto' }, modelo: null, esfuerzo: null } })
+    ok('el esquema pide las palabras del mando «Cuánto escribe»', /de 15 a 30 palabras/.test(esquemaDe(muyCorto)) && /de 25 a 60 palabras/.test(esquemaDe(sinNada)), esquemaDe(muyCorto))
+
+    // 70 palabras: bien con «Algo más» (hasta 130), demasiado con «Muy corto» (hasta 50)
+    const setenta = { mensaje: `Hola, soy Raúl de Liberty Seller. ${Array.from({ length: 62 }, (_, i) => `palabra${i}`).join(' ')} ¿Hablamos un momento?`, base: 'x' }
+    const medio = falso([setenta])
+    const rMedio = await escribirWhatsappConIa(MENSAJES, [], { cliente: medio.cliente, perfil: { ...base, ajustes: { ...base.ajustes, longitud: 'medio' }, modelo: null, esfuerzo: null } })
+    ok('con «Algo más» 70 palabras valen a la primera', rMedio.mensaje !== null && rMedio.llamadas === 1 && rMedio.problemas.length === 0, JSON.stringify(rMedio.problemas))
+    const corto = falso([setenta, BUENO])
+    const rCorto = await escribirWhatsappConIa(MENSAJES, [], { cliente: corto.cliente, perfil: { ...base, ajustes: { ...base.ajustes, longitud: 'muy_corto' }, modelo: null, esfuerzo: null } })
+    ok('con «Muy corto» 70 palabras piden una corrección que dice cuántas', rCorto.llamadas === 2 && ((corto.llamadas[1].args.messages as Array<{ content: string }>)[3].content).includes('por debajo de 30 palabras'), JSON.stringify(rCorto.problemas))
+  }
+
   console.log('\n=== si habla de dinero ===')
   {
     const a = falso([CON_DINERO, BUENO])
@@ -89,7 +114,7 @@ async function main() {
     ok('se le pide una corrección y se queda con la buena', r.mensaje?.mensaje === BUENO.mensaje && r.llamadas === 2, JSON.stringify(r.problemas))
     const segunda = a.llamadas[1].args.messages as Array<{ role: string; content: string }>
     ok('la corrección lleva lo que escribió y por qué no vale', segunda.length === 4 && segunda[2].role === 'assistant' && segunda[2].content.includes('facturáis') && segunda[3].content.includes('facturación'))
-    ok('suma los tokens de las dos llamadas', r.tokens?.entrada === 2000 && r.tokens?.salida === 400)
+    ok('suma los tokens de las dos llamadas', r.tokens?.entrada === 2000 && r.tokens?.salida === 400 && r.tokens?.cache === 1600)
 
     const b = falso([CON_DINERO, CON_DINERO])
     const r2 = await escribirWhatsappConIa(MENSAJES, [], { cliente: b.cliente })
