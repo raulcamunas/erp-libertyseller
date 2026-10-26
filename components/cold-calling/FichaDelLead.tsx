@@ -318,7 +318,8 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               <Sparkles className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden /> Correo con IA
             </button>
           )}
-          {/* Abre el chat del móvil del lead con el mensaje ya escrito y lo apunta en su historial (components/cold-calling/BotonDeWhatsapp.tsx).
+          {/* Un solo botón que despliega el cuadro donde se escribe el mensaje (sugerido, de la lista o de la IA, siempre retocable); al enviarlo abre el chat
+              del móvil del lead con ese texto y lo apunta en su historial tal cual (components/cold-calling/BotonDeWhatsapp.tsx).
               A un autónomo no se le llama en frío ni se le escribe por aquí: se le escribe por email */}
           {canEdit && !esAutonomo && <BotonDeWhatsapp lead={lead} telefonos={telefonos} currentUser={currentUser} />}
           {canEdit && <AnadirContacto lead={lead} guardar={patch} listo={'telefonos_extra' in lead && 'emails_extra' in lead} />}
