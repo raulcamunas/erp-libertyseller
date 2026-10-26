@@ -2,26 +2,29 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { SIN_CACHE, requerirCorreo } from '@/lib/correo/rutas'
 import { almacenDeSecuencias } from '@/lib/correo/secuencias/almacen'
-import { respuestaDeFalloDeSecuencias } from '@/lib/correo/secuencias/rutas'
+import { DIAS_MAXIMOS_DE_LA_DEMO, demostracion } from '@/lib/correo/secuencias/demo'
+import { enteroDeUrl, respuestaDeFalloDeSecuencias } from '@/lib/correo/secuencias/rutas'
 import { analizarDireccion } from '@/lib/correo/verificacion/direccion'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
  * LA MEMORIA DE DIRECCIONES QUE HAN REBOTADO — SOLO ADMINISTRADORES.
  *
- * GET                       la lista, la última primero.
+ * GET                       la lista, la última primero. Con ?demo=1&dias=N, la de la DEMOSTRACIÓN (lib/correo/secuencias/demo.ts).
  * POST { direccion, accion: 'liberar' | 'marcar' }   liberar una que en realidad funciona, o marcar una a mano.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 20
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const sesion = await requerirCorreo()
   if (sesion instanceof NextResponse) return sesion
   if (sesion.role !== 'admin') return fail(403, 'Solo un administrador puede ver esto.')
   try {
-    const direcciones = await almacenDeSecuencias(createServiceClient()).listaDeDireccionesMalas(200)
+    const p = request.nextUrl.searchParams
+    const almacen = p.get('demo') === '1' ? (await demostracion({ dias: enteroDeUrl(p.get('dias'), 0, 0, DIAS_MAXIMOS_DE_LA_DEMO) })).almacen : almacenDeSecuencias(createServiceClient())
+    const direcciones = await almacen.listaDeDireccionesMalas(200)
     return NextResponse.json({ ok: true, direcciones }, { headers: SIN_CACHE })
   } catch (error) {
     return respuestaDeFalloDeSecuencias('Correo · direcciones malas: lista', error)

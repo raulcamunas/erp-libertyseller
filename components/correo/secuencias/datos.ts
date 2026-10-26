@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { diaCorto, diaDeMadrid, diaRelativo, horaDeMadrid } from '@/lib/correo/secuencias/fechas'
 import type { TableroDeSecuencias } from '@/lib/correo/secuencias/servidor'
 import type { DetalleDeSecuencia, GrupoDeColaCliente, ItemDeCola } from '@/lib/correo/secuencias/vistas'
@@ -14,7 +14,24 @@ import { enviarJson, pedir } from '../api'
  * más reciente (`generacion`).
  */
 
-export type Tablero = Extract<TableroDeSecuencias, { disponible: true }>
+/** Lo que el servidor añade al tablero de la DEMOSTRACIÓN: el día hábil de «hoy» en ella, cuántos se ha avanzado el reloj y hasta cuántos se puede */
+export interface InfoDeLaDemo {
+  dia: string
+  dias: number
+  maximo: number
+}
+
+export type Tablero = Extract<TableroDeSecuencias, { disponible: true }> & { demo?: InfoDeLaDemo }
+
+/**
+ * ¿LA PANTALLA ESTÁ ENSEÑANDO LA DEMOSTRACIÓN? `null` = lo de verdad; un número = la demostración con el reloj avanzado esos días hábiles. Lo pone PantallaDeSecuencias y lo leen los hooks de
+ * abajo, que piden lo mismo a las mismas rutas con `?demo=1&dias=N` (gente inventada, nada de la base: lib/correo/secuencias/demo.ts). Así ningún componente tiene que enterarse.
+ */
+export const DemoContext = createContext<number | null>(null)
+export const useDemo = (): number | null => useContext(DemoContext)
+
+/** La dirección con lo de la demostración añadido, si toca */
+export const conDemo = (url: string, demo: number | null): string => (demo === null ? url : `${url}${url.includes('?') ? '&' : '?'}demo=1&dias=${demo}`)
 
 /* ------------------------------------------------------------------ */
 /* El tiempo                                                           */
@@ -107,18 +124,28 @@ export interface EstadoDelTablero {
 }
 
 export function useTablero(buzonId: string | null, activo: boolean): EstadoDelTablero & { recargar: () => Promise<void> } {
+  const demo = useDemo()
   const [estado, setEstado] = useState<EstadoDelTablero>({ tablero: null, falta: null, error: null, cargando: true, desfase: 0 })
   const generacion = useRef(0)
+  // Al entrar o salir de la demostración lo de antes ya no vale (otros buzones, otras secuencias): se empieza de cero
+  const demoAnterior = useRef(demo === null ? 'real' : 'demo')
+  useEffect(() => {
+    const ahora = demo === null ? 'real' : 'demo'
+    if (demoAnterior.current === ahora) return
+    demoAnterior.current = ahora
+    generacion.current++
+    setEstado({ tablero: null, falta: null, error: null, cargando: true, desfase: 0 })
+  }, [demo])
   const cargar = useCallback(async () => {
     const mia = ++generacion.current
-    const r = await pedir<TableroDeSecuencias>(`/api/correo/secuencias/tablero${buzonId ? `?buzonId=${buzonId}` : ''}`)
+    const r = await pedir<TableroDeSecuencias>(conDemo(`/api/correo/secuencias/tablero${buzonId ? `?buzonId=${buzonId}` : ''}`, demo))
     if (mia !== generacion.current) return
     if (!r.ok) return setEstado((e) => ({ ...e, error: r.mensaje, falta: r.estado === 503 ? r.mensaje : e.falta, cargando: false }))
     const d = r.datos
     if (!d.disponible) return setEstado({ tablero: null, falta: d.mensaje, error: null, cargando: false, desfase: 0 })
     setEstado({ tablero: d, falta: null, error: null, cargando: false, desfase: d.ahora - Date.now() })
-  }, [buzonId])
-  usePulso(cargar, 20_000, activo, buzonId ?? '')
+  }, [buzonId, demo])
+  usePulso(cargar, 20_000, activo, `${buzonId ?? ''}|${demo ?? 'real'}`)
   return { ...estado, recargar: cargar }
 }
 
@@ -135,6 +162,7 @@ export interface FiltroDeCola {
 }
 
 export function useCola(filtro: FiltroDeCola, activo: boolean) {
+  const demo = useDemo()
   const [items, setItems] = useState<ItemDeCola[]>([])
   const [total, setTotal] = useState(0)
   const [paginas, setPaginas] = useState(1)
@@ -144,7 +172,18 @@ export function useCola(filtro: FiltroDeCola, activo: boolean) {
   const paginasRef = useRef(1)
   paginasRef.current = paginas
 
-  const clave = `${filtro.grupo}|${filtro.buzonId ?? ''}|${filtro.q}`
+  // Al entrar o salir de la demostración la lista de antes no vale para nada: se vacía
+  const demoAnterior = useRef(demo === null ? 'real' : 'demo')
+  useEffect(() => {
+    const ahora = demo === null ? 'real' : 'demo'
+    if (demoAnterior.current === ahora) return
+    demoAnterior.current = ahora
+    setItems([])
+    setTotal(0)
+    setCargando(true)
+  }, [demo])
+
+  const clave = `${filtro.grupo}|${filtro.buzonId ?? ''}|${filtro.q}|${demo ?? 'real'}`
   const claveAnterior = useRef(clave)
   useEffect(() => {
     if (claveAnterior.current !== clave) {
@@ -163,7 +202,7 @@ export function useCola(filtro: FiltroDeCola, activo: boolean) {
       const params = new URLSearchParams({ grupo: filtro.grupo, pagina: String(p), limite: String(POR_PAGINA) })
       if (filtro.buzonId) params.set('buzonId', filtro.buzonId)
       if (filtro.q.trim().length >= 2) params.set('q', filtro.q.trim())
-      const r = await pedir<{ items: ItemDeCola[]; total: number }>(`/api/correo/secuencias/cola?${params}`)
+      const r = await pedir<{ items: ItemDeCola[]; total: number }>(conDemo(`/api/correo/secuencias/cola?${params}`, demo))
       if (mia !== generacion.current) return
       if (!r.ok) {
         setError(r.mensaje)
@@ -178,7 +217,7 @@ export function useCola(filtro: FiltroDeCola, activo: boolean) {
     setTotal(totalVisto)
     setError(null)
     setCargando(false)
-  }, [filtro.grupo, filtro.buzonId, filtro.q])
+  }, [filtro.grupo, filtro.buzonId, filtro.q, demo])
 
   usePulso(cargar, 30_000, activo, clave)
   // Pedir otra página trae la cola entera de nuevo con una página más (solo cuando cambia el número de páginas, no el filtro)
@@ -194,6 +233,7 @@ export function useCola(filtro: FiltroDeCola, activo: boolean) {
 /* ------------------------------------------------------------------ */
 
 export function useDetalle(id: string | null) {
+  const demo = useDemo()
   const [detalle, setDetalle] = useState<DetalleDeSecuencia | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(false)
@@ -202,20 +242,20 @@ export function useDetalle(id: string | null) {
   const cargar = useCallback(async () => {
     if (!id) return
     const mia = ++generacion.current
-    const r = await pedir<DetalleDeSecuencia>(`/api/correo/secuencias/${id}`)
+    const r = await pedir<DetalleDeSecuencia>(conDemo(`/api/correo/secuencias/${id}`, demo))
     if (mia !== generacion.current) return
     setCargando(false)
     if (!r.ok) return setError(r.mensaje)
     setError(null)
     setDetalle(r.datos)
-  }, [id])
+  }, [id, demo])
 
   useEffect(() => {
     setDetalle(null)
     setError(null)
     setCargando(Boolean(id))
   }, [id])
-  usePulso(cargar, 15_000, Boolean(id), id ?? '')
+  usePulso(cargar, 15_000, Boolean(id), `${id ?? ''}|${demo ?? 'real'}`)
   return { detalle, error, cargando, recargar: cargar }
 }
 
@@ -224,7 +264,7 @@ export type CuerpoDeAccion =
   | { accion: 'saltar' | 'reintentar' | 'adelantar'; pasoId: string }
   | { accion: 'editar'; pasoId: string; asunto?: string; texto?: string }
 
-export async function accionar(id: string, cuerpo: CuerpoDeAccion): Promise<{ ok: true; mensaje: string } | { ok: false; mensaje: string }> {
-  const r = await enviarJson<{ mensaje?: string }>(`/api/correo/secuencias/${id}`, 'POST', cuerpo)
+export async function accionar(id: string, cuerpo: CuerpoDeAccion, demo: number | null = null): Promise<{ ok: true; mensaje: string } | { ok: false; mensaje: string }> {
+  const r = await enviarJson<{ mensaje?: string }>(conDemo(`/api/correo/secuencias/${id}`, demo), 'POST', cuerpo)
   return r.ok ? { ok: true, mensaje: r.datos.mensaje ?? 'Hecho.' } : { ok: false, mensaje: r.mensaje }
 }

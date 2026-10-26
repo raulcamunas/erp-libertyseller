@@ -8,7 +8,7 @@ import { diaCorto, horaDeMinutos } from '@/lib/correo/secuencias/fechas'
 import type { AjustesDelMotor } from '@/lib/correo/secuencias/reglas'
 import { enviarJson, pedir } from '../api'
 import { BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from '../ui'
-import { cuando, type Tablero } from './datos'
+import { conDemo, cuando, useDemo, type Tablero } from './datos'
 
 /**
  * LOS AJUSTES DEL MOTOR — SOLO UN ADMINISTRADOR LOS CAMBIA.
@@ -73,6 +73,7 @@ interface Props {
 }
 
 export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
+  const demo = useDemo()
   const base = tablero.ajustes
   const [form, setForm] = useState<AjustesDelMotor>(base)
   const [guardando, setGuardando] = useState(false)
@@ -89,11 +90,12 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
   const sucio = useMemo(() => JSON.stringify(form) !== firmaBase, [form, firmaBase])
   const set = <K extends keyof AjustesDelMotor>(k: K, v: AjustesDelMotor[K]) => setForm((f) => ({ ...f, [k]: v }))
 
+  // En la demostración se ve la lista de direcciones que han rebotado de la demostración (solo para mirarla)
   const cargarMalas = useCallback(async () => {
-    if (!esAdmin) return
-    const r = await pedir<{ direcciones: NonNullable<typeof malas> }>('/api/correo/secuencias/direcciones')
+    if (!esAdmin && demo === null) return
+    const r = await pedir<{ direcciones: NonNullable<typeof malas> }>(conDemo('/api/correo/secuencias/direcciones', demo))
     if (r.ok) setMalas(r.datos.direcciones)
-  }, [esAdmin])
+  }, [esAdmin, demo])
   useEffect(() => {
     void cargarMalas()
   }, [cargarMalas])
@@ -136,7 +138,11 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
 
   return (
     <div className="space-y-3 pb-16">
-      {solo && <p className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-[12px] text-[var(--ls-t3)]">Estás viendo cómo está configurado el motor. Solo un administrador puede cambiarlo.</p>}
+      {solo && (
+        <p className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-[12px] text-[var(--ls-t3)]">
+          {demo !== null ? 'Estos son los ajustes con los que trabaja el motor de la demostración (los mismos que tendría en marcha). Aquí solo se miran.' : 'Estás viendo cómo está configurado el motor. Solo un administrador puede cambiarlo.'}
+        </p>
+      )}
 
       <section className={PANEL} aria-label="Estado del motor">
         <CabeceraDePanel icono={<Power className="h-3.5 w-3.5" aria-hidden />} titulo="Estado del motor" contexto={`· ahora: ${OPCIONES.find((o) => o.modo === modoActual)?.titulo.toLowerCase()}`} />
@@ -392,7 +398,7 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
         </ul>
       </section>
 
-      {esAdmin && (
+      {(esAdmin || demo !== null) && (
         <section className={PANEL} aria-label="Direcciones que han rebotado">
           <CabeceraDePanel titulo="Direcciones que han rebotado" contexto="· el ERP no vuelve a escribirles" />
           {malas === null ? (
@@ -409,7 +415,7 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
                       {m.motivo ?? m.origen} · {m.veces} {m.veces === 1 ? 'vez' : 'veces'}
                     </span>
                   </span>
-                  {m.estado === 'mala' && (
+                  {m.estado === 'mala' && demo === null && (
                     <button type="button" onClick={() => void liberar(m.direccion)} className={BOTON_SECUNDARIO} title="Si en realidad funciona (se arregló), se vuelve a poder escribirle">
                       Liberar
                     </button>

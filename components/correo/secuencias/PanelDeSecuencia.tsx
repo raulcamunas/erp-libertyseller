@@ -7,7 +7,7 @@ import { Avatar, Esqueleto, Revelar } from '@/components/rendimiento/ui'
 import { hace, type PasoDeDetalle } from '@/lib/correo/secuencias/vistas'
 import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from '../ui'
 import { ChipDeEstado } from './ColaDeLeads'
-import { accionar, cuando, useDetalle, type CuerpoDeAccion } from './datos'
+import { accionar, cuando, useDemo, useDetalle, type CuerpoDeAccion } from './datos'
 import { COLOR_DE_TONO, ESTILO_DE_EVENTO, LineaMini, Nodo, estiloDelPaso } from './LineaDeTiempo'
 import { TarjetaDeLectura } from './RespuestasLeidas'
 
@@ -170,12 +170,13 @@ function TarjetaDePaso({
 
 export function PanelDeSecuencia({ id, ahora, onCerrar, alCambiar }: Props) {
   const { detalle, error, cargando, recargar } = useDetalle(id)
+  const demo = useDemo()
   const [ocupado, setOcupado] = useState(false)
   const [confirmaCancelar, setConfirmaCancelar] = useState(false)
 
   async function hacer(c: CuerpoDeAccion): Promise<boolean> {
     setOcupado(true)
-    const r = await accionar(id, c)
+    const r = await accionar(id, c, demo)
     setOcupado(false)
     if (r.ok) toast.success(r.mensaje)
     else toast.error(r.mensaje)
@@ -265,6 +266,7 @@ export function PanelDeSecuencia({ id, ahora, onCerrar, alCambiar }: Props) {
                   )}
                 </div>
               )}
+              {demo !== null && <p className="rounded-[8px] border border-[var(--ls-linea)] border-l-2 border-l-[var(--ls-acc)] bg-[var(--ls-sup)] px-3 py-2 text-[11.5px] leading-snug text-[var(--ls-t3)]">Demostración: puedes pulsar lo que quieras, no se cambia nada.</p>}
               {!p.puedeAdministrar && <p className="text-[11.5px] text-[var(--ls-t4)]">Estás viendo la secuencia en solo lectura: solo su dueño o un administrador puede cambiarla.</p>}
 
               <section aria-label="Correos">

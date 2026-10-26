@@ -1,13 +1,15 @@
 'use client'
 
-import { Activity, ArrowLeft, CalendarRange, FlaskConical, HeartPulse, ListOrdered, OctagonAlert, Power, RefreshCw, Settings2, Sun, TriangleAlert, Workflow } from 'lucide-react'
+import { Activity, ArrowLeft, CalendarRange, FlaskConical, HeartPulse, ListOrdered, OctagonAlert, Power, Presentation, RefreshCw, Settings2, Sparkles, Sun, TriangleAlert, Workflow } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { Avatar, BarraDeCarga, Esqueleto, PANEL } from '@/components/rendimiento/ui'
 import { hace } from '@/lib/correo/secuencias/vistas'
 import { Aviso, BOTON_SECUNDARIO } from '../ui'
 import { AjustesDeSecuencias } from './AjustesDeSecuencias'
 import { ColaDeLeads } from './ColaDeLeads'
-import { useAhora, useRecien, useTablero, type FiltroDeCola, type Tablero } from './datos'
+import { BarraDeLaDemo } from './BarraDeLaDemo'
+import { DemoContext, useAhora, useRecien, useTablero, type FiltroDeCola, type Tablero } from './datos'
+import { NovedadesDelJueves } from './NovedadesDelJueves'
 import { PanelDeSecuencia } from './PanelDeSecuencia'
 import { VistaDeFlujo } from './VistaDeFlujo'
 import { VistaDeHoy } from './VistaDeHoy'
@@ -22,7 +24,10 @@ import { VistaDeSalud } from './VistaDeSalud'
  * se queda montada aunque se vuelva a la bandeja (así no pierde la pestaña ni el filtro), pero solo pide datos mientras se ve.
  */
 
-type Pestana = 'hoy' | 'cola' | 'proximos' | 'flujo' | 'salud' | 'ajustes'
+type Pestana = 'novedades' | 'hoy' | 'cola' | 'proximos' | 'flujo' | 'salud' | 'ajustes'
+
+/** La primera pestaña de la demostración: lo nuevo desde el jueves (solo existe mientras se enseña la demostración) */
+const PESTANA_DE_NOVEDADES = { id: 'novedades' as const, etiqueta: 'Novedades', Icono: Sparkles }
 
 const PESTANAS: ReadonlyArray<{ id: Pestana; etiqueta: string; Icono: typeof Sun }> = [
   { id: 'hoy', etiqueta: 'Hoy', Icono: Sun },
@@ -104,12 +109,26 @@ interface Props {
   visible: boolean
 }
 
-export function PantallaDeSecuencias({ onVolver, visible }: Props) {
+/**
+ * La demostración vive aquí, FUERA de lo que pide los datos: los hooks de datos.ts (useTablero, useCola, useDetalle) leen el contexto, y un componente no ve el contexto que él mismo
+ * da, así que quien lo da tiene que ser el de arriba.
+ */
+export function PantallaDeSecuencias(props: Props) {
+  /** null = lo de verdad; un número = la demostración con el reloj avanzado esos días hábiles (ver datos.ts) */
+  const [demo, setDemo] = useState<number | null>(null)
+  return (
+    <DemoContext.Provider value={demo}>
+      <ContenidoDeSecuencias {...props} demo={demo} setDemo={setDemo} />
+    </DemoContext.Provider>
+  )
+}
+
+function ContenidoDeSecuencias({ onVolver, visible, demo, setDemo }: Props & { demo: number | null; setDemo: (d: number | null) => void }) {
   // La pestaña en que se estaba (una comodidad de cada persona: si el navegador no la guarda, no pasa nada). Esta pantalla solo se pinta en el navegador
   const [pestana, setPestana] = useState<Pestana>(() => {
     try {
       const g = typeof window === 'undefined' ? null : window.localStorage.getItem(PESTANA_GUARDADA)
-      if (g && PESTANAS.some((p) => p.id === g)) return g as Pestana
+      if (g && g !== 'novedades' && PESTANAS.some((p) => p.id === g)) return g as Pestana
     } catch {
       /* sin almacenamiento */
     }
@@ -124,12 +143,32 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
 
   const elegir = useCallback((p: Pestana) => {
     setPestana(p)
+    // «Novedades» solo existe en la demostración: no se recuerda para la próxima vez
+    if (p === 'novedades') return
     try {
       window.localStorage.setItem(PESTANA_GUARDADA, p)
     } catch {
       /* sin almacenamiento */
     }
   }, [])
+
+  // Entrar y salir de la demostración: lo que se tenía abierto (un detalle, un buzón, una búsqueda) es de otro mundo
+  const entrarEnLaDemo = useCallback(() => {
+    setAbierta(null)
+    setBuzonId(null)
+    setOpciones([])
+    setFiltroCola({ grupo: 'vivas', buzonId: null, q: '' })
+    setDemo(0)
+    elegir('novedades')
+  }, [elegir, setDemo])
+  const salirDeLaDemo = useCallback(() => {
+    setAbierta(null)
+    setBuzonId(null)
+    setOpciones([])
+    setFiltroCola({ grupo: 'vivas', buzonId: null, q: '' })
+    setDemo(null)
+    setPestana((p) => (p === 'novedades' ? 'hoy' : p))
+  }, [setDemo])
 
   // En Ajustes y en Salud se ven todos los buzones aunque se esté filtrando por uno
   const todosLosBuzones = pestana === 'ajustes' || pestana === 'salud'
@@ -160,10 +199,12 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
     setRecargando(false)
   }, [recargar])
 
-  const esAdmin = tablero?.puedeAdministrar ?? false
+  const esAdmin = (tablero?.puedeAdministrar ?? false) && demo === null
   const vivas = tablero ? tablero.conteos.activa + tablero.conteos.pausada : 0
+  // Solo un administrador puede enseñar la demostración (el servidor lo vuelve a comprobar). Si el tablero no está disponible (falta la migración) también se ofrece: es lo único que se puede ver
+  const puedeEnsenarLaDemo = tablero ? tablero.puedeAdministrar : Boolean(falta)
   // Quien no administra también ve los Ajustes (para saber cómo funciona), solo que sin poder cambiarlos
-  const pestanasVisibles = PESTANAS
+  const pestanasVisibles = demo === null ? PESTANAS : [PESTANA_DE_NOVEDADES, ...PESTANAS]
 
   // Con las flechas se pasa de una pestaña a otra (el patrón de las pestañas accesibles)
   function alTeclearEnPestanas(e: KeyboardEvent<HTMLElement>, actual: Pestana) {
@@ -190,9 +231,20 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
             </span>
             Secuencias
           </h1>
-          {tablero && <PildoraDeEstado tablero={tablero} />}
+          {demo !== null ? (
+            <span className="inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--ls-acc-borde)] bg-[var(--ls-acc-suave)] px-2.5 text-[11.5px] font-semibold text-[var(--ls-acc)]" title="Personas y correos inventados: no sale ni se guarda nada">
+              <Presentation className="h-3 w-3" aria-hidden /> Demostración
+            </span>
+          ) : (
+            tablero && <PildoraDeEstado tablero={tablero} />
+          )}
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {demo === null && puedeEnsenarLaDemo && (
+              <button type="button" onClick={entrarEnLaDemo} className={BOTON_SECUNDARIO} title="Ver las secuencias con personas inventadas y un reloj que se puede avanzar: no toca nada de verdad">
+                <Presentation className="h-3.5 w-3.5" aria-hidden /> Ver demostración
+              </button>
+            )}
             {opciones.length > 1 && !todosLosBuzones && (
               <label className="flex items-center gap-1.5 text-[11.5px] text-[var(--ls-t3)]">
                 {buzonId ? <Avatar id={buzonId} nombre={opciones.find((b) => b.id === buzonId)?.propietario.nombre ?? '?'} tamano={18} /> : null}
@@ -262,13 +314,15 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
         <BarraDeCarga activa={cargando || recargando} />
       </header>
 
-      {falta && (
+      {demo !== null && <BarraDeLaDemo dias={demo} maximo={tablero?.demo?.maximo ?? 7} ahora={tablero?.ahora ?? null} onDias={setDemo} onSalir={salirDeLaDemo} />}
+
+      {falta && demo === null && (
         <Aviso titulo="Falta un paso para usar las secuencias">
           <p>{falta}</p>
         </Aviso>
       )}
 
-      {error && !falta && (
+      {error && (!falta || demo !== null) && (
         <p className="flex items-center gap-2 rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-[12px] text-[var(--ls-e-ambar)]" role="status">
           <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span className="min-w-0 flex-1">{tablero ? `No se ha podido actualizar (${error}). Se ve lo último que llegó.` : error}</span>
@@ -311,6 +365,7 @@ export function PantallaDeSecuencias({ onVolver, visible }: Props) {
           <Cargando />
         ) : tablero ? (
           <div key={pestana} className="rend-aparece" style={{ '--d': 0 } as CSSProperties}>
+            {pestana === 'novedades' && demo !== null && <NovedadesDelJueves />}
             {pestana === 'hoy' && <VistaDeHoy tablero={tablero} ahora={ahora} onAbrir={setAbierta} recien={recien} />}
             {pestana === 'cola' && <ColaDeLeads filtro={filtroCola} onFiltro={setFiltroCola} tablero={tablero} ahora={ahora} onAbrir={setAbierta} activa={visible} />}
             {pestana === 'proximos' && <VistaDeProximos tablero={tablero} />}
