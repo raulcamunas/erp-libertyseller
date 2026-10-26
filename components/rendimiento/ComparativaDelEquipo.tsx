@@ -54,9 +54,9 @@ interface Props {
 type Columna = 'nombre' | 'llamadas' | 'contacto' | 'conversaciones' | 'segundos' | 'whatsapp' | 'correos' | 'respuestas' | 'citas'
 
 const COLUMNAS: ReadonlyArray<{ id: Exclude<Columna, 'nombre'>; texto: string; ayuda: string }> = [
-  { id: 'llamadas', texto: 'Llamadas', ayuda: 'Llamadas hechas (salientes). La barra compara con quien más ha llamado' },
-  { id: 'contacto', texto: 'Contacto', ayuda: 'Llamadas hechas que contestó una persona, entre las hechas (10 segundos o más; los contestadores no cuentan)' },
-  { id: 'conversaciones', texto: 'Conv.', ayuda: 'Conversaciones por teléfono: contestadas de más de 1 minuto' },
+  { id: 'llamadas', texto: 'Llamadas', ayuda: 'Clientes a los que se llamó (salientes): uno cuenta una vez al día aunque se le llame varias veces. La barra compara con quien más ha llamado' },
+  { id: 'contacto', texto: 'Contacto', ayuda: 'Clientes llamados que contestaron en algún intento, entre los llamados (10 segundos o más; los contestadores no cuentan)' },
+  { id: 'conversaciones', texto: 'Conv.', ayuda: 'Conversaciones por teléfono: clientes con una llamada contestada de más de 1 minuto' },
   { id: 'segundos', texto: 'Al teléfono', ayuda: 'Tiempo al teléfono, sin los contestadores' },
   { id: 'whatsapp', texto: 'WhatsApp', ayuda: 'Conversaciones de WhatsApp: clientes distintos con los que se habló cada día, por muchas interacciones que se apunten' },
   { id: 'correos', texto: 'Correos', ayuda: 'Conversaciones por correo: clientes distintos con los que se habló cada día' },
@@ -65,7 +65,7 @@ const COLUMNAS: ReadonlyArray<{ id: Exclude<Columna, 'nombre'>; texto: string; a
 ]
 
 const COMO_SE_CUENTA =
-  'Llamadas, contacto y tiempo salen de Rinkel. WhatsApp y correos son conversaciones —clientes distintos con los que se habló cada día, por muchas interacciones que se apunten— y salen, igual que las respuestas, de las notas de Cold Calling. Las citas, de la Agenda.'
+  'Llamadas, contacto y tiempo salen de Rinkel: un cliente llamado varias veces el mismo día cuenta una sola llamada, y al día siguiente vuelve a contar. WhatsApp y correos son conversaciones —clientes distintos con los que se habló cada día, por muchas interacciones que se apunten— y salen, igual que las respuestas, de las notas de Cold Calling. Las citas, de la Agenda.'
 
 const numero = (n: number) => Math.round(n).toLocaleString('es-ES')
 
