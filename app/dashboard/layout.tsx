@@ -50,11 +50,13 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-[var(--bg-color)] flex relative">
-      <AppSidebar />
+      {/* El rol y el nombre ya los tiene el servidor: con ellos la barra pinta desde el primer momento el menú de quien es, sin esperar a preguntarlo */}
+      <AppSidebar perfil={{ role: profile.role, email: profile.email, full_name: profile.full_name }} />
       {/* min-w-0: sin esto, un hijo ancho (una tabla de muchas columnas)
           estira el main y arrastra toda la página en horizontal, barra
-          lateral incluida. Con esto, quien scrollea es la propia tabla. */}
-      <main className="flex-1 min-w-0 lg:ml-64 transition-all duration-500 ease-in-out min-h-screen pt-16 lg:pt-0 relative z-10 [&:has([data-app-persistente])_.pagina-de-ruta]:hidden">
+          lateral incluida. Con esto, quien scrollea es la propia tabla.
+          El margen izquierdo es lo que ocupa la barra: `--lat-ancho` lo escribe ella (16rem abierta, 4,5rem plegada) y, hasta que lo escribe, vale 16rem. */}
+      <main className="flex-1 min-w-0 lg:ml-[var(--lat-ancho,16rem)] transition-all duration-500 ease-in-out min-h-screen pt-16 lg:pt-0 relative z-10 [&:has([data-app-persistente])_.pagina-de-ruta]:hidden">
         {/* LA PÁGINA DE LA RUTA, con su entrada animada. Esa animación deja puestos `transform` y `filter` para siempre (la animación termina
             `forwards`), y eso tiene dos costes: todo lo que cuelga de aquí se pinta en una capa aparte con un filtro por encima (en el móvil
             se nota al hacer scroll en una lista larga) y los elementos `fixed` de dentro se colocan respecto a este recuadro y no respecto a

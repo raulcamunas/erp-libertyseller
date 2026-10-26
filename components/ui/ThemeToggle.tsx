@@ -38,15 +38,12 @@ export function ThemeToggle({ className }: { className?: string }) {
 
   const titulo = theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'
 
+  // Los dos iconos están siempre puestos, uno encima del otro: el que sobra se esconde girando y encogiéndose (lo hace el CSS de la barra lateral, `lat-tema`),
+  // y por eso al cambiar de tema el sol da paso a la luna en vez de saltar
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      title={titulo}
-      aria-label={titulo}
-      className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white/70 transition-colors hover:bg-white/[0.05] hover:text-white', className)}
-    >
-      {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+    <button type="button" onClick={toggle} title={titulo} aria-label={titulo} data-tema={theme} className={cn('lat-accion lat-tema', className)}>
+      <Sun className="lat-sol" aria-hidden />
+      <Moon className="lat-luna" aria-hidden />
     </button>
   )
 }

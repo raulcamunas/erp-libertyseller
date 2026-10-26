@@ -1,16 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore, type CSSProperties } from 'react'
 import { Bell, BellOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
-import { cn } from '@/lib/utils'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -179,6 +177,15 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
 
   const etiquetaDeCuenta = unreadCount > 9 ? '9+' : String(unreadCount)
 
+  // La campana suena cuando llega un aviso nuevo (no cuando se lee uno): cada vez que sube la cuenta cambia la clave del icono y el CSS repite el movimiento.
+  // Con avisos sin leer ya al cargar suena una vez.
+  const cuentaAntes = useRef(0)
+  const [sonidos, setSonidos] = useState(0)
+  useEffect(() => {
+    if (unreadCount > cuentaAntes.current) setSonidos((n) => n + 1)
+    cuentaAntes.current = unreadCount
+  }, [unreadCount])
+
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
@@ -186,119 +193,89 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
           type="button"
           title={colapsado ? 'Notificaciones' : undefined}
           aria-label={unreadCount > 0 ? `Notificaciones: ${unreadCount} sin leer` : 'Notificaciones'}
-          className={cn(
-            'relative flex h-10 items-center rounded-xl text-white/70 transition-colors hover:bg-white/[0.05] hover:text-white',
-            colapsado ? 'w-10 justify-center' : 'min-w-0 flex-1 gap-3 px-3',
-            isOpen && 'bg-white/[0.05] text-white'
-          )}
+          className="lat-accion lat-campana"
+          data-hay={unreadCount > 0 ? 'true' : undefined}
+          data-abierto={isOpen ? 'true' : undefined}
         >
-          <Bell className="h-5 w-5 flex-shrink-0" />
-          {!colapsado && <span className="flex-1 truncate text-left text-sm font-medium">Notificaciones</span>}
-          {unreadCount > 0 &&
-            (colapsado ? (
-              <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#FF6600] text-[10px] font-semibold text-white">{etiquetaDeCuenta}</span>
-            ) : (
-              <span className="rounded-full bg-[#FF6600] px-2 py-0.5 text-xs text-white">{etiquetaDeCuenta}</span>
-            ))}
+          <span className="lat-icono">
+            <Bell key={sonidos} className="lat-icono-svg lat-campana-icono" aria-hidden />
+          </span>
+          <span className="lat-texto">Notificaciones</span>
+          {unreadCount > 0 && (
+            <span key={etiquetaDeCuenta} className="lat-insignia lat-insignia-viva">
+              {etiquetaDeCuenta}
+            </span>
+          )}
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        className="w-[min(20rem,calc(100vw-1.5rem))] bg-[#1a1a1a] border-white/10 p-0"
-        side="top"
-        align="start"
-        sideOffset={8}
-        collisionPadding={12}
-      >
-        <div className="p-4 border-b border-white/10 flex items-center justify-between">
-          <h3 className="font-semibold text-white">Notificaciones</h3>
+      <PopoverContent className="lat-avisos" side="top" align="start" sideOffset={10} collisionPadding={12}>
+        <div className="lat-avisos-cab">
+          <h3 className="lat-avisos-titulo">
+            Notificaciones
+            {unreadCount > 0 && <span className="lat-avisos-cuenta">{unreadCount} sin leer</span>}
+          </h3>
           {unreadCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={markAllAsRead}
-              className="text-xs text-white/60 hover:text-white"
-            >
-              Marcar todas como leídas
-            </Button>
+            <button type="button" onClick={markAllAsRead} className="lat-avisos-todas" title="Marcar todas como leídas" aria-label="Marcar todas como leídas">
+              Marcar todas
+            </button>
           )}
         </div>
-        <div className="max-h-[400px] overflow-y-auto">
+        <div className="lat-avisos-lista">
           {loading ? (
-            <div className="p-4 text-center text-white/50 text-sm">
-              Cargando...
-            </div>
+            <p className="lat-avisos-vacio">Cargando…</p>
           ) : notifications.length === 0 ? (
-            <div className="p-4 text-center text-white/50 text-sm">
-              No hay notificaciones
+            <div className="lat-avisos-vacio">
+              <span className="lat-avisos-vacio-icono">
+                <Bell className="h-5 w-5" aria-hidden />
+              </span>
+              <p className="lat-avisos-vacio-titulo">Todo al día</p>
+              <p>No hay notificaciones.</p>
             </div>
           ) : (
-            <div className="divide-y divide-white/10">
-              {notifications.map((notification) => {
-                const link = getNotificationLink(notification)
-                const NotificationContent = (
-                  <div
-                    className={cn(
-                      "p-4 hover:bg-white/5 transition-colors cursor-pointer",
-                      !notification.read && "bg-[#FF6600]/10"
-                    )}
-                    onClick={() => {
-                      if (!notification.read) {
-                        markAsRead(notification.id)
-                      }
-                    }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={cn(
-                        "w-2 h-2 rounded-full mt-2 flex-shrink-0",
-                        !notification.read ? "bg-[#FF6600]" : "bg-transparent"
-                      )} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white mb-1">
-                          {notification.title}
-                        </p>
-                        {notification.message && (
-                          <p className="text-xs text-white/60 mb-2 line-clamp-2">
-                            {notification.message}
-                          </p>
-                        )}
-                        <p className="text-xs text-white/40">
-                          {formatDistanceToNow(new Date(notification.created_at), {
-                            addSuffix: true,
-                            locale: es
-                          })}
-                        </p>
-                      </div>
-                    </div>
+            notifications.map((notification, i) => {
+              const link = getNotificationLink(notification)
+              const NotificationContent = (
+                <div
+                  className="lat-aviso"
+                  data-sin-leer={!notification.read ? 'true' : undefined}
+                  style={{ '--i': i } as CSSProperties}
+                  onClick={() => {
+                    if (!notification.read) {
+                      markAsRead(notification.id)
+                    }
+                  }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="lat-aviso-titulo">{notification.title}</p>
+                    {notification.message && <p className="lat-aviso-texto">{notification.message}</p>}
+                    <p className="lat-aviso-hora">
+                      {formatDistanceToNow(new Date(notification.created_at), {
+                        addSuffix: true,
+                        locale: es
+                      })}
+                    </p>
                   </div>
-                )
+                  {!notification.read && <span className="lat-aviso-punto" aria-label="Sin leer" />}
+                </div>
+              )
 
-                if (link) {
-                  return (
-                    <Link key={notification.id} href={link}>
-                      {NotificationContent}
-                    </Link>
-                  )
-                }
-
+              if (link) {
                 return (
-                  <div key={notification.id}>
+                  <Link key={notification.id} href={link}>
                     {NotificationContent}
-                  </div>
+                  </Link>
                 )
-              })}
-            </div>
+              }
+
+              return <div key={notification.id}>{NotificationContent}</div>
+            })
           )}
         </div>
-        <div className="border-t border-white/10 p-2">
-          <button
-            type="button"
-            onClick={() => silenciarEquipo(!silenciados)}
-            aria-pressed={silenciados}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-white/60 transition-colors hover:bg-white/5 hover:text-white"
-          >
-            {silenciados ? <BellOff className="h-3.5 w-3.5 shrink-0" /> : <Bell className="h-3.5 w-3.5 shrink-0" />}
+        <div className="lat-avisos-pie">
+          <button type="button" onClick={() => silenciarEquipo(!silenciados)} aria-pressed={silenciados} className="lat-avisos-silencio">
+            {silenciados ? <BellOff className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <Bell className="h-3.5 w-3.5 shrink-0" aria-hidden />}
             <span className="flex-1">{silenciados ? 'Avisos del equipo silenciados' : 'Avisos del equipo: llamadas y citas'}</span>
-            <span className="text-white/40">{silenciados ? 'Activar' : 'Silenciar'}</span>
+            <span className="lat-avisos-silencio-accion">{silenciados ? 'Activar' : 'Silenciar'}</span>
           </button>
         </div>
       </PopoverContent>

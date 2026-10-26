@@ -1,32 +1,48 @@
 'use client'
 
-import { useState, useEffect, useSyncExternalStore } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import {
-  Users,
-  LogOut,
-  Menu,
-  X,
-  ChevronLeft,
-  ChevronRight
-} from 'lucide-react'
+import { ChevronLeft, LogOut, Menu, X } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 import { NotificationsBell } from '@/components/layout/NotificationsBell'
 import { leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
-import { LogoutButton } from '@/components/auth/logout-button'
 import { apps, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
-import { cn } from '@/lib/utils'
+import { etiquetaDeRol } from '@/lib/inicio/saludo'
+import { etiquetaDeInsignia, inicialesDe, rutaActivaDelMenu } from '@/lib/layout/barra'
 import { createClient } from '@/lib/supabase/client'
 import type { RolUsuario } from '@/lib/types/users'
 
-export function AppSidebar() {
+/**
+ * LA BARRA LATERAL: el menú de aplicaciones, tu cuenta, los avisos y el tema.
+ *
+ * Todo el aspecto vive en un bloque de app/globals.css («BARRA LATERAL · ESCENA Y MOVIMIENTO», clases `lat-*`) y se deshace borrándolo; aquí solo está lo que
+ * piensa: qué entradas ve cada persona, cuál está encendida y dónde tiene que ir la marca que se desliza de una a otra.
+ *
+ * `perfil` lo da el layout del servidor, que ya lo tiene: con el rol a la vista desde el primer pintado, un empleado no ve durante un instante el menú de todo el
+ * mundo antes de que se encoja al suyo. Sin él (una vista previa, una prueba) se pregunta al navegador como siempre.
+ */
+export interface PerfilDeLaBarra {
+  role: RolUsuario
+  email: string | null
+  full_name: string | null
+}
+
+// Antes de pintar, medir dónde está la entrada encendida; en el servidor no hay nada que medir y `useLayoutEffect` avisa
+const useEfectoAntesDePintar = typeof window === 'undefined' ? useEffect : useLayoutEffect
+
+const ANCHO_ABIERTA = '16rem'
+const ANCHO_PLEGADA = '4.5rem'
+
+export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
-  const [userRole, setUserRole] = useState<RolUsuario | null>(null)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [permisosCargados, setPermisosCargados] = useState(false)
+  const [userRole, setUserRole] = useState<RolUsuario | null>(perfil?.role ?? null)
+  const [userEmail, setUserEmail] = useState<string | null>(perfil?.email ?? null)
+  const [userName, setUserName] = useState<string | null>(perfil?.full_name ?? null)
   const [webLeadsBadge, setWebLeadsBadge] = useState<number | undefined>(undefined)
   // Cuántas conversaciones de correo tienen algo sin leer: lo publica el lector de correo nuevo (components/avisos), esté donde esté la persona
   const correoSinLeer = useSyncExternalStore(suscribirContadores, leerCorreoSinLeer, () => 0)
@@ -48,7 +64,7 @@ export function AppSidebar() {
   useEffect(() => {
     if (userRole === 'admin') {
       loadWebLeadsCount()
-      
+
       // Suscribirse a cambios en web_leads para actualizar el badge
       const channel = supabase
         .channel('web_leads_badge')
@@ -98,13 +114,14 @@ export function AppSidebar() {
       // Obtener perfil del usuario
       const { data: profile } = await supabase
         .from('profiles')
-        .select('role, email')
+        .select('role, email, full_name')
         .eq('id', user.id)
         .single()
 
       if (profile) {
         setUserRole(profile.role)
         setUserEmail(profile.email)
+        setUserName(profile.full_name ?? null)
 
         // Si es admin, tiene acceso a todo
         if (profile.role === 'admin') {
@@ -131,6 +148,8 @@ export function AppSidebar() {
       }
     } catch (error) {
       console.error('Error loading permissions:', error)
+    } finally {
+      setPermisosCargados(true)
     }
   }
 
@@ -177,11 +196,89 @@ export function AppSidebar() {
     return userPermissions.has(app.id)
   })
 
-  const isActive = (route: string) => {
-    if (route === '/dashboard') {
-      return pathname === '/dashboard'
+  // Un empleado ve «Inicio» y, hasta que llegan sus permisos, unas filas que se están rellenando (en vez de un menú que de repente crece)
+  const cargandoPermisos = userRole === 'employee' && !permisosCargados
+
+  // Al pulsar una entrada se enciende ya, sin esperar a que cargue la página: si la ruta nueva no llega a abrirse se deshace sola
+  const [pendiente, setPendiente] = useState<string | null>(null)
+  useEffect(() => {
+    setPendiente(null)
+  }, [pathname])
+  useEffect(() => {
+    if (!pendiente) return
+    const id = window.setTimeout(() => setPendiente(null), 4000)
+    return () => window.clearTimeout(id)
+  }, [pendiente])
+
+  const rutaActiva = rutaActivaDelMenu(
+    filteredApps.map((a) => a.route),
+    pendiente ?? pathname ?? ''
+  )
+
+  // La marca luminosa que se desliza hasta la entrada encendida: se mide dónde está y cuánto mide, y se coloca con una transición.
+  // La primera colocación no se anima (que no venga desde arriba al cargar la página)
+  const listaRef = useRef<HTMLDivElement>(null)
+  // Dónde está la marca (se recuerda aunque desaparezca: si vuelve, vuelve desde donde estaba y no desde arriba) y si se ve
+  const [posicion, setPosicion] = useState<{ y: number; h: number } | null>(null)
+  const [hayMarca, setHayMarca] = useState(false)
+  const [animar, setAnimar] = useState(false)
+  const idsVisibles = filteredApps.map((a) => a.id).join('|')
+  useEfectoAntesDePintar(() => {
+    const activo = listaRef.current?.querySelector<HTMLElement>('[data-activa="true"]')
+    if (!activo) {
+      setHayMarca(false)
+      return
     }
-    return pathname.startsWith(route)
+    const nueva = { y: activo.offsetTop, h: activo.offsetHeight }
+    setPosicion((antes) => (antes && antes.y === nueva.y && antes.h === nueva.h ? antes : nueva))
+    setHayMarca(true)
+  }, [rutaActiva, idsVisibles, isCollapsed, cargandoPermisos])
+  useEffect(() => {
+    if (!posicion || animar) return
+    // Un instante después de la primera colocación, cuando ya se ha pintado: a partir de ahí, cada cambio se desliza
+    const id = window.setTimeout(() => setAnimar(true), 80)
+    return () => window.clearTimeout(id)
+  }, [posicion, animar])
+
+  // El contenido de la página se aparta lo que ocupe la barra (el layout lee esta variable)
+  useEffect(() => {
+    const raiz = document.documentElement
+    raiz.style.setProperty('--lat-ancho', isCollapsed ? ANCHO_PLEGADA : ANCHO_ABIERTA)
+    return () => {
+      raiz.style.removeProperty('--lat-ancho')
+    }
+  }, [isCollapsed])
+
+  // En una pantalla estrecha la barra es un cajón y no se pliega: si se estrecha la ventana con la barra plegada, se despliega
+  useEffect(() => {
+    const ancha = window.matchMedia('(min-width: 1024px)')
+    const alCambiar = () => {
+      if (!ancha.matches) setIsCollapsed(false)
+    }
+    alCambiar()
+    ancha.addEventListener('change', alCambiar)
+    return () => ancha.removeEventListener('change', alCambiar)
+  }, [])
+
+  // Con la barra plegada, el nombre de cada entrada sale en una etiqueta al lado. Es UNA sola, fuera de la lista que se desplaza, para que no la recorte
+  const [etiqueta, setEtiqueta] = useState<{ texto: string; y: number } | null>(null)
+  const [etiquetaVisible, setEtiquetaVisible] = useState(false)
+  const mostrarEtiqueta = (el: HTMLElement, texto: string) => {
+    if (!isCollapsed) return
+    const caja = el.getBoundingClientRect()
+    setEtiqueta({ texto, y: caja.top + caja.height / 2 })
+    setEtiquetaVisible(true)
+  }
+  const ocultarEtiqueta = () => setEtiquetaVisible(false)
+  useEffect(() => {
+    if (!isCollapsed) setEtiquetaVisible(false)
+  }, [isCollapsed])
+
+  // El foco de luz de cada entrada sigue al ratón (`--mx` y `--my` los lee el CSS)
+  const seguirRaton = (e: MouseEvent<HTMLElement>) => {
+    const caja = e.currentTarget.getBoundingClientRect()
+    e.currentTarget.style.setProperty('--mx', `${e.clientX - caja.left}px`)
+    e.currentTarget.style.setProperty('--my', `${e.clientY - caja.top}px`)
   }
 
   const toggleCollapse = () => {
@@ -192,168 +289,162 @@ export function AppSidebar() {
     setIsMobileOpen(!isMobileOpen)
   }
 
+  const cerrarSesion = async () => {
+    await supabase.auth.signOut()
+    router.push('/auth/login')
+    router.refresh()
+  }
+
+  const nombreVisible = (userName ?? '').trim() || (userEmail ?? '').split('@')[0] || 'Mi cuenta'
+
   return (
     <>
-      {/* Mobile Menu Button */}
+      {/* Botón del menú, solo en pantallas estrechas */}
       <button
+        type="button"
         onClick={toggleMobile}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 glass-card border border-white/10 rounded-lg"
-        aria-label="Toggle menu"
+        className="lat-hamburguesa"
+        aria-label={isMobileOpen ? 'Cerrar el menú' : 'Abrir el menú'}
+        aria-expanded={isMobileOpen}
       >
-        {isMobileOpen ? (
-          <X className="h-5 w-5 text-white" />
-        ) : (
-          <Menu className="h-5 w-5 text-white" />
-        )}
+        {isMobileOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
       </button>
 
-      {/* Sidebar */}
-      <aside
-        className={cn(
-          "fixed left-0 top-0 h-full z-40 transition-all duration-300",
-          "glass-card-light border-r border-white/10",
-          "flex flex-col",
-          isCollapsed ? "w-16" : "w-64",
-          "lg:translate-x-0",
-          isMobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        )}
-      >
-        {/* Header con Logo */}
-        <div className="p-4 border-b border-white/10 flex items-center justify-between">
-          {!isCollapsed && (
-            <Logo width={120} height={40} />
-          )}
-          {isCollapsed && (
-            <div className="w-8 h-8 bg-[#FF6600] rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">LS</span>
-            </div>
+      <aside className="lat" data-plegada={isCollapsed ? 'true' : undefined} data-movil={isMobileOpen ? 'abierta' : undefined} aria-label="Menú principal">
+        {/* El fondo: una luz que se mueve despacio arriba y un hilo de luz que baja por el borde */}
+        <div className="lat-decorado" aria-hidden>
+          <span className="lat-aurora" />
+          <span className="lat-hilo" />
+        </div>
+
+        {/* Cabecera con el logo */}
+        <div className="lat-cabecera">
+          {isCollapsed ? (
+            <Link href="/" className="lat-monograma" aria-label="Liberty Seller Hub">
+              <span>LS</span>
+            </Link>
+          ) : (
+            <span className="lat-logo">
+              <Logo width={132} height={21} />
+            </span>
           )}
           <button
+            type="button"
             onClick={toggleCollapse}
-            className="hidden lg:flex p-1.5 rounded-lg hover:bg-white/[0.05] transition-colors"
-            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="lat-plegar"
+            aria-label={isCollapsed ? 'Desplegar la barra lateral' : 'Plegar la barra lateral'}
+            aria-expanded={!isCollapsed}
           >
-            {isCollapsed ? (
-              <ChevronRight className="h-4 w-4 text-white/70" />
-            ) : (
-              <ChevronLeft className="h-4 w-4 text-white/70" />
-            )}
+            <ChevronLeft className="lat-plegar-icono" aria-hidden />
           </button>
         </div>
 
-        {/* Apps Menu */}
-        <nav className="flex-1 overflow-y-auto py-4 px-2">
-          <div className="space-y-1">
-            {filteredApps.map((app) => {
+        {/* Menú de aplicaciones */}
+        <nav className="lat-nav" aria-label="Aplicaciones">
+          <p className="lat-rotulo" aria-hidden>
+            Aplicaciones
+          </p>
+          <div className="lat-lista" ref={listaRef}>
+            <span
+              className="lat-indicador"
+              data-visible={hayMarca ? 'true' : 'false'}
+              data-animar={animar ? 'true' : 'false'}
+              style={{ '--y': `${posicion?.y ?? 0}px`, '--h': `${posicion?.h ?? 40}px` } as CSSProperties}
+              aria-hidden
+            />
+            {filteredApps.map((app, i) => {
               const Icon = app.icon
-              const active = isActive(app.route)
-              
+              const activa = app.route === rutaActiva
+
               // Usar badge dinámico para web-leads si es admin
-              const badge = app.id === 'web-leads' && userRole === 'admin' 
-                ? webLeadsBadge 
-                : app.id === 'correo' && correoSinLeer > 0
-                  ? correoSinLeer
-                  : app.badge
-              
+              const badge =
+                app.id === 'web-leads' && userRole === 'admin'
+                  ? webLeadsBadge
+                  : app.id === 'correo' && correoSinLeer > 0
+                    ? correoSinLeer
+                    : app.badge
+              const insignia = etiquetaDeInsignia(badge, isCollapsed)
+
               return (
                 <Link
                   key={app.id}
                   href={app.route}
-                  onClick={() => setIsMobileOpen(false)}
-                  className={cn(
-                    "relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200",
-                    "hover:bg-white/[0.05]",
-                    active
-                      ? "bg-[#FF6600]/[0.1] text-[#FF6600] border border-[#FF6600]/30"
-                      : "text-white/70 hover:text-white"
-                  )}
-                  title={isCollapsed ? app.name : undefined}
+                  className="lat-item"
+                  data-activa={activa ? 'true' : undefined}
+                  aria-current={activa ? 'page' : undefined}
+                  style={{ '--i': i } as CSSProperties}
+                  onClick={(e) => {
+                    setIsMobileOpen(false)
+                    // Un clic normal: con Ctrl, Cmd o Mays se abre en otra pestaña y esta página no cambia
+                    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                    if (!activa) setPendiente(app.route)
+                  }}
+                  onMouseMove={seguirRaton}
+                  onMouseEnter={(e) => mostrarEtiqueta(e.currentTarget, app.name)}
+                  onMouseLeave={ocultarEtiqueta}
+                  onFocus={(e) => mostrarEtiqueta(e.currentTarget, app.name)}
+                  onBlur={ocultarEtiqueta}
                 >
-                  <Icon className={cn(
-                    "h-5 w-5 flex-shrink-0",
-                    active && "text-[#FF6600]"
-                  )} />
-                  {!isCollapsed && (
-                    <>
-                      <span className="flex-1 text-sm font-medium">{app.name}</span>
-                      {badge && (
-                        <span className="px-2 py-0.5 text-xs bg-[#FF6600] text-white rounded-full">
-                          {badge}
-                        </span>
-                      )}
-                    </>
-                  )}
-                  {/* Badge para sidebar colapsado */}
-                  {isCollapsed && badge && (
-                    <span className="absolute top-1 right-1 h-4 w-4 bg-[#FF6600] text-white rounded-full text-[10px] flex items-center justify-center font-semibold">
-                      {(() => {
-                        const badgeNum = typeof badge === 'number' ? badge : typeof badge === 'string' ? Number(badge) : 0
-                        return badgeNum > 9 ? '9+' : badge
-                      })()}
+                  <span className="lat-icono">
+                    <Icon className="lat-icono-svg" aria-hidden />
+                  </span>
+                  <span className="lat-texto">{app.name}</span>
+                  {insignia && (
+                    <span key={insignia} className="lat-insignia">
+                      {insignia}
                     </span>
                   )}
                 </Link>
               )
             })}
+            {cargandoPermisos &&
+              [0, 1, 2, 3].map((n) => (
+                <span key={`espera-${n}`} className="lat-espera" style={{ '--i': filteredApps.length + n } as CSSProperties} aria-hidden>
+                  <span className="lat-espera-icono" />
+                  <span className="lat-espera-texto" style={{ width: `${48 + ((n * 17) % 30)}%` }} />
+                </span>
+              ))}
           </div>
         </nav>
 
-        {/* Footer con las notificaciones, el tema, Gestión de Usuarios y Logout.
+        {/* Pie: tu cuenta, los avisos y el tema.
             LAS NOTIFICACIONES Y EL TEMA VIVEN AQUÍ, ABAJO A LA IZQUIERDA: antes eran dos botones fijos arriba a la derecha de la pantalla y
-            se montaban encima de pestañas, desplegables y botones de cabecera de cada página. En una barra plegada se apilan. */}
-        <div className="border-t border-white/10 p-4 space-y-1">
-          <div className={cn('flex gap-1', isCollapsed ? 'flex-col items-center' : 'items-center')}>
+            se montaban encima de pestañas, desplegables y botones de cabecera. En una barra plegada se apilan.
+            «Gestión de usuarios» ya no se repite aquí: es una entrada más del menú y solo la ve quien puede abrirla (a los demás este enlace les devolvía al inicio). */}
+        <div className="lat-pie">
+          <div className="lat-usuario">
+            <span className="lat-avatar" aria-hidden>
+              <span>{inicialesDe(userName, userEmail)}</span>
+            </span>
+            <span className="lat-usuario-datos">
+              <span className="lat-usuario-nombre">{nombreVisible}</span>
+              <span className="lat-usuario-rol">{etiquetaDeRol(userRole)}</span>
+            </span>
+            <button type="button" onClick={cerrarSesion} className="lat-salir" title="Cerrar sesión" aria-label="Cerrar sesión">
+              <LogOut className="lat-salir-icono" aria-hidden />
+            </button>
+          </div>
+
+          <div className="lat-acciones">
             <NotificationsBell colapsado={isCollapsed} />
             <ThemeToggle />
           </div>
+        </div>
 
-          <Link
-            href="/dashboard/users"
-            onClick={() => setIsMobileOpen(false)}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200",
-              "text-white/70 hover:text-white hover:bg-white/[0.05]",
-              isActive('/dashboard/users') && "bg-[#FF6600]/[0.1] text-[#FF6600]"
-            )}
-            title={isCollapsed ? "Gestión de usuarios" : undefined}
-          >
-            <Users className="h-5 w-5 flex-shrink-0" />
-            {!isCollapsed && <span className="text-sm font-medium">Gestión de usuarios</span>}
-          </Link>
-          
-          <div className={cn(
-            "px-3 py-2.5",
-            isCollapsed && "flex justify-center"
-          )}>
-            {isCollapsed ? (
-              <button
-                onClick={async () => {
-                  await supabase.auth.signOut()
-                  router.push('/auth/login')
-                  router.refresh()
-                }}
-                className="p-2 rounded-xl hover:bg-white/[0.05] transition-colors w-full flex justify-center"
-                title="Cerrar Sesión"
-              >
-                <LogOut className="h-5 w-5 text-white/70" />
-              </button>
-            ) : (
-              <div className="w-full">
-                <LogoutButton />
-              </div>
-            )}
-          </div>
+        {/* El nombre de la entrada, al lado, cuando la barra va plegada */}
+        <div
+          className="lat-etiqueta"
+          data-visible={isCollapsed && etiquetaVisible ? 'true' : 'false'}
+          style={{ top: etiqueta?.y ?? 0 }}
+          role="tooltip"
+          aria-hidden={!(isCollapsed && etiquetaVisible)}
+        >
+          {etiqueta?.texto}
         </div>
       </aside>
 
-      {/* Mobile Overlay */}
-      {isMobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-30"
-          onClick={toggleMobile}
-        />
-      )}
+      {/* Telón del cajón en pantallas estrechas */}
+      {isMobileOpen && <div className="lat-velo" onClick={toggleMobile} aria-hidden />}
     </>
   )
 }
-
