@@ -6,7 +6,7 @@ import { Aviso } from '@/components/correo/ui'
 import { Esqueleto } from '@/components/rendimiento/ui'
 import { cambiosDelPerfil } from '@/lib/whatsapp/ia-cambios'
 import type { RespuestaDeVersionesDeWhatsapp, VersionDeWhatsappVista } from '@/lib/whatsapp/ia-laboratorio-tipos'
-import { copiaDelPerfil, perfilesIguales, type PerfilDeWhatsapp } from '@/lib/whatsapp/ia-perfil'
+import { copiaDelPerfil, perfilesIguales, validarPerfilDeWhatsapp, type PerfilDeWhatsapp } from '@/lib/whatsapp/ia-perfil'
 import { fechaCorta } from '../correo-laboratorio/ui'
 import { BarraDeVersion, NUEVA } from './BarraDeVersion'
 import { EditorDePerfil } from './EditorDePerfil'
@@ -114,7 +114,13 @@ export function CalibradorDeWhatsapp() {
   const referencia = produccion?.perfil ?? datos?.serie ?? null
   const cambios = useMemo(() => (editor && referencia ? cambiosDelPerfil(editor.perfil, referencia) : []), [editor, referencia])
   const huella = editor ? JSON.stringify(editor.perfil) : ''
-  const seProbo = probado !== null && probado.huella === huella && probado.todoBien
+  const prueba: 'sin' | 'mal' | 'bien' = probado === null || probado.huella !== huella ? 'sin' : probado.todoBien ? 'bien' : 'mal'
+  // La misma validación que hará el servidor al guardar: así no se intenta guardar ni publicar algo que se va a rechazar
+  const errorDelPerfil = useMemo(() => {
+    if (!editor) return null
+    const v = validarPerfilDeWhatsapp(editor.perfil)
+    return v.ok ? null : v.error
+  }, [editor])
 
   const confirmarSiHayCambios = () => !sucio || window.confirm('Tienes cambios sin guardar. Si sigues, se pierden. ¿Seguir?')
 
@@ -267,7 +273,8 @@ export function CalibradorDeWhatsapp() {
         sucio={sucio}
         ocupado={ocupado}
         sinBase={sinBase}
-        probado={seProbo}
+        prueba={prueba}
+        error={errorDelPerfil}
         cambios={cambios}
         cambiosContra={produccion || !sinBase ? 'la que usa el equipo' : 'la configuración de serie, que es la que usa el equipo ahora'}
         onGuardar={() => void guardar()}

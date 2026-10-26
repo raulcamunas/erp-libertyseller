@@ -34,8 +34,10 @@ interface Props {
   ocupado: boolean
   /** La base de datos no está lista (migración sin lanzar): se puede probar, no guardar ni publicar */
   sinBase: boolean
-  /** Lo que hay en el editor se ha probado y todo salió bien */
-  probado: boolean
+  /** Qué pasó al probar lo que hay en el editor: sin probar, con algún caso mal o todo bien */
+  prueba: 'sin' | 'mal' | 'bien'
+  /** Lo que impide guardar y publicar lo que hay en el editor (el editor lo marca en rojo), o null si está bien */
+  error: string | null
   /** Qué cambia lo que hay en el editor respecto a lo que usa el equipo (o a la configuración de serie si no hay base de datos), en frases */
   cambios: string[]
   cambiosContra: string
@@ -47,7 +49,7 @@ interface Props {
 
 const porFecha = (campo: 'actualizadaAt' | 'publicadaAt') => (a: VersionDeWhatsappVista, b: VersionDeWhatsappVista) => (b[campo] ?? b.creadaAt).localeCompare(a[campo] ?? a.creadaAt)
 
-export function BarraDeVersion({ versiones, seleccion, onElegir, version, parteDe, nombre, notas, onNombre, onNotas, sucio, ocupado, sinBase, probado, cambios, cambiosContra, onGuardar, onPublicar, onDuplicar, onArchivar }: Props) {
+export function BarraDeVersion({ versiones, seleccion, onElegir, version, parteDe, nombre, notas, onNombre, onNotas, sucio, ocupado, sinBase, prueba, error, cambios, cambiosContra, onGuardar, onPublicar, onDuplicar, onArchivar }: Props) {
   const [confirma, setConfirma] = useState(false)
   const [verCambios, setVerCambios] = useState(false)
   const esNueva = seleccion === NUEVA
@@ -75,15 +77,19 @@ export function BarraDeVersion({ versiones, seleccion, onElegir, version, parteD
 
   const motivoSinPublicar = sinBase
     ? 'Falta preparar la base de datos.'
-    : esNueva
-      ? 'Guarda la versión para poder publicarla.'
-      : version?.archivada
-        ? 'Restáurala para poder publicarla.'
-        : sucio
-          ? 'Guarda los cambios para poder publicarla.'
-          : !bloqueada && !probado
-            ? 'Pruébala primero (panel de la derecha): así sabes que funciona antes de que la use el equipo.'
-            : ''
+    : error
+      ? 'Corrige antes lo que marca el editor en rojo.'
+      : esNueva
+        ? 'Guarda la versión para poder publicarla.'
+        : version?.archivada
+          ? 'Restáurala para poder publicarla.'
+          : sucio
+            ? 'Guarda los cambios para poder publicarla.'
+            : !bloqueada && prueba === 'sin'
+              ? 'Pruébala primero (panel de la derecha): así sabes que funciona antes de que la use el equipo.'
+              : !bloqueada && prueba === 'mal'
+                ? 'En la última prueba algún caso no salió bien: míralo y vuelve a probar antes de publicar.'
+                : ''
   const puedePublicar = motivoSinPublicar === '' && !ocupado
 
   return (
@@ -178,7 +184,7 @@ export function BarraDeVersion({ versiones, seleccion, onElegir, version, parteD
 
       <div className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] pt-3">
         {(!bloqueada || esNueva) && (
-          <button type="button" onClick={onGuardar} disabled={ocupado || sinBase || (!esNueva && !sucio) || nombre.trim() === ''} className={`${BOTON.base} ${BOTON.secundario} !h-8`} title={sinBase ? 'Falta preparar la base de datos' : undefined}>
+          <button type="button" onClick={onGuardar} disabled={ocupado || sinBase || error !== null || (!esNueva && !sucio) || nombre.trim() === ''} className={`${BOTON.base} ${BOTON.secundario} !h-8`} title={sinBase ? 'Falta preparar la base de datos' : (error ?? undefined)}>
             {ocupado ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Save className="h-3.5 w-3.5" aria-hidden />} {esNueva ? 'Guardar como borrador' : 'Guardar cambios'}
           </button>
         )}
