@@ -1,7 +1,9 @@
 import OpenAI from 'openai'
+import { diaDeMadrid, esDia, nombreDelDia } from '@/lib/correo/secuencias/fechas'
+import { COMO_SACAR_EL_DIA } from '@/lib/rellamada/reglas'
 import { costeDeTexto } from './precios'
 import { MODELO_DE_RESUMEN_POR_DEFECTO } from './reglas'
-import type { InteresDeLlamada, MomentoDeLaLlamada, QuienHabla, ResumenGenerado, TipoDeLlamada } from './tipos'
+import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, QuienHabla, ResumenGenerado, TipoDeLlamada } from './tipos'
 
 /**
  * LO QUE LA IA ENTIENDE DE UNA LLAMADA TRANSCRITA: RESUMEN, LÍNEA DE LA CONVERSACIÓN, SIGUIENTE PASO E INTERÉS.
@@ -9,7 +11,7 @@ import type { InteresDeLlamada, MomentoDeLaLlamada, QuienHabla, ResumenGenerado,
  * El encargo y la lectura de la respuesta son PUROS (se comprueban con resumen.prueba.ts); `resumirLlamada` es la llamada a OpenAI, con
  * un cliente que se puede sustituir y que NO LANZA: devuelve el resumen o el motivo de que no haya.
  *
- * UNA SOLA LLAMADA A LA IA por conversación saca las cuatro cosas, y la respuesta es JSON con esquema estricto. Se le da muy poco
+ * UNA SOLA LLAMADA A LA IA por conversación saca las cuatro cosas —y, si el cliente pidió que se le vuelva a llamar un día concreto, ese día—, y la respuesta es JSON con esquema estricto. Se le da muy poco
  * contexto —la transcripción, la fecha, el nombre de pila del comercial y el nombre de la tienda— porque cada dato de más es dinero y
  * porque no hace falta: la nota es sobre ESTA llamada.
  *
@@ -37,12 +39,14 @@ Reglas:
 - "resumen": de una a tres frases con lo esencial: con quién se habló, cuál es su situación y cómo acabó la llamada. Para un buzón de voz o sin contenido, una frase corta.
 - "linea": los momentos de la llamada en el orden en que ocurrieron, de 2 a 8. Cada uno dice quién lo dice («comercial», «cliente» o «los_dos») y una frase breve. Incluye lo que cuenta el cliente de su negocio, las objeciones y los acuerdos. Vacía si el tipo no es «conversacion».
 - "siguiente_paso": lo que se acordó hacer (volver a llamar, enviar información, una cita…), con el día y la hora TAL COMO SE DIJERON («el jueves a las 10»); no calcules fechas. null si no se acordó nada.
-- "interes": «alto» si quiere avanzar (acepta una cita, una propuesta o volver a hablar); «medio» si escucha y pide información; «bajo» si es tibio o no ve la necesidad; «ninguno» si dice claramente que no; «no_claro» si no se puede saber.`
+- "interes": «alto» si quiere avanzar (acepta una cita, una propuesta o volver a hablar); «medio» si escucha y pide información; «bajo» si es tibio o no ve la necesidad; «ninguno» si dice claramente que no; «no_claro» si no se puede saber.
+- "rellamada_fecha", "rellamada_hora" y "rellamada_frase": SOLO si en la conversación el cliente pide, o acepta, que se le vuelva a llamar (o a hablar con él) en un día o momento concreto: «llámame mañana», «el jueves a las 10 hablamos», «llámame después de Reyes», «dentro de dos semanas». "rellamada_fecha" es ese día en formato AAAA-MM-DD; "rellamada_hora", la hora en formato HH:MM si la dijo (null si no); "rellamada_frase", sus palabras copiadas TAL CUAL de la transcripción (de 2 a 15 palabras). Las tres son null si no pidió nada, si dijo que será él quien llame o escriba, si no concretó cuándo («más adelante», «ya os llamaré») o si el tipo no es «conversacion».
+${COMO_SACAR_EL_DIA}`
 
 export const ESQUEMA_DEL_RESUMEN = {
   type: 'object',
   additionalProperties: false,
-  required: ['tipo', 'resumen', 'linea', 'siguiente_paso', 'interes'],
+  required: ['tipo', 'resumen', 'linea', 'siguiente_paso', 'interes', 'rellamada_fecha', 'rellamada_hora', 'rellamada_frase'],
   properties: {
     tipo: { type: 'string', enum: ['conversacion', 'buzon_de_voz', 'sin_contenido'] },
     resumen: { type: 'string' },
@@ -57,6 +61,9 @@ export const ESQUEMA_DEL_RESUMEN = {
     },
     siguiente_paso: { type: ['string', 'null'] },
     interes: { type: 'string', enum: ['alto', 'medio', 'bajo', 'ninguno', 'no_claro'] },
+    rellamada_fecha: { type: ['string', 'null'] },
+    rellamada_hora: { type: ['string', 'null'] },
+    rellamada_frase: { type: ['string', 'null'] },
   },
 } as const
 
@@ -95,8 +102,10 @@ export function fechaEnPalabras(fechaIso: string): string {
 
 export function construirEncargo(d: DatosDelEncargo): { system: string; usuario: string } {
   const texto = d.transcripcion.length > MAXIMO_DE_TRANSCRIPCION ? `${d.transcripcion.slice(0, MAXIMO_DE_TRANSCRIPCION)}\n[…la transcripción sigue, recortada…]` : d.transcripcion
+  const dia = Number.isFinite(Date.parse(d.fecha)) ? diaDeMadrid(Date.parse(d.fecha)) : null
   const cabecera = [
     `Llamada ${d.direccion === 'inbound' ? 'entrante (la hizo el cliente)' : 'saliente (la hizo el comercial)'} de ${duracionEnPalabras(d.duracionS)}, el ${fechaEnPalabras(d.fecha)}.`,
+    dia ? `Hoy es ${nombreDelDia(dia)} ${dia} (el día de la llamada: desde aquí se cuentan «mañana», «el jueves»…).` : null,
     d.comercial ? `Comercial de Liberty Seller: ${unaLinea(d.comercial)}` : null,
     d.empresa ? `Empresa a la que se llama: ${unaLinea(d.empresa)}` : null,
   ].filter((x): x is string => !!x)
@@ -112,7 +121,7 @@ const INTERESES: readonly InteresDeLlamada[] = ['alto', 'medio', 'bajo', 'ningun
 const QUIENES: readonly QuienHabla[] = ['comercial', 'cliente', 'los_dos']
 
 /** Topes de lo que se guarda, para que una respuesta desbocada no llene la ficha */
-export const TOPES = { resumen: 700, momento: 260, momentos: 8, siguientePaso: 260 } as const
+export const TOPES = { resumen: 700, momento: 260, momentos: 8, siguientePaso: 260, frase: 200 } as const
 
 const limpio = (s: unknown, tope: number): string => {
   if (typeof s !== 'string') return ''
@@ -155,7 +164,16 @@ export function leerResumen(contenido: string | null | undefined): ResumenGenera
   }
 
   const paso = limpio(r.siguiente_paso, TOPES.siguientePaso)
-  return { tipo, resumen, linea: momentos, siguiente_paso: paso || null, interes }
+  return { tipo, resumen, linea: momentos, siguiente_paso: paso || null, interes, rellamada: tipo === 'conversacion' ? leerRellamada(r) : null }
+}
+
+/** Lo que el cliente pidió sobre volver a llamarle. Solo con un día de verdad (AAAA-MM-DD) y las palabras en que se apoya; la hora, solo si es una hora */
+function leerRellamada(r: Record<string, unknown>): PeticionDeRellamada | null {
+  const fecha = typeof r.rellamada_fecha === 'string' ? r.rellamada_fecha.trim() : ''
+  const frase = limpio(r.rellamada_frase, TOPES.frase)
+  if (!esDia(fecha) || frase.length < 4) return null
+  const hora = typeof r.rellamada_hora === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(r.rellamada_hora.trim()) ? r.rellamada_hora.trim() : null
+  return { fecha, hora, frase }
 }
 
 /* ------------------------------------------------------------------ */

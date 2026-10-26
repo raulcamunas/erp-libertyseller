@@ -60,7 +60,7 @@ function Interruptor({ titulo, texto, activo, desactivado, onCambio }: { titulo:
 }
 
 const OPCIONES: Array<{ modo: Modo; titulo: string; texto: string; Icono: typeof Power }> = [
-  { modo: 'apagado', titulo: 'Apagado', texto: 'No hace nada. El equipo ni ve la función en el cuadro de Correo.', Icono: Power },
+  { modo: 'apagado', titulo: 'Apagado', texto: 'No envía nada. El equipo ni ve la función en el cuadro de Correo. Las respuestas de los leads se siguen leyendo.', Icono: Power },
   { modo: 'ensayo', titulo: 'Ensayo', texto: 'Vigila, reparte horas y decide, pero NO envía nada. Apunta lo que habría hecho.', Icono: FlaskConical },
   { modo: 'real', titulo: 'Envío real', texto: 'Los seguimientos salen de verdad a su hora, desde el buzón de cada comercial.', Icono: Rocket },
 ]
@@ -216,7 +216,7 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
           <Campo etiqueta="Máximo por hora y buzón" ayuda="Cuenta también lo que la persona manda a mano.">
             <input type="number" min={1} max={500} disabled={solo} value={form.topeHora} onChange={(e) => set('topeHora', Number(e.target.value))} className={CAMPO} />
           </Campo>
-          <Campo etiqueta="Días hábiles hasta «No interesa»" ayuda="Si nadie contesta al último correo, el lead pasa solo a «No interesa» pasados estos días.">
+          <Campo etiqueta="Días hábiles hasta «No contesta»" ayuda="Si nadie contesta al último correo, el lead pasa solo a «No contesta» pasados estos días.">
             <input type="number" min={1} max={60} disabled={solo} value={form.diasHastaNoInteresa} onChange={(e) => set('diasHastaNoInteresa', Number(e.target.value))} className={CAMPO} />
           </Campo>
           <Campo etiqueta="Freno: % de rebotes" ayuda="Si un buzón rebota más de esto en 24 h, se pausa hasta el siguiente día hábil.">
@@ -307,8 +307,8 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
         <CabeceraDePanel icono={<Sparkles className="h-3.5 w-3.5" aria-hidden />} titulo="Respuestas de los leads" contexto="· lo que hace la IA cuando alguien contesta" />
         <div className="space-y-3.5 p-3">
           <p className="text-[11.5px] leading-snug text-[var(--ls-t3)]">
-            Cuando un lead contesta a un correo, la IA lee su respuesta y deja en su historial qué ha dicho. Con el motor en <strong className="font-semibold text-[var(--ls-t2)]">ensayo</strong> solo lo apunta en Secuencias → Flujo; con{' '}
-            <strong className="font-semibold text-[var(--ls-t2)]">envío real</strong> además mueve la ficha. Solo actúa si está segura, y no toca los leads que ya están en seguimiento o con cita, ni los de otro comercial: a esos les deja una nota para que los mire una persona.
+            Cuando un lead contesta a un correo, la IA lee su respuesta, deja en su historial qué ha dicho y mueve la ficha: «no nos interesa» lo cierra y «llámame el jueves» o «escríbeme en enero» deja la rellamada puesta.{' '}
+            <strong className="font-semibold text-[var(--ls-t2)]">Funciona aunque los envíos estén apagados o en ensayo</strong>: el ensayo es solo de los correos que salen. Solo actúa si está segura, y no toca los leads que ya están en seguimiento o con cita, ni los de otro comercial: a esos les deja una nota para que los mire una persona.
           </p>
           {!base.respuestasDisponible && (
             <p className="flex items-start gap-2 rounded-[8px] border border-[var(--ls-e-ambar)] bg-[color-mix(in_srgb,var(--ls-e-ambar)_10%,transparent)] px-3 py-2 text-[11.5px] leading-snug text-[var(--ls-t1)]">
@@ -325,8 +325,8 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
             onCambio={(v) => set('respuestasCerrarNo', v)}
           />
           <Interruptor
-            titulo="Poner la rellamada a quien pide que le escribas más adelante"
-            texto="«Escríbeme en enero» deja la fecha en «Rellamar el» de Cold Calling y el lead en «Programado». Si no da fecha, se pone a 30 días."
+            titulo="Poner la rellamada a quien pide un día"
+            texto="«Llámame el jueves» o «escríbeme en enero» dejan la fecha en «Rellamar el» de Cold Calling y el lead en «Programado». Si pide «más adelante» sin decir cuándo, se pone a 30 días."
             activo={form.respuestasRellamada}
             desactivado={solo || !base.respuestasDisponible || !form.respuestasIa}
             onCambio={(v) => set('respuestasRellamada', v)}

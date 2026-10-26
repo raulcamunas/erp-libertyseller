@@ -141,6 +141,9 @@ export function diasHabilesEntre(desde: string, hasta: string, festivos: Readonl
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 
+/** «jueves» */
+export const nombreDelDia = (dia: string): string => DIAS[diaDeLaSemana(dia)]
+
 /** «mié 28 oct» */
 export function diaCorto(dia: string): string {
   const [, m, d] = dia.split('-').map(Number)

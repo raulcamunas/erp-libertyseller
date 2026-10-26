@@ -36,7 +36,7 @@ import { cuando, cuentaAtras } from './datos'
  * Una fila de nodos: el primer correo y cada seguimiento, unidos por tramos. Un correo que ya salió es un círculo verde con su visto; el que va a salir, un
  * anillo naranja (el SIGUIENTE late); uno detenido, ámbar; uno que falló, rojo; uno saltado o cancelado, gris. El tramo que lleva al siguiente se llena a
  * medida que pasa el tiempo entre un correo y el otro, y un pequeño avión de papel recorre ese tramo mientras la secuencia está en marcha. Al final, cómo
- * acabó (o cuándo acabará): contestó, rebotó, se canceló, o pasará a «No interesa».
+ * acabó (o cuándo acabará): contestó, rebotó, se canceló, o pasará a «No contesta».
  *
  * Todo el movimiento es CSS (las clases `sec-*` de app/globals.css) y desaparece con «reducir movimiento».
  */
@@ -189,10 +189,10 @@ function Final({ item, ahora, escalon }: { item: ItemDeCola; ahora: number; esca
       cuerpo = { Icono: Ban, tono: 'gris', lleno: false, discontinuo: true, titulo: 'Cancelada', detalle: item.paradaAt ? cuando(item.paradaAt, ahora) : '' }
       break
     case 'completada':
-      cuerpo = { Icono: Flag, tono: 'gris', lleno: false, discontinuo: true, titulo: 'No interesa', detalle: item.cierre ? `si no contesta · ${diaCorto(diaDeMadrid(item.cierre))}` : 'sin cierre automático' }
+      cuerpo = { Icono: Flag, tono: 'gris', lleno: false, discontinuo: true, titulo: 'No contesta', detalle: item.cierre ? `si no contesta · ${diaCorto(diaDeMadrid(item.cierre))}` : 'sin cierre automático' }
       break
     case 'sin_respuesta':
-      cuerpo = { Icono: Flag, tono: 'gris', lleno: true, discontinuo: false, titulo: 'No interesa', detalle: item.paradaAt ? diaCorto(diaDeMadrid(item.paradaAt)) : '' }
+      cuerpo = { Icono: Flag, tono: 'gris', lleno: true, discontinuo: false, titulo: 'No contesta', detalle: item.paradaAt ? diaCorto(diaDeMadrid(item.paradaAt)) : '' }
       break
     default:
       return null

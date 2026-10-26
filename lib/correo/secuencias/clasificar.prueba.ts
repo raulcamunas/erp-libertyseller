@@ -72,6 +72,8 @@ console.log('\n=== el encargo ===')
   ok('sin asunto lo dice', construirEncargoDeClasificacion({ lead: 'x', asunto: '  ', texto: 'z', hoy: HOY }).usuario.includes('(sin asunto)'))
   ok('el esquema es estricto: cinco campos, todos obligatorios, ninguno de más', ESQUEMA_DE_CLASIFICACION.additionalProperties === false && ESQUEMA_DE_CLASIFICACION.required.length === 5 && Object.keys(ESQUEMA_DE_CLASIFICACION.properties).length === 5)
   ok('la fecha puede ser null', JSON.stringify(ESQUEMA_DE_CLASIFICACION.properties.fecha.type) === '["string","null"]')
+  ok('el sistema explica «llámame el jueves» y «contáctame después de Reyes», y cómo se cuenta cada día', e.system.includes('llámame el jueves') && e.system.includes('contáctame después de Reyes') && e.system.includes('el 7 de enero') && e.system.includes('Nunca un día anterior a hoy'))
+  ok('y que la fecha vale también para un interesado o una petición de información, pero solo si lo dice', e.system.includes('interesado o pide_info') && e.system.includes('SOLO si lo dice'))
 }
 
 console.log('\n=== leer lo que contesta la IA ===')
@@ -170,6 +172,50 @@ console.log('\n=== qué se hace con cada respuesta ===')
   ok('un interesado no se cierra aunque el lead esté pendiente', decidir(validada({ clase: 'interesado' }), { status: 'pendiente', assignedTo: 'ana' }, REAL).estadoNuevo === null)
   ok('el año solo sale si no es este', diaConAnio('2026-12-02', HOY) === 'mié 2 dic' && diaConAnio('2027-01-11', HOY) === 'lun 11 ene 2027')
   ok('normalizar quita tildes, signos y mayúsculas', normalizar('  ¡No, GRACIAS —señor!  ') === 'no gracias senor')
+}
+
+console.log('\n=== «llámame el jueves»: quien pide un día para hablar ===')
+{
+  // Hoy es miércoles 28 de octubre de 2026: el jueves es el 29, el viernes el 30, el sábado el 31 y el lunes el 2 de noviembre
+  const pide = (fecha: string | null, extra: Partial<Clasificacion> = {}, textoDelCorreo = 'Hola, me interesa. Llámame el jueves por la mañana.') =>
+    validarClasificacion(clasif({ clase: 'interesado', evidencia: 'llámame el jueves', fecha, resumen: 'Quiere que le llamen el jueves.', ...extra }), textoDelCorreo, HOY, FESTIVOS)
+  ok('un interesado que pide el jueves se queda con ese día', pide('2026-10-29').fecha === '2026-10-29' && pide('2026-10-29').confianza === 'alta' && !pide('2026-10-29').fechaPorDefecto)
+  ok('sin día no hay rellamada ni día por defecto (eso es solo de «más adelante»)', pide(null).fecha === null && !pide(null).fechaPorDefecto)
+  ok('puede pedir que le llamen hoy', pide(HOY, { evidencia: 'llámame esta tarde' }, 'Me interesa, llámame esta tarde.').fecha === HOY)
+  const ayer = pide('2026-10-27', { evidencia: 'llámame ayer' }, 'Me interesa, llámame ayer.')
+  ok('un día pasado no vale: sin rellamada, y lo dice', ayer.fecha === null && ayer.ajustes.some((a) => a.includes('no se pone rellamada')), JSON.stringify(ayer))
+  ok('a más de 400 días tampoco', pide('2028-06-01', { evidencia: 'llámame en junio' }, 'Me interesa, llámame en junio.').fecha === null)
+  const sabado = pide('2026-10-31', { evidencia: 'llámame el sábado' }, 'Me interesa, llámame el sábado.')
+  ok('un sábado pasa al lunes', sabado.fecha === '2026-11-02' && sabado.ajustes.some((a) => a.includes('no es día hábil')), JSON.stringify(sabado))
+  ok('«contáctame después de Reyes» (7 de enero de 2027, jueves, porque el 6 es fiesta) en «más adelante»', validarClasificacion(clasif({ clase: 'mas_tarde', evidencia: 'contáctame después de Reyes', fecha: '2027-01-07' }), 'Ahora no. Contáctame después de Reyes, por favor.', HOY, FESTIVOS).fecha === '2027-01-07')
+  ok('quien pide información con día también lo conserva', validarClasificacion(clasif({ clase: 'pide_info', evidencia: 'llámame mañana', fecha: '2026-10-29' }), 'Mándame el precio y llámame mañana.', HOY, FESTIVOS).fecha === '2026-10-29')
+  ok('una derivación o un «no» con una fecha suelta no la conservan', validarClasificacion(clasif({ clase: 'derivacion', evidencia: 'habla con María', fecha: '2026-10-29' }), 'Habla con María, ella lo lleva.', HOY, FESTIVOS).fecha === null && validarClasificacion(clasif({ clase: 'baja', evidencia: 'no me escribáis más', fecha: '2026-10-29' }), 'Por favor, no me escribáis más.', HOY, FESTIVOS).fecha === null)
+
+  // Si el cliente nombra un día de la semana, la fecha tiene que caer en él: si no, la IA se ha equivocado y no se programa a ciegas
+  const mal = pide('2026-10-30')
+  ok('dijo «el jueves» y la IA da un viernes: confianza baja y se explica', mal.confianza === 'baja' && mal.ajustes.some((a) => a.includes('no cae en el día de la semana')), JSON.stringify(mal))
+  const malMasTarde = validarClasificacion(clasif({ clase: 'mas_tarde', evidencia: 'escríbeme el lunes', fecha: '2026-11-03' }), 'Ahora no. Escríbeme el lunes.', HOY, FESTIVOS)
+  ok('lo mismo en «más adelante» (el 3 de noviembre es martes)', malMasTarde.confianza === 'baja')
+  ok('si nombra dos días no se puede comprobar y se deja como está', pide('2026-10-29', { evidencia: 'el martes no puedo, llámame el jueves' }, 'Me interesa. El martes no puedo, llámame el jueves.').confianza === 'alta')
+
+  // Qué se hace
+  const i = (extra: Partial<ClasificacionValidada> = {}) => validada({ clase: 'interesado', evidencia: 'llámame el jueves', resumen: 'Quiere que le llamen el jueves.', fecha: '2026-10-29', ...extra })
+  const rellama = decidir(i(), LEAD, REAL)
+  ok('«llámame el jueves» pone la rellamada y pasa el lead a «Rellamada programada»', rellama.accion === 'rellamar' && rellama.estadoNuevo === 'programado' && rellama.fecha === '2026-10-29' && rellama.aplicar, JSON.stringify(rellama))
+  ok('la nota cuenta qué ha entendido, qué dijo, el día y que se ha puesto', /parece interesado: Quiere que le llamen el jueves/.test(rellama.nota ?? '') && /jue 29 oct/.test(rellama.nota ?? '') && /llámame el jueves/.test(rellama.nota ?? '') && /rellamada puesta/.test(rellama.nota ?? '') && !/\.\./.test(rellama.nota ?? ''), rellama.nota ?? '')
+  ok('quien pide información con un día también', decidir(i({ clase: 'pide_info', resumen: 'Pide el precio.' }), LEAD, REAL).accion === 'rellamar')
+  const sinDia = decidir(i({ fecha: null }), LEAD, REAL)
+  ok('un interesado sin día sigue siendo solo un aviso: no se programa nada', sinDia.accion === 'ninguna' && sinDia.estadoNuevo === null && sinDia.fecha === null)
+  const seg = decidir(i(), { status: 'seguimiento', assignedTo: 'ana' }, REAL)
+  ok('un lead «En seguimiento» conserva su estado: solo se pone la fecha', seg.accion === 'rellamar' && seg.estadoNuevo === null && seg.fecha === '2026-10-29' && /solo se ha puesto la fecha/.test(seg.nota ?? ''))
+  ok('uno cerrado o con cita no se toca', decidir(i(), { status: 'no_interesa', assignedTo: 'ana' }, REAL).accion === 'revisar' && decidir(i(), { status: 'cita_cualificada', assignedTo: 'ana' }, REAL).accion === 'revisar')
+  const ajeno = decidir(i(), { status: 'email_enviado', assignedTo: 'luis' }, REAL)
+  ok('uno de otra persona tampoco, y la nota dice qué pidió', ajeno.accion === 'revisar' && ajeno.estadoNuevo === null && ajeno.fecha === null && /otra persona/.test(ajeno.nota ?? '') && /jue 29 oct/.test(ajeno.nota ?? ''))
+  const apagada = decidir(i(), LEAD, { ...REAL, rellamada: false })
+  ok('con la rellamada apagada en Ajustes no la pone, pero deja dicho qué día pidió', apagada.accion === 'revisar' && /apagada en Ajustes/.test(apagada.nota ?? '') && /jue 29 oct/.test(apagada.nota ?? ''))
+  const dudosa = decidir(i({ confianza: 'baja' }), LEAD, REAL)
+  ok('si la IA no está segura del día (o no cuadra con lo que dijo) no pone nada y avisa', dudosa.accion === 'revisar' && dudosa.fecha === null && /no está segura/.test(dudosa.nota ?? ''))
+  ok('en ensayo se decide pero no se aplica', decidir(i(), LEAD, ENSAYO).aplicar === false)
 }
 
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS de ${comprobaciones} comprobaciones\n`)

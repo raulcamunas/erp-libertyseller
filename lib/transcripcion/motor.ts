@@ -1,9 +1,11 @@
+import { diaDeMadrid } from '@/lib/correo/secuencias/fechas'
 import { ErrorRinkel, MENSAJE_DE_ERROR } from '@/lib/rendimiento/rinkel'
 import { ErrorDeAudio, type AudioDescargado } from './audio'
 import { costeDeVoz, enDolares } from './precios'
 import { esperaTrasFallo, pistasDeLaLlamada, sinContenido, type PistasDeVoz } from './reglas'
+import { decidirRellamadaDeLlamada, type LeadParaRellamada } from './rellamada'
 import { construirEncargo, type ResultadoDelResumen } from './resumen'
-import type { InteresDeLlamada, MomentoDeLaLlamada, TipoDeLlamada } from './tipos'
+import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, TipoDeLlamada } from './tipos'
 import { ErrorDeVoz, esFalloGeneralDeLaIa, type ResultadoDeVoz } from './voz'
 
 /**
@@ -21,6 +23,8 @@ import { ErrorDeVoz, esFalloGeneralDeLaIa, type ResultadoDeVoz } from './voz'
  *      LA TRANSCRIPCIÓN SE GUARDA EN CUANTO SALE. Si el resumen falla después, el siguiente intento la encuentra hecha y NO vuelve a pagar el audio.
  *   3. Si lo transcrito es casi nada (silencio, un «¿diga?»), se cierra sin llamar a la IA de texto.
  *   4. El resumen (una llamada a la IA que saca resumen, línea de la conversación, siguiente paso e interés) y se guarda todo.
+ *   5. Si el cliente pidió que se le llame un día («llámame el jueves»), ese día queda como la rellamada del lead (rellamada.ts decide). Es lo último y
+ *      NO puede estropear nada de lo anterior: la llamada ya está transcrita y resumida, y si esto falla solo se apunta.
  *
  *
  * ============ CUANDO ALGO FALLA ============
@@ -113,6 +117,18 @@ export interface Almacen {
   guardarTranscripcion(llamadaId: string, t: TranscripcionParaGuardar): Promise<void>
   guardarResultado(llamadaId: string, r: ResultadoParaGuardar): Promise<void>
   marcarFallo(llamadaId: string, f: FalloParaGuardar): Promise<void>
+  /** El lead al que se llamó, con lo que hace falta para decidir su rellamada. null = ya no existe */
+  leadParaRellamada(leadId: string): Promise<LeadParaRellamada | null>
+  /** Los festivos de los ajustes de las secuencias, para no dejar una rellamada en uno. Sin ellos, ninguno */
+  festivos(): Promise<string[]>
+  /**
+   * Pone el día de «Rellamar el» del lead, y lo deja en «Rellamada programada» si nadie lo lleva. Condicionado a que NO tenga ya otra rellamada para más
+   * adelante (la habrá puesto el comercial al colgar): en ese caso, o si el estado cambió mientras tanto, devuelve 'no' y no toca nada. «En seguimiento»
+   * solo recibe la fecha
+   */
+  ponerRellamada(leadId: string, fecha: string, hoy: string, ahora: number): Promise<'programado' | 'solo_fecha' | 'no'>
+  /** Una nota del sistema (sin autor) en la línea de tiempo del lead. Si no se puede escribir, se apunta y se sigue */
+  apuntarNota(leadId: string, cuerpo: string, ocurrioAt: number): Promise<void>
 }
 
 export type ClaveDeRinkel = { clave: string } | { sinClave: true } | { ilegible: true }
@@ -141,6 +157,8 @@ export type MotivoDeParada = 'tiempo' | 'tope_diario' | 'ia_no_disponible' | 'er
 export interface ResultadoDelMotor {
   candidatas: number
   hechas: number
+  /** Llamadas en las que el cliente pidió un día y ha quedado puesto como la rellamada de su lead */
+  rellamadas: number
   sinContenido: number
   omitidas: number
   fallidas: number
@@ -203,6 +221,8 @@ type Desenlace = 'hecha' | 'sin_contenido' | 'omitida' | 'fallida' | 'ajena'
 
 interface ResultadoDeUna {
   desenlace: Desenlace
+  /** true = el cliente pidió un día y ha quedado puesto como la rellamada de su lead */
+  rellamada?: boolean
   /** Audio transcrito AHORA (0 si ya estaba transcrita o no se llegó) */
   segundos: number
   costeUsd: number
@@ -303,7 +323,9 @@ async function procesarUna(almacen: Almacen, deps: DepsDelMotor, claves: Map<str
       costeTextoUsd: r.costeUsd,
       transcripcion,
     })
-    return { desenlace: r.resumen.tipo === 'sin_contenido' ? 'sin_contenido' : 'hecha', segundos: segundosNuevos, costeUsd: costeNuevo }
+    // Lo entendido ya está guardado: ahora, y solo ahora, se toca la ficha del lead. Que no salga de aquí ningún error (no se debe marcar fallida una llamada hecha)
+    const rellamada = r.resumen.rellamada ? await ponerLaRellamada(almacen, deps, c, transcripcion.texto, r.resumen.rellamada) : false
+    return { desenlace: r.resumen.tipo === 'sin_contenido' ? 'sin_contenido' : 'hecha', segundos: segundosNuevos, costeUsd: costeNuevo, rellamada }
   } catch (e) {
     // Un fallo de la base o algo imprevisto: la llamada queda fallida (si ni siquiera eso se puede escribir, la reserva caduca sola a los 10 minutos)
     console.error('[transcripcion] fallo inesperado en una llamada', { nombre: e instanceof Error ? e.name : 'desconocido', mensaje: e instanceof Error ? e.message.slice(0, 160) : '' })
@@ -312,6 +334,35 @@ async function procesarUna(almacen: Almacen, deps: DepsDelMotor, claves: Map<str
     } catch {
       return { desenlace: 'fallida', segundos: segundosNuevos, costeUsd: costeNuevo }
     }
+  }
+}
+
+/**
+ * Si el cliente pidió que le llamen un día, lo deja como la rellamada de su lead. Devuelve si la ha puesto. NUNCA lanza: la llamada ya está transcrita y
+ * resumida, y una rellamada que no se puede poner (la base no contesta) cuesta menos que marcar como fallida una llamada hecha y pagar otra vez su resumen
+ */
+async function ponerLaRellamada(almacen: Almacen, deps: DepsDelMotor, c: LlamadaPendiente, transcripcion: string, peticion: PeticionDeRellamada): Promise<boolean> {
+  try {
+    const ahora = deps.ahora()
+    const hoy = diaDeMadrid(ahora)
+    const [lead, festivos] = await Promise.all([almacen.leadParaRellamada(c.lead_id), almacen.festivos().catch(() => [] as string[])])
+    const d = decidirRellamadaDeLlamada({ peticion, transcripcion, fechaDeLaLlamada: c.fecha, hoy, festivos, lead, comercialId: c.user_id })
+    if (!d.poner) {
+      if (d.nota) await almacen.apuntarNota(c.lead_id, d.nota, ahora)
+      return false
+    }
+    const puesta = await almacen.ponerRellamada(c.lead_id, d.fecha, hoy, ahora)
+    if (puesta === 'no') {
+      // Entre leer el lead y escribirle, alguien lo ha movido o le ha puesto otra rellamada: gana la persona
+      await almacen.apuntarNota(c.lead_id, 'En una llamada el cliente pidió que le llamen otro día, pero la ficha ha cambiado mientras tanto y no se ha puesto la rellamada. Revísala.', ahora)
+      return false
+    }
+    await almacen.apuntarNota(c.lead_id, d.nota, ahora)
+    return true
+  } catch (e) {
+    // Solo qué ha pasado, nunca lo que se dijo en la llamada
+    console.error('[transcripcion] no se ha podido poner la rellamada', { nombre: e instanceof Error ? e.name : 'desconocido', mensaje: e instanceof Error ? e.message.slice(0, 160) : '' })
+    return false
   }
 }
 
@@ -329,6 +380,7 @@ export async function procesarPendientes(almacen: Almacen, deps: DepsDelMotor, o
   const salida: ResultadoDelMotor = {
     candidatas: 0,
     hechas: 0,
+    rellamadas: 0,
     sinContenido: 0,
     omitidas: 0,
     fallidas: 0,
@@ -381,6 +433,7 @@ export async function procesarPendientes(almacen: Almacen, deps: DepsDelMotor, o
       }
       salida.segundos += r.segundos
       salida.costeUsd += r.costeUsd
+      if (r.rellamada) salida.rellamadas++
       if (r.desenlace === 'hecha') salida.hechas++
       else if (r.desenlace === 'sin_contenido') salida.sinContenido++
       else if (r.desenlace === 'omitida') salida.omitidas++
@@ -415,6 +468,7 @@ export function resumenDeLaPasada(r: ResultadoDelMotor): string {
   } else {
     const hechas = r.hechas + r.sinContenido
     partes.push(`${hechas} ${hechas === 1 ? 'transcrita' : 'transcritas'}${r.sinContenido > 0 ? ` (${r.sinContenido} sin contenido)` : ''}`)
+    if (r.rellamadas > 0) partes.push(`${r.rellamadas} ${r.rellamadas === 1 ? 'rellamada puesta' : 'rellamadas puestas'}`)
     if (r.omitidas > 0) partes.push(`${r.omitidas} ${r.omitidas === 1 ? 'omitida' : 'omitidas'}`)
     if (r.fallidas > 0) partes.push(`${r.fallidas} ${r.fallidas === 1 ? 'fallida' : 'fallidas'}`)
     if (r.ajenas > 0) partes.push(`${r.ajenas} en manos de otra pasada`)

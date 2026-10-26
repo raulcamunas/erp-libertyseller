@@ -30,7 +30,7 @@ function falso(responder: (l: Llamada) => Respuesta): { servicio: Servicio; llam
       return { data: r.data ?? null, error: r.error ?? null }
     }
     const proxy: Record<string, unknown> = {}
-    for (const metodo of ['select', 'eq', 'gte', 'lt', 'limit', 'update', 'maybeSingle', 'order']) {
+    for (const metodo of ['select', 'eq', 'gte', 'lt', 'limit', 'update', 'maybeSingle', 'order', 'in', 'or', 'insert']) {
       proxy[metodo] = (...args: unknown[]) => {
         cadena.push([metodo, args])
         return proxy
@@ -184,6 +184,60 @@ const run = async () => {
     await almacenDeSupabase(f.servicio, () => AHORA).marcarFallo('c1', { estado: 'fallida', motivo: 'x', siguienteIntentoAt: null, devolverIntento: true })
     const p = cadena(f.llamadas.find((l) => cadena(l, 'update'))!, 'update')?.[0] as Record<string, unknown>
     ok('y nunca baja de cero', p.intentos === 0)
+  }
+
+  console.log('\n=== la rellamada que pide el cliente ===')
+  {
+    const f = falso(() => ({ data: { status: 'pendiente', assigned_to: 'u1', next_call_date: '2026-11-05', sobra: 1 } }))
+    const l = await almacenDeSupabase(f.servicio).leadParaRellamada('l1')
+    ok('lee estado, comercial y día de rellamada del lead por su id', f.llamadas[0].tabla === 'cold_leads' && hay(f.llamadas[0], 'select', 'status, assigned_to, next_call_date') && hay(f.llamadas[0], 'eq', 'id', 'l1'))
+    ok('y los devuelve con nombres nuestros', l?.status === 'pendiente' && l.assignedTo === 'u1' && l.nextCallDate === '2026-11-05' && !('sobra' in (l as object)))
+    ok('sin comercial ni día, null (no undefined)', (await almacenDeSupabase(falso(() => ({ data: { status: 'pendiente', assigned_to: null, next_call_date: null } })).servicio).leadParaRellamada('l1'))?.assignedTo === null)
+    ok('un lead que ya no existe es null', (await almacenDeSupabase(falso(() => ({ data: null })).servicio).leadParaRellamada('l1')) === null)
+  }
+  await falla('un error al leer el lead sale como frase nuestra, sin el cuerpo de la respuesta', () => almacenDeSupabase(falso(() => ({ error: { code: '500', message: 'secreto interno' } })).servicio).leadParaRellamada('l1'), (m) => /leer el lead/.test(m) && !/secreto/.test(m))
+  {
+    const f = falso(() => ({ data: { festivos: ['2026-12-08', 'no-es-un-dia', 7, '2027-01-06'] } }))
+    const d = await almacenDeSupabase(f.servicio).festivos()
+    ok('los festivos salen de los ajustes de las secuencias, solo los que son un día', f.llamadas[0].tabla === 'correo_secuencia_ajustes' && hay(f.llamadas[0], 'eq', 'id', true) && d.join() === '2026-12-08,2027-01-06', d.join())
+    ok('sin la tabla o con un error, ninguno (no es motivo para perder la rellamada)', (await almacenDeSupabase(falso(() => ({ error: { code: '42P01' } })).servicio).festivos()).length === 0 && (await almacenDeSupabase(falso(() => ({ data: null })).servicio).festivos()).length === 0 && (await almacenDeSupabase(falso(() => ({ data: { festivos: 'raro' } })).servicio).festivos()).length === 0)
+  }
+  {
+    // La primera escritura toca algo: 'programado'
+    const f = falso(() => ({ data: [{ id: 'l1' }] }))
+    const r = await almacenDeSupabase(f.servicio, () => AHORA).ponerRellamada('l1', '2026-10-29', '2026-10-23', AHORA)
+    const l = f.llamadas[0]
+    const cambios = cadena(l, 'update')?.[0] as Record<string, unknown>
+    ok('pone el estado «programado» y el día, en el lead de la llamada', r === 'programado' && f.llamadas.length === 1 && l.tabla === 'cold_leads' && cambios.status === 'programado' && cambios.next_call_date === '2026-10-29' && hay(l, 'eq', 'id', 'l1'))
+    ok('solo si nadie lo lleva (los cuatro estados de siempre)', hay(l, 'in', 'status', ['pendiente', 'no_contesta', 'programado', 'email_enviado']))
+    ok('y solo si no tiene ya otra rellamada para más adelante: sin día, de hoy o anterior, o este mismo', hay(l, 'or', 'next_call_date.is.null,next_call_date.lte.2026-10-23,next_call_date.eq.2026-10-29'))
+    ok('con la hora de ahora en updated_at', cambios.updated_at === '2026-10-23T15:00:00.000Z')
+  }
+  {
+    // Nada que cambiar con el primer filtro: un lead «En seguimiento» solo recibe la fecha
+    const f = falso((l) => (hay(l, 'eq', 'status', 'seguimiento') ? { data: [{ id: 'l1' }] } : { data: [] }))
+    const r = await almacenDeSupabase(f.servicio, () => AHORA).ponerRellamada('l1', '2026-10-29', '2026-10-23', AHORA)
+    const segunda = f.llamadas[1]
+    const cambios = cadena(segunda, 'update')?.[0] as Record<string, unknown>
+    ok('si no cuela el primero, prueba con «En seguimiento» y solo cambia la fecha (nunca el estado)', r === 'solo_fecha' && f.llamadas.length === 2 && hay(segunda, 'eq', 'status', 'seguimiento') && cambios.next_call_date === '2026-10-29' && !('status' in cambios))
+    ok('con el mismo filtro de la rellamada de más adelante', hay(segunda, 'or', 'next_call_date.is.null,next_call_date.lte.2026-10-23,next_call_date.eq.2026-10-29'))
+  }
+  {
+    const f = falso(() => ({ data: [] }))
+    ok('y si tampoco, «no»: no se ha tocado nada', (await almacenDeSupabase(f.servicio, () => AHORA).ponerRellamada('l1', '2026-10-29', '2026-10-23', AHORA)) === 'no' && f.llamadas.length === 2)
+    ok('sin datos devueltos es lo mismo', (await almacenDeSupabase(falso(() => ({ data: null })).servicio).ponerRellamada('l1', '2026-10-29', '2026-10-23', AHORA)) === 'no')
+  }
+  await falla('un error al poner la rellamada sale como frase nuestra', () => almacenDeSupabase(falso(() => ({ error: { code: '500', message: 'secreto interno' } })).servicio).ponerRellamada('l1', '2026-10-29', '2026-10-23', AHORA), (m) => /poner la rellamada/.test(m) && !/secreto/.test(m))
+  {
+    const f = falso(() => ({}))
+    await almacenDeSupabase(f.servicio).apuntarNota('l1', 'x'.repeat(9000), AHORA)
+    const fila = cadena(f.llamadas[0], 'insert')?.[0] as Record<string, unknown>
+    ok('una nota del sistema: sin autor, de tipo «nota», que no es una respuesta del cliente, en la hora que ocurrió y recortada', f.llamadas[0].tabla === 'cold_lead_notes' && fila.lead_id === 'l1' && fila.author_id === null && fila.kind === 'nota' && fila.es_respuesta === false && fila.occurred_at === '2026-10-23T15:00:00.000Z' && (fila.body as string).length === 8000)
+    const quieto = console.error
+    console.error = () => undefined
+    await almacenDeSupabase(falso(() => ({ error: { code: '23503' } })).servicio).apuntarNota('l1', 'hola', AHORA)
+    console.error = quieto
+    ok('si no se puede escribir, no lanza: se apunta y se sigue', true)
   }
 }
 

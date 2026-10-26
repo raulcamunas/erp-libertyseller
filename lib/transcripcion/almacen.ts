@@ -1,7 +1,10 @@
 import type { createServiceClient } from '@/lib/supabase/service'
+import { esDia } from '@/lib/correo/secuencias/fechas'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
+import { ESTADOS_QUE_SE_PUEDEN_TOCAR } from '@/lib/rellamada/reglas'
 import { INTENTOS_MAXIMOS } from './reglas'
 import type { Almacen, AjustesDelMotor, ContextoDeLaLlamada, FalloParaGuardar, FilaReservada, LlamadaPendiente, ResultadoParaGuardar, TranscripcionParaGuardar } from './motor'
+import type { LeadParaRellamada } from './rellamada'
 
 /**
  * LO QUE EL MOTOR LEE Y ESCRIBE EN SUPABASE.
@@ -161,6 +164,49 @@ export function almacenDeSupabase(service: Servicio, ahora: () => number = Date.
       }
       const { error } = await service.from('rinkel_transcripciones').update(cambios).eq('llamada_id', llamadaId)
       if (error) fallo('No se ha podido apuntar el fallo de la llamada.', error)
+    },
+
+    /* ---------------- la rellamada que pide el cliente ---------------- */
+
+    async leadParaRellamada(leadId: string): Promise<LeadParaRellamada | null> {
+      const { data, error } = await service.from('cold_leads').select('status, assigned_to, next_call_date').eq('id', leadId).maybeSingle()
+      if (error) throw new Error('No se ha podido leer el lead de la llamada.', { cause: error })
+      if (!data) return null
+      const l = data as { status: string; assigned_to: string | null; next_call_date: string | null }
+      return { status: l.status, assignedTo: l.assigned_to ?? null, nextCallDate: l.next_call_date ?? null }
+    },
+
+    async festivos(): Promise<string[]> {
+      const { data, error } = await service.from('correo_secuencia_ajustes').select('festivos').eq('id', true).maybeSingle()
+      // Sin la lista (la migración de las secuencias sin lanzar, un fallo): ninguno. Un festivo de más o de menos no merece perder la rellamada
+      if (error || !data) return []
+      const f = (data as { festivos?: unknown }).festivos
+      return Array.isArray(f) ? f.filter((d): d is string => typeof d === 'string' && esDia(d)) : []
+    },
+
+    async ponerRellamada(leadId: string, fecha: string, hoy: string, ahora: number): Promise<'programado' | 'solo_fecha' | 'no'> {
+      // Sin otra rellamada para más adelante (la habrá puesto el comercial al colgar): sin día, con uno de hoy o anterior, o ya este mismo
+      const libre = `next_call_date.is.null,next_call_date.lte.${hoy},next_call_date.eq.${fecha}`
+      const cuando = new Date(ahora).toISOString()
+      const cambiado = await service
+        .from('cold_leads')
+        .update({ status: 'programado', next_call_date: fecha, updated_at: cuando })
+        .eq('id', leadId)
+        .in('status', [...ESTADOS_QUE_SE_PUEDEN_TOCAR])
+        .or(libre)
+        .select('id')
+      if (cambiado.error) throw new Error('No se ha podido poner la rellamada del lead.', { cause: cambiado.error })
+      if ((cambiado.data ?? []).length > 0) return 'programado'
+      // Si ya lo lleva una persona («En seguimiento») solo se pone la fecha
+      const soloFecha = await service.from('cold_leads').update({ next_call_date: fecha, updated_at: cuando }).eq('id', leadId).eq('status', 'seguimiento').or(libre).select('id')
+      if (soloFecha.error) throw new Error('No se ha podido poner la rellamada del lead.', { cause: soloFecha.error })
+      return (soloFecha.data ?? []).length > 0 ? 'solo_fecha' : 'no'
+    },
+
+    async apuntarNota(leadId: string, cuerpo: string, ocurrioAt: number): Promise<void> {
+      // Sin autor: es del sistema y no cuenta para nadie en Rendimiento
+      const { error } = await service.from('cold_lead_notes').insert({ lead_id: leadId, author_id: null, kind: 'nota', body: cuerpo.slice(0, 8000), occurred_at: new Date(ocurrioAt).toISOString(), es_respuesta: false })
+      if (error) console.error('[transcripcion] no se ha podido apuntar una nota en el lead', { codigo: (error as { code?: string }).code ?? null })
     },
   }
 }

@@ -32,11 +32,11 @@ export interface AjustesDelMotor {
   frenoRebotesPct: number
   frenoMinimoEnvios: number
   festivos: string[]
-  /** Leer con IA las respuestas de los leads (con el motor en ensayo solo las apunta; en envío real también actúa en la ficha) */
+  /** Leer con IA las respuestas de los leads y actuar en su ficha (cerrar, rellamada…). Funciona con el motor apagado, en ensayo o en real */
   respuestasIa: boolean
   /** Pasar el lead a «No le interesa» cuando dice que no */
   respuestasCerrarNo: boolean
-  /** Poner la rellamada cuando pide que le escribamos más adelante */
+  /** Poner la rellamada cuando pide que le escribamos más adelante o que le llamemos un día concreto («llámame el jueves») */
   respuestasRellamada: boolean
   /** La migración 246 está lanzada (existen las columnas de arriba). Solo se lee: no se guarda ni se cambia desde la pantalla */
   respuestasDisponible: boolean

@@ -34,11 +34,12 @@ import { ESTADOS_DE_PASO_ABIERTOS, type BuzonDelMotor, type DecisionGuardada, ty
  *
  *   1. VIGILAR. Cruza lo que ha entrado en los buzones desde la última vez con las secuencias vivas: si el lead (o alguien de su empresa) ha
  *      contestado, o su dirección ha rebotado, la secuencia se corta en el acto. No espera a que le toque el siguiente envío.
- *      A continuación, LEER LAS RESPUESTAS (leer-respuestas.ts): la IA clasifica lo que han contestado los leads y, solo en envío real, se actúa en su
- *      ficha («No le interesa», rellamada, una nota). En ensayo solo se apunta lo que se habría hecho.
- *   2. MANTENER. Sella desde cuándo cuenta la rampa de cada buzón, aplica el freno si un buzón rebota demasiado, pasa a «No interesa» a quien no
- *      contestó a nada, devuelve a la cola lo que el ensayo había aparcado, reparte de nuevo lo que se pasó de hora, da hora a lo que no la tiene
- *      y, una vez al día, limpia lo viejo.
+ *      A continuación, LEER LAS RESPUESTAS (leer-respuestas.ts): la IA clasifica lo que han contestado los leads y se actúa en su ficha («No le
+ *      interesa», la rellamada de un «llámame el jueves», una nota). Esto NO espera a que el motor esté encendido ni sale del ensayo: con el motor
+ *      APAGADO la pasada hace solo esto (el ensayo y el interruptor son de los ENVÍOS, no de lo que ya ha contestado un cliente).
+ *   2. MANTENER. Sella desde cuándo cuenta la rampa de cada buzón, aplica el freno si un buzón rebota demasiado, pasa a «No contesta» a quien no
+ *      contestó a ninguno de los correos, devuelve a la cola lo que el ensayo había aparcado, reparte de nuevo lo que se pasó de hora, da hora a lo
+ *      que no la tiene y, una vez al día, limpia lo viejo.
  *   3. ENVIAR. Reserva los seguimientos cuya hora ha llegado (la base garantiza que dos pasadas no cogen el mismo) y, uno a uno, decide con
  *      `decidirSalida` (control.ts): enviar, aplazar o parar. Antes de enviar se vuelve a leer el buzón.
  *
@@ -151,8 +152,12 @@ const ENVIOS_POR_PASADA = 4
 const PRESUPUESTO_POR_DEFECTO_MS = 200_000
 const PURGA_CADA_MS = 24 * 3_600_000
 const PURGA_DE_MAS_DE_DIAS = 180
-/** Los estados del lead en los que, si nadie contesta a nada, el ERP lo pasa a «No interesa» */
-export const ESTADOS_QUE_PASAN_A_NO_INTERESA: readonly string[] = ['pendiente', 'no_contesta', 'email_enviado']
+/**
+ * Los estados del lead desde los que, si nadie contesta a ninguno de los correos, el ERP lo pasa a «No contesta» (un lead que ya está en «No contesta»
+ * se queda como está). Hasta el 26 oct 2026 pasaba a «No interesa»; «No contesta» es lo que ocurre de verdad: no ha dicho que no, no ha dicho nada
+ * (la columna `no_interesa_en` y los nombres `noInteresa…` son de entonces: se dejan para no tocar la base)
+ */
+export const ESTADOS_QUE_PASAN_A_NO_CONTESTA: readonly string[] = ['pendiente', 'email_enviado']
 /** Las aplazadas que no se apuntan en el rastro: son la vida normal del motor (huecos entre envíos, esperar a leer el buzón) y llenarían el historial */
 const APLAZOS_SIN_EVENTO: ReadonlySet<string> = new Set(['envio_reciente_del_buzon', 'envio_reciente_del_sistema', 'sin_lectura_reciente', 'tope_de_la_hora'])
 
@@ -168,7 +173,7 @@ function inicioDelSiguienteDiaHabil(ahora: number, ajustes: Pick<AjustesDelMotor
   return instanteDeMadrid(siguienteDiaHabil(diaDeMadrid(ahora), ajustes.festivos), ajustes.ventanaDesdeMin)
 }
 
-/** Cuándo, si nadie contesta, el ERP pasa el lead a «No interesa»: unos días hábiles después del último correo, a media mañana */
+/** Cuándo, si nadie contesta, el ERP pasa el lead a «No contesta»: unos días hábiles después del último correo, a media mañana */
 export function fechaDeCierre(ultimoEnvioAt: number, ajustes: Pick<AjustesDelMotor, 'diasHastaNoInteresa' | 'ventanaDesdeMin' | 'festivos'>): number {
   return instanteDeMadrid(sumarDiasHabiles(diaDeMadrid(ultimoEnvioAt), ajustes.diasHastaNoInteresa, ajustes.festivos), ajustes.ventanaDesdeMin + 30)
 }
@@ -190,7 +195,6 @@ function resumenVacio(): ResumenDePasada {
 }
 
 function redactarResumen(r: ResumenDePasada): string {
-  if (r.saltado) return `Saltada: ${r.saltado}`
   const partes: string[] = []
   const si = (n: number, texto: string) => {
     if (n > 0) partes.push(`${n} ${texto}`)
@@ -208,11 +212,13 @@ function redactarResumen(r: ResumenDePasada): string {
   si(r.parados, r.parados === 1 ? 'parada' : 'paradas')
   si(r.pausados, r.pausados === 1 ? 'pausada' : 'pausadas')
   si(r.fallidos, r.fallidos === 1 ? 'fallido' : 'fallidos')
-  si(r.noInteresa, 'pasados a «No interesa»')
+  si(r.noInteresa, 'pasados a «No contesta»')
   si(r.planificados, r.planificados === 1 ? 'con hora nueva' : 'con hora nueva')
   si(r.reprogramados, 'repartidos de nuevo')
   si(r.frenos, r.frenos === 1 ? 'freno' : 'frenos')
   si(r.errores.length, r.errores.length === 1 ? 'con aviso' : 'con avisos')
+  // Apagado y sin nada que contar: se dice por qué. Apagado pero habiendo leído respuestas: se cuenta lo leído
+  if (r.saltado) return partes.length > 0 ? `Motor apagado (no envía) · ${partes.join(' · ')}` : `Saltada: ${r.saltado}`
   return partes.length > 0 ? partes.join(' · ') : 'Sin novedades'
 }
 
@@ -241,7 +247,14 @@ export async function ejecutarPasada(deps: DependenciasDelMotor, opciones: Opcio
   }
   const { ajustes } = lectura
   if (!ajustes.activa) {
+    // Apagado no se vigila, ni se reparte, ni se envía nada. Pero lo que contesta un lead no espera a que se encienda el envío: un «llámame el jueves» tiene
+    // que dejar la rellamada puesta igual
     r.saltado = 'el motor está apagado (se enciende en Correo → Secuencias → Ajustes)'
+    try {
+      await leerRespuestasDeLosLeads(deps, ajustes, lectura.respuestasAt, r, (e) => apuntarErrorDeFase(r, 'respuestas', e))
+    } catch (e) {
+      apuntarErrorDeFase(r, 'respuestas', e)
+    }
     r.resumen = redactarResumen(r)
     return r
   }
@@ -484,7 +497,7 @@ function ultimoEnvioDe(ins: InscripcionDelMotor, pasos: readonly PasoDelMotor[],
   return Math.max(ins.primerEnvioAt, ...pasos.filter((p) => p.orden < antesDelOrden && p.estado === 'enviado').map((p) => p.enviadoAt ?? 0))
 }
 
-/** Las secuencias completadas a las que ya les toca el cierre: si nada ha cambiado, el lead pasa a «No interesa» */
+/** Las secuencias completadas a las que ya les toca el cierre: si nada ha cambiado, el lead pasa a «No contesta» */
 async function cerrarLasQueNoContestaron(deps: DependenciasDelMotor, ajustes: AjustesDelMotor, r: ResumenDePasada, ahora: number): Promise<void> {
   const { almacen } = deps
   const lista = await almacen.inscripcionesParaNoInteresa(ahora, 50)
@@ -499,25 +512,30 @@ async function cerrarLasQueNoContestaron(deps: DependenciasDelMotor, ajustes: Aj
       else r.parados++
       continue
     }
-    if (lead && ESTADOS_QUE_PASAN_A_NO_INTERESA.includes(lead.status)) {
-      const cambiado = await almacen.cambiarEstadoDelLead(lead.id, 'no_interesa', ESTADOS_QUE_PASAN_A_NO_INTERESA, ahora)
+    if (lead && (lead.status === 'no_contesta' || ESTADOS_QUE_PASAN_A_NO_CONTESTA.includes(lead.status))) {
+      // Un lead que ya está en «No contesta» es justo lo que se quería: no hay estado que cambiar, pero la secuencia se cierra igual
+      const yaEstaba = lead.status === 'no_contesta'
+      const cambiado = yaEstaba || (await almacen.cambiarEstadoDelLead(lead.id, 'no_contesta', ESTADOS_QUE_PASAN_A_NO_CONTESTA, ahora))
       if (cambiado) {
         const motivo = `Han salido los ${pasos.filter((p) => p.orden >= 0 && p.estado === 'enviado').length} correos de la secuencia y no ha contestado a ninguno.`
         await almacen.cambiarInscripcion(ins.id, { estado: 'sin_respuesta', motivo, codigo: 'sin_respuesta', paradaAt: ahora, noInteresaEn: null }, ahora)
-        await almacen.apuntarNotaEnLead({
-          leadId: lead.id,
-          cuerpo: `Pasado a «No interesa» automáticamente: ${motivo} Si más adelante contesta o quieres retomarlo, cambia el estado a mano.`,
-          clase: 'nota',
-          ocurrioAt: ahora,
-        })
-        await almacen.apuntarEvento({ inscripcionId: ins.id, buzonId: ins.buzonId, tipo: 'no_interesa', detalle: `El lead pasa a «No interesa»: ${motivo}` }, ahora)
-        r.noInteresa++
+        if (!yaEstaba) {
+          await almacen.apuntarNotaEnLead({
+            leadId: lead.id,
+            cuerpo: `Pasado a «No contesta» automáticamente: ${motivo} Si más adelante contesta o quieres retomarlo, cambia el estado a mano.`,
+            clase: 'nota',
+            ocurrioAt: ahora,
+          })
+          r.noInteresa++
+        }
+        // El tipo de evento sigue llamándose `no_interesa` (la base lo exige); lo que se lee es el texto
+        await almacen.apuntarEvento({ inscripcionId: ins.id, buzonId: ins.buzonId, tipo: 'no_interesa', detalle: yaEstaba ? `El lead ya estaba en «No contesta»: ${motivo}` : `El lead pasa a «No contesta»: ${motivo}` }, ahora)
         continue
       }
     }
     // Ya estaba en otro estado (o cambió justo ahora): no se toca nada y no se vuelve a mirar
-    await almacen.cambiarInscripcion(ins.id, { noInteresaEn: null, motivo: `No se pasa a «No interesa»: el lead está en «${lead?.status ?? 'otro estado'}».` }, ahora)
-    await almacen.apuntarEvento({ inscripcionId: ins.id, buzonId: ins.buzonId, tipo: 'completada', detalle: `No se pasa a «No interesa»: el lead está en «${lead?.status ?? 'otro estado'}».` }, ahora)
+    await almacen.cambiarInscripcion(ins.id, { noInteresaEn: null, motivo: `No se pasa a «No contesta»: el lead está en «${lead?.status ?? 'otro estado'}».` }, ahora)
+    await almacen.apuntarEvento({ inscripcionId: ins.id, buzonId: ins.buzonId, tipo: 'completada', detalle: `No se pasa a «No contesta»: el lead está en «${lead?.status ?? 'otro estado'}».` }, ahora)
   }
 }
 
@@ -1043,7 +1061,7 @@ async function manejarFalloDeEnvio(deps: DependenciasDelMotor, ajustes: AjustesD
   r.aplazados++
 }
 
-/** Una secuencia con todos sus correos cerrados está completada: se apunta cuándo, si nadie contesta, pasa a «No interesa» */
+/** Una secuencia con todos sus correos cerrados está completada: se apunta cuándo, si nadie contesta, el lead pasa a «No contesta» */
 export async function cerrarSiHaTerminado(deps: Pick<DependenciasDelMotor, 'almacen' | 'ahora'>, ajustes: Pick<AjustesDelMotor, 'diasHastaNoInteresa' | 'ventanaDesdeMin' | 'festivos'>, inscripcionId: string, r?: ResumenDePasada): Promise<boolean> {
   const { almacen } = deps
   const ahora = (deps.ahora ?? Date.now)()
@@ -1059,7 +1077,7 @@ export async function cerrarSiHaTerminado(deps: Pick<DependenciasDelMotor, 'alma
   const motivo = salieronTodos ? `Han salido los ${seguimientos.length + 1} correos y no ha contestado.` : 'La secuencia ha terminado.'
   await almacen.cambiarInscripcion(inscripcionId, { estado: 'completada', motivo, codigo: 'completada', noInteresaEn }, ahora)
   await almacen.apuntarEvento(
-    { inscripcionId, buzonId: ins.buzonId, tipo: 'completada', detalle: salieronTodos && noInteresaEn !== null ? `${motivo} Si no contesta, pasa a «No interesa» el ${horaFechada(noInteresaEn)}.` : motivo },
+    { inscripcionId, buzonId: ins.buzonId, tipo: 'completada', detalle: salieronTodos && noInteresaEn !== null ? `${motivo} Si no contesta, pasa a «No contesta» el ${horaFechada(noInteresaEn)}.` : motivo },
     ahora
   )
   void r

@@ -239,7 +239,7 @@ function LineaDelTiempo({ seg }: { seg: Seguimientos }) {
   const nodos: Array<{ clave: string; titulo: string; fecha: string; tipo: 'ahora' | 'paso' | 'fin' }> = [
     { clave: 'hoy', titulo: 'Este correo', fecha: 'al enviar', tipo: 'ahora' },
     ...e.pasos.map((p) => ({ clave: `p${p.orden}`, titulo: `Seguimiento ${p.orden}`, fecha: `${diaCorto(p.diaAprox)} · +${p.dias} d`, tipo: 'paso' as const })),
-    ...(fin ? [{ clave: 'fin', titulo: 'Sin respuesta', fecha: `«No interesa» · ${diaCorto(fin)}`, tipo: 'fin' as const }] : []),
+    ...(fin ? [{ clave: 'fin', titulo: 'Sin respuesta', fecha: `«No contesta» · ${diaCorto(fin)}`, tipo: 'fin' as const }] : []),
   ]
   return (
     <ol className="flex items-start px-1 pt-1" aria-label="Calendario de los correos">

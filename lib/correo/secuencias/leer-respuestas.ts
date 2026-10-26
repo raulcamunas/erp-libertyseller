@@ -10,8 +10,9 @@ import type { AjustesDelMotor } from './reglas'
 /**
  * LEER LAS RESPUESTAS DE LOS LEADS CON LA IA Y ACTUAR EN SU FICHA — SOLO SERVIDOR.
  * ================================================================================
- * Una fase más de la pasada del motor (después de «vigilar», que ya ha cortado las secuencias de quien contestó). Se comprueba con motor.prueba.ts
- * (los escenarios de «respuestas de los leads») y la parte de decidir, con clasificar.prueba.ts.
+ * Una fase más de la pasada del motor (después de «vigilar», que ya ha cortado las secuencias de quien contestó) y, con el motor APAGADO, lo único que
+ * hace la pasada: lo que contesta un lead no espera a que se encienda el envío. Se comprueba con motor.escenarios.ts (los escenarios de «respuestas de
+ * los leads») y la parte de decidir, con clasificar.prueba.ts.
  *
  * Qué hace, por cada correo entrante de una persona que es de un lead (su dirección, o el hilo de su secuencia):
  *
@@ -21,8 +22,9 @@ import type { AjustesDelMotor } from './reglas'
  *   3. EL CÓDIGO COMPRUEBA lo que dijo la IA (la frase en que se apoya tiene que estar en el correo…) y decide qué se hace (clasificar.ts).
  *   4. SE GUARDA LO QUE SE HA ENTENDIDO ANTES DE TOCAR NINGUNA FICHA. Si algo falla justo después, la lectura no se repite y la acción no se duplica:
  *      una acción perdida cuesta menos que dos notas o un lead movido dos veces.
- *   5. SOLO EN ENVÍO REAL se toca la ficha: «No le interesa», la rellamada, y una nota que cuenta qué ha entendido la IA. Con el motor en ensayo
- *      solo se apunta lo que se habría hecho (pantalla Secuencias → Flujo): ninguna ficha cambia.
+ *   5. SE TOCA LA FICHA: «No le interesa», la rellamada («llámame el jueves», «contáctame después de Reyes»), y una nota que cuenta qué ha entendido la IA.
+ *      Esto no depende del ensayo del motor: el ensayo es de los ENVÍOS (no sale ningún correo), no de lo que ya ha contestado un cliente. Para que no
+ *      actúe se apaga «Leer las respuestas con la IA» o el interruptor de cada acción (Secuencias → Ajustes).
  *
  * Ningún cambio de estado pisa el trabajo de una persona: se hace con una actualización CONDICIONADA al estado que tenía el lead al decidir, de modo que
  * si el comercial lo movió mientras tanto, no se toca y se deja una nota para que lo mire.
@@ -58,7 +60,7 @@ export async function leerRespuestasDeLosLeads(deps: DependenciasDelMotor, ajust
 async function leerUna(deps: DependenciasDelMotor, ajustes: AjustesDelMotor, f: RespuestaPorLeer, r: ResumenDePasada): Promise<void> {
   const { almacen } = deps
   const ahora = (deps.ahora ?? Date.now)()
-  const modo = ajustes.modoEnsayo ? 'ensayo' : 'real'
+  const modo = 'real'
   const hoy = diaDeMadrid(ahora)
 
   const lead = await almacen.leadParaMotor(f.leadId)

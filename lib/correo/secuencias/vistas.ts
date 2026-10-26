@@ -261,7 +261,7 @@ export interface ItemDeCola {
   pasos: PasoDeCola[]
   /** El próximo correo que saldrá */
   siguiente: { orden: number; en: number | null } | null
-  /** Cuándo, si nadie contesta, pasa a «No interesa» */
+  /** Cuándo, si nadie contesta, el lead pasa a «No contesta» */
   cierre: number | null
   /** De 0 a 1: cuántos de los correos de la secuencia han salido */
   progreso: number

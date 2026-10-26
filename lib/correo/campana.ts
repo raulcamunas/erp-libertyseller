@@ -224,10 +224,10 @@ export function avisoDeRespuestaDeLead(
   let siguiente: string
   switch (p.clase) {
     case 'interesado':
-      siguiente = 'Contéstale o llámale cuanto antes.'
+      siguiente = p.hecho?.tipo === 'rellamada' ? `Queda una rellamada puesta para el ${diaCorto(p.hecho.fecha)}.` : 'Contéstale o llámale cuanto antes.'
       break
     case 'pide_info':
-      siguiente = 'Contéstale con lo que pide.'
+      siguiente = p.hecho?.tipo === 'rellamada' ? `Contéstale con lo que pide. Queda una rellamada puesta para el ${diaCorto(p.hecho.fecha)}.` : 'Contéstale con lo que pide.'
       break
     case 'mas_tarde':
       siguiente = p.hecho?.tipo === 'rellamada' ? `Queda una rellamada puesta para el ${diaCorto(p.hecho.fecha)}.` : 'Ponle una rellamada para entonces.'

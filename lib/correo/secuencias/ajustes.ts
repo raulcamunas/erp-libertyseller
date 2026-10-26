@@ -67,7 +67,7 @@ export function validarAjustes(entrada: unknown, actuales: AjustesDelMotor): Res
     ['huecoBuzonS', 'hueco_buzon_s', 'El hueco entre dos envíos del mismo buzón', 10, 7200],
     ['pesoMananaPct', 'peso_manana_pct', 'El porcentaje de la mañana', 0, 100],
     ['topeHora', 'tope_hora', 'El tope por hora', 1, 500],
-    ['diasHastaNoInteresa', 'dias_hasta_no_interesa', 'Los días hasta pasar a «No interesa»', 1, 60],
+    ['diasHastaNoInteresa', 'dias_hasta_no_interesa', 'Los días hasta pasar a «No contesta»', 1, 60],
     ['frenoRebotesPct', 'freno_rebotes_pct', 'El porcentaje de rebotes del freno', 1, 100],
     ['frenoMinimoEnvios', 'freno_minimo_envios', 'El mínimo de envíos del freno', 5, 1000],
   ]

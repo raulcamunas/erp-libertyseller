@@ -21,6 +21,19 @@ export interface MomentoDeLaLlamada {
   texto: string
 }
 
+/**
+ * Lo que el cliente pidió sobre volver a llamarle («llámame el jueves a las 10»), tal como lo entendió la IA. Sin comprobar todavía: antes de tocar la ficha
+ * del lead se comprueba (rellamada.ts) que la frase esté de verdad en la llamada y que el día cuadre.
+ */
+export interface PeticionDeRellamada {
+  /** El día en que pidió que se le llame, AAAA-MM-DD */
+  fecha: string
+  /** La hora, HH:MM, si la dijo */
+  hora: string | null
+  /** Sus palabras, copiadas de la transcripción, en que se apoya la IA */
+  frase: string
+}
+
 /** Lo que la IA entiende de una transcripción */
 export interface ResumenGenerado {
   tipo: TipoDeLlamada
@@ -30,6 +43,8 @@ export interface ResumenGenerado {
   /** Lo que se acordó hacer, tal como se dijo («llamar el jueves a las 10»), o null si no se acordó nada */
   siguiente_paso: string | null
   interes: InteresDeLlamada
+  /** Si el cliente pidió o aceptó que se le vuelva a llamar un día concreto. null si no (casi siempre) */
+  rellamada?: PeticionDeRellamada | null
 }
 
 export type EstadoDeTranscripcion = 'procesando' | 'hecha' | 'fallida' | 'omitida'

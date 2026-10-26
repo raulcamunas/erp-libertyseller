@@ -37,7 +37,7 @@ const horaDelPaso = (p: { programado_at: unknown } | undefined): number => ms(p?
 
 export const ESCENARIOS: Escenario[] = [
   {
-    nombre: 'El camino feliz: primer correo, dos seguimientos, cierre a «No interesa»',
+    nombre: 'El camino feliz: primer correo, dos seguimientos, cierre a «No contesta»',
     async correr(e, ok) {
       const m = await crearMundo(e)
       const { resultado, leadId, hiloId, messageId } = await m.secuenciaNueva(1)
@@ -85,7 +85,7 @@ export const ESCENARIOS: Escenario[] = [
       const [cerrada] = await m.leer('correo_secuencia_inscripciones')
       ok('la secuencia queda completada', cerrada.estado === 'completada' && cerrada.codigo === 'completada')
       const esperadaCierre = fechaDeCierre(m.reloj.ahora, AJUSTES_POR_DEFECTO)
-      ok('y apunta cuándo pasa a «No interesa»: 7 días hábiles después, a las 9:30', ms(cerrada.no_interesa_en) === esperadaCierre && horaDeMadrid(esperadaCierre) === '09:30' && diaDeMadrid(esperadaCierre) === sumarDiasHabiles(diaDeMadrid(m.reloj.ahora), 7, AJUSTES_POR_DEFECTO.festivos), `${cerrada.no_interesa_en}`)
+      ok('y apunta cuándo pasa a «No contesta»: 7 días hábiles después, a las 9:30', ms(cerrada.no_interesa_en) === esperadaCierre && horaDeMadrid(esperadaCierre) === '09:30' && diaDeMadrid(esperadaCierre) === sumarDiasHabiles(diaDeMadrid(m.reloj.ahora), 7, AJUSTES_POR_DEFECTO.festivos), `${cerrada.no_interesa_en}`)
 
       // --- el cierre ---
       m.reloj.ahora = esperadaCierre - MIN
@@ -93,11 +93,11 @@ export const ESCENARIOS: Escenario[] = [
       ok('antes de la fecha el lead sigue como estaba', (await m.uno('cold_leads', (q) => q.eq('id', leadId)))?.status === 'email_enviado')
       m.reloj.ahora = esperadaCierre + MIN
       r = await ejecutarPasada(m.deps)
-      ok('llegada la fecha, el lead pasa a «No interesa»', (await m.uno('cold_leads', (q) => q.eq('id', leadId)))?.status === 'no_interesa' && r.noInteresa === 1, r.resumen)
+      ok('llegada la fecha, el lead pasa a «No contesta» (no a «No interesa»: no ha dicho que no, no ha dicho nada)', (await m.uno('cold_leads', (q) => q.eq('id', leadId)))?.status === 'no_contesta' && r.noInteresa === 1 && /pasados a «No contesta»/.test(r.resumen), r.resumen)
       const [final] = await m.leer('correo_secuencia_inscripciones')
       ok('y la secuencia queda «sin respuesta»', final.estado === 'sin_respuesta' && final.no_interesa_en === null)
       const notasFinal = await m.leer('cold_lead_notes', (q) => q.eq('lead_id', leadId).order('created_at', { ascending: true }))
-      ok('con una nota en la ficha que lo explica', notasFinal.some((n) => String(n.body).startsWith('Pasado a «No interesa» automáticamente')))
+      ok('con una nota en la ficha que lo explica', notasFinal.some((n) => String(n.body).startsWith('Pasado a «No contesta» automáticamente')))
       eventos = await m.eventos(inscripcionId)
       ok('y el rastro lo dice', eventos.some((x) => x.tipo === 'no_interesa') && eventos.some((x) => x.tipo === 'completada'))
       void hiloId
@@ -840,7 +840,7 @@ export const ESCENARIOS: Escenario[] = [
       r = await saltarPaso(deps, await ins(), await paso(2), ajustes)
       ok('saltar el segundo', r.ok && (await paso(2)).estado === 'saltado')
       const tras = await ins()
-      ok('con todos los correos cerrados la secuencia se completa; como no han salido todos, no pasa sola a «No interesa»', tras.estado === 'completada' && tras.noInteresaEn === null, `${tras.estado} ${tras.noInteresaEn}`)
+      ok('con todos los correos cerrados la secuencia se completa; como no han salido todos, no pasa sola a «No contesta»', tras.estado === 'completada' && tras.noInteresaEn === null, `${tras.estado} ${tras.noInteresaEn}`)
 
       // --- cancelar ---
       const otra = await m.secuenciaNueva(2)
@@ -903,7 +903,7 @@ export const ESCENARIOS: Escenario[] = [
     },
   },
   {
-    nombre: 'El cierre a «No interesa» solo ocurre si el lead sigue sin tocar; si no, se respeta lo que se haya hecho',
+    nombre: 'El cierre a «No contesta» solo ocurre si el lead sigue sin tocar; si no, se respeta lo que se haya hecho',
     async correr(e, ok) {
       for (const [status, quiere] of [
         ['seguimiento', 'parada'],
@@ -925,6 +925,23 @@ export const ESCENARIOS: Escenario[] = [
         const tras = await m.uno('correo_secuencia_inscripciones', (q) => q.eq('id', ins.id))
         ok(`(${status}) el lead se queda como estaba y la secuencia acaba «${quiere}»`, lead?.status === status && tras?.estado === quiere && tras.no_interesa_en === null && r.noInteresa === 0, `${lead?.status} ${tras?.estado} ${r.resumen}`)
       }
+      // un lead que ya está en «No contesta» es justo lo que se quería: se queda así, la secuencia se cierra «sin respuesta» y no se añade otra nota
+      {
+        const m = await crearMundo(e)
+        const { resultado, leadId } = await m.secuenciaNueva(1, { seguimientos: [{ texto: TEXTO_S1 }] })
+        if (!resultado.ok) throw new Error(resultado.mensaje)
+        m.reloj.ahora = resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada(m.deps)
+        const [ins] = await m.leer('correo_secuencia_inscripciones')
+        await m.actualizar('cold_leads', { status: 'no_contesta' }, (q) => q.eq('id', leadId))
+        const notasAntes = (await m.leer('cold_lead_notes', (q) => q.eq('lead_id', leadId))).length
+        m.reloj.ahora = ms(ins.no_interesa_en) + MIN
+        const r = await ejecutarPasada(m.deps)
+        const tras = await m.uno('correo_secuencia_inscripciones', (q) => q.eq('id', ins.id))
+        ok('(no_contesta) el lead se queda en «No contesta» (no se cuenta como cambio) y la secuencia acaba «sin respuesta»', (await m.uno('cold_leads', (q) => q.eq('id', leadId)))?.status === 'no_contesta' && tras?.estado === 'sin_respuesta' && tras.no_interesa_en === null && r.noInteresa === 0, `${tras?.estado} ${r.resumen}`)
+        ok('y sin una nota que diga que ha cambiado de estado, porque no ha cambiado', (await m.leer('cold_lead_notes', (q) => q.eq('lead_id', leadId))).length === notasAntes)
+        ok('pero el rastro de la secuencia lo cuenta', (await m.eventos(ins.id as string)).some((x) => x.tipo === 'no_interesa' && /ya estaba en «No contesta»/.test(String(x.detalle))))
+      }
       // si en esos días el lead contesta, queda «respondida» y no se toca
       const m = await crearMundo(e)
       const { resultado, leadId, hiloId } = await m.secuenciaNueva(1, { seguimientos: [{ texto: TEXTO_S1 }] })
@@ -938,7 +955,7 @@ export const ESCENARIOS: Escenario[] = [
       m.reloj.ahora = ms(ins.no_interesa_en) + MIN
       await ejecutarPasada(m.deps)
       const tras = await m.uno('correo_secuencia_inscripciones', (q) => q.eq('id', ins.id))
-      ok('si había contestado, al llegar el cierre queda «respondida» y el lead no pasa a «No interesa»', tras?.estado === 'respondida' && (await m.uno('cold_leads', (q) => q.eq('id', leadId)))?.status === 'email_enviado', `${tras?.estado}`)
+      ok('si había contestado, al llegar el cierre queda «respondida» y el lead no pasa a «No contesta»', tras?.estado === 'respondida' && (await m.uno('cold_leads', (q) => q.eq('id', leadId)))?.status === 'email_enviado', `${tras?.estado}`)
     },
   },
 
@@ -1085,7 +1102,7 @@ export const ESCENARIOS: Escenario[] = [
         ok('pasar otra vez no vuelve a leer la misma respuesta ni a repetir la nota', m.clasificados.length === 1 && (await notasDe(m, a.leadId)).length === 1)
       }
 
-      // --- el mismo «no» con el motor en ENSAYO: se apunta lo que se habría hecho y no se toca nada ---
+      // --- el mismo «no» con el motor en ENSAYO: la lectura actúa igual. El ensayo es de los correos que salen, no de lo que ya ha contestado un cliente ---
       {
         const m = await crearMundo(e, { ensayo: true })
         const a = await m.secuenciaNueva(1)
@@ -1095,10 +1112,10 @@ export const ESCENARIOS: Escenario[] = [
         await m.entrante({ de: a.email, hilo: a.hiloId, texto: TEXTO_NO, cuando: m.reloj.ahora - MIN })
         await ejecutarPasada(m.deps)
         const fila = await respuestaDe(m, a.leadId)
-        ok('en ensayo el lead NO se toca', (await lead(m, a.leadId))?.status === 'email_enviado')
-        ok('pero queda apuntado lo que se habría hecho, sin aplicar', fila?.estado === 'hecha' && fila.accion === 'cerrar' && fila.aplicada === false && fila.modo === 'ensayo' && /No le interesa/.test(String(fila.nota)), JSON.stringify(fila))
-        ok('y no se escribe nada en la ficha', (await notasDe(m, a.leadId)).length === 0)
-        ok('el rastro de la secuencia dice que fue ensayo', (await m.eventos(idDe(a))).some((x) => x.tipo === 'respuesta_ia' && /ensayo/.test(String(x.detalle))))
+        ok('en ensayo el lead SÍ pasa a «No le interesa»', (await lead(m, a.leadId))?.status === 'no_interesa')
+        ok('y queda apuntado como hecho de verdad', fila?.estado === 'hecha' && fila.accion === 'cerrar' && fila.aplicada === true && fila.modo === 'real', JSON.stringify(fila))
+        ok('con su nota en la ficha', (await notasDe(m, a.leadId)).length === 1)
+        ok('pero no sale ningún correo', m.enviados.length === 0)
       }
 
       // --- «escríbeme en enero»: pone la rellamada ---
@@ -1645,7 +1662,17 @@ export const ESCENARIOS: Escenario[] = [
         ok('«escríbeme en enero» cuenta la rellamada que se ha puesto', m.avisos.length === 1 && m.avisos[0].mensaje.includes('rellamada puesta para el lun 11 ene'), JSON.stringify(m.avisos))
       }
       {
-        // En ensayo se avisa de lo que contestó, pero sin decir que se ha tocado nada
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push({ clase: 'interesado', confianza: 'alta', evidencia: 'llámame el jueves', resumen: 'Quiere que le llamen el jueves.', fecha: '2026-10-29' })
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Me interesa. Llámame el jueves por la mañana.', cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        ok('«llámame el jueves» de un interesado cuenta la rellamada que se ha puesto', m.avisos.length === 1 && m.avisos[0].titulo === 'Tienda 1 está interesado' && m.avisos[0].mensaje.includes('Queda una rellamada puesta para el jue 29 oct'), JSON.stringify(m.avisos))
+      }
+      {
+        // En ensayo la lectura de las respuestas actúa igual (el ensayo es de los envíos): el aviso lo cuenta
         const m = await crearMundo(e, { ensayo: true })
         const a = await m.secuenciaNueva(1)
         if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
@@ -1653,7 +1680,7 @@ export const ESCENARIOS: Escenario[] = [
         m.reloj.ahora = T0 + 2 * HORA
         await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Gracias, pero ahora mismo no nos interesa.', cuando: m.reloj.ahora - MIN })
         await ejecutarPasada(m.deps)
-        ok('con el motor en ensayo avisa de la respuesta pero NO dice que el lead se haya cerrado', m.avisos.length === 1 && !m.avisos[0].mensaje.includes('pasa a'), JSON.stringify(m.avisos))
+        ok('con el motor en ensayo la lectura actúa igual: el aviso cuenta que el lead se ha cerrado', m.avisos.length === 1 && m.avisos[0].mensaje.includes('El lead pasa a «No interesa»'), JSON.stringify(m.avisos))
       }
       for (const clase of ['fuera_de_oficina', 'otro'] as const) {
         const m = await crearMundo(e)
@@ -1727,6 +1754,121 @@ export const ESCENARIOS: Escenario[] = [
         m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
         const r = await ejecutarPasada({ ...m.deps, avisar: undefined })
         ok('sin campana enchufada (la demostración, las pruebas viejas) el motor hace lo mismo y no avisa', r.pausados === 1 && m.avisos.length === 0)
+      }
+    },
+  },
+  {
+    nombre: 'Un cliente pide que le llamen un día («llámame el jueves»): la rellamada queda puesta sola, con el motor encendido, en ensayo o apagado',
+    async correr(e, ok) {
+      // Hoy (T0) es el miércoles 28 de octubre de 2026: el jueves es el 29
+      const JUEVES = { clase: 'interesado' as const, confianza: 'alta' as const, evidencia: 'llámame el jueves', resumen: 'Quiere que le llamen el jueves.', fecha: '2026-10-29' }
+      const TEXTO_JUEVES = 'Hola, me interesa lo que contáis. Ahora estoy liado: llámame el jueves por la mañana.'
+      const respuestaDe = (m: Mundo, leadId: string) => m.uno('correo_respuestas_ia', (q) => q.eq('lead_id', leadId))
+      const lead = (m: Mundo, leadId: string) => m.uno('cold_leads', (q) => q.eq('id', leadId))
+      const notasDe = (m: Mundo, leadId: string) => m.leer('cold_lead_notes', (q) => q.eq('lead_id', leadId))
+
+      // --- con una secuencia en marcha: la respuesta la corta y deja la rellamada ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push(JUEVES)
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: TEXTO_JUEVES, cuando: m.reloj.ahora - MIN })
+        const r = await ejecutarPasada(m.deps)
+        const l = await lead(m, a.leadId)
+        ok('el lead pasa a «Rellamada programada» el jueves 29', l?.status === 'programado' && l.next_call_date === '2026-10-29', JSON.stringify(l))
+        const fila = await respuestaDe(m, a.leadId)
+        ok('queda apuntado: interesado, con el día pedido y la acción de rellamar', fila?.clase === 'interesado' && fila.accion === 'rellamar' && fila.aplicada === true && fila.fecha_pedida === '2026-10-29', JSON.stringify(fila))
+        const notas = await notasDe(m, a.leadId)
+        ok('con una nota que cuenta qué dijo y que la rellamada la ha puesto el ERP', notas.length === 1 && /llámame el jueves/.test(String(notas[0].body)) && /jue 29 oct/.test(String(notas[0].body)) && /rellamada puesta/.test(String(notas[0].body)), JSON.stringify(notas))
+        ok('la pasada lo cuenta', r.respuestasLeidas === 1 && r.respuestasConRellamada === 1 && /rellamada puesta/.test(r.resumen), r.resumen)
+      }
+
+      // --- sin día: solo un aviso ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push({ ...JUEVES, evidencia: 'me interesa lo que contáis', resumen: 'Le interesa.', fecha: null })
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: TEXTO_JUEVES, cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        const l = await lead(m, a.leadId)
+        ok('un interesado que no pide ningún día NO tiene rellamada: el lead no se toca', l?.status === 'email_enviado' && l.next_call_date === null)
+      }
+
+      // --- el día no cuadra con lo que dijo: no se programa a ciegas ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push({ ...JUEVES, fecha: '2026-10-30' })
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: TEXTO_JUEVES, cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        const l = await lead(m, a.leadId)
+        const fila = await respuestaDe(m, a.leadId)
+        ok('dijo «el jueves» y la IA da un viernes: no se pone ninguna rellamada y queda una nota para que lo mire una persona', l?.status === 'email_enviado' && l.next_call_date === null && fila?.accion === 'revisar' && (await notasDe(m, a.leadId)).length === 1, JSON.stringify(fila))
+      }
+
+      // --- con el motor en ENSAYO: igual ---
+      {
+        const m = await crearMundo(e, { ensayo: true })
+        const pepe = await m.nuevoLead(70, { email: 'pepe@tienda70.es' })
+        m.clasificaciones.push(JUEVES)
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: 'pepe@tienda70.es', hilo: null, texto: TEXTO_JUEVES, cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        const l = await lead(m, pepe.id)
+        ok('en ensayo también queda la rellamada (el ensayo es de los correos que salen)', l?.status === 'programado' && l.next_call_date === '2026-10-29', JSON.stringify(l))
+      }
+
+      // --- con el motor APAGADO: se lee igual, sin enviar ni vigilar nada ---
+      {
+        const m = await crearMundo(e, { activa: false })
+        const pepe = await m.nuevoLead(70, { email: 'pepe@tienda70.es' })
+        m.clasificaciones.push(JUEVES)
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: 'pepe@tienda70.es', hilo: null, texto: TEXTO_JUEVES, cuando: m.reloj.ahora - MIN })
+        const r = await ejecutarPasada(m.deps)
+        const l = await lead(m, pepe.id)
+        ok('con el motor apagado la rellamada también queda puesta', l?.status === 'programado' && l.next_call_date === '2026-10-29', JSON.stringify(l))
+        ok('la pasada dice que está apagado y cuenta lo leído', /apagado/.test(r.saltado ?? '') && r.respuestasLeidas === 1 && r.respuestasConRellamada === 1 && /^Motor apagado \(no envía\) · 1 respuesta leída con IA · 1 rellamada puesta$/.test(r.resumen), r.resumen)
+        ok('no se envía nada', m.enviados.length === 0)
+        const aj = await m.almacen.leerAjustes()
+        ok('no se vigila (esa marca no avanza), pero la de las respuestas sí, para no leer lo mismo otra vez', aj?.vigilanciaAt === null && aj?.respuestasAt !== null && aj?.respuestasAt !== undefined, JSON.stringify(aj))
+        m.reloj.ahora += 5 * MIN
+        await ejecutarPasada(m.deps)
+        ok('pasar otra vez no la lee de nuevo ni repite la nota', m.clasificados.length === 1 && (await notasDe(m, pepe.id)).length === 1)
+      }
+      {
+        // Si no hay nada que leer, la pasada apagada sigue diciendo lo de siempre
+        const m = await crearMundo(e, { activa: false })
+        const r = await ejecutarPasada(m.deps)
+        ok('apagado y sin respuestas: «Saltada: el motor está apagado…»', /^Saltada: el motor está apagado/.test(r.resumen), r.resumen)
+      }
+      {
+        // El interruptor de la lectura manda aunque el motor esté apagado
+        const m = await crearMundo(e, { activa: false, ajustes: { respuestas_ia: false } })
+        const pepe = await m.nuevoLead(70, { email: 'pepe@tienda70.es' })
+        m.clasificaciones.push(JUEVES)
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: 'pepe@tienda70.es', hilo: null, texto: TEXTO_JUEVES, cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        ok('con «Leer las respuestas con la IA» apagado no se lee nada, ni con el motor apagado', m.clasificados.length === 0 && (await lead(m, pepe.id))?.status === 'email_enviado' && (await m.leer('correo_respuestas_ia')).length === 0)
+      }
+      {
+        // Que la IA falle con el motor apagado no tira la pasada ni deja nada a medias
+        const m = await crearMundo(e, { activa: false })
+        const pepe = await m.nuevoLead(70, { email: 'pepe@tienda70.es' })
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: 'pepe@tienda70.es', hilo: null, texto: TEXTO_JUEVES, cuando: m.reloj.ahora - MIN })
+        m.deps.clasificar = async () => ({ clasificacion: null, modelo: 'gpt-6-luna', aviso: 'La IA tiene un problema ahora mismo.', reintentable: true, general: false, tokens: null, costeUsd: 0 })
+        const r = await ejecutarPasada(m.deps)
+        ok('si la IA falla con el motor apagado, la pasada acaba sin errores y el lead no se toca', r.errores.length === 0 && (await lead(m, pepe.id))?.status === 'email_enviado' && r.respuestasLeidas === 0)
+        const fila = await respuestaDe(m, pepe.id)
+        ok('y la respuesta queda pendiente para un segundo intento', fila?.estado === 'pendiente' && fila.proximo_intento_at !== null, JSON.stringify(fila))
       }
     },
   },

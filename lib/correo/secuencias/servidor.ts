@@ -468,7 +468,7 @@ export interface EstadoParaElCuadro {
   activa: boolean
   ensayo: boolean
   pasos: Array<{ orden: number; dias: number; diaAprox: string }>
-  /** Cuántos días hábiles después del último correo, sin respuesta, el lead pasa solo a «No interesa» */
+  /** Cuántos días hábiles después del último correo, sin respuesta, el lead pasa solo a «No contesta» */
   diasHastaNoInteresa: number
   topeHoy: number
   enviadosHoy: number
