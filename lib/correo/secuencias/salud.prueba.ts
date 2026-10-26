@@ -4,6 +4,7 @@ import {
   armarSalud,
   alarmasDe,
   duracionTexto,
+  gravedadDeRebotes,
   porcentajeTexto,
   type BuzonParaLaSalud,
   type ConexionDeBuzon,
@@ -62,6 +63,16 @@ const codigos = (e: EntradaDeSalud) => alarmasDe(e).map((a) => a.codigo).join()
 
 console.log('\n=== cómo se dicen las cosas ===')
 {
+  const g = (rebotes: number, enviados: number, limite = 4, minimo = 20) => gravedadDeRebotes({ rebotes, enviados, pct: enviados > 0 ? (rebotes / enviados) * 100 : null }, limite, minimo)
+  ok('diez rebotes de 40 (25 %): rojo, es seguro que se pasa del 4 %', g(10, 40) === 'roja')
+  ok('cinco de 20 (25 %): rojo', g(5, 20) === 'roja')
+  ok('uno de 23 (4,3 %): ámbar, no rojo: puede ser una sola dirección', g(1, 23) === 'ambar')
+  ok('cero de 56: nada que mirar', g(0, 56) === null)
+  ok('uno de 7 (14,3 %): pocos envíos, no se colorea', g(1, 7) === null)
+  ok('sin envíos o sin porcentaje, nada', g(0, 0) === null && gravedadDeRebotes({ enviados: 30, rebotes: 0, pct: null }, 4, 20) === null)
+  ok('la mitad del límite avisa en ámbar (2 de 60 = 3,3 %: no; 3 de 60 = 5 %: ámbar)', g(1, 60) === null && g(3, 60) === 'ambar', `${g(1, 60)} ${g(3, 60)}`)
+  ok('cuantos más envíos, antes se confirma: 6 de 100 (6 %) ya es rojo? no, 12 de 100 sí', g(6, 100) === 'ambar' && g(12, 100) === 'roja', `${g(6, 100)} ${g(12, 100)}`)
+  ok('con un límite más alto (10 %), 5 de 20 (25 %) sigue siendo rojo y 1 de 23 no se colorea', g(5, 20, 10) === 'roja' && g(1, 23, 10) === null)
   ok('porcentajes con coma y un decimal solo si hace falta', porcentajeTexto(6.5) === '6,5 %' && porcentajeTexto(4) === '4 %' && porcentajeTexto(12.04) === '12 %' && porcentajeTexto(0) === '0 %' && porcentajeTexto(2.26) === '2,3 %')
   ok('duraciones', duracionTexto(10_000) === 'menos de un minuto' && duracionTexto(4 * MIN) === '4 min' && duracionTexto(65 * MIN) === '1 h 5 min' && duracionTexto(120 * MIN) === '2 h' && duracionTexto(2 * 24 * 60 * MIN) === '2 días' && duracionTexto(24 * 60 * MIN) === '1 día')
 }

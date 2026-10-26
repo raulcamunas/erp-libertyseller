@@ -3,7 +3,7 @@
 import { Activity, CircleOff, FlaskConical, HeartPulse, MailCheck, OctagonAlert, Pause, Plug, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Avatar, CabeceraDePanel, PANEL, Revelar } from '@/components/rendimiento/ui'
-import { duracionTexto, porcentajeTexto, type Alarma, type NivelDeSalud, type SaludDelBuzon } from '@/lib/correo/secuencias/salud'
+import { duracionTexto, gravedadDeRebotes, porcentajeTexto, type Alarma, type NivelDeSalud, type SaludDelBuzon } from '@/lib/correo/secuencias/salud'
 import { hace } from '@/lib/correo/secuencias/vistas'
 import type { Tablero } from './datos'
 import { cuando } from './datos'
@@ -141,9 +141,12 @@ function TarjetaDeBuzon({ b, ahora, indice }: { b: SaludDelBuzon; ahora: number;
   const color = COLOR_DE_NIVEL[b.nivel]
   const hoy = b.hoy
   const uso = hoy && hoy.tope > 0 ? Math.min(1, hoy.enviados / hoy.tope) : 0
-  // Con pocos envíos el porcentaje no dice nada (un rebote de cinco correos es un 20 %): no se colorea, como tampoco salta la alarma
-  const colorDeRebotes = (v: { enviados: number; pct: number | null }) =>
-    v.pct === null || v.enviados < b.minimoDeEnvios ? undefined : v.pct >= b.limiteDeRebotesPct ? COLOR_DE_GRAVEDAD.roja : v.pct >= b.limiteDeRebotesPct / 2 ? COLOR_DE_GRAVEDAD.ambar : undefined
+  // Con pocos envíos el porcentaje no dice nada (un rebote de cinco correos es un 20 %): no se colorea. Y con pocos más, rojo solo si es seguro que se pasa del límite
+  // (10 rebotes de 40, sí; 1 de 23, ámbar: puede ser una sola dirección). Ver gravedadDeRebotes
+  const colorDeRebotes = (v: { enviados: number; rebotes: number; pct: number | null }) => {
+    const g = gravedadDeRebotes(v, b.limiteDeRebotesPct, b.minimoDeEnvios)
+    return g ? COLOR_DE_GRAVEDAD[g] : undefined
+  }
   const r24 = b.rebotes24h
   const r7 = b.rebotes7d
   return (

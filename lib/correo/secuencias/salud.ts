@@ -166,6 +166,25 @@ export function porcentajeTexto(n: number): string {
   return `${Number.isInteger(redondo) ? redondo : redondo.toFixed(1).replace('.', ',')} %`
 }
 
+/**
+ * De qué color se pinta un porcentaje de rebotes en la pantalla de Salud: 'roja' solo si, con la confianza habitual (95 %), la tasa real se pasa del límite; 'ambar' si lo que se
+ * ve se acerca o hasta lo pasa pero con tan pocos envíos que podría ser casualidad; null si no hay nada que mirar. Un rebote en 23 correos (4,3 %) no es lo mismo que diez en 40
+ * (25 %), y pintarlos igual enseña un problema donde puede no haberlo. Solo colorea, no decide nada: el freno del motor y las alarmas siguen la regla de siempre (más del límite con
+ * un mínimo de envíos).
+ */
+export function gravedadDeRebotes(v: { enviados: number; rebotes: number; pct: number | null }, limitePct: number, minimoDeEnvios: number): 'roja' | 'ambar' | null {
+  if (v.pct === null || v.enviados < minimoDeEnvios || v.enviados <= 0) return null
+  // El intervalo de Wilson al 95 % de la proporción de rebotes, en porcentaje
+  const z = 1.96
+  const p = Math.min(Math.max(v.rebotes / v.enviados, 0), 1)
+  const denominador = 1 + (z * z) / v.enviados
+  const centro = (p + (z * z) / (2 * v.enviados)) / denominador
+  const margen = (z * Math.sqrt((p * (1 - p)) / v.enviados + (z * z) / (4 * v.enviados * v.enviados))) / denominador
+  const cotaBaja = Math.max(0, centro - margen) * 100
+  if (cotaBaja >= limitePct) return 'roja'
+  return v.pct >= limitePct / 2 ? 'ambar' : null
+}
+
 /** «4 min», «1 h 5 min», «2 días» */
 export function duracionTexto(ms: number): string {
   const min = Math.max(0, Math.round(ms / 60_000))
