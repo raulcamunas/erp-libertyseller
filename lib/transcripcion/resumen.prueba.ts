@@ -30,6 +30,7 @@ const BUENO = {
   rellamada_fecha: null,
   rellamada_hora: null,
   rellamada_frase: null,
+  rechazo_frase: null,
 }
 
 console.log('\n=== leer lo que devuelve la IA ===')
@@ -69,8 +70,9 @@ console.log('\n=== leer lo que devuelve la IA ===')
 console.log('\n=== el esquema que se le pide ===')
 {
   const props = ESQUEMA_DEL_RESUMEN.properties
-  ok('ocho campos y todos obligatorios (lo exige el modo estricto)', Object.keys(props).length === 8 && ESQUEMA_DEL_RESUMEN.required.length === 8 && ESQUEMA_DEL_RESUMEN.additionalProperties === false && Object.keys(props).every((k) => (ESQUEMA_DEL_RESUMEN.required as readonly string[]).includes(k)))
+  ok('nueve campos y todos obligatorios (lo exige el modo estricto)', Object.keys(props).length === 9 && ESQUEMA_DEL_RESUMEN.required.length === 9 && ESQUEMA_DEL_RESUMEN.additionalProperties === false && Object.keys(props).every((k) => (ESQUEMA_DEL_RESUMEN.required as readonly string[]).includes(k)))
   ok('los tres de la rellamada admiten null (casi nunca piden nada)', [props.rellamada_fecha, props.rellamada_hora, props.rellamada_frase].every((p) => (p.type as readonly string[]).includes('null')))
+  ok('el «no» del cliente admite null (casi nunca lo hay)', (props.rechazo_frase.type as readonly string[]).includes('null') && ESQUEMA_DEL_RESUMEN.required.includes('rechazo_frase'))
   ok('las listas del esquema son las que lee el código', props.tipo.enum.join() === 'conversacion,buzon_de_voz,sin_contenido' && props.interes.enum.join() === 'alto,medio,bajo,ninguno,no_claro')
 }
 
@@ -215,7 +217,21 @@ const run = async () => {
 
 run().then(
   () => {
-    console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
+    console.log('\n=== el «no» claro del cliente ===')
+{
+  const dice = (extra: Record<string, unknown>) => leerResumen(JSON.stringify({ ...BUENO, interes: 'ninguno', siguiente_paso: null, linea: [], ...extra }))
+  const r = dice({ rechazo_frase: 'no necesitamos el servicio ni queremos asumir un coste adicional' })
+  ok('con interés «ninguno» y sus palabras, se lee el rechazo', r?.rechazo?.frase === 'no necesitamos el servicio ni queremos asumir un coste adicional', JSON.stringify(r?.rechazo))
+  ok('sin interés «ninguno» no hay rechazo, diga lo que diga la IA (las dos cosas tienen que ir juntas)', ['alto', 'medio', 'bajo', 'no_claro'].every((i) => dice({ interes: i, rechazo_frase: 'no nos interesa' })?.rechazo === null))
+  ok('sin sus palabras, o con unas que no se pueden comprobar (muy cortas), no hay rechazo', dice({ rechazo_frase: null })?.rechazo === null && dice({ rechazo_frase: '' })?.rechazo === null && dice({ rechazo_frase: '  ' })?.rechazo === null && dice({ rechazo_frase: 'no' })?.rechazo === null)
+  ok('en un buzón de voz o sin contenido no hay rechazo', leerResumen(JSON.stringify({ tipo: 'buzon_de_voz', resumen: 'Buzón.', linea: [], siguiente_paso: null, interes: 'ninguno', rechazo_frase: 'no nos interesa' }))?.rechazo === null)
+  ok('una respuesta de antes (sin el campo) se lee igual y sin rechazo', leerResumen(JSON.stringify({ tipo: 'conversacion', resumen: 'Hablaron.', linea: [], siguiente_paso: null, interes: 'ninguno' }))?.rechazo === null)
+  ok('sus palabras se recortan si son larguísimas', (dice({ rechazo_frase: 'no '.repeat(2000) })?.rechazo?.frase.length ?? 0) === TOPES.frase)
+  const e = construirEncargo({ transcripcion: 'Hola.', direccion: 'outbound', duracionS: 60, fecha: '2026-10-23T14:00:00Z', comercial: 'Maoli', empresa: 'Joe Black Pets' })
+  ok('el sistema le explica a la IA qué es un rechazo y qué NO lo es', e.system.includes('rechazo_frase') && e.system.includes('no nos interesa') && e.system.includes('ahora no puedo') && e.system.includes('más adelante'))
+}
+
+console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
     if (fallos > 0) process.exit(1)
   },
   (e) => {

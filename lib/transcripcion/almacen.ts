@@ -1,7 +1,7 @@
 import type { createServiceClient } from '@/lib/supabase/service'
 import { esDia } from '@/lib/correo/secuencias/fechas'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
-import { ESTADOS_QUE_SE_PUEDEN_TOCAR } from '@/lib/rellamada/reglas'
+import { ESTADOS_QUE_SE_CIERRAN_SIN_MAS, ESTADOS_QUE_SE_PUEDEN_TOCAR } from '@/lib/rellamada/reglas'
 import { INTENTOS_MAXIMOS } from './reglas'
 import { FALTA_MIGRACION_TURNOS, type Almacen, type AjustesDelMotor, type ContextoDeLaLlamada, type FalloParaGuardar, type FilaReservada, type LlamadaPendiente, type LlamadaSinTurnos, type ResultadoParaGuardar, type TranscripcionParaGuardar, type TurnosParaGuardar } from './motor'
 import type { LeadParaRellamada } from './rellamada'
@@ -210,6 +210,29 @@ export function almacenDeSupabase(service: Servicio, ahora: () => number = Date.
       const soloFecha = await service.from('cold_leads').update({ next_call_date: fecha, updated_at: cuando }).eq('id', leadId).eq('status', 'seguimiento').or(libre).select('id')
       if (soloFecha.error) throw new Error('No se ha podido poner la rellamada del lead.', { cause: soloFecha.error })
       return (soloFecha.data ?? []).length > 0 ? 'solo_fecha' : 'no'
+    },
+
+    async cerrarLead(leadId: string, hoy: string, ahora: number): Promise<boolean> {
+      const cuando = new Date(ahora).toISOString()
+      // «Sin contactar», «No contesta» e «Info enviada»: nadie los lleva, con o sin un día de rellamada suelto (ese día se queda guardado: solo se cambia el estado)
+      const sinProgramar = await service
+        .from('cold_leads')
+        .update({ status: 'no_interesa', updated_at: cuando })
+        .eq('id', leadId)
+        .in('status', [...ESTADOS_QUE_SE_CIERRAN_SIN_MAS])
+        .select('id')
+      if (sinProgramar.error) throw new Error('No se ha podido pasar el lead a «No le interesa».', { cause: sinProgramar.error })
+      if ((sinProgramar.data ?? []).length > 0) return true
+      // «Rellamada programada» solo si su día ya llegó o no tiene: si es para más adelante, la puso una persona pensando en esta llamada
+      const programado = await service
+        .from('cold_leads')
+        .update({ status: 'no_interesa', updated_at: cuando })
+        .eq('id', leadId)
+        .eq('status', 'programado')
+        .or(`next_call_date.is.null,next_call_date.lte.${hoy}`)
+        .select('id')
+      if (programado.error) throw new Error('No se ha podido pasar el lead a «No le interesa».', { cause: programado.error })
+      return (programado.data ?? []).length > 0
     },
 
     async apuntarNota(leadId: string, cuerpo: string, ocurrioAt: number): Promise<void> {

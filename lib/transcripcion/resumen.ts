@@ -3,7 +3,7 @@ import { diaDeMadrid, esDia, nombreDelDia } from '@/lib/correo/secuencias/fechas
 import { COMO_SACAR_EL_DIA } from '@/lib/rellamada/reglas'
 import { costeDeTexto } from './precios'
 import { MODELO_DE_RESUMEN_POR_DEFECTO } from './reglas'
-import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, QuienHabla, ResumenGenerado, TipoDeLlamada } from './tipos'
+import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, QuienHabla, RechazoDelCliente, ResumenGenerado, TipoDeLlamada } from './tipos'
 
 /**
  * LO QUE LA IA ENTIENDE DE UNA LLAMADA TRANSCRITA: RESUMEN, LÍNEA DE LA CONVERSACIÓN, SIGUIENTE PASO E INTERÉS.
@@ -11,7 +11,7 @@ import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, QuienHa
  * El encargo y la lectura de la respuesta son PUROS (se comprueban con resumen.prueba.ts); `resumirLlamada` es la llamada a OpenAI, con
  * un cliente que se puede sustituir y que NO LANZA: devuelve el resumen o el motivo de que no haya.
  *
- * UNA SOLA LLAMADA A LA IA por conversación saca las cuatro cosas —y, si el cliente pidió que se le vuelva a llamar un día concreto, ese día—, y la respuesta es JSON con esquema estricto. Se le da muy poco
+ * UNA SOLA LLAMADA A LA IA por conversación saca las cuatro cosas —y, si el cliente pidió que se le vuelva a llamar un día concreto, ese día; y, si dijo CLARAMENTE que no le interesa, sus palabras (el código las comprueba antes de cerrar el lead: rechazo.ts)—, y la respuesta es JSON con esquema estricto. Se le da muy poco
  * contexto —la transcripción, la fecha, el nombre de pila del comercial y el nombre de la tienda— porque cada dato de más es dinero y
  * porque no hace falta: la nota es sobre ESTA llamada.
  *
@@ -41,12 +41,13 @@ Reglas:
 - "siguiente_paso": lo que se acordó hacer (volver a llamar, enviar información, una cita…), con el día y la hora TAL COMO SE DIJERON («el jueves a las 10»); no calcules fechas. null si no se acordó nada.
 - "interes": «alto» si quiere avanzar (acepta una cita, una propuesta o volver a hablar); «medio» si escucha y pide información; «bajo» si es tibio o no ve la necesidad; «ninguno» si dice claramente que no; «no_claro» si no se puede saber.
 - "rellamada_fecha", "rellamada_hora" y "rellamada_frase": SOLO si en la conversación el cliente pide, o acepta, que se le vuelva a llamar (o a hablar con él) en un día o momento concreto: «llámame mañana», «el jueves a las 10 hablamos», «llámame después de Reyes», «dentro de dos semanas». "rellamada_fecha" es ese día en formato AAAA-MM-DD; "rellamada_hora", la hora en formato HH:MM si la dijo (null si no); "rellamada_frase", sus palabras copiadas TAL CUAL de la transcripción (de 2 a 15 palabras). Las tres son null si no pidió nada, si dijo que será él quien llame o escriba, si no concretó cuándo («más adelante», «ya os llamaré») o si el tipo no es «conversacion».
+- "rechazo_frase": SOLO si el cliente dice CLARAMENTE, y sin condiciones, que NO le interesa lo que se le ofrece, que no lo necesita, que no quiere o que no se le vuelva a llamar: sus palabras copiadas TAL CUAL de la transcripción (de 2 a 20 palabras). Sí vale: «no nos interesa», «no necesitamos nada de eso», «no, gracias, no queremos», «ya tenemos una agencia y estamos contentos», «no me vuelvan a llamar». NO vale, y es null: dudar o pedir pensarlo, «ahora no puedo» o «ahora no es buen momento», pedir que le llamen o escriban más adelante o que le envíen información, que le pasen con otra persona, una objeción con la que sigue hablando («es caro, pero…»), ni una conversación que acaba con una cita o un acuerdo. Es null si el tipo no es «conversacion», si "interes" no es «ninguno» o si hay "rellamada_fecha".
 ${COMO_SACAR_EL_DIA}`
 
 export const ESQUEMA_DEL_RESUMEN = {
   type: 'object',
   additionalProperties: false,
-  required: ['tipo', 'resumen', 'linea', 'siguiente_paso', 'interes', 'rellamada_fecha', 'rellamada_hora', 'rellamada_frase'],
+  required: ['tipo', 'resumen', 'linea', 'siguiente_paso', 'interes', 'rellamada_fecha', 'rellamada_hora', 'rellamada_frase', 'rechazo_frase'],
   properties: {
     tipo: { type: 'string', enum: ['conversacion', 'buzon_de_voz', 'sin_contenido'] },
     resumen: { type: 'string' },
@@ -64,6 +65,7 @@ export const ESQUEMA_DEL_RESUMEN = {
     rellamada_fecha: { type: ['string', 'null'] },
     rellamada_hora: { type: ['string', 'null'] },
     rellamada_frase: { type: ['string', 'null'] },
+    rechazo_frase: { type: ['string', 'null'] },
   },
 } as const
 
@@ -164,7 +166,22 @@ export function leerResumen(contenido: string | null | undefined): ResumenGenera
   }
 
   const paso = limpio(r.siguiente_paso, TOPES.siguientePaso)
-  return { tipo, resumen, linea: momentos, siguiente_paso: paso || null, interes, rellamada: tipo === 'conversacion' ? leerRellamada(r) : null }
+  return {
+    tipo,
+    resumen,
+    linea: momentos,
+    siguiente_paso: paso || null,
+    interes,
+    rellamada: tipo === 'conversacion' ? leerRellamada(r) : null,
+    // Un rechazo solo cuenta si la propia IA dice que el interés es «ninguno»: las dos cosas tienen que ir juntas
+    rechazo: tipo === 'conversacion' && interes === 'ninguno' ? leerRechazo(r) : null,
+  }
+}
+
+/** Las palabras con que el cliente dijo que no. Solo la frase: que esté en la llamada y que diga que no lo comprueba rechazo.ts antes de tocar nada */
+function leerRechazo(r: Record<string, unknown>): RechazoDelCliente | null {
+  const frase = limpio(r.rechazo_frase, TOPES.frase)
+  return frase.length >= 4 ? { frase } : null
 }
 
 /** Lo que el cliente pidió sobre volver a llamarle. Solo con un día de verdad (AAAA-MM-DD) y las palabras en que se apoya; la hora, solo si es una hora */

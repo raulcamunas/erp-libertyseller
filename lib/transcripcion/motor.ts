@@ -3,9 +3,10 @@ import { ErrorRinkel, MENSAJE_DE_ERROR } from '@/lib/rendimiento/rinkel'
 import { ErrorDeAudio, type AudioDescargado } from './audio'
 import { costeDeVoz, enDolares } from './precios'
 import { esperaTrasFallo, pistasDeLaLlamada, sinContenido, type PistasDeVoz } from './reglas'
+import { decidirCierreDeLlamada } from './rechazo'
 import { decidirRellamadaDeLlamada, type LeadParaRellamada } from './rellamada'
 import { construirEncargo, type ResultadoDelResumen } from './resumen'
-import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, TipoDeLlamada, TurnoDeLaLlamada } from './tipos'
+import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, ResumenGenerado, TipoDeLlamada, TurnoDeLaLlamada } from './tipos'
 import { INTENTOS_DE_TURNOS, MAX_FRASES_PARA_TURNOS, MIN_FRASES_PARA_TURNOS, armarTurnos, construirEncargoDeTurnos, partirEnFrases, type ResultadoDeTurnos } from './turnos'
 import { ErrorDeVoz, esFalloGeneralDeLaIa, type ResultadoDeVoz } from './voz'
 
@@ -26,6 +27,8 @@ import { ErrorDeVoz, esFalloGeneralDeLaIa, type ResultadoDeVoz } from './voz'
  *   4. El resumen (una llamada a la IA que saca resumen, línea de la conversación, siguiente paso e interés) y se guarda todo.
  *   5. Si el cliente pidió que se le llame un día («llámame el jueves»), ese día queda como la rellamada del lead (rellamada.ts decide). Es lo último y
  *      NO puede estropear nada de lo anterior: la llamada ya está transcrita y resumida, y si esto falla solo se apunta.
+ *   6. Si en cambio dijo CLARAMENTE que no le interesa («no necesitamos nada»), su lead pasa a «No le interesa» (rechazo.ts decide: sus palabras tienen que estar
+ *      en la llamada, nadie puede estar llevando el lead y no puede haber una rellamada por delante) y la ficha lo cuenta en una nota. Mismo trato que el paso 5.
  *
  * Y AL ACABAR LAS LLAMADAS, UN SEGUNDO TRABAJO APARTE: separar QUIÉN HABLA en la transcripción entera de las conversaciones ya resumidas («Comercial» y
  * «Cliente», deducido por la IA; turnos.ts). Va aparte para que el resumen no dependa de ello: sirve también para las llamadas que ya estaban hechas, se
@@ -132,6 +135,11 @@ export interface Almacen {
    * solo recibe la fecha
    */
   ponerRellamada(leadId: string, fecha: string, hoy: string, ahora: number): Promise<'programado' | 'solo_fecha' | 'no'>
+  /**
+   * Pasa el lead a «No le interesa» si nadie lo lleva («Sin contactar», «No contesta», «Info enviada», y «Rellamada programada» solo si su día ya llegó o no tiene).
+   * Condicionado en la base a eso: si el estado cambió mientras tanto, devuelve false y no toca nada. NO toca el día de «Rellamar el»
+   */
+  cerrarLead(leadId: string, hoy: string, ahora: number): Promise<boolean>
   /** Una nota del sistema (sin autor) en la línea de tiempo del lead. Si no se puede escribir, se apunta y se sigue */
   apuntarNota(leadId: string, cuerpo: string, ocurrioAt: number): Promise<void>
 
@@ -201,6 +209,8 @@ export interface ResultadoDelMotor {
   hechas: number
   /** Llamadas en las que el cliente pidió un día y ha quedado puesto como la rellamada de su lead */
   rellamadas: number
+  /** Leads que han pasado a «No le interesa» porque el cliente lo dijo claro en la llamada */
+  cerrados: number
   /** Conversaciones a las que se les ha separado quién habla en esta pasada (incluye las que ya estaban transcritas de antes) */
   turnos: number
   /** Qué ha pasado con el trabajo de los turnos si algo falta (la migración 253) o falla del todo. null = bien */
@@ -269,6 +279,8 @@ interface ResultadoDeUna {
   desenlace: Desenlace
   /** true = el cliente pidió un día y ha quedado puesto como la rellamada de su lead */
   rellamada?: boolean
+  /** true = el cliente dijo claramente que no y su lead ha pasado a «No le interesa» */
+  cerrado?: boolean
   /** Audio transcrito AHORA (0 si ya estaba transcrita o no se llegó) */
   segundos: number
   costeUsd: number
@@ -371,7 +383,9 @@ async function procesarUna(almacen: Almacen, deps: DepsDelMotor, claves: Map<str
     })
     // Lo entendido ya está guardado: ahora, y solo ahora, se toca la ficha del lead. Que no salga de aquí ningún error (no se debe marcar fallida una llamada hecha)
     const rellamada = r.resumen.rellamada ? await ponerLaRellamada(almacen, deps, c, transcripcion.texto, r.resumen.rellamada) : false
-    return { desenlace: r.resumen.tipo === 'sin_contenido' ? 'sin_contenido' : 'hecha', segundos: segundosNuevos, costeUsd: costeNuevo, rellamada }
+    // Un «no» claro cierra el lead; si el cliente pidió que le llamen otro día, manda esa rellamada y no se cierra nada
+    const cerrado = r.resumen.rellamada ? false : await cerrarSiDijoQueNo(almacen, deps, c, transcripcion.texto, r.resumen)
+    return { desenlace: r.resumen.tipo === 'sin_contenido' ? 'sin_contenido' : 'hecha', segundos: segundosNuevos, costeUsd: costeNuevo, rellamada, cerrado }
   } catch (e) {
     // Un fallo de la base o algo imprevisto: la llamada queda fallida (si ni siquiera eso se puede escribir, la reserva caduca sola a los 10 minutos)
     console.error('[transcripcion] fallo inesperado en una llamada', { nombre: e instanceof Error ? e.name : 'desconocido', mensaje: e instanceof Error ? e.message.slice(0, 160) : '' })
@@ -380,6 +394,37 @@ async function procesarUna(almacen: Almacen, deps: DepsDelMotor, claves: Map<str
     } catch {
       return { desenlace: 'fallida', segundos: segundosNuevos, costeUsd: costeNuevo }
     }
+  }
+}
+
+/**
+ * Si el cliente dijo claramente que NO le interesa, pasa su lead a «No le interesa» (rechazo.ts decide: palabras comprobadas, nadie lo lleva, sin rellamada
+ * por delante) y deja una nota en la ficha con qué dijo y cómo deshacerlo. Si dice que no pero el lead no se puede tocar, deja una nota para que lo mire una
+ * persona. Devuelve si lo ha cerrado. NUNCA lanza, por lo mismo que la rellamada: la llamada ya está transcrita y resumida.
+ */
+async function cerrarSiDijoQueNo(almacen: Almacen, deps: DepsDelMotor, c: LlamadaPendiente, transcripcion: string, resumen: ResumenGenerado): Promise<boolean> {
+  // Lo normal: nadie rechazó nada. Ni se lee el lead
+  if (resumen.tipo !== 'conversacion' || resumen.interes !== 'ninguno') return false
+  try {
+    const ahora = deps.ahora()
+    const hoy = diaDeMadrid(ahora)
+    const lead = await almacen.leadParaRellamada(c.lead_id)
+    const d = decidirCierreDeLlamada({ resumen, transcripcion, fechaDeLaLlamada: c.fecha, hoy, lead, comercialId: c.user_id })
+    if (!d.cerrar) {
+      if (d.nota) await almacen.apuntarNota(c.lead_id, d.nota, ahora)
+      return false
+    }
+    if (!(await almacen.cerrarLead(c.lead_id, hoy, ahora))) {
+      // Entre leer el lead y escribirle, alguien lo ha movido: gana la persona
+      await almacen.apuntarNota(c.lead_id, 'En una llamada el cliente dijo que no le interesa, pero la ficha ha cambiado mientras tanto y no se ha cambiado el estado. Revísala.', ahora)
+      return false
+    }
+    await almacen.apuntarNota(c.lead_id, d.nota, ahora)
+    return true
+  } catch (e) {
+    // Solo qué ha pasado, nunca lo que se dijo en la llamada
+    console.error('[transcripcion] no se ha podido pasar el lead a «No le interesa»', { nombre: e instanceof Error ? e.name : 'desconocido', mensaje: e instanceof Error ? e.message.slice(0, 160) : '' })
+    return false
   }
 }
 
@@ -434,6 +479,7 @@ async function transcribirLasPendientes(almacen: Almacen, deps: DepsDelMotor, op
     candidatas: 0,
     hechas: 0,
     rellamadas: 0,
+    cerrados: 0,
     turnos: 0,
     avisoDeTurnos: null,
     sinContenido: 0,
@@ -489,6 +535,7 @@ async function transcribirLasPendientes(almacen: Almacen, deps: DepsDelMotor, op
       salida.segundos += r.segundos
       salida.costeUsd += r.costeUsd
       if (r.rellamada) salida.rellamadas++
+      if (r.cerrado) salida.cerrados++
       if (r.desenlace === 'hecha') salida.hechas++
       else if (r.desenlace === 'sin_contenido') salida.sinContenido++
       else if (r.desenlace === 'omitida') salida.omitidas++
@@ -594,6 +641,7 @@ export function resumenDeLaPasada(r: ResultadoDelMotor): string {
     const hechas = r.hechas + r.sinContenido
     partes.push(`${hechas} ${hechas === 1 ? 'transcrita' : 'transcritas'}${r.sinContenido > 0 ? ` (${r.sinContenido} sin contenido)` : ''}`)
     if (r.rellamadas > 0) partes.push(`${r.rellamadas} ${r.rellamadas === 1 ? 'rellamada puesta' : 'rellamadas puestas'}`)
+    if (r.cerrados > 0) partes.push(`${r.cerrados} ${r.cerrados === 1 ? 'lead pasado' : 'leads pasados'} a «No le interesa»`)
     if (r.omitidas > 0) partes.push(`${r.omitidas} ${r.omitidas === 1 ? 'omitida' : 'omitidas'}`)
     if (r.fallidas > 0) partes.push(`${r.fallidas} ${r.fallidas === 1 ? 'fallida' : 'fallidas'}`)
     if (r.ajenas > 0) partes.push(`${r.ajenas} en manos de otra pasada`)

@@ -17,6 +17,12 @@ export const MAX_DIAS_DE_RELLAMADA = 400
 /** Los estados en que un lead se puede pasar a «No le interesa» o programar sin pisar el trabajo de nadie (nadie lo está llevando) */
 export const ESTADOS_QUE_SE_PUEDEN_TOCAR: readonly string[] = ['pendiente', 'no_contesta', 'programado', 'email_enviado']
 
+/**
+ * De esos, los que se pasan a «No le interesa» sin mirar nada más (nadie los lleva). «Rellamada programada» queda aparte: solo se cierra si su día ya llegó o no
+ * tiene, porque con un día por llegar la rellamada la puso una persona (o el cliente la pidió) y un «no» de otra llamada no la borra.
+ */
+export const ESTADOS_QUE_SE_CIERRAN_SIN_MAS: readonly string[] = ESTADOS_QUE_SE_PUEDEN_TOCAR.filter((estado) => estado !== 'programado')
+
 /** Cómo se calcula el día que pide el cliente. Va dentro de las instrucciones de la IA, tanto en la de los correos como en la de las llamadas */
 export const COMO_SACAR_EL_DIA = `Cómo sacar el día (AAAA-MM-DD), contando desde la fecha de hoy que te doy:
 - «mañana» es el día siguiente; «pasado mañana», dos días después; «dentro de N días», hoy más N días.

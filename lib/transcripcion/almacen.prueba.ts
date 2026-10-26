@@ -241,6 +241,32 @@ const run = async () => {
     ok('si no se puede escribir, no lanza: se apunta y se sigue', true)
   }
 
+  console.log('\n=== «no me interesa»: pasar el lead a «No le interesa» ===')
+  {
+    // La primera escritura toca algo: un lead que nadie lleva
+    const f = falso(() => ({ data: [{ id: 'l1' }] }))
+    const r = await almacenDeSupabase(f.servicio, () => AHORA).cerrarLead('l1', '2026-10-23', AHORA)
+    const l = f.llamadas[0]
+    const cambios = cadena(l, 'update')?.[0] as Record<string, unknown>
+    ok('pone el estado «no_interesa» en el lead, con la hora de ahora, y NO toca el día de rellamada', r === true && f.llamadas.length === 1 && l.tabla === 'cold_leads' && cambios.status === 'no_interesa' && cambios.updated_at === '2026-10-23T15:00:00.000Z' && !('next_call_date' in cambios), JSON.stringify(cambios))
+    ok('solo si nadie lo lleva: «Sin contactar», «No contesta» e «Info enviada»', hay(l, 'eq', 'id', 'l1') && hay(l, 'in', 'status', ['pendiente', 'no_contesta', 'email_enviado']))
+  }
+  {
+    // Nada con el primer filtro: «Rellamada programada» cuyo día ya llegó (o sin día)
+    const f = falso((l) => (hay(l, 'eq', 'status', 'programado') ? { data: [{ id: 'l1' }] } : { data: [] }))
+    const r = await almacenDeSupabase(f.servicio, () => AHORA).cerrarLead('l1', '2026-10-23', AHORA)
+    const segunda = f.llamadas[1]
+    const cambios = cadena(segunda, 'update')?.[0] as Record<string, unknown>
+    ok('si no era de los primeros, prueba con «Rellamada programada» solo si su día ya llegó o no tiene', r === true && f.llamadas.length === 2 && cambios.status === 'no_interesa' && hay(segunda, 'eq', 'id', 'l1') && hay(segunda, 'or', 'next_call_date.is.null,next_call_date.lte.2026-10-23'))
+    ok('y tampoco toca el día de rellamada', !('next_call_date' in cambios))
+  }
+  {
+    const f = falso(() => ({ data: [] }))
+    ok('si no cambia nada (alguien lo movió mientras tanto, o es de los que lleva una persona), false', (await almacenDeSupabase(f.servicio, () => AHORA).cerrarLead('l1', '2026-10-23', AHORA)) === false && f.llamadas.length === 2)
+    ok('sin datos devueltos es lo mismo', (await almacenDeSupabase(falso(() => ({ data: null })).servicio).cerrarLead('l1', '2026-10-23', AHORA)) === false)
+  }
+  await falla('un error al cerrar el lead sale como frase nuestra, sin el cuerpo de la respuesta', () => almacenDeSupabase(falso(() => ({ error: { code: '500', message: 'secreto interno' } })).servicio).cerrarLead('l1', '2026-10-23', AHORA), (m) => /No le interesa/.test(m) && !/secreto/.test(m))
+
   console.log('\n=== quién habla: las conversaciones que faltan por separar ===')
   {
     const responder = (l: Llamada): Respuesta => {

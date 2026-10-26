@@ -74,7 +74,7 @@ interface Mundo {
   filas: Map<string, Fila>
   llamadasA: { claves: string[]; urls: string[]; audios: number; voz: number; resumen: number; reservas: string[] }
   reloj: { ahora: number }
-  fallosDeAlmacen: Partial<Record<'reservar' | 'guardarTranscripcion' | 'guardarResultado' | 'leerAjustes' | 'leadParaRellamada' | 'ponerRellamada' | 'apuntarNota' | 'pendientesDeTurnos' | 'faltaLa253' | 'guardarTurnos', boolean>>
+  fallosDeAlmacen: Partial<Record<'reservar' | 'guardarTranscripcion' | 'guardarResultado' | 'leerAjustes' | 'leadParaRellamada' | 'ponerRellamada' | 'cerrarLead' | 'apuntarNota' | 'pendientesDeTurnos' | 'faltaLa253' | 'guardarTurnos', boolean>>
   /** Las conversaciones con su estado de turnos, tal como las deja el motor */
   turnos: Map<string, { intentos: number; turnos: TurnoDeLaLlamada[] | null; modelo: string | null }>
   /** Lo que se le ha pedido a la IA para separar quién habla */
@@ -103,6 +103,8 @@ interface Config {
   festivos?: string[]
   /** Fuerza lo que contesta la base al poner la rellamada (por ejemplo 'no', como si alguien hubiera tocado la ficha entre medias) */
   ponerRellamadaDevuelve?: 'programado' | 'solo_fecha' | 'no'
+  /** Fuerza lo que contesta la base al cerrar el lead (false = alguien ha tocado la ficha entre medias) */
+  cerrarLeadDevuelve?: boolean
   url?: (grabacion: string) => Promise<string>
   audio?: (url: string) => Promise<AudioDescargado>
   voz?: (n: number) => Promise<ResultadoDeVoz>
@@ -241,6 +243,16 @@ function mundo(c: Config): Mundo {
         return 'solo_fecha'
       }
       return 'no'
+    },
+    // Lo mismo que hace el SQL: «Sin contactar», «No contesta» e «Info enviada» siempre; «Rellamada programada» solo con el día de hoy, ya pasado o sin día
+    async cerrarLead(leadId, hoy) {
+      if (fallosDeAlmacen.cerrarLead) throw new Error('la base no contesta')
+      if (c.cerrarLeadDevuelve === false) return false
+      const l = leads.get(leadId)
+      if (!l) return false
+      const cierra = ['pendiente', 'no_contesta', 'email_enviado'].includes(l.status) || (l.status === 'programado' && (l.nextCallDate === null || l.nextCallDate <= hoy))
+      if (cierra) l.status = 'no_interesa'
+      return cierra
     },
     async apuntarNota(leadId, cuerpo) {
       if (fallosDeAlmacen.apuntarNota) throw new Error('la base no contesta')
@@ -604,6 +616,122 @@ const run = async () => {
     ok(`si ${que}, la llamada sigue HECHA (no se marca fallida ni se paga otro resumen) y la pasada no falla`, r.hechas === 1 && r.fallidas === 0 && r.rellamadas === 0 && r.parada === null && m.filas.get('llamada-1')!.estado === 'hecha' && m.llamadasA.resumen === 1)
   }
 
+  console.log('\n=== «no me interesa»: el lead pasa solo a «No le interesa» ===')
+  {
+    const CON_RECHAZO = 'Hola, soy Pedro, de Joe Black Pets. Mira, os agradezco la llamada pero no necesitamos el servicio ni queremos asumir ningún coste adicional, así que no nos interesa. Gracias, adiós.'
+    const vozConRechazo = async (): Promise<ResultadoDeVoz> => ({ texto: CON_RECHAZO, idiomas: ['es'], segundos: 60 })
+    const sinInteres = (extra: Partial<NonNullable<ResultadoDelResumen['resumen']>> = {}): ResultadoDelResumen => ({
+      ...RESUMEN_BUENO,
+      resumen: { ...RESUMEN_BUENO.resumen!, interes: 'ninguno', siguiente_paso: null, rechazo: { frase: 'no necesitamos el servicio' }, ...extra },
+    })
+    const lleva = (m: Mundo, id = 'lead-1') => m.leads.get(id)!
+
+    // El caso de siempre
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres() })
+      const r = await pasada(m)
+      ok('un «no» claro pasa el lead a «No le interesa» y se cuenta', r.hechas === 1 && r.cerrados === 1 && lleva(m).status === 'no_interesa' && r.rellamadas === 0, `${r.cerrados} · ${lleva(m).status}`)
+      ok('la ficha lo cuenta: qué dijo, que lo ha hecho el ERP solo y cómo deshacerlo', m.notas.length === 1 && /no le interesa/.test(m.notas[0].cuerpo) && m.notas[0].cuerpo.includes('«no necesitamos el servicio»') && /automáticamente/.test(m.notas[0].cuerpo) && /cámbialo/.test(m.notas[0].cuerpo), m.notas[0]?.cuerpo ?? '')
+      ok('el texto de la pasada lo dice', /1 lead pasado a «No le interesa»/.test(resumenDeLaPasada(r)), resumenDeLaPasada(r))
+      ok('y en plural', /2 leads pasados a «No le interesa»/.test(resumenDeLaPasada({ ...r, cerrados: 2 })))
+      ok('la llamada queda HECHA y su resumen guardado tal cual (el interés sigue siendo «ninguno»)', m.filas.get('llamada-1')!.estado === 'hecha' && m.filas.get('llamada-1')!.resultado?.interes === 'ninguno')
+    }
+    // Todos los estados que nadie lleva
+    for (const status of ['pendiente', 'no_contesta', 'email_enviado']) {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), leads: { 'lead-1': { status } } })
+      const r = await pasada(m)
+      ok(`un lead en «${status}» se cierra`, r.cerrados === 1 && lleva(m).status === 'no_interesa')
+    }
+    // El caso de la captura: «Sin contactar» con un día de rellamada suelto. Se cierra, y el día se queda guardado
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), leads: { 'lead-1': { status: 'pendiente', nextCallDate: '2026-11-02' } } })
+      const r = await pasada(m)
+      ok('«Sin contactar» con un día de rellamada suelto se cierra y NO se borra el día', r.cerrados === 1 && lleva(m).status === 'no_interesa' && lleva(m).nextCallDate === '2026-11-02')
+      ok('la nota avisa de que el día sigue guardado', /sigue guardado/.test(m.notas[0].cuerpo), m.notas[0].cuerpo)
+    }
+    // «Rellamada programada»: solo si su día ya llegó
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), leads: { 'lead-1': { status: 'programado', nextCallDate: '2026-11-02' } } })
+      const r = await pasada(m)
+      ok('con una rellamada por delante NO se cierra: lo programó una persona pensando en esta llamada. Se avisa en una nota', r.cerrados === 0 && lleva(m).status === 'programado' && m.notas.length === 1 && /rellamada puesta para el/.test(m.notas[0].cuerpo), m.notas[0]?.cuerpo ?? '')
+      ok('y la llamada sigue hecha, la pasada sin fallos', r.hechas === 1 && r.fallidas === 0 && r.parada === null)
+    }
+    {
+      // El reloj de estas pruebas marca el viernes 23 de octubre: la rellamada de hoy es la que se acaba de hacer
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), leads: { 'lead-1': { status: 'programado', nextCallDate: '2026-10-23' } } })
+      const r = await pasada(m)
+      ok('con la rellamada de hoy (la que se acaba de hacer) sí se cierra', r.cerrados === 1 && lleva(m).status === 'no_interesa')
+      const m2 = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), leads: { 'lead-1': { status: 'programado', nextCallDate: '2026-10-20' } } })
+      ok('y con una ya vencida, también', (await pasada(m2)).cerrados === 1 && lleva(m2).status === 'no_interesa')
+    }
+    // Lo que lleva una persona
+    for (const status of ['seguimiento', 'cita_cualificada']) {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), leads: { 'lead-1': { status } } })
+      const r = await pasada(m)
+      ok(`un lead en «${status}» NO se cierra y se avisa con una nota`, r.cerrados === 0 && lleva(m).status === status && m.notas.length === 1 && /no se ha cambiado/.test(m.notas[0].cuerpo), m.notas[0]?.cuerpo ?? '')
+    }
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), leads: { 'lead-1': { assignedTo: 'otra-persona' } } })
+      const r = await pasada(m)
+      ok('el lead de otra persona NO se toca: nota', r.cerrados === 0 && lleva(m).status === 'pendiente' && /de otra persona/.test(m.notas[0]?.cuerpo ?? ''))
+    }
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), leads: { 'lead-1': { status: 'no_interesa' } } })
+      const r = await pasada(m)
+      ok('uno que ya estaba en «No le interesa» no se cuenta ni deja nota', r.cerrados === 0 && m.notas.length === 0)
+    }
+    // Lo que no se puede comprobar
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres({ rechazo: { frase: 'ahora mismo no estamos interesados para nada' } }) })
+      const r = await pasada(m)
+      ok('unas palabras que no están en la llamada no cierran nada y dejan una nota (no se calla)', r.cerrados === 0 && lleva(m).status === 'pendiente' && /no se ha podido comprobar/.test(m.notas[0]?.cuerpo ?? ''), m.notas[0]?.cuerpo ?? '')
+    }
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres({ rechazo: null }) })
+      const r = await pasada(m)
+      ok('«sin interés» sin sus palabras: tampoco cierra, y lo dice', r.cerrados === 0 && lleva(m).status === 'pendiente' && m.notas.length === 1)
+    }
+    // Lo que pasa cuando el cliente también pide un día, o no hay rechazo
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRellamada, resumen: async () => ({ ...resumenConRellamada(), resumen: { ...resumenConRellamada().resumen!, interes: 'ninguno', rechazo: { frase: 'llámame el jueves a las diez' } } }) })
+      const r = await pasada(m)
+      ok('si pide que le llamen un día, manda la rellamada: se programa y NO se cierra', r.rellamadas === 1 && r.cerrados === 0 && lleva(m).status === 'programado')
+    }
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => ({ ...RESUMEN_BUENO, resumen: { ...RESUMEN_BUENO.resumen!, interes: 'bajo' } }) })
+      const r = await pasada(m)
+      ok('con interés «bajo» (tibio) no se hace nada, ni se lee el lead', r.cerrados === 0 && m.notas.length === 0 && lleva(m).status === 'pendiente')
+    }
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo })
+      const r = await pasada(m)
+      ok('una llamada con interés alto (la de siempre) no toca nada', r.cerrados === 0 && m.notas.length === 0)
+    }
+    // Fallos
+    {
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres(), cerrarLeadDevuelve: false })
+      const r = await pasada(m)
+      ok('si entre leer el lead y escribirle alguien lo ha movido, no se cierra y se avisa', r.cerrados === 0 && /ha cambiado mientras tanto/.test(m.notas[0]?.cuerpo ?? '') && m.filas.get('llamada-1')!.estado === 'hecha')
+    }
+    for (const [que, fallo] of [['no se puede leer el lead', 'leadParaRellamada'], ['no se puede escribir el cierre', 'cerrarLead']] as const) {
+      const registros: string[] = []
+      const original = console.error
+      console.error = (...a: unknown[]) => registros.push(JSON.stringify(a))
+      const m = mundo({ pendientes: [llamada(1)], voz: vozConRechazo, resumen: async () => sinInteres() })
+      m.fallosDeAlmacen[fallo] = true
+      const r = await pasada(m)
+      console.error = original
+      ok(`si ${que}, la llamada sigue HECHA (no se marca fallida ni se paga otro resumen) y la pasada no falla`, r.hechas === 1 && r.fallidas === 0 && r.cerrados === 0 && r.parada === null && m.filas.get('llamada-1')!.estado === 'hecha' && m.llamadasA.resumen === 1)
+      ok('y lo que se apunta en la consola no trae lo que se dijo en la llamada', !/Pedro|Joe Black|necesitamos/.test(registros.join(' ')), registros.join(' '))
+    }
+    // Varias llamadas en la misma pasada
+    {
+      const m = mundo({ pendientes: [llamada(1), llamada(2), llamada(3)], voz: vozConRechazo, resumen: async (n) => (n === 2 ? RESUMEN_BUENO : sinInteres()) })
+      const r = await pasada(m)
+      ok('de tres llamadas, a dos les dijeron que no: se cierran dos', r.hechas === 3 && r.cerrados === 2 && lleva(m, 'lead-1').status === 'no_interesa' && lleva(m, 'lead-2').status === 'pendiente' && lleva(m, 'lead-3').status === 'no_interesa', `${r.cerrados}`)
+    }
+  }
+
   console.log('\n=== quién habla en la transcripción entera ===')
   {
     const pendientes = (n: number, extra: Partial<LlamadaSinTurnos> = {}) => Array.from({ length: n }, (_, i) => ({ llamadaId: `conv-${i + 1}`, ...extra }))
@@ -745,7 +873,7 @@ const run = async () => {
 
   console.log('\n=== el texto de la pasada ===')
   {
-    const base: ResultadoDelMotor = { candidatas: 5, hechas: 3, rellamadas: 0, turnos: 0, avisoDeTurnos: null, sinContenido: 1, omitidas: 1, fallidas: 0, ajenas: 0, segundos: 330, costeUsd: 0.0312, parada: null, aviso: null, segundos24h: 1200, topeMinutos: 400 }
+    const base: ResultadoDelMotor = { candidatas: 5, hechas: 3, rellamadas: 0, cerrados: 0, turnos: 0, avisoDeTurnos: null, sinContenido: 1, omitidas: 1, fallidas: 0, ajenas: 0, segundos: 330, costeUsd: 0.0312, parada: null, aviso: null, segundos24h: 1200, topeMinutos: 400 }
     const t = resumenDeLaPasada(base)
     ok('cuenta lo hecho, lo omitido, los minutos y el dinero', /4 transcritas \(1 sin contenido\)/.test(t) && /1 omitida/.test(t) && /5,5 min de audio · 0,031 \$/.test(t), t)
     ok('y cuánto del tope se lleva (20 + 5,5 min de 400)', /24 h: 26 de 400 min/.test(t), t)

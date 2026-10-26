@@ -46,6 +46,15 @@ export interface PeticionDeRellamada {
   frase: string
 }
 
+/**
+ * Un «no» claro del cliente («no nos interesa», «no necesitamos nada»), tal como lo entendió la IA. Sin comprobar todavía: antes de pasar el lead a «No le
+ * interesa» se comprueba (rechazo.ts) que sus palabras estén de verdad en la llamada y que digan que no.
+ */
+export interface RechazoDelCliente {
+  /** Sus palabras, copiadas de la transcripción, en que se apoya la IA */
+  frase: string
+}
+
 /** Lo que la IA entiende de una transcripción */
 export interface ResumenGenerado {
   tipo: TipoDeLlamada
@@ -57,6 +66,8 @@ export interface ResumenGenerado {
   interes: InteresDeLlamada
   /** Si el cliente pidió o aceptó que se le vuelva a llamar un día concreto. null si no (casi siempre) */
   rellamada?: PeticionDeRellamada | null
+  /** Si el cliente dijo CLARAMENTE que no le interesa. null si no (lo normal): una duda, un «ahora no» o un «llámame luego» no son un rechazo */
+  rechazo?: RechazoDelCliente | null
 }
 
 export type EstadoDeTranscripcion = 'procesando' | 'hecha' | 'fallida' | 'omitida'
