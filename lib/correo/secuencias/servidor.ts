@@ -1,7 +1,9 @@
 import { decidirAcceso, type QuienPide } from '../acceso'
+import { avisoDeAccionDeOtro, type AvisoParaLaCampana } from '../campana'
 import { adelantarPaso, cancelarSecuencia, editarPaso, pausarSecuencia, reanudarSecuencia, reintentarPaso, saltarPaso, type ResultadoDeAccion } from './acciones'
 import { validarAjustes, validarAjustesDeBuzon } from './ajustes'
 import type { AlmacenDeSecuencias } from './almacen'
+import { avisarAlDueno, nombreEnElAviso } from './avisar'
 import { constructorDeCapacidad } from './capacidad'
 import { diaDeMadrid, instanteDeMadrid, sumarDiasHabiles } from './fechas'
 import { ejecutarPasada, planificarPendientes, type DependenciasDelMotor, type ResumenDePasada } from './motor'
@@ -337,7 +339,19 @@ export type AccionSobreSecuencia =
 
 const NO_EXISTE: ResultadoDeAccion & { estado: number } = { ok: false, mensaje: 'No existe esa secuencia.', estado: 404 }
 
-export async function accionSobreSecuencia(almacen: Almacen, quien: QuienPide, id: string, a: AccionSobreSecuencia, ahora: () => number = Date.now): Promise<ResultadoDeAccion & { estado: number }> {
+/**
+ * Hace una acción sobre una secuencia. Si es un administrador (o quien supervisa) el que PAUSA o CANCELA la secuencia de otra persona, a esa persona le llega
+ * un aviso a su campana (`avisar`, que pone la ruta; sin él, no avisa): se entera de por qué dejan de salir sus seguimientos. Lo que cada uno hace con lo suyo
+ * no avisa a nadie.
+ */
+export async function accionSobreSecuencia(
+  almacen: Almacen,
+  quien: QuienPide,
+  id: string,
+  a: AccionSobreSecuencia,
+  ahora: () => number = Date.now,
+  avisar?: (aviso: AvisoParaLaCampana) => Promise<void>
+): Promise<ResultadoDeAccion & { estado: number }> {
   const c = await cargarConAcceso(almacen, quien, id)
   if (!c) return NO_EXISTE
   const deps = { almacen, ahora }
@@ -368,6 +382,22 @@ export async function accionSobreSecuencia(almacen: Almacen, quien: QuienPide, i
       else if (a.accion === 'adelantar') r = await adelantarPaso(deps, c.ins, paso, lectura.ajustes)
       else r = await editarPaso(deps, c.ins, paso, { asunto: a.asunto, texto: a.texto })
     }
+  }
+  if (r.ok && !c.esDueno && (a.accion === 'pausar' || a.accion === 'cancelar')) {
+    const accion = a.accion
+    await avisarAlDueno({ avisar }, async () => {
+      const nombres = await almacen.nombresDePersonas([quien.userId])
+      return avisoDeAccionDeOtro({
+        userId: c.ins.userId,
+        buzonId: c.ins.buzonId,
+        inscripcionId: c.ins.id,
+        leadId: c.ins.leadId,
+        lead: await nombreEnElAviso({ almacen }, c.ins.leadId, c.ins.destinatario),
+        quien: nombres.get(quien.userId) ?? 'Un administrador',
+        accion,
+        cuando: ahora(),
+      })
+    })
   }
   return { ...r, estado: r.ok ? 200 : 409 }
 }

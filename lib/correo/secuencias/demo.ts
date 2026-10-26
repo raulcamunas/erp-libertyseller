@@ -204,6 +204,8 @@ async function construir(opciones: { dia: string; minutos: number; dias: number 
     const r = hecho ? { decision: hecho.decision, motivo: hecho.motivo, texto: hecho.texto } : { decision: 'escribir' as const, motivo: 'Escrito con lo que consta del lead.', texto: borrador }
     return { redaccion: r, modelo: 'gpt-6-luna', aviso: null, tokens: null, llamadas: 1 }
   }
+  // La demostración no escribe en la campana de nadie: sus personas no existen
+  m.deps.avisar = undefined
   m.deps.clasificar = async (mensajes) => {
     const dicho = RESPUESTAS.find((r) => mensajes.usuario.includes(r.clasificacion.evidencia))
     const clasificacion: Clasificacion = dicho?.clasificacion ?? { clase: 'otro', confianza: 'alta', evidencia: '', resumen: 'Otra cosa.', fecha: null }

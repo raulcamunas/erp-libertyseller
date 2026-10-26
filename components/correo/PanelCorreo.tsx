@@ -82,6 +82,8 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
   const [verSecuencias, setVerSecuencias] = useState(false)
   const [enSecuencias, setEnSecuencias] = useState(false)
   const [secuenciasMontadas, setSecuenciasMontadas] = useState(false)
+  // La secuencia que otra aplicación (la campana de la barra lateral) ha pedido abrir; se le entrega a la pantalla de Secuencias, que la abre y la suelta
+  const [secuenciaPedida, setSecuenciaPedida] = useState<string | null>(null)
 
   const [vista, setVista] = useState<VistaDeCorreo>('todos')
   const [soloNoLeidos, setSoloNoLeidos] = useState(false)
@@ -424,6 +426,14 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
     if (!peticion || !buzones) return
     setPeticion(null)
 
+    if (peticion.tipo === 'secuencia') {
+      setEnEquipo(false)
+      setConectando(false)
+      setSecuenciaPedida(peticion.inscripcionId)
+      abrirSecuencias()
+      return
+    }
+
     if (peticion.tipo === 'hilo') {
       const destino = buzones.find((b) => b.id === peticion.buzonId)
       if (!destino) return
@@ -717,7 +727,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
 
       {secuenciasMontadas && (
         <div className={enSecuencias ? '' : 'hidden'}>
-          <PantallaDeSecuencias onVolver={() => setEnSecuencias(false)} visible={activa && enSecuencias} />
+          <PantallaDeSecuencias onVolver={() => setEnSecuencias(false)} visible={activa && enSecuencias} abrirId={secuenciaPedida} onAbierta={() => setSecuenciaPedida(null)} />
         </div>
       )}
 

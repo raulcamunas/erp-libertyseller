@@ -40,7 +40,10 @@ export interface Consulta {
   cabecera: boolean
   modo: 'lista' | 'uno' | 'quizas'
   valores: unknown
+  /** Las columnas del ON CONFLICT de un upsert, separadas por comas (`user_id,clave`) */
   conflicto: string | null
+  /** `ignoreDuplicates` de un upsert: si ya existe la fila, se deja como está en vez de actualizarla */
+  ignorarRepetidos: boolean
   rpc: { nombre: string; args: Record<string, unknown> } | null
 }
 
@@ -76,6 +79,7 @@ class Constructor implements PromiseLike<Resultado> {
       modo: 'lista',
       valores: null,
       conflicto: null,
+      ignorarRepetidos: false,
       rpc: null,
       ...inicial,
     }
@@ -157,7 +161,7 @@ export interface ClienteFalso {
     select(columnas?: string, opciones?: { count?: 'exact'; head?: boolean }): Constructor
     insert(valores: unknown): Constructor
     update(valores: unknown): Constructor
-    upsert(valores: unknown, opciones?: { onConflict?: string }): Constructor
+    upsert(valores: unknown, opciones?: { onConflict?: string; ignoreDuplicates?: boolean }): Constructor
     delete(): Constructor
   }
   rpc(nombre: string, args?: Record<string, unknown>): Constructor
@@ -170,7 +174,7 @@ export function crearCliente(ejecutor: Ejecutor): ClienteFalso {
       select: (columnas = '*', opciones) => new Constructor(ejecutor, { tabla, op: 'select' }).select(columnas, opciones),
       insert: (valores) => new Constructor(ejecutor, { tabla, op: 'insert', valores }),
       update: (valores) => new Constructor(ejecutor, { tabla, op: 'update', valores }),
-      upsert: (valores, opciones) => new Constructor(ejecutor, { tabla, op: 'upsert', valores, conflicto: opciones?.onConflict ?? null }),
+      upsert: (valores, opciones) => new Constructor(ejecutor, { tabla, op: 'upsert', valores, conflicto: opciones?.onConflict ?? null, ignorarRepetidos: opciones?.ignoreDuplicates === true }),
       delete: () => new Constructor(ejecutor, { tabla, op: 'delete' }),
     }),
     rpc: (nombre, args = {}) => new Constructor(ejecutor, { tabla: '', op: 'rpc', rpc: { nombre, args } }),
@@ -213,12 +217,13 @@ export const ESQUEMA: Readonly<Record<string, EsquemaDeTabla>> = {
   },
   // El registro de los procesos automáticos (migración 137) y la campana (040): lo que usa la salud de las secuencias
   cron_ejecuciones: { columnas: ['id', 'tarea', 'iniciado_at', 'terminado_at', 'ok', 'resumen', 'error', 'duracion_ms', 'lanzado_por'], requeridas: ['tarea'] },
-  notifications: { columnas: ['id', 'user_id', 'type', 'title', 'message', 'read', 'created_at'], requeridas: ['user_id', 'type', 'title'] },
+  // `clave` y `datos` los añade la migración 251 (la campana avisa a cada uno de lo suyo en el correo)
+  notifications: { columnas: ['id', 'user_id', 'type', 'title', 'message', 'read', 'created_at', 'clave', 'datos'], requeridas: ['user_id', 'type', 'title'] },
   correo_credenciales: { columnas: ['buzon_id', 'secreto_cifrado'] },
   correo_carpetas: { columnas: ['id', 'buzon_id', 'ruta', 'rol'] },
   correo_hilos: { columnas: ['id', 'buzon_id', 'asunto', 'primer_mensaje_at', 'ultimo_mensaje_at'] },
   correo_mensajes: {
-    columnas: ['id', 'buzon_id', 'hilo_id', 'carpeta_id', 'message_id', 'direccion', 'de_direccion', 'destinatarios', 'asunto', 'fecha', 'texto', 'automatico', 'creado_at'],
+    columnas: ['id', 'buzon_id', 'hilo_id', 'carpeta_id', 'message_id', 'direccion', 'de_direccion', 'destinatarios', 'asunto', 'fecha', 'texto', 'automatico', 'creado_at', 'de_nombre', 'vista_previa', 'leido'],
   },
   correo_direcciones_malas: { columnas: ['direccion', 'estado', 'motivo', 'origen', 'veces', 'primera_vez', 'ultima_vez'], requeridas: ['direccion'] },
   correo_secuencias: { columnas: ['id', 'nombre', 'activa', 'es_base', 'pasos'] },
@@ -295,7 +300,13 @@ export class BaseEnMemoria {
   /** Tablas que «no existen» (la migración sin lanzar): cualquier consulta da PGRST205 */
   ausentes = new Set<string>()
   /** Los tipos que admite la campana (la restricción de la migración 248 añade `alarma_correo`: quitarlo imita no haberla lanzado) */
-  tiposDeNotificacion = new Set(['comment', 'mention', 'task_assigned', 'task_updated', 'web_lead', 'freno_stock', 'fallo_stock', 'fallo_amazon', 'job_amazon', 'alarma_correo'])
+  tiposDeNotificacion = new Set([
+    'comment', 'mention', 'task_assigned', 'task_updated', 'web_lead', 'freno_stock', 'fallo_stock', 'fallo_amazon', 'job_amazon', 'alarma_correo',
+    // Los de la migración 251
+    'correo_nuevo', 'correo_rebote', 'secuencia_pausada', 'secuencia_parada', 'respuesta_lead',
+  ])
+  /** true = la migración 251 sin lanzar: `notifications` no tiene las columnas `clave` y `datos` (ni el índice de la clave) */
+  sinLa251 = false
   /** Cada consulta que ha pasado, por si una prueba quiere comprobar qué se ha pedido */
   registro: Consulta[] = []
 
@@ -319,6 +330,11 @@ export class BaseEnMemoria {
     this.registro.push(c)
     if (c.op === 'rpc') return this.rpc(c.rpc!.nombre, c.rpc!.args)
     if (this.ausentes.has(c.tabla) || !this.tablas.has(c.tabla)) return error('PGRST205', `La tabla ${c.tabla} no está en la caché de esquema`)
+    if (this.sinLa251 && c.tabla === 'notifications') {
+      const columnasNuevas = ['clave', 'datos']
+      const toca = (c.valores !== null && typeof c.valores === 'object' && (Array.isArray(c.valores) ? c.valores : [c.valores]).some((v) => columnasNuevas.some((col) => col in (v as Fila)))) || c.filtros.some((f) => columnasNuevas.includes(f.col)) || columnasNuevas.some((col) => c.columnas.split(',').map((x) => x.trim()).includes(col)) || (c.conflicto ?? '').includes('clave')
+      if (toca) return error('42703', 'column "clave" of relation "notifications" does not exist')
+    }
     switch (c.op) {
       case 'select':
         return this.leer(c)
@@ -523,6 +539,7 @@ export class BaseEnMemoria {
       defecto('call_attempts', 0)
     }
     if (tabla === 'correo_mensajes') {
+      defecto('leido', false)
       defecto('automatico', false)
       defecto('texto', '')
       defecto('destinatarios', '')
@@ -542,6 +559,7 @@ export class BaseEnMemoria {
     if (tabla === 'correo_secuencia_buzones' && otras.some((f) => f.buzon_id === fila.buzon_id)) return 'correo_secuencia_buzones_pkey'
     if (tabla === 'correo_direcciones_malas' && otras.some((f) => f.direccion === fila.direccion)) return 'correo_direcciones_malas_pkey'
     if (tabla === 'correo_respuestas_ia' && otras.some((f) => f.mensaje_id === fila.mensaje_id)) return 'correo_respuestas_ia_pkey'
+    if (tabla === 'notifications' && fila.clave !== null && fila.clave !== undefined && otras.some((f) => f.user_id === fila.user_id && f.clave === fila.clave)) return 'notifications_usuario_clave_idx'
     if (tabla !== 'correo_secuencia_ajustes' && 'id' in fila && fila.id !== null && otras.some((f) => f.id === fila.id)) return `${tabla}_pkey`
     return null
   }
@@ -591,15 +609,23 @@ export class BaseEnMemoria {
     return null
   }
 
+  /** Los índices únicos que PostgREST necesita para un ON CONFLICT: sin uno que coincida exactamente, contesta 42P10 */
+  private static readonly INDICES_UNICOS: Readonly<Record<string, readonly string[]>> = { notifications: ['user_id,clave'] }
+
   private upsert(c: Consulta): Resultado {
     const e = ESQUEMA[c.tabla]
     const entradas = Array.isArray(c.valores) ? (c.valores as Fila[]) : [c.valores as Fila]
-    const col = c.conflicto
-    if (!col || !e.columnas.includes(col)) return error('42703', 'upsert sin una columna de conflicto válida')
+    const cols = (c.conflicto ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+    if (cols.length === 0 || cols.some((col) => !e.columnas.includes(col))) return error('42703', 'upsert sin una columna de conflicto válida')
+    const indices = BaseEnMemoria.INDICES_UNICOS[c.tabla]
+    if (indices && !indices.includes(cols.join(','))) return error('42P10', 'there is no unique or exclusion constraint matching the ON CONFLICT specification')
     const salida: Fila[] = []
     for (const entrada of entradas) {
-      const existente = this.filas(c.tabla).find((f) => f[col] === entrada[col])
+      // Como en un índice único: un valor vacío nunca choca con otro
+      const hayVacio = cols.some((col) => entrada[col] === null || entrada[col] === undefined)
+      const existente = hayVacio ? undefined : this.filas(c.tabla).find((f) => cols.every((col) => f[col] === entrada[col]))
       if (existente) {
+        if (c.ignorarRepetidos) continue
         const mala = Object.keys(entrada).find((k) => !e.columnas.includes(k))
         if (mala) return error('PGRST204', `No existe la columna ${mala} en ${c.tabla}`)
         for (const [k, v] of Object.entries(entrada)) existente[k] = copia(v)

@@ -258,6 +258,36 @@ async function main() {
     ok('una terminada no admite más acciones (y lo explica)', !otra.ok && otra.estado === 409 && /terminado/.test(otra.mensaje))
   }
 
+  console.log('\n=== avisar a la dueña cuando otra persona le pausa o le cancela una secuencia ===')
+  {
+    const m = await crearMundo(entorno)
+    const a = await m.secuenciaNueva(1)
+    const b = await m.secuenciaNueva(2, { buzon: B2 })
+    if (!a.resultado.ok || !b.resultado.ok) throw new Error('alta')
+    const [deAna, deAle] = (await m.leer('correo_secuencia_inscripciones', (q) => q.order('creada_at', { ascending: true }))).map((x) => x.id as string)
+    const avisar = m.deps.avisar
+
+    await accionSobreSecuencia(m.almacen, ANA, deAna, { accion: 'pausar' }, m.deps.ahora, avisar)
+    ok('si una pausa su propia secuencia, no se le avisa de lo que ha hecho ella', m.avisos.length === 0)
+    await accionSobreSecuencia(m.almacen, ANA, deAna, { accion: 'reanudar' }, m.deps.ahora, avisar)
+
+    await accionSobreSecuencia(m.almacen, RAUL, deAna, { accion: 'pausar' }, m.deps.ahora, avisar)
+    ok('si un administrador pausa la de Ana, a Ana le llega un aviso con su nombre y el del lead', m.avisos.length === 1 && m.avisos[0].userId === UA && m.avisos[0].tipo === 'secuencia_parada' && m.avisos[0].titulo === 'Raúl ha pausado el seguimiento a Tienda 1', JSON.stringify(m.avisos))
+    ok('y lleva a su secuencia', m.avisos[0].datos.inscripcionId === deAna && m.avisos[0].datos.buzonId === B1)
+    await accionSobreSecuencia(m.almacen, ANA, deAna, { accion: 'reanudar' }, m.deps.ahora, avisar)
+    ok('reanudar no avisa de nada', m.avisos.length === 1)
+    m.reloj.ahora += MIN
+    await accionSobreSecuencia(m.almacen, RAUL, deAle, { accion: 'cancelar' }, m.deps.ahora, avisar)
+    ok('si cancela la de Alejandro, el aviso es para Alejandro', m.avisos.length === 2 && m.avisos[1].userId === UB && m.avisos[1].titulo === 'Raúl ha cancelado el seguimiento a Tienda 2', JSON.stringify(m.avisos[1]))
+    const denegada = await accionSobreSecuencia(m.almacen, JHANNA_CORREO, deAna, { accion: 'pausar' }, m.deps.ahora, avisar)
+    ok('una acción que no se hace (sin permiso) no avisa', !denegada.ok && m.avisos.length === 2)
+    m.campanaFalla.activo = true
+    const conFallo = await accionSobreSecuencia(m.almacen, RAUL, deAna, { accion: 'pausar' }, m.deps.ahora, avisar)
+    ok('si la campana falla, la acción se hace igual', conFallo.ok && (await m.almacen.inscripcion(deAna))?.estado === 'pausada' && m.avisos.length === 2)
+    const sinCampana = await accionSobreSecuencia(m.almacen, RAUL, deAna, { accion: 'cancelar' }, m.deps.ahora)
+    ok('y sin campana enchufada también', sinCampana.ok && (await m.almacen.inscripcion(deAna))?.estado === 'cancelada')
+  }
+
   console.log('\n=== los ajustes ===')
   {
     const m = await crearMundo(entorno, { activa: false, ensayo: true })

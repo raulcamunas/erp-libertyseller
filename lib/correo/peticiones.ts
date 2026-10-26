@@ -25,8 +25,10 @@ export interface LeadDeOrigen {
 export type PeticionAlCorreo =
   /** Abrir el cuadro de «Nuevo mensaje» ya dirigido a alguien */
   | { tipo: 'redactar'; para: string; asunto?: string; texto?: string; lead?: LeadDeOrigen; ia?: boolean }
-  /** Abrir una conversación concreta (el aviso de «correo nuevo») */
+  /** Abrir una conversación concreta (el aviso de «correo nuevo» y los avisos de correo de la campana) */
   | { tipo: 'hilo'; buzonId: string; hiloId: string }
+  /** Abrir Correo → Secuencias con esa secuencia a la vista (un seguimiento pausado o parado, desde la campana) */
+  | { tipo: 'secuencia'; inscripcionId: string }
 
 type Oyente = (peticion: PeticionAlCorreo) => void
 

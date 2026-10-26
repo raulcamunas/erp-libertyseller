@@ -1,3 +1,4 @@
+import type { AvisoParaLaCampana } from '../campana'
 import type { ClienteFalso } from './cliente-falso'
 import { almacenDeSecuencias, type AlmacenDeSecuencias } from './almacen'
 import { instanteDeMadrid } from './fechas'
@@ -57,6 +58,10 @@ export interface Mundo {
   redacciones: Array<Redaccion | null>
   /** Cada vez que el motor le ha pedido a la IA que escriba un seguimiento, con lo que se le dio y los textos ya enviados contra los que se compara */
   redactados: Array<{ system: string; usuario: string; anteriores: string[] }>
+  /** Cada aviso que el motor ha escrito en la campana de alguien, en orden */
+  avisos: AvisoParaLaCampana[]
+  /** Con `activo` a true, la campana «no responde»: escribir un aviso lanza (para comprobar que el motor sigue igual) */
+  campanaFalla: { activo: boolean }
   /** Lo que contestará el correo al enviar, en orden; si se acaba, «ha salido» */
   resultadosDeEnvio: ResultadoDelEnvio[]
   /** Se ejecuta justo antes de cada envío (para provocar cosas «mientras se envía») */
@@ -112,6 +117,8 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
   const redacciones: Array<Redaccion | null> = []
   const redactados: Mundo['redactados'] = []
   const resultadosDeEnvio: ResultadoDelEnvio[] = []
+  const avisos: AvisoParaLaCampana[] = []
+  const campanaFalla = { activo: false }
   const alEnviar: Array<() => Promise<void>> = []
   let idDeEnvio = 0
 
@@ -132,6 +139,8 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
     redacciones,
     redactados,
     resultadosDeEnvio,
+    avisos,
+    campanaFalla,
     alEnviar,
     ausentes: soloEnMemoria?.ausentes ?? null,
     iso,
@@ -229,6 +238,10 @@ export async function crearMundo(entorno: Entorno, opciones: { activa?: boolean;
       redactados.push({ ...mensajes, anteriores: [...anteriores] })
       const siguiente = redacciones.length > 0 ? redacciones.shift()! : { decision: 'escribir' as const, motivo: 'Escrito con lo que consta del lead.', texto: TEXTO_REDACTADO }
       return { redaccion: siguiente, modelo: 'gpt-6-luna', aviso: siguiente ? null : 'La IA no está disponible.', tokens: null, llamadas: 1 }
+    },
+    async avisar(aviso) {
+      if (campanaFalla.activo) throw new Error('La campana no responde.')
+      avisos.push(aviso)
     },
     async clasificar(mensajes): Promise<ResultadoDeClasificacionConIa> {
       clasificados.push({ ...mensajes })

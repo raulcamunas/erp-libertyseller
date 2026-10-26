@@ -1,7 +1,9 @@
+import { avisoDeRespuestaDeLead, type LoHechoConLaRespuesta } from '../campana'
 import type { RespuestaPorLeer } from './almacen'
 import { ETIQUETA_DE_CLASE } from './clases'
 import { ESTADOS_QUE_SE_PUEDEN_TOCAR, construirEncargoDeClasificacion, decidir, textoDeLaRespuesta, validarClasificacion } from './clasificar'
 import { diaDeMadrid } from './fechas'
+import { avisarAlDueno } from './avisar'
 import type { DependenciasDelMotor, ResumenDePasada } from './motor'
 import type { AjustesDelMotor } from './reglas'
 
@@ -111,8 +113,20 @@ async function leerUna(deps: DependenciasDelMotor, ajustes: AjustesDelMotor, f: 
     if (ins && ins.estado === 'respondida') await almacen.cambiarInscripcion(ins.id, { motivo: `El lead ha contestado: ${(validada.resumen || etiqueta).replace(/[.\s]+$/, '')}.` }, ahora)
   }
 
+  // Lo que ha contestado un lead que pide algo se lo dice la campana a su dueño: el aviso del correo nuevo (que escribió la lectura del buzón) pasa a decir qué
+  // ha entendido la IA y qué ha pasado en la ficha. Solo cuenta lo que de verdad se ha hecho: en ensayo no se ha tocado nada
+  const avisarDeLaLectura = (hecho: LoHechoConLaRespuesta) =>
+    avisarAlDueno(deps, async () =>
+      buzon
+        ? avisoDeRespuestaDeLead({ userId: buzon.userId, buzonId: f.buzonId, inscripcionId: f.inscripcionId, leadId: f.leadId, lead: nombre, mensajeId: f.mensajeId, hiloId: f.hiloId, clase: validada.clase, resumen: validada.resumen, hecho })
+        : null
+    )
+
   // Con el motor en ensayo no se toca ninguna ficha
-  if (!decision.aplicar) return
+  if (!decision.aplicar) {
+    await avisarDeLaLectura(null)
+    return
+  }
 
   let accion = decision.accion
   let nota = decision.nota
@@ -136,4 +150,5 @@ async function leerUna(deps: DependenciasDelMotor, ajustes: AjustesDelMotor, f: 
   }
   if (nota) await almacen.apuntarNotaEnLead({ leadId: f.leadId, cuerpo: nota, clase: 'nota', ocurrioAt: f.recibidaAt > 0 ? f.recibidaAt : ahora })
   await almacen.anotarAplicacion(f.mensajeId, { aplicada, accion, nota }, ahora)
+  await avisarDeLaLectura(!aplicada || accion === 'revisar' ? { tipo: 'revisar' } : accion === 'cerrar' ? { tipo: 'cerrado' } : accion === 'rellamar' && decision.fecha ? { tipo: 'rellamada', fecha: decision.fecha } : null)
 }

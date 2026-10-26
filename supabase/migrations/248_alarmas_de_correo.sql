@@ -29,7 +29,8 @@ BEGIN
   -- el tipo) en vez de fallar con un mensaje de la base, y no cambia nada.
   SELECT string_agg(DISTINCT type, ', ') INTO desconocidos
   FROM public.notifications
-  WHERE type NOT IN ('comment', 'mention', 'task_assigned', 'task_updated', 'web_lead', 'freno_stock', 'fallo_stock', 'fallo_amazon', 'job_amazon', 'alarma_correo');
+  WHERE type NOT IN ('comment', 'mention', 'task_assigned', 'task_updated', 'web_lead', 'freno_stock', 'fallo_stock', 'fallo_amazon', 'job_amazon', 'alarma_correo',
+                     'correo_nuevo', 'correo_rebote', 'secuencia_pausada', 'secuencia_parada', 'respuesta_lead');
   IF desconocidos IS NOT NULL THEN
     RAISE EXCEPTION 'Hay avisos en la campana de un tipo que esta migracion no conoce (%). Anadelo a la lista de abajo antes de lanzarla.', desconocidos;
   END IF;
@@ -40,7 +41,9 @@ BEGIN
       'comment', 'mention', 'task_assigned', 'task_updated', 'web_lead',
       'freno_stock', 'fallo_stock',
       'fallo_amazon', 'job_amazon',
-      'alarma_correo'
+      'alarma_correo',
+      -- Los de la migración 251 (los avisos de correo de cada persona): están aquí para que volver a lanzar ESTA migración después de la 251 no los quite
+      'correo_nuevo', 'correo_rebote', 'secuencia_pausada', 'secuencia_parada', 'respuesta_lead'
     ));
 END $$;
 

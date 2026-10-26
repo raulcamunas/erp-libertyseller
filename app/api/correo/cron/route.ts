@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { hasTokenKey } from '@/lib/amazon/crypto'
+import { purgarAvisosDeCorreoViejos } from '@/lib/correo/campana-servidor'
 import { vigilarLaSalud } from '@/lib/correo/secuencias/vigia'
 import { FALTA_MIGRACION_CORREO, esFaltaDeMigracion, esperaTrasFallos, sincronizarBuzonPorId } from '@/lib/correo/servidor'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
@@ -152,6 +153,9 @@ export async function POST(request: NextRequest) {
     }),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
   ])
+
+  // Los avisos de correo de la campana duran 45 días: de paso, y como mucho cada seis horas, se borran los más viejos (nunca falla)
+  await purgarAvisosDeCorreoViejos(createServiceClient())
 
   return NextResponse.json({ ok: true, ...salida, ...(vigia && !vigia.omitido ? { vigia: { alarmas: vigia.alarmas, avisos: vigia.avisos } } : {}) })
 }

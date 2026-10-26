@@ -1,4 +1,5 @@
 import type { createServiceClient } from '@/lib/supabase/service'
+import { escribirAvisosDeCorreo } from '../campana-servidor'
 import type { EntradaDeEnvio } from '../enviar'
 import { cargarBuzon, enviarDesdeBuzon, sincronizarBuzonPorId } from '../servidor'
 import { almacenDeSecuencias } from './almacen'
@@ -66,5 +67,9 @@ export function dependenciasDeProduccion(service: Servicio): DependenciasDelMoto
     revisar: (mensajes, original) => revisarConIa(mensajes, original),
     clasificar: (mensajes) => clasificarRespuestaConIa(mensajes),
     redactar: (mensajes, anteriores) => redactarConIa(mensajes, anteriores),
+    // Lo que una persona tiene que atender de sus seguimientos llega a su campana (la migración 251; sin ella no se escribe y todo sigue igual)
+    avisar: async (aviso) => {
+      await escribirAvisosDeCorreo(service, [aviso])
+    },
   }
 }

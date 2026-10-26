@@ -2627,7 +2627,26 @@ html.light .lat-avisos { box-shadow: 0 28px 70px -28px rgba(20, 22, 26, 0.35); }
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
+button.lat-aviso,
+a.lat-aviso { display: flex; width: 100%; text-align: left; text-decoration: none; color: inherit; }
+button.lat-aviso:focus-visible,
+a.lat-aviso:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: -2px; }
 .lat-aviso:hover { background: var(--ls-sup3); }
+/* El icono de cada aviso: de un vistazo se distingue un correo de un rebote o de un seguimiento parado */
+.lat-aviso-icono {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.875rem;
+  height: 1.875rem;
+  border-radius: 0.625rem;
+  color: var(--ls-t3);
+  background: var(--ls-sup3);
+}
+.lat-aviso-icono[data-tono='acc'] { color: var(--ls-acc); background: var(--ls-acc-suave); }
+.lat-aviso-icono[data-tono='verde'] { color: var(--ls-e-verde); background: color-mix(in srgb, var(--ls-e-verde) 15%, transparent); }
+.lat-aviso-icono[data-tono='ambar'] { color: var(--ls-e-ambar); background: color-mix(in srgb, var(--ls-e-ambar) 15%, transparent); }
+.lat-aviso-icono[data-tono='rojo'] { color: var(--ls-e-rojo); background: color-mix(in srgb, var(--ls-e-rojo) 14%, transparent); }
 /* Lo que no has leído lleva un tinte naranja que se apaga hacia la derecha y una barrita pegada al borde */
 .lat-aviso[data-sin-leer='true'] { background: linear-gradient(90deg, var(--ls-acc-suave), transparent 75%); }
 .lat-aviso[data-sin-leer='true']:hover { background: linear-gradient(90deg, var(--ls-acc-suave), var(--ls-sup3) 75%); }

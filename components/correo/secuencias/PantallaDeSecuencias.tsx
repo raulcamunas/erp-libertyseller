@@ -107,6 +107,9 @@ interface Props {
   onVolver: () => void
   /** La pantalla se está viendo: si no, sigue montada pero no pide nada */
   visible: boolean
+  /** Una secuencia que otra aplicación pide abrir (un aviso de la campana): se abre su detalle y se avisa con `onAbierta` para que se suelte el encargo */
+  abrirId?: string | null
+  onAbierta?: () => void
 }
 
 /**
@@ -123,7 +126,7 @@ export function PantallaDeSecuencias(props: Props) {
   )
 }
 
-function ContenidoDeSecuencias({ onVolver, visible, demo, setDemo }: Props & { demo: number | null; setDemo: (d: number | null) => void }) {
+function ContenidoDeSecuencias({ onVolver, visible, abrirId, onAbierta, demo, setDemo }: Props & { demo: number | null; setDemo: (d: number | null) => void }) {
   // La pestaña en que se estaba (una comodidad de cada persona: si el navegador no la guarda, no pasa nada). Esta pantalla solo se pinta en el navegador
   const [pestana, setPestana] = useState<Pestana>(() => {
     try {
@@ -137,6 +140,12 @@ function ContenidoDeSecuencias({ onVolver, visible, demo, setDemo }: Props & { d
   const [buzonId, setBuzonId] = useState<string | null>(null)
   const [filtroCola, setFiltroCola] = useState<FiltroDeCola>({ grupo: 'vivas', buzonId: null, q: '' })
   const [abierta, setAbierta] = useState<string | null>(null)
+  // Un aviso de la campana pide abrir una secuencia: se abre su detalle (en la demostración no: sus secuencias no son las de verdad) y se suelta el encargo
+  useEffect(() => {
+    if (!abrirId) return
+    if (demo === null) setAbierta(abrirId)
+    onAbierta?.()
+  }, [abrirId, demo, onAbierta])
   const [opciones, setOpciones] = useState<Tablero['buzones']>([])
   const [ultima, setUltima] = useState<number | null>(null)
   const [recargando, setRecargando] = useState(false)

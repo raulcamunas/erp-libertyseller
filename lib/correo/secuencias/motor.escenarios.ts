@@ -2,7 +2,7 @@ import { adelantarPaso, cancelarSecuencia, editarPaso, pausarSecuencia, reanudar
 import { diaDeMadrid, horaDeMadrid, instanteDeMadrid, partesDeMadrid, siguienteDiaHabil, sumarDiasHabiles } from './fechas'
 import { inscribir, type ResultadoDeInscribir } from './inscripcion'
 import { ejecutarPasada, fechaDeCierre } from './motor'
-import { B1, B2, DIA, HORA, MIN, T0, TEXTO_PRIMERO, TEXTO_REDACTADO, TEXTO_S1, TEXTO_S2, UA, UB, crearMundo, identificador, type Entorno, type Mundo } from './mundo-de-pruebas'
+import { B1, B2, DIA, HILO_POR_DEFECTO, HORA, MIN, T0, TEXTO_PRIMERO, TEXTO_REDACTADO, TEXTO_S1, TEXTO_S2, UA, UB, crearMundo, identificador, type Entorno, type Mundo } from './mundo-de-pruebas'
 import { AJUSTES_POR_DEFECTO } from './reglas'
 
 /**
@@ -22,6 +22,8 @@ type Escenario = { nombre: string; correr: (e: Entorno, ok: (n: string, bien: bo
 
 const iso = (ms: number): string => new Date(ms).toISOString()
 const ms = (v: unknown): number => Date.parse(String(v))
+/** El hilo en el que cae un correo que entra «sin hilo» en cada buzón */
+const HILO_DEL_BUZON = HILO_POR_DEFECTO
 
 /** Pasa el motor cada minuto entre dos instantes, como el cron */
 async function pasarElTiempo(m: Mundo, hasta: number, cada = MIN): Promise<void> {
@@ -1504,6 +1506,227 @@ export const ESCENARIOS: Escenario[] = [
         m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
         const r = await ejecutarPasada(m.deps)
         ok('si el lead ha contestado, la secuencia se corta antes de escribir nada y no se llama a la IA', r.respondidas === 1 && m.redactados.length === 0 && m.enviados.length === 0)
+      }
+    },
+  },
+  {
+    nombre: 'Los avisos de la campana: lo que el motor deja a su dueño (pausas, fallos, rebotes y respuestas que piden algo), sin repetirse y sin estropear nada',
+    async correr(e, ok) {
+      const idDe = (a: { resultado: ResultadoDeInscribir }): string => {
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        return a.resultado.inscripcionId
+      }
+      const de = (m: Mundo, tipo: string) => m.avisos.filter((a) => a.tipo === tipo)
+      const INTERESADO = { clase: 'interesado' as const, confianza: 'alta' as const, evidencia: 'me interesa', resumen: 'Quiere una videollamada esta semana.', fecha: null }
+
+      // --- la IA pausa un seguimiento: su dueña lo sabe, una vez, y el aviso lleva a la secuencia ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.respuestasDeIa.push({ decision: 'pausar', motivo: 'Pidió que le escribamos en enero.', texto: '' })
+        await m.nota(a.leadId, { kind: 'llamada', body: 'Habló el socio: que le escribamos en enero.', cuando: T0 + 2 * HORA })
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada(m.deps)
+        const aviso = m.avisos[0]
+        ok('un seguimiento pausado por la IA avisa UNA vez, a su dueña', m.avisos.length === 1 && aviso.tipo === 'secuencia_pausada' && aviso.userId === UA, JSON.stringify(m.avisos))
+        ok('con el nombre del lead y el motivo', aviso.titulo === 'Seguimiento pausado: Tienda 1' && aviso.mensaje.includes('La IA ha pausado este seguimiento') && aviso.mensaje.includes('enero'), aviso.mensaje)
+        ok('y lleva a la secuencia (buzón, secuencia y lead)', aviso.datos.inscripcionId === idDe(a) && aviso.datos.buzonId === B1 && aviso.datos.leadId === a.leadId)
+        ok('no es una «mejora» de otro aviso: es uno nuevo', aviso.enriquecer !== true && aviso.clave.startsWith(`pausa:${idDe(a)}:`))
+        m.reloj.ahora += 10 * MIN
+        await ejecutarPasada(m.deps)
+        ok('mientras sigue en pausa, otra pasada no repite el aviso', m.avisos.length === 1)
+      }
+
+      // --- el aviso es del dueño de SU buzón, no de otra persona ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(2, { buzon: B2 })
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.respuestasDeIa.push({ decision: 'pausar', motivo: 'Ha pedido esperar.', texto: '' })
+        await m.nota(a.leadId, { kind: 'llamada', body: 'Pide esperar.', cuando: T0 + 2 * HORA })
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada(m.deps)
+        ok('la secuencia de Alejandro avisa a Alejandro', m.avisos.length === 1 && m.avisos[0].userId === UB && m.avisos[0].datos.buzonId === B2, JSON.stringify(m.avisos))
+      }
+
+      // --- un envío que no sale: solo avisa cuando ya no hay más que esperar (a los 5 intentos), y el rechazo del servidor para la secuencia ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        for (let i = 0; i < 5; i++) m.resultadosDeEnvio.push({ ok: false, codigo: 'red', mensaje: 'sin conexión' })
+        for (let intento = 1; intento <= 4; intento++) {
+          await ejecutarPasada(m.deps)
+          const paso = (await m.pasos(idDe(a)))[1]
+          m.reloj.ahora = ms(paso.siguiente_intento_at) + 1_000
+          const p = partesDeMadrid(m.reloj.ahora)
+          if (p.minutos >= 1080 || p.minutos < 540 || [0, 6].includes(p.diaDeLaSemana)) m.reloj.ahora = instanteDeMadrid(siguienteDiaHabil(p.dia, AJUSTES_POR_DEFECTO.festivos), 600)
+          await m.actualizar('correo_buzones', { ultimo_sync_at: m.iso() }, (q) => q.eq('id', B1))
+        }
+        ok('mientras todavía reintenta, no molesta', m.avisos.length === 0, JSON.stringify(m.avisos))
+        await ejecutarPasada(m.deps)
+        ok('al quinto fallo avisa de que no ha podido enviarse', m.avisos.length === 1 && m.avisos[0].tipo === 'secuencia_pausada' && m.avisos[0].titulo === 'No se ha podido enviar el seguimiento a Tienda 1' && m.avisos[0].mensaje.includes('tras 5 intentos'), JSON.stringify(m.avisos))
+      }
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        m.resultadosDeEnvio.push({ ok: false, codigo: 'rechazado', mensaje: 'rechazado' })
+        await ejecutarPasada(m.deps)
+        const aviso = m.avisos[0]
+        ok('si el servidor rechaza el mensaje al enviarlo, avisa de que se ha parado y de a qué dirección', m.avisos.length === 1 && aviso.tipo === 'secuencia_parada' && aviso.titulo === 'Se ha parado el seguimiento a Tienda 1' && aviso.mensaje.includes(a.email) && aviso.datos.direccion === a.email, JSON.stringify(m.avisos))
+      }
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        m.resultadosDeEnvio.push({ ok: false, codigo: 'credenciales', mensaje: 'contraseña' })
+        await ejecutarPasada(m.deps)
+        ok('una contraseña rechazada no avisa desde aquí (de eso se ocupa la salud del buzón)', m.avisos.length === 0)
+      }
+
+      // --- un rebote: mejora el aviso del correo que rebotó (misma clave), y es del dueño de la secuencia ---
+      for (const [buzon, usuario, n] of [[B1, UA, 1], [B2, UB, 2]] as const) {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(n, { buzon })
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.reloj.ahora = T0 + HORA
+        const rebote = await m.entrante({ buzon, de: 'mailer-daemon@googlemail.com', hilo: null, automatico: true, asunto: 'Delivery Status Notification (Failure)', texto: `Address not found. Your message wasn't delivered to ${a.email} because the address couldn't be found. 550 5.1.1 user unknown`, cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        const aviso = m.avisos[0]
+        ok(`un rebote de una secuencia mejora el aviso de ese correo para su dueño (${n === 1 ? 'Ana' : 'Alejandro'})`, m.avisos.length === 1 && aviso.tipo === 'correo_rebote' && aviso.userId === usuario && aviso.clave === `msg:${rebote}` && aviso.enriquecer === true, JSON.stringify(m.avisos))
+        ok('dice de qué lead es, a qué dirección y que su seguimiento se ha parado', aviso.titulo === `Ha rebotado el correo a Tienda ${n}` && aviso.mensaje.includes(a.email) && aviso.mensaje.includes('no existe') && aviso.mensaje.includes('se ha parado'), aviso.mensaje)
+        ok('y lleva a ese correo y a la secuencia', aviso.datos.mensajeId === rebote && aviso.datos.hiloId === HILO_DEL_BUZON[buzon] && aviso.datos.inscripcionId === idDe(a) && aviso.datos.direccion === a.email, JSON.stringify(aviso.datos))
+        m.reloj.ahora += 5 * MIN
+        await ejecutarPasada(m.deps)
+        ok('otra pasada no vuelve a avisar', m.avisos.length === 1)
+      }
+
+      // --- lo que contesta un lead: solo avisa si hay algo que atender, y dice lo que se ha hecho de verdad ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push(INTERESADO)
+        m.reloj.ahora = T0 + 2 * HORA
+        const respuesta = await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Hola Ana, me interesa. ¿Hablamos mañana?', cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        const aviso = m.avisos[0]
+        ok('un lead interesado avisa a su dueña, mejorando el aviso de ese correo', m.avisos.length === 1 && aviso.tipo === 'respuesta_lead' && aviso.userId === UA && aviso.clave === `msg:${respuesta}` && aviso.enriquecer === true, JSON.stringify(m.avisos))
+        ok('con quién es y qué hacer', aviso.titulo === 'Tienda 1 está interesado' && aviso.mensaje.includes('Quiere una videollamada esta semana.') && aviso.mensaje.includes('Contéstale o llámale cuanto antes'), aviso.mensaje)
+        ok('y lleva a esa conversación', aviso.datos.hiloId === a.hiloId && aviso.datos.mensajeId === respuesta && aviso.datos.clase === 'interesado' && aviso.datos.inscripcionId === idDe(a))
+        m.reloj.ahora += 12 * MIN
+        await ejecutarPasada(m.deps)
+        ok('no se lee ni se avisa dos veces', m.avisos.length === 1)
+      }
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push({ clase: 'no_interesa', confianza: 'alta', evidencia: 'no nos interesa', resumen: 'No les interesa.', fecha: null })
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Gracias, pero ahora mismo no nos interesa.', cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        const aviso = m.avisos[0]
+        ok('un «no» seguro cuenta que el lead se ha cerrado', m.avisos.length === 1 && aviso.titulo === 'Tienda 1 dice que no le interesa' && aviso.mensaje.includes('El lead pasa a «No interesa»'), JSON.stringify(m.avisos))
+      }
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push({ clase: 'mas_tarde', confianza: 'alta', evidencia: 'escríbeme en enero', resumen: 'Pide que le escribamos en enero.', fecha: '2027-01-11' })
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Ahora no es buen momento. Escríbeme en enero y lo vemos.', cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        ok('«escríbeme en enero» cuenta la rellamada que se ha puesto', m.avisos.length === 1 && m.avisos[0].mensaje.includes('rellamada puesta para el lun 11 ene'), JSON.stringify(m.avisos))
+      }
+      {
+        // En ensayo se avisa de lo que contestó, pero sin decir que se ha tocado nada
+        const m = await crearMundo(e, { ensayo: true })
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push({ clase: 'no_interesa', confianza: 'alta', evidencia: 'no nos interesa', resumen: 'No les interesa.', fecha: null })
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Gracias, pero ahora mismo no nos interesa.', cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        ok('con el motor en ensayo avisa de la respuesta pero NO dice que el lead se haya cerrado', m.avisos.length === 1 && !m.avisos[0].mensaje.includes('pasa a'), JSON.stringify(m.avisos))
+      }
+      for (const clase of ['fuera_de_oficina', 'otro'] as const) {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.clasificaciones.push({ clase, confianza: 'alta', evidencia: '', resumen: 'Nada que hacer.', fecha: null })
+        m.reloj.ahora = T0 + 2 * HORA
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Gracias por tu correo, lo veo y te digo algo.', cuando: m.reloj.ahora - MIN })
+        await ejecutarPasada(m.deps)
+        ok(`una respuesta «${clase}» no tiene aviso propio (el del correo nuevo ya lo cubre)`, m.avisos.length === 0, JSON.stringify(m.avisos))
+      }
+      {
+        // Que conteste el lead corta la secuencia, pero eso solo ya no avisa: el aviso es el del correo que ha llegado
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        await m.entrante({ de: a.email, hilo: a.hiloId, texto: 'Gracias, lo vemos y os contamos.', cuando: a.resultado.pasos[0].programadoAt! - 10 * MIN })
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        const r = await ejecutarPasada(m.deps)
+        ok('que el lead conteste para la secuencia, y el motor no escribe un aviso de más', r.respondidas === 1 && de(m, 'secuencia_parada').length === 0 && de(m, 'secuencia_pausada').length === 0)
+      }
+
+      // --- el lead deja de ser suyo: se lo dice; lo que ha hecho ella misma, no ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        await m.actualizar('cold_leads', { assigned_to: UB }, (q) => q.eq('id', a.leadId))
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada(m.deps)
+        ok('si le reasignan el lead, se para el seguimiento y se lo cuenta', m.avisos.length === 1 && m.avisos[0].tipo === 'secuencia_parada' && m.avisos[0].userId === UA && m.avisos[0].titulo === 'Se ha parado el seguimiento a Tienda 1', JSON.stringify(m.avisos))
+      }
+      for (const status of ['no_interesa', 'cita_cualificada', 'seguimiento'] as const) {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        await m.actualizar('cold_leads', { status }, (q) => q.eq('id', a.leadId))
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada(m.deps)
+        ok(`si ella misma mueve el lead a «${status}», el seguimiento se para sin aviso`, m.avisos.length === 0, JSON.stringify(m.avisos))
+      }
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        await m.saliente({ para: a.email, messageId: 'a-mano@libertyseller.es', cuando: a.resultado.pasos[0].programadoAt! - 30 * MIN })
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        await ejecutarPasada(m.deps)
+        ok('si ella misma le escribe por su cuenta, el seguimiento se para sin aviso', m.avisos.length === 0 && m.enviados.length === 0, JSON.stringify(m.avisos))
+      }
+
+      // --- un fallo de la campana nunca estropea el motor ---
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.campanaFalla.activo = true
+        m.respuestasDeIa.push({ decision: 'pausar', motivo: 'Pidió que le escribamos en enero.', texto: '' })
+        await m.nota(a.leadId, { kind: 'llamada', body: 'Habló el socio: que le escribamos en enero.', cuando: T0 + 2 * HORA })
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        const r = await ejecutarPasada(m.deps)
+        const ins = await m.uno('correo_secuencia_inscripciones', (q) => q.eq('id', idDe(a)))
+        ok('con la campana caída, el seguimiento se pausa igual y la pasada termina sin errores', ins?.estado === 'pausada' && r.pausados === 1 && r.errores.length === 0, `${ins?.estado} ${r.resumen}`)
+      }
+      {
+        const m = await crearMundo(e)
+        const a = await m.secuenciaNueva(1)
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        m.respuestasDeIa.push({ decision: 'pausar', motivo: 'Pidió que le escribamos en enero.', texto: '' })
+        await m.nota(a.leadId, { kind: 'llamada', body: 'Habló el socio: que le escribamos en enero.', cuando: T0 + 2 * HORA })
+        m.reloj.ahora = a.resultado.pasos[0].programadoAt! + 5_000
+        const r = await ejecutarPasada({ ...m.deps, avisar: undefined })
+        ok('sin campana enchufada (la demostración, las pruebas viejas) el motor hace lo mismo y no avisa', r.pausados === 1 && m.avisos.length === 0)
       }
     },
   },

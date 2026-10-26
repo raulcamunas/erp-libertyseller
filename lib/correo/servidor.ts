@@ -4,6 +4,7 @@ import { PERMISO_CORREO_SUPERVISION, PERMISO_EQUIPO_COMERCIAL } from '@/lib/conf
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { nombreDeFichero } from './analizar'
 import { almacenSupabase, type FilaDeBuzon, type FilaDeCarpeta } from './almacen'
+import { avisarDeCorreoNuevo, marcarAvisosDeCorreoLeidos } from './campana-servidor'
 import { NO_EXISTE, UUID, decidirAcceso, type DatosDelDueno, type ModoDeAcceso, type QuienPide } from './acceso'
 import { elegirCarpetas } from './carpetas'
 import { ErrorDeCorreo, MENSAJE_DE_ERROR_DE_CORREO, abrirImap, cerrarImap, convertirError, crearTransporte, type CodigoDeErrorDeCorreo } from './conexion'
@@ -253,6 +254,7 @@ export async function sincronizarBuzonPorId(service: Servicio, buzonId: string, 
       return { tipo: 'error', codigo: 'contrasena', mensaje: MENSAJE_DE_CONTRASENA_ILEGIBLE }
     }
 
+    const inicioDeLaLectura = Date.now()
     await almacen.anotarBuzon(buzonId, { ultimo_intento_at: new Date().toISOString() })
 
     let cliente: Awaited<ReturnType<typeof abrirImap>> | null = null
@@ -267,6 +269,14 @@ export async function sincronizarBuzonPorId(service: Servicio, buzonId: string, 
         credenciales_invalidas: false,
         historico_completo: resultado.completo,
       })
+      // Lo que ha entrado de personas (y los rebotes) avisa en la campana de su dueño, esté o no mirando el ERP. Si el aviso falla, el correo ya está leído
+      if (resultado.importados > 0) {
+        try {
+          await avisarDeCorreoNuevo(service, buzon, { desde: inicioDeLaLectura })
+        } catch (e) {
+          console.error('Correo · campana: no se ha podido avisar del correo nuevo', { mensaje: e instanceof Error ? e.message : 'sin mensaje' })
+        }
+      }
       return { tipo: 'hecha', importados: resultado.importados, quedan: resultado.quedan, completo: resultado.completo, ultimoSyncAt: ahora }
     } catch (error) {
       if (esFalloDeBase(error)) {
@@ -585,6 +595,8 @@ export async function marcarHiloLeido(service: Servicio, hiloId: string): Promis
   if (filas.length === 0) return []
   await almacenSupabase(service).marcarLeidos(filas.map((f) => f.id))
   await almacenSupabase(service).actualizarHilo(hiloId)
+  // Lo que se acaba de leer ya no hace falta que lo avise la campana
+  await marcarAvisosDeCorreoLeidos(service, filas.map((f) => f.id))
   return filas.filter((f) => f.uid !== null).map((f) => ({ carpetaId: f.carpeta_id, uid: Number(f.uid) }))
 }
 

@@ -3,7 +3,16 @@ import { contextoParaIa, hace, textoParaIa, type CorreoParaIa, type LlamadaParaI
 import { dominioDe } from '../direcciones'
 import { extraerDireccionesFallidas, motivoDeRebote } from '../verificacion/rebotes'
 import { textoSinFirma } from '../plantillas'
+import {
+  avisoDeEnvioFallido,
+  avisoDeReboteDeSecuencia,
+  avisoDeSeguimientoParado,
+  avisoDeSeguimientoPausado,
+  avisoDeSeguimientoRechazado,
+  type AvisoParaLaCampana,
+} from '../campana'
 import type { AlmacenDeSecuencias, LeadDelMotor, NotaLeida, LlamadaLeida } from './almacen'
+import { avisarAlDueno, nombreEnElAviso } from './avisar'
 import { constructorDeCapacidad } from './capacidad'
 import { decidirSalida, evaluarParada, type Decision, type HechosDeParada, type HechosDeSalida, type NotaParaControl } from './control'
 import { diaCorto, diaDeMadrid, horaDeMadrid, instanteDeMadrid, siguienteDiaHabil, sumarDiasHabiles } from './fechas'
@@ -80,6 +89,11 @@ export interface DependenciasDelMotor {
   clasificar?: (mensajes: { system: string; usuario: string }) => Promise<ResultadoDeClasificacionConIa>
   /** La IA que escribe cada seguimiento justo antes de enviarlo, con todo el historial del lead (ia.ts). Sin ella, o con el ajuste apagado, sale el texto programado */
   redactar?: (mensajes: { system: string; usuario: string }, anteriores: readonly string[]) => Promise<ResultadoDeRedaccionConIa>
+  /**
+   * Escribe un aviso en la campana de la persona a la que le toca atender algo (un seguimiento pausado, un envío fallido, un rebote, una respuesta que pide algo).
+   * Sin ella (las pruebas que no lo miran, la demostración) el motor hace lo mismo y simplemente no avisa. Que falle no afecta a la pasada (`avisarAlDueno`)
+   */
+  avisar?: (aviso: AvisoParaLaCampana) => Promise<void>
   nuevoId?: () => string
 }
 
@@ -308,6 +322,13 @@ async function vigilar(deps: DependenciasDelMotor, vigilanciaAt: number | null, 
         }
       )
       r.rebotes++
+      // El aviso de ese rebote que escribió la lectura del buzón gana de qué lead es y que su seguimiento se ha parado
+      await avisarAlDueno(deps, async () => {
+        const ins = await almacen.inscripcion(inscripcionId)
+        if (!ins) return null
+        const lead = await nombreEnElAviso(deps, ins.leadId, g.destinatario)
+        return avisoDeReboteDeSecuencia({ userId: ins.userId, buzonId: g.buzonId, inscripcionId, leadId: ins.leadId, lead, mensajeId: clase.mensaje.id, hiloId: clase.mensaje.hiloId, direccion: g.destinatario, motivo: porQue })
+      })
     }
   }
 
@@ -631,6 +652,15 @@ async function procesarPaso(deps: DependenciasDelMotor, ajustes: AjustesDelMotor
     if (decision.estado === 'respondida') r.respondidas++
     else if (decision.codigo === 'rebote') r.rebotes++
     else r.parados++
+    // Si la contesta el lead, ya avisó el correo nuevo; si la corta lo que ha hecho la propia persona (llamar, escribirle), no hay nada que avisarle.
+    // Se avisa de lo que no ha provocado: un rebote, una dirección que ya rebotó, o un lead que ya no es suyo
+    await avisarAlDueno(deps, async () => {
+      const lead = await nombreEnElAviso(deps, ins.leadId, ins.destinatario)
+      const base = { userId: ins.userId, buzonId: ins.buzonId, inscripcionId: ins.id, leadId: ins.leadId, lead }
+      if (decision.codigo === 'rebote' && decision.mensajeId) return avisoDeReboteDeSecuencia({ ...base, mensajeId: decision.mensajeId, hiloId: ins.hiloId, direccion: ins.destinatario, motivo: decision.motivoDelRebote ?? 'inexistente' })
+      if (decision.codigo === 'rebote' || decision.codigo === 'direccion_mala' || decision.codigo === 'lead_reasignado' || decision.codigo === 'lead_borrado') return avisoDeSeguimientoParado({ ...base, motivo: decision.motivo, cuando: reloj() })
+      return null
+    })
     return
   }
 
@@ -848,6 +878,12 @@ async function pausarPorProblema(deps: DependenciasDelMotor, ins: InscripcionDel
   await almacen.cambiarInscripcion(ins.id, { estado: 'pausada', motivo, codigo }, ahora)
   await almacen.apuntarEvento({ inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'pausado', detalle: motivo }, ahora)
   r.pausados++
+  await avisarDePausa(deps, ins, motivo, ahora)
+}
+
+/** Un seguimiento se ha quedado esperando a que su dueño decida: se lo dice la campana */
+async function avisarDePausa(deps: DependenciasDelMotor, ins: InscripcionDelMotor, motivo: string, cuando: number): Promise<void> {
+  await avisarAlDueno(deps, async () => avisoDeSeguimientoPausado({ userId: ins.userId, buzonId: ins.buzonId, inscripcionId: ins.id, leadId: ins.leadId, lead: await nombreEnElAviso(deps, ins.leadId, ins.destinatario), motivo, cuando }))
 }
 
 async function pausarPorRevision(deps: DependenciasDelMotor, ins: InscripcionDelMotor, paso: PasoDelMotor, motivoDeLaIa: string, r: ResumenDePasada, escrito = false): Promise<void> {
@@ -858,6 +894,7 @@ async function pausarPorRevision(deps: DependenciasDelMotor, ins: InscripcionDel
   await almacen.cambiarInscripcion(ins.id, { estado: 'pausada', motivo, codigo: 'pausada_por_revision' }, ahora)
   await almacen.apuntarEvento({ inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'pausado', detalle: motivo }, ahora)
   r.pausados++
+  await avisarDePausa(deps, ins, motivo, ahora)
 }
 
 /* ---- ensayo ---- */
@@ -968,6 +1005,7 @@ async function manejarFalloDeEnvio(deps: DependenciasDelMotor, ajustes: AjustesD
       }
     )
     r.rebotes++
+    await avisarAlDueno(deps, async () => avisoDeSeguimientoRechazado({ userId: ins.userId, buzonId: ins.buzonId, inscripcionId: ins.id, leadId: ins.leadId, lead: await nombreEnElAviso(deps, ins.leadId, ins.destinatario), direccion: ins.destinatario, cuando: ahora }))
     return
   }
 
@@ -996,6 +1034,7 @@ async function manejarFalloDeEnvio(deps: DependenciasDelMotor, ajustes: AjustesD
     await almacen.cambiarInscripcion(ins.id, { estado: 'pausada', motivo: `El seguimiento ${paso.orden} no ha podido enviarse tras ${paso.intentos} intentos.`, codigo: 'envio_fallido' }, ahora)
     await almacen.apuntarEvento({ inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'error', detalle: detalle(`No se ha podido enviar el seguimiento ${paso.orden} tras ${paso.intentos} intentos`) }, ahora)
     r.fallidos++
+    await avisarAlDueno(deps, async () => avisoDeEnvioFallido({ userId: ins.userId, buzonId: ins.buzonId, inscripcionId: ins.id, leadId: ins.leadId, lead: await nombreEnElAviso(deps, ins.leadId, ins.destinatario), motivo: `El seguimiento ${paso.orden} no ha podido enviarse tras ${paso.intentos} intentos`, cuando: ahora }))
     return
   }
   const espera = REINTENTOS_MS[Math.min(paso.intentos - 1, REINTENTOS_MS.length - 1)]
@@ -1067,4 +1106,5 @@ async function recuperarEnvioCortado(deps: DependenciasDelMotor, ajustes: Ajuste
   await almacen.cambiarInscripcion(ins.id, { estado: 'pausada', motivo, codigo: 'envio_dudoso' }, ahora)
   await almacen.apuntarEvento({ inscripcionId: ins.id, pasoId: paso.id, buzonId: ins.buzonId, tipo: 'error', detalle: motivo }, ahora)
   r.fallidos++
+  await avisarAlDueno(deps, async () => avisoDeEnvioFallido({ userId: ins.userId, buzonId: ins.buzonId, inscripcionId: ins.id, leadId: ins.leadId, lead: await nombreEnElAviso(deps, ins.leadId, ins.destinatario), motivo, cuando: ahora }))
 }

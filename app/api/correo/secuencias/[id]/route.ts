@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail } from '@/lib/amazon/api'
 import { SIN_CACHE, requerirCorreo, textoDe } from '@/lib/correo/rutas'
+import { escribirAvisosDeCorreo } from '@/lib/correo/campana-servidor'
 import { almacenDeSecuencias } from '@/lib/correo/secuencias/almacen'
 import { DIAS_MAXIMOS_DE_LA_DEMO, demostracion } from '@/lib/correo/secuencias/demo'
 import { dentroDelLimite, enteroDeUrl, respuestaDeFalloDeSecuencias } from '@/lib/correo/secuencias/rutas'
@@ -88,7 +89,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   try {
     const service = createServiceClient()
     const quien = await quienPide(service, sesion)
-    const r = await accionSobreSecuencia(almacenDeSecuencias(service), quien, params.id.toLowerCase(), peticion)
+    // Si un administrador pausa o cancela la secuencia de otra persona, a ella le llega un aviso a su campana
+    const r = await accionSobreSecuencia(almacenDeSecuencias(service), quien, params.id.toLowerCase(), peticion, Date.now, async (aviso) => {
+      await escribirAvisosDeCorreo(service, [aviso])
+    })
     return NextResponse.json(r.ok ? { ok: true, mensaje: r.mensaje } : { ok: false, error: r.mensaje }, { status: r.estado, headers: SIN_CACHE })
   } catch (error) {
     return respuestaDeFalloDeSecuencias('Correo · secuencias: acción', error)

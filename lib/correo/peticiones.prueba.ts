@@ -44,6 +44,20 @@ console.log('\n=== de varios encargos sin pantalla, vale el último ===')
   ok('llega el último', recibidas.length === 1 && recibidas[0].tipo === 'hilo')
 }
 
+console.log('\n=== abrir una secuencia desde la campana ===')
+{
+  reiniciarPeticiones()
+  const recibidas: PeticionAlCorreo[] = []
+  const parar = escucharPeticiones((p) => recibidas.push(p))
+  pedirAlCorreo({ tipo: 'secuencia', inscripcionId: 'i1' })
+  ok('con Correo montado llega al momento', recibidas.length === 1 && recibidas[0].tipo === 'secuencia' && recibidas[0].inscripcionId === 'i1')
+  parar()
+  pedirAlCorreo({ tipo: 'secuencia', inscripcionId: 'i2' })
+  const tarde: PeticionAlCorreo[] = []
+  escucharPeticiones((p) => tarde.push(p))
+  ok('si Correo todavía no está montado, espera y llega al montarse', tarde.length === 1 && tarde[0].tipo === 'secuencia' && tarde[0].inscripcionId === 'i2')
+}
+
 console.log('\n=== el camino de vuelta ===')
 {
   reiniciarPeticiones()
