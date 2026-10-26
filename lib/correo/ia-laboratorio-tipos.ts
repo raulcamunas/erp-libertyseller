@@ -1,3 +1,4 @@
+import type { CasoVista } from '@/lib/whatsapp/ia-casos'
 import type { SeccionesDeInstrucciones } from './ia-prompt'
 import type { ResumenDeGrupo, Veredicto } from './ia-resultados'
 
@@ -47,6 +48,8 @@ export interface RespuestaDeVersiones {
   ok: boolean
   versiones: VersionVista[]
   ejemplos: EjemploVista[]
+  /** Las personas de prueba inventadas (las mismas que usa la IA de WhatsApp), para probar una versión sin tocar leads de verdad */
+  casos: CasoVista[]
 }
 
 export interface CorreoConRespuesta {
@@ -87,14 +90,47 @@ export interface CorreoQueFunciona {
   respondioEn: string
 }
 
-export interface RespuestaDePrueba {
-  ok: boolean
+/** Un seguimiento de la secuencia, escrito para una persona de prueba: sale a los `dias` días hábiles del primer correo si no contesta */
+export interface SeguimientoDePrueba {
+  orden: number
+  dias: number
   asunto: string
   texto: string
-  angulo: string
+}
+
+/** El correo que la IA escribe para UNA persona de prueba (o un lead real), con sus seguimientos si se han pedido */
+export interface CorreoDePrueba {
+  /** El id del caso o del lead real */
+  id: string
+  etiqueta: string
+  real: boolean
+  /** ¿Hay correo? */
+  ok: boolean
+  asunto: string | null
+  texto: string | null
+  angulo: string | null
+  /** Algo que conviene mirar del correo (un hueco por rellenar, un texto largo…) */
+  aviso: string | null
+  /** Por qué no hay correo, si no lo hay */
+  error: string | null
   modelo: string
-  ejemplos: number
+  /** Milisegundos que ha tardado el correo (sin contar los seguimientos) */
+  ms: number
   /** Dólares, aproximado. null si no se conoce el precio del modelo */
   coste: number | null
+  ejemplos: number
+  /** Lo que recibió la IA, palabra por palabra */
+  instrucciones: { system: string; usuario: string }
+  /** null = no se pidieron (o no se pudieron escribir: mira `seguimientosAviso`) */
+  seguimientos: SeguimientoDePrueba[] | null
+  seguimientosAviso: string | null
+  seguimientosCoste: number | null
+  seguimientosModelo: string | null
+}
+
+export interface RespuestaDePruebaConCasos {
+  ok: boolean
+  resultados: CorreoDePrueba[]
+  /** Avisos de las instrucciones probadas */
   avisos: string[]
 }

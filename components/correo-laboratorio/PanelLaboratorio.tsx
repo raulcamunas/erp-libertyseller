@@ -16,7 +16,7 @@ import { TabVersiones } from './TabVersiones'
  * CONFIGURACIÓN DE CORREOS: la mini app de Mi rendimiento para afinar el correo que escribe la IA.
  *
  *   · Versiones   las instrucciones de la IA por secciones, con su reparto: cada correo que pide un comercial lo escribe una versión
- *                 sorteada según su peso. Se prueban con un lead sin enviar nada.
+ *                 sorteada según su peso. Se prueban con personas de prueba (y con sus seguimientos) o con un lead, sin enviar nada.
  *   · Mis ejemplos los correos que escribe quien supervisa: los «textos ganadores» candidatos, que una versión puede enseñarle a la IA.
  *   · Lo que ya funciona  los correos del equipo que consiguieron respuesta, tal como los ve la IA.
  *   · Resultados  qué versión consigue más respuestas, con la cautela que piden tasas tan bajas.
@@ -102,7 +102,7 @@ export function PanelLaboratorio() {
         </div>
       ) : datos ? (
         <>
-          {pestana === 'versiones' && <TabVersiones versiones={datos.versiones} ejemplos={datos.ejemplos} onCambio={() => cargar(true)} />}
+          {pestana === 'versiones' && <TabVersiones versiones={datos.versiones} ejemplos={datos.ejemplos} casos={datos.casos ?? []} onCambio={() => cargar(true)} />}
           {pestana === 'ejemplos' && <TabEjemplos versiones={datos.versiones} ejemplos={datos.ejemplos} onCambio={() => cargar(true)} />}
           {pestana === 'funciona' && <TabFunciona onCopiado={() => cargar(true)} />}
           {pestana === 'resultados' && <TabResultados />}

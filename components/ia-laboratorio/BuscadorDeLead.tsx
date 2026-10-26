@@ -20,7 +20,7 @@ export interface LeadElegido {
   status: string
 }
 
-export function BuscadorDeLead({ lead, onElegir }: { lead: LeadElegido | null; onElegir: (l: LeadElegido | null) => void }) {
+export function BuscadorDeLead({ lead, onElegir, conCampo = 'phone' }: { lead: LeadElegido | null; onElegir: (l: LeadElegido | null) => void; /** «Al azar» elige entre los que tienen móvil (WhatsApp) o correo (correo) */ conCampo?: 'phone' | 'email' }) {
   const supabase = useMemo(() => createClient(), [])
   const [consulta, setConsulta] = useState('')
   const [encontrados, setEncontrados] = useState<LeadElegido[]>([])
@@ -57,11 +57,11 @@ export function BuscadorDeLead({ lead, onElegir }: { lead: LeadElegido | null; o
   async function alAzar() {
     setBuscando(true)
     setError(null)
-    // Un lead con móvil, de los que se escriben de verdad: se piden unos cuantos y se elige uno al azar
-    const { data } = await supabase.from('cold_leads').select('id, store_name, company, status').not('phone', 'is', null).limit(40)
+    // Un lead con móvil o con correo, de los que se escriben de verdad: se piden unos cuantos y se elige uno al azar
+    const { data } = await supabase.from('cold_leads').select('id, store_name, company, status').not(conCampo, 'is', null).limit(40)
     setBuscando(false)
     const lista = (data ?? []) as LeadElegido[]
-    if (lista.length === 0) return setError('No hay leads con teléfono que puedas ver.')
+    if (lista.length === 0) return setError(conCampo === 'email' ? 'No hay leads con correo que puedas ver.' : 'No hay leads con teléfono que puedas ver.')
     elegir(lista[Math.floor(Math.random() * lista.length)])
   }
 
@@ -87,7 +87,7 @@ export function BuscadorDeLead({ lead, onElegir }: { lead: LeadElegido | null; o
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[var(--ls-t4)]" aria-hidden />
           <input value={consulta} onChange={(e) => setConsulta(e.target.value)} placeholder="Busca un lead por el nombre de la tienda…" aria-label="Buscar un lead" autoComplete="off" className={`${LINEA} !pl-8`} />
         </div>
-        <button type="button" onClick={() => void alAzar()} disabled={buscando} className={`${BOTON.base} ${BOTON.secundario} !h-8`} title="Elige un lead con teléfono al azar">
+        <button type="button" onClick={() => void alAzar()} disabled={buscando} className={`${BOTON.base} ${BOTON.secundario} !h-8`} title={conCampo === 'email' ? 'Elige un lead con correo al azar' : 'Elige un lead con teléfono al azar'}>
           <Dices className="h-3.5 w-3.5" aria-hidden /> Al azar
         </button>
       </div>

@@ -395,6 +395,50 @@ export async function resolverConfiguracion(
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Con qué se prueba                                                   */
+/* ------------------------------------------------------------------ */
+
+export interface ConfiguracionAProbar {
+  secciones: SeccionesDeInstrucciones
+  ejemplosIds: string[]
+  usarGanadores: boolean
+  modelo: string | null
+  /** Avisos de las instrucciones (pedirle a la IA algo que las reglas fijas prohíben, por ejemplo) */
+  avisos: string[]
+}
+
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Con qué configuración se prueba: una versión guardada (`versionId`) o lo que hay en el editor ahora, sin guardar (`secciones`, `ejemplosIds`, `usarGanadores`, `modelo`). Es lo que
+ * comparten las dos rutas de prueba (un lead, o varias personas de prueba). No lanza por una versión que no existe: devuelve el 404.
+ */
+export async function configuracionDePrueba(
+  service: Servicio,
+  cuerpo: Record<string, unknown>
+): Promise<{ ok: true; valor: ConfiguracionAProbar } | { ok: false; estado: number; error: string }> {
+  if (typeof cuerpo.versionId === 'string' && ES_UUID.test(cuerpo.versionId) && cuerpo.secciones === undefined) {
+    const v = await leerVersion(service, cuerpo.versionId.toLowerCase())
+    if (!v) return { ok: false, estado: 404, error: 'No se encuentra esa versión.' }
+    return { ok: true, valor: { secciones: v.secciones, ejemplosIds: v.ejemplosIds, usarGanadores: v.usarGanadores, modelo: v.modelo, avisos: [] } }
+  }
+  const s = validarSecciones(cuerpo.secciones)
+  if (!s.ok) return { ok: false, estado: 400, error: s.error }
+  const m = validarModelo(cuerpo.modelo)
+  if (!m.ok) return { ok: false, estado: 400, error: m.error }
+  return {
+    ok: true,
+    valor: {
+      secciones: s.secciones,
+      ejemplosIds: Array.isArray(cuerpo.ejemplosIds) ? cuerpo.ejemplosIds.filter((x): x is string => typeof x === 'string' && ES_UUID.test(x)).slice(0, 8) : [],
+      usarGanadores: cuerpo.usarGanadores !== false,
+      modelo: m.modelo,
+      avisos: s.avisos,
+    },
+  }
+}
+
 export async function ejemplosDeLaVersion(service: Servicio, ids: readonly string[]): Promise<EjemploPropio[]> {
   const { data, error } = await service.from('correo_ia_ejemplos').select(COLUMNAS_DE_EJEMPLO).in('id', [...ids])
   if (error) throw fallo('No se han podido leer los ejemplos de la versión.', error)

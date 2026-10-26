@@ -1,5 +1,6 @@
 import type { DatosDeLead, LlamadaParaIa, NotaParaIa } from '@/lib/correo/ia-contexto'
 import type { ClienteDeCorreoIa } from '@/lib/correo/ia-generar'
+import { conLimite } from '@/lib/ia/concurrencia'
 import { momentoDelCaso, type CasoDePrueba } from './ia-casos'
 import { escribirMensaje } from './ia-escribir'
 import type { PerfilDeWhatsapp } from './ia-perfil'
@@ -40,19 +41,7 @@ export interface EntradaDeLote {
 
 const CONCURRENCIA = 4
 
-/** Hace `fn` con cada elemento, `limite` a la vez, y devuelve los resultados en el mismo orden. `fn` no debe lanzar (aquí, nunca lo hace) */
-export async function conLimite<T, R>(elementos: readonly T[], limite: number, fn: (e: T, i: number) => Promise<R>): Promise<R[]> {
-  const salida = new Array<R>(elementos.length)
-  let siguiente = 0
-  const obreros = Array.from({ length: Math.min(limite, elementos.length) }, async () => {
-    while (siguiente < elementos.length) {
-      const i = siguiente++
-      salida[i] = await fn(elementos[i], i)
-    }
-  })
-  await Promise.all(obreros)
-  return salida
-}
+export { conLimite }
 
 const palabrasDe = (t: string | null | undefined): number => (t ? t.trim().split(/\s+/).filter(Boolean).length : 0)
 

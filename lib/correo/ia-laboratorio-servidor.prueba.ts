@@ -3,6 +3,7 @@ import {
   actualizarVersion,
   aVersion,
   borrarEjemplo,
+  configuracionDePrueba,
   configuracionPorDefecto,
   crearEjemplo,
   crearVersion,
@@ -291,6 +292,33 @@ async function main() {
     await actualizarVersion(servicio, original.id as string, { activa: false })
     const sinEjemplo = await resolverConfiguracion(servicio, { versionPedida: nueva.ok ? nueva.valor.id : null, tipo: 'entrar', ganadores: [] })
     ok('un ejemplo desactivado no se enseña', sinEjemplo.ejemplos.length === 0)
+  }
+
+  console.log('\n=== con qué se prueba ===')
+  {
+    const { almacen, servicio } = crear({ correo_ia_ejemplos: [{ id: UUID1, titulo: 'mi ejemplo', asunto: 'Mi asunto', texto: texto120, tipo: 'ambos', activo: true }] })
+    await sembrarBase(servicio, null)
+    const b = await crearVersion(servicio, { nombre: 'Usted', secciones: { ...SECCIONES_BASE, comoEscribes: 'CÓMO ESCRIBES:\n- Trata de usted y sé formal.\n- Entre 90 y 150 palabras en texto plano.' }, ejemplosIds: [UUID1], usarGanadores: false, modelo: 'gpt-5.6-luna' }, 'j')
+    if (!b.ok) throw new Error('no se creó')
+    // La base de mentira numera sus filas («id-3»); la ruta de verdad solo deja pasar UUID, así que a esta se le pone uno
+    const UUID_B = '33333333-3333-4333-8333-333333333333'
+    almacen.tablas.correo_ia_versiones.find((v) => v.id === b.valor.id)!.id = UUID_B
+
+    const guardada = await configuracionDePrueba(servicio, { versionId: UUID_B.toUpperCase() })
+    ok('una versión guardada se lee con sus instrucciones, ejemplos y modelo', guardada.ok && guardada.valor.secciones.comoEscribes.includes('Trata de usted') && guardada.valor.ejemplosIds[0] === UUID1 && guardada.valor.usarGanadores === false && guardada.valor.modelo === 'gpt-5.6-luna' && guardada.valor.avisos.length === 0)
+    const noExiste = await configuracionDePrueba(servicio, { versionId: '99999999-9999-4999-8999-999999999999' })
+    ok('una versión que no existe: 404', !noExiste.ok && noExiste.estado === 404)
+
+    const editor = await configuracionDePrueba(servicio, { secciones: { ...SECCIONES_BASE, extra: 'Menciona la facturación estimada de la empresa.' }, ejemplosIds: [UUID1, 'no-es-un-id', ...Array.from({ length: 12 }, () => UUID1)], usarGanadores: false, modelo: 'GPT-5.6-Luna' })
+    ok('lo que hay en el editor se prueba tal cual, sin guardar', editor.ok && editor.valor.usarGanadores === false && editor.valor.modelo === 'gpt-5.6-luna' && almacen.tablas.correo_ia_versiones.length === 2)
+    ok('con los ejemplos válidos y como mucho ocho', editor.ok && editor.valor.ejemplosIds.length === 8 && editor.valor.ejemplosIds.every((x) => x === UUID1))
+    ok('y con el aviso de las instrucciones que piden dinero', editor.ok && editor.valor.avisos.length === 1)
+    const porDefecto = await configuracionDePrueba(servicio, { secciones: SECCIONES_BASE })
+    ok('sin decir nada más: con ganadores automáticos, sin ejemplos y con el modelo de siempre', porDefecto.ok && porDefecto.valor.usarGanadores === true && porDefecto.valor.ejemplosIds.length === 0 && porDefecto.valor.modelo === null)
+    const conAmbos = await configuracionDePrueba(servicio, { versionId: UUID_B, secciones: SECCIONES_BASE })
+    ok('si llegan las dos cosas manda el editor, que es lo que se está viendo', conAmbos.ok && conAmbos.valor.secciones.comoEscribes === SECCIONES_BASE.comoEscribes)
+    ok('instrucciones que no valen: 400', (await configuracionDePrueba(servicio, { secciones: { queHacemos: 'poco' } })).ok === false && ((await configuracionDePrueba(servicio, {})) as { estado: number }).estado === 400)
+    ok('un modelo raro: 400', ((await configuracionDePrueba(servicio, { secciones: SECCIONES_BASE, modelo: 'gpt 5; drop' })) as { estado: number }).estado === 400)
   }
 
   console.log('\n=== los ejemplos propios ===')
