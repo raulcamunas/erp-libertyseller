@@ -402,7 +402,7 @@ export function InformeSemanal({ equipo, hoy, lunesInicial }: Props) {
             <MatrizDeLaSemana semana={semana} dias={dias} resultados={resultados} metrica={metrica} onMetrica={setMetrica} contra={contra} onAbrirPersona={abrirPersona} />
 
             <section className={`${PANEL} rend-aparece overflow-hidden`} aria-label="Cuándo se trabaja">
-              <CabeceraDePanel icono={<Clock className="h-3.5 w-3.5" />} titulo="Cuándo se trabaja" contexto="· en qué horas se llama y a qué hora suele empezar y acabar cada persona" />
+              <CabeceraDePanel icono={<Clock className="h-3.5 w-3.5" />} titulo="Cuándo se trabaja" contexto="· en qué horas se marca (cada intento de llamada) y a qué hora suele empezar y acabar cada persona" />
               <div className="grid grid-cols-1 gap-6 p-3 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
                 <MapaDeFranjas mapa={mapaDelEquipo} dias={dias} />
                 <div className="overflow-x-auto">

@@ -3,8 +3,9 @@ import { esDia } from '@/lib/correo/secuencias/fechas'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { ESTADOS_QUE_SE_PUEDEN_TOCAR } from '@/lib/rellamada/reglas'
 import { INTENTOS_MAXIMOS } from './reglas'
-import type { Almacen, AjustesDelMotor, ContextoDeLaLlamada, FalloParaGuardar, FilaReservada, LlamadaPendiente, ResultadoParaGuardar, TranscripcionParaGuardar } from './motor'
+import { FALTA_MIGRACION_TURNOS, type Almacen, type AjustesDelMotor, type ContextoDeLaLlamada, type FalloParaGuardar, type FilaReservada, type LlamadaPendiente, type LlamadaSinTurnos, type ResultadoParaGuardar, type TranscripcionParaGuardar, type TurnosParaGuardar } from './motor'
 import type { LeadParaRellamada } from './rellamada'
+import { INTENTOS_DE_TURNOS } from './turnos'
 
 /**
  * LO QUE EL MOTOR LEE Y ESCRIBE EN SUPABASE.
@@ -35,8 +36,22 @@ const numero = (x: unknown): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
+/** Cuánto se espera entre un intento de separar quién habla y el siguiente de la misma llamada */
+const MINUTOS_ENTRE_INTENTOS_DE_TURNOS = 10
+
 export function almacenDeSupabase(service: Servicio, ahora: () => number = Date.now): Almacen {
   const iso = () => new Date(ahora()).toISOString()
+
+  /** El nombre de la tienda y el del comercial, para decírselo a la IA. Si no se pueden leer se sigue sin ellos: no es motivo para fallar */
+  async function nombresDeLaLlamada(leadId: string | null, userId: string): Promise<ContextoDeLaLlamada> {
+    const [lead, perfil] = await Promise.all([
+      leadId ? service.from('cold_leads').select('store_name, company').eq('id', leadId).maybeSingle() : Promise.resolve({ data: null }),
+      service.from('profiles').select('full_name').eq('id', userId).maybeSingle(),
+    ])
+    const l = (lead.data as { store_name: string | null; company: string | null } | null) ?? null
+    const p = (perfil.data as { full_name: string | null } | null) ?? null
+    return { empresa: l?.store_name?.trim() || l?.company?.trim() || null, comercial: p?.full_name?.trim() || null }
+  }
 
   return {
     async leerAjustes(): Promise<AjustesDelMotor> {
@@ -107,14 +122,8 @@ export function almacenDeSupabase(service: Servicio, ahora: () => number = Date.
     },
 
     async contexto(llamada: LlamadaPendiente): Promise<ContextoDeLaLlamada> {
-      const [lead, perfil] = await Promise.all([
-        service.from('cold_leads').select('store_name, company').eq('id', llamada.lead_id).maybeSingle(),
-        service.from('profiles').select('full_name').eq('id', llamada.user_id).maybeSingle(),
-      ])
       // Sin estos nombres se transcribe igual, con peores pistas: no es motivo para fallar
-      const l = (lead.data as { store_name: string | null; company: string | null } | null) ?? null
-      const p = (perfil.data as { full_name: string | null } | null) ?? null
-      return { empresa: l?.store_name?.trim() || l?.company?.trim() || null, comercial: p?.full_name?.trim() || null }
+      return nombresDeLaLlamada(llamada.lead_id, llamada.user_id)
     },
 
     async guardarTranscripcion(llamadaId: string, t: TranscripcionParaGuardar): Promise<void> {
@@ -207,6 +216,73 @@ export function almacenDeSupabase(service: Servicio, ahora: () => number = Date.
       // Sin autor: es del sistema y no cuenta para nadie en Rendimiento
       const { error } = await service.from('cold_lead_notes').insert({ lead_id: leadId, author_id: null, kind: 'nota', body: cuerpo.slice(0, 8000), occurred_at: new Date(ocurrioAt).toISOString(), es_respuesta: false })
       if (error) console.error('[transcripcion] no se ha podido apuntar una nota en el lead', { codigo: (error as { code?: string }).code ?? null })
+    },
+
+    /* ---------------- quién habla en la transcripción entera ---------------- */
+
+    async pendientesDeTurnos(limite: number): Promise<LlamadaSinTurnos[]> {
+      const haceUnRato = new Date(ahora() - MINUTOS_ENTRE_INTENTOS_DE_TURNOS * 60_000).toISOString()
+      const { data, error } = await service
+        .from('rinkel_transcripciones')
+        .select('llamada_id, transcripcion, turnos_intentos')
+        .eq('estado', 'hecha')
+        .eq('tipo', 'conversacion')
+        .is('turnos', null)
+        .lt('turnos_intentos', INTENTOS_DE_TURNOS)
+        .not('transcripcion', 'is', null)
+        // Un intento fallado se espera un rato antes del siguiente
+        .or(`turnos_intento_at.is.null,turnos_intento_at.lt.${haceUnRato}`)
+        .order('hecha_at', { ascending: false })
+        .limit(limite)
+      if (error) {
+        if (isMissingSchema(error)) throw new Error(FALTA_MIGRACION_TURNOS, { cause: error })
+        throw new Error('No se ha podido pedir la lista de conversaciones por separar.', { cause: error })
+      }
+      const filas = (data ?? []) as Array<{ llamada_id: string; transcripcion: string; turnos_intentos: number | null }>
+      if (filas.length === 0) return []
+
+      // De qué llamada es cada una: sentido, duración, de quién y a qué lead
+      const { data: llamadas, error: errorLlamadas } = await service.from('rinkel_llamadas').select('id, user_id, lead_id, direccion, duracion_s').in('id', filas.map((f) => f.llamada_id))
+      if (errorLlamadas) throw new Error('No se han podido leer las llamadas por separar.', { cause: errorLlamadas })
+      const porId = new Map(((llamadas ?? []) as Array<{ id: string; user_id: string; lead_id: string | null; direccion: string; duracion_s: number }>).map((l) => [l.id, l]))
+
+      const salida: LlamadaSinTurnos[] = []
+      for (const f of filas) {
+        const l = porId.get(f.llamada_id)
+        if (!l) continue
+        const nombres = await nombresDeLaLlamada(l.lead_id, l.user_id)
+        salida.push({ llamadaId: f.llamada_id, transcripcion: f.transcripcion, intentos: numero(f.turnos_intentos) ?? 0, direccion: l.direccion, duracionS: l.duracion_s, comercial: nombres.comercial, empresa: nombres.empresa })
+      }
+      return salida
+    },
+
+    async reservarTurnos(p: LlamadaSinTurnos): Promise<boolean> {
+      // Compara y cambia en un solo paso: si otra pasada ya sumó su intento, el filtro de `turnos_intentos` no encuentra la fila y esta se queda sin ella
+      const { data, error } = await service
+        .from('rinkel_transcripciones')
+        .update({ turnos_intentos: p.intentos + 1, turnos_intento_at: iso() })
+        .eq('llamada_id', p.llamadaId)
+        .eq('turnos_intentos', p.intentos)
+        .is('turnos', null)
+        .select('llamada_id')
+      if (error) throw new Error('No se ha podido reservar la conversación para separarla.', { cause: error })
+      return (data ?? []).length > 0
+    },
+
+    async guardarTurnos(llamadaId: string, t: TurnosParaGuardar): Promise<void> {
+      const { error } = await service
+        .from('rinkel_transcripciones')
+        .update({ turnos: t.turnos, modelo_turnos: t.modelo, coste_turnos_usd: t.costeUsd, turnos_intento_at: iso(), actualizada_at: iso() })
+        .eq('llamada_id', llamadaId)
+      if (error) throw new Error('No se han podido guardar los turnos de la conversación.', { cause: error })
+    },
+
+    async devolverIntentoDeTurnos(llamadaId: string): Promise<void> {
+      const { data } = await service.from('rinkel_transcripciones').select('turnos_intentos').eq('llamada_id', llamadaId).maybeSingle()
+      const actuales = numero((data as { turnos_intentos?: unknown } | null)?.turnos_intentos)
+      if (actuales === null) return
+      // Sin hora de intento: la próxima pasada puede volver a probar en cuanto la cuenta de la IA funcione
+      await service.from('rinkel_transcripciones').update({ turnos_intentos: Math.max(0, actuales - 1), turnos_intento_at: null }).eq('llamada_id', llamadaId)
     },
   }
 }

@@ -103,6 +103,12 @@ export function CalendarioLlamadas({ anio, mes, datos, dia, resaltado, hoy, carg
                 <Numero valor={total.contestadas} formato={numero} />
               </span>{' '}
               contestadas
+              {total.intentos > total.realizadas && (
+                <>
+                  {' '}
+                  · <span className="tabular-nums">{numero(total.intentos)}</span> intentos
+                </>
+              )}
             </span>
           )}
         </p>
@@ -187,7 +193,7 @@ export function CalendarioLlamadas({ anio, mes, datos, dia, resaltado, hoy, carg
       </div>
 
       <div className="mt-2.5 flex items-center justify-between gap-3 text-[10.5px] text-[var(--ls-t4)]">
-        <span>Cada casilla son las llamadas hechas ese día. «Sem.» suma la semana.</span>
+        <span>Cada casilla son los clientes a los que se llamó ese día (uno cuenta una vez). «Sem.» suma la semana.</span>
         <span className="flex shrink-0 items-center gap-1">
           Menos
           {([1, 2, 3, 4] as const).map((n) => (

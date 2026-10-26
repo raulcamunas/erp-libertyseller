@@ -5,6 +5,7 @@ import {
   indexar,
   llamadasPorDiaLaborable,
   promediar,
+  reglaPorCliente,
   resultadoDePersona,
   seriesDeCifras,
   sumarTotales,
@@ -76,6 +77,31 @@ console.log('\n=== sumar las filas de un rango ===')
   const dos = sumarTotales([t, totalesDeRango(porPersona.get(DANIELA), { desde: '2026-10-19', hasta: '2026-10-25' })])
   ok('la suma del equipo', dos.llamadas === 113)
   ok('la media de dos', promediar([t, totalesVacios()]).llamadas === 51 && promediar([]).llamadas === 0)
+}
+
+console.log('\n=== un cliente, una llamada al día: los intentos ===')
+{
+  // Con la migración 252 la base devuelve `intentos` (las salientes sin agrupar) y `realizadas` son los clientes distintos de cada día
+  const filas = [
+    fila(MAOLI, '2026-10-20', { realizadas: 40, intentos: 63, contestadas: 20 }),
+    fila(MAOLI, '2026-10-21', { realizadas: 30, intentos: 41, contestadas: 18 }),
+    fila(DANIELA, '2026-10-21', { realizadas: 10, intentos: 10 }),
+  ]
+  const porPersona = indexar(filas)
+  const t = totalesDeRango(porPersona.get(MAOLI), { desde: '2026-10-19', hasta: '2026-10-25' })
+  ok('la semana de Maoli: 70 llamadas (clientes) en 104 intentos', t.llamadas === 70 && t.intentos === 104, j(t))
+  ok('el contacto se calcula sobre los clientes: 38 de 70', Math.abs(contacto(t) - 38 / 70) < 1e-9)
+  ok('la suma del equipo y la media suman también los intentos', sumarTotales([t, totalesDeRango(porPersona.get(DANIELA), { desde: '2026-10-19', hasta: '2026-10-25' })]).intentos === 114 && promediar([t, totalesVacios()]).intentos === 52)
+
+  // Sin la 252 la base no devuelve intentos: cada llamada era una, así que los intentos son las llamadas
+  const antes = indexar([fila(MAOLI, '2026-10-20', { realizadas: 50 }), fila(MAOLI, '2026-10-21', { realizadas: 52 })])
+  const tAntes = totalesDeRango(antes.get(MAOLI), { desde: '2026-10-19', hasta: '2026-10-25' })
+  ok('sin la migración 252 los intentos son las llamadas (nunca más intentos que llamadas en pantalla)', tAntes.llamadas === 102 && tAntes.intentos === 102)
+
+  ok('reglaPorCliente: las filas de la 252 traen intentos', reglaPorCliente(filas))
+  ok('las de antes de la 252, no', !reglaPorCliente([fila(MAOLI, '2026-10-20', { realizadas: 50 })]))
+  ok('sin filas no hay nada que comparar y vale la regla nueva', reglaPorCliente([]))
+  ok('un día sin llamadas (intentos 0) también delata la 252', reglaPorCliente([fila(MAOLI, '2026-10-20', { intentos: 0 })]))
 }
 
 console.log('\n=== con qué se compara cada periodo ===')

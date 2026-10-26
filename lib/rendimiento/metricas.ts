@@ -52,27 +52,36 @@ export const SEGUNDOS_DE_CONVERSACION = 60
 /* ------------------------------------------------------------------ */
 
 export interface LlamadaParaMetricas {
+  /** Con el id, dos llamadas sin lead ni número no se toman por un mismo cliente */
+  id?: string
   fecha: string
   direccion: string
   estado: string
   duracion_s: number
   numero: string | null
+  /** El lead de Cold Calling al que se llamó: ES el cliente. Si no hay, el cliente es el número */
+  lead_id?: string | null
   grabacion_id: string | null
 }
 
 export interface ResumenDeLlamadas {
-  /** Todas las del día, entrantes o salientes */
+  /** Todas las del día, entrantes o salientes, sin agrupar */
   total: number
-  /** Las que hizo el comercial: es «llamadas hechas hoy» */
+  /**
+   * «Llamadas hechas»: a cuántos CLIENTES distintos llamó el comercial. UN CLIENTE CUENTA UNA VEZ AL DÍA aunque se le haya llamado tres veces (y aunque
+   * la tercera se contestara): es una interacción nueva, no tres. Al día siguiente, otra llamada al mismo cliente vuelve a contar
+   */
   realizadas: number
+  /** Las salientes sin agrupar: los intentos de los que salen las `realizadas` */
+  intentos: number
   recibidas: number
-  /** De las realizadas, a cuántas respondió una persona: dura SEGUNDOS_MINIMOS_PARA_CONTESTADA o más (un contestador no cuenta) */
+  /** De las realizadas, a cuántos CLIENTES respondió una persona en algún intento: dura SEGUNDOS_MINIMOS_PARA_CONTESTADA o más (un contestador no cuenta) */
   contestadas: number
   /** Contestadas / realizadas, de 0 a 1 */
   tasaDeContacto: number
-  /** Lo que se estuvo al teléfono: la suma de las contestadas, entrantes y salientes (sin contestadores) */
+  /** Lo que se estuvo al teléfono: la suma de las contestadas, entrantes y salientes (sin contestadores). Es tiempo: se suma entero */
   segundosHablados: number
-  /** Las contestadas (de cualquier sentido) que pasaron de SEGUNDOS_DE_CONVERSACION */
+  /** CLIENTES con los que hubo una llamada contestada (de cualquier sentido) que pasó de SEGUNDOS_DE_CONVERSACION */
   conversaciones: number
   /** A cuántos números distintos se llamó (las realizadas) */
   numerosDistintos: number
@@ -85,6 +94,7 @@ export interface ResumenDeLlamadas {
 const VACIO: ResumenDeLlamadas = {
   total: 0,
   realizadas: 0,
+  intentos: 0,
   recibidas: 0,
   contestadas: 0,
   tasaDeContacto: 0,
@@ -96,45 +106,68 @@ const VACIO: ResumenDeLlamadas = {
   ultima: null,
 }
 
-export function resumenDeLlamadas(llamadas: readonly LlamadaParaMetricas[]): ResumenDeLlamadas {
+/**
+ * Quién es el cliente de una llamada, DENTRO DE SU DÍA: el lead si lo tiene, si no el número y, si tampoco (número oculto), la propia llamada. Lleva el día
+ * de Madrid delante, así que el mismo cliente en dos días son dos. La función SQL del resumen diario (migración 252) usa la misma clave:
+ * `COALESCE(lead_id::text, numero, id::text)` por persona y día. Si se cambia aquí, hay que cambiarla allí.
+ */
+export function clienteDeLaLlamada(l: LlamadaParaMetricas, posicion: number): string {
+  return `${diaMadrid(l.fecha)}|${l.lead_id ?? l.numero ?? l.id ?? `#${posicion}`}`
+}
+
+export interface OpcionesDeResumen {
+  /**
+   * true (lo normal) = un cliente cuenta una vez al día. false = cada llamada es la suya, como se contaba antes de la migración 252: se usa mientras la
+   * base devuelva las cifras del resumen diario sin agrupar, para que el calendario y las tarjetas no se contradigan
+   */
+  porCliente?: boolean
+}
+
+export function resumenDeLlamadas(llamadas: readonly LlamadaParaMetricas[], opciones: OpcionesDeResumen = {}): ResumenDeLlamadas {
   if (llamadas.length === 0) return { ...VACIO }
-  let realizadas = 0
+  const porCliente = opciones.porCliente !== false
+  let intentos = 0
   let recibidas = 0
-  let contestadas = 0
   let segundos = 0
-  let conversaciones = 0
   let conGrabacion = 0
+  const clientes = { realizadas: new Set<string>(), contestadas: new Set<string>(), conversaciones: new Set<string>() }
   const numeros = new Set<string>()
   let primera = llamadas[0].fecha
   let ultima = llamadas[0].fecha
 
-  for (const l of llamadas) {
+  llamadas.forEach((l, i) => {
     const salio = l.direccion === 'outbound'
     const entro = l.direccion === 'inbound'
     const respondida = estaContestada(l)
+    // Sin agrupar, cada llamada es su propio cliente
+    const cliente = porCliente ? clienteDeLaLlamada(l, i) : `#${i}`
     if (salio) {
-      realizadas += 1
-      if (respondida) contestadas += 1
+      intentos += 1
+      clientes.realizadas.add(cliente)
+      if (respondida) clientes.contestadas.add(cliente)
       if (l.numero) numeros.add(l.numero)
     }
     if (entro) recibidas += 1
     if (respondida) {
       segundos += l.duracion_s
-      if (l.duracion_s >= SEGUNDOS_DE_CONVERSACION) conversaciones += 1
+      if (l.duracion_s >= SEGUNDOS_DE_CONVERSACION) clientes.conversaciones.add(cliente)
     }
     if (l.grabacion_id) conGrabacion += 1
     if (l.fecha < primera) primera = l.fecha
     if (l.fecha > ultima) ultima = l.fecha
-  }
+  })
 
+  const realizadas = clientes.realizadas.size
+  const contestadas = clientes.contestadas.size
   return {
     total: llamadas.length,
     realizadas,
+    intentos,
     recibidas,
     contestadas,
     tasaDeContacto: realizadas === 0 ? 0 : contestadas / realizadas,
     segundosHablados: segundos,
-    conversaciones,
+    conversaciones: clientes.conversaciones.size,
     numerosDistintos: numeros.size,
     conGrabacion,
     primera,
@@ -173,10 +206,10 @@ export interface MesDeLlamadas {
   total: ResumenDeLlamadas
 }
 
-export function mesDeLlamadas(anio: number, mes: number, llamadas: readonly LlamadaParaMetricas[]): MesDeLlamadas {
+export function mesDeLlamadas(anio: number, mes: number, llamadas: readonly LlamadaParaMetricas[], opciones: OpcionesDeResumen = {}): MesDeLlamadas {
   const dias = diasDelMes(anio, mes)
   const porDia = agruparPorDia(llamadas)
-  const celdas = dias.map((dia) => ({ dia, resumen: resumenDeLlamadas(porDia.get(dia) ?? []) }))
+  const celdas = dias.map((dia) => ({ dia, resumen: resumenDeLlamadas(porDia.get(dia) ?? [], opciones) }))
   // Solo se suman las llamadas que caen EN el mes: el rango que se pidió a la base puede traer de más por los bordes
   const delMes = new Set(dias)
   const enElMes = llamadas.filter((l) => delMes.has(diaMadrid(l.fecha)))
@@ -184,7 +217,8 @@ export function mesDeLlamadas(anio: number, mes: number, llamadas: readonly Llam
     huecos: indiceDeSemana(dias[0]),
     celdas,
     maximoRealizadas: celdas.reduce((m, c) => Math.max(m, c.resumen.realizadas), 0),
-    total: resumenDeLlamadas(enElMes),
+    // El cliente lleva el día delante (clienteDeLaLlamada): un cliente llamado en dos días del mes cuenta en los dos
+    total: resumenDeLlamadas(enElMes, opciones),
   }
 }
 

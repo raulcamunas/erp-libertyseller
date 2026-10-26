@@ -215,7 +215,7 @@ export interface OpcionesDelResumen {
 }
 
 /** ¿Es un modelo de los que razonan? Se piden de otra manera: sin `temperature` y con `reasoning_effort` (igual que en lib/correo/ia-generar.ts) */
-const razona = (modelo: string): boolean => /^(gpt-[5-9]|gpt-\d{2}|o\d)/.test(modelo)
+export const razona = (modelo: string): boolean => /^(gpt-[5-9]|gpt-\d{2}|o\d)/.test(modelo)
 
 export function modeloDeResumen(): string {
   return process.env.TRANSCRIPCION_MODELO_RESUMEN?.trim() || MODELO_DE_RESUMEN_POR_DEFECTO

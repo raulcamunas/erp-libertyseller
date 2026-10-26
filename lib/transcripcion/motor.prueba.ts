@@ -6,6 +6,8 @@ import {
   clasificarFalloDeVoz,
   procesarPendientes,
   resumenDeLaPasada,
+  FALTA_MIGRACION_TURNOS,
+  TURNOS_POR_PASADA,
   type Almacen,
   type AjustesDelMotor,
   type ClaveDeRinkel,
@@ -14,12 +16,15 @@ import {
   type FalloParaGuardar,
   type FilaReservada,
   type LlamadaPendiente,
+  type LlamadaSinTurnos,
   type ResultadoDelMotor,
   type ResultadoParaGuardar,
   type TranscripcionParaGuardar,
 } from '@/lib/transcripcion/motor'
 import type { LeadParaRellamada } from '@/lib/transcripcion/rellamada'
 import type { ResultadoDelResumen } from '@/lib/transcripcion/resumen'
+import type { ResultadoDeTurnos } from '@/lib/transcripcion/turnos'
+import type { TurnoDeLaLlamada } from '@/lib/transcripcion/tipos'
 import { ErrorDeVoz, MENSAJE_DE_VOZ, type ResultadoDeVoz } from '@/lib/transcripcion/voz'
 
 let fallos = 0
@@ -27,6 +32,7 @@ const ok = (n: string, bien: boolean, d = '') => {
   if (!bien) fallos++
   console.log(`  ${bien ? 'OK   ' : 'FALLA'} ${n}${bien || !d ? '' : ` -> ${d}`}`)
 }
+const j = (x: unknown) => JSON.stringify(x)
 
 /**
  * EL MOTOR CONTRA UN ALMACÉN EN MEMORIA Y PROVEEDORES FALSOS QUE FALLAN A PROPÓSITO.
@@ -68,7 +74,11 @@ interface Mundo {
   filas: Map<string, Fila>
   llamadasA: { claves: string[]; urls: string[]; audios: number; voz: number; resumen: number; reservas: string[] }
   reloj: { ahora: number }
-  fallosDeAlmacen: Partial<Record<'reservar' | 'guardarTranscripcion' | 'guardarResultado' | 'leerAjustes' | 'leadParaRellamada' | 'ponerRellamada' | 'apuntarNota', boolean>>
+  fallosDeAlmacen: Partial<Record<'reservar' | 'guardarTranscripcion' | 'guardarResultado' | 'leerAjustes' | 'leadParaRellamada' | 'ponerRellamada' | 'apuntarNota' | 'pendientesDeTurnos' | 'faltaLa253' | 'guardarTurnos', boolean>>
+  /** Las conversaciones con su estado de turnos, tal como las deja el motor */
+  turnos: Map<string, { intentos: number; turnos: TurnoDeLaLlamada[] | null; modelo: string | null }>
+  /** Lo que se le ha pedido a la IA para separar quién habla */
+  encargosDeTurnos: Array<{ system: string; usuario: string; frases: number }>
   /** Los leads a los que se llamó, tal como los dejan las rellamadas */
   leads: Map<string, LeadParaRellamada>
   /** Las notas que se han escrito en las fichas */
@@ -84,6 +94,10 @@ interface Config {
   gastado24h?: number
   filasIniciales?: Record<string, Partial<Fila>>
   claves?: Record<string, ClaveDeRinkel>
+  /** Conversaciones ya resumidas a las que les faltan los turnos (por id de llamada) */
+  sinTurnos?: Array<Partial<LlamadaSinTurnos> & { llamadaId: string }>
+  /** Lo que contesta la IA al separar (por número de petición, desde 1). Por defecto, un turno de cada lado */
+  turnosDeLaIa?: (n: number, frases: number) => Promise<ResultadoDeTurnos>
   /** Los leads de las llamadas (por id). Sin esto, un lead sin nada que decir: pendiente, de quien llamó y sin rellamada */
   leads?: Record<string, Partial<LeadParaRellamada>>
   festivos?: string[]
@@ -95,6 +109,8 @@ interface Config {
   resumen?: (n: number) => Promise<ResultadoDelResumen>
   /** Cuánto avanza el reloj falso con cada llamada a la voz (para probar el presupuesto de tiempo) */
   msPorVoz?: number
+  /** Lo mismo con cada petición para separar quién habla */
+  msPorTurno?: number
   latenciaMs?: number
 }
 
@@ -115,6 +131,9 @@ const resumenConRellamada = (extra: Partial<NonNullable<NonNullable<ResultadoDel
   ...RESUMEN_BUENO,
   resumen: { ...RESUMEN_BUENO.resumen!, rellamada: { fecha: '2026-10-29', hora: '10:00', frase: 'llámame el jueves a las diez', ...extra } },
 })
+/** LARGA son dos frases: la IA dice que la primera es del comercial y la segunda del cliente */
+const TURNOS_BUENOS: ResultadoDeTurnos = { marcas: [{ desde: 1, quien: 'comercial' }, { desde: 2, quien: 'cliente' }], modelo: 'gpt-6-luna', aviso: null, reintentable: false, general: false, costeUsd: 0.00015 }
+const SIN_TURNOS = (aviso: string, extra: Partial<ResultadoDeTurnos> = {}): ResultadoDeTurnos => ({ marcas: null, modelo: 'gpt-6-luna', aviso, reintentable: true, general: false, costeUsd: 0, ...extra })
 const SIN_RESUMEN = (aviso: string, extra: Partial<ResultadoDelResumen> = {}): ResultadoDelResumen => ({ resumen: null, modelo: 'gpt-6-luna', aviso, reintentable: true, general: false, tokens: null, costeUsd: 0, ...extra })
 
 function mundo(c: Config): Mundo {
@@ -128,6 +147,9 @@ function mundo(c: Config): Mundo {
   const leads = new Map<string, LeadParaRellamada>()
   for (const l of c.pendientes) leads.set(l.lead_id, { status: 'pendiente', assignedTo: l.user_id, nextCallDate: null, ...c.leads?.[l.lead_id] })
   const notas: Mundo['notas'] = []
+  const turnos: Mundo['turnos'] = new Map((c.sinTurnos ?? []).map((p) => [p.llamadaId, { intentos: p.intentos ?? 0, turnos: null, modelo: null }]))
+  const encargosDeTurnos: Mundo['encargosDeTurnos'] = []
+  let peticionesDeTurnos = 0
   const enVuelo = { actual: 0, maximo: 0 }
   const encargos: Mundo['encargos'] = []
   const pistas: Mundo['pistas'] = []
@@ -224,6 +246,31 @@ function mundo(c: Config): Mundo {
       if (fallosDeAlmacen.apuntarNota) throw new Error('la base no contesta')
       notas.push({ leadId, cuerpo })
     },
+    async pendientesDeTurnos(limite) {
+      if (fallosDeAlmacen.faltaLa253) throw new Error(FALTA_MIGRACION_TURNOS)
+      if (fallosDeAlmacen.pendientesDeTurnos) throw new Error('la base no contesta')
+      return (c.sinTurnos ?? [])
+        .filter((p) => turnos.get(p.llamadaId)?.turnos === null && (turnos.get(p.llamadaId)?.intentos ?? 0) < 3)
+        .slice(0, limite)
+        .map((p) => ({ transcripcion: LARGA, intentos: turnos.get(p.llamadaId)!.intentos, direccion: 'outbound', duracionS: 60, comercial: 'Beto Dos', empresa: 'Tienda', ...p }))
+    },
+    async reservarTurnos(p) {
+      const t = turnos.get(p.llamadaId)
+      // Como en la base: solo si sigue con los intentos con los que se leyó
+      if (!t || t.turnos !== null || t.intentos !== p.intentos) return false
+      t.intentos++
+      return true
+    },
+    async guardarTurnos(llamadaId, t) {
+      if (fallosDeAlmacen.guardarTurnos) throw new Error('no se puede escribir')
+      const f = turnos.get(llamadaId)!
+      f.turnos = t.turnos
+      f.modelo = t.modelo
+    },
+    async devolverIntentoDeTurnos(llamadaId) {
+      const f = turnos.get(llamadaId)!
+      f.intentos = Math.max(0, f.intentos - 1)
+    },
   }
 
   const deps: DepsDelMotor = {
@@ -253,8 +300,14 @@ function mundo(c: Config): Mundo {
       encargos.push(encargo)
       return c.resumen ? c.resumen(llamadasA.resumen) : RESUMEN_BUENO
     },
+    async separar(encargo, frases) {
+      peticionesDeTurnos++
+      encargosDeTurnos.push({ ...encargo, frases })
+      reloj.ahora += c.msPorTurno ?? 0
+      return c.turnosDeLaIa ? c.turnosDeLaIa(peticionesDeTurnos, frases) : TURNOS_BUENOS
+    },
   }
-  return { almacen, deps, filas, llamadasA, reloj, fallosDeAlmacen, leads, notas, enVuelo, encargos, pistas }
+  return { almacen, deps, filas, llamadasA, reloj, fallosDeAlmacen, leads, notas, turnos, encargosDeTurnos, enVuelo, encargos, pistas }
 }
 
 const pasada = (m: Mundo, op: Partial<{ presupuestoMs: number; limite: number; concurrencia: number }> = {}): Promise<ResultadoDelMotor> =>
@@ -547,9 +600,126 @@ const run = async () => {
     ok(`si ${que}, la llamada sigue HECHA (no se marca fallida ni se paga otro resumen) y la pasada no falla`, r.hechas === 1 && r.fallidas === 0 && r.rellamadas === 0 && r.parada === null && m.filas.get('llamada-1')!.estado === 'hecha' && m.llamadasA.resumen === 1)
   }
 
+  console.log('\n=== quién habla en la transcripción entera ===')
+  {
+    const pendientes = (n: number, extra: Partial<LlamadaSinTurnos> = {}) => Array.from({ length: n }, (_, i) => ({ llamadaId: `conv-${i + 1}`, ...extra }))
+    const hecha = (m: Mundo, id: string) => m.turnos.get(id)!
+
+    // El camino bueno: las tres conversaciones ya resumidas se separan en una pasada sin llamadas nuevas
+    {
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(3) })
+      const r = await pasada(m)
+      ok('las tres se separan y se cuentan', r.turnos === 3 && r.avisoDeTurnos === null && m.encargosDeTurnos.length === 3, `${r.turnos} · ${m.encargosDeTurnos.length}`)
+      ok('cada una queda con sus dos turnos: el comercial abre, el cliente contesta, con el texto de la transcripción íntegro', j(hecha(m, 'conv-1').turnos) === j([{ quien: 'comercial', texto: 'Buenas tardes, hablo con la tienda Joe Black Pets, soy Maoli de Liberty Seller.' }, { quien: 'cliente', texto: 'Os llamo porque vendéis por internet y quería saber si habéis pensado en Amazon.' }]), j(hecha(m, 'conv-1').turnos))
+      ok('y el modelo con el que se hizo', hecha(m, 'conv-1').modelo === 'gpt-6-luna')
+      ok('a la IA le llegan las frases numeradas, el comercial y la tienda', m.encargosDeTurnos[0].frases === 2 && m.encargosDeTurnos[0].usuario.includes('[1] Buenas tardes') && m.encargosDeTurnos[0].usuario.includes('[2] Os llamo') && m.encargosDeTurnos[0].usuario.includes('Comercial de Liberty Seller: Beto Dos') && m.encargosDeTurnos[0].usuario.includes('Empresa a la que se llama: Tienda'))
+      ok('el gasto de la pasada incluye el de los turnos (3 × 0,00015 $)', Math.abs(r.costeUsd - 3 * 0.00015) < 1e-9, String(r.costeUsd))
+      ok('el texto de la pasada lo cuenta', /3 conversaciones separadas por quién habla/.test(resumenDeLaPasada(r)) && /Nada que transcribir/.test(resumenDeLaPasada(r)), resumenDeLaPasada(r))
+      const r2 = await pasada(m)
+      ok('la siguiente pasada ya no tiene nada que separar (no se paga dos veces)', r2.turnos === 0 && m.encargosDeTurnos.length === 3)
+    }
+
+    // En la misma pasada: primero las llamadas nuevas, después los turnos
+    {
+      const m = mundo({ pendientes: [llamada(1)], sinTurnos: pendientes(2) })
+      const r = await pasada(m)
+      ok('una llamada nueva se transcribe y, a continuación, se separan las que esperaban', r.hechas === 1 && r.turnos === 2 && m.llamadasA.voz === 1)
+    }
+
+    // Un tope por pasada
+    {
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(TURNOS_POR_PASADA + 3) })
+      const r1 = await pasada(m)
+      ok(`como mucho ${TURNOS_POR_PASADA} por pasada`, r1.turnos === TURNOS_POR_PASADA && [...m.turnos.values()].filter((t) => t.turnos !== null).length === TURNOS_POR_PASADA)
+      const r2 = await pasada(m)
+      ok('las que quedan entran en la siguiente', r2.turnos === 3 && [...m.turnos.values()].every((t) => t.turnos !== null))
+    }
+
+    // Una sola frase, o demasiado larga: nada que separar, y no se pregunta a la IA
+    {
+      const m = mundo({ pendientes: [], sinTurnos: [{ llamadaId: 'corta', transcripcion: 'Hola, aquí no es, se ha equivocado de número.' }, { llamadaId: 'larguisima', transcripcion: Array.from({ length: 700 }, (_, i) => `Frase número ${i}.`).join(' ') }] })
+      const r = await pasada(m)
+      ok('una conversación de una frase o de más de 600 queda con [] y NO gasta IA', m.encargosDeTurnos.length === 0 && j(hecha(m, 'corta').turnos) === '[]' && j(hecha(m, 'larguisima').turnos) === '[]' && r.turnos === 0)
+      const r2 = await pasada(m)
+      ok('y no se vuelven a mirar', r2.turnos === 0 && m.encargosDeTurnos.length === 0)
+    }
+
+    // Fallos de la IA que se arreglan solos: el intento cuenta y se sigue con las demás
+    {
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(2), turnosDeLaIa: async (n) => (n === 1 ? SIN_TURNOS('La IA tiene un problema ahora mismo.') : TURNOS_BUENOS) })
+      const r = await pasada(m)
+      ok('si la IA falla en una (reintentable), esa cuenta un intento y la siguiente sale', r.turnos === 1 && hecha(m, 'conv-1').turnos === null && hecha(m, 'conv-1').intentos === 1 && hecha(m, 'conv-2').turnos !== null && r.avisoDeTurnos === null, `${r.turnos} · ${hecha(m, 'conv-1').intentos}`)
+    }
+    {
+      let n = 0
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(1), turnosDeLaIa: async () => (++n, SIN_TURNOS('La IA ha devuelto algo que no se entiende.')) })
+      for (let i = 0; i < 5; i++) await pasada(m)
+      ok('tras 3 intentos fallados se deja: la transcripción se queda corrida y no se insiste más', n === 3 && hecha(m, 'conv-1').turnos === null && hecha(m, 'conv-1').intentos === 3, `${n} peticiones`)
+    }
+    // Fallo de la cuenta de la IA: se para y no gasta el intento de la llamada
+    {
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(3), turnosDeLaIa: async () => SIN_TURNOS(MENSAJE_DE_VOZ.clave, { general: true, reintentable: false }) })
+      const r = await pasada(m)
+      ok('la clave de OpenAI falla: se para a la primera, sin seguir con las demás', m.encargosDeTurnos.length === 1 && r.turnos === 0)
+      ok('y esa conversación no gasta su intento', hecha(m, 'conv-1').intentos === 0, String(hecha(m, 'conv-1').intentos))
+      ok('la pasada lo cuenta con AVISO, sin dar la pasada por mala', r.avisoDeTurnos === MENSAJE_DE_VOZ.clave && r.parada === null && /AVISO: /.test(resumenDeLaPasada(r)))
+    }
+
+    // La pasada que ya se paró por la IA no lo intenta
+    {
+      const m = mundo({ pendientes: [llamada(1)], sinTurnos: pendientes(2), voz: async () => { throw new ErrorDeVoz('clave', MENSAJE_DE_VOZ.clave, 401) } })
+      const r = await pasada(m)
+      ok('si la pasada se ha parado por la cuenta de la IA, ni se prueba con los turnos', r.parada === 'ia_no_disponible' && m.encargosDeTurnos.length === 0)
+    }
+    // El tope diario de AUDIO no impide separar: no gasta audio
+    {
+      const m = mundo({ pendientes: [llamada(1)], ajustes: { tope_diario_minutos: 1 }, gastado24h: 100, sinTurnos: pendientes(1) })
+      const r = await pasada(m)
+      ok('con el tope diario de audio alcanzado se puede separar (es solo texto)', r.parada === 'tope_diario' && r.turnos === 1)
+    }
+
+    // El presupuesto de tiempo
+    {
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(6), msPorTurno: 40_000 })
+      const r = await pasada(m, { presupuestoMs: 100_000 })
+      ok('el presupuesto de tiempo manda: no se empiezan más pasados los 100 s (3 de 40 s)', r.turnos === 3, String(r.turnos))
+    }
+
+    // Sin la migración 253: la pasada sigue y lo dice
+    {
+      const m = mundo({ pendientes: [llamada(1)], sinTurnos: pendientes(2) })
+      m.fallosDeAlmacen.faltaLa253 = true
+      const r = await pasada(m)
+      ok('sin la 253 el resto de la pasada es igual (la llamada se transcribe) y se dice qué falta lanzar', r.hechas === 1 && r.turnos === 0 && r.avisoDeTurnos === FALTA_MIGRACION_TURNOS && /253_transcripcion_quien_habla/.test(resumenDeLaPasada(r)), resumenDeLaPasada(r))
+    }
+    // Un fallo cualquiera de la base al pedir la lista o al guardar
+    {
+      const m = mundo({ pendientes: [llamada(1)], sinTurnos: pendientes(2) })
+      m.fallosDeAlmacen.pendientesDeTurnos = true
+      const r = await pasada(m)
+      ok('si la base falla al pedir las conversaciones, la llamada nueva sigue hecha y la pasada no revienta', r.hechas === 1 && r.turnos === 0 && /Ha fallado algo al separar/.test(r.avisoDeTurnos ?? ''))
+    }
+    {
+      const m = mundo({ pendientes: [], sinTurnos: pendientes(2) })
+      m.fallosDeAlmacen.guardarTurnos = true
+      const r = await pasada(m)
+      ok('si la base falla al guardar, no revienta y no se cuenta como separada', r.turnos === 0 && /Ha fallado algo/.test(r.avisoDeTurnos ?? ''))
+    }
+    {
+      const registros: string[] = []
+      const original = console.error
+      console.error = (...a: unknown[]) => registros.push(JSON.stringify(a))
+      const m = mundo({ pendientes: [], sinTurnos: [{ llamadaId: 'x', transcripcion: 'Hola, soy Pedro de Joe Black Pets. Mi teléfono es 600112233.' }] })
+      m.fallosDeAlmacen.guardarTurnos = true
+      await pasada(m)
+      console.error = original
+      ok('lo que se apunta en la consola no trae lo que se dijo en la llamada', !/Pedro|Joe Black|600112233/.test(registros.join(' ')), registros.join(' '))
+    }
+  }
+
   console.log('\n=== el texto de la pasada ===')
   {
-    const base: ResultadoDelMotor = { candidatas: 5, hechas: 3, rellamadas: 0, sinContenido: 1, omitidas: 1, fallidas: 0, ajenas: 0, segundos: 330, costeUsd: 0.0312, parada: null, aviso: null, segundos24h: 1200, topeMinutos: 400 }
+    const base: ResultadoDelMotor = { candidatas: 5, hechas: 3, rellamadas: 0, turnos: 0, avisoDeTurnos: null, sinContenido: 1, omitidas: 1, fallidas: 0, ajenas: 0, segundos: 330, costeUsd: 0.0312, parada: null, aviso: null, segundos24h: 1200, topeMinutos: 400 }
     const t = resumenDeLaPasada(base)
     ok('cuenta lo hecho, lo omitido, los minutos y el dinero', /4 transcritas \(1 sin contenido\)/.test(t) && /1 omitida/.test(t) && /5,5 min de audio · 0,031 \$/.test(t), t)
     ok('y cuánto del tope se lleva (20 + 5,5 min de 400)', /24 h: 26 de 400 min/.test(t), t)

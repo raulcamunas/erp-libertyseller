@@ -1,5 +1,5 @@
 import { INTENTOS_MAXIMOS } from './reglas'
-import { SEGUNDOS_MINIMOS_DE_CONVERSACION, type ResumenDeLlamadaGuardado } from './tipos'
+import { SEGUNDOS_MINIMOS_DE_CONVERSACION, type QuienDelTurno, type ResumenDeLlamadaGuardado, type TurnoDeLaLlamada } from './tipos'
 
 /**
  * QUÉ SE ENSEÑA DE CADA LLAMADA EN LA FICHA Y EN «MI RENDIMIENTO», Y CUÁNDO SEGUIR PREGUNTANDO.
@@ -65,6 +65,23 @@ export function esperaResumen(l: LlamadaTranscribible, r: ResumenDeLlamadaGuarda
 /** ¿Merece la pena volver a preguntar por los resúmenes de estas llamadas? */
 export function hayQueEsperar(llamadas: readonly LlamadaTranscribible[], resumenes: ReadonlyMap<string, ResumenDeLlamadaGuardado>, ahora: number): boolean {
   return llamadas.some((l) => esperaResumen(l, resumenes.get(l.id), ahora))
+}
+
+/**
+ * Lo que llega de la base como `turnos` (un JSON que puede tener cualquier forma) -> los turnos que se pueden enseñar, o null si no hay: la llamada aún no se ha
+ * separado, no valía la pena (muy corta) o lo guardado no se entiende. En ese caso se enseña la transcripción corrida, como siempre
+ */
+export function turnosLegibles(valor: unknown): TurnoDeLaLlamada[] | null {
+  if (!Array.isArray(valor)) return null
+  const lados: readonly QuienDelTurno[] = ['comercial', 'cliente']
+  const turnos: TurnoDeLaLlamada[] = []
+  for (const t of valor) {
+    if (!t || typeof t !== 'object') continue
+    const { quien, texto } = t as { quien?: unknown; texto?: unknown }
+    const lado = lados.find((l) => l === quien)
+    if (lado && typeof texto === 'string' && texto.trim()) turnos.push({ quien: lado, texto: texto.trim() })
+  }
+  return turnos.length > 0 ? turnos : null
 }
 
 /** La primera frase del resumen, para la línea de vista previa de una lista */

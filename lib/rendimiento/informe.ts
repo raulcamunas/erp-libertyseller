@@ -133,9 +133,9 @@ export function diasDeSemana(s: Semana): DiaDeSemana[] {
 export type Metrica = 'llamadas' | 'contestadas' | 'conversaciones' | 'tiempo' | 'whatsapp' | 'correos' | 'respuestas' | 'citas'
 
 export const METRICAS: ReadonlyArray<{ id: Metrica; etiqueta: string; corta: string; ayuda: string }> = [
-  { id: 'llamadas', etiqueta: 'Llamadas hechas', corta: 'Llamadas', ayuda: 'Llamadas que hizo la persona' },
-  { id: 'contestadas', etiqueta: 'Llamadas contestadas', corta: 'Contestadas', ayuda: 'Las que contestó una persona: duran 10 segundos o más; un contestador automático no cuenta' },
-  { id: 'conversaciones', etiqueta: 'Conversaciones por teléfono', corta: 'Conversaciones', ayuda: 'Llamadas contestadas que pasan de 1 minuto' },
+  { id: 'llamadas', etiqueta: 'Llamadas hechas', corta: 'Llamadas', ayuda: 'Clientes a los que llamó la persona, contando cada uno una vez al día aunque le llamara varias veces' },
+  { id: 'contestadas', etiqueta: 'Llamadas contestadas', corta: 'Contestadas', ayuda: 'Clientes que contestaron en algún intento: la llamada dura 10 segundos o más; un contestador automático no cuenta' },
+  { id: 'conversaciones', etiqueta: 'Conversaciones por teléfono', corta: 'Conversaciones', ayuda: 'Clientes con una llamada contestada de más de 1 minuto' },
   { id: 'tiempo', etiqueta: 'Tiempo al teléfono', corta: 'Tiempo', ayuda: 'Suma de lo que duraron las llamadas contestadas' },
   { id: 'whatsapp', etiqueta: 'WhatsApp', corta: 'WhatsApp', ayuda: 'Clientes distintos con los que se habló por WhatsApp cada día, por muchos apuntes que haya' },
   { id: 'correos', etiqueta: 'Correos', corta: 'Correos', ayuda: 'Clientes distintos con los que se habló por correo cada día, por muchos apuntes que haya' },
@@ -312,9 +312,12 @@ export function kpisDelEquipo(resultados: readonly ResultadoSemanal[], semana: S
   // De media por persona que llamó: quien no tiene Rinkel o estuvo de baja no baja la media de los demás
   const llamaron = resultados.filter((r) => r.actual.llamadas > 0).length
   const porPersona = actual.llamadas === 0 || llamaron === 0 ? '' : `${n(actual.llamadas / llamaron)} por persona`
+  // Las llamadas cuentan un cliente una vez al día: si hubo más intentos que clientes, se dice cuántos
+  const intentos = actual.intentos > actual.llamadas ? `${n(actual.intentos)} intentos` : ''
+  const detalleDeLlamadas = [porPersona, intentos].filter(Boolean).join(' · ') || 'Ninguna llamada'
 
   return [
-    kpi('llamadas', 'Llamadas hechas', n(actual.llamadas), actual.llamadas, 'n', porPersona || 'Ninguna llamada', variacion(actual.llamadas, base?.llamadas ?? null), 'llamadas'),
+    kpi('llamadas', 'Llamadas hechas', n(actual.llamadas), actual.llamadas, 'n', detalleDeLlamadas, variacion(actual.llamadas, base?.llamadas ?? null), 'llamadas'),
     kpi(
       'contacto',
       'Tasa de contacto',
@@ -325,7 +328,7 @@ export function kpisDelEquipo(resultados: readonly ResultadoSemanal[], semana: S
       actual.llamadas === 0 ? variacionDePuntos(0, null) : variacionDePuntos(tasa, tasaBase),
       'contestadas'
     ),
-    kpi('conversaciones', 'Conversaciones', n(actual.conversaciones), actual.conversaciones, 'n', 'Llamadas de más de 1 minuto', variacion(actual.conversaciones, base?.conversaciones ?? null), 'conversaciones'),
+    kpi('conversaciones', 'Conversaciones', n(actual.conversaciones), actual.conversaciones, 'n', 'Clientes con una llamada de más de 1 minuto', variacion(actual.conversaciones, base?.conversaciones ?? null), 'conversaciones'),
     kpi('tiempo', 'Tiempo al teléfono', tiempoHablado(actual.segundos), actual.segundos, 'tiempo', 'Solo llamadas contestadas', variacion(actual.segundos, base?.segundos ?? null), 'tiempo'),
     kpi('whatsapp', 'WhatsApp', n(actual.whatsapp), actual.whatsapp, 'n', `Clientes distintos · ${n(actual.whatsappApuntes)} apuntes`, variacion(actual.whatsapp, base?.whatsapp ?? null), 'whatsapp'),
     kpi('correos', 'Correos', n(actual.correos), actual.correos, 'n', `Clientes distintos · ${n(actual.correosApuntes)} apuntes`, variacion(actual.correos, base?.correos ?? null), 'correos'),

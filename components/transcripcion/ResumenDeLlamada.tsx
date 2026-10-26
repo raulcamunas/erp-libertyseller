@@ -4,17 +4,18 @@ import { ArrowRight, ChevronDown, Loader2, Sparkles, Voicemail } from 'lucide-re
 import { useEffect, useMemo, useState } from 'react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { createClient } from '@/lib/supabase/client'
-import { vistaDelResumen } from '@/lib/transcripcion/pantalla'
+import { turnosLegibles, vistaDelResumen } from '@/lib/transcripcion/pantalla'
 import { COLOR_DE_INTERES } from '@/lib/transcripcion/reglas'
-import { ETIQUETA_DE_INTERES, ETIQUETA_DE_QUIEN, type QuienHabla, type ResumenDeLlamadaGuardado } from '@/lib/transcripcion/tipos'
+import { ETIQUETA_DE_INTERES, ETIQUETA_DE_QUIEN, type QuienHabla, type ResumenDeLlamadaGuardado, type TurnoDeLaLlamada } from '@/lib/transcripcion/tipos'
 
 /**
  * LO QUE SE HABLÓ EN UNA LLAMADA, DEBAJO DE ELLA.
  *
  * Lo escribe la IA a partir de la grabación unos minutos después de colgar (proceso `rinkel-transcribir`, migración 244): un resumen de una a tres
  * frases, el interés que mostró el cliente, el siguiente paso acordado y —plegados— la línea de la conversación y la transcripción entera. Es una
- * ayuda para no tener que escuchar la grabación, no el acta de la llamada: la transcripción es automática y no sabe quién habla, así que puede
- * confundir un nombre o a quién se atribuye una frase. Por eso la transcripción entera queda a un clic y la grabación sigue ahí.
+ * ayuda para no tener que escuchar la grabación, no el acta de la llamada: la transcripción es automática y puede confundir un nombre o a quién se
+ * atribuye una frase. La transcripción entera se enseña como una conversación («Comercial» y «Cliente») cuando la IA ya ha separado quién habla (migración
+ * 253; lo deduce por lo que se dice, así que puede equivocarse) y, si no, corrida. Queda a un clic y la grabación sigue ahí.
  *
  * Según el estado se enseña una cosa u otra (lib/transcripcion/pantalla.ts): el bloque, una línea de «buzón de voz», «transcribiendo…», o el
  * motivo de que no haya resumen. Cuando no hay nada aprovechable (silencio, un «¿diga?») no se pinta nada.
@@ -34,20 +35,20 @@ function Etiqueta({ quien }: { quien: QuienHabla }) {
 /** La transcripción entera: se pide cuando se abre, porque es larga y casi nadie la lee */
 function TranscripcionCompleta({ llamadaId }: { llamadaId: string }) {
   const supabase = useMemo(() => createClient(), [])
-  const [estado, setEstado] = useState<{ tipo: 'cargando' } | { tipo: 'lista'; texto: string } | { tipo: 'error' }>({ tipo: 'cargando' })
+  const [estado, setEstado] = useState<{ tipo: 'cargando' } | { tipo: 'lista'; texto: string; turnos: TurnoDeLaLlamada[] | null } | { tipo: 'error' }>({ tipo: 'cargando' })
 
   useEffect(() => {
     let activo = true
-    void supabase
-      .from('rinkel_transcripciones')
-      .select('transcripcion')
-      .eq('llamada_id', llamadaId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!activo) return
-        const texto = (data as { transcripcion?: string | null } | null)?.transcripcion
-        setEstado(error || typeof texto !== 'string' ? { tipo: 'error' } : { tipo: 'lista', texto })
-      })
+    void (async () => {
+      const leer = (campos: string) => supabase.from('rinkel_transcripciones').select(campos).eq('llamada_id', llamadaId).maybeSingle()
+      // Con la migración 253 viene también quién habla. Sin ella esa columna no existe y la consulta falla: se pide solo el texto y se enseña corrido
+      let { data, error } = await leer('transcripcion, turnos')
+      if (error) ({ data, error } = await leer('transcripcion'))
+      if (!activo) return
+      const fila = data as unknown as { transcripcion?: string | null; turnos?: unknown } | null
+      const texto = fila?.transcripcion
+      setEstado(error || typeof texto !== 'string' ? { tipo: 'error' } : { tipo: 'lista', texto, turnos: turnosLegibles(fila?.turnos) })
+    })()
     return () => {
       activo = false
     }
@@ -63,8 +64,23 @@ function TranscripcionCompleta({ llamadaId }: { llamadaId: string }) {
   if (estado.tipo === 'error') return <p className="mt-2 text-[11.5px] text-[var(--ls-t4)]">No se ha podido cargar la transcripción.</p>
   return (
     <div className="mt-2">
-      <p className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-fondo)] px-2.5 py-2 text-[12px] leading-relaxed text-[var(--ls-t2)]">{estado.texto}</p>
-      <p className="mt-1 text-[10.5px] text-[var(--ls-t4)]">Texto automático, sin separar quién habla: puede tener errores.</p>
+      <div className="max-h-56 overflow-y-auto rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-fondo)] px-2.5 py-2 text-[12px] leading-relaxed text-[var(--ls-t2)]">
+        {estado.turnos ? (
+          <ol className="space-y-1.5">
+            {estado.turnos.map((t, i) => (
+              <li key={i}>
+                <Etiqueta quien={t.quien} />
+                {t.texto}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="whitespace-pre-wrap">{estado.texto}</p>
+        )}
+      </div>
+      <p className="mt-1 text-[10.5px] text-[var(--ls-t4)]">
+        {estado.turnos ? 'Texto automático. Quién habla lo deduce la IA por lo que se dice y puede equivocarse.' : 'Texto automático, sin separar quién habla: puede tener errores.'}
+      </p>
     </div>
   )
 }

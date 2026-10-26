@@ -21,6 +21,18 @@ export interface MomentoDeLaLlamada {
   texto: string
 }
 
+/** Quién dice un turno de la transcripción entera. Son dos lados: Liberty Seller y la empresa a la que se llama (aunque en ella hablen varias personas) */
+export type QuienDelTurno = 'comercial' | 'cliente'
+
+/**
+ * Un turno de palabra de la transcripción entera: lo que dice una persona hasta que habla la otra. La IA decide quién es quién por lo que se dice (la voz
+ * no trae esa información), así que puede equivocarse, sobre todo en llamadas muy cortas o cortadas.
+ */
+export interface TurnoDeLaLlamada {
+  quien: QuienDelTurno
+  texto: string
+}
+
 /**
  * Lo que el cliente pidió sobre volver a llamarle («llámame el jueves a las 10»), tal como lo entendió la IA. Sin comprobar todavía: antes de tocar la ficha
  * del lead se comprueba (rellamada.ts) que la frase esté de verdad en la llamada y que el día cuadre.

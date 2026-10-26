@@ -5,7 +5,8 @@ import type { Aviso } from './pila'
  * =============================================================================
  * Llegan por el canal en tiempo real de la tabla `avisos_equipo` (migración 238), que rellenan dos disparadores:
  *
- *   · `hito_llamadas`  alguien ha llegado a 20, 40, 60, 80 o 100 llamadas HOY. Cuenta lo mismo que «llamadas realizadas» de Mi rendimiento.
+ *   · `hito_llamadas`  alguien ha llegado a 20, 40, 60, 80 o 100 llamadas HOY. Cuenta lo mismo que «llamadas hechas» de Mi rendimiento: CLIENTES distintos a los
+ *                      que ha llamado hoy (varios intentos al mismo cliente son una llamada; migración 252).
  *   · `cita_agendada`  alguien ha agendado una cita.
  *
  * SE CELEBRA, NO SE COMPARA. Nunca dice quién va por delante ni quién por detrás, no hay marcador ni «te faltan»: el aviso es el mismo para

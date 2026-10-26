@@ -4,6 +4,7 @@ import {
   actividadDeNotas,
   agruparPorDia,
   citasAgendadasEl,
+  clienteDeLaLlamada,
   duracionCorta,
   esContestador,
   estaContestada,
@@ -54,7 +55,7 @@ console.log('\n=== un día de llamadas ===')
   ]
   const r = resumenDeLlamadas(dia)
   ok('todas: 9', r.total === 9)
-  ok('realizadas son las salientes: 7', r.realizadas === 7, String(r.realizadas))
+  ok('realizadas son las salientes (cada una a un cliente distinto): 7', r.realizadas === 7 && r.intentos === 7, String(r.realizadas))
   ok('recibidas son las entrantes: 2', r.recibidas === 2)
   ok('contestadas: de las SALIENTES, 5 (90, 25, 142, 60 y 59 s)', r.contestadas === 5, String(r.contestadas))
   ok('la tasa de contacto es contestadas entre realizadas', Math.abs(r.tasaDeContacto - 5 / 7) < 1e-9)
@@ -107,8 +108,57 @@ console.log('\n=== el mismo número, llamado varias veces ===')
 {
   const mismo = '+34600112233'
   const r = resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: mismo }), llamada('10:10', 'MISSED', 0, { numero: mismo }), llamada('10:20', 'ANSWERED', 40, { numero: mismo })])
-  ok('3 llamadas realizadas a 1 número distinto', r.realizadas === 3 && r.numerosDistintos === 1)
-  ok('un número oculto no cuenta como número distinto', resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: null }), llamada('10:10', 'MISSED', 0, { numero: null })]).numerosDistintos === 0)
+  ok('3 intentos a 1 número distinto: 1 llamada hecha (un cliente cuenta una vez al día)', r.realizadas === 1 && r.intentos === 3 && r.numerosDistintos === 1, JSON.stringify([r.realizadas, r.intentos]))
+  ok('un número oculto no cuenta como número distinto, y cada llamada oculta es la suya', resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: null }), llamada('10:10', 'MISSED', 0, { numero: null })]).numerosDistintos === 0 && resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: null }), llamada('10:10', 'MISSED', 0, { numero: null })]).realizadas === 2)
+}
+
+console.log('\n=== un cliente, una llamada al día ===')
+{
+  const mismo = '+34600112233'
+  // El caso de Raúl: tres llamadas a un cliente que no contesta, la tercera contesta y hablan un minuto -> UNA interacción
+  const tres = resumenDeLlamadas([
+    llamada('10:00', 'MISSED', 0, { numero: mismo }),
+    llamada('12:30', 'MISSED', 0, { numero: mismo }),
+    llamada('17:00', 'ANSWERED', 61, { numero: mismo }),
+  ])
+  ok('llamó 3 veces, la tercera contestada y de un minuto: 1 llamada hecha, 1 contestada, 1 conversación', tres.realizadas === 1 && tres.contestadas === 1 && tres.conversaciones === 1, JSON.stringify(tres))
+  ok('pero se sabe que fueron 3 intentos, y el tiempo al teléfono es el real (61 s)', tres.intentos === 3 && tres.total === 3 && tres.segundosHablados === 61)
+  ok('el 100 % de contacto: se llamó a un cliente y contestó (no un 33 % por los dos intentos fallidos)', tres.tasaDeContacto === 1)
+
+  const sinContestar = resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: mismo }), llamada('11:00', 'ANSWERED', 4, { numero: mismo }), llamada('12:00', 'MISSED', 0, { numero: mismo })])
+  ok('tres intentos sin que nadie conteste (uno fue un contestador): 1 llamada, 0 contestadas', sinContestar.realizadas === 1 && sinContestar.contestadas === 0 && sinContestar.intentos === 3 && sinContestar.tasaDeContacto === 0)
+
+  // El cliente es el lead, no el teléfono
+  const dosTelefonos = resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: '+34600000001', lead_id: 'lead-A' }), llamada('10:30', 'ANSWERED', 70, { numero: '+34900000002', lead_id: 'lead-A' })])
+  ok('un lead con dos teléfonos es UN cliente', dosTelefonos.realizadas === 1 && dosTelefonos.contestadas === 1 && dosTelefonos.numerosDistintos === 2)
+  const dosLeads = resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: mismo, lead_id: 'lead-A' }), llamada('10:30', 'MISSED', 0, { numero: mismo, lead_id: 'lead-B' })])
+  ok('dos leads distintos con el mismo teléfono son dos clientes', dosLeads.realizadas === 2)
+  const sinLead = resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: mismo, lead_id: null }), llamada('10:30', 'ANSWERED', 80, { numero: mismo, lead_id: null })])
+  ok('sin lead, el cliente es el número', sinLead.realizadas === 1 && sinLead.contestadas === 1)
+  const ocultos = resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: null, id: 'a' }), llamada('10:10', 'MISSED', 0, { numero: null, id: 'b' }), llamada('10:20', 'MISSED', 0, { numero: null })])
+  ok('con el número oculto y sin lead no se sabe quién es: cada llamada es la suya', ocultos.realizadas === 3)
+
+  // Conversaciones: el mismo cliente en dos llamadas largas es UNA conversación, pero el tiempo se suma entero
+  const dosLargas = resumenDeLlamadas([llamada('10:00', 'ANSWERED', 70, { numero: mismo }), llamada('10:20', 'ANSWERED', 65, { numero: mismo })])
+  ok('dos llamadas largas al mismo cliente: 1 conversación y 135 s hablados', dosLargas.conversaciones === 1 && dosLargas.segundosHablados === 135 && dosLargas.contestadas === 1)
+
+  // Entrantes: se cuentan una a una; y una conversación entrante cuenta para el mismo cliente
+  const ida = resumenDeLlamadas([llamada('10:00', 'MISSED', 0, { numero: mismo }), llamada('10:05', 'ANSWERED', 100, { numero: mismo, direccion: 'inbound' })])
+  ok('el cliente devuelve la llamada: 1 hecha, 1 recibida, y la conversación es suya', ida.realizadas === 1 && ida.contestadas === 0 && ida.recibidas === 1 && ida.conversaciones === 1)
+
+  // Otro día vuelve a contar (una rellamada)
+  const cliente = (hora: string, fecha: string) => ({ ...llamada(hora, 'MISSED', 0, { numero: mismo }), fecha })
+  const dosDias = [cliente('10:00', '2026-10-21T08:00:00Z'), cliente('10:30', '2026-10-21T08:30:00Z'), cliente('10:00', '2026-10-22T08:00:00Z')]
+  ok('el mismo cliente el 21 (dos veces) y el 22 (una): al pedir los dos días a la vez son 2 llamadas hechas y 3 intentos', resumenDeLlamadas(dosDias).realizadas === 2 && resumenDeLlamadas(dosDias).intentos === 3)
+  const mes = mesDeLlamadas(2026, 10, dosDias)
+  ok('en el calendario: 1 el día 21, 1 el día 22, y el mes suma 2 (no 3)', mes.celdas.find((c) => c.dia === '2026-10-21')!.resumen.realizadas === 1 && mes.celdas.find((c) => c.dia === '2026-10-22')!.resumen.realizadas === 1 && mes.total.realizadas === 2 && mes.total.intentos === 3)
+  const mediaNoche = [cliente('10:00', '2026-10-21T21:30:00Z'), cliente('10:00', '2026-10-21T22:30:00Z')]
+  ok('el día es el de Madrid: 23:30 del 21 y 00:30 del 22 son dos días, dos llamadas', resumenDeLlamadas(mediaNoche).realizadas === 2 && clienteDeLaLlamada(mediaNoche[0], 0) !== clienteDeLaLlamada(mediaNoche[1], 1))
+
+  // Sin la migración 252 la base cuenta cada llamada: el calendario puede hacer lo mismo para no contradecir a las tarjetas
+  const sinAgrupar = resumenDeLlamadas(tres.total === 3 ? [llamada('10:00', 'MISSED', 0, { numero: mismo }), llamada('12:30', 'MISSED', 0, { numero: mismo }), llamada('17:00', 'ANSWERED', 61, { numero: mismo })] : [], { porCliente: false })
+  ok('con porCliente: false vuelve a contar cada llamada (3, una contestada)', sinAgrupar.realizadas === 3 && sinAgrupar.contestadas === 1 && sinAgrupar.intentos === 3)
+  ok('y el calendario también', mesDeLlamadas(2026, 10, dosDias, { porCliente: false }).total.realizadas === 3)
 }
 
 console.log('\n=== una llamada de madrugada cae en SU día de Madrid ===')

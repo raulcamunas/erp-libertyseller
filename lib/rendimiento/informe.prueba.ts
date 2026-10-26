@@ -179,6 +179,13 @@ console.log('\n=== las cifras grandes del equipo ===')
   ok('a mitad de semana los días que faltan no cuentan como cero', kp[0].diario.join() === '70,80,50,,,,' && kp[0].diarioAnterior.join() === '60,60,60,,,,', j(kp[0].diario))
   const vacio = kpisDelEquipo([resultadoSemanal(dani, undefined, cerrada)], cerrada)
   ok('sin llamadas: un guion, no un 0 % inventado', vacio[0].valor === '0' && vacio[0].detalle === 'Ninguna llamada' && vacio[1].valor === '—')
+
+  // Con la migración 252: las llamadas son clientes y se dice cuántos intentos hubo
+  const con252 = new Map([...porPersona].map(([id, dias]) => [id, new Map([...dias].map(([d, f]) => [d, { ...f, intentos: f.realizadas + 7 }]))]))
+  const k252 = kpisDelEquipo(PERSONAS.map((p) => resultadoSemanal(p, con252.get(p.id), cerrada)), cerrada)
+  ok('las llamadas dicen cuántos intentos hubo cuando son más que los clientes', /^155 por persona · [\d.]+ intentos$/.test(k252[0].detalle), k252[0].detalle)
+  ok('y la cifra grande sigue siendo la de clientes', k252[0].valor === '310')
+  ok('las conversaciones dicen que son clientes', k[2].detalle === 'Clientes con una llamada de más de 1 minuto', k[2].detalle)
 }
 
 console.log('\n=== las frases del cambio ===')

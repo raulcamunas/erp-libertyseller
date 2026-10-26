@@ -157,7 +157,11 @@ export const NOVEDADES: readonly Novedad[] = [
     titulo: 'Transcripción de las llamadas',
     cuando: 'Vie 23',
     queEs: 'Cada llamada con conversación se transcribe sola: queda un resumen, la línea de lo hablado y el siguiente paso.',
-    puntos: ['Aparece en la ficha del lead y es lo que lee la IA para escribir el correo, el seguimiento o el WhatsApp con lo que se habló de verdad.', 'Cuesta unas cinco milésimas de dólar por una llamada de un minuto.'],
+    puntos: [
+      'Aparece en la ficha del lead y es lo que lee la IA para escribir el correo, el seguimiento o el WhatsApp con lo que se habló de verdad.',
+      'La transcripción completa se lee como una conversación, con «Comercial» y «Cliente»: lo deduce la IA por lo que se dice, así que puede equivocarse alguna vez.',
+      'Cuesta unas cinco milésimas de dólar por una llamada de un minuto.',
+    ],
     donde: 'Ficha del lead → llamadas',
   },
   {
@@ -170,7 +174,7 @@ export const NOVEDADES: readonly Novedad[] = [
       'Calendario del mes con las llamadas y sus grabaciones, y las cifras del día con su comparativa.',
       'Barra de periodo (hoy, ayer, semana, mes) y tabla del equipo con su tendencia.',
       'Línea del día —quién hizo qué y a qué hora— y detalle cliente a cliente.',
-      'WhatsApp y correos cuentan conversaciones (clientes distintos por día y canal), no apuntes; las llamadas de menos de 10 segundos cuentan como no contestadas.',
+      'WhatsApp, correos y llamadas cuentan clientes distintos por día, no apuntes ni intentos: llamar tres veces a un cliente es una llamada, y otro día vuelve a contar. Las de menos de 10 segundos cuentan como no contestadas.',
       'Informe semanal a pantalla completa para la reunión del lunes.',
     ],
     donde: 'Mi rendimiento',

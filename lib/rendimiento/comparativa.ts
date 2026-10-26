@@ -44,7 +44,10 @@ export interface FilaDiaria {
   user_id: string
   /** 'AAAA-MM-DD', día de Madrid */
   dia: string
+  /** Clientes distintos a los que llamó ese día (migración 252). Antes de la 252 eran las llamadas sin agrupar */
   realizadas: number
+  /** Las llamadas salientes sin agrupar. Solo viene desde la migración 252: sin ella la base no lo devuelve */
+  intentos?: number
   recibidas: number
   contestadas: number
   segundos: number
@@ -59,6 +62,8 @@ export interface FilaDiaria {
 
 export interface Totales {
   llamadas: number
+  /** Las salientes sin agrupar (de ellas salen las `llamadas`, que cuentan un cliente una vez al día) */
+  intentos: number
   recibidas: number
   contestadas: number
   segundos: number
@@ -73,6 +78,7 @@ export interface Totales {
 
 export const totalesVacios = (): Totales => ({
   llamadas: 0,
+  intentos: 0,
   recibidas: 0,
   contestadas: 0,
   segundos: 0,
@@ -87,6 +93,8 @@ export const totalesVacios = (): Totales => ({
 
 function sumarFila(t: Totales, f: FilaDiaria) {
   t.llamadas += f.realizadas
+  // Sin la migración 252 la base no cuenta intentos: cada llamada era una, así que intentos y llamadas coinciden
+  t.intentos += f.intentos ?? f.realizadas
   t.recibidas += f.recibidas
   t.contestadas += f.contestadas
   t.segundos += f.segundos
@@ -122,6 +130,15 @@ export function hayActividad(t: Totales): boolean {
 /** Contestadas entre hechas, de 0 a 1 */
 export function contacto(t: Totales): number {
   return t.llamadas === 0 ? 0 : t.contestadas / t.llamadas
+}
+
+/**
+ * ¿Cuenta la base las llamadas por cliente y día (migración 252)? Se sabe porque sus filas traen `intentos`. Mientras no se haya lanzado, el calendario de
+ * llamadas (que se calcula en el navegador con las llamadas en crudo) las cuenta una a una, como las tarjetas, para que no se contradigan. Sin filas no hay
+ * nada que comparar y vale la regla nueva
+ */
+export function reglaPorCliente(filas: readonly FilaDiaria[]): boolean {
+  return filas.length === 0 || filas.some((f) => typeof f.intentos === 'number')
 }
 
 /** Los días de una persona, por fecha */

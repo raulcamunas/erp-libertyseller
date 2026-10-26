@@ -6,9 +6,10 @@ import { franjasDestacadas, intensidadDeCelda, type DiaDeSemana, type MapaHorari
 /**
  * EN QUÉ HORAS SE LLAMA: UNA FILA POR DÍA, UNA COLUMNA POR HORA.
  *
- * Cada casilla son las llamadas HECHAS en esa hora de Madrid, más oscura cuanto más. Debajo, el total de cada hora y
- * una frase con la hora en la que más se llama y en la que más se contesta (solo entre horas con llamadas suficientes
- * para que el porcentaje diga algo). Un fin de semana sin llamadas no ocupa fila. Las filas entran una tras otra.
+ * Cada casilla son los INTENTOS de llamada (las salientes, sin agrupar) en esa hora de Madrid, más oscura cuanto más: aquí lo que importa es CUÁNDO se marca, y
+ * un cliente al que se llama tres veces ha recibido tres intentos aunque en «Llamadas hechas» cuente una vez. Debajo, el total de cada hora y una frase con la
+ * hora en la que más se llama y en la que más se contesta (solo entre horas con intentos suficientes para que el porcentaje diga algo). Un fin de semana sin
+ * llamadas no ocupa fila. Las filas entran una tras otra.
  */
 
 /** Cuánto naranja lleva cada nivel, en tanto por ciento sobre la superficie */
@@ -37,7 +38,7 @@ export function MapaDeFranjas({ mapa, dias, compacto = false }: Props) {
   return (
     <div className="min-w-0 space-y-2.5">
       <div className="overflow-x-auto">
-        <div className="min-w-[420px]" role="table" aria-label="Llamadas hechas por día y hora">
+        <div className="min-w-[420px]" role="table" aria-label="Intentos de llamada por día y hora">
           <div className="mb-[3px] grid gap-[3px]" style={{ gridTemplateColumns: columnas }} role="row">
             <span />
             {mapa.horas.map((h) => (
@@ -59,7 +60,7 @@ export function MapaDeFranjas({ mapa, dias, compacto = false }: Props) {
                     <span
                       key={k}
                       role="cell"
-                      title={`${d.etiqueta} · de ${hh(mapa.horas[k])}:00 a ${hh(mapa.horas[k])}:59: ${c.hechas} ${c.hechas === 1 ? 'llamada hecha' : 'llamadas hechas'}, ${c.contestadas} ${c.contestadas === 1 ? 'contestada' : 'contestadas'}`}
+                      title={`${d.etiqueta} · de ${hh(mapa.horas[k])}:00 a ${hh(mapa.horas[k])}:59: ${c.hechas} ${c.hechas === 1 ? 'intento de llamada' : 'intentos de llamada'}, ${c.contestadas} ${c.contestadas === 1 ? 'contestada' : 'contestadas'}`}
                       className={`${alto} flex items-center justify-center rounded-[4px] text-[10.5px] tabular-nums transition-colors ${nivel === 4 ? 'font-semibold text-[var(--ls-t1)]' : 'text-[var(--ls-t3)]'} ${nivel === 0 ? 'bg-[var(--ls-sup2)]' : ''}`}
                       style={nivel > 0 ? { background: `color-mix(in srgb, var(--ls-acc-graf) ${NARANJA[nivel]}%, transparent)` } : undefined}
                     >
@@ -86,13 +87,13 @@ export function MapaDeFranjas({ mapa, dias, compacto = false }: Props) {
         <p className="text-[12px] leading-snug text-[var(--ls-t3)]">
           {destacadas.masLlamadas && (
             <>
-              Más llamadas entre las <span className="font-medium text-[var(--ls-t1)]">{hh(destacadas.masLlamadas.hora)}</span> y las <span className="font-medium text-[var(--ls-t1)]">{hh(destacadas.masLlamadas.hora + 1)}</span> ({destacadas.masLlamadas.hechas}).{' '}
+              Más intentos entre las <span className="font-medium text-[var(--ls-t1)]">{hh(destacadas.masLlamadas.hora)}</span> y las <span className="font-medium text-[var(--ls-t1)]">{hh(destacadas.masLlamadas.hora + 1)}</span> ({destacadas.masLlamadas.hechas}).{' '}
             </>
           )}
           {destacadas.masContacto && (
             <>
               Se contesta más entre las <span className="font-medium text-[var(--ls-t1)]">{hh(destacadas.masContacto.hora)}</span> y las <span className="font-medium text-[var(--ls-t1)]">{hh(destacadas.masContacto.hora + 1)}</span>:{' '}
-              {Math.round(destacadas.masContacto.tasa * 100)} % de {destacadas.masContacto.hechas} llamadas.
+              {Math.round(destacadas.masContacto.tasa * 100)} % de {destacadas.masContacto.hechas} intentos.
             </>
           )}
         </p>

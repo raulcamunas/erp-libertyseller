@@ -4,7 +4,7 @@ import { Eye } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/supabase/paginacion'
-import { indexar, resultadoDePersona, seriesDeCifras, tramosDeComparacion, ventanaDeDatos, type FilaDiaria } from '@/lib/rendimiento/comparativa'
+import { indexar, reglaPorCliente, resultadoDePersona, seriesDeCifras, tramosDeComparacion, ventanaDeDatos, type FilaDiaria } from '@/lib/rendimiento/comparativa'
 import { agruparConversaciones, citasAgendadas, itemsDeActividad, type FiltroDeActividad } from '@/lib/rendimiento/actividad'
 import { diaMadrid, etiquetaDeDia, horaMadrid, mesDe, rangoDelMes, sumarMeses } from '@/lib/rendimiento/dia'
 import { eventosDeLinea, minutoDeLaHora, type EventoDeLinea } from '@/lib/rendimiento/linea'
@@ -270,7 +270,9 @@ export function PanelRendimiento({ yo, equipo, puedeSupervisar, puedeGestionar, 
   }, [persona, mesesAPedir, cargarLlamadas])
 
   const llamadas = useMemo(() => (llamadasMes && llamadasMes.clave === claveDeLlamadas ? llamadasMes.llamadas : []), [llamadasMes, claveDeLlamadas])
-  const delMes = useMemo(() => mesDeLlamadas(mesVisible.anio, mesVisible.mes, llamadas), [mesVisible, llamadas])
+  // Un cliente cuenta una vez al día (migración 252). Mientras la base no la tenga lanzada, las tarjetas cuentan cada llamada y el calendario, para no contradecirlas, también
+  const porCliente = useMemo(() => reglaPorCliente(resumen?.filas ?? []), [resumen])
+  const delMes = useMemo(() => mesDeLlamadas(mesVisible.anio, mesVisible.mes, llamadas, { porCliente }), [mesVisible, llamadas, porCliente])
   const porDiaDeLlamadas = useMemo(() => agruparPorDia(llamadas), [llamadas])
 
   /** El día cuyas llamadas se enseñan: el del periodo si es un día; si no, el que se pulsó o el último con llamadas */

@@ -1,12 +1,13 @@
 import type { createServiceClient } from '@/lib/supabase/service'
 import { FALTA_MIGRACION_TRANSCRIPCION, almacenDeSupabase } from '@/lib/transcripcion/almacen'
-import type { LlamadaPendiente } from '@/lib/transcripcion/motor'
+import { FALTA_MIGRACION_TURNOS, type LlamadaPendiente, type LlamadaSinTurnos } from '@/lib/transcripcion/motor'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
   if (!bien) fallos++
   console.log(`  ${bien ? 'OK   ' : 'FALLA'} ${n}${bien || !d ? '' : ` -> ${d}`}`)
 }
+const j = (x: unknown) => JSON.stringify(x)
 
 /**
  * LA PARTE QUE HABLA CON SUPABASE, CONTRA UN CLIENTE FALSO QUE APUNTA CADA LLAMADA.
@@ -30,7 +31,7 @@ function falso(responder: (l: Llamada) => Respuesta): { servicio: Servicio; llam
       return { data: r.data ?? null, error: r.error ?? null }
     }
     const proxy: Record<string, unknown> = {}
-    for (const metodo of ['select', 'eq', 'gte', 'lt', 'limit', 'update', 'maybeSingle', 'order', 'in', 'or', 'insert']) {
+    for (const metodo of ['select', 'eq', 'gte', 'lt', 'limit', 'update', 'maybeSingle', 'order', 'in', 'or', 'insert', 'is', 'not']) {
       proxy[metodo] = (...args: unknown[]) => {
         cadena.push([metodo, args])
         return proxy
@@ -238,6 +239,55 @@ const run = async () => {
     await almacenDeSupabase(falso(() => ({ error: { code: '23503' } })).servicio).apuntarNota('l1', 'hola', AHORA)
     console.error = quieto
     ok('si no se puede escribir, no lanza: se apunta y se sigue', true)
+  }
+
+  console.log('\n=== quién habla: las conversaciones que faltan por separar ===')
+  {
+    const responder = (l: Llamada): Respuesta => {
+      if (l.tabla === 'rinkel_transcripciones') return { data: [{ llamada_id: 'c1', transcripcion: 'Hola. Dime.', turnos_intentos: 1 }, { llamada_id: 'c2', transcripcion: 'Otra. Más.', turnos_intentos: null }] }
+      if (l.tabla === 'rinkel_llamadas') return { data: [{ id: 'c1', user_id: 'u1', lead_id: 'l1', direccion: 'inbound', duracion_s: 75 }] }
+      if (l.tabla === 'cold_leads') return { data: { store_name: 'Joe Black Pets', company: null } }
+      return { data: { full_name: 'Maoli García' } }
+    }
+    const f = falso(responder)
+    const r = await almacenDeSupabase(f.servicio, () => AHORA).pendientesDeTurnos(6)
+    const l = f.llamadas[0]
+    ok('pide a rinkel_transcripciones las HECHAS, que son conversación, sin turnos, con intentos por gastar y con texto', l.tabla === 'rinkel_transcripciones' && hay(l, 'eq', 'estado', 'hecha') && hay(l, 'eq', 'tipo', 'conversacion') && hay(l, 'is', 'turnos', null) && hay(l, 'lt', 'turnos_intentos', 3) && hay(l, 'not', 'transcripcion', 'is', null))
+    ok('las más nuevas primero y con tope', hay(l, 'order', 'hecha_at', { ascending: false }) && hay(l, 'limit', 6))
+    ok('un intento fallado espera 10 minutos: sin intento previo o de hace más de 10 min', hay(l, 'or', 'turnos_intento_at.is.null,turnos_intento_at.lt.2026-10-23T14:50:00.000Z'))
+    ok('de las llamadas se lee el sentido, la duración y el lead; y se piden los nombres', f.llamadas.some((x) => x.tabla === 'rinkel_llamadas' && hay(x, 'in', 'id', ['c1', 'c2'])) && f.llamadas.some((x) => x.tabla === 'cold_leads') && f.llamadas.some((x) => x.tabla === 'profiles'))
+    ok('devuelve lo que necesita el motor: la llamada, su texto, los intentos, el sentido y los nombres', r.length === 1 && r[0].llamadaId === 'c1' && r[0].transcripcion === 'Hola. Dime.' && r[0].intentos === 1 && r[0].direccion === 'inbound' && r[0].duracionS === 75 && r[0].comercial === 'Maoli García' && r[0].empresa === 'Joe Black Pets', JSON.stringify(r))
+    ok('una de la que ya no está la llamada se salta', !r.some((x) => x.llamadaId === 'c2'))
+    ok('sin conversaciones pendientes: lista vacía y ni se miran las llamadas', (await (async () => { const g = falso(() => ({ data: [] })); const x = await almacenDeSupabase(g.servicio).pendientesDeTurnos(6); return x.length === 0 && g.llamadas.length === 1 })()))
+  }
+  await falla('sin la migración 253 (columna inexistente): dice qué fichero lanzar', () => almacenDeSupabase(falso(() => ({ error: { code: '42703' } })).servicio).pendientesDeTurnos(6), (m) => m === FALTA_MIGRACION_TURNOS && /253_transcripcion_quien_habla/.test(m))
+  await falla('también si PostgREST no conoce la columna', () => almacenDeSupabase(falso(() => ({ error: { code: 'PGRST204' } })).servicio).pendientesDeTurnos(6), (m) => m === FALTA_MIGRACION_TURNOS)
+  await falla('otro error: una frase nuestra, sin el cuerpo', () => almacenDeSupabase(falso(() => ({ error: { code: '500', message: 'secreto interno' } })).servicio).pendientesDeTurnos(6), (m) => /conversaciones por separar/.test(m) && !/secreto/.test(m))
+
+  console.log('\n=== quién habla: reservar, guardar y devolver el intento ===')
+  {
+    const P: LlamadaSinTurnos = { llamadaId: 'c1', transcripcion: 'Hola. Dime.', intentos: 1, direccion: 'outbound', duracionS: 60, comercial: null, empresa: null }
+    const f = falso(() => ({ data: [{ llamada_id: 'c1' }] }))
+    const ganada = await almacenDeSupabase(f.servicio, () => AHORA).reservarTurnos(P)
+    const l = f.llamadas[0]
+    const cambios = cadena(l, 'update')?.[0] as Record<string, unknown>
+    ok('reserva sumando UN intento y apuntando la hora, solo si sigue con los intentos que se leyeron y sin turnos (si otra pasada se adelantó, no encuentra la fila)', ganada === true && cambios.turnos_intentos === 2 && cambios.turnos_intento_at === '2026-10-23T15:00:00.000Z' && hay(l, 'eq', 'llamada_id', 'c1') && hay(l, 'eq', 'turnos_intentos', 1) && hay(l, 'is', 'turnos', null))
+    ok('si no cambia ninguna fila, la ha ganado otra pasada', (await almacenDeSupabase(falso(() => ({ data: [] })).servicio).reservarTurnos(P)) === false && (await almacenDeSupabase(falso(() => ({ data: null })).servicio).reservarTurnos(P)) === false)
+    await falla('un error al reservar sale como frase nuestra', () => almacenDeSupabase(falso(() => ({ error: { code: '500' } })).servicio).reservarTurnos(P), (m) => /reservar la conversación/.test(m))
+
+    const g = falso(() => ({}))
+    await almacenDeSupabase(g.servicio, () => AHORA).guardarTurnos('c1', { turnos: [{ quien: 'comercial', texto: 'Hola.' }, { quien: 'cliente', texto: 'Dime.' }], modelo: 'gpt-6-luna', costeUsd: 0.00015 })
+    const p = cadena(g.llamadas[0], 'update')?.[0] as Record<string, unknown>
+    ok('guarda los turnos (como lista), el modelo, el coste y la hora, en la fila de esa llamada', g.llamadas[0].tabla === 'rinkel_transcripciones' && hay(g.llamadas[0], 'eq', 'llamada_id', 'c1') && j(p.turnos) === j([{ quien: 'comercial', texto: 'Hola.' }, { quien: 'cliente', texto: 'Dime.' }]) && p.modelo_turnos === 'gpt-6-luna' && p.coste_turnos_usd === 0.00015 && p.turnos_intento_at === '2026-10-23T15:00:00.000Z')
+    await falla('un error al guardar sale como frase nuestra', () => almacenDeSupabase(falso(() => ({ error: { code: '500' } })).servicio).guardarTurnos('c1', { turnos: [], modelo: null, costeUsd: 0 }), (m) => /guardar los turnos/.test(m))
+
+    const h = falso((x) => (cadena(x, 'update') ? {} : { data: { turnos_intentos: 2 } }))
+    await almacenDeSupabase(h.servicio, () => AHORA).devolverIntentoDeTurnos('c1')
+    const d = cadena(h.llamadas.find((x) => cadena(x, 'update'))!, 'update')?.[0] as Record<string, unknown>
+    ok('devolver el intento resta uno y quita la hora para poder probar enseguida', d.turnos_intentos === 1 && d.turnos_intento_at === null)
+    const z = falso((x) => (cadena(x, 'update') ? {} : { data: { turnos_intentos: 0 } }))
+    await almacenDeSupabase(z.servicio).devolverIntentoDeTurnos('c1')
+    ok('y nunca baja de cero', (cadena(z.llamadas.find((x) => cadena(x, 'update'))!, 'update')?.[0] as Record<string, unknown>).turnos_intentos === 0)
   }
 }
 

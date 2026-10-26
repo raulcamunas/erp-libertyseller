@@ -229,8 +229,8 @@ export const TAREAS_CRON = [
     cadaMinutos: 2,
     que:
       'Pasa a texto con IA las llamadas contestadas de Rinkel que tienen grabación y lead, y deja en la ficha el resumen, la ' +
-      'línea de la conversación y el siguiente paso. Cada llamada se transcribe una sola vez (unos 0,005 $ por minuto de audio). ' +
-      'Apagarlo aquí detiene el gasto. Solo lee de Rinkel.',
+      'línea de la conversación, el siguiente paso y quién habla en la transcripción entera. Cada llamada se transcribe una sola vez ' +
+      '(unos 0,005 $ por minuto de audio). Apagarlo aquí detiene el gasto. Solo lee de Rinkel.',
   },
   {
     /**

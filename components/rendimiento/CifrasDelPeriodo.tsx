@@ -27,8 +27,9 @@ import { Delta, Numero } from './ui'
  * derecha, sus últimos siete días laborables en barritas. Si no tiene Rinkel vinculado no se pinta un 0 en las
  * llamadas —un cero es una afirmación—, sino un guion con la explicación.
  *
- * WhatsApp y correos cuentan CONVERSACIONES, no apuntes: varias interacciones con el mismo cliente el mismo día son
- * una sola. Debajo de la cifra se ve cuántos apuntes se hicieron.
+ * WhatsApp, correos y LLAMADAS cuentan CLIENTES, no apuntes ni intentos: varias interacciones con el mismo cliente el mismo
+ * día son una sola (a un cliente al que se llama tres veces se le ha llamado una vez ese día; al siguiente día, otra).
+ * Debajo de la cifra se ve cuántos apuntes o intentos se hicieron.
  *
  * Con `onAbrir`, cada tarjeta se puede pulsar para ir a la lista que hay detrás de su cifra: las llamadas, o las
  * conversaciones, respuestas y citas con el cliente y el comentario de cada una.
@@ -90,6 +91,7 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
   const tasa = actual ? contacto(actual) : 0
   const tasaBase = base ? contacto(base) : null
   const llamadas = actual?.llamadas ?? 0
+  const intentos = actual?.intentos ?? llamadas
   const rango = comparacion?.actual ?? rangoDe(periodo)
 
   return (
@@ -98,12 +100,24 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
         <TarjetaDeCifra
           destacada
           indice={0}
-          ayuda="Cuenta como contestada la llamada que dura 10 segundos o más: por debajo es un contestador automático y va con las no contestadas"
+          ayuda="Cuenta los clientes a los que se llamó: un cliente llamado varias veces el mismo día es una sola llamada (los intentos se ven debajo, en la tira), y al día siguiente vuelve a contar. Cuenta como contestada la llamada que dura 10 segundos o más: por debajo es un contestador automático y va con las no contestadas"
           icono={<PhoneCall className="h-3 w-3" />}
           titulo="Llamadas hechas"
           valor={llamadas}
           sinDato={sinRinkel}
-          detalle={sinRinkel ? 'Vincula Rinkel para verlas' : llamadas === 0 ? 'Ninguna llamada saliente' : `${numero(actual?.contestadas ?? 0)} contestadas · ${Math.round(tasa * 100)} %`}
+          detalle={
+            sinRinkel ? (
+              'Vincula Rinkel para verlas'
+            ) : llamadas === 0 ? (
+              'Ninguna llamada saliente'
+            ) : (
+              <>
+                <span className="block truncate">{`${numero(actual?.contestadas ?? 0)} contestadas · ${Math.round(tasa * 100)} %`}</span>
+                {/* Un cliente llamado varias veces el mismo día cuenta una llamada; los intentos se ven debajo, como los apuntes de WhatsApp */}
+                {intentos > llamadas && <span className="block truncate">{`${numero(intentos)} ${intentos === 1 ? 'intento' : 'intentos'}`}</span>}
+              </>
+            )
+          }
           cambio={sinRinkel ? null : cambio(actual?.llamadas, base?.llamadas)}
           contra={contra}
           barras={barras('llamadas')}
@@ -161,7 +175,7 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
             icono={<PhoneCall className="h-3 w-3" />}
             valor={<Numero valor={actual.conversaciones} />}
             texto="conversaciones"
-            ayuda="Llamadas contestadas de más de 1 minuto"
+            ayuda="Clientes con una llamada contestada de más de 1 minuto"
             cambio={cambio(actual.conversaciones, base?.conversaciones)}
             contra={contra}
           />

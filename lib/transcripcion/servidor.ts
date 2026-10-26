@@ -6,6 +6,7 @@ import { descargarAudio } from './audio'
 import { procesarPendientes, type DepsDelMotor, type ResultadoDelMotor } from './motor'
 import { MODELO_DE_VOZ_POR_DEFECTO } from './reglas'
 import { resumirLlamada } from './resumen'
+import { separarTurnos } from './turnos'
 import { transcribirAudio } from './voz'
 
 /**
@@ -35,6 +36,7 @@ export function depsDeVerdad(service: Servicio): DepsDelMotor {
     bajarAudio: (url) => descargarAudio(url),
     transcribir: (audio, pistas) => transcribirAudio({ audio, modelo, clave: claveOpenAi, pistas }),
     resumir: (encargo) => resumirLlamada(encargo),
+    separar: (encargo, frases) => separarTurnos(encargo, frases),
   }
 }
 

@@ -1,4 +1,4 @@
-import { ESPERA_MAXIMA_MS, esperaResumen, hayQueEsperar, leToca, primeraFrase, vistaDelResumen, type LlamadaTranscribible } from '@/lib/transcripcion/pantalla'
+import { ESPERA_MAXIMA_MS, esperaResumen, hayQueEsperar, leToca, primeraFrase, turnosLegibles, vistaDelResumen, type LlamadaTranscribible } from '@/lib/transcripcion/pantalla'
 import type { ResumenDeLlamadaGuardado } from '@/lib/transcripcion/tipos'
 
 let fallos = 0
@@ -72,6 +72,19 @@ console.log('\n=== la primera frase ===')
   ok('una frase larguísima se recorta con puntos suspensivos', primeraFrase('a'.repeat(400)).length === 160 && primeraFrase('a'.repeat(400)).endsWith('…'))
   ok('saltos de línea y huecos se aplanan', primeraFrase('Hola\n\n  mundo.  Adiós') === 'Hola mundo.')
   ok('vacío', primeraFrase('   ') === '')
+}
+
+console.log('\n=== los turnos que llegan de la base ===')
+{
+  const buenos = [{ quien: 'comercial', texto: 'Buenas tardes.' }, { quien: 'cliente', texto: '  Sí, dime.  ' }]
+  const t = turnosLegibles(buenos)
+  ok('turnos buenos se leen en su orden, con el texto sin espacios sobrantes', t !== null && t.length === 2 && t[0].quien === 'comercial' && t[1].texto === 'Sí, dime.')
+  ok('null (aún sin separar) y [] (nada que separar): sin turnos, se enseña corrida', turnosLegibles(null) === null && turnosLegibles(undefined) === null && turnosLegibles([]) === null)
+  ok('lo que no es una lista no vale', turnosLegibles('hola') === null && turnosLegibles({ quien: 'cliente', texto: 'x' }) === null && turnosLegibles(7) === null)
+  const mezcla = turnosLegibles([null, 'x', { quien: 'robot', texto: 'no' }, { quien: 'cliente', texto: '' }, { quien: 'cliente', texto: '   ' }, { quien: 'cliente' }, { quien: 'cliente', texto: 'Este sí.' }])
+  ok('lo mal formado se salta y se queda lo que vale', mezcla !== null && mezcla.length === 1 && mezcla[0].texto === 'Este sí.')
+  ok('si no queda nada que valga, sin turnos', turnosLegibles([{ quien: 'robot', texto: 'x' }, null]) === null)
+  ok('«los_dos» no es un lado de la transcripción entera (solo comercial y cliente)', turnosLegibles([{ quien: 'los_dos', texto: 'x' }]) === null)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

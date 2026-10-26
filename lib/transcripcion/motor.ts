@@ -5,7 +5,8 @@ import { costeDeVoz, enDolares } from './precios'
 import { esperaTrasFallo, pistasDeLaLlamada, sinContenido, type PistasDeVoz } from './reglas'
 import { decidirRellamadaDeLlamada, type LeadParaRellamada } from './rellamada'
 import { construirEncargo, type ResultadoDelResumen } from './resumen'
-import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, TipoDeLlamada } from './tipos'
+import type { InteresDeLlamada, MomentoDeLaLlamada, PeticionDeRellamada, TipoDeLlamada, TurnoDeLaLlamada } from './tipos'
+import { MAX_FRASES_PARA_TURNOS, MIN_FRASES_PARA_TURNOS, armarTurnos, construirEncargoDeTurnos, partirEnFrases, type ResultadoDeTurnos } from './turnos'
 import { ErrorDeVoz, esFalloGeneralDeLaIa, type ResultadoDeVoz } from './voz'
 
 /**
@@ -25,6 +26,10 @@ import { ErrorDeVoz, esFalloGeneralDeLaIa, type ResultadoDeVoz } from './voz'
  *   4. El resumen (una llamada a la IA que saca resumen, línea de la conversación, siguiente paso e interés) y se guarda todo.
  *   5. Si el cliente pidió que se le llame un día («llámame el jueves»), ese día queda como la rellamada del lead (rellamada.ts decide). Es lo último y
  *      NO puede estropear nada de lo anterior: la llamada ya está transcrita y resumida, y si esto falla solo se apunta.
+ *
+ * Y AL ACABAR LAS LLAMADAS, UN SEGUNDO TRABAJO APARTE: separar QUIÉN HABLA en la transcripción entera de las conversaciones ya resumidas («Comercial» y
+ * «Cliente», deducido por la IA; turnos.ts). Va aparte para que el resumen no dependa de ello: sirve también para las llamadas que ya estaban hechas, se
+ * reintenta solo y, si no sale, la transcripción se queda corrida como hasta ahora. Solo corre si queda tiempo en la pasada y la IA está disponible.
  *
  *
  * ============ CUANDO ALGO FALLA ============
@@ -129,7 +134,40 @@ export interface Almacen {
   ponerRellamada(leadId: string, fecha: string, hoy: string, ahora: number): Promise<'programado' | 'solo_fecha' | 'no'>
   /** Una nota del sistema (sin autor) en la línea de tiempo del lead. Si no se puede escribir, se apunta y se sigue */
   apuntarNota(leadId: string, cuerpo: string, ocurrioAt: number): Promise<void>
+
+  /* ---- quién habla en la transcripción entera ---- */
+
+  /** Conversaciones ya resumidas a las que les faltan los turnos, las más nuevas primero. Lanza FALTA_MIGRACION_TURNOS si no está la migración 253 */
+  pendientesDeTurnos(limite: number): Promise<LlamadaSinTurnos[]>
+  /** Reserva una para trabajar en ella (cuenta un intento). false = otra pasada se la ha adelantado */
+  reservarTurnos(p: LlamadaSinTurnos): Promise<boolean>
+  guardarTurnos(llamadaId: string, t: TurnosParaGuardar): Promise<void>
+  /** El fallo es de la cuenta de la IA y no de la llamada: el intento no cuenta */
+  devolverIntentoDeTurnos(llamadaId: string): Promise<void>
 }
+
+/** Una conversación ya resumida que espera que se separe quién habla, con lo que hace falta para pedírselo a la IA */
+export interface LlamadaSinTurnos {
+  llamadaId: string
+  transcripcion: string
+  /** Intentos que lleva (el que se reserva es el siguiente) */
+  intentos: number
+  direccion: string
+  duracionS: number
+  comercial: string | null
+  empresa: string | null
+}
+
+export interface TurnosParaGuardar {
+  /** [] = no hay nada que separar y no se vuelve a intentar */
+  turnos: TurnoDeLaLlamada[]
+  modelo: string | null
+  costeUsd: number
+}
+
+/** Lo que dice el proceso cuando falta la migración 253 (lo escribe el almacén y lo reconoce el motor) */
+export const FALTA_MIGRACION_TURNOS =
+  'Falta lanzar la migración 253_transcripcion_quien_habla.sql en el editor SQL de Supabase: hasta entonces la transcripción entera sale corrida, sin separar quién habla.'
 
 export type ClaveDeRinkel = { clave: string } | { sinClave: true } | { ilegible: true }
 
@@ -142,6 +180,8 @@ export interface DepsDelMotor {
   bajarAudio(url: string): Promise<AudioDescargado>
   transcribir(audio: AudioDescargado, pistas: PistasDeVoz): Promise<ResultadoDeVoz>
   resumir(encargo: { system: string; usuario: string }): Promise<ResultadoDelResumen>
+  /** Pide a la IA que reparta las frases en turnos. `frases` es cuántas se le mandan numeradas */
+  separar(encargo: { system: string; usuario: string }, frases: number): Promise<ResultadoDeTurnos>
 }
 
 export interface OpcionesDelMotor {
@@ -159,6 +199,10 @@ export interface ResultadoDelMotor {
   hechas: number
   /** Llamadas en las que el cliente pidió un día y ha quedado puesto como la rellamada de su lead */
   rellamadas: number
+  /** Conversaciones a las que se les ha separado quién habla en esta pasada (incluye las que ya estaban transcritas de antes) */
+  turnos: number
+  /** Qué ha pasado con el trabajo de los turnos si algo falta (la migración 253) o falla del todo. null = bien */
+  avisoDeTurnos: string | null
   sinContenido: number
   omitidas: number
   fallidas: number
@@ -372,6 +416,13 @@ async function ponerLaRellamada(almacen: Almacen, deps: DepsDelMotor, c: Llamada
 
 export async function procesarPendientes(almacen: Almacen, deps: DepsDelMotor, op: OpcionesDelMotor): Promise<ResultadoDelMotor> {
   const inicio = deps.ahora()
+  const salida = await transcribirLasPendientes(almacen, deps, op, inicio)
+  // Lo de los turnos va DESPUÉS y aparte: sin la IA (parada por su cuenta) o sin la base no se intenta, y un fallo aquí nunca estropea lo ya hecho
+  if (salida.parada !== 'ia_no_disponible' && salida.parada !== 'error') await separarQuienHabla(almacen, deps, op, inicio, salida)
+  return salida
+}
+
+async function transcribirLasPendientes(almacen: Almacen, deps: DepsDelMotor, op: OpcionesDelMotor, inicio: number): Promise<ResultadoDelMotor> {
   const ajustes = await almacen.leerAjustes()
   const topeS = ajustes.tope_diario_minutos * 60
   await almacen.cerrarAbandonadas()
@@ -381,6 +432,8 @@ export async function procesarPendientes(almacen: Almacen, deps: DepsDelMotor, o
     candidatas: 0,
     hechas: 0,
     rellamadas: 0,
+    turnos: 0,
+    avisoDeTurnos: null,
     sinContenido: 0,
     omitidas: 0,
     fallidas: 0,
@@ -455,6 +508,62 @@ export async function procesarPendientes(almacen: Almacen, deps: DepsDelMotor, o
 }
 
 /* ------------------------------------------------------------------ */
+/* Quién habla en la transcripción entera                              */
+/* ------------------------------------------------------------------ */
+
+/** Cuántas conversaciones se separan como mucho en una pasada: cada una es una llamada a la IA de unos 3–5 s, y las que quedan entran en la siguiente (cada 2 min) */
+export const TURNOS_POR_PASADA = 6
+
+/**
+ * Reparte en turnos («Comercial» y «Cliente») la transcripción de las conversaciones ya resumidas a las que les falta. NUNCA lanza ni cambia el resultado de lo ya
+ * hecho: lo que no sale se reintenta más tarde (hasta INTENTOS_DE_TURNOS) y, si nunca sale, la transcripción se enseña corrida como siempre.
+ */
+async function separarQuienHabla(almacen: Almacen, deps: DepsDelMotor, op: OpcionesDelMotor, inicio: number, salida: ResultadoDelMotor): Promise<void> {
+  try {
+    const pendientes = await almacen.pendientesDeTurnos(TURNOS_POR_PASADA)
+    for (const p of pendientes) {
+      // La pasada tiene un presupuesto de tiempo: lo que no cabe entra en la siguiente
+      if (deps.ahora() - inicio >= op.presupuestoMs) return
+      if (!(await almacen.reservarTurnos(p))) continue
+
+      const frases = partirEnFrases(p.transcripcion)
+      if (frases.length < MIN_FRASES_PARA_TURNOS || frases.length > MAX_FRASES_PARA_TURNOS) {
+        // Nada que separar (una sola frase) o demasiado larga: se deja marcado para no volver a mirarla y la transcripción sale corrida
+        await almacen.guardarTurnos(p.llamadaId, { turnos: [], modelo: null, costeUsd: 0 })
+        continue
+      }
+
+      const r = await deps.separar(
+        construirEncargoDeTurnos({ frases, direccion: p.direccion, duracionS: p.duracionS, comercial: p.comercial, empresa: p.empresa }),
+        frases.length
+      )
+      salida.costeUsd += r.costeUsd
+      if (!r.marcas) {
+        if (r.general) {
+          // La cuenta de la IA no deja trabajar (clave, saldo): no es culpa de la llamada y seguir con las demás es martillear
+          await almacen.devolverIntentoDeTurnos(p.llamadaId)
+          salida.avisoDeTurnos = r.aviso
+          return
+        }
+        continue
+      }
+      const turnos = armarTurnos(frases, r.marcas)
+      if (turnos.length === 0) continue
+      await almacen.guardarTurnos(p.llamadaId, { turnos, modelo: r.modelo, costeUsd: r.costeUsd })
+      salida.turnos++
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message === FALTA_MIGRACION_TURNOS) {
+      salida.avisoDeTurnos = FALTA_MIGRACION_TURNOS
+      return
+    }
+    // Un fallo de la base o algo imprevisto: se apunta qué ha pasado, nunca lo que se dijo en la llamada, y se sigue
+    console.error('[transcripcion] fallo al separar quién habla', { nombre: e instanceof Error ? e.name : 'desconocido', mensaje: e instanceof Error ? e.message.slice(0, 160) : '' })
+    salida.avisoDeTurnos = 'Ha fallado algo al separar quién habla en las transcripciones.'
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Lo que se cuenta en Sistema                                         */
 /* ------------------------------------------------------------------ */
 
@@ -477,6 +586,8 @@ export function resumenDeLaPasada(r: ResultadoDelMotor): string {
   if (r.parada === 'tope_diario') partes.push(`PARADA: tope de ${r.topeMinutos} min de audio en 24 h alcanzado`)
   if (r.parada === 'tiempo') partes.push('quedan llamadas para la próxima pasada')
   if ((r.parada === 'ia_no_disponible' || r.parada === 'error') && r.aviso) partes.push(`PARADA: ${r.aviso}`)
+  if (r.turnos > 0) partes.push(`${r.turnos} ${r.turnos === 1 ? 'conversación separada' : 'conversaciones separadas'} por quién habla`)
+  if (r.avisoDeTurnos) partes.push(`AVISO: ${r.avisoDeTurnos}`)
   partes.push(`24 h: ${Math.round((r.segundos24h + r.segundos) / 60)} de ${r.topeMinutos} min`)
   return partes.join(' · ')
 }
