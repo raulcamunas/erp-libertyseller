@@ -186,7 +186,7 @@ ALTER TABLE public.crm_clients
   ADD COLUMN IF NOT EXISTS propuesta_plan JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 COMMENT ON COLUMN public.crm_clients.propuesta_plan IS
-  'Lo que se le va a proponer a este cliente: enfoque, servicios con su precio y riesgos. La forma vive en lib/crm/propuesta.ts; aquí solo se guarda lo escrito, así que cambiarla no pierde nada.';
+  'Lo que se le va a proponer a este cliente: enfoque, servicios, datos clave, plan en dos fases, riesgos y el % variable. Los importes (set up y cuota base) viven en setup_budget y maintenance_budget. La forma vive en lib/crm/propuesta.ts; aquí solo se guarda lo escrito, así que cambiarla no pierde nada.';
 
 
 -- ============================================================================
