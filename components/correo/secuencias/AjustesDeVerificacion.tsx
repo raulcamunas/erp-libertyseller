@@ -133,7 +133,7 @@ export function AjustesDeVerificacion() {
       {cabecera}
       <div className="space-y-4 p-3">
         <p className="text-[11.5px] leading-snug text-[var(--ls-t3)]">
-          Antes de enviar el <strong className="font-semibold text-[var(--ls-t2)]">primer correo</strong> a un lead, el ERP le pregunta a MillionVerifier si esa dirección existe. Si no existe, el correo no sale. Si existe, se guarda la respuesta: los seguimientos salen a la misma dirección sin volver a preguntar (ni a pagar). Si el servicio falla o no quedan créditos,{' '}
+          Antes de enviar el <strong className="font-semibold text-[var(--ls-t2)]">primer correo</strong> a un lead, el ERP le pregunta a MillionVerifier si esa dirección existe. Si no existe, el correo no sale (y no hay botón de «enviar igualmente»: si en realidad funciona, un administrador la libera en «Direcciones que no sirven», más abajo). Si existe, se guarda la respuesta: los seguimientos salen a la misma dirección sin volver a preguntar (ni a pagar). Si el servicio falla o no quedan créditos,{' '}
           <strong className="font-semibold text-[var(--ls-t2)]">el correo sale igual</strong> y aquí queda el aviso. Las respuestas y los reenvíos no se comprueban, ni las direcciones del propio equipo.
         </p>
 

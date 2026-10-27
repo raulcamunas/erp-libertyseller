@@ -1,4 +1,4 @@
-import { VIGENCIA_EN_DIAS, combinarConLoSabido, decidirEnvio, esDireccionPropia, esPoliticaDeDudosas, estaVigente, fraseDeDireccionMala, motivoParaLaMemoria, type ResultadoDeComprobar, type VeredictoDePago, type VeredictoLibre } from './pago'
+import { PISTA_PARA_LIBERAR, VIGENCIA_EN_DIAS, combinarConLoSabido, decidirEnvio, esDireccionPropia, esPoliticaDeDudosas, estaVigente, fraseDeDireccionMala, motivoParaLaMemoria, type ResultadoDeComprobar, type VeredictoDePago, type VeredictoLibre } from './pago'
 
 let fallos = 0
 let comprobaciones = 0
@@ -38,6 +38,7 @@ console.log('\n=== qué se hace antes de enviar ===')
   const mala = decidirEnvio(mapa(['bademail@gmal.com', v('bademail@gmal.com', 'mala', { detalle: 'bad_domain', sugerencia: 'bademail@gmail.com', motivo: 'El dominio no existe o no recibe correo.' })]), 'avisar')
   ok('una mala NO sale, y la frase dice cuál, por qué y qué quería decir', mala.bloqueo !== null && /No se ha enviado/.test(mala.bloqueo.mensaje) && /«bademail@gmal\.com»/.test(mala.bloqueo.mensaje) && /dominio no existe/.test(mala.bloqueo.mensaje) && /¿Querías decir «bademail@gmail\.com»\?/.test(mala.bloqueo.mensaje))
   ok('…con la dirección marcada para que el cuadro la enseñe en rojo', mala.bloqueo?.direcciones[0].bloquea === true && mala.bloqueo?.direcciones[0].sugerencia === 'bademail@gmail.com')
+  ok('y dice cómo salir si en realidad funciona: un administrador la libera (no hay «enviar igualmente»)', mala.bloqueo !== null && mala.bloqueo.mensaje.includes(PISTA_PARA_LIBERAR) && /administrador/.test(PISTA_PARA_LIBERAR))
   ok('una mala bloquea con cualquier política', ['avisar', 'sin_seguimientos', 'bloquear'].every((p) => decidirEnvio(mapa(['x@y.es', v('x@y.es', 'mala')]), p as 'avisar').bloqueo !== null))
 
   const dudosaAvisar = decidirEnvio(mapa(['jefe@grande.com', v('jefe@grande.com', 'dudosa')]), 'avisar')

@@ -99,11 +99,14 @@ const CAUSAS_QUE_SE_AVISAN: ReadonlySet<CausaDeNoComprobar> = new Set(['sin_cred
 
 const comillas = (d: string): string => `«${d}»`
 
+/** Lo que se le dice a quien se topa con una dirección que el servicio da por inexistente y cree que en realidad funciona (se la ha dado el propio cliente, por ejemplo) */
+export const PISTA_PARA_LIBERAR = 'Si crees que es un error, un administrador puede liberarla en Correo → Secuencias → Ajustes.'
+
 function mensajeDeBloqueo(bloqueadas: readonly DireccionParaElCliente[]): string {
   const detalle = bloqueadas.map((d) => `${comillas(d.direccion)}: ${d.motivo}${d.sugerencia ? ` ¿Querías decir ${comillas(d.sugerencia)}?` : ''}`).join(' ')
   const dudosa = bloqueadas.every((d) => d.nivel === 'dudosa')
   if (dudosa) return `No se ha enviado. ${detalle} Los ajustes de verificación están en «No enviar» para las direcciones que no se pueden confirmar.`
-  return `No se ha enviado: ${bloqueadas.length === 1 ? 'esa dirección no sirve' : 'hay direcciones que no sirven'}. ${detalle} Corrígela, o escribe a otra dirección. Si crees que es un error, un administrador puede liberarla en Correo → Secuencias → Ajustes.`
+  return `No se ha enviado: ${bloqueadas.length === 1 ? 'esa dirección no sirve' : 'hay direcciones que no sirven'}. ${detalle} Corrígela, o escribe a otra dirección. ${PISTA_PARA_LIBERAR}`
 }
 
 /**

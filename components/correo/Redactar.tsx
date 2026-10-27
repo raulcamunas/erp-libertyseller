@@ -9,6 +9,7 @@ import { SUGERENCIAS_DE_CAMBIO, cuerpoEscrito, hayCuerpoEscrito, ponerBorradorIa
 import { camposSinRellenar, insertarPlantilla, rellenarPlantilla, textoSinFirma, type PlantillaDeCorreo } from '@/lib/correo/plantillas'
 import type { BorradorDeCorreo } from '@/lib/correo/redactar'
 import type { BuzonVisible } from '@/lib/correo/tipos'
+import { PISTA_PARA_LIBERAR } from '@/lib/correo/verificacion/pago'
 import { enviarJson, pedir } from './api'
 import { BloqueDeSeguimientos, useSeguimientos } from './secuencias/BloqueDeSeguimientos'
 import { ComprobacionDeCorreo, comprobarAhora, direccionesDelCampo, direccionesQueBloquean, hayDireccionMala, useComprobacion, type VeredictoCliente } from './secuencias/ComprobacionDeCorreo'
@@ -257,7 +258,7 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
       const bloqueadas = direccionesQueBloquean(veredicto)
       if (bloqueadas.length > 0) {
         setConfirmaMala(false)
-        return setError(`No se enviará: ${bloqueadas.map((d) => `«${d.direccion}»: ${d.motivo}${d.sugerencia ? ` ¿Querías decir «${d.sugerencia}»?` : ''}`).join(' ')} Corrígela, o escribe a otra dirección.`)
+        return setError(`No se enviará: ${bloqueadas.map((d) => `«${d.direccion}»: ${d.motivo}${d.sugerencia ? ` ¿Querías decir «${d.sugerencia}»?` : ''}`).join(' ')} Corrígela, o escribe a otra dirección. ${PISTA_PARA_LIBERAR}`)
       }
       if (hayDireccionMala(veredicto).length > 0) {
         setError(null)
@@ -408,13 +409,13 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
 
           <ComprobacionDeCorreo resultado={comprobacion.resultado} onUsarSugerencia={usarSugerencia} />
           {confirmaMala && (
-            <div className="sec-sube flex flex-wrap items-center gap-2 rounded-[8px] border border-[var(--ls-e-rojo)] bg-[color-mix(in_srgb,var(--ls-e-rojo)_8%,transparent)] px-3 py-2" role="alertdialog" aria-label="Confirmar el envío a una dirección dudosa">
+            <div className="sec-sube flex flex-wrap items-center gap-2 rounded-[8px] border border-[var(--ls-e-rojo)] bg-[color-mix(in_srgb,var(--ls-e-rojo)_8%,transparent)] px-3 py-2" role="alertdialog" aria-label="Confirmar el envío a una dirección que seguramente no existe">
               <p className="min-w-0 flex-1 text-[12px] leading-snug text-[var(--ls-t1)]">
-                Hay una dirección que seguramente no existe.
-                {seg.elegible && seg.activo ? ' Si envías igualmente, no se programarán seguimientos.' : ''} ¿Enviar de todas formas?
+                <strong className="font-semibold">¿Seguro?</strong> Hay una dirección que seguramente no existe. Este correo te lo ha tenido que dar alguien para que lo puedas enviar.
+                {seg.elegible && seg.activo ? ' Si lo envías, no se programarán seguimientos.' : ''}
               </p>
               <button type="button" onClick={() => void enviar(undefined, true)} disabled={enviando} className={`${BOTON_SECUNDARIO} border-[var(--ls-e-rojo)] text-[var(--ls-e-rojo)]`}>
-                Enviar igualmente
+                Sí, me lo han dado: enviar
               </button>
               <button type="button" onClick={() => setConfirmaMala(false)} className="h-8 px-2 text-[12px] text-[var(--ls-t4)] hover:text-[var(--ls-t1)]">
                 Corregir
