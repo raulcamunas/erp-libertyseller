@@ -12,7 +12,7 @@ Es IDEMPOTENTE: repetirlo actualiza lo que ya está (clave: dominio) y no toca l
 Se niega a seguir si ve algo que no esperaba (un nivel, un tipo de empresa o un tramo desconocido): mejor parar que cargar mal 23.000 filas.
 No imprime ningún dato de ninguna tienda: solo recuentos.
 """
-import csv, json, os, re, sys, time, urllib.error, urllib.parse, urllib.request, collections
+import csv, json, os, re, subprocess, sys, time, collections
 
 EXCEL = os.path.expanduser('~/Desktop/Tienda no Amazon.xlsx')
 ENV_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env.local')
@@ -132,20 +132,24 @@ def entorno():
 
 
 def llamar(url, clave, cuerpo, extra=None, intentos=4):
+    """POST con JSON. Va por curl, como consulta.py: el Python de este Mac no valida los certificados de Supabase."""
     cab = {'apikey': clave, 'Authorization': f'Bearer {clave}', 'Content-Type': 'application/json'}
     cab.update(extra or {})
+    orden = ['curl', '-sS', '--max-time', '180', '-w', '\n%{http_code}', '-X', 'POST', '--data-binary', '@-']
+    for k, v in cab.items():
+        orden += ['-H', f'{k}: {v}']
+    orden.append(url)
     for n in range(intentos):
-        try:
-            r = urllib.request.Request(url, data=json.dumps(cuerpo).encode('utf-8'), headers=cab, method='POST')
-            with urllib.request.urlopen(r, timeout=120) as resp:
-                return resp.status, resp.read().decode('utf-8')
-        except urllib.error.HTTPError as e:
-            texto_error = e.read().decode('utf-8', 'replace')[:300]
-            if e.code < 500 or n == intentos - 1:
-                raise SystemExit(f'La base contestó {e.code}: {texto_error}')
-        except Exception as e:  # noqa: BLE001 - red caída, tiempo agotado…
-            if n == intentos - 1:
-                raise SystemExit(f'No se pudo conectar: {type(e).__name__}')
+        r = subprocess.run(orden, input=json.dumps(cuerpo).encode('utf-8'), capture_output=True)
+        if r.returncode == 0:
+            texto, _, codigo = r.stdout.decode('utf-8', 'replace').rpartition('\n')
+            estado = int(codigo)
+            if estado < 500 or n == intentos - 1:
+                if estado >= 300:
+                    raise SystemExit(f'La base contestó {estado}: {texto[:300]}')
+                return estado, texto
+        elif n == intentos - 1:
+            raise SystemExit(f'No se pudo conectar (curl {r.returncode})')
         time.sleep(2 * (n + 1))
 
 
