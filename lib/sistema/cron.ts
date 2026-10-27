@@ -278,7 +278,7 @@ export const TAREAS_CRON = [
      * CADA TRES MINUTOS, Y NACE SIN PERMISOS: HASTA QUE SE AUTORICEN EN GOOGLE WORKSPACE NO HACE NADA (Y LO DICE).
      *
      * Lee de Gmail los correos de Gemini (las notas de las reuniones de Meet), abre el documento «Notas de Gemini» de las reuniones con clientes, las casa con su ficha del CRM
-     * y pasa por la IA las que ya tienen cliente (lib/crm/gemini/). Hace falta autorizar `gmail.readonly` y `drive.readonly` a la cuenta de servicio de Google en la
+     * y pasa por la IA las que ya tienen cliente (lib/crm/gemini/). Hace falta autorizar `gmail.readonly` y `documents.readonly` a la cuenta de servicio de Google en la
      * delegación en todo el dominio, y activar las APIs de Gmail y de Docs en Google Cloud; mientras no estén, cada pasada sale en rojo con la frase de qué falta.
      *
      * El gasto es la IA: unos 0,08 $ por reunión con cliente (gpt-5.6-terra), y solo las reuniones con clientes: las internas del equipo no se abren ni se analizan. Apagar

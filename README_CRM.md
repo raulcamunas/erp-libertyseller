@@ -108,8 +108,9 @@ Reglas que no se rompen:
 ## 7. Puesta en marcha
 
 1. **SQL**: lanzar `258_crm_hub_fases_y_notas_de_reunion.sql` en el editor SQL de Supabase (idempotente).
-2. **Google Workspace** (administrador): *Seguridad → Control de acceso y de datos → Controles de API → Delegación en todo el dominio*, y añadir al ID de cliente de la cuenta de servicio los permisos
-   `https://www.googleapis.com/auth/gmail.readonly` y `https://www.googleapis.com/auth/drive.readonly`.
+2. **Google Workspace** (administrador): *Seguridad → Control de acceso y de datos → Controles de API → Delegación en todo el dominio*. El ID de cliente de la cuenta de servicio **ya está** (lo usa la Agenda con el permiso de Calendar): se **edita** esa entrada y se **añaden** los dos permisos nuevos **conservando el de Calendar** (si se quita, la Agenda deja de sincronizar):
+   `https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/documents.readonly`.
+   Se pide `documents.readonly` y no `drive.readonly` a propósito: lo justo para leer el documento de Gemini, sin lectura sobre el resto del Drive del buzón.
 3. **Google Cloud** (proyecto de la cuenta de servicio): activar las APIs **Gmail** y **Google Docs**.
 4. Variables (ya están las de la Agenda): `GOOGLE_SA_CLIENT_EMAIL`, `GOOGLE_SA_PRIVATE_KEY`, `GOOGLE_IMPERSONATE_SUBJECT` (`business@`, el buzón que recibe las notas), `OPENAI_API_KEY`. Opcional: `CRM_MODELO_ANALISIS`.
 5. En la pantalla: *Notas de reunión → Sincronizar ahora*. Si falta algo, lo dice con la frase de qué hacer.

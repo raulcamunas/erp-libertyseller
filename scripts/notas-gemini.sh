@@ -8,7 +8,7 @@
 # LAS NOTAS DE GEMINI DE LAS REUNIONES CON CLIENTES, DE GMAIL A LA FICHA DEL CRM.
 #
 # Esta línea entra CADA MINUTO y casi siempre contesta «no me toca»: el reloj de verdad vive en la tabla cron_config (cada tres minutos por defecto; se
-# cambia o se APAGA desde la pantalla de Sistema). Hasta que se autoricen en Google Workspace los permisos de Gmail y Drive (y la migración 258 esté
+# cambia o se APAGA desde la pantalla de Sistema). Hasta que se autoricen en Google Workspace los permisos de Gmail y Docs (y la migración 258 esté
 # lanzada) cada pasada contesta «Google no está configurado» o «Falta lanzar la migración» sin tocar nada.
 #
 # --max-time 290 va por debajo del maxDuration de la ruta (300). Una pasada lee unos pocos correos y analiza como mucho un par de notas (de 30 s a dos minutos

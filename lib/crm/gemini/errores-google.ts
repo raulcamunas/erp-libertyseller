@@ -1,9 +1,9 @@
 /**
  * QUÉ HA FALLADO AL HABLAR CON GOOGLE, EN UNA FRASE QUE DIGA QUÉ HAY QUE HACER.
  * =============================================================================
- * Leer el correo y Drive con la cuenta de servicio puede fallar de seis maneras muy distintas, y casi todas se arreglan en una pantalla de Google, no en el código:
+ * Leer el correo y los documentos con la cuenta de servicio puede fallar de seis maneras muy distintas, y casi todas se arreglan en una pantalla de Google, no en el código:
  *
- *   permisos      la cuenta de servicio no tiene autorizados los permisos de Gmail/Drive en la delegación de todo el dominio (Workspace Admin) -> el token ni se concede
+ *   permisos      la cuenta de servicio no tiene autorizados los permisos de Gmail y Docs en la delegación de todo el dominio (Workspace Admin) -> el token ni se concede
  *   api_apagada   la API (Gmail, Drive o Docs) no está activada en el proyecto de Google Cloud
  *   sin_acceso    el usuario suplantado no puede abrir ese documento concreto
  *   no_existe     el correo o el documento ya no está (borrado)
@@ -40,7 +40,7 @@ export class ErrorDeGoogle extends Error {
 export const NOMBRE_DE_LA_API: Record<ApiDeGoogle, string> = { gmail: 'Gmail', docs: 'Google Docs', drive: 'Google Drive', token: 'la cuenta de Google' }
 
 export const FRASE_DE_PERMISOS =
-  'Google no deja a la cuenta de servicio leer el correo y Drive. Hay que autorizar en la consola de administración de Google Workspace (Seguridad → Control de acceso y de datos → Controles de API → Delegación en todo el dominio) los permisos https://www.googleapis.com/auth/gmail.readonly y https://www.googleapis.com/auth/drive.readonly para el ID de cliente de la cuenta de servicio.'
+  'Google no deja a la cuenta de servicio leer el correo y los documentos. Hay que autorizar en la consola de administración de Google Workspace (Seguridad → Control de acceso y de datos → Controles de API → Delegación en todo el dominio) los permisos https://www.googleapis.com/auth/gmail.readonly y https://www.googleapis.com/auth/documents.readonly para el ID de cliente de la cuenta de servicio, AÑADIÉNDOLOS a los que ya tiene (el de Calendar tiene que seguir en la lista).'
 
 interface CuerpoDeError {
   error?: string | { code?: number; message?: string; status?: string; errors?: Array<{ reason?: string; message?: string }> }

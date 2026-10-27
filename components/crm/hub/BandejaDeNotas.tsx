@@ -39,7 +39,7 @@ const cuando = (iso: string) => format(toMadrid(new Date(iso)), "d MMM yyyy · H
  * · «Sin cliente»: reuniones con un cliente cuya nota no se pudo enlazar con ninguna ficha (ni el evento del calendario, ni el correo del invitado, ni el nombre coincidían).
  *   Se asignan a mano y, si aún no tienen análisis, se analizan en el acto.
  * · «Con error»: notas cuyo análisis de la IA falló varias veces.
- * · «Sincronizar ahora»: una pasada entera (la misma que corre sola cada pocos minutos). Si falta algo en Google —los permisos de Gmail y Drive, o una API apagada— lo dice aquí con
+ * · «Sincronizar ahora»: una pasada entera (la misma que corre sola cada pocos minutos). Si falta algo en Google —los permisos de Gmail y Docs, o una API apagada— lo dice aquí con
  *   la frase de qué hay que hacer.
  *
  * Solo dirección: asignar y analizar escriben y gastan.

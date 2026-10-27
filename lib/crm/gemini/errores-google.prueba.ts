@@ -8,6 +8,12 @@ const ok = (n: string, bien: boolean, d = '') => {
   console.log(`  ${bien ? 'OK   ' : 'FALLA'} ${n}${bien || !d ? '' : ` -> ${d}`}`)
 }
 
+console.log('\n=== la frase de los permisos ===')
+{
+  ok('nombra los dos permisos que se piden: correo y documentos (no todo el Drive)', FRASE_DE_PERMISOS.includes('gmail.readonly') && FRASE_DE_PERMISOS.includes('documents.readonly') && !FRASE_DE_PERMISOS.includes('drive.readonly'))
+  ok('y avisa de que hay que añadirlos sin quitar el de Calendar (la Agenda dejaría de sincronizar)', /Calendar/.test(FRASE_DE_PERMISOS) && /AÑADIÉNDOLOS/.test(FRASE_DE_PERMISOS))
+}
+
 console.log('\n=== respuestas de las APIs ===')
 {
   const apagada = clasificarRespuestaDeGoogle('gmail', 403, { error: { code: 403, message: 'Gmail API has not been used in project 123456 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=123456', status: 'PERMISSION_DENIED', errors: [{ reason: 'accessNotConfigured' }] } })

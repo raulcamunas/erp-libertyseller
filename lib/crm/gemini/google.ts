@@ -12,7 +12,8 @@ import { correoDeGmail, encabezadoDeGmail, type EncabezadoDeCorreo, type Mensaje
  * La Agenda ya habla con Google Calendar como `GOOGLE_SA_CLIENT_EMAIL`, suplantando a `GOOGLE_IMPERSONATE_SUBJECT` (business@) por delegación en todo el dominio. Las notas de
  * Gemini llegan a ESE buzón (business@ es el organizador de las reuniones), así que se lee con la misma cuenta: solo cambia la lista de permisos que se pide.
  *
- * PERMISOS: `gmail.readonly` (leer el correo, nada más) y `drive.readonly` (que además es lo que acepta la API de Docs para abrir el documento «Notas de Gemini»). Hay que
+ * PERMISOS: `gmail.readonly` (leer el correo, nada más) y `documents.readonly` (leer documentos de Google Docs, nada más: lo justo para abrir el documento «Notas de Gemini»; NO se
+ * pide `drive.readonly`, que daría lectura sobre todo el Drive del buzón). Hay que
  * autorizarlos UNA VEZ en la consola de administración de Workspace (delegación en todo el dominio, añadiéndolos al ID de cliente de la cuenta de servicio), y activar las APIs
  * de Gmail y de Google Docs en el proyecto de Google Cloud. Mientras no estén, cada fallo dice exactamente cuál falta (errores-google.ts) y la sincronización no hace nada más.
  *
@@ -22,7 +23,7 @@ import { correoDeGmail, encabezadoDeGmail, type EncabezadoDeCorreo, type Mensaje
  * dependencias, y el JWT de la autenticación ya está en el paquete que la Agenda tiene instalado.
  */
 
-export const PERMISOS_DE_GEMINI = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/drive.readonly'] as const
+export const PERMISOS_DE_GEMINI = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/documents.readonly'] as const
 
 /** Lo que la sincronización necesita de Google. Es una interfaz para poder probarla con un Google de mentira */
 export interface FuenteDeGoogle {

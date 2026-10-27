@@ -10,7 +10,7 @@ import { createServiceClient } from '@/lib/supabase/service'
  * (lib/crm/gemini/sincronizar.ts) lee de Gmail los correos nuevos de Gemini, abre el documento de las reuniones con clientes, las casa con su ficha del CRM y pasa por la IA las
  * que ya tienen cliente. SOLO LEE de Google. Una reunión interna del equipo solo deja apuntado su título.
  *
- * Mientras falte autorizar el correo y Drive en Google Workspace, o la migración 258, la pasada lo dice (en Sistema, con la frase de qué hacer) y no hace nada más.
+ * Mientras falte autorizar el correo y los documentos en Google Workspace, o la migración 258, la pasada lo dice (en Sistema, con la frase de qué hacer) y no hace nada más.
  *
  * `conRegistro` envuelve SOLO el trabajo, no las comprobaciones previas: abre su fila ANTES de trabajar, y eso es lo que evita que el cron del minuto siguiente arranque otra
  * pasada encima de una que tarda (y gaste la IA dos veces en la misma nota).
