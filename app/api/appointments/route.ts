@@ -7,6 +7,7 @@ import {
 } from '@/lib/google-calendar'
 import { buildAppointmentSummary, buildAppointmentDescription } from '@/lib/appointments-sync'
 import { CreateAppointmentPayload } from '@/lib/types/appointments'
+import { finQueSeGuarda } from '@/lib/agenda/duracion'
 
 const SELECT_WITH_PEOPLE = `
   *,
@@ -36,6 +37,12 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // LA DURACIÓN LA DECIDE EL SERVIDOR: una cita que agenda un comercial dura SIEMPRE una hora, mande lo que mande el navegador (lib/agenda/duracion.ts).
+  // Los administradores y los socios siguen poniendo la hora de fin que quieran.
+  const { data: perfil } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+  const fin = finQueSeGuarda({ rol: perfil?.role, inicio: body.start_time, fin: body.end_time })
+  if (!fin) return NextResponse.json({ error: 'La hora de la cita no es válida.' }, { status: 400 })
+
   // 1) Insertar en Supabase (RLS: comercial_id = usuario actual)
   const { data: inserted, error } = await supabase
     .from('appointments')
@@ -49,7 +56,7 @@ export async function POST(request: NextRequest) {
       lead_source: body.lead_source ?? 'manual',
       lead_ref_id: body.lead_ref_id ?? null,
       start_time: body.start_time,
-      end_time: body.end_time,
+      end_time: fin,
       status: body.status ?? 'scheduled',
       title: body.title ?? null,
       notes: body.notes ?? null,

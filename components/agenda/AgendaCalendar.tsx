@@ -12,6 +12,7 @@ import {
   isSameDay,
 } from 'date-fns'
 import { toMadrid, fromMadrid, madridWallClockString } from '@/lib/timezone'
+import { DURACION_CITA_MS } from '@/lib/agenda/duracion'
 import { es } from 'date-fns/locale'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -60,15 +61,16 @@ const HOUR_HEIGHT = 64 // px por hora
  * consultoría, no una llamada de encaje, y acababa pisando la siguiente del
  * calendario o corrigiéndose a mano una por una.
  *
- * Es solo el valor con el que NACE la cita: la hora de fin sigue siendo un campo
- * editable en la ficha, así que una que de verdad dure media hora se deja en
- * media hora al crearla.
+ * Para un comercial es además LA DURACIÓN FIJA: la hora de fin ya no se puede
+ * cambiar en la ficha, ni al arrastrar la cita a otra hora, y la ruta del
+ * servidor impone la hora aunque el navegador mande otra (lib/agenda/duracion.ts).
+ * Los administradores y los socios sí pueden dejarla en media hora, en la ficha.
  *
  * La rejilla del calendario sigue en tramos de 30 minutos a propósito (ver
  * timeFromOffsetY): eso es dónde EMPIEZA una cita, y poder empezar a y media no
  * tiene nada que ver con cuánto dura.
  */
-const DURACION_NUEVA_CITA_MS = 60 * 60 * 1000
+const DURACION_NUEVA_CITA_MS = DURACION_CITA_MS
 const HOURS = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i)
 
 // Etiquetas cortas para que quepan dentro de la tarjeta del calendario
@@ -590,8 +592,10 @@ export function AgendaCalendar({
     const day = days.find((d) => d.toISOString() === target.dayIso)
     if (!original || !day) return
 
-    const durationMs =
-      new Date(original.end_time).getTime() - new Date(original.start_time).getTime()
+    // Al reagendar, un comercial deja la cita en una hora (una antigua de media hora también); un administrador conserva la duración que tuviera
+    const durationMs = isAdmin
+      ? new Date(original.end_time).getTime() - new Date(original.start_time).getTime()
+      : DURACION_CITA_MS
     const newStart = fromMadrid(madridWallClockString(day, target.hour, target.minute))
     const newEnd = new Date(newStart.getTime() + durationMs)
 
@@ -1181,8 +1185,10 @@ export function AgendaCalendar({
                           style={{
                             top: topForSlot(dragTarget.hour, dragTarget.minute),
                             height: Math.max(
-                              ((new Date(draggingAppt.end_time).getTime() -
-                                new Date(draggingAppt.start_time).getTime()) /
+                              ((isAdmin
+                                ? new Date(draggingAppt.end_time).getTime() -
+                                  new Date(draggingAppt.start_time).getTime()
+                                : DURACION_CITA_MS) /
                                 60000 /
                                 60) *
                                 HOUR_HEIGHT,

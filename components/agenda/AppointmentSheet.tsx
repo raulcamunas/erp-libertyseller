@@ -35,6 +35,7 @@ import {
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { toMadrid, fromMadrid } from '@/lib/timezone'
+import { DURACION_CITA_MS, tieneDuracionFija } from '@/lib/agenda/duracion'
 import {
   AppointmentWithPeople,
   AppointmentStatus,
@@ -260,13 +261,34 @@ export function AppointmentSheet({
 
   const closers = team // cualquiera del equipo puede ser el closer asignado
 
+  /**
+   * UNA CITA DE UN COMERCIAL DURA SIEMPRE UNA HORA (lib/agenda/duracion.ts).
+   *
+   * La hora de fin no la elige él: es la de inicio más una hora, y se recalcula sola al cambiar el día o la hora de inicio. El servidor lo impone igualmente
+   * (ignora la hora de fin que llegue), esto solo evita enseñar un campo que no vale. Los administradores y los socios siguen pudiendo poner la hora de fin.
+   *
+   * Una cita que ya existía y a la que NO se le cambia el día ni la hora de inicio enseña y manda la hora de fin que tenía: apuntar una nota en una cita antigua
+   * de media hora no la alarga. En cuanto se le cambia la hora, pasa a una hora.
+   */
+  const duracionFija = tieneDuracionFija(currentUser.role)
+  const horasCambiadas = !appointment || date !== toDateInput(initialStart) || startTime !== toTimeInput(initialStart)
+  const inicioElegido = combine(date, startTime)
+  const finImpuesto = duracionFija && horasCambiadas && !Number.isNaN(inicioElegido.getTime()) ? new Date(inicioElegido.getTime() + DURACION_CITA_MS) : null
+  const finMostrado = finImpuesto ? toTimeInput(finImpuesto) : endTime
+  const esAnterior = !!appointment && initialEnd.getTime() - initialStart.getTime() !== DURACION_CITA_MS
+
   const handleSave = async () => {
     if (!leadName.trim()) {
       toast.error('El nombre del lead es obligatorio')
       return
     }
     const start = combine(date, startTime)
-    const end = combine(date, endTime)
+    if (Number.isNaN(start.getTime())) {
+      toast.error('Pon el día y la hora de inicio')
+      return
+    }
+    // Un comercial no elige la hora de fin: una hora desde el inicio (si le ha cambiado la hora); el servidor lo impone igualmente
+    const end = finImpuesto ?? combine(date, endTime)
     if (end <= start) {
       toast.error('La hora de fin debe ser posterior a la de inicio')
       return
@@ -546,12 +568,21 @@ export function AppointmentSheet({
               />
               <input
                 type="time"
-                value={endTime}
+                value={finMostrado}
                 onChange={(e) => setEndTime(e.target.value)}
-                disabled={!canEdit}
+                disabled={!canEdit || duracionFija}
+                aria-label={duracionFija ? 'Hora de fin (siempre una hora después del inicio)' : 'Hora de fin'}
+                title={duracionFija ? 'La cita dura siempre 1 hora: la hora de fin se calcula sola' : undefined}
                 className={`${ghostInput} text-[12px] px-1.5`}
               />
             </div>
+            {duracionFija && canEdit && (
+              <p className="pb-1 pt-1.5 text-[11px] leading-snug text-white/35">
+                {esAnterior && !horasCambiadas
+                  ? 'Esta cita no dura 1 hora (es anterior a la regla). Si le cambias la hora, pasará a durar 1 hora.'
+                  : 'Toda cita dura 1 hora: la hora de fin se pone sola.'}
+              </p>
+            )}
           </Section>
 
           {/* Asignación, datos comerciales y notas: bloqueados hasta guardar
