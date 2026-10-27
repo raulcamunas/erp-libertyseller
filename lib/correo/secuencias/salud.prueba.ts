@@ -222,5 +222,48 @@ console.log('\n=== el conjunto ===')
   ok('los títulos no llevan cifras que cambien', s.alarmas.every((a) => !/\d/.test(a.titulo)))
 }
 
+console.log('\n=== la verificación de direcciones (MillionVerifier) ===')
+{
+  const H = 3_600_000
+  const con = (verificacion: EntradaDeSalud['verificacion'], extra: Parameters<typeof entrada>[0] = {}) => alarmasDe(entrada({ verificacion, ...extra })).filter((a) => a.codigo.startsWith('verificacion_'))
+  const codigos = (verificacion: EntradaDeSalud['verificacion'], extra: Parameters<typeof entrada>[0] = {}) => con(verificacion, extra).map((a) => `${a.gravedad[0]}:${a.codigo}`).join()
+
+  ok('apagada o sin migración (null / sin dato): ninguna alarma', codigos(null) === '' && codigos(undefined) === '')
+  ok('con créditos de sobra y sin fallo: ninguna', codigos({ creditos: 10_500, fallo: null }) === '')
+  ok('créditos sin apuntar todavía y sin fallo: ninguna', codigos({ creditos: null, fallo: null }) === '')
+  ok('justo en 500 todavía no se avisa; con 499 sí, en ámbar', codigos({ creditos: 500, fallo: null }) === '' && codigos({ creditos: 499, fallo: null }) === 'a:verificacion_pocos_creditos')
+  ok('sin ningún crédito: roja, aunque no haya fallo apuntado', codigos({ creditos: 0, fallo: null }) === 'r:verificacion_sin_creditos')
+
+  ok('la clave que no vale: roja', codigos({ creditos: 10_000, fallo: { causa: 'clave', en: AHORA - 5 * MIN } }) === 'r:verificacion_clave')
+  ok('la IP bloqueada: roja', codigos({ creditos: 10_000, fallo: { causa: 'ip', en: AHORA - 5 * MIN } }) === 'r:verificacion_ip')
+  ok('sin créditos por el fallo apuntado: roja', codigos({ creditos: 10_000, fallo: { causa: 'sin_creditos', en: AHORA - 5 * MIN } }) === 'r:verificacion_sin_creditos')
+  ok('un fallo pasajero (la red, otro) no alarma: el correo sale y el siguiente intento lo arregla', codigos({ creditos: 10_000, fallo: { causa: 'red', en: AHORA - 5 * MIN } }) === '' && codigos({ creditos: 10_000, fallo: { causa: 'otro', en: AHORA - 5 * MIN } }) === '')
+  ok('un fallo de hace más de un día ya no cuenta (quedó sin repetirse)', codigos({ creditos: 10_000, fallo: { causa: 'clave', en: AHORA - 25 * H } }) === '' && codigos({ creditos: 10_000, fallo: { causa: 'clave', en: AHORA - 23 * H } }) === 'r:verificacion_clave')
+  ok('con un fallo y además pocos créditos, solo se dice lo más grave (una alarma)', codigos({ creditos: 100, fallo: { causa: 'clave', en: AHORA - 5 * MIN } }) === 'r:verificacion_clave')
+
+  const todas = [
+    ...con({ creditos: 10_000, fallo: { causa: 'clave', en: AHORA } }),
+    ...con({ creditos: 10_000, fallo: { causa: 'ip', en: AHORA } }),
+    ...con({ creditos: 0, fallo: null }),
+    ...con({ creditos: 100, fallo: null }),
+  ]
+  ok('las cuatro avisan por la campana a los administradores', todas.length === 4 && todas.every((a) => a.avisar))
+  ok('no son de ningún buzón en concreto', todas.every((a) => a.buzonId === null && a.duenoId === null))
+  ok('sus títulos no llevan cifras (la clave del aviso es siempre la misma)', todas.every((a) => !/\d/.test(a.titulo)))
+  ok('la clave de cada aviso es su código (una sola vez cada una)', todas.every((a) => a.clave === a.codigo) && new Set(todas.map((a) => a.clave)).size === 4)
+  ok('dicen dónde arreglarlo', todas.every((a) => /Verificación de direcciones|millionverifier\.com/.test(a.detalle)))
+  ok('las de créditos explican qué pasa mientras tanto: los correos salen sin comprobar', /SIN comprobar/.test(todas[2].detalle) && /sin comprobar la dirección/.test(todas[3].detalle))
+  ok('el número de créditos del aviso sale con el formato de España', /Quedan 100\./.test(todas[3].detalle) && /Quedan 499\./.test(con({ creditos: 499, fallo: null })[0].detalle))
+
+  ok('quien no administra (sin motor) no ve nada de esto', codigos({ creditos: 0, fallo: { causa: 'clave', en: AHORA } }, { conMotor: false }) === '')
+
+  const roja = armarSalud(entrada({ verificacion: { creditos: 0, fallo: null } }))
+  ok('en la pantalla: sin créditos es un problema, y cuenta como una cosa que atender', roja.nivel === 'problema' && roja.alarmas.some((a) => a.codigo === 'verificacion_sin_creditos') && roja.resumen === '1 cosa que atender', roja.resumen)
+  const ambar = armarSalud(entrada({ verificacion: { creditos: 300, fallo: null } }))
+  ok('y con pocos créditos, solo atención', ambar.nivel === 'atencion' && ambar.resumen === '1 cosa a la que estar atento', ambar.resumen)
+  const mezcla = alarmasDe(entrada({ verificacion: { creditos: 300, fallo: null }, buzones: [buzon({ id: 'b2', nombre: 'Lucía', credencialesInvalidas: true })] }))
+  ok('las rojas siguen yendo antes que las ámbar', mezcla.map((a) => `${a.gravedad[0]}:${a.codigo}`).join() === 'r:contrasena,a:verificacion_pocos_creditos', mezcla.map((a) => `${a.gravedad[0]}:${a.codigo}`).join())
+}
+
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)
 if (fallos > 0) process.exit(1)

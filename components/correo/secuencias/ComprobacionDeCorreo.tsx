@@ -21,6 +21,10 @@ export interface VeredictoCliente {
   sugerencia: string | null
   sinComprobar: boolean
   rebotada: boolean
+  /** Con los ajustes de ahora, un envío a esta dirección NO saldría (el servicio de verificación dice que no existe): no se ofrece «enviar igualmente» */
+  bloquea?: boolean
+  /** Ya se comprobó con el servicio de verificación (o un administrador la dio por buena) */
+  verificada?: boolean
 }
 
 export interface ResultadoDeComprobacion {
@@ -98,6 +102,11 @@ export function hayDireccionMala(r: ResultadoDeComprobacion | null): VeredictoCl
   return r ? r.direcciones.filter((d) => d.nivel === 'mala') : []
 }
 
+/** Las direcciones a las que el servidor no dejaría enviar (el servicio de verificación dice que no existen): no hay «enviar igualmente» para ellas */
+export function direccionesQueBloquean(r: ResultadoDeComprobacion | null): VeredictoCliente[] {
+  return r ? r.direcciones.filter((d) => d.bloquea === true) : []
+}
+
 interface Props {
   resultado: ResultadoDeComprobacion | null
   /** Cambiar una dirección por la que se propone (arregla la errata en «Para» o «Cc») */
@@ -114,7 +123,8 @@ export function ComprobacionDeCorreo({ resultado, onUsarSugerencia }: Props) {
     return (
       <p className="sec-sube flex items-center gap-1.5 text-[11.5px] text-[var(--ls-t4)]" role="status">
         <ShieldCheck className="h-3.5 w-3.5 text-[var(--ls-e-verde)]" aria-hidden />
-        {c ? `Buen correo (${c.puntos}/100): ` : ''}direcciones y texto revisados, sin nada raro.
+        {c ? `Buen correo (${c.puntos}/100): ` : ''}
+        {resultado.direcciones.length > 0 && resultado.direcciones.every((d) => d.verificada) ? 'direcciones confirmadas y texto revisado' : 'direcciones y texto revisados'}, sin nada raro.
       </p>
     )
   }
@@ -125,7 +135,7 @@ export function ComprobacionDeCorreo({ resultado, onUsarSugerencia }: Props) {
           {d.nivel === 'mala' ? <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: COLOR_DE_DIRECCION[d.nivel] }} aria-hidden /> : <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: COLOR_DE_DIRECCION[d.nivel] }} aria-hidden />}
           <span className="min-w-0 flex-1">
             <strong className="break-all font-medium text-[var(--ls-t1)]">{d.direccion}</strong>: {d.motivo}
-            {d.nivel === 'mala' && !d.sugerencia && ' Si la envías, el correo rebotará y dañará la reputación de tu buzón.'}
+            {d.bloquea ? ' No se enviará mientras siga así: corrígela o escribe a otra.' : d.nivel === 'mala' && !d.sugerencia && ' Si la envías, el correo rebotará y dañará la reputación de tu buzón.'}
           </span>
           {d.sugerencia && (
             <button type="button" onClick={() => onUsarSugerencia(d.direccion, d.sugerencia as string)} className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[5px] border border-[var(--ls-linea2)] px-2 text-[11.5px] font-medium text-[var(--ls-t1)] transition-colors hover:bg-[var(--ls-sup3)]">

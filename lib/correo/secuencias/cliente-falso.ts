@@ -226,6 +226,14 @@ export const ESQUEMA: Readonly<Record<string, EsquemaDeTabla>> = {
     columnas: ['id', 'buzon_id', 'hilo_id', 'carpeta_id', 'message_id', 'direccion', 'de_direccion', 'destinatarios', 'asunto', 'fecha', 'texto', 'automatico', 'creado_at', 'de_nombre', 'vista_previa', 'leido'],
   },
   correo_direcciones_malas: { columnas: ['direccion', 'estado', 'motivo', 'origen', 'veces', 'primera_vez', 'ultima_vez'], requeridas: ['direccion'] },
+  // La verificación de direcciones con MillionVerifier (migración 256)
+  correo_verificacion_ajustes: {
+    columnas: ['id', 'activa', 'dudosas', 'clave_cifrada', 'clave_termina', 'clave_puesta_at', 'creditos', 'creditos_at', 'error_causa', 'error_texto', 'error_at', 'actualizada_at', 'actualizada_por'],
+  },
+  correo_verificaciones: {
+    columnas: ['direccion', 'nivel', 'resultado', 'detalle', 'calidad', 'sugerencia', 'proveedor', 'origen', 'verificada_por', 'verificada_at'],
+    requeridas: ['direccion', 'nivel'],
+  },
   correo_secuencias: { columnas: ['id', 'nombre', 'activa', 'es_base', 'pasos'] },
   correo_secuencia_ajustes: {
     columnas: [
@@ -479,7 +487,7 @@ export class BaseEnMemoria {
         const n = (this.numeracion.get(tabla) ?? 0) + 1
         this.numeracion.set(tabla, n)
         f.id = n
-      } else if (tabla !== 'correo_secuencia_ajustes') f.id = this.nuevoId()
+      } else if (tabla !== 'correo_secuencia_ajustes' && tabla !== 'correo_verificacion_ajustes') f.id = this.nuevoId()
     }
     const ahora = this.ahoraIso()
     for (const col of ['creado_at', 'creada_at', 'actualizado_at', 'actualizada_at', 'occurred_at']) if (tiene(col) && f[col] === null) f[col] = ahora
@@ -516,6 +524,16 @@ export class BaseEnMemoria {
       defecto('estado', 'pendiente')
       defecto('intentos', 0)
       defecto('aplicada', false)
+    }
+    if (tabla === 'correo_verificacion_ajustes') {
+      defecto('id', true)
+      defecto('activa', false)
+      defecto('dudosas', 'avisar')
+    }
+    if (tabla === 'correo_verificaciones') {
+      defecto('proveedor', 'millionverifier')
+      defecto('origen', 'primer_correo')
+      defecto('verificada_at', ahora)
     }
     if (tabla === 'cold_lead_notes') defecto('es_respuesta', false)
     if (tabla === 'correo_buzones') {
@@ -558,9 +576,11 @@ export class BaseEnMemoria {
     if (tabla === 'correo_secuencia_pasos' && otras.some((f) => f.inscripcion_id === fila.inscripcion_id && f.orden === fila.orden)) return 'correo_secuencia_pasos_uno_por_orden'
     if (tabla === 'correo_secuencia_buzones' && otras.some((f) => f.buzon_id === fila.buzon_id)) return 'correo_secuencia_buzones_pkey'
     if (tabla === 'correo_direcciones_malas' && otras.some((f) => f.direccion === fila.direccion)) return 'correo_direcciones_malas_pkey'
+    if (tabla === 'correo_verificaciones' && otras.some((f) => f.direccion === fila.direccion)) return 'correo_verificaciones_pkey'
+    if (tabla === 'correo_verificacion_ajustes' && otras.length > 0) return 'correo_verificacion_ajustes_pkey'
     if (tabla === 'correo_respuestas_ia' && otras.some((f) => f.mensaje_id === fila.mensaje_id)) return 'correo_respuestas_ia_pkey'
     if (tabla === 'notifications' && fila.clave !== null && fila.clave !== undefined && otras.some((f) => f.user_id === fila.user_id && f.clave === fila.clave)) return 'notifications_usuario_clave_idx'
-    if (tabla !== 'correo_secuencia_ajustes' && 'id' in fila && fila.id !== null && otras.some((f) => f.id === fila.id)) return `${tabla}_pkey`
+    if (tabla !== 'correo_secuencia_ajustes' && tabla !== 'correo_verificacion_ajustes' && 'id' in fila && fila.id !== null && otras.some((f) => f.id === fila.id)) return `${tabla}_pkey`
     return null
   }
 

@@ -1,5 +1,6 @@
 import { analizarDireccion, type AnalisisDeDireccion, type ProblemaDeDireccion } from './direccion'
 import { comprobarDominio, type OpcionesDeDominio, type ResolvedorDeDominio, type ResultadoDeDominio } from './dominio'
+import { fraseDeDireccionMala } from './pago'
 
 /**
  * EL VEREDICTO DE UNA DIRECCIÓN: BUENA, DUDOSA O MALA, Y POR QUÉ.
@@ -20,6 +21,8 @@ export type NivelDeDireccion = 'buena' | 'dudosa' | 'mala'
 export interface RebotePrevio {
   motivo: string | null
   veces: number
+  /** rebote · rechazo_smtp · manual · verificador: de dónde viene que esa dirección esté en la memoria de las que no sirven */
+  origen?: string | null
 }
 
 export interface VeredictoDeDireccion {
@@ -67,11 +70,7 @@ export async function verificarDirecciones(textos: readonly string[], deps: Depe
     const dominio = dominios.get(a.dominio) ?? null
 
     if (rebote) {
-      problemas.unshift({
-        codigo: 'sintaxis',
-        gravedad: 'mala',
-        texto: `Esa dirección ya rebotó antes${rebote.veces > 1 ? ` (${rebote.veces} veces)` : ''}${rebote.motivo ? `: ${rebote.motivo}` : ': el servidor dijo que no existe'}.`,
-      })
+      problemas.unshift({ codigo: 'sintaxis', gravedad: 'mala', texto: fraseDeDireccionMala(rebote, 'aviso') })
     }
     if (dominio?.estado === 'no_existe') problemas.push({ codigo: 'dominio_no_valido', gravedad: 'mala', texto: `El dominio «${a.dominio}» no existe: el correo rebotaría.` })
     else if (dominio?.estado === 'sin_correo') problemas.push({ codigo: 'dominio_no_valido', gravedad: 'mala', texto: `El dominio «${a.dominio}» no recibe correo.` })

@@ -2,6 +2,7 @@ import type { createServiceClient } from '@/lib/supabase/service'
 import { escribirAvisosDeCorreo } from '../campana-servidor'
 import type { EntradaDeEnvio } from '../enviar'
 import { cargarBuzon, enviarDesdeBuzon, sincronizarBuzonPorId } from '../servidor'
+import { verificadorParaElMotor } from '../verificacion/pago-servidor'
 import { almacenDeSecuencias } from './almacen'
 import { clasificarRespuestaConIa, redactarConIa, revisarConIa } from './ia'
 import type { CodigoDeFalloDeEnvio, DependenciasDelMotor, ResultadoDelEnvio } from './motor'
@@ -64,6 +65,8 @@ export function dependenciasDeProduccion(service: Servicio): DependenciasDelMoto
       if (r.tipo === 'enviado') return { ok: true, messageId: r.resultado.messageId, fecha: r.resultado.fecha.getTime(), copiadoAEnviados: r.resultado.copiadoAEnviados }
       return { ok: false, codigo: codigoDeFallo(r.codigo), mensaje: r.mensaje }
     },
+    // Las direcciones que no se comprobaron antes de programar los seguimientos se comprueban (una vez) justo antes de enviar. Como mucho 5 llamadas por pasada
+    verificarDireccion: verificadorParaElMotor(service),
     revisar: (mensajes, original) => revisarConIa(mensajes, original),
     clasificar: (mensajes) => clasificarRespuestaConIa(mensajes),
     redactar: (mensajes, anteriores) => redactarConIa(mensajes, anteriores),

@@ -1,4 +1,5 @@
 import { esDiaHabil, partesDeMadrid } from './fechas'
+import { fraseDeDireccionMala } from '../verificacion/pago'
 import { motivoDeRebote } from '../verificacion/rebotes'
 import { lecturaDelBuzon, type EntranteParaControl } from './respuestas'
 import type { AjustesDelMotor } from './reglas'
@@ -61,8 +62,8 @@ export interface HechosDeParada {
   /** Cuándo ha escrito el comercial, por su cuenta y desde este buzón, a este destinatario (los correos de la propia secuencia no cuentan) */
   correosManuales?: readonly number[]
   llamadas: readonly LlamadaParaControl[]
-  /** Esa dirección ya rebotó antes (la memoria de direcciones malas del ERP): no se le escribe más */
-  direccionMala?: { motivo: string | null } | null
+  /** Esa dirección ya rebotó antes (la memoria de direcciones malas del ERP) o el servicio de verificación la dio por mala: no se le escribe más */
+  direccionMala?: { motivo: string | null; veces?: number; origen?: string | null } | null
 }
 
 export interface HechosDeSalida extends HechosDeParada {
@@ -172,7 +173,7 @@ export function evaluarParada(h: HechosDeParada): LecturaParaParar {
     })
   }
   if (h.direccionMala) {
-    return parar({ estado: 'parada', codigo: 'direccion_mala', motivo: `Esa dirección ya había rebotado antes${h.direccionMala.motivo ? ` (${h.direccionMala.motivo})` : ''}: no se le escribe más.` })
+    return parar({ estado: 'parada', codigo: 'direccion_mala', motivo: fraseDeDireccionMala(h.direccionMala, 'parada') })
   }
 
   if (h.lead.asignadoA !== null && h.lead.asignadoA !== h.inscripcion.userId) {

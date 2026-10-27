@@ -5,6 +5,8 @@ import { almacenDeSecuencias } from '@/lib/correo/secuencias/almacen'
 import { dentroDelLimite } from '@/lib/correo/secuencias/rutas'
 import { analizarContenido } from '@/lib/correo/verificacion/contenido'
 import { resolvedorDeProduccion } from '@/lib/correo/verificacion/dns'
+import { combinarConLoSabido } from '@/lib/correo/verificacion/pago'
+import { loQueSeSabeAntesDeEnviar } from '@/lib/correo/verificacion/pago-servidor'
 import { verificarDirecciones } from '@/lib/correo/verificacion/verificar'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -13,13 +15,15 @@ import { createServiceClient } from '@/lib/supabase/service'
  *
  * POST application/json  { direcciones: string[] (hasta 10), asunto?: string, texto?: string, esRespuesta?: boolean }
  *
- * Contesta `{ ok, direcciones: [{ direccion, nivel: 'buena'|'dudosa'|'mala', motivo, sugerencia, sinComprobar }], contenido: { puntos, nivel, avisos } | null }`.
+ * Contesta `{ ok, direcciones: [{ direccion, nivel: 'buena'|'dudosa'|'mala', motivo, sugerencia, sinComprobar, rebotada, bloquea, verificada }], contenido: { puntos, nivel, avisos } | null }`.
  *
  *   · Las direcciones se miran por cómo están escritas, por si ya rebotaron antes (la memoria del ERP) y por si su dominio existe y recibe correo (DNS).
+ *   · Si la verificación con MillionVerifier está encendida, se añade lo que YA se sabe de ellas (lo guardado de comprobaciones anteriores), sin preguntar nada
+ *     nuevo: preguntar mientras se teclea gastaría créditos en cada errata. `bloquea` dice que el envío no saldría; `verificada`, que ya se comprobó con el servicio.
  *   · El contenido se mira por lo que hace que un correo acabe en spam. Solo si se manda el texto.
  *
- * NUNCA bloquea por sí sola: es información para quien envía. Si el DNS o la memoria fallan, la dirección sigue su camino (sin comprobar): esta ruta nunca
- * puede dejar a nadie sin poder enviar un correo.
+ * NUNCA bloquea por sí sola: es información para quien envía (quien bloquea es /api/correo/enviar). Si el DNS, la memoria o lo guardado fallan, la dirección sigue su
+ * camino (sin comprobar): esta ruta nunca puede dejar a nadie sin poder enviar un correo.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -62,10 +66,14 @@ export async function POST(request: NextRequest) {
       registrar('Correo · verificar: direcciones', error)
     }
   }
+  // Lo ya comprobado con el servicio de pago (si está encendido): solo se lee, no se gasta nada
+  const saber = direcciones.length > 0 ? await loQueSeSabeAntesDeEnviar(service, direcciones) : null
   return NextResponse.json(
     {
       ok: true,
-      direcciones: veredictos.map((v) => ({ direccion: v.direccion, nivel: v.nivel, motivo: v.motivo, sugerencia: v.sugerencia, sinComprobar: v.sinComprobar, rebotada: v.rebotada !== null })),
+      direcciones: veredictos.map((v) =>
+        combinarConLoSabido({ direccion: v.direccion, nivel: v.nivel, motivo: v.motivo, sugerencia: v.sugerencia, sinComprobar: v.sinComprobar, rebotada: v.rebotada !== null }, saber?.conocidas.get(v.direccion), saber?.dudosas ?? null)
+      ),
       contenido: texto !== null ? analizarContenido({ asunto: asunto ?? '', texto, esRespuesta: cuerpo.esRespuesta === true }) : null,
     },
     { headers: SIN_CACHE }

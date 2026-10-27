@@ -190,6 +190,64 @@ async function main() {
     ok('con la migración lanzada, vuelve a funcionar', lanzada.avisos === 2 && (await campana(m)).length === 2, JSON.stringify(lanzada))
   }
 
+  console.log('\n=== la verificación de direcciones (MillionVerifier) ===')
+  {
+    /** La fila de ajustes de la verificación: encendida, con clave (cifrada, no se lee aquí) y lo que se diga */
+    const verificacion = async (m: Mundo, f: Record<string, unknown> = {}) => m.sembrar('correo_verificacion_ajustes', { id: true, activa: true, clave_cifrada: 'v1.cifrada', creditos: 5000, ...f })
+    const sinCreditos = (m: Mundo) => ({ creditos: 0, error_causa: 'sin_creditos', error_texto: 'Se han acabado los créditos.', error_at: m.iso(m.reloj.ahora - 5 * MIN) })
+
+    const m = await mundoSano()
+    await verificacion(m)
+    const sana = await vigilar(m)
+    ok('con la verificación sana no hay nada que avisar', sana.alarmas === 0 && sana.avisos === 0 && (await campana(m)).length === 0, JSON.stringify(sana))
+
+    await m.actualizar('correo_verificacion_ajustes', sinCreditos(m), (q) => q.eq('id', true))
+    const r = await vigilar(m)
+    const filas = await campana(m)
+    ok('sin créditos: una alarma, y el aviso llega a los administradores', r.alarmas === 1 && r.avisos === 1 && filas.length === 1 && filas[0].user_id === UC && /Se han acabado los créditos de MillionVerifier/.test(String(filas[0].title)), JSON.stringify([r, filas.map((f) => f.title)]))
+    ok('NO le llega a los comerciales (no es de su buzón)', titulosDe(filas, UA).length === 0 && titulosDe(filas, UB).length === 0)
+    ok('el mensaje dice dónde verlo', /Correo → Secuencias → Salud/.test(String(filas[0].message)) && /SIN comprobar/.test(String(filas[0].message)))
+    m.reloj.ahora += 3 * MIN
+    await pasadaDelMotor(m, m.reloj.ahora - 20_000)
+    await m.actualizar('correo_buzones', { ultimo_sync_at: m.iso(m.reloj.ahora - 2 * MIN) }, (q) => q.in('id', [B1, B2]))
+    const otra = await vigilar(m)
+    ok('mientras siga igual no se repite el aviso cada tres minutos', otra.alarmas === 1 && otra.avisos === 0 && (await campana(m)).length === 1, JSON.stringify(otra))
+
+    // Con el motor APAGADO la verificación sigue comprobando los primeros correos que se envían a mano: se avisa igualmente
+    const apagado = await mundoSano({ activa: false })
+    await verificacion(apagado, sinCreditos(apagado))
+    const ra = await vigilar(apagado)
+    const fa = await campana(apagado)
+    ok('con el motor apagado, sin créditos: se avisa igualmente a los administradores', ra.alarmas === 1 && ra.avisos === 1 && fa.length === 1 && fa[0].user_id === UC && /verificación de direcciones/.test(String(ra.omitido)), JSON.stringify([ra, fa.length]))
+    const rb = await vigilar(apagado)
+    ok('…y tampoco se repite', rb.avisos === 0 && (await campana(apagado)).length === 1, JSON.stringify(rb))
+
+    const apagadoSano = await mundoSano({ activa: false })
+    await verificacion(apagadoSano)
+    const rc = await vigilar(apagadoSano)
+    ok('con el motor apagado y la verificación sana, no se mira nada más', rc.omitido === 'El motor está apagado' && rc.alarmas === 0 && rc.avisos === 0 && (await campana(apagadoSano)).length === 0, JSON.stringify(rc))
+
+    const apagadoYSinVerificar = await mundoSano({ activa: false })
+    await verificacion(apagadoYSinVerificar, { ...sinCreditos(apagadoYSinVerificar), activa: false })
+    const rd = await vigilar(apagadoYSinVerificar)
+    ok('si la verificación está apagada, su fallo viejo no avisa a nadie', rd.omitido === 'El motor está apagado' && rd.avisos === 0 && (await campana(apagadoYSinVerificar)).length === 0, JSON.stringify(rd))
+
+    const sinClave = await mundoSano()
+    await verificacion(sinClave, { ...sinCreditos(sinClave), clave_cifrada: null })
+    const re = await vigilar(sinClave)
+    ok('sin clave tampoco hay nada que vigilar', re.alarmas === 0 && re.avisos === 0, JSON.stringify(re))
+
+    const pocos = await mundoSano()
+    await verificacion(pocos, { creditos: 300 })
+    const rf = await vigilar(pocos)
+    ok('quedan pocos créditos: se avisa a los administradores (ámbar), antes de que se acaben', rf.alarmas === 1 && rf.avisos === 1 && /Quedan pocos créditos/.test(String((await campana(pocos))[0]?.title)), JSON.stringify(rf))
+
+    const sinTabla = await mundoSano()
+    baseActual.ausentes.add('correo_verificacion_ajustes')
+    const rg = await vigilar(sinTabla)
+    ok('sin la migración 256, nada cambia', rg.alarmas === 0 && rg.avisos === 0, JSON.stringify(rg))
+  }
+
   void DIA
   console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)
   if (fallos > 0) process.exit(1)

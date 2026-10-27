@@ -25,7 +25,7 @@ export async function medirLaSalud(
 ): Promise<EntradaDeSalud> {
   const ids = e.buzones.map((b) => b.id)
   const conjunto = new Set(ids)
-  const [conexion, h24, h7d, pasadas, atrasados, fallidos, ia, ultimoEnvioAt] = await Promise.all([
+  const [conexion, h24, h7d, pasadas, atrasados, fallidos, ia, ultimoEnvioAt, verificacion] = await Promise.all([
     almacen.conexionDeBuzones(ids),
     ids.length > 0 ? almacen.saludDeBuzones(e.ahora - DIA_MS) : Promise.resolve([]),
     ids.length > 0 ? almacen.saludDeBuzones(e.ahora - 7 * DIA_MS) : Promise.resolve([]),
@@ -35,6 +35,8 @@ export async function medirLaSalud(
     // Las respuestas que la IA no ha podido leer: las de la última semana (una de hace un mes ya no es noticia)
     e.conMotor ? almacen.contarRespuestas(null, e.ahora - 7 * DIA_MS) : Promise.resolve({ porClase: {}, pendientes: 0, fallidas: 0 }),
     e.conMotor ? almacen.ultimoEnvioDelSistema(e.ahora) : Promise.resolve(null),
+    // La verificación de direcciones: vigilarla nunca tumba la salud (sin la migración 256 o con un fallo de lectura, no hay nada que decir de ella)
+    e.conMotor ? almacen.estadoDeLaVerificacion().catch(() => null) : Promise.resolve(null),
   ])
   return {
     ahora: e.ahora,
@@ -46,5 +48,6 @@ export async function medirLaSalud(
     pasadas,
     cola: { atrasados, fallidos, iaFallidas: ia.fallidas, iaPendientes: ia.pendientes, ultimoEnvioAt },
     conMotor: e.conMotor,
+    verificacion,
   }
 }

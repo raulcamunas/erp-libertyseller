@@ -4,6 +4,7 @@ import { diaCorto, diaDeMadrid, horaDeMadrid, sumarDiasHabiles } from './fechas'
 import { planificarPendientes } from './motor'
 import { dominioDeDireccion, esDominioLibre } from './reglas'
 import { analizarDireccion } from '../verificacion/direccion'
+import { fraseDeDireccionMala } from '../verificacion/pago'
 import { revisarSeguimiento } from './seguimientos'
 
 /**
@@ -105,7 +106,7 @@ export async function inscribir(deps: { almacen: AlmacenDeSecuencias; ahora?: ()
   const mala = analisis.problemas.find((x) => x.gravedad === 'mala')
   if (mala) return rechazar('direccion_mala', `No se programan seguimientos: ${mala.texto}`)
   const rebotada = (await almacen.direccionesMalas([destino])).get(destino)
-  if (rebotada) return rechazar('direccion_mala', `No se programan seguimientos: esa dirección ya rebotó antes${rebotada.veces > 1 ? ` (${rebotada.veces} veces)` : ''}.`)
+  if (rebotada) return rechazar('direccion_mala', fraseDeDireccionMala(rebotada, 'alta'))
 
   // Las reglas fijas de los correos, otra vez: lo que llega del navegador puede haberlo editado una persona
   const textos = p.seguimientos.map((s) => s.texto.replace(/\r\n?/g, '\n').trim())

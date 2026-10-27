@@ -8,18 +8,28 @@ import { diaCorto, horaDeMinutos } from '@/lib/correo/secuencias/fechas'
 import type { AjustesDelMotor } from '@/lib/correo/secuencias/reglas'
 import { enviarJson, pedir } from '../api'
 import { BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from '../ui'
+import { AjustesDeVerificacion } from './AjustesDeVerificacion'
 import { conDemo, cuando, useDemo, type Tablero } from './datos'
+import { Interruptor } from './Interruptor'
 
 /**
  * LOS AJUSTES DEL MOTOR — SOLO UN ADMINISTRADOR LOS CAMBIA.
  *
  * El interruptor de tres posiciones (apagado · ensayo · envío real), el horario, los huecos entre envíos, la rampa de volumen, el freno por rebotes, los festivos,
- * qué hace la IA con las respuestas de los leads, cada buzón y las direcciones que han rebotado. Cualquiera que pueda ver Secuencias ve esto (para saber cómo funciona), pero los controles solo se activan para
+ * qué hace la IA con las respuestas de los leads, cada buzón y las direcciones que no sirven. Cualquiera que pueda ver Secuencias ve esto (para saber cómo funciona), pero los controles solo se activan para
  * un administrador, y el servidor lo vuelve a comprobar. Pasar a «envío real» pide confirmación expresa.
  */
 
 type Modo = 'apagado' | 'ensayo' | 'real'
 const modoDe = (a: Pick<AjustesDelMotor, 'activa' | 'modoEnsayo'>): Modo => (!a.activa ? 'apagado' : a.modoEnsayo ? 'ensayo' : 'real')
+
+/** De dónde viene que una dirección esté en la lista de las que no sirven */
+const ORIGEN_DE_DIRECCION_MALA: Record<string, string> = {
+  rebote: 'Rebotó',
+  rechazo_smtp: 'La rechazó el servidor al enviar',
+  manual: 'Marcada a mano',
+  verificador: 'MillionVerifier dice que no existe',
+}
 
 const aHora = (min: number): string => horaDeMinutos(min).padStart(5, '0')
 const aMinutos = (hora: string): number => {
@@ -34,28 +44,6 @@ function Campo({ etiqueta, ayuda, children }: { etiqueta: string; ayuda?: string
       {children}
       {ayuda && <span className="mt-1 block text-[10.5px] leading-snug text-[var(--ls-t4)]">{ayuda}</span>}
     </label>
-  )
-}
-
-function Interruptor({ titulo, texto, activo, desactivado, onCambio }: { titulo: string; texto: string; activo: boolean; desactivado: boolean; onCambio: (v: boolean) => void }) {
-  return (
-    <div className={`flex items-start gap-3 ${desactivado ? 'opacity-60' : ''}`}>
-      <div className="min-w-0 flex-1">
-        <p className="text-[12.5px] font-medium text-[var(--ls-t1)]">{titulo}</p>
-        <p className="mt-0.5 text-[11.5px] leading-snug text-[var(--ls-t3)]">{texto}</p>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={activo}
-        aria-label={titulo}
-        disabled={desactivado}
-        onClick={() => onCambio(!activo)}
-        className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full border transition-colors disabled:cursor-default ${activo ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-relleno)]' : 'border-[var(--ls-linea2)] bg-[var(--ls-sup3)]'}`}
-      >
-        <span className={`absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${activo ? 'translate-x-4' : ''}`} aria-hidden />
-      </button>
-    </div>
   )
 }
 
@@ -334,6 +322,8 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
         </div>
       </section>
 
+      {esAdmin && demo === null && <AjustesDeVerificacion />}
+
       <section className={PANEL} aria-label="Buzones">
         <CabeceraDePanel titulo="Buzones" contexto="· cada uno con su propio ritmo" />
         <ul>
@@ -399,8 +389,8 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
       </section>
 
       {(esAdmin || demo !== null) && (
-        <section className={PANEL} aria-label="Direcciones que han rebotado">
-          <CabeceraDePanel titulo="Direcciones que han rebotado" contexto="· el ERP no vuelve a escribirles" />
+        <section className={PANEL} aria-label="Direcciones que no sirven">
+          <CabeceraDePanel titulo="Direcciones que no sirven" contexto="· rebotaron, o el servicio de verificación dice que no existen: el ERP no les escribe" />
           {malas === null ? (
             <p className="px-3 py-4 text-[12px] text-[var(--ls-t4)]">Cargando…</p>
           ) : malas.length === 0 ? (
@@ -412,7 +402,8 @@ export function AjustesDeSecuencias({ tablero, esAdmin, alGuardar }: Props) {
                   <span className="min-w-0 flex-1">
                     <span className={`block truncate text-[12.5px] ${m.estado === 'mala' ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t4)] line-through'}`}>{m.direccion}</span>
                     <span className="block truncate text-[10.5px] text-[var(--ls-t4)]">
-                      {m.motivo ?? m.origen} · {m.veces} {m.veces === 1 ? 'vez' : 'veces'}
+                      {ORIGEN_DE_DIRECCION_MALA[m.origen] ?? m.origen}
+                      {m.motivo ? ` · ${m.motivo}` : ''} · {m.veces} {m.veces === 1 ? 'vez' : 'veces'}
                     </span>
                   </span>
                   {m.estado === 'mala' && demo === null && (

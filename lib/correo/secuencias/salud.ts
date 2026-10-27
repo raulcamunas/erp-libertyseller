@@ -31,6 +31,10 @@ export const MINUTOS_DE_RETRASO_EN_LA_COLA = 30
 export const CORREOS_ATRASADOS_PARA_AVISAR = 5
 /** Pasadas que acaban mal en la última hora a partir de las que se avisa */
 export const PASADAS_FALLIDAS_PARA_AVISAR = 5
+/** Por debajo de estos créditos de MillionVerifier se avisa de que quedan pocos (a 250 correos al día, unos dos días) */
+export const CREDITOS_DE_VERIFICACION_PARA_AVISAR = 500
+/** Un fallo del servicio de verificación más viejo que esto ya no se da por vigente: o se arregló, o nadie ha vuelto a probar */
+export const HORAS_QUE_VALE_UN_FALLO_DE_VERIFICACION = 24
 
 /* ------------------------------------------------------------------ */
 /* Tipos                                                               */
@@ -39,6 +43,10 @@ export const PASADAS_FALLIDAS_PARA_AVISAR = 5
 export type NivelDeSalud = 'ok' | 'atencion' | 'problema'
 
 export type CodigoDeAlarma =
+  | 'verificacion_clave'
+  | 'verificacion_ip'
+  | 'verificacion_sin_creditos'
+  | 'verificacion_pocos_creditos'
   | 'motor_parado'
   | 'motor_con_errores'
   | 'contrasena'
@@ -111,6 +119,8 @@ export interface EntradaDeSalud {
   cola: { atrasados: number; fallidos: number; iaFallidas: number; iaPendientes: number; ultimoEnvioAt: number | null }
   /** Si se enseña (y se vigila) lo del motor: solo para quien administra */
   conMotor: boolean
+  /** La verificación de direcciones con MillionVerifier: null o ausente = apagada, sin clave o sin la migración 256 (no hay nada que vigilar) */
+  verificacion?: { creditos: number | null; fallo: { causa: 'clave' | 'sin_creditos' | 'ip' | 'red' | 'otro'; en: number } | null } | null
 }
 
 export interface SaludDelBuzon {
@@ -388,9 +398,34 @@ function alarmasDelMotor(e: EntradaDeSalud): Alarma[] {
   return salida
 }
 
+/**
+ * La verificación de direcciones (MillionVerifier). Con ella fallando los correos salen igual, pero SIN comprobar: lo que se ve como más rebotes. Por eso se avisa a los
+ * administradores cuando la clave no vale, se acaban los créditos o la IP del servidor está bloqueada, y antes de que se acaben, cuando quedan pocos.
+ */
+export function alarmasDeLaVerificacion(e: Pick<EntradaDeSalud, 'ahora' | 'verificacion'>): Alarma[] {
+  const v = e.verificacion
+  if (!v) return []
+  const base = { buzonId: null, duenoId: null }
+  const donde = 'Correo → Secuencias → Ajustes → «Verificación de direcciones»'
+  const fallo = v.fallo && e.ahora - v.fallo.en < HORAS_QUE_VALE_UN_FALLO_DE_VERIFICACION * 3_600_000 ? v.fallo.causa : null
+  if (fallo === 'clave') {
+    return [{ ...base, clave: 'verificacion_clave', codigo: 'verificacion_clave', gravedad: 'roja', titulo: 'La clave de MillionVerifier ya no vale', detalle: `Los correos salen SIN comprobar que la dirección exista, y pueden rebotar. Pega una clave buena en ${donde}.`, avisar: true }]
+  }
+  if (fallo === 'ip') {
+    return [{ ...base, clave: 'verificacion_ip', codigo: 'verificacion_ip', gravedad: 'roja', titulo: 'MillionVerifier bloquea al servidor del ERP', detalle: `Los correos salen SIN comprobar que la dirección exista. En app.millionverifier.com/api quita la restricción de IP de la clave, o añade la IP del servidor (${donde}).`, avisar: true }]
+  }
+  if (fallo === 'sin_creditos' || v.creditos === 0) {
+    return [{ ...base, clave: 'verificacion_sin_creditos', codigo: 'verificacion_sin_creditos', gravedad: 'roja', titulo: 'Se han acabado los créditos de MillionVerifier', detalle: `Los correos salen SIN comprobar que la dirección exista, y pueden rebotar. Compra más créditos en app.millionverifier.com; en cuanto los haya se retoma sola (o pulsa «Probar la clave» en ${donde}).`, avisar: true }]
+  }
+  if (v.creditos !== null && v.creditos < CREDITOS_DE_VERIFICACION_PARA_AVISAR) {
+    return [{ ...base, clave: 'verificacion_pocos_creditos', codigo: 'verificacion_pocos_creditos', gravedad: 'ambar', titulo: 'Quedan pocos créditos de MillionVerifier', detalle: `Quedan ${v.creditos.toLocaleString('es-ES')}. Compra más en app.millionverifier.com antes de que se acaben: sin créditos los correos salen sin comprobar la dirección.`, avisar: true }]
+  }
+  return []
+}
+
 /** Las alarmas de lo medido. Primero las rojas, y dentro de cada gravedad, en el orden en que se han encontrado */
 export function alarmasDe(e: EntradaDeSalud): Alarma[] {
-  const todas = [...(e.conMotor ? alarmasDelMotor(e) : []), ...e.buzones.flatMap((b) => alarmasDelBuzon(b, e))]
+  const todas = [...(e.conMotor ? [...alarmasDelMotor(e), ...alarmasDeLaVerificacion(e)] : []), ...e.buzones.flatMap((b) => alarmasDelBuzon(b, e))]
   return [...todas.filter((a) => a.gravedad === 'roja'), ...todas.filter((a) => a.gravedad === 'ambar')]
 }
 

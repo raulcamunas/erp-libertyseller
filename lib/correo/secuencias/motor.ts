@@ -91,6 +91,12 @@ export interface DependenciasDelMotor {
   /** La IA que escribe cada seguimiento justo antes de enviarlo, con todo el historial del lead (ia.ts). Sin ella, o con el ajuste apagado, sale el texto programado */
   redactar?: (mensajes: { system: string; usuario: string }, anteriores: readonly string[]) => Promise<ResultadoDeRedaccionConIa>
   /**
+   * El servicio de verificación de direcciones (MillionVerifier), para los seguimientos que se programaron ANTES de tenerlo: justo antes de enviar, se mira si la
+   * dirección existe (una vez; lo comprobado se guarda y no se paga otra vez). Devuelve null si no hay nada que decir (apagado, buena, no se pudo comprobar). Si dice
+   * `parar`, la secuencia se corta como con una dirección que ya rebotó. Que falle o no esté no cambia nada: el seguimiento sigue su camino
+   */
+  verificarDireccion?: (direccion: string) => Promise<{ nivel: 'buena' | 'dudosa' | 'mala'; motivo: string; parar: boolean; porQue: 'mala' | 'dudosa' } | null>
+  /**
    * Escribe un aviso en la campana de la persona a la que le toca atender algo (un seguimiento pausado, un envío fallido, un rebote, una respuesta que pide algo).
    * Sin ella (las pruebas que no lo miran, la demostración) el motor hace lo mismo y simplemente no avisa. Que falle no afecta a la pasada (`avisarAlDueno`)
    */
@@ -850,6 +856,15 @@ async function reunirHechos(
   const ahora = (deps.ahora ?? Date.now)()
   const ultimoEnvioAt = ultimoEnvioDe(ins, pasos, paso.orden)
   const [base, carga, ultimoDelSistema] = await Promise.all([hechosDeParada(deps, ins, pasos, ultimoEnvioAt), almacen.cargaDelBuzon(buzon.id, ahora), almacen.ultimoEnvioDelSistema(ahora)])
+  // ¿Esa dirección existe? Solo si la memoria de rebotes no la había dado ya por mala. Lo que falle aquí NO para el seguimiento: sale como siempre
+  if (!base.hechos.direccionMala && deps.verificarDireccion) {
+    try {
+      const v = await deps.verificarDireccion(ins.destinatario)
+      if (v?.parar) base.hechos.direccionMala = { motivo: v.motivo, veces: 1, origen: v.porQue === 'mala' ? 'verificador' : 'verificador_dudosa' }
+    } catch (e) {
+      console.error('[secuencias] no se ha podido comprobar la dirección de un seguimiento', { mensaje: e instanceof Error ? e.message : 'sin mensaje' })
+    }
+  }
   const topeHoy = topeDelBuzonEnElDia({ rampa: ajustes.rampa, rampaInicio: buzon.rampaInicio, topeFijo: buzon.topeDiario, dia: diaDeMadrid(ahora), festivos: ajustes.festivos })
   const hechos: HechosDeSalida = {
     ...base.hechos,

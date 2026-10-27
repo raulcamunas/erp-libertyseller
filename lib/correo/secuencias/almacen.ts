@@ -236,6 +236,8 @@ export interface EventoLeido {
 export interface RebotePrevio {
   motivo: string | null
   veces: number
+  /** rebote · rechazo_smtp · manual · verificador */
+  origen?: string | null
 }
 
 export interface AvisoDeRebote {
@@ -1214,12 +1216,12 @@ export function almacenDeSecuencias(service: Servicio) {
     const salida = new Map<string, RebotePrevio>()
     const unicas = [...new Set(direcciones.map((d) => d.trim().toLowerCase()).filter(Boolean))]
     for (const grupo of trozos(unicas)) {
-      const { data, error } = await service.from('correo_direcciones_malas').select('direccion, motivo, veces').in('direccion', grupo).eq('estado', 'mala')
+      const { data, error } = await service.from('correo_direcciones_malas').select('direccion, motivo, veces, origen').in('direccion', grupo).eq('estado', 'mala')
       if (error) {
         if (isMissingSchema(error)) return salida
         throw fallo('No se ha podido consultar la memoria de direcciones.', error)
       }
-      for (const f of (data ?? []) as Array<{ direccion: string; motivo: string | null; veces: number }>) salida.set(f.direccion, { motivo: f.motivo, veces: f.veces })
+      for (const f of (data ?? []) as Array<{ direccion: string; motivo: string | null; veces: number; origen: string | null }>) salida.set(f.direccion, { motivo: f.motivo, veces: f.veces, origen: f.origen })
     }
     return salida
   }
@@ -1228,7 +1230,7 @@ export function almacenDeSecuencias(service: Servicio) {
    * Apunta que una dirección ha rebotado. `cuando` es cuándo ocurrió el rebote: si ya se había apuntado uno igual o más reciente no se cuenta otra vez
    * (la vigilancia mira cada tramo dos veces). NUNCA lanza: aprender de un rebote no puede tumbar lo que se estaba haciendo.
    */
-  async function marcarDireccionMala(direccion: string, motivo: string, origen: 'rebote' | 'rechazo_smtp' | 'manual', cuando: number, ahora: number): Promise<void> {
+  async function marcarDireccionMala(direccion: string, motivo: string, origen: 'rebote' | 'rechazo_smtp' | 'manual' | 'verificador', cuando: number, ahora: number): Promise<void> {
     const d = direccion.trim().toLowerCase()
     if (d.length < 3 || d.length > 320) return
     try {
@@ -1251,6 +1253,25 @@ export function almacenDeSecuencias(service: Servicio) {
       console.error('[secuencias] fallo al apuntar una dirección mala', { mensaje: e instanceof Error ? e.message : 'desconocido' })
     }
     void ahora
+  }
+
+  /**
+   * Cómo va la verificación de direcciones con MillionVerifier, para la salud: null si está apagada, no tiene clave o falta la migración 256 (no hay nada que vigilar).
+   * No lee ni descifra la clave: solo mira que haya una.
+   */
+  async function estadoDeLaVerificacion(): Promise<{ creditos: number | null; fallo: { causa: 'clave' | 'sin_creditos' | 'ip' | 'red' | 'otro'; en: number } | null } | null> {
+    const { data, error } = await service.from('correo_verificacion_ajustes').select('activa, clave_cifrada, creditos, error_causa, error_at').eq('id', true).maybeSingle()
+    if (error) {
+      if (isMissingSchema(error)) return null
+      throw fallo('No se ha podido leer el estado de la verificación de direcciones.', error)
+    }
+    const f = data as { activa: boolean | null; clave_cifrada: string | null; creditos: number | null; error_causa: string | null; error_at: string | null } | null
+    if (!f || f.activa !== true || (!f.clave_cifrada && (process.env.MILLIONVERIFIER_API_KEY ?? '').trim() === '')) return null
+    const causas = ['clave', 'sin_creditos', 'ip', 'red', 'otro']
+    return {
+      creditos: typeof f.creditos === 'number' ? f.creditos : null,
+      fallo: f.error_causa && causas.includes(f.error_causa) && f.error_at ? { causa: f.error_causa as 'clave' | 'sin_creditos' | 'ip' | 'red' | 'otro', en: aMs(f.error_at) ?? 0 } : null,
+    }
   }
 
   /** Una persona dice que esa dirección en realidad funciona: deja de estar marcada como mala */
@@ -1487,6 +1508,7 @@ export function almacenDeSecuencias(service: Servicio) {
     vivasPorBuzon,
     listaDeDireccionesMalas,
     direccionesMalas,
+    estadoDeLaVerificacion,
     marcarDireccionMala,
     liberarDireccion,
     rebotesRecientes,

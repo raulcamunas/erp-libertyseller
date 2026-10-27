@@ -2,6 +2,7 @@ import { adelantarPaso, cancelarSecuencia, editarPaso, pausarSecuencia, reanudar
 import { diaDeMadrid, horaDeMadrid, instanteDeMadrid, partesDeMadrid, siguienteDiaHabil, sumarDiasHabiles } from './fechas'
 import { inscribir, type ResultadoDeInscribir } from './inscripcion'
 import { ejecutarPasada, fechaDeCierre } from './motor'
+import { reiniciarLosFrenos, verificadorParaElMotor } from '../verificacion/pago-servidor'
 import { B1, B2, DIA, HILO_POR_DEFECTO, HORA, MIN, T0, TEXTO_PRIMERO, TEXTO_REDACTADO, TEXTO_S1, TEXTO_S2, UA, UB, crearMundo, identificador, type Entorno, type Mundo } from './mundo-de-pruebas'
 import { AJUSTES_POR_DEFECTO } from './reglas'
 
@@ -1058,6 +1059,196 @@ export const ESCENARIOS: Escenario[] = [
           const r = await inscribir({ almacen: m.almacen, ahora: m.deps.ahora }, { leadId: lead.id, buzonId: B1, userId: UA, destinatario: dir, primerCorreo: { asunto: 'x', texto: TEXTO_PRIMERO, messageId: `q${dir.length}@libertyseller.es`, hiloId: identificador('d', 40 + dir.length), enviadoAt: m.reloj.ahora }, seguimientos: [{ texto: TEXTO_S1 }], iaModelo: null })
           ok(`no se programan seguimientos a ${dir} (${que})`, !r.ok && r.motivo === 'direccion_mala', JSON.stringify(r))
         }
+      }
+    },
+  },
+  {
+    nombre: 'La verificación de direcciones (MillionVerifier): a una dirección que no existe no se le escribe, a una buena se le pregunta UNA vez, y un fallo del servicio no frena nada',
+    async correr(e, ok) {
+      const CLAVE = 'CLAVE_DE_PRUEBA_1234'
+      const claveDelEntorno = process.env.MILLIONVERIFIER_API_KEY
+      process.env.MILLIONVERIFIER_API_KEY = CLAVE
+      const base = { free: false, role: false, didyoumean: '', executiontime: 1, error: '', livemode: true }
+      const BUENA = { ...base, quality: 'good', result: 'ok', resultcode: 1, subresult: 'ok' }
+      const MALA = { ...base, quality: 'bad', result: 'invalid', resultcode: 6, subresult: 'no_mailbox' }
+      const DUDOSA = { ...base, quality: 'risky', result: 'catch_all', resultcode: 2, subresult: 'ok' }
+      const SIN_CREDITOS = { ...base, result: '', resultcode: 4, subresult: '', error: 'Insufficient credits' }
+
+      /** El servicio de mentira: contesta lo que se le diga por dirección y apunta a quién ha preguntado */
+      const servicio = (respuestas: Record<string, unknown>) => {
+        const llamadas: string[] = []
+        const f = (async (url: string | URL | Request) => {
+          const u = new URL(String(url))
+          const email = u.searchParams.get('email') ?? ''
+          llamadas.push(email)
+          const r = respuestas[email] ?? BUENA
+          if (r === 'lanza') throw new Error('connect ECONNREFUSED')
+          return new Response(JSON.stringify({ ...(r as object), email, credits: 9000 }), { status: 200, headers: { 'content-type': 'application/json' } })
+        }) as typeof fetch
+        return { fetch: f, llamadas }
+      }
+
+      /** Enciende la verificación en la base de este mundo y le pone al motor el verificador de verdad */
+      const encender = async (m: Mundo, respuestas: Record<string, unknown>, o: { dudosas?: string; activa?: boolean } = {}) => {
+        reiniciarLosFrenos()
+        const r = await m.service.from('correo_verificacion_ajustes').upsert({ id: true, activa: o.activa ?? true, dudosas: o.dudosas ?? 'avisar' }, { onConflict: 'id' })
+        if (r.error) throw new Error(`No se pudo encender la verificación: ${JSON.stringify(r.error)}`)
+        const mv = servicio(respuestas)
+        m.deps.verificarDireccion = verificadorParaElMotor(m.service as unknown as Parameters<typeof verificadorParaElMotor>[0], { fetch: mv.fetch, ahora: m.deps.ahora })
+        return mv
+      }
+      const inscripcionDe = (m: Mundo, leadId: string) => m.uno('correo_secuencia_inscripciones', (q) => q.eq('lead_id', leadId))
+      const primerPaso = (a: { resultado: ResultadoDeInscribir }): number => {
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        return a.resultado.pasos[0].programadoAt!
+      }
+      /** Fija a mano la hora del primer seguimiento de una secuencia (el motor las reparte al azar): así varias a la vez no dependen del azar */
+      const fijarPaso = async (m: Mundo, x: { resultado: ResultadoDeInscribir }, dia: string, minutos: number): Promise<void> => {
+        if (!x.resultado.ok) throw new Error(x.resultado.mensaje)
+        const paso = (await m.pasos(x.resultado.inscripcionId))[1]
+        await m.actualizar('correo_secuencia_pasos', { programado_at: iso(instanteDeMadrid(dia, minutos)) }, (q) => q.eq('id', paso.id))
+      }
+      const segundoPaso = (a: { resultado: ResultadoDeInscribir }): number => {
+        if (!a.resultado.ok) throw new Error(a.resultado.mensaje)
+        return a.resultado.pasos[1].programadoAt!
+      }
+
+      try {
+        // --- una dirección que NO existe: el seguimiento no sale, se dice por qué, y las demás secuencias a esa dirección tampoco gastan otra llamada ---
+        {
+          const m = await crearMundo(e)
+          const mv = await encender(m, { 'jefe@casaluz.es': MALA })
+          const a = await m.secuenciaNueva(1, { email: 'jefe@casaluz.es' })
+          const b = await m.secuenciaNueva(2, { email: 'jefe@casaluz.es', buzon: B2 })
+          // Las dos tocan casi a la vez, cada una en su buzón: a las 10:00 y a las 10:02
+          const dia = diaDeMadrid(primerPaso(a))
+          await fijarPaso(m, a, dia, 600)
+          await fijarPaso(m, b, dia, 602)
+          m.reloj.ahora = instanteDeMadrid(dia, 600) + 5_000
+          await pasarElTiempo(m, instanteDeMadrid(dia, 615))
+          const insA = await inscripcionDe(m, a.leadId)
+          const insB = await inscripcionDe(m, b.leadId)
+          ok('no sale NINGÚN correo a una dirección que el servicio da por inexistente', m.enviados.length === 0)
+          ok('las dos secuencias quedan paradas por «dirección mala»', insA?.estado === 'parada' && insA.codigo === 'direccion_mala' && insB?.estado === 'parada' && insB.codigo === 'direccion_mala', `${insA?.estado}/${insA?.codigo} · ${insB?.estado}/${insB?.codigo}`)
+          ok('y el motivo lo dice como es: lo dijo el servicio de verificación, y NO que rebotara', /servicio de verificación dijo que esa dirección no existe/.test(String(insA?.motivo)) && !/rebot/.test(String(insA?.motivo)), String(insA?.motivo))
+          ok('se preguntó UNA sola vez por la dirección, aunque había dos secuencias', mv.llamadas.length === 1 && mv.llamadas[0] === 'jefe@casaluz.es', mv.llamadas.join())
+          const memoria = await m.leer('correo_direcciones_malas')
+          ok('la dirección queda en la memoria de direcciones que no sirven, con el verificador como origen', memoria.length === 1 && memoria[0].direccion === 'jefe@casaluz.es' && memoria[0].estado === 'mala' && memoria[0].origen === 'verificador', JSON.stringify(memoria))
+          const guardadas = await m.leer('correo_verificaciones')
+          ok('y lo que dijo el servicio queda guardado', guardadas.length === 1 && guardadas[0].nivel === 'mala' && guardadas[0].origen === 'seguimiento', JSON.stringify(guardadas))
+          const nuevo = await m.nuevoLead(3, { email: 'jefe@casaluz.es' })
+          await m.sembrar('correo_hilos', { id: identificador('d', 3), buzon_id: B1, asunto: 'x', primer_mensaje_at: m.iso(), ultimo_mensaje_at: m.iso() })
+          const c = await inscribir({ almacen: m.almacen, ahora: m.deps.ahora }, { leadId: nuevo.id, buzonId: B1, userId: UA, destinatario: 'jefe@casaluz.es', primerCorreo: { asunto: 'x', texto: TEXTO_PRIMERO, messageId: 'p3@libertyseller.es', hiloId: identificador('d', 3), enviadoAt: m.reloj.ahora }, seguimientos: [{ texto: TEXTO_S1 }], iaModelo: null })
+          ok('nadie puede programarle más seguimientos, y la frase habla del servicio de verificación', !c.ok && c.motivo === 'direccion_mala' && /servicio de verificación/.test(c.mensaje) && !/rebot/.test(c.mensaje), JSON.stringify(c))
+          // una persona la libera: manda sobre lo guardado y vuelve a poder escribírsele
+          ok('un administrador puede liberarla', await m.almacen.liberarDireccion('jefe@casaluz.es', m.reloj.ahora))
+          const d = await m.secuenciaNueva(4, { email: 'jefe@casaluz.es' })
+          ok('liberada, se vuelven a programar seguimientos', d.resultado.ok)
+          m.reloj.ahora = primerPaso(d) + 5_000
+          await ejecutarPasada(m.deps)
+          ok('y el seguimiento sale, sin volver a preguntar al servicio (una persona dijo que funciona)', m.enviados.length === 1 && mv.llamadas.length === 1, `${m.enviados.length} enviados · ${mv.llamadas.length} llamadas`)
+        }
+
+        // --- una dirección buena: los dos seguimientos salen y se pregunta una sola vez ---
+        {
+          const m = await crearMundo(e)
+          const mv = await encender(m, {})
+          const a = await m.secuenciaNueva(1, { email: 'ana@casaluz.es' })
+          m.reloj.ahora = primerPaso(a) + 5_000
+          await ejecutarPasada(m.deps)
+          ok('el primer seguimiento sale', m.enviados.length === 1)
+          m.reloj.ahora = segundoPaso(a) + 5_000
+          await ejecutarPasada(m.deps)
+          ok('el segundo también', m.enviados.length === 2)
+          ok('UNA sola llamada al servicio para los dos seguimientos (el segundo usa lo guardado)', mv.llamadas.length === 1 && mv.llamadas[0] === 'ana@casaluz.es', mv.llamadas.join())
+          const guardadas = await m.leer('correo_verificaciones')
+          ok('queda guardada como buena', guardadas.length === 1 && guardadas[0].nivel === 'buena')
+          ok('y no entra en la memoria de direcciones que no sirven', (await m.leer('correo_direcciones_malas')).length === 0)
+        }
+
+        // --- una dirección que YA estaba comprobada (al enviar el primer correo): los seguimientos no preguntan nada ---
+        {
+          const m = await crearMundo(e)
+          const mv = await encender(m, {})
+          await m.sembrar('correo_verificaciones', { direccion: 'ya@casaluz.es', nivel: 'buena', resultado: 'ok', detalle: 'ok', calidad: 'good', proveedor: 'millionverifier', origen: 'primer_correo', verificada_at: m.iso(m.reloj.ahora - 3 * DIA) })
+          const a = await m.secuenciaNueva(1, { email: 'ya@casaluz.es' })
+          m.reloj.ahora = primerPaso(a) + 5_000
+          await ejecutarPasada(m.deps)
+          m.reloj.ahora = segundoPaso(a) + 5_000
+          await ejecutarPasada(m.deps)
+          ok('con la dirección ya comprobada al enviar el primer correo, los dos seguimientos salen SIN ninguna llamada más', m.enviados.length === 2 && mv.llamadas.length === 0, `${m.enviados.length} enviados · ${mv.llamadas.length} llamadas`)
+        }
+
+        // --- un fallo del servicio no frena nada ---
+        {
+          const m = await crearMundo(e)
+          const mv = await encender(m, { 'a@casaluz.es': 'lanza' })
+          const a = await m.secuenciaNueva(1, { email: 'a@casaluz.es' })
+          m.reloj.ahora = primerPaso(a) + 5_000
+          await ejecutarPasada(m.deps)
+          ok('si el servicio no contesta, el seguimiento sale igual', m.enviados.length === 1 && (await inscripcionDe(m, a.leadId))?.estado === 'activa', `${m.enviados.length}/${(await inscripcionDe(m, a.leadId))?.estado}`)
+          ok('lo había intentado', mv.llamadas.length === 1)
+          const fila = await m.uno('correo_verificacion_ajustes', (q) => q.eq('id', true))
+          ok('y el fallo queda apuntado para enseñarlo en Ajustes', fila?.error_causa === 'red', JSON.stringify(fila))
+        }
+        {
+          const m = await crearMundo(e)
+          const mv = await encender(m, { 'a@casaluz.es': SIN_CREDITOS, 'b@casaluz.es': SIN_CREDITOS, 'c@casaluz.es': SIN_CREDITOS })
+          const a = await m.secuenciaNueva(1, { email: 'a@casaluz.es' })
+          const b = await m.secuenciaNueva(2, { email: 'b@casaluz.es', buzon: B2 })
+          const c = await m.secuenciaNueva(3, { email: 'c@casaluz.es' })
+          // Los tres seguimientos el mismo día, fijados a mano: a las 10:00 (a), 10:02 (b, en otro buzón) y 10:20 (c)
+          const dia = diaDeMadrid(primerPaso(a))
+          await fijarPaso(m, a, dia, 600)
+          await fijarPaso(m, b, dia, 602)
+          await fijarPaso(m, c, dia, 620)
+          m.reloj.ahora = instanteDeMadrid(dia, 600) + 5_000
+          await pasarElTiempo(m, instanteDeMadrid(dia, 601))
+          ok('sin créditos, el seguimiento sale igual', m.enviados.length === 1 && (await inscripcionDe(m, a.leadId))?.estado === 'activa', `${m.enviados.length} enviados`)
+          const fila = await m.uno('correo_verificacion_ajustes', (q) => q.eq('id', true))
+          ok('y se apunta que se acabaron (para avisar a los administradores)', fila?.error_causa === 'sin_creditos' && fila.creditos === 0, JSON.stringify(fila))
+          await pasarElTiempo(m, instanteDeMadrid(dia, 610))
+          ok('con el freno puesto no se insiste: el de las 10:02 ni pregunta al servicio, y su seguimiento sale', m.enviados.length === 2 && mv.llamadas.length === 1, `${m.enviados.length} enviados · ${mv.llamadas.length} llamadas`)
+          await pasarElTiempo(m, instanteDeMadrid(dia, 640))
+          ok('pasados diez minutos se vuelve a intentar (por si ya se compraron créditos) y el seguimiento sale igual', mv.llamadas.length === 2 && m.enviados.length === 3, `${m.enviados.length} enviados · ${mv.llamadas.length} llamadas`)
+          ok('ninguna de las tres secuencias se ha parado por el fallo del servicio', (await m.leer('correo_secuencia_inscripciones')).every((x) => x.estado === 'activa'))
+        }
+
+        // --- apagada: ni una llamada ---
+        {
+          const m = await crearMundo(e)
+          const mv = await encender(m, { 'a@casaluz.es': MALA }, { activa: false })
+          const a = await m.secuenciaNueva(1, { email: 'a@casaluz.es' })
+          m.reloj.ahora = primerPaso(a) + 5_000
+          await ejecutarPasada(m.deps)
+          ok('con la verificación apagada no se pregunta nada y todo sale como siempre', mv.llamadas.length === 0 && m.enviados.length === 1)
+        }
+
+        // --- una dudosa: lo que digan los ajustes ---
+        {
+          const m = await crearMundo(e)
+          const mv = await encender(m, { 'jefe@grande.com': DUDOSA }, { dudosas: 'avisar' })
+          const a = await m.secuenciaNueva(1, { email: 'jefe@grande.com' })
+          m.reloj.ahora = primerPaso(a) + 5_000
+          await ejecutarPasada(m.deps)
+          ok('dudosa con «avisar»: el seguimiento sale', m.enviados.length === 1 && mv.llamadas.length === 1)
+          ok('y no entra en la memoria de direcciones que no sirven (no es que no exista)', (await m.leer('correo_direcciones_malas')).length === 0)
+        }
+        {
+          const m = await crearMundo(e)
+          const mv = await encender(m, { 'jefe@grande.com': DUDOSA }, { dudosas: 'bloquear' })
+          const a = await m.secuenciaNueva(1, { email: 'jefe@grande.com' })
+          m.reloj.ahora = primerPaso(a) + 5_000
+          await ejecutarPasada(m.deps)
+          const ins = await inscripcionDe(m, a.leadId)
+          ok('dudosa con «no enviar»: el seguimiento no sale y la secuencia se para', m.enviados.length === 0 && ins?.estado === 'parada' && ins.codigo === 'direccion_mala', `${ins?.estado}/${ins?.codigo}`)
+          ok('y la frase NO dice que no exista ni que rebotara: dice que no se pudo confirmar, por los ajustes', /no ha podido confirmar que esa dirección exista/.test(String(ins?.motivo)) && /según los ajustes/.test(String(ins?.motivo)) && !/rebot/.test(String(ins?.motivo)), String(ins?.motivo))
+          ok('y tampoco se apunta como «mala» en la memoria (se podría confirmar otro día)', (await m.leer('correo_direcciones_malas')).length === 0 && mv.llamadas.length === 1)
+        }
+      } finally {
+        reiniciarLosFrenos()
+        if (claveDelEntorno === undefined) delete process.env.MILLIONVERIFIER_API_KEY
+        else process.env.MILLIONVERIFIER_API_KEY = claveDelEntorno
       }
     },
   },

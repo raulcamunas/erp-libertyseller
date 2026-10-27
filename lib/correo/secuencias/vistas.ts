@@ -45,7 +45,7 @@ export const ETIQUETA_DE_PASO: Record<EstadoDePaso, string> = {
 export const ETIQUETA_DE_CODIGO: Record<string, string> = {
   respuesta: 'El lead contestó',
   rebote: 'El correo rebotó',
-  direccion_mala: 'Dirección que ya rebotó',
+  direccion_mala: 'Dirección que no sirve',
   lead_borrado: 'El lead ya no existe',
   lead_reasignado: 'El lead pasó a otro comercial',
   lead_no_interesa: 'El lead pasó a «No interesa»',

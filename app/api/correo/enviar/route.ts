@@ -8,6 +8,7 @@ import { SIN_CACHE, registrar, requerirCorreo, respuestaDeFallo } from '@/lib/co
 import { almacenDeSecuencias } from '@/lib/correo/secuencias/almacen'
 import { inscribir, type ResultadoDeInscribir } from '@/lib/correo/secuencias/inscripcion'
 import { autorizarBuzon, cargarContextoDeRespuesta, contarEnviosRecientes, enviarDesdeBuzon } from '@/lib/correo/servidor'
+import { verificarAntesDeEnviar } from '@/lib/correo/verificacion/pago-servidor'
 import { comprobarTamañoPeticion } from '@/lib/subidas-limite'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -28,6 +29,12 @@ import { createServiceClient } from '@/lib/supabase/service'
  *
  * Una dirección que no vale NO se descarta en silencio: se devuelve un 400 con la que falla, porque quien envía tiene que
  * saber que «ana@» no ha entrado en la lista antes de que el cliente no conteste.
+ *
+ * ¿EXISTE LA DIRECCIÓN? Si la verificación con MillionVerifier está encendida (Correo → Secuencias → Ajustes), un PRIMER correo (no una respuesta ni un reenvío)
+ * pregunta antes de salir si cada dirección de «Para» y «Cc» existe. Si el servicio dice que no, o que es desechable, el correo NO sale: 422 con `codigo: 'direccion_no_valida'`
+ * y las direcciones (con la corrección que proponga el servicio). La respuesta se guarda: esa dirección no se vuelve a preguntar ni a pagar, y los seguimientos salen
+ * sin consultar. Si el servicio no contesta o no quedan créditos, el correo sale igual (lib/correo/verificacion/pago-servidor.ts). Apagada, o sin la migración 256, no
+ * cambia nada.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -101,6 +108,13 @@ export async function POST(request: NextRequest) {
     }
 
     const respondeA = formulario.get('respondeA')
+
+    // ¿Existe la dirección? Solo en un primer correo. Antes de gastar nada de lo demás (el contexto de una respuesta, el envío)
+    const verificacion = respondeA === null || respondeA === '' ? await verificarAntesDeEnviar(service, { para: [...para.personas, ...cc.personas].map((p) => p.direccion), direccionDelBuzon: auth.buzon.direccion, usuarioId: sesion.userId }) : null
+    if (verificacion?.bloqueo) {
+      return NextResponse.json({ ok: false, error: verificacion.bloqueo.mensaje, codigo: 'direccion_no_valida', direcciones: verificacion.bloqueo.direcciones }, { status: 422, headers: SIN_CACHE })
+    }
+
     if (respondeA !== null && respondeA !== '') {
       const modo = formulario.get('modo') === 'reenviar' ? 'reenviar' : 'responder'
       const contexto = await cargarContextoDeRespuesta(service, auth.buzon.id, respondeA, modo, formulario.get('sinCita') !== '1')
@@ -125,6 +139,8 @@ export async function POST(request: NextRequest) {
     if (pedida) {
       if (respondeA) secuencia = { ok: false, mensaje: 'Los seguimientos automáticos solo se programan en un primer correo, no al contestar.' }
       else if (para.personas.length !== 1 || cc.personas.length > 0) secuencia = { ok: false, mensaje: 'Los seguimientos automáticos solo se programan cuando el correo va a una sola dirección.' }
+      // Una dirección dudosa con el ajuste «enviar sin seguimientos»: el correo sale, los seguimientos no
+      else if (verificacion?.sinSeguimientos) secuencia = { ok: false, mensaje: verificacion.sinSeguimientos }
       else {
         try {
           const resultado: ResultadoDeInscribir = await inscribir(
@@ -148,7 +164,12 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-    return NextResponse.json({ ok: true, hiloId: r.hiloId, copiadoAEnviados: r.copiadoAEnviados, rechazados: r.rechazados, ...(secuencia !== undefined ? { secuencia } : {}) }, { headers: SIN_CACHE })
+    // Lo que hay que decirle a quien envía de la verificación (una dirección dudosa, o que esta vez no se pudo comprobar). El de «sin seguimientos» ya viaja en `secuencia`
+    const avisos = (verificacion?.avisos ?? []).filter((a) => !(pedida && a === verificacion?.sinSeguimientos))
+    return NextResponse.json(
+      { ok: true, hiloId: r.hiloId, copiadoAEnviados: r.copiadoAEnviados, rechazados: r.rechazados, ...(secuencia !== undefined ? { secuencia } : {}), ...(avisos.length > 0 ? { avisosDeVerificacion: avisos } : {}) },
+      { headers: SIN_CACHE }
+    )
   } catch (error) {
     return respuestaDeFallo('Correo · enviar: fallo', error)
   }

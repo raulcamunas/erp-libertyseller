@@ -11,7 +11,7 @@ import type { BorradorDeCorreo } from '@/lib/correo/redactar'
 import type { BuzonVisible } from '@/lib/correo/tipos'
 import { enviarJson, pedir } from './api'
 import { BloqueDeSeguimientos, useSeguimientos } from './secuencias/BloqueDeSeguimientos'
-import { ComprobacionDeCorreo, comprobarAhora, direccionesDelCampo, hayDireccionMala, useComprobacion } from './secuencias/ComprobacionDeCorreo'
+import { ComprobacionDeCorreo, comprobarAhora, direccionesDelCampo, direccionesQueBloquean, hayDireccionMala, useComprobacion, type VeredictoCliente } from './secuencias/ComprobacionDeCorreo'
 import { SelectorDePlantillas } from './SelectorDePlantillas'
 import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from './ui'
 
@@ -61,6 +61,8 @@ interface RespuestaDeEnvio {
   rechazados: string[]
   /** Qué pasó con los seguimientos automáticos, si se pidieron (el correo ya ha salido pase lo que pase aquí) */
   secuencia?: { ok: true; aviso: string | null; pasos: Array<{ orden: number; etiqueta: string; programadoAt: number | null }> } | { ok: false; mensaje: string }
+  /** Lo que dijo la verificación de direcciones y el correo salió igualmente: una dirección dudosa, o que esta vez no se pudo comprobar */
+  avisosDeVerificacion?: string[]
 }
 
 const TITULO: Record<BorradorDeCorreo['modo'], string> = {
@@ -251,6 +253,12 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
         veredicto = await Promise.race([comprobarAhora({ direcciones: direccionesDelCampo(`${para},${cc}`), asunto, texto: cuerpoSinFirma, esRespuesta: false }), new Promise<null>((fin) => setTimeout(() => fin(null), 3500))])
         comprobacion.fijar(veredicto)
       }
+      // Una dirección que el servicio de verificación ya dio por inexistente: el servidor no deja enviar, así que no se ofrece «enviar igualmente»
+      const bloqueadas = direccionesQueBloquean(veredicto)
+      if (bloqueadas.length > 0) {
+        setConfirmaMala(false)
+        return setError(`No se enviará: ${bloqueadas.map((d) => `«${d.direccion}»: ${d.motivo}${d.sugerencia ? ` ¿Querías decir «${d.sugerencia}»?` : ''}`).join(' ')} Corrígela, o escribe a otra dirección.`)
+      }
       if (hayDireccionMala(veredicto).length > 0) {
         setError(null)
         setConfirmaMala(true)
@@ -292,12 +300,21 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
 
     const r = await pedir<RespuestaDeEnvio>('/api/correo/enviar', { method: 'POST', body: f })
     setEnviando(false)
-    if (!r.ok) return setError(r.mensaje)
+    if (!r.ok) {
+      // El servicio de verificación dice que una dirección no existe: el correo NO ha salido. Se enseñan las direcciones (con la corrección que propone) en la revisión de arriba
+      if (r.extra.codigo === 'direccion_no_valida' && Array.isArray(r.extra.direcciones)) {
+        comprobacion.fijar({ direcciones: r.extra.direcciones as VeredictoCliente[], contenido: comprobacion.resultado?.contenido ?? null })
+        setConfirmaMala(false)
+      }
+      return setError(r.mensaje)
+    }
 
-    const conAviso = r.datos.rechazados.length > 0 || !r.datos.copiadoAEnviados
+    const avisosDeVerificacion = r.datos.avisosDeVerificacion ?? []
+    const conAviso = r.datos.rechazados.length > 0 || !r.datos.copiadoAEnviados || avisosDeVerificacion.length > 0
     if (r.datos.rechazados.length > 0) toast.warning(`Enviado, pero el servidor no ha entregado a: ${r.datos.rechazados.join(', ')}`)
     else if (!r.datos.copiadoAEnviados) toast.warning('Enviado. No se ha podido guardar la copia en la carpeta Enviados del webmail.')
     else if (!sinAvisoDeExito) toast.success('Mensaje enviado.')
+    for (const aviso of avisosDeVerificacion) toast.warning(aviso, { duration: 12000 })
     if (r.datos.secuencia?.ok) {
       toast.success(`Seguimientos programados: ${r.datos.secuencia.pasos.map((x) => x.etiqueta).join(' y ')}${seg.estado?.ensayo ? ' (en pruebas: todavía no salen).' : '.'}`, { duration: 9000 })
       if (r.datos.secuencia.aviso) toast.warning(r.datos.secuencia.aviso, { duration: 9000 })
