@@ -3,7 +3,10 @@ import { esfuerzoDeIa, razona } from '@/lib/ia/modelo'
 import { costeDeTexto } from '@/lib/transcripcion/precios'
 import { fechaEnPalabras, motivoDelFallo, type ClienteDeResumenIa } from '@/lib/transcripcion/resumen'
 import { CRM_STAGES, CRM_STAGE_LABELS, PREGUNTAS_REUNION, type CrmStage } from '@/lib/types/crm'
+import { CLAVES_DEL_GUION, respuestasParaElGuion } from './guion'
 import type { AnalisisDeReunion, InteresDelCliente, ModeloDeNegocio, PasoDeNota, TemaDeNota } from './tipos'
+
+export { CLAVES_DEL_GUION, respuestasParaElGuion }
 
 /**
  * LO QUE LA IA SACA DE UNA REUNIÓN CON UN CLIENTE: EL DESGLOSE QUE ALIMENTA LA FICHA Y, MÁS ADELANTE, LA PROPUESTA.
@@ -37,9 +40,6 @@ export function modeloDeAnalisis(entorno: Record<string, string | undefined> = p
 const MODELOS_DE_NEGOCIO: readonly ModeloDeNegocio[] = ['marca_propia', 'arbitraje', 'dropshipping', 'mixto', 'otro', 'no_claro']
 const INTERESES: readonly InteresDelCliente[] = ['alto', 'medio', 'bajo', 'ninguno', 'no_claro']
 const PRIORIDADES = ['alta', 'media', 'baja'] as const
-
-/** Las claves del guion de la reunión que la IA puede contestar */
-export const CLAVES_DEL_GUION: readonly string[] = PREGUNTAS_REUNION.flatMap((b) => b.preguntas.map((p) => p.clave))
 
 /* ------------------------------------------------------------------ */
 /* El esquema estricto de la respuesta                                 */
@@ -305,20 +305,6 @@ export function leerAnalisis(contenido: string | null | undefined): AnalisisDeRe
       .filter((f) => f.texto !== ''),
     fase_sugerida: fase,
   }
-}
-
-/**
- * Las respuestas del análisis que se pueden pasar al guion: SOLO las de preguntas que siguen vacías. Lo que una persona ya escribió no se pisa nunca, ni aunque la IA lo
- * contradiga: la última palabra es de quien estuvo en la reunión.
- */
-export function respuestasParaElGuion(analisis: Pick<AnalisisDeReunion, 'respuestas_guion'>, actuales: Record<string, string> | null | undefined): Record<string, string> {
-  const nuevas: Record<string, string> = {}
-  for (const { clave, respuesta } of analisis.respuestas_guion) {
-    if (!CLAVES_DEL_GUION.includes(clave)) continue
-    if ((actuales?.[clave] ?? '').trim() !== '') continue
-    nuevas[clave] = respuesta
-  }
-  return nuevas
 }
 
 /* ------------------------------------------------------------------ */

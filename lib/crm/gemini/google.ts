@@ -4,7 +4,7 @@ import type { CorreoDeGemini } from './correo'
 import { REMITENTE_DE_GEMINI } from './correo'
 import type { DocumentoDeDocs } from './documento'
 import { clasificarFalloDeToken, clasificarRespuestaDeGoogle, ErrorDeGoogle, falloDeRed, type ApiDeGoogle } from './errores-google'
-import { correoDeGmail, type MensajeDeGmail } from './gmail'
+import { correoDeGmail, encabezadoDeGmail, type EncabezadoDeCorreo, type MensajeDeGmail } from './gmail'
 
 /**
  * LA CONEXIÓN CON GMAIL Y GOOGLE DOCS, CON LA CUENTA DE SERVICIO QUE YA USA LA AGENDA.
@@ -28,7 +28,9 @@ export const PERMISOS_DE_GEMINI = ['https://www.googleapis.com/auth/gmail.readon
 export interface FuenteDeGoogle {
   /** Ids de correos de Gemini desde esa fecha, de MÁS ANTIGUO a más nuevo, hasta `maximo` */
   listarCorreos(desdeMs: number, maximo: number): Promise<string[]>
-  /** null si el mensaje no se puede leer como correo */
+  /** Solo el asunto, el remitente y la hora (formato `metadata`, sin el cuerpo). null si no se puede leer */
+  leerEncabezado(id: string): Promise<EncabezadoDeCorreo | null>
+  /** El correo entero, con su cuerpo. null si el mensaje no se puede leer como correo */
   leerCorreo(id: string): Promise<CorreoDeGemini | null>
   leerDocumento(id: string): Promise<DocumentoDeDocs>
 }
@@ -111,6 +113,11 @@ export function fuenteDeGoogleReal(): FuenteDeGoogle {
       }
       // Gmail las da de más nuevo a más antiguo; se quiere procesar en el orden en que ocurrieron
       return ids.slice(0, maximo).reverse()
+    },
+
+    async leerEncabezado(id) {
+      const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`
+      return encabezadoDeGmail(await pedirJson<MensajeDeGmail>('gmail', url))
     },
 
     async leerCorreo(id) {

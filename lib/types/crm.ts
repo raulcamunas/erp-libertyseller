@@ -53,6 +53,9 @@ export interface CrmClient {
   /** Respuestas del guion de la reunión, por clave de pregunta. Ver PREGUNTAS_REUNION */
   preguntas: Record<string, string>
 
+  /** Lo que se le va a proponer (migración 258). Su forma vive en lib/crm/propuesta.ts (leerPlan). No existe hasta que la migración esté lanzada */
+  propuesta_plan?: unknown
+
   created_at: string
   updated_at: string
 }

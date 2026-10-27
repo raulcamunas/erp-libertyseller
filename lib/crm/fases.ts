@@ -8,7 +8,8 @@
  * TRES COSAS QUE LA LÍNEA TIENE QUE DECIR CON HONESTIDAD:
  *
  *   · UNA FASE SALTADA ES SALTADA. Si alguien pasó un cliente de «Nuevo» a «Negociación» (pasa: llegó negociando), «Seguimiento» y «Propuesta enviada» no se pintan como
- *     hechas, porque nadie las vivió. Quedan como `saltado`.
+ *     hechas, porque nadie las vivió. Quedan como `saltado`. PERO SOLO DONDE EL HISTORIAL ES DE FIAR: de lo anterior a la 258 no consta nada, y ahí se pinta como recorrido
+ *     (sin fecha) en vez de afirmar un salto que nadie ha comprobado.
  *   · UNA FECHA RECUPERADA ES APROXIMADA. De las fichas que ya existían al lanzar la 258 solo se sabía la fase de hoy; su fila de historial está marcada `recuperado` y la
  *     pantalla lo dice («desde ~14 oct»), en vez de enseñar una fecha exacta que no lo es.
  *   · «PERDIDO» NO ES UNA FASE MÁS DEL CAMINO. Es una salida: la línea se queda hasta donde llegó y marca el abandono aparte, en rojo.
@@ -107,12 +108,18 @@ export function lineaDeFases(stage: CrmStage, historial: readonly EntradaDeFase[
   const entradasDeLaActual = ordenado.filter((e) => e.etapa === stage)
   const entradaActual = entradasDeLaActual.length > 0 ? entradasDeLaActual[entradasDeLaActual.length - 1] : null
 
+  // HASTA DÓNDE LLEGA LO QUE SE SABE. Una fase anterior sin fila en el historial solo se puede llamar «saltada» si el historial es de fiar en ese tramo: el de una ficha que
+  // nació con la 258 lo es desde el primer día (origen «alta»); el de una ficha anterior empieza en la fila «recuperado» y de lo de antes no consta nada. Sin historial no consta
+  // nada de nada. Lo que no consta no se afirma: se pinta como recorrido (sin fecha), que es lo normal, y no como saltado.
+  const primeraFila = ordenado[0]
+  const hastaDondeNoConsta = ordenado.length === 0 ? indice : primeraFila.origen === 'recuperado' ? Math.max(0, indiceEnElCamino(primeraFila.etapa)) : 0
+
   const pasos: PasoDeLaLinea[] = FASES_DEL_CAMINO.map((etapa, i) => {
     const entrada = primera.get(etapa) ?? null
     let estado: EstadoDelPaso
     if (i === indice && !perdida) estado = 'actual'
     else if (i === indice && perdida) estado = 'hecho'
-    else if (i < indice) estado = entrada ? 'hecho' : 'saltado'
+    else if (i < indice) estado = entrada || i < hastaDondeNoConsta ? 'hecho' : 'saltado'
     else estado = 'pendiente'
 
     // Una fase futura que consta en el historial (se volvió atrás) sigue siendo pendiente y sin fecha: la línea cuenta el camino de hoy

@@ -1,4 +1,4 @@
-import { cabecera, correoDeGmail, cuerpoDeGmail, decodificarBase64Url, decodificarCabecera, type MensajeDeGmail } from './gmail'
+import { cabecera, correoDeGmail, cuerpoDeGmail, decodificarBase64Url, decodificarCabecera, encabezadoDeGmail, type MensajeDeGmail } from './gmail'
 import { leerCorreoDeGemini } from './correo'
 
 let fallos = 0
@@ -78,6 +78,17 @@ console.log('\n=== el mensaje entero ===')
   ok('sin hora de llegada, NaN (el lector ya lo trata)', sinFecha !== null && Number.isNaN(sinFecha.recibidoMs) && leerCorreoDeGemini(sinFecha)?.fechaReunion === null)
   const asuntoCodificado = correoDeGmail({ ...MENSAJE, payload: { ...MENSAJE.payload, headers: [{ name: 'Subject', value: '=?UTF-8?B?Tm90YXM6IENvbnN1bHRvcsOtYSDCtyBBbmE=?=' }, { name: 'From', value: 'gemini-notes@google.com' }] } })
   ok('un asunto codificado se decodifica', asuntoCodificado?.asunto === 'Notas: Consultoría · Ana')
+}
+
+console.log('\n=== solo el encabezado (sin abrir el cuerpo) ===')
+{
+  // Un mensaje pedido en formato «metadata»: cabeceras y hora, y ni rastro del cuerpo
+  const soloCabeceras: MensajeDeGmail = { id: 'msg-5', internalDate: String(Date.parse('2026-10-21T10:00:00Z')), payload: { headers: [{ name: 'Subject', value: 'Notas: Reunión Semanal | Comerciales 21 oct 2026' }, { name: 'From', value: 'Gemini <gemini-notes@google.com>' }] } }
+  const e = encabezadoDeGmail(soloCabeceras)
+  ok('asunto, remitente y hora de llegada', e !== null && e.id === 'msg-5' && e.asunto.startsWith('Notas: Reunión Semanal') && e.remitente.includes('gemini-notes@google.com') && e.recibidoMs === Date.parse('2026-10-21T10:00:00Z'))
+  ok('con el asunto codificado también', encabezadoDeGmail({ ...soloCabeceras, payload: { headers: [{ name: 'Subject', value: '=?UTF-8?B?Tm90YXM6IENvbnN1bHRvcsOtYSDCtyBBbmE=?=' }, { name: 'From', value: 'x' }] } })?.asunto === 'Notas: Consultoría · Ana')
+  ok('sin id o sin cabeceras, null', encabezadoDeGmail({ payload: soloCabeceras.payload }) === null && encabezadoDeGmail({ id: 'x' }) === null)
+  ok('sin hora, NaN', Number.isNaN(encabezadoDeGmail({ ...soloCabeceras, internalDate: undefined })!.recibidoMs))
 }
 
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)

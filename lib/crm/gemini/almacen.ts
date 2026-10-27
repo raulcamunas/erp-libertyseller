@@ -16,19 +16,16 @@ import type { PasoDeNota, TemaDeNota } from './tipos'
  * llega antes. La ruta del cron se salta la pasada sin ruido y la pantalla dice qué SQL falta.
  */
 
-export const FALTA_MIGRACION_NOTAS = 'Falta lanzar en el editor SQL de Supabase la migración 258_crm_hub_fases_y_notas_de_reunion.sql (crea las notas de Gemini y el historial de fases del CRM).'
+import { esTablaInexistente, FALTA_MIGRACION_258 } from '../migracion'
+
+export { esTablaInexistente }
+export const FALTA_MIGRACION_NOTAS = FALTA_MIGRACION_258
 
 export class FaltaLaMigracion extends Error {
   constructor() {
     super(FALTA_MIGRACION_NOTAS)
     this.name = 'FaltaLaMigracion'
   }
-}
-
-/** ¿El error de PostgREST es «esa tabla o columna no existe»? (la migración no está lanzada) */
-export function esTablaInexistente(error: unknown): boolean {
-  const e = error as { code?: string; message?: string }
-  return e?.code === '42P01' || e?.code === '42703' || e?.code === 'PGRST205' || e?.code === 'PGRST204' || /does not exist|schema cache|Could not find the .* (table|column)/i.test(e?.message ?? '')
 }
 
 function fallo(error: unknown): Error {

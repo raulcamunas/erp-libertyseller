@@ -60,7 +60,10 @@ function correoDe(id: string, titulo: string, o: { doc?: string; recibido?: stri
 }
 
 interface GoogleDeMentira extends FuenteDeGoogle {
+  /** Los correos que se han abierto ENTEROS (con su cuerpo) */
   leidos: string[]
+  /** Los correos de los que solo se ha mirado el asunto y el remitente */
+  encabezados: string[]
   documentosAbiertos: string[]
   listados: number
 }
@@ -73,12 +76,20 @@ function googleDeMentira(opciones: {
 }): GoogleDeMentira {
   const g: GoogleDeMentira = {
     leidos: [],
+    encabezados: [],
     documentosAbiertos: [],
     listados: 0,
     async listarCorreos(_desde, maximo) {
       g.listados++
       if (opciones.falloAlListar) throw opciones.falloAlListar
       return opciones.correos.slice(0, maximo).map((c) => c.id)
+    },
+    async leerEncabezado(id) {
+      g.encabezados.push(id)
+      const fallo = opciones.falloAlLeer?.[id]
+      if (fallo) throw fallo
+      const c = opciones.correos.find((x) => x.id === id)
+      return c ? { id: c.id, asunto: c.asunto, remitente: c.remitente, recibidoMs: c.recibidoMs } : null
     },
     async leerCorreo(id) {
       g.leidos.push(id)
@@ -190,7 +201,8 @@ async function main() {
 
     const segunda = await sincronizarNotasDeGemini(google, almacen, { ahora, analizar: iaBuena })
     ok('repetir la pasada no duplica ni gasta: es idempotente', segunda.revisados === 0 && segunda.nuevas === 0 && segunda.analizadas === 0 && segunda.costeUsd === 0 && almacen.filas.length === 3)
-    ok('y no vuelve a leer los correos ya guardados', google.leidos.length === 3)
+    ok('y no vuelve a leer los correos ya guardados', google.encabezados.length === 3 && google.leidos.length === 2)
+    ok('la reunión interna NO se abre entera: de ella solo se miró el asunto (su texto no sale de Gmail)', !google.leidos.includes('m2') && google.encabezados.includes('m2'), google.leidos.join())
   }
 
   console.log('\n=== el orden y el tope por pasada ===')
@@ -200,9 +212,9 @@ async function main() {
     const google = googleDeMentira({ correos })
     const almacen = new AlmacenEnMemoria(CANDIDATOS, ahora)
     const r = await sincronizarNotasDeGemini(google, almacen, { ahora, analizar: iaBuena, maxNuevos: 2 })
-    ok('con maxNuevos 2 solo se tratan dos, en el orden en que llegaron', r.ignoradas === 2 && google.leidos.join() === 'm-a,m-b', google.leidos.join())
+    ok('con maxNuevos 2 solo se tratan dos, en el orden en que llegaron', r.ignoradas === 2 && google.encabezados.join() === 'm-a,m-b', google.encabezados.join())
     const r2 = await sincronizarNotasDeGemini(google, almacen, { ahora, analizar: iaBuena, maxNuevos: 2 })
-    ok('y la siguiente pasada sigue donde se quedó', r2.ignoradas === 2 && google.leidos.join() === 'm-a,m-b,m-c,m-d')
+    ok('y la siguiente pasada sigue donde se quedó', r2.ignoradas === 2 && google.encabezados.join() === 'm-a,m-b,m-c,m-d' && google.leidos.length === 0)
   }
 
   console.log('\n=== Google sin permisos ===')

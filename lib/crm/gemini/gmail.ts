@@ -71,6 +71,29 @@ export function cuerpoDeGmail(payload: ParteDeGmail | undefined): { texto: strin
   return { texto: texto.join('\n').trim(), html: html.join('\n').trim() }
 }
 
+/** Lo que se sabe de un correo SIN abrir su cuerpo: de quién es, qué asunto lleva y cuándo llegó */
+export interface EncabezadoDeCorreo {
+  id: string
+  asunto: string
+  remitente: string
+  recibidoMs: number
+}
+
+/**
+ * Un mensaje pedido en formato `metadata` (solo cabeceras, sin cuerpo) -> su encabezado. Es lo primero que se mira de cada correo de Gemini: con el asunto basta para saber si
+ * es de una reunión con un cliente, y las de uso interno del equipo NO se abren más (su texto no llega a salir de Gmail).
+ */
+export function encabezadoDeGmail(mensaje: MensajeDeGmail): EncabezadoDeCorreo | null {
+  if (!mensaje.id || !mensaje.payload) return null
+  const recibido = Number(mensaje.internalDate)
+  return {
+    id: mensaje.id,
+    asunto: decodificarCabecera(cabecera(mensaje.payload, 'Subject')).replace(/\s+/g, ' ').trim(),
+    remitente: decodificarCabecera(cabecera(mensaje.payload, 'From')),
+    recibidoMs: Number.isFinite(recibido) && recibido > 0 ? recibido : NaN,
+  }
+}
+
 /** Un mensaje de la API -> el correo que lee correo.ts. null si no trae contenido (sin payload) */
 export function correoDeGmail(mensaje: MensajeDeGmail): CorreoDeGemini | null {
   if (!mensaje.id || !mensaje.payload) return null

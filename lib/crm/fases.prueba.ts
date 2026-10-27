@@ -75,14 +75,16 @@ console.log('\n=== fechas recuperadas (fichas anteriores a la migración) ===')
   const h = [e('seguimiento', '2026-10-12T10:00:00Z', 'recuperado')]
   const l = lineaDeFases('seguimiento', h, HOY)
   ok('la actual sale con su fecha y marcada como aproximada', l.pasos[1].desde === '2026-10-12T10:00:00Z' && l.pasos[1].aproximada)
-  ok('lo anterior no consta: «nuevo» está hecho pero sin fecha (no se inventa)', l.pasos[0].estado === 'saltado' && l.pasos[0].desde === null)
+  ok('lo anterior no consta: «nuevo» se pinta como recorrido pero sin fecha (no se inventa ni se afirma un salto)', l.pasos[0].estado === 'hecho' && l.pasos[0].desde === null && l.pasos[0].dias === null)
+  const mixta = lineaDeFases('negociacion', [e('seguimiento', '2026-10-01T10:00:00Z', 'recuperado'), e('negociacion', '2026-10-20T10:00:00Z')], HOY)
+  ok('pero entre lo recuperado y un cambio ya anotado SÍ se sabe lo que se saltó: nuevo y seguimiento, recorridos; propuesta y revisión, saltadas', estados(mixta) === 'nue:hecho seg:hecho pro:saltado rev:saltado neg:actual gan:pendiente', estados(mixta))
   ok('y sin ciclo de venta: no se puede calcular con fechas aproximadas', cicloDeVenta([e('nuevo', '2026-09-01T10:00:00Z', 'recuperado'), e('ganado', '2026-10-01T10:00:00Z', 'recuperado')]) === null)
 }
 
 console.log('\n=== sin historial (la migración aún no está lanzada) ===')
 {
   const l = lineaDeFases('revision_propuesta', [], HOY)
-  ok('la línea funciona con la fase de hoy', estados(l) === 'nue:saltado seg:saltado pro:saltado rev:actual neg:pendiente gan:pendiente', estados(l))
+  ok('la línea funciona con la fase de hoy, y lo anterior sale recorrido (de un salto no hay constancia)', estados(l) === 'nue:hecho seg:hecho pro:hecho rev:actual neg:pendiente gan:pendiente', estados(l))
   ok('sin fechas ni días en ningún paso', l.pasos.every((p) => p.desde === null && p.dias === null) && l.diasEnLaActual === null)
   ok('pero el avance sí se sabe (3 de 5)', Math.abs(l.avance - 0.6) < 1e-9)
 }

@@ -1,6 +1,6 @@
 import { analizarReunion, construirEncargoDeAnalisis, hayAlgoQueAnalizar, type DatosDelAnalisis, type OpcionesDelAnalisis, type ResultadoDelAnalisis } from './analisis'
 import { casarNota, type CandidatoDeCita, type ResultadoDeCasar } from './casar'
-import { esReunionConCliente, esReunionSinTitulo, leerCorreoDeGemini, tituloDeLaReunion } from './correo'
+import { esCorreoDeGemini, esReunionConCliente, esReunionSinTitulo, leerCorreoDeGemini, tituloDeLaReunion } from './correo'
 import { fusionarNotas, leerDocumento } from './documento'
 import { ErrorDeGoogle } from './errores-google'
 import type { FuenteDeGoogle } from './google'
@@ -307,6 +307,30 @@ export async function sincronizarNotasDeGemini(google: FuenteDeGoogle, almacen: 
       if (tratados >= (opciones.maxNuevos ?? 20) || queda() < 20_000 || r.detenida) break
       r.revisados++
 
+      // PRIMERO SOLO EL ENCABEZADO (asunto y remitente, sin el cuerpo): con el asunto basta para saber si es de un cliente. Una reunión interna del equipo no se abre más:
+      // su texto no llega a salir de Gmail.
+      let encabezado
+      try {
+        encabezado = await google.leerEncabezado(id)
+      } catch (error) {
+        alFallarGoogle(error, `No se pudo leer un correo de Gemini`)
+        if (r.detenida) break
+        continue
+      }
+      const tituloDelAsunto = encabezado ? tituloDeLaReunion(encabezado.asunto) : ''
+      if (!encabezado || !esCorreoDeGemini(encabezado.remitente) || !tituloDelAsunto) {
+        if ((await almacen.insertar(notaIgnorada(id, tituloDelAsunto || '(correo ilegible)', null))) === 'creada') r.ignoradas++
+        tratados++
+        continue
+      }
+      if (!esReunionConCliente(tituloDelAsunto) && !esReunionSinTitulo(tituloDelAsunto)) {
+        const llegada = Number.isFinite(encabezado.recibidoMs) ? new Date(encabezado.recibidoMs).toISOString() : null
+        if ((await almacen.insertar(notaIgnorada(id, tituloDelAsunto, llegada))) === 'creada') r.ignoradas++
+        tratados++
+        continue
+      }
+
+      // Ahora sí, el correo entero
       let correo
       try {
         correo = await google.leerCorreo(id)
@@ -317,20 +341,13 @@ export async function sincronizarNotasDeGemini(google: FuenteDeGoogle, almacen: 
       }
       const nota = correo ? leerCorreoDeGemini(correo) : null
       if (!correo || !nota) {
-        const titulo = correo ? tituloDeLaReunion(correo.asunto) : '(correo ilegible)'
-        if ((await almacen.insertar(notaIgnorada(id, titulo, null))) === 'creada') r.ignoradas++
+        if ((await almacen.insertar(notaIgnorada(id, tituloDelAsunto, null))) === 'creada') r.ignoradas++
         tratados++
         continue
       }
 
       const conCliente = esReunionConCliente(nota.titulo)
       const sinTitulo = esReunionSinTitulo(nota.titulo)
-      // Una reunión interna con título: se apunta y NO se abre su documento
-      if (!conCliente && !sinTitulo) {
-        if ((await almacen.insertar(notaIgnorada(id, nota.titulo, nota.fechaReunion))) === 'creada') r.ignoradas++
-        tratados++
-        continue
-      }
 
       let final = nota
       if (nota.driveFileId) {
