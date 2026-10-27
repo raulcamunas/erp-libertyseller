@@ -317,6 +317,9 @@ export function RejillaSemanal({
             ))}
             {hayHoy && ahoraTop !== null && (
               <span
+                // La hora que dice el servidor al pintar y la del navegador al hidratar pueden caer en minutos distintos: sin esto React lo trata como un error de
+                // hidratación (un texto que no coincide) y repinta la agenda entera en el navegador. Se corrige sola con el reloj de cada minuto
+                suppressHydrationWarning
                 className="absolute right-1 z-10 -translate-y-1/2 rounded-[4px] bg-[var(--ls-acc-relleno)] px-1 text-[10px] font-bold tabular-nums leading-[15px] text-[var(--ls-acc-tinta)]"
                 style={{ top: ahoraTop }}
               >

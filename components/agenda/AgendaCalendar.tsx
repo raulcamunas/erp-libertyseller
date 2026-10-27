@@ -356,9 +356,20 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
       setArrastrando({ cita: a, destino: hueco })
     }
 
+    /** El sistema se llevó el gesto (un gesto del móvil, por ejemplo): la cita se queda donde estaba */
+    function alCancelar() {
+      window.removeEventListener('pointermove', alMover)
+      window.removeEventListener('pointerup', alSoltar)
+      window.removeEventListener('pointercancel', alCancelar)
+      document.body.style.userSelect = ''
+      destinoRef.current = null
+      setArrastrando(null)
+    }
+
     function alSoltar() {
       window.removeEventListener('pointermove', alMover)
       window.removeEventListener('pointerup', alSoltar)
+      window.removeEventListener('pointercancel', alCancelar)
       document.body.style.userSelect = ''
       if (!arrastrandoYa) return // fue un clic normal, no un arrastre
 
@@ -376,6 +387,7 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
 
     window.addEventListener('pointermove', alMover)
     window.addEventListener('pointerup', alSoltar)
+    window.addEventListener('pointercancel', alCancelar)
   })
 
   async function confirmarArrastre(id: string, destino: DestinoDeArrastre) {

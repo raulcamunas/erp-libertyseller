@@ -165,6 +165,8 @@ export function BuscadorDeClientes({ enlace, puedeEditar, nombres, idDelCampo, t
         <ul
           id={idLista}
           role="listbox"
+          // Pulsar en la lista (también en su barra de desplazamiento) no le quita el foco al campo: si lo perdiera, la lista se cerraría antes de poder usarla
+          onMouseDown={(e) => e.preventDefault()}
           className="absolute inset-x-0 top-[30px] z-50 max-h-[300px] overflow-y-auto rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] py-1 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.6)]"
         >
           {estado === 'error' && <li className={`px-2.5 py-2 text-[11.5px] ${TEXTO.t3}`}>No se pudo buscar. Prueba otra vez.</li>}

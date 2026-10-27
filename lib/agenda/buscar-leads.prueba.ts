@@ -36,12 +36,18 @@ console.log('\n=== dónde se busca ===')
 console.log('\n=== teléfonos ===')
 {
   const f = filtroDeBusqueda('600112233')!
-  ok('dígitos pegados: además del texto, el patrón con comodines entre dígitos', f.includes('phone.ilike.%6%0%0%1%1%2%2%3%3%') && f.includes('telefonos_extra.ilike.%6%0%0%1%1%2%2%3%3%'), f)
+  ok('dígitos pegados: además del texto, la expresión regular con «lo que no sea un dígito» entre dígitos', f.includes('phone.imatch.6[^0-9]*0[^0-9]*0[^0-9]*1[^0-9]*1[^0-9]*2[^0-9]*2[^0-9]*3[^0-9]*3') && f.includes('telefonos_extra.imatch.6[^0-9]*0'), f)
+  ok('y NO los comodines que dejaban pasar cualquier cosa (6%0%0…)', !f.includes('6%0%0'), f)
   const g = filtroDeBusqueda('+34 600 11 22 33')!
-  ok('con prefijo y espacios también', g.includes('phone.ilike.%3%4%6%0%0%1%1%2%2%3%3%'), g)
-  ok('un nombre con un número no se trata como teléfono', !filtroDeBusqueda('tienda 12345 sl')!.includes('1%2%3%4%5'))
-  ok('menos de cinco dígitos no es un teléfono', !filtroDeBusqueda('1234')!.includes('1%2%3%4'))
-  ok('«91.234.56.78» con puntos sí', filtroDeBusqueda('91.234.56.78')!.includes('9%1%2%3%4%5%6%7%8'))
+  ok('con prefijo y espacios también', g.includes('phone.imatch.3[^0-9]*4[^0-9]*6[^0-9]*0[^0-9]*0[^0-9]*1[^0-9]*1[^0-9]*2[^0-9]*2[^0-9]*3[^0-9]*3'), g)
+  ok('un nombre con un número no se trata como teléfono', !filtroDeBusqueda('tienda 12345 sl')!.includes('imatch'))
+  ok('menos de cinco dígitos no es un teléfono', !filtroDeBusqueda('1234')!.includes('imatch'))
+  ok('«91.234.56.78» con puntos sí', filtroDeBusqueda('91.234.56.78')!.includes('9[^0-9]*1[^0-9]*2[^0-9]*3[^0-9]*4[^0-9]*5[^0-9]*6[^0-9]*7[^0-9]*8'))
+  // La expresión regular que se manda es la que se probó contra la base: casa con los formatos reales y no con dígitos de por medio
+  const re = new RegExp(filtroDeBusqueda('600112233')!.split(',').find((c) => c.startsWith('phone.imatch.'))!.slice('phone.imatch.'.length), 'i')
+  ok('casa con «600 11 22 33»', re.test('600 11 22 33'))
+  ok('casa con «+34 600-11-22-33» y con «600.11.22.33»', re.test('+34 600-11-22-33') && re.test('600.11.22.33'))
+  ok('no casa con otro teléfono que solo tiene esos dígitos desperdigados («6 1 0 2 0 1 1 3 2 2 3 3»)', !re.test('612 034 1122 33'))
 }
 
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)
