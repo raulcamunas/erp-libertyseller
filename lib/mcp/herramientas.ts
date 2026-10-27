@@ -10,7 +10,8 @@ import { estaParada, leerConfigCron, TAREAS_CRON } from '@/lib/sistema/cron'
 import { AMAZON_MARKETPLACES, marketplaceLabel, mercadosDeConexion } from '@/lib/types/amazon'
 import { acortar, aTexto, entero, booleano, opcion, texto } from './argumentos'
 import { ErrorDeHerramienta, type Herramienta } from './protocolo'
-import type { UsuarioMcp } from './auth'
+import type { ContextoMcp } from './contexto'
+import { HERRAMIENTAS_COMERCIALES, INSTRUCCIONES_COMERCIALES } from './comercial/herramientas'
 
 /**
  * LAS HERRAMIENTAS DEL CONECTOR: TODAS DE SOLO LECTURA.
@@ -19,11 +20,16 @@ import type { UsuarioMcp } from './auth'
  *
  * ============ LA REGLA QUE ATRAVIESA TODO ============
  *
- * Cada herramienta trabaja con UN cliente, que llega como `cliente` (su slug) y se
- * traduce AQUÍ, en el servidor, a sus cuentas de Amazon. Ninguna devuelve datos
- * de dos clientes a la vez y ninguna compara. Es el mismo compromiso que cumple el
- * resto del ERP: los datos de un vendedor se usan para operar y asesorar SU
- * cuenta. `listar_clientes` solo devuelve nombres, para poder elegir uno.
+ * Cada herramienta DE LAS CUENTAS DE AMAZON trabaja con UN cliente, que llega como
+ * `cliente` (su slug) y se traduce AQUÍ, en el servidor, a sus cuentas de Amazon.
+ * Ninguna devuelve datos de dos clientes a la vez y ninguna compara. Es el mismo
+ * compromiso que cumple el resto del ERP: los datos de un vendedor se usan para
+ * operar y asesorar SU cuenta. `listar_clientes` solo devuelve nombres, para poder
+ * elegir uno.
+ *
+ * Las del EQUIPO COMERCIAL (lib/mcp/comercial: Mi rendimiento, Cold Calling, Agenda y
+ * correo) son otra cosa: no hay `cliente`, porque no tratan cuentas de Amazon sino
+ * el trabajo del equipo de ventas y sus leads, y sí agregan y comparan personas.
  *
  * Y NINGUNA toca datos de compradores —pedidos con dirección, el Tax Report—: no
  * hay herramienta para ellos y no se añade.
@@ -36,9 +42,7 @@ import type { UsuarioMcp } from './auth'
  * un `hay_mas`, no el catálogo entero metido en una conversación.
  */
 
-export interface ContextoMcp {
-  usuario: UsuarioMcp
-}
+export type { ContextoMcp }
 
 /* ------------------------------------------------------------------ */
 /* Lo común                                                            */
@@ -605,12 +609,15 @@ export const HERRAMIENTAS: readonly Herramienta<ContextoMcp>[] = [
   cumplimientoListings,
   historialCambios,
   estadoProcesos,
+  // El equipo comercial: Mi rendimiento, Cold Calling y el correo (lib/mcp/comercial). No llevan `cliente`
+  ...HERRAMIENTAS_COMERCIALES,
 ]
 
 export const INSTRUCCIONES = [
-  'Servidor interno del ERP de Liberty Seller, solo para el equipo. Todas las herramientas son de SOLO LECTURA: no cambian nada en el ERP ni en las cuentas de Amazon de los clientes.',
-  'Trabaja con UN cliente a la vez: casi todas piden `cliente` (su slug; `listar_clientes` los da). Los datos de cada cliente solo se usan para operar y asesorar SU cuenta: no los mezcles, agregues ni compares con los de otro cliente en la misma conversación, y no los compartas fuera del equipo. Si te piden comparar clientes, explica que no se hace.',
+  'Servidor interno del ERP de Liberty Seller, solo para el equipo. Todas las herramientas son de SOLO LECTURA: no cambian nada en el ERP, ni en las cuentas de Amazon de los clientes, ni en Cold Calling ni en el correo.',
+  'CUENTAS DE AMAZON DE LOS CLIENTES (`listar_clientes`, `resumen_catalogo`, `buscar_listings`, `cumplimiento_resumen`, `cumplimiento_listings`, `historial_cambios`): trabajan con UN cliente a la vez y piden `cliente` (su slug; `listar_clientes` los da). Los datos de cada cliente solo se usan para operar y asesorar SU cuenta: no los mezcles, agregues ni compares con los de otro cliente en la misma conversación, y no los compartas fuera del equipo. Si te piden comparar clientes, explica que no se hace. `estado_procesos` no es de un cliente: sirve para todo.',
   'Los datos son una foto, no tiempo real: el catálogo se refresca cada 15 minutos y el cumplimiento se revisa por tandas (empezando por los listings con stock). Antes de afirmar que algo está así «ahora», mira las fechas de lectura que devuelve cada herramienta; `estado_procesos` dice si el ERP está al día.',
   'En cumplimiento las cifras son de lo REVISADO: si `cobertura.porcentaje` es menor que 100, dilo y no presentes la cifra como el total de la cuenta. Tampoco incluye el panel «Gestionar su cumplimiento» de Seller Central, que Amazon no publica por API.',
   'Las respuestas están recortadas a propósito (límites por llamada y `hay_mas`): pide más páginas o filtra antes que dar por completa una lista.',
+  INSTRUCCIONES_COMERCIALES,
 ].join('\n\n')
