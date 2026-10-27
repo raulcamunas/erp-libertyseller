@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toast } from 'sonner'
@@ -125,9 +125,12 @@ export function FichaHub({ client, team, currentUser, onPatched, puedeEditar, hi
     }
   }, [client.id, supabase])
 
-  // Cuando la fase cambia (aquí o en otro navegador) el disparador de la base anota una fila nueva: se vuelve a leer el historial
+  // Cuando la fase cambia (aquí o en otro navegador) el disparador de la base anota una fila nueva: se vuelve a leer el historial. Al abrir la ficha no hace falta: ya viene en la
+  // primera lectura
+  const faseVista = useRef(client.stage)
   useEffect(() => {
-    if (migracionFalta) return
+    if (migracionFalta || faseVista.current === client.stage) return
+    faseVista.current = client.stage
     let activo = true
     supabase
       .from('crm_etapas_historial')
