@@ -3,14 +3,15 @@
 import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { ChevronLeft, LogOut, Menu, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, LogOut, Menu, X } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 import { NotificationsBell } from '@/components/layout/NotificationsBell'
 import { leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
-import { apps, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
+import { apps, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, GRUPOS_DEL_MENU, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
 import { etiquetaDeInsignia, inicialesDe, rutaActivaDelMenu } from '@/lib/layout/barra'
+import { aplanarMenu, armarMenu, grupoDeLaRuta, rutaParaElMenu } from '@/lib/layout/menu'
 import { createClient } from '@/lib/supabase/client'
 import type { RolUsuario } from '@/lib/types/users'
 
@@ -31,6 +32,9 @@ export interface PerfilDeLaBarra {
 
 // Antes de pintar, medir dónde está la entrada encendida; en el servidor no hay nada que medir y `useLayoutEffect` avisa
 const useEfectoAntesDePintar = typeof window === 'undefined' ? useEffect : useLayoutEffect
+
+/** Qué desplegables estaban abiertos (los ids de grupo), para que al volver estén como se dejaron */
+const CLAVE_DE_GRUPOS_ABIERTOS = 'erp:menu:grupos-abiertos'
 
 const ANCHO_ABIERTA = '16rem'
 const ANCHO_PLEGADA = '4.5rem'
@@ -155,6 +159,8 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
 
   // Filtrar apps según permisos
   const filteredApps = apps.filter(app => {
+    // Las que se abren desde otra pantalla (Actividad del equipo, desde Mi rendimiento) no van en el menú
+    if (APPS_FUERA_DEL_MENU.has(app.id)) return false
     // El rol 'cliente' es gente de fuera: ve Remesas a FBA y absolutamente nada
     // más, ni el Inicio. El middleware ya le cierra las rutas; esto es para que
     // el menú no le enseñe puertas que no puede abrir.
@@ -210,10 +216,55 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     return () => window.clearTimeout(id)
   }, [pendiente])
 
-  const rutaActiva = rutaActivaDelMenu(
-    filteredApps.map((a) => a.route),
-    pendiente ?? pathname ?? ''
-  )
+  // El menú: las aplicaciones sueltas y los desplegables (lib/layout/menu.ts). Un desplegable existe para quien ve al menos dos de sus aplicaciones
+  const menu = armarMenu(filteredApps, GRUPOS_DEL_MENU)
+  const rutasDelMenu = aplanarMenu(menu).map((a) => a.route)
+  // Estando en una pantalla que cuelga de otra (Actividad, desde Mi rendimiento), se enciende la de la que cuelga
+  const rutaActiva = rutaActivaDelMenu(rutasDelMenu, rutaParaElMenu(pendiente ?? pathname ?? ''))
+  const grupoActivo = grupoDeLaRuta(menu, rutaActiva)
+
+  // Los desplegables abiertos. Se recuerdan en este navegador; el de la página en la que se está se abre solo al llegar a ella (pero se puede cerrar a mano: no se
+  // vuelve a abrir hasta que se cambie de página)
+  const [abiertos, setAbiertos] = useState<ReadonlySet<string>>(() => new Set())
+  const abiertosRef = useRef<Set<string>>(new Set())
+  const guardarAbiertos = (n: ReadonlySet<string>) => {
+    abiertosRef.current = new Set(n)
+    setAbiertos(new Set(n))
+    try {
+      window.localStorage.setItem(CLAVE_DE_GRUPOS_ABIERTOS, JSON.stringify([...n]))
+    } catch {
+      // sin almacenamiento (ventana privada): el menú funciona igual, solo que no se acuerda
+    }
+  }
+  // Se lee después de montar: en el servidor no hay almacenamiento y lo que se pinta primero tiene que ser igual en los dos sitios
+  useEffect(() => {
+    try {
+      const guardado: unknown = JSON.parse(window.localStorage.getItem(CLAVE_DE_GRUPOS_ABIERTOS) ?? '[]')
+      if (Array.isArray(guardado)) {
+        const ids = guardado.filter((x): x is string => typeof x === 'string')
+        if (ids.length > 0) {
+          const union = new Set([...abiertosRef.current, ...ids])
+          abiertosRef.current = union
+          setAbiertos(new Set(union))
+        }
+      }
+    } catch {
+      // un valor roto en el almacenamiento no puede romper el menú
+    }
+  }, [])
+  useEffect(() => {
+    if (!grupoActivo || abiertosRef.current.has(grupoActivo)) return
+    guardarAbiertos(new Set([...abiertosRef.current, grupoActivo]))
+    // Solo al llegar a una página de otro grupo: cerrarlo a mano estando dentro no lo reabre
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grupoActivo, rutaActiva])
+  const alternarGrupo = (id: string) => {
+    const n = new Set(abiertosRef.current)
+    if (n.has(id)) n.delete(id)
+    else n.add(id)
+    guardarAbiertos(n)
+  }
+  const abiertosClave = [...abiertos].sort().join('|')
 
   // La marca luminosa que se desliza hasta la entrada encendida: se mide dónde está y cuánto mide, y se coloca con una transición.
   // La primera colocación no se anima (que no venga desde arriba al cargar la página)
@@ -232,7 +283,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     const nueva = { y: activo.offsetTop, h: activo.offsetHeight }
     setPosicion((antes) => (antes && antes.y === nueva.y && antes.h === nueva.h ? antes : nueva))
     setHayMarca(true)
-  }, [rutaActiva, idsVisibles, isCollapsed, cargandoPermisos])
+  }, [rutaActiva, idsVisibles, isCollapsed, cargandoPermisos, abiertosClave])
   useEffect(() => {
     if (!posicion || animar) return
     // Un instante después de la primera colocación, cuando ya se ha pintado: a partir de ahí, cada cambio se desliza
@@ -352,54 +403,99 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
               style={{ '--y': `${posicion?.y ?? 0}px`, '--h': `${posicion?.h ?? 40}px` } as CSSProperties}
               aria-hidden
             />
-            {filteredApps.map((app, i) => {
-              const Icon = app.icon
-              const activa = app.route === rutaActiva
+            {(() => {
+              // Una sola cuenta para todas las entradas (sueltas, cabeceras de desplegable y las de dentro): `--i` escalona la entrada de cada una
+              let posicionEnLaLista = 0
+              const entrada = (app: AppConfig, dentro: boolean) => {
+                const i = posicionEnLaLista++
+                const Icon = app.icon
+                const activa = app.route === rutaActiva
 
-              // Usar badge dinámico para web-leads si es admin
-              const badge =
-                app.id === 'web-leads' && userRole === 'admin'
-                  ? webLeadsBadge
-                  : app.id === 'correo' && correoSinLeer > 0
-                    ? correoSinLeer
-                    : app.badge
-              const insignia = etiquetaDeInsignia(badge, isCollapsed)
+                // Usar badge dinámico para web-leads si es admin
+                const badge =
+                  app.id === 'web-leads' && userRole === 'admin'
+                    ? webLeadsBadge
+                    : app.id === 'correo' && correoSinLeer > 0
+                      ? correoSinLeer
+                      : app.badge
+                const insignia = etiquetaDeInsignia(badge, isCollapsed)
 
-              return (
-                <Link
-                  key={app.id}
-                  href={app.route}
-                  className="lat-item"
-                  data-activa={activa ? 'true' : undefined}
-                  aria-current={activa ? 'page' : undefined}
-                  style={{ '--i': i } as CSSProperties}
-                  onClick={(e) => {
-                    setIsMobileOpen(false)
-                    // Un clic normal: con Ctrl, Cmd o Mays se abre en otra pestaña y esta página no cambia
-                    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-                    if (!activa) setPendiente(app.route)
-                  }}
-                  onMouseMove={seguirRaton}
-                  onMouseEnter={(e) => mostrarEtiqueta(e.currentTarget, app.name)}
-                  onMouseLeave={ocultarEtiqueta}
-                  onFocus={(e) => mostrarEtiqueta(e.currentTarget, app.name)}
-                  onBlur={ocultarEtiqueta}
-                >
-                  <span className="lat-icono">
-                    <Icon className="lat-icono-svg" aria-hidden />
-                  </span>
-                  <span className="lat-texto">{app.name}</span>
-                  {insignia && (
-                    <span key={insignia} className="lat-insignia">
-                      {insignia}
+                return (
+                  <Link
+                    key={app.id}
+                    href={app.route}
+                    className={dentro ? 'lat-item lat-item-hijo' : 'lat-item'}
+                    data-activa={activa ? 'true' : undefined}
+                    aria-current={activa ? 'page' : undefined}
+                    style={{ '--i': i } as CSSProperties}
+                    onClick={(e) => {
+                      setIsMobileOpen(false)
+                      // Un clic normal: con Ctrl, Cmd o Mays se abre en otra pestaña y esta página no cambia
+                      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                      if (!activa) setPendiente(app.route)
+                    }}
+                    onMouseMove={seguirRaton}
+                    onMouseEnter={(e) => mostrarEtiqueta(e.currentTarget, app.name)}
+                    onMouseLeave={ocultarEtiqueta}
+                    onFocus={(e) => mostrarEtiqueta(e.currentTarget, app.name)}
+                    onBlur={ocultarEtiqueta}
+                  >
+                    <span className="lat-icono">
+                      <Icon className="lat-icono-svg" aria-hidden />
                     </span>
-                  )}
-                </Link>
-              )
-            })}
+                    <span className="lat-texto">{app.name}</span>
+                    {insignia && (
+                      <span key={insignia} className="lat-insignia">
+                        {insignia}
+                      </span>
+                    )}
+                  </Link>
+                )
+              }
+
+              return menu.map((e) => {
+                if (e.tipo === 'app') return entrada(e.app, false)
+
+                const { grupo, apps: hijas } = e
+                const abierto = abiertos.has(grupo.id)
+                const GrupoIcono = grupo.icon
+                const i = posicionEnLaLista++
+                // Cerrado, la cabecera es la que se enciende si la página en la que se está es de dentro: así la marca no desaparece
+                const encendida = !abierto && grupoActivo === grupo.id
+                return (
+                  <div key={grupo.id} className="lat-grupo" data-abierto={abierto ? 'true' : undefined}>
+                    <button
+                      type="button"
+                      className="lat-item lat-grupo-cab"
+                      data-activa={encendida ? 'true' : undefined}
+                      aria-expanded={abierto}
+                      aria-controls={`lat-grupo-${grupo.id}`}
+                      style={{ '--i': i } as CSSProperties}
+                      onClick={() => alternarGrupo(grupo.id)}
+                      onMouseMove={seguirRaton}
+                      onMouseEnter={(ev) => mostrarEtiqueta(ev.currentTarget, grupo.name)}
+                      onMouseLeave={ocultarEtiqueta}
+                      onFocus={(ev) => mostrarEtiqueta(ev.currentTarget, grupo.name)}
+                      onBlur={ocultarEtiqueta}
+                    >
+                      <span className="lat-icono">
+                        <GrupoIcono className="lat-icono-svg" aria-hidden />
+                      </span>
+                      <span className="lat-texto">{grupo.name}</span>
+                      <ChevronRight className="lat-chevron" aria-hidden />
+                    </button>
+                    {abierto && (
+                      <div className="lat-grupo-hijos" id={`lat-grupo-${grupo.id}`} role="group" aria-label={grupo.name}>
+                        {hijas.map((a) => entrada(a, true))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            })()}
             {cargandoPermisos &&
               [0, 1, 2, 3].map((n) => (
-                <span key={`espera-${n}`} className="lat-espera" style={{ '--i': filteredApps.length + n } as CSSProperties} aria-hidden>
+                <span key={`espera-${n}`} className="lat-espera" style={{ '--i': menu.length + n } as CSSProperties} aria-hidden>
                   <span className="lat-espera-icono" />
                   <span className="lat-espera-texto" style={{ width: `${48 + ((n * 17) % 30)}%` }} />
                 </span>

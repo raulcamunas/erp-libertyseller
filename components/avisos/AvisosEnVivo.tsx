@@ -6,6 +6,7 @@ import { DURACION_DE_AVISO_DE_EQUIPO_MS, avisoDeEquipo, type FilaDeAvisoDeEquipo
 import { ponerCorreoSinLeer } from '@/lib/avisos/contadores'
 import { equipoSilenciado } from '@/lib/avisos/preferencias'
 import { publicarAviso } from '@/lib/avisos/pila'
+import { prepararSonido, sonarCorreo } from '@/lib/avisos/sonido'
 import type { AvisoDeCorreo } from '@/lib/correo/avisos'
 import { pedirAlCorreo } from '@/lib/correo/peticiones'
 import { createClient } from '@/lib/supabase/client'
@@ -34,8 +35,13 @@ const MAX_INDIVIDUALES = 3
 export function AvisosEnVivo({ perfil }: { perfil: UserProfile }) {
   const router = useRouter()
 
+  // El sonido de «correo nuevo» necesita que el navegador lo deje: se prepara con el primer clic o tecla de la sesión (lib/avisos/sonido.ts)
+  useEffect(() => prepararSonido(), [])
+
   useCorreoNuevo(
     (nuevos: AvisoDeCorreo[]) => {
+      // Un sonido suave por lo que llegue (no por un rebote). Si la campana ya lo ha anunciado por tiempo real, el id lo reconoce y no suena otra vez
+      for (const n of nuevos) if (!n.rebote) void sonarCorreo(n.id)
       const abrirHilo = (n: AvisoDeCorreo) => {
         pedirAlCorreo({ tipo: 'hilo', buzonId: n.buzonId, hiloId: n.hiloId })
         router.push('/dashboard/correo')

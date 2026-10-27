@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Bell, BellOff, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Bell, BellOff, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
+import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
 import { destinoDeAvisoDeCorreo, type DestinoDeAviso } from '@/lib/correo/campana-tipos'
 import { pedirAlCorreo } from '@/lib/correo/peticiones'
 import {
@@ -77,6 +78,9 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
   const supabase = createClient()
   // Los avisos del equipo (hitos de llamadas, citas agendadas) se pueden silenciar desde aquí: son una celebración, no una obligación
   const silenciados = useSyncExternalStore(suscribirPreferenciasDeAvisos, equipoSilenciado, () => false)
+  // El sonido suave que avisa de un correo nuevo (lib/avisos/sonido.ts): suena aunque el ERP esté en segundo plano
+  const sonidoActivo = useSyncExternalStore(suscribirSonido, sonidoDeCorreoActivo, () => true)
+  const [pruebaDeSonido, setPruebaDeSonido] = useState<'' | 'bloqueado' | 'sin_audio'>('')
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -127,7 +131,12 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
       // Suscribirse a los avisos de esta persona solo: los nuevos y los que cambian
       channel = supabase
         .channel(`notifications-${user.id}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, recargarEnBreve)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, (payload) => {
+          // Un correo nuevo en MI buzón (lo escribe el servidor al leerlo, con la pestaña a la vista o no): suena. La clave es «msg:<id del correo>»
+          const fila = (payload as { new?: { type?: unknown; clave?: unknown } }).new
+          if (fila?.type === 'correo_nuevo') void sonarCorreo(typeof fila.clave === 'string' ? fila.clave.replace(/^msg:/, '') : undefined)
+          recargarEnBreve()
+        })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, recargarEnBreve)
         .subscribe()
     }
@@ -345,6 +354,39 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
           )}
         </div>
         <div className="lat-avisos-pie">
+          <div className="lat-avisos-sonido">
+            <button
+              type="button"
+              onClick={() => {
+                const nuevo = !sonidoActivo
+                ponerSonidoDeCorreo(nuevo)
+                setPruebaDeSonido('')
+                // Al encenderlo se oye una vez: así se sabe cómo suena y que funciona
+                if (nuevo) void probarSonido().then((r) => setPruebaDeSonido(r === 'sono' ? '' : r))
+              }}
+              aria-pressed={sonidoActivo}
+              className="lat-avisos-silencio"
+            >
+              {sonidoActivo ? <Volume2 className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <VolumeX className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+              <span className="flex-1">{sonidoActivo ? 'Suena al llegar un correo' : 'Sin sonido al llegar un correo'}</span>
+              <span className="lat-avisos-silencio-accion">{sonidoActivo ? 'Quitar' : 'Poner'}</span>
+            </button>
+            {sonidoActivo && (
+              <button
+                type="button"
+                className="lat-avisos-probar"
+                onClick={() => void probarSonido().then((r) => setPruebaDeSonido(r === 'sono' ? '' : r))}
+                title="Oír el aviso"
+              >
+                Probar
+              </button>
+            )}
+          </div>
+          {pruebaDeSonido !== '' && (
+            <p className="lat-avisos-nota" role="status">
+              {pruebaDeSonido === 'bloqueado' ? 'El navegador no deja sonar todavía: pulsa en cualquier parte de la página y vuelve a probar.' : 'Este navegador no tiene audio.'}
+            </p>
+          )}
           <button type="button" onClick={() => silenciarEquipo(!silenciados)} aria-pressed={silenciados} className="lat-avisos-silencio">
             {silenciados ? <BellOff className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <Bell className="h-3.5 w-3.5 shrink-0" aria-hidden />}
             <span className="flex-1">{silenciados ? 'Avisos del equipo silenciados' : 'Avisos del equipo: llamadas y citas'}</span>

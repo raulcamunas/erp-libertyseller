@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { BotonVolver } from '@/components/actividad/BotonVolver'
 import { PanelActividad } from '@/components/actividad/PanelActividad'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { createClient } from '@/lib/supabase/server'
@@ -35,6 +36,8 @@ export default async function ActividadPage() {
 
   return (
     <div className="space-y-3 pb-10">
+      {/* Ya no está en el menú: se llega desde Mi rendimiento y de aquí se vuelve */}
+      <BotonVolver alternativa="/dashboard/rendimiento" texto="Volver a Mi rendimiento" />
       <div>
         <h1 className="mb-0.5 text-[22px] font-semibold leading-tight tracking-[-0.012em] text-[var(--ls-t1)]">Actividad del equipo</h1>
         <p className="text-[13px] text-[var(--ls-t3)]">

@@ -27,8 +27,11 @@ import {
   Mail,
   Eye,
   Sunrise,
+  Wrench,
+  BookOpenText,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
+import type { GrupoParaElMenu } from '@/lib/layout/menu'
 
 export interface AppConfig {
   id: string
@@ -697,6 +700,52 @@ export const APPS_SIN_EFECTO: ReadonlyMap<string, string> = new Map([
     'Growth Partner es solo para administradores. Para dar acceso al mapeo de stock, usa la casilla «Mapeo de stock».',
   ],
 ])
+
+/**
+ * LOS DESPLEGABLES DEL MENÚ LATERAL.
+ *
+ * Dos entradas del menú reúnen varias aplicaciones para que la barra no se llene. SON SOLO UNA FORMA DE ORDENAR: no tienen permiso, ni ruta, ni casilla en Gestión de
+ * Usuarios. Cada aplicación de dentro sigue con su propio acceso, el de siempre (su casilla en `user_app_permissions`, o ser administrador si es de solo
+ * administradores): quien ve una aplicación dentro de un grupo es quien ya la veía fuera. Un grupo aparece para quien ve al menos DOS de sus aplicaciones; con una
+ * sola, esa aplicación sale suelta (lib/layout/menu.ts).
+ *
+ * Los ids de aplicación de aquí van LETRA POR LETRA como en `apps`, en middleware.ts y en los requireAppAccess de cada una: si baila uno, la aplicación se queda fuera del
+ * grupo y sale suelta, sin dar ningún error. El id de un grupo NO es el de ninguna aplicación (no puede serlo: ningún permiso lo usa).
+ */
+export interface GrupoDelMenu extends GrupoParaElMenu {
+  name: string
+  description: string
+  icon: LucideIcon
+}
+
+export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
+  {
+    id: 'contabilidad',
+    name: 'Contabilidad',
+    description: 'Tesorería, control de empleados, comisiones y Tax Reports',
+    icon: BookOpenText,
+    apps: ['tesoreria', 'empleados', 'commissions', 'tax-reports'],
+    despuesDe: 'correo',
+  },
+  {
+    id: 'herramientas-agencia',
+    name: 'Herramientas Agencia',
+    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API, informes de marketing y Entrais',
+    icon: Wrench,
+    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'entrais-test'],
+    despuesDe: 'correo',
+  },
+]
+
+/**
+ * APLICACIONES QUE EXISTEN PERO NO SE PINTAN EN EL MENÚ NI EN LA REJILLA DEL INICIO.
+ *
+ * Se llega a ellas desde otra pantalla. Siguen en `apps` a propósito: su casilla en Gestión de Usuarios, su ruta y su filtro en middleware.ts no cambian.
+ *
+ *   · 'actividad' («Actividad del equipo»): se abre con el botón de dentro de Mi rendimiento, que lo ve quien tiene su casilla (o un administrador), y la propia
+ *     pantalla trae un botón para volver. Mientras se mira, el menú enciende Mi rendimiento (lib/layout/menu.ts: PANTALLAS_QUE_CUELGAN_DE).
+ */
+export const APPS_FUERA_DEL_MENU: ReadonlySet<string> = new Set(['actividad'])
 
 export const getAppById = (id: string): AppConfig | undefined => {
   return apps.find(app => app.id === id)

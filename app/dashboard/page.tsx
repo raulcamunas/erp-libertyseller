@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
-import { apps, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
+import { apps, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
 import { InicioApps } from '@/components/inicio/InicioApps'
 import { primerNombre } from '@/lib/inicio/saludo'
 
@@ -52,6 +52,8 @@ export default async function DashboardPage() {
 
   // Filtrar apps según permisos
   const filteredApps = apps.filter(app => {
+    // Las que se abren desde otra pantalla (Actividad del equipo, desde Mi rendimiento) no tienen tarjeta
+    if (APPS_FUERA_DEL_MENU.has(app.id)) return false
     // El rol 'cliente' es gente de fuera: ve Remesas a FBA y absolutamente nada
     // más, ni el Inicio. El middleware ya le cierra las rutas; esto es para que
     // el menú no le enseñe puertas que no puede abrir.
