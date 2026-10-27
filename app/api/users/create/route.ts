@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/lib/auth/api'
+import { cambioDePuestoDeLaPeticion } from '@/lib/usuarios/puestos'
+import { crearSuListaSiLlama, guardarPuesto } from '@/lib/usuarios/puestos-servidor'
 
 /** Los cuatro roles del ERP. Cualquier otra cosa en `role` se rechaza */
 const ROLES_VALIDOS = new Set(['admin', 'employee', 'partner', 'cliente'])
@@ -46,6 +48,12 @@ export async function POST(request: NextRequest) {
 
     if (role !== undefined && !ROLES_VALIDOS.has(role)) {
       return NextResponse.json({ error: 'Ese rol no existe' }, { status: 400 })
+    }
+
+    // El puesto (Comercial, Manager Comercial, Gestión Administrativa) y si la persona llama. Se valida ANTES de crear nada
+    const puesto = cambioDePuestoDeLaPeticion({ puesto: body.puesto, is_comercial: body.is_comercial }, role || 'employee')
+    if (!puesto.ok) {
+      return NextResponse.json({ error: puesto.error }, { status: 400 })
     }
 
     console.log('[CREATE USER] Received data:', { email, full_name, permissionsCount: permissions?.length || 0 })
@@ -249,6 +257,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // El puesto y, si la persona llama, su lista de leads propia. Ninguna de las dos cosas hace fallar el alta: se avisa y se arregla después
+    const avisos: string[] = []
+    const guardado = await guardarPuesto(supabaseAdmin, authData.user.id, puesto)
+    avisos.push(...guardado.avisos)
+    const suLista = await crearSuListaSiLlama(
+      supabaseAdmin,
+      sesion.userId,
+      { id: authData.user.id, nombre: full_name, correo: authData.user.email ?? email },
+      puesto,
+      body.crear_lista === true
+    )
+    avisos.push(...suLista.avisos)
+
     // Crear permisos si se proporcionaron
     // Asegurarnos de que el perfil existe antes de crear permisos
     if (permissions && Array.isArray(permissions) && permissions.length > 0) {
@@ -302,6 +323,8 @@ export async function POST(request: NextRequest) {
         email: authData.user.email,
         full_name,
       },
+      lista: suLista.lista,
+      avisos,
     })
   } catch (error: any) {
     console.error('[CREATE USER] Unexpected error:', {

@@ -578,6 +578,21 @@ export const PERMISO_STOCK_SYNC = 'stock-sync'
 export const PERMISO_EQUIPO_COMERCIAL = 'equipo-comercial'
 
 /**
+ * EL PERMISO QUE DEJA GESTIONAR LAS LISTAS DE LEADS DE COLD CALLING.
+ *
+ * Abre, dentro de Cold Calling, la vista «Listas»: ver todas las listas y lo usadas que están, crear listas, mover leads de una lista a otra, asignar una lista o
+ * unos leads a un comercial y añadir tiendas del banco. Es el permiso del manager comercial.
+ *
+ * ES SUELTO (una casilla en Gestión de Usuarios, sin tarjeta ni entrada de menú) por la misma razón que 'equipo-comercial': para no tener que dar el rol 'partner', que
+ * arrastra Tesorería, Facturación y las nóminas. Cambiar el dueño de un lead es de dirección (el trigger de la migración 212 lo impide desde el navegador); esta casilla
+ * lo permite SOLO a través de la vista «Listas», que lo hace en el servidor con la clave de servicio, queda apuntado en `cold_lead_movimientos` y se puede deshacer.
+ *
+ * EL ID TIENE QUE COINCIDIR LETRA POR LETRA en cuatro sitios: aquí, en la función SQL `puede_gestionar_listas` de la migración 257, en lib/cold-calling/listas-acceso.ts
+ * y en lib/permisos-cliente.ts. Si baila en uno, la casilla se marca, no da ningún error y no pasa nada —exactamente lo que ocurrió con 'stock-sync' y con 'growth'—.
+ */
+export const PERMISO_GESTION_LISTAS = 'gestion-listas'
+
+/**
  * EL PERMISO QUE DEJA ELEGIR QUÉ BANDEJA DE CORREO LEER.
  *
  * Es un permiso SUELTO (una casilla en Gestión de Usuarios, sin tarjeta ni entrada de menú) que se da persona a persona.
@@ -660,6 +675,16 @@ export const PERMISOS_SUELTOS: ReadonlyArray<{ id: string; name: string; descrip
       'Facturación, ni Comisiones y su liquidación, ni el coste o el sueldo de ningún empleado, ' +
       'ni Amazon API: para eso hace falta ser admin o partner, y esta casilla existe justo para ' +
       'no tener que dar ese rol.',
+  },
+  {
+    id: PERMISO_GESTION_LISTAS,
+    name: 'Gestión de listas de leads',
+    description:
+      'Para un manager comercial. Abre, dentro de Cold Calling, la vista «Listas»: ve todas las listas y ' +
+      'lo usadas y llamadas que están, crea listas, mueve leads de una a otra, asigna una lista o unos leads ' +
+      'a un comercial (esto SÍ cambia el dueño del lead, pero solo desde esa vista, con rastro y pudiendo ' +
+      'deshacerlo) y añade tiendas del banco. Hace falta además la casilla de Cold Calling. NO abre ' +
+      'Tesorería, Facturación, Comisiones ni los sueldos.',
   },
   {
     id: PERMISO_CORREO_SUPERVISION,

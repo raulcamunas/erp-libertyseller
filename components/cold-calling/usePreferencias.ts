@@ -21,7 +21,7 @@ export interface Preferencias {
   propietario: string | null
 }
 
-const VISTAS: ReadonlySet<string> = new Set(['ficha', 'tabla', 'rellamadas'])
+const VISTAS: ReadonlySet<string> = new Set(['ficha', 'tabla', 'rellamadas', 'listas'])
 const ORDENES: ReadonlySet<string> = new Set(['revenue_desc', 'revenue_asc', 'due_first', 'name', 'prioridad'])
 
 /** Dónde se guardan las preferencias de una persona. Lo lee también ColdCallingApp, para pedir ya la cartera buena al montar */

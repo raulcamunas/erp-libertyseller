@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { PERMISO_CORREO_SUPERVISION, PERMISO_EQUIPO_COMERCIAL } from '@/lib/config/apps'
+import { PERMISO_CORREO_SUPERVISION, PERMISO_EQUIPO_COMERCIAL, PERMISO_GESTION_LISTAS } from '@/lib/config/apps'
 
 /**
  * LOS PERMISOS QUE DECIDEN QUÉ SE PINTA, LEÍDOS DESDE EL NAVEGADOR.
@@ -30,4 +30,10 @@ export async function puedeVerEquipoComercialEnNavegador(supabase: Lector, rol: 
 export async function puedeSupervisarCorreoEnNavegador(supabase: Lector, rol: string | null | undefined, userId: string): Promise<boolean> {
   if (rol === 'admin') return true
   return permisosSueltos(supabase, userId, [PERMISO_EQUIPO_COMERCIAL, PERMISO_CORREO_SUPERVISION])
+}
+
+/** ¿Puede gestionar las listas de leads (crear, mover, asignar, añadir del banco)? Administrador y partner, siempre; el resto, con el permiso suelto */
+export async function puedeGestionarListasEnNavegador(supabase: Lector, rol: string | null | undefined, userId: string): Promise<boolean> {
+  if (rol === 'admin' || rol === 'partner') return true
+  return permisosSueltos(supabase, userId, [PERMISO_GESTION_LISTAS])
 }

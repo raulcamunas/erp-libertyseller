@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ManagedUser, CreateUserData, type RolUsuario } from '@/lib/types/users'
+import { ManagedUser, CreateUserData } from '@/lib/types/users'
 import { APPS_SIN_EFECTO, PERMISOS_SUELTOS, apps } from '@/lib/config/apps'
+import { aplicarPuesto, esComercialDelPuesto, etiquetaDeRol, llevaListaPropia, opcionDeRol, rolYPuestoDe, type OpcionDeRol } from '@/lib/usuarios/puestos'
 
 /**
  * LAS CASILLAS QUE SE OFRECEN, que NO son lo mismo que las apps del menú.
@@ -24,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus, Trash2, Save, X, Edit } from 'lucide-react'
 import { AccesosRemesas } from './AccesosRemesas'
+import { SelectorDeRol } from './SelectorDeRol'
 import { toast } from 'sonner'
 import {
   Dialog,
@@ -33,6 +35,29 @@ import {
 } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Checkbox } from '@/components/ui/checkbox'
+
+/** Un formulario en blanco: empleado sin puesto, sin casillas marcadas */
+const formularioVacio = (): CreateUserData => ({
+  email: '',
+  password: '',
+  full_name: '',
+  role: 'employee',
+  puesto: null,
+  is_comercial: false,
+  crear_lista: false,
+  permissions: COLUMNAS_PERMISO.map(app => ({ app_id: app.id, can_access: false })),
+})
+
+/** El color de la insignia de cada rol o puesto en la tabla */
+const COLOR_DE_OPCION: Record<OpcionDeRol, string> = {
+  admin: 'bg-[#FF6600]/20 text-[#FF6600] border border-[#FF6600]/30',
+  partner: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
+  comercial: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
+  manager_comercial: 'bg-violet-500/15 text-violet-300 border border-violet-500/30',
+  gestion_administrativa: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
+  employee: 'bg-white/10 text-white/70 border border-white/20',
+  cliente: 'bg-white/10 text-white/70 border border-white/20',
+}
 
 export function UsersManagement() {
   const [users, setUsers] = useState<ManagedUser[]>([])
@@ -45,13 +70,29 @@ export function UsersManagement() {
   const supabase = createClient()
 
   // Form state
-  const [formData, setFormData] = useState<CreateUserData>({
-    email: '',
-    password: '',
-    full_name: '',
-    role: 'employee',
-    permissions: COLUMNAS_PERMISO.map(app => ({ app_id: app.id, can_access: false })),
-  })
+  const [formData, setFormData] = useState<CreateUserData>(formularioVacio())
+
+  /**
+   * Cambiar el rol o el puesto en el formulario. Un puesto se guarda como empleado + puesto y pre-marca sus casillas: al CREAR se sustituyen las que hubiera (no hay nada que
+   * conservar), al EDITAR se suman a las que ya tenía la persona (cambiar de puesto no le quita lo que ya se le dio).
+   */
+  const cambiarOpcion = (opcion: OpcionDeRol, modo: 'sustituir' | 'sumar') => {
+    const { role, puesto } = rolYPuestoDe(opcion)
+    setFormData(previo => {
+      const llama = esComercialDelPuesto(puesto, previo.is_comercial) ?? previo.is_comercial ?? false
+      return {
+        ...previo,
+        role,
+        puesto,
+        is_comercial: llama,
+        crear_lista: modo === 'sustituir' && llevaListaPropia(puesto, llama),
+        permissions: aplicarPuesto(previo.permissions, puesto, modo),
+      }
+    })
+  }
+
+  /** Lo que se manda de `is_comercial`: lo fija el puesto; sin puesto no se manda (no se toca lo que la persona ya tenía) */
+  const llamaParaEnviar = (): boolean | undefined => (formData.puesto ? esComercialDelPuesto(formData.puesto, formData.is_comercial ?? false) : undefined)
 
   useEffect(() => {
     loadUsers()
@@ -82,6 +123,8 @@ export function UsersManagement() {
         email: profile.email || '',
         full_name: profile.full_name,
         role: profile.role,
+        puesto: profile.puesto ?? null,
+        is_comercial: profile.is_comercial === true,
         created_at: profile.created_at,
         permissions: (permissions || []).filter(p => p.user_id === profile.id),
       }))
@@ -120,6 +163,9 @@ export function UsersManagement() {
           password: formData.password,
           full_name: formData.full_name,
           role: formData.role || 'employee',
+          puesto: formData.puesto ?? null,
+          is_comercial: llamaParaEnviar(),
+          crear_lista: formData.crear_lista === true && llevaListaPropia(formData.puesto ?? null, formData.is_comercial === true),
           permissions: formData.permissions,
         }),
       })
@@ -143,14 +189,10 @@ export function UsersManagement() {
         throw new Error(errorMessage)
       }
 
-      toast.success('Usuario creado correctamente')
+      toast.success(data?.lista ? `Usuario creado. Su lista «${data.lista}» está creada y asignada.` : 'Usuario creado correctamente')
+      for (const aviso of (data?.avisos ?? []) as string[]) toast.warning(aviso)
       setIsCreateModalOpen(false)
-      setFormData({
-        email: '',
-        password: '',
-        full_name: '',
-        permissions: COLUMNAS_PERMISO.map(app => ({ app_id: app.id, can_access: false })),
-      })
+      setFormData(formularioVacio())
       loadUsers()
     } catch (error: any) {
       console.error('[FRONTEND] Error creating user:', {
@@ -204,6 +246,9 @@ export function UsersManagement() {
       password: '', // No prellenar contraseña por seguridad
       full_name: user.full_name || '',
       role: user.role,
+      puesto: user.puesto ?? null,
+      is_comercial: user.is_comercial === true,
+      crear_lista: false,
       permissions: COLUMNAS_PERMISO.map(app => ({
         app_id: app.id,
         can_access: hasPermission(user, app.id),
@@ -231,6 +276,8 @@ export function UsersManagement() {
           full_name: formData.full_name,
           password: formData.password || undefined, // Solo enviar si se proporciona
           role: formData.role || 'employee',
+          puesto: formData.puesto ?? null,
+          is_comercial: llamaParaEnviar(),
           permissions: formData.permissions,
         }),
       })
@@ -244,14 +291,10 @@ export function UsersManagement() {
       }
 
       toast.success('Usuario actualizado correctamente')
+      for (const aviso of (data?.avisos ?? []) as string[]) toast.warning(aviso)
       setIsEditModalOpen(false)
       setEditingUser(null)
-      setFormData({
-        email: '',
-        password: '',
-        full_name: '',
-        permissions: COLUMNAS_PERMISO.map(app => ({ app_id: app.id, can_access: false })),
-      })
+      setFormData(formularioVacio())
       loadUsers()
     } catch (error: any) {
       console.error('Error updating user:', error)
@@ -350,15 +393,11 @@ export function UsersManagement() {
                     <TableCell className="text-white">{user.email}</TableCell>
                     <TableCell className="text-white">{user.full_name || '-'}</TableCell>
                     <TableCell>
-                      <span className={cn(
-                        "px-2 py-1 rounded-full text-xs font-semibold",
-                        user.role === 'admin'
-                          ? "bg-[#FF6600]/20 text-[#FF6600] border border-[#FF6600]/30"
-                          : user.role === 'partner'
-                          ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                          : "bg-white/10 text-white/70 border border-white/20"
-                      )}>
-                        {user.role === 'admin' ? 'Admin' : user.role === 'partner' ? 'Partner' : 'Empleado'}
+                      <span
+                        title={user.puesto === 'manager_comercial' && user.is_comercial ? 'También llama: sale en el equipo de Cold Calling y en la Agenda' : undefined}
+                        className={cn("px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap", COLOR_DE_OPCION[opcionDeRol(user.role, user.puesto)])}
+                      >
+                        {etiquetaDeRol(user.role, user.puesto)}
                       </span>
                     </TableCell>
                     {COLUMNAS_PERMISO.map(app => (
@@ -455,22 +494,13 @@ export function UsersManagement() {
                 />
               </div>
 
-              <div>
-                <Label htmlFor="edit-role" className="text-sm font-semibold text-white mb-2 block">
-                  Rol
-                </Label>
-                <select
-                  id="edit-role"
-                  value={formData.role || 'employee'}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as RolUsuario })}
-                  className="w-full h-10 rounded-xl border border-white/10 bg-[#0a0a0a] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:ring-offset-2 focus:border-[#FF6600]"
-                >
-                  <option value="employee">Empleado</option>
-                  <option value="admin">Admin</option>
-                  <option value="partner">Partner</option>
-                  <option value="cliente">Cliente (solo Remesas a FBA)</option>
-                </select>
-              </div>
+              <SelectorDeRol
+                idBase="edit-role"
+                opcion={opcionDeRol(formData.role, formData.puesto)}
+                onCambiar={(o) => cambiarOpcion(o, 'sumar')}
+                llama={formData.is_comercial === true}
+                onLlama={(v) => setFormData({ ...formData, is_comercial: v })}
+              />
             </div>
 
             {/* Un cliente no tiene apps del ERP: tiene CUENTAS de Amazon a las que
@@ -598,22 +628,15 @@ export function UsersManagement() {
                 />
               </div>
 
-              <div>
-                <Label htmlFor="role" className="text-sm font-semibold text-white mb-2 block">
-                  Rol
-                </Label>
-                <select
-                  id="role"
-                  value={formData.role || 'employee'}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as RolUsuario })}
-                  className="w-full h-10 rounded-xl border border-white/10 bg-[#0a0a0a] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:ring-offset-2 focus:border-[#FF6600]"
-                >
-                  <option value="employee">Empleado</option>
-                  <option value="admin">Admin</option>
-                  <option value="partner">Partner</option>
-                  <option value="cliente">Cliente (solo Remesas a FBA)</option>
-                </select>
-              </div>
+              <SelectorDeRol
+                idBase="role"
+                opcion={opcionDeRol(formData.role, formData.puesto)}
+                onCambiar={(o) => cambiarOpcion(o, 'sustituir')}
+                llama={formData.is_comercial === true}
+                onLlama={(v) => setFormData({ ...formData, is_comercial: v, crear_lista: v })}
+                crearLista={formData.crear_lista === true}
+                onCrearLista={(v) => setFormData({ ...formData, crear_lista: v })}
+              />
             </div>
 
             {/* Permisos por aplicación */}

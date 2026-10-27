@@ -1,6 +1,6 @@
 'use client'
 
-import { CalendarClock, Link2, Loader2, PanelRight, Table2, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Link2, ListChecks, Loader2, PanelRight, Table2, type LucideIcon } from 'lucide-react'
 import type { ResumenDeCartera } from '@/lib/cold-calling/cartera'
 import { BOTON, CIFRAS, INSIGNIA, TITULO } from '@/lib/estilo/denso'
 import type { CalendarPerson } from '@/lib/types/appointments'
@@ -17,12 +17,13 @@ import { Numero } from '@/components/rendimiento/ui'
  * contaba las atrasadas y la otra no, y parecía que la pantalla estaba rota.
  */
 
-export type VistaDeCartera = 'ficha' | 'tabla' | 'rellamadas'
+export type VistaDeCartera = 'ficha' | 'tabla' | 'rellamadas' | 'listas'
 
 const VISTAS: ReadonlyArray<{ id: VistaDeCartera; icono: LucideIcon; etiqueta: string; ayuda: string }> = [
   { id: 'ficha', icono: PanelRight, etiqueta: 'Ficha', ayuda: 'La lista a la izquierda y la ficha del lead a la derecha: para trabajar un lead a fondo' },
   { id: 'tabla', icono: Table2, etiqueta: 'Tabla', ayuda: 'Como el Excel: muchos leads a la vez, con el estado y la rellamada editables en la fila' },
   { id: 'rellamadas', icono: CalendarClock, etiqueta: 'Rellamadas', ayuda: 'La agenda del día: a quién se prometió volver a llamar' },
+  { id: 'listas', icono: ListChecks, etiqueta: 'Listas', ayuda: 'Las listas de leads: lo usadas que están, mover leads entre ellas, asignarlas al equipo y añadir tiendas nuevas' },
 ]
 
 interface Props {
@@ -36,18 +37,22 @@ interface Props {
   /** Se están trayendo leads de otro comercial */
   cargando: boolean
   onTelefonos: () => void
+  /** ¿Puede gestionar las listas de leads? Solo entonces sale la vista «Listas» */
+  puedeGestionarListas: boolean
 }
 
 const porcentaje = (p: number) => `${(p * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`
 
-export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, propietario, onPropietario, cargando, onTelefonos }: Props) {
+export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, propietario, onPropietario, cargando, onTelefonos, puedeGestionarListas }: Props) {
+  // En «Listas» la cabecera se queda en el título y las vistas: las cifras y el selector de cartera son de una cartera, y esa pantalla trae las suyas
+  const enListas = vista === 'listas'
   const trabajadosPct = resumen.total > 0 ? resumen.trabajados / resumen.total : 0
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <h1 className={TITULO.pantalla}>Cold Calling</h1>
 
-      <div className={`${CIFRAS.tira} max-w-full overflow-x-auto`} role="group" aria-label="Resumen de la cartera">
+      <div className={`${CIFRAS.tira} max-w-full overflow-x-auto ${enListas ? 'hidden' : ''}`} role="group" aria-label="Resumen de la cartera">
         <div className={CIFRAS.celda}>
           <span className={CIFRAS.valor}>
             <Numero valor={resumen.total} />
@@ -80,13 +85,13 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
       </div>
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        {cargando && (
+        {cargando && !enListas && (
           <span className="flex items-center gap-1.5 text-[11.5px] text-[var(--ls-t4)]" role="status">
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Cargando leads…
           </span>
         )}
 
-        {puedeVerTodos && team.length > 0 && (
+        {puedeVerTodos && team.length > 0 && !enListas && (
           <select value={propietario} onChange={(e) => onPropietario(e.target.value)} aria-label="Cartera de" className={`${BOTON.chip} !h-7 cursor-pointer !pr-1.5 outline-none`}>
             <option value="all" className="bg-[var(--ls-sup)]">
               Todos los comerciales
@@ -106,7 +111,7 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
         )}
 
         <div role="group" aria-label="Vista" className="flex items-center gap-0.5 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-0.5">
-          {VISTAS.map((v) => {
+          {VISTAS.filter((v) => v.id !== 'listas' || puedeGestionarListas).map((v) => {
             const activa = vista === v.id
             const Icono = v.icono
             return (

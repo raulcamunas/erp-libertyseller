@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/lib/auth/api'
+import { cambioDePuestoDeLaPeticion } from '@/lib/usuarios/puestos'
+import { guardarPuesto } from '@/lib/usuarios/puestos-servidor'
 
 /** Los cuatro roles del ERP. Cualquier otra cosa en `role` se rechaza */
 const ROLES_VALIDOS = new Set(['admin', 'employee', 'partner', 'cliente'])
@@ -84,6 +86,20 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    // El puesto y si la persona llama. Se valida ANTES de tocar nada, con el rol que tendrá al terminar (el de la petición, o el que ya tenía)
+    let puesto: ReturnType<typeof cambioDePuestoDeLaPeticion> | null = null
+    if (body.puesto !== undefined || body.is_comercial !== undefined || role) {
+      let rolFinal: string | null = role || null
+      if (!rolFinal) {
+        const { data: actual } = await supabaseAdmin.from('profiles').select('role').eq('id', userId).single()
+        rolFinal = actual?.role ?? 'employee'
+      }
+      puesto = cambioDePuestoDeLaPeticion({ puesto: body.puesto, is_comercial: body.is_comercial }, rolFinal as string)
+      if (!puesto.ok) {
+        return NextResponse.json({ error: puesto.error }, { status: 400 })
+      }
+    }
+
     // Actualizar email en auth.users si se proporciona
     if (email) {
       const { error: emailError } = await supabaseAdmin.auth.admin.updateUserById(
@@ -137,6 +153,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // El puesto y si llama: no hace fallar la edición, se avisa
+    const avisos: string[] = []
+    if (puesto && puesto.ok) avisos.push(...(await guardarPuesto(supabaseAdmin, userId, puesto)).avisos)
+
     // Actualizar permisos si se proporcionaron
     if (permissions && Array.isArray(permissions)) {
       // Primero, eliminar todos los permisos existentes del usuario
@@ -174,6 +194,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Usuario actualizado correctamente',
+      avisos,
     })
   } catch (error: any) {
     console.error('Error in update user API:', error)

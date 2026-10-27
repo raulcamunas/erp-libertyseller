@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { puedeVerEquipoComercialEnNavegador } from '@/lib/permisos-cliente'
+import { puedeGestionarListasEnNavegador, puedeVerEquipoComercialEnNavegador } from '@/lib/permisos-cliente'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import type { CalendarPerson } from '@/lib/types/appointments'
@@ -37,6 +37,7 @@ const supervisaPorRol = (perfil: UserProfile) => perfil.role === 'admin' || perf
 export function ColdCallingApp({ perfil, activa }: Props) {
   const supabase = useMemo(() => createClient(), [])
   const [puedeVerTodos, setPuedeVerTodos] = useState(() => supervisaPorRol(perfil))
+  const [puedeListas, setPuedeListas] = useState(() => supervisaPorRol(perfil))
   const [team, setTeam] = useState<CalendarPerson[]>([])
 
   // Una sola vez: la cartera que se pide al montar. Quien no supervisa no elige: la RLS ya le da solo la suya
@@ -62,6 +63,19 @@ export function ColdCallingApp({ perfil, activa }: Props) {
     }
   }, [supabase, perfil])
 
+  // Y el de gestionar las listas de leads (la vista «Listas»): administrador y partner, o la casilla suelta del manager comercial. No es el filtro de verdad —las rutas de
+  // /api/cold-calling/listas lo comprueban otra vez y las funciones SQL una tercera—: solo decide si se ofrece la vista
+  useEffect(() => {
+    if (supervisaPorRol(perfil)) return
+    let vivo = true
+    void puedeGestionarListasEnNavegador(supabase, perfil.role, perfil.id).then((v) => {
+      if (vivo) setPuedeListas(v)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [supabase, perfil])
+
   // La lista de comerciales, para el selector y para decir quién es quién en el historial
   useEffect(() => {
     if (!puedeVerTodos) return
@@ -81,7 +95,7 @@ export function ColdCallingApp({ perfil, activa }: Props) {
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
-      <ColdCallingBoard propietarioInicial={propietarioInicial} team={team} currentUser={perfil} puedeVerTodos={puedeVerTodos} activa={activa} />
+      <ColdCallingBoard propietarioInicial={propietarioInicial} team={team} currentUser={perfil} puedeVerTodos={puedeVerTodos} puedeGestionarListas={puedeListas} activa={activa} />
     </div>
   )
 }

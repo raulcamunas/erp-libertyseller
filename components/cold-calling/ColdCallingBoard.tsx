@@ -25,6 +25,7 @@ import { DiagnosticoDeVinculos } from './DiagnosticoDeVinculos'
 import { FichaDelLead } from './FichaDelLead'
 import { FiltrosDeLista } from './FiltrosDeLista'
 import { ListaDeLeads, ListaPorSecciones, type SeccionDeLista } from './ListaDeLeads'
+import { PantallaDeListas } from './listas/PantallaDeListas'
 import { NavegadorDeDias } from './NavegadorDeDias'
 import { TablaDeLeads } from './TablaDeLeads'
 import { Tecla } from './ui'
@@ -55,6 +56,8 @@ interface Props {
   team: CalendarPerson[]
   currentUser: UserProfile
   puedeVerTodos: boolean
+  /** ¿Puede gestionar las listas de leads (crearlas, moverles leads, asignarlas, añadirles tiendas)? Solo entonces existe la vista «Listas» */
+  puedeGestionarListas: boolean
   /**
    * ¿Es la aplicación que se está viendo? Cold Calling se queda montada (oculta) mientras se trabaja en otra y se vuelve: lo único que
    * NO puede seguir haciendo mientras está oculta es secuestrar el teclado (↑ ↓ y «/» son de la pantalla que se ve). Lo demás —el canal
@@ -85,13 +88,15 @@ function useHoy(): string {
   )
 }
 
-export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeVerTodos, activa }: Props) {
+export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeVerTodos, puedeGestionarListas, activa }: Props) {
   const hoy = useHoy()
   const esMovil = useIsMobile()
   const cartera = useCartera({ propietarioInicial, userId: currentUser.id })
   const { leads, propietario, cargando, incompleta, parchear, cambiarPropietario, refrescar, cargadaEn } = cartera
 
-  const [vista, setVista] = useState<VistaDeCartera>('ficha')
+  const [vistaElegida, setVista] = useState<VistaDeCartera>('ficha')
+  // La vista «Listas» solo existe para quien puede gestionarlas: si se recordó de otra vez y ya no puede (le quitaron la casilla), se vuelve a la ficha
+  const vista: VistaDeCartera = vistaElegida === 'listas' && !puedeGestionarListas ? 'ficha' : vistaElegida
   const [filtros, setFiltros] = useState<FiltrosDeCartera>(SIN_FILTROS)
   const [seleccionado, setSeleccionado] = useState<string | null>(null)
   const [diaElegido, setDiaElegido] = useState<string | null>(null)
@@ -124,7 +129,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     return mapa
   }, [team, currentUser])
 
-  const preferenciasListas = usePreferencias(currentUser.id, puedeVerTodos, { vista, filtros, propietario: puedeVerTodos ? propietario : null }, (leidas) => {
+  const preferenciasListas = usePreferencias(currentUser.id, puedeVerTodos, { vista: vistaElegida, filtros, propietario: puedeVerTodos ? propietario : null }, (leidas) => {
     if (leidas.vista) setVista(leidas.vista)
     if (leidas.filtros) setFiltros(leidas.filtros)
     if (puedeVerTodos && leidas.propietario && leidas.propietario !== propietarioInicial && (leidas.propietario === 'all' || team.some((t) => t.id === leidas.propietario))) cartera.cambiarPropietario(leidas.propietario)
@@ -205,7 +210,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   // efecto de su hook mide la pantalla, así que aquí se mira la pantalla directamente
   // Y no antes de haber leído las preferencias: con los filtros de ayer puestos, el primero de la lista NO es el primero de la cartera entera
   useEffect(() => {
-    if (!preferenciasListas || esMovil || vista === 'tabla' || leadSeleccionado || navegacion.length === 0) return
+    if (!preferenciasListas || esMovil || vista === 'tabla' || vista === 'listas' || leadSeleccionado || navegacion.length === 0) return
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) return
     setSeleccionado(navegacion[0].id)
   }, [preferenciasListas, esMovil, vista, leadSeleccionado, navegacion])
@@ -213,7 +218,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   // Teclado: ↑ ↓ cambian de lead y «/» va a la búsqueda. Nada de esto actúa mientras se escribe o hay un diálogo abierto, ni mientras la
   // pantalla está oculta (se está en Correo: las flechas y la barra son de lo que se ve)
   useEffect(() => {
-    if (!activa || vista === 'tabla') return
+    if (!activa || vista === 'tabla' || vista === 'listas') return
     const alPulsar = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || document.querySelector('[role="dialog"]')) return
       const el = e.target as HTMLElement | null
@@ -312,9 +317,10 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         onPropietario={cartera.cambiarPropietario}
         cargando={cargando}
         onTelefonos={() => setComprobando(true)}
+        puedeGestionarListas={puedeGestionarListas}
       />
 
-      {incompleta && !cargando && (
+      {incompleta && !cargando && vista !== 'listas' && (
         <div className={`${AVISO.base} ${AVISO.conTono} items-center`} style={{ borderLeftColor: COLOR_ESTADO.ambar }} role="alert">
           <AlertTriangle className={`${AVISO.icono} !mt-0 text-[var(--ls-e-ambar)]`} aria-hidden />
           <p className="flex-1">
@@ -326,7 +332,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         </div>
       )}
 
-      {vista === 'rellamadas' ? (
+      {vista === 'listas' ? null : vista === 'rellamadas' ? (
         <NavegadorDeDias dia={diaRellamadas} hoy={hoy} onDia={(d) => setDiaElegido(d === hoy ? null : d)} delDia={rell.delDia.length} atrasadas={rell.atrasadas.length} />
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -346,8 +352,10 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         </div>
       )}
 
-      <div className="min-h-0 min-w-0 flex-1">
-        {vista === 'tabla' ? (
+      <div className={`min-h-0 min-w-0 flex-1 ${vista === 'listas' ? 'flex flex-col' : ''}`}>
+        {vista === 'listas' ? (
+          <PantallaDeListas alCambiarLeads={() => void refrescar()} />
+        ) : vista === 'tabla' ? (
           <TablaDeLeads
             leads={pan.visibles}
             currentUserId={currentUser.id}

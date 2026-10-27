@@ -26,6 +26,12 @@ console.log('\n=== el formato de siempre se sigue leyendo ===')
   ok('y quien supervisa recupera la cartera que miraba', p.propietario === 'u-daniela')
 }
 
+console.log('\n=== la vista «Listas» ===')
+{
+  ok('se recuerda como cualquier otra vista', leerPreferencias(guardado({ view: 'listas' }), true).vista === 'listas')
+  ok('también la recupera quien no supervisa por rol (la pantalla decide si la ofrece según su casilla)', leerPreferencias(guardado({ view: 'listas' }), false).vista === 'listas')
+}
+
 console.log('\n=== quien no supervisa no se deja la cartera de otro ===')
 {
   const p = leerPreferencias(guardado({ view: 'ficha', ownerFilter: 'u-daniela' }), false)
