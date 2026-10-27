@@ -134,7 +134,7 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
         supabase.from('crm_etapas_historial').select('client_id, etapa, desde, origen').order('id', { ascending: true }).range(desde, hasta)
       ),
       leerTablaNueva<NotaLigera>('notas de reunión', (desde, hasta) =>
-        supabase.from('crm_notas_reunion').select('id, client_id, estado, fecha_reunion, interes:analisis->interes->>nivel').order('id', { ascending: true }).range(desde, hasta)
+        supabase.from('crm_notas_reunion').select('id, client_id, estado, fecha_reunion, interes:analisis->interes->>nivel').neq('estado', 'ignorada').order('id', { ascending: true }).range(desde, hasta)
       ),
     ])
 

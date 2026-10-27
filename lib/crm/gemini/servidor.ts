@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { almacenDeSupabase, esTablaInexistente, FALTA_MIGRACION_NOTAS } from './almacen'
 import { fuenteDeGoogleReal, googleEstaConfigurado } from './google'
-import { sincronizarNotasDeGemini, type ResultadoDeSincronizacion } from './sincronizar'
+import { sincronizarNotasDeGemini, type OpcionesDeSincronizacion, type ResultadoDeSincronizacion } from './sincronizar'
 
 /**
  * UNA PASADA DE SINCRONIZACIÓN, CON LAS PIEZAS DE VERDAD, Y EL TEXTO QUE SE ENSEÑA DE ELLA.
@@ -37,7 +37,7 @@ export function resumenDeLaPasada(r: ResultadoDeSincronizacion): string {
   return texto
 }
 
-export async function pasadaDeNotas(db: SupabaseClient): Promise<PasadaDeNotas> {
-  const resultado = await sincronizarNotasDeGemini(fuenteDeGoogleReal(), almacenDeSupabase(db))
+export async function pasadaDeNotas(db: SupabaseClient, opciones: OpcionesDeSincronizacion = {}): Promise<PasadaDeNotas> {
+  const resultado = await sincronizarNotasDeGemini(fuenteDeGoogleReal(), almacenDeSupabase(db), opciones)
   return { resultado, resumen: resumenDeLaPasada(resultado) }
 }

@@ -125,7 +125,7 @@ export function HubCrm({
 
   const refrescarNotas = useCallback(async () => {
     if (migracionFalta) return
-    const { data, error } = await supabase.from('crm_notas_reunion').select('id, client_id, estado, fecha_reunion, interes:analisis->interes->>nivel')
+    const { data, error } = await supabase.from('crm_notas_reunion').select('id, client_id, estado, fecha_reunion, interes:analisis->interes->>nivel').neq('estado', 'ignorada')
     if (error) {
       if (!esTablaInexistente(error)) console.error('No se pudieron releer las notas de reunión:', error)
       return
