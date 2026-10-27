@@ -2,7 +2,7 @@
 
 import { useRef } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, Clock3, Contact, Loader2, Plus, RefreshCw, Table2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Clock3, Loader2, Plus, RefreshCw, Table2 } from 'lucide-react'
 import { BOTON, PANTALLA, TEXTO, TITULO } from '@/lib/estilo/denso'
 
 /**
@@ -126,12 +126,6 @@ export function BarraDeAgenda({
             <Table2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Desglose de citas</span>
           </Link>
-          {esAdmin && (
-            <Link href="/dashboard/agenda/crm" className={botonSecundario}>
-              <Contact className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">CRM de clientes</span>
-            </Link>
-          )}
           <button type="button" onClick={onNueva} className={`${BOTON.base} ${BOTON.primario} ${BOTON.alto}`}>
             <Plus className="h-3.5 w-3.5" />
             Nueva cita

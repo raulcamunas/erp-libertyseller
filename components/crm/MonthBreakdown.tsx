@@ -101,7 +101,7 @@ export function MonthBreakdown({
   // comisiones que «Mis Horas». Es el comportamiento que ya había: se
   // mantiene tal cual para no cambiar cifras en el mismo cambio que mueve
   // el cálculo de sitio. Se arregla pasándolas por props desde
-  // app/dashboard/agenda/crm/page.tsx.
+  // app/dashboard/crm/page.tsx.
   const costs = useMemo(() => {
     const input = { month: monthKey, hours, rates, qualified }
     const rows = team.map((p) => {

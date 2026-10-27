@@ -29,6 +29,7 @@ import {
   Sunrise,
   Wrench,
   BookOpenText,
+  Handshake,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -91,6 +92,19 @@ export const apps: AppConfig[] = [
     description: 'Calendario de citas del equipo, sincronizado con Google Calendar',
     icon: CalendarDays,
     route: '/dashboard/agenda',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // EL CRM DE CLIENTES, que vivía como un botón de la Agenda (/dashboard/agenda/crm) y ahora es una entrada del menú lateral con su propia ruta. Lo ve un administrador
+    // y quien supervisa al equipo comercial (el permiso suelto 'equipo-comercial'), nadie más: es el mismo corte que ya tenía la pantalla y que aplican las políticas RLS
+    // de la migración 212 sobre las tablas crm_*. NO tiene casilla propia en Gestión de Usuarios que sirva (ver APPS_SIN_EFECTO): el acceso se da con aquel permiso.
+    // El id va LETRA POR LETRA igual que en APP_CRM, en el filtro del menú (AppSidebar) y en el de la rejilla de Inicio.
+    id: 'crm',
+    name: 'CRM de clientes',
+    description: 'Cada cliente en un solo sitio: su fase, lo hablado en la reunión, la propuesta y los documentos',
+    icon: Handshake,
+    route: '/dashboard/crm',
     status: 'new',
     category: 'core'
   },
@@ -554,6 +568,8 @@ export const APPS_OCULTAS_A_ADMIN: ReadonlySet<string> = new Set([
 
 export const APP_GROWTH = 'growth'
 export const PERMISO_STOCK_SYNC = 'stock-sync'
+/** El id del CRM de clientes, escrito UNA vez: lo usan la entrada de `apps`, el filtro del menú, el de la rejilla de Inicio y APPS_SIN_EFECTO */
+export const APP_CRM = 'crm'
 
 /**
  * EL PERMISO QUE CONVIERTE A ALGUIEN EN SUPERVISOR DEL EQUIPO COMERCIAL.
@@ -628,6 +644,20 @@ export const PERMISO_CONFIG_CORREOS = 'config-correos'
  * si baila en uno, la pantalla se abre y la API contesta 403 sin decir por qué.
  */
 export const APP_TAX_REPORTS = 'tax-reports'
+
+/**
+ * ¿Ve esta persona el CRM de clientes en el menú?
+ *
+ * Administrador, o quien tenga el permiso suelto 'equipo-comercial' (el manager de captación). Es lo mismo que decide la página con puedeVerEquipoComercial() y la
+ * función SQL `puede_ver_equipo_comercial` de la 212 que usan las políticas RLS: si la entrada del menú se abriera para alguien a quien la base le cierra las tablas,
+ * vería una pantalla vacía sin saber por qué. Aquí solo se decide QUÉ SE PINTA; quien manda es la RLS.
+ */
+export function puedeVerCrm(
+  rol: string | null | undefined,
+  permisos: ReadonlySet<string>
+): boolean {
+  return rol === 'admin' || (rol === 'employee' && permisos.has(PERMISO_EQUIPO_COMERCIAL))
+}
 
 export function puedeVerGrowth(
   rol: string | null | undefined,
@@ -723,6 +753,10 @@ export const APPS_SIN_EFECTO: ReadonlyMap<string, string> = new Map([
   [
     APP_GROWTH,
     'Growth Partner es solo para administradores. Para dar acceso al mapeo de stock, usa la casilla «Mapeo de stock».',
+  ],
+  [
+    APP_CRM,
+    'El CRM de clientes lo ve un administrador y quien tenga la casilla «Supervisión del equipo comercial»; esta casilla no abre nada por sí sola.',
   ],
 ])
 

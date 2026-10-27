@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
-import { apps, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, puedeVerGrowth } from '@/lib/config/apps'
+import { apps, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CRM, APP_GROWTH, puedeVerCrm, puedeVerGrowth } from '@/lib/config/apps'
 import { InicioApps } from '@/components/inicio/InicioApps'
 import { primerNombre } from '@/lib/inicio/saludo'
 
@@ -83,6 +83,11 @@ export default async function DashboardPage() {
     // dentro solo ve el sincronismo. Ver lib/growth/acceso.ts.
     if (app.id === APP_GROWTH) {
       return puedeVerGrowth(profile.role, userPermissions)
+    }
+
+    // El CRM de clientes: admin, o quien supervisa al equipo comercial ('equipo-comercial').
+    if (app.id === APP_CRM) {
+      return puedeVerCrm(profile.role, userPermissions)
     }
 
     // Para admins, acceso a todo

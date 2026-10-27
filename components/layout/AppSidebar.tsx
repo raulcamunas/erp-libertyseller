@@ -8,7 +8,7 @@ import { Logo } from '@/components/ui/Logo'
 import { NotificationsBell } from '@/components/layout/NotificationsBell'
 import { leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
-import { apps, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_GROWTH, GRUPOS_DEL_MENU, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
+import { apps, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CRM, APP_GROWTH, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
 import { etiquetaDeInsignia, inicialesDe, rutaActivaDelMenu } from '@/lib/layout/barra'
 import { aplanarMenu, armarMenu, grupoDeLaRuta, rutaParaElMenu } from '@/lib/layout/menu'
@@ -189,6 +189,10 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     // arriba: si no, parpadea en el menú de cualquiera.
     if (app.id === APP_GROWTH) {
       return puedeVerGrowth(userRole, userPermissions)
+    }
+    // El CRM de clientes: admin, o quien supervisa al equipo comercial ('equipo-comercial'). Antes del «si aún no se ha cargado el rol»: no parpadea en el menú de nadie
+    if (app.id === APP_CRM) {
+      return puedeVerCrm(userRole, userPermissions)
     }
     // Si aún no se ha cargado el rol, mostrar todas temporalmente (evita parpadeo)
     if (userRole === null) return true

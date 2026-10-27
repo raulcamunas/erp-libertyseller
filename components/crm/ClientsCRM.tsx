@@ -61,7 +61,7 @@ interface ClientsCRMProps {
    * comisiones del equipo al que supervisa están fuera de su alcance.
    *
    * Cuando es false, `workHours` y `payrollRates` llegan VACÍOS desde el servidor
-   * (app/dashboard/agenda/crm/page.tsx: ni se consultan). Esto de aquí esconde lo
+   * (app/dashboard/crm/page.tsx: ni se consultan). Esto de aquí esconde lo
    * que se calculaba con ellos, que si no saldría en cero y parecería un fallo:
    * el tile «Coste comerciales» y el botón del desglose del mes.
    */
