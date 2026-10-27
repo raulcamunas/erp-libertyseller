@@ -1,48 +1,29 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
-import { motion } from 'framer-motion'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { LibertyButton } from '@/components/ui/LibertyButton'
-import {
-  X,
-  Trash2,
-  Phone,
-  Mail,
-  Building2,
-  User,
-  Lock,
-  Video,
-  Clock3,
-  Check,
-  Euro,
-  CalendarClock,
-  Link2 as LinkIcon,
-  Mic,
-  Image as ImageIcon,
-  MessageSquare,
-  ShoppingBag,
-  Store,
-} from 'lucide-react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
+import { Check, Lock, Mic, Image as ImageIcon, MessageSquare, Store, Trash2, Video, X } from 'lucide-react'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { createClient } from '@/lib/supabase/client'
 import { toMadrid, fromMadrid } from '@/lib/timezone'
 import { DURACION_CITA_MS, tieneDuracionFija } from '@/lib/agenda/duracion'
+import {
+  camposDelEnlace,
+  CAMPOS_DE_LEAD_PARA_LA_CITA,
+  datosDeLaCitaDesdeLead,
+  enlaceDesdeLead,
+  idDelLeadEnlazado,
+  type EnlaceDeLead,
+  type LeadParaLaCita,
+} from '@/lib/agenda/cliente-lead'
+import { camposDeUnaCita, cuerpoDeLosCampos, traerDatosDelLead, type CamposDelFormulario } from '@/lib/agenda/formulario'
+import { BOTON, CAMPO, COLOR_ESTADO, INSIGNIA, TEXTO } from '@/lib/estilo/denso'
 import {
   AppointmentWithPeople,
   AppointmentStatus,
   CalendarPerson,
   TranscriptionStatus,
-  APPOINTMENT_STATUS_LABELS,
-  APPOINTMENT_STATUS_COLORS,
   VENDE_EN_AMAZON_LABELS,
   VENDE_EN_AMAZON_OPCIONES,
   colorForAgent,
@@ -53,6 +34,8 @@ import { AudioRecordingField } from './AudioRecordingField'
 import { AttachmentsField } from './AttachmentsField'
 import { TranscriptionPanel } from './TranscriptionPanel'
 import { CommentsThread } from './CommentsThread'
+import { BuscadorDeClientes } from './BuscadorDeClientes'
+import { ESTADO_DE_CITA, iniciales } from './estados'
 
 interface AppointmentSheetProps {
   mode: 'create' | 'edit'
@@ -66,9 +49,7 @@ interface AppointmentSheetProps {
   onDeleted: (id: string) => void
 }
 
-// Todas las fechas/horas de la cajita se muestran y se guardan en hora
-// de España, sea cual sea el huso horario del navegador (comerciales
-// en Latinoamérica incluidos).
+// Todas las fechas/horas de la ficha se muestran y se guardan en hora de España, sea cual sea el huso horario del navegador (comerciales en Latinoamérica incluidos)
 function toDateInput(d: Date) {
   return format(toMadrid(d), 'yyyy-MM-dd')
 }
@@ -79,196 +60,179 @@ function combine(dateStr: string, timeStr: string): Date {
   return fromMadrid(`${dateStr}T${timeStr}:00`)
 }
 
-function initials(name: string | null | undefined, fallback: string) {
-  const source = (name || fallback || '?').trim()
-  const parts = source.split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[1][0]).toUpperCase()
-}
+const STATUS_OPTIONS: AppointmentStatus[] = ['scheduled', 'confirmed', 'rescheduled', 'no_show', 'qualified', 'not_qualified', 'cancelled']
 
-const STATUS_OPTIONS: AppointmentStatus[] = [
-  'scheduled',
-  'confirmed',
-  'rescheduled',
-  'no_show',
-  'qualified',
-  'not_qualified',
-  'cancelled',
-]
+const ID_BUSCADOR = 'cita-buscador-de-clientes'
 
-// Input "fantasma" al estilo Notion: sin caja visible hasta que se
-// interactúa, para que cada fila ocupe lo mínimo posible.
-const ghostInput =
-  'w-full bg-transparent hover:bg-white/[0.04] focus:bg-white/[0.06] border border-transparent focus:border-white/15 rounded-md px-2 py-1 text-[13px] text-white outline-none transition-colors placeholder:text-white/25 disabled:opacity-50 disabled:hover:bg-transparent'
+/** Dos columnas. Escrita entera a propósito: Tailwind solo genera las clases que aparecen completas en el código, no las que se arman con un replace */
+const REJILLA_DE_CAMPOS = 'grid grid-cols-2 gap-x-2.5 gap-y-[9px]'
 
-const sectionVariants = {
-  hidden: { opacity: 0, y: 8 },
-  show: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: 0.03 * i, duration: 0.2, ease: 'easeOut' as const },
-  }),
-}
-
-function Section({
-  icon,
-  title,
-  index,
-  children,
-}: {
-  icon?: ReactNode
-  title: string
-  index: number
-  children: ReactNode
-}) {
+/** Una sección de la ficha: título pequeño arriba y una caja con lo suyo dentro */
+function Seccion({ titulo, icono, nota, children }: { titulo: string; icono?: ReactNode; nota?: ReactNode; children: ReactNode }) {
   return (
-    <motion.div
-      custom={index}
-      variants={sectionVariants}
-      initial="hidden"
-      animate="show"
-      className="rounded-xl border border-white/10 bg-white/[0.02] p-3"
-    >
-      <h3 className="text-[10px] font-semibold text-white/45 flex items-center gap-1.5 tracking-wider uppercase mb-1.5">
-        {icon}
-        {title}
+    <section className="rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
+      <h3 className="mb-2 flex min-h-[16px] items-center gap-1.5 text-[11px] font-semibold text-[var(--ls-t4)]">
+        {icono}
+        <span>{titulo}</span>
+        {nota && <span className="ml-auto font-normal text-[var(--ls-t4)]">{nota}</span>}
       </h3>
-      <div className="divide-y divide-white/[0.04]">{children}</div>
-    </motion.div>
+      {children}
+    </section>
   )
 }
 
-/** Fila de propiedad estilo Notion: icono + etiqueta a la izquierda, valor a la derecha */
-function PropertyRow({
-  icon,
-  label,
-  children,
+/** Un campo de texto con su etiqueta */
+function Entrada({
+  etiqueta, valor, onCambio, deshabilitado, placeholder, tipo = 'text', obligatorio, numerico, entera, paso, minimo, clase = '',
 }: {
-  icon?: ReactNode
-  label: string
-  children: ReactNode
+  etiqueta: string
+  valor: string
+  onCambio: (v: string) => void
+  deshabilitado: boolean
+  placeholder?: string
+  tipo?: 'text' | 'date' | 'time' | 'number'
+  obligatorio?: boolean
+  numerico?: 'decimal' | 'numeric'
+  entera?: boolean
+  paso?: string
+  minimo?: number
+  /** Clases extra del contenedor (para colocarlo en la rejilla) */
+  clase?: string
 }) {
+  const id = useId()
   return (
-    <div className="flex items-center gap-2 py-0.5">
-      <div className="w-[104px] flex-shrink-0 flex items-center gap-1.5 text-[12px] text-white/40">
-        {icon}
-        <span className="truncate">{label}</span>
-      </div>
-      <div className="flex-1 min-w-0">{children}</div>
+    <div className={`${CAMPO.contenedor} ${entera ? 'col-span-2' : ''} ${clase}`}>
+      <label htmlFor={id} className={CAMPO.etiqueta}>
+        {etiqueta}
+        {obligatorio && <span className={CAMPO.obligatorio}> *</span>}
+      </label>
+      <input
+        id={id}
+        type={tipo}
+        inputMode={numerico}
+        step={paso}
+        min={minimo}
+        value={valor}
+        onChange={(e) => onCambio(e.target.value)}
+        disabled={deshabilitado}
+        placeholder={placeholder}
+        className={`${CAMPO.input} disabled:opacity-60`}
+      />
     </div>
   )
 }
 
-export function AppointmentSheet({
-  mode,
-  appointment,
-  prefill,
-  team,
-  currentUser,
-  onClose,
-  onSaved,
-  onDeleted,
-}: AppointmentSheetProps) {
-  const initialStart = appointment
-    ? new Date(appointment.start_time)
-    : prefill?.start ?? new Date()
-  const initialEnd = appointment
-    ? new Date(appointment.end_time)
-    : prefill?.end ?? new Date(Date.now() + 60 * 60 * 1000)
+/** Una opción de un grupo de pastillas: la elegida se enciende */
+function Pastilla({ elegida, onClick, deshabilitada, children, color }: { elegida: boolean; onClick: () => void; deshabilitada: boolean; children: ReactNode; color?: string }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={elegida}
+      onClick={onClick}
+      disabled={deshabilitada}
+      // `chipEncendido` lleva `!` en el borde y el fondo y taparía el color propio de la pastilla (el de la persona o el del estado): con color se enciende por estilo
+      className={`${BOTON.chip} !h-[26px] gap-1.5 ${elegida ? (color ? '!text-[var(--ls-t1)] font-medium' : BOTON.chipEncendido) : ''} ${deshabilitada ? 'cursor-not-allowed opacity-60' : ''}`}
+      style={elegida && color ? { borderColor: color, background: `color-mix(in srgb, ${color} 16%, transparent)` } : undefined}
+    >
+      {children}
+    </button>
+  )
+}
 
-  const [leadName, setLeadName] = useState(appointment?.lead_name ?? '')
-  const [leadEmail, setLeadEmail] = useState(appointment?.lead_email ?? '')
-  const [leadPhone, setLeadPhone] = useState(appointment?.lead_phone ?? '')
-  const [leadCompany, setLeadCompany] = useState(appointment?.lead_company ?? '')
-  // Si el que agenda es uno de los comerciales, se autoselecciona a sí
-  // mismo como closer para evitar que elija a otra persona por error.
+export function AppointmentSheet({ mode, appointment, prefill, team, currentUser, onClose, onSaved, onDeleted }: AppointmentSheetProps) {
+  const supabase = useMemo(() => createClient(), [])
+  const initialStart = appointment ? new Date(appointment.start_time) : prefill?.start ?? new Date()
+  const initialEnd = appointment ? new Date(appointment.end_time) : prefill?.end ?? new Date(Date.now() + 60 * 60 * 1000)
+
+  const [campos, setCampos] = useState<CamposDelFormulario>(() => camposDeUnaCita(appointment))
+  const poner = <K extends keyof CamposDelFormulario>(clave: K, valor: CamposDelFormulario[K]) => setCampos((prev) => ({ ...prev, [clave]: valor }))
+
+  // Si el que agenda es uno de los comerciales, se autoselecciona a sí mismo como closer para evitar que elija a otra persona por error
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
-  // Un comercial (no admin) siempre agenda a su propio nombre: no puede
-  // elegir a otro closer, por si acaso se equivoca.
+  // Un comercial (no admin) siempre agenda a su propio nombre: no puede elegir a otro closer, por si acaso se equivoca
   const loggedInIsComercial = team.some((p) => p.id === currentUser.id)
   const closerLocked = loggedInIsComercial && !isAdmin
-  const [assignedCloser, setAssignedCloser] = useState<string>(
-    closerLocked ? currentUser.id : appointment?.assigned_closer_id ?? 'none'
-  )
+  const [assignedCloser, setAssignedCloser] = useState<string>(closerLocked ? currentUser.id : appointment?.assigned_closer_id ?? 'none')
   const [date, setDate] = useState(toDateInput(initialStart))
   const [startTime, setStartTime] = useState(toTimeInput(initialStart))
   const [endTime, setEndTime] = useState(toTimeInput(initialEnd))
-  const [status, setStatus] = useState<AppointmentStatus>(
-    appointment?.status ?? 'scheduled'
-  )
-  const [notes, setNotes] = useState(appointment?.notes ?? '')
-  const [revenueAmount, setRevenueAmount] = useState(
-    appointment?.revenue_amount != null ? String(appointment.revenue_amount) : ''
-  )
-  const [callDate, setCallDate] = useState(appointment?.call_date ?? '')
-  const [amazonLink, setAmazonLink] = useState(appointment?.amazon_link ?? '')
 
-  /**
-   * ¿VENDE YA EN AMAZON? VA ARRIBA Y ANTES DE AGENDAR, no con los datos
-   * comerciales.
-   *
-   * Es la primera pregunta de la llamada y la que decide el discurso entero: un
-   * seller que ya está en Amazon y una tienda que vende por su web son dos
-   * conversaciones distintas. Saberlo DESPUÉS de agendar no sirve para preparar
-   * la cita, que es justo para lo que sirve.
-   *
-   * Por eso es de los pocos campos que quedan FUERA del bloque que se desenfoca
-   * hasta guardar: ahí abajo está lo que se apunta tras la llamada, y esto se
-   * sabe antes.
-   */
-  const [vendeEnAmazon, setVendeEnAmazon] = useState<VendeEnAmazon>(
-    appointment?.vende_en_amazon ?? 'sin_comprobar'
-  )
-
-  // Los datos de su tienda. Solo se piden cuando NO vende en Amazon: ver el
-  // comentario del bloque en el JSX.
-  const [razonSocial, setRazonSocial] = useState(appointment?.razon_social ?? '')
-  const [cif, setCif] = useState(appointment?.cif ?? '')
-  const [sector, setSector] = useState(appointment?.sector ?? '')
-  const [ciudad, setCiudad] = useState(appointment?.ciudad ?? '')
-  const [plataforma, setPlataforma] = useState(appointment?.plataforma ?? '')
-  const [nProductos, setNProductos] = useState(
-    appointment?.n_productos != null ? String(appointment.n_productos) : ''
-  )
-  const [anosTienda, setAnosTienda] = useState(
-    appointment?.anos_tienda != null ? String(appointment.anos_tienda) : ''
-  )
-  const [web, setWeb] = useState(appointment?.web ?? '')
   const [recordingUrl, setRecordingUrl] = useState(appointment?.recording_url ?? null)
-  const [recordingFilename, setRecordingFilename] = useState(
-    appointment?.recording_filename ?? null
-  )
+  const [recordingFilename, setRecordingFilename] = useState(appointment?.recording_filename ?? null)
   const [transcription, setTranscription] = useState(appointment?.transcription ?? null)
-  const [transcriptionSummary, setTranscriptionSummary] = useState(
-    appointment?.transcription_summary ?? null
-  )
-  const [transcriptionStatus, setTranscriptionStatus] = useState<TranscriptionStatus>(
-    appointment?.transcription_status ?? 'none'
-  )
-  const [transcriptionError, setTranscriptionError] = useState(
-    appointment?.transcription_error ?? null
-  )
+  const [transcriptionSummary, setTranscriptionSummary] = useState(appointment?.transcription_summary ?? null)
+  const [transcriptionStatus, setTranscriptionStatus] = useState<TranscriptionStatus>(appointment?.transcription_status ?? 'none')
+  const [transcriptionError, setTranscriptionError] = useState(appointment?.transcription_error ?? null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   const isExternal = appointment?.is_external ?? false
-  const canEdit =
-    !isExternal &&
-    (mode === 'create' ||
-      isAdmin ||
-      appointment?.comercial_id === currentUser.id)
+  const canEdit = !isExternal && (mode === 'create' || isAdmin || appointment?.comercial_id === currentUser.id)
 
-  const closers = team // cualquiera del equipo puede ser el closer asignado
+  // ── El lead de Cold Calling al que está enlazada la cita ──
+  const leadEnlazadoAlAbrir = appointment ? idDelLeadEnlazado(appointment) : null
+  const [enlace, setEnlace] = useState<EnlaceDeLead | null>(() =>
+    leadEnlazadoAlAbrir
+      ? { id: leadEnlazadoAlAbrir, nombre: appointment?.lead_company || appointment?.lead_name || 'Lead', estado: null, lista: null, responsable: null }
+      : null
+  )
+  const [trayendo, setTrayendo] = useState(false)
+  const nombres = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const p of team) m.set(p.id, p.full_name || p.email || '')
+    m.set(currentUser.id, currentUser.full_name || currentUser.email || '')
+    return m
+  }, [team, currentUser])
+
+  // Al abrir una cita ya enlazada se completa lo que se enseña del lead (su estado, su lista). Si no se puede leer —es de otra persona— se queda lo que había
+  useEffect(() => {
+    if (!leadEnlazadoAlAbrir) return
+    let vivo = true
+    supabase
+      .from('cold_leads')
+      .select(CAMPOS_DE_LEAD_PARA_LA_CITA)
+      .eq('id', leadEnlazadoAlAbrir)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (vivo && data) setEnlace(enlaceDesdeLead(data as unknown as LeadParaLaCita))
+      })
+    return () => {
+      vivo = false
+    }
+  }, [leadEnlazadoAlAbrir, supabase])
+
+  /** Rellena la ficha con lo que sabe el lead y deja la cita enlazada a él */
+  const traerDelLead = (lead: LeadParaLaCita) => {
+    const traido = traerDatosDelLead(campos, datosDeLaCitaDesdeLead(lead))
+    setCampos(traido.campos)
+    setEnlace(enlaceDesdeLead(lead))
+    const n = traido.cambiados.length
+    toast.success(n > 0 ? `${n} ${n === 1 ? 'dato' : 'datos'} de «${lead.store_name}» traídos a la cita` : `Enlazada a «${lead.store_name}». Ya estaba todo apuntado.`)
+  }
+
+  const actualizarDelLead = async () => {
+    if (!enlace) return
+    setTrayendo(true)
+    try {
+      const { data, error } = await supabase.from('cold_leads').select(CAMPOS_DE_LEAD_PARA_LA_CITA).eq('id', enlace.id).maybeSingle()
+      if (error || !data) throw error ?? new Error('sin acceso')
+      traerDelLead(data as unknown as LeadParaLaCita)
+    } catch (err) {
+      console.error('Error trayendo los datos del lead:', err)
+      toast.error('No se pudo leer ese lead. Puede que ya no sea tuyo.')
+    } finally {
+      setTrayendo(false)
+    }
+  }
 
   /**
    * UNA CITA DE UN COMERCIAL DURA SIEMPRE UNA HORA (lib/agenda/duracion.ts).
    *
-   * La hora de fin no la elige él: es la de inicio más una hora, y se recalcula sola al cambiar el día o la hora de inicio. El servidor lo impone igualmente
-   * (ignora la hora de fin que llegue), esto solo evita enseñar un campo que no vale. Los administradores y los socios siguen pudiendo poner la hora de fin.
+   * La hora de fin no la elige él: es la de inicio más una hora, y se recalcula sola al cambiar el día o la hora de inicio. El servidor lo impone igualmente (ignora la hora
+   * de fin que llegue), esto solo evita enseñar un campo que no vale. Los administradores y los socios siguen pudiendo poner la hora de fin.
    *
-   * Una cita que ya existía y a la que NO se le cambia el día ni la hora de inicio enseña y manda la hora de fin que tenía: apuntar una nota en una cita antigua
-   * de media hora no la alarga. En cuanto se le cambia la hora, pasa a una hora.
+   * Una cita que ya existía y a la que NO se le cambia el día ni la hora de inicio enseña y manda la hora de fin que tenía: apuntar una nota en una cita antigua de media
+   * hora no la alarga. En cuanto se le cambia la hora, pasa a una hora.
    */
   const duracionFija = tieneDuracionFija(currentUser.role)
   const horasCambiadas = !appointment || date !== toDateInput(initialStart) || startTime !== toTimeInput(initialStart)
@@ -278,7 +242,7 @@ export function AppointmentSheet({
   const esAnterior = !!appointment && initialEnd.getTime() - initialStart.getTime() !== DURACION_CITA_MS
 
   const handleSave = async () => {
-    if (!leadName.trim()) {
+    if (!campos.leadName.trim()) {
       toast.error('El nombre del lead es obligatorio')
       return
     }
@@ -297,47 +261,19 @@ export function AppointmentSheet({
     setSaving(true)
     try {
       const payload = {
-        lead_name: leadName.trim(),
-        lead_email: leadEmail.trim() || null,
-        lead_phone: leadPhone.trim() || null,
-        lead_company: leadCompany.trim() || null,
-        assigned_closer_id: closerLocked
-          ? currentUser.id
-          : assignedCloser === 'none'
-            ? null
-            : assignedCloser,
+        ...cuerpoDeLosCampos(campos),
+        assigned_closer_id: closerLocked ? currentUser.id : assignedCloser === 'none' ? null : assignedCloser,
         start_time: start.toISOString(),
         end_time: end.toISOString(),
-        status,
-        notes: notes.trim() || null,
-        vende_en_amazon: vendeEnAmazon,
-        revenue_amount: revenueAmount.trim() ? Number(revenueAmount.replace(',', '.')) : null,
-        call_date: callDate || null,
-        amazon_link: amazonLink.trim() || null,
-        // Se mandan SIEMPRE, también cuando vende en Amazon y el bloque está
-        // escondido. Esconder un campo no es borrarlo: si alguien marca «vende»
-        // por error y lo corrige, lo que escribió tiene que seguir ahí. Lo que
-        // decide qué se pide es la pantalla; lo que se guarda es lo que hay.
-        razon_social: razonSocial.trim() || null,
-        cif: cif.trim() || null,
-        sector: sector.trim() || null,
-        ciudad: ciudad.trim() || null,
-        plataforma: plataforma.trim() || null,
-        n_productos: nProductos.trim() ? Number(nProductos) : null,
-        anos_tienda: anosTienda.trim() ? Number(anosTienda.replace(',', '.')) : null,
-        web: web.trim() || null,
+        // Solo viaja si el enlace con el lead ha cambiado: una cita que viene de la web o de LinkedIn conserva su origen aunque se edite aquí
+        ...camposDelEnlace(leadEnlazadoAlAbrir, enlace?.id ?? null),
       }
 
-      const res = await fetch(
-        mode === 'create'
-          ? '/api/appointments'
-          : `/api/appointments/${appointment!.id}`,
-        {
-          method: mode === 'create' ? 'POST' : 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }
-      )
+      const res = await fetch(mode === 'create' ? '/api/appointments' : `/api/appointments/${appointment!.id}`, {
+        method: mode === 'create' ? 'POST' : 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error al guardar')
 
@@ -356,9 +292,7 @@ export function AppointmentSheet({
     if (!confirm('¿Eliminar esta cita? Esta acción no se puede deshacer.')) return
     setDeleting(true)
     try {
-      const res = await fetch(`/api/appointments/${appointment.id}`, {
-        method: 'DELETE',
-      })
+      const res = await fetch(`/api/appointments/${appointment.id}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Error al eliminar')
@@ -373,487 +307,259 @@ export function AppointmentSheet({
     }
   }
 
-  const ownerColor = appointment?.comercial
-    ? colorForAgent(appointment.comercial.id, appointment.comercial.calendar_color)
-    : isExternal
-      ? '#7C8493'
-      : colorForAgent(currentUser.id)
-
+  const ownerColor = appointment?.comercial ? colorForAgent(appointment.comercial.id, appointment.comercial.calendar_color) : isExternal ? '#7C8493' : colorForAgent(currentUser.id)
   const ownerLabel = isExternal
-    ? 'Google'
+    ? 'G'
     : appointment?.comercial
-      ? initials(appointment.comercial.full_name, appointment.comercial.email || '')
-      : initials(currentUser.full_name, currentUser.email || '')
+      ? iniciales(appointment.comercial.full_name, appointment.comercial.email || '')
+      : iniciales(currentUser.full_name, currentUser.email || '')
+
+  const estadoActual = ESTADO_DE_CITA[campos.status]
+  const GlifoActual = estadoActual.icono
+  const noVende = campos.vendeEnAmazon === 'no_vende'
 
   return (
     <Sheet open={true} onOpenChange={onClose}>
-      <SheetContent className="w-full sm:max-w-md bg-[#0a0a0a] border-l border-white/10 overflow-y-auto p-0">
-        <div className="sticky top-0 z-10 bg-[#0a0a0a]/90 backdrop-blur-xl border-b border-white/[0.06] px-4 pt-4 pb-2.5">
+      <SheetContent
+        className="w-full overflow-y-auto border-l border-[color:var(--ls-linea2)] bg-[var(--ls-fondo)] p-0 focus:outline-none focus-visible:outline-none sm:max-w-[500px]"
+        // Al agendar, el foco va directo a buscar al cliente: lo primero que se hace es escribir su nombre
+        onOpenAutoFocus={(e) => {
+          if (mode === 'create' && canEdit) {
+            e.preventDefault()
+            document.getElementById(ID_BUSCADOR)?.focus()
+          }
+        }}
+      >
+        <div className="sticky top-0 z-20 border-b border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-4 py-3">
           <SheetHeader>
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2.5">
-                <div
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0 shadow-lg"
-                  style={{
-                    background: `linear-gradient(135deg, ${ownerColor}, ${ownerColor}cc)`,
-                    boxShadow: `0 4px 12px -4px ${ownerColor}66`,
-                  }}
-                >
-                  {ownerLabel}
-                </div>
-                <div>
-                  <SheetTitle className="text-[15px] font-bold text-white leading-tight">
-                    {mode === 'create' ? 'Nueva cita' : leadName || 'Cita'}
-                  </SheetTitle>
-                  <SheetDescription className="text-white/45 text-[11px] leading-tight">
-                    {isExternal
-                      ? 'Evento importado de Google Calendar'
-                      : mode === 'edit' && appointment?.comercial
-                        ? `Agendada por ${appointment.comercial.full_name || appointment.comercial.email}`
-                        : 'Rellena los datos del lead'}
-                  </SheetDescription>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onClose}
-                className="h-6 w-6 rounded-full hover:bg-white/10 flex-shrink-0"
+            <div className="flex items-start gap-2.5">
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                style={{ background: ownerColor }}
+                aria-hidden
               >
+                {ownerLabel}
+              </div>
+              <div className="min-w-0 flex-1">
+                <SheetTitle className="truncate text-[15px] font-semibold leading-tight tracking-[-0.012em] text-[var(--ls-t1)]">
+                  {mode === 'create' ? 'Nueva cita' : campos.leadName || 'Cita'}
+                </SheetTitle>
+                <SheetDescription className="mt-0.5 text-[11.5px] leading-tight text-[var(--ls-t3)]">
+                  {isExternal
+                    ? 'Evento importado de Google Calendar'
+                    : mode === 'edit' && appointment?.comercial
+                      ? `Agendada por ${appointment.comercial.full_name || appointment.comercial.email}`
+                      : 'Busca al cliente o rellena los datos'}
+                </SheetDescription>
+              </div>
+              <button type="button" onClick={onClose} className={`${BOTON.icono} !h-6 !w-6 shrink-0`} aria-label="Cerrar">
                 <X className="h-3.5 w-3.5" />
-              </Button>
+              </button>
             </div>
           </SheetHeader>
 
           {mode === 'edit' && appointment && !isExternal && (
-            <span
-              className={`mt-2 inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full border ${APPOINTMENT_STATUS_COLORS[appointment.status]}`}
-            >
-              {APPOINTMENT_STATUS_LABELS[appointment.status]}
+            <span className={`${INSIGNIA.base} mt-2`}>
+              <GlifoActual className={INSIGNIA.icono} style={{ color: COLOR_ESTADO[estadoActual.tono] }} aria-hidden />
+              {estadoActual.largo}
             </span>
           )}
         </div>
 
-        <div className="px-4 py-3 space-y-2.5">
+        <div className="space-y-2.5 px-4 py-3">
           {!canEdit && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5 flex items-center gap-2 text-xs text-white/60"
-            >
-              <Lock className="h-3.5 w-3.5 text-white/40 flex-shrink-0" />
+            <div className="flex items-center gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] p-2.5 text-[11.5px] text-[var(--ls-t2)]">
+              <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--ls-t4)]" />
               {isExternal
                 ? 'Este evento no lo gestiona el ERP: se importó de Google Calendar para que veas el hueco ocupado.'
                 : 'Solo puedes ver esta cita. La agendó otro comercial.'}
-            </motion.div>
+            </div>
           )}
 
           {appointment?.google_meet_link && (
-            <motion.a
+            <a
               href={appointment.google_meet_link}
               target="_blank"
               rel="noopener noreferrer"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              whileHover={{ y: -1 }}
-              className="flex items-center justify-between gap-2 rounded-xl border border-[#FF6600]/25 bg-gradient-to-r from-[#FF6600]/[0.12] to-transparent px-3 py-2 group"
+              className="flex items-center justify-between gap-2 rounded-[6px] border border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] px-3 py-2 text-[12px] text-[var(--ls-t1)] hover:brightness-110"
             >
-              <span className="text-xs text-white/80 flex items-center gap-2">
-                <Video className="h-3.5 w-3.5 text-[#FF6600]" />
+              <span className="flex items-center gap-2">
+                <Video className="h-3.5 w-3.5 text-[var(--ls-acc)]" />
                 Videollamada de Google Meet
               </span>
-              <span className="text-xs font-semibold text-[#FF6600] group-hover:underline">
-                Unirse →
-              </span>
-            </motion.a>
+              <span className="font-semibold text-[var(--ls-acc)]">Unirse →</span>
+            </a>
           )}
 
-          {/* Datos del lead */}
-          <Section icon={<User className="h-3 w-3" />} title="Lead" index={0}>
-            <PropertyRow label="Nombre *">
-              <input
-                value={leadName}
-                onChange={(e) => setLeadName(e.target.value)}
-                disabled={!canEdit}
-                className={ghostInput}
-                placeholder="Nombre del contacto"
+          {/* El cliente: se busca entre los leads de Cold Calling y se trae todo de un golpe */}
+          {(canEdit || enlace) && (
+            <Seccion titulo="Cliente de Cold Calling" nota={canEdit && !enlace ? 'trae sus datos y deja la cita enlazada' : undefined}>
+              <BuscadorDeClientes
+                enlace={enlace}
+                puedeEditar={canEdit}
+                nombres={nombres}
+                idDelCampo={ID_BUSCADOR}
+                trayendo={trayendo}
+                onElegir={traerDelLead}
+                onQuitar={() => setEnlace(null)}
+                onActualizar={actualizarDelLead}
               />
-            </PropertyRow>
-            <PropertyRow icon={<Mail className="h-3 w-3" />} label="Email">
-              <input
-                value={leadEmail}
-                onChange={(e) => setLeadEmail(e.target.value)}
-                disabled={!canEdit}
-                className={ghostInput}
-                placeholder="email@empresa.com"
-              />
-            </PropertyRow>
-            <PropertyRow icon={<Phone className="h-3 w-3" />} label="Teléfono">
-              <input
-                value={leadPhone}
-                onChange={(e) => setLeadPhone(e.target.value)}
-                disabled={!canEdit}
-                className={ghostInput}
-                placeholder="+34 ..."
-              />
-            </PropertyRow>
-            <PropertyRow icon={<Building2 className="h-3 w-3" />} label="Empresa">
-              <input
-                value={leadCompany}
-                onChange={(e) => setLeadCompany(e.target.value)}
-                disabled={!canEdit}
-                className={ghostInput}
-                placeholder="Empresa"
-              />
-            </PropertyRow>
+            </Seccion>
+          )}
 
-            {/* ¿VENDE YA EN AMAZON? AQUÍ ARRIBA Y NO CON LOS DATOS COMERCIALES.
-                Es la primera pregunta de la llamada y la que decide el discurso
-                entero: un seller que ya está en Amazon y una tienda que vende por
-                su web son dos conversaciones, dos propuestas y dos precios. Abajo
-                está lo que se apunta DESPUÉS de hablar; esto se sabe antes, y por
-                eso queda fuera del bloque que se desenfoca hasta agendar. */}
-            <div className="pt-2">
-              <div className="text-[12px] text-white/40 mb-1.5">¿Vende ya en Amazon?</div>
-              <div className="flex flex-wrap gap-1.5">
-                {VENDE_EN_AMAZON_OPCIONES.map((v) => {
-                  const elegido = vendeEnAmazon === v
-                  return (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={() => canEdit && setVendeEnAmazon(v)}
-                      disabled={!canEdit}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-all ${
-                        elegido
-                          ? v === 'vende'
-                            ? 'border-emerald-400/40 bg-emerald-400/15 text-emerald-200'
-                            : v === 'no_vende'
-                              ? 'border-[#FF6600]/50 bg-[#FF6600]/15 text-[#FFA366]'
-                              : 'border-white/25 bg-white/10 text-white/70'
-                          : 'border-white/10 text-white/40 bg-transparent hover:border-white/20 hover:text-white/70'
-                      } ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
-                    >
-                      {elegido && <Check className="h-3 w-3" />}
-                      {VENDE_EN_AMAZON_LABELS[v]}
-                    </button>
-                  )
-                })}
-              </div>
-              {vendeEnAmazon === 'sin_comprobar' && (
-                <p className="mt-1.5 text-[11px] leading-[1.5] text-white/35">
-                  Sin esto, quien atienda la cita no sabe con qué discurso entrar. Se comprueba en
-                  treinta segundos buscando la marca en Amazon.
-                </p>
-              )}
+          <Seccion titulo="Contacto">
+            <div className={REJILLA_DE_CAMPOS}>
+              <Entrada etiqueta="Nombre" valor={campos.leadName} onCambio={(v) => poner('leadName', v)} deshabilitado={!canEdit} placeholder="Nombre del contacto" obligatorio entera />
+              <Entrada etiqueta="Email" valor={campos.leadEmail} onCambio={(v) => poner('leadEmail', v)} deshabilitado={!canEdit} placeholder="email@empresa.com" />
+              <Entrada etiqueta="Teléfono" valor={campos.leadPhone} onCambio={(v) => poner('leadPhone', v)} deshabilitado={!canEdit} placeholder="+34 ..." />
+              <Entrada etiqueta="Empresa" valor={campos.leadCompany} onCambio={(v) => poner('leadCompany', v)} deshabilitado={!canEdit} placeholder="Empresa" entera />
             </div>
-          </Section>
+          </Seccion>
 
-          {/* Franja horaria */}
-          <Section icon={<Clock3 className="h-3 w-3" />} title="Cuándo" index={1}>
-            <div className="grid grid-cols-3 gap-2 py-1">
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                disabled={!canEdit}
-                className={`${ghostInput} text-[12px] px-1.5`}
-              />
-              <input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                disabled={!canEdit}
-                className={`${ghostInput} text-[12px] px-1.5`}
-              />
-              <input
-                type="time"
-                value={finMostrado}
-                onChange={(e) => setEndTime(e.target.value)}
-                disabled={!canEdit || duracionFija}
-                aria-label={duracionFija ? 'Hora de fin (siempre una hora después del inicio)' : 'Hora de fin'}
-                title={duracionFija ? 'La cita dura siempre 1 hora: la hora de fin se calcula sola' : undefined}
-                className={`${ghostInput} text-[12px] px-1.5`}
-              />
+          <Seccion titulo="Cuándo">
+            {/* En un móvil estrecho el día va solo en su fila y inicio y fin comparten la siguiente: tres campos de fecha y hora no caben en 340 px */}
+            <div className="grid grid-cols-2 gap-x-2.5 gap-y-[9px] sm:grid-cols-3">
+              <Entrada etiqueta="Día" tipo="date" valor={date} onCambio={setDate} deshabilitado={!canEdit} clase="col-span-2 sm:col-span-1" />
+              <Entrada etiqueta="Inicio" tipo="time" valor={startTime} onCambio={setStartTime} deshabilitado={!canEdit} />
+              <div title={duracionFija ? 'La cita dura siempre 1 hora: la hora de fin se calcula sola' : undefined}>
+                <Entrada
+                  etiqueta="Fin"
+                  tipo="time"
+                  valor={finMostrado}
+                  onCambio={setEndTime}
+                  deshabilitado={!canEdit || duracionFija}
+                />
+              </div>
             </div>
             {duracionFija && canEdit && (
-              <p className="pb-1 pt-1.5 text-[11px] leading-snug text-white/35">
+              <p className={`${CAMPO.nota} mt-2`}>
                 {esAnterior && !horasCambiadas
                   ? 'Esta cita no dura 1 hora (es anterior a la regla). Si le cambias la hora, pasará a durar 1 hora.'
                   : 'Toda cita dura 1 hora: la hora de fin se pone sola.'}
               </p>
             )}
-          </Section>
+          </Seccion>
 
-          {/* Asignación, datos comerciales y notas: bloqueados hasta guardar
-              la cita por primera vez, para que no se rellenen antes de
-              agendarla y luego se pierda al crearla. */}
-          <div className="relative">
-            {mode === 'create' && (
-              <div className="sticky top-16 z-20 flex justify-center pointer-events-none mb-2.5">
-                <div className="pointer-events-none bg-[#171717] border border-white/15 rounded-xl px-3.5 py-2 flex items-center gap-2 shadow-xl">
-                  <Lock className="h-3.5 w-3.5 text-[#FF6600] flex-shrink-0" />
-                  <span className="text-[11px] text-white/80">
-                    Agenda la cita primero para añadir esta información
-                  </span>
-                </div>
-              </div>
-            )}
-            <div
-              className={`space-y-2.5 ${mode === 'create' ? 'blur-[3px] opacity-40 pointer-events-none select-none' : ''}`}
-              aria-hidden={mode === 'create'}
-            >
-          {/* Asignación + estado */}
-          <Section title="Asignación" index={2}>
-            <div className="py-1.5">
-              <div className="text-[12px] text-white/40 mb-1.5">Closer asignado</div>
-              {closerLocked ? (
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full border text-xs font-medium"
-                    style={{
-                      borderColor: colorForAgent(currentUser.id, undefined),
-                      backgroundColor: `${colorForAgent(currentUser.id, undefined)}22`,
-                      color: 'white',
-                    }}
-                  >
-                    <span
-                      className="h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
-                      style={{ backgroundColor: colorForAgent(currentUser.id, undefined) }}
-                    >
-                      {initials(currentUser.full_name, currentUser.email || '')}
-                    </span>
-                    {currentUser.full_name || currentUser.email}
-                  </span>
-                  <span className="text-[10px] text-white/35 flex items-center gap-1">
-                    <Lock className="h-2.5 w-2.5" /> Eres tú
-                  </span>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => canEdit && setAssignedCloser('none')}
-                    disabled={!canEdit}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-all ${
-                      assignedCloser === 'none'
-                        ? 'border-white/30 bg-white/10 text-white'
-                        : 'border-white/10 text-white/40 hover:border-white/20 hover:text-white/70'
-                    } ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
-                  >
-                    {assignedCloser === 'none' && <Check className="h-3 w-3" />}
-                    Sin asignar
-                  </button>
-                  {closers.map((p) => {
-                    const color = colorForAgent(p.id, p.calendar_color)
-                    const selected = assignedCloser === p.id
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => canEdit && setAssignedCloser(p.id)}
-                        disabled={!canEdit}
-                        className={`flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full border text-xs font-medium transition-all ${
-                          !canEdit ? 'cursor-not-allowed opacity-60' : ''
-                        }`}
-                        style={{
-                          borderColor: selected ? color : 'rgba(255,255,255,0.1)',
-                          backgroundColor: selected ? `${color}26` : 'transparent',
-                          color: selected ? 'white' : 'rgba(255,255,255,0.5)',
-                        }}
-                      >
-                        <span
-                          className="h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0"
-                          style={{ backgroundColor: color, opacity: selected ? 1 : 0.5 }}
-                        >
-                          {initials(p.full_name, p.email || '')}
-                        </span>
-                        {p.full_name || p.email}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
+          {/* ¿Vende ya en Amazon? Es la primera pregunta de la llamada y la que decide el discurso entero: un seller que ya está en Amazon y una tienda que vende por su web son dos
+              conversaciones, dos propuestas y dos precios. Saberlo DESPUÉS de agendar no sirve para preparar la cita, que es justo para lo que sirve. */}
+          <Seccion titulo="¿Vende ya en Amazon?">
+            <div className="flex flex-wrap gap-1.5">
+              {VENDE_EN_AMAZON_OPCIONES.map((v) => {
+                const elegido = campos.vendeEnAmazon === v
+                const color = v === 'vende' ? COLOR_ESTADO.verde : v === 'no_vende' ? 'var(--ls-acc-graf)' : undefined
+                return (
+                  <Pastilla key={v} elegida={elegido} onClick={() => poner('vendeEnAmazon', v as VendeEnAmazon)} deshabilitada={!canEdit} color={color}>
+                    {elegido && <Check className="h-3 w-3" />}
+                    {VENDE_EN_AMAZON_LABELS[v]}
+                  </Pastilla>
+                )
+              })}
             </div>
+            {campos.vendeEnAmazon === 'sin_comprobar' && (
+              <p className={`${CAMPO.nota} mt-2`}>Sin esto, quien atienda la cita no sabe con qué discurso entrar. Se comprueba en treinta segundos buscando la marca en Amazon.</p>
+            )}
+          </Seccion>
 
-            <div className="py-1.5">
-              <div className="text-[12px] text-white/40 mb-1.5">Estado</div>
+          <Seccion titulo="Asignación y estado">
+            <div className={CAMPO.etiqueta}>Closer asignado</div>
+            {closerLocked ? (
+              <div className="flex items-center gap-1.5">
+                <span className={`${BOTON.chip} !h-[26px] gap-1.5 !pl-1`} style={{ borderColor: colorForAgent(currentUser.id), background: `color-mix(in srgb, ${colorForAgent(currentUser.id)} 16%, transparent)` }}>
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white" style={{ background: colorForAgent(currentUser.id) }}>
+                    {iniciales(currentUser.full_name, currentUser.email || '')}
+                  </span>
+                  <span className="text-[var(--ls-t1)]">{currentUser.full_name || currentUser.email}</span>
+                </span>
+                <span className={`flex items-center gap-1 text-[11px] ${TEXTO.t4}`}>
+                  <Lock className="h-2.5 w-2.5" /> Eres tú
+                </span>
+              </div>
+            ) : (
               <div className="flex flex-wrap gap-1.5">
-                {STATUS_OPTIONS.map((s) => {
-                  const selected = status === s
+                <Pastilla elegida={assignedCloser === 'none'} onClick={() => setAssignedCloser('none')} deshabilitada={!canEdit}>
+                  {assignedCloser === 'none' && <Check className="h-3 w-3" />}
+                  Sin asignar
+                </Pastilla>
+                {team.map((p) => {
+                  const color = colorForAgent(p.id, p.calendar_color)
+                  const elegido = assignedCloser === p.id
                   return (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => canEdit && setStatus(s)}
-                      disabled={!canEdit}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-all ${
-                        selected
-                          ? APPOINTMENT_STATUS_COLORS[s]
-                          : 'border-white/10 text-white/40 bg-transparent hover:border-white/20 hover:text-white/70'
-                      } ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
-                    >
-                      {selected && <Check className="h-3 w-3" />}
-                      {APPOINTMENT_STATUS_LABELS[s]}
-                    </button>
+                    <Pastilla key={p.id} elegida={elegido} onClick={() => setAssignedCloser(p.id)} deshabilitada={!canEdit} color={color}>
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white" style={{ background: color, opacity: elegido ? 1 : 0.55 }}>
+                        {iniciales(p.full_name, p.email || '')}
+                      </span>
+                      {p.full_name || p.email}
+                    </Pastilla>
                   )
                 })}
               </div>
+            )}
+
+            <div className={`${CAMPO.etiqueta} mt-3`}>Estado</div>
+            <div className="flex flex-wrap gap-1.5">
+              {STATUS_OPTIONS.map((s) => {
+                const e = ESTADO_DE_CITA[s]
+                const Glifo = e.icono
+                return (
+                  <Pastilla key={s} elegida={campos.status === s} onClick={() => poner('status', s)} deshabilitada={!canEdit} color={COLOR_ESTADO[e.tono]}>
+                    <Glifo className="h-3 w-3" style={{ color: COLOR_ESTADO[e.tono] }} aria-hidden />
+                    {e.largo}
+                  </Pastilla>
+                )
+              })}
             </div>
-          </Section>
+          </Seccion>
 
-          {/* Datos comerciales */}
-          <Section icon={<Euro className="h-3 w-3" />} title="Datos comerciales" index={3}>
-            <PropertyRow icon={<Euro className="h-3 w-3" />} label="Facturación">
-              <input
-                type="number"
-                inputMode="decimal"
-                value={revenueAmount}
-                onChange={(e) => setRevenueAmount(e.target.value)}
-                disabled={!canEdit}
-                className={ghostInput}
-                placeholder="0,00"
-              />
-            </PropertyRow>
-            <PropertyRow icon={<CalendarClock className="h-3 w-3" />} label="Fecha llamada">
-              <input
-                type="date"
-                value={callDate}
-                onChange={(e) => setCallDate(e.target.value)}
-                disabled={!canEdit}
-                className={ghostInput}
-              />
-            </PropertyRow>
-            {/* EL ENLACE CAMBIA SEGÚN LA RESPUESTA DE ARRIBA, y no es cosmética.
-                Si ya vende, lo que hay que mirar para preparar la cita es su
-                escaparate de Amazon. Si no vende, no hay escaparate: pedirle un
-                «Link Amazon» a quien no está en Amazon es pedirle algo que no
-                existe, y el campo se queda vacío en todas las fichas de esa
-                mitad del embudo. Lo que sí tiene es su web. */}
-            {vendeEnAmazon === 'no_vende' ? (
-              <PropertyRow icon={<LinkIcon className="h-3 w-3" />} label="Web">
-                <input
-                  value={web}
-                  onChange={(e) => setWeb(e.target.value)}
-                  disabled={!canEdit}
-                  className={ghostInput}
-                  placeholder="https://sutienda.com"
-                />
-              </PropertyRow>
-            ) : (
-              <PropertyRow icon={<LinkIcon className="h-3 w-3" />} label="Link Amazon">
-                <input
-                  value={amazonLink}
-                  onChange={(e) => setAmazonLink(e.target.value)}
-                  disabled={!canEdit}
-                  className={ghostInput}
-                  placeholder="https://amazon.es/..."
-                />
-              </PropertyRow>
-            )}
+          <Seccion titulo="Datos comerciales">
+            <div className={REJILLA_DE_CAMPOS}>
+              <Entrada etiqueta="Facturación (€)" tipo="number" numerico="decimal" valor={campos.revenueAmount} onCambio={(v) => poner('revenueAmount', v)} deshabilitado={!canEdit} placeholder="0,00" />
+              <Entrada etiqueta="Fecha llamada" tipo="date" valor={campos.callDate} onCambio={(v) => poner('callDate', v)} deshabilitado={!canEdit} />
+              {/* El enlace cambia según la respuesta de «¿vende ya en Amazon?»: si ya vende, lo que hay que mirar es su escaparate; si no, no hay escaparate y lo que tiene es su web */}
+              {noVende ? (
+                <Entrada etiqueta="Web" valor={campos.web} onCambio={(v) => poner('web', v)} deshabilitado={!canEdit} placeholder="https://sutienda.com" entera />
+              ) : (
+                <Entrada etiqueta="Link Amazon" valor={campos.amazonLink} onCambio={(v) => poner('amazonLink', v)} deshabilitado={!canEdit} placeholder="https://amazon.es/..." entera />
+              )}
+            </div>
+          </Seccion>
 
-            {/* ============ LOS DATOS DE SU TIENDA ============
+          {/* Siempre a la vista: la razón social y el CIF hacen falta para facturar a cualquier cliente, venda ya en Amazon o no. Antes solo salían con «no vende» y lo que
+              se traía de Cold Calling se quedaba escondido en una ficha que no los enseñaba */}
+          <Seccion titulo="Datos fiscales">
+            <div className={REJILLA_DE_CAMPOS}>
+              <Entrada etiqueta="Razón social" valor={campos.razonSocial} onCambio={(v) => poner('razonSocial', v)} deshabilitado={!canEdit} placeholder="Luz del Sur SL" entera />
+              <Entrada etiqueta="CIF" valor={campos.cif} onCambio={(v) => poner('cif', v)} deshabilitado={!canEdit} placeholder="B12345678" />
+              <Entrada etiqueta="Ciudad" valor={campos.ciudad} onCambio={(v) => poner('ciudad', v)} deshabilitado={!canEdit} placeholder="Albacete" />
+            </div>
+          </Seccion>
 
-                Solo cuando NO vende en Amazon, y por eso aparece y desaparece en
-                vez de estar siempre: a un seller que ya está en Amazon estos
-                campos no le aplican y seis filas vacías en cada ficha enseñan a
-                no leer el bloque.
-
-                QUE SE ESCONDA NO BORRA NADA. Lo escrito se sigue guardando aunque
-                luego se marque «vende»: si alguien se equivoca al elegir y lo
-                corrige, lo que ya había apuntado tiene que seguir ahí.
-
-                Son los mismos campos que la ficha de un lead de Cold Calling
-                —mismos nombres también en la base— porque muchas de estas citas
-                salen justo de ahí y el dato tiene que poder copiarse sin traducir. */}
-            {vendeEnAmazon === 'no_vende' && (
-              <div className="mt-2 rounded-xl border border-[#FF6600]/20 bg-[#FF6600]/[0.04] px-2.5 pb-1.5">
-                <div className="flex items-center gap-1.5 pt-2 pb-0.5 text-[12px] text-[#FFA366]">
-                  <Store className="h-3 w-3" />
-                  Su tienda
-                  <span className="ml-auto text-[11px] text-white/30">
-                    es lo único que hay para preparar la propuesta
-                  </span>
-                </div>
-
-                <PropertyRow icon={<ShoppingBag className="h-3 w-3" />} label="Plataforma">
-                  <input
-                    value={plataforma}
-                    onChange={(e) => setPlataforma(e.target.value)}
-                    disabled={!canEdit}
-                    className={ghostInput}
-                    placeholder="PrestaShop, Shopify, WooCommerce…"
-                  />
-                </PropertyRow>
-                <PropertyRow label="Productos">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    value={nProductos}
-                    onChange={(e) => setNProductos(e.target.value)}
-                    disabled={!canEdit}
-                    className={ghostInput}
-                    placeholder="112"
-                  />
-                </PropertyRow>
-                <PropertyRow label="Antigüedad">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="0.1"
-                    value={anosTienda}
-                    onChange={(e) => setAnosTienda(e.target.value)}
-                    disabled={!canEdit}
-                    className={ghostInput}
-                    placeholder="7,7 años"
-                  />
-                </PropertyRow>
-                <PropertyRow label="Sector">
-                  <input
-                    value={sector}
-                    onChange={(e) => setSector(e.target.value)}
-                    disabled={!canEdit}
-                    className={ghostInput}
-                    placeholder="Mascotas"
-                  />
-                </PropertyRow>
-                <PropertyRow label="Ciudad">
-                  <input
-                    value={ciudad}
-                    onChange={(e) => setCiudad(e.target.value)}
-                    disabled={!canEdit}
-                    className={ghostInput}
-                    placeholder="Albacete"
-                  />
-                </PropertyRow>
-                <PropertyRow icon={<Building2 className="h-3 w-3" />} label="Razón social">
-                  <input
-                    value={razonSocial}
-                    onChange={(e) => setRazonSocial(e.target.value)}
-                    disabled={!canEdit}
-                    className={ghostInput}
-                    placeholder="Pedro Luis Redondo Carrilero"
-                  />
-                </PropertyRow>
-                <PropertyRow label="CIF">
-                  <input
-                    value={cif}
-                    onChange={(e) => setCif(e.target.value)}
-                    disabled={!canEdit}
-                    className={ghostInput}
-                    placeholder="B12345678"
-                  />
-                </PropertyRow>
+          {/* Los datos de su tienda: solo cuando NO vende en Amazon, porque a un seller que ya está allí estos campos no le aplican. Que se escondan no borra nada: lo escrito
+              se sigue guardando aunque luego se marque «vende». Son los mismos campos, con los mismos nombres, que la ficha de un lead de Cold Calling */}
+          {noVende && (
+            <Seccion titulo="Su tienda" icono={<Store className="h-3 w-3" />} nota="es lo único que hay para preparar la propuesta">
+              <div className={REJILLA_DE_CAMPOS}>
+                <Entrada etiqueta="Plataforma" valor={campos.plataforma} onCambio={(v) => poner('plataforma', v)} deshabilitado={!canEdit} placeholder="PrestaShop, Shopify, WooCommerce…" entera />
+                <Entrada etiqueta="Productos" tipo="number" numerico="numeric" minimo={0} valor={campos.nProductos} onCambio={(v) => poner('nProductos', v)} deshabilitado={!canEdit} placeholder="112" />
+                <Entrada etiqueta="Antigüedad (años)" tipo="number" numerico="decimal" minimo={0} paso="0.1" valor={campos.anosTienda} onCambio={(v) => poner('anosTienda', v)} deshabilitado={!canEdit} placeholder="7,7" />
+                <Entrada etiqueta="Sector" valor={campos.sector} onCambio={(v) => poner('sector', v)} deshabilitado={!canEdit} placeholder="Mascotas" entera />
               </div>
-            )}
-            <div className="pt-2">
-              <div className="text-[12px] text-white/40 mb-1.5 flex items-center gap-1.5">
-                <Mic className="h-3 w-3" /> Grabación de la llamada
-              </div>
-              {mode === 'edit' && appointment ? (
-                <>
+            </Seccion>
+          )}
+
+          <Seccion titulo="Notas de la cita">
+            <textarea
+              value={campos.notes}
+              onChange={(e) => poner('notes', e.target.value)}
+              disabled={!canEdit}
+              placeholder="Contexto del lead, qué se ha hablado, objetivo de la reunión..."
+              className={`${CAMPO.input} !h-auto min-h-[76px] resize-none py-1.5 leading-[1.5] disabled:opacity-60`}
+            />
+          </Seccion>
+
+          <Seccion titulo="Grabación y capturas" icono={<Mic className="h-3 w-3" />}>
+            {mode === 'edit' && appointment ? (
+              <div className="space-y-3">
+                <div>
                   <AudioRecordingField
                     appointmentId={appointment.id}
                     recordingUrl={recordingUrl}
@@ -879,88 +585,47 @@ export function AppointmentSheet({
                       setTranscriptionError(fields.transcription_error)
                     }}
                   />
-                </>
-              ) : (
-                <p className="text-[11px] text-white/30">
-                  Podrás subir la grabación una vez agendada la cita.
-                </p>
-              )}
-            </div>
-
-            {/* Capturas: para las citas que se cierran por correo o WhatsApp,
-                donde no hay grabación que subir. */}
-            <div className="pt-2">
-              <div className="text-[12px] text-white/40 mb-1.5 flex items-center gap-1.5">
-                <ImageIcon className="h-3 w-3" /> Capturas de la conversación
+                </div>
+                {/* Capturas: para las citas que se cierran por correo o WhatsApp, donde no hay grabación que subir */}
+                <div>
+                  <div className={`${CAMPO.etiqueta} flex items-center gap-1.5`}>
+                    <ImageIcon className="h-3 w-3" /> Capturas de la conversación
+                  </div>
+                  <AttachmentsField appointmentId={appointment.id} currentUser={currentUser} canEdit={canEdit} />
+                </div>
               </div>
-              {mode === 'edit' && appointment ? (
-                <AttachmentsField
-                  appointmentId={appointment.id}
-                  currentUser={currentUser}
-                  canEdit={canEdit}
-                />
-              ) : (
-                <p className="text-[11px] text-white/30">
-                  Podrás adjuntar capturas una vez agendada la cita.
-                </p>
-              )}
-            </div>
-          </Section>
+            ) : (
+              <p className={CAMPO.nota}>La grabación de la llamada y las capturas de la conversación se suben una vez agendada la cita.</p>
+            )}
+          </Seccion>
 
-          {/* Notas */}
-          <Section title="Notas de la cita" index={4}>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              disabled={!canEdit}
-              placeholder="Contexto del lead, qué se ha hablado, objetivo de la reunión..."
-              className="bg-white/[0.03] border-white/10 rounded-lg px-2.5 py-2 text-[13px] min-h-[70px] resize-none mt-1"
-            />
-          </Section>
-            </div>
-          </div>
-
-          {/* Comentarios */}
           {mode === 'edit' && appointment && (
-            <Section
-              icon={<MessageSquare className="h-3 w-3" />}
-              title="Comentarios"
-              index={5}
-            >
-              <div className="pt-1">
-                <CommentsThread appointmentId={appointment.id} currentUser={currentUser} />
-              </div>
-            </Section>
+            <Seccion titulo="Comentarios" icono={<MessageSquare className="h-3 w-3" />}>
+              <CommentsThread appointmentId={appointment.id} currentUser={currentUser} />
+            </Seccion>
           )}
         </div>
 
-        {/* Acciones */}
         {canEdit && (
-          <div className="sticky bottom-0 bg-[#0a0a0a]/90 backdrop-blur-xl border-t border-white/[0.06] px-4 py-2.5 flex gap-2">
+          <div className="sticky bottom-0 z-20 flex gap-2 border-t border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-4 py-2.5">
             {mode === 'edit' && (
-              <Button
-                variant="outline"
+              <button
+                type="button"
                 onClick={handleDelete}
                 disabled={deleting}
-                className="h-9 w-9 p-0 flex-shrink-0 rounded-lg border-red-500/25 text-red-300 hover:bg-red-500/10 hover:border-red-500/40"
+                className={`${BOTON.base} ${BOTON.secundario} !h-8 !w-8 shrink-0 justify-center !px-0 text-[var(--ls-e-rojo)]`}
+                aria-label="Eliminar la cita"
+                title="Eliminar la cita"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              </button>
             )}
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className="flex-1 h-9 py-0 px-4 rounded-lg text-sm normal-case tracking-normal font-semibold"
-            >
+            <button type="button" onClick={onClose} className={`${BOTON.base} ${BOTON.secundario} !h-8 flex-1 justify-center`}>
               Cancelar
-            </Button>
-            <LibertyButton
-              onClick={handleSave}
-              disabled={saving}
-              className="flex-1 h-9 py-0 px-4 mt-0 rounded-lg text-sm flex items-center justify-center"
-            >
+            </button>
+            <button type="button" onClick={handleSave} disabled={saving} className={`${BOTON.base} ${BOTON.primario} !h-8 flex-1 justify-center`}>
               {saving ? 'Guardando...' : mode === 'create' ? 'Agendar cita' : 'Guardar'}
-            </LibertyButton>
+            </button>
           </div>
         )}
       </SheetContent>

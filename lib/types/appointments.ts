@@ -112,8 +112,8 @@ export interface Appointment {
    * alguna, se vuelve a añadir al select de la agenda y ya está.
    *
    * OJO: `google_meet_link` NO está aquí y no debe moverse. Sí se pinta, en
-   * AgendaCalendar.tsx:1005, AppointmentSheet.tsx:379 y
-   * AppointmentConfirmation.tsx:183.
+   * BloqueDeCita.tsx (el icono de videollamada), AppointmentSheet.tsx (el
+   * enlace para unirse) y AppointmentConfirmation.tsx.
    */
   google_calendar_id?: string | null
   google_html_link?: string | null
@@ -152,7 +152,7 @@ export interface AppointmentWithPeople extends Appointment {
  * objetos de otra forma que los que había puesto el servidor.
  *
  * QUÉ NO SE PUEDE QUITAR DE AQUÍ: `google_meet_link`, que se pinta en
- * AgendaCalendar, AppointmentSheet y AppointmentConfirmation. Las cinco que no
+ * BloqueDeCita, AppointmentSheet y AppointmentConfirmation. Las cinco que no
  * están —google_html_link, google_calendar_id, last_synced_at, sync_error,
  * updated_source— las escribe lib/appointments-sync.ts y no las lee ninguna
  * pantalla (cero usos en components/ y app/dashboard/).

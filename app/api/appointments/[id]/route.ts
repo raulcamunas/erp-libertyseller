@@ -78,6 +78,9 @@ export async function PUT(
       lead_email: body.lead_email !== undefined ? body.lead_email : before.lead_email,
       lead_phone: body.lead_phone !== undefined ? body.lead_phone : before.lead_phone,
       lead_company: body.lead_company !== undefined ? body.lead_company : before.lead_company,
+      // El enlace con el lead de Cold Calling (components/agenda/BuscadorDeClientes.tsx). Como el resto: si no viene, se conserva; si viene null, se borra
+      lead_source: body.lead_source !== undefined ? body.lead_source : before.lead_source,
+      lead_ref_id: body.lead_ref_id !== undefined ? body.lead_ref_id : before.lead_ref_id,
       start_time: body.start_time ?? before.start_time,
       end_time: fin,
       status: body.status ?? before.status,

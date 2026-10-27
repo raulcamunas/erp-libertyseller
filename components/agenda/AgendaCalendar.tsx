@@ -1,161 +1,136 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
-import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as EventoDePuntero } from 'react'
+import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
-import {
-  startOfWeek,
-  addDays,
-  addWeeks,
-  format,
-  isSameDay,
-} from 'date-fns'
+import { addDays, addWeeks, format, getISOWeek, isSameDay } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { toMadrid, fromMadrid, madridWallClockString } from '@/lib/timezone'
 import { DURACION_CITA_MS } from '@/lib/agenda/duracion'
-import { es } from 'date-fns/locale'
-import { AnimatePresence, motion } from 'framer-motion'
-import {
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-  Calendar as CalIcon,
-  Video,
-  Link2,
-  Table2,
-  Contact,
-  RefreshCw,
-  Clock3 as ClockIcon,
-} from 'lucide-react'
-import { AppointmentSheet } from './AppointmentSheet'
-import { AppointmentConfirmation } from './AppointmentConfirmation'
-import { AvailabilitySettings } from './AvailabilitySettings'
-import {
-  AppointmentWithPeople,
-  CalendarPerson,
-  colorForAgent,
-  APPOINTMENT_STATUS_COLORS,
-  COLUMNAS_AGENDA,
-  COLUMNAS_AGENDA_CON_TIENDA,
-  faltaLa214,
-} from '@/lib/types/appointments'
-import { AvailabilityWindow, parseTimeToHourMinute } from '@/lib/types/availability'
-import { UserProfile } from '@/lib/supabase/get-user-profile'
-import { layoutOverlappingEvents, type LayoutResult } from '@/lib/calendar-layout'
+import { agruparPorDia, colocarCitas, huecoDeLaRejilla, REJILLA } from '@/lib/agenda/colocar'
+import { claveDeSemana, lunesDeLaClave, lunesDeLaSemana, semanasAlrededor } from '@/lib/agenda/semanas'
+import { colorForAgent, type AppointmentWithPeople, type CalendarPerson } from '@/lib/types/appointments'
+import type { AvailabilityWindow } from '@/lib/types/availability'
+import type { UserProfile } from '@/lib/supabase/get-user-profile'
+import { BarraDeAgenda, type PersonaDeLaLeyenda } from './BarraDeAgenda'
+import { RejillaSemanal, type CapaDelDia, type DestinoDeArrastre } from './RejillaSemanal'
+import { useCitas } from './useCitas'
+import { usePresencia, type FichaAbierta } from './usePresencia'
+import { useEstable } from './useEstable'
+
+/**
+ * El código de las fichas se baja aparte: no hace falta para PINTAR la agenda, solo al pulsar una cita, y pesa lo suyo (editor de la ficha, grabadora de audio,
+ * transcripción, comentarios). Se descarga ya, con el navegador parado, para que el primer clic no espere; los datos de cada cita se piden al abrirla, como siempre.
+ */
+const cargarFicha = () => import('./AppointmentSheet').then((m) => m.AppointmentSheet)
+const AppointmentSheet = dynamic(cargarFicha, { ssr: false })
+const AppointmentConfirmation = dynamic(() => import('./AppointmentConfirmation').then((m) => m.AppointmentConfirmation), { ssr: false })
+const AvailabilitySettings = dynamic(() => import('./AvailabilitySettings').then((m) => m.AvailabilitySettings), { ssr: false })
 
 interface AgendaCalendarProps {
   initialAppointments: AppointmentWithPeople[]
+  /** Los lunes («2026-10-19») de las semanas que `initialAppointments` ya trae completas */
+  semanasIniciales: string[]
+  /** El lunes («2026-10-26») de la semana con la que se abre */
+  semanaInicial: string
   team: CalendarPerson[]
   currentUser: UserProfile
   initialAvailabilityWindows?: AvailabilityWindow[]
 }
 
-const DAY_START = 8 // 08:00
-const DAY_END = 21 // 21:00
-const HOUR_HEIGHT = 64 // px por hora
+type Cita = AppointmentWithPeople
+
+type Hoja = { mode: 'create'; prefill: { start: Date; end: Date } } | { mode: 'edit'; appointment: Cita }
+
+const GOOGLE = 'google'
 
 /**
  * CUÁNTO DURA UNA CITA RECIÉN CREADA.
  *
- * Una hora. Eran 30 minutos y no daba: la sesión que agenda un comercial es una
- * consultoría, no una llamada de encaje, y acababa pisando la siguiente del
- * calendario o corrigiéndose a mano una por una.
+ * Una hora. Eran 30 minutos y no daba: la sesión que agenda un comercial es una consultoría, no una llamada de encaje, y acababa pisando la siguiente del calendario o
+ * corrigiéndose a mano una por una. Para un comercial es además LA DURACIÓN FIJA (lib/agenda/duracion.ts): la hora de fin ya no se puede cambiar en la ficha, ni al
+ * arrastrar la cita a otra hora, y la ruta del servidor impone la hora aunque el navegador mande otra. Los administradores y los socios sí pueden dejarla en media hora.
  *
- * Para un comercial es además LA DURACIÓN FIJA: la hora de fin ya no se puede
- * cambiar en la ficha, ni al arrastrar la cita a otra hora, y la ruta del
- * servidor impone la hora aunque el navegador mande otra (lib/agenda/duracion.ts).
- * Los administradores y los socios sí pueden dejarla en media hora, en la ficha.
- *
- * La rejilla del calendario sigue en tramos de 30 minutos a propósito (ver
- * timeFromOffsetY): eso es dónde EMPIEZA una cita, y poder empezar a y media no
- * tiene nada que ver con cuánto dura.
+ * La rejilla sigue en tramos de 30 minutos a propósito: eso es dónde EMPIEZA una cita, y poder empezar a y media no tiene nada que ver con cuánto dura.
  */
 const DURACION_NUEVA_CITA_MS = DURACION_CITA_MS
-const HOURS = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i)
 
-// Etiquetas cortas para que quepan dentro de la tarjeta del calendario
-const CARD_STATUS_LABELS: Record<string, string> = {
-  scheduled: 'Agendada',
-  confirmed: 'Confirmada',
-  rescheduled: 'Reagendada',
-  no_show: 'No asistió',
-  qualified: 'Cualificada',
-  not_qualified: 'No cualificada',
-  cancelled: 'Cancelada',
+/**
+ * La hora de fin con la que nace una cita: una hora más tarde, SIN PASARSE DEL final del día.
+ *
+ * El tope importa porque la rejilla deja empezar a las 20:30 y el día acaba a las 21:00: una hora entera desde ahí terminaría a las 21:30, o sea media hora por debajo del
+ * último tramo pintado. Se recorta el fin, no se mueve el inicio: quien ha pinchado en las 20:30 ha dicho a qué hora empieza, y eso no se le toca.
+ *
+ * Y EL TOPE NO PUEDE DEJAR EL FIN ANTES QUE EL INICIO. El botón «Nueva cita» redondea la hora de AHORA al siguiente :00 o :30 y no la obliga a caer dentro del horario: a
+ * las 20:40 el inicio sale a las 21:00 y recortar al cierre devolvía fin igual que inicio, y la ficha se negaba a guardarse. El recorte solo tiene sentido si el cierre va
+ * DESPUÉS del inicio; para una cita que empieza fuera del horario, la hora entera y en paz.
+ */
+function finPorDefecto(start: Date) {
+  const fin = new Date(start.getTime() + DURACION_NUEVA_CITA_MS)
+  const enMadrid = toMadrid(fin)
+  const minutosDeFin = enMadrid.getHours() * 60 + enMadrid.getMinutes()
+  const cierre = REJILLA.finDia * 60
+  // Pasarse de día cuenta como pasarse: a las 00:30 los minutos salen 30 y parecerían dentro del horario
+  const otroDia = !isSameDay(enMadrid, toMadrid(start))
+  if (!otroDia && minutosDeFin <= cierre) return fin
+  const alCierre = fromMadrid(madridWallClockString(toMadrid(start), REJILLA.finDia, 0))
+  return alCierre.getTime() > start.getTime() ? alCierre : fin
 }
 
-function initials(name: string | null | undefined, fallback: string) {
-  const source = (name || fallback || '?').trim()
-  const parts = source.split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[1][0]).toUpperCase()
-}
+const claveDeDia = (d: Date) => format(d, 'yyyy-MM-dd')
 
-/** Estado de presencia: quién está rellenando/editando qué en este momento */
-interface PresenceEntry {
-  userId: string
-  fullName: string | null
-  email: string | null
-  color: string
-  mode: 'create' | 'edit'
-  dayIso?: string
-  hour?: number
-  minute?: number
-  appointmentId?: string
-}
-
-export function AgendaCalendar({
-  initialAppointments,
-  team,
-  currentUser,
-  initialAvailabilityWindows,
-}: AgendaCalendarProps) {
-  const supabase = createClient()
-  const [appointments, setAppointments] = useState<AppointmentWithPeople[]>(
-    initialAppointments
-  )
-  const [weekStart, setWeekStart] = useState<Date>(
-    startOfWeek(toMadrid(new Date()), { weekStartsOn: 1 })
-  )
+export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaInicial, team, currentUser, initialAvailabilityWindows }: AgendaCalendarProps) {
+  const [weekStart, setWeekStart] = useState<Date>(() => lunesDeLaClave(semanaInicial) ?? lunesDeLaSemana(new Date()))
   const [direction, setDirection] = useState(0)
-  const [sheet, setSheet] = useState<
-    | { mode: 'create'; prefill: { start: Date; end: Date } }
-    | { mode: 'edit'; appointment: AppointmentWithPeople }
-    | null
-  >(null)
+  const [sheet, setSheet] = useState<Hoja | null>(null)
   // Resumen que sale tras agendar, para capturarlo y pasarlo al grupo
-  const [confirmation, setConfirmation] = useState<AppointmentWithPeople | null>(null)
+  const [confirmation, setConfirmation] = useState<Cita | null>(null)
   const [resyncing, setResyncing] = useState(false)
-  const [hoverSlot, setHoverSlot] = useState<{
-    dayIso: string
-    hour: number
-    minute: number
-  } | null>(null)
   const [now, setNow] = useState(() => toMadrid(new Date()))
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'partner'
-  const gridRef = useRef<HTMLDivElement>(null)
-  const daysGridRef = useRef<HTMLDivElement>(null)
-  const [availabilityWindows, setAvailabilityWindows] = useState<AvailabilityWindow[]>(
-    initialAvailabilityWindows ?? []
-  )
+  const contenedorRef = useRef<HTMLDivElement>(null)
+  const [availabilityWindows, setAvailabilityWindows] = useState<AvailabilityWindow[]>(initialAvailabilityWindows ?? [])
   const [showAvailabilitySettings, setShowAvailabilitySettings] = useState(false)
 
-  // ── Presencia en vivo: quién está creando/editando una cita ahora mismo ──
-  const [presenceList, setPresenceList] = useState<PresenceEntry[]>([])
-  const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const datos = useCitas(initialAppointments, semanasIniciales, (m) => toast.error(m))
+  const citasRef = useRef(datos.citas)
+  citasRef.current = datos.citas
 
-  // ── Drag & drop de citas ──────────────────────────────────────────────
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [dragTarget, setDragTarget] = useState<{
-    dayIso: string
-    hour: number
-    minute: number
-  } | null>(null)
-  const dragTargetRef = useRef<typeof dragTarget>(null)
-  const justDraggedRef = useRef(false)
+  const ficha = useMemo<FichaAbierta>(() => {
+    if (!sheet) return null
+    return sheet.mode === 'create' ? { modo: 'create', inicio: sheet.prefill.start } : { modo: 'edit', citaId: sheet.appointment.id }
+  }, [sheet])
+  const presencia = usePresencia(currentUser, ficha)
 
-  // Reloj para la línea de "ahora" (siempre en hora de España)
+  // ── A quién se ve: lo apagado se recuerda en este navegador ──
+  const claveDeAlmacen = `agenda:ocultos:${currentUser.id}`
+  const [ocultos, setOcultos] = useState<ReadonlySet<string>>(() => new Set())
+  useEffect(() => {
+    try {
+      const guardado = JSON.parse(localStorage.getItem(claveDeAlmacen) ?? '[]')
+      if (Array.isArray(guardado)) setOcultos(new Set(guardado.filter((x): x is string => typeof x === 'string')))
+    } catch {
+      // Sin almacenamiento (ventana privada, bloqueado): se ve todo, como siempre
+    }
+  }, [claveDeAlmacen])
+  const alternar = useCallback(
+    (id: string) => {
+      setOcultos((prev) => {
+        const sig = new Set(prev)
+        if (sig.has(id)) sig.delete(id)
+        else sig.add(id)
+        try {
+          localStorage.setItem(claveDeAlmacen, JSON.stringify([...sig]))
+        } catch {
+          // Se aplica igual en esta sesión aunque no se pueda recordar
+        }
+        return sig
+      })
+    },
+    [claveDeAlmacen]
+  )
+
+  // Reloj para la línea de «ahora» (siempre en hora de España)
   useEffect(() => {
     const id = setInterval(() => setNow(toMadrid(new Date())), 60_000)
     return () => clearInterval(id)
@@ -163,86 +138,27 @@ export function AgendaCalendar({
 
   // Centrar el scroll cerca de la hora actual (España) al montar
   useEffect(() => {
-    if (!gridRef.current) return
+    if (!contenedorRef.current) return
     const h = toMadrid(new Date()).getHours()
-    const offset = Math.max(0, (h - DAY_START - 1) * HOUR_HEIGHT)
-    gridRef.current.scrollTop = offset
+    contenedorRef.current.scrollTop = Math.max(0, (h - REJILLA.inicioDia - 1) * REJILLA.alturaHora)
   }, [])
 
-  // Leyenda: solo los comerciales (filtrados en el servidor), no cualquiera
-  // que haya agendado una cita (p.ej. un admin haciendo una prueba).
-  const legendPeople = team
-
+  // El código de las fichas, ya descargado cuando el navegador está parado
   useEffect(() => {
-    const channel = supabase
-      .channel(`appointments_${Date.now()}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'appointments' },
-        async (payload) => {
-          if (payload.eventType === 'DELETE') {
-            const id = (payload.old as { id: string }).id
-            setAppointments((prev) => prev.filter((a) => a.id !== id))
-            return
-          }
-          const row = payload.new as { id: string }
-          const { data } = await supabase
-            .from('appointments')
-            .select(`
-              *,
-              comercial:profiles!appointments_comercial_id_fkey(id, full_name, email, role, calendar_color),
-              assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
-            `)
-            .eq('id', row.id)
-            .single()
-          if (!data) return
-          const appt = data as AppointmentWithPeople
-          setAppointments((prev) => {
-            const exists = prev.some((a) => a.id === appt.id)
-            return exists
-              ? prev.map((a) => (a.id === appt.id ? appt : a))
-              : [...prev, appt]
-          })
-        }
-      )
-      .subscribe()
-    return () => {
-      supabase.removeChannel(channel)
+    const precargar = () => void cargarFicha()
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(precargar, { timeout: 4000 })
+      return () => window.cancelIdleCallback(id)
     }
-  }, [supabase])
+    const id = window.setTimeout(precargar, 2500)
+    return () => window.clearTimeout(id)
+  }, [])
 
-  // Canal de presencia compartido por todo el equipo: quién está creando
-  // o editando una cita ahora mismo, para evitar solapamientos.
-  useEffect(() => {
-    const channel = supabase.channel('agenda-presence', {
-      config: { presence: { key: currentUser.id } },
-    })
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState<PresenceEntry>()
-        const entries = Object.values(state)
-          .flat()
-          .filter((p) => p.userId !== currentUser.id)
-        setPresenceList(entries)
-      })
-      .subscribe()
-    presenceChannelRef.current = channel
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [supabase, currentUser.id])
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
 
-  const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
-    [weekStart]
-  )
-
-  // En móvil no caben siete columnas: se enseña un día y las flechas pasan
-  // de día en día en vez de de semana en semana. En escritorio no cambia
-  // nada, sigue siendo la semana entera.
+  // En móvil no caben siete columnas: se enseña un día y las flechas pasan de día en día en vez de de semana en semana
   const [isMobile, setIsMobile] = useState(false)
   const [mobileDayIndex, setMobileDayIndex] = useState(0)
-
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1023px)')
     const apply = () => setIsMobile(mq.matches)
@@ -251,17 +167,21 @@ export function AgendaCalendar({
     return () => mq.removeEventListener('change', apply)
   }, [])
 
-  // Al entrar en móvil se abre en el día de hoy si está en la semana
+  // Al entrar en móvil se abre en el día de hoy si está en la semana. Solo al ENTRAR: si dependiera también de la semana, cada cambio de semana
+  // pisaría el día al que acababa de llegar quien pulsa «anterior» desde un lunes
   useEffect(() => {
     if (!isMobile) return
     const idx = days.findIndex((d) => isSameDay(d, toMadrid(new Date())))
     setMobileDayIndex(idx >= 0 ? idx : 0)
-  }, [isMobile, days])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile])
 
-  const visibleDays = useMemo(
-    () => (isMobile ? [days[Math.min(mobileDayIndex, 6)]] : days),
-    [isMobile, days, mobileDayIndex]
-  )
+  const visibleDays = useMemo(() => (isMobile ? [days[Math.min(mobileDayIndex, 6)]] : days), [isMobile, days, mobileDayIndex])
+
+  function goToWeek(newStart: Date, dir: number) {
+    setDirection(dir)
+    setWeekStart(newStart)
+  }
 
   /** Un día atrás/adelante en móvil, una semana en escritorio */
   function step(dir: 1 | -1) {
@@ -282,330 +202,194 @@ export function AgendaCalendar({
     }
   }
 
-  // Anuncia al resto del equipo qué se está rellenando ahora mismo (o
-  // deja de anunciarlo al cerrar la cajita).
+  function irAHoy() {
+    goToWeek(lunesDeLaSemana(new Date()), 0)
+    if (isMobile) setMobileDayIndex((toMadrid(new Date()).getDay() + 6) % 7)
+  }
+
+  function irAFecha(valor: string) {
+    const lunes = lunesDeLaClave(valor)
+    if (!lunes) return
+    goToWeek(lunes, lunes.getTime() >= weekStart.getTime() ? 1 : -1)
+    if (isMobile) {
+      const [y, m, d] = valor.split('-').map(Number)
+      setMobileDayIndex((new Date(y, m - 1, d).getDay() + 6) % 7)
+    }
+  }
+
+  // La semana que se mira y las dos de al lado, siempre en memoria: la de después se pide antes de que se llegue a ella
+  const { asegurar } = datos
   useEffect(() => {
-    const channel = presenceChannelRef.current
-    if (!channel) return
+    asegurar(semanasAlrededor(weekStart, 1, 1))
+  }, [weekStart, asegurar])
 
-    if (!sheet) {
-      channel.untrack()
-      return
+  // ── Qué se pinta ──
+  const visibles = useMemo(
+    () =>
+      datos.citas.filter((a) => {
+        if (a.is_external) return !ocultos.has(GOOGLE)
+        return !(a.comercial_id && ocultos.has(a.comercial_id))
+      }),
+    [datos.citas, ocultos]
+  )
+
+  /** Las citas de cada día visible ya colocadas: los huecos de Google en una capa y las del ERP en otra */
+  const capas = useMemo(() => {
+    const porDia = agruparPorDia(visibles)
+    const mapa = new Map<string, CapaDelDia>()
+    for (const d of visibleDays) {
+      const clave = claveDeDia(d)
+      const delDia = porDia.get(clave) ?? []
+      mapa.set(clave, {
+        externas: colocarCitas(delDia.filter((a) => a.is_external)),
+        propias: colocarCitas(delDia.filter((a) => !a.is_external)),
+      })
     }
+    return mapa
+  }, [visibles, visibleDays])
 
-    const color = colorForAgent(currentUser.id)
-    if (sheet.mode === 'create') {
-      const start = toMadrid(sheet.prefill.start)
-      const dayMatch = days.find((d) => isSameDay(d, start))
-      channel.track({
-        userId: currentUser.id,
-        fullName: currentUser.full_name,
-        email: currentUser.email,
-        color,
-        mode: 'create',
-        dayIso: dayMatch?.toISOString(),
-        hour: start.getHours(),
-        minute: start.getMinutes(),
-      } satisfies PresenceEntry)
-    } else {
-      channel.track({
-        userId: currentUser.id,
-        fullName: currentUser.full_name,
-        email: currentUser.email,
-        color,
-        mode: 'edit',
-        appointmentId: sheet.appointment.id,
-      } satisfies PresenceEntry)
+  const conteo = useMemo(() => {
+    const m = new Map<string, number>()
+    capas.forEach((capa, clave) => m.set(clave, capa.propias.length))
+    return m
+  }, [capas])
+  const totalVisible = useMemo(() => [...conteo.values()].reduce((a, b) => a + b, 0), [conteo])
+
+  // Citas del ERP por comercial en lo que se ve, aunque su persona esté apagada (es lo que dice la cifra de su pastilla)
+  const gente = useMemo<PersonaDeLaLeyenda[]>(() => {
+    const dias = new Set(visibleDays.map(claveDeDia))
+    const cuenta = new Map<string, number>()
+    for (const a of datos.citas) {
+      if (a.is_external || !a.comercial_id) continue
+      if (!dias.has(claveDeDia(toMadrid(a.start_time)))) continue
+      cuenta.set(a.comercial_id, (cuenta.get(a.comercial_id) ?? 0) + 1)
     }
+    // Solo los comerciales (filtrados en el servidor), no cualquiera que haya agendado una cita (p. ej. un admin haciendo una prueba)
+    return team.map((p) => ({
+      id: p.id,
+      nombre: p.full_name || p.email || 'Sin nombre',
+      color: colorForAgent(p.id, p.calendar_color),
+      cuenta: cuenta.get(p.id) ?? 0,
+      visible: !ocultos.has(p.id),
+    }))
+  }, [team, datos.citas, visibleDays, ocultos])
 
-    return () => {
-      channel.untrack()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheet, days, currentUser])
+  // En móvil el título es el día que se está viendo, no el rango de la semana: es la única referencia que tiene el usuario de dónde está
+  const etiqueta = useMemo(() => {
+    if (isMobile) return format(visibleDays[0] ?? weekStart, "EEEE d 'de' MMM", { locale: es })
+    const fin = addDays(weekStart, 6)
+    return weekStart.getFullYear() === fin.getFullYear()
+      ? `${format(weekStart, 'd MMM', { locale: es })} – ${format(fin, 'd MMM yyyy', { locale: es })}`
+      : `${format(weekStart, 'd MMM yyyy', { locale: es })} – ${format(fin, 'd MMM yyyy', { locale: es })}`
+  }, [isMobile, visibleDays, weekStart])
 
-  // En móvil el título es el día que se está viendo, no el rango de la
-  // semana: es la única referencia que tiene el usuario de dónde está.
-  const weekLabel = isMobile
-    ? format(visibleDays[0] ?? weekStart, "EEEE d 'de' MMM", { locale: es })
-    : `${format(weekStart, "d 'de' MMM", { locale: es })} – ${format(
-        addDays(weekStart, 6),
-        "d 'de' MMM yyyy",
-        { locale: es }
-      )}`
-
-  function goToWeek(newStart: Date, dir: number) {
-    setDirection(dir)
-    setWeekStart(newStart)
-  }
-
-  /**
-   * Las citas agrupadas por día, y ya colocadas para evitar solapes.
-   *
-   * Antes esto se recalculaba en cada render: por cada uno de los 7 días se
-   * recorrían TODAS las citas convirtiendo su hora a Madrid. Con varios
-   * miles de huecos importados de Google eso son decenas de miles de
-   * conversiones de zona horaria, y el calendario se recalculaba entero
-   * cada vez que el ratón pasaba por encima de un hueco (hoverSlot cambia
-   * el estado). De ahí el lag.
-   *
-   * Ahora se hace una sola pasada por cita y solo cuando cambian las citas
-   * o la semana que se está mirando.
-   */
-  /**
-   * PASO 1: agrupar TODAS las citas por día. Depende solo de `appointments`.
-   *
-   * QUÉ PROBLEMA RESUELVE: antes esto estaba dentro del mismo useMemo que el
-   * cálculo de solapes, que depende de `days` — y `days` cambia CADA VEZ que
-   * se pulsa una flecha de semana. O sea que cambiar de semana volvía a
-   * recorrer las 5853 citas enteras convirtiendo cada una a hora de Madrid,
-   * para meter siete en los cubos y tirar el resto.
-   *
-   * Medido con la implementación real de toMadrid (date-fns-tz `toZonedTime`,
-   * lib/timezone.ts:18) sobre las 5853 citas de la base, 20 repeticiones con
-   * el JIT caliente:
-   *
-   *   agrupar las 5853 (lo de antes, en cada flecha): 31,5 ms
-   *   agrupar solo las 7 de la semana visible:         0,037 ms   (x849)
-   *
-   * Y esos 31,5 ms caían justo cuando arranca la animación de framer-motion
-   * del cambio de semana, que es donde más se notan.
-   *
-   * La pasada completa sigue existiendo al montar y cuando el canal de
-   * realtime cambie `appointments`, exactamente igual que antes.
-   */
-  const citasPorDia = useMemo(() => {
-    const cubos = new Map<string, AppointmentWithPeople[]>()
-    for (const a of appointments) {
-      const start = toMadrid(a.start_time)
-      const key = `${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`
-      const cubo = cubos.get(key)
-      if (cubo) cubo.push(a)
-      else cubos.set(key, [a])
-    }
-    return cubos
-  }, [appointments])
-
-  /**
-   * PASO 2: colocar los solapes, solo de los siete días visibles.
-   *
-   * Se pintan exactamente las mismas citas, en el mismo orden: el orden dentro
-   * de cada día lo sigue fijando el recorrido de `appointments` de arriba, y
-   * layoutOverlappingEvents recibe la misma lista que recibía antes.
-   */
-  const layoutByDay = useMemo(() => {
-    const result = new Map<string, LayoutResult<AppointmentWithPeople>[]>()
-    for (const d of days) {
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
-      result.set(
-        key,
-        layoutOverlappingEvents(
-          citasPorDia.get(key) ?? [],
-          (a) => new Date(a.start_time).getTime(),
-          (a) => new Date(a.end_time).getTime()
-        )
-      )
-    }
-    return result
-  }, [citasPorDia, days])
-
-  function layoutForDay(day: Date): LayoutResult<AppointmentWithPeople>[] {
-    const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
-    return layoutByDay.get(key) ?? []
-  }
-
-  function positionFor(a: AppointmentWithPeople) {
-    const start = toMadrid(a.start_time)
-    const end = toMadrid(a.end_time)
-    const startMins = (start.getHours() - DAY_START) * 60 + start.getMinutes()
-    const endMins = (end.getHours() - DAY_START) * 60 + end.getMinutes()
-    const top = (startMins / 60) * HOUR_HEIGHT
-    const height = Math.max(((endMins - startMins) / 60) * HOUR_HEIGHT, 26)
-    return { top, height }
-  }
-
-  /**
-   * La hora de fin con la que nace una cita: una hora más tarde, SIN PASARSE DEL
-   * final del día.
-   *
-   * El tope importa porque la rejilla deja empezar a las 20:30 y el día acaba a
-   * las 21:00: una hora entera desde ahí terminaría a las 21:30, o sea media
-   * hora por debajo del último tramo pintado. El bloque se saldría de la columna
-   * y se montaría encima de lo que haya debajo. Con 30 minutos no pasaba porque
-   * encajaba justo.
-   *
-   * Se recorta el fin, no se mueve el inicio: quien ha pinchado en las 20:30 ha
-   * dicho a qué hora empieza, y eso no se le toca.
-   */
-  function finPorDefecto(start: Date) {
-    const fin = new Date(start.getTime() + DURACION_NUEVA_CITA_MS)
-    const enMadrid = toMadrid(fin)
-    const minutosDeFin = enMadrid.getHours() * 60 + enMadrid.getMinutes()
-    const cierre = DAY_END * 60
-    // Pasarse de día cuenta como pasarse: a las 00:30 los minutos salen 30 y
-    // parecerían dentro del horario.
-    const otroDia = !isSameDay(enMadrid, toMadrid(start))
-    if (!otroDia && minutosDeFin <= cierre) return fin
-
-    /**
-     * EL TOPE NO PUEDE DEJAR EL FIN ANTES QUE EL INICIO, y eso es lo que hacía.
-     *
-     * El botón «Nueva cita» redondea la hora de AHORA al siguiente :00 o :30, y
-     * no la obliga a caer dentro del horario. A las 20:40 el inicio sale a las
-     * 21:00 y recortar al cierre devolvía… las 21:00: fin igual que inicio, y la
-     * ficha se niega a guardarse con «La hora de fin debe ser posterior a la de
-     * inicio». A las 21:10 era peor: cita de 21:30 a 21:00.
-     *
-     * O sea que desde las 20:30 el botón dejaba de servir, que es justo cuando
-     * un comercial apunta la última llamada del día.
-     *
-     * El recorte solo tiene sentido si el cierre va DESPUÉS del inicio. Para una
-     * cita que empieza fuera del horario, la hora entera y en paz: salirse de la
-     * rejilla es un problema de pintado, y no poder agendar lo es de verdad.
-     */
-    const alCierre = fromMadrid(madridWallClockString(toMadrid(start), DAY_END, 0))
-    return alCierre.getTime() > start.getTime() ? alCierre : fin
-  }
-
-  function handleSlotClick(day: Date, hour: number, minute: number = 0) {
-    const start = fromMadrid(madridWallClockString(day, hour, minute))
+  // ── Agendar ──
+  function nuevaCita() {
+    const start = new Date()
+    const roundedMinutes = start.getMinutes() < 30 ? 30 : 0
+    start.setMinutes(roundedMinutes, 0, 0)
+    if (roundedMinutes === 0) start.setHours(start.getHours() + 1)
     setSheet({ mode: 'create', prefill: { start, end: finPorDefecto(start) } })
-    setHoverSlot(null)
   }
 
-  /** Convierte un offset en px dentro de la columna del día a hora:minuto, con snap de 30 min */
-  function timeFromOffsetY(offsetY: number) {
-    const totalMinutes = (offsetY / HOUR_HEIGHT) * 60
-    const snapped = Math.min(
-      Math.max(Math.round(totalMinutes / 30) * 30, 0),
-      (DAY_END - DAY_START) * 60 - 30
-    )
-    return { hour: DAY_START + Math.floor(snapped / 60), minute: snapped % 60 }
-  }
+  // ── Arrastrar una cita a otra hora ──
+  const [arrastrando, setArrastrando] = useState<{ cita: Cita; destino: DestinoDeArrastre | null } | null>(null)
+  const destinoRef = useRef<DestinoDeArrastre | null>(null)
+  const justDraggedRef = useRef(false)
 
-  function topForSlot(hour: number, minute: number) {
-    return (((hour - DAY_START) * 60 + minute) / 60) * HOUR_HEIGHT
-  }
+  /** Soltar un arrastre también dispara un clic: este lo gasta (una vez) para que no abra ni agende nada */
+  const consumirArrastre = useEstable(() => {
+    if (!justDraggedRef.current) return false
+    justDraggedRef.current = false
+    return true
+  })
 
-  /** A partir de coordenadas de pantalla, calcula qué día/columna y hora:minuto está debajo */
-  function pointerToSlot(clientX: number, clientY: number) {
-    if (!daysGridRef.current) return null
-    const rect = daysGridRef.current.getBoundingClientRect()
-    const HOUR_COL = 60
-    const dayWidth = (rect.width - HOUR_COL) / 7
-    if (dayWidth <= 0) return null
-    const xInGrid = clientX - rect.left - HOUR_COL
-    const dayIndex = Math.min(Math.max(Math.floor(xInGrid / dayWidth), 0), 6)
-    const { hour, minute } = timeFromOffsetY(clientY - rect.top)
-    return { dayIndex, hour, minute }
+  /** El hueco de la rejilla que hay bajo el puntero: la columna de día más cercana en horizontal y el tramo de media hora en vertical */
+  function huecoBajoElPuntero(x: number, y: number): DestinoDeArrastre | null {
+    const columnas = Array.from(contenedorRef.current?.querySelectorAll<HTMLElement>('[data-dia]') ?? [])
+    if (columnas.length === 0) return null
+    let elegida = columnas[0]
+    let distancia = Infinity
+    for (const c of columnas) {
+      const r = c.getBoundingClientRect()
+      const d = x < r.left ? r.left - x : x > r.right ? x - r.right : 0
+      if (d < distancia) {
+        distancia = d
+        elegida = c
+      }
+    }
+    const { hour, minute } = huecoDeLaRejilla(y - elegida.getBoundingClientRect().top)
+    return { dia: elegida.dataset.dia as string, hour, minute }
   }
 
   /**
-   * Arranca en pointerdown pero NO activa el modo "arrastrando" hasta que
-   * el puntero se mueva más de un pequeño umbral. Así un clic normal (sin
-   * mover el ratón) nunca oculta la cita ni interfiere con el onClick que
-   * abre la cajita — solo un arrastre real la convierte en un drag.
+   * Arranca en pointerdown pero NO activa el modo «arrastrando» hasta que el puntero se mueva más de un pequeño umbral. Así un clic normal (sin mover el ratón) nunca
+   * oculta la cita ni interfiere con el clic que abre la ficha — solo un arrastre real la convierte en un drag.
    */
-  function handleDragStart(e: React.PointerEvent, a: AppointmentWithPeople) {
-    const canDrag = !a.is_external && (isAdmin || a.comercial_id === currentUser.id)
-    if (!canDrag) return
+  const empezarArrastre = useEstable((e: EventoDePuntero, a: Cita) => {
+    const puede = !a.is_external && (isAdmin || a.comercial_id === currentUser.id)
+    if (!puede) return
     e.stopPropagation()
 
-    const start = toMadrid(a.start_time)
-    const dayMatch = days.find((d) => isSameDay(d, start))
-    if (!dayMatch) return
-    const initial = {
-      dayIso: dayMatch.toISOString(),
-      hour: start.getHours(),
-      minute: start.getMinutes(),
-    }
-    const startX = e.clientX
-    const startY = e.clientY
-    const THRESHOLD = 6
-    let isDragging = false
+    const inicio = toMadrid(a.start_time)
+    const diaOrigen = claveDeDia(inicio)
+    if (!visibleDays.some((d) => claveDeDia(d) === diaOrigen)) return
+    const origen: DestinoDeArrastre = { dia: diaOrigen, hour: inicio.getHours(), minute: inicio.getMinutes() }
+    const x0 = e.clientX
+    const y0 = e.clientY
+    const UMBRAL = 6
+    let arrastrandoYa = false
 
-    function beginDrag() {
-      isDragging = true
-      dragTargetRef.current = initial
-      setDraggingId(a.id)
-      setDragTarget(initial)
-      document.body.style.userSelect = 'none'
-    }
-
-    function onMove(ev: PointerEvent) {
-      if (!isDragging) {
-        const dx = ev.clientX - startX
-        const dy = ev.clientY - startY
-        if (Math.hypot(dx, dy) < THRESHOLD) return
-        beginDrag()
+    function alMover(ev: PointerEvent) {
+      if (!arrastrandoYa) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < UMBRAL) return
+        arrastrandoYa = true
+        destinoRef.current = origen
+        setArrastrando({ cita: a, destino: origen })
+        document.body.style.userSelect = 'none'
       }
-      const slot = pointerToSlot(ev.clientX, ev.clientY)
-      if (!slot) return
-      const dayIso = days[slot.dayIndex].toISOString()
-      const prev = dragTargetRef.current
-      if (
-        prev &&
-        prev.dayIso === dayIso &&
-        prev.hour === slot.hour &&
-        prev.minute === slot.minute
-      ) {
-        return
-      }
-      const next = { dayIso, hour: slot.hour, minute: slot.minute }
-      dragTargetRef.current = next
-      setDragTarget(next)
+      const hueco = huecoBajoElPuntero(ev.clientX, ev.clientY)
+      if (!hueco) return
+      const previo = destinoRef.current
+      if (previo && previo.dia === hueco.dia && previo.hour === hueco.hour && previo.minute === hueco.minute) return
+      destinoRef.current = hueco
+      setArrastrando({ cita: a, destino: hueco })
     }
 
-    function onUp() {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
+    function alSoltar() {
+      window.removeEventListener('pointermove', alMover)
+      window.removeEventListener('pointerup', alSoltar)
       document.body.style.userSelect = ''
+      if (!arrastrandoYa) return // fue un clic normal, no un arrastre
 
-      if (!isDragging) return // fue un clic normal, no un drag
-
-      const target = dragTargetRef.current
-      dragTargetRef.current = null
-      setDraggingId(null)
-      setDragTarget(null)
-
-      const moved =
-        !!target &&
-        (target.dayIso !== initial.dayIso ||
-          target.hour !== initial.hour ||
-          target.minute !== initial.minute)
-
-      if (moved && target) {
-        justDraggedRef.current = true
-        commitDrag(a.id, target)
-      }
+      const destino = destinoRef.current
+      destinoRef.current = null
+      setArrastrando(null)
+      // El clic que sigue a soltar se gasta; y si no llega ninguno, la marca se quita sola al acabar este turno para no tragarse el siguiente de verdad
+      justDraggedRef.current = true
+      setTimeout(() => {
+        justDraggedRef.current = false
+      }, 0)
+      const movido = !!destino && (destino.dia !== origen.dia || destino.hour !== origen.hour || destino.minute !== origen.minute)
+      if (movido && destino) void confirmarArrastre(a.id, destino)
     }
 
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
+    window.addEventListener('pointermove', alMover)
+    window.addEventListener('pointerup', alSoltar)
+  })
 
-  async function commitDrag(
-    id: string,
-    target: { dayIso: string; hour: number; minute: number }
-  ) {
-    const original = appointments.find((a) => a.id === id)
-    const day = days.find((d) => d.toISOString() === target.dayIso)
-    if (!original || !day) return
+  async function confirmarArrastre(id: string, destino: DestinoDeArrastre) {
+    const original = citasRef.current.find((a) => a.id === id)
+    const dia = days.find((d) => claveDeDia(d) === destino.dia)
+    if (!original || !dia) return
 
     // Al reagendar, un comercial deja la cita en una hora (una antigua de media hora también); un administrador conserva la duración que tuviera
-    const durationMs = isAdmin
-      ? new Date(original.end_time).getTime() - new Date(original.start_time).getTime()
-      : DURACION_CITA_MS
-    const newStart = fromMadrid(madridWallClockString(day, target.hour, target.minute))
+    const durationMs = isAdmin ? new Date(original.end_time).getTime() - new Date(original.start_time).getTime() : DURACION_CITA_MS
+    const newStart = fromMadrid(madridWallClockString(dia, destino.hour, destino.minute))
     const newEnd = new Date(newStart.getTime() + durationMs)
 
-    setAppointments((prev) =>
-      prev.map((a) =>
-        a.id === id
-          ? { ...a, start_time: newStart.toISOString(), end_time: newEnd.toISOString() }
-          : a
-      )
-    )
+    // Se ve ya en su sitio nuevo; si el servidor dice que no, vuelve
+    datos.modificar(id, (a) => ({ ...a, start_time: newStart.toISOString(), end_time: newEnd.toISOString() }))
 
     try {
       const res = await fetch(`/api/appointments/${id}`, {
@@ -628,97 +412,50 @@ export function AgendaCalendar({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error al mover la cita')
-      setAppointments((prev) =>
-        prev.map((a) => (a.id === id ? (data as AppointmentWithPeople) : a))
-      )
+      datos.poner(data as Cita)
       toast.success('Cita reagendada')
     } catch (err) {
       console.error('Error moving appointment:', err)
       toast.error('No se pudo mover la cita')
-      setAppointments((prev) => prev.map((a) => (a.id === id ? original : a)))
+      datos.poner(original)
     }
   }
 
-  // `created` lo manda la cajita según su modo. No se puede deducir de si
-  // la cita ya está en la lista: Realtime la mete antes de que termine el
-  // guardado, así que siempre parecería que ya existía.
-  function upsertLocal(appt: AppointmentWithPeople, created = false) {
-    setAppointments((prev) => {
-      const exists = prev.some((a) => a.id === appt.id)
-      return exists ? prev.map((a) => (a.id === appt.id ? appt : a)) : [...prev, appt]
-    })
+  const abrirHueco = useEstable((day: Date, hour: number, minute: number) => {
+    const start = fromMadrid(madridWallClockString(day, hour, minute))
+    setSheet({ mode: 'create', prefill: { start, end: finPorDefecto(start) } })
+  })
+
+  const abrirCita = useEstable((cita: Cita) => {
+    if (consumirArrastre()) return
+    setSheet({ mode: 'edit', appointment: cita })
+  })
+
+  // `created` lo manda la ficha según su modo. No se puede deducir de si la cita ya está en la lista: el tiempo real la mete antes de que termine el guardado
+  function guardada(appt: Cita, created = false) {
+    datos.poner(appt)
     setSheet(null)
     if (created) setConfirmation(appt)
   }
 
   /**
-   * Fuerza la recarga completa desde Google en vez de esperar al ciclo de
-   * cada 4 horas. Al terminar se relee la agenda entera, porque el
-   * resincronizado puede haber borrado huecos que ya no existen.
+   * Fuerza la recarga completa desde Google en vez de esperar al ciclo de cada 4 horas. Al terminar se vuelve a leer lo que se está mirando, porque el resincronizado
+   * puede haber borrado huecos que ya no existen; el resto de semanas se piden de nuevo cuando se navegue a ellas.
    */
-  async function handleResync() {
+  async function sincronizar() {
     setResyncing(true)
     try {
       const res = await fetch('/api/appointments/resync', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'No se pudo sincronizar')
-
-      // Por tramos: Supabase corta a 1.000 filas por consulta
-      const CHUNK = 1000
-      const fresh: AppointmentWithPeople[] = []
-      // ¿Se piden las columnas de la 214? Baja a false si la base aún no las tiene.
-      let conTienda = true
-      // El avance va al FINAL del cuerpo, no en la cabecera: el reintento sin
-      // esas columnas tiene que repetir ESTE tramo, y con `from += CHUNK` arriba
-      // un `continue` se saltaría mil citas sin decir nada.
-      for (let from = 0; ; ) {
-        // LA MISMA LISTA DE COLUMNAS QUE LA CARGA INICIAL, NO `*`.
-        //
-        // Aquí ponía `select('*')`, que deshacía el recorte que hace
-        // app/dashboard/agenda/page.tsx: en cuanto alguien pulsaba
-        // «Resincronizar», el navegador se volvía a tragar los 6.566 kB que el
-        // recorte había dejado en 4.847 kB —transcripciones completas y cinco
-        // columnas de fontanería de Google que no lee ninguna pantalla— y
-        // además metía en el estado objetos con más campos que los que había
-        // puesto el servidor.
-        //
-        // NO CAMBIA NADA DE LO QUE SE VE: las columnas que se dejan de pedir no
-        // se pintan en ningún sitio (cero usos en components/ y
-        // app/dashboard/), y `google_meet_link`, que sí se pinta, está en la
-        // lista. Lo único que cambia es que después de resincronizar el estado
-        // tiene la misma forma que al cargar la página.
-        const { data, error } = await supabase
-          .from('appointments')
-          .select(conTienda ? COLUMNAS_AGENDA_CON_TIENDA : COLUMNAS_AGENDA)
-          .order('start_time', { ascending: true })
-          .order('id', { ascending: true })
-          .range(from, from + CHUNK - 1)
-        // La 214 todavía no está lanzada: se repite ESTE tramo sin sus columnas.
-        // Sin esto, pulsar «Resincronizar» antes de migrar vaciaría el calendario
-        // que ya estaba pintado. Ver COLUMNAS_214 en lib/types/appointments.ts.
-        if (error && conTienda && faltaLa214(error)) {
-          conTienda = false
-          continue
-        }
-        if (!data || data.length === 0) break
-        // `as unknown as`, igual que app/dashboard/agenda/page.tsx:70: al pedir
-        // columnas explícitas el tipo que infiere supabase-js ya no solapa con
-        // AppointmentWithPeople (le falta `transcription`, que no se pide a
-        // propósito porque es el texto largo y se carga al desplegarlo).
-        fresh.push(...(data as unknown as AppointmentWithPeople[]))
-        if (data.length < CHUNK) break
-        from += CHUNK
-      }
-      setAppointments(fresh)
+      await datos.recargar(weekStart)
 
       const partes = [
         data.imported ? `${data.imported} nuevos` : null,
         data.updated ? `${data.updated} actualizados` : null,
         data.pruned ? `${data.pruned} eliminados` : null,
       ].filter(Boolean)
-      toast.success(
-        partes.length > 0 ? `Sincronizado: ${partes.join(', ')}` : 'Ya estaba todo al día'
-      )
+      toast.success(partes.length > 0 ? `Sincronizado: ${partes.join(', ')}` : 'Ya estaba todo al día')
     } catch (err) {
       console.error('Error resincronizando:', err)
       toast.error((err as Error).message)
@@ -727,530 +464,69 @@ export function AgendaCalendar({
     }
   }
 
-  function removeLocal(id: string) {
-    setAppointments((prev) => prev.filter((a) => a.id !== id))
-    setSheet(null)
-  }
-
-  const nowLineTop = (() => {
-    const mins = (now.getHours() - DAY_START) * 60 + now.getMinutes()
-    if (now.getHours() < DAY_START || now.getHours() >= DAY_END) return null
-    return (mins / 60) * HOUR_HEIGHT
-  })()
+  const hoy = claveDeDia(now)
 
   return (
-    <div className="flex flex-col h-full min-h-0 min-w-0 gap-4">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 min-w-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex items-center rounded-full border border-white/10 bg-white/[0.03] p-1">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => step(-1)}
-              className="h-8 w-8 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => goToWeek(startOfWeek(toMadrid(new Date()), { weekStartsOn: 1 }), 0)}
-              className="px-4 h-8 rounded-full text-xs font-semibold text-white/80 hover:text-white hover:bg-white/[0.06] transition-colors button-uppercase tracking-wide"
-            >
-              Hoy
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => step(1)}
-              className="h-8 w-8 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </motion.button>
-          </div>
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2.5">
+      <BarraDeAgenda
+        etiqueta={etiqueta}
+        semana={isMobile ? null : getISOWeek(weekStart)}
+        movil={isMobile}
+        esAdmin={isAdmin}
+        sincronizando={resyncing}
+        cargando={datos.cargando}
+        gente={gente}
+        verGoogle={!ocultos.has(GOOGLE)}
+        totalVisible={totalVisible}
+        onAnterior={() => step(-1)}
+        onSiguiente={() => step(1)}
+        onHoy={irAHoy}
+        onIrA={irAFecha}
+        onSincronizar={sincronizar}
+        onDisponibilidad={() => setShowAvailabilitySettings(true)}
+        onNueva={nuevaCita}
+        onAlternarPersona={alternar}
+        onAlternarGoogle={() => alternar(GOOGLE)}
+      />
 
-          <AnimatePresence mode="wait">
-            <motion.span
-              key={weekLabel}
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 4 }}
-              transition={{ duration: 0.18 }}
-              className="text-white font-semibold flex items-center gap-2 text-[15px]"
-            >
-              <CalIcon className="h-4 w-4 text-[#FF6600]" />
-              {weekLabel}
-            </motion.span>
-          </AnimatePresence>
-        </div>
+      <RejillaSemanal
+        dias={visibleDays}
+        movil={isMobile}
+        claveDeSemana={`${claveDeSemana(weekStart)}${isMobile ? `-${mobileDayIndex}` : ''}`}
+        direccion={direction}
+        capas={capas}
+        conteo={conteo}
+        ventanas={availabilityWindows}
+        presencia={presencia}
+        ahora={now}
+        hoy={hoy}
+        arrastrando={arrastrando}
+        esAdmin={isAdmin}
+        usuarioId={currentUser.id}
+        contenedorRef={contenedorRef}
+        onHueco={abrirHueco}
+        onAbrir={abrirCita}
+        onArrastrar={empezarArrastre}
+        consumirArrastre={consumirArrastre}
+      />
 
-        <div className="flex flex-wrap items-center gap-2 min-w-0">
-          {isAdmin && (
-            <button
-              onClick={handleResync}
-              disabled={resyncing}
-              title="Volver a leer Google Calendar entero, sin esperar al ciclo automático"
-              className="h-9 lg:h-10 px-3 lg:px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[12px] lg:text-sm font-medium flex items-center gap-1.5 lg:gap-2 whitespace-nowrap hover:bg-white/[0.06] hover:border-white/20 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 ${resyncing ? 'animate-spin text-[#FF6600]' : ''}`} />
-              {resyncing ? 'Sincronizando...' : 'Sincronizar'}
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              onClick={() => setShowAvailabilitySettings(true)}
-              className="h-9 lg:h-10 px-3 lg:px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[12px] lg:text-sm font-medium flex items-center gap-1.5 lg:gap-2 whitespace-nowrap hover:bg-white/[0.06] hover:border-white/20 transition-colors"
-            >
-              <ClockIcon className="h-4 w-4" /> Mi disponibilidad
-            </button>
-          )}
-          <Link
-            href="/dashboard/agenda/desglose"
-            className="h-9 lg:h-10 px-3 lg:px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[12px] lg:text-sm font-medium flex items-center gap-1.5 lg:gap-2 whitespace-nowrap hover:bg-white/[0.06] hover:border-white/20 transition-colors"
-          >
-            <Table2 className="h-4 w-4" /> Desglose de citas
-          </Link>
-          {isAdmin && (
-            <Link
-              href="/dashboard/agenda/crm"
-              className="h-9 lg:h-10 px-3 lg:px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[12px] lg:text-sm font-medium flex items-center gap-1.5 lg:gap-2 whitespace-nowrap hover:bg-white/[0.06] hover:border-white/20 transition-colors"
-            >
-              <Contact className="h-4 w-4" /> CRM de clientes
-            </Link>
-          )}
-          <motion.button
-            whileHover={{ y: -1, boxShadow: '0 8px 24px -4px rgba(255,102,0,0.45)' }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => {
-              const start = new Date()
-              const roundedMinutes = start.getMinutes() < 30 ? 30 : 0
-              start.setMinutes(roundedMinutes, 0, 0)
-              if (roundedMinutes === 0) start.setHours(start.getHours() + 1)
-              setSheet({ mode: 'create', prefill: { start, end: finPorDefecto(start) } })
-            }}
-            className="h-9 lg:h-10 px-4 lg:px-5 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[12px] lg:text-sm font-semibold flex items-center gap-1.5 lg:gap-2 whitespace-nowrap shadow-[0_4px_16px_-4px_rgba(255,102,0,0.5)]"
-          >
-            <Plus className="h-4 w-4" /> Nueva cita
-          </motion.button>
-        </div>
-      </div>
-
-      {/* Leyenda de comerciales */}
-      {legendPeople.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-          {legendPeople.map((p) => {
-            const color = colorForAgent(p.id, p.calendar_color)
-            return (
-              <span
-                key={p.id}
-                className="flex items-center gap-1.5 pl-1 pr-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-xs text-white/70"
-              >
-                <span
-                  className="h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                  style={{ backgroundColor: color }}
-                >
-                  {initials(p.full_name, p.email || '')}
-                </span>
-                {p.full_name || p.email}
-              </span>
-            )
-          })}
-          <span className="flex items-center gap-1.5 pl-1 pr-3 py-1 rounded-full border border-white/10 border-dashed bg-white/[0.02] text-xs text-white/40">
-            <span className="h-5 w-5 rounded-full bg-white/10" />
-            Google Calendar
-          </span>
-        </div>
+      {sheet && (
+        <AppointmentSheet
+          mode={sheet.mode}
+          appointment={sheet.mode === 'edit' ? sheet.appointment : null}
+          prefill={sheet.mode === 'create' ? sheet.prefill : null}
+          team={team}
+          currentUser={currentUser}
+          onClose={() => setSheet(null)}
+          onSaved={(appt) => guardada(appt, sheet.mode === 'create')}
+          onDeleted={(id) => {
+            datos.quitar(id)
+            setSheet(null)
+          }}
+        />
       )}
 
-      {/* Calendario */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden flex-1 min-h-0 flex flex-col">
-        <div
-          ref={gridRef}
-          className="overflow-x-auto overflow-y-auto flex-1 min-h-0"
-        >
-          <div className={isMobile ? '' : 'min-w-[880px]'}>
-            {/* Cabecera de días (sticky) */}
-            <div
-              className={`sticky top-0 z-20 grid bg-[#0a0a0a]/95 backdrop-blur border-b border-white/10 ${
-                isMobile ? 'grid-cols-[52px_1fr]' : 'grid-cols-[60px_repeat(7,1fr)]'
-              }`}
-            >
-              <div className="p-2" />
-              {visibleDays.map((day) => (
-                <div
-                  key={day.toISOString()}
-                  className={`py-3 text-center border-l border-white/5 transition-colors ${
-                    isSameDay(day, now) ? 'bg-[#FF6600]/[0.06]' : ''
-                  }`}
-                >
-                  <div className="text-[10px] text-white/35 uppercase tracking-wider font-medium">
-                    {format(day, 'EEE', { locale: es })}
-                  </div>
-                  <div
-                    className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-[15px] font-semibold ${
-                      isSameDay(day, now)
-                        ? 'bg-[#FF6600] text-white'
-                        : 'text-white/85'
-                    }`}
-                  >
-                    {format(day, 'd')}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Rejilla horaria con transición de semana */}
-            <AnimatePresence mode="wait" custom={direction}>
-              <motion.div
-                key={weekStart.toISOString()}
-                custom={direction}
-                initial={{ opacity: 0, x: direction === 0 ? 0 : direction > 0 ? 24 : -24 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: direction > 0 ? -24 : 24 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
-                className={`grid ${
-                  isMobile ? 'grid-cols-[52px_1fr]' : 'grid-cols-[60px_repeat(7,1fr)]'
-                }`}
-                ref={daysGridRef}
-              >
-                {/* Columna de horas */}
-                <div className="relative">
-                  {HOURS.map((h) => (
-                    <div
-                      key={h}
-                      style={{ height: HOUR_HEIGHT }}
-                      className="text-[11px] text-white/30 text-right pr-3 -translate-y-2 tabular-nums"
-                    >
-                      {String(h).padStart(2, '0')}:00
-                    </div>
-                  ))}
-                </div>
-
-                {/* Columnas de días */}
-                {visibleDays.map((day) => {
-                  const positioned = layoutForDay(day)
-                  const showNowLine = isSameDay(day, now) && nowLineTop !== null
-                  const dayIso = day.toISOString()
-                  const isHoveredDay = !draggingId && hoverSlot?.dayIso === dayIso
-                  const hoverTop = isHoveredDay
-                    ? ((hoverSlot!.hour - DAY_START) * 60 + hoverSlot!.minute) / 60 *
-                      HOUR_HEIGHT
-                    : null
-                  const draggingAppt =
-                    draggingId ? appointments.find((a) => a.id === draggingId) : null
-                  const isDropTargetDay = draggingId && dragTarget?.dayIso === dayIso
-                  const presenceHere = presenceList.filter(
-                    (p) => p.mode === 'create' && p.dayIso === dayIso
-                  )
-
-                  return (
-                    <div
-                      key={dayIso}
-                      className="relative border-l border-white/5 cursor-pointer"
-                      style={{ height: HOURS.length * HOUR_HEIGHT }}
-                      onMouseMove={(e) => {
-                        if (draggingId) return
-                        const rect = e.currentTarget.getBoundingClientRect()
-                        const { hour, minute } = timeFromOffsetY(e.clientY - rect.top)
-                        setHoverSlot({ dayIso, hour, minute })
-                      }}
-                      onMouseLeave={() => setHoverSlot(null)}
-                      onClick={(e) => {
-                        if (justDraggedRef.current) {
-                          justDraggedRef.current = false
-                          return
-                        }
-                        const rect = e.currentTarget.getBoundingClientRect()
-                        const { hour, minute } = timeFromOffsetY(e.clientY - rect.top)
-                        handleSlotClick(day, hour, minute)
-                      }}
-                    >
-                      {HOURS.map((h) => (
-                        <div
-                          key={h}
-                          style={{ height: HOUR_HEIGHT }}
-                          className="border-b border-white/[0.04] relative"
-                        >
-                          <div
-                            className="absolute left-0 right-0 border-b border-white/[0.02]"
-                            style={{ top: HOUR_HEIGHT / 2 }}
-                          />
-                        </div>
-                      ))}
-
-                      {/* Franjas de disponibilidad (banda visual, informativa) */}
-                      {availabilityWindows
-                        .filter((w) => w.days_of_week.includes(day.getDay()))
-                        .map((w) => {
-                          const start = parseTimeToHourMinute(w.start_time)
-                          const end = parseTimeToHourMinute(w.end_time)
-                          const top = topForSlot(start.hour, start.minute)
-                          const height =
-                            (((end.hour - start.hour) * 60 + (end.minute - start.minute)) /
-                              60) *
-                            HOUR_HEIGHT
-                          return (
-                            <div
-                              key={w.id}
-                              className="absolute left-0 right-0 bg-emerald-500/[0.06] border-y border-emerald-500/20 pointer-events-none"
-                              style={{ top, height }}
-                            />
-                          )
-                        })}
-
-                      {/* Alguien más está rellenando una cita nueva a esta hora */}
-                      {presenceHere.map((p) => (
-                        <motion.div
-                          key={p.userId}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="absolute left-1 right-1 z-30 pointer-events-none rounded-lg border-2 border-dashed px-2 py-1 overflow-hidden"
-                          style={{
-                            top: topForSlot(p.hour ?? 0, p.minute ?? 0),
-                            height: HOUR_HEIGHT / 2,
-                            borderColor: p.color,
-                            background: `${p.color}1a`,
-                          }}
-                        >
-                          <div
-                            className="flex items-center gap-1 text-[10px] font-semibold truncate"
-                            style={{ color: p.color }}
-                          >
-                            <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                              <span
-                                className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                                style={{ backgroundColor: p.color }}
-                              />
-                              <span
-                                className="relative inline-flex rounded-full h-1.5 w-1.5"
-                                style={{ backgroundColor: p.color }}
-                              />
-                            </span>
-                            {p.fullName || p.email} agendando...
-                          </div>
-                        </motion.div>
-                      ))}
-
-                      {isHoveredDay && hoverTop !== null && (
-                        <div
-                          className="absolute left-0 right-0 z-30 pointer-events-none"
-                          style={{ top: hoverTop }}
-                        >
-                          <div className="border-t border-dashed border-[#FF6600]/60" />
-                          <motion.span
-                            initial={{ opacity: 0, y: 2 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.1 }}
-                            className="absolute -top-[13px] left-1 bg-[#161616] border border-white/15 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded-md shadow-lg tabular-nums whitespace-nowrap"
-                          >
-                            {String(hoverSlot!.hour).padStart(2, '0')}:
-                            {String(hoverSlot!.minute).padStart(2, '0')}
-                          </motion.span>
-                        </div>
-                      )}
-
-                      {showNowLine && (
-                        <div
-                          className="absolute left-0 right-0 z-10 pointer-events-none flex items-center"
-                          style={{ top: nowLineTop! }}
-                        >
-                          <span className="h-2 w-2 rounded-full bg-[#FF6600] -ml-1 shadow-[0_0_6px_rgba(255,102,0,0.8)]" />
-                          <span className="flex-1 h-[1.5px] bg-[#FF6600]/80" />
-                        </div>
-                      )}
-
-                      {positioned.map(({ event: a, col, totalCols }) => {
-                        if (a.id === draggingId) return null // se sustituye por el "fantasma"
-                        const { top, height } = positionFor(a)
-                        const color = a.is_external
-                          ? '#7C8493'
-                          : a.comercial
-                            ? colorForAgent(a.comercial.id, a.comercial.calendar_color)
-                            : '#FF6600'
-                        const cancelled =
-                          a.status === 'not_qualified' || a.status === 'cancelled'
-                        const widthPct = 100 / totalCols
-                        const leftPct = col * widthPct
-                        const compact = height < 40
-                        const canDrag =
-                          !a.is_external && (isAdmin || a.comercial_id === currentUser.id)
-                        const editorPresence = presenceList.find(
-                          (p) => p.mode === 'edit' && p.appointmentId === a.id
-                        )
-
-                        return (
-                          <Fragment key={a.id}>
-                          <motion.button
-                            layout
-                            initial={{ opacity: 0, scale: 0.96 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            whileHover={{
-                              scale: 1.015,
-                              zIndex: 30,
-                              boxShadow: '0 8px 20px -6px rgba(0,0,0,0.5)',
-                            }}
-                            transition={{ duration: 0.15 }}
-                            onPointerDown={(e) => handleDragStart(e, a)}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (justDraggedRef.current) {
-                                justDraggedRef.current = false
-                                return
-                              }
-                              setSheet({ mode: 'edit', appointment: a })
-                            }}
-                            style={{
-                              top,
-                              height,
-                              left: `calc(${leftPct}% + 2px)`,
-                              width: `calc(${widthPct}% - 4px)`,
-                              touchAction: 'none',
-                              border: a.is_external
-                                ? '1.5px dashed rgba(124,132,147,0.5)'
-                                : `1.5px solid ${color}`,
-                              boxShadow: a.is_external
-                                ? undefined
-                                : `inset 0 0 0 1px ${color}33`,
-                              background: a.is_external
-                                ? 'rgba(124,132,147,0.10)'
-                                : `linear-gradient(135deg, ${color}29, ${color}14)`,
-                              backgroundImage: a.is_external
-                                ? 'repeating-linear-gradient(135deg, rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 4px, transparent 4px, transparent 9px)'
-                                : undefined,
-                            }}
-                            className={`absolute rounded-lg px-2 py-1 text-left overflow-hidden z-10 ${
-                              cancelled ? 'opacity-45' : ''
-                            } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                          >
-                            <div className="flex items-center justify-between gap-1">
-                              <div
-                                className={`flex items-center gap-1 text-[11px] font-semibold text-white truncate min-w-0 ${
-                                  cancelled ? 'line-through' : ''
-                                }`}
-                              >
-                                {a.google_meet_link && (
-                                  <Video className="h-2.5 w-2.5 flex-shrink-0 text-white/70" />
-                                )}
-                                {a.is_external && (
-                                  <Link2 className="h-2.5 w-2.5 flex-shrink-0 text-white/50" />
-                                )}
-                                <span className="truncate">{a.lead_name}</span>
-                              </div>
-                              {!a.is_external && (
-                                <span
-                                  className={`flex-shrink-0 text-[8px] font-semibold px-1 py-0.5 rounded border leading-none whitespace-nowrap ${APPOINTMENT_STATUS_COLORS[a.status]}`}
-                                >
-                                  {CARD_STATUS_LABELS[a.status] ?? a.status}
-                                </span>
-                              )}
-                            </div>
-                            {!compact && (
-                              <div className="text-[10px] text-white/55 truncate tabular-nums">
-                                {format(toMadrid(a.start_time), 'HH:mm')}
-                                {a.is_external
-                                  ? ''
-                                  : a.lead_company
-                                    ? ` · ${a.lead_company}`
-                                    : ''}
-                              </div>
-                            )}
-                          </motion.button>
-
-                          {editorPresence && (
-                            <div
-                              className="absolute z-20 pointer-events-none"
-                              style={{
-                                top: top - 3,
-                                left: `calc(${leftPct + widthPct}% - 12px)`,
-                              }}
-                              title={`${editorPresence.fullName || editorPresence.email} está editando esta cita`}
-                            >
-                              <span className="relative flex h-2.5 w-2.5">
-                                <span
-                                  className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                                  style={{ backgroundColor: editorPresence.color }}
-                                />
-                                <span
-                                  className="relative inline-flex rounded-full h-2.5 w-2.5 border-2 border-[#0a0a0a]"
-                                  style={{ backgroundColor: editorPresence.color }}
-                                />
-                              </span>
-                            </div>
-                          )}
-                          </Fragment>
-                        )
-                      })}
-
-                      {isDropTargetDay && dragTarget && draggingAppt && (
-                        <div
-                          className="absolute left-1 right-1 rounded-lg px-2 py-1 z-40 pointer-events-none border-2 border-dashed"
-                          style={{
-                            top: topForSlot(dragTarget.hour, dragTarget.minute),
-                            height: Math.max(
-                              ((isAdmin
-                                ? new Date(draggingAppt.end_time).getTime() -
-                                  new Date(draggingAppt.start_time).getTime()
-                                : DURACION_CITA_MS) /
-                                60000 /
-                                60) *
-                                HOUR_HEIGHT,
-                              26
-                            ),
-                            borderColor: draggingAppt.comercial
-                              ? colorForAgent(
-                                  draggingAppt.comercial.id,
-                                  draggingAppt.comercial.calendar_color
-                                )
-                              : '#FF6600',
-                            background: `${
-                              draggingAppt.comercial
-                                ? colorForAgent(
-                                    draggingAppt.comercial.id,
-                                    draggingAppt.comercial.calendar_color
-                                  )
-                                : '#FF6600'
-                            }33`,
-                          }}
-                        >
-                          <div className="text-[11px] font-semibold text-white truncate">
-                            {draggingAppt.lead_name}
-                          </div>
-                          <div className="text-[10px] text-white/70 tabular-nums">
-                            {String(dragTarget.hour).padStart(2, '0')}:
-                            {String(dragTarget.minute).padStart(2, '0')}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {sheet && (
-          <AppointmentSheet
-            mode={sheet.mode}
-            appointment={sheet.mode === 'edit' ? sheet.appointment : null}
-            prefill={sheet.mode === 'create' ? sheet.prefill : null}
-            team={team}
-            currentUser={currentUser}
-            onClose={() => setSheet(null)}
-            onSaved={(appt) => upsertLocal(appt, sheet.mode === 'create')}
-            onDeleted={removeLocal}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {confirmation && (
-          <AppointmentConfirmation
-            appointment={confirmation}
-            onClose={() => setConfirmation(null)}
-          />
-        )}
-      </AnimatePresence>
+      {confirmation && <AppointmentConfirmation appointment={confirmation} onClose={() => setConfirmation(null)} />}
 
       {showAvailabilitySettings && (
         <AvailabilitySettings

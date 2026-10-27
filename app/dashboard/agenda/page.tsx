@@ -2,110 +2,52 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { AgendaCalendar } from '@/components/agenda/AgendaCalendar'
-import {
-  AppointmentWithPeople,
-  CalendarPerson,
-  COLUMNAS_AGENDA,
-  COLUMNAS_AGENDA_CON_TIENDA,
-  faltaLa214,
-} from '@/lib/types/appointments'
-import { AvailabilityWindow } from '@/lib/types/availability'
+import { citasEntre } from '@/lib/agenda/consulta'
+import { claveDeSemana, limitesDeSemanas, lunesDeLaSemana, semanasAlrededor } from '@/lib/agenda/semanas'
+import type { CalendarPerson } from '@/lib/types/appointments'
+import type { AvailabilityWindow } from '@/lib/types/availability'
 
+/**
+ * LA AGENDA ABRE CON TRES SEMANAS, NO CON TODA LA TABLA.
+ *
+ * Esta página se bajaba cada vez las 5.939 citas de `appointments` en tramos de mil, UNO DETRÁS DE OTRO (6 peticiones seguidas, 5,9 MB hacia el navegador), y solo después
+ * pintaba una semana. Medido contra producción el 27 oct 2026: 1,7–2,7 s de espera con la pantalla quieta. De las 5.939 filas, 5.889 son huecos de Google repetidos hasta
+ * el año 2054 y 50 son citas del ERP.
+ *
+ * Ahora trae la semana de hoy y las dos de al lado (24 filas, 32 kB, una petición de ~0,15 s), TODO A LA VEZ con el perfil, el equipo y las franjas de disponibilidad —
+ * antes cada una esperaba a la anterior —, y el navegador pide el resto de semanas al moverse por ellas (components/agenda/useCitas.ts). Las flechas no esperan: la semana de
+ * después ya se está pidiendo antes de pulsarlas.
+ *
+ * Si la lectura falla, la página NO se queda en blanco ni enseña media semana: sale sin citas y marca esas semanas como «sin cargar», así que el navegador las pide solo.
+ */
 export default async function AgendaPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/auth/login')
 
-  const profile = await getUserProfile()
+  const semanas = semanasAlrededor(lunesDeLaSemana(new Date()), 1, 1)
+  const { desde } = limitesDeSemanas(semanas[0])
+  const { hasta } = limitesDeSemanas(semanas[semanas.length - 1])
+
+  const [profile, equipo, franjas, citas] = await Promise.all([
+    getUserProfile(),
+    // Comerciales para la leyenda y la asignación
+    supabase.from('profiles').select('id, full_name, email, role, calendar_color').eq('is_comercial', true).order('full_name', { ascending: true }),
+    supabase.from('availability_windows').select('*'),
+    citasEntre(supabase, desde, hasta),
+  ])
   if (!profile) redirect('/auth/login')
 
-  // Comerciales (Yamila, Alejandro, José, Maoli) para leyenda y asignación
-  const { data: team } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, role, calendar_color')
-    .eq('is_comercial', true)
-    .order('full_name', { ascending: true })
-
-  // Citas con la persona que las agendó y el closer asignado.
-  //
-  // Por tramos: Supabase corta toda consulta a 1.000 filas y un .limit()
-  // mayor no lo salta, porque el tope lo aplica el servidor. Los huecos
-  // importados de Google se acumulan solos — cada reunión semanal son unas
-  // 50 filas al año — así que sin esto la agenda empezaría a perder citas
-  // en silencio en cuanto se pasara del millar.
-  const CHUNK = 1000
-  const appointments: AppointmentWithPeople[] = []
-  // ¿Se piden las columnas de la 214? Se baja a false la primera vez que la base
-  // diga que no existen, y ya no se vuelve a intentar en el resto de tramos.
-  let conTienda = true
-  // El avance va al FINAL y no en la cabecera del for, a propósito: el reintento
-  // sin las columnas nuevas tiene que repetir ESTE tramo, y con `from += CHUNK`
-  // en la cabecera un `continue` se saltaría mil citas sin decir nada.
-  for (let from = 0; ; ) {
-    const { data, error } = await supabase
-      .from('appointments')
-      // Columnas explícitas en vez de `*`: la transcripción completa de una
-      // llamada son decenas de miles de caracteres, y venían todas en la
-      // carga inicial de la página aunque no se lean nunca. El resumen sí
-      // se queda, que es corto y se enseña en la ficha; el texto largo se
-      // pide solo al desplegarlo.
-      //
-      // Y POR EL MISMO MOTIVO YA NO SE PIDEN cinco columnas de fontanería de
-      // la sincronización con Google —google_html_link, google_calendar_id,
-      // last_synced_at, sync_error y updated_source—: las escribe
-      // lib/appointments-sync.ts y no las lee NINGUNA pantalla (cero usos en
-      // components/ y app/dashboard/). Medido contra la base real con las
-      // 5853 citas de hoy:
-      //
-      //   con las cinco:  6566 kB sin comprimir / 342 kB gzip / 1511 ms
-      //   sin las cinco:  4847 kB sin comprimir / 266 kB gzip /  857 ms
-      //
-      // `google_meet_link` SÍ SE QUEDA y no debe quitarse aunque lo parezca:
-      // se pinta en AgendaCalendar.tsx:1005, AppointmentSheet.tsx:379 y
-      // AppointmentConfirmation.tsx:183. Quitarla borraría el enlace de Meet
-      // de la agenda, que es un cambio visible.
-      //
-      // La lista vive en COLUMNAS_AGENDA (lib/types/appointments.ts) porque el
-      // botón «Resincronizar» de AgendaCalendar recarga esta misma tabla y
-      // tenía su propio `select('*')`, que deshacía el recorte en cuanto
-      // alguien lo pulsaba. Con una sola lista no se pueden volver a separar.
-      .select(conTienda ? COLUMNAS_AGENDA_CON_TIENDA : COLUMNAS_AGENDA)
-      .order('start_time', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, from + CHUNK - 1)
-
-    // La 214 todavía no está lanzada: se repite el tramo sin sus columnas en vez
-    // de dejar la agenda en blanco. Ver el comentario de COLUMNAS_214.
-    if (error && conTienda && faltaLa214(error)) {
-      conTienda = false
-      continue
-    }
-    if (error) {
-      console.error('Error cargando la agenda:', error)
-      break
-    }
-    if (!data || data.length === 0) break
-    appointments.push(...(data as unknown as AppointmentWithPeople[]))
-    from += CHUNK
-    if (data.length < CHUNK) break
-  }
-
-  const { data: availabilityWindows } = await supabase
-    .from('availability_windows')
-    .select('*')
+  if (citas.error) console.error('Error cargando la agenda:', citas.error)
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)]">
-      <div className="mb-4 flex-shrink-0">
-        <h1 className="heading-medium text-white mb-2">Agenda Comercial</h1>
-      </div>
-
-      <div className="flex-1 min-h-0">
+    <div className="flex h-[calc(100dvh-8rem)] flex-col lg:h-[calc(100vh-4rem)]">
+      <div className="min-h-0 flex-1">
         <AgendaCalendar
-          initialAppointments={appointments}
-          team={(team as CalendarPerson[]) || []}
+          initialAppointments={citas.citas}
+          semanasIniciales={citas.error ? [] : semanas.map(claveDeSemana)}
+          semanaInicial={claveDeSemana(semanas[1])}
+          team={(equipo.data as CalendarPerson[]) || []}
           currentUser={profile}
-          initialAvailabilityWindows={(availabilityWindows as AvailabilityWindow[]) || []}
+          initialAvailabilityWindows={(franjas.data as AvailabilityWindow[]) || []}
         />
       </div>
     </div>
