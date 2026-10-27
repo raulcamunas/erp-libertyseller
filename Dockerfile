@@ -75,6 +75,7 @@ RUN { \
       echo "* * * * * /app/scripts/rinkel-transcribir.sh"; \
       echo "* * * * * /app/scripts/correo-sync.sh"; \
       echo "* * * * * /app/scripts/correo-secuencias.sh"; \
+      echo "* * * * * /app/scripts/notas-gemini.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto
