@@ -2,7 +2,7 @@
 
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertCircle, ChevronDown, Eye, KeyRound, Mail, PenSquare, Plus, RefreshCw, Settings, Users, Workflow } from 'lucide-react'
+import { AlertCircle, ChevronDown, Eye, KeyRound, Mail, PenSquare, Plus, RefreshCw, Settings, ShieldCheck, Users, Workflow } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -64,6 +64,9 @@ const PantallaDeSecuencias = dynamic(() => import('./secuencias/PantallaDeSecuen
   ),
 })
 
+// «Quién ve qué» es solo para administradores: se baja la primera vez que se abre
+const PermisosDeBuzones = dynamic(() => import('./PermisosDeBuzones').then((m) => m.PermisosDeBuzones), { ssr: false })
+
 const hace = (iso: string) => formatDistanceToNow(new Date(Math.min(Date.parse(iso), Date.now())), { locale: es, addSuffix: true })
 const esperar = (ms: number) => new Promise((resolver) => setTimeout(resolver, ms))
 const EN_SEGUNDO_PLANO_MS = 60_000
@@ -78,6 +81,8 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
   const [conectando, setConectando] = useState(false)
   const [selectorAbierto, setSelectorAbierto] = useState(false)
   const [ajustes, setAjustes] = useState(false)
+  // «Quién ve qué»: la tabla con la que un administrador decide qué buzones lee cada persona (solo administradores)
+  const [verPermisos, setVerPermisos] = useState(false)
   // Los seguimientos automáticos: si se ofrece el botón, si se está viendo la pantalla y si ya se montó (una vez montada se queda, con su pestaña y su filtro)
   const [verSecuencias, setVerSecuencias] = useState(false)
   const [enSecuencias, setEnSecuencias] = useState(false)
@@ -113,6 +118,9 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
 
   const buzon = buzones?.find((b) => b.id === buzonId) ?? null
   const propios = buzones?.filter((b) => b.esMio) ?? []
+  // Quien lee algún buzón ajeno supervisa, venga de donde venga ese permiso (un permiso suelto, ser administrador o un buzón que un administrador le ha abierto a mano:
+  // este último el navegador no lo puede saber por su cuenta, así que se deduce de lo que el servidor ha dejado ver)
+  const supervisa = puedeSupervisar || (buzones?.some((b) => !b.esMio) ?? false)
   const esMio = buzon?.esMio ?? false
   const puedeEscribir = esMio && !!buzon && buzon.conectado && !buzon.credencialesInvalidas
   const buzonRef = useRef<BuzonVisible | null>(null)
@@ -532,7 +540,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
   }
 
   const sinBuzonPropio = propios.length === 0
-  const mostrarConectar = conectando || (sinBuzonPropio && !puedeSupervisar) || (sinBuzonPropio && buzones.length === 0)
+  const mostrarConectar = conectando || (sinBuzonPropio && !supervisa) || (sinBuzonPropio && buzones.length === 0)
 
   /* Sin buzón propio y sin nadie a quien supervisar: lo primero es conectar el correo */
   if (mostrarConectar) {
@@ -563,7 +571,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
         onClick={() => setSelectorAbierto((v) => !v)}
         aria-expanded={selectorAbierto}
         aria-haspopup="listbox"
-        disabled={total <= 1 && !puedeSupervisar && propios.length >= MAX_BUZONES_POR_PERSONA}
+        disabled={total <= 1 && !supervisa && propios.length >= MAX_BUZONES_POR_PERSONA}
         className="flex h-8 max-w-full items-center gap-2 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-1.5 pr-2 text-left transition-colors hover:border-[var(--ls-linea2)]"
       >
         {enEquipo ? (
@@ -602,7 +610,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
             </>
           )}
           <div className="mt-1 border-t border-[var(--ls-linea)] pt-1">
-            {puedeSupervisar && (
+            {supervisa && (
               <button type="button" onClick={verEquipo} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">
                 <Users className="h-4 w-4 text-[var(--ls-t4)]" aria-hidden /> Resumen del equipo
               </button>
@@ -635,6 +643,11 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
             {verSecuencias && (
               <button type="button" onClick={abrirSecuencias} className={BOTON_SECUNDARIO} title="Los seguimientos automáticos: qué sale hoy, la cola de leads y cómo va cada uno">
                 <Workflow className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden /> Secuencias
+              </button>
+            )}
+            {esAdmin && (
+              <button type="button" onClick={() => setVerPermisos(true)} className={BOTON_SECUNDARIO} title="Qué buzones puede leer cada persona del equipo (solo administradores)">
+                <ShieldCheck className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden /> Quién ve qué
               </button>
             )}
           </div>
@@ -732,6 +745,15 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
       )}
 
       {redactando && buzon && <Redactar buzon={buzon} yoId={yo.id} esAdmin={esAdmin} borrador={redactando} onCerrar={() => setRedactando(null)} onEnviado={(id, asunto, detalle) => void alEnviar(id, redactando, asunto, detalle)} />}
+      {verPermisos && (
+        <PermisosDeBuzones
+          onCerrar={() => {
+            setVerPermisos(false)
+            // Lo que se haya abierto o cerrado cambia lo que ven los demás, no lo que ve un administrador; aun así se vuelve a leer por si cambió el selector
+            void cargarBuzones()
+          }}
+        />
+      )}
       {ajustes && buzon && (
         <AjustesDeBuzon
           buzon={buzon}

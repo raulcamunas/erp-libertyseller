@@ -17,6 +17,10 @@
  *   · QUIEN TENGA «Supervisión del equipo comercial» (el permiso suelto 'equipo-comercial') puede LEER los buzones de los
  *     COMERCIALES. No el de un administrador ni el de alguien que no sea del equipo comercial: supervisar ventas no es
  *     leer el correo de dirección.
+ *   · QUIEN TENGA UN BUZÓN CONCEDIDO (el administrador lo abre buzón a buzón desde Correo → «Quién ve qué», migración 255) puede LEER ESE buzón, ni uno más. Sirve
+ *     para dejar que alguien lea justo los que el administrador decida (la supervisora, los de los comerciales; a un administrativo, solo el suyo y el de otra persona
+ *     concreta) sin darle un permiso que abre más de lo que se quiere. Es solo lectura, igual que los demás, y deja rastro. Concede cualquier buzón de un employee o de un
+ *     administrador: lo decide quien lo concede.
  *   · UN PARTNER NO ENTRA POR SU ROL: es una figura externa a la que el middleware solo deja ver Clientes, Cuadro mensual y
  *     Reportes de 15 días. La función SQL puede_ver_equipo_comercial (migración 212) sí lo cuenta como supervisor, y por eso
  *     la regla del correo NO se apoya en ella. Solo lo que cuenta es el permiso suelto.
@@ -38,6 +42,8 @@ export interface QuienPide {
   tienePermisoEquipo: boolean
   /** Tiene el permiso suelto «correo-supervision» (Supervisión del correo) */
   tienePermisoCorreo: boolean
+  /** Los buzones (ids) que un administrador le ha abierto uno a uno para LEER (tabla correo_buzon_lectores). Sin esto, ninguno */
+  buzonesConcedidos?: ReadonlySet<string>
 }
 
 /** Lo que hay que saber del dueño de un buzón para decidir quién lo puede leer */
@@ -58,12 +64,14 @@ export type DecisionDeAcceso =
 
 export const NO_EXISTE = 'No existe ese buzón.'
 
-export function decidirAcceso(quien: QuienPide, buzon: { user_id: string }, dueno: DatosDelDueno, modo: ModoDeAcceso): DecisionDeAcceso {
+export function decidirAcceso(quien: QuienPide, buzon: { user_id: string; id?: string }, dueno: DatosDelDueno, modo: ModoDeAcceso): DecisionDeAcceso {
   const esDueno = buzon.user_id === quien.userId
   const supervisaVentas = quien.tienePermisoEquipo && dueno.is_comercial === true
   // El permiso de correo abre a todo el equipo MENOS a los administradores. Un rol que no se conoce no es «no administrador»
   const supervisaCorreo = quien.tienePermisoCorreo && typeof dueno.role === 'string' && dueno.role !== 'admin'
-  const puedeLeer = esDueno || quien.role === 'admin' || supervisaVentas || supervisaCorreo
+  // Un buzón abierto a mano por un administrador: ese y solo ese. Hace falta el id del buzón; sin él, ninguno. Un partner no entra por aquí aunque estuviera en la tabla
+  const concedido = quien.role !== 'partner' && buzon.id !== undefined && quien.buzonesConcedidos?.has(buzon.id) === true
+  const puedeLeer = esDueno || quien.role === 'admin' || supervisaVentas || supervisaCorreo || concedido
 
   if (!puedeLeer) return { ok: false, estado: 404, mensaje: NO_EXISTE }
 

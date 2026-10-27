@@ -38,7 +38,7 @@ const noComercial: DatosDelDueno = { is_comercial: false, role: 'employee' }
 const administrador: DatosDelDueno = { is_comercial: false, role: 'admin' }
 const partner: DatosDelDueno = { is_comercial: false, role: 'partner' }
 
-const veredicto = (quien: QuienPide, buzon: { user_id: string }, dueno: DatosDelDueno, modo: ModoDeAcceso) => {
+const veredicto = (quien: QuienPide, buzon: { user_id: string; id?: string }, dueno: DatosDelDueno, modo: ModoDeAcceso) => {
   const d = decidirAcceso(quien, buzon, dueno, modo)
   return d.ok ? (d.porSupervision ? 'sí (supervisión)' : 'sí (dueño)') : `${d.estado}`
 }
@@ -99,6 +99,32 @@ console.log('el resto del equipo')
 caso('no lee el de Ana', veredicto(conta, deAna, comercial, 'leer'), '404')
 caso('no lee el de un administrador', veredicto(conta, deRaul, administrador, 'leer'), '404')
 caso('no lee el de otra persona que tampoco es comercial', veredicto(conta, deLucia, noComercial, 'leer'), '404')
+
+console.log('quien tiene un buzón concedido a mano (Correo → Quién ve qué)')
+{
+  const jhanna: QuienPide = { userId: 'jhanna', role: 'employee', ...sin, buzonesConcedidos: new Set(['b-ana', 'b-bea']) }
+  const buzonAna = { user_id: 'ana', id: 'b-ana' }
+  const buzonBea = { user_id: 'bea', id: 'b-bea' }
+  const buzonConta = { user_id: 'conta', id: 'b-conta' }
+  const buzonRaul = { user_id: 'raul', id: 'b-raul' }
+  caso('lee el que se le ha concedido', veredicto(jhanna, buzonAna, comercial, 'leer'), 'sí (supervisión)')
+  caso('lee el otro que se le ha concedido', veredicto(jhanna, buzonBea, comercial, 'leer'), 'sí (supervisión)')
+  caso('NO lee uno que no se le ha concedido', veredicto(jhanna, buzonConta, noComercial, 'leer'), '404')
+  caso('NO lee el de un administrador si no se le ha concedido', veredicto(jhanna, buzonRaul, administrador, 'leer'), '404')
+  caso('NO escribe desde el concedido', veredicto(jhanna, buzonAna, comercial, 'escribir'), '403')
+  caso('NO desconecta el concedido', veredicto(jhanna, buzonAna, comercial, 'administrar'), '403')
+  caso('sin el id del buzón no se abre nada (ante la duda, no)', veredicto(jhanna, { user_id: 'ana' }, comercial, 'leer'), '404')
+  caso('lo concedido es por buzón, no por persona: otro buzón de la misma dueña no se abre', veredicto(jhanna, { user_id: 'ana', id: 'b-ana-2' }, comercial, 'leer'), '404')
+  const conTodo: QuienPide = { ...jhanna, buzonesConcedidos: new Set(['b-raul']) }
+  caso('un administrador puede conceder el buzón de otro administrador: lo decide quien lo concede', veredicto(conTodo, buzonRaul, administrador, 'leer'), 'sí (supervisión)')
+  const vacio: QuienPide = { ...jhanna, buzonesConcedidos: new Set() }
+  caso('con la lista vacía, nada', veredicto(vacio, buzonAna, comercial, 'leer'), '404')
+  const sinLista: QuienPide = { userId: 'jhanna', role: 'employee', ...sin }
+  caso('sin lista (quien nunca ha tenido ninguno), nada', veredicto(sinLista, buzonAna, comercial, 'leer'), '404')
+  caso('un partner no entra ni con un buzón en la tabla: no supervisa por rol ni por esto', veredicto({ userId: 'socio', role: 'partner', ...sin, buzonesConcedidos: new Set(['b-ana']) }, buzonAna, comercial, 'leer'), '404')
+  caso('sumado a un permiso de supervisión, sigue valiendo lo más amplio', veredicto({ ...jhanna, tienePermisoEquipo: true }, buzonConta, comercial, 'leer'), 'sí (supervisión)')
+  caso('el dueño sigue leyendo el suyo con la lista que tenga', veredicto({ userId: 'ana', role: 'employee', ...sin, buzonesConcedidos: new Set(['b-bea']) }, buzonAna, comercial, 'leer'), 'sí (dueño)')
+}
 
 console.log('lo que no se ve se niega como si no existiera')
 {

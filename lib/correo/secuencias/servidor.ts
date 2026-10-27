@@ -72,7 +72,7 @@ export async function buzonesVisibles(almacen: Almacen, quien: QuienPide): Promi
   return todos
     .filter((b) => {
       const dueno = perfiles.get(b.userId)
-      return decidirAcceso(quien, { user_id: b.userId }, { is_comercial: dueno?.isComercial ?? null, role: dueno?.role ?? null }, 'leer').ok
+      return decidirAcceso(quien, { user_id: b.userId, id: b.id }, { is_comercial: dueno?.isComercial ?? null, role: dueno?.role ?? null }, 'leer').ok
     })
     .map((b) => ({
       id: b.id,

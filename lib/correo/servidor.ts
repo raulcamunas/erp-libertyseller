@@ -5,6 +5,7 @@ import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { nombreDeFichero } from './analizar'
 import { almacenSupabase, type FilaDeBuzon, type FilaDeCarpeta } from './almacen'
 import { avisarDeCorreoNuevo, marcarAvisosDeCorreoLeidos } from './campana-servidor'
+import { buzonesConcedidosA } from './lectores-servidor'
 import { NO_EXISTE, UUID, decidirAcceso, type DatosDelDueno, type ModoDeAcceso, type QuienPide } from './acceso'
 import { elegirCarpetas } from './carpetas'
 import { ErrorDeCorreo, MENSAJE_DE_ERROR_DE_CORREO, abrirImap, cerrarImap, convertirError, crearTransporte, type CodigoDeErrorDeCorreo } from './conexion'
@@ -56,15 +57,15 @@ export async function cargarBuzon(service: Servicio, buzonId: string): Promise<F
 export async function quienPide(service: Servicio, sesion: { userId: string; role: string }): Promise<QuienPide> {
   // Un administrador lo puede leer todo sin pasar por ningún permiso. Un partner NO: su rol no supervisa nada (ver acceso.ts)
   if (sesion.role === 'admin') return { ...sesion, tienePermisoEquipo: false, tienePermisoCorreo: false }
-  const { data, error } = await service
-    .from('user_app_permissions')
-    .select('app_id, can_access')
-    .eq('user_id', sesion.userId)
-    .in('app_id', [PERMISO_EQUIPO_COMERCIAL, PERMISO_CORREO_SUPERVISION])
-  if (error) throw new Error('No se ha podido comprobar el permiso.', { cause: error })
-  const filas = (data ?? []) as Array<{ app_id: string; can_access: boolean | null }>
+  const [permisos, concedidos] = await Promise.all([
+    service.from('user_app_permissions').select('app_id, can_access').eq('user_id', sesion.userId).in('app_id', [PERMISO_EQUIPO_COMERCIAL, PERMISO_CORREO_SUPERVISION]),
+    // Los buzones que un administrador le ha abierto a mano (migración 255). Sin la migración, ninguno
+    buzonesConcedidosA(service, sesion.userId),
+  ])
+  if (permisos.error) throw new Error('No se ha podido comprobar el permiso.', { cause: permisos.error })
+  const filas = (permisos.data ?? []) as Array<{ app_id: string; can_access: boolean | null }>
   const tiene = (id: string) => filas.some((f) => f.app_id === id && f.can_access === true)
-  return { ...sesion, tienePermisoEquipo: tiene(PERMISO_EQUIPO_COMERCIAL), tienePermisoCorreo: tiene(PERMISO_CORREO_SUPERVISION) }
+  return { ...sesion, tienePermisoEquipo: tiene(PERMISO_EQUIPO_COMERCIAL), tienePermisoCorreo: tiene(PERMISO_CORREO_SUPERVISION), buzonesConcedidos: concedidos }
 }
 
 export type Autorizacion =
@@ -100,7 +101,7 @@ const SIN_RESUMEN: ResumenDeBuzon = { hilos: 0, hilosSinLeer: 0, sinLeer: 0, esp
 /** Los buzones propios y, si se supervisa, los de las personas que se pueden supervisar. Siempre pasa por decidirAcceso */
 export async function buzonesVisibles(service: Servicio, sesion: { userId: string; role: string }): Promise<BuzonVisible[]> {
   const quien = await quienPide(service, sesion)
-  const supervisa = quien.role === 'admin' || quien.tienePermisoEquipo || quien.tienePermisoCorreo
+  const supervisa = quien.role === 'admin' || quien.tienePermisoEquipo || quien.tienePermisoCorreo || (quien.buzonesConcedidos?.size ?? 0) > 0
 
   const consulta = service.from('correo_buzones').select(CAMPOS_DE_BUZON).order('direccion', { ascending: true })
   const { data, error } = await (supervisa ? consulta : consulta.eq('user_id', sesion.userId))
