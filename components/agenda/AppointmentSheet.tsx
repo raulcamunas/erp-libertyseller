@@ -460,6 +460,30 @@ export function AppointmentSheet({ mode, appointment, prefill, team, currentUser
             )}
           </Seccion>
 
+          {/* LA AGENDA EN DOS TIEMPOS. El comercial agenda rápido, EN LA LLAMADA: busca al cliente (o escribe nombre y teléfono), elige el día y la hora y aprieta «Agendar cita».
+              Lo demás —asignación, datos comerciales y fiscales, su tienda, notas, grabación— lo completa DESPUÉS, ya con la cita creada. Por eso esa segunda parte está
+              bloqueada y borrosa hasta guardar la cita por primera vez: ni estorba mientras se habla ni se rellena a medias.
+
+              Si la cita está enlazada a un lead, los datos de ese lead YA van dentro (se traen al elegirlo y se guardan con la cita); lo bloqueado solo no se puede tocar.
+              `inert` además saca esos campos del tabulador: sin él, tabulando desde «Fin» se podía escribir en campos que no se ven. */}
+          <div className="relative">
+            {mode === 'create' && (
+              <div className="pointer-events-none sticky top-[76px] z-10 mb-2.5 flex justify-center">
+                <div className="flex max-w-full items-center gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-2 shadow-xl">
+                  <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--ls-acc)]" />
+                  <span className="text-[11.5px] text-[var(--ls-t1)]">
+                    {enlace
+                      ? `Agenda la cita primero: los datos de «${enlace.nombre}» ya van traídos y el resto lo completas después`
+                      : 'Agenda la cita primero para completar esta información'}
+                  </span>
+                </div>
+              </div>
+            )}
+            <div
+              className={`space-y-2.5 ${mode === 'create' ? 'pointer-events-none select-none opacity-40 blur-[3px]' : ''}`}
+              aria-hidden={mode === 'create'}
+              {...(mode === 'create' ? ({ inert: '' } as Record<string, string>) : {})}
+            >
           <Seccion titulo="Asignación y estado">
             <div className={CAMPO.etiqueta}>Closer asignado</div>
             {closerLocked ? (
@@ -598,6 +622,8 @@ export function AppointmentSheet({ mode, appointment, prefill, team, currentUser
               <p className={CAMPO.nota}>La grabación de la llamada y las capturas de la conversación se suben una vez agendada la cita.</p>
             )}
           </Seccion>
+            </div>
+          </div>
 
           {mode === 'edit' && appointment && (
             <Seccion titulo="Comentarios" icono={<MessageSquare className="h-3 w-3" />}>
