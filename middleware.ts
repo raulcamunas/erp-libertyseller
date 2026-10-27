@@ -473,6 +473,9 @@ export async function middleware(request: NextRequest) {
           // Actividad del equipo: la ven los administradores y quien tenga la casilla. El filtro de verdad es requireAppAccess('actividad')
           // en /api/actividad/equipo y /persona (la tabla está cerrada al navegador); el id va letra por letra como en lib/config/apps.ts
           '/dashboard/actividad': 'actividad',
+          // Briefing: lo ven los administradores y quien tenga la casilla. El filtro de verdad es la comprobación de la propia página y
+          // requireAppAccess('briefing') en /api/briefing/marcar (las tablas están cerradas al navegador); el id va letra por letra como en lib/config/apps.ts
+          '/dashboard/briefing': 'briefing',
         }
 
         const appId = routeToAppId[pathname]

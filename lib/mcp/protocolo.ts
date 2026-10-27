@@ -69,8 +69,10 @@ export interface Herramienta<C> {
   titulo: string
   descripcion: string
   esquema: EsquemaObjeto
-  /** true = no cambia nada en ningún sitio. Hoy lo son todas */
+  /** true = no cambia nada en ningún sitio */
   soloLectura: boolean
+  /** true = repetir la misma llamada deja el ERP igual (sustituye, no suma). Las de solo lectura lo son siempre */
+  idempotente?: boolean
   ejecutar(args: Record<string, unknown>, ctx: C): Promise<ResultadoHerramienta>
 }
 
@@ -202,7 +204,7 @@ export async function procesarPost<C>(args: {
             title: h.titulo,
             readOnlyHint: h.soloLectura,
             destructiveHint: false,
-            idempotentHint: h.soloLectura,
+            idempotentHint: h.idempotente ?? h.soloLectura,
             // Habla con una base de datos propia, no con el mundo abierto
             openWorldHint: false,
           },

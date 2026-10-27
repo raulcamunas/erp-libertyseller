@@ -26,6 +26,7 @@ import {
   Gauge,
   Mail,
   Eye,
+  Sunrise,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 
@@ -48,6 +49,19 @@ export const apps: AppConfig[] = [
     icon: Home,
     route: '/dashboard',
     status: 'active',
+    category: 'core'
+  },
+  {
+    // El briefing de la mañana que publica la rutina «Briefing diario Liberty Seller» de Claude, como pantalla: qué revisar hoy, equipo comercial,
+    // cuentas, tareas de clientes y correo. Lo ve un administrador y quien tenga esta casilla en Gestión de Usuarios. Las tablas están cerradas al
+    // navegador (migración 254) y el conector con el que publica la rutina es solo de administradores. El id va LETRA POR LETRA igual que en
+    // middleware.ts, que en lib/briefing/tipos.ts (APP_BRIEFING) y que en el requireAppAccess('briefing') de /api/briefing/marcar.
+    id: 'briefing',
+    name: 'Briefing',
+    description: 'El resumen de la mañana: qué revisar hoy, equipo, tareas y correo',
+    icon: Sunrise,
+    route: '/dashboard/briefing',
+    status: 'new',
     category: 'core'
   },
   {
