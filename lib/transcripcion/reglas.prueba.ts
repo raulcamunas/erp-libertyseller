@@ -1,4 +1,4 @@
-import { INTENTOS_MAXIMOS, PALABRAS_MINIMAS, esperaTrasFallo, palabrasDe, pistasDeLaLlamada, primerNombre, sinContenido } from '@/lib/transcripcion/reglas'
+import { INTENTOS_MAXIMOS, MINUTOS_DE_LLAMADA_RECIENTE, PALABRAS_MINIMAS, SEGUNDOS_DE_MARGEN_DEL_AUDIO, audioAMedias, esLlamadaReciente, esperaTrasFallo, palabrasDe, pistasDeLaLlamada, primerNombre, sinContenido } from '@/lib/transcripcion/reglas'
 import { costeDeTexto, costeDeVoz, enDolares } from '@/lib/transcripcion/precios'
 
 let fallos = 0
@@ -51,6 +51,27 @@ console.log('\n=== las pistas para el oído de la IA ===')
 
   const repetida = pistasDeLaLlamada({ empresa: 'Amazon', comercial: null })
   ok('una palabra repetida no sale dos veces', repetida.palabras === 'Liberty Seller, Amazon', repetida.palabras)
+}
+
+console.log('\n=== llamadas que acaban de colgar ===')
+{
+  const ahora = Date.parse('2026-10-28T10:00:00Z')
+  // Empezó a las 09:58:00 y duró 60 s: colgó a las 09:59:00, hace un minuto
+  ok('colgó hace 1 minuto: es reciente', esLlamadaReciente('2026-10-28T09:58:00Z', 60, ahora))
+  ok('se cuenta desde que CUELGA, no desde que empezó (una de 30 min que empezó hace 31 acaba de colgar)', esLlamadaReciente('2026-10-28T09:29:00Z', 30 * 60, ahora) && !esLlamadaReciente('2026-10-28T09:29:00Z', 20 * 60, ahora))
+  ok('colgó hace 5 minutos: todavía', esLlamadaReciente('2026-10-28T09:54:00Z', 60, ahora))
+  ok('colgó hace 7 minutos: ya no', !esLlamadaReciente('2026-10-28T09:52:00Z', 60, ahora) && MINUTOS_DE_LLAMADA_RECIENTE === 6)
+  ok('justo en el límite (6 minutos) ya no es reciente', !esLlamadaReciente('2026-10-28T09:53:00Z', 60, ahora))
+  ok('una fecha que no se entiende NO es reciente (se trata como siempre)', !esLlamadaReciente('ayer', 60, ahora) && !esLlamadaReciente('', 60, ahora))
+  ok('una duración negativa no rompe nada', esLlamadaReciente('2026-10-28T09:59:00Z', -5, ahora))
+  ok('una llamada que según el reloj acaba en el futuro (reloj desajustado) cuenta como reciente', esLlamadaReciente('2026-10-28T10:05:00Z', 60, ahora))
+
+  ok('audio de 60 s en una llamada de 60: entero', !audioAMedias(60, 60))
+  ok('el audio mide entre 1 s menos y 2 s más que la llamada (medido en 104 llamadas): entero', !audioAMedias(59, 60) && !audioAMedias(62, 60))
+  ok('4 s menos: se acepta; 5 s menos: a medias', !audioAMedias(56, 60) && audioAMedias(55, 60) && SEGUNDOS_DE_MARGEN_DEL_AUDIO === 4)
+  ok('20 s de una llamada de 60: a medias', audioAMedias(20, 60))
+  ok('sin saber cuánto audio había, no se puede decir que esté a medias', !audioAMedias(null, 60))
+  ok('una llamada corta (22 s) con 18 s de audio se acepta, con 17 no', !audioAMedias(18, 22) && audioAMedias(17, 22))
 }
 
 console.log('\n=== precios ===')

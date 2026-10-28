@@ -55,7 +55,7 @@ export async function esperarLaTranscripcionDelLead(service: Servicio, cargar: (
           const pasada = await ejecutarPasada(service, { presupuestoMs, limite: LLAMADAS_POR_ADELANTO, concurrencia: 2, sinTurnos: true })
           if (pasada.parada === 'ia_no_disponible' || pasada.parada === 'error') rendido = true
           // Solo cuando ha pasado algo: sin esto saldría una línea por vuelta
-          if (pasada.candidatas > 0) console.log('[correo-ia] adelanto de la transcripción', { candidatas: pasada.candidatas, hechas: pasada.hechas, ajenas: pasada.ajenas, fallidas: pasada.fallidas, parada: pasada.parada })
+          if (pasada.candidatas > 0) console.log('[correo-ia] adelanto de la transcripción', { candidatas: pasada.candidatas, hechas: pasada.hechas, aplazadas: pasada.aplazadas, ajenas: pasada.ajenas, fallidas: pasada.fallidas, parada: pasada.parada })
         } catch (error) {
           rendido = true
           console.error('[correo-ia] no se ha podido adelantar la transcripción', { nombre: error instanceof Error ? error.name : 'desconocido' })

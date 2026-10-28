@@ -197,40 +197,45 @@ export const TAREAS_CRON = [
      * o dos peticiones por cuenta; el histórico de una cuenta recién vinculada lo va completando por tramos
      * (lib/rendimiento/sincronizar.ts).
      *
-     * Cada DOS minutos (eran diez hasta el 23 oct 2026, que Raúl pidió que se actualizara lo antes posible): la lista
-     * de llamadas del día es lo que mira un supervisor para saber cómo va el equipo, y una grabación aparece en
-     * Rinkel unos minutos después de colgar. Cuesta una o dos peticiones por cuenta y unos 6 s por pasada con las
-     * cinco cuentas. Mientras alguien tiene Cold Calling abierto, su propia pantalla lee su cuenta cada 30 s
-     * (components/cold-calling/useSincronizarRinkel.ts). Se cambia desde Sistema sin tocar código.
+     * Cada MINUTO (eran diez hasta el 23 oct 2026 y dos hasta el 28 oct, que Raúl pidió que lo que se habla llegue al ERP lo antes
+     * posible): la lista de llamadas del día es lo que mira un supervisor para saber cómo va el equipo, y la transcripción
+     * (`rinkel-transcribir`) necesita que la llamada ya esté aquí para empezar a los 45 s de colgar. Cuesta una o dos peticiones por cuenta
+     * y unos 6 s por pasada con las cinco cuentas (medido: 0 fallos en 400 pasadas; Rinkel no publica límites y, si se pasara, contesta
+     * 429 y la pasada sale en rojo en Sistema). Mientras alguien tiene Cold Calling abierto, su propia pantalla lee su cuenta cada 30 s
+     * (components/cold-calling/useSincronizarRinkel.ts) y la llamada llega en unos 20 s. Se cambia desde Sistema sin tocar código.
      */
     id: 'rinkel-llamadas',
     nombre: 'Llamadas de Rinkel',
     ruta: '/api/rendimiento/cron',
-    cadaMinutos: 2,
+    cadaMinutos: 1,
     que:
       'Lee de Rinkel las llamadas nuevas de cada comercial que ha vinculado su clave, con la grabación de ' +
       'las que la tienen, para el panel «Mi rendimiento». No escribe nada en Rinkel.',
   },
   {
     /**
-     * CADA DOS MINUTOS, Y ES EL INTERRUPTOR DEL GASTO.
+     * DOS VECES POR MINUTO, Y ES EL INTERRUPTOR DEL GASTO.
      *
      * Pasa a texto las llamadas contestadas de Rinkel que ya tienen grabación y están enlazadas con un lead, y deja en la ficha del lead
      * el resumen, la línea de la conversación y el siguiente paso (lib/transcripcion/motor.ts). El gasto es casi todo el audio: unos
      * 0,0045 $ por minuto con `gpt-transcribe`, y con las 35–50 llamadas al día de hoy son unos 4–5 $ al mes. Apagar este proceso desde
      * Sistema detiene el gasto en el acto; el tope de minutos al día de la fila de ajustes (migración 244) lo vigila además por dentro.
      *
-     * Cada dos minutos porque una grabación aparece en Rinkel unos minutos después de colgar (y se lee cada dos): así el resumen sale al
-     * poco de acabar la llamada, sin que nadie tenga que pedirlo.
+     * Empieza a los 45 s de colgar (ajuste `espera_tras_colgar_s`, migración 259; eran 90) y el script de crond (scripts/rinkel-transcribir.sh) la ofrece
+     * cada 30 s: crond no baja de un minuto, así que el script llama dos veces por minuto y aquí «1 minuto» significa «cada 30 s». Antes pasaba cada dos
+     * minutos y la espera de turno era de 53 s de mediana; con esto es de ~15 s: el resumen sale a ~1 min 15 s de colgar en vez de 2 min 38 s. Si en
+     * Sistema se pone más de un minuto, el reloj de `tocaAhora` se queda con los avisos que le tocan (los minutos se redondean al medio minuto).
+     * Una pasada vacía cuesta ~1 s y 4 consultas pequeñas; el gasto de IA no cambia: cada llamada se transcribe una vez.
      */
     id: 'rinkel-transcribir',
     nombre: 'Transcripción de llamadas',
     ruta: '/api/rendimiento/transcribir',
-    cadaMinutos: 2,
+    cadaMinutos: 1,
     que:
       'Pasa a texto con IA las llamadas contestadas de Rinkel que tienen grabación y lead, y deja en la ficha el resumen, la ' +
-      'línea de la conversación, el siguiente paso y quién habla en la transcripción entera. Cada llamada se transcribe una sola vez ' +
-      '(unos 0,005 $ por minuto de audio). Apagarlo aquí detiene el gasto. Solo lee de Rinkel.',
+      'línea de la conversación, el siguiente paso y quién habla en la transcripción entera. Empieza a los 45 s de colgar y mira ' +
+      'cada 30 s. Cada llamada se transcribe una sola vez (unos 0,005 $ por minuto de audio). Apagarlo aquí detiene el gasto. ' +
+      'Solo lee de Rinkel.',
   },
   {
     /**

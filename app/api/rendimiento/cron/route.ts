@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { FALTA_MIGRACION_RENDIMIENTO, esFaltaDeMigracion, leerCuentaDe } from '@/lib/rendimiento/servidor'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
+import { crearGuardianDePasadas } from '@/lib/sistema/una-a-la-vez'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -15,7 +16,7 @@ import { createServiceClient } from '@/lib/supabase/service'
  *     de las demás. Lo que no cabe se sigue en la próxima (el cursor de la cuenta queda guardado).
  *   · Si una cuenta falla —clave revocada, Rinkel caído— se apunta en ella y se sigue con las otras.
  *
- * Solo LEE de Rinkel. El reloj lo decide `tocaAhora()` desde la tabla cron_config (2 minutos por defecto),
+ * Solo LEE de Rinkel. El reloj lo decide `tocaAhora()` desde la tabla cron_config (1 minuto por defecto),
  * como el resto de tareas.
  */
 export const dynamic = 'force-dynamic'
@@ -27,21 +28,37 @@ const PRESUPUESTO_POR_CUENTA_MS = 50_000
 /** Con menos tiempo que esto no se empieza una cuenta: no daría ni para su primera página */
 const MINIMO_PARA_EMPEZAR_MS = 8_000
 
+/**
+ * UNA SOLA PASADA A LA VEZ EN ESTE PROCESO (lib/sistema/una-a-la-vez.ts). Pasa cada minuto y lo normal son 6 s, pero la de una cuenta recién vinculada importa su
+ * histórico por tramos y puede tardar mucho más: la siguiente no se le monta encima leyendo las mismas cuentas. Una pasada que pasa de 330 s se da por muerta.
+ */
+const guardian = crearGuardianDePasadas(330_000)
+
 export async function POST(request: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (!secret || request.headers.get('x-cron-secret') !== secret) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
-  if (request.nextUrl.searchParams.get('forzar') !== '1') {
-    const veredicto = await tocaAhora('rinkel-llamadas')
-    if (!veredicto.toca) return NextResponse.json({ ok: true, saltado: veredicto.motivo })
-  }
+  const soltar = guardian.entrar()
+  if (!soltar) return NextResponse.json({ ok: true, saltado: 'ya hay una pasada en curso' })
+  try {
+    if (request.nextUrl.searchParams.get('forzar') !== '1') {
+      const veredicto = await tocaAhora('rinkel-llamadas')
+      if (!veredicto.toca) return NextResponse.json({ ok: true, saltado: veredicto.motivo })
+    }
 
-  if (!hasTokenKey()) {
-    return NextResponse.json({ ok: true, saltado: 'El servidor no tiene la clave de cifrado' })
-  }
+    if (!hasTokenKey()) {
+      return NextResponse.json({ ok: true, saltado: 'El servidor no tiene la clave de cifrado' })
+    }
 
+    return await pasada(request)
+  } finally {
+    soltar()
+  }
+}
+
+async function pasada(request: NextRequest) {
   const salida = await conRegistro('rinkel-llamadas', lanzadoPorDe(request.headers), async () => {
     const arranque = Date.now()
     const service = createServiceClient()

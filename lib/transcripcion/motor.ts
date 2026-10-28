@@ -2,7 +2,7 @@ import { diaDeMadrid } from '@/lib/correo/secuencias/fechas'
 import { ErrorRinkel, MENSAJE_DE_ERROR } from '@/lib/rendimiento/rinkel'
 import { ErrorDeAudio, type AudioDescargado } from './audio'
 import { costeDeVoz, enDolares } from './precios'
-import { esperaTrasFallo, pistasDeLaLlamada, sinContenido, type PistasDeVoz } from './reglas'
+import { ESPERA_SI_EL_AUDIO_ESTABA_A_MEDIAS_MS, ESPERA_SI_LA_GRABACION_NO_ESTA_MS, audioAMedias, esLlamadaReciente, esperaTrasFallo, pistasDeLaLlamada, sinContenido, type PistasDeVoz } from './reglas'
 import { decidirCierreDeLlamada } from './rechazo'
 import { decidirRellamadaDeLlamada, type LeadParaRellamada } from './rellamada'
 import { construirEncargo, type ResultadoDelResumen } from './resumen'
@@ -41,6 +41,9 @@ import { ErrorDeVoz, esFalloGeneralDeLaIa, type ResultadoDeVoz } from './voz'
  *   · Lo que puede arreglarse solo —red, Rinkel o OpenAI caídos— queda FALLIDA y vuelve a probarse a los 3 y a los 20 minutos; a la tercera se da por perdida.
  *   · Lo que es de la CUENTA y no de la llamada —la clave de OpenAI, el saldo— PARA la pasada entera (seguir con las demás es martillear a un proveedor
  *     que dice que no) y no gasta el intento de la llamada en curso.
+ *   · LAS QUE ACABAN DE COLGAR (menos de MINUTOS_DE_LLAMADA_RECIENTE) son distintas: la transcripción empieza a los 45 s (migración 259), y Rinkel puede no tener
+ *     aún la grabación («no encontrada» NO es «ya no la tiene»), servirla vacía o a medias. Eso se APLAZA —se vuelve a probar en 60–75 s y no gasta intentos—,
+ *     y un audio que dura claramente menos que la llamada NO se guarda: se tira y se baja otra vez (se paga el trozo, una vez como mucho).
  *
  *
  * ============ EL GASTO ============
@@ -222,6 +225,8 @@ export interface ResultadoDelMotor {
   fallidas: number
   /** Las que tenía otra pasada */
   ajenas: number
+  /** Llamadas recién colgadas cuya grabación aún no estaba lista o entera: se vuelven a probar en un minuto y no cuentan como fallo */
+  aplazadas: number
   /** Segundos de audio transcritos en esta pasada */
   segundos: number
   costeUsd: number
@@ -243,6 +248,12 @@ interface Clasificacion {
   motivo: string
   /** true = es de la cuenta de la IA: para la pasada */
   general?: boolean
+  /** Si viene, se vuelve a probar dentro de tantos ms en vez de con el escalonado de siempre (3 y 20 minutos) */
+  esperaMs?: number
+  /** true = este intento no cuenta: la llamada no tiene la culpa (aún no está lista la grabación) */
+  devolverIntento?: boolean
+  /** true = no es un fallo sino un «todavía no»: la pasada lo cuenta aparte */
+  aplazada?: boolean
 }
 
 export function clasificarFalloDeRinkel(e: unknown): Clasificacion {
@@ -275,7 +286,7 @@ export function clasificarFalloDeVoz(e: unknown): Clasificacion {
 /* Una llamada                                                         */
 /* ------------------------------------------------------------------ */
 
-type Desenlace = 'hecha' | 'sin_contenido' | 'omitida' | 'fallida' | 'ajena'
+type Desenlace = 'hecha' | 'sin_contenido' | 'omitida' | 'fallida' | 'aplazada' | 'ajena'
 
 interface ResultadoDeUna {
   desenlace: Desenlace
@@ -302,15 +313,18 @@ async function procesarUna(almacen: Almacen, deps: DepsDelMotor, claves: Map<str
       await almacen.marcarFallo(c.id, { estado: 'omitida', motivo: cl.motivo, siguienteIntentoAt: null, devolverIntento: false })
       return { desenlace: 'omitida', segundos: segundosNuevos, costeUsd: costeNuevo }
     }
-    const espera = cl.general ? 10 * 60_000 : esperaTrasFallo(fila.intentos)
+    const espera = cl.esperaMs ?? (cl.general ? 10 * 60_000 : esperaTrasFallo(fila.intentos))
     await almacen.marcarFallo(c.id, {
       estado: 'fallida',
       motivo: cl.motivo,
       siguienteIntentoAt: espera === null ? null : new Date(deps.ahora() + espera).toISOString(),
-      devolverIntento: cl.general === true,
+      devolverIntento: cl.general === true || cl.devolverIntento === true,
     })
-    return { desenlace: 'fallida', segundos: segundosNuevos, costeUsd: costeNuevo, ...(cl.general ? { general: cl.motivo } : {}) }
+    return { desenlace: cl.aplazada ? 'aplazada' : 'fallida', segundos: segundosNuevos, costeUsd: costeNuevo, ...(cl.general ? { general: cl.motivo } : {}) }
   }
+  // Una llamada que acaba de colgar puede no tener todavía la grabación lista (o entera): no es un fallo, es un «todavía no»
+  const reciente = esLlamadaReciente(c.fecha, c.duracion_s, deps.ahora())
+  const todaviaNo = (motivo: string, esperaMs = ESPERA_SI_LA_GRABACION_NO_ESTA_MS): Clasificacion => ({ terminal: false, motivo, esperaMs, devolverIntento: true, aplazada: true })
 
   try {
     const contexto = await almacen.contexto(c)
@@ -339,12 +353,16 @@ async function procesarUna(almacen: Almacen, deps: DepsDelMotor, claves: Map<str
       try {
         url = await deps.urlDeGrabacion(clave.clave, c.grabacion_id)
       } catch (e) {
+        // Recién colgada, «no encontrada» (o una respuesta sin dirección) es que Rinkel aún no la tiene; pasados unos minutos vuelve a ser «ya no la tiene»
+        if (reciente && e instanceof ErrorRinkel && (e.codigo === 'no_encontrada' || e.codigo === 'respuesta')) return await fallar(todaviaNo('La grabación aún no está lista en Rinkel.'))
         return await fallar(clasificarFalloDeRinkel(e))
       }
       let audio: AudioDescargado
       try {
         audio = await deps.bajarAudio(url)
       } catch (e) {
+        // Vacío, o tan corto que no se reconoce el formato: un archivo que Rinkel todavía está escribiendo
+        if (reciente && e instanceof ErrorDeAudio && (e.codigo === 'vacio' || e.codigo === 'formato')) return await fallar(todaviaNo('La grabación aún se está preparando en Rinkel.'))
         return await fallar(clasificarFalloDeAudio(e))
       }
       let voz: ResultadoDeVoz
@@ -358,6 +376,11 @@ async function procesarUna(almacen: Almacen, deps: DepsDelMotor, claves: Map<str
       transcripcion = { texto: voz.texto, idioma: voz.idiomas[0] ?? null, segundos, modelo: deps.modeloDeVoz, costeUsd: costeDeVoz(deps.modeloDeVoz, segundos) }
       segundosNuevos = segundos
       costeNuevo = transcripcion.costeUsd
+      // Recién colgada y el audio dura claramente menos que la llamada: la grabación estaba a medias. Lo transcrito NO se guarda (un resumen con el final cortado
+      // sería peor que esperar un minuto) y se baja otra vez. Solo en el primer intento: si a la segunda sigue más corto, es que Rinkel lo sirve así y se da por bueno
+      if (reciente && fila.intentos < 2 && audioAMedias(voz.segundos, c.duracion_s)) {
+        return await fallar({ ...todaviaNo(`La grabación estaba a medias (${segundos} s de ${c.duracion_s} s).`, ESPERA_SI_EL_AUDIO_ESTABA_A_MEDIAS_MS), devolverIntento: false })
+      }
       // En cuanto sale se guarda: si el resumen falla, este audio no se vuelve a pagar. Si ni siquiera esto se puede guardar, se sigue y
       // se vuelve a intentar al guardar el resultado
       await almacen.guardarTranscripcion(c.id, transcripcion).catch(() => undefined)
@@ -488,6 +511,7 @@ async function transcribirLasPendientes(almacen: Almacen, deps: DepsDelMotor, op
     omitidas: 0,
     fallidas: 0,
     ajenas: 0,
+    aplazadas: 0,
     segundos: 0,
     costeUsd: 0,
     parada: null,
@@ -542,6 +566,7 @@ async function transcribirLasPendientes(almacen: Almacen, deps: DepsDelMotor, op
       else if (r.desenlace === 'sin_contenido') salida.sinContenido++
       else if (r.desenlace === 'omitida') salida.omitidas++
       else if (r.desenlace === 'fallida') salida.fallidas++
+      else if (r.desenlace === 'aplazada') salida.aplazadas++
       else salida.ajenas++
       if (r.general) {
         salida.aviso = r.general
@@ -646,6 +671,7 @@ export function resumenDeLaPasada(r: ResultadoDelMotor): string {
     if (r.cerrados > 0) partes.push(`${r.cerrados} ${r.cerrados === 1 ? 'lead pasado' : 'leads pasados'} a «No le interesa»`)
     if (r.omitidas > 0) partes.push(`${r.omitidas} ${r.omitidas === 1 ? 'omitida' : 'omitidas'}`)
     if (r.fallidas > 0) partes.push(`${r.fallidas} ${r.fallidas === 1 ? 'fallida' : 'fallidas'}`)
+    if (r.aplazadas > 0) partes.push(`${r.aplazadas} ${r.aplazadas === 1 ? 'espera' : 'esperan'} a que Rinkel termine la grabación`)
     if (r.ajenas > 0) partes.push(`${r.ajenas} en manos de otra pasada`)
     if (r.segundos > 0) partes.push(`${minutos(r.segundos)} de audio · ${enDolares(r.costeUsd)}`)
   }

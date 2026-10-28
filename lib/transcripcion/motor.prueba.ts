@@ -21,6 +21,7 @@ import {
   type ResultadoParaGuardar,
   type TranscripcionParaGuardar,
 } from '@/lib/transcripcion/motor'
+import { ESPERA_SI_EL_AUDIO_ESTABA_A_MEDIAS_MS, ESPERA_SI_LA_GRABACION_NO_ESTA_MS } from '@/lib/transcripcion/reglas'
 import type { LeadParaRellamada } from '@/lib/transcripcion/rellamada'
 import type { ResultadoDelResumen } from '@/lib/transcripcion/resumen'
 import { INTENTOS_DE_TURNOS, type ResultadoDeTurnos } from '@/lib/transcripcion/turnos'
@@ -425,6 +426,126 @@ const run = async () => {
     const m3 = mundo({ pendientes: [llamada(1)], filasIniciales: { 'llamada-1': { estado: 'fallida', intentos: 2 } }, url: async () => { throw new ErrorRinkel('red', 'x') } })
     await pasada(m3)
     ok('tercer intento fallado: ya no hay siguiente', m3.filas.get('llamada-1')!.estado === 'fallida' && m3.filas.get('llamada-1')!.fallo?.siguienteIntentoAt === null)
+  }
+
+  console.log('\n=== las que acaban de colgar: la grabación puede no estar lista (la transcripción empieza a los 45 s) ===')
+  {
+    // Colgaron a las 14:59:00 y son las 15:00:00: hace un minuto
+    const recien = (n: number, extra: Partial<LlamadaPendiente> = {}) => llamada(n, { fecha: '2026-10-23T14:58:00Z', duracion_s: 60, ...extra })
+    // Colgaron a las 14:53:00 (hace 7 minutos) y a las 14:55:00 (hace 5)
+    const haceSiete = llamada(1, { fecha: '2026-10-23T14:52:00Z', duracion_s: 60 })
+    const haceCinco = llamada(1, { fecha: '2026-10-23T14:54:00Z', duracion_s: 60 })
+    const noEncontrada = async () => { throw new ErrorRinkel('no_encontrada', 'x', 404) }
+
+    // 404: recién colgada es «todavía no»; con unos minutos encima vuelve a ser «Rinkel ya no la tiene»
+    {
+      const m = mundo({ pendientes: [recien(1)], url: noEncontrada })
+      const r = await pasada(m)
+      const f = m.filas.get('llamada-1')!
+      ok('recién colgada y Rinkel dice «no encontrada»: se APLAZA, no se omite', r.aplazadas === 1 && r.omitidas === 0 && r.fallidas === 0 && f.estado === 'fallida' && r.parada === null, JSON.stringify({ a: r.aplazadas, o: r.omitidas, f: r.fallidas, e: f.estado }))
+      ok('vuelve a probar en un minuto', f.fallo?.siguienteIntentoAt === new Date(AHORA + ESPERA_SI_LA_GRABACION_NO_ESTA_MS).toISOString() && ESPERA_SI_LA_GRABACION_NO_ESTA_MS === 60_000, f.fallo?.siguienteIntentoAt ?? '')
+      ok('y NO gasta un intento (puede aplazarse varias veces sin acabarse)', f.intentos === 0, String(f.intentos))
+      ok('no se pagó ni un segundo', m.llamadasA.voz === 0 && r.costeUsd === 0)
+    }
+    {
+      const m = mundo({ pendientes: [haceCinco], url: noEncontrada })
+      const r = await pasada(m)
+      ok('colgada hace 5 minutos todavía se aplaza', r.aplazadas === 1 && r.omitidas === 0)
+      const m7 = mundo({ pendientes: [haceSiete], url: noEncontrada })
+      const r7 = await pasada(m7)
+      ok('colgada hace 7 minutos: ya es «Rinkel ya no la tiene» y se omite (como siempre)', r7.omitidas === 1 && r7.aplazadas === 0 && m7.filas.get('llamada-1')!.estado === 'omitida' && m7.filas.get('llamada-1')!.fallo?.siguienteIntentoAt === null)
+    }
+    {
+      const m = mundo({ pendientes: [recien(1)], url: async () => { throw new ErrorRinkel('respuesta', 'x') } })
+      const r = await pasada(m)
+      ok('una respuesta de Rinkel sin dirección de audio, recién colgada: también se aplaza', r.aplazadas === 1 && r.fallidas === 0)
+    }
+    {
+      // Lo que no es «todavía no» se trata como siempre aunque sea reciente: no se martillea a Rinkel ni se esconde una clave mala
+      const m = mundo({ pendientes: [recien(1)], url: async () => { throw new ErrorRinkel('servidor', 'x', 500) } })
+      const r = await pasada(m)
+      ok('Rinkel caído (500) recién colgada: fallida con el turno de 3 minutos y gasta intento, como siempre', r.fallidas === 1 && r.aplazadas === 0 && m.filas.get('llamada-1')!.fallo?.siguienteIntentoAt === new Date(AHORA + 3 * 60_000).toISOString() && m.filas.get('llamada-1')!.intentos === 1)
+      const mc = mundo({ pendientes: [recien(1)], url: async () => { throw new ErrorRinkel('clave_invalida', 'x', 401) } })
+      const rc = await pasada(mc)
+      ok('clave de Rinkel que ya no vale: fallida, nunca «aplazada»', rc.fallidas === 1 && rc.aplazadas === 0)
+      const ml = mundo({ pendientes: [recien(1)], url: async () => { throw new ErrorRinkel('limite', 'x', 429) } })
+      const rl = await pasada(ml)
+      ok('Rinkel pide esperar (429): fallida con el turno de siempre, no cada minuto', rl.fallidas === 1 && rl.aplazadas === 0 && ml.filas.get('llamada-1')!.fallo?.siguienteIntentoAt === new Date(AHORA + 3 * 60_000).toISOString())
+    }
+    // El audio llega vacío o con unos pocos bytes (Rinkel aún lo está escribiendo)
+    for (const codigo of ['vacio', 'formato'] as const) {
+      const m = mundo({ pendientes: [recien(1)], audio: async () => { throw new ErrorDeAudio(codigo, MENSAJE_DE_AUDIO[codigo]) } })
+      const r = await pasada(m)
+      ok(`el audio llega «${codigo}» recién colgada: se aplaza (no se omite ni se da por perdida)`, r.aplazadas === 1 && r.omitidas === 0 && m.filas.get('llamada-1')!.intentos === 0 && m.llamadasA.voz === 0)
+      const v = mundo({ pendientes: [haceSiete], audio: async () => { throw new ErrorDeAudio(codigo, MENSAJE_DE_AUDIO[codigo]) } })
+      const rv = await pasada(v)
+      ok(`y colgada hace 7 minutos «${codigo}» es lo de siempre (${codigo === 'formato' ? 'omitida' : 'fallida con su turno'})`, rv.aplazadas === 0 && (codigo === 'formato' ? rv.omitidas === 1 : rv.fallidas === 1))
+    }
+    {
+      const m = mundo({ pendientes: [recien(1)], audio: async () => { throw new ErrorDeAudio('red', MENSAJE_DE_AUDIO.red) } })
+      const r = await pasada(m)
+      ok('un fallo de red al bajar el audio sigue siendo un fallo (3 minutos), también recién colgada', r.fallidas === 1 && r.aplazadas === 0)
+      const g = mundo({ pendientes: [recien(1)], audio: async () => { throw new ErrorDeAudio('demasiado_grande', MENSAJE_DE_AUDIO.demasiado_grande) } })
+      const rg = await pasada(g)
+      ok('y un audio demasiado grande sigue omitido', rg.omitidas === 1 && rg.aplazadas === 0)
+    }
+
+    // El audio llega pero a medias
+    {
+      const m = mundo({ pendientes: [recien(1)], voz: async () => ({ texto: LARGA, idiomas: ['es'], segundos: 20 }) })
+      const r = await pasada(m)
+      const f = m.filas.get('llamada-1')!
+      ok('recién colgada y el audio dura 20 s de una llamada de 60: se APLAZA', r.aplazadas === 1 && r.hechas === 0 && r.fallidas === 0 && f.estado === 'fallida')
+      ok('lo transcrito a medias NO se guarda ni se resume', f.transcripcion === null && f.resultado === null && m.llamadasA.resumen === 0)
+      ok('se vuelve a probar a los 75 s y el intento SÍ cuenta (para que la segunda vez se dé por buena)', f.fallo?.siguienteIntentoAt === new Date(AHORA + ESPERA_SI_EL_AUDIO_ESTABA_A_MEDIAS_MS).toISOString() && f.intentos === 1 && ESPERA_SI_EL_AUDIO_ESTABA_A_MEDIAS_MS === 75_000, `${f.fallo?.siguienteIntentoAt} · ${f.intentos}`)
+      ok('el trozo pagado se cuenta en la pasada (20 s, no se esconde el gasto)', r.segundos === 20 && r.costeUsd > 0, `${r.segundos} · ${r.costeUsd}`)
+      ok('el motivo dice cuánto duraba el audio y cuánto la llamada', /20 s de 60 s/.test(f.fallo?.motivo ?? ''), f.fallo?.motivo ?? '')
+
+      // Segunda vuelta: el audio sigue más corto -> Rinkel lo sirve así, se da por bueno (como mucho se paga dos veces)
+      const r2 = await pasada(m)
+      const f2 = m.filas.get('llamada-1')!
+      ok('a la segunda, si sigue más corto, se acepta y se resume (no se aplaza para siempre)', r2.hechas === 1 && r2.aplazadas === 0 && f2.estado === 'hecha' && f2.transcripcion === LARGA && m.llamadasA.voz === 2, JSON.stringify({ h: r2.hechas, a: r2.aplazadas, e: f2.estado, voz: m.llamadasA.voz }))
+    }
+    {
+      // La segunda vez llega entero: normal
+      const m = mundo({ pendientes: [recien(1)], voz: async (n) => ({ texto: LARGA, idiomas: ['es'], segundos: n === 1 ? 25 : 60 }) })
+      await pasada(m)
+      const r2 = await pasada(m)
+      ok('si a la segunda llega entero (60 s), se resume y queda hecha', r2.hechas === 1 && m.filas.get('llamada-1')!.estado === 'hecha' && m.filas.get('llamada-1')!.segundos_audio === 60)
+    }
+    {
+      // El margen: 4 s de menos se aceptan (el audio mide entre -1 y +2 s de la llamada); 5 s de menos no
+      const casi = mundo({ pendientes: [recien(1)], voz: async () => ({ texto: LARGA, idiomas: ['es'], segundos: 56 }) })
+      const rc = await pasada(casi)
+      ok('56 s de audio en una llamada de 60 (4 s menos): se acepta', rc.hechas === 1 && rc.aplazadas === 0)
+      const poco = mundo({ pendientes: [recien(1)], voz: async () => ({ texto: LARGA, idiomas: ['es'], segundos: 55 }) })
+      const rp = await pasada(poco)
+      ok('55 s (5 s menos): se aplaza', rp.aplazadas === 1 && rp.hechas === 0)
+      const mas = mundo({ pendientes: [recien(1)], voz: async () => ({ texto: LARGA, idiomas: ['es'], segundos: 62 }) })
+      const rm = await pasada(mas)
+      ok('62 s (2 s más, lo normal): se acepta', rm.hechas === 1 && rm.aplazadas === 0)
+    }
+    {
+      // Sin comprobar: llamadas viejas, o la IA sin decir cuánto audio
+      const vieja = mundo({ pendientes: [haceSiete], voz: async () => ({ texto: LARGA, idiomas: ['es'], segundos: 20 }) })
+      const rv = await pasada(vieja)
+      ok('una llamada de hace 7 minutos con el audio más corto NO se comprueba (se acepta, como siempre)', rv.hechas === 1 && rv.aplazadas === 0)
+      const sinDato = mundo({ pendientes: [recien(1)], voz: async () => ({ texto: LARGA, idiomas: ['es'], segundos: null }) })
+      const rs = await pasada(sinDato)
+      ok('si OpenAI no dice cuántos segundos de audio, no hay con qué comparar y se acepta', rs.hechas === 1 && rs.aplazadas === 0)
+    }
+    {
+      // Una transcripción que ya estaba pagada de antes no se vuelve a comprobar ni a pagar
+      const m = mundo({ pendientes: [recien(1)], filasIniciales: { 'llamada-1': { estado: 'fallida', intentos: 1, transcripcion: LARGA, segundos_audio: 20, modelo_voz: 'gpt-transcribe', coste_voz_usd: 0.001 } } })
+      const r = await pasada(m)
+      ok('una transcripción guardada de antes se resume sin comprobar ni volver a pagar el audio', r.hechas === 1 && m.llamadasA.voz === 0 && m.llamadasA.audios === 0)
+    }
+    {
+      // Varias a la vez: unas esperan y otras salen
+      const m = mundo({ pendientes: [recien(1), recien(2), recien(3)], url: async (g) => { if (g === 'grab-2') throw new ErrorRinkel('no_encontrada', 'x', 404); return `https://api.rinkel.com/v1/audio/${g}` } })
+      const r = await pasada(m, { concurrencia: 1 })
+      ok('una que espera no frena a las demás', r.hechas === 2 && r.aplazadas === 1 && r.candidatas === 3 && /1 espera a que Rinkel termine la grabación/.test(resumenDeLaPasada(r)), resumenDeLaPasada(r))
+    }
   }
 
   console.log('\n=== una transcripción pagada no se paga dos veces ===')
@@ -883,11 +1004,12 @@ const run = async () => {
 
   console.log('\n=== el texto de la pasada ===')
   {
-    const base: ResultadoDelMotor = { candidatas: 5, hechas: 3, rellamadas: 0, cerrados: 0, turnos: 0, avisoDeTurnos: null, sinContenido: 1, omitidas: 1, fallidas: 0, ajenas: 0, segundos: 330, costeUsd: 0.0312, parada: null, aviso: null, segundos24h: 1200, topeMinutos: 400 }
+    const base: ResultadoDelMotor = { candidatas: 5, hechas: 3, rellamadas: 0, cerrados: 0, turnos: 0, avisoDeTurnos: null, sinContenido: 1, omitidas: 1, fallidas: 0, ajenas: 0, aplazadas: 0, segundos: 330, costeUsd: 0.0312, parada: null, aviso: null, segundos24h: 1200, topeMinutos: 400 }
     const t = resumenDeLaPasada(base)
     ok('cuenta lo hecho, lo omitido, los minutos y el dinero', /4 transcritas \(1 sin contenido\)/.test(t) && /1 omitida/.test(t) && /5,5 min de audio · 0,031 \$/.test(t), t)
     ok('y cuánto del tope se lleva (20 + 5,5 min de 400)', /24 h: 26 de 400 min/.test(t), t)
     ok('una sola transcrita va en singular', /1 transcrita /.test(resumenDeLaPasada({ ...base, hechas: 1, sinContenido: 0, omitidas: 0 })))
+    ok('una llamada que espera a la grabación no sale como fallo', /1 espera a que Rinkel termine la grabación/.test(resumenDeLaPasada({ ...base, aplazadas: 1 })) && !/fallida/.test(resumenDeLaPasada({ ...base, aplazadas: 1 })) && /2 esperan a que/.test(resumenDeLaPasada({ ...base, aplazadas: 2 })))
     const ia = resumenDeLaPasada({ ...base, parada: 'ia_no_disponible', aviso: MENSAJE_DE_VOZ.saldo })
     ok('una parada por la IA lleva su motivo', /PARADA: La cuenta de OpenAI se ha quedado sin saldo/.test(ia), ia)
   }

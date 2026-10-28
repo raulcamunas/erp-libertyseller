@@ -56,10 +56,10 @@ console.log('\n=== ¿hay algo que esperar? ===')
   ok('el aviso para el comercial dice que espere un par de minutos y que puede contárselo a la IA', /par de minutos/.test(AVISO_TRANSCRIPCION_PENDIENTE) && /indicaciones/.test(AVISO_TRANSCRIPCION_PENDIENTE))
 }
 
-console.log('\n=== ¿se puede adelantar ya? (el SQL la ofrece a los 90 s) ===')
+console.log('\n=== ¿se puede adelantar ya? (el SQL la ofrece a los 45 s) ===')
 {
-  ok('colgada hace 60 s: todavía no (no hay nada que adelantar), pero sí se espera', !sePuedeAdelantar([llamada(60_000, 90)], T0) && hayTranscripcionPendiente([llamada(60_000, 90)], T0) && SEGUNDOS_HASTA_QUE_SE_OFRECE === 90)
-  ok('a los 90 s justos, sí', sePuedeAdelantar([llamada(90_000, 90)], T0) && !sePuedeAdelantar([llamada(89_000, 90)], T0))
+  ok('colgada hace 30 s: todavía no (no hay nada que adelantar), pero sí se espera', !sePuedeAdelantar([llamada(30_000, 90)], T0) && hayTranscripcionPendiente([llamada(30_000, 90)], T0) && SEGUNDOS_HASTA_QUE_SE_OFRECE === 45)
+  ok('a los 45 s justos, sí', sePuedeAdelantar([llamada(45_000, 90)], T0) && !sePuedeAdelantar([llamada(44_000, 90)], T0))
   ok('y hasta los 8 minutos; pasados, no', sePuedeAdelantar([llamada(7 * 60_000, 90)], T0) && !sePuedeAdelantar([llamada(9 * 60_000, 90)], T0))
   ok('si ya está transcrita o no es una conversación contestada, no', !sePuedeAdelantar([llamada(120_000, 90, { tipo: 'conversacion' })], T0) && !sePuedeAdelantar([llamada(120_000, 0, { estado: 'MISSED' })], T0) && !sePuedeAdelantar([], T0))
   ok('con dos llamadas basta con que una se pueda adelantar', sePuedeAdelantar([llamada(30_000, 90), llamada(200_000, 90)], T0))
@@ -87,10 +87,10 @@ async function main() {
     ok('a adelantar se le dice cuánto queda (45 s al empezar y cada vez menos) para no empezar nada que no quepa', m.restantes[0] === 45_000 && m.restantes.every((x, i) => i === 0 || x < m.restantes[i - 1]) && m.restantes.at(-1)! > 0, JSON.stringify(m.restantes))
   }
   {
-    // Colgada hace 60 s: hasta los 90 s solo se mira (una lectura), y desde entonces se adelanta. A los 30 s de espera cumple los 90 y se transcribe
-    const { deps, m } = mundo(8, { finHaceMs: 60_000 })
-    const r = await esperarLaTranscripcion(deps, [llamada(60_000, 100)])
-    ok('antes de los 90 s no se adelanta nada: el primer adelanto llega cuando la llamada los cumple (30 s después)', m.relojEnCadaAdelanto.length > 0 && m.relojEnCadaAdelanto[0] >= 30_000, JSON.stringify(m.relojEnCadaAdelanto))
+    // Colgada hace 20 s: hasta los 45 s solo se mira (una lectura), y desde entonces se adelanta. A los 25 s de espera cumple los 45 y se transcribe
+    const { deps, m } = mundo(8, { finHaceMs: 20_000 })
+    const r = await esperarLaTranscripcion(deps, [llamada(20_000, 100)])
+    ok('antes de los 45 s no se adelanta nada: el primer adelanto llega cuando la llamada los cumple (25 s después)', m.relojEnCadaAdelanto.length > 0 && m.relojEnCadaAdelanto[0] >= 25_000, JSON.stringify(m.relojEnCadaAdelanto))
     ok('y se leyó mucho más de lo que se adelantó', m.lecturas > m.adelantos, JSON.stringify({ lecturas: m.lecturas, adelantos: m.adelantos }))
     ok('al final llega la transcripción y no queda pendiente', !r.pendiente && r.llamadas[0].tipo === 'conversacion')
   }

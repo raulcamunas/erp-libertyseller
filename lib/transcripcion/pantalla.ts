@@ -7,7 +7,7 @@ import { SEGUNDOS_MINIMOS_DE_CONVERSACION, type QuienDelTurno, type ResumenDeLla
  * PURO: lo usan el historial del lead y la lista de llamadas del día. Se comprueba con pantalla.prueba.ts.
  *
  * El resumen NO llega con la llamada: el proceso `rinkel-transcribir` lo hace unos minutos después de colgar (la grabación tarda en
- * aparecer en Rinkel, el proceso corre cada dos minutos y transcribir y resumir son unos 15 segundos). Por eso la pantalla, mientras una
+ * aparecer en Rinkel, el proceso empieza a los 45 s de colgar y pasa cada 30 s, y transcribir y resumir son unos 15 segundos). Por eso la pantalla, mientras una
  * llamada reciente está esperando su resumen, vuelve a preguntar cada 30 segundos, y deja de hacerlo en cuanto llega o pasada una hora
  * (si en una hora no ha salido, el proceso está apagado o esa llamada no se va a transcribir, y preguntar más es gastar en balde).
  */

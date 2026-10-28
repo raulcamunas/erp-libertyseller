@@ -59,6 +59,41 @@ export function esperaTrasFallo(intentosHechos: number): number | null {
 }
 
 /* ------------------------------------------------------------------ */
+/* Llamadas que acaban de colgar                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La transcripción empieza poco después de colgar (migración 259: 45 s por defecto, eran 90). En esos primeros minutos una grabación que todavía no está en Rinkel,
+ * que llega vacía o que está a medias es lo NORMAL y no un fallo: se vuelve a probar enseguida y sin gastar intentos. Pasado este tiempo, un 404 vuelve a ser «Rinkel
+ * ya no la tiene» y lo demás se trata como siempre.
+ */
+export const MINUTOS_DE_LLAMADA_RECIENTE = 6
+
+/** Cuánto se espera para volver a pedir una grabación que aún no estaba lista (o que llegó vacía) */
+export const ESPERA_SI_LA_GRABACION_NO_ESTA_MS = 60_000
+
+/** ...y una que estaba a medias (el audio duraba bastante menos que la llamada) */
+export const ESPERA_SI_EL_AUDIO_ESTABA_A_MEDIAS_MS = 75_000
+
+/** Medido sobre 104 llamadas reales: el audio dura entre 1 s menos y 2 s más que la llamada según Rinkel. Más corto que esto, estaba a medias */
+export const SEGUNDOS_DE_MARGEN_DEL_AUDIO = 4
+
+/** ¿Colgó hace menos de MINUTOS_DE_LLAMADA_RECIENTE minutos? Una fecha que no se entiende no es reciente: se trata como siempre */
+export function esLlamadaReciente(fechaIso: string, duracionS: number, ahora: number): boolean {
+  const inicio = Date.parse(fechaIso)
+  if (!Number.isFinite(inicio)) return false
+  return ahora - (inicio + Math.max(0, duracionS) * 1000) < MINUTOS_DE_LLAMADA_RECIENTE * 60_000
+}
+
+/**
+ * ¿El audio que ha transcrito la IA (los segundos que cobra) es claramente más corto que la llamada? Entonces la grabación estaba a medias cuando se bajó.
+ * Sin ese dato (la IA no lo dio) no se puede saber y se da por bueno.
+ */
+export function audioAMedias(segundosDeAudio: number | null, duracionDeLaLlamadaS: number): boolean {
+  return segundosDeAudio !== null && segundosDeAudio < duracionDeLaLlamadaS - SEGUNDOS_DE_MARGEN_DEL_AUDIO
+}
+
+/* ------------------------------------------------------------------ */
 /* ¿Hay algo que resumir?                                              */
 /* ------------------------------------------------------------------ */
 
