@@ -175,7 +175,9 @@ export function resumenDeLead(lead: DatosDeLead, ahora: number): string[] {
         ? 'hemos comprobado que todavía NO vende en Amazon'
         : lead.tipo_lead === 'seller_amazon'
           ? 'ya vende en Amazon'
-          : 'no consta si vende en Amazon (no lo des por hecho en ningún sentido ni lo preguntes)'
+          : lead.tipo_lead === 'tienda_online'
+            ? 'tienda online de una lista de empresas que NO venden en Amazon: trátala como una que todavía NO está allí (no se ha comprobado una por una, así que no lo des como un dato)'
+            : 'no consta si vende en Amazon (no lo des por hecho en ningún sentido ni lo preguntes)'
   )
   const desde = texto(lead.amazon_start)?.match(/\d{4}/)?.[0]
   if (desde) añadir('Vende en Amazon desde', desde)
@@ -336,6 +338,21 @@ export function situacionDeCorreos(correos: readonly CorreoParaIa[], ahora: numb
  */
 export function avisosDelLead(lead: DatosDeLead): string[] {
   const avisos: string[] = []
+  // LAS TIENDAS DE LAS LISTAS «NO AMAZON» NO VENDEN EN AMAZON. `tipo_lead = tienda_online` es por definición una tienda que todavía no está allí (22.969 de los 26.947
+  // leads), pero a la IA solo le llegaba «no consta si vende» y, con la instrucción de «revisar cómo está su marca en Amazon», escribía como si ya estuviera: «cómo se ve
+  // vuestro catálogo en Amazon», «cómo aparece vuestra marca en la plataforma» (33 de los 52 borradores a tiendas online). Los comerciales lo veían como un correo que no
+  // casa con la lista. Va como aviso, no como un dato más: es de lo que más pesa en el correo, y vale igual para el WhatsApp y los seguimientos.
+  // Solo con el dato delante: sin `tipo_lead` (un contexto sin la columna) no se sabe, y no se inventa un aviso
+  if (lead.vende_en_amazon !== 'vende' && (lead.tipo_lead === 'tienda_online' || lead.vende_en_amazon === 'no_vende')) {
+    const comprobado = lead.vende_en_amazon === 'no_vende'
+    avisos.push(
+      '- Esta empresa NO vende en Amazon todavía: la oportunidad es ENTRAR, llevar su catálogo a Amazon como un canal de venta nuevo y sin carga para su equipo. NUNCA escribas como si ya estuviera allí: ' +
+        'nada de «cómo aparece / se ve / se muestra vuestra marca o vuestro catálogo en Amazon», «vuestras fichas» o «vuestros listings», «mejorar vuestra visibilidad, posicionamiento o contenido en Amazon», ' +
+        '«vuestra presencia en Amazon» ni «que vuestros productos se encuentren allí», ni en el asunto ni en el cuerpo. Habla de lo que podrían ganar vendiendo ahí (un canal nuevo, clientes que ya buscan ' +
+        'productos como los suyos en Amazon, sin cargar a su equipo).' +
+        (comprobado ? ' Lo hemos comprobado: puedes decir que todavía no venden en Amazon.' : ' No lo afirmes como un dato («veo que no vendéis en Amazon»): no hay certeza de que no estén ya.')
+    )
+  }
   if (lead.status === 'no_interesa') {
     avisos.push('- Este lead consta como «No le interesa»: salvo que las notas digan lo contrario, escribe SOLO dos o tres líneas amables, sin vender nada y dejando la puerta abierta.')
   }

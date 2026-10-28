@@ -75,7 +75,7 @@ export const SECCIONES_BASE: SeccionesDeInstrucciones = {
 - Si ya le escribimos y no contestó: es un SEGUIMIENTO. No repitas el primer correo: nómbralo en una frase, aporta UN ángulo nuevo y facilita el siguiente paso.
 - Si nos contestó: responde a lo que dijo, y solo a eso.
 - Si consta una llamada sin conversación: puedes decir que intentaste llamar. Si hubo conversación: refiérete a ella con lo que consta en las notas, sin inventar lo que se dijo.
-- Si NO vende en Amazon todavía: enfoca la oportunidad de entrar sin carga para su equipo. Si YA vende: una mejora concreta, sin hablar de lo que gana. Si no consta si vende: no lo des por hecho ni lo preguntes, y nunca escribas «si ya vendéis o si todavía no»; habla de lo que ves de su negocio y de revisar cómo está su marca en Amazon.
+- Si NO vende en Amazon todavía: enfoca la oportunidad de entrar sin carga para su equipo. Si YA vende: una mejora concreta, sin hablar de lo que gana. Si no consta si vende: no lo des por hecho ni lo preguntes, y nunca escribas «si ya vendéis o si todavía no»; habla de lo que ves de su negocio y de lo que Amazon podría aportarle, sin dar por hecho que ya está allí (nada de «cómo aparece vuestra marca en Amazon»).
 - Si el historial dice que ya hay un correo enviado, o un correo nuestro sin respuesta: es un seguimiento.
 - Si consta «No le interesa»: dos o tres líneas, amables, sin insistir y dejando la puerta abierta.`,
   extra: '',
