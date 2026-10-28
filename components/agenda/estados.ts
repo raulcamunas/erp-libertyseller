@@ -7,7 +7,7 @@ import type { TonoEstado } from '@/lib/estilo/denso'
  *
  * Los siete estados salen de APPOINTMENT_STATUS_LABELS y no se inventa ninguno. Lo que cambia respecto a la agenda de antes es cómo se enseñan: antes eran siete cajitas
  * de colores sueltos (azul, amarillo, cielo, gris, verde, rojo, zinc) que no se parecían a ningún otro estado del ERP; ahora usan la paleta única de estados, el mismo
- * verde que «Cita cualificada» en Cold Calling, y llevan siempre un glifo: tapa el color con la mano y el estado se sigue leyendo.
+ * verde que «Cita agendada» en Cold Calling, y llevan siempre un glifo: tapa el color con la mano y el estado se sigue leyendo.
  *
  * `corto` es el que cabe dentro del bloque del calendario; `largo`, el de la ficha.
  */

@@ -128,7 +128,8 @@ export const COLD_STATUS_LABELS: Record<ColdLeadStatus, string> = {
   programado: 'Rellamada programada',
   email_enviado: 'Info enviada',
   seguimiento: 'En seguimiento',
-  cita_cualificada: 'Cita cualificada',
+  // «Agendada» y no «cualificada»: en Cold Calling solo se sabe que hay una cita. Cualificada o no cualificada es lo que ponen DESPUÉS los managers que hacen la reunión (Agenda y CRM)
+  cita_cualificada: 'Cita agendada',
   no_interesa: 'No le interesa',
 }
 
@@ -139,14 +140,14 @@ export const COLD_STATUS_HINTS: Record<ColdLeadStatus, string> = {
   programado: 'Nos ha dado día y hora para volver a llamar',
   email_enviado: 'Pidió la información por correo y se la mandamos',
   seguimiento: 'Muestra interés, hay que insistir',
-  cita_cualificada: 'Sesión de consultoría agendada',
+  cita_cualificada: 'Sesión de consultoría agendada (después el manager la marca como cualificada o no)',
   no_interesa: 'Descartado: no quiere, ya tiene agencia o no encaja',
 }
 
 /**
  * Los mismos colores que usaban en el Excel, para que el equipo no tenga
  * que reaprender nada: amarillo = no contesta, cian = programado,
- * magenta = info enviada, naranja = seguimiento, verde = cualificada,
+ * magenta = info enviada, naranja = seguimiento, verde = cita agendada,
  * rojo = descartado.
  */
 export const COLD_STATUS_DOTS: Record<ColdLeadStatus, string> = {

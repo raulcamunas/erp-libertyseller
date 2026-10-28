@@ -326,7 +326,7 @@ function mundo(c: Config): Mundo {
   return { almacen, deps, filas, llamadasA, reloj, fallosDeAlmacen, leads, notas, turnos, encargosDeTurnos, enVuelo, encargos, pistas }
 }
 
-const pasada = (m: Mundo, op: Partial<{ presupuestoMs: number; limite: number; concurrencia: number }> = {}): Promise<ResultadoDelMotor> =>
+const pasada = (m: Mundo, op: Partial<{ presupuestoMs: number; limite: number; concurrencia: number; sinTurnos: boolean }> = {}): Promise<ResultadoDelMotor> =>
   procesarPendientes(m.almacen, m.deps, { presupuestoMs: 150_000, ...op })
 
 const run = async () => {
@@ -830,6 +830,16 @@ const run = async () => {
       const m = mundo({ pendientes: [llamada(1)], ajustes: { tope_diario_minutos: 1 }, gastado24h: 100, sinTurnos: pendientes(1) })
       const r = await pasada(m)
       ok('con el tope diario de audio alcanzado se puede separar (es solo texto)', r.parada === 'tope_diario' && r.turnos === 1)
+    }
+
+    // «Redactar con IA» adelanta la transcripción de la llamada que acaba de terminar: ahí solo se transcribe, lo de los turnos espera al proceso automático
+    {
+      const m = mundo({ pendientes: [llamada(1)], sinTurnos: pendientes(2) })
+      const r = await pasada(m, { sinTurnos: true })
+      ok('con sinTurnos la llamada se transcribe y NO se pide ni una separación a la IA', r.hechas === 1 && r.turnos === 0 && m.encargosDeTurnos.length === 0 && r.avisoDeTurnos === null, JSON.stringify({ turnos: r.turnos, encargos: m.encargosDeTurnos.length }))
+      const otra = mundo({ pendientes: [llamada(1)], sinTurnos: pendientes(2) })
+      const normal = await pasada(otra)
+      ok('y sin la opción se separan como siempre (el cron no cambia)', normal.hechas === 1 && normal.turnos === 2 && otra.encargosDeTurnos.length === 2, JSON.stringify({ turnos: normal.turnos }))
     }
 
     // El presupuesto de tiempo

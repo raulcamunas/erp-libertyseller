@@ -16,7 +16,7 @@ import { diaCorto, diaHabilDesde, diasEntre, esDia, nombreDelDia, sumarDias } fr
  *     invención no cierra nada), y con ella baja cualquier acción.
  *   · Un «no» solo cierra el lead con la confianza ALTA (o media si además el texto trae una frase de rechazo de las de siempre, `esRechazo`). La baja
  *     (pedir que no se le escriba más) se toma en serio con confianza media: parar es lo seguro.
- *   · Un lead que una persona ya trabaja («En seguimiento», «Cita cualificada») NUNCA se toca: se apunta una nota para que lo mire. Lo mismo si es de
+ *   · Un lead que una persona ya trabaja («En seguimiento», «Cita agendada») NUNCA se toca: se apunta una nota para que lo mire. Lo mismo si es de
  *     otra persona que la dueña del buzón.
  *   · Un «llámame el jueves», «llámame mañana» o «contáctame después de Reyes» deja la rellamada puesta para ese día. La fecha la calcula la IA, pero el
  *     código la comprueba: si el cliente nombró un día de la semana, la fecha tiene que caer en él (si no, no se actúa), no puede ser pasada ni pasar de

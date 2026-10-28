@@ -62,7 +62,7 @@ export type ResultadoDeInscribir =
 /** Los estados del lead en los que no tiene sentido programar seguimientos: ya lo lleva una persona o ya no quiere */
 const LEAD_CERRADO: Record<string, string> = {
   no_interesa: 'Este lead está marcado «No interesa»: no se programan seguimientos.',
-  cita_cualificada: 'Este lead ya tiene una cita cualificada: no se programan seguimientos.',
+  cita_cualificada: 'Este lead ya tiene una cita agendada: no se programan seguimientos.',
   seguimiento: 'Este lead está «En seguimiento»: lo lleva una persona, no se programan seguimientos automáticos.',
 }
 

@@ -82,7 +82,7 @@ console.log('\n=== a quién no se le pisa el trabajo ===')
   const d1 = decidirCierreDeLlamada(entrada({ lead: lead({ status: 'seguimiento' }) }))
   ok('un lead «En seguimiento» lo lleva una persona: no se cambia, y se avisa', !d1.cerrar && d1.motivo === 'estado' && /«En seguimiento»/.test(d1.nota ?? '') && /no se ha cambiado/.test(d1.nota ?? '') && (d1.nota ?? '').includes(`«${FRASE}»`), JSON.stringify(d1))
   const d2 = decidirCierreDeLlamada(entrada({ lead: lead({ status: 'cita_cualificada' }) }))
-  ok('uno con cita, igual', !d2.cerrar && d2.motivo === 'estado' && /«Cita cualificada»/.test(d2.nota ?? ''))
+  ok('uno con cita, igual', !d2.cerrar && d2.motivo === 'estado' && /«Cita agendada»/.test(d2.nota ?? ''))
   const d3 = decidirCierreDeLlamada(entrada({ lead: lead({ assignedTo: 'jhanna' }) }))
   ok('el lead de otra persona que quien llamó: no se toca, y se avisa', !d3.cerrar && d3.motivo === 'otra_persona' && /de otra persona/.test(d3.nota ?? ''))
 

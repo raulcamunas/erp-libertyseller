@@ -128,13 +128,27 @@ const ESTADO_EN_CLARO: Record<ColdLeadStatus, string> = {
   programado: 'rellamada programada: pidió que se le volviera a llamar',
   email_enviado: 'se le ha enviado información por correo',
   seguimiento: 'en seguimiento: hay interés y se está trabajando',
-  cita_cualificada: 'cita cualificada conseguida',
+  cita_cualificada: 'cita agendada conseguida',
   no_interesa: 'marcado como «No le interesa»',
 }
 
 /* ------------------------------------------------------------------ */
 /* Cada bloque del contexto                                            */
 /* ------------------------------------------------------------------ */
+
+/**
+ * El nombre de la empresa, SOLO si es un nombre. En la ficha `store_name` viene a veces de un Excel o de la web y es una dirección («www.candidtails.com»), una descripción
+ * («Tienda para mascotas», «Tienda de Ropa Infantil») o unas pocas letras («max»): usado como nombre propio queda mal en un saludo («Hola Tienda para mascotas:») y en un asunto.
+ * null = no hay un nombre fiable.
+ */
+export function nombreDeMarcaFiable(lead: Pick<DatosDeLead, 'store_name'>): string | null {
+  const n = texto(lead.store_name)
+  if (!n) return null
+  if (n.length < 4) return null
+  if (/^(https?:\/\/|www\.)/i.test(n) || /^[^\s/]+\.[a-z]{2,}(\/\S*)?$/i.test(n)) return null
+  if (/^(tienda|tiendas|comercio|negocio|empresa|boutique)\s+(online|virtual|de|del|para|en)\b/i.test(n)) return null
+  return n
+}
 
 /** Los datos de la empresa, uno por línea. Solo las columnas de CAMPOS_DEL_LEAD, y solo las que traen algo */
 export function resumenDeLead(lead: DatosDeLead, ahora: number): string[] {
@@ -145,7 +159,11 @@ export function resumenDeLead(lead: DatosDeLead, ahora: number): string[] {
 
   const nombre = texto(lead.store_name)
   const razon = texto(lead.company)
-  añadir('Nombre comercial', nombre)
+  const marca = nombreDeMarcaFiable(lead)
+  if (marca) añadir('Nombre comercial', marca)
+  // Un nombre que es una dirección web («www.candidtails.com»), una descripción («Tienda para mascotas») o dos letras no es un nombre propio: la IA lo usaba en el saludo
+  // («Hola www.candidtails.com:») y en el asunto. Se le dice que no lo es, para que no lo use como tal
+  else if (nombre) añadir('Nombre comercial', `no consta un nombre de marca fiable (en la ficha pone «${nombre}», que no es un nombre propio): no lo uses como nombre de la empresa ni en el saludo ni en el asunto`)
   if (razon && razon.toLowerCase() !== (nombre ?? '').toLowerCase()) añadir('Razón social', razon)
 
   const vende = lead.vende_en_amazon
@@ -209,19 +227,62 @@ export function duracionLegible(segundos: number): string {
   return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`
 }
 
-/** Un resumen de las llamadas de Rinkel del lead: cuántas, cuántas se cogieron y cómo fue la última */
+/**
+ * QUÉ FUE UNA LLAMADA. Rinkel da por «contestada» (ANSWERED) hasta un buzón de voz o un contestador automático: una llamada de un minuto «contestada» puede no haber tenido a nadie
+ * al otro lado. Lo único que lo distingue es la TRANSCRIPCIÓN (`tipo`: conversación, buzón de voz o sin contenido), que tarda unos tres minutos en estar. Hasta entonces una llamada
+ * contestada de más de 20 s es «sin comprobar»: NO se puede afirmar que se habló. (Antes se daba por conversación y la IA escribía «hemos hablado hoy» después de un buzón de voz.)
+ */
+export type ClaseDeLlamada = 'conversacion' | 'buzon' | 'sin_contenido' | 'sin_comprobar' | 'colgaron' | 'no_cogieron'
+
+export function claseDeLlamada(c: Pick<LlamadaParaIa, 'estado' | 'duracion_s' | 'tipo'>): ClaseDeLlamada {
+  if (c.tipo === 'conversacion') return 'conversacion'
+  if (c.tipo === 'buzon_de_voz') return 'buzon'
+  if (c.tipo === 'sin_contenido') return 'sin_contenido'
+  if (c.estado === 'ANSWERED') return c.duracion_s >= 20 ? 'sin_comprobar' : 'colgaron'
+  return 'no_cogieron'
+}
+
+/** Cuánto hace que acabó una llamada (ms). Una fecha mala da +Infinity: nunca «acaba de terminar» */
+export function msDesdeQueAcabo(c: Pick<LlamadaParaIa, 'fecha' | 'duracion_s'>, ahora: number): number {
+  const inicio = Date.parse(c.fecha)
+  return Number.isFinite(inicio) ? ahora - (inicio + Math.max(0, c.duracion_s) * 1000) : Number.POSITIVE_INFINITY
+}
+
+/** Una llamada que acaba de terminar y cuya grabación todavía se está transcribiendo */
+const MINUTOS_DE_RECIENTE = 12
+
+/** Un resumen de las llamadas de Rinkel del lead: cuántas, cuáles fueron una conversación DE VERDAD y cómo fue la última */
 export function resumenDeLlamadas(llamadas: readonly LlamadaParaIa[], ahora: number): string[] {
   if (llamadas.length === 0) return []
   const ordenadas = [...llamadas].sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))
-  // Una llamada «contestada» de menos de 20 s suele ser un buzón de voz o un cuelgue: no cuenta como una conversación
-  const conversaciones = ordenadas.filter((c) => c.estado === 'ANSWERED' && c.duracion_s >= 20)
+  const clases = ordenadas.map((c) => ({ c, clase: claseDeLlamada(c) }))
+  const cuenta = (...cs: ClaseDeLlamada[]) => clases.filter((x) => cs.includes(x.clase)).length
   const salientes = ordenadas.filter((c) => c.direccion === 'outbound').length
-  const l = [`- ${ordenadas.length} llamadas registradas (${salientes} nuestras), ${conversaciones.length} con conversación`]
-  const ultima = ordenadas[0]
-  const comoFue = ultima.estado === 'ANSWERED' && ultima.duracion_s >= 20 ? `conversación de ${duracionLegible(ultima.duracion_s)}` : 'no se llegó a hablar'
-  l.push(`- La última, ${hace(ultima.fecha, ahora)}: ${comoFue}`)
-  if (conversaciones.length > 0) {
-    const larga = conversaciones.reduce((m, c) => (c.duracion_s > m.duracion_s ? c : m))
+
+  const partes: string[] = []
+  const conversaciones = cuenta('conversacion')
+  if (conversaciones > 0) partes.push(`${conversaciones} con conversación`)
+  const sinConversacion = cuenta('buzon', 'sin_contenido', 'colgaron', 'no_cogieron')
+  if (sinConversacion > 0) partes.push(`${sinConversacion} sin conversación (buzón de voz, no cogieron o colgaron)`)
+  const sinComprobar = cuenta('sin_comprobar')
+  if (sinComprobar > 0) partes.push(`${sinComprobar} contestada${sinComprobar === 1 ? '' : 's'} de las que no consta si hubo conversación o saltó un buzón de voz`)
+  const l = [`- ${ordenadas.length} llamadas registradas (${salientes} nuestras)${partes.length > 0 ? `: ${partes.join('; ')}` : ''}`]
+
+  const { c: ultima, clase } = clases[0]
+  const duro = duracionLegible(ultima.duracion_s)
+  const comoFue: Record<ClaseDeLlamada, string> = {
+    conversacion: `conversación de ${duro}`,
+    buzon: 'saltó el buzón de voz o un contestador: NADIE habló con nosotros',
+    sin_contenido: 'la cogieron pero no hubo conversación (silencio o nada audible)',
+    sin_comprobar: `la cogieron y duró ${duro}, pero NO consta si hubo conversación o saltó un buzón de voz${msDesdeQueAcabo(ultima, ahora) <= MINUTOS_DE_RECIENTE * 60_000 ? ' (la grabación aún se está transcribiendo)' : ''}`,
+    colgaron: 'descolgaron y colgaron enseguida: no hubo conversación',
+    no_cogieron: 'no la cogieron',
+  }
+  l.push(`- La última, ${hace(ultima.fecha, ahora)}: ${comoFue[clase]}`)
+
+  const confirmadas = clases.filter((x) => x.clase === 'conversacion').map((x) => x.c)
+  if (confirmadas.length > 0) {
+    const larga = confirmadas.reduce((m, c) => (c.duracion_s > m.duracion_s ? c : m))
     l.push(`- Su conversación más larga: ${duracionLegible(larga.duracion_s)}, ${hace(larga.fecha, ahora)}`)
   }
   return l
@@ -279,7 +340,55 @@ export function avisosDelLead(lead: DatosDeLead): string[] {
     avisos.push('- Este lead consta como «No le interesa»: salvo que las notas digan lo contrario, escribe SOLO dos o tres líneas amables, sin vender nada y dejando la puerta abierta.')
   }
   if (lead.status === 'cita_cualificada') {
-    avisos.push('- Consta una cita cualificada: si las notas la confirman, el correo es para confirmarla o prepararla, no para vender desde cero.')
+    avisos.push('- Consta una cita agendada: si las notas la confirman, el correo es para confirmarla o prepararla, no para vender desde cero.')
+  }
+  return avisos
+}
+
+/** Cuánto atrás se mira para decir «hoy ha habido (o no) una conversación»: la jornada de ayer y la de hoy */
+const HORAS_DE_LLAMADA_RECIENTE = 36
+
+/**
+ * LOS AVISOS DE ESTE CORREO: lo que hay que tener presente SIEMPRE (importa más que los datos), y sobre todo QUÉ PASÓ en las llamadas de las últimas horas. Es lo que más falla
+ * si no se dice: sin esto la IA escribía «hemos hablado hoy» después de un buzón de voz (Rinkel lo da por «contestada»), o un correo genérico justo después de una conversación
+ * cuya transcripción todavía no estaba. Los comerciales lo veían como «no coge lo que se ha hablado».
+ *
+ *   · Hubo una conversación (transcrita y confirmada): el correo la continúa, cumple el siguiente paso acordado y saluda a quien habló.
+ *   · Contestaron pero no consta que hablaran (buzón, o la transcripción aún no está): NO se afirma que se habló.
+ *   · Nadie habló: se puede decir que se ha intentado llamar.
+ *
+ * Si hay una nota reciente del comercial (o de la propia transcripción) sobre la llamada, no se prohíbe hablar de ella: está en el historial y la IA se apoya en eso.
+ */
+export function avisosDelCorreo(e: { lead: DatosDeLead; llamadas: readonly LlamadaParaIa[]; notas?: readonly NotaParaIa[]; ahora: number }): string[] {
+  const avisos = avisosDelLead(e.lead)
+  const desde = e.ahora - HORAS_DE_LLAMADA_RECIENTE * 3_600_000
+  const recientes = e.llamadas.filter((c) => {
+    const t = Date.parse(c.fecha)
+    return Number.isFinite(t) && t >= desde && t <= e.ahora + 60_000
+  })
+  const hayNotaReciente = (e.notas ?? []).some((n) => {
+    const t = Date.parse(n.occurred_at)
+    return Number.isFinite(t) && t >= desde && !n.es_respuesta && (n.kind === 'llamada' || n.kind === 'nota') && (texto(n.body) ?? '').length >= 15
+  })
+  const clases = recientes.map(claseDeLlamada)
+
+  if (clases.includes('conversacion')) {
+    avisos.push(
+      '- Hubo una CONVERSACIÓN con esta empresa en las últimas horas (lo que se habló está más abajo). Este correo es la CONTINUACIÓN de esa conversación, no un primer contacto: refiérete a lo que se habló con naturalidad («como hablamos», «lo que me comentabas»); cumple el siguiente paso que se acordó (si pidió información por correo, este correo ES esa información: quiénes somos y qué hacemos en dos o tres frases, sin una presentación larga ni vender desde cero); y respeta lo que dijo (si ya trabaja con otra agencia, no es el momento o no le interesa, agradécelo y deja la puerta abierta). No inventes nada de lo que se dijo.',
+      '- Si en lo que se habló consta con quién se habló (un nombre de pila), saluda con ese nombre («Hola Javier,») en vez del nombre de la empresa.'
+    )
+  } else if (!hayNotaReciente) {
+    if (clases.includes('sin_comprobar')) {
+      avisos.push(
+        '- Ha habido una llamada contestada hace poco, pero NO consta que hubiera una conversación: puede ser un buzón de voz o un contestador, y la grabación todavía puede estar transcribiéndose. NO escribas «hemos hablado», «gracias por atenderme» ni nada de lo que se habría dicho, y tampoco «he intentado llamarte» ni «no hemos podido hablar» (puede que sí hablarais). Di solo que has llamado hoy («te llamé hoy»), sin contar cómo fue.'
+      )
+    } else if (clases.length > 0) {
+      avisos.push('- NO hubo ninguna conversación con esta empresa en las últimas horas: nadie habló con nosotros (buzón de voz, no cogieron o colgaron). NO escribas «hemos hablado», «gracias por atenderme» ni nada de lo que se habría dicho. Puedes decir que has intentado llamar.')
+    }
+  }
+  // Una conversación de otro día se cuenta como de otro día: «hablamos hoy» sobre una llamada de julio es de lo que más molestaba
+  if (e.llamadas.some((c) => claseDeLlamada(c) === 'conversacion') || (e.notas ?? []).some((n) => n.kind === 'llamada')) {
+    avisos.push('- Si te refieres a una llamada o a una conversación anterior, di cuándo fue según las fechas de arriba («hace unas semanas», «el lunes»): no digas «hoy» ni «hace un momento» si no fue hoy.')
   }
   return avisos
 }
@@ -300,7 +409,7 @@ export interface EntradaDeContexto {
 export function contextoParaIa(e: EntradaDeContexto): string {
   const bloques: string[] = []
   bloques.push(['DATOS DE LA EMPRESA A LA QUE SE ESCRIBE', ...resumenDeLead(e.lead, e.ahora)].join('\n'))
-  const avisos = avisosDelLead(e.lead)
+  const avisos = avisosDelCorreo({ lead: e.lead, llamadas: e.llamadas, notas: e.notas, ahora: e.ahora })
   if (avisos.length > 0) bloques.push(['AVISOS PARA ESTE CORREO (importan más que lo demás)', ...avisos].join('\n'))
 
   const notas = resumenDeNotas(e.notas, e.ahora)

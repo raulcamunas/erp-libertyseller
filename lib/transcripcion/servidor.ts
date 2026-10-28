@@ -42,8 +42,18 @@ export function depsDeVerdad(service: Servicio): DepsDelMotor {
 
 export interface OpcionesDeLaPasada {
   presupuestoMs: number
+  /** Cuántas llamadas se piden como mucho (las más antiguas primero). Sin poner, las de siempre */
+  limite?: number
+  concurrencia?: number
+  /** Solo transcribir, sin separar quién habla */
+  sinTurnos?: boolean
 }
 
 export async function ejecutarPasada(service: Servicio, opciones: OpcionesDeLaPasada): Promise<ResultadoDelMotor> {
-  return procesarPendientes(almacenDeSupabase(service), depsDeVerdad(service), { presupuestoMs: opciones.presupuestoMs })
+  return procesarPendientes(almacenDeSupabase(service), depsDeVerdad(service), {
+    presupuestoMs: opciones.presupuestoMs,
+    limite: opciones.limite,
+    concurrencia: opciones.concurrencia,
+    sinTurnos: opciones.sinTurnos,
+  })
 }

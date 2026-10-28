@@ -131,7 +131,7 @@ const CONTESTADA_MINIMA_S = 20
 /** Los estados del lead que cortan la secuencia, y por qué */
 const ESTADOS_QUE_PARAN: ReadonlyMap<string, { codigo: CodigoDeParada; motivo: string }> = new Map([
   ['no_interesa', { codigo: 'lead_no_interesa', motivo: 'El lead está marcado «No interesa».' }],
-  ['cita_cualificada', { codigo: 'lead_cita', motivo: 'El lead ya tiene una cita cualificada.' }],
+  ['cita_cualificada', { codigo: 'lead_cita', motivo: 'El lead ya tiene una cita agendada.' }],
   ['seguimiento', { codigo: 'lead_en_seguimiento', motivo: 'El lead está «En seguimiento»: lo lleva una persona.' }],
 ] as Array<[string, { codigo: CodigoDeParada; motivo: string }]>)
 

@@ -200,6 +200,8 @@ export interface OpcionesDelMotor {
   /** Cuántas llamadas se piden por pasada (la lista viene ordenada por antigüedad) */
   limite?: number
   concurrencia?: number
+  /** Solo transcribir, sin separar quién habla: para cuando hay alguien esperando la respuesta y lo de los turnos puede esperar al proceso automático */
+  sinTurnos?: boolean
 }
 
 export type MotivoDeParada = 'tiempo' | 'tope_diario' | 'ia_no_disponible' | 'error'
@@ -465,7 +467,7 @@ export async function procesarPendientes(almacen: Almacen, deps: DepsDelMotor, o
   const inicio = deps.ahora()
   const salida = await transcribirLasPendientes(almacen, deps, op, inicio)
   // Lo de los turnos va DESPUÉS y aparte: sin la IA (parada por su cuenta) o sin la base no se intenta, y un fallo aquí nunca estropea lo ya hecho
-  if (salida.parada !== 'ia_no_disponible' && salida.parada !== 'error') await separarQuienHabla(almacen, deps, op, inicio, salida)
+  if (!op.sinTurnos && salida.parada !== 'ia_no_disponible' && salida.parada !== 'error') await separarQuienHabla(almacen, deps, op, inicio, salida)
   return salida
 }
 

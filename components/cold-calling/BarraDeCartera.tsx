@@ -65,7 +65,7 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
           </span>
           <span className={CIFRAS.rotulo}>trabajados · {porcentaje(trabajadosPct)}</span>
         </div>
-        <div className={CIFRAS.celda} title="Citas cualificadas, y qué parte de los trabajados son">
+        <div className={CIFRAS.celda} title="Citas agendadas, y qué parte de los trabajados son">
           <span className={CIFRAS.valor}>
             <Numero valor={resumen.cualificados} />
           </span>

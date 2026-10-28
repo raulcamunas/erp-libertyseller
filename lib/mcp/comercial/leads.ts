@@ -36,7 +36,7 @@ import { secuenciasDeUnLead } from './secuencias'
  *
  * Lo que se cuenta aquí es lo que ve el equipo en la pantalla de Cold Calling, con sus mismas reglas (lib/cold-calling/cartera.ts):
  *   · un lead CERRADO («No le interesa») no tiene rellamada, aunque arrastre una fecha vieja;
- *   · «trabajados» son todos menos «Sin contactar»; «cualificados», los que tienen una cita cualificada;
+ *   · «trabajados» son todos menos «Sin contactar»; «cualificados» (los que tienen una cita agendada);
  *   · «rellamadas para llamar» son las de hoy y las que se pasaron de fecha y siguen sin hacerse; «atrasadas», solo estas últimas;
  *   · el día de una rellamada es un día del calendario de Madrid.
  *
@@ -136,7 +136,7 @@ export function duenoDe(asignado: string | null, personas: ReadonlyMap<string, P
   return personas.get(asignado)?.nombre ?? 'Alguien que ya no está'
 }
 
-/** El estado pedido, por su clave («no_contesta») o por su nombre en pantalla («No contesta»). Un estado desconocido es un error con la lista */
+/** El estado pedido, por su clave («no_contesta») o por su nombre en pantalla («No contesta»). Un estado desconocido es un error con la lista. La clave de «Cita agendada» sigue siendo `cita_cualificada`, así que el nombre de antes («cita cualificada») también se entiende */
 export function estadoArg(args: Record<string, unknown>): ColdLeadStatus | undefined {
   const v = texto(args, 'estado', { max: 40 })
   if (v === undefined) return undefined
@@ -150,7 +150,7 @@ export function estadoArg(args: Record<string, unknown>): ColdLeadStatus | undef
 const ESQUEMA_ESTADO = {
   type: 'string',
   enum: [...COLD_STATUSES],
-  description: 'Estado del lead: pendiente = Sin contactar · no_contesta = No contesta · programado = Rellamada programada · email_enviado = Info enviada · seguimiento = En seguimiento · cita_cualificada = Cita cualificada · no_interesa = No le interesa.',
+  description: 'Estado del lead: pendiente = Sin contactar · no_contesta = No contesta · programado = Rellamada programada · email_enviado = Info enviada · seguimiento = En seguimiento · cita_cualificada = Cita agendada · no_interesa = No le interesa.',
 }
 const ESQUEMA_COMERCIAL = { type: 'string', description: 'El comercial al que está asignado el lead: su nombre (o parte), su correo o su id. rendimiento_equipo los lista.' }
 const ESQUEMA_LISTA = { type: 'string', description: 'La lista de origen del lead, tal como sale en cold_resumen (por_lista), por ejemplo «1a lista» o «No Amazon V1». Distingue mayúsculas de acentos: cópiala tal cual.' }
@@ -287,7 +287,7 @@ export function armarResumenDeCartera(e: EntradaDelResumen): Record<string, unkn
     listas_no_mostradas: Math.max(0, listas.length - MAX_LISTAS_EN_EL_RESUMEN),
     reglas: [
       'Un lead cerrado («No le interesa») no tiene rellamada, aunque conserve una fecha vieja.',
-      'trabajados = todos los leads menos «Sin contactar»; cualificados = los que tienen una cita cualificada.',
+      'trabajados = todos los leads menos «Sin contactar»; cualificados = los que tienen una cita agendada (después el manager la marca como cualificada o no).',
       'rellamadas_para_llamar = las de hoy y las atrasadas que siguen sin hacerse; los días son los de Madrid.',
     ],
   }
@@ -368,7 +368,7 @@ export const coldResumen: Herramienta<ContextoMcp> = {
   nombre: 'cold_resumen',
   titulo: 'Cold Calling: el embudo de leads',
   descripcion:
-    'El estado de la cartera de Cold Calling (los leads a los que se llama en frío): cuántos hay en cada estado (sin contactar, no contesta, rellamada programada, info enviada, en seguimiento, cita cualificada, ' +
+    'El estado de la cartera de Cold Calling (los leads a los que se llama en frío): cuántos hay en cada estado (sin contactar, no contesta, rellamada programada, info enviada, en seguimiento, cita agendada, ' +
     'no le interesa), cuántos se han trabajado y cuántos están cualificados, cuántas rellamadas hay para hoy y cuántas atrasadas, y todo eso desglosado por comercial y por lista de origen, con el último contacto de ' +
     'cada uno. Es la herramienta para «cómo va el proceso de ventas» y para encontrar rellamadas que se están cayendo. Se puede acotar a un comercial o a una lista. Para ver los leads en concreto usa ' +
     'cold_buscar_leads; para uno entero, cold_ficha_lead.',

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail } from '@/lib/amazon/api'
 import { contextoParaIa, tipoDeLead } from '@/lib/correo/ia-contexto'
-import { redactarConIa } from '@/lib/correo/ia-generar'
+import { esperarLaTranscripcionDelLead } from '@/lib/correo/ia-espera-servidor'
+import { redactarConIa, TIEMPO_MAXIMO_DEL_CORREO_MS } from '@/lib/correo/ia-generar'
 import { resolverConfiguracion } from '@/lib/correo/ia-laboratorio-servidor'
 import { construirMensajes } from '@/lib/correo/ia-prompt'
 import {
@@ -42,12 +43,21 @@ import { createServiceClient } from '@/lib/supabase/service'
  * La IA NUNCA recibe la facturación ni las ventas estimadas del lead, ni sus teléfonos y correos (lib/correo/ia-contexto.ts), y lo que
  * devuelve se descarta si habla de dinero (lib/correo/ia-generar.ts). El error de la IA nunca se reenvía tal cual a la pantalla:
  * sale una frase ya escrita.
+ *
+ * LA LLAMADA QUE ACABA DE TERMINAR. Lo que se habló lo sabe la IA cuando la grabación está transcrita, y eso tarda unos 3 minutos tras colgar. Si el
+ * comercial pide el borrador antes, se espera hasta 45 s adelantando la transcripción (lib/correo/ia-espera.ts); si aun así no llega, se redacta igual
+ * (la IA sabe que NO sabe lo que se habló) y `aviso` se lo dice al comercial. Por eso el tope de la ruta es mayor que el de la IA: espera + IA.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-export const maxDuration = 90
+export const maxDuration = 150
+
+/** Todo lo que puede durar una petición entera (espera + IA), con holgura bajo el maxDuration. A la IA se le da lo que quede, con un mínimo */
+const PRESUPUESTO_DE_LA_PETICION_MS = 140_000
+const MINIMO_PARA_LA_IA_MS = 30_000
 
 export async function POST(request: NextRequest) {
+  const empezo = Date.now()
   const sesion = await requerirCorreo()
   if (sesion instanceof NextResponse) return sesion
 
@@ -79,12 +89,15 @@ export async function POST(request: NextRequest) {
     const lead = await cargarLead(sesion.supabase, leadId)
     if (!lead) return fail(404, 'No se encuentra ese lead, o no es tuyo.')
 
-    const [notas, llamadas, correos, ganadores] = await Promise.all([
+    const [notas, llamadasLeidas, correos, ganadores] = await Promise.all([
       cargarNotas(sesion.supabase, leadId),
       cargarLlamadas(sesion.supabase, leadId),
       cargarCorreosDelLead(service, auth.buzon.id, direccionesDeLead(lead)),
       cargarGanadores(service),
     ])
+    // Si acaba de colgar y su grabación aún no está transcrita, se espera un poco a que llegue (y se avisa si no llega)
+    const espera = await esperarLaTranscripcionDelLead(service, () => cargarLlamadas(sesion.supabase, leadId), llamadasLeidas)
+    const llamadas = espera.llamadas
 
     // Con qué se escribe este borrador: las instrucciones, los ejemplos y el modelo de la versión que toca (o los de siempre)
     const configuracion = await resolverConfiguracion(service, { versionPedida, tipo: tipoDeLead(lead), ganadores })
@@ -99,7 +112,8 @@ export async function POST(request: NextRequest) {
       tieneFirma: Boolean(auth.buzon.firma?.trim()),
     })
 
-    const resultado = await redactarConIa(mensajes, configuracion.modelo ? { modelo: configuracion.modelo } : {})
+    const tiempoMaximoMs = Math.max(MINIMO_PARA_LA_IA_MS, Math.min(TIEMPO_MAXIMO_DEL_CORREO_MS, PRESUPUESTO_DE_LA_PETICION_MS - (Date.now() - empezo)))
+    const resultado = await redactarConIa(mensajes, { ...(configuracion.modelo ? { modelo: configuracion.modelo } : {}), tiempoMaximoMs })
     // Qué se ha gastado y con qué, sin el texto: es contenido de un lead y de un correo
     console.log('[correo-ia] redacción', { modelo: resultado.modelo, version: configuracion.version?.nombre ?? null, ok: resultado.borrador !== null, llamadas: resultado.llamadas, tokens: resultado.tokens, ejemplos: ejemplos.length, notas: notas.length, correos: correos.length })
     if (!resultado.borrador) return fail(resultado.problemas.includes('dinero') ? 422 : 503, resultado.aviso ?? 'No se ha podido redactar el correo.')
@@ -116,8 +130,10 @@ export async function POST(request: NextRequest) {
       ejemplos: ejemplos.length,
       version_id: configuracion.version?.id ?? null,
     })
+    // Dos cosas que decir como mucho: la de la transcripción (si la llamada no estaba lista) y la que traiga la propia redacción
+    const aviso = [espera.aviso, resultado.aviso].filter((a): a is string => Boolean(a)).join(' ') || null
     return NextResponse.json(
-      { ok: true, id, versionId: configuracion.version?.id ?? null, asunto: resultado.borrador.asunto, texto: resultado.borrador.texto, angulo: resultado.borrador.angulo, ejemplos: ejemplos.length, aviso: resultado.aviso },
+      { ok: true, id, versionId: configuracion.version?.id ?? null, asunto: resultado.borrador.asunto, texto: resultado.borrador.texto, angulo: resultado.borrador.angulo, ejemplos: ejemplos.length, aviso },
       { headers: SIN_CACHE }
     )
   } catch (error) {

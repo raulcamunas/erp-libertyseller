@@ -392,7 +392,7 @@ export function Redactar({ buzon, yoId, esAdmin, borrador, onCerrar, onEnviado, 
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-[var(--ls-t2)]" role="status">
                 <Loader2 className="h-5 w-5 animate-spin text-[var(--ls-acc)]" aria-hidden />
                 <p className="text-[13px] font-medium">Redactando el correo con IA…</p>
-                <p className="text-[11.5px] text-[var(--ls-t3)]">Suele tardar unos segundos. Después lo puedes editar.</p>
+                <p className="max-w-[320px] text-center text-[11.5px] text-[var(--ls-t3)]">Suele tardar unos segundos; si acabas de colgar, puede esperar hasta un minuto a que se transcriba la llamada. Después lo puedes editar.</p>
               </div>
             )}
           </div>

@@ -256,6 +256,8 @@ export function leerBorrador(contenido: string | null | undefined): Borrador | n
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+    // «Hola Acme:» -> «Hola Acme,». Con la versión que pide el nombre de la empresa en el saludo, 37 de los primeros 79 borradores empezaban con dos puntos
+    .replace(/^(Hola\b[^\n:]{0,80}):[ \t]*(?=\n|$)/i, '$1,')
   if (asunto === '' || asunto.length > 150) return null
   if (texto.length < 60 || texto.length > 3000) return null
   const angulo = (ANGULOS as readonly string[]).includes(o.angulo as string) ? (o.angulo as Angulo) : 'mejorar_cuenta'

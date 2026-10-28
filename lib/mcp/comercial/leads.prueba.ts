@@ -52,7 +52,7 @@ async function main() {
     ok('agrupa por quien lo lleva, con «Sin asignar» y quien ya no está', r.por_comercial.map((c: any) => `${c.comercial}:${c.leads}`).join('|') === 'Maoli Pérez:2|Alguien que ya no está:1|Sin asignar:1')
     ok('y por lista, con «Sin lista» para las que no tienen', r.por_lista.map((l: any) => `${l.lista}:${l.leads}`).join('|') === '1a lista:3|Sin lista:1')
     ok('por tipo', r.por_tipo.tiendas_online === 1 && r.por_tipo.vendedores_de_amazon === 3)
-    ok('los estados salen todos, con ceros, en el orden del embudo', Object.keys(r.por_estado).join('|') === 'Sin contactar|No contesta|Rellamada programada|Info enviada|En seguimiento|Cita cualificada|No le interesa')
+    ok('los estados salen todos, con ceros, en el orden del embudo', Object.keys(r.por_estado).join('|') === 'Sin contactar|No contesta|Rellamada programada|Info enviada|En seguimiento|Cita agendada|No le interesa')
     ok('las reglas viajan en la respuesta', r.reglas.length === 3)
     const muchas = Array.from({ length: 40 }, (_, i) => fila({ source_list: `Lista ${String(i).padStart(2, '0')}` }))
     const m = armarResumenDeCartera({ hoy: HOY, filas: muchas, personas, filtro: { comercial: null, lista: null } }) as any
@@ -80,7 +80,7 @@ async function main() {
   console.log('\n=== el estado pedido ===')
   {
     ok('por su clave', estadoArg({ estado: 'no_contesta' }) === 'no_contesta')
-    ok('por su nombre en pantalla, con acentos y mayúsculas', estadoArg({ estado: 'Rellamada programada' }) === 'programado' && estadoArg({ estado: 'NO LE INTERESA' }) === 'no_interesa' && estadoArg({ estado: 'cita cualificada' }) === 'cita_cualificada')
+    ok('por su nombre en pantalla, con acentos y mayúsculas', estadoArg({ estado: 'Rellamada programada' }) === 'programado' && estadoArg({ estado: 'NO LE INTERESA' }) === 'no_interesa' && estadoArg({ estado: 'cita agendada' }) === 'cita_cualificada' && estadoArg({ estado: 'Cita cualificada' }) === 'cita_cualificada')
     ok('sin estado, nada', estadoArg({}) === undefined)
     ok('uno que no existe: el error lista los siete con su nombre', /pendiente \(Sin contactar\)/.test(mensajeDe(() => estadoArg({ estado: 'xx' })) ?? '') && /no_interesa \(No le interesa\)/.test(mensajeDe(() => estadoArg({ estado: 'xx' })) ?? ''))
   }
