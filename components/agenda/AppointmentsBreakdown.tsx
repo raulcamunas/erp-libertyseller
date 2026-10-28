@@ -388,6 +388,7 @@ export function AppointmentsBreakdown({
           appointment={selected}
           team={team}
           currentUser={currentUser}
+          citas={appointments}
           onClose={() => setSelected(null)}
           onSaved={(appt) => {
             setAppointments((prev) => prev.map((a) => (a.id === appt.id ? appt : a)))

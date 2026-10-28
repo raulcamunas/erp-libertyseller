@@ -8,6 +8,8 @@ import {
 import { buildAppointmentSummary, buildAppointmentDescription } from '@/lib/appointments-sync'
 import { CreateAppointmentPayload } from '@/lib/types/appointments'
 import { finQueSeGuarda } from '@/lib/agenda/duracion'
+import { cuerpoDeHuecoOcupado, puedeForzarHueco } from '@/lib/agenda/ocupado'
+import { choquesEnLaBase } from '@/lib/agenda/ocupado-servidor'
 
 const SELECT_WITH_PEOPLE = `
   *,
@@ -42,6 +44,14 @@ export async function POST(request: NextRequest) {
   const { data: perfil } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
   const fin = finQueSeGuarda({ rol: perfil?.role, inicio: body.start_time, fin: body.end_time })
   if (!fin) return NextResponse.json({ error: 'La hora de la cita no es válida.' }, { status: 400 })
+
+  // UN HUECO OCUPADO NO SE AGENDA (lib/agenda/ocupado.ts): ni encima de otra cita ni de un hueco de Google. A quien lo intenta se le dice qué lo ocupa y se le pide otra hora
+  // (409). Un administrador o un socio puede agendar encima si lo confirma a propósito (`forzar_hueco`); a cualquier otro se le ignora ese campo.
+  const puedeForzar = puedeForzarHueco(perfil?.role)
+  if (!(puedeForzar && body.forzar_hueco === true)) {
+    const choques = await choquesEnLaBase(supabase, { inicio: body.start_time, fin })
+    if (choques.length > 0) return NextResponse.json(cuerpoDeHuecoOcupado(choques, puedeForzar), { status: 409 })
+  }
 
   // 1) Insertar en Supabase (RLS: comercial_id = usuario actual)
   const { data: inserted, error } = await supabase

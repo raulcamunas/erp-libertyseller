@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { createClient } from '@/lib/supabase/client'
 import { toMadrid, fromMadrid } from '@/lib/timezone'
 import { DURACION_CITA_MS, tieneDuracionFija } from '@/lib/agenda/duracion'
+import { choquesCon, CODIGO_DE_HUECO_OCUPADO, detalleDeHuecoOcupado, puedeForzarHueco, TITULO_DE_HUECO_OCUPADO } from '@/lib/agenda/ocupado'
 import {
   camposDelEnlace,
   CAMPOS_DE_LEAD_PARA_LA_CITA,
@@ -44,6 +45,8 @@ interface AppointmentSheetProps {
   prefill?: { start: Date; end: Date } | null
   team: CalendarPerson[]
   currentUser: UserProfile
+  /** Las citas y los huecos de Google que el calendario tiene cargados: con ellos se avisa de un hueco ocupado en cuanto se elige la hora (el servidor lo vuelve a mirar al guardar) */
+  citas: ReadonlyArray<AppointmentWithPeople>
   onClose: () => void
   onSaved: (appt: AppointmentWithPeople) => void
   onDeleted: (id: string) => void
@@ -139,7 +142,7 @@ function Pastilla({ elegida, onClick, deshabilitada, children, color }: { elegid
   )
 }
 
-export function AppointmentSheet({ mode, appointment, prefill, team, currentUser, onClose, onSaved, onDeleted }: AppointmentSheetProps) {
+export function AppointmentSheet({ mode, appointment, prefill, team, currentUser, citas, onClose, onSaved, onDeleted }: AppointmentSheetProps) {
   const supabase = useMemo(() => createClient(), [])
   const initialStart = appointment ? new Date(appointment.start_time) : prefill?.start ?? new Date()
   const initialEnd = appointment ? new Date(appointment.end_time) : prefill?.end ?? new Date(Date.now() + 60 * 60 * 1000)
@@ -241,7 +244,24 @@ export function AppointmentSheet({ mode, appointment, prefill, team, currentUser
   const finMostrado = finImpuesto ? toTimeInput(finImpuesto) : endTime
   const esAnterior = !!appointment && initialEnd.getTime() - initialStart.getTime() !== DURACION_CITA_MS
 
-  const handleSave = async () => {
+  /**
+   * UN HUECO OCUPADO NO SE AGENDA (lib/agenda/ocupado.ts). En cuanto se elige día y hora se mira, con lo que el calendario tiene cargado, si choca con otra cita o con un hueco
+   * de Google, y se dice qué lo ocupa: un comercial no puede guardar (el botón se apaga) y un administrador o un socio puede hacerlo igualmente si lo confirma. El servidor lo
+   * vuelve a mirar al guardar (hay semanas que el calendario no tiene cargadas). En una cita que ya existía solo cuenta si se le cambia la hora: apuntar una nota en una que ya
+   * estaba encima de otra no se bloquea.
+   */
+  const puedeForzar = puedeForzarHueco(currentUser.role)
+  const finElegido = finImpuesto ?? combine(date, endTime)
+  const minutoDe = (d: Date) => Math.floor(d.getTime() / 60_000)
+  const horaTocada = !appointment || minutoDe(inicioElegido) !== minutoDe(initialStart) || minutoDe(finElegido) !== minutoDe(initialEnd)
+  const choques = useMemo(
+    () => (canEdit && horaTocada ? choquesCon(inicioElegido, finElegido, citas, appointment?.id) : []),
+    // `inicioElegido` y `finElegido` se rehacen en cada pintado: lo que cuenta son sus instantes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canEdit, horaTocada, inicioElegido.getTime(), finElegido.getTime(), citas, appointment?.id]
+  )
+
+  const guardar = async (forzarHueco: boolean) => {
     if (!campos.leadName.trim()) {
       toast.error('El nombre del lead es obligatorio')
       return
@@ -267,6 +287,8 @@ export function AppointmentSheet({ mode, appointment, prefill, team, currentUser
         end_time: end.toISOString(),
         // Solo viaja si el enlace con el lead ha cambiado: una cita que viene de la web o de LinkedIn conserva su origen aunque se edite aquí
         ...camposDelEnlace(leadEnlazadoAlAbrir, enlace?.id ?? null),
+        // Solo si un administrador o un socio ha confirmado que la quiere encima de un hueco ocupado
+        ...(forzarHueco ? { forzar_hueco: true } : {}),
       }
 
       const res = await fetch(mode === 'create' ? '/api/appointments' : `/api/appointments/${appointment!.id}`, {
@@ -275,6 +297,12 @@ export function AppointmentSheet({ mode, appointment, prefill, team, currentUser
         body: JSON.stringify(payload),
       })
       const data = await res.json()
+      if (res.status === 409 && data?.codigo === CODIGO_DE_HUECO_OCUPADO) {
+        // El hueco está ocupado (el servidor mira TODO el calendario, no solo lo cargado): quien puede forzarlo decide; el resto elige otra hora
+        if (data.puede_forzar === true && !forzarHueco && window.confirm(`${data.error}\n\n¿Agendarla igualmente?`)) return await guardar(true)
+        if (data.puede_forzar !== true) toast.error(data.error)
+        return
+      }
       if (!res.ok) throw new Error(data.error || 'Error al guardar')
 
       toast.success(mode === 'create' ? 'Cita agendada' : 'Cita actualizada')
@@ -286,6 +314,8 @@ export function AppointmentSheet({ mode, appointment, prefill, team, currentUser
       setSaving(false)
     }
   }
+
+  const handleSave = () => guardar(false)
 
   const handleDelete = async () => {
     if (!appointment) return
@@ -437,6 +467,13 @@ export function AppointmentSheet({ mode, appointment, prefill, team, currentUser
                   ? 'Esta cita no dura 1 hora (es anterior a la regla). Si le cambias la hora, pasará a durar 1 hora.'
                   : 'Toda cita dura 1 hora: la hora de fin se pone sola.'}
               </p>
+            )}
+            {choques.length > 0 && (
+              <div role="alert" className="mt-2 rounded-[6px] border border-[var(--ls-e-rojo)] bg-[color-mix(in_srgb,var(--ls-e-rojo)_8%,transparent)] px-2.5 py-2 text-[11.5px] leading-snug text-[var(--ls-t1)]">
+                <strong className="font-semibold text-[var(--ls-e-rojo)]">{TITULO_DE_HUECO_OCUPADO} </strong>
+                {detalleDeHuecoOcupado(choques)}
+                {puedeForzar ? ' Como administrador puedes agendarla igualmente: se te pedirá confirmar.' : ''}
+              </div>
             )}
           </Seccion>
 
@@ -649,7 +686,13 @@ export function AppointmentSheet({ mode, appointment, prefill, team, currentUser
             <button type="button" onClick={onClose} className={`${BOTON.base} ${BOTON.secundario} !h-8 flex-1 justify-center`}>
               Cancelar
             </button>
-            <button type="button" onClick={handleSave} disabled={saving} className={`${BOTON.base} ${BOTON.primario} !h-8 flex-1 justify-center`}>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || (choques.length > 0 && !puedeForzar)}
+              title={choques.length > 0 && !puedeForzar ? 'Ese hueco está ocupado: elige otra hora' : undefined}
+              className={`${BOTON.base} ${BOTON.primario} !h-8 flex-1 justify-center`}
+            >
               {saving ? 'Guardando...' : mode === 'create' ? 'Agendar cita' : 'Guardar'}
             </button>
           </div>

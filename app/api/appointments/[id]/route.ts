@@ -10,6 +10,8 @@ import {
 import { buildAppointmentSummary, buildAppointmentDescription } from '@/lib/appointments-sync'
 import { CreateAppointmentPayload } from '@/lib/types/appointments'
 import { finQueSeGuarda } from '@/lib/agenda/duracion'
+import { cuerpoDeHuecoOcupado, hayQueComprobarAlEditar, puedeForzarHueco } from '@/lib/agenda/ocupado'
+import { choquesEnLaBase } from '@/lib/agenda/ocupado-servidor'
 
 const SELECT_WITH_PEOPLE = `
   *,
@@ -65,6 +67,18 @@ export async function PUT(
     anterior: { inicio: before.start_time, fin: before.end_time },
   })
   if (!fin) return NextResponse.json({ error: 'La hora de la cita no es válida.' }, { status: 400 })
+
+  // UN HUECO OCUPADO NO SE AGENDA (lib/agenda/ocupado.ts). Aquí solo cuenta si se le cambia la hora (o si se reactiva una cancelada): apuntar una nota o cualificar una cita
+  // que ya estaba encima de otra no vuelve a mirar los huecos. Ella misma no cuenta como lo que choca. Un administrador o un socio puede forzarlo (`forzar_hueco`).
+  const puedeForzar = puedeForzarHueco(perfil?.role)
+  const inicioNuevo = body.start_time ?? before.start_time
+  if (
+    !(puedeForzar && body.forzar_hueco === true) &&
+    hayQueComprobarAlEditar({ inicio: before.start_time, fin: before.end_time, estado: before.status }, { inicio: inicioNuevo, fin, estado: body.status ?? before.status })
+  ) {
+    const choques = await choquesEnLaBase(supabase, { inicio: inicioNuevo, fin, ignorarId: params.id })
+    if (choques.length > 0) return NextResponse.json(cuerpoDeHuecoOcupado(choques, puedeForzar), { status: 409 })
+  }
 
   // 1) Actualizar en Supabase (RLS: solo propias o admin)
   const { data: updated, error } = await supabase

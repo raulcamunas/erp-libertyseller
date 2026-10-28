@@ -233,6 +233,8 @@ export interface CreateAppointmentPayload {
   web?: string | null
   recording_url?: string | null
   recording_filename?: string | null
+  /** Solo lo respeta el servidor si quien escribe es administrador o socio: agendar encima de un hueco ocupado, confirmado a propósito (lib/agenda/ocupado.ts) */
+  forzar_hueco?: boolean
 }
 
 /** Perfil mínimo del autor de un comentario */

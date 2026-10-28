@@ -7,6 +7,7 @@ import { addDays, addWeeks, format, getISOWeek, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toMadrid, fromMadrid, madridWallClockString } from '@/lib/timezone'
 import { DURACION_CITA_MS } from '@/lib/agenda/duracion'
+import { choquesCon, CODIGO_DE_HUECO_OCUPADO, mensajeDeHuecoOcupado } from '@/lib/agenda/ocupado'
 import { agruparPorDia, colocarCitas, huecoDeLaRejilla, REJILLA } from '@/lib/agenda/colocar'
 import { claveDeSemana, lunesDeLaClave, lunesDeLaSemana, semanasAlrededor } from '@/lib/agenda/semanas'
 import { colorForAgent, type AppointmentWithPeople, type CalendarPerson } from '@/lib/types/appointments'
@@ -400,6 +401,19 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
     const newStart = fromMadrid(madridWallClockString(dia, destino.hour, destino.minute))
     const newEnd = new Date(newStart.getTime() + durationMs)
 
+    // UN HUECO OCUPADO NO SE AGENDA (lib/agenda/ocupado.ts): se mira con lo que hay cargado ANTES de moverla (el servidor lo vuelve a mirar). Un comercial se queda con su cita
+    // donde estaba y con el aviso de qué ocupa ese hueco; un administrador o un socio puede moverla igualmente si lo confirma
+    let forzarHueco = false
+    const choques = choquesCon(newStart, newEnd, citasRef.current, id)
+    if (choques.length > 0) {
+      if (!isAdmin) {
+        toast.error(mensajeDeHuecoOcupado(choques))
+        return
+      }
+      if (!window.confirm(`${mensajeDeHuecoOcupado(choques)}\n\n¿Moverla igualmente?`)) return
+      forzarHueco = true
+    }
+
     // Se ve ya en su sitio nuevo; si el servidor dice que no, vuelve
     datos.modificar(id, (a) => ({ ...a, start_time: newStart.toISOString(), end_time: newEnd.toISOString() }))
 
@@ -420,9 +434,16 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
           revenue_amount: original.revenue_amount,
           call_date: original.call_date,
           amazon_link: original.amazon_link,
+          ...(forzarHueco ? { forzar_hueco: true } : {}),
         }),
       })
       const data = await res.json()
+      if (res.status === 409 && data?.codigo === CODIGO_DE_HUECO_OCUPADO) {
+        // Había algo que el calendario no tenía cargado: vuelve a su sitio con el aviso
+        toast.error(data.error)
+        datos.poner(original)
+        return
+      }
       if (!res.ok) throw new Error(data.error || 'Error al mover la cita')
       datos.poner(data as Cita)
       toast.success('Cita reagendada')
@@ -529,6 +550,7 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
           prefill={sheet.mode === 'create' ? sheet.prefill : null}
           team={team}
           currentUser={currentUser}
+          citas={datos.citas}
           onClose={() => setSheet(null)}
           onSaved={(appt) => guardada(appt, sheet.mode === 'create')}
           onDeleted={(id) => {
