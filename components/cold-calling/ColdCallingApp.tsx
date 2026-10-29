@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { leadDeLaDireccion } from '@/lib/cold-calling/abrir-lead'
 import { puedeGestionarListasEnNavegador, puedeVerEquipoComercialEnNavegador } from '@/lib/permisos-cliente'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -51,6 +52,9 @@ export function ColdCallingApp({ perfil, activa }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // El enlace de la ficha de una cita de la Agenda lleva `?lead=<id>`: se lee UNA vez, al montar (esta pantalla se queda montada y no hay un segundo enlace que atender)
+  const leadInicial = useMemo(() => leadDeLaDireccion(window.location.search), [])
+
   // Si no se supervisa por rol, se comprueba el permiso suelto del equipo comercial (el manager de captación)
   useEffect(() => {
     if (supervisaPorRol(perfil)) return
@@ -95,7 +99,7 @@ export function ColdCallingApp({ perfil, activa }: Props) {
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
-      <ColdCallingBoard propietarioInicial={propietarioInicial} team={team} currentUser={perfil} puedeVerTodos={puedeVerTodos} puedeGestionarListas={puedeListas} activa={activa} />
+      <ColdCallingBoard propietarioInicial={propietarioInicial} team={team} currentUser={perfil} puedeVerTodos={puedeVerTodos} puedeGestionarListas={puedeListas} activa={activa} leadInicial={leadInicial} />
     </div>
   )
 }

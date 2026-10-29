@@ -31,6 +31,7 @@ import { TablaDeLeads } from './TablaDeLeads'
 import { Tecla } from './ui'
 import { useCartera } from './useCartera'
 import { usePreferencias } from './usePreferencias'
+import { useAbrirLead } from './useAbrirLead'
 import { useSincronizarRinkel } from './useSincronizarRinkel'
 
 /**
@@ -64,6 +65,8 @@ interface Props {
    * en tiempo real, la lectura de Rinkel cada minuto— sigue, y es justo lo que se quiere.
    */
   activa: boolean
+  /** El lead que pedía la dirección al montar (`?lead=<id>`: el enlace de la ficha de una cita de la Agenda). Se abre en cuanto llega la cartera */
+  leadInicial?: string | null
 }
 
 /** Si la pantalla estuvo más de esto fuera de la vista, al volver se pide la cartera otra vez, en silencio (por si el canal en tiempo real se perdió algo) */
@@ -88,7 +91,7 @@ function useHoy(): string {
   )
 }
 
-export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeVerTodos, puedeGestionarListas, activa }: Props) {
+export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeVerTodos, puedeGestionarListas, activa, leadInicial = null }: Props) {
   const hoy = useHoy()
   const esMovil = useIsMobile()
   const cartera = useCartera({ propietarioInicial, userId: currentUser.id })
@@ -205,15 +208,36 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     [navegacion, indiceSeleccionado]
   )
 
+  const abrirFicha = useCallback((id: string) => {
+    setSeleccionado(id)
+    setVista('ficha')
+  }, [])
+
+  // El enlace de la ficha de una cita de la Agenda (`?lead=<id>`) abre ese lead en cuanto llega la cartera; si es de otra persona y quien mira supervisa, va a la cartera de su dueño
+  const equipo = useMemo(() => team.map((t) => t.id), [team])
+  const { pendiente: leadPendiente } = useAbrirLead({
+    leadInicial,
+    listo: !!preferenciasListas,
+    leads,
+    cargando,
+    propietario,
+    puedeVerTodos,
+    equipo,
+    cambiarPropietario,
+    abrir: abrirFicha,
+  })
+
   // En pantallas anchas la ficha nunca está vacía: si no hay nada elegido, se abre el primero de la lista. En el móvil NO: ahí se ve la lista o la
   // ficha, nunca las dos, y entrar directamente en una ficha sin haber elegido nada desorienta. `esMovil` arranca en false hasta que el primer
   // efecto de su hook mide la pantalla, así que aquí se mira la pantalla directamente
   // Y no antes de haber leído las preferencias: con los filtros de ayer puestos, el primero de la lista NO es el primero de la cartera entera
   useEffect(() => {
     if (!preferenciasListas || esMovil || vista === 'tabla' || vista === 'listas' || leadSeleccionado || navegacion.length === 0) return
+    // Con un lead pedido por la dirección no se enseña un instante la ficha del primero: la ficha pide sus datos al abrirse
+    if (leadPendiente) return
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) return
     setSeleccionado(navegacion[0].id)
-  }, [preferenciasListas, esMovil, vista, leadSeleccionado, navegacion])
+  }, [preferenciasListas, esMovil, vista, leadSeleccionado, navegacion, leadPendiente])
 
   // Teclado: ↑ ↓ cambian de lead y «/» va a la búsqueda. Nada de esto actúa mientras se escribe o hay un diálogo abierto, ni mientras la
   // pantalla está oculta (se está en Correo: las flechas y la barra son de lo que se ve)
@@ -244,11 +268,6 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     setVista(v)
     // Entrar en la agenda siempre te deja en HOY: el día no se recuerda (ver NavegadorDeDias)
     if (v === 'rellamadas') setDiaElegido(null)
-  }, [])
-
-  const abrirFicha = useCallback((id: string) => {
-    setSeleccionado(id)
-    setVista('ficha')
   }, [])
 
   /* ---------------- piezas ---------------- */

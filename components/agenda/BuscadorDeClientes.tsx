@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link2, Loader2, RefreshCw, Search, Unlink } from 'lucide-react'
+import { ExternalLink, Link2, Loader2, RefreshCw, Search, Unlink } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { filtroDeBusqueda } from '@/lib/agenda/buscar-leads'
 import { CAMPOS_DE_LEAD_PARA_LA_CITA, contactoDelLead, type EnlaceDeLead, type LeadParaLaCita } from '@/lib/agenda/cliente-lead'
 import { BOTON, CAMPO, TEXTO } from '@/lib/estilo/denso'
+import { rutaDeLaFicha } from '@/lib/cold-calling/abrir-lead'
 import { COLD_STATUS_LABELS } from '@/lib/types/cold-leads'
 import { GlifoDeEstado, InsigniaDeLista } from '@/components/cold-calling/ui'
 
@@ -15,6 +16,10 @@ import { GlifoDeEstado, InsigniaDeLista } from '@/components/cold-calling/ui'
  * Es lo primero de la ficha porque es lo primero que se hace: quien agenda una cita casi siempre la agenda con alguien que ya está en su cartera, y teclear otra vez su
  * nombre, empresa, teléfono, correo, web o CIF —datos que YA están apuntados— es el trabajo más lento y el que más errores mete. Se escribe parte del nombre, la empresa, el
  * teléfono (con o sin espacios), el correo o la web, se elige y la ficha se rellena (lib/agenda/cliente-lead.ts) y queda enlazada al lead.
+ *
+ * EL NOMBRE DEL LEAD ES UN ENLACE A SU FICHA de Cold Calling, y se abre en OTRA pestaña a propósito: la ficha de la cita puede tener cosas escritas sin guardar y salir de ella en
+ * esta misma pestaña las perdería (lib/cold-calling/abrir-lead.ts). Solo se ofrece cuando el lead se ha podido leer (`estado` viene con él): una cita de otro comercial enlaza a un lead
+ * que quien mira no puede ver, y un enlace que acaba en «no es de tu cartera» no es un enlace, es una trampa.
  *
  * QUIÉN SE ENCUENTRA lo decide la base, no esta pantalla: la búsqueda va con la sesión de quien mira y las políticas de cold_leads (migración 087/212) dejan a un comercial
  * ver SOLO su cartera y a la dirección y a los supervisores, toda. Aquí no hay ningún filtro por persona que alguien pudiera saltarse.
@@ -92,7 +97,21 @@ export function BuscadorDeClientes({ enlace, puedeEditar, nombres, idDelCampo, t
         {enlace.estado ? <GlifoDeEstado estado={enlace.estado} tamano={15} /> : <Link2 className="h-[15px] w-[15px] shrink-0 text-[var(--ls-t3)]" aria-hidden />}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-[12.5px] font-semibold text-[var(--ls-t1)]">{enlace.nombre}</span>
+            {enlace.estado ? (
+              <a
+                href={rutaDeLaFicha(enlace.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Abrir su ficha en Cold Calling (en otra pestaña)"
+                aria-label={`Abrir la ficha de ${enlace.nombre} en Cold Calling, en otra pestaña`}
+                className="group inline-flex min-w-0 items-center gap-1 text-[12.5px] font-semibold text-[var(--ls-t1)] hover:text-[var(--ls-acc)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ls-acc-graf)]"
+              >
+                <span className="truncate group-hover:underline">{enlace.nombre}</span>
+                <ExternalLink className="h-3 w-3 shrink-0 text-[var(--ls-t4)] group-hover:text-[var(--ls-acc)]" aria-hidden />
+              </a>
+            ) : (
+              <span className="truncate text-[12.5px] font-semibold text-[var(--ls-t1)]">{enlace.nombre}</span>
+            )}
             {enlace.estado && <span className={`shrink-0 text-[11px] ${TEXTO.t3}`}>{COLD_STATUS_LABELS[enlace.estado]}</span>}
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
