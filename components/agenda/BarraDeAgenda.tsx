@@ -2,8 +2,9 @@
 
 import { useRef } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, Clock3, Loader2, Plus, RefreshCw, Table2 } from 'lucide-react'
-import { BOTON, PANTALLA, TEXTO, TITULO } from '@/lib/estilo/denso'
+import { ChevronLeft, ChevronRight, Clock3, Loader2, Plus, RefreshCw, Table2, WifiOff } from 'lucide-react'
+import { haceCuanto } from '@/lib/agenda/memoria'
+import { BOTON, COLOR_ESTADO, PANTALLA, TEXTO, TITULO } from '@/lib/estilo/denso'
 
 /**
  * LA BARRA DE ARRIBA DE LA AGENDA: título, semana, acciones y quién se ve.
@@ -34,6 +35,8 @@ interface Props {
   sincronizando: boolean
   /** Hay semanas pidiéndose a la base */
   cargando: boolean
+  /** Si las últimas lecturas de la agenda han fallado: cuándo se pudo leer por última vez (milisegundos). null = al día, y no se enseña nada */
+  desfasadaDesde: number | null
   gente: PersonaDeLaLeyenda[]
   verGoogle: boolean
   /** Citas del ERP en lo que se ve */
@@ -44,6 +47,8 @@ interface Props {
   /** Una fecha elegida en el selector, «2026-11-03» */
   onIrA: (fecha: string) => void
   onSincronizar: () => void
+  /** Volver a leer ya la agenda (el chip de «sin actualizar») */
+  onReintentar: () => void
   onDisponibilidad: () => void
   onNueva: () => void
   onAlternarPersona: (id: string) => void
@@ -54,8 +59,8 @@ const botonSecundario = `${BOTON.base} ${BOTON.secundario} ${BOTON.alto}`
 const botonIcono = `${botonSecundario} !w-7 justify-center !px-0`
 
 export function BarraDeAgenda({
-  etiqueta, semana, movil, esAdmin, sincronizando, cargando, gente, verGoogle, totalVisible,
-  onAnterior, onSiguiente, onHoy, onIrA, onSincronizar, onDisponibilidad, onNueva, onAlternarPersona, onAlternarGoogle,
+  etiqueta, semana, movil, esAdmin, sincronizando, cargando, desfasadaDesde, gente, verGoogle, totalVisible,
+  onAnterior, onSiguiente, onHoy, onIrA, onSincronizar, onReintentar, onDisponibilidad, onNueva, onAlternarPersona, onAlternarGoogle,
 }: Props) {
   const selectorDeFecha = useRef<HTMLInputElement>(null)
 
@@ -108,6 +113,20 @@ export function BarraDeAgenda({
             className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
           />
         </div>
+
+        {/* Solo si la agenda no ha podido releerse las últimas veces: lo normal es que no se vea. Mejor este aviso que una pantalla que parece al día y no lo está */}
+        {desfasadaDesde !== null && (
+          <button
+            type="button"
+            onClick={onReintentar}
+            className={BOTON.chip}
+            title="No se ha podido actualizar la agenda las últimas veces, así que lo que ves puede no ser lo último. Pulsa para reintentarlo."
+          >
+            <WifiOff className="h-3 w-3" style={{ color: COLOR_ESTADO.ambar }} aria-hidden />
+            <span>Sin actualizar {haceCuanto(desfasadaDesde, Date.now())}</span>
+            <span className="font-medium text-[var(--ls-t1)]">Reintentar</span>
+          </button>
+        )}
 
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {esAdmin && (

@@ -17,19 +17,31 @@ type Servicio = ReturnType<typeof createServiceClient>
 /** La ruta no puede durar más de 300 s; con un margen, una pasada sin terminar pasado esto está muerta */
 export const PASADA_MUERTA_TRAS_MS = 330_000
 
-export async function hayPasadaEnMarcha(service: Servicio, ahora: number = Date.now()): Promise<boolean> {
+/**
+ * Lo mismo para la sincronización de la agenda con Google (`calendario`), que desde que corre cada minuto necesita el mismo freno: una pasada normal dura ~1 s (mediana medida
+ * en 200 pasadas; la más larga, 29 s), pero si Google va lento y dura más de un minuto, la siguiente no puede empezar encima —dos pasadas a la vez importarían dos veces el mismo
+ * hueco de Google, y `appointments.google_event_id` no tiene índice único que lo impida—. El cron corta la petición a los 120 s, así que sin terminar pasados 180 s está muerta.
+ */
+export const PASADA_DEL_CALENDARIO_MUERTA_TRAS_MS = 180_000
+
+/** ¿Sigue en marcha una pasada AUTOMÁTICA de esta tarea? Una sin terminar que empezó hace más de `muertaTrasMs` se da por muerta. Ante cualquier duda, no bloquea */
+export async function hayPasadaEnMarchaDe(service: Servicio, tarea: string, muertaTrasMs: number, ahora: number = Date.now()): Promise<boolean> {
   try {
     const { data, error } = await service
       .from('cron_ejecuciones')
       .select('iniciado_at')
-      .eq('tarea', 'correo-sync')
+      .eq('tarea', tarea)
       .is('lanzado_por', null)
       .is('terminado_at', null)
-      .gte('iniciado_at', new Date(ahora - PASADA_MUERTA_TRAS_MS).toISOString())
+      .gte('iniciado_at', new Date(ahora - muertaTrasMs).toISOString())
       .limit(1)
     if (error) return false
     return (data?.length ?? 0) > 0
   } catch {
     return false
   }
+}
+
+export function hayPasadaEnMarcha(service: Servicio, ahora: number = Date.now()): Promise<boolean> {
+  return hayPasadaEnMarchaDe(service, 'correo-sync', PASADA_MUERTA_TRAS_MS, ahora)
 }

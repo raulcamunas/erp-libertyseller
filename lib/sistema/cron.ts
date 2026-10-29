@@ -302,7 +302,12 @@ export const TAREAS_CRON = [
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
-    cadaMinutos: 3,
+    /**
+     * Cada minuto (eran 3). Una pasada dura ~1 s y solo pregunta a Google por lo que cambió desde la anterior, así que más seguido casi no cuesta nada; y ahora que la
+     * agenda no deja agendar encima de un hueco de Google, que un hueco nuevo tarde minutos en llegar es dejar una puerta abierta a agendar encima. La ruta no deja que se
+     * solapen dos pasadas (lib/correo/cron-solape.ts). OJO: este valor es el de por defecto; si en `cron_config` hay una fila de `calendario`, manda la de la tabla.
+     */
+    cadaMinutos: 1,
     que: 'Trae al ERP las citas creadas, movidas o canceladas directamente en Google Calendar.',
   },
 ] as const

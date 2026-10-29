@@ -80,6 +80,16 @@ function finPorDefecto(start: Date) {
 
 const claveDeDia = (d: Date) => format(d, 'yyyy-MM-dd')
 
+/** Lo apagado, tal como se guarda en el navegador: una lista JSON de ids. Cualquier otra cosa es «no hay nada apagado» */
+function ocultosDe(texto: string | null): ReadonlySet<string> {
+  try {
+    const guardado = JSON.parse(texto ?? '[]')
+    return Array.isArray(guardado) ? new Set(guardado.filter((x): x is string => typeof x === 'string')) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
 export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaInicial, team, currentUser, initialAvailabilityWindows }: AgendaCalendarProps) {
   const [weekStart, setWeekStart] = useState<Date>(() => lunesDeLaClave(semanaInicial) ?? lunesDeLaSemana(new Date()))
   const [direction, setDirection] = useState(0)
@@ -108,11 +118,16 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
   const [ocultos, setOcultos] = useState<ReadonlySet<string>>(() => new Set())
   useEffect(() => {
     try {
-      const guardado = JSON.parse(localStorage.getItem(claveDeAlmacen) ?? '[]')
-      if (Array.isArray(guardado)) setOcultos(new Set(guardado.filter((x): x is string => typeof x === 'string')))
+      setOcultos(ocultosDe(localStorage.getItem(claveDeAlmacen)))
     } catch {
       // Sin almacenamiento (ventana privada, bloqueado): se ve todo, como siempre
     }
+    // Otra pestaña de este navegador apagó o encendió a alguien: esta se entera sin recargar (el evento no llega a la pestaña que lo provoca)
+    const alCambiar = (e: StorageEvent) => {
+      if (e.key === claveDeAlmacen) setOcultos(ocultosDe(e.newValue))
+    }
+    window.addEventListener('storage', alCambiar)
+    return () => window.removeEventListener('storage', alCambiar)
   }, [claveDeAlmacen])
   const alternar = useCallback(
     (id: string) => {
@@ -472,7 +487,7 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
   }
 
   /**
-   * Fuerza la recarga completa desde Google en vez de esperar al ciclo de cada 4 horas. Al terminar se vuelve a leer lo que se está mirando, porque el resincronizado
+   * Fuerza la recarga completa desde Google en vez de esperar al ciclo automático (cada minuto). Al terminar se vuelve a leer lo que se está mirando, porque el resincronizado
    * puede haber borrado huecos que ya no existen; el resto de semanas se piden de nuevo cuando se navegue a ellas.
    */
   async function sincronizar() {
@@ -508,6 +523,7 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
         esAdmin={isAdmin}
         sincronizando={resyncing}
         cargando={datos.cargando}
+        desfasadaDesde={datos.desfasada?.desde ?? null}
         gente={gente}
         verGoogle={!ocultos.has(GOOGLE)}
         totalVisible={totalVisible}
@@ -516,6 +532,7 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
         onHoy={irAHoy}
         onIrA={irAFecha}
         onSincronizar={sincronizar}
+        onReintentar={() => void datos.releer()}
         onDisponibilidad={() => setShowAvailabilitySettings(true)}
         onNueva={nuevaCita}
         onAlternarPersona={alternar}

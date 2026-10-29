@@ -1,5 +1,5 @@
 import { crearBaseFalsa } from '@/lib/mcp/comercial/base-falsa'
-import { PASADA_MUERTA_TRAS_MS, hayPasadaEnMarcha } from '@/lib/correo/cron-solape'
+import { PASADA_DEL_CALENDARIO_MUERTA_TRAS_MS, PASADA_MUERTA_TRAS_MS, hayPasadaEnMarcha, hayPasadaEnMarchaDe } from '@/lib/correo/cron-solape'
 
 let fallos = 0
 let comprobaciones = 0
@@ -24,6 +24,16 @@ async function main() {
   ok('una pasada lanzada a mano desde Sistema no bloquea a la automática', !(await hayPasadaEnMarcha(con([fila({ lanzado_por: '00000000-0000-4000-8000-000000000001' })]).servicio, AHORA)))
   ok('ni cuenta la de otra tarea', !(await hayPasadaEnMarcha(con([fila({ tarea: 'rinkel-llamadas' })]).servicio, AHORA)))
   ok('entre varias, basta con que una siga en marcha', await hayPasadaEnMarcha(con([fila({ terminado_at: hace(1_000), iniciado_at: hace(70_000) }), fila({})]).servicio, AHORA))
+
+  console.log('\n=== lo mismo para la sincronización de la agenda con Google (cada minuto) ===')
+  const cal = (extra: Record<string, unknown> = {}) => fila({ tarea: 'calendario', iniciado_at: hace(70_000), ...extra })
+  const dePasadaDelCalendario = (filas: Array<Record<string, unknown>>) => hayPasadaEnMarchaDe(con(filas).servicio, 'calendario', PASADA_DEL_CALENDARIO_MUERTA_TRAS_MS, AHORA)
+  ok('una pasada que lleva 70 s sin terminar (Google lento) impide que empiece otra encima', await dePasadaDelCalendario([cal()]))
+  ok('una que ya terminó no', !(await dePasadaDelCalendario([cal({ terminado_at: hace(60_000) })])))
+  ok('una de hace 5 minutos sin terminar se da por muerta (el contenedor se reinició)', !(await dePasadaDelCalendario([cal({ iniciado_at: hace(300_000) })])))
+  ok('el límite es 180 s: 120 del cron más un margen', PASADA_DEL_CALENDARIO_MUERTA_TRAS_MS === 180_000 && (await dePasadaDelCalendario([cal({ iniciado_at: hace(179_000) })])) && !(await dePasadaDelCalendario([cal({ iniciado_at: hace(181_000) })])))
+  ok('una lanzada a mano desde Sistema («Lanzar ahora») no bloquea a la automática', !(await dePasadaDelCalendario([cal({ lanzado_por: '00000000-0000-4000-8000-000000000001' })])))
+  ok('una pasada del correo en marcha no bloquea la del calendario, ni al revés', !(await dePasadaDelCalendario([fila({})])) && !(await hayPasadaEnMarcha(con([cal()]).servicio, AHORA)))
 
   console.log('\n=== si el registro no se puede leer, el correo se lee ===')
   ok('sin la tabla: se deja correr', !(await hayPasadaEnMarcha(con(null).servicio, AHORA)))
