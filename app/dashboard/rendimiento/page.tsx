@@ -5,6 +5,7 @@ import { CAMPOS_DEL_VINCULO, type Miembro, type VinculoVisible } from '@/compone
 import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { hoyMadrid } from '@/lib/rendimiento/dia'
+import { leerEquipoMedido } from '@/lib/rendimiento/equipo'
 import { periodoDeTexto } from '@/lib/rendimiento/periodos'
 import { UUID } from '@/lib/amazon/api'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
@@ -65,12 +66,9 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
   const personas = new Map<string, { id: string; nombre: string }>([[yo.id, yo]])
   const comerciales = new Set<string>()
   if (puedeSupervisar) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, full_name, email')
-      .eq('is_comercial', true)
-      .order('full_name', { ascending: true })
-    for (const p of (data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>) {
+    // Los comerciales y los managers comerciales (lib/rendimiento/equipo.ts): un manager también llama, tiene su Rinkel y se mide en la misma tabla
+    const { data } = await leerEquipoMedido(supabase)
+    for (const p of data ?? []) {
       comerciales.add(p.id)
       if (!personas.has(p.id)) personas.set(p.id, { id: p.id, nombre: nombreDe(p) })
     }
@@ -105,7 +103,7 @@ export default async function RendimientoPage({ searchParams }: { searchParams: 
     ? [...personas.values()].map((p) => ({ id: p.id, nombre: p.nombre, vinculado: vinculos.has(p.id), comercial: comerciales.has(p.id) }))
     : []
 
-  // Quien no supervisa solo está aquí si es comercial; quien supervisa puede ser un administrador que no llama
+  // Quien no supervisa solo está aquí si es del equipo que se mide (comercial o manager); quien supervisa puede ser un administrador que no llama
   const esComercial = !puedeSupervisar || comerciales.has(user.id)
   // Solo un administrador pone o quita la clave de Rinkel de otra persona (la ruta lo vuelve a comprobar)
   const puedeGestionar = profile.role === 'admin'

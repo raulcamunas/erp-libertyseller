@@ -5,6 +5,7 @@ import type { Miembro } from '@/components/rendimiento/tipos'
 import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { hoyMadrid } from '@/lib/rendimiento/dia'
+import { leerEquipoMedido } from '@/lib/rendimiento/equipo'
 import { lunesDeTexto } from '@/lib/rendimiento/informe'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { createClient } from '@/lib/supabase/server'
@@ -57,11 +58,8 @@ export default async function InformeSemanalPage({ searchParams }: { searchParam
 
   const hoy = hoyMadrid()
 
-  const { data: comerciales, error: errorComerciales } = await supabase
-    .from('profiles')
-    .select('id, full_name, email')
-    .eq('is_comercial', true)
-    .order('full_name', { ascending: true })
+  // Los comerciales y los managers comerciales: el informe mide a todo el equipo que llama (lib/rendimiento/equipo.ts)
+  const { data: comerciales, error: errorComerciales } = await leerEquipoMedido(supabase)
   if (errorComerciales) {
     console.error('Informe semanal: no se ha podido leer el equipo comercial', errorComerciales)
     throw new Error('No se ha podido leer el equipo comercial. Recarga la página.')

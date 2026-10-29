@@ -6,7 +6,7 @@
  * Por defecto cada uno gestiona la suya: el usuario sale de la SESIÓN, nunca de lo que diga la petición.
  *
  * La excepción es un ADMINISTRADOR (role = 'admin'), que puede vincular, cambiar, sincronizar y desvincular la
- * clave de cualquier persona del equipo comercial: es quien reparte las claves y quien responde de ellas. Ni
+ * clave de cualquier persona del equipo que se mide (comerciales y managers comerciales): es quien reparte las claves y quien responde de ellas. Ni
  * un socio (partner) ni quien supervisa con el permiso 'equipo-comercial' pueden: ven las llamadas y escuchan
  * las grabaciones, pero no ponen ni quitan claves. Una clave de Rinkel abre todas las grabaciones de su dueño,
  * y por eso la puerta es la del rol de administrador y no la de «puede ver al equipo».

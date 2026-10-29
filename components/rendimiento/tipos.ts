@@ -45,7 +45,7 @@ export interface Miembro {
   nombre: string
   /** Tiene la clave de Rinkel vinculada */
   vinculado: boolean
-  /** Es del equipo comercial (profiles.is_comercial): solo ellos salen en el resumen del equipo */
+  /** Es del equipo que se mide —comercial (profiles.is_comercial) o manager comercial (profiles.puesto)—: solo ellos salen en el resumen del equipo */
   comercial: boolean
 }
 

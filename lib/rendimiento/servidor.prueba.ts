@@ -37,13 +37,15 @@ class Consulta {
   private soloContar = false
   private otros: Array<(f: Fila) => boolean> = []
   private tope: number | null = null
+  private columnas = ''
 
   constructor(
     private base: Base,
     private tabla: string
   ) {}
 
-  select(_columnas?: string, opciones?: { count?: string; head?: boolean }) {
+  select(columnas?: string, opciones?: { count?: string; head?: boolean }) {
+    this.columnas = columnas ?? ''
     this.operacion = 'select'
     this.soloContar = !!opciones?.head
     return this
@@ -101,10 +103,13 @@ class Consulta {
     return this.ejecutar(false).then(res, rej)
   }
 
-  private async ejecutar(unica: boolean): Promise<{ data: unknown; error: { message: string } | null; count?: number }> {
+  private async ejecutar(unica: boolean): Promise<{ data: unknown; error: { message: string; code?: string } | null; count?: number }> {
     this.base.consultas.push(`${this.operacion} ${this.tabla}`)
     const fallo = this.base.falla.get(`${this.operacion} ${this.tabla}`)
     if (fallo) return { data: null, error: { message: fallo } }
+    // Una columna que la base no tiene (la migración no está lanzada): PostgREST contesta 42703
+    const sinColumna = this.operacion === 'select' ? this.base.sinColumna.get(this.tabla)?.find((c) => this.columnas.split(',').map((x) => x.trim()).includes(c)) : undefined
+    if (sinColumna) return { data: null, error: { message: `column ${this.tabla}.${sinColumna} does not exist`, code: '42703' } }
     const tabla = this.base.tabla(this.tabla)
     const cumple = (f: Fila) => this.filtros.every(([c, v]) => f[c] === v) && this.otros.every((p) => p(f))
 
@@ -113,6 +118,10 @@ class Consulta {
       if (this.soloContar) return { data: null, error: null, count: encontradas.length }
       if (this.rango) encontradas = encontradas.slice(this.rango[0], this.rango[1] + 1)
       if (this.tope !== null) encontradas = encontradas.slice(0, this.tope)
+      if (this.base.proyectar && this.columnas.trim() !== '' && this.columnas.trim() !== '*') {
+        const pedidas = this.columnas.split(',').map((x) => x.trim())
+        encontradas = encontradas.map((f) => Object.fromEntries(pedidas.map((c) => [c, f[c]])))
+      }
       return unica ? { data: encontradas[0] ?? null, error: null } : { data: encontradas, error: null }
     }
     if (this.operacion === 'update') {
@@ -144,6 +153,10 @@ class Base {
   tablas = new Map<string, Fila[]>()
   consultas: string[] = []
   falla = new Map<string, string>()
+  /** Columnas que la base todavía no tiene, por tabla */
+  sinColumna = new Map<string, string[]>()
+  /** Como PostgREST, devolver solo las columnas pedidas (por defecto el falso devuelve la fila entera) */
+  proyectar = false
   tabla(nombre: string): Fila[] {
     if (!this.tablas.has(nombre)) this.tablas.set(nombre, [])
     return this.tablas.get(nombre)!
@@ -303,13 +316,15 @@ async function main() {
     const ELLA = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
     const OTRO = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
     const EXTERNA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const MANAGER = 'ffffffff-aaaa-4aaa-8aaa-ffffffffffff'
     const base = () => {
       const b = new Base()
       b.tabla('profiles').push(
-        { id: ADMIN, full_name: 'Raúl', email: 'raul@x', is_comercial: false },
-        { id: ELLA, full_name: 'Daniela Soto', email: 'daniela@x', is_comercial: true },
-        { id: OTRO, full_name: 'Alejandro Ruiz', email: 'alejandro@x', is_comercial: true },
-        { id: EXTERNA, full_name: 'Yamila', email: 'yamila@x', is_comercial: false }
+        { id: ADMIN, full_name: 'Raúl', email: 'raul@x', is_comercial: false, puesto: null },
+        { id: ELLA, full_name: 'Daniela Soto', email: 'daniela@x', is_comercial: true, puesto: 'comercial' },
+        { id: OTRO, full_name: 'Alejandro Ruiz', email: 'alejandro@x', is_comercial: true, puesto: null },
+        { id: EXTERNA, full_name: 'Yamila', email: 'yamila@x', is_comercial: false, puesto: 'gestion_administrativa' },
+        { id: MANAGER, full_name: 'Jhanna', email: 'jhanna@x', is_comercial: false, puesto: 'manager_comercial' }
       )
       return b
     }
@@ -336,6 +351,22 @@ async function main() {
     const quitar = await autorizarObjetivo(servicio(b), admin, EXTERNA, 'desvincular')
     ok('pero quitarle una clave que se quedó guardada sí se deja', quitar.ok && quitar.userId === EXTERNA)
 
+    // Un MANAGER comercial (puesto aparte, no es `is_comercial`) también llama y tiene su Rinkel: el administrador se lo puede vincular
+    for (const accion of ['vincular', 'sincronizar', 'desvincular'] as const) {
+      const r = await autorizarObjetivo(servicio(b), admin, MANAGER, accion)
+      ok(`sobre un manager comercial: ${accion} se deja, y la acción es sobre él`, r.ok && r.userId === MANAGER && r.deOtra)
+    }
+    ok('una persona con otro puesto (gestión administrativa) sigue sin poder', !(await autorizarObjetivo(servicio(b), admin, EXTERNA, 'vincular')).ok)
+    const sin257 = base()
+    sin257.sinColumna.set('profiles', ['puesto'])
+    sin257.proyectar = true
+    const a257 = await esComercial(servicio(sin257), ELLA)
+    const b257 = await esComercial(servicio(sin257), MANAGER)
+    const c257 = await autorizarObjetivo(servicio(sin257), admin, ELLA, 'vincular')
+    ok('en una base sin la migración 257 (sin la columna `puesto`) un comercial sigue siendo del equipo', a257 === 'si', String(a257))
+    ok('y un manager aún no (sin el puesto no se sabe), pero no se rompe', b257 === 'no', String(b257))
+    ok('y el administrador sigue pudiendo vincular a un comercial', c257.ok, JSON.stringify(c257))
+
     for (const accion of ['vincular', 'sincronizar', 'desvincular'] as const) {
       const r = await autorizarObjetivo(servicio(b), admin, 'ffffffff-ffff-4fff-8fff-ffffffffffff', accion)
       ok(`una persona que no existe: ${accion} da 404`, !r.ok && r.estado === 404)
@@ -353,6 +384,7 @@ async function main() {
     }
     ok('si la base falla al comprobar a la persona NO se da por buena: lanza', lanza)
     ok('esComercial distingue los tres casos', (await esComercial(servicio(base()), ELLA)) === 'si' && (await esComercial(servicio(base()), EXTERNA)) === 'no' && (await esComercial(servicio(base()), 'x')) === 'no_existe')
+    ok('y un manager comercial cuenta como del equipo', (await esComercial(servicio(base()), MANAGER)) === 'si')
 
     // El gesto entero: el administrador pega la clave de ELLA. Todo queda a nombre de ELLA, nada a nombre del administrador
     b = base()

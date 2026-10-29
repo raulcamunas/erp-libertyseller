@@ -14,6 +14,7 @@ import {
   type CuentaDeRinkel,
   type DepsRinkel,
 } from './rinkel'
+import { esDelEquipoMedido } from './equipo'
 import { decidirObjetivo, type DecisionDeObjetivo } from './gestion'
 import { ESTADO_INICIAL, sincronizarCuenta, type EstadoDeSincronizacion, type FilaParaGuardar } from './sincronizar'
 import { indiceDeTelefonos, mapaDeLeadsDe, type LeadParaVincular } from '@/lib/cold-calling/vinculos'
@@ -144,12 +145,17 @@ export async function guardarLlamadas(service: Servicio, filas: FilaParaGuardar[
 /* Sobre quién se actúa                                                */
 /* ------------------------------------------------------------------ */
 
-/** ¿Es del equipo comercial? Un administrador solo puede ponerle la clave a quien lo es (o quitársela a cualquiera) */
+/**
+ * ¿Es del equipo que se mide: comercial o manager comercial (lib/rendimiento/equipo.ts)? Un administrador solo puede ponerle la clave de Rinkel a quien lo es (o quitársela a
+ * cualquiera). El nombre es de cuando solo se medía a los comerciales; un manager comercial —que también llama— cuenta como «si».
+ */
 export async function esComercial(service: Servicio, userId: string): Promise<'si' | 'no' | 'no_existe'> {
-  const { data, error } = await service.from('profiles').select('id, is_comercial').eq('id', userId).maybeSingle()
-  if (error) throw new Error('No se ha podido comprobar a esa persona.', { cause: error })
-  if (!data) return 'no_existe'
-  return (data as { is_comercial: boolean | null }).is_comercial === true ? 'si' : 'no'
+  let r = await service.from('profiles').select('id, is_comercial, puesto').eq('id', userId).maybeSingle()
+  // Sin la migración 257 la base no tiene `puesto`: se comprueba solo si es comercial, como antes de los managers
+  if (r.error) r = await service.from('profiles').select('id, is_comercial').eq('id', userId).maybeSingle()
+  if (r.error) throw new Error('No se ha podido comprobar a esa persona.', { cause: r.error })
+  if (!r.data) return 'no_existe'
+  return esDelEquipoMedido(r.data as { is_comercial: boolean | null; puesto?: string | null }) ? 'si' : 'no'
 }
 
 async function nombreDe(service: Servicio, userId: string): Promise<string | null> {
@@ -165,8 +171,8 @@ export type ResultadoDeAutorizar = DecisionDeObjetivo
  *
  *   · Sin `usuario`, o con el propio: la suya. Sin tocar la base.
  *   · Con otra persona y sin ser administrador: 403, sin tocar la base.
- *   · Con otra persona y siendo administrador: la persona tiene que existir y estar marcada como comercial
- *     para vincular o sincronizar. QUITAR la clave se deja hacer aunque ya no sea comercial (alguien que pasa a
+ *   · Con otra persona y siendo administrador: la persona tiene que existir y ser del equipo que se mide (comercial
+ *     o manager comercial) para vincular o sincronizar. QUITAR la clave se deja hacer aunque ya no sea comercial (alguien que pasa a
  *     otro puesto no puede dejar su clave guardada sin que nadie pueda borrarla).
  */
 export async function autorizarObjetivo(
@@ -181,7 +187,7 @@ export async function autorizarObjetivo(
   const pertenece = await esComercial(service, d.userId)
   if (pertenece === 'no_existe') return { ok: false, estado: 404, mensaje: 'Esa persona no existe.' }
   if (pertenece === 'no' && accion !== 'desvincular') {
-    return { ok: false, estado: 409, mensaje: 'Esa persona no está marcada como comercial, así que no tiene panel de rendimiento.' }
+    return { ok: false, estado: 409, mensaje: 'Esa persona no es del equipo comercial ni manager comercial, así que no tiene panel de rendimiento.' }
   }
   return d
 }
