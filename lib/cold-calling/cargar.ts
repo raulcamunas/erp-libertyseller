@@ -42,15 +42,24 @@ export const COLUMNAS_DE_UBICACION = ['ccaa', 'municipio_ine'].join(', ')
 /** Con los partners (262) pero sin la ubicación (263): lo que se pide mientras la 263 no esté lanzada */
 export const COLUMNAS_DE_CARTERA_SIN_UBICACION = `${COLUMNAS_DE_CARTERA_SIN_PARTNERS}, ${COLUMNAS_DE_PARTNERS}`
 
-export const COLUMNAS_DE_CARTERA = `${COLUMNAS_DE_CARTERA_SIN_UBICACION}, ${COLUMNAS_DE_UBICACION}`
+/** Con los partners (262) y la ubicación (263) pero sin el ciclo comercial (264): lo que se pide mientras la 264 no esté lanzada */
+export const COLUMNAS_DE_CARTERA_SIN_CICLO = `${COLUMNAS_DE_CARTERA_SIN_UBICACION}, ${COLUMNAS_DE_UBICACION}`
 
-/** De la más completa a la de antes de todo: si la base no tiene las columnas de una migración, se pide la siguiente (la de antes de la 263, y la de antes de la 262) */
-export const NIVELES_DE_COLUMNAS = [COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_UBICACION, COLUMNAS_DE_CARTERA_SIN_PARTNERS] as const
+/**
+ * EL CICLO COMERCIAL (migración 264): a qué lead se le aplica (`ciclo_vuelta`) y en qué punto del ritmo va (`ciclo_fase`). Son las dos que hacen falta para pintar las cajas de una lista de ciclo y
+ * sus recuentos; no hay nada más del ciclo en la lista.
+ */
+export const COLUMNAS_DE_CICLO = ['ciclo_vuelta', 'ciclo_fase'].join(', ')
+
+export const COLUMNAS_DE_CARTERA = `${COLUMNAS_DE_CARTERA_SIN_CICLO}, ${COLUMNAS_DE_CICLO}`
+
+/** De la más completa a la de antes de todo: si la base no tiene las columnas de una migración, se pide la siguiente (la de antes de la 264, la de antes de la 263 y la de antes de la 262) */
+export const NIVELES_DE_COLUMNAS = [COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_CICLO, COLUMNAS_DE_CARTERA_SIN_UBICACION, COLUMNAS_DE_CARTERA_SIN_PARTNERS] as const
 
 /**
  * ¿La base no tiene esas columnas? El código se despliega ANTES de que nadie lance la migración a mano en el editor SQL de Supabase, y un `select` que nombra una columna que no existe no
  * degrada: PostgREST contesta 400 y la cartera de TODO el equipo se quedaría vacía por unas columnas que todavía no tienen ni un dato. Por eso se piden primero con ellas y, si la base no las
- * tiene, se repite con el nivel de antes (NIVELES_DE_COLUMNAS: en cuanto se lancen las migraciones 262 y 263 deja de hacer falta, y no se nota). PGRST204: PostgREST no la tiene en su caché de
+ * tiene, se repite con el nivel de antes (NIVELES_DE_COLUMNAS: en cuanto se lancen las migraciones 262, 263 y 264 deja de hacer falta, y no se nota). PGRST204: PostgREST no la tiene en su caché de
  * esquema. 42703: Postgres dice que no existe.
  */
 export function faltanLasColumnasDePartners(error: unknown): boolean {
@@ -91,7 +100,7 @@ export async function cargarCartera(supabase: ClienteDeLectura, op: OpcionesDeCa
   let nivel = 0
   let primero = await pedirTramo(supabase, op.propietario, 0, true, NIVELES_DE_COLUMNAS[nivel])
   while (primero.error && faltanLasColumnasDePartners(primero.error) && nivel < NIVELES_DE_COLUMNAS.length - 1) {
-    // La base todavía no tiene la migración 263 (o la 262): se pide como antes de ella. Lo aprendido vale para el resto de tramos de esta lectura
+    // La base todavía no tiene la migración 264 (o la 263, o la 262): se pide como antes de ella. Lo aprendido vale para el resto de tramos de esta lectura
     nivel++
     primero = await pedirTramo(supabase, op.propietario, 0, true, NIVELES_DE_COLUMNAS[nivel])
   }

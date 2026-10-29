@@ -7,13 +7,12 @@ import { clavesDelLead } from '@/lib/cold-calling/vinculos'
 import { diaConSemana, haceCuanto, sumarDias } from '@/lib/cold-calling/fechas'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { emailsDelLead, normalizarTelefono, telefonosDelLead } from '@/lib/cold-calling/contactos'
+import { CAJAS_DEL_CICLO, cajaDelCiclo, camposDeCicloAlCambiarEstado, enCiclo, estadoAlElegirCaja, etiquetaDeEstadoVisible, lasPoneElSistema, pistaDeEstadoVisible, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { urlSegura } from '@/lib/cold-calling/partners'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import {
   COLD_STATUSES,
-  COLD_STATUS_HINTS,
-  COLD_STATUS_LABELS,
   COLD_VENDE_DOTS,
   COLD_VENDE_HINTS,
   COLD_VENDE_LABELS,
@@ -167,8 +166,12 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
 
   /** Cambiar el estado deja constancia de cuándo se tocó por última vez */
   const ponerEstado = (estado: ColdLeadStatus) => {
-    if (estado !== lead.status) void patch({ status: estado, last_contacted_at: new Date().toISOString() })
+    // En un lead del ciclo, pasarlo a «En seguimiento», «Cita agendada»… (o volver a «Sin contactar») lo saca de su fase: lo hace siempre una persona, nunca el sistema
+    if (estado !== lead.status) void patch({ status: estado, last_contacted_at: new Date().toISOString(), ...camposDeCicloAlCambiarEstado(lead, estado) })
   }
+  /** Un lead de una lista de ciclo elige entre sus cajas (Sin contactar, Fase 2, Fase 3, No responde, En seguimiento, Cita, No le interesa); los demás, entre los siete de siempre */
+  const delCiclo = enCiclo(lead)
+  const cajaActual: EstadoVisible = delCiclo ? cajaDelCiclo(lead) : lead.status
 
   /**
    * Al apuntar algo se sella la fecha del último contacto. NO se suma intento aunque sea una «llamada»: las llamadas de Rinkel suman su
@@ -435,16 +438,27 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
         {/* Estado y rellamada: lo que más se toca al colgar. Todo en un mismo bloque que envuelve: el día de rellamada va detrás de los
             estados y solo baja de línea si no cabe, en vez de ocupar siempre una fila propia */}
         <div role="group" aria-label="Estado de la gestión y rellamada" className="flex flex-wrap items-center gap-x-1 gap-y-1.5 px-4 pb-3 pt-2.5">
-          {COLD_STATUSES.map((s) => {
-            const activo = lead.status === s
+          {(delCiclo ? CAJAS_DEL_CICLO : COLD_STATUSES).map((s) => {
+            const activo = cajaActual === s
             const { tono } = ESTADO_VISUAL[s]
             const c = chipDeEstado(activo, tono)
+            // Fase 2, Fase 3 y No responde las pone el sistema: la que tiene el lead se ve encendida y quieta, y las otras dos no se pueden pulsar
+            const elegible = estadoAlElegirCaja(s)
             return (
-              <button key={s} type="button" onClick={() => canEdit && ponerEstado(s)} disabled={!canEdit} aria-pressed={activo} title={COLD_STATUS_HINTS[s]} className={c.className} style={c.style}>
+              <button
+                key={s}
+                type="button"
+                onClick={() => canEdit && elegible && ponerEstado(elegible)}
+                disabled={!canEdit || (lasPoneElSistema(s) && !activo)}
+                aria-pressed={activo}
+                title={pistaDeEstadoVisible(s)}
+                className={`${c.className} ${elegible === null ? 'cursor-default' : ''}`}
+                style={c.style}
+              >
                 <span key={activo ? 'si' : 'no'} className={activo ? 'rend-pop' : ''}>
                   <GlifoDeEstado estado={s} tamano={13} />
                 </span>
-                {COLD_STATUS_LABELS[s]}
+                {etiquetaDeEstadoVisible(s)}
               </button>
             )
           })}

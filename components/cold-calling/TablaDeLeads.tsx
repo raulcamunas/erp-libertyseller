@@ -4,15 +4,16 @@ import { ChevronRight, Copy, ExternalLink, Maximize2 } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { fechaDeRellamada } from '@/lib/cold-calling/cartera'
+import { CAJAS_DEL_CICLO, cajaDelCiclo, camposDeCicloAlCambiarEstado, enCiclo, estadoAlElegirCaja, estadoVisible, etiquetaDeEstadoVisible, lasPoneElSistema, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { vencimientoDe } from '@/lib/cold-calling/fechas'
 import { CELDA, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
-import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, COLD_STATUS_LABELS, esPartner, esTiendaOnline, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
+import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, esPartner, esTiendaOnline, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { MarcaDeFestivo } from './Festivos'
-import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, tinte } from './ui'
+import { ESTADO_VISUAL, GlifoDeLead, InsigniaDeLista, tinte } from './ui'
 import { useEscribirAlLead } from './useEscribirAlLead'
 
 /**
@@ -159,7 +160,8 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
         <tbody>
           {leads.slice(0, visibles).map((l) => {
             const puedeEditar = puedeVerTodos || l.assigned_to === currentUserId
-            const { tono } = ESTADO_VISUAL[l.status]
+            const { tono } = ESTADO_VISUAL[estadoVisible(l)]
+            const delCiclo = enCiclo(l)
             const activa = l.id === selectedId
             const abierto = abiertos.has(l.id)
             const venc = vencimientoDe(fechaDeRellamada(l), hoy)
@@ -181,7 +183,7 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
                       >
                         <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-200 ${abierto ? 'rotate-90 text-[var(--ls-acc)]' : ''}`} aria-hidden />
                       </button>
-                      <GlifoDeEstado estado={l.status} tamano={13} />
+                      <GlifoDeLead lead={l} tamano={13} />
                       <span className="max-w-[150px] truncate" title={l.store_name}>
                         {l.store_name}
                       </span>
@@ -216,16 +218,20 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
 
                   <td className={`${TABLA.celda} !px-1`} onClick={(e) => e.stopPropagation()}>
                     <select
-                      value={l.status}
+                      value={delCiclo ? cajaDelCiclo(l) : l.status}
                       disabled={!puedeEditar}
                       aria-label={`Estado de ${l.store_name}`}
-                      onChange={(e) => void patch(l.id, { status: e.target.value as ColdLeadStatus, last_contacted_at: new Date().toISOString() })}
+                      onChange={(e) => {
+                        // En una lista de ciclo las opciones son sus cajas; las tres que pone el sistema no se eligen a mano (están deshabilitadas) y las demás son el estado de siempre
+                        const estado = delCiclo ? estadoAlElegirCaja(e.target.value as EstadoVisible) : (e.target.value as ColdLeadStatus)
+                        if (estado) void patch(l.id, { status: estado, last_contacted_at: new Date().toISOString(), ...camposDeCicloAlCambiarEstado(l, estado) })
+                      }}
                       className="h-5 w-full cursor-pointer appearance-none rounded-[4px] border px-1.5 text-[11.5px] font-medium text-[var(--ls-t1)] outline-none disabled:cursor-default"
                       style={{ background: tinte(tono, 16), borderColor: `color-mix(in srgb, ${COLOR_ESTADO[tono]} 45%, transparent)` }}
                     >
-                      {COLD_STATUSES.map((s) => (
-                        <option key={s} value={s} className="bg-[var(--ls-sup)] text-[var(--ls-t1)]">
-                          {COLD_STATUS_LABELS[s]}
+                      {(delCiclo ? CAJAS_DEL_CICLO : COLD_STATUSES).map((s) => (
+                        <option key={s} value={s} disabled={delCiclo && lasPoneElSistema(s) && s !== cajaDelCiclo(l)} className="bg-[var(--ls-sup)] text-[var(--ls-t1)]">
+                          {etiquetaDeEstadoVisible(s)}
                         </option>
                       ))}
                     </select>

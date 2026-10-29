@@ -1,9 +1,10 @@
-import { CalendarClock, CheckCircle2, Circle, Flame, Mail, PhoneMissed, XCircle, type LucideIcon } from 'lucide-react'
+import { CalendarClock, CheckCircle2, Circle, Flame, Mail, PhoneForwarded, PhoneMissed, PhoneOff, XCircle, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { ventasCompactas } from '@/lib/cold-calling/cifras'
+import { estadoVisible, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { esPrioridadDePartner, PRIORIDADES_DE_PARTNER } from '@/lib/cold-calling/partners'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
-import { AVISO_VENTAS_ESTIMADAS, COLD_NIVEL_LABELS, type ColdLead, type ColdLeadStatus, esPartner, esTiendaOnline, formatVentasEstimadas } from '@/lib/types/cold-leads'
+import { AVISO_VENTAS_ESTIMADAS, COLD_NIVEL_LABELS, type ColdLead, esPartner, esTiendaOnline, formatVentasEstimadas } from '@/lib/types/cold-leads'
 
 /**
  * LAS PIEZAS VISUALES COMUNES DE COLD CALLING: el glifo de cada estado, las insignias de lista y de nivel.
@@ -14,7 +15,7 @@ import { AVISO_VENTAS_ESTIMADAS, COLD_NIVEL_LABELS, type ColdLead, type ColdLead
  * en los dos temas y nunca hay un color suelto.
  */
 
-export const ESTADO_VISUAL: Record<ColdLeadStatus, { icono: LucideIcon; tono: TonoEstado }> = {
+export const ESTADO_VISUAL: Record<EstadoVisible, { icono: LucideIcon; tono: TonoEstado }> = {
   pendiente: { icono: Circle, tono: 'gris' },
   no_contesta: { icono: PhoneMissed, tono: 'ambar' },
   programado: { icono: CalendarClock, tono: 'cian' },
@@ -22,12 +23,21 @@ export const ESTADO_VISUAL: Record<ColdLeadStatus, { icono: LucideIcon; tono: To
   seguimiento: { icono: Flame, tono: 'naranja' },
   cita_cualificada: { icono: CheckCircle2, tono: 'verde' },
   no_interesa: { icono: XCircle, tono: 'rojo' },
+  // Las tres cajas que solo existen en una lista de ciclo (lib/cold-calling/ciclo.ts): una rellamada en cian y en violeta, y el «no contesta» de siempre en ámbar
+  fase_2: { icono: PhoneForwarded, tono: 'cian' },
+  fase_3: { icono: PhoneForwarded, tono: 'violeta' },
+  no_responde: { icono: PhoneOff, tono: 'ambar' },
 }
 
 /** El icono de un estado en el color de su estado */
-export function GlifoDeEstado({ estado, tamano = 14, className = '' }: { estado: ColdLeadStatus; tamano?: number; className?: string }) {
+export function GlifoDeEstado({ estado, tamano = 14, className = '' }: { estado: EstadoVisible; tamano?: number; className?: string }) {
   const { icono: Icono, tono } = ESTADO_VISUAL[estado]
   return <Icono aria-hidden className={`shrink-0 ${className}`} style={{ color: COLOR_ESTADO[tono], width: tamano, height: tamano }} />
+}
+
+/** El icono del estado de UN LEAD: el de su caja si está en el ciclo (Fase 2, No responde…) y el de su estado de siempre si no */
+export function GlifoDeLead({ lead, tamano = 14, className = '' }: { lead: Pick<ColdLead, 'status' | 'ciclo_fase' | 'ciclo_vuelta'>; tamano?: number; className?: string }) {
+  return <GlifoDeEstado estado={estadoVisible(lead)} tamano={tamano} className={className} />
 }
 
 /** Un color suave del tono, para fondos de insignias y chips: el color al 14 % sobre la superficie */

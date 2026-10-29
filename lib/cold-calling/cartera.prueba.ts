@@ -5,10 +5,12 @@ import {
   hayPartnersEn,
   contarPorEstado,
   cuantosFiltros,
+  esVistaDeCiclo,
   fechaDeRellamada,
   filtrar,
   filtrarYOrdenar,
   hayFiltros,
+  listasDeCiclo,
   listasDisponibles,
   normalizarFiltros,
   ordenar,
@@ -323,6 +325,68 @@ console.log('\n=== los partners: prioridad, puntos y «menciona Amazon» ===')
   console.log('\n  — hay filtros —')
   ok('la prioridad y el «menciona Amazon» cuentan como filtros', hayFiltros(f({ prioridad: 1 })) && hayFiltros(f({ mencionaAmazon: true })) && cuantosFiltros(f({ prioridad: 1, mencionaAmazon: true })) === 2)
   ok('y SIN_FILTROS no tiene ninguno', !hayFiltros(SIN_FILTROS) && cuantosFiltros(SIN_FILTROS) === 0)
+}
+
+console.log('\n=== una lista de ciclo tiene sus propias cajas (regla 7) ===')
+{
+  const LISTA = 'No Amazon V1 · Ciclo'
+  const ciclo = (extra: Partial<ColdLead>) => tienda({ source_list: LISTA, ciclo_vuelta: 1, ...extra })
+  const uno = ciclo({ store_name: 'Uno', status: 'pendiente' })
+  const dos = ciclo({ store_name: 'Dos', status: 'no_contesta' }) // Rinkel lo puso al primer toque: sigue siendo la Fase 1
+  const tres = ciclo({ store_name: 'Tres', status: 'no_contesta', ciclo_fase: 'f2', next_call_date: '2026-10-30' })
+  const cuatro = ciclo({ store_name: 'Cuatro', status: 'no_contesta', ciclo_fase: 'f3' })
+  const cinco = ciclo({ store_name: 'Cinco', status: 'no_contesta', ciclo_fase: 'sin_respuesta', next_call_date: '2027-01-05' })
+  const seis = ciclo({ store_name: 'Seis', status: 'seguimiento' })
+  const siete = ciclo({ store_name: 'Siete', status: 'programado', next_call_date: '2026-11-05' }) // «llámame el jueves»
+  const ocho = ciclo({ store_name: 'Ocho', status: 'cita_cualificada' })
+  const nueve = ciclo({ store_name: 'Nueve', status: 'no_interesa' })
+  const vieja = lead({ store_name: 'Vieja', source_list: 'José V2', status: 'no_contesta' })
+  const todos = [uno, dos, tres, cuatro, cinco, seis, siete, ocho, nueve, vieja]
+  const enLista = { lista: LISTA }
+
+  ok('con la lista de ciclo elegida es una vista de ciclo', esVistaDeCiclo(todos, LISTA))
+  ok('con otra lista, o con «Todas las listas», no', !esVistaDeCiclo(todos, 'José V2') && !esVistaDeCiclo(todos, 'all'))
+  ok('un lead suelto con la marca en una lista de siete NO cambia las cajas de esa lista', !esVistaDeCiclo([...Array.from({ length: 7 }, () => lead({ source_list: 'Otra', status: 'no_contesta' })), lead({ source_list: 'Otra', ciclo_vuelta: 1 })], 'Otra'))
+
+  const p = panorama(todos, f(enLista))
+  const cuenta = (e: string) => p.porEstado.get(e as never) ?? 0
+  ok('los chips cuentan por caja: 2 Sin contactar, 1 Fase 2, 1 Fase 3, 1 No responde, 2 En seguimiento, 1 Cita, 1 No le interesa', cuenta('pendiente') === 2 && cuenta('fase_2') === 1 && cuenta('fase_3') === 1 && cuenta('no_responde') === 1 && cuenta('seguimiento') === 2 && cuenta('cita_cualificada') === 1 && cuenta('no_interesa') === 1, JSON.stringify([...p.porEstado]))
+  ok('y suman todos los de la lista: ningún lead se queda sin chip', [...p.porEstado.values()].reduce((a, b) => a + b, 0) === 9 && p.totalSinEstado === 9 && p.modoCiclo)
+  ok('«No contesta» y «Rellamada programada» no existen como chip en una lista de ciclo', !p.porEstado.has('no_contesta') && !p.porEstado.has('programado') && !p.porEstado.has('email_enviado'))
+  ok('pulsar Fase 2 deja los de la Fase 2', ids(filtrar(todos, f({ ...enLista, estado: 'fase_2' }), true)) === 'Tres')
+  ok('pulsar Sin contactar deja a los de la Fase 1, con o sin el «No contesta» de Rinkel', ids(filtrar(todos, f({ ...enLista, estado: 'pendiente' }), true)) === 'Uno · Dos')
+  ok('pulsar En seguimiento incluye al que pidió «llámame el jueves»', ids(filtrar(todos, f({ ...enLista, estado: 'seguimiento' }), true)) === 'Seis · Siete')
+  ok('pulsar No responde deja al que pasó por las dos rellamadas', ids(filtrar(todos, f({ ...enLista, estado: 'no_responde' }), true)) === 'Cinco')
+  ok('el resultado de pulsar un chip es exactamente lo que ese chip decía', (['pendiente', 'fase_2', 'fase_3', 'no_responde', 'seguimiento', 'cita_cualificada', 'no_interesa'] as const).every((e) => panorama(todos, f({ ...enLista, estado: e })).visibles.length === cuenta(e)))
+
+  const q = panorama(todos, f({}))
+  ok('en «Todas las listas» los chips son los de siempre y cada lead cuenta por su estado', !q.modoCiclo && q.porEstado.get('no_contesta') === 5 && q.porEstado.get('programado') === 1 && !q.porEstado.has('fase_2') && [...q.porEstado.values()].reduce((a, b) => a + b, 0) === 10, JSON.stringify([...q.porEstado]))
+  ok('en una lista de las de siempre también', !panorama(todos, f({ lista: 'José V2' })).modoCiclo && panorama(todos, f({ lista: 'José V2' })).porEstado.get('no_contesta') === 1)
+  ok('un «Fase 2» sin una lista de ciclo no deja pasar a nadie (no es un estado de verdad)', filtrar(todos, f({ estado: 'fase_2' })).length === 0)
+
+  console.log('\n  — una caja que no existe en la vista se quita sola —')
+  const f2 = f({ ...enLista, estado: 'fase_2' })
+  ok('«Fase 2» en la lista de ciclo se queda, y es LA MISMA referencia', normalizarFiltros(f2, todos) === f2)
+  ok('«Fase 2» recordado y una lista de las de siempre: se quita (si no, la pantalla se queda vacía sin explicar por qué)', normalizarFiltros(f({ lista: 'José V2', estado: 'fase_2' }), todos).estado === 'all' && normalizarFiltros(f({ estado: 'no_responde' }), todos).estado === 'all')
+  ok('«No contesta» dentro de la lista de ciclo se quita: ya no es un chip de esa vista', normalizarFiltros(f({ ...enLista, estado: 'no_contesta' }), todos).estado === 'all' && normalizarFiltros(f({ ...enLista, estado: 'programado' }), todos).estado === 'all')
+  ok('«No contesta» en «Todas las listas» se queda', (() => { const fi = f({ estado: 'no_contesta' }); return normalizarFiltros(fi, todos) === fi })())
+  ok('«En seguimiento» vale en las dos vistas', (() => { const a = f({ ...enLista, estado: 'seguimiento' }); const b = f({ estado: 'seguimiento' }); return normalizarFiltros(a, todos) === a && normalizarFiltros(b, todos) === b })())
+
+  console.log('\n  — el desplegable de listas con un estado puesto —')
+  ok('las listas de ciclo que hay son solo la del ejemplo', [...listasDeCiclo(todos)].join() === LISTA)
+  const sinFiltro = panorama(todos, f(enLista)).listas
+  ok('sin estado puesto cuenta todos los leads de cada lista', sinFiltro.find(([n]) => n === LISTA)?.[1] === 9 && sinFiltro.find(([n]) => n === 'José V2')?.[1] === 1, JSON.stringify(sinFiltro))
+  const conCaja = panorama(todos, f({ ...enLista, estado: 'no_responde' })).listas
+  ok('con «No responde» puesto en la lista de ciclo, las demás listas SIGUEN en el desplegable con todos sus leads (el filtro se quita al elegirlas)', conCaja.find(([n]) => n === 'José V2')?.[1] === 1 && conCaja.find(([n]) => n === LISTA)?.[1] === 1, JSON.stringify(conCaja))
+  const conViejo = panorama(todos, f({ estado: 'no_contesta' })).listas
+  ok('con «No contesta» puesto en «Todas las listas», la lista de ciclo no se cuenta como si lo tuviera (no es un chip suyo) y la de siempre cuenta el suyo', conViejo.find(([n]) => n === LISTA)?.[1] === 9 && conViejo.find(([n]) => n === 'José V2')?.[1] === 1, JSON.stringify(conViejo))
+  const conSeguimiento = panorama(todos, f({ estado: 'seguimiento' })).listas
+  ok('un estado que existe en las dos vistas cuenta cada una con lo suyo: «En seguimiento» = Seis y Siete en la de ciclo, y ninguno en la vieja', conSeguimiento.find(([n]) => n === LISTA)?.[1] === 2 && !conSeguimiento.some(([n]) => n === 'José V2'), JSON.stringify(conSeguimiento))
+
+  console.log('\n  — las rellamadas no cambian —')
+  const r = rellamadasDe(todos, '2026-10-30', '2026-10-30')
+  ok('un lead en Fase 2 con la rellamada de hoy sale en «Para hoy», como cualquier rellamada', ids(r.delDia) === 'Tres')
+  ok('y «No responde» no sale hasta su día', ids(rellamadasDe(todos, '2026-11-05', '2026-11-05').delDia) === 'Siete' && ids(rellamadasDe(todos, '2027-01-05', '2027-01-05').delDia).includes('Cinco'))
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

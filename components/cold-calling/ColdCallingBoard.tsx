@@ -7,6 +7,7 @@ import {
   contarNiveles,
   hayPartnersEn,
   listaDe,
+  esVistaDeCiclo,
   normalizarFiltros,
   panorama,
   rellamadasDe,
@@ -183,7 +184,10 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   // Con «Ocultar» puesto, los leads para los que hoy es festivo no entran en la lista ni en sus recuentos. Las rellamadas NO pasan por aquí: una rellamada es un compromiso con una
   // persona y se enseña siempre (con su marca de festivo)
   const leadsDeTrabajo = useMemo(() => (ocultarFestivos ? leads.filter((l) => !esFestivoParaElLead(hoy, l)) : leads), [leads, ocultarFestivos, hoy])
-  const pan = useMemo(() => panorama(leadsDeTrabajo, filtrosEfectivos), [leadsDeTrabajo, filtrosEfectivos])
+  // ¿Se mira una lista de ciclo (lib/cold-calling/ciclo.ts)? Entonces los chips de estado son sus cajas: Sin contactar, Fase 2, Fase 3, No responde, En seguimiento, Cita y No le interesa. Se pregunta
+  // por la cartera entera y no por lo que deje «Ocultar festivos»: las cajas no pueden cambiar de juego según un filtro de hoy
+  const modoCiclo = useMemo(() => esVistaDeCiclo(leads, filtrosEfectivos.lista), [leads, filtrosEfectivos.lista])
+  const pan = useMemo(() => panorama(leadsDeTrabajo, filtrosEfectivos, modoCiclo), [leadsDeTrabajo, filtrosEfectivos, modoCiclo])
   const resumen = useMemo(() => resumenDeCartera(leads, hoy), [leads, hoy])
   const diaRellamadas = diaElegido ?? hoy
   const rell = useMemo(() => rellamadasDe(leads, diaRellamadas, hoy), [leads, diaRellamadas, hoy])
@@ -390,6 +394,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
               filtros={filtrosEfectivos}
               onCambiar={cambiarFiltros}
               porEstado={pan.porEstado}
+              modoCiclo={pan.modoCiclo}
               total={pan.totalSinEstado}
               listas={pan.listas}
               niveles={pan.niveles}

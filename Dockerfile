@@ -77,6 +77,7 @@ RUN { \
       echo "* * * * * /app/scripts/correo-secuencias.sh"; \
       echo "* * * * * /app/scripts/notas-gemini.sh"; \
       echo "* * * * * /app/scripts/ubicacion-leads.sh"; \
+      echo "* * * * * /app/scripts/ciclo-leads.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto

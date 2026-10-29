@@ -316,6 +316,23 @@ export const TAREAS_CRON = [
       'para avisar de los festivos. Solo escribe esas columnas del lead.',
   },
   {
+    /**
+     * CADA DOS MINUTOS. SOLO MUEVE LOS LEADS DE LAS LISTAS DE CICLO.
+     *
+     * Hace avanzar de fase (lib/cold-calling/ciclo.ts) a los leads que se han pasado a una lista de ciclo: cuando el comercial manda el primer correo con seguimientos, el lead pasa a Fase 2 y su
+     * rellamada se pone el día del siguiente correo; cuando ese correo ha salido y su día ha pasado, a Fase 3; después a «No responde», con la vuelta a los dos meses. Solo LEE las secuencias de
+     * correo y solo ESCRIBE en cold_leads: no toca el motor, así que si falla los correos siguen saliendo. Mientras falte la migración 264 cada pasada lo dice y no toca nada; mientras no haya
+     * ninguna lista de ciclo, cada pasada son tres consultas pequeñas. Apagarlo desde Sistema congela las fases donde están: no rompe nada.
+     */
+    id: 'ciclo-leads',
+    nombre: 'Ciclo comercial',
+    ruta: '/api/cold-calling/ciclo/cron',
+    cadaMinutos: 2,
+    que:
+      'Hace avanzar de fase a los leads de las listas de ciclo (Fase 2, Fase 3, «No responde» y la vuelta a los dos meses) a partir de los correos de sus secuencias, y pone su rellamada el día ' +
+      'del siguiente correo. Solo lee las secuencias; solo escribe la fase, la fecha de rellamada y, al acabar sin respuesta, «No contesta» en el lead.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',

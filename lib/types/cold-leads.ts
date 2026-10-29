@@ -1,4 +1,5 @@
 import type { CodigoCcaa } from '@/lib/ubicacion/zonas'
+import type { FaseDelCiclo } from '@/lib/cold-calling/ciclo'
 import { CalendarPerson } from './appointments'
 
 export type ColdLeadStatus =
@@ -108,6 +109,13 @@ export interface ColdLead {
   municipio_ine?: string | null
   ubicacion_origen?: 'ciudad' | 'direccion' | 'provincia' | 'registro' | 'telefono' | 'web' | null
   ubicacion_confianza?: 'alta' | 'media' | 'baja' | null
+  /**
+   * EL CICLO COMERCIAL (migración 264). `ciclo_vuelta` marca a los leads que se han pasado a una lista de ciclo (1 = primera vuelta; 2 = la que vuelve a los dos meses…); null = no están en el
+   * sistema y se trabajan como siempre. `ciclo_fase` es la etiqueta que se les pone encima mientras no contestan (f2, f3, sin_respuesta; null = Fase 1, «Sin contactar»). NO es un estado: `status`
+   * sigue siendo uno de los siete de siempre (lib/cold-calling/ciclo.ts). Antes de lanzar la 264 no existen en la base: por eso van opcionales.
+   */
+  ciclo_vuelta?: number | null
+  ciclo_fase?: FaseDelCiclo | null
   /** Solo se piden al abrir el lead: son enlaces largos que no hacen falta para pintar la lista */
   linkedin?: string | null
   google_maps_url?: string | null

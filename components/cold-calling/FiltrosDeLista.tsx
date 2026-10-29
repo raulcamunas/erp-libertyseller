@@ -4,9 +4,10 @@ import { ArrowUpDown, Check, ChevronDown, Euro, Layers, Rocket, X } from 'lucide
 import { useState } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SIN_FILTROS, hayFiltros, type FiltrosDeCartera } from '@/lib/cold-calling/cartera'
+import { CAJAS_DEL_CICLO, etiquetaDeEstadoVisible, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { ORDEN_DE_PRIORIDADES, PRIORIDADES_DE_PARTNER } from '@/lib/cold-calling/partners'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
-import { COLD_NIVEL_LABELS, COLD_SORT_LABELS, COLD_SORT_LABELS_PARTNERS, COLD_STATUSES, COLD_STATUS_LABELS, type ColdLeadStatus, type ColdSort } from '@/lib/types/cold-leads'
+import { COLD_NIVEL_LABELS, COLD_SORT_LABELS, COLD_SORT_LABELS_PARTNERS, COLD_STATUSES, type ColdSort } from '@/lib/types/cold-leads'
 import { ESTADO_VISUAL, GlifoDeEstado, TONO_DE_NIVEL, tinte, tonoDeLista } from './ui'
 
 /**
@@ -59,7 +60,7 @@ const ANCHO_DE_TODOS = 'min-w-[88px] justify-center'
 const CHIP = `${BOTON.chip} outline-none focus-visible:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)]`
 
 /** Lo que escribe la cajita abierta. CORTOS a propósito (ver arriba): el nombre completo sale al pasar el ratón */
-const NOMBRE_CORTO: Record<ColdLeadStatus, string> = {
+const NOMBRE_CORTO: Record<EstadoVisible, string> = {
   pendiente: 'Sin contactar',
   no_contesta: 'No contesta',
   programado: 'Rellamada',
@@ -67,13 +68,22 @@ const NOMBRE_CORTO: Record<ColdLeadStatus, string> = {
   seguimiento: 'Seguimiento',
   cita_cualificada: 'Cita',
   no_interesa: 'No interesa',
+  // Las tres cajas de una lista de ciclo (lib/cold-calling/ciclo.ts): más cortas que «Sin contactar», así que caben donde cabe la que más
+  fase_2: 'Fase 2',
+  fase_3: 'Fase 3',
+  no_responde: 'No responde',
 }
 
 interface Props {
   filtros: FiltrosDeCartera
   onCambiar: (cambios: Partial<FiltrosDeCartera>) => void
-  /** Cuántos hay de cada estado en la cartera de la persona */
-  porEstado: ReadonlyMap<ColdLeadStatus, number>
+  /** Cuántos hay de cada estado en la cartera de la persona (de cada caja, en una lista de ciclo) */
+  porEstado: ReadonlyMap<EstadoVisible, number>
+  /**
+   * ¿Se mira una lista de ciclo? Entonces los siete chips de estado son sus cajas —Sin contactar, Fase 2, Fase 3, No responde, En seguimiento, Cita, No interesa— en vez de los de siempre.
+   * Son siete como siempre, y por eso la fila mide y se mueve exactamente igual.
+   */
+  modoCiclo?: boolean
   /** Cuántos leads tiene la persona en total */
   total: number
   listas: ReadonlyArray<[string, number]>
@@ -92,7 +102,7 @@ interface Props {
   coinciden: number
 }
 
-export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, niveles, hayNiveles, prioridades, hayPartners, soloPartners, mencionanAmazon, coinciden }: Props) {
+export function FiltrosDeLista({ filtros, onCambiar, porEstado, modoCiclo = false, total, listas, niveles, hayNiveles, prioridades, hayPartners, soloPartners, mencionanAmazon, coinciden }: Props) {
   const [listaAbierta, setListaAbierta] = useState(false)
   const [rangoAbierto, setRangoAbierto] = useState(false)
   const rangoPuesto = filtros.minRev !== '' || filtros.maxRev !== ''
@@ -142,7 +152,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
           Todos <span className="tabular-nums text-[var(--ls-t4)]">{numero(total)}</span>
         </button>
         <div className={`flex flex-wrap items-center gap-1 ${GRUPO_DE_ESTADOS}`}>
-          {COLD_STATUSES.map((s) => {
+          {(modoCiclo ? CAJAS_DEL_CICLO : COLD_STATUSES).map((s) => {
             const activo = filtros.estado === s
             const cuantos = porEstado.get(s) ?? 0
             const { tono } = ESTADO_VISUAL[s]
@@ -152,7 +162,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
                 type="button"
                 onClick={() => onCambiar({ estado: activo ? 'all' : s })}
                 aria-pressed={activo}
-                title={`${COLD_STATUS_LABELS[s]}: ${numero(cuantos)}`}
+                title={`${etiquetaDeEstadoVisible(s)}: ${numero(cuantos)}`}
                 className={`${CHIP} min-w-[64px] justify-center overflow-hidden !px-1.5 md:min-w-0 ${ANIMACION_DE_CAJITA} ${activo ? `${CAJITA_ABIERTA} !text-[var(--ls-t1)] font-medium` : CAJITA_CERRADA}`}
                 style={activo ? { background: tinte(tono, 16), borderColor: COLOR_ESTADO[tono] } : undefined}
               >

@@ -1,5 +1,6 @@
+import { CAJAS_DEL_CICLO, cajaDelCiclo, enCiclo, esListaDeCiclo, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { contarPrioridadesDe } from '@/lib/cold-calling/partners'
-import { esPartner, esTiendaOnline, pesoOrden, type ColdLead, type ColdLeadStatus, type ColdSort } from '@/lib/types/cold-leads'
+import { COLD_STATUSES, esPartner, esTiendaOnline, pesoOrden, type ColdLead, type ColdSort } from '@/lib/types/cold-leads'
 
 /**
  * LA CARTERA DE COLD CALLING: FILTRAR, ORDENAR, CONTAR Y SACAR LAS RELLAMADAS.
@@ -38,11 +39,17 @@ import { esPartner, esTiendaOnline, pesoOrden, type ColdLead, type ColdLeadStatu
  *    de la columna «Prioridad» del Excel de captación) y puntos, y pesoOrden() los junta en un solo número con la prioridad mandando.
  *    El rango de facturación no se les aplica (como a las tiendas online: ninguno tiene `revenue_monthly`), y el filtro de prioridad
  *    deja fuera a todo lo que no sea un partner de esa prioridad.
+ *
+ * 7. UNA LISTA DE CICLO TIENE SUS PROPIAS CAJAS DE ESTADO. En una lista donde más de la mitad de los leads están en el ciclo comercial (lib/cold-calling/ciclo.ts) los chips de estado son
+ *    Sin contactar · Fase 2 · Fase 3 · No responde · En seguimiento · Cita agendada · No le interesa, y se cuenta y se filtra por la caja de cada lead y no por su `status`. En todas las demás
+ *    vistas, incluida «Todas las listas», los chips son los de siempre y cada lead cuenta por su estado de verdad: así ningún lead se queda sin chip en ninguna vista. Un chip que ya no existe
+ *    en la vista que se mira (un «Fase 2» recordado y una lista que no es de ciclo) se quita solo, como el nivel y la prioridad (regla 5).
  */
 
 export interface FiltrosDeCartera {
   busqueda: string
-  estado: ColdLeadStatus | 'all'
+  /** Un estado de siempre o, solo en una lista de ciclo, una de sus tres cajas (Fase 2, Fase 3, No responde) */
+  estado: EstadoVisible | 'all'
   /** 'all' o el nombre de la lista de origen («1a lista», «José V2»…; sin lista, «Sin lista») */
   lista: string
   /** 1, 2 o 3, o 'all'. Solo lo traen las tiendas online */
@@ -128,7 +135,7 @@ const aNumero = (texto: string): number | null => {
   return Number.isNaN(n) ? null : n
 }
 
-export function filtrar(leads: readonly ColdLead[], f: FiltrosDeCartera): ColdLead[] {
+export function filtrar(leads: readonly ColdLead[], f: FiltrosDeCartera, modoCiclo = false): ColdLead[] {
   const q = f.busqueda.trim().toLowerCase()
   const min = aNumero(f.minRev)
   const max = aNumero(f.maxRev)
@@ -136,7 +143,7 @@ export function filtrar(leads: readonly ColdLead[], f: FiltrosDeCartera): ColdLe
     if (f.nivel !== 'all' && l.nivel !== f.nivel) return false
     if (f.prioridad !== 'all' && !(esPartner(l) && l.prioridad === f.prioridad)) return false
     if (f.mencionaAmazon && !(esPartner(l) && l.menciona_amazon === true)) return false
-    if (f.estado !== 'all' && l.status !== f.estado) return false
+    if (f.estado !== 'all' && (modoCiclo ? cajaDelCiclo(l) : l.status) !== f.estado) return false
     if (f.lista !== 'all' && listaDe(l) !== f.lista) return false
     if (!dentroDelRango(l, min, max)) return false
     if (q && !textoDeBusqueda(l).includes(q)) return false
@@ -179,19 +186,72 @@ export function ordenar(leads: readonly ColdLead[], orden: ColdSort): ColdLead[]
   }
 }
 
-export function filtrarYOrdenar(leads: readonly ColdLead[], f: FiltrosDeCartera): ColdLead[] {
-  return ordenar(filtrar(leads, f), f.orden)
+export function filtrarYOrdenar(leads: readonly ColdLead[], f: FiltrosDeCartera, modoCiclo = false): ColdLead[] {
+  return ordenar(filtrar(leads, f, modoCiclo), f.orden)
 }
 
 /* ------------------------------------------------------------------ */
 /* Contar                                                              */
 /* ------------------------------------------------------------------ */
 
-/** Cuántos hay de cada estado en la cartera de la persona. Sale de `scoped` y no de lo ya filtrado, que lleva este filtro encima */
-export function contarPorEstado(leads: readonly ColdLead[]): Map<ColdLeadStatus, number> {
-  const mapa = new Map<ColdLeadStatus, number>()
-  for (const l of leads) mapa.set(l.status, (mapa.get(l.status) ?? 0) + 1)
+/**
+ * Cuántos hay de cada estado en la cartera de la persona. Sale de `scoped` y no de lo ya filtrado, que lleva este filtro encima. En una lista de ciclo (regla 7) cuenta por la caja de cada
+ * lead; en cualquier otra vista, por su estado.
+ */
+export function contarPorEstado(leads: readonly ColdLead[], modoCiclo = false): Map<EstadoVisible, number> {
+  const mapa = new Map<EstadoVisible, number>()
+  for (const l of leads) {
+    const estado = modoCiclo ? cajaDelCiclo(l) : l.status
+    mapa.set(estado, (mapa.get(estado) ?? 0) + 1)
+  }
   return mapa
+}
+
+/**
+ * ¿Se está mirando una lista de ciclo? Solo con UNA lista elegida (en «Todas las listas» se mezclan los leads del ciclo con los de siempre y los chips son los de siempre) y cuando más de la
+ * mitad de lo que hay en ella está en el ciclo (esListaDeCiclo). Se pregunta por la cartera entera de la persona y no por lo ya filtrado: con un filtro puesto los chips no pueden cambiar de
+ * juego.
+ */
+export function esVistaDeCiclo(leads: readonly ColdLead[], lista: string): boolean {
+  if (lista === 'all') return false
+  let total = 0
+  let enElCiclo = 0
+  for (const l of leads) {
+    if (listaDe(l) !== lista) continue
+    total++
+    if (enCiclo(l)) enElCiclo++
+  }
+  return esListaDeCiclo(total, enElCiclo)
+}
+
+/** Las listas de ciclo que hay en la cartera: las que cumplen la regla de esListaDeCiclo */
+export function listasDeCiclo(leads: readonly ColdLead[]): Set<string> {
+  const total = new Map<string, number>()
+  const enElCiclo = new Map<string, number>()
+  for (const l of leads) {
+    const lista = listaDe(l)
+    total.set(lista, (total.get(lista) ?? 0) + 1)
+    if (enCiclo(l)) enElCiclo.set(lista, (enElCiclo.get(lista) ?? 0) + 1)
+  }
+  return new Set([...enElCiclo].filter(([lista, n]) => esListaDeCiclo(total.get(lista) ?? 0, n)).map(([lista]) => lista))
+}
+
+/**
+ * Los leads que saldrían al elegir cada lista, con los demás filtros puestos: lo que cuenta el desplegable de listas. El estado solo cuenta si existe como chip en la vista de ESA lista (una de
+ * ciclo tiene sus cajas, las demás los siete de siempre): si no, `normalizarFiltros` lo quita al elegirla y salen todos. Sin esto, con «No responde» puesto en una lista de ciclo el desplegable
+ * enseñaría las demás listas con cero leads y no se podría ir a ellas.
+ */
+function filtrarParaLasListas(leads: readonly ColdLead[], f: FiltrosDeCartera, enCiclos: ReadonlySet<string>): ColdLead[] {
+  const pasan = filtrar(leads, { ...f, lista: 'all', estado: 'all' })
+  const estado = f.estado
+  if (estado === 'all') return pasan
+  return pasan.filter((l) => {
+    const delCiclo = enCiclos.has(listaDe(l))
+    // Tipada como lista de EstadoVisible: con la unión de las dos listas TypeScript 5.9 exige que el argumento valga para las dos a la vez
+    const chips: readonly EstadoVisible[] = delCiclo ? CAJAS_DEL_CICLO : COLD_STATUSES
+    if (!chips.includes(estado)) return true
+    return (delCiclo ? cajaDelCiclo(l) : l.status) === estado
+  })
 }
 
 /** Las listas de origen que hay en la cartera, de la más grande a la más pequeña (a igualdad, por nombre) */
@@ -242,7 +302,13 @@ export function normalizarFiltros(f: FiltrosDeCartera, cartera: readonly ColdLea
     else if (prioridades[prioridad] === 0) prioridad = 'all'
   }
   const mencionaAmazon = f.mencionaAmazon && hayPartnersEn(cartera, lista)
-  return lista === f.lista && nivel === f.nivel && prioridad === f.prioridad && mencionaAmazon === f.mencionaAmazon ? f : { ...f, lista, nivel, prioridad, mencionaAmazon }
+  // Una caja que no existe en la vista que se mira (regla 7): «Fase 2» sin una lista de ciclo, o «No contesta» dentro de una
+  let estado = f.estado
+  if (estado !== 'all') {
+    const chips: readonly EstadoVisible[] = esVistaDeCiclo(cartera, lista) ? CAJAS_DEL_CICLO : COLD_STATUSES
+    if (!chips.includes(estado)) estado = 'all'
+  }
+  return lista === f.lista && nivel === f.nivel && prioridad === f.prioridad && mencionaAmazon === f.mencionaAmazon && estado === f.estado ? f : { ...f, lista, nivel, prioridad, mencionaAmazon, estado }
 }
 
 export interface ResumenDeCartera {
@@ -304,8 +370,10 @@ export function rellamadasDe(cartera: readonly ColdLead[], dia: string, hoy: str
 export interface Panorama {
   /** Los leads que salen con TODO lo que hay puesto, ya ordenados */
   visibles: ColdLead[]
-  /** Cuántos hay de cada estado con los demás filtros puestos: lo que saldría al pulsar ese estado */
-  porEstado: Map<ColdLeadStatus, number>
+  /** Cuántos hay de cada estado con los demás filtros puestos: lo que saldría al pulsar ese estado (en una lista de ciclo, de cada caja) */
+  porEstado: Map<EstadoVisible, number>
+  /** ¿Es una lista de ciclo la que se mira? Entonces los chips de estado son sus cajas (regla 7) */
+  modoCiclo: boolean
   /** Cuántos hay con los demás filtros y sea cual sea el estado: el número del chip «Todos» */
   totalSinEstado: number
   niveles: Record<1 | 2 | 3, number>
@@ -323,15 +391,16 @@ export interface Panorama {
  * V1» elegida, «Sin contactar 760» es lo que se ve al pulsarlo; antes los estados contaban la cartera entera y el chip decía 891 cuando
  * al pulsarlo salían 760, y no había forma de saber por qué.
  */
-export function panorama(leads: readonly ColdLead[], f: FiltrosDeCartera): Panorama {
-  const sinEstado = filtrar(leads, { ...f, estado: 'all' })
+export function panorama(leads: readonly ColdLead[], f: FiltrosDeCartera, modoCiclo: boolean = esVistaDeCiclo(leads, f.lista)): Panorama {
+  const sinEstado = filtrar(leads, { ...f, estado: 'all' }, modoCiclo)
   return {
-    visibles: ordenar(filtrar(leads, f), f.orden),
-    porEstado: contarPorEstado(sinEstado),
+    visibles: ordenar(filtrar(leads, f, modoCiclo), f.orden),
+    porEstado: contarPorEstado(sinEstado, modoCiclo),
+    modoCiclo,
     totalSinEstado: sinEstado.length,
-    niveles: contarNiveles(filtrar(leads, { ...f, nivel: 'all' }), 'all'),
-    prioridades: contarPrioridades(filtrar(leads, { ...f, prioridad: 'all' }), 'all'),
-    mencionanAmazon: filtrar(leads, { ...f, mencionaAmazon: false }).filter((l) => esPartner(l) && l.menciona_amazon === true).length,
-    listas: listasDisponibles(filtrar(leads, { ...f, lista: 'all' })),
+    niveles: contarNiveles(filtrar(leads, { ...f, nivel: 'all' }, modoCiclo), 'all'),
+    prioridades: contarPrioridades(filtrar(leads, { ...f, prioridad: 'all' }, modoCiclo), 'all'),
+    mencionanAmazon: filtrar(leads, { ...f, mencionaAmazon: false }, modoCiclo).filter((l) => esPartner(l) && l.menciona_amazon === true).length,
+    listas: listasDisponibles(filtrarParaLasListas(leads, f, listasDeCiclo(leads))),
   }
 }

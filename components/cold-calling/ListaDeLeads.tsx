@@ -4,10 +4,11 @@ import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode }
 import { fechaDeRellamada } from '@/lib/cold-calling/cartera'
 import { vencimientoDe, etiquetaDeVencimiento } from '@/lib/cold-calling/fechas'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { COLD_STATUS_LABELS, esPartner, type ColdLead } from '@/lib/types/cold-leads'
+import { estadoVisible, etiquetaDeEstadoVisible } from '@/lib/cold-calling/ciclo'
+import { esPartner, type ColdLead } from '@/lib/types/cold-leads'
 import { Esqueleto } from '@/components/rendimiento/ui'
 import { MarcaDeFestivo } from './Festivos'
-import { CifraDeLista, GlifoDeEstado, tinte, tonoDeLista } from './ui'
+import { CifraDeLista, GlifoDeLead, tinte, tonoDeLista } from './ui'
 import { useVentana } from './useVentana'
 
 /**
@@ -59,7 +60,7 @@ export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, diaFesti
       type="button"
       onClick={() => onSeleccionar(lead.id)}
       aria-current={activa ? 'true' : undefined}
-      title={COLD_STATUS_LABELS[lead.status]}
+      title={etiquetaDeEstadoVisible(estadoVisible(lead))}
       // El fondo de «pasar el ratón» solo con ratón: en el móvil el último toque lo dejaba pegado y parecía la fila seleccionada
       className={`group relative flex w-full items-center gap-2.5 border-b border-[var(--ls-linea)] px-3 text-left outline-none transition-colors focus-visible:bg-[var(--ls-sup3)] ${entrada !== null ? 'rend-entra' : ''} ${
         activa ? 'bg-[var(--ls-sel)]' : '[@media(hover:hover)]:hover:bg-[var(--ls-sup3)]'
@@ -67,7 +68,7 @@ export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, diaFesti
       style={{ height: ALTO_DE_FILA, ...(entrada !== null ? ({ '--d': entrada } as CSSProperties) : null) }}
     >
       {activa && <span aria-hidden className="absolute inset-y-2 left-0 w-[2px] rounded-full bg-[var(--ls-acc-graf)]" />}
-      <GlifoDeEstado estado={lead.status} tamano={15} />
+      <GlifoDeLead lead={lead} tamano={15} />
 
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
