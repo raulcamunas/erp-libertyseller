@@ -8,7 +8,7 @@ import { vencimientoDe } from '@/lib/cold-calling/fechas'
 import { CELDA, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
-import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, COLD_STATUS_LABELS, esTiendaOnline, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
+import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, COLD_STATUS_LABELS, esPartner, esTiendaOnline, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, tinte } from './ui'
@@ -48,8 +48,8 @@ interface Props {
   generacion: string
 }
 
-/** Celda de texto editable al vuelo, como en una hoja de cálculo */
-function CeldaEditable({ valor, onGuardar, deshabilitada, placeholder }: { valor: string; onGuardar: (v: string) => void; deshabilitada: boolean; placeholder?: string }) {
+/** Celda de texto editable al vuelo, como en una hoja de cálculo. También la usa la tabla de partners */
+export function CeldaEditable({ valor, onGuardar, deshabilitada, placeholder }: { valor: string; onGuardar: (v: string) => void; deshabilitada: boolean; placeholder?: string }) {
   const [borrador, setBorrador] = useState(valor)
   const [editando, setEditando] = useState(false)
 
@@ -276,7 +276,7 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
 
                   {/* Provincia para los vendedores, Ciudad para las tiendas online: la columna «Provincia» del Excel nuevo dice «Europe» en
                       las 1.000 filas medidas (es el campo `region` de Store Leads) y por eso no se importa: la geografía real está en `ciudad` */}
-                  <td className={TABLA.celda}>{(esTiendaOnline(l) ? l.ciudad : l.province) || '—'}</td>
+                  <td className={TABLA.celda}>{(esTiendaOnline(l) || esPartner(l) ? l.ciudad : l.province) || '—'}</td>
 
                   <td className={TABLA.celda}>
                     <span className={`${TABLA.corta} max-w-[150px]`} title={l.category || ''}>
@@ -304,7 +304,7 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
                   <tr>
                     <td colSpan={12} className="border-b border-[var(--ls-linea2)] bg-[var(--ls-fondo)] p-0">
                       <div className="rend-desliza grid gap-x-6 gap-y-3 px-4 py-3 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)]" style={{ maxWidth: 1100 }}>
-                        <DatosDelLead lead={l} conContacto esAutonomo={esTiendaOnline(l) && l.tipo_empresa === 'autonomo'} />
+                        <DatosDelLead lead={l} conContacto esAutonomo={(esTiendaOnline(l) || esPartner(l)) && l.tipo_empresa === 'autonomo'} />
                         <div className="min-w-0">
                           <h3 className="mb-1.5 text-[11px] font-semibold text-[var(--ls-t3)]">Historial</h3>
                           <HistorialDelLead leadId={l.id} currentUser={currentUser} nombres={nombres} version={version} onLogged={(k) => apuntado(l.id, k)} />

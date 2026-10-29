@@ -107,7 +107,7 @@ function resumenVacio(clave: string, nombre: string): ResumenDeLista {
     responsable: null,
     total: 0,
     estados: estadosVacios(),
-    porTipo: { seller_amazon: 0, tienda_online: 0 },
+    porTipo: { seller_amazon: 0, tienda_online: 0, partner: 0 },
     vende: { sin_comprobar: 0, no_vende: 0, vende: 0 },
     llamados: 0,
     intentos: 0,
@@ -132,6 +132,8 @@ export interface PanoramaDeListas {
     /** Los que venden en Amazon (vendedores de Amazon) y los que no (tiendas online) */
     venden: number
     noVenden: number
+    /** Los partners (agencias, fulfillment, registro de marcas, gestorías): ni venden ni dejan de vender en Amazon, no se les pregunta */
+    partners: number
     /** Lo comprobado a mano de si venden ya en Amazon */
     vendeComprobado: number
     noVendeComprobado: number
@@ -202,7 +204,9 @@ export function armarPanorama(filas: readonly FilaDeResumen[], registro: readonl
     l.trabajados = l.total - l.estados.pendiente
     l.pctTrabajados = l.total > 0 ? l.trabajados / l.total : 0
     l.pctLlamados = l.total > 0 ? l.llamados / l.total : 0
-    l.tipo = l.total === 0 ? null : l.porTipo.seller_amazon > 0 && l.porTipo.tienda_online > 0 ? 'mixto' : l.porTipo.tienda_online > 0 ? 'tienda_online' : 'seller_amazon'
+    // De qué tipo es la lista: del único que tenga; con más de uno, «mezcla». Una lista vacía no es de ninguno
+    const presentes = (['seller_amazon', 'tienda_online', 'partner'] as const).filter((t) => l.porTipo[t] > 0)
+    l.tipo = l.total === 0 || presentes.length === 0 ? null : presentes.length > 1 ? 'mixto' : presentes[0]
   }
   for (const [clave, l] of porClave) cerrar(l, duenosPorClave.get(clave)!)
   if (sinLista) cerrar(sinLista, duenosSinLista)
@@ -224,6 +228,7 @@ export function armarPanorama(filas: readonly FilaDeResumen[], registro: readonl
       sinDueno,
       venden: sumaPor((l) => l.porTipo.seller_amazon),
       noVenden: sumaPor((l) => l.porTipo.tienda_online),
+      partners: sumaPor((l) => l.porTipo.partner),
       vendeComprobado: sumaPor((l) => l.vende.vende),
       noVendeComprobado: sumaPor((l) => l.vende.no_vende),
       sinComprobar: sumaPor((l) => l.vende.sin_comprobar),
@@ -327,7 +332,7 @@ export function leerFiltroDeLeads(crudo: unknown): FiltroDeLeads {
     dueno: o.dueno === SIN_DUENO ? SIN_DUENO : esUuid(o.dueno) ? o.dueno.toLowerCase() : null,
     estado: enLista(o.estado, COLD_STATUSES),
     vende: enLista(o.vende, ['sin_comprobar', 'no_vende', 'vende'] as const),
-    tipo: enLista(o.tipo, ['seller_amazon', 'tienda_online'] as const),
+    tipo: enLista(o.tipo, ['seller_amazon', 'tienda_online', 'partner'] as const),
     nivel: nivel === 1 || nivel === 2 || nivel === 3 ? nivel : null,
     empresa: enLista(o.empresa, ['sociedad', 'autonomo', 'sin_tipo'] as const),
     q: typeof o.q === 'string' ? o.q.trim().slice(0, 100) : '',
@@ -497,6 +502,7 @@ export const ETIQUETA_DE_SITUACION: Record<SituacionDeLista, string> = {
 export const ETIQUETA_DE_TIPO_DE_LISTA: Record<TipoDeLista, string> = {
   seller_amazon: 'Venden en Amazon',
   tienda_online: 'No venden en Amazon',
+  partner: 'Partners',
   mixto: 'Mezcla',
 }
 

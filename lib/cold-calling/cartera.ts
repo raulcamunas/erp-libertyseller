@@ -1,4 +1,5 @@
-import { esTiendaOnline, pesoOrden, type ColdLead, type ColdLeadStatus, type ColdSort } from '@/lib/types/cold-leads'
+import { contarPrioridadesDe } from '@/lib/cold-calling/partners'
+import { esPartner, esTiendaOnline, pesoOrden, type ColdLead, type ColdLeadStatus, type ColdSort } from '@/lib/types/cold-leads'
 
 /**
  * LA CARTERA DE COLD CALLING: FILTRAR, ORDENAR, CONTAR Y SACAR LAS RELLAMADAS.
@@ -30,7 +31,13 @@ import { esTiendaOnline, pesoOrden, type ColdLead, type ColdLeadStatus, type Col
  *
  * 5. UN FILTRO QUE YA NO TIENE NADA QUE FILTRAR SE QUITA SOLO. Los filtros de lista y de nivel se recuerdan de un día para
  *    otro; quien deje «Nivel 1» y mañana abra una lista de vendedores de Amazon vería la pantalla vacía sin ningún botón donde
- *    deshacerlo, y parecería que le han desaparecido los leads (normalizarFiltros).
+ *    deshacerlo, y parecería que le han desaparecido los leads (normalizarFiltros). Lo mismo vale para la prioridad y el «menciona
+ *    Amazon» de los partners.
+ *
+ * 6. LOS PARTNERS TIENEN SU PROPIO NÚMERO DE ORDEN Y SUS PROPIOS FILTROS. No tienen facturación ni nivel: tienen una prioridad (1 a 4, la
+ *    de la columna «Prioridad» del Excel de captación) y puntos, y pesoOrden() los junta en un solo número con la prioridad mandando.
+ *    El rango de facturación no se les aplica (como a las tiendas online: ninguno tiene `revenue_monthly`), y el filtro de prioridad
+ *    deja fuera a todo lo que no sea un partner de esa prioridad.
  */
 
 export interface FiltrosDeCartera {
@@ -43,21 +50,25 @@ export interface FiltrosDeCartera {
   /** Rango de facturación en euros al mes, como texto de un campo numérico. Solo para vendedores de Amazon */
   minRev: string
   maxRev: string
+  /** 1 a 4, o 'all'. La «Prioridad» de un partner: 1 llamar primero, 2 segunda ronda, 3 solo email, 4 revisar. Solo la traen los partners */
+  prioridad: number | 'all'
+  /** Solo los partners cuya web menciona Amazon: ya conocen el canal, y son los que mejor entienden de qué se les habla */
+  mencionaAmazon: boolean
   orden: ColdSort
 }
 
-export const SIN_FILTROS: FiltrosDeCartera = { busqueda: '', estado: 'all', lista: 'all', nivel: 'all', minRev: '', maxRev: '', orden: 'due_first' }
+export const SIN_FILTROS: FiltrosDeCartera = { busqueda: '', estado: 'all', lista: 'all', nivel: 'all', minRev: '', maxRev: '', prioridad: 'all', mencionaAmazon: false, orden: 'due_first' }
 
 export const NOMBRE_DE_LISTA_SIN_ORIGEN = 'Sin lista'
 
 /** ¿Hay algo puesto? El orden también cuenta: cambiarlo es cambiar lo que se ve */
 export function hayFiltros(f: FiltrosDeCartera): boolean {
-  return f.busqueda !== '' || f.estado !== 'all' || f.lista !== 'all' || f.nivel !== 'all' || f.minRev !== '' || f.maxRev !== '' || f.orden !== 'due_first'
+  return f.busqueda !== '' || f.estado !== 'all' || f.lista !== 'all' || f.nivel !== 'all' || f.minRev !== '' || f.maxRev !== '' || f.prioridad !== 'all' || f.mencionaAmazon || f.orden !== 'due_first'
 }
 
 /** Cuántos filtros hay puestos, sin contar la búsqueda (que tiene su propia caja a la vista) ni el orden */
 export function cuantosFiltros(f: FiltrosDeCartera): number {
-  return (f.estado !== 'all' ? 1 : 0) + (f.lista !== 'all' ? 1 : 0) + (f.nivel !== 'all' ? 1 : 0) + (f.minRev !== '' || f.maxRev !== '' ? 1 : 0)
+  return (f.estado !== 'all' ? 1 : 0) + (f.lista !== 'all' ? 1 : 0) + (f.nivel !== 'all' ? 1 : 0) + (f.minRev !== '' || f.maxRev !== '' ? 1 : 0) + (f.prioridad !== 'all' ? 1 : 0) + (f.mencionaAmazon ? 1 : 0)
 }
 
 export const listaDe = (lead: Pick<ColdLead, 'source_list'>): string => lead.source_list || NOMBRE_DE_LISTA_SIN_ORIGEN
@@ -101,8 +112,8 @@ function textoDeBusqueda(lead: ColdLead): string {
 /* ------------------------------------------------------------------ */
 
 function dentroDelRango(lead: ColdLead, min: number | null, max: number | null): boolean {
-  // Regla 2: a una tienda online no se le aplica; a un seller sin importe, con rango activo, no se le deja pasar
-  if (esTiendaOnline(lead)) return true
+  // Regla 2: a una tienda online no se le aplica (ni a un partner: tampoco tiene facturación); a un seller sin importe, con rango activo, no se le deja pasar
+  if (esTiendaOnline(lead) || esPartner(lead)) return true
   if (min === null && max === null) return true
   const rev = lead.revenue_monthly == null ? null : Number(lead.revenue_monthly)
   if (rev == null || Number.isNaN(rev)) return false
@@ -123,6 +134,8 @@ export function filtrar(leads: readonly ColdLead[], f: FiltrosDeCartera): ColdLe
   const max = aNumero(f.maxRev)
   return leads.filter((l) => {
     if (f.nivel !== 'all' && l.nivel !== f.nivel) return false
+    if (f.prioridad !== 'all' && !(esPartner(l) && l.prioridad === f.prioridad)) return false
+    if (f.mencionaAmazon && !(esPartner(l) && l.menciona_amazon === true)) return false
     if (f.estado !== 'all' && l.status !== f.estado) return false
     if (f.lista !== 'all' && listaDe(l) !== f.lista) return false
     if (!dentroDelRango(l, min, max)) return false
@@ -132,6 +145,9 @@ export function filtrar(leads: readonly ColdLead[], f: FiltrosDeCartera): ColdLe
 }
 
 const colador = new Intl.Collator('es')
+
+/** El número por el que se ordena «Nivel y ventas» / «Prioridad y puntos»: el nivel de una tienda, la prioridad de un partner; sin ninguno, al final */
+const rangoDeTrabajo = (lead: ColdLead): number => (esPartner(lead) ? (lead.prioridad ?? 99) : (lead.nivel ?? 99))
 
 /** Ordena una copia: los empates se quedan como venían, que es siempre el mismo orden (por id) */
 export function ordenar(leads: readonly ColdLead[], orden: ColdSort): ColdLead[] {
@@ -146,8 +162,9 @@ export function ordenar(leads: readonly ColdLead[], orden: ColdSort): ColdLead[]
       return copia.sort((a, b) => colador.compare(a.store_name, b.store_name))
     case 'prioridad':
       // El orden de trabajo de la lista nueva: primero el nivel que la propia lista marca como prioritario y, dentro del
-      // nivel, las que más venden (estimado). Los leads sin nivel —los de Amazon— van detrás en vez de colarse arriba con un nulo
-      return copia.sort((a, b) => (a.nivel ?? 99) - (b.nivel ?? 99) || porPeso(a, b))
+      // nivel, las que más venden (estimado). Los leads sin nivel —los de Amazon— van detrás en vez de colarse arriba con un nulo.
+      // En un partner el «nivel» es su prioridad (1 a 4) y lo que desempata son sus puntos (que ya van dentro del peso)
+      return copia.sort((a, b) => rangoDeTrabajo(a) - rangoDeTrabajo(b) || porPeso(a, b))
     default:
       // due_first: las rellamadas pendientes arriba, la más antigua primero, y dentro de eso los que más facturan, que es donde
       // está el dinero. Un lead cerrado no tiene rellamada (regla 4)
@@ -194,9 +211,20 @@ export function contarNiveles(leads: readonly ColdLead[], lista: string): Record
   return c
 }
 
+/** Cuántos partners hay de cada prioridad DENTRO DE LA LISTA elegida: la prioridad solo tiene sentido en una lista de partners */
+export function contarPrioridades(leads: readonly ColdLead[], lista: string): Record<1 | 2 | 3 | 4, number> {
+  return contarPrioridadesDe(leads, lista, listaDe)
+}
+
+/** ¿Hay algún partner en la lista elegida? Entonces existen los filtros de prioridad y de «menciona Amazon» */
+export function hayPartnersEn(leads: readonly ColdLead[], lista: string): boolean {
+  return leads.some((l) => esPartner(l) && (lista === 'all' || listaDe(l) === lista))
+}
+
 /**
  * Quita lo que ya no tiene nada que filtrar (regla 5): una lista que ya no existe en la cartera que se mira, un nivel que no
- * tiene ningún lead en la lista elegida. Devuelve LOS MISMOS filtros (misma referencia) si no hay nada que quitar.
+ * tiene ningún lead en la lista elegida, una prioridad o un «menciona Amazon» sin ningún partner. Devuelve LOS MISMOS filtros
+ * (misma referencia) si no hay nada que quitar.
  */
 export function normalizarFiltros(f: FiltrosDeCartera, cartera: readonly ColdLead[]): FiltrosDeCartera {
   let lista = f.lista
@@ -207,7 +235,14 @@ export function normalizarFiltros(f: FiltrosDeCartera, cartera: readonly ColdLea
     if (nivel !== 1 && nivel !== 2 && nivel !== 3) nivel = 'all'
     else if (niveles[nivel] === 0) nivel = 'all'
   }
-  return lista === f.lista && nivel === f.nivel ? f : { ...f, lista, nivel }
+  let prioridad = f.prioridad
+  if (prioridad !== 'all') {
+    const prioridades = contarPrioridades(cartera, lista)
+    if (prioridad !== 1 && prioridad !== 2 && prioridad !== 3 && prioridad !== 4) prioridad = 'all'
+    else if (prioridades[prioridad] === 0) prioridad = 'all'
+  }
+  const mencionaAmazon = f.mencionaAmazon && hayPartnersEn(cartera, lista)
+  return lista === f.lista && nivel === f.nivel && prioridad === f.prioridad && mencionaAmazon === f.mencionaAmazon ? f : { ...f, lista, nivel, prioridad, mencionaAmazon }
 }
 
 export interface ResumenDeCartera {
@@ -274,6 +309,10 @@ export interface Panorama {
   /** Cuántos hay con los demás filtros y sea cual sea el estado: el número del chip «Todos» */
   totalSinEstado: number
   niveles: Record<1 | 2 | 3, number>
+  /** Cuántos partners hay de cada prioridad con los demás filtros puestos */
+  prioridades: Record<1 | 2 | 3 | 4, number>
+  /** Cuántos partners cuya web menciona Amazon hay con los demás filtros puestos: lo que saldría al pulsar «Menciona Amazon» */
+  mencionanAmazon: number
   listas: Array<[string, number]>
 }
 
@@ -291,6 +330,8 @@ export function panorama(leads: readonly ColdLead[], f: FiltrosDeCartera): Panor
     porEstado: contarPorEstado(sinEstado),
     totalSinEstado: sinEstado.length,
     niveles: contarNiveles(filtrar(leads, { ...f, nivel: 'all' }), 'all'),
+    prioridades: contarPrioridades(filtrar(leads, { ...f, prioridad: 'all' }), 'all'),
+    mencionanAmazon: filtrar(leads, { ...f, mencionaAmazon: false }).filter((l) => esPartner(l) && l.menciona_amazon === true).length,
     listas: listasDisponibles(filtrar(leads, { ...f, lista: 'all' })),
   }
 }

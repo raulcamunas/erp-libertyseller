@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
   SIN_FILTROS,
   contarNiveles,
+  hayPartnersEn,
+  listaDe,
   normalizarFiltros,
   panorama,
   rellamadasDe,
@@ -18,7 +20,7 @@ import { AVISO, BOTON, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { useIsMobile } from '@/lib/use-is-mobile'
 import type { CalendarPerson } from '@/lib/types/appointments'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
-import type { ColdLead } from '@/lib/types/cold-leads'
+import { esPartner, type ColdLead } from '@/lib/types/cold-leads'
 import { PANEL } from '@/components/rendimiento/ui'
 import { BarraDeCartera, type VistaDeCartera } from './BarraDeCartera'
 import { DiagnosticoDeVinculos } from './DiagnosticoDeVinculos'
@@ -28,6 +30,7 @@ import { ListaDeLeads, ListaPorSecciones, type SeccionDeLista } from './ListaDeL
 import { PantallaDeListas } from './listas/PantallaDeListas'
 import { NavegadorDeDias } from './NavegadorDeDias'
 import { TablaDeLeads } from './TablaDeLeads'
+import { TablaDePartners } from './TablaDePartners'
 import { Tecla } from './ui'
 import { useCartera } from './useCartera'
 import { usePreferencias } from './usePreferencias'
@@ -60,6 +63,11 @@ interface Props {
   /** ¿Puede gestionar las listas de leads (crearlas, moverles leads, asignarlas, añadirles tiendas)? Solo entonces existe la vista «Listas» */
   puedeGestionarListas: boolean
   /**
+   * ¿Se sabe ya si puede ver a todos? Quien supervisa por un permiso suelto lo averigua con una consulta, y mientras tanto `puedeVerTodos` vale false: sin este dato, la cartera de
+   * una persona recordada de la última vez se tiraba al montar (parecía «alguien sin permiso») y volvía a pedirse la de todos
+   */
+  permisoResuelto?: boolean
+  /**
    * ¿Es la aplicación que se está viendo? Cold Calling se queda montada (oculta) mientras se trabaja en otra y se vuelve: lo único que
    * NO puede seguir haciendo mientras está oculta es secuestrar el teclado (↑ ↓ y «/» son de la pantalla que se ve). Lo demás —el canal
    * en tiempo real, la lectura de Rinkel cada minuto— sigue, y es justo lo que se quiere.
@@ -91,7 +99,7 @@ function useHoy(): string {
   )
 }
 
-export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeVerTodos, puedeGestionarListas, activa, leadInicial = null }: Props) {
+export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeVerTodos, puedeGestionarListas, permisoResuelto = true, activa, leadInicial = null }: Props) {
   const hoy = useHoy()
   const esMovil = useIsMobile()
   const cartera = useCartera({ propietarioInicial, userId: currentUser.id })
@@ -142,9 +150,11 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   // una cartera sin dueño en el selector, o la de otra persona sin derecho a verla, solo deja la pantalla vacía sin explicar por qué
   useEffect(() => {
     if (propietario === 'all') return
-    if (!puedeVerTodos) cambiarPropietario('all')
-    else if (team.length > 0 && !team.some((t) => t.id === propietario)) cambiarPropietario('all')
-  }, [propietario, puedeVerTodos, team, cambiarPropietario])
+    if (!puedeVerTodos) {
+      // Mientras no se sepa si puede, no se le quita la cartera que traía (la de la última vez)
+      if (permisoResuelto) cambiarPropietario('all')
+    } else if (team.length > 0 && !team.some((t) => t.id === propietario)) cambiarPropietario('all')
+  }, [propietario, puedeVerTodos, permisoResuelto, team, cambiarPropietario])
 
   // Al volver a la pantalla tras mucho rato fuera de la vista (o al despertar el portátil con ella abierta) se vuelve a pedir la cartera, en silencio
   useEffect(() => {
@@ -170,6 +180,11 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   // una búsqueda que no encuentra nada los chips de nivel no pueden convertirse en un rango de facturación
   const nivelesDeLaLista = useMemo(() => contarNiveles(leads, filtrosEfectivos.lista), [leads, filtrosEfectivos.lista])
   const hayNiveles = nivelesDeLaLista[1] + nivelesDeLaLista[2] + nivelesDeLaLista[3] > 0
+  // LOS PARTNERS (agencias, fulfillment, registro de marcas, gestorías) no tienen nivel ni facturación: tienen prioridad y puntos. Lo que se mira decide qué filtros hay y qué tabla se pinta:
+  // la lista elegida (o todas) con algún partner enseña la prioridad y «Menciona Amazon»; con SOLO partners no hay facturación que filtrar y la tabla es la suya, con las columnas del Excel
+  const hayPartners = useMemo(() => hayPartnersEn(leads, filtrosEfectivos.lista), [leads, filtrosEfectivos.lista])
+  const soloPartners = useMemo(() => hayPartners && leads.every((l) => !(filtrosEfectivos.lista === 'all' || listaDe(l) === filtrosEfectivos.lista) || esPartner(l)), [leads, hayPartners, filtrosEfectivos.lista])
+  const tablaDePartners = useMemo(() => pan.visibles.length > 0 && pan.visibles.every(esPartner), [pan.visibles])
 
   const secciones = useMemo<SeccionDeLista[]>(
     () => [
@@ -183,7 +198,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   const navegacion = useMemo(() => (vista === 'rellamadas' ? [...rell.atrasadas, ...rell.delDia] : pan.visibles), [vista, rell, pan.visibles])
 
   /** Cambia cuando cambia lo que se está mirando: la lista vuelve arriba y las primeras filas vuelven a entrar */
-  const generacion = `${vista}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
+  const generacion = `${vista}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.prioridad}|${filtrosEfectivos.mencionaAmazon}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
 
   const leadSeleccionado = useMemo(() => (seleccionado ? (leads.find((l) => l.id === seleccionado) ?? null) : null), [leads, seleccionado])
   const indiceSeleccionado = useMemo(() => (seleccionado ? navegacion.findIndex((l) => l.id === seleccionado) : -1), [navegacion, seleccionado])
@@ -301,7 +316,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     </label>
   )
 
-  const hayFiltrosPuestos = filtrosEfectivos.estado !== 'all' || filtrosEfectivos.lista !== 'all' || filtrosEfectivos.nivel !== 'all' || filtrosEfectivos.minRev !== '' || filtrosEfectivos.maxRev !== '' || filtrosEfectivos.busqueda.trim() !== ''
+  const hayFiltrosPuestos = filtrosEfectivos.estado !== 'all' || filtrosEfectivos.lista !== 'all' || filtrosEfectivos.nivel !== 'all' || filtrosEfectivos.prioridad !== 'all' || filtrosEfectivos.mencionaAmazon || filtrosEfectivos.minRev !== '' || filtrosEfectivos.maxRev !== '' || filtrosEfectivos.busqueda.trim() !== ''
 
   const vacio =
     leads.length === 0 && !cargando ? (
@@ -365,6 +380,10 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
               listas={pan.listas}
               niveles={pan.niveles}
               hayNiveles={hayNiveles}
+              prioridades={pan.prioridades}
+              hayPartners={hayPartners}
+              soloPartners={soloPartners}
+              mencionanAmazon={pan.mencionanAmazon}
               coinciden={pan.visibles.length}
             />
           </div>
@@ -375,20 +394,38 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         {vista === 'listas' ? (
           <PantallaDeListas alCambiarLeads={() => void refrescar()} />
         ) : vista === 'tabla' ? (
-          <TablaDeLeads
-            leads={pan.visibles}
-            currentUserId={currentUser.id}
-            currentUser={currentUser}
-            puedeVerTodos={puedeVerTodos}
-            selectedId={seleccionado}
-            onSelect={setSeleccionado}
-            onOpenDetail={abrirFicha}
-            onPatched={parchear}
-            nombres={nombres}
-            version={versionDeLlamadas}
-            hoy={hoy}
-            generacion={generacion}
-          />
+          // Con SOLO partners a la vista, la tabla con las columnas de su Excel; con cualquier otra mezcla, la de siempre
+          tablaDePartners ? (
+            <TablaDePartners
+              leads={pan.visibles}
+              currentUserId={currentUser.id}
+              currentUser={currentUser}
+              puedeVerTodos={puedeVerTodos}
+              selectedId={seleccionado}
+              onSelect={setSeleccionado}
+              onOpenDetail={abrirFicha}
+              onPatched={parchear}
+              nombres={nombres}
+              version={versionDeLlamadas}
+              hoy={hoy}
+              generacion={generacion}
+            />
+          ) : (
+            <TablaDeLeads
+              leads={pan.visibles}
+              currentUserId={currentUser.id}
+              currentUser={currentUser}
+              puedeVerTodos={puedeVerTodos}
+              selectedId={seleccionado}
+              onSelect={setSeleccionado}
+              onOpenDetail={abrirFicha}
+              onPatched={parchear}
+              nombres={nombres}
+              version={versionDeLlamadas}
+              hoy={hoy}
+              generacion={generacion}
+            />
+          )
         ) : (
           <div className="grid h-full min-h-0 grid-cols-1 gap-2.5 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
             <div className={`${PANEL} min-h-0 flex-col overflow-hidden ${esMovil && seleccionado ? 'hidden' : 'flex'}`}>

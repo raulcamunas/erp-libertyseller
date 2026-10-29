@@ -1,6 +1,8 @@
 import {
   SIN_FILTROS,
   contarNiveles,
+  contarPrioridades,
+  hayPartnersEn,
   contarPorEstado,
   cuantosFiltros,
   fechaDeRellamada,
@@ -266,6 +268,61 @@ console.log('\n=== los números de los chips dicen lo que saldría al pulsarlos 
   ok('con un nivel puesto, los niveles siguen contando todos los de la lista (para poder cambiar de nivel)', nivel1.niveles[1] === 2 && nivel1.niveles[2] === 1)
   ok('y los estados cuentan solo los de ese nivel', nivel1.porEstado.get('pendiente') === 1 && nivel1.porEstado.get('no_contesta') === 1)
   ok('el orden elegido se aplica a lo visible', panorama(todos, f({ orden: 'name' })).visibles.map((l) => l.store_name).join('') === 'ABCDE')
+}
+
+console.log('\n=== los partners: prioridad, puntos y «menciona Amazon» ===')
+{
+  const partner = (extra: Partial<ColdLead> = {}) => lead({ tipo_lead: 'partner', source_list: 'Partners - Gestorías', ...extra })
+  const p1 = partner({ store_name: 'Gestoría A', prioridad: 1, puntos: 86, menciona_amazon: false })
+  const p2alta = partner({ store_name: 'Gestoría B', prioridad: 2, puntos: 79, menciona_amazon: true })
+  const p2baja = partner({ store_name: 'Gestoría C', prioridad: 2, puntos: 40, menciona_amazon: false })
+  const p3 = partner({ store_name: 'Gestoría D', prioridad: 3, puntos: 90, menciona_amazon: false })
+  const p4 = partner({ store_name: 'Gestoría E', prioridad: 4, puntos: 70, menciona_amazon: true })
+  const sinPrioridad = partner({ store_name: 'Gestoría F', prioridad: null, puntos: 99 })
+  const vendedor = lead({ store_name: 'Vendedor', revenue_monthly: 90000 })
+  const todos = [p3, p2baja, vendedor, p4, p1, sinPrioridad, p2alta]
+
+  const orden = (o: FiltrosDeCartera['orden']) => ordenar(todos, o).map((l) => l.store_name.replace('Gestoría ', ''))
+  ok('«Prioridad y puntos»: las 1 antes que las 2, y dentro de cada prioridad las de más puntos', orden('prioridad').slice(0, 5).join(',') === 'A,B,C,D,E', orden('prioridad').join(','))
+  ok('una prioridad 3 con 90 puntos NO se cuela por delante de una 2 con 40: la prioridad manda y los puntos desempatan', orden('prioridad').indexOf('C') < orden('prioridad').indexOf('D'))
+  ok('sin prioridad va detrás de todas las que la tienen, aunque tenga más puntos', orden('prioridad').indexOf('F') > orden('prioridad').indexOf('E'))
+  // Los pesos de un vendedor (euros) y de un partner (prioridad y puntos) no se comparan: se ordena una lista de partners, que es lo que se mira
+  const soloPartners = todos.filter((l) => l.tipo_lead === 'partner')
+  const nombres = (ls: ColdLead[]) => ls.map((l) => l.store_name.replace('Gestoría ', '')).join(',')
+  ok('el orden por defecto (rellamadas primero, luego el peso) ordena igual: P1 arriba y los puntos desempatan', nombres(ordenar(soloPartners, 'due_first')).startsWith('A,B,C,D,E'), nombres(ordenar(soloPartners, 'due_first')))
+  ok('«Más puntos» respeta también la prioridad (los puntos solos engañarían: la D tiene 90)', nombres(ordenar(soloPartners, 'revenue_desc')).startsWith('A,B,C,D,E'), nombres(ordenar(soloPartners, 'revenue_desc')))
+  ok('«Menos puntos» es el orden contrario', nombres(ordenar(soloPartners, 'revenue_asc')).startsWith('F'), nombres(ordenar(soloPartners, 'revenue_asc')))
+  const conRellamada = partner({ store_name: 'Gestoría G', prioridad: 4, puntos: 10, next_call_date: '2026-10-28' })
+  ok('una rellamada apalabrada sigue yendo antes que cualquier prioridad', ordenar([...soloPartners, conRellamada], 'due_first')[0].store_name === 'Gestoría G')
+
+  console.log('\n  — filtrar —')
+  ok('prioridad 1: solo los partners de prioridad 1', filtrar(todos, f({ prioridad: 1 })).map((l) => l.store_name).join() === 'Gestoría A')
+  ok('prioridad 2: las dos', filtrar(todos, f({ prioridad: 2 })).length === 2)
+  ok('una prioridad deja fuera al que no es partner (un vendedor no tiene prioridad)', !filtrar(todos, f({ prioridad: 2 })).some((l) => l.store_name === 'Vendedor'))
+  ok('«menciona Amazon»: solo los partners que lo mencionan', filtrar(todos, f({ mencionaAmazon: true })).map((l) => l.store_name.replace('Gestoría ', '')).sort().join() === 'B,E')
+  ok('prioridad y «menciona Amazon» a la vez se juntan', filtrar(todos, f({ prioridad: 4, mencionaAmazon: true })).length === 1 && filtrar(todos, f({ prioridad: 1, mencionaAmazon: true })).length === 0)
+  ok('el rango de facturación NO deja fuera a los partners (no tienen facturación)', filtrar([p1, vendedor], f({ minRev: '50000' })).some((l) => l.store_name === 'Gestoría A'))
+
+  console.log('\n  — contar —')
+  const c = contarPrioridades(todos, 'all')
+  ok('cuenta cada prioridad (solo partners)', c[1] === 1 && c[2] === 2 && c[3] === 1 && c[4] === 1, JSON.stringify(c))
+  const otraLista = partner({ prioridad: 1, source_list: 'Partners - Fulfillment' })
+  ok('dentro de la lista elegida: la otra no cuenta', contarPrioridades([...todos, otraLista], 'Partners - Gestorías')[1] === 1 && contarPrioridades([...todos, otraLista], 'Partners - Fulfillment')[1] === 1)
+  ok('hayPartnersEn: sí en la lista de partners, no en una de vendedores', hayPartnersEn(todos, 'Partners - Gestorías') && !hayPartnersEn([vendedor], 'all') && !hayPartnersEn(todos, 'No Amazon V1'))
+  const pan = panorama(todos, f({ prioridad: 2 }))
+  ok('el panorama cuenta las prioridades con los demás filtros y SIN el suyo (para poder cambiar de prioridad)', pan.prioridades[1] === 1 && pan.prioridades[2] === 2 && pan.visibles.length === 2)
+  ok('y cuántos mencionan Amazon: lo que saldría al pulsar el chip (con la prioridad puesta, solo los de esa prioridad)', panorama(todos, f({})).mencionanAmazon === 2 && pan.mencionanAmazon === 1 && panorama(todos, f({ mencionaAmazon: true })).mencionanAmazon === 2)
+
+  console.log('\n  — un filtro sin nada que filtrar se quita solo —')
+  ok('una prioridad que ya no tiene ningún partner (otra cartera) se quita', normalizarFiltros(f({ prioridad: 2 }), [vendedor]).prioridad === 'all')
+  ok('una que sí tiene, se queda y es LA MISMA referencia', (() => { const fi = f({ prioridad: 2 }); return normalizarFiltros(fi, todos) === fi })())
+  ok('una prioridad con valor imposible se quita', normalizarFiltros(f({ prioridad: 9 }), todos).prioridad === 'all')
+  ok('«menciona Amazon» sin ningún partner en la cartera se apaga (si no, la pantalla se queda vacía sin explicar por qué)', normalizarFiltros(f({ mencionaAmazon: true }), [vendedor]).mencionaAmazon === false)
+  ok('con partners se queda', normalizarFiltros(f({ mencionaAmazon: true }), todos).mencionaAmazon === true)
+
+  console.log('\n  — hay filtros —')
+  ok('la prioridad y el «menciona Amazon» cuentan como filtros', hayFiltros(f({ prioridad: 1 })) && hayFiltros(f({ mencionaAmazon: true })) && cuantosFiltros(f({ prioridad: 1, mencionaAmazon: true })) === 2)
+  ok('y SIN_FILTROS no tiene ninguno', !hayFiltros(SIN_FILTROS) && cuantosFiltros(SIN_FILTROS) === 0)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

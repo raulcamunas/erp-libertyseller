@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail } from '@/lib/amazon/api'
-import { contextoParaIa, tipoDeLead } from '@/lib/correo/ia-contexto'
+import { contextoParaIa, esPartnerParaIa, MENSAJE_PARTNER_SIN_IA, tipoDeLead } from '@/lib/correo/ia-contexto'
 import { esperarLaTranscripcionDelLead } from '@/lib/correo/ia-espera-servidor'
 import { redactarConIa, TIEMPO_MAXIMO_DEL_CORREO_MS } from '@/lib/correo/ia-generar'
 import { resolverConfiguracion } from '@/lib/correo/ia-laboratorio-servidor'
@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
 
     const lead = await cargarLead(sesion.supabase, leadId)
     if (!lead) return fail(404, 'No se encuentra ese lead, o no es tuyo.')
+    if (esPartnerParaIa(lead)) return fail(409, MENSAJE_PARTNER_SIN_IA)
 
     const [notas, llamadasLeidas, correos, ganadores] = await Promise.all([
       cargarNotas(sesion.supabase, leadId),

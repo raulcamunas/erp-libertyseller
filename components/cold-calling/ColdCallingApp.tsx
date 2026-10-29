@@ -24,7 +24,12 @@ import { clavePreferencias, leerPreferencias } from './usePreferencias'
  * consulta; el resto empieza sin selector y lo gana si la consulta dice que sí.
  *
  * QUÉ CARTERA SE PIDE AL MONTAR: la que quien supervisa miraba la última vez (`ownerFilter`, en las preferencias de la pantalla). Se lee
- * antes de la primera petición para no pedir la de todos y, nada más llegar, tirarla para pedir la de una persona.
+ * antes de la primera petición para no pedir la de todos y, nada más llegar, tirarla para pedir la de una persona. Vale también para quien supervisa por
+ * un permiso suelto (un manager comercial) y no por su rol: su permiso se averigua con una consulta, y hasta que llega NO se le vuelve a «todos»
+ * (`permisoResuelto`); antes pedía siempre la cartera entera —35.000 leads— y la de su equipo o la suya propia tenía que elegirla a mano cada vez.
+ *
+ * EN EL SELECTOR ENTRAN LOS COMERCIALES Y LOS MANAGERS COMERCIALES. Un manager que trabaja su propia lista (Jhanna con los partners) tiene cartera aunque no sea comercial en el
+ * sentido de la agenda y las comisiones (`is_comercial`), y sin estar en el selector nadie podía mirarla ni ella elegirla.
  */
 
 interface Props {
@@ -38,12 +43,13 @@ const supervisaPorRol = (perfil: UserProfile) => perfil.role === 'admin' || perf
 export function ColdCallingApp({ perfil, activa }: Props) {
   const supabase = useMemo(() => createClient(), [])
   const [puedeVerTodos, setPuedeVerTodos] = useState(() => supervisaPorRol(perfil))
+  // ¿Ya se sabe si puede ver a todos? Quien supervisa por rol lo sabe desde el principio; el resto, cuando llega la consulta de su permiso
+  const [permisoResuelto, setPermisoResuelto] = useState(() => supervisaPorRol(perfil))
   const [puedeListas, setPuedeListas] = useState(() => supervisaPorRol(perfil))
   const [team, setTeam] = useState<CalendarPerson[]>([])
 
-  // Una sola vez: la cartera que se pide al montar. Quien no supervisa no elige: la RLS ya le da solo la suya
+  // Una sola vez: la cartera que se pide al montar. Quien no supervisa no elige: la RLS ya le da solo la suya, y nunca guardó un `ownerFilter` (solo se guarda si se puede ver a todos)
   const propietarioInicial = useMemo(() => {
-    if (!supervisaPorRol(perfil)) return 'all'
     try {
       return leerPreferencias(window.localStorage.getItem(clavePreferencias(perfil.id)), true).propietario ?? 'all'
     } catch {
@@ -60,7 +66,9 @@ export function ColdCallingApp({ perfil, activa }: Props) {
     if (supervisaPorRol(perfil)) return
     let vivo = true
     void puedeVerEquipoComercialEnNavegador(supabase, perfil.role, perfil.id).then((v) => {
-      if (vivo) setPuedeVerTodos(v)
+      if (!vivo) return
+      setPuedeVerTodos(v)
+      setPermisoResuelto(true)
     })
     return () => {
       vivo = false
@@ -84,14 +92,13 @@ export function ColdCallingApp({ perfil, activa }: Props) {
   useEffect(() => {
     if (!puedeVerTodos) return
     let vivo = true
-    void supabase
-      .from('profiles')
-      .select('id, full_name, email, role, calendar_color')
-      .eq('is_comercial', true)
-      .order('full_name', { ascending: true })
-      .then(({ data }) => {
-        if (vivo) setTeam((data as CalendarPerson[] | null) ?? [])
-      })
+    const columnas = 'id, full_name, email, role, calendar_color'
+    void (async () => {
+      // Los comerciales y los managers comerciales. Si la base no tiene todavía el puesto (migración 257), solo los comerciales, como antes
+      let r = await supabase.from('profiles').select(columnas).or('is_comercial.eq.true,puesto.eq.manager_comercial').order('full_name', { ascending: true })
+      if (r.error) r = await supabase.from('profiles').select(columnas).eq('is_comercial', true).order('full_name', { ascending: true })
+      if (vivo) setTeam((r.data as CalendarPerson[] | null) ?? [])
+    })()
     return () => {
       vivo = false
     }
@@ -99,7 +106,7 @@ export function ColdCallingApp({ perfil, activa }: Props) {
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
-      <ColdCallingBoard propietarioInicial={propietarioInicial} team={team} currentUser={perfil} puedeVerTodos={puedeVerTodos} puedeGestionarListas={puedeListas} activa={activa} leadInicial={leadInicial} />
+      <ColdCallingBoard propietarioInicial={propietarioInicial} team={team} currentUser={perfil} puedeVerTodos={puedeVerTodos} puedeGestionarListas={puedeListas} permisoResuelto={permisoResuelto} activa={activa} leadInicial={leadInicial} />
     </div>
   )
 }

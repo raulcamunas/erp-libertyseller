@@ -3,6 +3,8 @@ import {
   COLUMNAS_A_LEER,
   avisosDelCorreo,
   avisosDelLead,
+  esPartnerParaIa,
+  MENSAJE_PARTNER_SIN_IA,
   claseDeLlamada,
   contextoParaIa,
   duracionLegible,
@@ -299,6 +301,13 @@ console.log('\n=== avisosDelLead ===')
   const t = contextoParaIa({ lead: { store_name: 'Acme', status: 'no_interesa' }, notas: [], llamadas: [], correos: [], ahora: AHORA })
   ok('los avisos van en su propio bloque, justo tras los datos', t.indexOf('AVISOS PARA ESTE CORREO') > t.indexOf('DATOS DE LA EMPRESA') && t.indexOf('AVISOS PARA ESTE CORREO') < t.indexOf('CORREOS ANTERIORES'))
   ok('sin avisos no hay bloque', !contextoParaIa({ lead: { store_name: 'Acme', status: 'seguimiento' }, notas: [], llamadas: [], correos: [], ahora: AHORA }).includes('AVISOS PARA ESTE CORREO'))
+}
+
+console.log('\n=== la IA no escribe a partners (está pensada para vendedores) ===')
+{
+  ok('un lead de tipo partner se reconoce', esPartnerParaIa({ tipo_lead: 'partner' }))
+  ok('un vendedor, una tienda online y uno sin dato NO', !esPartnerParaIa({ tipo_lead: 'seller_amazon' }) && !esPartnerParaIa({ tipo_lead: 'tienda_online' }) && !esPartnerParaIa({}) && !esPartnerParaIa({ tipo_lead: null }))
+  ok('el aviso dice por qué y qué hacer', /partners/.test(MENSAJE_PARTNER_SIN_IA) && /a mano/.test(MENSAJE_PARTNER_SIN_IA))
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

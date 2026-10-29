@@ -258,6 +258,12 @@ export function PantallaDeListas({ alCambiarLeads }: Props) {
             <span className={CIFRAS.valor}>{numero(t.noVenden)}</span>
             <span className={CIFRAS.rotulo}>no venden</span>
           </div>
+          {t.partners > 0 && (
+            <div className={CIFRAS.celda} title="Posibles socios (agencias, fulfillment, registro de marcas, gestorías): no son clientes, y no se les pregunta si venden en Amazon">
+              <span className={CIFRAS.valor}>{numero(t.partners)}</span>
+              <span className={CIFRAS.rotulo}>partners</span>
+            </div>
+          )}
           <div className={CIFRAS.celda}>
             <span className={CIFRAS.valor}>{porcentajeTexto(t.pctTrabajados)}</span>
             <span className={CIFRAS.rotulo}>trabajados</span>

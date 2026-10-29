@@ -1,12 +1,13 @@
 'use client'
 
-import { AlertTriangle, CalendarClock, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, Mail, Phone, ShoppingBag, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, Linkedin, Mail, MapPin, Phone, ShoppingBag, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { clavesDelLead } from '@/lib/cold-calling/vinculos'
 import { diaConSemana, haceCuanto, sumarDias } from '@/lib/cold-calling/fechas'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { emailsDelLead, normalizarTelefono, telefonosDelLead } from '@/lib/cold-calling/contactos'
+import { urlSegura } from '@/lib/cold-calling/partners'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import {
@@ -17,6 +18,7 @@ import {
   COLD_VENDE_HINTS,
   COLD_VENDE_LABELS,
   COLD_VENDE_ORDEN,
+  esPartner,
   esTiendaOnline,
   formatRevenue,
   type ColdLead,
@@ -26,7 +28,7 @@ import {
 } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
-import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, InsigniaDeNivel, Tecla, tinte } from './ui'
+import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, InsigniaDeNivel, InsigniaDePrioridad, Tecla, tinte } from './ui'
 import { AnadirContacto } from './AnadirContacto'
 import { BotonDeWhatsapp } from './BotonDeWhatsapp'
 import { useEscribirAlLead } from './useEscribirAlLead'
@@ -66,6 +68,9 @@ const CAMPOS_DEL_DETALLE =
   'decisor, cargo_decisor, cif, tipo_empresa, n_administradores, plataforma, ' +
   'n_productos, anos_tienda, instagram, telefonos_extra, emails_extra, web, ' +
   'vende_en_amazon_comprobado_en'
+
+/** Un partner además trae sus enlaces largos y las búsquedas con las que se encontró (migración 262). Solo se piden para un partner: antes de lanzar la 262 esas columnas no existen y pedirlas rompería la ficha de todos */
+const CAMPOS_DEL_DETALLE_DE_PARTNER = `${CAMPOS_DEL_DETALLE}, linkedin, google_maps_url, busquedas_origen`
 
 /** Lo ya pedido de cada lead, para no esperar al volver a uno que se acaba de ver. Con tope: no crece sin límite */
 const DETALLES = new Map<string, Partial<ColdLead>>()
@@ -108,7 +113,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
     setDetalle(DETALLES.get(delaLista.id) ?? {})
     supabase
       .from('cold_leads')
-      .select(CAMPOS_DEL_DETALLE)
+      .select(esPartner(delaLista) ? CAMPOS_DEL_DETALLE_DE_PARTNER : CAMPOS_DEL_DETALLE)
       .eq('id', delaLista.id)
       .single()
       .then(({ data }) => {
@@ -171,8 +176,10 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
   const alApuntar = (_clase: ColdNoteKind) => void patch({ last_contacted_at: new Date().toISOString() })
 
   const esTienda = esTiendaOnline(lead)
-  /** Si es autónomo NO se llama en frío. Criterio de la Leyenda del Excel */
-  const esAutonomo = esTienda && lead.tipo_empresa === 'autonomo'
+  /** Un posible socio (agencia, fulfillment, registro de marcas, gestoría): sin facturación, sin «¿vende en Amazon?» y con su propia ficha de datos */
+  const esSocio = esPartner(lead)
+  /** Si es autónomo (en un partner, «persona física») NO se llama en frío. Criterio de la Leyenda del Excel y de la captación de partners */
+  const esAutonomo = (esTienda || esSocio) && lead.tipo_empresa === 'autonomo'
 
   /**
    * Marcar si vende o no sella SIEMPRE la fecha, y desmarcar la borra. El sello es lo único que distingue «lo hemos mirado y no vende»
@@ -220,17 +227,24 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               <h2 className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.012em] text-[var(--ls-t1)]">{lead.store_name}</h2>
               {lead.source_list && <InsigniaDeLista nombre={lead.source_list} />}
               {lead.nivel != null && <InsigniaDeNivel nivel={lead.nivel} />}
+              {esSocio && <InsigniaDePrioridad prioridad={lead.prioridad} />}
+              {esSocio && lead.puntos != null && (
+                <span title={`${lead.puntos} puntos de la captación`} className="text-[11px] tabular-nums text-[var(--ls-t3)]">
+                  {lead.puntos} pts
+                </span>
+              )}
               {esAutonomo && (
                 <span className="inline-flex h-[18px] items-center rounded-[4px] px-1.5 text-[10.5px] font-medium" style={{ color: COLOR_ESTADO.ambar, background: tinte('ambar') }}>
-                  Autónomo
+                  {esSocio ? 'Persona física' : 'Autónomo'}
                 </span>
               )}
             </div>
             <p className="mt-0.5 text-[11.5px] text-[var(--ls-t3)]">
-              {lead.company || 'Sin empresa'}
+              {/* De un partner interesa su razón social, QUÉ es y DÓNDE está; del resto, su empresa */}
+              {esSocio ? [lead.company || 'Sin razón social', lead.category, lead.ciudad].filter(Boolean).join(' · ') : lead.company || 'Sin empresa'}
               {/* La cifra de ventas estimadas NO sube a la cabecera. Es una estimación de tráfico en dólares y aquí se leería como
-                  facturación; vive en su bloque, con la advertencia al lado */}
-              {!esTienda && lead.revenue_monthly != null ? ` · ${formatRevenue(lead.revenue_monthly)}/mes` : ''}
+                  facturación; vive en su bloque, con la advertencia al lado. Un partner no tiene ninguna de las dos */}
+              {!esTienda && !esSocio && lead.revenue_monthly != null ? ` · ${formatRevenue(lead.revenue_monthly)}/mes` : ''}
               {intentos > 0 ? ` · ${intentos} ${intentos === 1 ? 'intento' : 'intentos'}` : ' · sin llamadas todavía'}
               {lead.last_contacted_at ? ` · último contacto ${haceCuanto(lead.last_contacted_at)}` : ''}
               {intentos > 0 && intentos < 3 ? <span className="text-[var(--ls-t4)]"> · las citas suelen caer a partir del tercero</span> : null}
@@ -307,8 +321,9 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">{correo}</span>
             </button>
           ))}
-          {correos.length > 0 && (
-            // Abre el mismo mensaje y la IA ya está escribiendo el borrador con los datos y el historial del lead (sin facturación). Se edita antes de enviar
+          {correos.length > 0 && !esSocio && (
+            // Abre el mismo mensaje y la IA ya está escribiendo el borrador con los datos y el historial del lead (sin facturación). Se edita antes de enviar.
+            // No para un partner: la IA escribe pensando en un vendedor (se le propone mejorar o entrar en Amazon) y a una gestoría o una agencia hay que proponerle otra cosa
             <button
               type="button"
               onClick={() => escribirAlLead(lead, correos[0], { ia: true })}
@@ -328,9 +343,25 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               <Globe className="h-3.5 w-3.5" aria-hidden /> Abrir la tienda <ExternalLink className="h-3 w-3 text-[var(--ls-t4)]" aria-hidden />
             </a>
           )}
-          {!esTienda && lead.seller_url && (
+          {!esTienda && !esSocio && lead.seller_url && (
             <a href={lead.seller_url} target="_blank" rel="noopener noreferrer" className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}>
               Ver en Amazon <ExternalLink className="h-3 w-3 text-[var(--ls-t4)]" aria-hidden />
+            </a>
+          )}
+          {/* Los tres enlaces de un partner: su web, su LinkedIn y su ficha de Maps. Solo se abren si son http o https (urlSegura) */}
+          {esSocio && urlSegura(lead.web) && (
+            <a href={urlSegura(lead.web)!} target="_blank" rel="noopener noreferrer" className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}>
+              <Globe className="h-3.5 w-3.5" aria-hidden /> Abrir la web <ExternalLink className="h-3 w-3 text-[var(--ls-t4)]" aria-hidden />
+            </a>
+          )}
+          {esSocio && urlSegura(lead.linkedin) && (
+            <a href={urlSegura(lead.linkedin)!} target="_blank" rel="noopener noreferrer" className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}>
+              <Linkedin className="h-3.5 w-3.5" aria-hidden /> LinkedIn <ExternalLink className="h-3 w-3 text-[var(--ls-t4)]" aria-hidden />
+            </a>
+          )}
+          {esSocio && urlSegura(lead.google_maps_url) && (
+            <a href={urlSegura(lead.google_maps_url)!} target="_blank" rel="noopener noreferrer" className={`${BOTON.base} ${BOTON.secundario} !h-8 !px-2.5 !text-[12px]`}>
+              <MapPin className="h-3.5 w-3.5" aria-hidden /> Maps <ExternalLink className="h-3 w-3 text-[var(--ls-t4)]" aria-hidden />
             </a>
           )}
         </div>
@@ -348,7 +379,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
           <div className="mx-4 mt-2 flex items-start gap-2 rounded-[6px] border border-[var(--ls-linea2)] border-l-2 bg-[var(--ls-sup2)] px-2.5 py-1.5 text-[11.5px] leading-snug text-[var(--ls-t2)]" style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
             <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-[var(--ls-e-ambar)]" aria-hidden />
             <p>
-              <strong className="font-semibold text-[var(--ls-t1)]">Autónomo: no se llama en frío.</strong> A esta ficha se le escribe por email. El teléfono está ahí para confirmar datos, no para el primer contacto.
+              <strong className="font-semibold text-[var(--ls-t1)]">{esSocio ? 'Persona física: no se llama en frío.' : 'Autónomo: no se llama en frío.'}</strong> A esta ficha se le escribe por email. El teléfono está ahí para confirmar datos, no para el primer contacto.
             </p>
           </div>
         )}
@@ -473,11 +504,11 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
                 className="w-full resize-none rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2.5 py-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] hover:border-[var(--ls-linea2)] focus:border-[var(--ls-acc-graf)] focus:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)] disabled:opacity-60"
               />
               <p className="mt-1 text-[11px] leading-snug text-[var(--ls-t4)]">
-                {esTienda
+                {esTienda || esSocio
                   ? // De esta lista no se importó ningún seguimiento: las seis columnas de trabajo del Excel venían vacías, así que no hay nada viejo que se pueda pisar
                     'Resumen siempre a la vista. En esta lista empiezas de cero: lo que escribas aquí es lo primero que se ha apuntado del lead.'
                   : 'Resumen siempre a la vista. Lo que venía del Excel está también en el historial, así que puedes reescribirlo sin perderlo.'}
-                {!esTienda && lead.action_label ? ` Etiqueta original: ${lead.action_label}.` : ''}
+                {!esTienda && !esSocio && lead.action_label ? ` Etiqueta original: ${lead.action_label}.` : ''}
               </p>
             </section>
           </aside>

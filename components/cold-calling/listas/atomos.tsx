@@ -117,9 +117,9 @@ export function BarraDeEstados({ estados, ancho = 'w-[120px]' }: { estados: Reco
 /* Insignias                                                           */
 /* ------------------------------------------------------------------ */
 
-const TONO_DE_TIPO: Record<TipoDeLista, TonoEstado> = { seller_amazon: 'naranja', tienda_online: 'azul', mixto: 'violeta' }
+const TONO_DE_TIPO: Record<TipoDeLista, TonoEstado> = { seller_amazon: 'naranja', tienda_online: 'azul', partner: 'verde', mixto: 'violeta' }
 
-/** «Venden en Amazon» / «No venden en Amazon» / «Mezcla». Una lista vacía no es de ningún tipo */
+/** «Venden en Amazon» / «No venden en Amazon» / «Partners» / «Mezcla». Una lista vacía no es de ningún tipo */
 export function InsigniaDeTipo({ tipo }: { tipo: TipoDeLista | null }) {
   if (!tipo) return <span className="text-[11.5px] text-[var(--ls-t4)]">—</span>
   const tono = TONO_DE_TIPO[tipo]

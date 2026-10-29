@@ -32,6 +32,16 @@ console.log('\n=== la vista «Listas» ===')
   ok('también la recupera quien no supervisa por rol (la pantalla decide si la ofrece según su casilla)', leerPreferencias(guardado({ view: 'listas' }), false).vista === 'listas')
 }
 
+console.log('\n=== los filtros de los partners: prioridad y «menciona Amazon» ===')
+{
+  const p = leerPreferencias(guardado({ prioridadFilter: 1, mencionaAmazon: true }), true)
+  ok('la prioridad y el «menciona Amazon» se recuerdan', p.filtros?.prioridad === 1 && p.filtros?.mencionaAmazon === true)
+  ok('y lo que no se guardó queda como en SIN_FILTROS', p.filtros?.estado === 'all' && p.filtros?.lista === 'all')
+  ok('una prioridad que no es 1, 2, 3 ni 4 se ignora', leerPreferencias(guardado({ prioridadFilter: 5 }), true).filtros === undefined && leerPreferencias(guardado({ prioridadFilter: '1' }), true).filtros === undefined && leerPreferencias(guardado({ prioridadFilter: 0 }), true).filtros === undefined)
+  ok('«menciona Amazon» solo se recuerda si es verdadero de verdad', leerPreferencias(guardado({ mencionaAmazon: 'sí' }), true).filtros === undefined && leerPreferencias(guardado({ mencionaAmazon: false }), true).filtros === undefined)
+  ok('quien ya tenía guardado lo de antes no los trae (y no se rompe nada)', leerPreferencias(guardado({ view: 'tabla', nivelFilter: 2 }), true).filtros?.prioridad === 'all' && leerPreferencias(guardado({ view: 'tabla', nivelFilter: 2 }), true).filtros?.mencionaAmazon === false)
+}
+
 console.log('\n=== quien no supervisa no se deja la cartera de otro ===')
 {
   const p = leerPreferencias(guardado({ view: 'ficha', ownerFilter: 'u-daniela' }), false)

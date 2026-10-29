@@ -116,6 +116,17 @@ export function textoParaIa(crudo: string, maximo: number): string {
   return limpio.length > maximo ? `${limpio.slice(0, maximo - 1).trimEnd()}…` : limpio
 }
 
+/**
+ * LA IA NO ESCRIBE A PARTNERS. Una agencia, una gestoría, una empresa de fulfillment o un registrador de marcas no es un vendedor al que proponerle mejorar o entrar en Amazon: es un posible
+ * socio, y lo que hay que decirle es otra cosa. La redacción (correo, WhatsApp y seguimientos) está escrita para un vendedor, así que con un partner daría un texto que no viene a cuento y
+ * que además nadie revisaría con la atención de siempre. Hasta que haya una redacción pensada para ellos, se escribe a mano.
+ */
+export const MENSAJE_PARTNER_SIN_IA = 'Los partners (agencias, gestorías, fulfillment, registro de marcas) todavía no tienen redacción con IA: está pensada para vendedores. Escribe el mensaje a mano.'
+
+export function esPartnerParaIa(lead: { tipo_lead?: unknown }): boolean {
+  return lead.tipo_lead === 'partner'
+}
+
 /** ¿Para una empresa que ya vende en Amazon (se le propone mejorar) o para una que todavía no (se le propone entrar)? */
 export function tipoDeLead(lead: Pick<DatosDeLead, 'tipo_lead' | 'vende_en_amazon'>): EjemploGanador['tipo'] {
   if (lead.vende_en_amazon === 'vende' || lead.tipo_lead === 'seller_amazon') return 'optimizar'

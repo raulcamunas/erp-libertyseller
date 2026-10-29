@@ -1,13 +1,16 @@
 'use client'
 
-import { ChevronRight, Contact, Copy, ExternalLink, ShoppingBag, Store, UserRound, Users, type LucideIcon } from 'lucide-react'
+import { ChevronRight, Contact, Copy, ExternalLink, Handshake, Link2, ShoppingBag, Store, UserRound, Users, type LucideIcon } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { agruparPorCargo, parsearDirectivos } from '@/lib/cold-calling/directivos'
+import { busquedasDeOrigen, dominioDeWeb, esPrioridadDePartner, PRIORIDADES_DE_PARTNER, textoDeLinkedin, urlSegura, valoracionDe } from '@/lib/cold-calling/partners'
+import { InsigniaDePrioridad } from './ui'
 import { useEscribirAlLead } from './useEscribirAlLead'
 import {
   AVISO_VENTAS_ESTIMADAS,
   COLD_TIPO_EMPRESA_LABELS,
+  esPartner,
   esTiendaOnline,
   formatRevenue,
   formatVentasEstimadas,
@@ -27,6 +30,10 @@ import {
  * un dato (un decisor vacío en seis de cada diez fichas es justo lo que dice «pregunta por el responsable»).
  *
  * El criterio de cada bloque viene de la Leyenda del Excel del equipo y está en los comentarios de abajo: no se pierde con el rediseño.
+ *
+ * UN PARTNER (agencia, fulfillment, registro de marcas, gestoría) NO ES UN CLIENTE: no tiene facturación, ni decisor del BORME, ni «¿vende en Amazon?». Tiene los datos de Google
+ * Maps —prioridad, puntos, valoración, categoría, con qué búsquedas se encontró— y tres enlaces (su web, su LinkedIn y su ficha de Maps). Por eso tiene sus dos cajas propias y no
+ * pasa por las del vendedor ni las de la tienda.
  */
 
 /** Una caja: título con su icono, y, si hace falta, una acción a la derecha (el enlace al perfil) */
@@ -83,10 +90,11 @@ export function DatosDelLead({ lead, conContacto = false, esAutonomo = false }: 
   const [todosLosDirectivos, setTodosLosDirectivos] = useState(false)
   const escribirAlLead = useEscribirAlLead()
   const esTienda = esTiendaOnline(lead)
+  const esSocio = esPartner(lead)
   const tieneExtras = Boolean(lead.telefonos_extra || lead.emails_extra)
 
-  // `directors` es del vendedor de Amazon. En una tienda online la persona vive en su propio bloque («Decisor»)
-  const grupos = useMemo(() => (esTienda ? [] : agruparPorCargo(parsearDirectivos(lead.directors))), [esTienda, lead.directors])
+  // `directors` es del vendedor de Amazon. En una tienda online la persona vive en su propio bloque («Decisor»); un partner no tiene ninguno de los dos
+  const grupos = useMemo(() => (esTienda || esSocio ? [] : agruparPorCargo(parsearDirectivos(lead.directors))), [esTienda, esSocio, lead.directors])
   const totalDirectivos = grupos.reduce((n, g) => n + g.nombres.length, 0)
   const recortar = !todosLosDirectivos && totalDirectivos > DIRECTIVOS_VISIBLES
 
@@ -112,7 +120,7 @@ export function DatosDelLead({ lead, conContacto = false, esAutonomo = false }: 
                     <button
                       type="button"
                       onClick={() => copiar(lead.phone!, 'Teléfono copiado')}
-                      title={esAutonomo ? 'Autónomo: no se llama en frío' : 'Copiar el teléfono'}
+                      title={esAutonomo ? (esSocio ? 'Persona física: no se llama en frío' : 'Autónomo: no se llama en frío') : 'Copiar el teléfono'}
                       className={`inline-flex items-center gap-1 transition-colors hover:text-[var(--ls-acc)] ${esAutonomo ? 'opacity-60' : ''}`}
                     >
                       {lead.phone}
@@ -256,8 +264,12 @@ export function DatosDelLead({ lead, conContacto = false, esAutonomo = false }: 
         </Caja>
       )}
 
+      {/* EL PARTNER: los datos de Google Maps con los que se captó. La prioridad va arriba del todo con su pista: es lo que dice si se llama o solo se escribe. */}
+      {esSocio && <CajaDelPartner lead={lead} />}
+      {esSocio && <CajaDeEnlaces lead={lead} />}
+
       {/* El vendedor de Amazon: solo para los leads que YA venden en Amazon */}
-      {!esTienda && (
+      {!esTienda && !esSocio && (
         <Caja
           titulo="El vendedor"
           icono={Store}
@@ -297,5 +309,103 @@ export function DatosDelLead({ lead, conContacto = false, esAutonomo = false }: 
         </Caja>
       )}
     </div>
+  )
+}
+
+/** Lo que se sabe de un partner. Lo que no hay se escribe «—» (no se esconde la casilla: «no se sabe» también es un dato), salvo las búsquedas, que son una lista */
+function CajaDelPartner({ lead }: { lead: ColdLead }) {
+  const valoracion = valoracionDe(lead.rating, lead.resenas)
+  const busquedas = busquedasDeOrigen(lead.busquedas_origen)
+  return (
+    <Caja titulo="El partner" icono={Handshake}>
+      <Mosaico>
+        <Casilla etiqueta="Prioridad" entera>
+          {esPrioridadDePartner(lead.prioridad) ? (
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <InsigniaDePrioridad prioridad={lead.prioridad} />
+              <span className="text-[11px] font-normal leading-snug text-[var(--ls-t3)]">{PRIORIDADES_DE_PARTNER[lead.prioridad].pista}</span>
+            </span>
+          ) : (
+            <Vacio texto="sin prioridad" />
+          )}
+        </Casilla>
+        <Casilla etiqueta="Puntos">{lead.puntos != null ? <span className="font-semibold tabular-nums">{lead.puntos}</span> : <Vacio />}</Casilla>
+        <Casilla etiqueta="Valoración en Maps">{valoracion ? <span className="tabular-nums">★ {valoracion}</span> : <Vacio texto="sin valoración" />}</Casilla>
+        <Casilla etiqueta="Tipo">
+          {lead.tipo_empresa === 'sociedad' ? (
+            COLD_TIPO_EMPRESA_LABELS.sociedad
+          ) : lead.tipo_empresa === 'autonomo' ? (
+            <span className="text-[var(--ls-e-ambar)]">Persona física · no se llama en frío</span>
+          ) : (
+            <Vacio texto="Sin verificar" />
+          )}
+        </Casilla>
+        <Casilla etiqueta="Menciona Amazon">
+          {lead.menciona_amazon == null ? <Vacio /> : lead.menciona_amazon ? <span className="font-semibold text-[var(--ls-e-verde)]">Sí</span> : 'No'}
+        </Casilla>
+        <Casilla etiqueta="Razón social" entera>
+          {lead.company || <Vacio texto="Sin razón social" />}
+        </Casilla>
+        <Casilla etiqueta="Categoría">{lead.category || <Vacio />}</Casilla>
+        <Casilla etiqueta="Ciudad">{lead.ciudad || <Vacio texto="sin ciudad" />}</Casilla>
+        {busquedas.length > 0 && (
+          <Casilla etiqueta="Lo encontramos buscando" entera>
+            <ul className="flex flex-wrap gap-1">
+              {busquedas.map((b) => (
+                <li key={b} className="rounded-[4px] bg-[var(--ls-sup3)] px-1.5 py-px text-[11.5px] leading-snug text-[var(--ls-t2)]">
+                  {b}
+                </li>
+              ))}
+            </ul>
+          </Casilla>
+        )}
+      </Mosaico>
+    </Caja>
+  )
+}
+
+/** Sus tres enlaces. Solo se abren si son http o https (urlSegura): vienen de un Excel y de la web de cada negocio */
+function CajaDeEnlaces({ lead }: { lead: ColdLead }) {
+  const web = urlSegura(lead.web)
+  const linkedin = urlSegura(lead.linkedin)
+  const maps = urlSegura(lead.google_maps_url)
+  // Las que llegan con la ficha abierta (LinkedIn y Maps) tardan un instante: hasta entonces no se sabe si no hay, y no se pinta un guion que luego cambie
+  const cargadoElDetalle = 'linkedin' in lead || 'google_maps_url' in lead
+  return (
+    <Caja titulo="Enlaces" icono={Link2}>
+      <Mosaico>
+        <Casilla etiqueta="Web">
+          {web ? (
+            <a href={web} target="_blank" rel="noopener noreferrer" className={`${enlace} break-all`} title={web}>
+              {dominioDeWeb(web)} <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+            </a>
+          ) : (
+            <Vacio texto="sin web" />
+          )}
+        </Casilla>
+        <Casilla etiqueta="LinkedIn">
+          {linkedin ? (
+            <a href={linkedin} target="_blank" rel="noopener noreferrer" className={`${enlace} break-all`} title={linkedin}>
+              {textoDeLinkedin(linkedin)} <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+            </a>
+          ) : cargadoElDetalle ? (
+            <Vacio texto="sin LinkedIn" />
+          ) : (
+            <Vacio texto="…" />
+          )}
+        </Casilla>
+        <Casilla etiqueta="Google Maps" entera>
+          {maps ? (
+            <a href={maps} target="_blank" rel="noopener noreferrer" className={enlace}>
+              Ver su ficha en Maps <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+            </a>
+          ) : cargadoElDetalle ? (
+            <Vacio texto="sin ficha de Maps" />
+          ) : (
+            <Vacio texto="…" />
+          )}
+        </Casilla>
+      </Mosaico>
+    </Caja>
   )
 }

@@ -1,7 +1,7 @@
 import type { AmazonSupabase } from '@/lib/amazon/api'
 import type { createServiceClient } from '@/lib/supabase/service'
 import type { FilaDeBuzon } from '../almacen'
-import { contextoParaIa } from '../ia-contexto'
+import { contextoParaIa, esPartnerParaIa, MENSAJE_PARTNER_SIN_IA } from '../ia-contexto'
 import { cargarCorreosDelLead, cargarLead, cargarLlamadas, cargarNotas, direccionesDeLead } from '../ia-servidor'
 import { textoSinFirma } from '../plantillas'
 import type { ClienteDeCorreoIa } from '../ia-generar'
@@ -54,6 +54,7 @@ export async function generarSeguimientosDeUnLead(p: {
 
   const lead = await cargarLead(p.sesion, p.leadId)
   if (!lead) return { ok: false, estado: 404, mensaje: 'No se encuentra ese lead, o no es tuyo.' }
+  if (esPartnerParaIa(lead)) return { ok: false, estado: 409, mensaje: MENSAJE_PARTNER_SIN_IA }
   const [notas, llamadas, correos] = await Promise.all([
     cargarNotas(p.sesion, p.leadId),
     cargarLlamadas(p.sesion, p.leadId),

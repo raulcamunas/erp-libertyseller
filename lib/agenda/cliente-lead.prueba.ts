@@ -24,6 +24,16 @@ const lead = (campos: Partial<LeadParaLaCita> = {}): LeadParaLaCita => ({
   status: 'pendiente', source_list: null, assigned_to: null, nivel: null, telefonos_extra: null, emails_extra: null, ...campos,
 })
 
+console.log('\n=== un partner (agencia, gestoría…) en la cita: ni vende ni deja de vender en Amazon ===')
+{
+  const d = datosDeLaCitaDesdeLead(lead({ tipo_lead: 'partner', store_name: 'Veritas Gestión', company: 'VERITAS GESTION CONSULTING, S.L.U.', phone: '+34 935 73 93 80', email: 'info@veritasgestion.com', web: 'https://veritasgestion.com/', category: 'Gestoría', ciudad: "L'Hospitalet de Llobregat" }))
+  ok('NO se le pone «vende en Amazon» (sería inventarlo): la cita se queda con su valor de siempre', !('vende_en_amazon' in d), JSON.stringify(d))
+  ok('trae su contacto, su razón social, su web, su categoría y su ciudad', d.lead_name === 'Veritas Gestión' && d.lead_phone === '+34 935 73 93 80' && d.lead_email === 'info@veritasgestion.com' && d.razon_social === 'VERITAS GESTION CONSULTING, S.L.U.' && d.web === 'https://veritasgestion.com/' && d.sector === 'Gestoría' && d.ciudad === "L'Hospitalet de Llobregat")
+  ok('y no trae facturación ni enlace de Amazon (no tiene)', !('revenue_amount' in d) && !('amazon_link' in d))
+  ok('el contacto de la cita es su nombre: un partner no tiene decisor ni directivos', contactoDelLead(lead({ tipo_lead: 'partner', store_name: 'Veritas Gestión', decisor: null, directors: null })) === 'Veritas Gestión')
+  ok('lo que sí hacía antes un vendedor sigue igual', datosDeLaCitaDesdeLead(lead({ tipo_lead: 'seller_amazon' })).vende_en_amazon === 'vende' && datosDeLaCitaDesdeLead(lead({ tipo_lead: 'tienda_online', vende_en_amazon: 'no_vende' })).vende_en_amazon === 'no_vende')
+}
+
 console.log('\n=== a quién se llama: el nombre del contacto ===')
 {
   ok('tienda online con decisor: el decisor, con mayúsculas legibles', contactoDelLead(lead({ decisor: 'PEDRO LUIS REDONDO CARRILERO' })) === 'Pedro Luis Redondo Carrilero')

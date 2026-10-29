@@ -20,8 +20,12 @@ export type ColdNoteKind = 'llamada' | 'email' | 'whatsapp' | 'linkedin' | 'nota
  * de más le pintaría a una tienda online «Perfil seller → Ver en Amazon» y le
  * esconderría el bloque de «¿Vende ya en Amazon?», que es el que decide si se
  * la llama. No daría error: solo pintaría mal.
+ *
+ * `partner` (migración 262) NO es un cliente potencial sino un posible socio: agencias de desarrollo ecommerce, empresas de fulfillment, registradores de marcas y
+ * gestorías que podrían derivarnos clientes. No vende ni deja de vender en Amazon (esa pregunta no se le hace), no tiene facturación ni ventas estimadas, y sus datos son los
+ * de Google Maps: prioridad, puntos, valoración, enlaces. Todo lo que sigue —estado, rellamada, historial, llamadas de Rinkel— es exactamente el de los demás leads.
  */
-export type ColdLeadTipo = 'seller_amazon' | 'tienda_online'
+export type ColdLeadTipo = 'seller_amazon' | 'tienda_online' | 'partner'
 
 /**
  * Lo primero que se comprueba en un lead de la lista nueva, en 30 segundos.
@@ -83,6 +87,21 @@ export interface ColdLead {
   /** Viene 0 y no nulo cuando el BORME no da ninguno: el 0 explica por qué
       `decisor` está vacío, así que los dos valores significan cosas distintas */
   n_administradores: number | null
+
+  /**
+   * SOLO LOS PARTNERS (`tipo_lead = 'partner'`, migración 262). En los demás leads son nulos, y antes de lanzar la 262 ni existen en la base: por eso van opcionales.
+   * `prioridad` es el número de la columna «Prioridad» del Excel (1 llamar primero · 2 segunda ronda · 3 solo email · 4 revisar, posible competencia) y `puntos` su puntuación.
+   * `menciona_amazon`: su web habla de Amazon (para un partner es una señal buena: ya conoce el canal). NO es `vende_en_amazon`, que es si el lead vende allí.
+   */
+  prioridad?: number | null
+  puntos?: number | null
+  resenas?: number | null
+  rating?: number | null
+  menciona_amazon?: boolean | null
+  /** Solo se piden al abrir el lead: son enlaces largos que no hacen falta para pintar la lista */
+  linkedin?: string | null
+  google_maps_url?: string | null
+  busquedas_origen?: string | null
 
   assigned_to: string | null
   status: ColdLeadStatus
@@ -206,6 +225,15 @@ export const COLD_SORT_LABELS: Record<ColdSort, string> = {
   prioridad: 'Nivel y ventas est.',
 }
 
+/** Lo mismo cuando lo que se mira son partners: no tienen facturación ni nivel, tienen puntos y prioridad */
+export const COLD_SORT_LABELS_PARTNERS: Record<ColdSort, string> = {
+  revenue_desc: 'Más puntos',
+  revenue_asc: 'Menos puntos',
+  due_first: 'Rellamadas primero',
+  name: 'Nombre A-Z',
+  prioridad: 'Prioridad y puntos',
+}
+
 /**
  * Color estable por lista de origen, para distinguirlas de un vistazo sin
  * tener que leer la etiqueta.
@@ -231,10 +259,16 @@ export function formatRevenue(n: number | null): string {
 export const COLD_TIPO_LABELS: Record<ColdLeadTipo, string> = {
   seller_amazon: 'Vendedores de Amazon',
   tienda_online: 'Tiendas online',
+  partner: 'Partners',
 }
 
 export function esTiendaOnline(lead: Pick<ColdLead, 'tipo_lead'>): boolean {
   return lead.tipo_lead === 'tienda_online'
+}
+
+/** Un posible socio (agencia, fulfillment, registro de marcas, gestoría), no un posible cliente. Ver el comentario de ColdLeadTipo */
+export function esPartner(lead: Pick<ColdLead, 'tipo_lead'>): boolean {
+  return lead.tipo_lead === 'partner'
 }
 
 export const COLD_VENDE_ORDEN: ColdVendeAmazon[] = ['sin_comprobar', 'no_vende', 'vende']
@@ -310,7 +344,21 @@ export const AVISO_VENTAS_ESTIMADAS =
  * Ordena, y solo ordena: las dos cifras NO se suman, NO se comparan en un
  * filtro de rango ni se imprimen juntas. Para eso está el filtro de tipo.
  */
-export function pesoOrden(lead: Pick<ColdLead, 'tipo_lead' | 'revenue_monthly' | 'ventas_estimadas_usd'>): number {
+export function pesoOrden(lead: Pick<ColdLead, 'tipo_lead' | 'revenue_monthly' | 'ventas_estimadas_usd'> & Partial<Pick<ColdLead, 'prioridad' | 'puntos'>>): number {
+  if (esPartner(lead)) return pesoDePartner(lead.prioridad, lead.puntos)
   const bruto = esTiendaOnline(lead) ? lead.ventas_estimadas_usd : lead.revenue_monthly
   return Number(bruto) || 0
+}
+
+/**
+ * EL PESO DE UN PARTNER: LA PRIORIDAD MANDA Y LOS PUNTOS DESEMPATAN.
+ *
+ * «Prioridad» es lo que decide a quién se llama primero (1) y a quién solo se escribe (3), y no es una función de los puntos: hay prioridades 3 y 4 con más puntos que algunas 2.
+ * Ordenando solo por puntos, una gestoría «solo email» se colaría por delante de una «segunda ronda» a la que sí se puede llamar. Así que el peso es `(5 − prioridad) × 1.000 + puntos`
+ * (los puntos nunca pasan de 100): todas las 1 por delante de todas las 2, y dentro de cada prioridad, las de más puntos primero. Sin prioridad pesa por debajo de todas.
+ * Como el resto de pesos, sirve para ORDENAR y solo para eso.
+ */
+export function pesoDePartner(prioridad: number | null | undefined, puntos: number | null | undefined): number {
+  const p = prioridad != null && prioridad >= 1 && prioridad <= 4 ? 5 - prioridad : 0
+  return p * 1000 + (Number(puntos) || 0)
 }

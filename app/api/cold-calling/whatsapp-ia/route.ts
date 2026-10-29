@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail, requireAppAccess } from '@/lib/amazon/api'
+import { esPartnerParaIa, MENSAJE_PARTNER_SIN_IA } from '@/lib/correo/ia-contexto'
 import { cargarLead, cargarLlamadas, cargarNotas } from '@/lib/correo/ia-servidor'
 import { SIN_CACHE, respuestaDeFallo, textoDe } from '@/lib/correo/rutas'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
 
     const lead = await cargarLead(sesion.supabase, leadId)
     if (!lead) return fail(404, 'No se encuentra ese lead, o no es tuyo.')
+    if (esPartnerParaIa(lead)) return fail(409, MENSAJE_PARTNER_SIN_IA)
     if (LEAD_SIN_WHATSAPP.has(String(lead.status))) return fail(409, 'Este lead consta como «No le interesa»: no se le escribe.')
 
     const [notas, llamadas, miPerfil] = await Promise.all([

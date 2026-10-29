@@ -1,11 +1,12 @@
 'use client'
 
-import { ArrowUpDown, Check, ChevronDown, Euro, Layers, X } from 'lucide-react'
+import { ArrowUpDown, Check, ChevronDown, Euro, Layers, Rocket, X } from 'lucide-react'
 import { useState } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SIN_FILTROS, hayFiltros, type FiltrosDeCartera } from '@/lib/cold-calling/cartera'
+import { ORDEN_DE_PRIORIDADES, PRIORIDADES_DE_PARTNER } from '@/lib/cold-calling/partners'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
-import { COLD_NIVEL_LABELS, COLD_SORT_LABELS, COLD_STATUSES, COLD_STATUS_LABELS, type ColdLeadStatus, type ColdSort } from '@/lib/types/cold-leads'
+import { COLD_NIVEL_LABELS, COLD_SORT_LABELS, COLD_SORT_LABELS_PARTNERS, COLD_STATUSES, COLD_STATUS_LABELS, type ColdLeadStatus, type ColdSort } from '@/lib/types/cold-leads'
 import { ESTADO_VISUAL, GlifoDeEstado, TONO_DE_NIVEL, tinte, tonoDeLista } from './ui'
 
 /**
@@ -16,6 +17,8 @@ import { ESTADO_VISUAL, GlifoDeEstado, TONO_DE_NIVEL, tinte, tonoDeLista } from 
  *   · los ESTADOS son chips de glifo y número que se ABREN al pulsarlos (escriben su nombre) SIN MOVER LA FILA: el grupo mide siempre lo mismo
  *     y reparte su ancho como un acordeón, así que lo que hay detrás no se desplaza;
  *   · el NIVEL solo existe cuando se mira una lista de tiendas, y la FACTURACIÓN solo cuando se mira una de vendedores de Amazon.
+ *   · la PRIORIDAD (P1 a P4) y «Menciona Amazon» solo existen cuando hay partners en la lista que se mira: ni tienen nivel ni facturación, y su orden de trabajo es la prioridad
+ *     (1 llamar primero · 2 segunda ronda · 3 solo email · 4 revisar) y, dentro de ella, los puntos.
  */
 
 const PRESETS_DE_FACTURACION: ReadonlyArray<{ etiqueta: string; min: string; max: string }> = [
@@ -77,11 +80,19 @@ interface Props {
   niveles: Record<1 | 2 | 3, number>
   /** ¿Hay tiendas con nivel en la lista que se mira? Entonces hay filtro de nivel y NO de facturación */
   hayNiveles: boolean
+  /** Cuántos partners hay de cada prioridad con los demás filtros puestos */
+  prioridades: Record<1 | 2 | 3 | 4, number>
+  /** ¿Hay partners en la lista que se mira? Entonces hay filtro de prioridad y de «Menciona Amazon» */
+  hayPartners: boolean
+  /** ¿Son TODOS partners? Entonces no hay facturación que filtrar y el orden habla de puntos y de prioridad */
+  soloPartners: boolean
+  /** Cuántos partners mencionan Amazon con los demás filtros puestos */
+  mencionanAmazon: number
   /** Cuántos leads salen con lo que está puesto */
   coinciden: number
 }
 
-export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, niveles, hayNiveles, coinciden }: Props) {
+export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, niveles, hayNiveles, prioridades, hayPartners, soloPartners, mencionanAmazon, coinciden }: Props) {
   const [listaAbierta, setListaAbierta] = useState(false)
   const [rangoAbierto, setRangoAbierto] = useState(false)
   const rangoPuesto = filtros.minRev !== '' || filtros.maxRev !== ''
@@ -183,9 +194,51 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
         </>
       )}
 
+      {/* La prioridad de los partners: es su orden de trabajo, y por eso es lo primero que se toca. Con la pista de qué significa cada una */}
+      {hayPartners && (
+        <>
+          <span aria-hidden className="hidden h-4 w-px bg-[var(--ls-linea2)] sm:block" />
+          <div role="group" aria-label="Prioridad" className="flex items-center gap-1">
+            {ORDEN_DE_PRIORIDADES.map((prioridad) => {
+              const activo = filtros.prioridad === prioridad
+              const { corta, etiqueta, tono, pista } = PRIORIDADES_DE_PARTNER[prioridad]
+              return (
+                <button
+                  key={prioridad}
+                  type="button"
+                  disabled={prioridades[prioridad] === 0}
+                  onClick={() => onCambiar({ prioridad: activo ? 'all' : prioridad })}
+                  aria-pressed={activo}
+                  title={`Prioridad ${prioridad} · ${etiqueta}: ${numero(prioridades[prioridad])}. ${pista}`}
+                  className={`${CHIP} ${ANCHO_DE_NIVEL} disabled:opacity-35 ${activo ? '!text-[var(--ls-t1)] font-medium' : ''}`}
+                  style={activo ? { background: tinte(tono, 16), borderColor: COLOR_ESTADO[tono] } : undefined}
+                >
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: COLOR_ESTADO[tono] }} />
+                  {corta}
+                  <span className="tabular-nums text-[var(--ls-t4)]">{numero(prioridades[prioridad])}</span>
+                </button>
+              )
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => onCambiar({ mencionaAmazon: !filtros.mencionaAmazon })}
+            aria-pressed={filtros.mencionaAmazon}
+            disabled={mencionanAmazon === 0 && !filtros.mencionaAmazon}
+            title={`Solo los partners cuya web menciona Amazon: ${numero(mencionanAmazon)}. Ya conocen el canal y entienden mejor de qué se les habla`}
+            className={`${CHIP} disabled:opacity-35 ${filtros.mencionaAmazon ? BOTON.chipEncendido : ''}`}
+          >
+            <Rocket className="h-3 w-3" aria-hidden />
+            Menciona Amazon
+            <span className="tabular-nums text-[var(--ls-t4)]">{numero(mencionanAmazon)}</span>
+          </button>
+        </>
+      )}
+
       {/* La facturación: solo en una lista de vendedores de Amazon. Ninguna tienda online tiene facturación observada, así que el rango
-          las dejaría todas fuera y la pantalla se quedaría vacía sin explicar por qué */}
-      {!hayNiveles && (
+          las dejaría todas fuera y la pantalla se quedaría vacía sin explicar por qué. Y un partner tampoco tiene facturación: con una
+          lista de solo partners no hay nada que filtrar por ahí */}
+      {!hayNiveles && !soloPartners && (
         <Popover open={rangoAbierto} onOpenChange={setRangoAbierto}>
           <PopoverTrigger asChild>
             <button type="button" className={`${CHIP} ${rangoPuesto ? BOTON.chipEncendido : ''}`}>
@@ -244,7 +297,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, total, listas, n
           <select value={filtros.orden} onChange={(e) => onCambiar({ orden: e.target.value as ColdSort })} aria-label="Ordenar la lista" className={`${CHIP} w-full cursor-pointer appearance-none text-ellipsis !pl-6 !pr-2`}>
             {(Object.keys(COLD_SORT_LABELS) as ColdSort[]).map((o) => (
               <option key={o} value={o} className="bg-[var(--ls-sup)]">
-                {COLD_SORT_LABELS[o]}
+                {(soloPartners ? COLD_SORT_LABELS_PARTNERS : COLD_SORT_LABELS)[o]}
               </option>
             ))}
           </select>

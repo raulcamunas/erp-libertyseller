@@ -15,7 +15,7 @@
  */
 
 import { nombreLegible, parsearDirectivos } from '@/lib/cold-calling/directivos'
-import { esTiendaOnline, type ColdLead } from '@/lib/types/cold-leads'
+import { esPartner, esTiendaOnline, type ColdLead } from '@/lib/types/cold-leads'
 import type { VendeEnAmazon } from '@/lib/types/appointments'
 
 /** Lo que se pide del lead al elegirlo: todo lo que puede rellenar la cita, más lo que hace falta para reconocerlo en la lista */
@@ -114,8 +114,9 @@ export function datosDeLaCitaDesdeLead(lead: LeadParaLaCita): DatosDeLaCita {
   poner('lead_company', limpio(lead.store_name) ?? limpio(lead.company))
   poner('lead_email', limpio(lead.email) ?? primero(lead.emails_extra))
   poner('lead_phone', limpio(lead.phone) ?? primero(lead.telefonos_extra))
-  // Un vendedor de Amazon vende en Amazon por definición; una tienda online trae la respuesta que se comprobó (o «sin comprobar»)
-  poner('vende_en_amazon', esTiendaOnline(lead) ? lead.vende_en_amazon : 'vende')
+  // Un vendedor de Amazon vende en Amazon por definición; una tienda online trae la respuesta que se comprobó (o «sin comprobar»). Un partner (agencia, gestoría…) no es ni lo uno ni lo
+  // otro: esa pregunta no es suya, y decir «vende en Amazon» de una gestoría en la ficha de su cita sería inventarlo. No se trae nada y la cita se queda con su valor de siempre
+  if (!esPartner(lead)) poner('vende_en_amazon', esTiendaOnline(lead) ? lead.vende_en_amazon : 'vende')
   const facturacion = numero(lead.revenue_monthly)
   poner('revenue_amount', facturacion !== undefined && facturacion > 0 ? facturacion : undefined)
   poner('amazon_link', limpio(lead.seller_url))

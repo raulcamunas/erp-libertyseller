@@ -162,6 +162,7 @@ const ESQUEMA_LISTA = { type: 'string', description: 'La lista de origen del lea
 export function tarjetaDeLead(l: LeadLeido, personas: ReadonlyMap<string, Persona>, hoy: string): Record<string, unknown> {
   const rellamada = fechaDeRellamada(l)
   const tienda = l.tipo_lead === 'tienda_online'
+  const partner = l.tipo_lead === 'partner'
   return {
     id: l.id,
     tienda: l.store_name,
@@ -169,7 +170,7 @@ export function tarjetaDeLead(l: LeadLeido, personas: ReadonlyMap<string, Person
     estado: etiquetaDeEstado(l.status),
     comercial: duenoDe(l.assigned_to, personas),
     lista: l.source_list || NOMBRE_DE_LISTA_SIN_ORIGEN,
-    tipo: tienda ? 'tienda online' : 'vendedor de Amazon',
+    tipo: partner ? 'partner (posible socio: agencia, gestoría, fulfillment, registro de marcas)' : tienda ? 'tienda online' : 'vendedor de Amazon',
     ciudad: l.ciudad || l.province || null,
     nivel: l.nivel,
     facturacion_mensual_eur: tienda ? null : num(l.revenue_monthly),
@@ -275,13 +276,14 @@ export function armarResumenDeCartera(e: EntradaDelResumen): Record<string, unkn
     .sort((a, b) => b.leads - a.leads || a.lista.localeCompare(b.lista, 'es'))
 
   const tiendas = filas.filter((f) => f.tipo_lead === 'tienda_online').length
+  const partners = filas.filter((f) => f.tipo_lead === 'partner').length
 
   return {
     dia: hoy,
     filtro: e.filtro,
     cartera: cifrasDeCartera(filas, hoy),
     por_estado: contarEstados(filas),
-    por_tipo: { vendedores_de_amazon: filas.length - tiendas, tiendas_online: tiendas },
+    por_tipo: { vendedores_de_amazon: filas.length - tiendas - partners, tiendas_online: tiendas, partners },
     por_comercial: comerciales,
     por_lista: listas.slice(0, MAX_LISTAS_EN_EL_RESUMEN),
     listas_no_mostradas: Math.max(0, listas.length - MAX_LISTAS_EN_EL_RESUMEN),
@@ -421,7 +423,7 @@ export const coldBuscarLeads: Herramienta<ContextoMcp> = {
       contactado_desde: { type: 'string', description: 'Último contacto desde este día (AAAA-MM-DD, «hoy» o «ayer»).' },
       contactado_hasta: { type: 'string', description: 'Último contacto hasta este día, incluido.' },
       nivel: { type: 'integer', description: '1, 2 o 3 (potencial de la tienda; 1 es el más alto). Solo lo tienen las tiendas online.' },
-      tipo: { type: 'string', enum: ['seller_amazon', 'tienda_online'], description: 'Vendedor que ya está en Amazon, o tienda online que todavía no.' },
+      tipo: { type: 'string', enum: ['seller_amazon', 'tienda_online', 'partner'], description: 'Vendedor que ya está en Amazon, tienda online que todavía no, o partner (posible socio: agencia de desarrollo ecommerce, fulfillment, registro de marcas, gestoría; no es un cliente).' },
       orden: { type: 'string', enum: [...ORDENES], description: 'actualizado (lo último que se ha tocado, por defecto) · ultimo_contacto · rellamada (la más próxima primero) · nombre.' },
       limite: { type: 'integer', description: 'Leads por página. Por defecto 20, hasta 50.' },
       pagina: { type: 'integer', description: 'Empieza en 0. La respuesta dice cuál es la siguiente.' },
@@ -439,7 +441,7 @@ export const coldBuscarLeads: Herramienta<ContextoMcp> = {
     const lista = texto(args, 'lista', { max: 120 })
     const rellamada = opcion<(typeof RELLAMADAS)[number] | ''>(args, 'rellamada', ['', ...RELLAMADAS], '')
     const nivel = args.nivel === undefined || args.nivel === null || args.nivel === '' ? undefined : entero(args, 'nivel', { min: 1, max: 3, defecto: 1 })
-    const tipo = opcion<'' | 'seller_amazon' | 'tienda_online'>(args, 'tipo', ['', 'seller_amazon', 'tienda_online'], '')
+    const tipo = opcion<'' | 'seller_amazon' | 'tienda_online' | 'partner'>(args, 'tipo', ['', 'seller_amazon', 'tienda_online', 'partner'], '')
     const orden = opcion<(typeof ORDENES)[number]>(args, 'orden', ORDENES, 'actualizado')
     const desdeContacto = texto(args, 'contactado_desde', { max: 10 })
     const hastaContacto = texto(args, 'contactado_hasta', { max: 10 })

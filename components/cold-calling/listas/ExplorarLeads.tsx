@@ -69,6 +69,8 @@ const ORDENES: ReadonlyArray<{ valor: OrdenDeLeads; etiqueta: string }> = [
 ]
 
 const cifraDe = (l: FilaDeLead): string => {
+  // Un partner no tiene facturación ni ventas estimadas: su prioridad y sus puntos están en Cold Calling
+  if (l.tipo_lead === 'partner') return 'Partner'
   if (l.tipo_lead === 'tienda_online') {
     const v = ventasCompactas(l.ventas_estimadas_usd)
     return v ? `≈ ${v}` : '—'
@@ -176,6 +178,7 @@ export function ExplorarLeads({ filtro, onFiltro, panorama, equipo, nombres, pue
             { valor: '', etiqueta: 'Venden y no venden' },
             { valor: 'seller_amazon', etiqueta: 'Venden en Amazon' },
             { valor: 'tienda_online', etiqueta: 'No venden en Amazon' },
+            { valor: 'partner', etiqueta: 'Partners' },
           ]}
         />
         <Selector valor={filtro.estado ?? ''} onCambiar={(v) => cambiar({ estado: v === '' ? null : (v as ColdLeadStatus) })} rotulo="Estado" opciones={[{ valor: '', etiqueta: 'Todos los estados' }, ...COLD_STATUSES.map((e) => ({ valor: e, etiqueta: COLD_STATUS_LABELS[e] }))]} />

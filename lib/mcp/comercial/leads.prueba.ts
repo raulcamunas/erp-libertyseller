@@ -51,7 +51,9 @@ async function main() {
     const r = armarResumenDeCartera({ hoy: HOY, filas: [fila(), fila({ status: 'cita_cualificada' }), fila({ assigned_to: null, source_list: null, tipo_lead: 'tienda_online' }), fila({ assigned_to: FANTASMA })], personas, filtro: { comercial: null, lista: null } }) as any
     ok('agrupa por quien lo lleva, con «Sin asignar» y quien ya no está', r.por_comercial.map((c: any) => `${c.comercial}:${c.leads}`).join('|') === 'Maoli Pérez:2|Alguien que ya no está:1|Sin asignar:1')
     ok('y por lista, con «Sin lista» para las que no tienen', r.por_lista.map((l: any) => `${l.lista}:${l.leads}`).join('|') === '1a lista:3|Sin lista:1')
-    ok('por tipo', r.por_tipo.tiendas_online === 1 && r.por_tipo.vendedores_de_amazon === 3)
+    ok('por tipo', r.por_tipo.tiendas_online === 1 && r.por_tipo.vendedores_de_amazon === 3 && r.por_tipo.partners === 0)
+    const conPartners = armarResumenDeCartera({ hoy: HOY, filas: [fila(), fila({ tipo_lead: 'tienda_online' }), fila({ tipo_lead: 'partner', source_list: 'Partners - Gestorías' }), fila({ tipo_lead: 'partner', source_list: 'Partners - Gestorías' })], personas, filtro: { comercial: null, lista: null } }) as any
+    ok('los partners se cuentan APARTE: no son vendedores de Amazon', conPartners.por_tipo.partners === 2 && conPartners.por_tipo.vendedores_de_amazon === 1 && conPartners.por_tipo.tiendas_online === 1, JSON.stringify(conPartners.por_tipo))
     ok('los estados salen todos, con ceros, en el orden del embudo', Object.keys(r.por_estado).join('|') === 'Sin contactar|No contesta|Rellamada programada|Info enviada|En seguimiento|Cita agendada|No le interesa')
     ok('las reglas viajan en la respuesta', r.reglas.length === 3)
     const muchas = Array.from({ length: 40 }, (_, i) => fila({ source_list: `Lista ${String(i).padStart(2, '0')}` }))

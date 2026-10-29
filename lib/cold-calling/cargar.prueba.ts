@@ -1,4 +1,4 @@
-import { COLUMNAS_DE_CARTERA, FILAS_POR_TRAMO, TRAMOS_A_LA_VEZ, cargarCartera, type ClienteDeLectura } from '@/lib/cold-calling/cargar'
+import { COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_PARTNERS, COLUMNAS_DE_PARTNERS, FILAS_POR_TRAMO, TRAMOS_A_LA_VEZ, cargarCartera, faltanLasColumnasDePartners, type ClienteDeLectura } from '@/lib/cold-calling/cargar'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -23,6 +23,8 @@ class Base {
   maximoSimultaneas = 0
   falla = new Set<number>()
   retardoMs = 5
+  /** Una base a la que todavía no se le ha lanzado la migración 262: pedir sus columnas da error de columna inexistente */
+  sinLa262: string | null = null
 
   from(_tabla: string) {
     const base = this
@@ -48,6 +50,7 @@ class Base {
         base.maximoSimultaneas = Math.max(base.maximoSimultaneas, base.simultaneas)
         await new Promise((r) => setTimeout(r, base.retardoMs))
         base.simultaneas -= 1
+        if (base.sinLa262 && columnas.includes('prioridad')) return { data: null, error: { code: base.sinLa262 }, count: null }
         if (base.falla.has(desde)) return { data: null, error: { code: 'XX000' }, count: null }
         const visibles = base.filas.filter((f) => propietario === null || f.assigned_to === propietario)
         return { data: visibles.slice(desde, hasta + 1), error: null, count: conRecuento ? visibles.length : null }
@@ -124,6 +127,30 @@ async function main() {
     roto.falla.add(0)
     const r2 = await cargarCartera(cliente(roto))
     ok('si falla el primero no hay nada que enseñar, y se dice', r2.leads.length === 0 && r2.incompleta)
+  }
+
+  console.log('\n=== una base a la que todavía no se le ha lanzado la migración 262 (los partners) ===')
+  {
+    ok('las columnas de los partners se piden además de las de siempre', COLUMNAS_DE_CARTERA.startsWith(COLUMNAS_DE_CARTERA_SIN_PARTNERS) && COLUMNAS_DE_PARTNERS.split(', ').every((c) => COLUMNAS_DE_CARTERA.includes(c)))
+    ok('y sin ellas la lista es la de antes de la 262', !/prioridad|puntos|resenas|rating|menciona_amazon/.test(COLUMNAS_DE_CARTERA_SIN_PARTNERS))
+    ok('«columna inexistente» es PGRST204 o 42703, y nada más', faltanLasColumnasDePartners({ code: 'PGRST204' }) && faltanLasColumnasDePartners({ code: '42703' }) && !faltanLasColumnasDePartners({ code: 'XX000' }) && !faltanLasColumnasDePartners({ code: '57014' }) && !faltanLasColumnasDePartners(null))
+
+    for (const codigo of ['42703', 'PGRST204']) {
+      const sin = base(2500)
+      sin.sinLa262 = codigo
+      const r = await cargarCartera(cliente(sin))
+      ok(`(${codigo}) la cartera llega ENTERA, como antes de la 262, y no vacía`, r.leads.length === 2500 && r.total === 2500 && !r.incompleta, `${r.leads.length}/${r.total} incompleta=${r.incompleta}`)
+      ok(`(${codigo}) tras el error repite el primer tramo sin las columnas nuevas, y los demás ya van sin ellas`, sin.peticiones.length === 4 && sin.peticiones.slice(1).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_PARTNERS), JSON.stringify(sin.peticiones.map((p) => p.columnas === COLUMNAS_DE_CARTERA ? 'con' : 'sin')))
+    }
+
+    const con = base(2500)
+    const r = await cargarCartera(cliente(con))
+    ok('con la 262 lanzada no hay ninguna petición de más: todas llevan las columnas de los partners', con.peticiones.length === 3 && con.peticiones.every((p) => p.columnas === COLUMNAS_DE_CARTERA) && r.leads.length === 2500)
+
+    const otraFalla = base(100)
+    otraFalla.falla.add(0)
+    const r2 = await cargarCartera(cliente(otraFalla))
+    ok('un error que NO es de columna no se repite (no se enmascara un fallo de verdad)', otraFalla.peticiones.length === 1 && r2.incompleta && r2.leads.length === 0)
   }
 
   console.log('\n=== el progreso ===')

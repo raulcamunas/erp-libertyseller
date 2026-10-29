@@ -4,7 +4,7 @@ import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode }
 import { fechaDeRellamada } from '@/lib/cold-calling/cartera'
 import { vencimientoDe, etiquetaDeVencimiento } from '@/lib/cold-calling/fechas'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { COLD_STATUS_LABELS, type ColdLead } from '@/lib/types/cold-leads'
+import { COLD_STATUS_LABELS, esPartner, type ColdLead } from '@/lib/types/cold-leads'
 import { Esqueleto } from '@/components/rendimiento/ui'
 import { CifraDeLista, GlifoDeEstado, tinte, tonoDeLista } from './ui'
 import { useVentana } from './useVentana'
@@ -75,7 +75,8 @@ export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, mostrarL
           {mostrarLista && lead.source_list && <span aria-hidden title={lead.source_list} className="h-1.5 w-1.5 shrink-0 rounded-[2px]" style={{ background: COLOR_ESTADO[tonoDeLista(lead.source_list)] }} />}
           <span className="min-w-0 flex-1 truncate">
             {lead.phone || 'Sin teléfono'}
-            {lead.company ? ` · ${lead.company}` : ''}
+            {/* De un partner interesa DÓNDE está y QUÉ es (la razón social dice poco: «HNOS SESÉ ASENSIO, SL»); del resto, su empresa */}
+            {esPartner(lead) ? [lead.ciudad, lead.category].filter(Boolean).map((t) => ` · ${t}`).join('') : lead.company ? ` · ${lead.company}` : ''}
           </span>
           {chip}
           {lead.call_attempts > 0 && (

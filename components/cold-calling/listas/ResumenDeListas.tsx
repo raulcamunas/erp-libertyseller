@@ -50,6 +50,7 @@ const TIPOS: ReadonlyArray<{ valor: TipoDeLista | 'todas'; etiqueta: string }> =
   { valor: 'todas', etiqueta: 'Todas' },
   { valor: 'seller_amazon', etiqueta: 'Venden en Amazon' },
   { valor: 'tienda_online', etiqueta: 'No venden en Amazon' },
+  { valor: 'partner', etiqueta: 'Partners' },
   { valor: 'mixto', etiqueta: 'Mezcla' },
 ]
 

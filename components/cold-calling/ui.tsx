@@ -1,8 +1,9 @@
 import { CalendarClock, CheckCircle2, Circle, Flame, Mail, PhoneMissed, XCircle, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { ventasCompactas } from '@/lib/cold-calling/cifras'
+import { esPrioridadDePartner, PRIORIDADES_DE_PARTNER } from '@/lib/cold-calling/partners'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
-import { AVISO_VENTAS_ESTIMADAS, COLD_NIVEL_LABELS, type ColdLead, type ColdLeadStatus, esTiendaOnline, formatVentasEstimadas } from '@/lib/types/cold-leads'
+import { AVISO_VENTAS_ESTIMADAS, COLD_NIVEL_LABELS, type ColdLead, type ColdLeadStatus, esPartner, esTiendaOnline, formatVentasEstimadas } from '@/lib/types/cold-leads'
 
 /**
  * LAS PIEZAS VISUALES COMUNES DE COLD CALLING: el glifo de cada estado, las insignias de lista y de nivel.
@@ -72,6 +73,20 @@ export function InsigniaDeNivel({ nivel, corta = false }: { nivel: number; corta
   )
 }
 
+/**
+ * La prioridad de un partner, la de la columna «Prioridad» del Excel de captación: 1 llamar primero, 2 segunda ronda, 3 solo email, 4 revisar (posible competencia). Con su número y, si
+ * cabe, su nombre; el color es el último recurso (verde, ámbar, gris, rojo) y la pista completa sale al pasar el ratón.
+ */
+export function InsigniaDePrioridad({ prioridad, corta = false }: { prioridad: number | null | undefined; corta?: boolean }) {
+  if (!esPrioridadDePartner(prioridad)) return null
+  const { corta: letra, etiqueta, tono, pista } = PRIORIDADES_DE_PARTNER[prioridad]
+  return (
+    <span title={`Prioridad ${prioridad} · ${etiqueta}. ${pista}`} className={INSIGNIA} style={{ color: COLOR_ESTADO[tono], background: tinte(tono) }}>
+      {corta ? letra : `${prioridad} · ${etiqueta}`}
+    </span>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* Cifras                                                              */
 /* ------------------------------------------------------------------ */
@@ -82,7 +97,20 @@ export function InsigniaDeNivel({ nivel, corta = false }: { nivel: number; corta
  * símbolo del dólar (nunca el del euro: no se puede leer como una cifra afirmada), y junto a su nivel. En la lista basta; la advertencia
  * completa («sirve para priorizar, no se dice en la llamada») va en el texto que sale al pasar el ratón y, entera, en la ficha.
  */
-export function CifraDeLista({ lead }: { lead: Pick<ColdLead, 'tipo_lead' | 'nivel' | 'revenue_monthly' | 'ventas_estimadas_usd'> }) {
+export function CifraDeLista({ lead }: { lead: Pick<ColdLead, 'tipo_lead' | 'nivel' | 'revenue_monthly' | 'ventas_estimadas_usd'> & Partial<Pick<ColdLead, 'prioridad' | 'puntos'>> }) {
+  // Un partner no tiene facturación ni ventas estimadas: lo que dice a quién llamar antes es su prioridad y, dentro de ella, sus puntos
+  if (esPartner(lead)) {
+    return (
+      <>
+        {lead.puntos != null && (
+          <span title={`${lead.puntos} puntos de la captación`} className="shrink-0 text-[11px] tabular-nums text-[var(--ls-t3)]">
+            {lead.puntos} pts
+          </span>
+        )}
+        <InsigniaDePrioridad prioridad={lead.prioridad} corta />
+      </>
+    )
+  }
   if (esTiendaOnline(lead)) {
     const ventas = ventasCompactas(lead.ventas_estimadas_usd)
     return (

@@ -21,11 +21,29 @@ import type { ColdLead } from '@/lib/types/cold-leads'
  * registro mercantil, URL del seller…) son de la ficha y se piden al abrir el lead.
  */
 
-export const COLUMNAS_DE_CARTERA = [
+export const COLUMNAS_DE_CARTERA_SIN_PARTNERS = [
   'id', 'store_name', 'company', 'phone', 'email', 'province', 'category', 'seller_url', 'web', 'ciudad',
   'tipo_lead', 'vende_en_amazon', 'tipo_empresa', 'nivel', 'revenue_monthly', 'ventas_estimadas_usd',
   'assigned_to', 'status', 'follow_up', 'next_call_date', 'last_contacted_at', 'call_attempts', 'source_list',
 ].join(', ')
+
+/**
+ * LO QUE HACE FALTA PARA PINTAR UN PARTNER (migración 262): su prioridad y puntos (la fila, el orden y los filtros) y su valoración y si menciona Amazon (la tabla). Los enlaces largos
+ * —LinkedIn, Google Maps— y las búsquedas de origen son de la ficha y se piden al abrir el lead, como los demás campos largos.
+ */
+export const COLUMNAS_DE_PARTNERS = ['prioridad', 'puntos', 'resenas', 'rating', 'menciona_amazon'].join(', ')
+
+export const COLUMNAS_DE_CARTERA = `${COLUMNAS_DE_CARTERA_SIN_PARTNERS}, ${COLUMNAS_DE_PARTNERS}`
+
+/**
+ * ¿La base no tiene esas columnas? El código se despliega ANTES de que nadie lance la migración a mano en el editor SQL de Supabase, y un `select` que nombra una columna que no existe no
+ * degrada: PostgREST contesta 400 y la cartera de TODO el equipo se quedaría vacía por unas columnas que todavía no tienen ni un dato. Por eso se piden primero con ellas y, si la base no las
+ * tiene, se repite sin ellas (en cuanto se lance la 262 deja de hacer falta, y no se nota). PGRST204: PostgREST no la tiene en su caché de esquema. 42703: Postgres dice que no existe.
+ */
+export function faltanLasColumnasDePartners(error: unknown): boolean {
+  const codigo = (error as { code?: unknown } | null)?.code
+  return codigo === 'PGRST204' || codigo === '42703'
+}
 
 export const FILAS_POR_TRAMO = 1000
 /** Cuántos tramos se piden a la vez. Con 6.000 leads son seis; con 27.000, no se abren veintisiete conexiones juntas */
@@ -50,14 +68,20 @@ export interface ResultadoDeCarga {
 
 type Respuesta = { data: unknown; error: unknown; count?: number | null }
 
-function pedirTramo(supabase: ClienteDeLectura, propietario: string | undefined, desde: number, conRecuento: boolean): PromiseLike<Respuesta> {
-  let consulta = supabase.from('cold_leads').select(COLUMNAS_DE_CARTERA, conRecuento ? { count: 'exact' } : undefined)
+function pedirTramo(supabase: ClienteDeLectura, propietario: string | undefined, desde: number, conRecuento: boolean, columnas: string): PromiseLike<Respuesta> {
+  let consulta = supabase.from('cold_leads').select(columnas, conRecuento ? { count: 'exact' } : undefined)
   if (propietario) consulta = consulta.eq('assigned_to', propietario)
   return consulta.order('id', { ascending: true }).range(desde, desde + FILAS_POR_TRAMO - 1) as unknown as PromiseLike<Respuesta>
 }
 
 export async function cargarCartera(supabase: ClienteDeLectura, op: OpcionesDeCarga = {}): Promise<ResultadoDeCarga> {
-  const primero = await pedirTramo(supabase, op.propietario, 0, true)
+  let columnas = COLUMNAS_DE_CARTERA
+  let primero = await pedirTramo(supabase, op.propietario, 0, true, columnas)
+  if (primero.error && faltanLasColumnasDePartners(primero.error)) {
+    // La base todavía no tiene la migración 262: se pide como antes de ella. Lo aprendido vale para el resto de tramos de esta lectura
+    columnas = COLUMNAS_DE_CARTERA_SIN_PARTNERS
+    primero = await pedirTramo(supabase, op.propietario, 0, true, columnas)
+  }
   if (primero.error) {
     console.error('Cold Calling · no se ha podido leer la cartera', { codigo: (primero.error as { code?: unknown })?.code ?? null })
     return { leads: [], total: 0, incompleta: true }
@@ -74,7 +98,7 @@ export async function cargarCartera(supabase: ClienteDeLectura, op: OpcionesDeCa
   let incompleta = false
   for (let i = 0; i < desdes.length; i += TRAMOS_A_LA_VEZ) {
     const grupo = desdes.slice(i, i + TRAMOS_A_LA_VEZ)
-    const respuestas = await Promise.all(grupo.map((d) => pedirTramo(supabase, op.propietario, d, false)))
+    const respuestas = await Promise.all(grupo.map((d) => pedirTramo(supabase, op.propietario, d, false, columnas)))
     respuestas.forEach((r, j) => {
       if (r.error) {
         incompleta = true
