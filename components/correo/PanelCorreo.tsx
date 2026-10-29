@@ -1,8 +1,6 @@
 'use client'
 
-import { formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
-import { AlertCircle, ChevronDown, Eye, KeyRound, Mail, PenSquare, Plus, RefreshCw, Settings, ShieldCheck, Users, Workflow } from 'lucide-react'
+import { AlertCircle, ChevronDown, Eye, KeyRound, Mail, PenSquare, Plus, Settings, ShieldCheck, Users, Workflow } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -15,6 +13,7 @@ import { borradorDe, type BorradorDeCorreo, type ModoDeRedactar } from '@/lib/co
 import type { BuzonVisible, HiloAbierto, HiloDeLista, MensajeDeHilo, RespuestaDeSincronizar, VistaDeCorreo } from '@/lib/correo/tipos'
 import { enviarJson, pedir } from './api'
 import { AjustesDeBuzon } from './AjustesDeBuzon'
+import { ControlesDeActualizar, EtiquetaDeActualizado } from './ActualizarCorreo'
 import { ConectarBuzon } from './ConectarBuzon'
 import { ListaDeHilos } from './ListaDeHilos'
 import { Redactar, type DetalleDeEnvio } from './Redactar'
@@ -30,9 +29,10 @@ import { VistaEquipo } from './VistaEquipo'
  * «Supervisión del correo» o el de «Supervisión del equipo comercial») elige desde el selector qué bandeja del equipo
  * leer, en SOLO LECTURA, y cada vez que mira una queda anotado (el rastro lo lee solo un administrador: su dueño no lo ve).
  *
- *   · Al abrir y cada minuto (mientras la pestaña se ve), la pantalla le pide al servidor que traiga los correos nuevos de
- *     SU buzón. Una importación grande se trae por tramos: la pantalla insiste mientras la respuesta diga que quedan.
- *   · Un proceso automático hace lo mismo cada tres minutos aunque nadie tenga la pantalla abierta.
+ *   · Al abrir un buzón y después cada 30 s (mientras la pestaña se ve y «Auto» está encendido; cada minuto si Correo está oculto), la pantalla le pide al servidor que traiga
+ *     los correos nuevos de ESE buzón, sea el suyo o uno ajeno que supervisa (solo lectura), y vuelve a cargar lo que se ve. El botón de actualizar lo hace al momento, también
+ *     en los buzones ajenos. Una importación grande del propio buzón se trae por tramos: la pantalla insiste mientras la respuesta diga que quedan.
+ *   · Un proceso automático hace lo mismo cada minuto aunque nadie tenga la pantalla abierta.
  *   · Todo lo que se ve viene de las rutas de /api/correo, que deciden qué buzón puede abrir cada persona: la pantalla solo
  *     decide qué se pinta, nunca qué se puede.
  *
@@ -67,9 +67,11 @@ const PantallaDeSecuencias = dynamic(() => import('./secuencias/PantallaDeSecuen
 // «Quién ve qué» es solo para administradores: se baja la primera vez que se abre
 const PermisosDeBuzones = dynamic(() => import('./PermisosDeBuzones').then((m) => m.PermisosDeBuzones), { ssr: false })
 
-const hace = (iso: string) => formatDistanceToNow(new Date(Math.min(Date.parse(iso), Date.now())), { locale: es, addSuffix: true })
 const esperar = (ms: number) => new Promise((resolver) => setTimeout(resolver, ms))
 const EN_SEGUNDO_PLANO_MS = 60_000
+/** Cada cuánto se pone al día un buzón que se está mirando (con «Auto» encendido) */
+const A_LA_VISTA_MS = 30_000
+const CLAVE_DE_AUTO = 'correo.actualizar-solo'
 const MAX_BUZONES_POR_PERSONA = 3
 
 export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloInicial, activa }: Props) {
@@ -108,6 +110,24 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
   const [redactando, setRedactando] = useState<BorradorDeCorreo | null>(null)
   const [sincronizando, setSincronizando] = useState(false)
   const [importando, setImportando] = useState<{ quedan: number } | null>(null)
+  // «Auto»: la pantalla pone al día lo que se mira cada 30 s. Encendido por defecto; lo que cada persona elige se recuerda en su navegador (solo una comodidad: sin él, encendido)
+  const [auto, setAuto] = useState(true)
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(CLAVE_DE_AUTO) === '0') setAuto(false)
+    } catch {
+      // sin almacenamiento (ventana privada, bloqueado): se queda encendido
+    }
+  }, [])
+  const cambiarAuto = useCallback(() => {
+    const nuevo = !auto
+    setAuto(nuevo)
+    try {
+      window.localStorage.setItem(CLAVE_DE_AUTO, nuevo ? '1' : '0')
+    } catch {
+      // no se pudo recordar: vale solo para esta visita
+    }
+  }, [auto])
 
   // Lo último que se ha pedido: una respuesta lenta que llega tarde no pisa a una más reciente
   const generacionLista = useRef(0)
@@ -309,16 +329,21 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
 
   /* ------------------------------ traer correo nuevo ------------------------------ */
 
+  // Por qué se lee: 'inicio' al abrir el buzón (la lista acaba de cargarse), 'auto' por el reloj de la pantalla, 'manual' por el botón. Fuera del inicio, aunque esta lectura no traiga
+  // nada también se vuelve a cargar lo que se ve: el dueño o el proceso automático pueden haber traído correo entre dos lecturas
   const sincronizar = useCallback(
-    async (manual: boolean) => {
+    async (motivo: 'inicio' | 'auto' | 'manual') => {
+      const manual = motivo === 'manual'
       const inicial = buzonRef.current
-      if (!inicial || !inicial.esMio || !inicial.conectado || inicial.credencialesInvalidas) return
+      if (!inicial || !inicial.conectado || inicial.credencialesInvalidas) return
       if (sincronizandoAhora.current) return
       sincronizandoAhora.current = true
       setSincronizando(true)
       let hubo = false
+      // El dueño trae el histórico por tramos hasta acabar; quien supervisa hace UNA pasada (solo lectura) y deja el resto al dueño y al proceso automático
+      const pasadas = inicial.esMio ? 400 : 1
       try {
-        for (let vuelta = 0; vuelta < 400; vuelta += 1) {
+        for (let vuelta = 0; vuelta < pasadas; vuelta += 1) {
           if (buzonRef.current?.id !== inicial.id) break // la persona ha cambiado de buzón: esta lectura ya no es la suya
           const r = await enviarJson<RespuestaDeSincronizar>('/api/correo/sincronizar', 'POST', { buzonId: inicial.id })
           if (!r.ok) {
@@ -327,6 +352,7 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
           }
           const d = r.datos
           if (d.credencialesInvalidas) {
+            if (manual && !inicial.esMio && d.error) toast.error(d.error)
             await cargarBuzones()
             break
           }
@@ -340,6 +366,10 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
             break
           }
           if (d.ocupada) {
+            if (!inicial.esMio) {
+              if (manual) toast.info('Se está leyendo este buzón ahora mismo: en unos segundos estará al día.')
+              break
+            }
             // Otra lectura (el proceso automático, otra pestaña) va avanzando: se espera y se vuelve a mirar
             if (vuelta > 6) break
             await esperar(3000)
@@ -363,20 +393,33 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
         setSincronizando(false)
         if (hubo) await cargarBuzones()
       }
+      if (!hubo && motivo !== 'inicio') await Promise.all([cargarBuzones(), refrescarListaActual.current()])
     },
     [cargarBuzones]
   )
 
-  const sincroniza = esMio && !!buzon && buzon.conectado && !buzon.credencialesInvalidas
-  const idDelQueSincroniza = sincroniza ? buzon?.id : null
+  // Se lee este buzón por detrás si está conectado y es mío, o si es de otra persona y esta es la pantalla que se ve (oculta no se lee el de nadie más)
+  const lee = !!buzon && buzon.conectado && !buzon.credencialesInvalidas && (buzon.esMio || activa)
+  const idDelQueLee = lee ? buzon?.id : null
   useEffect(() => {
-    if (!idDelQueSincroniza) return
-    void sincronizar(false)
+    if (idDelQueLee) void sincronizar('inicio')
+  }, [idDelQueLee, sincronizar])
+  useEffect(() => {
+    if (!idDelQueLee || !auto) return
     const intervalo = setInterval(() => {
-      if (document.visibilityState === 'visible') void sincronizar(false)
-    }, EN_SEGUNDO_PLANO_MS)
+      if (document.visibilityState === 'visible') void sincronizar('auto')
+    }, activa ? A_LA_VISTA_MS : EN_SEGUNDO_PLANO_MS)
     return () => clearInterval(intervalo)
-  }, [idDelQueSincroniza, sincronizar])
+  }, [idDelQueLee, sincronizar, auto, activa])
+
+  // El resumen del equipo no lee ningún buzón: solo se vuelve a pedir lo que ya hay guardado
+  useEffect(() => {
+    if (!enEquipo || !activa || !auto) return
+    const intervalo = setInterval(() => {
+      if (document.visibilityState === 'visible') void cargarBuzones()
+    }, A_LA_VISTA_MS)
+    return () => clearInterval(intervalo)
+  }, [enEquipo, activa, auto, cargarBuzones])
 
   // El selector de buzones se cierra al pulsar fuera o con Esc
   useEffect(() => {
@@ -653,14 +696,15 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
           </div>
           {!enEquipo && buzon && (
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className="hidden truncate pr-1 text-[11.5px] text-[var(--ls-t4)] md:inline" suppressHydrationWarning>
-                {sincronizando ? 'Buscando correos nuevos…' : buzon.ultimoSyncAt ? `Actualizado ${hace(buzon.ultimoSyncAt)}` : buzon.conectado ? 'Todavía sin leer' : ''}
-              </span>
-              {esMio && (
-                <button type="button" onClick={() => void sincronizar(true)} disabled={sincronizando || !puedeEscribir} className={BOTON_ICONO} title="Buscar correos nuevos" aria-label="Buscar correos nuevos">
-                  <RefreshCw className={`h-4 w-4 ${sincronizando ? 'animate-spin' : ''}`} aria-hidden />
-                </button>
-              )}
+              <EtiquetaDeActualizado ultimoSyncAt={buzon.ultimoSyncAt} sincronizando={sincronizando} conectado={buzon.conectado} />
+              <ControlesDeActualizar
+                onActualizar={() => void sincronizar('manual')}
+                actualizando={sincronizando}
+                deshabilitado={!buzon.conectado || buzon.credencialesInvalidas}
+                titulo={!buzon.conectado ? 'Este buzón está desconectado' : esMio ? 'Buscar correos nuevos' : 'Buscar correos nuevos en este buzón (solo lectura)'}
+                auto={auto}
+                onAuto={cambiarAuto}
+              />
               {(esMio || esAdmin) && (
                 <button type="button" onClick={() => setAjustes(true)} className={BOTON_ICONO} title="Ajustes del buzón" aria-label="Ajustes del buzón">
                   <Settings className="h-4 w-4" aria-hidden />
@@ -673,10 +717,15 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
               )}
             </div>
           )}
-          {enEquipo && sinBuzonPropio && (
-            <button type="button" onClick={() => setConectando(true)} className={BOTON_SECUNDARIO}>
-              <Mail className="h-3.5 w-3.5" aria-hidden /> Conectar mi correo
-            </button>
+          {enEquipo && (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <ControlesDeActualizar onActualizar={() => void cargarBuzones()} titulo="Volver a cargar el resumen del equipo" auto={auto} onAuto={cambiarAuto} />
+              {sinBuzonPropio && (
+                <button type="button" onClick={() => setConectando(true)} className={BOTON_SECUNDARIO}>
+                  <Mail className="h-3.5 w-3.5" aria-hidden /> Conectar mi correo
+                </button>
+              )}
+            </div>
           )}
         </div>
 

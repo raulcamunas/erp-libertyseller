@@ -247,13 +247,14 @@ export const TAREAS_CRON = [
      * servidor rechaza la contraseña se deja de intentar hasta que su dueño la vuelva a escribir (seguir probando
      * acaba bloqueando la cuenta en el proveedor), y uno que falla por otra causa espera cada vez más entre intentos.
      *
-     * Cada tres minutos porque es el correo de gente que habla con clientes; y mientras alguien tiene Correo abierto,
-     * la propia pantalla pide una lectura a su buzón cada minuto.
+     * Cada minuto porque es el correo de gente que habla con clientes (antes, cada tres: un correo tardaba hasta ese tiempo en llegar a
+     * quien no tenía la pantalla abierta). Una pasada con 9 buzones dura ~12 s y mientras la anterior siga en marcha la siguiente no empieza.
+     * Además, mientras alguien tiene Correo abierto, la propia pantalla pide una lectura al buzón que mira cada 30 s.
      */
     id: 'correo-sync',
     nombre: 'Correo de los comerciales',
     ruta: '/api/correo/cron',
-    cadaMinutos: 3,
+    cadaMinutos: 1,
     que:
       'Trae a Correo los mensajes nuevos de cada buzón conectado, de Entrada y de Enviados, y recoge lo que se ' +
       'haya leído en el webmail. Solo lee: no envía, no borra ni marca nada en el servidor de correo.',

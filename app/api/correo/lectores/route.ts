@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { validarPeticion } from '@/lib/correo/lectores'
-import { FALTA_MIGRACION_LECTORES, FaltaMigracionDeLectores, cambiarLectores, leerDatosDeLaMatriz } from '@/lib/correo/lectores-servidor'
+import { FALTA_MIGRACION_BLOQUEOS, FALTA_MIGRACION_LECTORES, FaltaMigracionDeBloqueos, FaltaMigracionDeLectores, cambiarLectores, leerDatosDeLaMatriz } from '@/lib/correo/lectores-servidor'
 import { SIN_CACHE, requerirCorreo, respuestaDeFallo } from '@/lib/correo/rutas'
 import { nombreDeLaSesion } from '@/lib/correo/servidor'
 import { leerCuerpoConTope } from '@/lib/subidas-limite'
@@ -10,15 +10,17 @@ import { createServiceClient } from '@/lib/supabase/service'
 /**
  * QUIÉN VE QUÉ BUZÓN — SOLO PARA ADMINISTRADORES («managers»).
  *
- * GET   la matriz de personas por buzón: qué lee cada persona y por qué (suyo, un permiso de supervisión, abierto a mano o nada) y los últimos cambios.
- * POST  { lectorId, cambios: [{ buzonId, leer }] } abre (leer: true) o cierra (leer: false) buzones a UNA persona. Solo lectura: abrir un buzón no deja escribir desde él.
+ * GET   la matriz de personas por buzón: qué lee cada persona y por qué (suyo, un permiso de supervisión, abierto a mano o nada), qué buzones tiene bloqueados y los últimos cambios.
+ * POST  { lectorId, cambios: [{ buzonId, leer } | { buzonId, bloquear }] } sobre UNA persona: abre (leer: true) o cierra (leer: false) un buzón a mano, o lo BLOQUEA
+ *       (bloquear: true: no lo lee por ningún permiso) o le quita el bloqueo (bloquear: false). Solo lectura: abrir un buzón no deja escribir desde él.
  *       Devuelve lo que se ha hecho y la matriz ya al día.
  *
  * NO ES UN AJUSTE DE PANTALLA: es quien decide qué correos ven los empleados. Se comprueba aquí que quien llama es administrador (a cualquier otro, «no existe»,
  * igual que si la ruta no estuviera) y la regla de qué abre cada permiso sigue estando en lib/correo/acceso.ts. Cada apertura deja su rastro (correo_buzon_lectores_historial) y,
  * si el rastro no se puede escribir, no se abre nada.
  *
- * NECESITA LA MIGRACIÓN 255. Sin ella contesta 503 con el nombre del fichero; el resto de Correo no se entera.
+ * NECESITA LA MIGRACIÓN 255 (abrir y cerrar) y LA 260 (bloquear). Sin ellas contesta 503 con el nombre del fichero; el resto de Correo no se entera. Sin la 260 la matriz sale igual,
+ * con `bloqueosDisponibles: false`, y la pantalla no ofrece bloquear.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -62,9 +64,10 @@ export async function POST(request: NextRequest) {
     const r = await cambiarLectores(service, { id: sesion.userId, nombre }, valida.peticion)
     if (!r.ok) return fail(r.estado, r.error)
     const datos = await leerDatosDeLaMatriz(service)
-    return NextResponse.json({ concedidos: r.concedidos, quitados: r.quitados, rechazados: r.rechazados, ...datos }, { headers: SIN_CACHE })
+    return NextResponse.json({ concedidos: r.concedidos, quitados: r.quitados, bloqueados: r.bloqueados, desbloqueados: r.desbloqueados, rechazados: r.rechazados, ...datos }, { headers: SIN_CACHE })
   } catch (error) {
     if (error instanceof FaltaMigracionDeLectores) return fail(503, FALTA_MIGRACION_LECTORES)
+    if (error instanceof FaltaMigracionDeBloqueos) return fail(503, FALTA_MIGRACION_BLOQUEOS)
     return respuestaDeFallo('Correo · lectores: fallo al cambiar', error)
   }
 }

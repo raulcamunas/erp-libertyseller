@@ -5,7 +5,7 @@ import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { nombreDeFichero } from './analizar'
 import { almacenSupabase, type FilaDeBuzon, type FilaDeCarpeta } from './almacen'
 import { avisarDeCorreoNuevo, marcarAvisosDeCorreoLeidos } from './campana-servidor'
-import { buzonesConcedidosA } from './lectores-servidor'
+import { buzonesBloqueadosA, buzonesConcedidosA } from './lectores-servidor'
 import { NO_EXISTE, UUID, decidirAcceso, type DatosDelDueno, type ModoDeAcceso, type QuienPide } from './acceso'
 import { elegirCarpetas } from './carpetas'
 import { ErrorDeCorreo, MENSAJE_DE_ERROR_DE_CORREO, abrirImap, cerrarImap, convertirError, crearTransporte, type CodigoDeErrorDeCorreo } from './conexion'
@@ -57,15 +57,17 @@ export async function cargarBuzon(service: Servicio, buzonId: string): Promise<F
 export async function quienPide(service: Servicio, sesion: { userId: string; role: string }): Promise<QuienPide> {
   // Un administrador lo puede leer todo sin pasar por ningún permiso. Un partner NO: su rol no supervisa nada (ver acceso.ts)
   if (sesion.role === 'admin') return { ...sesion, tienePermisoEquipo: false, tienePermisoCorreo: false }
-  const [permisos, concedidos] = await Promise.all([
+  const [permisos, concedidos, bloqueados] = await Promise.all([
     service.from('user_app_permissions').select('app_id, can_access').eq('user_id', sesion.userId).in('app_id', [PERMISO_EQUIPO_COMERCIAL, PERMISO_CORREO_SUPERVISION]),
     // Los buzones que un administrador le ha abierto a mano (migración 255). Sin la migración, ninguno
     buzonesConcedidosA(service, sesion.userId),
+    // Y los que le ha BLOQUEADO (migración 260): no los lee por ningún permiso. Sin la migración, ninguno
+    buzonesBloqueadosA(service, sesion.userId),
   ])
   if (permisos.error) throw new Error('No se ha podido comprobar el permiso.', { cause: permisos.error })
   const filas = (permisos.data ?? []) as Array<{ app_id: string; can_access: boolean | null }>
   const tiene = (id: string) => filas.some((f) => f.app_id === id && f.can_access === true)
-  return { ...sesion, tienePermisoEquipo: tiene(PERMISO_EQUIPO_COMERCIAL), tienePermisoCorreo: tiene(PERMISO_CORREO_SUPERVISION), buzonesConcedidos: concedidos }
+  return { ...sesion, tienePermisoEquipo: tiene(PERMISO_EQUIPO_COMERCIAL), tienePermisoCorreo: tiene(PERMISO_CORREO_SUPERVISION), buzonesConcedidos: concedidos, buzonesBloqueados: bloqueados }
 }
 
 export type Autorizacion =

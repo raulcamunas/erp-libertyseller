@@ -15,6 +15,11 @@ import { UUID, decidirAcceso, type QuienPide } from './acceso'
  *   · concedido   se lo ha abierto un administrador a mano.
  *   · nada        no lo ve.
  *
+ * Y desde la migración 260, UNA CUARTA COSA QUE SE PUEDE HACER: BLOQUEAR. Un administrador le bloquea a una persona un buzón concreto y esa persona deja de leerlo aunque un
+ * permiso de supervisión (o un buzón abierto a mano) se lo abriera. Así se puede dar «Supervisión del correo» o «del equipo comercial» a quien lo necesite para su trabajo y,
+ * aun así, dejarle fuera los buzones que no debe leer (por ejemplo los de los administrativos). El bloqueo no cambia el permiso: solo cierra ese buzón. `via` sigue diciendo
+ * por dónde lo vería SIN el bloqueo (para saber qué pasa el día que se lo quiten) y `bloqueado` dice si hoy lo tiene cerrado.
+ *
  * Es solo LECTURA y cada vez que alguien mira un buzón que no es suyo queda anotado: abrirlo no da permiso para escribir desde él, ni para desconectarlo.
  */
 
@@ -49,19 +54,33 @@ export interface Concesion {
 
 export type ViaDeAcceso = 'suyo' | 'permiso' | 'concedido' | 'nada'
 
+/** Un buzón que un administrador le ha bloqueado a una persona (tabla correo_buzon_bloqueos, migración 260) */
+export interface Bloqueo {
+  buzonId: string
+  lectorId: string
+  /** Quién se lo bloqueó (nombre) */
+  por: string | null
+  /** Cuándo (ISO) */
+  desde: string
+}
+
 export interface CeldaDeAcceso {
-  /** El motivo por el que lo ve, el más fuerte: suyo, un permiso de supervisión, abierto a mano, o ninguno */
+  /** El motivo por el que lo vería, el más fuerte, SIN contar el bloqueo: suyo, un permiso de supervisión, abierto a mano, o ninguno */
   via: ViaDeAcceso
   /** Hay además (o solo) un buzón abierto a mano para esa persona. Si hoy lo ve por un permiso, este es el que seguirá abierto el día que se lo quiten */
   concedido: boolean
+  /** Un administrador le ha bloqueado este buzón: hoy NO lo lee, sea cual sea `via` */
+  bloqueado: boolean
 }
 
 export interface FilaDeLaMatriz {
   persona: PersonaDeLaMatriz
   /** Por id de buzón */
   celdas: Record<string, CeldaDeAcceso>
-  /** Cuántos buzones ajenos lee esta persona, de cualquier forma */
+  /** Cuántos buzones ajenos lee esta persona hoy, de cualquier forma (los bloqueados no cuentan) */
   leidos: number
+  /** Cuántos buzones tiene bloqueados */
+  bloqueados: number
 }
 
 export interface Matriz {
@@ -69,13 +88,14 @@ export interface Matriz {
   filas: FilaDeLaMatriz[]
 }
 
-export function celdaDe(persona: PersonaDeLaMatriz, buzon: BuzonDeLaMatriz, concedido: boolean): CeldaDeAcceso {
-  if (buzon.dueno.id === persona.id) return { via: 'suyo', concedido: false }
+export function celdaDe(persona: PersonaDeLaMatriz, buzon: BuzonDeLaMatriz, concedido: boolean, bloqueado = false): CeldaDeAcceso {
+  // El suyo no se bloquea: el dueño siempre lee el suyo
+  if (buzon.dueno.id === persona.id) return { via: 'suyo', concedido: false, bloqueado: false }
   // ¿Lo abre ya un permiso de supervisión? Se pregunta a la regla de verdad, SIN contar lo abierto a mano, para no repetirla aquí
   const quien: QuienPide = { userId: persona.id, role: persona.role, tienePermisoEquipo: persona.permisoEquipo, tienePermisoCorreo: persona.permisoCorreo }
   const porPermiso = decidirAcceso(quien, { user_id: buzon.dueno.id, id: buzon.id }, { is_comercial: buzon.dueno.esComercial, role: buzon.dueno.role }, 'leer').ok
-  if (porPermiso) return { via: 'permiso', concedido }
-  return { via: concedido ? 'concedido' : 'nada', concedido }
+  if (porPermiso) return { via: 'permiso', concedido, bloqueado }
+  return { via: concedido ? 'concedido' : 'nada', concedido, bloqueado }
 }
 
 /**
@@ -83,9 +103,11 @@ export function celdaDe(persona: PersonaDeLaMatriz, buzon: BuzonDeLaMatriz, conc
  * supervisión aunque haya perdido la casilla (para poder ver y quitar lo que le queda). Un administrador no sale (lee todo y no hay nada que decidir) ni un partner o un cliente
  * (no entran al correo del ERP). Por nombre.
  */
-export function armarMatriz(entrada: { personas: readonly PersonaDeLaMatriz[]; buzones: readonly BuzonDeLaMatriz[]; concesiones: readonly Concesion[] }): Matriz {
+export function armarMatriz(entrada: { personas: readonly PersonaDeLaMatriz[]; buzones: readonly BuzonDeLaMatriz[]; concesiones: readonly Concesion[]; bloqueos?: readonly Bloqueo[] }): Matriz {
   const abiertos = new Set(entrada.concesiones.map((c) => `${c.lectorId}|${c.buzonId}`))
-  const conAlgo = new Set(entrada.concesiones.map((c) => c.lectorId))
+  const cerrados = new Set((entrada.bloqueos ?? []).map((b) => `${b.lectorId}|${b.buzonId}`))
+  // Quien tiene algo abierto o bloqueado sale aunque haya perdido la casilla de Correo: para poder ver y quitar lo que le queda
+  const conAlgo = new Set([...entrada.concesiones.map((c) => c.lectorId), ...(entrada.bloqueos ?? []).map((b) => b.lectorId)])
   const buzones = [...entrada.buzones].sort((a, b) => a.dueno.nombre.localeCompare(b.dueno.nombre, 'es') || a.direccion.localeCompare(b.direccion, 'es'))
 
   const filas = entrada.personas
@@ -93,12 +115,14 @@ export function armarMatriz(entrada: { personas: readonly PersonaDeLaMatriz[]; b
     .map<FilaDeLaMatriz>((persona) => {
       const celdas: Record<string, CeldaDeAcceso> = {}
       let leidos = 0
+      let bloqueados = 0
       for (const b of buzones) {
-        const c = celdaDe(persona, b, abiertos.has(`${persona.id}|${b.id}`))
+        const c = celdaDe(persona, b, abiertos.has(`${persona.id}|${b.id}`), cerrados.has(`${persona.id}|${b.id}`))
         celdas[b.id] = c
-        if (c.via === 'permiso' || c.via === 'concedido') leidos += 1
+        if (c.bloqueado) bloqueados += 1
+        else if (c.via === 'permiso' || c.via === 'concedido') leidos += 1
       }
-      return { persona, celdas, leidos }
+      return { persona, celdas, leidos, bloqueados }
     })
     .sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre, 'es'))
 
@@ -107,7 +131,7 @@ export function armarMatriz(entrada: { personas: readonly PersonaDeLaMatriz[]; b
 
 /** Un cambio ya hecho, para la lista de «últimos cambios» de la pantalla */
 export interface CambioReciente {
-  accion: 'concedido' | 'quitado'
+  accion: 'concedido' | 'quitado' | 'bloqueado' | 'desbloqueado'
   buzon: string
   lector: string
   porQuien: string
@@ -118,6 +142,10 @@ export interface CambioReciente {
 export interface DatosDeLaMatriz {
   matriz: Matriz
   concesiones: Concesion[]
+  /** Los buzones bloqueados a alguien. Vacío si la migración 260 no está lanzada (ver `bloqueosDisponibles`) */
+  bloqueos: Bloqueo[]
+  /** ¿Se puede bloquear? false = falta lanzar la migración 260: la pantalla lo dice y no ofrece bloquear */
+  bloqueosDisponibles: boolean
   /** Los últimos cambios, del más nuevo al más viejo */
   recientes: CambioReciente[]
 }
@@ -126,11 +154,22 @@ export interface DatosDeLaMatriz {
 /* Los cambios                                                         */
 /* ------------------------------------------------------------------ */
 
-export interface CambioDeLector {
-  buzonId: string
-  /** true = abrir ese buzón a esa persona; false = cerrarlo */
-  leer: boolean
-}
+/**
+ * Un cambio sobre UN buzón de UNA persona: abrirlo o cerrarlo a mano (`leer`), o bloquearlo o desbloquearlo (`bloquear`, migración 260). Uno de los dos, nunca los dos.
+ */
+export type CambioDeLector =
+  | {
+      buzonId: string
+      /** true = abrir ese buzón a esa persona; false = cerrarlo */
+      leer: boolean
+      bloquear?: undefined
+    }
+  | {
+      buzonId: string
+      /** true = bloquearle ese buzón (no lo lee por ningún permiso); false = quitarle el bloqueo */
+      bloquear: boolean
+      leer?: undefined
+    }
 
 export interface PeticionDeCambio {
   lectorId: string
@@ -149,13 +188,14 @@ export function validarPeticion(entrada: unknown): { ok: true; peticion: Peticio
   const vistos = new Set<string>()
   const salida: CambioDeLector[] = []
   for (const c of cambios) {
-    const { buzonId, leer } = (c ?? {}) as { buzonId?: unknown; leer?: unknown }
+    const { buzonId, leer, bloquear } = (c ?? {}) as { buzonId?: unknown; leer?: unknown; bloquear?: unknown }
     if (typeof buzonId !== 'string' || !UUID.test(buzonId)) return { ok: false, error: 'Uno de los buzones no es válido.' }
-    if (typeof leer !== 'boolean') return { ok: false, error: 'Falta decir si el buzón se abre o se cierra.' }
+    if (leer !== undefined && bloquear !== undefined) return { ok: false, error: 'Un cambio no puede abrir y bloquear el mismo buzón a la vez.' }
+    if (typeof leer !== 'boolean' && typeof bloquear !== 'boolean') return { ok: false, error: 'Falta decir si el buzón se abre, se cierra, se bloquea o se desbloquea.' }
     const id = buzonId.toLowerCase()
     if (vistos.has(id)) return { ok: false, error: 'Un mismo buzón sale dos veces en la petición.' }
     vistos.add(id)
-    salida.push({ buzonId: id, leer })
+    salida.push(typeof bloquear === 'boolean' ? { buzonId: id, bloquear } : { buzonId: id, leer: leer as boolean })
   }
   return { ok: true, peticion: { lectorId: lectorId.toLowerCase(), cambios: salida } }
 }
@@ -168,8 +208,9 @@ export interface DecisionDeCambios {
 }
 
 /**
- * Qué cambios se pueden hacer. A QUIÉN se le abre tiene que ser un employee (un administrador ya lo lee todo; un partner o un cliente no entran al correo) y no el
- * dueño del buzón (ya lo lee). Un buzón que no existe se rechaza. Cerrar un buzón que no estaba abierto no es un error: no cambia nada.
+ * Qué cambios se pueden hacer. A QUIÉN se le abre o se le bloquea tiene que ser un employee (un administrador ya lo lee todo y no se le bloquea nada; un partner o un cliente no
+ * entran al correo) y no el dueño del buzón (ya lo lee, y el suyo no se bloquea). Un buzón que no existe se rechaza. Cerrar un buzón que no estaba abierto, o quitar un bloqueo que
+ * no estaba, no es un error: no cambia nada.
  */
 export function decidirCambios(
   lector: { id: string; role: string } | null,
@@ -178,15 +219,44 @@ export function decidirCambios(
 ): { ok: false; estado: number; error: string } | ({ ok: true } & DecisionDeCambios) {
   if (!lector) return { ok: false, estado: 404, error: 'No existe esa persona.' }
   if (lector.role !== 'employee') {
-    return { ok: false, estado: 422, error: lector.role === 'admin' ? 'Un administrador ya lee todos los buzones: no hace falta abrirle ninguno.' : 'Solo se abren buzones a personas del equipo (no a partners ni a clientes).' }
+    return { ok: false, estado: 422, error: lector.role === 'admin' ? 'Un administrador lee todos los buzones: no se le abre ni se le bloquea ninguno.' : 'Solo se abren o se bloquean buzones a personas del equipo (no a partners ni a clientes).' }
   }
   const aplicar: CambioDeLector[] = []
   const rechazados: DecisionDeCambios['rechazados'] = []
   for (const c of peticion.cambios) {
     const b = buzones.get(c.buzonId)
     if (!b) rechazados.push({ buzonId: c.buzonId, motivo: 'Ese buzón no existe.' })
-    else if (b.dueno === lector.id) rechazados.push({ buzonId: c.buzonId, motivo: 'Es su propio buzón: ya lo lee.' })
+    else if (b.dueno === lector.id) rechazados.push({ buzonId: c.buzonId, motivo: c.bloquear !== undefined ? 'Es su propio buzón: no se le puede bloquear.' : 'Es su propio buzón: ya lo lee.' })
     else aplicar.push(c)
   }
   return { ok: true, aplicar, rechazados }
+}
+
+/* ------------------------------------------------------------------ */
+/* Los grupos de buzones, para bloquear o desbloquear de golpe         */
+/* ------------------------------------------------------------------ */
+
+export type GrupoDeBuzones = 'administrativos' | 'comerciales'
+
+/** «Los administrativos»: los buzones del equipo que no son de un comercial ni de un administrador */
+export const esDeAdministrativo = (b: BuzonDeLaMatriz): boolean => b.dueno.esComercial !== true && b.dueno.role !== 'admin'
+
+export const esDeComercial = (b: BuzonDeLaMatriz): boolean => b.dueno.esComercial === true
+
+const delGrupo = (b: BuzonDeLaMatriz, grupo: GrupoDeBuzones): boolean => (grupo === 'administrativos' ? esDeAdministrativo(b) : esDeComercial(b))
+
+/**
+ * Los buzones de un grupo que se le pueden BLOQUEAR a esta persona desde su fila: no el suyo, solo los que hoy lee de verdad (por un permiso o abiertos a mano: bloquear uno que
+ * no lee no cambia nada) y que aún no tiene bloqueados.
+ */
+export function paraBloquear(fila: FilaDeLaMatriz, buzones: readonly BuzonDeLaMatriz[], grupo: GrupoDeBuzones): BuzonDeLaMatriz[] {
+  return buzones.filter((b) => {
+    const c = fila.celdas[b.id]
+    return !!c && delGrupo(b, grupo) && c.via !== 'suyo' && !c.bloqueado && (c.via === 'permiso' || c.via === 'concedido')
+  })
+}
+
+/** Los que tiene bloqueados esta persona (de un grupo, o todos si no se dice cuál) y se le pueden desbloquear */
+export function paraDesbloquear(fila: FilaDeLaMatriz, buzones: readonly BuzonDeLaMatriz[], grupo?: GrupoDeBuzones): BuzonDeLaMatriz[] {
+  return buzones.filter((b) => fila.celdas[b.id]?.bloqueado === true && (grupo === undefined || delGrupo(b, grupo)))
 }

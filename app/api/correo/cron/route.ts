@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { purgarAvisosDeCorreoViejos } from '@/lib/correo/campana-servidor'
+import { hayPasadaEnMarcha } from '@/lib/correo/cron-solape'
 import { vigilarLaSalud } from '@/lib/correo/secuencias/vigia'
 import { FALTA_MIGRACION_CORREO, esFaltaDeMigracion, esperaTrasFallos, sincronizarBuzonPorId } from '@/lib/correo/servidor'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
@@ -20,8 +21,9 @@ import { createServiceClient } from '@/lib/supabase/service'
  *     probando acaba bloqueando la cuenta en el proveedor.
  *   · Uno que falla por otra causa espera cada vez más entre intentos (2, 4, 8… hasta una hora).
  *
- * Solo LEE del servidor de correo. El reloj lo decide `tocaAhora()` desde la tabla cron_config (3 minutos por defecto),
- * como el resto de tareas.
+ * Solo LEE del servidor de correo. El reloj lo decide `tocaAhora()` desde la tabla cron_config (1 minuto por defecto: antes eran 3,
+ * y un correo podía tardar hasta ese tiempo en llegar a quien no tenía la pantalla abierta), como el resto de tareas. Una pasada
+ * normal dura ~12 s, y mientras la anterior siga en marcha (el proveedor va lento) la siguiente no empieza (lib/correo/cron-solape.ts).
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -47,6 +49,8 @@ export async function POST(request: NextRequest) {
   if (request.nextUrl.searchParams.get('forzar') !== '1') {
     const veredicto = await tocaAhora('correo-sync')
     if (!veredicto.toca) return NextResponse.json({ ok: true, saltado: veredicto.motivo })
+    // Una pasada por minuto no puede acumularse si el proveedor de correo va lento
+    if (await hayPasadaEnMarcha(createServiceClient())) return NextResponse.json({ ok: true, saltado: 'la pasada anterior sigue en marcha' })
   }
 
   if (!hasTokenKey()) {

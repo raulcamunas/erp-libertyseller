@@ -21,6 +21,10 @@
  *     para dejar que alguien lea justo los que el administrador decida (la supervisora, los de los comerciales; a un administrativo, solo el suyo y el de otra persona
  *     concreta) sin darle un permiso que abre más de lo que se quiere. Es solo lectura, igual que los demás, y deja rastro. Concede cualquier buzón de un employee o de un
  *     administrador: lo decide quien lo concede.
+ *   · UN BUZÓN BLOQUEADO (el administrador se lo bloquea a una persona concreta desde Correo → «Quién ve qué», migración 260) NO lo lee esa persona, aunque un permiso de
+ *     supervisión o un buzón abierto a mano se lo abriera. Es lo que permite dar «Supervisión del correo» o «del equipo comercial» a alguien y, aun así, dejarle fuera los buzones
+ *     que no deba leer (por ejemplo los de los administrativos). Solo se salta uno: el dueño siempre lee el suyo, y un administrador lee todos (a un administrador no se le
+ *     bloquea nada: es quien decide). Un buzón bloqueado «no existe» para esa persona, igual que el de un id inventado.
  *   · UN PARTNER NO ENTRA POR SU ROL: es una figura externa a la que el middleware solo deja ver Clientes, Cuadro mensual y
  *     Reportes de 15 días. La función SQL puede_ver_equipo_comercial (migración 212) sí lo cuenta como supervisor, y por eso
  *     la regla del correo NO se apoya en ella. Solo lo que cuenta es el permiso suelto.
@@ -44,6 +48,8 @@ export interface QuienPide {
   tienePermisoCorreo: boolean
   /** Los buzones (ids) que un administrador le ha abierto uno a uno para LEER (tabla correo_buzon_lectores). Sin esto, ninguno */
   buzonesConcedidos?: ReadonlySet<string>
+  /** Los buzones (ids) que un administrador le ha BLOQUEADO (tabla correo_buzon_bloqueos, migración 260): no los lee por ningún permiso. Sin esto, ninguno */
+  buzonesBloqueados?: ReadonlySet<string>
 }
 
 /** Lo que hay que saber del dueño de un buzón para decidir quién lo puede leer */
@@ -71,7 +77,9 @@ export function decidirAcceso(quien: QuienPide, buzon: { user_id: string; id?: s
   const supervisaCorreo = quien.tienePermisoCorreo && typeof dueno.role === 'string' && dueno.role !== 'admin'
   // Un buzón abierto a mano por un administrador: ese y solo ese. Hace falta el id del buzón; sin él, ninguno. Un partner no entra por aquí aunque estuviera en la tabla
   const concedido = quien.role !== 'partner' && buzon.id !== undefined && quien.buzonesConcedidos?.has(buzon.id) === true
-  const puedeLeer = esDueno || quien.role === 'admin' || supervisaVentas || supervisaCorreo || concedido
+  // Un buzón bloqueado a esta persona no se lee por ningún permiso. El dueño y el administrador no se bloquean nunca. Hace falta el id del buzón; sin él no se puede saber
+  const bloqueado = !esDueno && quien.role !== 'admin' && buzon.id !== undefined && quien.buzonesBloqueados?.has(buzon.id) === true
+  const puedeLeer = !bloqueado && (esDueno || quien.role === 'admin' || supervisaVentas || supervisaCorreo || concedido)
 
   if (!puedeLeer) return { ok: false, estado: 404, mensaje: NO_EXISTE }
 

@@ -126,6 +126,35 @@ console.log('quien tiene un buzón concedido a mano (Correo → Quién ve qué)'
   caso('el dueño sigue leyendo el suyo con la lista que tenga', veredicto({ userId: 'ana', role: 'employee', ...sin, buzonesConcedidos: new Set(['b-bea']) }, buzonAna, comercial, 'leer'), 'sí (dueño)')
 }
 
+console.log('quien tiene un buzón BLOQUEADO (Correo → Quién ve qué, migración 260)')
+{
+  const buzonAna = { user_id: 'ana', id: 'b-ana' }
+  const buzonBea = { user_id: 'bea', id: 'b-bea' }
+  const buzonConta = { user_id: 'conta', id: 'b-conta' }
+  const buzonRaul = { user_id: 'raul', id: 'b-raul' }
+  // Alejandro supervisa el equipo comercial y el correo (lee todo lo que no es de un administrador), pero a Raúl no le parece bien que lea el de la administrativa
+  const alejandroConTodo: QuienPide = { userId: 'alejandro', role: 'employee', tienePermisoEquipo: true, tienePermisoCorreo: true }
+  caso('sin bloqueos lee el de una comercial y el de la administrativa (los dos permisos)', veredicto(alejandroConTodo, buzonAna, comercial, 'leer') + '|' + veredicto(alejandroConTodo, buzonConta, noComercial, 'leer'), 'sí (supervisión)|sí (supervisión)')
+  const sinConta: QuienPide = { ...alejandroConTodo, buzonesBloqueados: new Set(['b-conta']) }
+  caso('con el de la administrativa bloqueado, ese NO lo lee (aunque el permiso del correo lo abriría)', veredicto(sinConta, buzonConta, noComercial, 'leer'), '404')
+  caso('y sigue leyendo el de las comerciales (el bloqueo es de un buzón, no de la persona)', veredicto(sinConta, buzonAna, comercial, 'leer'), 'sí (supervisión)')
+  caso('bloquear a una persona un buzón no le quita el permiso para los demás', veredicto(sinConta, buzonBea, comercial, 'leer'), 'sí (supervisión)')
+  const sinAna: QuienPide = { ...alejandroConTodo, buzonesBloqueados: new Set(['b-ana']) }
+  caso('el permiso de supervisión comercial tampoco abre un buzón bloqueado', veredicto({ userId: 'alejandro', role: 'employee', tienePermisoEquipo: true, tienePermisoCorreo: false, buzonesBloqueados: new Set(['b-ana']) }, buzonAna, comercial, 'leer'), '404')
+  caso('ni lo escribe ni lo administra (para ella no existe)', veredicto(sinAna, buzonAna, comercial, 'escribir') + '|' + veredicto(sinAna, buzonAna, comercial, 'administrar'), '404|404')
+  const concedidoYBloqueado: QuienPide = { userId: 'jhanna', role: 'employee', ...sin, buzonesConcedidos: new Set(['b-ana']), buzonesBloqueados: new Set(['b-ana']) }
+  caso('un buzón abierto a mano y a la vez bloqueado: gana el bloqueo', veredicto(concedidoYBloqueado, buzonAna, comercial, 'leer'), '404')
+  const soloOtroBloqueado: QuienPide = { userId: 'jhanna', role: 'employee', ...sin, buzonesConcedidos: new Set(['b-ana', 'b-bea']), buzonesBloqueados: new Set(['b-bea']) }
+  caso('el bloqueo de un buzón no cierra el otro que tiene abierto a mano', veredicto(soloOtroBloqueado, buzonAna, comercial, 'leer') + '|' + veredicto(soloOtroBloqueado, buzonBea, comercial, 'leer'), 'sí (supervisión)|404')
+  caso('un bloqueo en la lista no afecta al dueño: siempre lee el suyo', veredicto({ userId: 'ana', role: 'employee', ...sin, buzonesBloqueados: new Set(['b-ana']) }, buzonAna, comercial, 'leer') + '|' + veredicto({ userId: 'ana', role: 'employee', ...sin, buzonesBloqueados: new Set(['b-ana']) }, buzonAna, comercial, 'escribir'), 'sí (dueño)|sí (dueño)')
+  caso('ni a un administrador (nunca se le bloquea nada)', veredicto({ userId: 'raul', role: 'admin', ...sin, buzonesBloqueados: new Set(['b-ana', 'b-conta']) }, buzonAna, comercial, 'leer') + '|' + veredicto({ userId: 'raul', role: 'admin', ...sin, buzonesBloqueados: new Set(['b-conta']) }, buzonConta, noComercial, 'leer'), 'sí (supervisión)|sí (supervisión)')
+  caso('el bloqueo también cierra el buzón de un administrador que se le hubiera abierto a mano', veredicto({ userId: 'jhanna', role: 'employee', ...sin, buzonesConcedidos: new Set(['b-raul']), buzonesBloqueados: new Set(['b-raul']) }, buzonRaul, administrador, 'leer'), '404')
+  caso('sin el id del buzón no hay forma de saber que está bloqueado: la regla de siempre manda', veredicto(sinConta, { user_id: 'conta' }, noComercial, 'leer'), 'sí (supervisión)')
+  caso('una lista de bloqueos vacía no cambia nada', veredicto({ ...alejandroConTodo, buzonesBloqueados: new Set() }, buzonConta, noComercial, 'leer'), 'sí (supervisión)')
+  const d = decidirAcceso(sinConta, buzonConta, noComercial, 'leer')
+  ok('lo bloqueado se niega con el mismo «no existe» de siempre (no se nota que existe)', !d.ok && d.mensaje === NO_EXISTE && d.estado === 404)
+}
+
 console.log('lo que no se ve se niega como si no existiera')
 {
   const d = decidirAcceso(conta, deAna, comercial, 'leer')
