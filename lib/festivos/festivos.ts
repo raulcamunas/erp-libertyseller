@@ -3,7 +3,7 @@
  * ===========================================
  * Un lead está en una comunidad autónoma (lib/ubicacion/resolver.ts la deduce de lo que trae) y, si se sabe, en un municipio. Con eso y los calendarios del BOE
  * (lib/festivos/datos/) se sabe qué fiestas laborales caen en un día para él: las de toda España, las de su comunidad y, si es de una isla de Canarias o del Valle de
- * Arán, las de su zona. No se inventa nada: un día sin calendario (un año que el BOE aún no ha publicado) no es festivo ni deja de serlo, simplemente no se sabe.
+ * Arán, las de su zona y, donde se han cargado (hoy, los 178 municipios de la Comunidad de Madrid en 2026: lib/festivos/locales.ts), la fiesta local de su municipio. No se inventa nada: un día sin calendario (un año que el BOE aún no ha publicado) no es festivo ni deja de serlo, simplemente no se sabe.
  *
  * Los días son «2026-11-02», el día del calendario de quien mira (lib/cold-calling/fechas.ts diaLocal): nunca se pasa por una fecha con hora, que es donde fallan los
  * cambios de hora y las zonas horarias.
@@ -11,6 +11,7 @@
 
 import { CCAA, CODIGOS_CCAA, type CodigoCcaa } from '@/lib/ubicacion/zonas'
 import { CALENDARIOS } from './datos'
+import { FIESTAS_LOCALES } from './locales'
 import type { CodigoZona, Fiesta, Lugar } from './tipos'
 import { NOMBRE_DE_ZONA, zonaDeMunicipio } from './zonas-especiales'
 
@@ -34,6 +35,14 @@ for (const cal of CALENDARIOS) {
   for (const s of cal.sinFiestaEnZona) delDia(s.f).sinFiesta.add(s.z)
 }
 
+/** Las fiestas locales: día -> (municipio INE -> su nombre) */
+const LOCALES_POR_DIA = new Map<string, Map<string, string>>()
+for (const l of FIESTAS_LOCALES) {
+  let m = LOCALES_POR_DIA.get(l.f)
+  if (!m) LOCALES_POR_DIA.set(l.f, (m = new Map()))
+  m.set(l.ine, l.lugar)
+}
+
 /** ¿Se conoce el calendario del año de este día? Si no, la app no dice nada de festivos para él */
 export const hayCalendarioPara = (dia: string): boolean => ANIOS.has(Number(dia.slice(0, 4)))
 
@@ -44,15 +53,19 @@ export const aniosConCalendario = (): number[] => [...ANIOS].sort()
 export function fiestasDe(dia: string, lugar: Lugar | null | undefined): Fiesta[] {
   if (!lugar) return []
   const d = POR_DIA.get(dia)
-  if (!d) return []
-  const zona = zonaDeMunicipio(lugar.ine)
   const salida: Fiesta[] = []
-  for (const f of d.comunidades) {
-    if (f.c !== 'todas' && !f.c.includes(lugar.ccaa)) continue
-    if (zona && d.sinFiesta.has(zona)) continue // la sustituye la de su zona (el Valle de Arán)
-    salida.push({ dia, nombre: f.n, alcance: f.c === 'todas' ? 'nacional' : 'comunidad' })
+  if (d) {
+    const zona = zonaDeMunicipio(lugar.ine)
+    for (const f of d.comunidades) {
+      if (f.c !== 'todas' && !f.c.includes(lugar.ccaa)) continue
+      if (zona && d.sinFiesta.has(zona)) continue // la sustituye la de su zona (el Valle de Arán)
+      salida.push({ dia, nombre: f.n, alcance: f.c === 'todas' ? 'nacional' : 'comunidad' })
+    }
+    if (zona) for (const z of d.zonas) if (z.z === zona) salida.push({ dia, nombre: z.n, alcance: 'zona' })
   }
-  if (zona) for (const z of d.zonas) if (z.z === zona) salida.push({ dia, nombre: z.n, alcance: 'zona' })
+  // La fiesta local de su municipio, si se sabe cuál es (solo con el municipio: con solo la comunidad no se puede saber)
+  const local = lugar.ine ? LOCALES_POR_DIA.get(dia)?.get(lugar.ine) : undefined
+  if (local) salida.push({ dia, nombre: 'Fiesta local', alcance: 'local', lugar: local })
   return salida
 }
 
@@ -102,19 +115,22 @@ export interface FestivoDelDia {
   comunidades: CodigoCcaa[]
   /** Las islas o el Valle de Arán que celebran algo propio ese día */
   zonas: CodigoZona[]
+  /** Los municipios con fiesta local ese día (sus nombres, por orden alfabético) */
+  municipios: string[]
   /** Los nombres distintos de lo que se celebra */
   nombres: string[]
 }
 
-/** Qué se celebra ese día y dónde; null si ninguna comunidad ni zona celebra nada (o no hay calendario) */
+/** Qué se celebra ese día y dónde; null si ninguna comunidad, zona ni municipio celebra nada (o no hay calendario) */
 export function festivosDelDia(dia: string): FestivoDelDia | null {
   const d = POR_DIA.get(dia)
-  if (!d) return null
-  const comunidades = CODIGOS_CCAA.filter((c) => d.comunidades.some((f) => f.c === 'todas' || f.c.includes(c)))
-  const zonas = d.zonas.map((z) => z.z)
-  if (comunidades.length === 0 && zonas.length === 0) return null
-  const nombres = [...new Set([...d.comunidades.map((f) => f.n), ...d.zonas.map((z) => z.n)])]
-  return { dia, nacional: comunidades.length === CODIGOS_CCAA.length, comunidades, zonas, nombres }
+  const locales = LOCALES_POR_DIA.get(dia)
+  const comunidades = d ? CODIGOS_CCAA.filter((c) => d.comunidades.some((f) => f.c === 'todas' || f.c.includes(c))) : []
+  const zonas = d ? d.zonas.map((z) => z.z) : []
+  const municipios = locales ? [...locales.values()].sort((a, b) => a.localeCompare(b, 'es')) : []
+  if (comunidades.length === 0 && zonas.length === 0 && municipios.length === 0) return null
+  const nombres = [...new Set([...(d ? d.comunidades.map((f) => f.n) : []), ...(d ? d.zonas.map((z) => z.n) : []), ...(municipios.length > 0 ? ['Fiesta local'] : [])])]
+  return { dia, nacional: comunidades.length === CODIGOS_CCAA.length, comunidades, zonas, municipios, nombres }
 }
 
 /** Los días laborables (de lunes a viernes) con algún festivo desde `desde` (incluido) durante `dias` días, en orden */
@@ -144,11 +160,13 @@ export function cuandoEs(dia: string, hoy: string): string {
   return `el ${SEMANA[diaDeLaSemana(dia)]} ${Number(m[3])} de ${MESES[Number(m[2]) - 1]}`
 }
 
-/** Dónde es festivo, para decir «es festivo en …»: «toda España», «Madrid», «Tenerife (Canarias)» */
+/** Dónde es festivo, para decir «es festivo en …»: «toda España», «Madrid», «Tenerife (Canarias)», o el municipio si solo es su fiesta local */
 export function dondeEsFestivo(fiestas: Fiesta[], lugar: Lugar): string {
   if (fiestas.length > 0 && fiestas.every((f) => f.alcance === 'nacional')) return 'toda España'
   const zona = zonaDeMunicipio(lugar.ine)
   if (zona && fiestas.some((f) => f.alcance === 'zona')) return `${NOMBRE_DE_ZONA[zona]} (${CCAA[lugar.ccaa].corto})`
+  const local = fiestas.find((f) => f.alcance === 'local')
+  if (local?.lugar && !fiestas.some((f) => f.alcance === 'comunidad')) return local.lugar
   return CCAA[lugar.ccaa].corto
 }
 

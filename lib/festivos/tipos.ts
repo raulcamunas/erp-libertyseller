@@ -35,6 +35,17 @@ export interface CalendarioAnual {
   sinFiestaEnZona: readonly { f: string; z: CodigoZona }[]
 }
 
+/**
+ * Una fiesta LOCAL: dos por municipio y año, que fija cada ayuntamiento y publica el boletín de cada comunidad (el BOE no las recoge). Se guarda con el código INE del municipio
+ * (cinco cifras) y su nombre, que es lo que se enseña. Solo hay las de las comunidades cuyo boletín se ha cargado (hoy, la Comunidad de Madrid, 2026): para el resto de municipios no se
+ * sabe, y no se inventa.
+ */
+export interface FiestaLocal {
+  f: string
+  ine: string
+  lugar: string
+}
+
 /** Dónde está un lead, para saber si un día es festivo para él */
 export interface Lugar {
   ccaa: CodigoCcaa
@@ -46,6 +57,8 @@ export interface Lugar {
 export interface Fiesta {
   dia: string
   nombre: string
-  /** Para todos los españoles, para la comunidad, o solo para una isla o el Valle de Arán */
-  alcance: 'nacional' | 'comunidad' | 'zona'
+  /** Para todos los españoles, para la comunidad, para una isla o el Valle de Arán, o solo para su municipio (fiesta local) */
+  alcance: 'nacional' | 'comunidad' | 'zona' | 'local'
+  /** El municipio, en las fiestas locales */
+  lugar?: string
 }

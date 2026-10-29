@@ -8,6 +8,7 @@
 import { CCAA, esCcaa, type CodigoCcaa } from '@/lib/ubicacion/zonas'
 import { avisoDeFestivo, cuandoEs, dondeEsFestivo, esFestivo, fiestasDe, hayCalendarioPara, proximoDiaHabil, proximosFestivos, type AvisoDeFestivo } from './festivos'
 import type { CodigoZona, Lugar } from './tipos'
+import { NOMBRE_DE_ZONA } from './zonas-especiales'
 
 export interface LeadConLugar {
   ccaa?: string | null
@@ -82,6 +83,8 @@ export interface BandaDeFestivos {
   /** Las comunidades que lo celebran entero */
   comunidades: CodigoCcaa[]
   zonas: CodigoZona[]
+  /** Los municipios con fiesta local ese día */
+  municipios: string[]
   nombres: string[]
   /** Leads de la cartera para los que ese día es festivo */
   afectados: number
@@ -96,31 +99,47 @@ export function bandaDeFestivos(leads: readonly LeadConLugar[], hoy: string, mar
   for (const f of proximosFestivos(hoy, margenDias + 1)) {
     let afectados = 0
     for (const l of leads) if (esFestivo(f.dia, lugarDelLead(l))) afectados++
-    if (afectados > 0) return { dia: f.dia, esHoy: f.dia === hoy, nacional: f.nacional, comunidades: f.comunidades, zonas: f.zonas, nombres: f.nombres, afectados }
+    if (afectados > 0) return { dia: f.dia, esHoy: f.dia === hoy, nacional: f.nacional, comunidades: f.comunidades, zonas: f.zonas, municipios: f.municipios, nombres: f.nombres, afectados }
   }
   return null
 }
+
+const unir = (nombres: readonly string[]): string => (nombres.length === 1 ? nombres[0] : `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`)
 
 /** «Madrid, Andalucía y Aragón», «Madrid, Andalucía y 7 comunidades más», «toda España» */
 export function nombreDeComunidades(comunidades: readonly CodigoCcaa[], nacional: boolean, ver = 3): string {
   if (nacional) return 'toda España'
   if (comunidades.length === 0) return 'algunas zonas'
   const cortos = comunidades.map((c) => CCAA[c].corto)
-  if (cortos.length <= ver) return cortos.length === 1 ? cortos[0] : `${cortos.slice(0, -1).join(', ')} y ${cortos[cortos.length - 1]}`
+  if (cortos.length <= ver) return unir(cortos)
   const resto = cortos.length - (ver - 1)
   return `${cortos.slice(0, ver - 1).join(', ')} y ${resto} comunidades más`
+}
+
+/**
+ * Dónde se celebra algo ese día, para el título de la banda: las comunidades, las islas o el Valle de Arán y los municipios con fiesta local, por ese orden. «Andalucía, Aragón y 7
+ * comunidades más» si son solo comunidades; «Madrid y Alcalá de Henares» si es un día de fiestas locales; «toda España» si lo celebran las diecinueve.
+ */
+export function nombreDeSitios(b: Pick<BandaDeFestivos, 'comunidades' | 'zonas' | 'municipios' | 'nacional'>, ver = 3): string {
+  if (b.nacional) return 'toda España'
+  const sitios = [...b.comunidades.map((c) => CCAA[c].corto), ...b.zonas.map((z) => NOMBRE_DE_ZONA[z]), ...b.municipios]
+  if (sitios.length === 0) return 'algunas zonas'
+  if (sitios.length <= ver) return unir(sitios)
+  const resto = sitios.length - (ver - 1)
+  return `${sitios.slice(0, ver - 1).join(', ')} y ${resto} ${b.zonas.length === 0 && b.municipios.length === 0 ? 'comunidades' : 'sitios'} más`
 }
 
 /** Las frases de la banda: el título («Hoy es festivo en Madrid, …») y el detalle («Día siguiente a Todos los Santos») */
 export function textosDeLaBanda(b: BandaDeFestivos, hoy: string): { titulo: string; detalle: string } {
   const cuando = cuandoEs(b.dia, hoy)
-  const donde = nombreDeComunidades(b.comunidades, b.nacional)
+  const donde = nombreDeSitios(b)
   const sujeto = cuando === 'hoy' ? 'Hoy' : cuando === 'mañana' ? 'Mañana' : cuando[0].toUpperCase() + cuando.slice(1)
   return { titulo: `${sujeto} es festivo en ${donde}`, detalle: b.nombres.join(' · ') }
 }
 
-/** Todas las comunidades de la banda, sin recortar, para el texto que sale al pasar el ratón */
-export const comunidadesCompletas = (b: BandaDeFestivos): string => (b.nacional ? 'Las 19 comunidades y ciudades autónomas' : b.comunidades.map((c) => CCAA[c].nombre).join(', '))
+/** Todos los sitios de la banda, sin recortar, para el texto que sale al pasar el ratón */
+export const comunidadesCompletas = (b: BandaDeFestivos): string =>
+  b.nacional ? 'Las 19 comunidades y ciudades autónomas' : [...b.comunidades.map((c) => CCAA[c].nombre), ...b.zonas.map((z) => NOMBRE_DE_ZONA[z]), ...b.municipios.map((m) => `${m} (fiesta local)`)].join(', ')
 
 /** Re-exportados para que la pantalla importe todo de un sitio */
 export { cuandoEs, dondeEsFestivo, fiestasDe, proximoDiaHabil }

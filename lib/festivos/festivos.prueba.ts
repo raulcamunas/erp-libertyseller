@@ -1,5 +1,6 @@
 import { aniosConCalendario, avisoDeFestivo, cuandoEs, diaDeLaSemana, dondeEsFestivo, esFestivo, festivosDelDia, fiestasDe, hayCalendarioPara, proximoDiaHabil, proximosFestivos } from './festivos'
 import { CALENDARIOS } from './datos'
+import { FIESTAS_LOCALES } from './locales'
 import { MUNICIPIOS_DE_ZONA, zonaDeMunicipio } from './zonas-especiales'
 import { municipioDeIne, buscarMunicipios } from '@/lib/ubicacion/municipios'
 import { normalizar } from '@/lib/ubicacion/texto'
@@ -118,6 +119,37 @@ console.log('\n=== las listas de zonas coinciden con el INE ===')
   ok('Santa Cruz de Tenerife, buscada por su nombre, cae en Tenerife', zonaDeMunicipio(buscarMunicipios(normalizar('Santa Cruz de Tenerife'))[0].ine) === 'tenerife')
 }
 
+console.log('\n=== las fiestas locales de la Comunidad de Madrid (BOCM, 2026) ===')
+{
+  const madrid = { ccaa: 'MD' as const, ine: '28079' }
+  const alcobendas = { ccaa: 'MD' as const, ine: '28006' }
+  ok('hay 355 fiestas de 178 municipios', FIESTAS_LOCALES.length === 355 && new Set(FIESTAS_LOCALES.map((l) => l.ine)).size === 178, `${FIESTAS_LOCALES.length}/${new Set(FIESTAS_LOCALES.map((l) => l.ine)).size}`)
+  const porMunicipio = new Map<string, number>()
+  for (const l of FIESTAS_LOCALES) porMunicipio.set(l.ine, (porMunicipio.get(l.ine) ?? 0) + 1)
+  ok('cada municipio tiene dos fiestas (solo Valdeolmos-Alalpardo una, por tener dos núcleos con fechas distintas)', [...porMunicipio.entries()].every(([ine, n]) => n === 2 || (ine === '28162' && n === 1)), JSON.stringify([...porMunicipio.entries()].filter(([, n]) => n !== 2)))
+  ok('todas son de 2026, con un día real', FIESTAS_LOCALES.every((l) => /^2026-\d{2}-\d{2}$/.test(l.f) && new Date(2026, Number(l.f.slice(5, 7)) - 1, Number(l.f.slice(8, 10))).getDate() === Number(l.f.slice(8, 10))))
+  ok('y cada código es de un municipio de la provincia de Madrid que existe en el INE', FIESTAS_LOCALES.every((l) => l.ine.startsWith('28') && municipioDeIne(l.ine) !== undefined), FIESTAS_LOCALES.find((l) => !l.ine.startsWith('28') || municipioDeIne(l.ine) === undefined)?.ine)
+  ok('la modificación de enero sustituyó a «no comunicado»: La Hiruela (13 de febrero y 29 de septiembre) y Rascafría tienen sus fechas', FIESTAS_LOCALES.filter((l) => l.lugar === 'La Hiruela').map((l) => l.f).sort().join() === '2026-02-13,2026-09-29' && FIESTAS_LOCALES.some((l) => l.lugar === 'Rascafría'))
+  ok('y la de diciembre cambió las de Coslada (15 de junio y no 8)', FIESTAS_LOCALES.filter((l) => l.lugar === 'Coslada').map((l) => l.f).sort().join() === '2026-05-15,2026-06-15')
+
+  ok('Madrid capital: el viernes 15 de mayo y el lunes 9 de noviembre de 2026', esFestivo('2026-05-15', madrid) && esFestivo('2026-11-09', madrid))
+  const f = fiestasDe('2026-11-09', madrid)
+  ok('es una fiesta local, del municipio de Madrid', f.length === 1 && f[0].alcance === 'local' && f[0].lugar === 'Madrid' && f[0].nombre === 'Fiesta local', JSON.stringify(f))
+  const a = avisoDeFestivo('2026-11-09', '2026-11-09', madrid)
+  ok('el aviso dice «Hoy es festivo en Madrid» y «Fiesta local»', a?.titulo === 'Hoy es festivo en Madrid' && a?.detalle === 'Fiesta local', JSON.stringify(a))
+  ok('visto desde el lunes 2: «El lunes 9 de noviembre es festivo en Madrid»', avisoDeFestivo('2026-11-09', '2026-11-02', madrid)?.titulo === 'El lunes 9 de noviembre es festivo en Madrid')
+  ok('otro municipio de la Comunidad de Madrid (Alcobendas) no lo tiene ese día, y sí el 24 de enero y el 15 de mayo', !esFestivo('2026-11-09', alcobendas) && esFestivo('2026-01-24', alcobendas) && esFestivo('2026-05-15', alcobendas))
+  ok('un lead de Madrid sin municipio (solo la comunidad) no recibe la fiesta local: no se sabe cuál es su municipio', !esFestivo('2026-11-09', { ccaa: 'MD' }) && !esFestivo('2026-11-09', { ccaa: 'MD', ine: null }))
+  ok('Barcelona ese día, no', !esFestivo('2026-11-09', { ccaa: 'CT', ine: '08019' }))
+  ok('en 2027 no hay fiestas locales cargadas: ni siquiera el 9 de noviembre', !esFestivo('2027-11-09', madrid) && !esFestivo('2027-05-15', madrid))
+  ok('Majadahonda (25 de noviembre), Fuenlabrada (26 de diciembre), San Martín de Valdeiglesias (11 de noviembre)', esFestivo('2026-11-25', { ccaa: 'MD', ine: '28080' }) && esFestivo('2026-12-26', { ccaa: 'MD', ine: '28058' }) && esFestivo('2026-11-11', { ccaa: 'MD', ine: '28133' }))
+  const dia = festivosDelDia('2026-11-09')!
+  ok('el resumen del 9 de noviembre: ninguna comunidad entera, el municipio de Madrid, y se llama «Fiesta local»', dia.comunidades.length === 0 && dia.zonas.length === 0 && dia.municipios.join() === 'Madrid' && dia.nombres.join() === 'Fiesta local' && !dia.nacional, JSON.stringify(dia))
+  ok('el 11 de noviembre son dos municipios, por orden alfabético', festivosDelDia('2026-11-11')!.municipios.join() === 'San Martin de Valdeiglesias,Valdilecha', festivosDelDia('2026-11-11')!.municipios.join())
+  const mixto = fiestasDe('2026-10-12', madrid)
+  ok('un festivo nacional sigue siendo nacional aunque haya locales', mixto.length === 1 && mixto[0].alcance === 'nacional')
+}
+
 console.log('\n=== sin calendario no se inventa ===')
 {
   ok('2028 aún no tiene calendario', !hayCalendarioPara('2028-01-01') && hayCalendarioPara('2026-06-01') && hayCalendarioPara('2027-12-31'))
@@ -147,8 +179,8 @@ console.log('\n=== el resumen de un día y de la semana ===')
   ok('un día normal no tiene resumen', festivosDelDia('2026-10-29') === null && festivosDelDia('2028-01-01') === null)
   ok('el 2 de febrero de 2026 solo lo celebra una isla (ninguna comunidad entera)', ((x) => x !== null && x.comunidades.length === 0 && x.zonas.join() === 'tenerife')(festivosDelDia('2026-02-02')))
   const proximos = proximosFestivos('2026-10-29', 14)
-  ok('desde el 29 de octubre, los próximos 14 días traen el lunes 2 de noviembre y el lunes 9 no (el 9 de noviembre es local de Madrid)', proximos.map((p) => p.dia).join() === '2026-11-02', proximos.map((p) => p.dia).join())
-  ok('el sábado y el domingo no cuentan: en tres días desde el viernes no hay ninguno y al cuarto sale el lunes 2', proximosFestivos('2026-10-30', 3).length === 0 && proximosFestivos('2026-10-30', 4).map((p) => p.dia).join() === '2026-11-02')
+  ok('desde el 29 de octubre, los próximos 14 días traen el 30 (local de Berzosa de Lozoya), el lunes 2 de noviembre, el lunes 9 (local de Madrid) y el miércoles 11 (locales)', proximos.map((p) => p.dia).join() === '2026-10-30,2026-11-02,2026-11-09,2026-11-11', proximos.map((p) => p.dia).join())
+  ok('el sábado y el domingo no cuentan: en dos días desde el sábado 31 no hay ninguno y al tercero sale el lunes 2', proximosFestivos('2026-10-31', 2).length === 0 && proximosFestivos('2026-10-31', 3).map((p) => p.dia).join() === '2026-11-02')
 }
 
 console.log('\n=== los textos ===')

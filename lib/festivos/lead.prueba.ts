@@ -1,4 +1,4 @@
-import { avisosDeLaFicha, bandaDeFestivos, comunidadesCompletas, esFestivoParaElLead, lugarDelLead, marcaDeLista, nombreDeComunidades, notaDeUbicacion, textosDeLaBanda } from './lead'
+import { avisosDeLaFicha, bandaDeFestivos, comunidadesCompletas, esFestivoParaElLead, lugarDelLead, marcaDeLista, nombreDeComunidades, nombreDeSitios, notaDeUbicacion, textosDeLaBanda } from './lead'
 
 let fallos = 0
 let comprobaciones = 0
@@ -81,6 +81,31 @@ console.log('\n=== los nombres de las comunidades ===')
   ok('muchas se recortan', nombreDeComunidades(['AN', 'AR', 'AS', 'CN', 'CM', 'CL', 'EX', 'MD', 'NC'], false) === 'Andalucía, Aragón y 7 comunidades más')
   ok('todas', nombreDeComunidades(['AN'], true) === 'toda España')
   ok('la lista entera, sin recortar, para el texto del ratón', comunidadesCompletas(bandaDeFestivos([madrid], '2026-11-02')!).split(', ').length === 9 && comunidadesCompletas(bandaDeFestivos([madrid], '2026-12-25')!).startsWith('Las 19'))
+}
+
+console.log('\n=== la fiesta local de Madrid capital (BOCM 2026) en la banda y en la ficha ===')
+{
+  const capital = { ccaa: 'MD', municipio_ine: '28079' }
+  const alcobendas = { ccaa: 'MD', municipio_ine: '28006' }
+  const solo = bandaDeFestivos([capital, alcobendas, barcelona, { ccaa: 'MD' }], '2026-11-09')!
+  ok('el lunes 9 de noviembre solo es festivo para el lead de Madrid capital (no Alcobendas, ni Barcelona, ni uno de Madrid sin municipio)', solo.esHoy && solo.afectados === 1 && solo.comunidades.length === 0 && solo.municipios.join() === 'Madrid', JSON.stringify(solo))
+  const t = textosDeLaBanda(solo, '2026-11-09')
+  ok('«Hoy es festivo en Madrid» y «Fiesta local»', t.titulo === 'Hoy es festivo en Madrid' && t.detalle === 'Fiesta local', JSON.stringify(t))
+  const venir = bandaDeFestivos([capital], '2026-11-05')!
+  ok('desde el jueves 5 se ve venir: «El lunes 9 de noviembre es festivo en Madrid»', !venir.esHoy && textosDeLaBanda(venir, '2026-11-05').titulo === 'El lunes 9 de noviembre es festivo en Madrid', JSON.stringify(textosDeLaBanda(venir, '2026-11-05')))
+  ok('el aviso de la ficha de ese lead', avisosDeLaFicha(capital, '2026-11-09').hoy?.titulo === 'Hoy es festivo en Madrid' && avisosDeLaFicha(capital, '2026-11-09').siguienteHabil === '2026-11-10')
+  ok('la marca de la lista sale (es de su municipio y no de toda España)', marcaDeLista('2026-11-09', '2026-11-09', capital) === 'Hoy es festivo en Madrid: Fiesta local')
+  ok('en el texto del ratón, el municipio con «(fiesta local)»', comunidadesCompletas(solo) === 'Madrid (fiesta local)')
+  ok('una rellamada apuntada para el 9 de noviembre avisa desde el viernes 30', avisosDeLaFicha({ ...capital, next_call_date: '2026-11-09' }, '2026-11-06').rellamada?.siguienteHabil === '2026-11-10')
+}
+
+console.log('\n=== los sitios de la banda ===')
+{
+  ok('solo comunidades: como siempre', nombreDeSitios({ comunidades: ['AN', 'AR', 'AS', 'CL', 'CM', 'CN', 'EX', 'MD', 'NC'], zonas: [], municipios: [], nacional: false }) === 'Andalucía, Aragón y 7 comunidades más')
+  ok('una comunidad, una isla y un municipio', nombreDeSitios({ comunidades: ['MD'], zonas: ['tenerife'], municipios: ['Alcalá de Henares'], nacional: false }) === 'Madrid, Tenerife y Alcalá de Henares')
+  ok('si hay más de tres, se cuenta lo demás como «sitios»', nombreDeSitios({ comunidades: ['MD', 'AN'], zonas: [], municipios: ['Getafe', 'Leganés', 'Parla'], nacional: false }) === 'Madrid, Andalucía y 3 sitios más')
+  ok('dos municipios', nombreDeSitios({ comunidades: [], zonas: [], municipios: ['San Martin de Valdeiglesias', 'Valdilecha'], nacional: false }) === 'San Martin de Valdeiglesias y Valdilecha')
+  ok('nada que nombrar y toda España', nombreDeSitios({ comunidades: [], zonas: [], municipios: [], nacional: false }) === 'algunas zonas' && nombreDeSitios({ comunidades: [], zonas: [], municipios: [], nacional: true }) === 'toda España')
 }
 
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)
