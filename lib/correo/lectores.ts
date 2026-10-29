@@ -40,7 +40,14 @@ export interface BuzonDeLaMatriz {
   id: string
   direccion: string
   nombre: string | null
-  dueno: { id: string; nombre: string; role: string | null; esComercial: boolean | null }
+  dueno: {
+    id: string
+    nombre: string
+    role: string | null
+    esComercial: boolean | null
+    /** El puesto del dueño (migración 257): comercial, manager_comercial o gestion_administrativa. null o ausente = sin puesto */
+    puesto?: string | null
+  }
 }
 
 export interface Concesion {
@@ -238,8 +245,14 @@ export function decidirCambios(
 
 export type GrupoDeBuzones = 'administrativos' | 'comerciales'
 
-/** «Los administrativos»: los buzones del equipo que no son de un comercial ni de un administrador */
-export const esDeAdministrativo = (b: BuzonDeLaMatriz): boolean => b.dueno.esComercial !== true && b.dueno.role !== 'admin'
+/** El puesto de quien lleva la administración (lib/usuarios/puestos.ts: «Gestión Administrativa») */
+export const PUESTO_ADMINISTRATIVO = 'gestion_administrativa'
+
+/**
+ * «Los administrativos»: los buzones de quien tiene el puesto «Gestión Administrativa». NO «cualquiera que no sea comercial»: un manager tampoco está marcado como comercial
+ * (en producción, Jhanna) y no es un administrativo; el atajo «Bloquear administrativos» le habría quitado su buzón a quien supervisa. Sin puesto, no se sabe: no se cuenta.
+ */
+export const esDeAdministrativo = (b: BuzonDeLaMatriz): boolean => b.dueno.role !== 'admin' && b.dueno.puesto === PUESTO_ADMINISTRATIVO
 
 export const esDeComercial = (b: BuzonDeLaMatriz): boolean => b.dueno.esComercial === true
 

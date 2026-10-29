@@ -67,6 +67,8 @@ interface PerfilLeido {
   email: string | null
   role: string | null
   is_comercial: boolean | null
+  /** Migración 257 */
+  puesto: string | null
 }
 
 /** Lo que enseña «Quién ve qué»: la matriz de personas por buzón, los bloqueos y los últimos cambios. Lanza FaltaMigracionDeLectores si falta la migración 255; sin la 260 sale sin bloqueos y lo dice */
@@ -75,7 +77,7 @@ export async function leerDatosDeLaMatriz(service: Servicio): Promise<DatosDeLaM
     service.from('correo_buzones').select('id, user_id, direccion, nombre').order('direccion', { ascending: true }),
     service.from('correo_buzon_lectores').select('buzon_id, lector_id, concedido_por, concedido_at'),
     service.from('correo_buzon_lectores_historial').select('accion, buzon_direccion, lector_nombre, hecho_por_nombre, hecho_at').order('hecho_at', { ascending: false }).limit(15),
-    service.from('profiles').select('id, full_name, email, role, is_comercial').eq('role', 'employee'),
+    service.from('profiles').select('id, full_name, email, role, is_comercial, puesto').eq('role', 'employee'),
     service.from('user_app_permissions').select('user_id, app_id').in('app_id', ['correo', PERMISO_EQUIPO_COMERCIAL, PERMISO_CORREO_SUPERVISION]).eq('can_access', true),
     service.from('correo_buzon_bloqueos').select('buzon_id, lector_id, bloqueado_por, bloqueado_at'),
   ])
@@ -105,7 +107,7 @@ export async function leerDatosDeLaMatriz(service: Servicio): Promise<DatosDeLaM
   const conocidos = new Map(empleados.map((p) => [p.id, p]))
   const faltan = [...new Set([...buzones.map((b) => b.user_id), ...filasLectores.flatMap((f) => [f.lector_id, f.concedido_por ?? '']), ...filasBloqueos.flatMap((f) => [f.lector_id, f.bloqueado_por ?? ''])])].filter((i) => i !== '' && !conocidos.has(i))
   if (faltan.length > 0) {
-    const { data, error } = await service.from('profiles').select('id, full_name, email, role, is_comercial').in('id', faltan)
+    const { data, error } = await service.from('profiles').select('id, full_name, email, role, is_comercial, puesto').in('id', faltan)
     if (error) throw new Error('No se han podido leer los dueños de los buzones.', { cause: error })
     for (const p of (data ?? []) as PerfilLeido[]) conocidos.set(p.id, p)
   }
@@ -130,7 +132,7 @@ export async function leerDatosDeLaMatriz(service: Servicio): Promise<DatosDeLaM
 
   const buzonesMatriz: BuzonDeLaMatriz[] = buzones.map((b) => {
     const dueno = conocidos.get(b.user_id)
-    return { id: b.id, direccion: b.direccion, nombre: b.nombre, dueno: { id: b.user_id, nombre: dueno ? nombreDe(dueno) : 'Sin nombre', role: dueno?.role ?? null, esComercial: dueno?.is_comercial ?? null } }
+    return { id: b.id, direccion: b.direccion, nombre: b.nombre, dueno: { id: b.user_id, nombre: dueno ? nombreDe(dueno) : 'Sin nombre', role: dueno?.role ?? null, esComercial: dueno?.is_comercial ?? null, puesto: dueno?.puesto ?? null } }
   })
 
   const concesiones: Concesion[] = filasLectores.map((f) => ({ buzonId: f.buzon_id, lectorId: f.lector_id, por: f.concedido_por ? (conocidos.get(f.concedido_por) ? nombreDe(conocidos.get(f.concedido_por)!) : null) : null, desde: f.concedido_at }))

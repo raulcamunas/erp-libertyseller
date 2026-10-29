@@ -32,11 +32,11 @@ const CARLOS = persona(3, 'Carlos')
 const ADMIN_DE_CONTA = persona(4, 'Conta') // administrativa
 const RAUL = persona(5, 'Raúl', { role: 'admin' })
 const JHANNA = persona(6, 'Jhanna')
-const buzon = (n: number, d: PersonaDeLaMatriz, esComercial: boolean): BuzonDeLaMatriz => ({ id: id(100 + n), direccion: `${d.nombre.toLowerCase()}@liberty.es`, nombre: null, dueno: { id: d.id, nombre: d.nombre, role: d.role, esComercial } })
-const B_ANA = buzon(1, ANA, true)
-const B_BEA = buzon(2, BEA, true)
-const B_CARLOS = buzon(3, CARLOS, true)
-const B_CONTA = buzon(4, ADMIN_DE_CONTA, false)
+const buzon = (n: number, d: PersonaDeLaMatriz, esComercial: boolean, puesto: string | null = null): BuzonDeLaMatriz => ({ id: id(100 + n), direccion: `${d.nombre.toLowerCase()}@liberty.es`, nombre: null, dueno: { id: d.id, nombre: d.nombre, role: d.role, esComercial, puesto } })
+const B_ANA = buzon(1, ANA, true, 'comercial')
+const B_BEA = buzon(2, BEA, true, 'comercial')
+const B_CARLOS = buzon(3, CARLOS, true, 'comercial')
+const B_CONTA = buzon(4, ADMIN_DE_CONTA, false, 'gestion_administrativa')
 const B_RAUL = buzon(5, RAUL, false)
 const BUZONES = [B_ANA, B_BEA, B_CARLOS, B_CONTA, B_RAUL]
 const abre = (lector: PersonaDeLaMatriz, b: BuzonDeLaMatriz): Concesion => ({ buzonId: b.id, lectorId: lector.id, por: 'Raúl', desde: '2026-10-27T10:00:00.000Z' })
@@ -134,8 +134,14 @@ console.log('\n=== un buzón BLOQUEADO (migración 260) ===')
   ok('sin bloqueos pasados (la migración no está lanzada) la matriz sale como siempre', armarMatriz({ personas, buzones: BUZONES, concesiones: [], bloqueos: undefined }).filas.length === sin.filas.length)
 
   // Los dos grupos
-  ok('«administrativo» = un buzón de alguien del equipo que ni es comercial ni administrador', esDeAdministrativo(B_CONTA) && !esDeAdministrativo(B_ANA) && !esDeAdministrativo(B_RAUL))
+  ok('«administrativo» = el buzón de quien tiene el puesto Gestión Administrativa', esDeAdministrativo(B_CONTA) && !esDeAdministrativo(B_ANA) && !esDeAdministrativo(B_RAUL))
   ok('«comercial» = el buzón de un comercial', esDeComercial(B_ANA) && esDeComercial(B_BEA) && !esDeComercial(B_CONTA) && !esDeComercial(B_RAUL))
+  // En producción Jhanna es manager y NO está marcada como comercial: no es una administrativa, y un atajo que le bloqueara su buzón a quien supervisa sería un error
+  const MANAGER = persona(11, 'Manager')
+  const B_MANAGER = buzon(11, MANAGER, false, 'manager_comercial')
+  ok('el buzón de un manager que no está marcado como comercial NO es de un administrativo', !esDeAdministrativo(B_MANAGER) && !esDeComercial(B_MANAGER))
+  ok('ni el de alguien sin puesto (no se sabe qué es)', !esDeAdministrativo(buzon(12, persona(12, 'SinPuesto'), false, null)) && !esDeAdministrativo({ ...B_CONTA, dueno: { ...B_CONTA.dueno, puesto: undefined } }))
+  ok('ni el de un administrador aunque tuviera el puesto puesto', !esDeAdministrativo({ ...B_RAUL, dueno: { ...B_RAUL.dueno, puesto: 'gestion_administrativa' } }))
 
   // Atajos de la fila
   const aBloquear = paraBloquear(alejandroSin, BUZONES, 'administrativos')
@@ -143,6 +149,13 @@ console.log('\n=== un buzón BLOQUEADO (migración 260) ===')
   ok('lo que ya tiene bloqueado no se vuelve a ofrecer', paraBloquear(alejandro, BUZONES, 'administrativos').length === 0)
   ok('a quien no lee ninguno de ese grupo no se le ofrece nada (bloquear algo que no ve no cambia nada)', paraBloquear(con.filas.find((f) => f.persona.id === JHANNA.id)!, BUZONES, 'administrativos').length === 0)
   ok('«bloquear comerciales» a Alejandro: sus tres', paraBloquear(alejandroSin, BUZONES, 'comerciales').length === 3)
+  {
+    // Con el buzón de un manager entre medias (que Alejandro también lee por la supervisión del correo), «administrativos» sigue siendo solo el de Conta
+    const todos = [...BUZONES, B_MANAGER]
+    const m = armarMatriz({ personas: [ALEJANDRO, MANAGER], buzones: todos, concesiones: [] })
+    const f = m.filas.find((x) => x.persona.id === ALEJANDRO.id)!
+    ok('Alejandro lee el buzón del manager (por su permiso) y aun así «bloquear administrativos» no se lo toca', f.celdas[B_MANAGER.id].via === 'permiso' && paraBloquear(f, todos, 'administrativos').map((b) => b.id).join() === B_CONTA.id)
+  }
   ok('el suyo no entra jamás en lo que se puede bloquear', (() => {
     const suyo = buzon(9, ALEJANDRO, false)
     const m = armarMatriz({ personas: [ALEJANDRO], buzones: [...BUZONES, suyo], concesiones: [] })

@@ -25,12 +25,12 @@ const B_ANA = id(101), B_BEA = id(102), B_CONTA = id(103), B_RAUL = id(104)
 
 const datos = () => ({
   profiles: [
-    { id: ANA, full_name: 'Ana', email: 'ana@l.es', role: 'employee', is_comercial: true },
-    { id: BEA, full_name: 'Bea', email: 'bea@l.es', role: 'employee', is_comercial: true },
-    { id: CONTA, full_name: 'Conta', email: 'conta@l.es', role: 'employee', is_comercial: false },
-    { id: RAUL, full_name: 'Raúl', email: 'raul@l.es', role: 'admin', is_comercial: false },
-    { id: JHANNA, full_name: 'Jhanna', email: 'jhanna@l.es', role: 'employee', is_comercial: false },
-    { id: SOCIO, full_name: 'Socio', email: 'socio@l.es', role: 'partner', is_comercial: false },
+    { id: ANA, full_name: 'Ana', email: 'ana@l.es', role: 'employee', is_comercial: true, puesto: 'comercial' },
+    { id: BEA, full_name: 'Bea', email: 'bea@l.es', role: 'employee', is_comercial: true, puesto: 'comercial' },
+    { id: CONTA, full_name: 'Conta', email: 'conta@l.es', role: 'employee', is_comercial: false, puesto: 'gestion_administrativa' },
+    { id: RAUL, full_name: 'Raúl', email: 'raul@l.es', role: 'admin', is_comercial: false, puesto: null },
+    { id: JHANNA, full_name: 'Jhanna', email: 'jhanna@l.es', role: 'employee', is_comercial: false, puesto: 'manager_comercial' },
+    { id: SOCIO, full_name: 'Socio', email: 'socio@l.es', role: 'partner', is_comercial: false, puesto: null },
   ],
   correo_buzones: [
     { id: B_ANA, user_id: ANA, direccion: 'ana@l.es', nombre: null },
@@ -144,6 +144,7 @@ async function main() {
     ok('Jhanna tiene abierto el de Ana y nada más', j.celdas[B_ANA].via === 'concedido' && j.celdas[B_BEA].via === 'nada' && j.celdas[B_RAUL].via === 'nada')
     ok('con quién lo abrió y los últimos cambios', d.concesiones[0].por === 'Raúl' && d.recientes.length === 1 && d.recientes[0].lector === 'Jhanna')
     ok('el dueño administrador sale como columna aunque no sea de los employees', d.matriz.buzones.some((x) => x.id === B_RAUL && x.dueno.nombre === 'Raúl' && x.dueno.role === 'admin'))
+    ok('cada columna trae el puesto de su dueño (con él se sabe quién es «administrativo»)', d.matriz.buzones.find((x) => x.id === B_CONTA)!.dueno.puesto === 'gestion_administrativa' && d.matriz.buzones.find((x) => x.id === B_ANA)!.dueno.puesto === 'comercial' && d.matriz.buzones.find((x) => x.id === B_RAUL)!.dueno.puesto === null)
   }
 
   console.log('\n=== sin la migración 260 (bloqueos) nada se rompe ===')

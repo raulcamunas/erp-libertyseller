@@ -23,6 +23,9 @@ import { BOTON_ICONO } from './ui'
  * Solo la ve un administrador (la ruta lo vuelve a comprobar y a cualquier otro le contesta «no existe»). Este fichero solo decide qué se pinta.
  */
 
+// Cómo se nombra el puesto de cada dueño bajo su nombre en las columnas (corto: la columna es estrecha)
+const PUESTO_CORTO: Record<string, string> = { comercial: 'comercial', manager_comercial: 'manager', gestion_administrativa: 'administrativo' }
+
 const hace = (iso: string) => formatDistanceToNow(new Date(Math.min(Date.parse(iso), Date.now())), { locale: es, addSuffix: true })
 const primerNombre = (n: string) => n.trim().split(/\s+/)[0] || n
 
@@ -169,7 +172,7 @@ function Matriz({ datos, guardando, cambiar }: { datos: DatosDeLaMatriz; guardan
   }, [matriz.buzones])
   const cabecera = useCallback(
     (b: BuzonDeLaMatriz) => {
-      const rol = b.dueno.role === 'admin' ? 'administrador' : b.dueno.esComercial ? 'comercial' : 'equipo'
+      const rol = b.dueno.role === 'admin' ? 'administrador' : (b.dueno.puesto ? PUESTO_CORTO[b.dueno.puesto] : undefined) ?? (b.dueno.esComercial ? 'comercial' : 'equipo')
       return duenosConVarios.has(b.dueno.id)
         ? { principal: b.nombre?.trim() || b.direccion.split('@')[0], secundaria: `${primerNombre(b.dueno.nombre)} · ${rol}`, buzon: `el buzón ${b.direccion}` }
         : { principal: primerNombre(b.dueno.nombre), secundaria: rol, buzon: `el buzón de ${b.dueno.nombre}` }
@@ -392,7 +395,7 @@ function Fila({
               className={`${ATAJO} hover:text-[var(--ls-e-rojo)]`}
               title={
                 puedeBloquear
-                  ? 'Bloquearle los buzones de los administrativos (los de personas del equipo que no son comerciales ni administradores) que hoy lee. Conserva sus permisos'
+                  ? 'Bloquearle los buzones de los administrativos (las personas con el puesto «Gestión Administrativa») que hoy lee. Conserva sus permisos'
                   : 'Falta lanzar la migración 260_correo_buzones_bloqueados.sql para poder bloquear'
               }
             >
