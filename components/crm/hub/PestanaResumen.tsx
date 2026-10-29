@@ -190,13 +190,19 @@ export function PestanaResumen({ ctx, plan, avance, linea }: { ctx: ContextoFich
         </Seccion>
 
         {/* ---------------- El dinero ---------------- */}
-        <Seccion titulo="Dinero" icono={<Euro />}>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-            <Dato etiqueta="Set up">{dinero(client.setup_budget) ?? <span className="text-[var(--ls-t4)]">—</span>}</Dato>
-            <Dato etiqueta="Mantenimiento">{client.maintenance_budget != null ? `${dinero(client.maintenance_budget)}/mes` : <span className="text-[var(--ls-t4)]">—</span>}</Dato>
-            <Dato etiqueta="Facturación del cliente">{contacto.revenue != null ? dinero(Number(contacto.revenue)) : analisis?.negocio.facturacion_actual ? `${analisis.negocio.facturacion_actual} (según la reunión)` : <span className="text-[var(--ls-t4)]">—</span>}</Dato>
-          </div>
-        </Seccion>
+        {ctx.puedeVerImportes ? (
+          <Seccion titulo="Dinero" icono={<Euro />}>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+              <Dato etiqueta="Set up">{dinero(client.setup_budget) ?? <span className="text-[var(--ls-t4)]">—</span>}</Dato>
+              <Dato etiqueta="Mantenimiento">{client.maintenance_budget != null ? `${dinero(client.maintenance_budget)}/mes` : <span className="text-[var(--ls-t4)]">—</span>}</Dato>
+              <Dato etiqueta="Facturación del cliente">{contacto.revenue != null ? dinero(Number(contacto.revenue)) : analisis?.negocio.facturacion_actual ? `${analisis.negocio.facturacion_actual} (según la reunión)` : <span className="text-[var(--ls-t4)]">—</span>}</Dato>
+            </div>
+          </Seccion>
+        ) : (
+          <Seccion titulo="Facturación del cliente" icono={<Euro />}>
+            <Dato etiqueta="Según la cita o la reunión">{contacto.revenue != null ? dinero(Number(contacto.revenue)) : analisis?.negocio.facturacion_actual ? `${analisis.negocio.facturacion_actual} (según la reunión)` : <span className="text-[var(--ls-t4)]">—</span>}</Dato>
+          </Seccion>
+        )}
       </div>
     </div>
   )

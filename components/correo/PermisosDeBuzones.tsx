@@ -24,7 +24,7 @@ import { BOTON_ICONO } from './ui'
  */
 
 // Cómo se nombra el puesto de cada dueño bajo su nombre en las columnas (corto: la columna es estrecha)
-const PUESTO_CORTO: Record<string, string> = { comercial: 'comercial', manager_comercial: 'manager', gestion_administrativa: 'administrativo' }
+const PUESTO_CORTO: Record<string, string> = { comercial: 'comercial', manager_comercial: 'manager', comercial_autonomo: 'autónomo', gestion_administrativa: 'administrativo' }
 
 const hace = (iso: string) => formatDistanceToNow(new Date(Math.min(Date.parse(iso), Date.now())), { locale: es, addSuffix: true })
 const primerNombre = (n: string) => n.trim().split(/\s+/)[0] || n

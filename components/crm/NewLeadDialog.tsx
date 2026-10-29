@@ -16,6 +16,8 @@ import { CalendarPerson } from '@/lib/types/appointments'
 
 interface NewLeadDialogProps {
   team: CalendarPerson[]
+  /** Si se da, el cliente nace a nombre de esta persona y no se ofrece elegir responsable (un comercial autónomo solo da de alta los suyos: la RLS de la migración 261 lo exige) */
+  propietarioFijo?: { id: string; nombre: string }
   onClose: () => void
   onCreated: (client: CrmClientWithDetails) => void
 }
@@ -25,7 +27,7 @@ const field =
 
 const labelCls = 'text-[11px] text-white/40 mb-1 block'
 
-export function NewLeadDialog({ team, onClose, onCreated }: NewLeadDialogProps) {
+export function NewLeadDialog({ team, propietarioFijo, onClose, onCreated }: NewLeadDialogProps) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
 
@@ -40,7 +42,7 @@ export function NewLeadDialog({ team, onClose, onCreated }: NewLeadDialogProps) 
   const [amazonLink, setAmazonLink] = useState('')
   const [revenue, setRevenue] = useState('')
   const [stage, setStage] = useState<CrmStage>('nuevo')
-  const [ownerId, setOwnerId] = useState<string>('none')
+  const [ownerId, setOwnerId] = useState<string>(propietarioFijo?.id ?? 'none')
 
   async function handleSave() {
     if (!name.trim()) {
@@ -66,7 +68,7 @@ export function NewLeadDialog({ team, onClose, onCreated }: NewLeadDialogProps) 
           country: country.trim() || null,
           marketplaces: marketplaces.trim() || null,
           stage,
-          owner_id: ownerId === 'none' ? null : ownerId,
+          owner_id: propietarioFijo ? propietarioFijo.id : ownerId === 'none' ? null : ownerId,
         })
         .select('*')
         .single()
@@ -203,20 +205,24 @@ export function NewLeadDialog({ team, onClose, onCreated }: NewLeadDialogProps) 
             </div>
             <div>
               <label className={labelCls}>Responsable</label>
-              <select
-                value={ownerId}
-                onChange={(e) => setOwnerId(e.target.value)}
-                className={`${field} cursor-pointer`}
-              >
-                <option value="none" className="bg-[#1a1a1a]">
-                  Sin asignar
-                </option>
-                {team.map((p) => (
-                  <option key={p.id} value={p.id} className="bg-[#1a1a1a]">
-                    {p.full_name || p.email}
+              {propietarioFijo ? (
+                <p className={`${field} cursor-default text-white/60`}>{propietarioFijo.nombre} (tú)</p>
+              ) : (
+                <select
+                  value={ownerId}
+                  onChange={(e) => setOwnerId(e.target.value)}
+                  className={`${field} cursor-pointer`}
+                >
+                  <option value="none" className="bg-[#1a1a1a]">
+                    Sin asignar
                   </option>
-                ))}
-              </select>
+                  {team.map((p) => (
+                    <option key={p.id} value={p.id} className="bg-[#1a1a1a]">
+                      {p.full_name || p.email}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 

@@ -6,9 +6,10 @@ import { HubCrm, type CrmQualifiedAppointment } from '@/components/crm/hub/HubCr
 import { CrmClientWithDetails } from '@/lib/types/crm'
 import { WorkHourEntry, PayrollRate } from '@/lib/types/payroll'
 import { CalendarPerson } from '@/lib/types/appointments'
-import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
+import { alcanceDelCrmDe } from '@/lib/crm/acceso-servidor'
 import type { EntradaDeFase } from '@/lib/crm/fases'
 import type { NotaLigera } from '@/lib/crm/lista'
+import { PREFIJO_DE_DESCARTE, type ContactoLigero } from '@/lib/crm/pestanas'
 import { esTablaInexistente } from '@/lib/crm/migracion'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -38,25 +39,22 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
   if (!profile) redirect('/auth/login')
 
   /**
-   * QUIÉN ENTRA, Y POR QUÉ SON DOS PERMISOS Y NO UNO.
+   * QUIÉN ENTRA Y QUÉ VE: CUATRO CASOS, DECIDIDOS EN UN SOLO SITIO (lib/crm/acceso.ts).
    *
-   * Entra dirección (admin/partner) y entra quien supervisa al equipo comercial
-   * —el permiso suelto 'equipo-comercial'—, porque el pipeline de lo que se ha
-   * hablado con cada lead es lo que un manager de captación tiene que repasar.
-   * Las políticas RLS de la 212 le dan lectura de crm_clients y crm_interactions,
-   * más apuntar interacciones; esto solo evita el viaje. Los PDFs (crm_documents)
-   * NO: ese bucket es público, así que la fila lleva la llave del fichero.
+   *   · Dirección (admin/partner): todos los clientes y todo.
+   *   · Un manager (el permiso suelto 'equipo-comercial'): todos los clientes; los mueve (fase, descartar, cerrar, notas) pero no toca importes, responsable ni el resultado de
+   *     la cita, ni ve los PDFs de contratos (bucket público) ni el coste del equipo.
+   *   · Un comercial autónomo (el permiso suelto 'crm-propios'): SOLO los clientes que lleva él (`owner_id` = él). Esta consulta ya los pide filtrados, pero el filtro de verdad
+   *     es la RLS de la migración 261: aunque se escribiera a mano otra consulta en la consola del navegador, la base solo le devolvería los suyos.
+   *   · Cualquier otro: no entra.
    *
-   * PERO EL COSTE DEL EQUIPO NO ENTRA, y es lo que separa las dos variables de
-   * abajo. Esta pantalla no solo enseña el pipeline: calcula lo que cuesta el
-   * equipo comercial este mes (horas × tarifa + comisiones) y lo compara con la
-   * facturación. Eso es sueldo de empleados, está fuera del encargo, y con
-   * `esDireccion` a false ni se pide a la base ni se pinta.
+   * PERO EL COSTE DEL EQUIPO NO ENTRA salvo para dirección, y es lo que separa `esDireccion` del resto. Esta pantalla no solo enseña el pipeline: calcula lo que cuesta el equipo
+   * comercial este mes (horas × tarifa + comisiones) y lo compara con la facturación. Eso es sueldo de empleados, está fuera del encargo, y con `esDireccion` a false ni se pide a
+   * la base ni se pinta.
    */
-  const esDireccion = profile.role === 'admin' || profile.role === 'partner'
-  const puedeEntrar =
-    esDireccion || (await puedeVerEquipoComercial(profile.role, user.id))
-  if (!puedeEntrar) redirect('/dashboard')
+  const alcance = await alcanceDelCrmDe(profile.role, user.id)
+  if (!alcance.entra) redirect('/dashboard')
+  const esDireccion = alcance.esDireccion
 
   // LAS SEIS CONSULTAS VAN EN PARALELO, NO EN CADENA.
   //
@@ -74,11 +72,12 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
   // `.order()`. Y como supabase-js no lanza cuando una consulta falla —devuelve
   // `{ error }`— Promise.all tampoco altera el manejo de errores: ninguna de
   // estas seis puede rechazar la promesa.
-  const [clientsRes, teamRes, workHoursRes, payrollRatesRes, qualified, fxRes, historialRes, notasRes] =
+  const [clientsRes, teamRes, workHoursRes, payrollRatesRes, qualified, fxRes, historialRes, notasRes, contactos, descartes] =
     await Promise.all([
-      supabase
-        .from('crm_clients')
-        .select(`
+      (() => {
+        const consulta = supabase
+          .from('crm_clients')
+          .select(`
           *,
           appointment:appointments!crm_clients_appointment_id_fkey(
             *,
@@ -86,12 +85,14 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
             assigned_closer:profiles!appointments_assigned_closer_id_fkey(id, full_name, email, role, calendar_color)
           )
         `)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('profiles')
-        .select('id, full_name, email, role, calendar_color')
-        .eq('is_comercial', true)
-        .order('full_name', { ascending: true }),
+          .order('created_at', { ascending: false })
+        // Quien solo ve los suyos los pide ya filtrados (la RLS lo garantiza aunque esto no estuviera)
+        return alcance.veTodos ? consulta : consulta.eq('owner_id', user.id)
+      })(),
+      // El equipo, para el responsable de cada ficha. Un comercial autónomo solo se ve a sí mismo: no tiene por qué conocer al resto del equipo
+      alcance.veTodos
+        ? supabase.from('profiles').select('id, full_name, email, role, calendar_color').eq('is_comercial', true).order('full_name', { ascending: true })
+        : supabase.from('profiles').select('id, full_name, email, role, calendar_color').eq('id', user.id),
       // Lo necesario para calcular lo que cuesta el equipo comercial este mes.
       //
       // SOLO PARA DIRECCIÓN, Y NO ES UNA OPTIMIZACIÓN. Quien entra con el permiso
@@ -113,20 +114,19 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
       // cualificada que cayera fuera del corte dejaría de contar en silencio.
       // El `.order('id')` es el desempate que exige paginar; no se nota porque
       // esta lista se agrupa y se cuenta, no se enseña en este orden.
-      fetchAllTolerante<CrmQualifiedAppointment>('appointments cualificadas (crm)', (desde, hasta) =>
-        supabase
-          .from('appointments')
-          .select('id, comercial_id, start_time')
-          .eq('status', 'qualified')
-          .eq('is_external', false)
-          .order('id', { ascending: true })
-          .range(desde, hasta)
-      ),
-      supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'usd_eur_rate')
-        .maybeSingle(),
+      // Solo dirección: es para el coste del equipo comercial, que no se enseña a nadie más
+      esDireccion
+        ? fetchAllTolerante<CrmQualifiedAppointment>('appointments cualificadas (crm)', (desde, hasta) =>
+            supabase
+              .from('appointments')
+              .select('id, comercial_id, start_time')
+              .eq('status', 'qualified')
+              .eq('is_external', false)
+              .order('id', { ascending: true })
+              .range(desde, hasta)
+          )
+        : Promise.resolve([] as CrmQualifiedAppointment[]),
+      esDireccion ? supabase.from('app_settings').select('value').eq('key', 'usd_eur_rate').maybeSingle() : Promise.resolve({ data: null }),
       // LO NUEVO DEL HUB (migración 258): el historial de fases de todos los clientes —para los días que lleva cada uno en su fase— y las notas de las reuniones, EN LIGERO.
       // De cada nota solo viaja lo justo para la lista (estado, fecha y el nivel de interés que dedujo la IA): el contenido y el desglose pesan decenas de miles de caracteres
       // y se piden al abrir la ficha. Si la migración no está lanzada, ninguna de las dos rompe la pantalla.
@@ -135,6 +135,13 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
       ),
       leerTablaNueva<NotaLigera>('notas de reunión', (desde, hasta) =>
         supabase.from('crm_notas_reunion').select('id, client_id, estado, fecha_reunion, interes:analisis->interes->>nivel').neq('estado', 'ignorada').order('id', { ascending: true }).range(desde, hasta)
+      ),
+      // LAS TOMAS DE CONTACTO, EN LIGERO: solo de qué tipo fue y cuándo (sin el texto), para decir en «En seguimiento» cuándo fue el último contacto de cada lead. La RLS recorta lo
+      // que ve cada uno (el autónomo, solo el de sus clientes)
+      fetchAllTolerante<ContactoLigero>('tomas de contacto (crm)', (desde, hasta) => supabase.from('crm_interactions').select('client_id, kind, occurred_at').order('id', { ascending: true }).range(desde, hasta)),
+      // Y las notas de DESCARTAR («Descartado: …»), que son pocas y llevan el motivo que se enseña en Cerrado → Perdidos. La más reciente de cada cliente gana
+      fetchAllTolerante<{ client_id: string; body: string; occurred_at: string }>('motivos de descarte (crm)', (desde, hasta) =>
+        supabase.from('crm_interactions').select('client_id, body, occurred_at').eq('kind', 'nota').like('body', `${PREFIJO_DE_DESCARTE}%`).order('occurred_at', { ascending: true }).range(desde, hasta)
       ),
     ])
 
@@ -147,6 +154,9 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
   const historiales: Record<string, EntradaDeFase[]> = {}
   for (const { client_id, ...entrada } of historialRes.filas) (historiales[client_id] ??= []).push(entrada)
   const migracionFalta = historialRes.falta || notasRes.falta
+  // El motivo de descartar de cada cliente: la nota más reciente (vienen de la más antigua a la más reciente, así que la última pisa a las anteriores)
+  const motivosDeDescarte: Record<string, string> = {}
+  for (const d of descartes) motivosDeDescarte[d.client_id] = d.body
 
   const clienteInicial = searchParams?.cliente && UUID.test(searchParams.cliente) ? searchParams.cliente : null
 
@@ -160,13 +170,13 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
         payrollRates={(payrollRates as PayrollRate[]) || []}
         qualifiedAppointments={qualified}
         initialUsdEurRate={Number(fxSetting?.value ?? 0.92)}
-        puedeVerCosteEquipo={esDireccion}
-        // LA OTRA MITAD DEL MISMO CORTE. La 212 le da a quien supervisa el SELECT de crm_clients y el INSERT/UPDATE de crm_interactions, y nada más: el UPDATE y el INSERT de
-        // crm_clients, el DELETE de interacciones y el bucket 'crm-documents' se quedaron en is_admin_or_partner (080). Sin esto la pantalla le ofrecería seis controles que la
-        // base rechaza uno por uno, y el mensaje sería siempre «No se pudo guardar», que es lo mismo que sale cuando se cae la red.
-        puedeEditarFichas={esDireccion}
+        // QUIÉN PUEDE QUÉ, tal como lo dice la RLS (migraciones 212 y 261). Sin esto la pantalla ofrecería controles que la base rechaza uno por uno, y el mensaje sería siempre
+        // «No se pudo guardar», que es lo mismo que sale cuando se cae la red.
+        alcance={alcance}
         historialesIniciales={historiales}
         notasIniciales={notasRes.filas}
+        contactosIniciales={contactos}
+        motivosDeDescarte={motivosDeDescarte}
         migracionFalta={migracionFalta}
         clienteInicial={clienteInicial}
       />

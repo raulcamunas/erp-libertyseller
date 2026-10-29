@@ -1,4 +1,4 @@
-import { apps, APP_CRM, APPS_SIN_EFECTO, PERMISO_EQUIPO_COMERCIAL, puedeVerCrm } from './apps'
+import { apps, APP_CRM, APPS_SIN_EFECTO, PERMISO_CRM_PROPIOS, PERMISO_EQUIPO_COMERCIAL, puedeVerCrm } from './apps'
 
 let fallos = 0
 let comprobaciones = 0
@@ -14,7 +14,9 @@ console.log('\n=== quién ve el CRM de clientes en el menú ===')
 {
   ok('un administrador, siempre', puedeVerCrm('admin', permisos()))
   ok('un empleado con «Supervisión del equipo comercial» (el manager de captación)', puedeVerCrm('employee', permisos(PERMISO_EQUIPO_COMERCIAL)))
-  ok('un empleado sin ese permiso, no', !puedeVerCrm('employee', permisos('agenda', 'cold-calling')))
+  ok('un comercial autónomo (permiso «crm-propios»): también ve la entrada, para sus clientes', puedeVerCrm('employee', permisos(PERMISO_CRM_PROPIOS)) && PERMISO_CRM_PROPIOS === 'crm-propios')
+  ok('un empleado sin ninguno de los dos permisos, no', !puedeVerCrm('employee', permisos('agenda', 'cold-calling')))
+  ok('ni un cliente de fuera ni un socio con «crm-propios» marcada', !puedeVerCrm('cliente', permisos(PERMISO_CRM_PROPIOS)) && !puedeVerCrm('partner', permisos(PERMISO_CRM_PROPIOS)))
   ok('ni con la casilla «crm» a secas: no abre nada por sí sola (la RLS le cerraría las tablas)', !puedeVerCrm('employee', permisos('crm')))
   ok('un socio (partner) no entra por aquí: el middleware le cierra todo salvo sus tres apps', !puedeVerCrm('partner', permisos(PERMISO_EQUIPO_COMERCIAL)))
   ok('un cliente de fuera, nunca', !puedeVerCrm('cliente', permisos(PERMISO_EQUIPO_COMERCIAL)))

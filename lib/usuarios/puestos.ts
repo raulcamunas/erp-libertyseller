@@ -1,7 +1,7 @@
 import type { RolUsuario } from '@/lib/types/users'
 
 /**
- * LOS PUESTOS DEL EQUIPO: COMERCIAL, MANAGER COMERCIAL Y GESTIÓN ADMINISTRATIVA — PURO.
+ * LOS PUESTOS DEL EQUIPO: COMERCIAL, MANAGER COMERCIAL, COMERCIAL AUTÓNOMO Y GESTIÓN ADMINISTRATIVA — PURO.
  * =====================================================================================
  * Lo usan Gestión de Usuarios (el desplegable «Rol» y las casillas que se pre-marcan) y las rutas que crean y editan usuarios. Se comprueba con puestos.prueba.ts.
  *
@@ -15,15 +15,16 @@ import type { RolUsuario } from '@/lib/types/users'
  * Son un punto de partida: se pueden quitar y añadir a mano antes de guardar.
  */
 
-export type Puesto = 'comercial' | 'manager_comercial' | 'gestion_administrativa'
+export type Puesto = 'comercial' | 'manager_comercial' | 'comercial_autonomo' | 'gestion_administrativa'
 
-export const PUESTOS: readonly Puesto[] = ['comercial', 'manager_comercial', 'gestion_administrativa']
+export const PUESTOS: readonly Puesto[] = ['comercial', 'manager_comercial', 'comercial_autonomo', 'gestion_administrativa']
 
 export const esPuesto = (v: unknown): v is Puesto => typeof v === 'string' && (PUESTOS as readonly string[]).includes(v)
 
 export const ETIQUETA_DE_PUESTO: Record<Puesto, string> = {
   comercial: 'Comercial',
   manager_comercial: 'Manager Comercial',
+  comercial_autonomo: 'Comercial Autónomo',
   gestion_administrativa: 'Gestión Administrativa',
 }
 
@@ -47,6 +48,12 @@ export const OPCIONES_DE_ROL: readonly OpcionDelDesplegable[] = [
     etiqueta: 'Manager Comercial',
     grupo: 'puesto',
     ayuda: 'Supervisa al equipo comercial: ve todos los leads, la agenda y los correos del equipo, y reparte listas y leads entre los comerciales.',
+  },
+  {
+    valor: 'comercial_autonomo',
+    etiqueta: 'Comercial Autónomo',
+    grupo: 'puesto',
+    ayuda: 'Vende por su cuenta: en el CRM de clientes ve SOLO los suyos (los que lleva él) y puede darlos de alta, pasarlos de fase, descartarlos y cerrarlos. No ve los de nadie más, ni importes, ni costes del equipo.',
   },
   { valor: 'gestion_administrativa', etiqueta: 'Gestión Administrativa', grupo: 'puesto', ayuda: 'Administración: correo y vacaciones. No llama ni entra en Cold Calling.' },
   { valor: 'admin', etiqueta: 'Admin', grupo: 'direccion', ayuda: 'Dirección: accede a todo.' },
@@ -87,6 +94,8 @@ const BASE_COMERCIAL = ['agenda', 'cold-calling', 'correo', 'horas', 'rendimient
 export const PERMISOS_DEL_PUESTO: Readonly<Record<Puesto, readonly string[]>> = {
   comercial: BASE_COMERCIAL,
   manager_comercial: [...BASE_COMERCIAL, 'equipo-comercial', 'correo-supervision', 'gestion-listas'],
+  // Solo lo suyo: el CRM de sus clientes. El resto (agenda, correo…) se le marca a mano si lo necesita
+  comercial_autonomo: ['crm-propios'],
   gestion_administrativa: ['correo', 'vacaciones'],
 }
 
@@ -107,7 +116,7 @@ export function aplicarPuesto<T extends Casilla>(casillas: readonly T[], puesto:
   return casillas.map((c) => ({ ...c, can_access: del.has(c.app_id) ? true : modo === 'sustituir' ? false : c.can_access }))
 }
 
-/** ¿Es alguien que llama? Un Comercial sí, siempre; una Gestión Administrativa no; un Manager según lo que se marque (por defecto, lo que ya era) */
+/** ¿Es alguien que llama? Un Comercial sí, siempre; una Gestión Administrativa no; un Manager o un Autónomo según lo que se marque (por defecto, lo que ya era: un autónomo no) */
 export function esComercialDelPuesto(puesto: Puesto | null, marcado: boolean | undefined): boolean | undefined {
   if (puesto === 'comercial') return true
   if (puesto === 'gestion_administrativa') return false

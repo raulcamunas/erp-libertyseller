@@ -1,4 +1,4 @@
-import { PERMISOS_SUELTOS, PERMISO_CORREO_SUPERVISION, PERMISO_EQUIPO_COMERCIAL, PERMISO_GESTION_LISTAS, apps } from '@/lib/config/apps'
+import { PERMISOS_SUELTOS, PERMISO_CORREO_SUPERVISION, PERMISO_CRM_PROPIOS, PERMISO_EQUIPO_COMERCIAL, PERMISO_GESTION_LISTAS, apps } from '@/lib/config/apps'
 import {
   ETIQUETA_DE_PUESTO,
   OPCIONES_DE_ROL,
@@ -37,10 +37,10 @@ const marcadas = (c: readonly Casilla[]) => c.filter((x) => x.can_access).map((x
 function main() {
   console.log('\n=== los tres puestos ===')
   {
-    ok('son tres y tienen nombre', PUESTOS.length === 3 && PUESTOS.every((p) => ETIQUETA_DE_PUESTO[p].length > 0))
-    ok('los nombres son los que pidió Raúl', ETIQUETA_DE_PUESTO.comercial === 'Comercial' && ETIQUETA_DE_PUESTO.manager_comercial === 'Manager Comercial' && ETIQUETA_DE_PUESTO.gestion_administrativa === 'Gestión Administrativa')
-    ok('esPuesto acepta los tres y nada más', PUESTOS.every(esPuesto) && !esPuesto('admin') && !esPuesto('employee') && !esPuesto(null) && !esPuesto(3) && !esPuesto(''))
-    ok('el desplegable ofrece Empleado, los tres puestos, Admin, Partner y Cliente, sin repetir', OPCIONES_DE_ROL.map((o) => o.valor).join() === 'employee,comercial,manager_comercial,gestion_administrativa,admin,partner,cliente')
+    ok('son cuatro y tienen nombre', PUESTOS.length === 4 && PUESTOS.every((p) => ETIQUETA_DE_PUESTO[p].length > 0))
+    ok('los nombres son los que pidió Raúl', ETIQUETA_DE_PUESTO.comercial === 'Comercial' && ETIQUETA_DE_PUESTO.manager_comercial === 'Manager Comercial' && ETIQUETA_DE_PUESTO.comercial_autonomo === 'Comercial Autónomo' && ETIQUETA_DE_PUESTO.gestion_administrativa === 'Gestión Administrativa')
+    ok('esPuesto acepta los cuatro y nada más', PUESTOS.every(esPuesto) && !esPuesto('admin') && !esPuesto('employee') && !esPuesto(null) && !esPuesto(3) && !esPuesto('') && !esPuesto('autonomo'))
+    ok('el desplegable ofrece Empleado, los cuatro puestos, Admin, Partner y Cliente, sin repetir', OPCIONES_DE_ROL.map((o) => o.valor).join() === 'employee,comercial,manager_comercial,comercial_autonomo,gestion_administrativa,admin,partner,cliente')
     ok('y cada opción dice qué significa', OPCIONES_DE_ROL.every((o) => o.ayuda.length > 20 && o.etiqueta.length > 0))
   }
 
@@ -73,7 +73,10 @@ function main() {
     ok('y NO tiene ninguno de los permisos de supervisión', !PERMISOS_DEL_PUESTO.comercial.includes(PERMISO_EQUIPO_COMERCIAL) && !PERMISOS_DEL_PUESTO.comercial.includes(PERMISO_GESTION_LISTAS) && !PERMISOS_DEL_PUESTO.comercial.includes(PERMISO_CORREO_SUPERVISION))
     ok('el manager tiene todo lo del comercial más lo suyo', PERMISOS_DEL_PUESTO.comercial.every((id) => PERMISOS_DEL_PUESTO.manager_comercial.includes(id)))
     ok('administración: correo y vacaciones, sin Cold Calling', PERMISOS_DEL_PUESTO.gestion_administrativa.slice().sort().join() === 'correo,vacaciones')
-    ok('ninguno de los tres abre Tesorería, Facturación, sueldos ni Amazon', PUESTOS.every((p) => !PERMISOS_DEL_PUESTO[p].some((id) => ['tesoreria', 'facturacion', 'empleados', 'amazon-api', 'commissions', 'users', 'tax-reports'].includes(id))))
+    ok('el autónomo: solo el CRM de lo suyo (crm-propios, letra por letra como en apps.ts)', PERMISOS_DEL_PUESTO.comercial_autonomo.join() === PERMISO_CRM_PROPIOS && PERMISO_CRM_PROPIOS === 'crm-propios')
+    ok('y NO el de supervisar a todo el equipo, ni nada de Cold Calling, correo o horas', !PERMISOS_DEL_PUESTO.comercial_autonomo.includes(PERMISO_EQUIPO_COMERCIAL) && !PERMISOS_DEL_PUESTO.comercial_autonomo.some((id) => ['cold-calling', 'correo', 'horas', 'rendimiento', 'agenda'].includes(id)))
+    ok('«crm-propios» tiene su casilla con nombre y explicación en los permisos sueltos', (() => { const p = PERMISOS_SUELTOS.find((x) => x.id === PERMISO_CRM_PROPIOS); return !!p && p.name.length > 5 && p.description.length > 60 })())
+    ok('ninguno de los cuatro abre Tesorería, Facturación, sueldos ni Amazon', PUESTOS.every((p) => !PERMISOS_DEL_PUESTO[p].some((id) => ['tesoreria', 'facturacion', 'empleados', 'amazon-api', 'commissions', 'users', 'tax-reports'].includes(id))))
   }
 
   console.log('\n=== marcar las casillas al elegir un puesto ===')
@@ -84,6 +87,8 @@ function main() {
     ok('la lista de partida no se toca', marcadas(nada).length === 0)
     const manager = aplicarPuesto(comercial, 'manager_comercial', 'sustituir')
     ok('de comercial a manager al crear: las del manager, y nada de más', marcadas(manager).join() === 'agenda,cold-calling,correo,correo-supervision,equipo-comercial,gestion-listas,horas,rendimiento')
+    ok('crear un autónomo: solo crm-propios', marcadas(aplicarPuesto(manager, 'comercial_autonomo', 'sustituir')).join() === 'crm-propios')
+    ok('editar a alguien a autónomo suma crm-propios y no le quita lo que tenía', marcadas(aplicarPuesto(casillasDe('correo', 'agenda'), 'comercial_autonomo', 'sumar')).join() === 'agenda,correo,crm-propios')
     const admin = aplicarPuesto(manager, 'gestion_administrativa', 'sustituir')
     ok('de manager a administración al crear: solo las de administración (lo de antes se quita)', marcadas(admin).join() === 'correo,vacaciones')
     const conExtra = casillasDe('marketing-ads', 'correo')
@@ -99,9 +104,10 @@ function main() {
   {
     ok('un comercial siempre llama, se marque lo que se marque', esComercialDelPuesto('comercial', false) === true && esComercialDelPuesto('comercial', undefined) === true)
     ok('administración nunca', esComercialDelPuesto('gestion_administrativa', true) === false)
+    ok('un autónomo, lo que se marque (por defecto no llama: no entra en el equipo de Cold Calling ni en las comisiones por cita)', esComercialDelPuesto('comercial_autonomo', true) === true && esComercialDelPuesto('comercial_autonomo', false) === false && esComercialDelPuesto('comercial_autonomo', undefined) === undefined)
     ok('un manager, lo que se marque; si no se dice, no se toca', esComercialDelPuesto('manager_comercial', true) === true && esComercialDelPuesto('manager_comercial', false) === false && esComercialDelPuesto('manager_comercial', undefined) === undefined)
     ok('sin puesto, lo que se marque; si no se dice, no se toca', esComercialDelPuesto(null, true) === true && esComercialDelPuesto(null, undefined) === undefined)
-    ok('lista propia: el comercial sí, el manager solo si también llama, administración y los demás no', llevaListaPropia('comercial', true) && llevaListaPropia('manager_comercial', true) && !llevaListaPropia('manager_comercial', false) && !llevaListaPropia('gestion_administrativa', false) && !llevaListaPropia(null, true))
+    ok('lista propia: el comercial sí, el manager solo si también llama, administración, el autónomo y los demás no', llevaListaPropia('comercial', true) && llevaListaPropia('manager_comercial', true) && !llevaListaPropia('manager_comercial', false) && !llevaListaPropia('gestion_administrativa', false) && !llevaListaPropia('comercial_autonomo', true) && !llevaListaPropia(null, true))
   }
 
   console.log('\n=== lo que llega a las rutas de crear y editar ===')
@@ -112,6 +118,8 @@ function main() {
     ok('aunque la petición diga que no llama, un comercial llama', c2.ok && c2.is_comercial === true)
     const c3 = cambioDePuestoDeLaPeticion({ puesto: 'gestion_administrativa', is_comercial: true }, 'employee')
     ok('administración nunca llama', c3.ok && c3.puesto === 'gestion_administrativa' && c3.is_comercial === false)
+    const aut = cambioDePuestoDeLaPeticion({ puesto: 'comercial_autonomo' }, 'employee')
+    ok('un autónomo: se guarda el puesto y no se toca is_comercial (no llama por defecto)', aut.ok && aut.puesto === 'comercial_autonomo' && !('is_comercial' in aut))
     const c4 = cambioDePuestoDeLaPeticion({ puesto: 'manager_comercial', is_comercial: true }, 'employee')
     const c5 = cambioDePuestoDeLaPeticion({ puesto: 'manager_comercial' }, 'employee')
     ok('un manager: lo que diga la petición; si no dice, no se toca', c4.ok && c4.is_comercial === true && c5.ok && c5.puesto === 'manager_comercial' && !('is_comercial' in c5))

@@ -12,7 +12,7 @@ import type { ContextoFicha } from './tipos'
 
 const cuando = (iso: string) => format(toMadrid(new Date(iso)), "d MMM yyyy · HH:mm", { locale: es })
 
-/** Lo que ha pasado con el cliente: las tomas de contacto (apuntar sí, borrar solo dirección), el historial de fases y las reuniones con notas */
+/** Lo que ha pasado con el cliente: las tomas de contacto (apuntar sí, borrar solo dirección: la RLS no deja borrar a nadie más), el historial de fases y las reuniones con notas */
 export function PestanaActividad({ ctx, linea }: { ctx: ContextoFicha; linea: LineaDeFases }) {
   // Más reciente arriba; la fila «recuperado» se dice como lo que es: una fecha aproximada
   const historial = [...ctx.historial].sort((a, b) => b.desde.localeCompare(a.desde))
@@ -24,7 +24,7 @@ export function PestanaActividad({ ctx, linea }: { ctx: ContextoFicha; linea: Li
             <Loader2 className="h-3 w-3 animate-spin" /> Cargando…
           </p>
         ) : (
-          <CrmInteractions clientId={ctx.client.id} currentUser={ctx.currentUser} interactions={ctx.interacciones} onChange={ctx.setInteracciones} puedeBorrar={ctx.puedeEditar} />
+          <CrmInteractions clientId={ctx.client.id} currentUser={ctx.currentUser} interactions={ctx.interacciones} onChange={ctx.setInteracciones} puedeBorrar={ctx.esDireccion} />
         )}
       </Seccion>
 

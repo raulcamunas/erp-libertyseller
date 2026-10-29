@@ -13,6 +13,7 @@ import { CRM_STAGE_LABELS, crmContact, type CrmClientWithDetails, type CrmDocume
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import { avanceDeLaPropuesta, leerPlan } from '@/lib/crm/propuesta'
 import { lineaDeFases, type EntradaDeFase } from '@/lib/crm/fases'
+import type { AlcanceDelCrm } from '@/lib/crm/acceso'
 import { COLUMNAS_DE_NOTA, type FilaDeNota } from '@/lib/crm/gemini/tipos'
 import { esTablaInexistente, FALTA_MIGRACION_258 } from '@/lib/crm/migracion'
 import { iniciales } from '@/lib/crm/lista'
@@ -39,8 +40,9 @@ import { PestanaDatos } from './PestanaDatos'
  *   Datos        contacto, empresa, cita, responsable y notas internas
  *
  * Esta pantalla es la dueña de los datos de la ficha (tomas de contacto, documentos, historial de fases y notas de reunión, que se leen juntos al abrirla) y de CÓMO SE GUARDA
- * (`patch`); las pestañas solo los pintan y los piden cambiar. Todas las reglas de antes se conservan: solo dirección cambia la ficha (la RLS es el filtro de verdad; aquí se
- * dice lo mismo), cualificar una cita va por la ruta de la agenda y quien supervisa puede apuntar tomas de contacto.
+ * (`patch`); las pestañas solo los pintan y los piden cambiar. Quién puede qué lo dice `alcance` (lib/crm/acceso.ts; la RLS de las migraciones 212 y 261 es el filtro de verdad y
+ * aquí se dice lo mismo): dirección lo cambia todo; un manager y un comercial autónomo (en lo suyo) mueven la ficha y apuntan contactos pero no tocan importes, responsable ni el
+ * resultado de la cita; cualificar una cita va por la ruta de la agenda y solo lo hace dirección.
  *
  * SI LA MIGRACIÓN 258 NO ESTÁ LANZADA la ficha funciona igual, sin historial ni notas, y lo dice una vez arriba.
  */
@@ -50,7 +52,8 @@ interface Props {
   team: CalendarPerson[]
   currentUser: UserProfile
   onPatched: (patch: Partial<CrmClientWithDetails>) => void
-  puedeEditar: boolean
+  /** Lo que esta persona puede hacer con las fichas */
+  alcance: AlcanceDelCrm
   /** El historial de fases que ya trajo el servidor para la lista (se refresca al abrir la ficha) */
   historialInicial: EntradaDeFase[]
   /** Si el servidor ya vio que la migración falta */
@@ -61,8 +64,9 @@ interface Props {
   onNotasCambiadas?: () => void
 }
 
-export function FichaHub({ client, team, currentUser, onPatched, puedeEditar, historialInicial, migracionFaltaInicial, clientes, onNotasCambiadas }: Props) {
+export function FichaHub({ client, team, currentUser, onPatched, alcance, historialInicial, migracionFaltaInicial, clientes, onNotasCambiadas }: Props) {
   const supabase = createClient()
+  const puedeEditar = alcance.puedeMover
   const [pestana, setPestana] = useState<Pestana>('resumen')
   const [interacciones, setInteracciones] = useState<CrmInteraction[]>([])
   const [documentos, setDocumentos] = useState<CrmDocument[]>([])
@@ -149,14 +153,19 @@ export function FichaHub({ client, team, currentUser, onPatched, puedeEditar, hi
   const patch = useCallback(
     async (campos: Partial<CrmClientWithDetails>): Promise<boolean> => {
       if (!puedeEditar) {
-        toast.error('Cambiar la ficha del cliente es de dirección. Puedes apuntar tomas de contacto.')
+        toast.error('No tienes permiso para cambiar esta ficha.')
         return false
       }
       // Solo se mandan los campos tocados: nunca un update completo, para no pisar lo que otra persona esté editando a la vez
-      const { error } = await supabase.from('crm_clients').update(campos).eq('id', client.id)
+      // `.select('id')` para saber CUÁNTAS filas se han tocado: una política de RLS que no deja actualizar no da error, deja 0 filas, y sin esto la ficha creería que se guardó
+      const { data, error } = await supabase.from('crm_clients').update(campos).eq('id', client.id).select('id')
       if (error) {
         console.error('Error guardando ficha CRM:', error)
         toast.error(esTablaInexistente(error) ? FALTA_MIGRACION_258 : 'No se pudo guardar el cambio')
+        return false
+      }
+      if (!data || data.length === 0) {
+        toast.error('No se ha guardado: tu usuario no puede cambiar esta ficha (si es un manager, falta lanzar la migración 261 en Supabase).')
         return false
       }
       onPatched(campos)
@@ -185,7 +194,7 @@ export function FichaHub({ client, team, currentUser, onPatched, puedeEditar, hi
    * Y cualificar es pagar una comisión, así que solo lo hace dirección.
    */
   async function cambiarEstadoCita(estado: 'qualified' | 'not_qualified' | 'no_show') {
-    if (!appt || cambiandoCita || !puedeEditar) return
+    if (!appt || cambiandoCita || !alcance.puedeResultadoDeCita) return
     setCambiandoCita(true)
     const res = await fetch(`/api/appointments/${appt.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: estado }) })
     setCambiandoCita(false)
@@ -217,6 +226,10 @@ export function FichaHub({ client, team, currentUser, onPatched, puedeEditar, hi
     team,
     currentUser,
     puedeEditar,
+    puedeImportes: alcance.puedeImportes,
+    puedeVerImportes: alcance.puedeVerImportes,
+    puedeResultadoDeCita: alcance.puedeResultadoDeCita,
+    esDireccion: alcance.esDireccion,
     patch,
     commitText,
     commitNumber,
@@ -294,7 +307,7 @@ export function FichaHub({ client, team, currentUser, onPatched, puedeEditar, hi
 
       {/* ---------------- Pestañas ---------------- */}
       <div className="flex shrink-0 items-center gap-[5px] overflow-x-auto border-b border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-[7px]" role="tablist">
-        {PESTANAS.map((p) => {
+        {PESTANAS.filter((p) => p.id !== 'documentos' || alcance.esDireccion).map((p) => {
           const encendida = pestana === p.id
           const insignia = insigniaDe(p.id)
           return (
@@ -310,7 +323,13 @@ export function FichaHub({ client, team, currentUser, onPatched, puedeEditar, hi
       <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--ls-fondo)] p-3">
         {!puedeEditar && (
           <Aviso tono="naranja" icono={<AlertTriangle />} className="mb-3">
-            Ficha de solo lectura. Puedes repasarla y apuntar tomas de contacto; cambiar los datos, la fase, los importes o el resultado de la cita es de dirección.
+            Ficha de solo lectura. Puedes repasarla; cambiarla no está entre tus permisos.
+          </Aviso>
+        )}
+        {puedeEditar && !alcance.esDireccion && (
+          <Aviso tono="azul" icono={<AlertTriangle />} className="mb-3">
+            Puedes pasar este cliente de fase, descartarlo, cerrarlo y apuntar contactos y notas.{' '}
+            {alcance.puedeVerImportes ? 'Los importes, el responsable, la fecha de cierre y el resultado de la cita' : 'El responsable, la fecha de cierre y el resultado de la cita'} los cambia dirección.
           </Aviso>
         )}
         {migracionFalta && puedeEditar && (

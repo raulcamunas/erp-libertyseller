@@ -20,8 +20,16 @@ export interface ContextoFicha {
   client: CrmClientWithDetails
   team: CalendarPerson[]
   currentUser: UserProfile
-  /** Dirección: puede cambiar la ficha. Quien solo supervisa la lee y apunta tomas de contacto */
+  /** Mueve la ficha: fase, descartar, cerrar, próxima acción, notas, guion y datos de contacto. Dirección, los managers y el comercial autónomo (en lo suyo) */
   puedeEditar: boolean
+  /** Cambia los importes (set up y mantenimiento), el responsable y la fecha de cierre: solo dirección */
+  puedeImportes: boolean
+  /** Ve los importes de la ficha: dirección y los managers; el comercial autónomo no */
+  puedeVerImportes: boolean
+  /** Cualifica o no una cita (genera la comisión del comercial que la agendó): solo dirección */
+  puedeResultadoDeCita: boolean
+  /** Dirección: lo que va por rutas de dirección (analizar las notas de Gemini, asignarlas, los PDFs de propuestas y contratos) */
+  esDireccion: boolean
   /** Guarda campos de crm_clients. Devuelve true si salió bien */
   patch: (campos: Partial<CrmClientWithDetails>) => Promise<boolean>
   commitText: (campo: keyof CrmClientWithDetails, valor: string) => void

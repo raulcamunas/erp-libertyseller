@@ -177,7 +177,9 @@ function NotasOriginales({ nota }: { nota: FilaDeNota }) {
 }
 
 export function PestanaReunion({ ctx }: { ctx: ContextoFicha }) {
-  const { notas, puedeEditar, client } = ctx
+  const { notas, client } = ctx
+  // Analizar una nota con la IA y asignarla a otro cliente van por rutas de dirección (/api/crm/notas-gemini): un manager o un autónomo ven el desglose pero no lo lanzan
+  const puedeEditar = ctx.esDireccion
   const appt = client.appointment
   const [elegida, setElegida] = useState<string | null>(null)
   const [analizando, setAnalizando] = useState(false)

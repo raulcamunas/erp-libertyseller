@@ -5,8 +5,8 @@ El CRM deja de ser una lista con una ficha larga y pasa a ser **el hub de cada c
 Es la **base de lo que viene después**: generar la propuesta sola a partir de lo hablado y un editor visual para sacarla en PDF. Por eso lo que se guarda tiene la forma de las páginas de la propuesta (ver «El plan de propuesta»).
 
 - Pantalla: `/dashboard/crm` (app `crm` en el menú lateral; `?cliente=<id>` abre una ficha concreta). Antes vivía dentro de Agenda; `/dashboard/agenda/crm` redirige.
-- Acceso: dirección (admin/partner) y quien tenga el permiso suelto `equipo-comercial` (supervisión, **solo lectura**).
-- Migración: `supabase/migrations/258_crm_hub_fases_y_notas_de_reunion.sql` (se lanza a mano en el editor SQL de Supabase; el código funciona sin ella, sin historial ni notas, y lo dice).
+- Acceso (`lib/crm/acceso.ts`, una sola función): **dirección** (admin/partner: todo), **manager** (permiso suelto `equipo-comercial`: ve todos los clientes y los MUEVE, sin tocar importes) y **comercial autónomo** (permiso suelto `crm-propios`: ve y trabaja SOLO los suyos). Ver «Permisos».
+- Migraciones: `258_crm_hub_fases_y_notas_de_reunion.sql` (historial de fases y notas de Gemini) y `261_crm_managers_y_autonomos.sql` (managers que mueven, el puesto Comercial Autónomo y sus políticas). Se lanzan a mano en el editor SQL de Supabase; el código funciona sin ellas y lo dice.
 
 ---
 
@@ -14,9 +14,12 @@ Es la **base de lo que viene después**: generar la propuesta sola a partir de l
 
 | Pieza | Dónde | Qué hace |
 |---|---|---|
-| Cifras del embudo | `HubCrm.tsx` | clientes, abiertos, cerrados y % de los decididos, ciclo medio, acciones vencidas, set up del mes, coste del equipo (solo dirección) |
-| Filtros | `HubCrm.tsx` | por fase (con «Abiertos»), responsable, «acción vencida» y orden |
-| Lista | `ListaClientes.tsx` | por cliente: fase, días en ella, próxima acción (en rojo si venció), interés de la última reunión, nº de reuniones |
+| **Barra de pestañas** | `BarraDePestanas.tsx`, `lib/crm/pestanas.ts` | **Cita agendada · En seguimiento · Cerrado**, con cuántos leads hay en cada una; a la derecha, la búsqueda y (si se ven todos) el responsable |
+| Cifras del embudo | `HubCrm.tsx` | clientes, abiertos, cerrados y % de los decididos, ciclo medio, acciones vencidas, set up del mes (no al autónomo), coste del equipo (solo dirección) |
+| Filtros de la pestaña | `HubCrm.tsx` | Cita: por cómo salió la cita · Seguimiento: por paso, «acción vencida» y orden · Cerrado: ganados / perdidos |
+| **Cita agendada** | `filas.tsx` (`FilaDeCita`) | cómo salió la cita y, a la derecha, **Seguir** (pasa a En seguimiento) o **Descartar** (se da por perdido, con motivo opcional). Si la cita salió cualificada se destaca «Seguir»; si no cualificó o no asistió, «Descartar» |
+| **En seguimiento** | `filas.tsx` (`FilaDeSeguimiento`) | el **proceso** del lead (Seguimiento → Propuesta → Revisión → Negociación), desde cuándo, la próxima acción (en rojo si venció), el último contacto y los botones Avanzar / Cerrar / Perder |
+| **Cerrado** | `filas.tsx` (`FilaDeCerrado`) | ganados (con el ciclo de venta y, a quien los ve, los importes) y perdidos (con el motivo) y un botón para Reabrir |
 | **Línea de fases** | `LineaDeFases.tsx` | los 6 pasos con fecha y días; lo saltado, lo pendiente y «Perdido» aparte. Quien edita mueve al cliente pulsando un nodo (con «Deshacer») |
 | Pestaña Resumen | `PestanaResumen.tsx` | siguiente paso, lo último de la reunión, dolores, estado de la propuesta, cita y dinero |
 | Pestaña Reunión | `PestanaReunion.tsx` + `DesgloseDeLaIA.tsx` + `GuionDeLaReunion.tsx` | el desglose de la IA, el guion de preguntas («Pasar al guion») y las notas originales de Gemini (resumen, detalle, transcripción) |
@@ -100,14 +103,26 @@ Reglas que no se rompen:
 **Lo que viene (no está hecho):** generar el PDF solo desde este plan con la plantilla maestra y un editor visual. El contrato de datos ya existe; falta el generador.
 
 ## 6. Permisos
-- Ver el CRM: dirección y `equipo-comercial`. Las tablas nuevas se leen con `puede_ver_equipo_comercial(uid)` (RLS de la 258).
-- **Escribir** las tablas nuevas: solo el servidor (no tienen políticas de escritura). Sincronizar, analizar y asignar son rutas de **dirección**.
-- Cambiar la ficha, la fase, los importes o la cita: dirección (la RLS de `crm_clients` de la 080). Quien supervisa lee y apunta tomas de contacto.
-- El coste del equipo comercial: solo dirección.
+`lib/crm/acceso.ts` (`alcanceDelCrm`) decide quién entra, qué clientes ve y qué puede hacer; la RLS de las migraciones 212 y 261 dice lo mismo y es el filtro de verdad (el navegador escribe directo en las tablas).
+
+| | Dirección (admin, partner) | Manager (`equipo-comercial`) | Comercial autónomo (`crm-propios`) |
+|---|---|---|---|
+| Clientes que ve | todos | todos | **solo los suyos** (`owner_id` = él) |
+| Mover (fase, descartar, cerrar, reabrir, próxima acción, notas, guion, datos de contacto) | sí | **sí** (desde la 261) | sí, en lo suyo |
+| Apuntar tomas de contacto | sí | sí | sí, en sus clientes |
+| Dar de alta un cliente | sí | no | sí, solo a su nombre |
+| Importes (set up y mantenimiento), responsable, % variable, fecha de cierre a mano | sí | los ve, **no** los cambia | ni los ve ni los cambia |
+| Resultado de la cita (cualificada, no cualificada, no asistió) | sí | no | no |
+| PDFs de propuestas y contratos, bandeja de notas de Gemini, coste del equipo | sí | no | no |
+| Citas de la agenda (lectura) | todas | todas | **solo las suyas** (la 261 recorta «Team can view all appointments» a quien tiene `crm-propios` y no supervisa) |
+
+- Lo que ni un manager ni un autónomo pueden tocar lo impide el disparador `trg_crm_protege_importes` (una política no puede decir «este campo no»), igual que `trg_cold_leads_bloquea_reasignacion` en Cold Calling. Dirección y el servidor (clave de servicio) pasan sin que se mire.
+- El puesto «Comercial Autónomo» de Gestión de Usuarios marca solo `crm-propios`. No es un rol nuevo (sigue siendo `employee` + `profiles.puesto`) y por defecto NO es `is_comercial`: no sale en el equipo de Cold Calling ni genera comisión por cita.
+- Las tablas nuevas de la 258 se leen con `puede_ver_equipo_comercial(uid)`; el autónomo lee las de sus clientes con `puede_trabajar_cliente_crm(client_id)`. **Escribir** las tablas nuevas: solo el servidor. Sincronizar, analizar y asignar notas son rutas de **dirección**.
 
 ## 7. Puesta en marcha
 
-1. **SQL**: lanzar `258_crm_hub_fases_y_notas_de_reunion.sql` en el editor SQL de Supabase (idempotente).
+1. **SQL**: lanzar `258_crm_hub_fases_y_notas_de_reunion.sql` y `261_crm_managers_y_autonomos.sql` en el editor SQL de Supabase (idempotentes). La 261 termina con un SELECT que tiene que dar todo `true`.
 2. **Google Workspace** (administrador): *Seguridad → Control de acceso y de datos → Controles de API → Delegación en todo el dominio*. El ID de cliente de la cuenta de servicio **ya está** (lo usa la Agenda con el permiso de Calendar): se **edita** esa entrada y se **añaden** los dos permisos nuevos **conservando el de Calendar** (si se quita, la Agenda deja de sincronizar):
    `https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/documents.readonly`.
    Se pide `documents.readonly` y no `drive.readonly` a propósito: lo justo para leer el documento de Gemini, sin lectura sobre el resto del Drive del buzón.

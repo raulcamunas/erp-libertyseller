@@ -96,9 +96,10 @@ export const apps: AppConfig[] = [
     category: 'core'
   },
   {
-    // EL CRM DE CLIENTES, que vivía como un botón de la Agenda (/dashboard/agenda/crm) y ahora es una entrada del menú lateral con su propia ruta. Lo ve un administrador
-    // y quien supervisa al equipo comercial (el permiso suelto 'equipo-comercial'), nadie más: es el mismo corte que ya tenía la pantalla y que aplican las políticas RLS
-    // de la migración 212 sobre las tablas crm_*. NO tiene casilla propia en Gestión de Usuarios que sirva (ver APPS_SIN_EFECTO): el acceso se da con aquel permiso.
+    // EL CRM DE CLIENTES, que vivía como un botón de la Agenda (/dashboard/agenda/crm) y ahora es una entrada del menú lateral con su propia ruta. Lo ve un administrador,
+    // quien supervisa al equipo comercial (el permiso suelto 'equipo-comercial': todos los clientes) y el comercial autónomo (el permiso suelto 'crm-propios': solo los suyos),
+    // nadie más: es el mismo corte que aplican las políticas RLS de las migraciones 212 y 261 sobre las tablas crm_*. NO tiene casilla propia en Gestión de Usuarios que
+    // sirva (ver APPS_SIN_EFECTO): el acceso se da con esos permisos.
     // El id va LETRA POR LETRA igual que en APP_CRM, en el filtro del menú (AppSidebar) y en el de la rejilla de Inicio.
     id: 'crm',
     name: 'CRM de clientes',
@@ -594,6 +595,19 @@ export const APP_CRM = 'crm'
 export const PERMISO_EQUIPO_COMERCIAL = 'equipo-comercial'
 
 /**
+ * EL PERMISO DEL COMERCIAL AUTÓNOMO EN EL CRM: VE SOLO SUS CLIENTES.
+ *
+ * Es el otro modo de entrar al CRM de clientes. 'equipo-comercial' enseña los clientes de TODO el equipo (el manager); este enseña ÚNICAMENTE los que lleva la persona (los que
+ * tienen su id como responsable, `crm_clients.owner_id`) y le deja trabajarlos: darlos de alta, pasarlos de fase, descartarlos, cerrarlos y apuntar contactos y notas. No le abre
+ * los importes (set up y mantenimiento), los PDFs de propuestas y contratos, la bandeja de notas de Gemini ni el coste del equipo. Lo marca solo el puesto «Comercial Autónomo» de
+ * Gestión de Usuarios, y se puede dar suelto a cualquier empleado.
+ *
+ * EL ID TIENE QUE COINCIDIR LETRA POR LETRA en cuatro sitios: aquí, en las funciones SQL de la migración 261 (`puede_ver_crm_propio`), en lib/crm/acceso.ts (que recibe si lo tiene)
+ * y en lib/crm/acceso-servidor.ts (que lo lee de user_app_permissions). Si baila en uno, la casilla se marca, no da ningún error y la pantalla sale vacía o no guarda.
+ */
+export const PERMISO_CRM_PROPIOS = 'crm-propios'
+
+/**
  * EL PERMISO QUE DEJA GESTIONAR LAS LISTAS DE LEADS DE COLD CALLING.
  *
  * Abre, dentro de Cold Calling, la vista «Listas»: ver todas las listas y lo usadas que están, crear listas, mover leads de una lista a otra, asignar una lista o
@@ -648,15 +662,15 @@ export const APP_TAX_REPORTS = 'tax-reports'
 /**
  * ¿Ve esta persona el CRM de clientes en el menú?
  *
- * Administrador, o quien tenga el permiso suelto 'equipo-comercial' (el manager de captación). Es lo mismo que decide la página con puedeVerEquipoComercial() y la
- * función SQL `puede_ver_equipo_comercial` de la 212 que usan las políticas RLS: si la entrada del menú se abriera para alguien a quien la base le cierra las tablas,
- * vería una pantalla vacía sin saber por qué. Aquí solo se decide QUÉ SE PINTA; quien manda es la RLS.
+ * Administrador, quien tenga el permiso suelto 'equipo-comercial' (el manager de captación: ve los clientes de todo el equipo) o el de 'crm-propios' (el comercial autónomo: ve
+ * solo los suyos). Es lo mismo que decide la página con alcanceDelCrm() (lib/crm/acceso.ts) y las funciones SQL de las migraciones 212 y 261 que usan las políticas RLS: si la
+ * entrada del menú se abriera para alguien a quien la base le cierra las tablas, vería una pantalla vacía sin saber por qué. Aquí solo se decide QUÉ SE PINTA; quien manda es la RLS.
  */
 export function puedeVerCrm(
   rol: string | null | undefined,
   permisos: ReadonlySet<string>
 ): boolean {
-  return rol === 'admin' || (rol === 'employee' && permisos.has(PERMISO_EQUIPO_COMERCIAL))
+  return rol === 'admin' || (rol === 'employee' && (permisos.has(PERMISO_EQUIPO_COMERCIAL) || permisos.has(PERMISO_CRM_PROPIOS)))
 }
 
 export function puedeVerGrowth(
@@ -705,6 +719,16 @@ export const PERMISOS_SUELTOS: ReadonlyArray<{ id: string; name: string; descrip
       'Facturación, ni Comisiones y su liquidación, ni el coste o el sueldo de ningún empleado, ' +
       'ni Amazon API: para eso hace falta ser admin o partner, y esta casilla existe justo para ' +
       'no tener que dar ese rol.',
+  },
+  {
+    id: PERMISO_CRM_PROPIOS,
+    name: 'CRM de clientes (solo los suyos)',
+    description:
+      'Para un comercial autónomo. Abre el CRM de clientes y le enseña ÚNICAMENTE los clientes que lleva él: ' +
+      'puede darlos de alta, pasarlos de fase, descartarlos, cerrarlos y apuntar contactos y notas. NO ve los de ' +
+      'nadie más, ni los importes (set up y mantenimiento), ni los PDFs de propuestas y contratos, ni el coste del ' +
+      'equipo. Distinta de «Supervisión del equipo comercial», que enseña el CRM de todo el equipo. Lo marca ' +
+      'solo el puesto «Comercial Autónomo».',
   },
   {
     id: PERMISO_GESTION_LISTAS,
@@ -756,7 +780,7 @@ export const APPS_SIN_EFECTO: ReadonlyMap<string, string> = new Map([
   ],
   [
     APP_CRM,
-    'El CRM de clientes lo ve un administrador y quien tenga la casilla «Supervisión del equipo comercial»; esta casilla no abre nada por sí sola.',
+    'El CRM de clientes lo ve un administrador, quien tenga la casilla «Supervisión del equipo comercial» (todos los clientes) o la de «CRM de clientes (solo los suyos)»; esta casilla no abre nada por sí sola.',
   ],
 ])
 

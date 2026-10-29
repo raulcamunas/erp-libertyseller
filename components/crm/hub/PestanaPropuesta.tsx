@@ -237,22 +237,26 @@ export function PestanaPropuesta({ ctx, plan, avance }: { ctx: ContextoFicha; pl
             </p>
           </Seccion>
 
+          {ctx.puedeVerImportes && (
           <Seccion titulo="Importes" icono={<Euro />}>
             <Fila etiqueta="Set up" ancho={96}>
-              <input readOnly={soloLectura} value={setup} onChange={(e) => setSetup(e.target.value)} onBlur={() => ctx.commitNumber('setup_budget', setup)} inputMode="decimal" placeholder="0 €" className={`${INPUT_FANTASMA} tabular-nums`} />
+              <input readOnly={!ctx.puedeImportes} value={setup} onChange={(e) => setSetup(e.target.value)} onBlur={() => ctx.commitNumber('setup_budget', setup)} inputMode="decimal" placeholder="0 €" className={`${INPUT_FANTASMA} tabular-nums`} />
             </Fila>
             <Fila etiqueta="Cuota base" ancho={96}>
-              <input readOnly={soloLectura} value={cuota} onChange={(e) => setCuota(e.target.value)} onBlur={() => ctx.commitNumber('maintenance_budget', cuota)} inputMode="decimal" placeholder="0 € / mes" className={`${INPUT_FANTASMA} tabular-nums`} />
+              <input readOnly={!ctx.puedeImportes} value={cuota} onChange={(e) => setCuota(e.target.value)} onBlur={() => ctx.commitNumber('maintenance_budget', cuota)} inputMode="decimal" placeholder="0 € / mes" className={`${INPUT_FANTASMA} tabular-nums`} />
             </Fila>
             <Fila etiqueta="% variable" ancho={96}>
-              <input readOnly={soloLectura} value={variable} onChange={(e) => setVariable(e.target.value)} onBlur={guardarVariable} inputMode="decimal" placeholder={`${VARIABLE_POR_DEFECTO} %`} className={`${INPUT_FANTASMA} tabular-nums`} />
+              <input readOnly={!ctx.puedeImportes} value={variable} onChange={(e) => setVariable(e.target.value)} onBlur={guardarVariable} inputMode="decimal" placeholder={`${VARIABLE_POR_DEFECTO} %`} className={`${INPUT_FANTASMA} tabular-nums`} />
             </Fila>
-            <p className="mt-2 text-[11px] leading-[1.5] text-[var(--ls-t4)]">El set up es de los meses 1 a 3 y la cuota base, del mes 4 en adelante (sin IVA). El variable ({VARIABLE_POR_DEFECTO} % salvo que se negocie) es solo sobre el excedente de facturación por encima de la media actual del cliente.</p>
+            <p className="mt-2 text-[11px] leading-[1.5] text-[var(--ls-t4)]">El set up es de los meses 1 a 3 y la cuota base, del mes 4 en adelante (sin IVA). El variable ({VARIABLE_POR_DEFECTO} % salvo que se negocie) es solo sobre el excedente de facturación por encima de la media actual del cliente.{!ctx.puedeImportes ? ' Los importes los cambia dirección.' : ''}</p>
           </Seccion>
+          )}
 
-          <Seccion titulo="Propuestas enviadas" icono={<FileText />}>
-            {ctx.cargando ? <p className="text-[11.5px] text-[var(--ls-t4)]">Cargando…</p> : <CrmDocuments clientId={client.id} kind="propuesta" label="Propuesta" documents={ctx.documentos} onChange={ctx.setDocumentos} puedeEditar={ctx.puedeEditar} />}
-          </Seccion>
+          {ctx.esDireccion && (
+            <Seccion titulo="Propuestas enviadas" icono={<FileText />}>
+              {ctx.cargando ? <p className="text-[11.5px] text-[var(--ls-t4)]">Cargando…</p> : <CrmDocuments clientId={client.id} kind="propuesta" label="Propuesta" documents={ctx.documentos} onChange={ctx.setDocumentos} puedeEditar={ctx.puedeEditar} />}
+            </Seccion>
+          )}
         </div>
       </div>
     </div>

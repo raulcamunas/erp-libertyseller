@@ -17,6 +17,8 @@ import type { ContextoFicha } from './tipos'
  */
 export function PestanaDatos({ ctx }: { ctx: ContextoFicha }) {
   const { client, puedeEditar, patch, commitText, commitNumber, team } = ctx
+  // El responsable y la fecha de cierre son de dirección; el resultado de la cita también (genera comisión). El resto de la ficha lo mueve quien puede moverla
+  const { puedeImportes, puedeResultadoDeCita } = ctx
   const appt = client.appointment
   const contacto = crmContact(client)
   const esManual = !client.appointment_id
@@ -54,7 +56,7 @@ export function PestanaDatos({ ctx }: { ctx: ContextoFicha }) {
           <>
             <div className="flex flex-wrap items-center gap-[5px]">
               {/* Los tres desenlaces solo se pintan como botón para dirección: cualificar es lo que genera la comisión del comercial */}
-              {puedeEditar ? (
+              {puedeResultadoDeCita ? (
                 ([
                   { valor: 'qualified' as const, texto: 'Cita cualificada' },
                   { valor: 'not_qualified' as const, texto: 'No cualificada' },
@@ -78,7 +80,7 @@ export function PestanaDatos({ ctx }: { ctx: ContextoFicha }) {
               ) : (
                 <span className="text-[12px] text-[var(--ls-t2)]">{estadoCita ? APPOINTMENT_STATUS_LABELS[estadoCita] : '—'} · cambiarlo es de dirección</span>
               )}
-              {puedeEditar && estadoCita && estadoCita !== 'qualified' && estadoCita !== 'not_qualified' && estadoCita !== 'no_show' && <span className="text-[11px] text-[var(--ls-t4)]">Todavía sin decidir · {APPOINTMENT_STATUS_LABELS[estadoCita]}</span>}
+              {puedeResultadoDeCita && estadoCita && estadoCita !== 'qualified' && estadoCita !== 'not_qualified' && estadoCita !== 'no_show' && <span className="text-[11px] text-[var(--ls-t4)]">Todavía sin decidir · {APPOINTMENT_STATUS_LABELS[estadoCita]}</span>}
             </div>
             <p className="mt-2 text-[11px] leading-[1.5] text-[var(--ls-t3)]">
               Solo <strong className="font-semibold text-[var(--ls-t2)]">Cita cualificada</strong> genera la comisión del comercial que la agendó. Las otras dos no, y las tres se ven al momento en el calendario.
@@ -90,7 +92,7 @@ export function PestanaDatos({ ctx }: { ctx: ContextoFicha }) {
       {/* ---------------- Seguimiento ---------------- */}
       <Seccion titulo="Seguimiento" icono={<CalendarClock />}>
         <Fila etiqueta="Responsable" icono={<User />}>
-          <select disabled={!puedeEditar} value={client.owner_id ?? 'none'} onChange={(e) => void patch({ owner_id: e.target.value === 'none' ? null : e.target.value })} className={`${INPUT_FANTASMA} cursor-pointer`}>
+          <select disabled={!puedeImportes} value={client.owner_id ?? 'none'} onChange={(e) => void patch({ owner_id: e.target.value === 'none' ? null : e.target.value })} className={`${INPUT_FANTASMA} cursor-pointer`}>
             <option value="none">Sin asignar</option>
             {team.map((p) => (
               <option key={p.id} value={p.id}>
@@ -117,16 +119,16 @@ export function PestanaDatos({ ctx }: { ctx: ContextoFicha }) {
         {/* Fecha de cierre = cuándo pagó de verdad. Se sella sola al marcar «Cliente cerrado», pero se puede corregir: una cita del 30 de julio que paga el 3 de agosto cuenta en la tesorería de agosto */}
         <Fila etiqueta="Fecha de cierre" icono={<BadgeEuro />}>
           <input
-            readOnly={!puedeEditar}
+            readOnly={!puedeImportes}
             type="date"
             value={cierre}
             onChange={(e) => {
               setCierre(e.target.value)
               void patch({ closed_at: e.target.value ? new Date(`${e.target.value}T12:00:00Z`).toISOString() : null })
             }}
-            disabled={client.stage !== 'ganado'}
+            disabled={client.stage !== 'ganado' || !puedeImportes}
             className={`${INPUT_FANTASMA} [color-scheme:light_dark]`}
-            title={client.stage !== 'ganado' ? 'Solo se rellena cuando el cliente está cerrado' : 'Día en que pagó: es lo que cuenta para la tesorería del mes'}
+            title={client.stage !== 'ganado' ? 'Solo se rellena cuando el cliente está cerrado' : puedeImportes ? 'Día en que pagó: es lo que cuenta para la tesorería del mes' : 'Se sella solo al cerrar el cliente; corregirla es de dirección'}
           />
         </Fila>
         {dueno && <p className="mt-1 text-[11px] text-[var(--ls-t4)]">Lo lleva {dueno.full_name || dueno.email}.</p>}
