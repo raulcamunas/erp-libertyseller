@@ -37,6 +37,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { TIEMPO_MAXIMO_DE_MUESTRA_MS, anotarMuestra, decidirPorPresion, estadoDeLaPresion, otraPesadaEnMarcha, type EstadoDePresion, type PrioridadDeTarea } from './presion'
 
 /** Los procesos que corren solos. El id es el que se guarda en la tabla */
 export const TAREAS_CRON = [
@@ -348,6 +349,57 @@ export const TAREAS_CRON = [
 
 export type TareaCron = (typeof TAREAS_CRON)[number]['id']
 
+/**
+ * CÓMO SE TRATA CADA PROCESO CUANDO LA BASE DE DATOS VA JUSTA (lib/sistema/presion.ts).
+ *
+ * `Record<TareaCron, …>` y no un objeto suelto: un proceso nuevo en TAREAS_CRON no compila hasta que se decide cuánto importa, que es justo la decisión que no se debe olvidar.
+ *
+ *   esencial  corre SIEMPRE. Leer las llamadas, el correo y la agenda, mandar los seguimientos y los precios: ligeros, y lo que no se puede dejar de hacer.
+ *   normal    espera solo con la base casi sin contestar.
+ *   baja      espera también con la base lenta (y con la lenta corre igualmente si lleva más de `ayunoMaxMin` sin hacerlo).
+ *   pesada    dura minutos: no empieza si hay otra pesada en marcha (una a la vez).
+ *
+ * Medido el 29 oct 2026 sobre 24 h de cron_ejecuciones: el catálogo de Amazon (6 min de media cada 15), el auditor de stock (2,5 min cada 10) y los trabajos de plataforma (1 min cada 5)
+ * eran el 66 % del trabajo automático; las llamadas de Rinkel y el correo, otro 25 %, pero con consultas pequeñas.
+ */
+export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea; pesada?: true; ayunoMaxMin?: number }> = {
+  'amazon-sync': { prioridad: 'baja', pesada: true, ayunoMaxMin: 45 },
+  'amazon-jobs': { prioridad: 'baja', pesada: true, ayunoMaxMin: 60 },
+  'shoplamp-precios': { prioridad: 'normal' },
+  'auditor-stock': { prioridad: 'baja', pesada: true, ayunoMaxMin: 120 },
+  'entrais-precios': { prioridad: 'esencial' },
+  'fba-remesas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 12 * 60 },
+  'fba-seguimiento': { prioridad: 'normal' },
+  'stock-verificacion': { prioridad: 'normal' },
+  cumplimiento: { prioridad: 'baja', pesada: true, ayunoMaxMin: 180 },
+  'rinkel-llamadas': { prioridad: 'esencial' },
+  'rinkel-transcribir': { prioridad: 'esencial' },
+  'correo-sync': { prioridad: 'esencial' },
+  'correo-secuencias': { prioridad: 'esencial' },
+  'notas-gemini': { prioridad: 'normal' },
+  'ubicacion-leads': { prioridad: 'baja', ayunoMaxMin: 60 },
+  'ciclo-leads': { prioridad: 'normal' },
+  calendario: { prioridad: 'esencial' },
+}
+
+const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true
+
+/** Una pasada pesada que lleva más de esto sin terminar se da por muerta (el catálogo más largo midió 14 minutos) */
+const TOPE_DE_PASADA_PESADA_MS = 25 * 60_000
+/** Lo que dura el hueco que se reserva al decir «sí te toca»: si la ruta no llega a abrir su registro, el hueco se libera solo */
+const DURACION_DE_LA_RESERVA_MS = 90_000
+/** Las pasadas pesadas en marcha (las que ya abrieron su registro) y las que acaban de recibir el «sí» y todavía no. En memoria: el servidor es un solo proceso */
+const enMarcha = new Map<string, number>()
+const reservas = new Map<string, number>()
+/** Los procesos que ya han avisado en el registro de que están aplazados (para avisar una vez y no cada minuto) */
+const aplazadas = new Set<string>()
+
+/** Cómo va la carga ahora mismo, para la pantalla de Sistema */
+export function estadoDeLaCarga(): EstadoDePresion & { pesadasEnMarcha: string[] } {
+  const ahora = Date.now()
+  return { ...estadoDeLaPresion(ahora), pesadasEnMarcha: [...enMarcha].filter(([t, desde]) => esPesada(t) && ahora - desde < TOPE_DE_PASADA_PESADA_MS).map(([t]) => t) }
+}
+
 export interface ConfigCron {
   tarea: string
   cada_minutos: number
@@ -428,7 +480,12 @@ export function estaParada(cadaMinutos: number, ultima: string | null): boolean 
  * función en ese hueco (fallar, no ejecutar nada, o seguir con los intervalos de
  * siempre) solo la última deja el sistema como estaba.
  */
-export async function leerConfigCron(): Promise<ConfigCron[]> {
+/** El guardián pregunta la configuración cada vez que una ruta entra (unas quince veces por minuto): una copia de 30 segundos le ahorra casi todas esas consultas */
+const VIDA_DE_LA_COPIA_MS = 30_000
+let copiaDeLaConfig: { at: number; datos: ConfigCron[] } | null = null
+
+export async function leerConfigCron(opciones: { copia?: boolean } = {}): Promise<ConfigCron[]> {
+  if (opciones.copia && copiaDeLaConfig && Date.now() - copiaDeLaConfig.at < VIDA_DE_LA_COPIA_MS) return copiaDeLaConfig.datos
   const pordefecto: ConfigCron[] = TAREAS_CRON.map((t) => ({
     tarea: t.id,
     cada_minutos: t.cadaMinutos,
@@ -441,6 +498,7 @@ export async function leerConfigCron(): Promise<ConfigCron[]> {
     const { data, error } = await service
       .from('cron_config')
       .select('tarea, cada_minutos, activo')
+      .abortSignal(AbortSignal.timeout(TIEMPO_MAXIMO_DE_MUESTRA_MS))
     if (error) throw error
 
     const guardado = new Map((data ?? []).map((f) => [f.tarea as string, f as ConfigCron]))
@@ -448,10 +506,12 @@ export async function leerConfigCron(): Promise<ConfigCron[]> {
     // que aparecer con su valor por defecto sin necesidad de otra migración, y
     // una fila huérfana de un proceso que ya no existe no debe salir en la
     // pantalla como si algo estuviera corriendo.
-    return pordefecto.map((d) => {
+    const datos = pordefecto.map((d) => {
       const fila = guardado.get(d.tarea)
       return fila ? { ...fila, pordefecto: false } : d
     })
+    copiaDeLaConfig = { at: Date.now(), datos }
+    return datos
   } catch {
     return pordefecto
   }
@@ -497,12 +557,16 @@ export interface Veredicto {
  * fallo que llevamos toda la semana pagando.
  */
 export async function tocaAhora(tarea: TareaCron): Promise<Veredicto> {
-  const config = (await leerConfigCron()).find((c) => c.tarea === tarea)
+  const config = (await leerConfigCron({ copia: true })).find((c) => c.tarea === tarea)
   if (!config) return { toca: true }
   if (!config.activo) return { toca: false, motivo: 'apagado desde la pantalla de Sistema' }
 
+  let medida = false
+  // El cronómetro empieza JUSTO antes de la consulta de abajo: leer la configuración (que unas veces sale de la copia y otras de la base) no puede alargar la medida
+  let arranque = Date.now()
   try {
     const service = createServiceClient()
+    arranque = Date.now()
     const { data, error } = await service
       .from('cron_ejecuciones')
       .select('iniciado_at')
@@ -510,22 +574,61 @@ export async function tocaAhora(tarea: TareaCron): Promise<Veredicto> {
       .is('lanzado_por', null)
       .order('iniciado_at', { ascending: false })
       .limit(1)
+      .abortSignal(AbortSignal.timeout(TIEMPO_MAXIMO_DE_MUESTRA_MS))
+    // La consulta que el guardián ya hacía es el cronómetro de la base: cuánto tarda en contestar una pregunta pequeña dice cómo va (lib/sistema/presion.ts)
+    anotarMuestra(Date.now() - arranque, Boolean(error))
+    medida = true
     if (error) throw error
 
     const ultima = data?.[0]?.iniciado_at as string | undefined
-    if (!ultima) return { toca: true }
+    if (!ultima) return alcanzaPorLaCarga(tarea, Number.POSITIVE_INFINITY)
 
     const transcurrido = Date.now() - new Date(ultima).getTime()
-    if (transcurrido + MARGEN_MS >= config.cada_minutos * 60_000) return { toca: true }
+    if (transcurrido + MARGEN_MS >= config.cada_minutos * 60_000) return alcanzaPorLaCarga(tarea, transcurrido)
 
     return {
       toca: false,
       motivo: `le toca cada ${config.cada_minutos} min y van ${Math.round(transcurrido / 60_000)}`,
     }
   } catch {
-    // Ver la cabecera: ante la duda, se ejecuta.
-    return { toca: true }
+    // Ver la cabecera: ante la duda, se ejecuta. Lo único que cambia es que una base que no contesta (esta consulta se agotó o falló) ya cuenta como una muestra mala, y lo que se
+    // aplaza por la carga es trabajo de fondo que se recupera solo: lo esencial corre igualmente
+    if (!medida) anotarMuestra(Date.now() - arranque, true)
+    return alcanzaPorLaCarga(tarea, 0)
   }
+}
+
+/**
+ * Le toca por el reloj: ¿y por la carga? Con la base lenta se aplaza el trabajo de fondo (según su prioridad) y las pesadas no coinciden. `sinCorrerMs` = lo que lleva sin arrancar
+ * (infinito si nunca ha corrido; 0 si no se sabe, que es lo más prudente con la base sin contestar).
+ */
+export function alcanzaPorLaCarga(tarea: TareaCron, sinCorrerMs: number): Veredicto {
+  const politica = POLITICA_DE_CARGA[tarea]
+  const ahora = Date.now()
+  const porPresion = decidirPorPresion(politica.prioridad, estadoDeLaPresion(ahora).nivel, sinCorrerMs / 60_000, politica.ayunoMaxMin ?? 60)
+  if (!porPresion.corre) {
+    // Un solo aviso al empezar a aplazarse (no uno por minuto mientras dure)
+    if (!aplazadas.has(tarea)) {
+      aplazadas.add(tarea)
+      console.warn(`[cron] ${tarea} aplazado: ${porPresion.motivo}`)
+    }
+    return { toca: false, motivo: porPresion.motivo ?? 'la base de datos va justa' }
+  }
+  if (politica.pesada) {
+    const otra = otraPesadaEnMarcha(enMarcha, tarea, esPesada, ahora, TOPE_DE_PASADA_PESADA_MS) ?? otraPesadaEnMarcha(reservas, tarea, esPesada, ahora, DURACION_DE_LA_RESERVA_MS)
+    if (otra) return { toca: false, motivo: `espera: ya está en marcha «${otra}» (una pesada a la vez)` }
+    // El «sí» reserva el hueco ya: dos pesadas que les toque en el mismo minuto no pueden ver las dos «nadie en marcha»
+    reservas.set(tarea, ahora)
+  }
+  aplazadas.delete(tarea)
+  return { toca: true }
+}
+
+/** Para las pruebas: deja la carga como al arrancar */
+export function reiniciarLaCargaParaPruebas(): void {
+  enMarcha.clear()
+  reservas.clear()
+  aplazadas.clear()
 }
 
 /** Cambia el horario de un proceso. Devuelve la lista entera ya actualizada */
@@ -547,6 +650,7 @@ export async function guardarConfigCron(
    * número del código. O sea que apagar y encender un proceso te borraba en
    * silencio el intervalo que hubieras puesto.
    */
+  copiaDeLaConfig = null
   const actual = (await leerConfigCron()).find((c) => c.tarea === tarea)
   let cadaMinutos = actual?.cada_minutos ?? tareaCron(tarea)!.cadaMinutos
   let activo = actual?.activo ?? true
@@ -577,6 +681,7 @@ export async function guardarConfigCron(
   )
   if (error) throw error
 
+  copiaDeLaConfig = null
   return await leerConfigCron()
 }
 
@@ -598,6 +703,9 @@ export async function conRegistro<T>(
   faena: () => Promise<T>
 ): Promise<T> {
   const arranque = Date.now()
+  // Desde aquí la pasada cuenta como «en marcha» (la reserva de `tocaAhora` ya no hace falta): es lo que impide que otra pesada arranque encima
+  reservas.delete(tarea)
+  enMarcha.set(tarea, arranque)
   const registro = await abrir(tarea, lanzadoPor)
 
   try {
@@ -615,6 +723,9 @@ export async function conRegistro<T>(
       duracionMs: Date.now() - arranque,
     })
     throw error
+  } finally {
+    // Solo si sigue siendo la suya: una pasada que se dio por muerta y acaba tarde no puede borrar la de la que la sustituyó
+    if (enMarcha.get(tarea) === arranque) enMarcha.delete(tarea)
   }
 }
 

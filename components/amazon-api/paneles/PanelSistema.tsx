@@ -96,8 +96,18 @@ interface Proceso {
   ultimaAutomatica: Ejecucion | null
 }
 
+/** Cómo va la base de datos según el guardián de los procesos (lib/sistema/presion.ts) */
+interface Carga {
+  nivel: 'normal' | 'alta' | 'critica'
+  muestras: number
+  fallos: number
+  medianaMs: number | null
+  pesadasEnMarcha: string[]
+}
+
 export function PanelSistema() {
   const [procesos, setProcesos] = useState<Proceso[] | null>(null)
+  const [carga, setCarga] = useState<Carga | null>(null)
   const [ejecuciones, setEjecuciones] = useState<Ejecucion[]>([])
   const [trabajos, setTrabajos] = useState<Trabajo[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -115,6 +125,7 @@ export function PanelSistema() {
       const datos = await res.json()
       if (!res.ok) throw new Error(datos?.error ?? 'No se ha podido leer el estado')
       setProcesos(datos.procesos)
+      setCarga(datos.carga ?? null)
       setEjecuciones(datos.ejecuciones ?? [])
       setTrabajos(datos.trabajos ?? [])
       setClientes(datos.clientes ?? [])
@@ -210,6 +221,17 @@ export function PanelSistema() {
             ? `«${parados[0].nombre}» no ha corrido solo desde hace más de ${parados[0].cadaMinutos * 3} minutos.`
             : `${parados.length} procesos llevan sin correr solos más de tres veces su intervalo.`}{' '}
           Lánzalos aquí abajo: lo que conteste es exactamente lo que recibe el cron.
+        </Aviso>
+      )}
+
+      {/* LA BASE DE DATOS VA JUSTA. Solo sale cuando lo está: con la base normal la pantalla es la de siempre. Los procesos de fondo pesados esperan solos (lib/sistema/presion.ts) y vuelven
+          solos al recuperarse; esto es para que quien mire Sistema sepa por qué un proceso «no corre» y no vaya a lanzarlo a mano, que es sumar carga justo cuando sobra. */}
+      {carga && carga.nivel !== 'normal' && (
+        <Aviso tono={carga.nivel === 'critica' ? 'rojo' : 'ambar'} icono={AlertTriangle}>
+          La base de datos {carga.nivel === 'critica' ? 'casi no está contestando' : 'va lenta'}
+          {carga.medianaMs !== null ? ` (una consulta pequeña tarda ${(carga.medianaMs / 1000).toFixed(1)} s)` : ''}. Mientras dure, el trabajo de fondo pesado espera —el catálogo de Amazon, el auditor
+          de stock, los trabajos de plataforma…— y se recupera solo al volver la normalidad. Lo esencial (llamadas, correo, agenda, precios) sigue corriendo. No lances nada a mano por ahora: sumaría
+          carga justo cuando sobra.
         </Aviso>
       )}
 

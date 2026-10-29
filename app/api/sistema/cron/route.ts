@@ -4,7 +4,9 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import {
   FALTA_MIGRACION_CRON,
+  POLITICA_DE_CARGA,
   TAREAS_CRON,
+  estadoDeLaCarga,
   guardarConfigCron,
   leerConfigCron,
   tareaCron,
@@ -88,6 +90,8 @@ export async function GET() {
         activo: suya?.activo ?? true,
         /** true = el horario todavía sale del código porque falta la 138 */
         horarioPorDefecto: suya?.pordefecto ?? true,
+        /** Cómo se trata cuando la base va justa: esencial (siempre corre), normal o baja (se aplaza). Ver lib/sistema/presion.ts */
+        prioridad: POLITICA_DE_CARGA[t.id].prioridad,
         ultima: suyas[0] ?? null,
         ultimaAutomatica: ultimaSola,
       }
@@ -128,6 +132,8 @@ export async function GET() {
       ejecuciones: filas,
       trabajos: trabajos ?? [],
       clientes: clientes ?? [],
+      /** Cómo va la base de datos según lo que ha medido el guardián de los procesos (lib/sistema/presion.ts): normal, alta o crítica */
+      carga: estadoDeLaCarga(),
     })
   } catch (error) {
     if (isMissingSchema(error)) return fail(503, FALTA_MIGRACION_CRON)
