@@ -216,10 +216,17 @@ class Rest:
             return 'creada'
         return 'ya existía' if 'Ya existe' in texto else f'no se pudo ({estado}): {texto[:200]}'
 
+    def _contar(self, **q):
+        """Cuántas filas de cold_leads cumplen el filtro, EXACTO: con `Prefer: count=exact` y mirando `Content-Range`. Un `limit` no sirve para contar: PostgREST corta a 1.000 filas."""
+        url = f'{self.base}/rest/v1/cold_leads?' + urllib.parse.urlencode({'select': 'id', **q})
+        r = subprocess.run(['curl', '-sS', '--max-time', '120', '-D', '-', '-o', os.devnull, '-H', f'apikey: {self.clave}', '-H', f'Authorization: Bearer {self.clave}', '-H', 'Prefer: count=exact', '-H', 'Range: 0-0', url], capture_output=True, text=True)
+        for l in r.stdout.splitlines():
+            if l.lower().startswith('content-range'):
+                return int(l.split('/')[-1].strip())
+        return None
+
     def contar_por_lista(self):
-        estado, texto = self._get('cold_leads', select='source_list', tipo_lead='eq.partner', limit='20000')
-        c = collections.Counter(f['source_list'] for f in (json.loads(texto) if estado == 200 else []))
-        return c
+        return collections.Counter({lista: self._contar(tipo_lead='eq.partner', source_list=f'eq.{lista}') for lista, _ in HOJAS.values()})
 
 
 class Local:
