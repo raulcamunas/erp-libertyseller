@@ -64,14 +64,22 @@ export interface BuzonVisibleParaSecuencias extends BuzonParaVista {
 /* Quién ve qué                                                        */
 /* ------------------------------------------------------------------ */
 
-/** Los buzones que esta persona puede ver, con el nombre de su dueño. La regla es la de Correo (decidirAcceso), no una nueva */
-export async function buzonesVisibles(almacen: Almacen, quien: QuienPide): Promise<BuzonVisibleParaSecuencias[]> {
+/**
+ * Los buzones que esta persona puede ver, con el nombre de su dueño. La regla es la de Correo (decidirAcceso), no una nueva.
+ *
+ * `soloComerciales`: deja fuera los buzones de quien se SABE que no es comercial (`is_comercial = false`: administración, un manager que no llama, un administrador). Esas
+ * personas no mandan seguimientos, y en las listas del tablero (Hoy, Próximos días, Salud, Ajustes y el selector de buzones) solo hacían ruido: una fila con «0 / 40» por cada
+ * una, todos los días. Quien tiene el dato vacío se queda: ante la duda se enseña. Solo lo pide el tablero; el resto de usos (la cola, el detalle, el cuadro de Correo) siguen
+ * viendo todos los buzones que la regla de acceso deja ver.
+ */
+export async function buzonesVisibles(almacen: Almacen, quien: QuienPide, opciones: { soloComerciales?: boolean } = {}): Promise<BuzonVisibleParaSecuencias[]> {
   const todos = await almacen.buzones()
   if (todos.length === 0) return []
   const perfiles = await almacen.perfilesDe([...new Set(todos.map((b) => b.userId))])
   return todos
     .filter((b) => {
       const dueno = perfiles.get(b.userId)
+      if (opciones.soloComerciales && dueno?.isComercial === false) return false
       return decidirAcceso(quien, { user_id: b.userId, id: b.id }, { is_comercial: dueno?.isComercial ?? null, role: dueno?.role ?? null }, 'leer').ok
     })
     .map((b) => ({
@@ -135,7 +143,8 @@ export async function tablero(almacen: Almacen, quien: QuienPide, opciones: { ah
   if (!lectura) return { disponible: false, mensaje: FALTA_LA_MIGRACION_245 }
   const { ajustes } = lectura
 
-  let visibles = await buzonesVisibles(almacen, quien)
+  // Las listas del tablero son de quienes mandan seguimientos: los buzones de quien no es comercial se quedan fuera (ver buzonesVisibles)
+  let visibles = await buzonesVisibles(almacen, quien, { soloComerciales: true })
   if (opciones.buzonId) visibles = visibles.filter((b) => b.id === opciones.buzonId)
   const ids = visibles.map((b) => b.id)
   const hoy = diaDeMadrid(ahora)

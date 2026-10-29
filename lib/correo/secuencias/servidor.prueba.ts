@@ -47,6 +47,40 @@ async function main() {
     ok('lleva el nombre del dueño y si es mío', v.propietario.nombre === 'Ana' && v.esMio)
   }
 
+  console.log('\n=== las listas del tablero son de quienes mandan seguimientos (no de quien no es comercial) ===')
+  {
+    const m = await crearMundo(entorno)
+    const idsDelTablero = async (q: QuienPide) => {
+      const t = await tablero(m.almacen, q, { ahora: T0 })
+      if (!t.disponible) throw new Error('no disponible')
+      return t
+    }
+    const antes = await idsDelTablero(RAUL)
+    ok('con los dos dueños comerciales, un administrador ve los dos buzones en todas las listas', antes.buzones.length === 2 && antes.hoy.carriles.length === 2 && antes.proximos.every((d) => d.porBuzon.length === 2) && antes.salud.buzones.length === 2)
+
+    // Alejandro (dueño de B2) pasa a no ser comercial: sale de las listas, no se borra nada
+    await m.actualizar('profiles', { is_comercial: false }, (q) => q.eq('id', UB))
+    const despues = await idsDelTablero(RAUL)
+    ok('B2 sale de la lista de buzones y del selector', despues.buzones.map((b) => b.id).join() === B1)
+    ok('y de Hoy', despues.hoy.carriles.map((c) => c.buzonId).join() === B1)
+    ok('y de cada día de Próximos días', despues.proximos.length > 0 && despues.proximos.every((d) => d.porBuzon.map((b) => b.buzonId).join() === B1))
+    ok('y de Salud', despues.salud.buzones.map((b) => b.buzonId).join() === B1)
+    ok('el buzón de una persona comercial sigue (Ana)', (await idsDelTablero(ANA)).buzones.map((b) => b.id).join() === B1)
+
+    ok('quien no es comercial ve su tablero vacío pero disponible (no se rompe)', (await idsDelTablero(ALE)).buzones.length === 0)
+    ok('con un solo buzón pedido que no es comercial, tampoco sale', (await tablero(m.almacen, RAUL, { ahora: T0, buzonId: B2 })).disponible && ((await tablero(m.almacen, RAUL, { ahora: T0, buzonId: B2 })) as { buzones: unknown[] }).buzones.length === 0)
+
+    const todos = (await buzonesVisibles(m.almacen, RAUL)).map((b) => b.id).sort().join()
+    ok('pero la regla de acceso de siempre los sigue viendo (la cola, el detalle y el cuadro de Correo no cambian)', todos === [B1, B2].join())
+    ok('y con la opción, solo los comerciales', (await buzonesVisibles(m.almacen, RAUL, { soloComerciales: true })).map((b) => b.id).join() === B1)
+
+    // El dato vacío no es «no comercial»: ante la duda se enseña
+    await m.actualizar('profiles', { is_comercial: null }, (q) => q.eq('id', UB))
+    ok('con is_comercial vacío el buzón se queda (solo se oculta a quien se sabe que no es comercial)', (await idsDelTablero(RAUL)).buzones.length === 2)
+    await m.actualizar('profiles', { is_comercial: true }, (q) => q.eq('id', UB))
+    ok('y al volver a ser comercial, vuelve', (await idsDelTablero(RAUL)).buzones.length === 2)
+  }
+
   console.log('\n=== el tablero ===')
   {
     const m = await crearMundo(entorno)

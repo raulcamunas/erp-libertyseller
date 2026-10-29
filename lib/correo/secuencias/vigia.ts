@@ -41,12 +41,15 @@ export async function vigilarLaSalud(service: Servicio, opciones: { ahora?: numb
     return { omitido: 'El motor está apagado: solo se ha mirado la verificación de direcciones', alarmas: deLaVerificacion.length, avisos: r.avisos, ...(r.faltaMigracion ? { faltaMigracion: true } : {}) }
   }
 
-  const todos = await almacen.buzones()
-  const nombres = await almacen.nombresDePersonas(todos.map((b) => b.userId))
+  const delTodo = await almacen.buzones()
+  const perfiles = await almacen.perfilesDe(delTodo.map((b) => b.userId))
+  // Quien no es comercial no manda seguimientos: no hay nada que vigilar en su buzón, y tampoco sale en la pestaña Salud (que se arma con la misma regla). Solo se deja fuera a quien
+  // se SABE que no es comercial; con el dato vacío se vigila
+  const todos = delTodo.filter((b) => perfiles.get(b.userId)?.isComercial !== false)
   const buzones: BuzonParaLaSalud[] = todos.map((b) => ({
     id: b.id,
     direccion: b.direccion,
-    propietario: { id: b.userId, nombre: nombres.get(b.userId) ?? 'Sin nombre' },
+    propietario: { id: b.userId, nombre: perfiles.get(b.userId)?.nombre ?? 'Sin nombre' },
     esMio: false,
     participa: b.participa,
     conectado: b.conectado,

@@ -63,6 +63,30 @@ async function main() {
     ok('sin la migración 245, se salta sin romper', r.omitido === 'Falta la migración 245' && r.avisos === 0)
   }
 
+  console.log('\n=== los buzones de quien no es comercial no se vigilan ===')
+  {
+    // El buzón de Alejandro (B2) tiene la contraseña mal, pero su dueño no es comercial: no manda seguimientos, no hay nada que avisar
+    const m = await mundoSano()
+    await m.actualizar('correo_buzones', { credenciales_invalidas: true, ultimo_error: 'AUTHENTICATIONFAILED', fallos_seguidos: 1 }, (q) => q.eq('id', B2))
+    const con = await vigilar(m)
+    ok('si su dueño es comercial, avisa (lo de siempre)', con.alarmas > 0 && con.avisos > 0, JSON.stringify(con))
+    reiniciarLaCampana()
+    const n = await mundoSano()
+    await n.actualizar('profiles', { is_comercial: false }, (q) => q.eq('id', UB))
+    await n.actualizar('correo_buzones', { credenciales_invalidas: true, ultimo_error: 'AUTHENTICATIONFAILED', fallos_seguidos: 1 }, (q) => q.eq('id', B2))
+    const sin = await vigilar(n)
+    ok('si su dueño no es comercial, no hay alarma ni aviso', sin.alarmas === 0 && sin.avisos === 0, JSON.stringify(sin))
+    ok('y la campana sigue vacía', (await campana(n)).length === 0)
+    reiniciarLaCampana()
+    // Y uno que SÍ es comercial, en el mismo mundo, sigue vigilado
+    const o = await mundoSano()
+    await o.actualizar('profiles', { is_comercial: false }, (q) => q.eq('id', UB))
+    await o.actualizar('correo_buzones', { credenciales_invalidas: true, ultimo_error: 'AUTHENTICATIONFAILED', fallos_seguidos: 1 }, (q) => q.eq('id', B1))
+    const unoSi = await vigilar(o)
+    ok('el buzón de una persona comercial con la contraseña mal sí avisa, aunque haya otro no comercial', unoSi.alarmas > 0 && unoSi.avisos > 0, JSON.stringify(unoSi))
+    reiniciarLaCampana()
+  }
+
   console.log('\n=== un buzón con la contraseña mal ===')
   {
     const m = await mundoSano()
