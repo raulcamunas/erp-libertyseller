@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { diaDeMadrid } from '@/lib/correo/secuencias/fechas'
+import { diaDeMadrid, instanteDeMadrid } from '@/lib/correo/secuencias/fechas'
 import { decidirAvance, type CambioDelCiclo, type LeadParaElCiclo, type PasoParaElCiclo, type SecuenciaParaElCiclo } from './ciclo-avance'
 
 /**
@@ -13,7 +13,8 @@ import { decidirAvance, type CambioDelCiclo, type LeadParaElCiclo, type PasoPara
  * Si falla, los correos siguen saliendo igual.
  *
  * LEE POCO. No recorre los miles de leads de las listas de ciclo: parte de las secuencias VIVAS (un centenar) y de los leads que ya tienen una fase (los del ritmo). Un lead en Fase 1 sin
- * secuencia no cuesta ni una lectura. Con nada que hacer, una pasada son tres consultas pequeñas.
+ * secuencia no cuesta ni una lectura. Con nada que hacer, una pasada son tres consultas pequeñas. Para saber si ya se ha llamado a los de Fase 2 y 3 que tienen la rellamada vencida, una consulta
+ * más a las llamadas salientes de Rinkel de esos pocos leads (rinkel_llamadas se busca por lead, con índice).
  *
  * ESCRIBE CON CUIDADO. Cada cambio lleva de condición lo que se leyó (el estado y la fase de antes): si una persona cambió el lead mientras tanto, gana ella y el cambio se deja para la pasada
  * siguiente, que lo vuelve a decidir con lo nuevo. Y por tandas con pausa, y con un tope por pasada: cada lead guardado es un aviso del tiempo real a las pantallas abiertas, y a las doce de la
@@ -39,8 +40,13 @@ export interface AlmacenDelCiclo {
   leadsEnFase1(ids: readonly string[]): Promise<LeadDelCicloFila[]>
   /** La última secuencia de cada lead, con sus pasos. Los que no tienen ninguna no salen */
   secuenciasDe(ids: readonly string[]): Promise<Map<string, SecuenciaParaElCiclo>>
-  /** Guarda el cambio SOLO si el lead sigue como se leyó. Devuelve si lo guardó */
-  aplicar(lead: LeadDelCicloFila, campos: CambioDelCiclo['campos'], ahoraIso: string): Promise<boolean>
+  /**
+   * Las llamadas SALIENTES a esos leads desde esa fecha (el día de la rellamada más antigua): su lead y cuándo. Es lo que dice si «ya se le ha llamado». Sin Rinkel (o sin la tabla) devuelve
+   * vacío: entonces nadie avanza por llamada y los leads se quedan donde están hasta que la secuencia de correos acabe.
+   */
+  llamadasSalientesDesde(ids: readonly string[], desdeIso: string): Promise<Array<{ lead_id: string; fecha: string }>>
+  /** Guarda el cambio SOLO si el lead sigue como se leyó, y lo apunta en su historial. Devuelve si lo guardó */
+  aplicar(lead: LeadDelCicloFila, campos: CambioDelCiclo['campos'], ahoraIso: string, nota: string): Promise<boolean>
 }
 
 export interface OpcionesDelCiclo {
@@ -109,9 +115,23 @@ export async function avanzarElCiclo(almacen: AlmacenDelCiclo, op: OpcionesDelCi
   const todos = [...conFase, ...enFase1]
   const secuencias = todos.length > 0 ? await almacen.secuenciasDe(todos.map((l) => l.id)) : new Map<string, SecuenciaParaElCiclo>()
 
+  // ¿Se ha llamado ya a los de Fase 2 y 3 a los que les toca (o se les pasó el día)? Pasan de fase al llamar, no al pasar el día: se miran las llamadas salientes desde el día de su rellamada
+  const aLlamar = todos.filter((l) => (l.ciclo_fase === 'f2' || l.ciclo_fase === 'f3') && l.next_call_date !== null && l.next_call_date <= hoy)
+  const diasDeLlamada = new Map<string, string[]>()
+  if (aLlamar.length > 0) {
+    const masAntigua = aLlamar.reduce((min, l) => (l.next_call_date! < min ? l.next_call_date! : min), hoy)
+    const llamadas = await almacen.llamadasSalientesDesde(aLlamar.map((l) => l.id), new Date(instanteDeMadrid(masAntigua, 0)).toISOString())
+    for (const c of llamadas) {
+      const ms = Date.parse(c.fecha)
+      if (Number.isNaN(ms)) continue
+      diasDeLlamada.set(c.lead_id, [...(diasDeLlamada.get(c.lead_id) ?? []), diaDeMadrid(ms)])
+    }
+  }
+
   const pendientes: Array<{ lead: LeadDelCicloFila; cambio: CambioDelCiclo }> = []
   for (const lead of todos) {
-    const cambio = decidirAvance(lead, secuencias.get(lead.id) ?? null, hoy)
+    const llamadaHecha = lead.next_call_date !== null && (diasDeLlamada.get(lead.id) ?? []).some((dia) => dia >= lead.next_call_date!)
+    const cambio = decidirAvance(lead, secuencias.get(lead.id) ?? null, hoy, { llamadaHecha })
     if (cambio) pendientes.push({ lead, cambio })
   }
 
@@ -124,7 +144,7 @@ export async function avanzarElCiclo(almacen: AlmacenDelCiclo, op: OpcionesDelCi
     if (!ensayo) {
       // Un lead que la base rechaza no puede dejar parados a todos los demás en cada pasada: se cuenta, se sigue, y al final la pasada lo dice en rojo
       try {
-        const guardado = await almacen.aplicar(lead, cambio.campos, ahoraIso)
+        const guardado = await almacen.aplicar(lead, cambio.campos, ahoraIso, cambio.nota)
         if (!guardado) {
           alVuelo++
           continue
@@ -231,12 +251,32 @@ export function almacenDeSupabase(db: Servicio): AlmacenDelCiclo {
       return fuera
     },
 
-    async aplicar(lead, campos, ahoraIso) {
+    async llamadasSalientesDesde(ids, desdeIso) {
+      const fuera: Array<{ lead_id: string; fecha: string }> = []
+      for (const grupo of trozos(ids, GRUPO)) {
+        const { data, error } = await db.from('rinkel_llamadas').select('lead_id, fecha').eq('direccion', 'outbound').in('lead_id', grupo).gte('fecha', desdeIso).limit(TRAMO)
+        // Sin la tabla (la migración 234) o sin poder leerla, no se avanza por llamada: no se tumba la pasada por esto
+        if (error) return fuera
+        fuera.push(...((data ?? []) as unknown as Array<{ lead_id: string; fecha: string }>))
+      }
+      return fuera
+    },
+
+    async aplicar(lead, campos, ahoraIso, nota) {
       let consulta = db.from('cold_leads').update({ ...campos, updated_at: ahoraIso }).eq('id', lead.id).eq('status', lead.status).not('ciclo_vuelta', 'is', null)
       consulta = lead.ciclo_fase === null ? consulta.is('ciclo_fase', null) : consulta.eq('ciclo_fase', lead.ciclo_fase)
       const { data, error } = await consulta.select('id')
       if (error) throw error
-      return (data ?? []).length > 0
+      const guardado = (data ?? []).length > 0
+      // El historial del lead dice cuándo y por qué cambió de fase. Es un apunte: si no se puede escribir, el cambio ya está hecho y no se deshace ni se da por fallido
+      if (guardado) {
+        try {
+          await db.from('cold_lead_notes').insert({ lead_id: lead.id, author_id: null, kind: 'nota', body: nota.slice(0, 8000), occurred_at: ahoraIso, es_respuesta: false })
+        } catch {
+          // sin apunte
+        }
+      }
+      return guardado
     },
   }
 }

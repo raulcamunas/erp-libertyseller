@@ -20,6 +20,7 @@ const iso = (dia: string, hora = '08:30') => `${dia}T${hora}:00Z`
 const paso = (orden: number, estado: string, programado: string | null, enviado: string | null = null): PasoParaElCiclo => ({ orden, estado, programado_at: programado ? iso(programado) : null, enviado_at: enviado ? iso(enviado, '08:35') : null })
 const recienEmpezada = (): SecuenciaParaElCiclo => ({ estado: 'activa', pasos: [paso(0, 'enviado', '2026-10-27', '2026-10-27'), paso(1, 'pendiente', '2026-10-30'), paso(2, 'pendiente', '2026-11-05')] })
 const trasElPrimero = (): SecuenciaParaElCiclo => ({ estado: 'activa', pasos: [paso(0, 'enviado', '2026-10-27', '2026-10-27'), paso(1, 'enviado', '2026-10-30', '2026-10-30'), paso(2, 'pendiente', '2026-11-05')] })
+const trasElSegundo = (estado = 'completada'): SecuenciaParaElCiclo => ({ estado, pasos: [paso(0, 'enviado', '2026-10-27', '2026-10-27'), paso(1, 'enviado', '2026-10-30', '2026-10-30'), paso(2, 'enviado', '2026-11-05', '2026-11-05')] })
 
 interface Mundo {
   leads: Map<string, LeadDelCicloFila & { ciclo_vuelta: number }>
@@ -30,11 +31,17 @@ interface Mundo {
   tocadosAlVuelo: Set<string>
   /** Leads que la base rechaza al guardar (un CHECK, un fallo de verdad) */
   rechazados: Set<string>
+  /** Las llamadas SALIENTES de Rinkel enlazadas con un lead */
+  llamadas: Array<{ lead_id: string; fecha: string }>
+  /** Lo que se ha apuntado en el historial de cada lead */
+  notas: Array<{ id: string; nota: string }>
+  /** Si es true, la tabla de llamadas no se puede leer (falta la migración 234 o la base falla) */
+  sinLlamadas: boolean
   fallaLaLectura: unknown
 }
 
 function mundo(): Mundo {
-  return { leads: new Map(), secuencias: new Map(), lecturas: [], escrituras: [], tocadosAlVuelo: new Set(), rechazados: new Set(), fallaLaLectura: null }
+  return { leads: new Map(), secuencias: new Map(), lecturas: [], escrituras: [], tocadosAlVuelo: new Set(), rechazados: new Set(), llamadas: [], notas: [], sinLlamadas: false, fallaLaLectura: null }
 }
 let n = 0
 const ponerLead = (m: Mundo, extra: Partial<LeadDelCicloFila> = {}, secuencia: SecuenciaParaElCiclo | null = null): string => {
@@ -69,13 +76,19 @@ function almacen(m: Mundo): AlmacenDelCiclo {
       }
       return fuera
     },
-    async aplicar(lead, campos) {
+    async llamadasSalientesDesde(ids, desdeIso) {
+      m.lecturas.push(`llamadasDesde(${ids.length})`)
+      if (m.sinLlamadas) return []
+      return m.llamadas.filter((c) => ids.includes(c.lead_id) && Date.parse(c.fecha) >= Date.parse(desdeIso))
+    },
+    async aplicar(lead, campos, _ahora, nota) {
       if (m.rechazados.has(lead.id)) throw { code: '23514', message: 'new row violates check constraint' }
       if (m.tocadosAlVuelo.has(lead.id)) return false
       const real = m.leads.get(lead.id)
       if (!real || real.status !== lead.status || real.ciclo_fase !== lead.ciclo_fase) return false
       Object.assign(real, campos)
       m.escrituras.push({ id: lead.id, campos })
+      m.notas.push({ id: lead.id, nota })
       return true
     },
   }
@@ -104,16 +117,54 @@ async function main() {
     ok('el resumen lo dice', r.resumen === 'Movidos: 1 a Fase 2.', r.resumen)
   }
 
-  console.log('\n=== avanza por fecha, pasada a pasada ===')
+  console.log('\n=== avanza al LLAMAR, pasada a pasada ===')
   {
     const m = mundo()
     const id = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-10-30' }, trasElPrimero())
-    const mismoDia = await avanzarElCiclo(almacen(m), opciones('2026-10-30T15:00:00Z'))
-    ok('el día del seguimiento 1 todavía es Fase 2', mismoDia.revisados === 1 && m.leads.get(id)?.ciclo_fase === 'f2' && m.escrituras.length === 0)
-    const alDiaSiguiente = await avanzarElCiclo(almacen(m), opciones('2026-10-31T07:00:00Z'))
-    ok('al día siguiente pasa a Fase 3 y su rellamada es la del seguimiento 2', m.leads.get(id)?.ciclo_fase === 'f3' && m.leads.get(id)?.next_call_date === '2026-11-05' && alDiaSiguiente.cambios.fase_3 === 1)
-    const otraVez = await avanzarElCiclo(almacen(m), opciones('2026-10-31T07:02:00Z'))
-    ok('y la pasada siguiente no repite nada: es estable', otraVez.resumen.startsWith('Nada que mover') && m.escrituras.length === 1)
+    const sinLlamar = await avanzarElCiclo(almacen(m), opciones('2026-11-02T10:00:00Z'))
+    ok('el lunes 2, con la rellamada del viernes 30 sin hacer, sigue en Fase 2 (atrasado): no salta de fase en silencio', sinLlamar.revisados === 1 && m.leads.get(id)?.ciclo_fase === 'f2' && m.escrituras.length === 0 && sinLlamar.resumen.startsWith('Nada que mover'))
+    ok('y para saberlo se miraron las llamadas salientes de ESE lead, una consulta', m.lecturas.filter((l) => l.startsWith('llamadasDesde')).join() === 'llamadasDesde(1)', m.lecturas.join(','))
+    m.llamadas.push({ lead_id: id, fecha: '2026-11-02T10:05:00Z' })
+    const llamado = await avanzarElCiclo(almacen(m), opciones('2026-11-02T10:07:00Z'))
+    ok('en cuanto se le llama pasa a Fase 3, con la rellamada el día del seguimiento 2', m.leads.get(id)?.ciclo_fase === 'f3' && m.leads.get(id)?.next_call_date === '2026-11-05' && llamado.cambios.fase_3 === 1)
+    ok('y lo apunta en su historial', m.notas.length === 1 && m.notas[0].id === id && m.notas[0].nota === 'Ciclo comercial · Hecha la llamada de la Fase 2: pasa a Fase 3. Rellamada el jue 5 nov.', JSON.stringify(m.notas))
+    const otraVez = await avanzarElCiclo(almacen(m), opciones('2026-11-02T10:09:00Z'))
+    ok('y la pasada siguiente no repite nada: es estable, y la llamada de antes no cuenta para la Fase 3 (es de antes de su día)', otraVez.resumen.startsWith('Nada que mover') && m.escrituras.length === 1 && m.leads.get(id)?.ciclo_fase === 'f3')
+  }
+  {
+    const m = mundo()
+    const antes = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-10-30' }, trasElPrimero())
+    const entrante = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-10-30' }, trasElPrimero())
+    // Una llamada del 27 (los dos toques de la Fase 1) NO es la de la Fase 2; a `entrante` no se le ha hecho ninguna saliente (la entrante no cuenta y el almacén solo da salientes)
+    m.llamadas.push({ lead_id: antes, fecha: '2026-10-27T10:00:00Z' })
+    await avanzarElCiclo(almacen(m), opciones('2026-10-31T10:00:00Z'))
+    ok('las llamadas anteriores al día de la rellamada (los dos toques de la Fase 1) no cuentan', m.leads.get(antes)?.ciclo_fase === 'f2' && m.leads.get(entrante)?.ciclo_fase === 'f2' && m.escrituras.length === 0)
+    m.llamadas.push({ lead_id: antes, fecha: '2026-10-30T23:30:00Z' })
+    await avanzarElCiclo(almacen(m), opciones('2026-10-31T07:00:00Z'))
+    ok('una llamada de las 00:30 del 31 en Madrid (23:30 UTC del 30) cuenta como del 31: el día se cuenta en hora de Madrid, y vale porque es posterior a la rellamada', m.leads.get(antes)?.ciclo_fase === 'f3')
+    ok('y la otra, sin llamada, sigue donde estaba', m.leads.get(entrante)?.ciclo_fase === 'f2')
+  }
+  {
+    const m = mundo()
+    const id = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-10-30' }, trasElPrimero())
+    for (let i = 0; i < 30; i++) ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-11-20' }, trasElPrimero())
+    m.llamadas.push({ lead_id: id, fecha: '2026-10-30T09:00:00Z' })
+    await avanzarElCiclo(almacen(m), opciones('2026-11-02T10:00:00Z'))
+    ok('solo se miran las llamadas de los leads a los que YA les toca (los de rellamada futura no cuestan una lectura)', m.lecturas.filter((l) => l.startsWith('llamadasDesde')).join() === 'llamadasDesde(1)' && m.leads.get(id)?.ciclo_fase === 'f3', m.lecturas.join(','))
+  }
+  {
+    const m = mundo()
+    const id = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-10-30' }, trasElPrimero())
+    m.llamadas.push({ lead_id: id, fecha: '2026-10-30T09:00:00Z' })
+    m.sinLlamadas = true
+    const r = await avanzarElCiclo(almacen(m), opciones('2026-11-02T10:00:00Z'))
+    ok('si no se pueden leer las llamadas (falta la tabla de Rinkel) no se avanza por llamada y la pasada NO falla: el lead se queda donde está', r.errores === 0 && m.leads.get(id)?.ciclo_fase === 'f2')
+  }
+  {
+    const m = mundo()
+    const id = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-10-30' }, trasElSegundo('sin_respuesta'))
+    const r = await avanzarElCiclo(almacen(m), opciones('2026-11-16T10:00:00Z'))
+    ok('cuando el motor cierra la secuencia sin respuesta, un lead al que nunca se llamó pasa a «No responde» (no se queda atrasado para siempre)', m.leads.get(id)?.ciclo_fase === 'sin_respuesta' && r.cambios.sin_respuesta === 1 && m.notas[0]?.nota.startsWith('Ciclo comercial · Acabó la secuencia de correos sin respuesta'))
   }
   {
     const m = mundo()

@@ -13,6 +13,7 @@ import {
   listasDeCiclo,
   listasDisponibles,
   normalizarFiltros,
+  ordenDeLaVista,
   ordenar,
   panorama,
   rellamadasDe,
@@ -382,6 +383,24 @@ console.log('\n=== una lista de ciclo tiene sus propias cajas (regla 7) ===')
   ok('con «No contesta» puesto en «Todas las listas», la lista de ciclo no se cuenta como si lo tuviera (no es un chip suyo) y la de siempre cuenta el suyo', conViejo.find(([n]) => n === LISTA)?.[1] === 9 && conViejo.find(([n]) => n === 'José V2')?.[1] === 1, JSON.stringify(conViejo))
   const conSeguimiento = panorama(todos, f({ estado: 'seguimiento' })).listas
   ok('un estado que existe en las dos vistas cuenta cada una con lo suyo: «En seguimiento» = Seis y Siete en la de ciclo, y ninguno en la vieja', conSeguimiento.find(([n]) => n === LISTA)?.[1] === 2 && !conSeguimiento.some(([n]) => n === 'José V2'), JSON.stringify(conSeguimiento))
+
+  console.log('\n  — Fase 2, Fase 3 y No responde: los que toca llamar primero, los más antiguos antes —')
+  {
+    const fase2 = (nombre: string, dia: string | null, nivel: number) => ciclo({ store_name: nombre, status: 'no_contesta', ciclo_fase: 'f2', next_call_date: dia, nivel })
+    const dosDias = fase2('Antigua', '2026-10-28', 3) // lleva dos días sin llamarse
+    const ayer = fase2('Ayer', '2026-10-29', 2)
+    const hoyDia = fase2('Hoy', '2026-10-30', 1)
+    const manana = fase2('Mañana', '2026-10-31', 1)
+    const lejos = fase2('Lejos', '2026-11-05', 1)
+    const lista = [lejos, hoyDia, manana, dosDias, ayer]
+    const verEn = (estado: FiltrosDeCartera['estado'], orden: FiltrosDeCartera['orden']) => ids(panorama(lista, f({ lista: LISTA, estado, orden })).visibles)
+    ok('en Fase 2 salen primero los atrasados, el más antiguo antes, luego los de hoy y al final los que aún no han llegado a su día', verEn('fase_2', 'due_first') === 'Antigua · Ayer · Hoy · Mañana · Lejos', verEn('fase_2', 'due_first'))
+    ok('y es así SEA CUAL SEA el orden que la persona tenga elegido (por nivel, por nombre…): si no, un atrasado de nivel 3 se perdería al final', verEn('fase_2', 'prioridad') === 'Antigua · Ayer · Hoy · Mañana · Lejos' && verEn('fase_2', 'name') === 'Antigua · Ayer · Hoy · Mañana · Lejos' && verEn('fase_2', 'revenue_desc') === 'Antigua · Ayer · Hoy · Mañana · Lejos')
+    ok('lo mismo en Fase 3 y en «No responde»', ordenDeLaVista(f({ estado: 'fase_3', orden: 'name' }), true) === 'due_first' && ordenDeLaVista(f({ estado: 'no_responde', orden: 'name' }), true) === 'due_first')
+    ok('pero con otra caja o con «Todos» manda el orden elegido', ordenDeLaVista(f({ estado: 'pendiente', orden: 'name' }), true) === 'name' && ordenDeLaVista(f({ estado: 'all', orden: 'prioridad' }), true) === 'prioridad' && ordenDeLaVista(f({ estado: 'seguimiento', orden: 'name' }), true) === 'name')
+    ok('y fuera de una lista de ciclo, también (no existe esa caja)', ordenDeLaVista(f({ estado: 'fase_2', orden: 'name' }), false) === 'name' && ordenDeLaVista(f({ estado: 'no_contesta', orden: 'revenue_desc' }), false) === 'revenue_desc')
+    ok('a igualdad de día, los que más facturan primero (como en cualquier rellamada)', ids(panorama([fase2('Pequeña', '2026-10-30', 3), { ...fase2('Grande', '2026-10-30', 1), ventas_estimadas_usd: 900_000 } as ColdLead], f({ lista: LISTA, estado: 'fase_2' })).visibles) === 'Grande · Pequeña')
+  }
 
   console.log('\n  — las rellamadas no cambian —')
   const r = rellamadasDe(todos, '2026-10-30', '2026-10-30')

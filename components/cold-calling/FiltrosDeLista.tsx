@@ -3,7 +3,7 @@
 import { ArrowUpDown, Check, ChevronDown, Euro, Layers, Rocket, X } from 'lucide-react'
 import { useState } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { SIN_FILTROS, hayFiltros, type FiltrosDeCartera } from '@/lib/cold-calling/cartera'
+import { SIN_FILTROS, hayFiltros, ordenDeLaVista, type FiltrosDeCartera } from '@/lib/cold-calling/cartera'
 import { CAJAS_DEL_CICLO, etiquetaDeEstadoVisible, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { ORDEN_DE_PRIORIDADES, PRIORIDADES_DE_PARTNER } from '@/lib/cold-calling/partners'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
@@ -105,6 +105,9 @@ interface Props {
 export function FiltrosDeLista({ filtros, onCambiar, porEstado, modoCiclo = false, total, listas, niveles, hayNiveles, prioridades, hayPartners, soloPartners, mencionanAmazon, coinciden }: Props) {
   const [listaAbierta, setListaAbierta] = useState(false)
   const [rangoAbierto, setRangoAbierto] = useState(false)
+  // En Fase 2, Fase 3 y «No responde» el orden es siempre «las rellamadas primero, las más atrasadas antes» (cartera.ts, ordenDeLaVista): el selector lo dice en vez de enseñar otro que no se cumple
+  const ordenEfectivo = ordenDeLaVista(filtros, modoCiclo)
+  const ordenFijo = modoCiclo && (filtros.estado === 'fase_2' || filtros.estado === 'fase_3' || filtros.estado === 'no_responde')
   const rangoPuesto = filtros.minRev !== '' || filtros.maxRev !== ''
 
   return (
@@ -302,9 +305,9 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, modoCiclo = fals
           <X className="h-3 w-3" aria-hidden />
         </button>
         {/* De ancho fijo: un <select> mide lo que su opción más larga en unos navegadores y lo que la elegida en otros, y no debe cambiar de ancho al ordenar */}
-        <label className="relative inline-flex w-[144px] items-center" title="Ordenar la lista">
+        <label className="relative inline-flex w-[144px] items-center" title={ordenFijo ? 'En esta caja siempre salen primero los que toca llamar, los más atrasados antes, hasta que se limpia la lista' : 'Ordenar la lista'}>
           <ArrowUpDown className="pointer-events-none absolute left-2 h-3 w-3 text-[var(--ls-t4)]" aria-hidden />
-          <select value={filtros.orden} onChange={(e) => onCambiar({ orden: e.target.value as ColdSort })} aria-label="Ordenar la lista" className={`${CHIP} w-full cursor-pointer appearance-none text-ellipsis !pl-6 !pr-2`}>
+          <select value={ordenEfectivo} disabled={ordenFijo} onChange={(e) => onCambiar({ orden: e.target.value as ColdSort })} aria-label="Ordenar la lista" className={`${CHIP} w-full cursor-pointer appearance-none text-ellipsis !pl-6 !pr-2 disabled:cursor-default`}>
             {(Object.keys(COLD_SORT_LABELS) as ColdSort[]).map((o) => (
               <option key={o} value={o} className="bg-[var(--ls-sup)]">
                 {(soloPartners ? COLD_SORT_LABELS_PARTNERS : COLD_SORT_LABELS)[o]}

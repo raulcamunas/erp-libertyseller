@@ -385,6 +385,15 @@ export interface Panorama {
 }
 
 /**
+ * EL ORDEN DE LA VISTA. En las cajas del ritmo de una lista de ciclo —Fase 2, Fase 3 y «No responde»— el orden es SIEMPRE «las rellamadas primero», sea cual sea el que se haya elegido: arriba los
+ * que ya toca llamar y, entre ellos, los MÁS ANTIGUOS (los más atrasados), después los de hoy y al final los que todavía no han llegado a su día. Los leads pasan de fase al llamarlos, así que
+ * los atrasados se acumulan con los días y se limpian de arriba abajo llamando (lib/cold-calling/ciclo-avance.ts). En cualquier otra vista manda el orden que haya elegido cada persona.
+ */
+export function ordenDeLaVista(f: FiltrosDeCartera, modoCiclo: boolean): ColdSort {
+  return modoCiclo && (f.estado === 'fase_2' || f.estado === 'fase_3' || f.estado === 'no_responde') ? 'due_first' : f.orden
+}
+
+/**
  * LOS NÚMEROS DE LOS CHIPS DICEN LO QUE SALDRÍA AL PULSARLOS.
  *
  * Cada grupo de chips (estado, nivel, lista) cuenta con TODOS LOS DEMÁS filtros puestos y sin el suyo propio. Con la lista «No Amazon
@@ -394,7 +403,7 @@ export interface Panorama {
 export function panorama(leads: readonly ColdLead[], f: FiltrosDeCartera, modoCiclo: boolean = esVistaDeCiclo(leads, f.lista)): Panorama {
   const sinEstado = filtrar(leads, { ...f, estado: 'all' }, modoCiclo)
   return {
-    visibles: ordenar(filtrar(leads, f, modoCiclo), f.orden),
+    visibles: ordenar(filtrar(leads, f, modoCiclo), ordenDeLaVista(f, modoCiclo)),
     porEstado: contarPorEstado(sinEstado, modoCiclo),
     modoCiclo,
     totalSinEstado: sinEstado.length,

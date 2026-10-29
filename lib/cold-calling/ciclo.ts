@@ -13,6 +13,8 @@ import { COLD_STATUS_HINTS, COLD_STATUS_LABELS, type ColdLead, type ColdLeadStat
  * Y fuera del ritmo, lo de siempre: En seguimiento, Cita agendada y No le interesa. Sacar a un lead de las fases es SIEMPRE cosa del comercial (puede haber hablado por teléfono o por
  * WhatsApp, que la máquina no ve): el sistema nunca pasa un lead a «En seguimiento» por su cuenta.
  *
+ * LAS FASES AVANZAN AL LLAMAR, NO AL PASAR EL DÍA (lib/cold-calling/ciclo-avance.ts): un lead al que no se llama se queda en su fase, cada día más atrasado, y sale antes en la lista.
+ *
  * LA FASE NO ES UN ESTADO NUEVO. `status` sigue siendo uno de los siete de siempre y todo lo que lo lee (Rendimiento, el conector, la IA de los correos y de WhatsApp, el cierre por
  * «no me interesa», las secuencias) sigue entendiendo lo mismo: un lead que está en Fase 2 es un «No contesta» de verdad, y por eso su WhatsApp sale como el de quien no ha hablado y
  * no como el de «después de hablar». La fase es una etiqueta que se pone encima (`ciclo_fase`) y que solo cambian el proceso automático y quien saca al lead del ritmo.
@@ -83,9 +85,9 @@ export const esListaDeCiclo = (total: number, enElCiclo: number): boolean => enE
 const ETIQUETAS_NUEVAS: Record<EstadoSoloDelCiclo, string> = { fase_2: 'Fase 2', fase_3: 'Fase 3', no_responde: 'No responde' }
 
 const PISTAS_NUEVAS: Record<EstadoSoloDelCiclo, string> = {
-  fase_2: 'Primera rellamada: el correo y el WhatsApp ya han salido y se vuelve a llamar el día del seguimiento 1. La pone el sistema',
-  fase_3: 'Segunda rellamada: el día del último seguimiento. La pone el sistema',
-  no_responde: 'Ha pasado por las dos rellamadas sin contestar. Se vuelve a llamar a los dos meses, y entonces empieza otra vez. La pone el sistema',
+  fase_2: 'Primera rellamada: el correo y el WhatsApp ya han salido y se llama el día del siguiente correo. Pasa a Fase 3 solo cuando se hace esa llamada; si no se llama, se queda aquí y sale más arriba cuanto más atrasada. La pone el sistema',
+  fase_3: 'Segunda rellamada: el día del último correo. Pasa a «No responde» solo cuando se hace esa llamada; si no se llama, se queda aquí y sale más arriba cuanto más atrasada. La pone el sistema',
+  no_responde: 'Ha pasado por las dos rellamadas sin contestar (o se acabó la secuencia de correos sin respuesta). Se vuelve a llamar a los dos meses, y entonces empieza otra vez. La pone el sistema',
 }
 
 const esNueva = (estado: EstadoVisible): estado is EstadoSoloDelCiclo => (ESTADOS_SOLO_DEL_CICLO as readonly string[]).includes(estado)
