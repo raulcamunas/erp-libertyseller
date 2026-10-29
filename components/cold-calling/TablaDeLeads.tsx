@@ -11,6 +11,7 @@ import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, COLD_STATUS_LABELS, esPartner, esTiendaOnline, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
+import { MarcaDeFestivo } from './Festivos'
 import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, tinte } from './ui'
 import { useEscribirAlLead } from './useEscribirAlLead'
 
@@ -184,6 +185,7 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
                       <span className="max-w-[150px] truncate" title={l.store_name}>
                         {l.store_name}
                       </span>
+                      <MarcaDeFestivo lead={l} dia={hoy} hoy={hoy} />
                     </span>
                   </td>
 

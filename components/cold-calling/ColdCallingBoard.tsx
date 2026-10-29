@@ -15,6 +15,7 @@ import {
 } from '@/lib/cold-calling/cartera'
 import { diaConSemana, diaLocal } from '@/lib/cold-calling/fechas'
 import { alEnviarseCorreoDeLead } from '@/lib/correo/peticiones'
+import { esFestivoParaElLead } from '@/lib/festivos/lead'
 import { CorreoRapido } from './CorreoRapido'
 import { AVISO, BOTON, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { useIsMobile } from '@/lib/use-is-mobile'
@@ -24,6 +25,7 @@ import { esPartner, type ColdLead } from '@/lib/types/cold-leads'
 import { PANEL } from '@/components/rendimiento/ui'
 import { BarraDeCartera, type VistaDeCartera } from './BarraDeCartera'
 import { DiagnosticoDeVinculos } from './DiagnosticoDeVinculos'
+import { BandaDeFestivos } from './Festivos'
 import { FichaDelLead } from './FichaDelLead'
 import { FiltrosDeLista } from './FiltrosDeLista'
 import { ListaDeLeads, ListaPorSecciones, type SeccionDeLista } from './ListaDeLeads'
@@ -112,6 +114,12 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   const [seleccionado, setSeleccionado] = useState<string | null>(null)
   const [diaElegido, setDiaElegido] = useState<string | null>(null)
   const [comprobando, setComprobando] = useState(false)
+  /**
+   * «OCULTAR LOS LEADS EN FESTIVO». Es una decisión de HOY: se guarda con el día en que se pidió y a medianoche deja de valer sola (no se recuerda de un día para otro como los
+   * filtros: si no, un día cualquiera la lista aparecería más corta sin que nadie se acordara de por qué). No está en `filtros` por lo mismo: no se guarda en las preferencias.
+   */
+  const [ocultarFestivosEn, setOcultarFestivosEn] = useState<string | null>(null)
+  const ocultarFestivos = ocultarFestivosEn !== null && ocultarFestivosEn === hoy
   const [versionDeLlamadas, setVersionDeLlamadas] = useState(0)
   const caja = useRef<HTMLInputElement>(null)
 
@@ -172,7 +180,10 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
 
   // Un filtro de lista o de nivel que ya no tiene nada que filtrar se quita solo (regla 5 de cartera.ts)
   const filtrosEfectivos = useMemo(() => normalizarFiltros(filtros, leads), [filtros, leads])
-  const pan = useMemo(() => panorama(leads, filtrosEfectivos), [leads, filtrosEfectivos])
+  // Con «Ocultar» puesto, los leads para los que hoy es festivo no entran en la lista ni en sus recuentos. Las rellamadas NO pasan por aquí: una rellamada es un compromiso con una
+  // persona y se enseña siempre (con su marca de festivo)
+  const leadsDeTrabajo = useMemo(() => (ocultarFestivos ? leads.filter((l) => !esFestivoParaElLead(hoy, l)) : leads), [leads, ocultarFestivos, hoy])
+  const pan = useMemo(() => panorama(leadsDeTrabajo, filtrosEfectivos), [leadsDeTrabajo, filtrosEfectivos])
   const resumen = useMemo(() => resumenDeCartera(leads, hoy), [leads, hoy])
   const diaRellamadas = diaElegido ?? hoy
   const rell = useMemo(() => rellamadasDe(leads, diaRellamadas, hoy), [leads, diaRellamadas, hoy])
@@ -198,7 +209,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   const navegacion = useMemo(() => (vista === 'rellamadas' ? [...rell.atrasadas, ...rell.delDia] : pan.visibles), [vista, rell, pan.visibles])
 
   /** Cambia cuando cambia lo que se está mirando: la lista vuelve arriba y las primeras filas vuelven a entrar */
-  const generacion = `${vista}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.prioridad}|${filtrosEfectivos.mencionaAmazon}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
+  const generacion = `${vista}|${ocultarFestivos ? 'sin-festivos' : ''}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.prioridad}|${filtrosEfectivos.mencionaAmazon}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
 
   const leadSeleccionado = useMemo(() => (seleccionado ? (leads.find((l) => l.id === seleccionado) ?? null) : null), [leads, seleccionado])
   const indiceSeleccionado = useMemo(() => (seleccionado ? navegacion.findIndex((l) => l.id === seleccionado) : -1), [navegacion, seleccionado])
@@ -366,6 +377,9 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         </div>
       )}
 
+      {/* Hoy es festivo en la comunidad de algunos leads de esta cartera (o lo será en los próximos días): se dice arriba, con los que afecta y el botón de ocultarlos por hoy */}
+      {vista !== 'listas' && vista !== 'rellamadas' && <BandaDeFestivos leads={leads} hoy={hoy} ocultando={ocultarFestivos} onOcultar={(ocultar) => setOcultarFestivosEn(ocultar ? hoy : null)} />}
+
       {vista === 'listas' ? null : vista === 'rellamadas' ? (
         <NavegadorDeDias dia={diaRellamadas} hoy={hoy} onDia={(d) => setDiaElegido(d === hoy ? null : d)} delDia={rell.delDia.length} atrasadas={rell.atrasadas.length} />
       ) : (
@@ -442,7 +456,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
                   vacio={vacio}
                 />
               ) : (
-                <ListaPorSecciones secciones={secciones} seleccionado={seleccionado} onSeleccionar={setSeleccionado} hoy={hoy} vacio={vacio} />
+                <ListaPorSecciones secciones={secciones} seleccionado={seleccionado} onSeleccionar={setSeleccionado} hoy={hoy} diaFestivos={diaRellamadas} vacio={vacio} />
               )}
             </div>
 

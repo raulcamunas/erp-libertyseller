@@ -6,6 +6,7 @@ import { vencimientoDe, etiquetaDeVencimiento } from '@/lib/cold-calling/fechas'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { COLD_STATUS_LABELS, esPartner, type ColdLead } from '@/lib/types/cold-leads'
 import { Esqueleto } from '@/components/rendimiento/ui'
+import { MarcaDeFestivo } from './Festivos'
 import { CifraDeLista, GlifoDeEstado, tinte, tonoDeLista } from './ui'
 import { useVentana } from './useVentana'
 
@@ -25,6 +26,8 @@ interface PropsDeFila {
   lead: ColdLead
   activa: boolean
   hoy: string
+  /** El día para el que se mira si es festivo en la comunidad del lead: hoy, o en la agenda de rellamadas el día que se elige. Sin él, hoy */
+  diaFestivos?: string
   /** Se pinta un cuadradito con el color de su lista: solo cuando se mezclan varias y hay que distinguirlas */
   mostrarLista: boolean
   onSeleccionar: (id: string) => void
@@ -32,7 +35,7 @@ interface PropsDeFila {
   entrada: number | null
 }
 
-export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, mostrarLista, onSeleccionar, entrada }: PropsDeFila) {
+export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, diaFestivos, mostrarLista, onSeleccionar, entrada }: PropsDeFila) {
   const fecha = fechaDeRellamada(lead)
   const vencimiento = vencimientoDe(fecha, hoy)
   const cerrado = lead.status === 'no_interesa'
@@ -69,6 +72,8 @@ export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, mostrarL
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className={`min-w-0 flex-1 truncate text-[12.5px] font-semibold ${cerrado ? 'text-[var(--ls-t3)]' : 'text-[var(--ls-t1)]'}`}>{lead.store_name}</span>
+          {/* Un día festivo en su comunidad: casi seguro no contestan. Solo si el festivo es de una comunidad o una zona (uno de toda España sería igual en todas las filas) */}
+          <MarcaDeFestivo lead={lead} dia={diaFestivos ?? hoy} hoy={hoy} />
           <CifraDeLista lead={lead} />
         </span>
         <span className="mt-px flex items-center gap-1.5 text-[11px] text-[var(--ls-t4)]">
@@ -186,7 +191,7 @@ export interface SeccionDeLista {
 /**
  * Las rellamadas de un día, en secciones. Son pocas (las de un día), así que no lleva ventana: se pintan todas.
  */
-export function ListaPorSecciones({ secciones, seleccionado, onSeleccionar, hoy, vacio }: { secciones: readonly SeccionDeLista[]; seleccionado: string | null; onSeleccionar: (id: string) => void; hoy: string; vacio: ReactNode }) {
+export function ListaPorSecciones({ secciones, seleccionado, onSeleccionar, hoy, diaFestivos, vacio }: { secciones: readonly SeccionDeLista[]; seleccionado: string | null; onSeleccionar: (id: string) => void; hoy: string; diaFestivos?: string; vacio: ReactNode }) {
   const contenedor = useRef<HTMLDivElement>(null)
 
   // Si el lead seleccionado cambia con el teclado, que se vea
@@ -213,7 +218,7 @@ export function ListaPorSecciones({ secciones, seleccionado, onSeleccionar, hoy,
             </h3>
             {s.leads.map((lead) => (
               <div role="listitem" key={lead.id}>
-                <FilaDeLead lead={lead} activa={lead.id === seleccionado} hoy={hoy} mostrarLista={false} onSeleccionar={onSeleccionar} entrada={entrada++ < 10 ? entrada - 1 : null} />
+                <FilaDeLead lead={lead} activa={lead.id === seleccionado} hoy={hoy} diaFestivos={diaFestivos} mostrarLista={false} onSeleccionar={onSeleccionar} entrada={entrada++ < 10 ? entrada - 1 : null} />
               </div>
             ))}
           </section>

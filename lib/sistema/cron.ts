@@ -299,6 +299,23 @@ export const TAREAS_CRON = [
       '(resumen, dolores, objeciones, respuestas del guion y propuesta sugerida). Las reuniones internas del equipo se ignoran: solo se apunta su título. Solo lee de Google.',
   },
   {
+    /**
+     * CADA DOS MINUTOS. LA PRIMERA VEZ SE HACE SOLO.
+     *
+     * Deduce en qué comunidad autónoma está cada lead (lib/ubicacion/) para avisar en su ficha de que ese día es festivo allí (lib/festivos/). En cuanto la migración 263 esté
+     * lanzada, la primera pasada empieza por los ~35.000 leads que hay y las siguientes seis o siete acaban (unos 100 por segundo, para no cargar el tiempo real); después
+     * solo coge los leads nuevos y los que cambian de ciudad, provincia, dirección, registro, teléfono o web. Con nada que hacer, cada pasada es una consulta de milisegundos.
+     * Mientras falte la migración, cada pasada lo dice y no toca nada. Apagarlo desde Sistema no rompe nada: los avisos de festivos se quedan con lo ya ubicado.
+     */
+    id: 'ubicacion-leads',
+    nombre: 'Ubicación de los leads',
+    ruta: '/api/cold-calling/ubicacion/cron',
+    cadaMinutos: 2,
+    que:
+      'Deduce la comunidad autónoma (y el municipio, si se sabe) de cada lead nuevo o cambiado a partir de su ciudad, provincia, dirección, registro mercantil, teléfono y web, ' +
+      'para avisar de los festivos. Solo escribe esas columnas del lead.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',

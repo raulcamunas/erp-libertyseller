@@ -1,0 +1,60 @@
+// GENERADO por scripts/festivos-desde-boe.py a partir de BOE-A-2026-21254 (Resolución de 8 de octubre de 2026, de la Dirección General de Trabajo, por la que se publica relación de fiestas laborales para el año 2027.). No editar a mano: se vuelve a generar.
+import type { CalendarioAnual } from '../tipos'
+
+export const CALENDARIO_2027: CalendarioAnual = {
+  anio: 2027,
+  fuente: 'BOE-A-2026-21254',
+  // f = día, n = nombre en el BOE, c = comunidades que lo celebran («todas» si son las 19)
+  fiestas: [
+    { f: '2027-01-01', n: 'Año Nuevo', c: 'todas' },
+    { f: '2027-01-06', n: 'Epifanía del Señor', c: 'todas' },
+    { f: '2027-03-01', n: 'Día de Andalucía', c: ['AN'] },
+    { f: '2027-03-01', n: 'Día de les Illes Balears', c: ['IB'] },
+    { f: '2027-03-10', n: 'Fiesta del Eid Fitr', c: ['ME'] },
+    { f: '2027-03-19', n: 'San José', c: ['GA', 'MC', 'MD', 'NC', 'VC'] },
+    { f: '2027-03-25', n: 'Jueves Santo', c: ['AN', 'AR', 'AS', 'CB', 'CE', 'CL', 'CM', 'CN', 'EX', 'GA', 'IB', 'MC', 'MD', 'ME', 'NC', 'PV', 'RI'] },
+    { f: '2027-03-26', n: 'Viernes Santo', c: 'todas' },
+    { f: '2027-03-29', n: 'Lunes de Pascua', c: ['CT', 'IB', 'NC', 'PV', 'RI', 'VC'] },
+    { f: '2027-04-23', n: 'Fiesta de Castilla y León', c: ['CL'] },
+    { f: '2027-04-23', n: 'San Jorge/Día de Aragón', c: ['AR'] },
+    { f: '2027-05-01', n: 'Fiesta del Trabajo', c: 'todas' },
+    { f: '2027-05-17', n: 'Día de las Letras Gallegas', c: ['GA'] },
+    { f: '2027-05-17', n: 'Eidul Adha-Fiesta Sacrificio', c: ['CE'] },
+    { f: '2027-05-17', n: 'Fiesta Sacrificio-Aid Al Adha', c: ['ME'] },
+    { f: '2027-05-27', n: 'Corpus Christi', c: ['CM'] },
+    { f: '2027-05-31', n: 'Día de Castilla-La Mancha', c: ['CM'] },
+    { f: '2027-06-09', n: 'Día de La Rioja', c: ['RI'] },
+    { f: '2027-06-09', n: 'Día de la Región de Murcia', c: ['MC'] },
+    { f: '2027-06-24', n: 'Día de San Juan', c: ['CT'] },
+    { f: '2027-07-28', n: 'Día de las Instituciones de Cantabria', c: ['CB'] },
+    { f: '2027-08-05', n: 'Nuestra Señora de África', c: ['CE'] },
+    { f: '2027-08-16', n: 'Lunes siguiente a asunción de la Virgen', c: ['AN', 'AR', 'AS', 'CL', 'CN', 'MD'] },
+    { f: '2027-09-08', n: 'Día de Asturias', c: ['AS'] },
+    { f: '2027-09-08', n: 'Día de Extremadura', c: ['EX'] },
+    { f: '2027-09-11', n: 'Fiesta Nacional de Cataluña', c: ['CT'] },
+    { f: '2027-09-15', n: 'La Bien Aparecida', c: ['CB'] },
+    { f: '2027-10-07', n: 'Aniversario 1er Gobierno Euskadi', c: ['PV'] },
+    { f: '2027-10-09', n: 'Día de la Comunitat Valenciana', c: ['VC'] },
+    { f: '2027-10-11', n: 'Sustitución 15 de agosto', c: ['EX'] },
+    { f: '2027-10-12', n: 'Fiesta Nacional de España', c: 'todas' },
+    { f: '2027-11-01', n: 'Todos los Santos', c: 'todas' },
+    { f: '2027-12-06', n: 'Día de la Constitución Española', c: 'todas' },
+    { f: '2027-12-08', n: 'Inmaculada Concepción', c: 'todas' },
+    { f: '2027-12-25', n: 'Natividad del Señor', c: 'todas' },
+  ],
+  // fiestas propias de una zona más pequeña que la comunidad: las islas de Canarias y el Valle de Arán
+  zonas: [
+    { f: '2027-02-02', n: 'La Virgen de la Candelaria', z: 'tenerife' },
+    { f: '2027-06-17', n: 'Fiesta de Arán', z: 'aran' },
+    { f: '2027-08-05', n: 'Nuestra Señora de Las Nieves', z: 'palma' },
+    { f: '2027-09-08', n: 'Nuestra Señora del Pino', z: 'gran-canaria' },
+    { f: '2027-09-15', n: 'Nuestra Señora de los Volcanes', z: 'lanzarote' },
+    { f: '2027-09-17', n: 'Nuestra Señora de la Peña', z: 'fuerteventura' },
+    { f: '2027-09-24', n: 'Nuestra Señora de los Reyes', z: 'hierro' },
+    { f: '2027-10-04', n: 'Nuestra Señora de Guadalupe', z: 'gomera' },
+  ],
+  // días en que una fiesta de la comunidad NO se celebra en esa zona (se sustituye por la de arriba)
+  sinFiestaEnZona: [
+    { f: '2027-03-29', z: 'aran' },
+  ],
+}

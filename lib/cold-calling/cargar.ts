@@ -33,12 +33,25 @@ export const COLUMNAS_DE_CARTERA_SIN_PARTNERS = [
  */
 export const COLUMNAS_DE_PARTNERS = ['prioridad', 'puntos', 'resenas', 'rating', 'menciona_amazon'].join(', ')
 
-export const COLUMNAS_DE_CARTERA = `${COLUMNAS_DE_CARTERA_SIN_PARTNERS}, ${COLUMNAS_DE_PARTNERS}`
+/**
+ * EN QUÉ COMUNIDAD AUTÓNOMA ESTÁ EL LEAD (migración 263): lo que hace falta para saber si hoy es festivo para él. La comunidad (dos letras) vale para casi todos; el municipio
+ * (cinco cifras) solo cuenta para las islas de Canarias y el Valle de Arán (lib/festivos/). El origen y la confianza de la deducción son de la ficha y se piden al abrir el lead.
+ */
+export const COLUMNAS_DE_UBICACION = ['ccaa', 'municipio_ine'].join(', ')
+
+/** Con los partners (262) pero sin la ubicación (263): lo que se pide mientras la 263 no esté lanzada */
+export const COLUMNAS_DE_CARTERA_SIN_UBICACION = `${COLUMNAS_DE_CARTERA_SIN_PARTNERS}, ${COLUMNAS_DE_PARTNERS}`
+
+export const COLUMNAS_DE_CARTERA = `${COLUMNAS_DE_CARTERA_SIN_UBICACION}, ${COLUMNAS_DE_UBICACION}`
+
+/** De la más completa a la de antes de todo: si la base no tiene las columnas de una migración, se pide la siguiente (la de antes de la 263, y la de antes de la 262) */
+export const NIVELES_DE_COLUMNAS = [COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_UBICACION, COLUMNAS_DE_CARTERA_SIN_PARTNERS] as const
 
 /**
  * ¿La base no tiene esas columnas? El código se despliega ANTES de que nadie lance la migración a mano en el editor SQL de Supabase, y un `select` que nombra una columna que no existe no
  * degrada: PostgREST contesta 400 y la cartera de TODO el equipo se quedaría vacía por unas columnas que todavía no tienen ni un dato. Por eso se piden primero con ellas y, si la base no las
- * tiene, se repite sin ellas (en cuanto se lance la 262 deja de hacer falta, y no se nota). PGRST204: PostgREST no la tiene en su caché de esquema. 42703: Postgres dice que no existe.
+ * tiene, se repite con el nivel de antes (NIVELES_DE_COLUMNAS: en cuanto se lancen las migraciones 262 y 263 deja de hacer falta, y no se nota). PGRST204: PostgREST no la tiene en su caché de
+ * esquema. 42703: Postgres dice que no existe.
  */
 export function faltanLasColumnasDePartners(error: unknown): boolean {
   const codigo = (error as { code?: unknown } | null)?.code
@@ -75,13 +88,14 @@ function pedirTramo(supabase: ClienteDeLectura, propietario: string | undefined,
 }
 
 export async function cargarCartera(supabase: ClienteDeLectura, op: OpcionesDeCarga = {}): Promise<ResultadoDeCarga> {
-  let columnas = COLUMNAS_DE_CARTERA
-  let primero = await pedirTramo(supabase, op.propietario, 0, true, columnas)
-  if (primero.error && faltanLasColumnasDePartners(primero.error)) {
-    // La base todavía no tiene la migración 262: se pide como antes de ella. Lo aprendido vale para el resto de tramos de esta lectura
-    columnas = COLUMNAS_DE_CARTERA_SIN_PARTNERS
-    primero = await pedirTramo(supabase, op.propietario, 0, true, columnas)
+  let nivel = 0
+  let primero = await pedirTramo(supabase, op.propietario, 0, true, NIVELES_DE_COLUMNAS[nivel])
+  while (primero.error && faltanLasColumnasDePartners(primero.error) && nivel < NIVELES_DE_COLUMNAS.length - 1) {
+    // La base todavía no tiene la migración 263 (o la 262): se pide como antes de ella. Lo aprendido vale para el resto de tramos de esta lectura
+    nivel++
+    primero = await pedirTramo(supabase, op.propietario, 0, true, NIVELES_DE_COLUMNAS[nivel])
   }
+  const columnas = NIVELES_DE_COLUMNAS[nivel]
   if (primero.error) {
     console.error('Cold Calling · no se ha podido leer la cartera', { codigo: (primero.error as { code?: unknown })?.code ?? null })
     return { leads: [], total: 0, incompleta: true }

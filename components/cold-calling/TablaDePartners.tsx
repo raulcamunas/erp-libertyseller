@@ -13,6 +13,7 @@ import { COLD_STATUSES, COLD_STATUS_LABELS, type ColdLead, type ColdLeadStatus, 
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { CeldaEditable } from './TablaDeLeads'
+import { MarcaDeFestivo } from './Festivos'
 import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, InsigniaDePrioridad, tinte } from './ui'
 import { useEscribirAlLead } from './useEscribirAlLead'
 
@@ -204,6 +205,7 @@ export function TablaDePartners({ leads, currentUserId, currentUser, puedeVerTod
                       <span className="max-w-[170px] truncate" title={l.store_name}>
                         {l.store_name}
                       </span>
+                      <MarcaDeFestivo lead={l} dia={hoy} hoy={hoy} />
                     </span>
                   </td>
 

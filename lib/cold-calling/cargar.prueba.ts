@@ -1,4 +1,4 @@
-import { COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_PARTNERS, COLUMNAS_DE_PARTNERS, FILAS_POR_TRAMO, TRAMOS_A_LA_VEZ, cargarCartera, faltanLasColumnasDePartners, type ClienteDeLectura } from '@/lib/cold-calling/cargar'
+import { COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_PARTNERS, COLUMNAS_DE_CARTERA_SIN_UBICACION, COLUMNAS_DE_PARTNERS, COLUMNAS_DE_UBICACION, FILAS_POR_TRAMO, TRAMOS_A_LA_VEZ, cargarCartera, faltanLasColumnasDePartners, type ClienteDeLectura } from '@/lib/cold-calling/cargar'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -25,6 +25,8 @@ class Base {
   retardoMs = 5
   /** Una base a la que todavía no se le ha lanzado la migración 262: pedir sus columnas da error de columna inexistente */
   sinLa262: string | null = null
+  /** Lo mismo con la 263 (las columnas de ubicación) */
+  sinLa263: string | null = null
 
   from(_tabla: string) {
     const base = this
@@ -51,6 +53,7 @@ class Base {
         await new Promise((r) => setTimeout(r, base.retardoMs))
         base.simultaneas -= 1
         if (base.sinLa262 && columnas.includes('prioridad')) return { data: null, error: { code: base.sinLa262 }, count: null }
+        if (base.sinLa263 && columnas.includes('ccaa')) return { data: null, error: { code: base.sinLa263 }, count: null }
         if (base.falla.has(desde)) return { data: null, error: { code: 'XX000' }, count: null }
         const visibles = base.filas.filter((f) => propietario === null || f.assigned_to === propietario)
         return { data: visibles.slice(desde, hasta + 1), error: null, count: conRecuento ? visibles.length : null }
@@ -140,17 +143,31 @@ async function main() {
       sin.sinLa262 = codigo
       const r = await cargarCartera(cliente(sin))
       ok(`(${codigo}) la cartera llega ENTERA, como antes de la 262, y no vacía`, r.leads.length === 2500 && r.total === 2500 && !r.incompleta, `${r.leads.length}/${r.total} incompleta=${r.incompleta}`)
-      ok(`(${codigo}) tras el error repite el primer tramo sin las columnas nuevas, y los demás ya van sin ellas`, sin.peticiones.length === 4 && sin.peticiones.slice(1).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_PARTNERS), JSON.stringify(sin.peticiones.map((p) => p.columnas === COLUMNAS_DE_CARTERA ? 'con' : 'sin')))
+      ok(`(${codigo}) tras los errores repite el primer tramo hasta dar con lo que la base tiene (sin ubicación, y luego sin partners), y los demás ya van así`, sin.peticiones.length === 5 && sin.peticiones[1].columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION && sin.peticiones.slice(2).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_PARTNERS), JSON.stringify(sin.peticiones.map((p) => p.columnas === COLUMNAS_DE_CARTERA ? 'con' : p.columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION ? 'sin263' : 'sin262')))
     }
 
     const con = base(2500)
     const r = await cargarCartera(cliente(con))
-    ok('con la 262 lanzada no hay ninguna petición de más: todas llevan las columnas de los partners', con.peticiones.length === 3 && con.peticiones.every((p) => p.columnas === COLUMNAS_DE_CARTERA) && r.leads.length === 2500)
+    ok('con la 262 y la 263 lanzadas no hay ninguna petición de más: todas llevan las columnas de los partners y de la ubicación', con.peticiones.length === 3 && con.peticiones.every((p) => p.columnas === COLUMNAS_DE_CARTERA) && r.leads.length === 2500)
 
     const otraFalla = base(100)
     otraFalla.falla.add(0)
     const r2 = await cargarCartera(cliente(otraFalla))
     ok('un error que NO es de columna no se repite (no se enmascara un fallo de verdad)', otraFalla.peticiones.length === 1 && r2.incompleta && r2.leads.length === 0)
+  }
+
+  console.log('\n=== una base con la 262 pero sin la 263 (las columnas de ubicación) ===')
+  {
+    ok('las columnas de ubicación se piden además de las de los partners', COLUMNAS_DE_CARTERA.startsWith(COLUMNAS_DE_CARTERA_SIN_UBICACION) && COLUMNAS_DE_UBICACION.split(', ').join() === 'ccaa,municipio_ine' && COLUMNAS_DE_CARTERA.includes('ccaa') && COLUMNAS_DE_CARTERA.includes('municipio_ine'))
+    ok('y sin ellas la lista es la de antes de la 263, con los partners', COLUMNAS_DE_CARTERA_SIN_UBICACION.includes('prioridad') && !/ccaa|municipio_ine/.test(COLUMNAS_DE_CARTERA_SIN_UBICACION))
+    ok('el origen y la confianza de la deducción NO viajan con cada lead de la lista: son de la ficha', !/ubicacion_origen|ubicacion_confianza|ubicacion_calculada_at/.test(COLUMNAS_DE_CARTERA))
+    for (const codigo of ['42703', 'PGRST204']) {
+      const sin = base(2500)
+      sin.sinLa263 = codigo
+      const r = await cargarCartera(cliente(sin))
+      ok(`(${codigo}) la cartera llega ENTERA, con los partners, y no vacía`, r.leads.length === 2500 && r.total === 2500 && !r.incompleta, `${r.leads.length}/${r.total}`)
+      ok(`(${codigo}) una sola petición de más, y los demás tramos ya van sin la ubicación`, sin.peticiones.length === 4 && sin.peticiones[0].columnas === COLUMNAS_DE_CARTERA && sin.peticiones.slice(1).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION), JSON.stringify(sin.peticiones.map((p) => p.columnas.length)))
+    }
   }
 
   console.log('\n=== el progreso ===')

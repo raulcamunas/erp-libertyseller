@@ -27,6 +27,7 @@ import {
   type ColdVendeAmazon,
 } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
+import { AvisoDeFestivoDeLaFicha } from './Festivos'
 import { HistorialDelLead } from './HistorialDelLead'
 import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, InsigniaDeNivel, InsigniaDePrioridad, Tecla, tinte } from './ui'
 import { AnadirContacto } from './AnadirContacto'
@@ -215,6 +216,10 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
   return (
     <div ref={contenedor} className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 border-b border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+        {/* Si hoy es festivo en la comunidad del lead, o lo es el día de su rellamada: casi seguro no contestan. Con el botón de pasarla al primer día que sí se puede llamar
+            (lib/festivos/). Un lead sin comunidad conocida no recibe ningún aviso */}
+        <AvisoDeFestivoDeLaFicha lead={lead} hoy={hoy} canEdit={canEdit} onRellamar={ponerRellamada} />
+
         {/* Nombre y navegación */}
         <div className="flex items-start gap-3 px-4 pt-3">
           {onVolver && (

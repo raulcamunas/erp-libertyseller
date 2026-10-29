@@ -1,0 +1,61 @@
+// GENERADO por scripts/festivos-desde-boe.py a partir de BOE-A-2025-21667 (Resolución de 17 de octubre de 2025, de la Dirección General de Trabajo, por la que se publica la relación de fiestas laborales para el año 2026.). No editar a mano: se vuelve a generar.
+import type { CalendarioAnual } from '../tipos'
+
+export const CALENDARIO_2026: CalendarioAnual = {
+  anio: 2026,
+  fuente: 'BOE-A-2025-21667',
+  // f = día, n = nombre en el BOE, c = comunidades que lo celebran («todas» si son las 19)
+  fiestas: [
+    { f: '2026-01-01', n: 'Año Nuevo', c: 'todas' },
+    { f: '2026-01-06', n: 'Epifanía del Señor', c: 'todas' },
+    { f: '2026-02-28', n: 'Día de Andalucía', c: ['AN'] },
+    { f: '2026-03-02', n: 'Lunes siguiente al Día de les Illes Balears', c: ['IB'] },
+    { f: '2026-03-19', n: 'San José', c: ['GA', 'MC', 'NC', 'PV', 'VC'] },
+    { f: '2026-03-20', n: 'Fiesta del Eid Fitr', c: ['ME'] },
+    { f: '2026-04-02', n: 'Jueves Santo', c: ['AN', 'AR', 'AS', 'CB', 'CE', 'CL', 'CM', 'CN', 'EX', 'GA', 'IB', 'MC', 'MD', 'ME', 'NC', 'PV', 'RI'] },
+    { f: '2026-04-03', n: 'Viernes Santo', c: 'todas' },
+    { f: '2026-04-06', n: 'Lunes de Pascua', c: ['CM', 'CT', 'IB', 'NC', 'PV', 'RI', 'VC'] },
+    { f: '2026-04-23', n: 'Fiesta de Castilla y León', c: ['CL'] },
+    { f: '2026-04-23', n: 'San Jorge/Día de Aragón', c: ['AR'] },
+    { f: '2026-05-01', n: 'Fiesta del Trabajo', c: 'todas' },
+    { f: '2026-05-02', n: 'Fiesta de la Comunidad de Madrid', c: ['MD'] },
+    { f: '2026-05-27', n: 'Fiesta Sacrificio-Aid al Adha', c: ['ME'] },
+    { f: '2026-05-27', n: 'Fiesta Sacrificio-Eidul Adha', c: ['CE'] },
+    { f: '2026-05-30', n: 'Día de Canarias', c: ['CN'] },
+    { f: '2026-06-04', n: 'Corpus Christi', c: ['CM'] },
+    { f: '2026-06-09', n: 'Día de la Región de Murcia', c: ['MC'] },
+    { f: '2026-06-09', n: 'Día de la Rioja', c: ['RI'] },
+    { f: '2026-06-24', n: 'San Juan', c: ['CT', 'GA', 'VC'] },
+    { f: '2026-07-25', n: 'Santiago Apóstol/Día Nacional de Galicia', c: ['GA', 'PV'] },
+    { f: '2026-07-28', n: 'Día de las Instituciones de Cantabria', c: ['CB'] },
+    { f: '2026-08-05', n: 'Nuestra Señora de África', c: ['CE'] },
+    { f: '2026-08-15', n: 'Asunción de la Virgen', c: 'todas' },
+    { f: '2026-09-02', n: 'Día de Ceuta', c: ['CE'] },
+    { f: '2026-09-08', n: 'Día de Asturias', c: ['AS'] },
+    { f: '2026-09-08', n: 'Día de Extremadura', c: ['EX'] },
+    { f: '2026-09-11', n: 'Fiesta Nacional de Cataluña', c: ['CT'] },
+    { f: '2026-09-15', n: 'La Bien Aparecida', c: ['CB'] },
+    { f: '2026-10-09', n: 'Día de la Comunitat Valenciana', c: ['VC'] },
+    { f: '2026-10-12', n: 'Fiesta Nacional de España', c: 'todas' },
+    { f: '2026-11-02', n: 'Día siguiente a Todos los Santos', c: ['AN', 'AR', 'AS', 'CL', 'CM', 'CN', 'EX', 'MD', 'NC'] },
+    { f: '2026-12-07', n: 'Lunes siguiente al Día de la Constitución Española', c: ['AN', 'AR', 'AS', 'CB', 'CL', 'EX', 'MC', 'MD', 'ME', 'RI'] },
+    { f: '2026-12-08', n: 'Inmaculada Concepción', c: 'todas' },
+    { f: '2026-12-25', n: 'Natividad del Señor', c: 'todas' },
+    { f: '2026-12-26', n: 'San Esteban', c: ['CT', 'IB'] },
+  ],
+  // fiestas propias de una zona más pequeña que la comunidad: las islas de Canarias y el Valle de Arán
+  zonas: [
+    { f: '2026-02-02', n: 'La Virgen de la Candelaria', z: 'tenerife' },
+    { f: '2026-06-17', n: 'Fiesta de Arán', z: 'aran' },
+    { f: '2026-08-05', n: 'Nuestra Señora de Las Nieves', z: 'palma' },
+    { f: '2026-09-08', n: 'Nuestra Señora del Pino', z: 'gran-canaria' },
+    { f: '2026-09-15', n: 'Nuestra Señora de los Volcanes', z: 'lanzarote' },
+    { f: '2026-09-18', n: 'Nuestra Señora de la Peña', z: 'fuerteventura' },
+    { f: '2026-09-24', n: 'Nuestra Señora de los Reyes', z: 'hierro' },
+    { f: '2026-10-05', n: 'Nuestra Señora de Guadalupe', z: 'gomera' },
+  ],
+  // días en que una fiesta de la comunidad NO se celebra en esa zona (se sustituye por la de arriba)
+  sinFiestaEnZona: [
+    { f: '2026-12-26', z: 'aran' },
+  ],
+}

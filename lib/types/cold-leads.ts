@@ -1,3 +1,4 @@
+import type { CodigoCcaa } from '@/lib/ubicacion/zonas'
 import { CalendarPerson } from './appointments'
 
 export type ColdLeadStatus =
@@ -98,6 +99,15 @@ export interface ColdLead {
   resenas?: number | null
   rating?: number | null
   menciona_amazon?: boolean | null
+  /**
+   * EN QUÉ COMUNIDAD AUTÓNOMA ESTÁ EL LEAD (migración 263), para saber si ese día es festivo para él (lib/festivos/). Lo deduce el proceso automático «Ubicación de los leads»
+   * (lib/ubicacion/) de lo que trae el lead; null = no se ha podido saber, y entonces no se avisa de nada. `municipio_ine` (cinco cifras) solo se usa para las islas de Canarias
+   * y el Valle de Arán. De dónde salió la deducción y con qué seguridad se piden al abrir el lead. Antes de lanzar la 263 no existen en la base: por eso van opcionales.
+   */
+  ccaa?: CodigoCcaa | null
+  municipio_ine?: string | null
+  ubicacion_origen?: 'ciudad' | 'direccion' | 'provincia' | 'registro' | 'telefono' | 'web' | null
+  ubicacion_confianza?: 'alta' | 'media' | 'baja' | null
   /** Solo se piden al abrir el lead: son enlaces largos que no hacen falta para pintar la lista */
   linkedin?: string | null
   google_maps_url?: string | null
