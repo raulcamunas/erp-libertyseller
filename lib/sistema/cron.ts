@@ -318,20 +318,20 @@ export const TAREAS_CRON = [
   },
   {
     /**
-     * CADA DOS MINUTOS. SOLO MUEVE LOS LEADS DE LAS LISTAS DE CICLO.
+     * CADA DOS MINUTOS. SOLO RECOGE LO QUE NO ES DEL COMERCIAL EN LAS LISTAS DE CICLO.
      *
-     * Hace avanzar de fase (lib/cold-calling/ciclo.ts) a los leads que se han pasado a una lista de ciclo: cuando el comercial manda el primer correo con seguimientos, el lead pasa a Fase 2 y su
-     * rellamada se pone el día del siguiente correo; cuando ese correo ha salido y su día ha pasado, a Fase 3; después a «No responde», con la vuelta a los dos meses. Solo LEE las secuencias de
-     * correo y solo ESCRIBE en cold_leads: no toca el motor, así que si falla los correos siguen saliendo. Mientras falte la migración 264 cada pasada lo dice y no toca nada; mientras no haya
-     * ninguna lista de ciclo, cada pasada son tres consultas pequeñas. Apagarlo desde Sistema congela las fases donde están: no rompe nada.
+     * Desde el 30 oct 2026 las fases (Fase 2, Fase 3, «No responde») las PULSA LA PERSONA en la ficha (lib/cold-calling/ciclo-manual.ts) y este proceso ya no las hace avanzar: ni lee secuencias de
+     * correo, ni leads en Fase 1, ni llamadas de Rinkel. Solo (1) quita la fase a quien ya salió del ritmo (la IA que cierra por «no me interesa» y la rellamada sola cambian el estado sin pasar por
+     * la ficha) y (2) devuelve a Fase 1 a los de «No responde» cuando se cumplen sus 60 días. Solo ESCRIBE en cold_leads. Mientras falte la migración 264 cada pasada lo dice y no toca nada; con nada que
+     * hacer es una consulta pequeña. Apagarlo desde Sistema deja las fases donde están: no rompe nada, pero nadie quitaría la fase a quien ya salió del ritmo ni devolvería a Fase 1 a los de «No responde».
      */
     id: 'ciclo-leads',
     nombre: 'Ciclo comercial',
     ruta: '/api/cold-calling/ciclo/cron',
     cadaMinutos: 2,
     que:
-      'Hace avanzar de fase a los leads de las listas de ciclo (Fase 2, Fase 3, «No responde» y la vuelta a los dos meses) a partir de los correos de sus secuencias, y pone su rellamada el día ' +
-      'del siguiente correo. Solo lee las secuencias; solo escribe la fase, la fecha de rellamada y, al acabar sin respuesta, «No contesta» en el lead.',
+      'Desde el 30 oct 2026 las fases las pulsa la persona en la ficha. Este proceso solo quita la fase a los leads del ciclo que ya salieron del ritmo (En seguimiento, Cita, No le interesa…) y ' +
+      'devuelve a Fase 1 a los de «No responde» a los 60 días. Solo escribe en el lead; no lee secuencias ni llamadas.',
   },
   {
     id: 'calendario',

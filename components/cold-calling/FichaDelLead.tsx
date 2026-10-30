@@ -7,7 +7,8 @@ import { clavesDelLead } from '@/lib/cold-calling/vinculos'
 import { diaConSemana, haceCuanto, sumarDias } from '@/lib/cold-calling/fechas'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { emailsDelLead, normalizarTelefono, telefonosDelLead } from '@/lib/cold-calling/contactos'
-import { CAJAS_DEL_CICLO, cajaDelCiclo, camposDeCicloAlCambiarEstado, enCiclo, estadoAlElegirCaja, etiquetaDeEstadoVisible, lasPoneElSistema, pistaDeEstadoVisible, type EstadoVisible } from '@/lib/cold-calling/ciclo'
+import { CAJAS_DEL_CICLO, cajaDelCiclo, camposDeCicloAlCambiarEstado, enCiclo, esCajaDeFase, estadoAlElegirCaja, etiquetaDeEstadoVisible, pistaDeEstadoVisible, type EstadoSoloDelCiclo, type EstadoVisible } from '@/lib/cold-calling/ciclo'
+import { cambioAlPulsarFase, motivoQueBloqueaLaFase } from '@/lib/cold-calling/ciclo-manual'
 import { urlSegura } from '@/lib/cold-calling/partners'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -172,6 +173,28 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
   /** Un lead de una lista de ciclo elige entre sus cajas (Sin contactar, Fase 2, Fase 3, No responde, En seguimiento, Cita, No le interesa); los demás, entre los siete de siempre */
   const delCiclo = enCiclo(lead)
   const cajaActual: EstadoVisible = delCiclo ? cajaDelCiclo(lead) : lead.status
+  /** Por qué no se puede pasar de fase (el lead ya tiene cita o está descartado), o null si se puede */
+  const sinFase = delCiclo ? motivoQueBloqueaLaFase(lead) : null
+
+  /** El historial se vuelve a pedir cuando se apunta aquí un cambio de fase (el apunte lo escribe esta ficha, no llega por Rinkel): solo cuenta para el lead abierto */
+  const [notaNueva, setNotaNueva] = useState<{ id: string; n: number }>({ id: '', n: 0 })
+  const versionDeNotas = notaNueva.id === lead.id ? notaNueva.n : 0
+
+  /**
+   * PULSAR «FASE 2», «FASE 3» O «NO RESPONDE» (lib/cold-calling/ciclo-manual.ts): ya has llamado y escrito, y el lead vuelve a salir dentro de 2 / 3 días laborables (o a los 60 días). Guarda la fase y el día
+   * de rellamada por el mismo camino que el resto de cambios y lo deja apuntado en su historial a nombre de quien lo pasó. El apunte es una nota: no cuenta como WhatsApp ni como correo en Mi rendimiento.
+   */
+  const pulsarFase = (caja: EstadoSoloDelCiclo) => {
+    const cambio = cambioAlPulsarFase(lead, caja, hoy, currentUser.full_name?.trim() || currentUser.email || '')
+    if (!cambio) return
+    void (async () => {
+      if (!(await patch({ ...cambio.campos, last_contacted_at: new Date().toISOString() }))) return
+      toast.success(`${etiquetaDeEstadoVisible(caja)}: vuelve a salir el ${diaConSemana(cambio.rellamada)}`)
+      const { error } = await supabase.from('cold_lead_notes').insert({ lead_id: lead.id, author_id: currentUser.id, kind: 'nota', body: cambio.nota })
+      if (error) console.error('Error apuntando el cambio de fase:', error)
+      else setNotaNueva((previa) => ({ id: lead.id, n: previa.id === lead.id ? previa.n + 1 : 1 }))
+    })()
+  }
 
   /**
    * Al apuntar algo se sella la fecha del último contacto. NO se suma intento aunque sea una «llamada»: las llamadas de Rinkel suman su
@@ -442,17 +465,19 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
             const activo = cajaActual === s
             const { tono } = ESTADO_VISUAL[s]
             const c = chipDeEstado(activo, tono)
-            // Fase 2, Fase 3 y No responde las pone el sistema: la que tiene el lead se ve encendida y quieta, y las otras dos no se pueden pulsar
+            // Fase 2, Fase 3 y No responde las pulsa la persona (guardan la fase y el día de rellamada); las demás son el estado de siempre. Con el lead cerrado (cita, descartado) las tres de fase se apagan
             const elegible = estadoAlElegirCaja(s)
+            const deFase = esCajaDeFase(s)
+            const apagada = deFase && sinFase !== null
             return (
               <button
                 key={s}
                 type="button"
-                onClick={() => canEdit && elegible && ponerEstado(elegible)}
-                disabled={!canEdit || (lasPoneElSistema(s) && !activo)}
+                onClick={() => canEdit && (deFase ? pulsarFase(s) : elegible && ponerEstado(elegible))}
+                disabled={!canEdit || apagada}
                 aria-pressed={activo}
-                title={pistaDeEstadoVisible(s)}
-                className={`${c.className} ${elegible === null ? 'cursor-default' : ''}`}
+                title={apagada ? (sinFase ?? undefined) : pistaDeEstadoVisible(s)}
+                className={c.className}
                 style={c.style}
               >
                 <span key={activo ? 'si' : 'no'} className={activo ? 'rend-pop' : ''}>
@@ -501,7 +526,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
         <div className={`grid gap-x-5 gap-y-4 p-4 ${dosColumnas ? 'grid-cols-[minmax(0,1fr)_minmax(250px,320px)]' : 'grid-cols-1'}`}>
           <section aria-label="Historial" className="min-w-0">
             <h3 className="mb-1.5 text-[11px] font-semibold text-[var(--ls-t3)]">Historial</h3>
-            <HistorialDelLead key={lead.id} leadId={lead.id} currentUser={currentUser} nombres={nombres} version={version} onLogged={alApuntar} />
+            <HistorialDelLead key={lead.id} leadId={lead.id} currentUser={currentUser} nombres={nombres} version={version + versionDeNotas} onLogged={alApuntar} />
           </section>
 
           <aside className="min-w-0 space-y-4">

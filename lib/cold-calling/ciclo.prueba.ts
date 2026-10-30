@@ -6,11 +6,12 @@ import {
   cajaDelCiclo,
   camposDeCicloAlCambiarEstado,
   enCiclo,
+  esCajaDeFase,
   esListaDeCiclo,
+  estadoAlElegirCaja,
   estadoVisible,
   etiquetaDeEstadoVisible,
   faseValida,
-  lasPoneElSistema,
   pistaDeEstadoVisible,
   type CajaDelCiclo,
   type FaseDelCiclo,
@@ -85,8 +86,15 @@ console.log('\n=== nombres y pistas ===')
   ok('las tres nuevas se llaman Fase 2, Fase 3 y No responde', etiquetaDeEstadoVisible('fase_2') === 'Fase 2' && etiquetaDeEstadoVisible('fase_3') === 'Fase 3' && etiquetaDeEstadoVisible('no_responde') === 'No responde')
   ok('las demás conservan su nombre de siempre', COLD_STATUSES.every((s) => etiquetaDeEstadoVisible(s) === COLD_STATUS_LABELS[s]))
   ok('todas tienen pista, y ninguna dice «undefined»', [...COLD_STATUSES, ...ESTADOS_SOLO_DEL_CICLO].every((e) => pistaDeEstadoVisible(e).length > 10 && !pistaDeEstadoVisible(e).includes('undefined')))
-  ok('las pistas de las fases avisan de que las pone el sistema', ESTADOS_SOLO_DEL_CICLO.every((e) => pistaDeEstadoVisible(e).includes('La pone el sistema')))
-  ok('solo las tres nuevas las pone el sistema: el comercial no las elige', ESTADOS_SOLO_DEL_CICLO.every(lasPoneElSistema) && COLD_STATUSES.every((s) => !lasPoneElSistema(s)))
+  ok('las pistas de las fases avisan de que se pulsan a mano (desde el 30 oct 2026 no las pone el sistema)', ESTADOS_SOLO_DEL_CICLO.every((e) => pistaDeEstadoVisible(e).includes('Se pulsa a mano') && !pistaDeEstadoVisible(e).includes('La pone el sistema')))
+  ok('las pistas de Fase 2 y Fase 3 dicen cuántos días laborables pasan hasta la rellamada', pistaDeEstadoVisible('fase_2').includes('2 días laborables') && pistaDeEstadoVisible('fase_3').includes('3 días laborables'))
+}
+
+console.log('\n=== las tres cajas de fase se pulsan; las otras son el estado de siempre ===')
+{
+  ok('Fase 2, Fase 3 y No responde son cajas de fase, y ninguno de los siete estados de siempre lo es', ESTADOS_SOLO_DEL_CICLO.every(esCajaDeFase) && COLD_STATUSES.every((s) => !esCajaDeFase(s)))
+  ok('elegir una caja de fase NO es elegir un estado: no hay estado que guardar (guarda una fase y una fecha)', ESTADOS_SOLO_DEL_CICLO.every((c) => estadoAlElegirCaja(c) === null))
+  ok('elegir cualquier otra caja es elegir ese estado, tal cual', COLD_STATUSES.every((s) => estadoAlElegirCaja(s) === s))
 }
 
 console.log('\n=== cuando una persona cambia el estado ===')

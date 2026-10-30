@@ -4,8 +4,9 @@ import { ChevronRight, Copy, ExternalLink, Maximize2 } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { fechaDeRellamada } from '@/lib/cold-calling/cartera'
-import { CAJAS_DEL_CICLO, cajaDelCiclo, camposDeCicloAlCambiarEstado, enCiclo, estadoAlElegirCaja, estadoVisible, etiquetaDeEstadoVisible, lasPoneElSistema, type EstadoVisible } from '@/lib/cold-calling/ciclo'
-import { vencimientoDe } from '@/lib/cold-calling/fechas'
+import { CAJAS_DEL_CICLO, cajaDelCiclo, camposDeCicloAlCambiarEstado, enCiclo, esCajaDeFase, estadoAlElegirCaja, estadoVisible, etiquetaDeEstadoVisible, type EstadoSoloDelCiclo, type EstadoVisible } from '@/lib/cold-calling/ciclo'
+import { cambioAlPulsarFase, motivoQueBloqueaLaFase } from '@/lib/cold-calling/ciclo-manual'
+import { diaConSemana, vencimientoDe } from '@/lib/cold-calling/fechas'
 import { CELDA, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -123,14 +124,28 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
     })
   }
 
-  async function patch(id: string, campos: Partial<ColdLead>) {
+  async function patch(id: string, campos: Partial<ColdLead>): Promise<boolean> {
     const { error } = await supabase.from('cold_leads').update(campos).eq('id', id)
     if (error) {
       console.error('Error guardando el lead:', error)
       toast.error('No se pudo guardar')
-      return
+      return false
     }
     onPatched(id, campos)
+    return true
+  }
+
+  /**
+   * Pulsar Fase 2, Fase 3 o No responde en la fila: lo mismo que en la ficha (lib/cold-calling/ciclo-manual.ts). Guarda la fase y el día de rellamada y lo apunta en el historial a nombre de quien lo pasó
+   * (una nota: no cuenta como WhatsApp ni como correo en Mi rendimiento). Si la fila tiene el historial abierto, el apunte se ve al volver a abrirlo.
+   */
+  async function pulsarFase(l: ColdLead, caja: EstadoSoloDelCiclo) {
+    const cambio = cambioAlPulsarFase(l, caja, hoy, currentUser.full_name?.trim() || currentUser.email || '')
+    if (!cambio) return
+    if (!(await patch(l.id, { ...cambio.campos, last_contacted_at: new Date().toISOString() }))) return
+    toast.success(`${etiquetaDeEstadoVisible(caja)}: vuelve a salir el ${diaConSemana(cambio.rellamada)}`)
+    const { error } = await supabase.from('cold_lead_notes').insert({ lead_id: l.id, author_id: currentUser.id, kind: 'nota', body: cambio.nota })
+    if (error) console.error('Error apuntando el cambio de fase:', error)
   }
 
   /** Lo mismo que hace la ficha al apuntar algo: sella el último contacto. No suma intento: las llamadas de Rinkel lo suman solas (migración 237) */
@@ -222,15 +237,20 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
                       disabled={!puedeEditar}
                       aria-label={`Estado de ${l.store_name}`}
                       onChange={(e) => {
-                        // En una lista de ciclo las opciones son sus cajas; las tres que pone el sistema no se eligen a mano (están deshabilitadas) y las demás son el estado de siempre
-                        const estado = delCiclo ? estadoAlElegirCaja(e.target.value as EstadoVisible) : (e.target.value as ColdLeadStatus)
+                        // En una lista de ciclo las opciones son sus cajas: Fase 2, Fase 3 y No responde las pulsa la persona (guardan la fase y la rellamada) y las demás son el estado de siempre
+                        const caja = e.target.value as EstadoVisible
+                        if (delCiclo && esCajaDeFase(caja)) {
+                          void pulsarFase(l, caja)
+                          return
+                        }
+                        const estado = delCiclo ? estadoAlElegirCaja(caja) : (e.target.value as ColdLeadStatus)
                         if (estado) void patch(l.id, { status: estado, last_contacted_at: new Date().toISOString(), ...camposDeCicloAlCambiarEstado(l, estado) })
                       }}
                       className="h-5 w-full cursor-pointer appearance-none rounded-[4px] border px-1.5 text-[11.5px] font-medium text-[var(--ls-t1)] outline-none disabled:cursor-default"
                       style={{ background: tinte(tono, 16), borderColor: `color-mix(in srgb, ${COLOR_ESTADO[tono]} 45%, transparent)` }}
                     >
                       {(delCiclo ? CAJAS_DEL_CICLO : COLD_STATUSES).map((s) => (
-                        <option key={s} value={s} disabled={delCiclo && lasPoneElSistema(s) && s !== cajaDelCiclo(l)} className="bg-[var(--ls-sup)] text-[var(--ls-t1)]">
+                        <option key={s} value={s} disabled={delCiclo && esCajaDeFase(s) && motivoQueBloqueaLaFase(l) !== null} className="bg-[var(--ls-sup)] text-[var(--ls-t1)]">
                           {etiquetaDeEstadoVisible(s)}
                         </option>
                       ))}

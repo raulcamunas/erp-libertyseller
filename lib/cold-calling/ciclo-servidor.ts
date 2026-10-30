@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { diaDeMadrid, instanteDeMadrid } from '@/lib/correo/secuencias/fechas'
-import { decidirAvance, type CambioDelCiclo, type LeadParaElCiclo, type PasoParaElCiclo, type SecuenciaParaElCiclo } from './ciclo-avance'
+import { AVANCE_AUTOMATICO_DE_FASES, decidirAvance, type CambioDelCiclo, type LeadParaElCiclo, type PasoParaElCiclo, type SecuenciaParaElCiclo } from './ciclo-avance'
+import { ESTADOS_DE_RITMO } from './ciclo'
 
 /**
  * EL PROCESO AUTOMÁTICO «CICLO COMERCIAL»: HACE AVANZAR LAS FASES DE LOS LEADS DE LAS LISTAS DE CICLO.
@@ -11,6 +12,11 @@ import { decidirAvance, type CambioDelCiclo, type LeadParaElCiclo, type PasoPara
  * VA APARTE DEL MOTOR DE LAS SECUENCIAS, A PROPÓSITO. El motor manda correos reales a nombre de los comerciales y es lo último que se quiere tocar para poner una etiqueta: este proceso solo
  * LEE las secuencias (inscripciones y pasos) y solo ESCRIBE en cold_leads (`ciclo_fase`, `ciclo_vuelta`, la fecha de rellamada y, al acabar el ritmo sin respuesta, «Sin contactar» → «No contesta»).
  * Si falla, los correos siguen saliendo igual.
+ *
+ * DESDE EL 30 OCT 2026 LAS FASES LAS PULSA LA PERSONA (lib/cold-calling/ciclo-manual.ts) y este proceso corre con el avance automático APAGADO (AVANCE_AUTOMATICO_DE_FASES, en ciclo-avance.ts): ya no mira
+ * secuencias, ni leads en Fase 1, ni llamadas de Rinkel. Solo hace lo que no es del comercial y lee lo mínimo: (1) quita la fase a quien ya no está en el ritmo (la IA que cierra por «no me
+ * interesa» y la rellamada sola cambian el estado sin pasar por la ficha) y (2) devuelve a Fase 1 a los de «No responde» cuando se cumplen sus 60 días. Los de Fase 2 y Fase 3 que siguen en el ritmo
+ * no se leen: no hay nada que decidir por ellos. Lo que sigue sobre secuencias y llamadas describe el modo automático, que se conserva y se comprueba pero está apagado.
  *
  * LEE POCO. No recorre los miles de leads de las listas de ciclo: parte de las secuencias VIVAS (un centenar) y de los leads que ya tienen una fase (los del ritmo). Un lead en Fase 1 sin
  * secuencia no cuesta ni una lectura. Con nada que hacer, una pasada son tres consultas pequeñas. Para saber si ya se ha llamado a los de Fase 2 y 3 que tienen la rellamada vencida, una consulta
@@ -34,6 +40,11 @@ export interface AlmacenDelCiclo {
    * (con miles, serían decenas de consultas cada pasada sin nada que decidir).
    */
   leadsConFase(hoy: string): Promise<LeadDelCicloFila[]>
+  /**
+   * SOLO CON LAS FASES A MANO. Los leads del ciclo en los que el proceso tiene algo que hacer: los que tienen fase y ya no están en el ritmo (alguien ha hablado con ellos: se les quita la fase) y los de
+   * «No responde» a los que ya les llegó su día (vuelven a Fase 1). Los de Fase 2 y 3 que siguen en el ritmo NO salen: los mueve la persona.
+   */
+  leadsParaElModoManual(hoy: string): Promise<LeadDelCicloFila[]>
   /** Los leads que tienen ahora una secuencia en marcha */
   leadsConSecuenciaViva(): Promise<string[]>
   /** De esos ids, los que están en el ciclo y todavía no tienen fase (Fase 1) */
@@ -50,6 +61,8 @@ export interface AlmacenDelCiclo {
 }
 
 export interface OpcionesDelCiclo {
+  /** ¿Avanzan las fases solas, según las secuencias de correo y las llamadas? Por defecto, lo que diga AVANCE_AUTOMATICO_DE_FASES (NO desde el 30 oct 2026: las pulsa la persona). Para las pruebas del modo automático */
+  avanceAutomatico?: boolean
   /** Para las pruebas: el reloj */
   ahora?: () => number
   /** Sin guardar nada: dice lo que haría. Sirve para mirar antes de encender nada */
@@ -99,40 +112,53 @@ export async function avanzarElCiclo(almacen: AlmacenDelCiclo, op: OpcionesDelCi
   const pausaMs = op.pausaMs ?? 40
   const esperar = op.esperar ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   const ensayo = op.ensayo ?? false
+  const automatico = op.avanceAutomatico ?? AVANCE_AUTOMATICO_DE_FASES
   const cambios: ResumenDelCiclo['cambios'] = { fase_2: 0, fase_3: 0, sin_respuesta: 0, otra_vuelta: 0, sale_del_ritmo: 0 }
   const vacio = (extra: Partial<ResumenDelCiclo>): ResumenDelCiclo => ({ revisados: 0, cambios, alVuelo: 0, errores: 0, quedan: false, ensayo, faltaLaMigracion: false, resumen: '', ...extra })
 
   let conFase: LeadDelCicloFila[]
   try {
-    conFase = await almacen.leadsConFase(hoy)
+    conFase = automatico ? await almacen.leadsConFase(hoy) : await almacen.leadsParaElModoManual(hoy)
   } catch (error) {
     if (faltaLaMigracionDelCiclo(error)) return vacio({ faltaLaMigracion: true, resumen: 'Falta lanzar la migración 264 (ciclo comercial): no se ha tocado nada.' })
     throw error
   }
-  const vivas = await almacen.leadsConSecuenciaViva()
-  const yaConFase = new Set(conFase.map((l) => l.id))
-  const enFase1 = vivas.length > 0 ? await almacen.leadsEnFase1(vivas.filter((id) => !yaConFase.has(id))) : []
-  const todos = [...conFase, ...enFase1]
-  const secuencias = todos.length > 0 ? await almacen.secuenciasDe(todos.map((l) => l.id)) : new Map<string, SecuenciaParaElCiclo>()
 
-  // ¿Se ha llamado ya a los de Fase 2 y 3 a los que les toca (o se les pasó el día)? Pasan de fase al llamar, no al pasar el día: se miran las llamadas salientes desde el día de su rellamada
-  const aLlamar = todos.filter((l) => (l.ciclo_fase === 'f2' || l.ciclo_fase === 'f3') && l.next_call_date !== null && l.next_call_date <= hoy)
-  const diasDeLlamada = new Map<string, string[]>()
-  if (aLlamar.length > 0) {
-    const masAntigua = aLlamar.reduce((min, l) => (l.next_call_date! < min ? l.next_call_date! : min), hoy)
-    const llamadas = await almacen.llamadasSalientesDesde(aLlamar.map((l) => l.id), new Date(instanteDeMadrid(masAntigua, 0)).toISOString())
-    for (const c of llamadas) {
-      const ms = Date.parse(c.fecha)
-      if (Number.isNaN(ms)) continue
-      diasDeLlamada.set(c.lead_id, [...(diasDeLlamada.get(c.lead_id) ?? []), diaDeMadrid(ms)])
-    }
-  }
-
+  let todos: LeadDelCicloFila[]
   const pendientes: Array<{ lead: LeadDelCicloFila; cambio: CambioDelCiclo }> = []
-  for (const lead of todos) {
-    const llamadaHecha = lead.next_call_date !== null && (diasDeLlamada.get(lead.id) ?? []).some((dia) => dia >= lead.next_call_date!)
-    const cambio = decidirAvance(lead, secuencias.get(lead.id) ?? null, hoy, { llamadaHecha })
-    if (cambio) pendientes.push({ lead, cambio })
+  if (!automatico) {
+    // Con las fases a mano no se mira nada más: ni secuencias, ni leads en Fase 1, ni las llamadas de Rinkel. Solo lo que no es del comercial: quitar la fase a quien ya salió del ritmo y devolver a
+    // Fase 1 a los de «No responde» a los que ya les llegó su día
+    todos = conFase
+    for (const lead of todos) {
+      const cambio = decidirAvance(lead, null, hoy, { avanceAutomatico: false })
+      if (cambio) pendientes.push({ lead, cambio })
+    }
+  } else {
+    const vivas = await almacen.leadsConSecuenciaViva()
+    const yaConFase = new Set(conFase.map((l) => l.id))
+    const enFase1 = vivas.length > 0 ? await almacen.leadsEnFase1(vivas.filter((id) => !yaConFase.has(id))) : []
+    todos = [...conFase, ...enFase1]
+    const secuencias = todos.length > 0 ? await almacen.secuenciasDe(todos.map((l) => l.id)) : new Map<string, SecuenciaParaElCiclo>()
+
+    // ¿Se ha llamado ya a los de Fase 2 y 3 a los que les toca (o se les pasó el día)? Pasan de fase al llamar, no al pasar el día: se miran las llamadas salientes desde el día de su rellamada
+    const aLlamar = todos.filter((l) => (l.ciclo_fase === 'f2' || l.ciclo_fase === 'f3') && l.next_call_date !== null && l.next_call_date <= hoy)
+    const diasDeLlamada = new Map<string, string[]>()
+    if (aLlamar.length > 0) {
+      const masAntigua = aLlamar.reduce((min, l) => (l.next_call_date! < min ? l.next_call_date! : min), hoy)
+      const llamadas = await almacen.llamadasSalientesDesde(aLlamar.map((l) => l.id), new Date(instanteDeMadrid(masAntigua, 0)).toISOString())
+      for (const c of llamadas) {
+        const ms = Date.parse(c.fecha)
+        if (Number.isNaN(ms)) continue
+        diasDeLlamada.set(c.lead_id, [...(diasDeLlamada.get(c.lead_id) ?? []), diaDeMadrid(ms)])
+      }
+    }
+
+    for (const lead of todos) {
+      const llamadaHecha = lead.next_call_date !== null && (diasDeLlamada.get(lead.id) ?? []).some((dia) => dia >= lead.next_call_date!)
+      const cambio = decidirAvance(lead, secuencias.get(lead.id) ?? null, hoy, { llamadaHecha })
+      if (cambio) pendientes.push({ lead, cambio })
+    }
   }
 
   const ahoraIso = new Date(ahora).toISOString()
@@ -162,7 +188,7 @@ export async function avanzarElCiclo(almacen: AlmacenDelCiclo, op: OpcionesDelCi
 
   const quedan = pendientes.length > tope
   const partes = MOTIVOS.filter(([m]) => cambios[m] > 0).map(([m, texto]) => `${cambios[m]} ${texto}`)
-  const frase = hechos === 0 && alVuelo === 0 && errores === 0 ? `Nada que mover (${todos.length} leads del ritmo mirados).` : `${ensayo ? 'Haría' : 'Movidos'}: ${partes.join(', ') || 'ninguno'}${alVuelo > 0 ? `; ${alVuelo} tocados por una persona mientras tanto, se rehacen en la siguiente` : ''}${quedan ? '; quedan más para la siguiente pasada' : ''}.`
+  const frase = hechos === 0 && alVuelo === 0 && errores === 0 ? (automatico ? `Nada que mover (${todos.length} leads del ritmo mirados).` : `Nada que mover (fases a mano: ${todos.length} leads mirados).`) :`${ensayo ? 'Haría' : 'Movidos'}: ${partes.join(', ') || 'ninguno'}${alVuelo > 0 ? `; ${alVuelo} tocados por una persona mientras tanto, se rehacen en la siguiente` : ''}${quedan ? '; quedan más para la siguiente pasada' : ''}.`
   // Lo demás ya está guardado: se avisa DESPUÉS, para que Sistema ponga la pasada en rojo sin haber dejado parado a nadie
   if (errores > 0) throw new Error(`Ciclo comercial: ${errores} cambio${errores === 1 ? '' : 's'} no se ha${errores === 1 ? '' : 'n'} podido guardar (${primerError.slice(0, 160)}). ${frase}`)
   return vacio({ revisados: todos.length, alVuelo, quedan, resumen: frase })
@@ -196,6 +222,26 @@ export function almacenDeSupabase(db: Servicio): AlmacenDelCiclo {
           .not('ciclo_vuelta', 'is', null)
           .not('ciclo_fase', 'is', null)
           .or(`ciclo_fase.neq.sin_respuesta,next_call_date.lte.${hoy}`)
+          .order('id', { ascending: true })
+          .range(tramo * TRAMO, tramo * TRAMO + TRAMO - 1)
+        if (error) throw error
+        const filas = (data ?? []) as unknown as LeadDelCicloFila[]
+        fuera.push(...filas)
+        if (filas.length < TRAMO) break
+      }
+      return fuera
+    },
+
+    async leadsParaElModoManual(hoy) {
+      const fuera: LeadDelCicloFila[] = []
+      for (let tramo = 0; tramo < MAX_TRAMOS; tramo++) {
+        const { data, error } = await db
+          .from('cold_leads')
+          .select(COLUMNAS_DEL_CICLO)
+          .not('ciclo_vuelta', 'is', null)
+          .not('ciclo_fase', 'is', null)
+          // Con fase: o ya no está en el ritmo (se le quita) o es de «No responde» y ya le llegó su día (vuelve a Fase 1). Los de Fase 2 y 3 que siguen en el ritmo no se piden
+          .or(`status.not.in.(${ESTADOS_DE_RITMO.join(',')}),and(ciclo_fase.eq.sin_respuesta,next_call_date.lte.${hoy})`)
           .order('id', { ascending: true })
           .range(tramo * TRAMO, tramo * TRAMO + TRAMO - 1)
         if (error) throw error

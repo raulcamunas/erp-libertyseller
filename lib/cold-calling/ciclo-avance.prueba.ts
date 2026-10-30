@@ -1,5 +1,5 @@
 import { sumarDiasHabiles } from '@/lib/correo/secuencias/fechas'
-import { decidirAvance, DIAS_HASTA_LA_SEGUNDA_VUELTA, MAX_DE_VUELTAS, type LeadParaElCiclo, type PasoParaElCiclo, type SecuenciaParaElCiclo } from './ciclo-avance'
+import { AVANCE_AUTOMATICO_DE_FASES, decidirAvance, DIAS_HASTA_LA_SEGUNDA_VUELTA, MAX_DE_VUELTAS, type LeadParaElCiclo, type PasoParaElCiclo, type SecuenciaParaElCiclo } from './ciclo-avance'
 import type { FaseDelCiclo } from './ciclo'
 
 let fallos = 0
@@ -15,6 +15,9 @@ const ok = (n: string, bien: boolean, d = '') => {
  *
  * Los correos salen solos a sus días; las FASES avanzan cuando se HACE LA LLAMADA, no cuando pasa el día: un lead al que no se llama se queda donde está, cada día más atrasado (y se limpia
  * llamando), hasta que la secuencia de correos se cierra sin respuesta.
+ *
+ * (Desde el 30 oct 2026 las fases las pulsa la persona y el proceso real corre con este avance APAGADO: lo de abajo comprueba el modo automático, que se conserva, con `avanceAutomatico` por
+ * defecto; la última sección comprueba el modo a mano, que es el que corre de verdad.)
  *
  * El calendario de los ejemplos es el de verdad: el primer correo sale el martes 27 de octubre de 2026, el seguimiento 1 el viernes 30 (3 días hábiles) y el seguimiento 2 el jueves 5 de
  * noviembre (7). El lunes 2 de noviembre es festivo en Madrid, y no en Cataluña.
@@ -219,6 +222,58 @@ console.log('\n=== el comercial NO llama nunca: la secuencia se cierra y no se q
   const r = recorrido(() => false, '2027-01-20')
   console.log('    ' + r.resumen.split(' | ').join('\n    '))
   ok('se queda en Fase 2 hasta que el motor cierra la secuencia (16 de noviembre); entonces pasa a «No responde» (llamar el 15 de enero) y vuelve ese día', r.resumen === '2026-10-27 fase_2 (llamar 2026-10-30) | 2026-11-16 sin_respuesta (llamar 2027-01-15) | 2027-01-15 otra_vuelta', r.resumen)
+}
+
+console.log('\n=== con las fases a mano (avanceAutomatico: false): el proceso SOLO recoge lo que no es del comercial ===')
+{
+  const MANUAL = { avanceAutomatico: false }
+  const enF2 = lead({ ciclo_fase: 'f2', next_call_date: '2026-10-30' })
+  const enF3 = lead({ ciclo_fase: 'f3', next_call_date: '2026-11-05' })
+  ok('el proceso real corre con el avance automático APAGADO desde el 30 oct 2026', AVANCE_AUTOMATICO_DE_FASES === false)
+  ok('y por defecto la función sigue siendo la automática: su regla y sus pruebas se conservan', decidirAvance(lead(), recienEmpezada(), '2026-10-27')?.motivo === 'fase_2')
+  ok('la Fase 1 NO pasa a Fase 2 porque haya una secuencia en marcha: la pasa la persona al pulsar «Fase 2»', decidirAvance(lead(), recienEmpezada(), '2026-10-27', MANUAL) === null)
+  ok('Fase 2 no pasa a Fase 3 aunque se haya llamado: la pasa la persona', decidirAvance(enF2, trasElPrimero(), '2026-10-30', { ...LLAMADO, ...MANUAL }) === null)
+  ok('ni Fase 3 a «No responde» aunque se haya llamado', decidirAvance(enF3, trasElSegundo(), '2026-11-05', { ...LLAMADO, ...MANUAL }) === null)
+  ok('ni cuando el motor cierra la secuencia sin respuesta: ya no hay correos automáticos que marquen el ritmo', decidirAvance(enF2, trasElSegundo('sin_respuesta'), '2026-11-16', MANUAL) === null && decidirAvance(enF3, trasElSegundo('sin_respuesta'), '2026-11-16', MANUAL) === null)
+  ok('NUNCA cambia de fase solo, en 120 días, con cualquier secuencia (o ninguna), llamado o no', (() => {
+    for (const fase of [null, 'f2', 'f3'] as Array<FaseDelCiclo | null>)
+      for (const sec of [null, recienEmpezada(), trasElPrimero(), trasElSegundo(), trasElSegundo('sin_respuesta'), trasElSegundo('respondida')])
+        for (let d = 0; d < 120; d++) {
+          const dia = new Date(Date.UTC(2026, 9, 27) + d * 86_400_000).toISOString().slice(0, 10)
+          for (const llamadaHecha of [false, true]) if (decidirAvance(lead({ ciclo_fase: fase, next_call_date: '2026-10-30' }), sec, dia, { llamadaHecha, ...MANUAL }) !== null) return false
+        }
+    return true
+  })())
+
+  let mal = ''
+  for (const fase of ['f2', 'f3', 'sin_respuesta'] as const) {
+    for (const estado of ['seguimiento', 'cita_cualificada', 'no_interesa', 'programado', 'email_enviado'] as const) {
+      const c = decidirAvance(lead({ status: estado, ciclo_fase: fase }), null, '2026-10-31', MANUAL)
+      if (!(c?.motivo === 'sale_del_ritmo' && c.campos.ciclo_fase === null && Object.keys(c.campos).length === 1)) mal += ` ${estado}/${fase}`
+    }
+  }
+  ok('SIGUE quitando la fase, y nada más, a quien ya salió del ritmo (la IA que cierra por «no me interesa» y la rellamada sola cambian el estado sin pasar por la ficha): en Fase 2, Fase 3 y «No responde», con cualquiera de los cinco estados', mal === '', mal)
+  ok('y deja la misma nota de siempre', decidirAvance(lead({ status: 'seguimiento', ciclo_fase: 'f2' }), null, '2026-10-31', MANUAL)?.nota === 'Ciclo comercial · Sale de las fases: el lead está en «En seguimiento».')
+  ok('un lead sin fase que ya está en seguimiento no necesita nada', decidirAvance(lead({ status: 'seguimiento', ciclo_fase: null }), null, '2026-10-31', MANUAL) === null)
+
+  const parado = lead({ ciclo_fase: 'sin_respuesta', next_call_date: '2027-01-05' })
+  ok('antes de su día, «No responde» no vuelve', decidirAvance(parado, null, '2027-01-04', MANUAL) === null)
+  const c = decidirAvance(parado, null, '2027-01-05', MANUAL)
+  ok('el día que toca vuelve a Fase 1 (vuelta 2), sin mirar ninguna secuencia, con la fecha de la llamada de ese día', c?.motivo === 'otra_vuelta' && c.campos.ciclo_fase === null && c.campos.ciclo_vuelta === 2 && !('next_call_date' in c.campos), JSON.stringify(c))
+  ok('si se olvidó un día, también vuelve; y la tercera vuelta es la 3', decidirAvance(parado, null, '2027-01-12', MANUAL)?.campos.ciclo_vuelta === 2 && decidirAvance(lead({ ciclo_vuelta: 2, ciclo_fase: 'sin_respuesta', next_call_date: '2027-03-09' }), null, '2027-03-09', MANUAL)?.campos.ciclo_vuelta === 3)
+  ok(`respeta el tope de ${MAX_DE_VUELTAS} vueltas y la fecha vacía, como siempre`, decidirAvance(lead({ ciclo_vuelta: MAX_DE_VUELTAS, ciclo_fase: 'sin_respuesta', next_call_date: '2027-01-05' }), null, '2027-01-05', MANUAL) === null && decidirAvance(lead({ ciclo_fase: 'sin_respuesta', next_call_date: null }), null, '2027-01-12', MANUAL) === null)
+  ok('con los correos automáticos parados no hay secuencia que mirar, pero si alguna vieja sigue en marcha o cerrada sin respuesta, vuelve igual', ['activa', 'completada', 'sin_respuesta'].every((e) => decidirAvance(parado, trasElSegundo(e), '2027-01-05', MANUAL)?.motivo === 'otra_vuelta'))
+  ok('en modo a mano, lo ÚNICO que produce son «sale del ritmo» y «otra vuelta»: nunca Fase 2, Fase 3 ni «No responde»', (() => {
+    for (const fase of [null, 'f2', 'f3', 'sin_respuesta'] as Array<FaseDelCiclo | null>)
+      for (const estado of ['pendiente', 'no_contesta', 'seguimiento', 'programado'] as const)
+        for (const sec of [null, recienEmpezada(), trasElSegundo('sin_respuesta')])
+          for (const dia of ['2026-10-27', '2026-11-16', '2027-01-05', '2027-03-01'])
+            for (const llamadaHecha of [false, true]) {
+              const r = decidirAvance(lead({ status: estado, ciclo_fase: fase, next_call_date: '2026-10-30' }), sec, dia, { llamadaHecha, ...MANUAL })
+              if (r && r.motivo !== 'sale_del_ritmo' && r.motivo !== 'otra_vuelta') return false
+            }
+    return true
+  })())
 }
 
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)

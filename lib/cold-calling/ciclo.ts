@@ -7,17 +7,20 @@ import { COLD_STATUS_HINTS, COLD_STATUS_LABELS, type ColdLead, type ColdLeadStat
  *
  * QUÉ ES. Los leads que se pasan a una lista «de ciclo» (los que tienen `ciclo_vuelta`, migración 264) se trabajan con un ritmo fijo:
  *   · FASE 1 = «Sin contactar»: los dos toques de llamada. No tiene caja propia: es la de siempre.
- *   · FASE 2: nadie contestó, el comercial mandó el primer correo con seguimientos y el lead se rellama el MISMO DÍA que sale el seguimiento 1.
- *   · FASE 3: lo mismo con el seguimiento 2 (el de cierre).
+ *   · FASE 2: nadie contestó, el comercial mandó el correo y el WhatsApp y pulsó «Fase 2»: el lead se rellama a los 2 días laborables.
+ *   · FASE 3: lo mismo con la segunda rellamada: se rellama a los 3 días laborables de pulsar «Fase 3».
  *   · NO RESPONDE: pasó por las dos rellamadas sin contestar; se vuelve a llamar a los dos meses y entonces empieza otra vez (2.ª vuelta) en «Sin contactar».
  * Y fuera del ritmo, lo de siempre: En seguimiento, Cita agendada y No le interesa. Sacar a un lead de las fases es SIEMPRE cosa del comercial (puede haber hablado por teléfono o por
  * WhatsApp, que la máquina no ve): el sistema nunca pasa un lead a «En seguimiento» por su cuenta.
  *
- * LAS FASES AVANZAN AL LLAMAR, NO AL PASAR EL DÍA (lib/cold-calling/ciclo-avance.ts): un lead al que no se llama se queda en su fase, cada día más atrasado, y sale antes en la lista.
+ * A PARTIR DEL 30 OCT 2026 LAS FASES LAS PULSA LA PERSONA (lib/cold-calling/ciclo-manual.ts): llama, manda el correo y el WhatsApp a mano y pulsa «Fase 2»; el lead vuelve a salir dentro de 2 días
+ * laborables («hoy» ese día), repite y pulsa «Fase 3» (+3 laborables), y si no contestan, «No responde» (60 días). Ya no hay correos automáticos que marquen el ritmo. Un lead al que no se llega ese día
+ * se queda en su fase, cada día más atrasado, y sale antes en la lista. (El avance automático de lib/cold-calling/ciclo-avance.ts se conserva, apagado.)
  *
  * LA FASE NO ES UN ESTADO NUEVO. `status` sigue siendo uno de los siete de siempre y todo lo que lo lee (Rendimiento, el conector, la IA de los correos y de WhatsApp, el cierre por
  * «no me interesa», las secuencias) sigue entendiendo lo mismo: un lead que está en Fase 2 es un «No contesta» de verdad, y por eso su WhatsApp sale como el de quien no ha hablado y
- * no como el de «después de hablar». La fase es una etiqueta que se pone encima (`ciclo_fase`) y que solo cambian el proceso automático y quien saca al lead del ritmo.
+ * no como el de «después de hablar». La fase es una etiqueta que se pone encima (`ciclo_fase`) y que cambia la persona al pulsar una fase o al sacar al lead del ritmo (y el proceso automático solo
+ * para quitarla a quien ya salió del ritmo o para devolver a Fase 1 a los de «No responde» a los 60 días).
  * Lo que cambia es CÓMO SE AGRUPAN Y SE NOMBRAN esos estados en una lista de ciclo: las cajas de abajo.
  */
 
@@ -85,9 +88,9 @@ export const esListaDeCiclo = (total: number, enElCiclo: number): boolean => enE
 const ETIQUETAS_NUEVAS: Record<EstadoSoloDelCiclo, string> = { fase_2: 'Fase 2', fase_3: 'Fase 3', no_responde: 'No responde' }
 
 const PISTAS_NUEVAS: Record<EstadoSoloDelCiclo, string> = {
-  fase_2: 'Primera rellamada: el correo y el WhatsApp ya han salido y se llama el día del siguiente correo. Pasa a Fase 3 solo cuando se hace esa llamada; si no se llama, se queda aquí y sale más arriba cuanto más atrasada. La pone el sistema',
-  fase_3: 'Segunda rellamada: el día del último correo. Pasa a «No responde» solo cuando se hace esa llamada; si no se llama, se queda aquí y sale más arriba cuanto más atrasada. La pone el sistema',
-  no_responde: 'Ha pasado por las dos rellamadas sin contestar (o se acabó la secuencia de correos sin respuesta). Se vuelve a llamar a los dos meses, y entonces empieza otra vez. La pone el sistema',
+  fase_2: 'Ya has llamado y escrito (correo y WhatsApp): el lead vuelve a salir dentro de 2 días laborables, con «hoy» ese día; si no llegas, con «atrasada N d» y más arriba cuanto más atrasada. Se pulsa a mano',
+  fase_3: 'Segunda rellamada: ya has llamado y escrito otra vez. El lead vuelve a salir dentro de 3 días laborables (5 desde la primera llamada); si no llegas, se queda aquí, más atrasado cada día. Se pulsa a mano',
+  no_responde: 'Ha pasado por las dos rellamadas sin contestar. Se vuelve a llamar a los dos meses, y entonces empieza otra vez. Se pulsa a mano',
 }
 
 const esNueva = (estado: EstadoVisible): estado is EstadoSoloDelCiclo => (ESTADOS_SOLO_DEL_CICLO as readonly string[]).includes(estado)
@@ -98,11 +101,14 @@ export const etiquetaDeEstadoVisible = (estado: EstadoVisible): string => (esNue
 /** Qué significa, para que nadie dude al elegir */
 export const pistaDeEstadoVisible = (estado: EstadoVisible): string => (esNueva(estado) ? PISTAS_NUEVAS[estado] : COLD_STATUS_HINTS[estado])
 
-/** Las tres cajas nuevas las pone el sistema: el comercial no las elige, solo saca al lead de ellas (a En seguimiento, Cita, No le interesa o Sin contactar) */
-export const lasPoneElSistema = (estado: EstadoVisible): boolean => esNueva(estado)
+/**
+ * ¿Es una de las tres cajas de fase (Fase 2, Fase 3, No responde)? Las pulsa la persona (lib/cold-calling/ciclo-manual.ts): al pulsar una se guarda la fase y la rellamada, no un estado de los siete.
+ * (Hasta el 29 oct 2026 las ponía el sistema y esta función se llamaba `lasPoneElSistema`.)
+ */
+export const esCajaDeFase = (estado: EstadoVisible): estado is EstadoSoloDelCiclo => esNueva(estado)
 
-/** El estado de siempre al que corresponde elegir esa caja a mano, o null si es una de las tres que pone el sistema (Fase 2, Fase 3, No responde) */
-export const estadoAlElegirCaja = (caja: EstadoVisible): ColdLeadStatus | null => (lasPoneElSistema(caja) ? null : (caja as ColdLeadStatus))
+/** El estado de siempre al que corresponde elegir esa caja, o null si es una de las tres de fase (Fase 2, Fase 3, No responde): esas guardan una fase y una fecha, no un estado */
+export const estadoAlElegirCaja = (caja: EstadoVisible): ColdLeadStatus | null => (esCajaDeFase(caja) ? null : (caja as ColdLeadStatus))
 
 /* ------------------------------------------------------------------ */
 /* Sacar a un lead de las fases                                        */

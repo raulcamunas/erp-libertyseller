@@ -2,9 +2,9 @@
 
 import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { fechaDeRellamada } from '@/lib/cold-calling/cartera'
-import { vencimientoDe, etiquetaDeVencimiento } from '@/lib/cold-calling/fechas'
+import { diaConSemana, vencimientoDe, etiquetaDeVencimiento } from '@/lib/cold-calling/fechas'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { estadoVisible, etiquetaDeEstadoVisible } from '@/lib/cold-calling/ciclo'
+import { cajaDelCiclo, enCiclo, esCajaDeFase, estadoVisible, etiquetaDeEstadoVisible } from '@/lib/cold-calling/ciclo'
 import { esPartner, type ColdLead } from '@/lib/types/cold-leads'
 import { Esqueleto } from '@/components/rendimiento/ui'
 import { MarcaDeFestivo } from './Festivos'
@@ -41,17 +41,19 @@ export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, diaFesti
   const vencimiento = vencimientoDe(fecha, hoy)
   const cerrado = lead.status === 'no_interesa'
 
+  // Un lead en Fase 2, Fase 3 o «No responde» dice también cuántos días faltan para su rellamada («en 3 d»): la jornada es limpiar lo que toca, pero se ve lo que viene. En las demás listas, solo hoy, mañana y atrasada
+  const enFase = enCiclo(lead) && esCajaDeFase(cajaDelCiclo(lead))
   const chip =
-    vencimiento && (vencimiento.tipo === 'atrasada' || vencimiento.tipo === 'hoy' || vencimiento.tipo === 'manana') ? (
+    vencimiento && (vencimiento.tipo === 'atrasada' || vencimiento.tipo === 'hoy' || vencimiento.tipo === 'manana' || (vencimiento.tipo === 'futura' && enFase)) ? (
       <span
-        title={`Rellamar ${vencimiento.tipo === 'hoy' ? 'hoy' : vencimiento.tipo === 'manana' ? 'mañana' : `el ${fecha}`}`}
+        title={`Rellamar ${vencimiento.tipo === 'hoy' ? 'hoy' : vencimiento.tipo === 'manana' ? 'mañana' : `el ${fecha ? diaConSemana(fecha) : ''}`}`}
         className="inline-flex h-[17px] items-center rounded-[4px] px-1.5 text-[10.5px] font-semibold leading-none"
         style={{
           color: COLOR_ESTADO[vencimiento.tipo === 'atrasada' ? 'ambar' : vencimiento.tipo === 'hoy' ? 'cian' : 'gris'],
           background: tinte(vencimiento.tipo === 'atrasada' ? 'ambar' : vencimiento.tipo === 'hoy' ? 'cian' : 'gris'),
         }}
       >
-        {etiquetaDeVencimiento(fecha, hoy)}
+        {vencimiento.tipo === 'futura' ? `en ${vencimiento.dias} d` : etiquetaDeVencimiento(fecha, hoy)}
       </span>
     ) : null
 

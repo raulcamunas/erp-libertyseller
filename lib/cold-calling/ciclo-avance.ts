@@ -11,6 +11,12 @@ import { ESTADOS_DE_RITMO, type FaseDelCiclo } from './ciclo'
  * PURO. Se comprueba con ciclo-avance.prueba.ts. Lo usa el proceso automático «Ciclo comercial» (ciclo-servidor.ts), que le pasa cada lead del ciclo con su secuencia de correos, el día de hoy y
  * si ya se le ha llamado, y aplica lo que esta función decide. Aquí no se toca ninguna base de datos.
  *
+ * A PARTIR DEL 30 OCT 2026 LAS FASES LAS PULSA LA PERSONA (lib/cold-calling/ciclo-manual.ts): llama, escribe el correo y el WhatsApp a mano y pulsa «Fase 2» (o «Fase 3», o «No responde»); la
+ * rellamada sale de ese día (+2 y +3 días laborables). Los correos automáticos se pararon: el ritmo ya no sale de la secuencia. Por eso el proceso «Ciclo comercial» corre con
+ * AVANCE_AUTOMATICO_DE_FASES = false y SOLO hace lo que no es del comercial: quitar la fase a quien ya salió del ritmo (la IA que cierra por «no me interesa» y la rellamada sola cambian el estado sin
+ * pasar por la ficha) y devolver a Fase 1 a los de «No responde» cuando se cumple su plazo. Lo que sigue describe el avance AUTOMÁTICO (Fase 1 → 2 → 3 → «No responde» según la secuencia y las
+ * llamadas), que se conserva y se comprueba pero está apagado: se enciende con `avanceAutomatico: true` o cambiando esa constante.
+ *
  * LOS CORREOS Y LAS LLAMADAS VAN POR SEPARADO. Los correos de la secuencia salen solos a sus días (los 3 y 7 días hábiles) lo llame o no lo llame nadie. La RELLAMADA de cada fase se pone el mismo
  * día que sale el siguiente correo, y el lead PASA A LA SIGUIENTE FASE CUANDO SE HACE ESA LLAMADA, no cuando pasa el día: un lead al que todavía no se ha llamado se queda donde está, cada día más
  * atrasado, y sale antes en la lista cuanto más antiguo es. Así la lista se va acumulando con los días y se limpia llamando, que es lo que tiene que pasar. (Hasta el 29 oct 2026 pasaban de fase
@@ -76,9 +82,20 @@ export interface CambioDelCiclo {
   nota: string
 }
 
+/**
+ * ¿AVANZAN LAS FASES SOLAS? NO, desde el 30 oct 2026: las pulsa la persona (lib/cold-calling/ciclo-manual.ts). Es lo que usa el proceso real (ciclo-servidor.ts); la función de abajo, por defecto, sigue
+ * siendo la automática de siempre para que su regla y sus pruebas se conserven. Volver a encenderla es cambiar esta constante.
+ */
+export const AVANCE_AUTOMATICO_DE_FASES = false
+
 export interface OpcionesDeAvance {
   /** ¿Hay una llamada SALIENTE a este lead desde el día de su rellamada (inclusive)? Lo calcula el proceso con las llamadas de Rinkel */
   llamadaHecha?: boolean
+  /**
+   * ¿Avanzan las fases solas (Fase 1 → 2 → 3 → «No responde», según la secuencia de correos y las llamadas)? Por defecto SÍ. Apagado, solo se hace lo que no es del comercial: quitar la fase a quien
+   * ya salió del ritmo y devolver a Fase 1 a los de «No responde» cuando se cumple su plazo (no hace falta ni secuencia ni llamadas)
+   */
+  avanceAutomatico?: boolean
 }
 
 /** Un paso que ya no cambiará solo y que cuenta como «cumplido»: salió, o el motor lo saltó o falló. Uno cancelado no: lo paró una persona */
@@ -98,6 +115,7 @@ export function decidirAvance(lead: LeadParaElCiclo, secuencia: SecuenciaParaElC
     return lead.ciclo_fase !== null ? { campos: { ciclo_fase: null }, motivo: 'sale_del_ritmo', nota: `Ciclo comercial · Sale de las fases: el lead está en «${COLD_STATUS_LABELS[lead.status] ?? lead.status}».` } : null
   }
 
+  const automatico = opciones.avanceAutomatico ?? true
   const lugar = lugarDelLead(lead)
   /** El día en que se llama: el del correo si es hábil para el lead, y si no el siguiente que lo sea */
   const diaDeLlamada = (dia: string): string => proximoDiaHabil(sumarDias(dia, -1), lugar)
@@ -132,6 +150,8 @@ export function decidirAvance(lead: LeadParaElCiclo, secuencia: SecuenciaParaElC
 
   switch (lead.ciclo_fase) {
     case null: {
+      // Con las fases a mano, de la Fase 1 a la 2 pasa cuando la persona pulsa «Fase 2»
+      if (!automatico) return null
       // Fase 1: ¿ha mandado ya el comercial el primer correo con seguimientos?
       const proximo = enMarcha ? siguiente(0) : null
       if (!proximo?.hay || proximo.dia === null) return null
@@ -140,7 +160,7 @@ export function decidirAvance(lead: LeadParaElCiclo, secuencia: SecuenciaParaElC
     }
 
     case 'f2': {
-      if (!sinRespuesta || seguimientos.length === 0) return null
+      if (!automatico || !sinRespuesta || seguimientos.length === 0) return null
       // El ritmo de correos ya acabó sin respuesta (el motor cierra la secuencia siete días hábiles después del último): no se queda atrasado para siempre
       if (secuencia?.estado === 'sin_respuesta') return finDeCiclo('Acabó la secuencia de correos sin respuesta')
       if (!opciones.llamadaHecha) return null
@@ -154,7 +174,7 @@ export function decidirAvance(lead: LeadParaElCiclo, secuencia: SecuenciaParaElC
     }
 
     case 'f3': {
-      if (!sinRespuesta || seguimientos.length === 0) return null
+      if (!automatico || !sinRespuesta || seguimientos.length === 0) return null
       if (secuencia?.estado === 'sin_respuesta') return finDeCiclo('Acabó la secuencia de correos sin respuesta')
       return opciones.llamadaHecha ? finDeCiclo('Hecha la llamada de la Fase 3') : null
     }

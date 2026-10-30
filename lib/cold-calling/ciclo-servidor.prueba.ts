@@ -59,6 +59,14 @@ function almacen(m: Mundo): AlmacenDelCiclo {
       // Lo mismo que pide la base: los de Fase 2 y 3, y los de «No responde» solo si ya les llegó su día
       return [...m.leads.values()].filter((l) => l.ciclo_fase !== null && (l.ciclo_fase !== 'sin_respuesta' || (l.next_call_date !== null && l.next_call_date <= hoy))).map((l) => ({ ...l }))
     },
+    async leadsParaElModoManual(hoy) {
+      m.lecturas.push('leadsParaElModoManual')
+      if (m.fallaLaLectura) throw m.fallaLaLectura
+      // Lo mismo que pide la base: con fase, y o ya no están en el ritmo o son de «No responde» y ya les llegó su día. Los de Fase 2 y 3 que siguen en el ritmo no salen
+      return [...m.leads.values()]
+        .filter((l) => l.ciclo_fase !== null && (!['pendiente', 'no_contesta'].includes(l.status) || (l.ciclo_fase === 'sin_respuesta' && l.next_call_date !== null && l.next_call_date <= hoy)))
+        .map((l) => ({ ...l }))
+    },
     async leadsConSecuenciaViva() {
       m.lecturas.push('leadsConSecuenciaViva')
       return [...m.secuencias.entries()].filter(([, s]) => s.estado === 'activa').map(([id]) => id)
@@ -95,7 +103,10 @@ function almacen(m: Mundo): AlmacenDelCiclo {
 }
 
 const sinEspera = async () => {}
-const opciones = (ahora: string, extra: Record<string, unknown> = {}) => ({ ahora: () => Date.parse(ahora), esperar: sinEspera, ...extra })
+// Los escenarios de abajo comprueban el avance AUTOMÁTICO (se conserva, apagado en producción desde el 30 oct 2026): se encienden aquí. La última sección comprueba el modo que corre de verdad (las fases a mano)
+const opciones = (ahora: string, extra: Record<string, unknown> = {}) => ({ ahora: () => Date.parse(ahora), esperar: sinEspera, avanceAutomatico: true, ...extra })
+// El modo de producción: sin `avanceAutomatico`, lo que diga AVANCE_AUTOMATICO_DE_FASES
+const opcionesDeProduccion = (ahora: string, extra: Record<string, unknown> = {}) => ({ ahora: () => Date.parse(ahora), esperar: sinEspera, ...extra })
 
 // (Sin await de nivel superior: tsx lo compila como CommonJS)
 async function main() {
@@ -239,7 +250,7 @@ async function main() {
     const m = mundo()
     for (let i = 0; i < 4; i++) ponerLead(m, {}, recienEmpezada())
     const pausas: number[] = []
-    await avanzarElCiclo(almacen(m), { ahora: () => Date.parse('2026-10-28T09:00:00Z'), esperar: async (ms) => { pausas.push(ms) }, pausaMs: 25 })
+    await avanzarElCiclo(almacen(m), { ahora: () => Date.parse('2026-10-28T09:00:00Z'), esperar: async (ms) => { pausas.push(ms) }, pausaMs: 25, avanceAutomatico: true })
     ok('entre un cambio y otro hay una pausa (cada guardado es un aviso del tiempo real)', pausas.length === 4 && pausas.every((p) => p === 25), pausas.join(','))
   }
 
@@ -259,6 +270,67 @@ async function main() {
       lanzo = true
     }
     ok('cualquier otro fallo (un tiempo agotado de la base) NO se disfraza de «falta la migración»: se propaga para que Sistema lo ponga en rojo', lanzo)
+  }
+
+  console.log('\n=== con las fases a mano (lo que corre de verdad desde el 30 oct 2026) ===')
+  {
+    // Lo que había en producción: muchos leads en Fase 1 con secuencia viva, Fase 2 y 3 con rellamada vencida y llamadas hechas, y una secuencia ya cerrada sin respuesta
+    const m = mundo()
+    for (let i = 0; i < 50; i++) ponerLead(m, {}, recienEmpezada())
+    const f2 = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-10-30' }, trasElPrimero())
+    const f3 = ponerLead(m, { ciclo_fase: 'f3', next_call_date: '2026-11-05' }, trasElSegundo())
+    const cerrada = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-10-30' }, trasElSegundo('sin_respuesta'))
+    m.llamadas.push({ lead_id: f2, fecha: '2026-10-30T09:00:00Z' }, { lead_id: f3, fecha: '2026-11-05T09:00:00Z' })
+    const r = await avanzarElCiclo(almacen(m), opcionesDeProduccion('2026-11-16T10:00:00Z'))
+    ok('por defecto el proceso NO avanza las fases solo: ni por la secuencia, ni por las llamadas, ni porque la secuencia se cierre sin respuesta', r.ensayo === false && m.escrituras.length === 0 && m.leads.get(f2)?.ciclo_fase === 'f2' && m.leads.get(f3)?.ciclo_fase === 'f3' && m.leads.get(cerrada)?.ciclo_fase === 'f2')
+    ok('y los 50 de Fase 1 con secuencia viva siguen en Fase 1: pasan a Fase 2 cuando la persona lo pulsa', [...m.leads.values()].filter((l) => l.ciclo_fase === null).length === 50)
+    ok('NO lee secuencias, ni leads en Fase 1, ni llamadas de Rinkel: una sola consulta, y los de Fase 2 y 3 que siguen en el ritmo ni se piden', m.lecturas.join(',') === 'leadsParaElModoManual' && r.revisados === 0, m.lecturas.join(','))
+    ok('y lo dice en el resumen de Sistema', r.resumen === 'Nada que mover (fases a mano: 0 leads mirados).', r.resumen)
+  }
+  {
+    const m = mundo()
+    const habla = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-11-04', status: 'seguimiento' })
+    const cierra = ponerLead(m, { ciclo_fase: 'f3', next_call_date: '2026-11-06', status: 'no_interesa' })
+    const sigue = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-11-04' })
+    const r = await avanzarElCiclo(almacen(m), opcionesDeProduccion('2026-11-03T10:00:00Z'))
+    ok('un lead de fase al que alguien ya habló (la IA que cierra por «no me interesa», la rellamada sola) pierde la fase, y nada más', m.leads.get(habla)?.ciclo_fase === null && m.leads.get(habla)?.status === 'seguimiento' && m.leads.get(habla)?.next_call_date === '2026-11-04' && m.leads.get(cierra)?.ciclo_fase === null && r.cambios.sale_del_ritmo === 2, JSON.stringify(r.cambios))
+    ok('y deja su nota en el historial', m.notas.length === 2 && m.notas.every((n) => n.nota.startsWith('Ciclo comercial · Sale de las fases')), JSON.stringify(m.notas))
+    ok('el de Fase 2 que sigue en el ritmo no se toca', m.leads.get(sigue)?.ciclo_fase === 'f2' && m.leads.get(sigue)?.next_call_date === '2026-11-04')
+    ok('solo se leyeron los dos que tenían algo que hacer', r.revisados === 2 && m.lecturas.join(',') === 'leadsParaElModoManual', m.lecturas.join(','))
+    const otra = await avanzarElCiclo(almacen(m), opcionesDeProduccion('2026-11-03T10:02:00Z'))
+    ok('y la pasada siguiente no repite nada', otra.revisados === 0 && m.escrituras.length === 2)
+  }
+  {
+    const m = mundo()
+    const parado = ponerLead(m, { ciclo_fase: 'sin_respuesta', next_call_date: '2027-01-05' })
+    const aun = ponerLead(m, { ciclo_fase: 'sin_respuesta', next_call_date: '2027-02-01' })
+    const antes = await avanzarElCiclo(almacen(m), opcionesDeProduccion('2027-01-04T10:00:00Z'))
+    ok('antes de su día, «No responde» no se lee ni se mueve', antes.revisados === 0 && m.escrituras.length === 0)
+    const llega = await avanzarElCiclo(almacen(m), opcionesDeProduccion('2027-01-05T10:00:00Z'))
+    ok('el día que le toca vuelve a Fase 1 (vuelta 2) con su nota, sin mirar ninguna secuencia; el otro, que aún no, se queda', m.leads.get(parado)?.ciclo_fase === null && (m.leads.get(parado) as { ciclo_vuelta: number }).ciclo_vuelta === 2 && llega.cambios.otra_vuelta === 1 && m.leads.get(aun)?.ciclo_fase === 'sin_respuesta' && m.lecturas.every((l) => l === 'leadsParaElModoManual'), m.lecturas.join(','))
+    ok('con su nota: «han pasado los dos meses»', m.notas[0]?.nota === 'Ciclo comercial · Han pasado los dos meses: vuelve a «Sin contactar» (vuelta 2).', m.notas[0]?.nota)
+  }
+  {
+    const m = mundo()
+    const habla = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-11-04', status: 'seguimiento' })
+    const r = await avanzarElCiclo(almacen(m), opcionesDeProduccion('2026-11-03T10:00:00Z', { ensayo: true }))
+    ok('el ensayo, en modo a mano, dice lo que haría y no guarda nada', r.ensayo && r.cambios.sale_del_ritmo === 1 && m.leads.get(habla)?.ciclo_fase === 'f2' && m.escrituras.length === 0 && r.resumen.startsWith('Haría: 1 sin fase'), r.resumen)
+  }
+  {
+    const m = mundo()
+    const habla = ponerLead(m, { ciclo_fase: 'f2', next_call_date: '2026-11-04', status: 'seguimiento' })
+    m.tocadosAlVuelo.add(habla)
+    const r = await avanzarElCiclo(almacen(m), opcionesDeProduccion('2026-11-03T10:00:00Z'))
+    ok('si una persona toca el lead mientras tanto, gana ella y el cambio se rehace en la pasada siguiente', r.alVuelo === 1 && m.leads.get(habla)?.ciclo_fase === 'f2')
+    m.tocadosAlVuelo.clear()
+    await avanzarElCiclo(almacen(m), opcionesDeProduccion('2026-11-03T10:02:00Z'))
+    ok('ya libre, se le quita', m.leads.get(habla)?.ciclo_fase === null)
+  }
+  {
+    const m = mundo()
+    m.fallaLaLectura = { code: '42703', message: 'column cold_leads.ciclo_fase does not exist' }
+    const r = await avanzarElCiclo(almacen(m), opcionesDeProduccion('2026-11-03T10:00:00Z'))
+    ok('con la migración sin lanzar, en modo a mano también lo dice y no toca nada', r.faltaLaMigracion && r.resumen.includes('migración 264') && m.escrituras.length === 0 && m.lecturas.join(',') === 'leadsParaElModoManual')
   }
 
   console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)

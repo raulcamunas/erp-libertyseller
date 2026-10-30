@@ -8,8 +8,8 @@ import { createServiceClient } from '@/lib/supabase/service'
  * CICLO COMERCIAL: UNA PASADA DEL CRON.
  *
  * Cada minuto el crontab del contenedor entra aquí y `tocaAhora('ciclo-leads')` decide si ya toca (cada dos minutos, o lo que se ponga en Sistema; o apagado). Una pasada
- * (lib/cold-calling/ciclo-servidor.ts) mira los leads de las listas de ciclo que están en el ritmo —los que ya tienen fase y los que acaban de empezar una secuencia— y los pasa de fase si toca.
- * Sin ninguna lista de ciclo son tres consultas pequeñas. Mientras no esté lanzada la migración 264 la pasada lo dice y no hace nada.
+ * (lib/cold-calling/ciclo-servidor.ts) ya no hace avanzar las fases —desde el 30 oct 2026 las pulsa la persona (lib/cold-calling/ciclo-manual.ts)—: solo quita la fase a los leads del ciclo que ya salieron
+ * del ritmo y devuelve a Fase 1 a los de «No responde» a los 60 días. Sin nada que hacer es una consulta pequeña. Mientras no esté lanzada la migración 264 la pasada lo dice y no hace nada.
  *
  * `?ensayo=1` no guarda nada y dice lo que haría: sirve para mirar antes de encender y para comprobar en producción (con `?forzar=1` salta el reloj de Sistema).
  * `conRegistro` envuelve SOLO el trabajo: abre su fila ANTES de trabajar.
