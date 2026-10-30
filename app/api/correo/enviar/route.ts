@@ -24,7 +24,8 @@ import { createServiceClient } from '@/lib/supabase/service'
  *   sinCita      '1' para no citar el mensaje original al contestar
  *   iaId         (opcional) id del borrador que escribió la IA y que el comercial ha editado y envía: se apunta lo que salió de verdad
  *   secuencia    (opcional) JSON { leadId, seguimientos: [{ texto, asunto? }], iaModelo? }: tras enviar, se programan esos seguimientos automáticos (ver
- *                lib/correo/secuencias). Solo vale para un primer correo a UN destinatario; el correo sale igual aunque no se puedan programar
+ *                lib/correo/secuencias). Solo vale para un primer correo a UN destinatario; el correo sale igual aunque no se puedan programar. A un lead de antes de las
+ *                automatizaciones (antiguos.ts) no se le programa nada y sin ningún aviso: la respuesta es la de un correo normal
  *   adjuntos     uno o varios ficheros
  *
  * Una dirección que no vale NO se descarta en silencio: se devuelve un 400 con la que falla, porque quien envía tiene que
@@ -155,9 +156,13 @@ export async function POST(request: NextRequest) {
               iaModelo: pedida.iaModelo,
             }
           )
+          // Un lead de antes de las automatizaciones (y fuera del ciclo) no lleva seguimientos y eso NO es un fallo: el correo es un correo normal y no se cuenta nada
+          // (el cuadro de escribir ni siquiera los ofrece; esto es la red de seguridad por si llega alguno igualmente)
           secuencia = resultado.ok
             ? { ok: true, aviso: resultado.aviso, pasos: resultado.pasos.map((p) => ({ orden: p.orden, etiqueta: p.etiqueta, programadoAt: p.programadoAt })) }
-            : { ok: false, mensaje: resultado.mensaje }
+            : resultado.motivo === 'lead_antiguo'
+              ? undefined
+              : { ok: false, mensaje: resultado.mensaje }
         } catch (error) {
           registrar('Correo · enviar: no se han podido programar los seguimientos', error)
           secuencia = { ok: false, mensaje: 'El correo ha salido, pero no se han podido programar los seguimientos. Vuelve a intentarlo desde la ficha del lead.' }

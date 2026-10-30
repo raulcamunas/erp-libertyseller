@@ -3,9 +3,11 @@ import { avisoDeAccionDeOtro, type AvisoParaLaCampana } from '../campana'
 import { adelantarPaso, cancelarSecuencia, editarPaso, pausarSecuencia, reanudarSecuencia, reintentarPaso, saltarPaso, type ResultadoDeAccion } from './acciones'
 import { validarAjustes, validarAjustesDeBuzon } from './ajustes'
 import type { AlmacenDeSecuencias } from './almacen'
+import { leadAdmiteAutomatizacion } from './antiguos'
 import { avisarAlDueno, nombreEnElAviso } from './avisar'
 import { constructorDeCapacidad } from './capacidad'
 import { diaDeMadrid, instanteDeMadrid, sumarDiasHabiles } from './fechas'
+import { LEAD_CERRADO } from './inscripcion'
 import { ejecutarPasada, planificarPendientes, type DependenciasDelMotor, type ResumenDePasada } from './motor'
 import { topeDelBuzonEnElDia, type AjustesDelMotor } from './reglas'
 import { armarSalud, type SaludDeSecuencias } from './salud'
@@ -520,6 +522,34 @@ export async function estadoParaElCuadro(almacen: Almacen, quien: QuienPide, buz
     enviadosHoy: carga.enviadosHoy,
     redactaAlEnviar: ajustes.redactarAlEnviar && ajustes.redactarAlEnviarDisponible,
   }
+}
+
+/**
+ * Lo que el cuadro de Correo sabe de ESTE lead antes de ofrecer seguimientos, para que no haya sorpresas después de pulsar «Enviar».
+ *   · `antiguo`: se trabajó antes de las automatizaciones y no está en el ciclo (antiguos.ts). El bloque NO se ofrece: ni interruptor, ni IA escribiendo, ni aviso. El correo es uno normal.
+ *   · `cerrado`: ya lo lleva una persona o ya no quiere (En seguimiento, Cita agendada, No le interesa). El bloque sale apagado, con la misma frase tranquila que daría el servidor al enviar.
+ *   · `sin_lectura`: no se ha podido comprobar (o el lead no existe). Como si el motor estuviera apagado: el bloque no aparece y el cuadro funciona igual.
+ */
+export type MotivoDelLead = 'antiguo' | 'cerrado' | 'sin_lectura'
+
+export interface SituacionDelLeadParaElCuadro {
+  admite: boolean
+  motivo: MotivoDelLead | null
+  /** Solo en `cerrado`: la frase que se enseña en el bloque apagado */
+  mensaje: string | null
+}
+
+/**
+ * Nunca lanza: si no se puede comprobar, el lead no admite (`sin_lectura`). Lo primero que cuenta es lo antiguo: un antiguo «En seguimiento» no enseña nada.
+ * Las dos lecturas van a la vez: el bloque del cuadro espera a esta respuesta.
+ */
+export async function situacionDelLeadParaElCuadro(almacen: Almacen, leadId: string): Promise<SituacionDelLeadParaElCuadro> {
+  const [veredicto, lead] = await Promise.all([leadAdmiteAutomatizacion(almacen, leadId), almacen.leadParaMotor(leadId).catch(() => null)])
+  if (!veredicto.admite) return { admite: false, motivo: veredicto.porque, mensaje: null }
+  // Sin lead (no existe, o no se ha podido leer): no hay nada que ofrecer
+  if (!lead) return { admite: false, motivo: 'sin_lectura', mensaje: null }
+  const cerrado = LEAD_CERRADO[lead.status]
+  return cerrado ? { admite: false, motivo: 'cerrado', mensaje: cerrado } : { admite: true, motivo: null, mensaje: null }
 }
 
 /* ------------------------------------------------------------------ */

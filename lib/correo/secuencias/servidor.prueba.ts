@@ -1,8 +1,9 @@
 import type { QuienPide } from '@/lib/correo/acceso'
 import { nuevaBase } from '@/lib/correo/secuencias/cliente-falso'
 import { ejecutarPasada } from '@/lib/correo/secuencias/motor'
-import { B1, B2, HORA, MIN, T0, TEXTO_S1, UA, UB, UC, UD, crearMundo, type Entorno } from '@/lib/correo/secuencias/mundo-de-pruebas'
-import { FALTA_LA_MIGRACION_245, accionSobreSecuencia, buzonesVisibles, colaDeSecuencias, detalleDeSecuencia, estadoParaElCuadro, guardarAjustesDeBuzon, guardarAjustesDelMotor, pantallaVisible, tablero } from '@/lib/correo/secuencias/servidor'
+import { instanteDeMadrid } from '@/lib/correo/secuencias/fechas'
+import { B1, B2, HORA, MIN, T0, TEXTO_S1, UA, UB, UC, UD, crearMundo, identificador, type Entorno } from '@/lib/correo/secuencias/mundo-de-pruebas'
+import { FALTA_LA_MIGRACION_245, accionSobreSecuencia, buzonesVisibles, colaDeSecuencias, detalleDeSecuencia, estadoParaElCuadro, guardarAjustesDeBuzon, guardarAjustesDelMotor, pantallaVisible, situacionDelLeadParaElCuadro, tablero } from '@/lib/correo/secuencias/servidor'
 
 let fallos = 0
 let comprobaciones = 0
@@ -385,6 +386,47 @@ async function main() {
     await real.actualizar('correo_secuencia_buzones', { participa: false }, (q) => q.eq('buzon_id', B1))
     const e6 = await estadoParaElCuadro(real.almacen, ANA, B1, T0)
     ok('si el buzón no participa, se explica', !e6.disponible && /no participa/.test(e6.mensaje ?? ''))
+  }
+
+  console.log('\n=== lo que sabe el cuadro de Correo de ESTE lead (antes de pulsar «Enviar») ===')
+  {
+    const m = await crearMundo(entorno, { activa: true, ensayo: false })
+    const ANTES = instanteDeMadrid('2026-10-20', 600)
+    const situacion = async (n: number, o: { status?: string; antes?: boolean; ciclo?: boolean } = {}) => {
+      const lead = await m.nuevoLead(n, o.status ? { status: o.status } : {})
+      if (o.antes) await m.sembrar('cold_lead_notes', { lead_id: lead.id, author_id: UA, kind: 'llamada', body: 'x', occurred_at: m.iso(ANTES), created_at: m.iso(ANTES), es_respuesta: false })
+      if (o.ciclo) await m.actualizar('cold_leads', { ciclo_vuelta: 1 }, (q) => q.eq('id', lead.id))
+      return { lead, s: await situacionDelLeadParaElCuadro(m.almacen, lead.id) }
+    }
+
+    const nuevo = (await situacion(1)).s
+    ok('un lead nuevo admite seguimientos y no hay nada que decirle', nuevo.admite && nuevo.motivo === null && nuevo.mensaje === null)
+    const antiguo = (await situacion(2, { antes: true })).s
+    ok('uno de antes de las automatizaciones NO: el bloque ni se ofrece, sin ninguna frase', !antiguo.admite && antiguo.motivo === 'antiguo' && antiguo.mensaje === null)
+    const antiguoEnSeguimiento = (await situacion(3, { antes: true, status: 'seguimiento' })).s
+    ok('un antiguo «En seguimiento» también se esconde, sin la frase del estado (lo lleva su comercial, como siempre)', !antiguoEnSeguimiento.admite && antiguoEnSeguimiento.motivo === 'antiguo' && antiguoEnSeguimiento.mensaje === null)
+    const seguimiento = (await situacion(4, { status: 'seguimiento' })).s
+    ok('uno NUEVO «En seguimiento» enseña el bloque apagado, con la frase de siempre', !seguimiento.admite && seguimiento.motivo === 'cerrado' && /En seguimiento.*lo lleva una persona/.test(seguimiento.mensaje ?? ''), JSON.stringify(seguimiento))
+    const sinInteres = (await situacion(5, { status: 'no_interesa' })).s
+    const cita = (await situacion(6, { status: 'cita_cualificada' })).s
+    ok('lo mismo con «No interesa» y con una cita agendada, cada uno con su frase', sinInteres.motivo === 'cerrado' && /No interesa/.test(sinInteres.mensaje ?? '') && cita.motivo === 'cerrado' && /cita agendada/.test(cita.mensaje ?? ''))
+    const delCiclo = (await situacion(7, { antes: true, ciclo: true })).s
+    ok('uno del ciclo con actividad anterior admite', delCiclo.admite && delCiclo.motivo === null)
+    const delCicloCerrado = (await situacion(8, { antes: true, ciclo: true, status: 'seguimiento' })).s
+    ok('y si está en el ciclo y cerrado, solo vale lo del estado', delCicloCerrado.motivo === 'cerrado')
+    const inexistente = await situacionDelLeadParaElCuadro(m.almacen, identificador('e', 999))
+    ok('un lead que no existe: sin lectura, el bloque no aparece', !inexistente.admite && inexistente.motivo === 'sin_lectura' && inexistente.mensaje === null)
+
+    const consola = console.error
+    console.error = () => undefined
+    try {
+      const sinHistorial = await situacionDelLeadParaElCuadro({ ...m.almacen, leadTuvoContactoAntesDe: async () => { throw new Error('La base no contesta') } }, (await m.nuevoLead(9)).id)
+      ok('si la base no contesta al comprobar si es antiguo: sin lectura, sin reventar y sin frase', !sinHistorial.admite && sinHistorial.motivo === 'sin_lectura' && sinHistorial.mensaje === null)
+      const sinLead = await situacionDelLeadParaElCuadro({ ...m.almacen, leadParaMotor: async () => { throw new Error('La base no contesta') } }, (await m.nuevoLead(10)).id)
+      ok('y si no contesta al leer el lead, igual', !sinLead.admite && sinLead.motivo === 'sin_lectura')
+    } finally {
+      console.error = consola
+    }
   }
 
   console.log('\n=== una pasada a mano ===')

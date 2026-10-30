@@ -3,7 +3,7 @@ import { UUID, fail } from '@/lib/amazon/api'
 import { SIN_CACHE, requerirCorreo } from '@/lib/correo/rutas'
 import { almacenDeSecuencias } from '@/lib/correo/secuencias/almacen'
 import { respuestaDeFalloDeSecuencias } from '@/lib/correo/secuencias/rutas'
-import { estadoParaElCuadro, pantallaVisible } from '@/lib/correo/secuencias/servidor'
+import { estadoParaElCuadro, pantallaVisible, situacionDelLeadParaElCuadro } from '@/lib/correo/secuencias/servidor'
 import { quienPide } from '@/lib/correo/servidor'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -11,6 +11,8 @@ import { createServiceClient } from '@/lib/supabase/service'
  * LO QUE NECESITA EL CUADRO DE CORREO PARA OFRECER (O NO) LOS SEGUIMIENTOS AUTOMÁTICOS.
  *
  * GET ?buzonId=…  (un buzón que es de quien pregunta)
+ * GET ?buzonId=…&leadId=…  lo mismo, y además `lead: { admite, motivo, mensaje }` con lo que se sabe de ESE lead (si es de antes de las automatizaciones, si ya está cerrado): ver
+ *                          situacionDelLeadParaElCuadro. Solo se contesta por él cuando la función está disponible.
  * GET (sin buzón)  →  `{ ok, visible }`: si Correo ofrece el botón «Secuencias» a esta persona (un administrador siempre; el resto, con el motor en marcha)
  *
  * Devuelve `{ disponible, mensaje, activa, ensayo, pasos: [{ orden, dias, diaAprox }], diasHastaNoInteresa, topeHoy, enviadosHoy }`. Con el motor apagado la función es invisible
@@ -36,10 +38,15 @@ export async function GET(request: NextRequest) {
     }
   }
   if (!UUID.test(buzon)) return fail(400, 'Falta el buzón.')
+  const leadId = request.nextUrl.searchParams.get('leadId')
+  if (leadId !== null && !UUID.test(leadId)) return fail(400, 'El lead no es válido.')
   try {
     const service = createServiceClient()
     const quien = await quienPide(service, sesion)
-    return NextResponse.json({ ok: true, ...(await estadoParaElCuadro(almacenDeSecuencias(service), quien, buzon.toLowerCase())) }, { headers: SIN_CACHE })
+    const almacen = almacenDeSecuencias(service)
+    // Las lecturas del lead van a la vez que las del estado: el bloque del cuadro espera a las dos. Del lead solo se contesta si hay algo que ofrecer
+    const [estado, lead] = await Promise.all([estadoParaElCuadro(almacen, quien, buzon.toLowerCase()), leadId !== null ? situacionDelLeadParaElCuadro(almacen, leadId.toLowerCase()) : null])
+    return NextResponse.json({ ok: true, ...estado, ...(lead && estado.disponible ? { lead } : {}) }, { headers: SIN_CACHE })
   } catch (error) {
     respuestaDeFalloDeSecuencias('Correo · secuencias: estado', error)
     return NextResponse.json({ ok: true, disponible: false, mensaje: null, activa: false, ensayo: false, pasos: [], diasHastaNoInteresa: 0, topeHoy: 0, enviadosHoy: 0 }, { headers: SIN_CACHE })

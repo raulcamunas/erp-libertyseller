@@ -1,5 +1,6 @@
 import { direccionesDeLead } from '../ia-servidor'
 import type { AlmacenDeSecuencias } from './almacen'
+import { MENSAJE_LEAD_ANTIGUO, MENSAJE_SIN_LECTURA, leadAdmiteAutomatizacion } from './antiguos'
 import { diaCorto, diaDeMadrid, horaDeMadrid, sumarDiasHabiles } from './fechas'
 import { planificarPendientes } from './motor'
 import { dominioDeDireccion, esDominioLibre } from './reglas'
@@ -20,6 +21,8 @@ import { revisarSeguimiento } from './seguimientos'
  * la persona:
  *   · el motor y la secuencia base existen (si no, el correo se envía igual y simplemente no hay seguimientos);
  *   · el buzón participa, el lead es de quien envía y no está ya cerrado (No interesa, Cita, En seguimiento);
+ *   · el lead no es de antes de las automatizaciones (antiguos.ts): a un lead ya trabajado antes del 24 oct 2026 que no está en el ciclo no se le programa NADA, y sin ningún aviso:
+ *     el correo que acaba de enviar la persona es un correo normal;
  *   · la dirección es una de las del lead (nadie programa seguimientos a una dirección cualquiera);
  *   · ningún seguimiento habla de dinero ni deja huecos por rellenar (las reglas fijas de los correos).
  */
@@ -42,7 +45,8 @@ export interface PeticionDeInscripcion {
   iaModelo: string | null
 }
 
-export type MotivoDeRechazo = 'direccion_mala' | 'no_disponible' | 'buzon_no_participa' | 'lead_no_vale' | 'direccion_no_es_del_lead' | 'texto_no_vale' | 'demasiados_seguimientos' | 'sin_seguimientos' | 'error'
+/** `lead_antiguo` NO es un fallo: el lead se trabajó antes de las automatizaciones y no lleva seguimientos. Quien envía no recibe ningún aviso por ello (ver app/api/correo/enviar/route.ts) */
+export type MotivoDeRechazo = 'direccion_mala' | 'no_disponible' | 'buzon_no_participa' | 'lead_no_vale' | 'lead_antiguo' | 'direccion_no_es_del_lead' | 'texto_no_vale' | 'demasiados_seguimientos' | 'sin_seguimientos' | 'error'
 
 export interface PasoProgramado {
   orden: number
@@ -59,8 +63,8 @@ export type ResultadoDeInscribir =
   | { ok: true; inscripcionId: string; pasos: PasoProgramado[]; aviso: string | null; sustituida: boolean }
   | { ok: false; motivo: MotivoDeRechazo; mensaje: string }
 
-/** Los estados del lead en los que no tiene sentido programar seguimientos: ya lo lleva una persona o ya no quiere */
-const LEAD_CERRADO: Record<string, string> = {
+/** Los estados del lead en los que no tiene sentido programar seguimientos: ya lo lleva una persona o ya no quiere. El cuadro de escribir enseña la misma frase antes de enviar (servidor.ts) */
+export const LEAD_CERRADO: Record<string, string> = {
   no_interesa: 'Este lead está marcado «No interesa»: no se programan seguimientos.',
   cita_cualificada: 'Este lead ya tiene una cita agendada: no se programan seguimientos.',
   seguimiento: 'Este lead está «En seguimiento»: lo lleva una persona, no se programan seguimientos automáticos.',
@@ -95,6 +99,10 @@ export async function inscribir(deps: { almacen: AlmacenDeSecuencias; ahora?: ()
   const lead = await almacen.leadParaMotor(p.leadId)
   if (!lead) return rechazar('lead_no_vale', 'No se encuentra el lead.')
   if (lead.assigned_to !== null && lead.assigned_to !== p.userId) return rechazar('lead_no_vale', 'Este lead es de otra persona: los seguimientos tienen que salir de su comercial.')
+  // Un lead de antes de las automatizaciones sigue a mano. Se mira ANTES que su estado: un antiguo «En seguimiento» (lo lleva su comercial, como siempre) no merece ningún aviso.
+  // Si no se puede comprobar, no se programa: estos correos salen solos y no se retiran
+  const veredicto = await leadAdmiteAutomatizacion(almacen, p.leadId)
+  if (!veredicto.admite) return veredicto.porque === 'antiguo' ? rechazar('lead_antiguo', MENSAJE_LEAD_ANTIGUO) : rechazar('error', MENSAJE_SIN_LECTURA)
   const cerrado = LEAD_CERRADO[lead.status]
   if (cerrado) return rechazar('lead_no_vale', cerrado)
 

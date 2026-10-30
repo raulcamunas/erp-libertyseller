@@ -207,6 +207,8 @@ export const ESQUEMA: Readonly<Record<string, EsquemaDeTabla>> = {
       'id', 'store_name', 'company', 'status', 'assigned_to', 'email', 'emails_extra', 'phone', 'category', 'subcategory', 'province', 'ciudad', 'tipo_lead',
       'vende_en_amazon', 'tipo_empresa', 'plataforma', 'n_productos', 'anos_tienda', 'amazon_start', 'web', 'instagram', 'follow_up', 'call_attempts',
       'last_contacted_at', 'next_call_date', 'updated_at',
+      // La migración 264: el lead está en una lista de ciclo (el sistema 2.0) cuando tiene vuelta. Vacío = no
+      'ciclo_vuelta',
     ],
   },
   cold_lead_notes: { columnas: ['id', 'lead_id', 'author_id', 'kind', 'body', 'occurred_at', 'created_at', 'es_respuesta'], requeridas: ['lead_id', 'kind', 'body'] },

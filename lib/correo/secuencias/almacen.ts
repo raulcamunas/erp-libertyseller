@@ -55,6 +55,9 @@ const aIso = (ms: number): string => new Date(ms).toISOString()
 const PAGINA = 1000
 const TROZO = 100
 
+/** Los apuntes de una persona que cuentan como «se trabajó este lead» (antiguos.ts): una nota suelta no. Las del SQL del 30 oct 2026 */
+const CLASES_DE_APUNTE_DE_CONTACTO = ['email', 'llamada', 'whatsapp', 'linkedin'] as const
+
 function trozos<T>(lista: readonly T[], n = TROZO): T[][] {
   const partes: T[][] = []
   for (let i = 0; i < lista.length; i += n) partes.push(lista.slice(i, i + n))
@@ -861,6 +864,35 @@ export function almacenDeSecuencias(service: Servicio) {
     return (data as unknown as LeadDelMotor | null) ?? null
   }
 
+  /**
+   * ¿Está el lead en una lista de ciclo (el sistema 2.0)? Lo dice `ciclo_vuelta` (migración 264): solo lo tienen los leads que se han pasado al ciclo. Sin esa columna ningún lead
+   * lo está, y un lead que no existe tampoco.
+   */
+  async function leadEstaEnElCiclo(leadId: string): Promise<boolean> {
+    const { data, error } = await service.from('cold_leads').select('ciclo_vuelta').eq('id', leadId).maybeSingle()
+    if (error) {
+      if (isMissingSchema(error)) return false
+      throw fallo('No se ha podido leer el lead.', error)
+    }
+    return ((data ?? null) as { ciclo_vuelta: number | null } | null)?.ciclo_vuelta != null
+  }
+
+  /**
+   * ¿Se trabajó este lead antes de `antesDe`? Sí si tiene una llamada de Rinkel anterior (de cualquier sentido) o un apunte de una PERSONA —una llamada, un correo, un WhatsApp o un LinkedIn—
+   * cuyo hecho ocurrió antes. Los apuntes del sistema (sin autor: los seguimientos automáticos, el ciclo…) y las notas sueltas no cuentan. Son las mismas condiciones del SQL con el
+   * que se pausaron los seguimientos de los leads antiguos el 30 oct 2026. Dos consultas de UNA fila por lead; la segunda solo si la primera no lo ha dicho.
+   */
+  async function leadTuvoContactoAntesDe(leadId: string, antesDe: number): Promise<boolean> {
+    const corte = aIso(antesDe)
+    const llamadas = await service.from('rinkel_llamadas').select('id').eq('lead_id', leadId).lt('fecha', corte).limit(1)
+    // Sin las tablas de Rinkel no hay llamadas: no es un error (como en llamadasDelLead)
+    if (llamadas.error && !isMissingSchema(llamadas.error)) throw fallo('No se han podido leer las llamadas del lead.', llamadas.error)
+    if (!llamadas.error && (llamadas.data ?? []).length > 0) return true
+    const apuntes = await service.from('cold_lead_notes').select('id').eq('lead_id', leadId).not('author_id', 'is', null).in('kind', [...CLASES_DE_APUNTE_DE_CONTACTO]).lt('occurred_at', corte).limit(1)
+    if (apuntes.error) throw fallo('No se ha podido leer el historial del lead.', apuntes.error)
+    return (apuntes.data ?? []).length > 0
+  }
+
   async function notasDelLead(leadId: string, limite = 30): Promise<NotaLeida[]> {
     const { data, error } = await service
       .from('cold_lead_notes')
@@ -1534,6 +1566,8 @@ export function almacenDeSecuencias(service: Servicio) {
     fijarHoras,
     liberarEnsayados,
     leadParaMotor,
+    leadEstaEnElCiclo,
+    leadTuvoContactoAntesDe,
     notasDelLead,
     llamadasDelLead,
     correosManualesA,

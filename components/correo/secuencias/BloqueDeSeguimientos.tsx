@@ -18,7 +18,19 @@ import { direccionesDelCampo } from './ComprobacionDeCorreo'
  * haya visto: si lleva el interruptor encendido y aún no están escritos, el primer «Enviar» los escribe y se detiene para que se lean.
  *
  * Es información y ayuda, no una condición para enviar: si el servidor no contesta, o el motor está apagado, el bloque no aparece y el cuadro funciona igual.
+ *
+ * ANTES de ofrecer nada se pregunta por el lead (lib/correo/secuencias/antiguos.ts y servidor.ts):
+ *   · un lead de antes de las automatizaciones (24 oct 2026) y fuera del ciclo NO lleva seguimientos: el bloque ni aparece, la IA no escribe nada y no hay ningún aviso;
+ *   · uno que ya está cerrado (En seguimiento, Cita agendada, No le interesa) enseña el bloque apagado, con una sola línea que lo explica, en vez de la sorpresa al pulsar «Enviar».
+ * Un lead sin respuesta del servidor (un servidor más viejo) se trata como siempre.
  */
+
+/** Lo que el servidor dice de ESTE lead. `antiguo` y `sin_lectura` esconden el bloque; `cerrado` lo apaga con `mensaje` */
+export interface SituacionDelLead {
+  admite: boolean
+  motivo: 'antiguo' | 'cerrado' | 'sin_lectura' | null
+  mensaje: string | null
+}
 
 export interface EstadoDelCuadro {
   disponible: boolean
@@ -31,6 +43,8 @@ export interface EstadoDelCuadro {
   enviadosHoy: number
   /** La IA escribe cada seguimiento de nuevo justo antes de enviarlo: los textos que se ven aquí son un borrador */
   redactaAlEnviar: boolean
+  /** Solo si se preguntó por el lead y la función está disponible */
+  lead?: SituacionDelLead
 }
 
 export interface SeguimientoEditable {
@@ -106,11 +120,11 @@ export function useSeguimientos(p: Entrada) {
     }
   }, [])
 
-  // Qué hay en el servidor para este buzón. Solo se pregunta si el correo puede llevar seguimientos (primer correo, abierto desde la ficha de un lead)
+  // Qué hay en el servidor para este buzón y para este lead. Solo se pregunta si el correo puede llevar seguimientos (primer correo, abierto desde la ficha de un lead)
   useEffect(() => {
     if (!p.leadId || p.modo !== 'nuevo') return
     let vivo = true
-    void pedir<EstadoDelCuadro>(`/api/correo/secuencias/estado?buzonId=${encodeURIComponent(p.buzonId)}`).then((r) => {
+    void pedir<EstadoDelCuadro>(`/api/correo/secuencias/estado?buzonId=${encodeURIComponent(p.buzonId)}&leadId=${encodeURIComponent(p.leadId)}`).then((r) => {
       if (vivo && r.ok && r.datos.disponible) setEstado(r.datos)
     })
     return () => {
@@ -121,8 +135,12 @@ export function useSeguimientos(p: Entrada) {
   const cuerpo = textoSinFirma(p.texto, p.firma).trim()
   const destinos = direccionesDelCampo(p.para)
   const unSoloDestino = destinos.length === 1 && direccionesDelCampo(p.cc).length === 0
-  const disponible = Boolean(estado?.disponible) && Boolean(p.leadId) && p.modo === 'nuevo'
-  const elegible = disponible && unSoloDestino
+  // Un lead de antes de las automatizaciones (o uno que no se ha podido comprobar) no lleva seguimientos: el bloque no aparece y el correo es uno normal
+  const sinBloque = estado?.lead?.motivo === 'antiguo' || estado?.lead?.motivo === 'sin_lectura'
+  // Uno ya cerrado (lo lleva una persona…) enseña el bloque apagado, con la frase del servidor
+  const motivoDelLead = estado?.lead?.motivo === 'cerrado' ? (estado.lead.mensaje ?? 'Este lead ya no admite seguimientos automáticos.') : null
+  const disponible = Boolean(estado?.disponible) && Boolean(p.leadId) && p.modo === 'nuevo' && !sinBloque
+  const elegible = disponible && unSoloDestino && motivoDelLead === null
 
   const generar = async (indicaciones?: string): Promise<boolean> => {
     if (!p.leadId || !disponible) return false
@@ -193,6 +211,8 @@ export function useSeguimientos(p: Entrada) {
     disponible,
     elegible,
     unSoloDestino,
+    /** Si el lead ya está cerrado: la frase tranquila que explica por qué el bloque está apagado. null = el lead admite seguimientos (o ni se ofrece) */
+    motivoDelLead,
     activo,
     setActivo,
     lista,
@@ -269,24 +289,27 @@ export function BloqueDeSeguimientos({ seg }: { seg: Seguimientos }) {
   const e = seg.estado as EstadoDelCuadro
   const llenoHoy = e.topeHoy > 0 && e.enviadosHoy >= e.topeHoy
   const palabras = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
+  // El lead ya está cerrado: el bloque sale apagado, sin interruptor y con la frase que lo explica (la misma que daría el servidor al enviar)
+  const apagadoPorElLead = seg.motivoDelLead !== null
 
   return (
     <section className="sec-sube rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]" aria-label="Seguimientos automáticos">
       <header className="flex items-center gap-3 px-3 py-2.5">
-        <span className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px] bg-[var(--ls-acc-suave)] text-[var(--ls-acc)]">
+        <span className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px] ${apagadoPorElLead ? 'bg-[var(--ls-sup3)] text-[var(--ls-t4)]' : 'bg-[var(--ls-acc-suave)] text-[var(--ls-acc)]'}`}>
           <Workflow className="h-4 w-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="text-[12.5px] font-semibold text-[var(--ls-t1)]">Seguimientos automáticos</h3>
-          <p className="truncate text-[11.5px] text-[var(--ls-t3)]">
-            {!seg.unSoloDestino
-              ? 'Solo se programan cuando el correo va a una única dirección.'
-              : seg.activo
-                ? `Si no contesta, salen solos ${e.pasos.length === 1 ? '1 correo' : `${e.pasos.length} correos`} más.`
-                : 'No se programará ningún seguimiento para este correo.'}
+          <p className={`text-[11.5px] text-[var(--ls-t3)] ${apagadoPorElLead ? '' : 'truncate'}`}>
+            {seg.motivoDelLead ??
+              (!seg.unSoloDestino
+                ? 'Solo se programan cuando el correo va a una única dirección.'
+                : seg.activo
+                  ? `Si no contesta, salen solos ${e.pasos.length === 1 ? '1 correo' : `${e.pasos.length} correos`} más.`
+                  : 'No se programará ningún seguimiento para este correo.')}
           </p>
         </div>
-        {seg.unSoloDestino && (
+        {seg.unSoloDestino && !apagadoPorElLead && (
           <button
             type="button"
             role="switch"

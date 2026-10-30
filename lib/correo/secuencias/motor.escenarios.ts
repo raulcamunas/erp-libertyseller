@@ -789,6 +789,147 @@ export const ESCENARIOS: Escenario[] = [
     },
   },
   {
+    nombre: 'Los leads de antes de las automatizaciones (24 oct) no llevan seguimientos: ni se programan ni se avisa; los nuevos y los del ciclo sí',
+    async correr(e, ok) {
+      const ANTES = instanteDeMadrid('2026-10-20', 600)
+      const DESPUES = instanteDeMadrid('2026-10-26', 600)
+      /** El corte: el 24 oct 2026 a las 00:00 UTC */
+      const CORTE = Date.UTC(2026, 9, 24, 0, 0, 0)
+      let contador = 0
+      /** Un mundo con un lead (sin historial), el hilo del primer correo y, si se pide, lo que haya pasado ANTES del alta */
+      const preparar = async (opciones: { status?: string; antes?: (m: Mundo, leadId: string) => Promise<void> } = {}) => {
+        const n = ++contador
+        const m = await crearMundo(e)
+        const lead = await m.nuevoLead(n, opciones.status ? { status: opciones.status } : {})
+        await m.sembrar('correo_hilos', { id: identificador('d', n), buzon_id: B1, asunto: 'x', primer_mensaje_at: m.iso(), ultimo_mensaje_at: m.iso() })
+        if (opciones.antes) await opciones.antes(m, lead.id)
+        return { m, lead, n }
+      }
+      const pedir = (m: Mundo, lead: { id: string; email: string }, n: number, almacen: Mundo['almacen'] = m.almacen) =>
+        inscribir(
+          { almacen, ahora: m.deps.ahora },
+          {
+            leadId: lead.id,
+            buzonId: B1,
+            userId: UA,
+            destinatario: lead.email,
+            primerCorreo: { asunto: 'Casa Luz', texto: TEXTO_PRIMERO, messageId: `p${n}@libertyseller.es`, hiloId: identificador('d', n), enviadoAt: m.reloj.ahora },
+            seguimientos: [{ texto: TEXTO_S1 }, { texto: TEXTO_S2 }],
+            iaModelo: null,
+          }
+        )
+      const llamada = (m: Mundo, leadId: string, cuando: number, direccion = 'outbound') => {
+        const n = ++contador
+        return m.sembrar('rinkel_llamadas', { id: identificador('a', 800 + n), user_id: UA, rinkel_id: `ant-${n}`, fecha: m.iso(cuando), direccion, duracion_s: 30, estado: 'ANSWERED', lead_id: leadId })
+      }
+      const apunte = (m: Mundo, leadId: string, kind: string, cuando: number, autor: string | null = UA) =>
+        m.sembrar('cold_lead_notes', { lead_id: leadId, author_id: autor, kind, body: 'x', occurred_at: m.iso(cuando), created_at: m.iso(cuando), es_respuesta: false })
+      const rechazo = (r: Awaited<ReturnType<typeof inscribir>>, motivo: string): boolean => !r.ok && r.motivo === motivo
+      /** Nada creado: ni secuencia, ni pasos, ni rastro */
+      const nadaCreado = async (m: Mundo): Promise<boolean> => (await m.leer('correo_secuencia_inscripciones')).length === 0 && (await m.leer('correo_secuencia_pasos')).length === 0 && (await m.eventos()).length === 0
+
+      // --- ANTIGUOS: se trabajaron antes del corte y no están en el ciclo ---
+      {
+        const { m, lead, n } = await preparar({ antes: (mm, id) => llamada(mm, id, ANTES) })
+        const r = await pedir(m, lead, n)
+        ok('una llamada de Rinkel anterior al corte: lead antiguo, no se programa nada', rechazo(r, 'lead_antiguo') && (await nadaCreado(m)), JSON.stringify(r))
+      }
+      {
+        const { m, lead, n } = await preparar({ antes: (mm, id) => llamada(mm, id, ANTES, 'inbound') })
+        ok('(la llamada vale en cualquier sentido, como en el SQL del 30 oct)', rechazo(await pedir(m, lead, n), 'lead_antiguo'))
+      }
+      for (const kind of ['email', 'llamada', 'whatsapp', 'linkedin']) {
+        const { m, lead, n } = await preparar({ antes: (mm, id) => apunte(mm, id, kind, ANTES) })
+        ok(`un apunte de una persona de «${kind}» anterior al corte: antiguo`, rechazo(await pedir(m, lead, n), 'lead_antiguo') && (await nadaCreado(m)))
+      }
+      {
+        const { m, lead, n } = await preparar({ antes: (mm, id) => apunte(mm, id, 'email', CORTE - 1000) })
+        ok('un segundo antes del corte: antiguo', rechazo(await pedir(m, lead, n), 'lead_antiguo'))
+      }
+
+      // --- LO QUE NO CUENTA: el lead es nuevo y el alta sale ---
+      {
+        const { m, lead, n } = await preparar()
+        const r = await pedir(m, lead, n)
+        ok('un lead sin historial: el alta funciona y deja su secuencia', r.ok && (await m.leer('correo_secuencia_inscripciones')).length === 1 && r.pasos.length === 2, JSON.stringify(r))
+      }
+      {
+        const { m, lead, n } = await preparar({ antes: (mm, id) => apunte(mm, id, 'nota', ANTES) })
+        ok('una nota suelta anterior no es haber trabajado el lead', (await pedir(m, lead, n)).ok)
+      }
+      {
+        const { m, lead, n } = await preparar({ antes: (mm, id) => apunte(mm, id, 'email', ANTES, null) })
+        ok('un apunte del sistema (sin autor) anterior tampoco', (await pedir(m, lead, n)).ok)
+      }
+      {
+        const { m, lead, n } = await preparar({ antes: async (mm, id) => { await llamada(mm, id, DESPUES); await apunte(mm, id, 'llamada', DESPUES) } })
+        ok('lo trabajado DESPUÉS del corte es un lead nuevo, como hasta ahora', (await pedir(m, lead, n)).ok)
+      }
+      {
+        const { m, lead, n } = await preparar({ antes: async (mm, id) => { await llamada(mm, id, CORTE); await apunte(mm, id, 'email', CORTE) } })
+        ok('lo que ocurre justo en el corte ya no es «de antes»', (await pedir(m, lead, n)).ok)
+      }
+
+      // --- DEL CICLO: siempre ---
+      {
+        const { m, lead, n } = await preparar({
+          antes: async (mm, id) => {
+            await llamada(mm, id, ANTES)
+            await apunte(mm, id, 'email', ANTES)
+            await mm.actualizar('cold_leads', { ciclo_vuelta: 1 }, (q) => q.eq('id', id))
+          },
+        })
+        const r = await pedir(m, lead, n)
+        ok('un lead del ciclo con actividad anterior SÍ lleva seguimientos', r.ok && (await m.leer('correo_secuencia_inscripciones')).length === 1, JSON.stringify(r))
+      }
+
+      // --- el estado del lead: lo antiguo manda sobre el aviso de siempre ---
+      {
+        const { m, lead, n } = await preparar({ status: 'seguimiento', antes: (mm, id) => apunte(mm, id, 'llamada', ANTES) })
+        const r = await pedir(m, lead, n)
+        ok('un antiguo «En seguimiento» no recibe el aviso de estado: es uno de antes y sigue a mano', rechazo(r, 'lead_antiguo') && !/En seguimiento/.test(!r.ok ? r.mensaje : ''), JSON.stringify(r))
+      }
+      for (const status of ['no_interesa', 'cita_cualificada', 'seguimiento']) {
+        const { m, lead, n } = await preparar({ status })
+        const r = await pedir(m, lead, n)
+        ok(`un lead NUEVO en «${status}» sigue rechazándose con el aviso de siempre`, rechazo(r, 'lead_no_vale') && (await nadaCreado(m)))
+      }
+      {
+        const { m, lead, n } = await preparar({ antes: (mm, id) => apunte(mm, id, 'llamada', ANTES) })
+        await m.actualizar('cold_leads', { assigned_to: UB }, (q) => q.eq('id', lead.id))
+        ok('un lead de otro comercial sigue diciendo que es de otra persona (eso se mira antes)', rechazo(await pedir(m, lead, n), 'lead_no_vale'))
+      }
+
+      // --- si no se puede leer, no se programa y no revienta ---
+      {
+        const { m, lead, n } = await preparar()
+        const sinHistorial = { ...m.almacen, leadTuvoContactoAntesDe: async (): Promise<boolean> => { throw new Error('La base no contesta') } }
+        const consola = console.error
+        console.error = () => undefined
+        let r: Awaited<ReturnType<typeof inscribir>> | null = null
+        try {
+          r = await pedir(m, lead, n, sinHistorial)
+        } finally {
+          console.error = consola
+        }
+        ok('si falla la lectura del historial: no se programa, con una frase clara, y sin reventar', r !== null && rechazo(r, 'error') && /No se han podido comprobar/.test(r.ok ? '' : r.mensaje) && (await nadaCreado(m)), JSON.stringify(r))
+      }
+      {
+        const { m, lead, n } = await preparar()
+        const sinCiclo = { ...m.almacen, leadEstaEnElCiclo: async (): Promise<boolean> => { throw new Error('La base no contesta') } }
+        const consola = console.error
+        console.error = () => undefined
+        let r: Awaited<ReturnType<typeof inscribir>> | null = null
+        try {
+          r = await pedir(m, lead, n, sinCiclo)
+        } finally {
+          console.error = consola
+        }
+        ok('y si falla la del ciclo, igual', r !== null && rechazo(r, 'error') && (await nadaCreado(m)))
+      }
+    },
+  },
+  {
     nombre: 'Las acciones de una persona: pausar, reanudar, saltar, editar, adelantar y cancelar',
     async correr(e, ok) {
       const m = await crearMundo(e)
