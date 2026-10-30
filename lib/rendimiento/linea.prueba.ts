@@ -1,5 +1,6 @@
 import {
   CARRILES,
+  cuentaDeLaLinea,
   desgloseDeLlamadas,
   eventosDeLinea,
   horaDeMinuto,
@@ -8,11 +9,12 @@ import {
   pausasDe,
   resumenDeLinea,
   textoDeMinutos,
+  traduccionDeLlamadas,
   ventanaDeHoras,
   type EventoDeLinea,
   type LlamadaParaLinea,
 } from '@/lib/rendimiento/linea'
-import { resumenDeLlamadas, type LlamadaParaMetricas } from '@/lib/rendimiento/metricas'
+import { cuentaDeLlamadas, resumenDeLlamadas, type LlamadaParaMetricas } from '@/lib/rendimiento/metricas'
 import type { CitaDeActividad, NotaDeActividad } from '@/lib/rendimiento/actividad'
 
 let fallos = 0
@@ -210,6 +212,65 @@ console.log('\n=== el desglose solo habla cuando hay algo que explicar ===')
   ok('el plural de recibidas', desgloseDeLlamadas({ clientes: 5, intentos: 5, recibidas: 3 }) === '3 recibidas')
 }
 
+console.log('\n=== de la lista a las cifras: lo que se dice para que no parezcan contradecirse ===')
+{
+  // Las llamadas del día de la captura del 30 de octubre (leads inventados): 12 intentos a 10 clientes y 6 intentos contestados de 5 clientes
+  const dia = [
+    llamada('10:16', 'ANSWERED', 135, { lead_id: 'l1' }),
+    llamada('10:45', 'MISSED', 36, { lead_id: 'l2' }),
+    llamada('10:48', 'ANSWERED', 16, { lead_id: 'l3' }),
+    llamada('10:56', 'ANSWERED', 13, { lead_id: 'l4', numero: '+34600000041' }),
+    llamada('10:56', 'ANSWERED', 10, { lead_id: 'l4', numero: '+34900000042' }),
+    llamada('11:15', 'MISSED', 1, { lead_id: 'l5' }),
+    llamada('11:21', 'ANSWERED', 8, { lead_id: 'l6' }),
+    llamada('11:21', 'ANSWERED', 6, { lead_id: 'l6' }),
+    llamada('11:25', 'ANSWERED', 8, { lead_id: 'l7' }),
+    llamada('11:28', 'ANSWERED', 52, { lead_id: 'l8' }),
+    llamada('11:30', 'ANSWERED', 394, { lead_id: 'l9' }),
+    llamada('12:21', 'MISSED', 3, { lead_id: 'l10' }),
+  ]
+  const deLaLinea = cuentaDeLaLinea(eventosDeLinea({ llamadas: dia, notas: [], citas: [], cliente: sinNombres }))
+  const deLaLista = cuentaDeLlamadas(dia.map((l) => ({ ...l, grabacion_id: null })))
+  ok('la línea y la lista cuentan exactamente lo mismo', j(deLaLinea) === j(deLaLista), j({ linea: deLaLinea, lista: deLaLista }))
+  ok('12 intentos a 10 clientes; 6 intentos contestados de 5 clientes; ninguna recibida', j(deLaLinea) === j({ intentos: 12, clientes: 10, intentosContestados: 6, clientesContestados: 5, recibidas: 0 }), j(deLaLinea))
+  ok(
+    'se dice en dos partes, con los nombres de las tarjetas',
+    j(traduccionDeLlamadas(deLaLinea)) === j([{ de: '12 intentos', a: '10 llamadas hechas' }, { de: '6 intentos contestados', a: '5 contestadas' }]),
+    j(traduccionDeLlamadas(deLaLinea))
+  )
+
+  // Solo hay que decir lo que no cuadra
+  ok('todo cuadra: nada que decir', traduccionDeLlamadas({ intentos: 7, clientes: 7, intentosContestados: 3, clientesContestados: 3, recibidas: 0 }).length === 0)
+  ok('sin llamadas: nada que decir', traduccionDeLlamadas({ intentos: 0, clientes: 0, intentosContestados: 0, clientesContestados: 0, recibidas: 0 }).length === 0)
+  ok(
+    'repetidas sin ninguna contestada de más: solo la primera parte',
+    j(traduccionDeLlamadas({ intentos: 9, clientes: 4, intentosContestados: 2, clientesContestados: 2, recibidas: 0 })) === j([{ de: '9 intentos', a: '4 llamadas hechas' }]),
+    j(traduccionDeLlamadas({ intentos: 9, clientes: 4, intentosContestados: 2, clientesContestados: 2, recibidas: 0 }))
+  )
+  ok(
+    'las recibidas van aparte y se dicen en singular o plural',
+    j(traduccionDeLlamadas({ intentos: 5, clientes: 5, intentosContestados: 2, clientesContestados: 2, recibidas: 1 })) === j([{ de: '1 recibida', a: 'no es una llamada hecha' }]) &&
+      j(traduccionDeLlamadas({ intentos: 5, clientes: 5, intentosContestados: 2, clientesContestados: 2, recibidas: 3 })) === j([{ de: '3 recibidas', a: 'no son llamadas hechas' }])
+  )
+  ok(
+    'el singular de la derecha: 2 intentos a 1 cliente que contestó en los dos',
+    j(traduccionDeLlamadas({ intentos: 2, clientes: 1, intentosContestados: 2, clientesContestados: 1, recibidas: 0 })) ===
+      j([{ de: '2 intentos', a: '1 llamada hecha' }, { de: '2 intentos contestados', a: '1 contestada' }])
+  )
+  ok(
+    'con las tres cosas a la vez, en el mismo orden de siempre',
+    traduccionDeLlamadas({ intentos: 12, clientes: 10, intentosContestados: 6, clientesContestados: 5, recibidas: 4 }).map((p) => p.de).join(' | ') === '12 intentos | 6 intentos contestados | 4 recibidas'
+  )
+
+  // Una recibida contestada no es un intento contestado
+  const conRecibida = cuentaDeLaLinea(
+    eventosDeLinea({ llamadas: [llamada('10:00', 'MISSED', 0, { lead_id: 'a' }), llamada('10:10', 'ANSWERED', 80, { lead_id: 'a', direccion: 'inbound' })], notas: [], citas: [], cliente: sinNombres })
+  )
+  ok('una recibida contestada no suma a los intentos contestados ni a los clientes contestados', j(conRecibida) === j({ intentos: 1, clientes: 1, intentosContestados: 0, clientesContestados: 0, recibidas: 1 }), j(conRecibida))
+  const raras = cuentaDeLaLinea(eventosDeLinea({ llamadas: [llamada('10:00', 'ANSWERED', 30, { direccion: 'internal' })], notas: [], citas: [], cliente: sinNombres }))
+  ok('una dirección que no es ni salida ni entrada no se cuenta en nada', j(raras) === j({ intentos: 0, clientes: 0, intentosContestados: 0, clientesContestados: 0, recibidas: 0 }), j(raras))
+}
+
 console.log('\n=== lo que no es una llamada de Rinkel, y los días ===')
 {
   // Un evento que ya no trae sentido ni cliente (como los de las pruebas de arriba) cuenta como antes: un intento a un cliente propio
@@ -242,6 +303,7 @@ console.log('\n=== la línea y las tarjetas no pueden contradecirse (al azar) ==
   }
   let dias = 0
   let distintos = 0
+  let mismasCuentas = 0
   for (let d = 0; d < 40; d++) {
     const n = 1 + Math.floor(azar() * 90)
     const llamadas: LlamadaParaLinea[] = []
@@ -262,12 +324,17 @@ console.log('\n=== la línea y las tarjetas no pueden contradecirse (al azar) ==
         numero: conNumero ? `+3461100${String(Math.floor(azar() * 9)).padStart(4, '0')}` : null,
       })
     }
-    const r = resumenDeLinea(eventosDeLinea({ llamadas, notas: [], citas: [], cliente: sinNombres }), []).llamadas
-    const t = resumenDeLlamadas(llamadas.map((l) => ({ ...l, grabacion_id: null })))
+    const eventos = eventosDeLinea({ llamadas, notas: [], citas: [], cliente: sinNombres })
+    const r = resumenDeLinea(eventos, []).llamadas
+    const paraMetricas = llamadas.map((l) => ({ ...l, grabacion_id: null }))
+    const t = resumenDeLlamadas(paraMetricas)
     dias++
     if (t.realizadas === r.clientes && t.intentos === r.intentos && t.recibidas === r.recibidas && r.clientes <= r.intentos) distintos++
+    // Y los cinco números con los que se explica la diferencia (los contestados incluidos) salen igual de la lista que de la línea
+    if (j(cuentaDeLaLinea(eventos)) === j(cuentaDeLlamadas(paraMetricas))) mismasCuentas++
   }
   ok(`en ${dias} días al azar, la línea y las tarjetas dicen lo mismo (clientes, intentos y recibidas)`, distintos === dias, `${distintos} de ${dias}`)
+  ok(`y la línea y la lista cuentan igual los intentos y clientes contestados (${dias} días)`, mismasCuentas === dias, `${mismasCuentas} de ${dias}`)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

@@ -1,6 +1,6 @@
 import { ETIQUETA_DE_CANAL, canalDe, type CitaDeActividad, type NotaDeActividad } from './actividad'
 import { etiquetaDeDia, diaMadrid, horaMadrid } from './dia'
-import { SEGUNDOS_DE_CONVERSACION, clienteDeLaLlamada, duracionCorta, esContestador, estaContestada } from './metricas'
+import { SEGUNDOS_DE_CONVERSACION, clienteDeLaLlamada, duracionCorta, esContestador, estaContestada, type CuentaDeLlamadas } from './metricas'
 import { telefonoLegible } from './telefonos'
 
 /**
@@ -223,10 +223,16 @@ export interface ResumenDeLinea {
   total: number
 }
 
-/** Las llamadas de una lista de eventos, contadas como cuenta la tabla (ver LlamadasDeLinea) */
-export function llamadasDeLaLinea(eventos: readonly EventoDeLinea[]): LlamadasDeLinea {
+/**
+ * Las cinco cifras de las llamadas de una lista de eventos, con la misma regla que `cuentaDeLlamadas` (metricas.ts). La línea no ve las llamadas sueltas, solo
+ * sus eventos: de cada uno sabe a qué cliente fue, si salió o entró y cómo acabó. Una salida contestada es la que se dibuja como conversación o como contestada
+ * (`estaContestada`: Rinkel la dio por contestada y duró lo bastante para no ser un contestador).
+ */
+export function cuentaDeLaLinea(eventos: readonly EventoDeLinea[]): CuentaDeLlamadas {
   const clientes = new Set<string>()
+  const contestados = new Set<string>()
   let intentos = 0
+  let intentosContestados = 0
   let recibidas = 0
   for (const e of eventos) {
     if (e.carril !== 'llamadas') continue
@@ -234,10 +240,46 @@ export function llamadasDeLaLinea(eventos: readonly EventoDeLinea[]): LlamadasDe
     // Sin sentido (un evento que no viene de una llamada de Rinkel): cuenta como un intento a un cliente propio, como se contaba antes de agrupar
     else if (e.sentido !== 'otra') {
       intentos += 1
-      clientes.add(e.cliente ?? e.id)
+      const cliente = e.cliente ?? e.id
+      clientes.add(cliente)
+      if (e.estilo === 'conversacion' || e.estilo === 'contestada') {
+        intentosContestados += 1
+        contestados.add(cliente)
+      }
     }
   }
-  return { clientes: clientes.size, intentos, recibidas }
+  return { intentos, clientes: clientes.size, intentosContestados, clientesContestados: contestados.size, recibidas }
+}
+
+/** Las llamadas de una lista de eventos, contadas como cuenta la tabla (ver LlamadasDeLinea) */
+export function llamadasDeLaLinea(eventos: readonly EventoDeLinea[]): LlamadasDeLinea {
+  const c = cuentaDeLaLinea(eventos)
+  return { clientes: c.clientes, intentos: c.intentos, recibidas: c.recibidas }
+}
+
+/** Una equivalencia entre lo que enseña la lista (o las rayas) y lo que dicen las cifras */
+export interface ParteDeTraduccion {
+  /** Lo que se ve en la lista: «12 intentos» */
+  de: string
+  /** En qué se queda en las cifras: «10 llamadas hechas» */
+  a: string
+}
+
+/**
+ * Lo que hay que decir para que la lista y las rayas no parezcan contradecir a las cifras: «12 intentos → 10 llamadas hechas · 6 intentos contestados → 5
+ * contestadas · 4 recibidas → no son llamadas hechas». Cada parte solo sale si hay algo que explicar, así que un día sin repetidas ni recibidas no lleva ninguna.
+ *
+ * Los nombres de la derecha son los de las tarjetas («Llamadas hechas», «contestadas») para que se reconozca la cifra. Los de la izquierda siempre van en plural: si
+ * un intento y un cliente difieren hay al menos dos intentos.
+ */
+export function traduccionDeLlamadas(c: CuentaDeLlamadas): ParteDeTraduccion[] {
+  const partes: ParteDeTraduccion[] = []
+  if (c.intentos !== c.clientes) partes.push({ de: `${c.intentos} intentos`, a: `${c.clientes} ${c.clientes === 1 ? 'llamada hecha' : 'llamadas hechas'}` })
+  if (c.intentosContestados !== c.clientesContestados) {
+    partes.push({ de: `${c.intentosContestados} intentos contestados`, a: `${c.clientesContestados} ${c.clientesContestados === 1 ? 'contestada' : 'contestadas'}` })
+  }
+  if (c.recibidas > 0) partes.push({ de: `${c.recibidas} ${c.recibidas === 1 ? 'recibida' : 'recibidas'}`, a: c.recibidas === 1 ? 'no es una llamada hecha' : 'no son llamadas hechas' })
+  return partes
 }
 
 /**

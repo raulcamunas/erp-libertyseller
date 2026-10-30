@@ -49,7 +49,7 @@ interface Props {
   /** Hay cuenta de Rinkel de la que leer llamadas */
   conRinkel: boolean
   cargando: boolean
-  /** Solo en un día: a cuántos números distintos se llamó (sale de las llamadas de ese día) */
+  /** Solo en un día: a cuántos teléfonos distintos se marcó (sale de las llamadas de ese día). Pueden ser más que las llamadas hechas: un cliente puede tener dos */
   numerosDistintos: number | null
   /** Sus últimos siete días laborables de cada cifra, para las barritas */
   series?: Record<ClaveDeSerie, SerieDeCifra> | null
@@ -100,7 +100,7 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
         <TarjetaDeCifra
           destacada
           indice={0}
-          ayuda="Cuenta los clientes a los que se llamó: un cliente llamado varias veces el mismo día es una sola llamada (los intentos se ven debajo, en la tira), y al día siguiente vuelve a contar. Cuenta como contestada la llamada que dura 10 segundos o más: por debajo es un contestador automático y va con las no contestadas"
+          ayuda="Cuenta los clientes a los que se llamó: un cliente llamado varias veces el mismo día es una sola llamada, y al día siguiente vuelve a contar. Los intentos sueltos se ven debajo de la cifra y en la lista de llamadas. Cuenta como contestada la llamada que dura 10 segundos o más: por debajo es un contestador automático y va con las no contestadas"
           icono={<PhoneCall className="h-3 w-3" />}
           titulo="Llamadas hechas"
           valor={llamadas}
@@ -179,18 +179,30 @@ export function CifrasDelPeriodo({ periodo, hoy, resultado, comparacion, conRink
             cambio={cambio(actual.conversaciones, base?.conversaciones)}
             contra={contra}
           />
-          <Dato icono={<Clock className="h-3 w-3" />} valor={<Numero valor={actual.segundos} formato={tiempoHablado} />} texto="al teléfono" />
-          <Dato icono={<PhoneIncoming className="h-3 w-3" />} valor={<Numero valor={actual.recibidas} />} texto="recibidas" />
+          <Dato
+            icono={<Clock className="h-3 w-3" />}
+            valor={<Numero valor={actual.segundos} formato={tiempoHablado} />}
+            texto="al teléfono"
+            ayuda="Tiempo de las llamadas contestadas, sin contar los contestadores automáticos"
+          />
+          <Dato icono={<PhoneIncoming className="h-3 w-3" />} valor={<Numero valor={actual.recibidas} />} texto="recibidas" ayuda="Llamadas que han entrado. No cuentan como llamadas hechas" />
           {llamadas > 0 && (
             <Dato
               valor={<Numero valor={Math.round(tasa * 100)} formato={(n) => `${Math.round(n)} %`} />}
               texto="de contacto"
+              ayuda={`Contestaron ${numero(actual.contestadas)} de las ${numero(llamadas)} llamadas hechas. Cuenta como contestada la llamada de 10 segundos o más: por debajo es un contestador`}
               cambio={comparacion && tasaBase !== null ? variacionDePuntos(tasa, tasaBase) : null}
               contra={contra}
             />
           )}
           {periodo.tipo !== 'dia' && comparacion && llamadas > 0 && <Dato valor={<Numero valor={llamadasPorDiaLaborable(llamadas, rango, hoy)} />} texto="llamadas por día laborable" />}
-          {periodo.tipo === 'dia' && numerosDistintos !== null && numerosDistintos > 0 && <Dato valor={<Numero valor={numerosDistintos} />} texto="números distintos" />}
+          {periodo.tipo === 'dia' && numerosDistintos !== null && numerosDistintos > 0 && (
+            <Dato
+              valor={<Numero valor={numerosDistintos} />}
+              texto="teléfonos marcados"
+              ayuda="Teléfonos distintos a los que se llamó. Un cliente puede tener dos teléfonos, por eso pueden ser más que las llamadas hechas"
+            />
+          )}
         </div>
       )}
     </section>

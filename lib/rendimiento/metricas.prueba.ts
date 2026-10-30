@@ -5,6 +5,7 @@ import {
   agruparPorDia,
   citasAgendadasEl,
   clienteDeLaLlamada,
+  cuentaDeLlamadas,
   duracionCorta,
   esContestador,
   estaContestada,
@@ -270,6 +271,44 @@ console.log('\n=== citas ===')
   ok('se cuentan por el día en que se agendaron, en hora de Madrid: 2', citasAgendadasEl(citas, '2026-10-21') === 2)
   ok('una creada a las 00:30 del 22 es del 22', citasAgendadasEl(citas, '2026-10-22') === 1)
   ok('ninguna', citasAgendadasEl([], '2026-10-21') === 0)
+}
+
+console.log('\n=== la lista y las cifras: 12 intentos son 10 llamadas hechas (el día de la captura del 30 de octubre) ===')
+{
+  // Las llamadas reales de aquel día, con los leads inventados. Dos clientes explican toda la diferencia
+  const dia = [
+    llamada('10:16', 'ANSWERED', 135, { lead_id: 'l1' }),
+    llamada('10:45', 'MISSED', 36, { lead_id: 'l2' }),
+    llamada('10:48', 'ANSWERED', 16, { lead_id: 'l3' }),
+    // Un cliente con dos teléfonos: se llamó a los dos y contestaron los dos
+    llamada('10:56', 'ANSWERED', 13, { lead_id: 'l4', numero: '+34600000041' }),
+    llamada('10:56', 'ANSWERED', 10, { lead_id: 'l4', numero: '+34900000042' }),
+    llamada('11:15', 'MISSED', 1, { lead_id: 'l5' }),
+    // Otro, dos intentos seguidos al mismo teléfono: los dos fueron un contestador
+    llamada('11:21', 'ANSWERED', 8, { lead_id: 'l6', numero: '+34600000061' }),
+    llamada('11:21', 'ANSWERED', 6, { lead_id: 'l6', numero: '+34600000061' }),
+    llamada('11:25', 'ANSWERED', 8, { lead_id: 'l7' }),
+    llamada('11:28', 'ANSWERED', 52, { lead_id: 'l8' }),
+    llamada('11:30', 'ANSWERED', 394, { lead_id: 'l9' }),
+    llamada('12:21', 'MISSED', 3, { lead_id: 'l10' }),
+  ]
+  const c = cuentaDeLlamadas(dia)
+  const r = resumenDeLlamadas(dia)
+  ok('12 intentos a 10 clientes', c.intentos === 12 && c.clientes === 10, JSON.stringify(c))
+  ok('6 intentos contestados, de 5 clientes: el que tiene dos teléfonos contesta dos veces y cuenta una', c.intentosContestados === 6 && c.clientesContestados === 5, JSON.stringify(c))
+  ok('ninguna recibida', c.recibidas === 0)
+  ok('las tarjetas dicen lo mismo que la cuenta: 10 llamadas hechas, 5 contestadas, 50 % de contacto', r.realizadas === c.clientes && r.contestadas === c.clientesContestados && r.tasaDeContacto === 0.5)
+  ok('11 teléfonos marcados para 10 clientes: uno de ellos tiene dos y a otro se le llamó dos veces al mismo', r.numerosDistintos === 11 && r.numerosDistintos > r.realizadas, String(r.numerosDistintos))
+  ok('los tres contestadores (de 8, 6 y 8 s: Rinkel los da por contestados) no suman ni a los intentos contestados ni a los clientes', dia.filter((l) => l.duracion_s < SEGUNDOS_MINIMOS_PARA_CONTESTADA && l.estado === 'ANSWERED').length === 3 && c.intentosContestados === 6 && c.clientesContestados === 5)
+
+  const conRecibidas = cuentaDeLlamadas([...dia, llamada('13:00', 'ANSWERED', 90, { lead_id: 'l1', direccion: 'inbound' }), llamada('13:05', 'MISSED', 0, { lead_id: 'l11', direccion: 'inbound' })])
+  ok('una recibida no es un intento ni un cliente al que se llamó, ni un intento contestado', conRecibidas.intentos === 12 && conRecibidas.clientes === 10 && conRecibidas.intentosContestados === 6 && conRecibidas.recibidas === 2, JSON.stringify(conRecibidas))
+
+  const vacio = cuentaDeLlamadas([])
+  ok('sin llamadas, todo a cero', vacio.intentos === 0 && vacio.clientes === 0 && vacio.intentosContestados === 0 && vacio.clientesContestados === 0 && vacio.recibidas === 0)
+
+  const unaSola = cuentaDeLlamadas([llamada('10:00', 'ANSWERED', 40, { lead_id: 'l1' })])
+  ok('una llamada a un cliente: todo coincide, nada que traducir', unaSola.intentos === unaSola.clientes && unaSola.intentosContestados === unaSola.clientesContestados)
 }
 
 console.log('\n=== cómo se leen las duraciones ===')

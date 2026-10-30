@@ -4,14 +4,15 @@ import { Loader2, Mic, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, Play
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { etiquetaDeDia, horaMadrid } from '@/lib/rendimiento/dia'
-import { desgloseDeLlamadas } from '@/lib/rendimiento/linea'
-import { duracionCorta, esContestador, estaContestada, resumenDeLlamadas } from '@/lib/rendimiento/metricas'
+import { traduccionDeLlamadas } from '@/lib/rendimiento/linea'
+import { cuentaDeLlamadas, duracionCorta, esContestador, estaContestada } from '@/lib/rendimiento/metricas'
 import { telefonoLegible } from '@/lib/rendimiento/telefonos'
 import { primeraFrase, vistaDelResumen } from '@/lib/transcripcion/pantalla'
 import { ResumenDeLlamada } from '@/components/transcripcion/ResumenDeLlamada'
 import { useResumenesDeLlamadas } from '@/components/transcripcion/useResumenesDeLlamadas'
 import { ReproductorGrabacion } from './ReproductorGrabacion'
 import type { LlamadaGuardada } from './tipos'
+import { TraduccionDeLlamadas } from './TraduccionDeLlamadas'
 import { CabeceraDePanel, ChipDeFiltro, PANEL } from './ui'
 
 /**
@@ -115,11 +116,9 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
     [ordenadas]
   )
   const visibles = useMemo(() => ordenadas.filter(CUMPLE[filtro]), [ordenadas, filtro])
-  // «30 intentos a 25 clientes · 4 recibidas»: de qué se compone el «N en total» y por qué no es la cifra de llamadas de las tarjetas. Vacío si coinciden
-  const desglose = useMemo(() => {
-    const r = resumenDeLlamadas(llamadas)
-    return desgloseDeLlamadas({ clientes: r.realizadas, intentos: r.intentos, recibidas: r.recibidas })
-  }, [llamadas])
+  // «12 intentos → 10 llamadas hechas · 6 intentos contestados → 5 contestadas»: por qué la lista (cada llamada) y las tarjetas (un cliente, una vez al día) no
+  // dan lo mismo, ni en las llamadas ni en las contestadas. Vacío si coinciden
+  const traduccion = useMemo(() => traduccionDeLlamadas(cuentaDeLlamadas(llamadas)), [llamadas])
 
   const nombreDelDia = dia === hoy ? 'de hoy' : `del ${etiquetaDeDia(dia)}`
 
@@ -141,10 +140,13 @@ export function ListaLlamadas({ dia, hoy, llamadas, nombres, cargando, sinRinkel
       />
 
       <div className="flex min-h-0 flex-1 flex-col p-3 pt-2.5">
-        {desglose && (
-          <p className="mb-2 text-[11px] leading-snug text-[var(--ls-t4)]">
-            {desglose}. Aquí sale cada llamada; en las cifras, un cliente cuenta una sola llamada al día.
-          </p>
+        {traduccion.length > 0 && (
+          <div className="mb-2.5 space-y-0.5 text-[11px] leading-snug text-[var(--ls-t4)]">
+            <p>Aquí sale cada llamada; en las cifras de arriba, un cliente cuenta una sola vez al día.</p>
+            <p>
+              <TraduccionDeLlamadas partes={traduccion} />
+            </p>
+          </div>
         )}
         {llamadas.length > 0 && (
           <div className="mb-2.5 flex flex-wrap gap-1" role="group" aria-label="Filtrar llamadas">

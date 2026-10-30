@@ -83,7 +83,10 @@ export interface ResumenDeLlamadas {
   segundosHablados: number
   /** CLIENTES con los que hubo una llamada contestada (de cualquier sentido) que pasó de SEGUNDOS_DE_CONVERSACION */
   conversaciones: number
-  /** A cuántos números distintos se llamó (las realizadas) */
+  /**
+   * A cuántos TELÉFONOS distintos se marcó. No es lo mismo que `realizadas`: un cliente con dos teléfonos cuenta una vez en las realizadas y dos aquí, así que
+   * puede salir más que ellas
+   */
   numerosDistintos: number
   conGrabacion: number
   /** El instante de la primera y de la última, para decir «de 10:24 a 14:01» */
@@ -172,6 +175,36 @@ export function resumenDeLlamadas(llamadas: readonly LlamadaParaMetricas[], opci
     conGrabacion,
     primera,
     ultima,
+  }
+}
+
+/**
+ * LOS NÚMEROS CON LOS QUE SE TRADUCE «CADA LLAMADA» (la lista del día, las rayas de la línea) A «UN CLIENTE, UNA VEZ AL DÍA» (las cifras).
+ *
+ * La lista cuenta llamadas sueltas y las tarjetas cuentan clientes, y las dos dicen «contestadas»: a un cliente al que se llama a sus dos teléfonos y contesta en
+ * los dos, la lista le pone 2 contestadas y las tarjetas 1. Con estos cinco números se puede decir «12 intentos = 10 llamadas hechas · 6 intentos contestados = 5
+ * contestadas» y que cuadre con las tarjetas (ver `traduccionDeLlamadas` en linea.ts).
+ */
+export interface CuentaDeLlamadas {
+  /** Las salientes sin agrupar */
+  intentos: number
+  /** A cuántos clientes se llamó: ES «Llamadas hechas» */
+  clientes: number
+  /** Los intentos que contestó una persona (SEGUNDOS_MINIMOS_PARA_CONTESTADA o más), sin agrupar */
+  intentosContestados: number
+  /** A cuántos clientes contestó una persona en algún intento: ES «contestadas» de las tarjetas */
+  clientesContestados: number
+  recibidas: number
+}
+
+export function cuentaDeLlamadas(llamadas: readonly LlamadaParaMetricas[]): CuentaDeLlamadas {
+  const r = resumenDeLlamadas(llamadas)
+  return {
+    intentos: r.intentos,
+    clientes: r.realizadas,
+    intentosContestados: llamadas.filter((l) => l.direccion === 'outbound' && estaContestada(l)).length,
+    clientesContestados: r.contestadas,
+    recibidas: r.recibidas,
   }
 }
 
