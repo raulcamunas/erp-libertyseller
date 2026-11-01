@@ -418,6 +418,7 @@ async function main() {
     ok('y avisan de que el ERP guarda el día y no la hora', /DÍA, no la hora/.test(INSTRUCCIONES_DE_CONTENIDO))
     ok('y de que un encargo pasado sigue en «Programado» si nadie lo cerró: preguntar antes de repetirlo', /pregunta antes de volver a programar/.test(INSTRUCCIONES_DE_CONTENIDO))
     ok('y de que las cuentas de redes no están en el ERP', /cuentas de redes de cada persona no están en el ERP/.test(INSTRUCCIONES_DE_CONTENIDO))
+    ok('y le dicen a Metricool campo a campo: una publicación por red, `media`, `firstCommentText` y la marca (`blogId`)', /UNA publicación por red/.test(INSTRUCCIONES_DE_CONTENIDO) && /`media`/.test(INSTRUCCIONES_DE_CONTENIDO) && /firstCommentText/.test(INSTRUCCIONES_DE_CONTENIDO) && /blogId/.test(INSTRUCCIONES_DE_CONTENIDO))
   }
 
   console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)
