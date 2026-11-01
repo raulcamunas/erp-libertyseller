@@ -488,32 +488,39 @@ export interface EstadoParaElCuadro {
 }
 
 /**
+ * ¿Está el motor de los seguimientos en marcha (en ensayo o de verdad)? Con el motor apagado el cuadro de escribir no ofrece seguimientos —a nadie, tampoco a un
+ * administrador— y el servidor no programa ninguno, llegue o no la petición (app/api/correo/enviar/route.ts).
+ */
+export async function motorEnMarcha(almacen: Almacen): Promise<boolean> {
+  const lectura = await almacen.leerAjustes()
+  return lectura !== null && lectura.ajustes.activa
+}
+
+/**
  * ¿Se ofrece el botón «Secuencias» en Correo? Un administrador siempre (es quien enciende el motor y quien ve el aviso si falta la migración); el resto,
  * solo mientras el motor está en marcha (en ensayo o de verdad): con el motor apagado la función es invisible para el equipo.
  */
 export async function pantallaVisible(almacen: Almacen, quien: QuienPide): Promise<boolean> {
-  if (esAdministrador(quien)) return true
-  const lectura = await almacen.leerAjustes()
-  return lectura !== null && lectura.ajustes.activa
+  return esAdministrador(quien) || (await motorEnMarcha(almacen))
 }
 
 /** Lo que necesita el cuadro de Correo para enseñar (o no) el bloque de seguimientos de un buzón que es de quien pregunta */
 export async function estadoParaElCuadro(almacen: Almacen, quien: QuienPide, buzonId: string, ahora: number = Date.now()): Promise<EstadoParaElCuadro> {
   const apagado = (mensaje: string | null): EstadoParaElCuadro => ({ disponible: false, mensaje, activa: false, ensayo: false, pasos: [], diasHastaNoInteresa: 0, topeHoy: 0, enviadosHoy: 0, redactaAlEnviar: false })
   const lectura = await almacen.leerAjustes()
-  if (!lectura) return apagado(null)
+  // Con el motor apagado la función es INVISIBLE para todos, también para un administrador: ni bloque, ni interruptor, ni «Revisar y enviar» en el cuadro de escribir.
+  // Vuelve sola al encender el motor (Correo → Secuencias → Ajustes)
+  if (!lectura || !lectura.ajustes.activa) return apagado(null)
   const [base, buzones] = await Promise.all([almacen.secuenciaBase(), almacen.buzones()])
   const buzon = buzones.find((b) => b.id === buzonId)
   if (!base || !buzon || buzon.userId !== quien.userId) return apagado(null)
   const { ajustes } = lectura
-  // Con el motor apagado la función es INVISIBLE para el equipo: solo un administrador la ve (para probar)
-  if (!ajustes.activa && !esAdministrador(quien)) return apagado(null)
   if (!buzon.participa) return { ...apagado('Este buzón no participa en los seguimientos automáticos.'), activa: ajustes.activa, ensayo: ajustes.modoEnsayo }
   const hoy = diaDeMadrid(ahora)
   const carga = await almacen.cargaDelBuzon(buzon.id, ahora)
   return {
     disponible: true,
-    mensaje: !ajustes.activa ? 'El envío automático está apagado: los seguimientos se programan pero no saldrán hasta que se encienda.' : ajustes.modoEnsayo ? 'El envío automático está en pruebas: los seguimientos se programan pero todavía no salen.' : null,
+    mensaje: ajustes.modoEnsayo ? 'El envío automático está en pruebas: los seguimientos se programan pero todavía no salen.' : null,
     activa: ajustes.activa,
     ensayo: ajustes.modoEnsayo,
     pasos: base.pasos.map((p) => ({ orden: p.orden, dias: p.dias, diaAprox: sumarDiasHabiles(hoy, p.dias, ajustes.festivos) })),

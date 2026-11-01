@@ -16,7 +16,7 @@ import { createServiceClient } from '@/lib/supabase/service'
  * GET (sin buzón)  →  `{ ok, visible }`: si Correo ofrece el botón «Secuencias» a esta persona (un administrador siempre; el resto, con el motor en marcha)
  *
  * Devuelve `{ disponible, mensaje, activa, ensayo, pasos: [{ orden, dias, diaAprox }], diasHastaNoInteresa, topeHoy, enviadosHoy }`. Con el motor apagado la función es invisible
- * para el equipo (`disponible: false`); un fallo (por ejemplo, la migración sin lanzar) también devuelve `disponible: false` y no un error: el cuadro de
+ * para todos, administradores incluidos (`disponible: false`); un fallo (por ejemplo, la migración sin lanzar) también devuelve `disponible: false` y no un error: el cuadro de
  * correo funciona exactamente igual sin los seguimientos.
  */
 export const dynamic = 'force-dynamic'

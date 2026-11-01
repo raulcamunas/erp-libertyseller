@@ -3,7 +3,7 @@ import { nuevaBase } from '@/lib/correo/secuencias/cliente-falso'
 import { ejecutarPasada } from '@/lib/correo/secuencias/motor'
 import { instanteDeMadrid } from '@/lib/correo/secuencias/fechas'
 import { B1, B2, HORA, MIN, T0, TEXTO_S1, UA, UB, UC, UD, crearMundo, identificador, type Entorno } from '@/lib/correo/secuencias/mundo-de-pruebas'
-import { FALTA_LA_MIGRACION_245, accionSobreSecuencia, buzonesVisibles, colaDeSecuencias, detalleDeSecuencia, estadoParaElCuadro, guardarAjustesDeBuzon, guardarAjustesDelMotor, pantallaVisible, situacionDelLeadParaElCuadro, tablero } from '@/lib/correo/secuencias/servidor'
+import { FALTA_LA_MIGRACION_245, accionSobreSecuencia, buzonesVisibles, colaDeSecuencias, detalleDeSecuencia, estadoParaElCuadro, guardarAjustesDeBuzon, guardarAjustesDelMotor, motorEnMarcha, pantallaVisible, situacionDelLeadParaElCuadro, tablero } from '@/lib/correo/secuencias/servidor'
 
 let fallos = 0
 let comprobaciones = 0
@@ -360,12 +360,13 @@ async function main() {
     const e1 = await estadoParaElCuadro(apagado.almacen, ANA, B1, T0)
     ok('con el motor apagado, la función es INVISIBLE para el equipo', !e1.disponible && e1.mensaje === null)
     const e2 = await estadoParaElCuadro(apagado.almacen, RAUL, B1, T0)
-    ok('(un administrador sí la ve, para poder probar… pero solo en un buzón suyo: Raúl no tiene)', !e2.disponible)
+    ok('(y un administrador tampoco, en un buzón que no es suyo)', !e2.disponible)
     await apagado.actualizar('correo_buzones', { user_id: UC }, (q) => q.eq('id', B2))
     const e3 = await estadoParaElCuadro(apagado.almacen, RAUL, B2, T0)
-    ok('en su propio buzón, un administrador la ve con el aviso de que está apagado', e3.disponible && /apagado/.test(e3.mensaje ?? '') && !e3.activa)
-    ok('el botón «Secuencias» de Correo: un administrador lo ve aunque el motor esté apagado', await pantallaVisible(apagado.almacen, RAUL))
+    ok('ni siquiera en su propio buzón: con el motor apagado el cuadro de escribir no ofrece seguimientos a nadie, administradores incluidos', !e3.disponible && e3.mensaje === null && !e3.activa)
+    ok('el botón «Secuencias» de Correo: un administrador lo ve aunque el motor esté apagado (es quien lo enciende)', await pantallaVisible(apagado.almacen, RAUL))
     ok('(y el equipo no, con el motor apagado)', !(await pantallaVisible(apagado.almacen, ANA)))
+    ok('con el motor apagado, el servidor no lo da por en marcha: no programa seguimientos aunque llegue la petición', !(await motorEnMarcha(apagado.almacen)))
 
     const ensayo = await crearMundo(entorno, { activa: true, ensayo: true })
     const e4 = await estadoParaElCuadro(ensayo.almacen, ANA, B1, T0)
@@ -373,10 +374,13 @@ async function main() {
     ok('con los días de cada seguimiento y la fecha aproximada (3 y 7 días hábiles desde el miércoles 28)', e4.pasos.map((p) => `${p.dias}:${p.diaAprox}`).join() === '3:2026-11-02,7:2026-11-06', JSON.stringify(e4.pasos))
     ok('y el tope de hoy', e4.topeHoy === 150 && e4.enviadosHoy === 0)
     ok('con el motor en ensayo, el botón «Secuencias» lo ve también el equipo', await pantallaVisible(ensayo.almacen, ANA))
+    ok('y el motor en ensayo está en marcha', await motorEnMarcha(ensayo.almacen))
+    await ensayo.actualizar('correo_buzones', { user_id: UC }, (q) => q.eq('id', B2))
+    ok('con el motor en marcha, un administrador ve el bloque en su buzón igual que el equipo', (await estadoParaElCuadro(ensayo.almacen, RAUL, B2, T0)).disponible)
 
     const real = await crearMundo(entorno, { activa: true, ensayo: false })
     const e5 = await estadoParaElCuadro(real.almacen, ANA, B1, T0)
-    ok('con el envío real encendido no hay ningún aviso', e5.disponible && e5.mensaje === null)
+    ok('con el envío real encendido no hay ningún aviso', e5.disponible && e5.mensaje === null && (await motorEnMarcha(real.almacen)))
     ok('el cuadro sabe a los cuántos días hábiles pasa solo a «No interesa»', e5.diasHastaNoInteresa === 7)
     ok('y que, con el ajuste apagado, los textos que se ven son los que saldrán', e5.disponible && e5.redactaAlEnviar === false)
     const redactor = await crearMundo(entorno, { activa: true, ensayo: false, redactar: true })

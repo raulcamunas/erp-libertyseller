@@ -48,7 +48,7 @@ function Campo({ etiqueta, ayuda, children }: { etiqueta: string; ayuda?: string
 }
 
 const OPCIONES: Array<{ modo: Modo; titulo: string; texto: string; Icono: typeof Power }> = [
-  { modo: 'apagado', titulo: 'Apagado', texto: 'No envía nada. El equipo ni ve la función en el cuadro de Correo. Las respuestas de los leads se siguen leyendo.', Icono: Power },
+  { modo: 'apagado', titulo: 'Apagado', texto: 'No envía nada. Nadie ve la función en el cuadro de Correo, tampoco un administrador. Las respuestas de los leads se siguen leyendo.', Icono: Power },
   { modo: 'ensayo', titulo: 'Ensayo', texto: 'Vigila, reparte horas y decide, pero NO envía nada. Apunta lo que habría hecho.', Icono: FlaskConical },
   { modo: 'real', titulo: 'Envío real', texto: 'Los seguimientos salen de verdad a su hora, desde el buzón de cada comercial.', Icono: Rocket },
 ]

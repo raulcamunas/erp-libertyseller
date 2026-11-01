@@ -7,6 +7,7 @@ import { textoSinFirma } from '@/lib/correo/plantillas'
 import { SIN_CACHE, registrar, requerirCorreo, respuestaDeFallo } from '@/lib/correo/rutas'
 import { almacenDeSecuencias } from '@/lib/correo/secuencias/almacen'
 import { inscribir, type ResultadoDeInscribir } from '@/lib/correo/secuencias/inscripcion'
+import { motorEnMarcha } from '@/lib/correo/secuencias/servidor'
 import { autorizarBuzon, cargarContextoDeRespuesta, contarEnviosRecientes, enviarDesdeBuzon } from '@/lib/correo/servidor'
 import { verificarAntesDeEnviar } from '@/lib/correo/verificacion/pago-servidor'
 import { comprobarTamañoPeticion } from '@/lib/subidas-limite'
@@ -25,7 +26,8 @@ import { createServiceClient } from '@/lib/supabase/service'
  *   iaId         (opcional) id del borrador que escribió la IA y que el comercial ha editado y envía: se apunta lo que salió de verdad
  *   secuencia    (opcional) JSON { leadId, seguimientos: [{ texto, asunto? }], iaModelo? }: tras enviar, se programan esos seguimientos automáticos (ver
  *                lib/correo/secuencias). Solo vale para un primer correo a UN destinatario; el correo sale igual aunque no se puedan programar. A un lead de antes de las
- *                automatizaciones (antiguos.ts) no se le programa nada y sin ningún aviso: la respuesta es la de un correo normal
+ *                automatizaciones (antiguos.ts) no se le programa nada y sin ningún aviso: la respuesta es la de un correo normal. Lo mismo con el motor de seguimientos
+ *                apagado: no se programa nada aunque llegue el campo (el cuadro de escribir ya no lo manda)
  *   adjuntos     uno o varios ficheros
  *
  * Una dirección que no vale NO se descarta en silencio: se devuelve un 400 con la que falla, porque quien envía tiene que
@@ -134,9 +136,18 @@ export async function POST(request: NextRequest) {
       await marcarBorradorEnviado(service, { id: iaId.toLowerCase(), userId: sesion.userId, hiloId: r.hiloId, asunto: entrada.asunto, texto: entrada.texto })
     }
 
-    // Los seguimientos automáticos: el correo YA HA SALIDO, así que pase lo que pase aquí no se devuelve un error de envío
+    // Los seguimientos automáticos: el correo YA HA SALIDO, así que pase lo que pase aquí no se devuelve un error de envío.
+    // Con el motor apagado el cuadro de escribir no los ofrece (servidor.ts: estadoParaElCuadro) y aquí no se programa ninguno, aunque llegue la petición de un cuadro abierto desde antes:
+    // ni se programa, ni se avisa de nada, ni se dice «sin seguimientos» (nadie los tiene). Solo se mira el motor cuando hay algo que decidir
     let secuencia: unknown = undefined
-    const pedida = leerPeticionDeSecuencia(formulario.get('secuencia'))
+    const mirarElMotor = formulario.get('secuencia') !== null || Boolean(verificacion?.sinSeguimientos)
+    const conMotor =
+      mirarElMotor &&
+      (await motorEnMarcha(almacenDeSecuencias(service)).catch((error) => {
+        registrar('Correo · enviar: no se ha podido leer el motor de seguimientos', error)
+        return false
+      }))
+    const pedida = conMotor ? leerPeticionDeSecuencia(formulario.get('secuencia')) : null
     if (pedida) {
       if (respondeA) secuencia = { ok: false, mensaje: 'Los seguimientos automáticos solo se programan en un primer correo, no al contestar.' }
       else if (para.personas.length !== 1 || cc.personas.length > 0) secuencia = { ok: false, mensaje: 'Los seguimientos automáticos solo se programan cuando el correo va a una sola dirección.' }
@@ -170,7 +181,7 @@ export async function POST(request: NextRequest) {
       }
     }
     // Lo que hay que decirle a quien envía de la verificación (una dirección dudosa, o que esta vez no se pudo comprobar). El de «sin seguimientos» ya viaja en `secuencia`
-    const avisos = (verificacion?.avisos ?? []).filter((a) => !(pedida && a === verificacion?.sinSeguimientos))
+    const avisos = (verificacion?.avisos ?? []).filter((a) => !((pedida || !conMotor) && a === verificacion?.sinSeguimientos))
     return NextResponse.json(
       { ok: true, hiloId: r.hiloId, copiadoAEnviados: r.copiadoAEnviados, rechazados: r.rechazados, ...(secuencia !== undefined ? { secuencia } : {}), ...(avisos.length > 0 ? { avisosDeVerificacion: avisos } : {}) },
       { headers: SIN_CACHE }
