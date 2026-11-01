@@ -12,6 +12,7 @@ import { acortar, aTexto, entero, booleano, opcion, texto } from './argumentos'
 import { ErrorDeHerramienta, type Herramienta } from './protocolo'
 import type { ContextoMcp } from './contexto'
 import { HERRAMIENTAS_COMERCIALES, INSTRUCCIONES_COMERCIALES } from './comercial/herramientas'
+import { HERRAMIENTAS_DE_CONTENIDO, INSTRUCCIONES_DE_CONTENIDO } from './contenido/herramientas'
 
 /**
  * LAS HERRAMIENTAS DEL CONECTOR: TODAS DE SOLO LECTURA.
@@ -611,13 +612,16 @@ export const HERRAMIENTAS: readonly Herramienta<ContextoMcp>[] = [
   estadoProcesos,
   // El equipo comercial: Mi rendimiento, Cold Calling y el correo (lib/mcp/comercial). No llevan `cliente`
   ...HERRAMIENTAS_COMERCIALES,
+  // El calendario de contenido (vídeos y carruseles que se publican en redes, con su texto por red y su fichero): lib/mcp/contenido. Tampoco llevan `cliente`
+  ...HERRAMIENTAS_DE_CONTENIDO,
 ]
 
 export const INSTRUCCIONES = [
-  'Servidor interno del ERP de Liberty Seller, solo para el equipo. Todas las herramientas son de SOLO LECTURA: no cambian nada en el ERP, ni en las cuentas de Amazon de los clientes, ni en Cold Calling ni en el correo.',
+  'Servidor interno del ERP de Liberty Seller, solo para el equipo. Todas las herramientas son de SOLO LECTURA: no cambian nada en el ERP, ni en las cuentas de Amazon de los clientes, ni en Cold Calling, ni en el correo ni en el calendario de contenido.',
   'CUENTAS DE AMAZON DE LOS CLIENTES (`listar_clientes`, `resumen_catalogo`, `buscar_listings`, `cumplimiento_resumen`, `cumplimiento_listings`, `historial_cambios`): trabajan con UN cliente a la vez y piden `cliente` (su slug; `listar_clientes` los da). Los datos de cada cliente solo se usan para operar y asesorar SU cuenta: no los mezcles, agregues ni compares con los de otro cliente en la misma conversación, y no los compartas fuera del equipo. Si te piden comparar clientes, explica que no se hace. `estado_procesos` no es de un cliente: sirve para todo.',
   'Los datos son una foto, no tiempo real: el catálogo se refresca cada 15 minutos y el cumplimiento se revisa por tandas (empezando por los listings con stock). Antes de afirmar que algo está así «ahora», mira las fechas de lectura que devuelve cada herramienta; `estado_procesos` dice si el ERP está al día.',
   'En cumplimiento las cifras son de lo REVISADO: si `cobertura.porcentaje` es menor que 100, dilo y no presentes la cifra como el total de la cuenta. Tampoco incluye el panel «Gestionar su cumplimiento» de Seller Central, que Amazon no publica por API.',
   'Las respuestas están recortadas a propósito (límites por llamada y `hay_mas`): pide más páginas o filtra antes que dar por completa una lista.',
   INSTRUCCIONES_COMERCIALES,
+  INSTRUCCIONES_DE_CONTENIDO,
 ].join('\n\n')

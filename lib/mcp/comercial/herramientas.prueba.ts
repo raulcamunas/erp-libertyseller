@@ -1,4 +1,5 @@
 import { HERRAMIENTAS, INSTRUCCIONES } from '../herramientas'
+import { HERRAMIENTAS_DE_CONTENIDO } from '../contenido/herramientas'
 import { HERRAMIENTAS_COMERCIALES, INSTRUCCIONES_COMERCIALES } from './herramientas'
 
 let fallos = 0
@@ -45,7 +46,7 @@ console.log('\n=== las del equipo comercial ===')
   ok('son las catorce que se anuncian, ni más ni menos', JSON.stringify([...nombres].sort()) === JSON.stringify([...NOMBRES_DE_LAS_COMERCIALES].sort()), nombres.join())
   ok('forman parte del catálogo del conector', HERRAMIENTAS_COMERCIALES.every((c) => HERRAMIENTAS.includes(c)))
   ok('NO piden `cliente`: no son de una cuenta de Amazon', HERRAMIENTAS_COMERCIALES.every((h) => !('cliente' in (h.esquema.properties ?? {}))))
-  ok('las de cuentas de Amazon siguen pidiéndolo', HERRAMIENTAS.filter((h) => !HERRAMIENTAS_COMERCIALES.includes(h)).filter((h) => h.nombre !== 'listar_clientes' && h.nombre !== 'estado_procesos').every((h) => 'cliente' in (h.esquema.properties ?? {})))
+  ok('las de cuentas de Amazon siguen pidiéndolo', HERRAMIENTAS.filter((h) => !HERRAMIENTAS_COMERCIALES.includes(h) && !HERRAMIENTAS_DE_CONTENIDO.includes(h)).filter((h) => h.nombre !== 'listar_clientes' && h.nombre !== 'estado_procesos').every((h) => 'cliente' in (h.esquema.properties ?? {})))
   ok('las instrucciones del conector nombran cada una (si no, el modelo no sabe por dónde empezar)', NOMBRES_DE_LAS_COMERCIALES.every((n) => INSTRUCCIONES.includes(`\`${n}\``)), NOMBRES_DE_LAS_COMERCIALES.filter((n) => !INSTRUCCIONES.includes(`\`${n}\``)).join())
   ok('y no nombran una que no exista', [...INSTRUCCIONES_COMERCIALES.matchAll(/`([a-z_]+)`/g)].map((m) => m[1]).filter((n) => /^(rendimiento|cold|correo|agenda)/.test(n)).every((n) => NOMBRES_DE_LAS_COMERCIALES.includes(n)))
   ok('las instrucciones avisan de que se leen los buzones de otros y queda rastro', /rastro de Correo/.test(INSTRUCCIONES))
