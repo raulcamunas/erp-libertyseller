@@ -2,7 +2,15 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { CommissionsCalculator } from '@/components/commissions/CommissionsCalculator'
+import { PanelComisiones } from '@/components/commissions/PanelComisiones'
+import { CLIENTES_FUERA_DEL_PANEL } from '@/lib/comisiones-puente/tipos'
 
+/**
+ * COMISIONES.
+ * Administradores: el panel nuevo (clientes a la izquierda con su comisión del mes, detalle a la derecha, y la calculadora de siempre
+ * en «Subir CSV a mano»). Quien entra por el permiso de app 'commissions' sin ser admin sigue teniendo la calculadora de antes: el
+ * panel enseña fees y comisiones de todos los clientes y escribe en Tesorería, y eso es solo de administración.
+ */
 export default async function CommissionsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -17,24 +25,28 @@ export default async function CommissionsPage() {
     redirect('/auth/login')
   }
 
-  // Cargar clientes
-  const { data: clients } = await supabase
+  // Cargar clientes (sin los que ya no se liquidan)
+  const { data: todos } = await supabase
     .from('clients')
     .select('*')
     .order('name', { ascending: true })
+  const clients = (todos || []).filter((c: { name: string }) => !CLIENTES_FUERA_DEL_PANEL.includes(c.name))
+
+  const esAdmin = profile.role === 'admin'
 
   return (
     <div>
-      <div className="mb-8">
+      <div className="mb-5">
         <h1 className="heading-medium text-white mb-2">
-          Calculadora de Comisiones
+          {esAdmin ? 'Comisiones' : 'Calculadora de Comisiones'}
         </h1>
         <p className="text-white/50">
-          Procesa CSVs de Amazon/Sellerboard y calcula liquidaciones exactas
+          {esAdmin
+            ? 'Qué comisión toca a cada cliente cada mes, calculada con el informe que se sube a Tax Reports'
+            : 'Procesa CSVs de Amazon/Sellerboard y calcula liquidaciones exactas'}
         </p>
       </div>
-      <CommissionsCalculator clients={clients || []} />
+      {esAdmin ? <PanelComisiones clientesCalculadora={clients} /> : <CommissionsCalculator clients={clients} />}
     </div>
   )
 }
-
