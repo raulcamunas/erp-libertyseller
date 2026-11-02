@@ -145,11 +145,20 @@ export function PantallaLiquidacion({
   anio,
   mes,
   onCambio,
+  cuentaDeGrupo,
+  grupo,
 }: {
   clienteId: string
   anio: number
   mes: number
   onCambio?: () => void
+  /**
+   * Cuenta SECUNDARIA de un cliente agrupado (Ham Master: PokerShop). Solo calcula y avisa del importe: ni se empareja con Tesorería ni se
+   * valida aquí, porque lo que se guarda es la suma de todas las cuentas y lo hace la principal.
+   */
+  cuentaDeGrupo?: { onImporte: (importe: number | null) => void }
+  /** Cuenta PRINCIPAL de un cliente agrupado: guarda su importe MÁS el de las otras cuentas, y no deja guardar si falta alguna */
+  grupo?: { nombre: string; otras: { etiqueta: string; importe: number | null }[] }
 }) {
 
   const [estado, setEstado] = useState<EstadoDelMes | null>(null)
@@ -416,8 +425,22 @@ export function PantallaLiquidacion({
 
   const importe = useMemo(() => importeDeCalculo(resultado), [resultado])
 
+  // Lo que se escribe en Tesorería: el importe de esta cuenta y, si es un grupo, el de las demás. Si falta alguna, null: no se guarda media suma.
+  const faltanCuentas = grupo ? grupo.otras.filter((o) => o.importe == null).map((o) => o.etiqueta) : []
+  const importeAGuardar =
+    importe == null || faltanCuentas.length > 0
+      ? null
+      : Math.round((importe + (grupo?.otras.reduce((s, o) => s + (o.importe ?? 0), 0) ?? 0)) * 100) / 100
+
+  // La cuenta secundaria le dice a la principal cuánto le ha salido
+  const avisarImporte = useRef(cuentaDeGrupo?.onImporte)
+  avisarImporte.current = cuentaDeGrupo?.onImporte
+  useEffect(() => {
+    avisarImporte.current?.(importe)
+  }, [importe])
+
   async function guardar(confirmar: boolean) {
-    if (importe == null) return
+    if (importeAGuardar == null) return
 
     /**
      * EL IMPORTE Y SU DESTINO SALEN DEL MISMO OBJETO, NO DE LOS DESPLEGABLES.
@@ -452,7 +475,7 @@ export function PantallaLiquidacion({
           clienteId: calculo.clienteId,
           anio: calculo.anio,
           mes: calculo.mes,
-          importe,
+          importe: importeAGuardar,
           confirmar,
         }),
       })
@@ -532,10 +555,12 @@ export function PantallaLiquidacion({
       {estado && (
         <>
           {/* ---------- La pareja en Tesorería ---------- */}
-          <ParejaTesoreria
-            estado={estado}
-            onElegir={(id) => void emparejar(id)}
-          />
+          {!cuentaDeGrupo && (
+            <ParejaTesoreria
+              estado={estado}
+              onElegir={(id) => void emparejar(id)}
+            />
+          )}
 
           {/* ---------- Los ficheros ---------- */}
           <div className={TARJETA.base}>
@@ -650,6 +675,9 @@ export function PantallaLiquidacion({
             <Resultado
               resultado={resultado}
               importe={importe}
+              importeAGuardar={importeAGuardar}
+              grupo={grupo ? { nombre: grupo.nombre, faltan: faltanCuentas } : null}
+              sinValidar={Boolean(cuentaDeGrupo)}
               estado={estado}
               guardando={guardando}
               guardado={guardado}
@@ -792,6 +820,9 @@ function FilaFichero({
 function Resultado({
   resultado,
   importe,
+  importeAGuardar,
+  grupo,
+  sinValidar,
   estado,
   guardando,
   guardado,
@@ -801,6 +832,11 @@ function Resultado({
 }: {
   resultado: ResultadoCalculo
   importe: number | null
+  /** Lo que se escribirá en Tesorería: en un grupo, la suma de todas las cuentas */
+  importeAGuardar: number | null
+  grupo: { nombre: string; faltan: string[] } | null
+  /** Cuenta secundaria de un grupo: enseña el número pero no se valida desde aquí */
+  sinValidar: boolean
   estado: EstadoDelMes
   guardando: boolean
   guardado: GuardadoHecho | null
@@ -827,6 +863,15 @@ function Resultado({
             <span className={CIFRAS.valor}>{euros(importe)}</span>
             <span className={CIFRAS.rotulo}>comisión calculada</span>
           </span>
+          {grupo && (
+            <span className={CIFRAS.celda}>
+              <span className={CIFRAS.valor}>{euros(importeAGuardar)}</span>
+              <span className={CIFRAS.rotulo}>
+                suma de {grupo.nombre}
+                {grupo.faltan.length > 0 ? ` (falta ${grupo.faltan.join(', ')})` : ''}
+              </span>
+            </span>
+          )}
           <span className={CIFRAS.celda}>
             <span className={CIFRAS.valor}>{euros(estado.tesoreria?.fee ?? null)}</span>
             <span className={CIFRAS.rotulo}>fee en Tesorería (no se toca)</span>
@@ -849,7 +894,9 @@ function Resultado({
         {porMarca ? <DesglosePorMarcaSimple resultado={resultado} /> : <DesgloseNormal resultado={resultado} />}
 
         {/* ---------- Validar ---------- */}
-        {guardado ? (
+        {sinValidar ? (
+          <p className={`${TIPO.s} ${TEXTO.t4}`}>Esta cuenta se suma con las demás: la suma se valida y se guarda en la cuenta principal.</p>
+        ) : guardado ? (
           <Aviso tono="verde" icono={CheckCircle2}>
             <span className={AVISO.fuerte}>
               {euros(guardado.commission)} escritos en «{guardado.clienteTesoreria}»
@@ -887,7 +934,7 @@ function Resultado({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={guardando || importe == null || sinPareja || yaFacturado}
+              disabled={guardando || importeAGuardar == null || sinPareja || yaFacturado}
               onClick={() => onGuardar(false)}
               className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}
             >
@@ -899,13 +946,15 @@ function Resultado({
               Validar y guardar en Tesorería
             </button>
             <span className={`${TIPO.s} ${TEXTO.t4}`}>
-              {sinPareja
+              {grupo && grupo.faltan.length > 0
+                ? `Falta calcular ${grupo.faltan.join(' y ')}: se guarda la suma de todas las cuentas.`
+                : sinPareja
                 ? 'Falta elegir el cliente de Tesorería.'
                 : yaFacturado
                   ? `${mesEnLetra(estado.anio, estado.mes)} ya está facturado${
                       estado.tesoreria?.numeroFactura ? ` (${estado.tesoreria.numeroFactura})` : ''
                     }.`
-                  : `Se escribe en «${estado.enlace.nombre}», solo la comisión.`}
+                  : `Se escribe en «${estado.enlace.nombre}», solo la comisión${grupo ? ` (suma de ${grupo.nombre})` : ''}.`}
             </span>
           </div>
         )}

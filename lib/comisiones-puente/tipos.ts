@@ -315,7 +315,17 @@ export function seParecen(a: string, b: string): boolean {
  * `falta_anterior` NO bloquea: los clientes que comparan dos años necesitan el informe del mismo mes del año pasado y Tax Reports
  * no lo guarda (UNIQUE por mes + purga a los 183 días), así que se sube a mano en el propio panel.
  */
-export type SituacionDelCliente = 'sin_tax_reports' | 'sin_informe' | 'purgado' | 'falta_anterior' | 'listo'
+export type SituacionDelCliente = 'sin_regla' | 'sin_tax_reports' | 'sin_informe' | 'purgado' | 'falta_anterior' | 'listo'
+
+/** Una cuenta que forma parte de un cliente agrupado (Ham Master = TapasParty + PokerShop) */
+export interface MiembroDeGrupo {
+  id: string
+  nombre: string
+  /** Cómo se llama la cuenta en la pantalla: «TapasParty», «PokerShop» */
+  etiqueta: string
+  situacion: SituacionDelCliente
+  comision: number | null
+}
 
 export interface ResumenDeCliente {
   id: string
@@ -332,6 +342,13 @@ export interface ResumenDeCliente {
   facturado: boolean
   /** Tiene pareja en Tesorería (migración 201) */
   enlazado: boolean
+  /**
+   * Cliente que solo existe en Tesorería: todavía no tiene regla de cálculo en el panel. Se enseña lo que Tesorería tiene apuntado (fee,
+   * comisión y los últimos meses) y se calculará cuando Raúl diga cómo. El `id` es el de `treasury_clients`, NO el de `clients`.
+   */
+  soloTesoreria?: { ultimosMeses: { period: string; fee: number | null; commission: number | null }[]; activo: boolean }
+  /** Si es un cliente agrupado: sus cuentas, la PRINCIPAL la primera (es la que se empareja con Tesorería y la que guarda la suma) */
+  miembros?: MiembroDeGrupo[]
 }
 
 export interface ResumenDelMes {
@@ -346,3 +363,31 @@ export interface ResumenDelMes {
 
 /** Clientes que no salen en el panel ni en la calculadora (Raúl, 2 nov 2026: Bodegas Valhalla, DIRU y SAUSI). Solo se esconden: nada se borra de la base */
 export const CLIENTES_FUERA_DEL_PANEL = ['Bodegas Valhalla', 'DIRU', 'SAUSI']
+
+/**
+ * CLIENTES QUE SE LIQUIDAN JUNTOS: UNA SOLA FILA EN TESORERÍA, VARIAS CUENTAS DE AMAZON.
+ * Ham Master (2 nov 2026, Raúl): «agrupa la comisión de estas dos, o sea la suma». TapasParty y PokerShop son dos cuentas, con dos
+ * informes y dos cálculos, que se facturan a una sola sociedad. En el panel salen como UN cliente; se calcula cada cuenta y se guarda
+ * en Tesorería la SUMA, en la columna de comisión, con el cliente PRINCIPAL (el único emparejado: el índice único de la 201 impide
+ * que dos clientes apunten a la misma fila). Los nombres son los de `public.clients`.
+ */
+export const GRUPOS_DE_CLIENTES: { nombre: string; principal: { nombre: string; etiqueta: string }; otros: { nombre: string; etiqueta: string }[] }[] = [
+  {
+    nombre: 'Ham Master',
+    principal: { nombre: 'Ham Master', etiqueta: 'TapasParty' },
+    otros: [{ nombre: 'HamMaster Cuenta secundaria', etiqueta: 'PokerShop' }],
+  },
+]
+
+/**
+ * PAREJAS YA CONOCIDAS ENTRE UN CLIENTE DE COMISIONES Y SU FILA DE TESORERÍA, aunque todavía no se hayan emparejado en el panel.
+ * Salen del análisis de la migración 201 (los nombres de las dos listas no se parecen). Sirven SOLO para no enseñar a la misma empresa dos
+ * veces —y no sumar su comisión dos veces— en la barra del panel: NO escriben ningún enlace, que se sigue eligiendo a mano al calcular.
+ * `tesoreria` es el principio del nombre normalizado de la fila de Tesorería.
+ */
+export const PAREJAS_CONOCIDAS: { comisiones: string; tesoreria: string }[] = [
+  { comisiones: 'Farmacia Garrachon', tesoreria: 'eduardo gomez' },
+  { comisiones: 'Lenobotics', tesoreria: 'ocio global import' },
+  { comisiones: 'ShoesF', tesoreria: 'zapaterias basoco' },
+  { comisiones: 'Ham Master', tesoreria: 'gfy logis' },
+]

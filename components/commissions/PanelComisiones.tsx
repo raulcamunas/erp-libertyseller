@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CalendarDays, Calculator, ChevronLeft, ChevronRight, FileUp, Loader2, Lock } from 'lucide-react'
-import { MESES, mesEnLetra, type ResumenDeCliente, type ResumenDelMes, type SituacionDelCliente } from '@/lib/comisiones-puente/tipos'
+import { MESES, mesEnLetra, type MiembroDeGrupo, type ResumenDeCliente, type ResumenDelMes, type SituacionDelCliente } from '@/lib/comisiones-puente/tipos'
 import { PantallaLiquidacion, mesPorDefecto } from './PantallaLiquidacion'
 import { CommissionsCalculator } from './CommissionsCalculator'
 
@@ -12,6 +12,7 @@ const EUROS = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR
 const euros = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : EUROS.format(n))
 
 const SITUACION: Record<SituacionDelCliente, { texto: string; punto: string; ayuda: string }> = {
+  sin_regla: { texto: 'Sin regla de cálculo', punto: 'bg-sky-400', ayuda: 'Cliente de Tesorería: todavía no hay regla para calcularle la comisión aquí' },
   listo: { texto: 'Listo para calcular', punto: 'bg-emerald-400', ayuda: 'El informe del mes está en Tax Reports' },
   falta_anterior: {
     texto: 'Falta el año anterior',
@@ -26,12 +27,102 @@ const SITUACION: Record<SituacionDelCliente, { texto: string; punto: string; ayu
 /** Cómo se calcula cada cliente, en una frase corta para la cabecera del detalle */
 function regla(c: ResumenDeCliente): string {
   const trozos: string[] = []
+  if (c.miembros) trozos.push(`suma de ${c.miembros.map((m) => m.etiqueta).join(' + ')}`)
   if (c.tasaBase != null) trozos.push(`tasa base ${+(c.tasaBase * 100).toFixed(2)} %`)
   if (c.perfil.porMarca) trozos.push('parte por marca')
   if (c.perfil.dosFicheros) trozos.push('compara dos años')
   if (c.perfil.pideTramoBeneficio) trozos.push('15 % o 35 % del beneficio')
   if (c.perfil.admiteTasaManual) trozos.push('admite tasa manual')
   return trozos.join(' · ')
+}
+
+/** Un cliente que solo está en Tesorería: se enseña lo que tiene apuntado; todavía no hay regla para calcularle la comisión desde Tax Reports */
+function DetalleSoloTesoreria({ cliente, anio, mes }: { cliente: ResumenDeCliente; anio: number; mes: number }) {
+  const meses = cliente.soloTesoreria?.ultimosMeses ?? []
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+      <div className="px-5 py-3 border-b border-white/[0.06] flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-sky-400" />
+        <h3 className="text-[13px] font-semibold text-white">Sin regla de cálculo todavía</h3>
+      </div>
+      <div className="p-5 space-y-4">
+        <p className="text-[12.5px] text-white/60 leading-relaxed">
+          {cliente.nombre} está en Tesorería pero aún no se le calcula la comisión desde aquí. Cuando se defina su regla (de qué informe sale y cómo se calcula), se configurará en este panel y se calculará con el informe de Tax Reports. Mientras tanto, el fee y la comisión se siguen apuntando a mano en Tesorería.
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ['Fee', cliente.fee],
+            ['Comisión', cliente.comision],
+          ].map(([rotulo, valor]) => (
+            <div key={String(rotulo)} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-white/40">{rotulo} · {mesEnLetra(anio, mes)}</p>
+              <p className="text-[18px] font-bold text-white tabular-nums">{euros(valor as number | null)}</p>
+            </div>
+          ))}
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-white/40">Factura</p>
+            <p className="text-[14px] font-medium text-white/80 flex items-center gap-1.5 mt-1.5">
+              {cliente.facturado ? <><Lock className="h-3.5 w-3.5" /> Facturada</> : 'Sin facturar'}
+            </p>
+          </div>
+        </div>
+        {meses.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">Meses anteriores en Tesorería</p>
+            <ul className="divide-y divide-white/[0.05] rounded-xl border border-white/10">
+              {meses.map((m) => (
+                <li key={m.period} className="flex items-center justify-between px-3 py-1.5 text-[12.5px]">
+                  <span className="text-white/60 capitalize">{mesEnLetra(Number(m.period.slice(0, 4)), Number(m.period.slice(5, 7)))}</span>
+                  <span className="tabular-nums text-white/80">fee {euros(m.fee)} · comisión {euros(m.commission)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * UN CLIENTE AGRUPADO (Ham Master = TapasParty + PokerShop): cada cuenta se calcula con su informe y la principal guarda en Tesorería
+ * la SUMA. Las cuentas secundarias solo calculan y avisan de su importe; la principal, que es la emparejada, valida el total.
+ */
+function DetalleDeGrupo({ cliente, anio, mes, onCambio }: { cliente: ResumenDeCliente; anio: number; mes: number; onCambio: () => void }) {
+  const miembros = cliente.miembros as MiembroDeGrupo[]
+  const [principal, ...otros] = miembros
+  const [importes, setImportes] = useState<Record<string, number | null>>({})
+  const avisar = useCallback((id: string, importe: number | null) => {
+    setImportes((prev) => (prev[id] === importe ? prev : { ...prev, [id]: importe }))
+  }, [])
+
+  return (
+    <div className="flex flex-col gap-4">
+      {otros.map((m) => (
+        <div key={m.id}>
+          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/50">Cuenta {m.etiqueta}</h3>
+          <PantallaLiquidacion
+            clienteId={m.id}
+            anio={anio}
+            mes={mes}
+            cuentaDeGrupo={{ onImporte: (importe) => avisar(m.id, importe) }}
+          />
+        </div>
+      ))}
+      <div>
+        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/50">
+          Cuenta {principal.etiqueta} · guarda la suma en Tesorería
+        </h3>
+        <PantallaLiquidacion
+          clienteId={principal.id}
+          anio={anio}
+          mes={mes}
+          onCambio={onCambio}
+          grupo={{ nombre: cliente.nombre, otras: otros.map((m) => ({ etiqueta: m.etiqueta, importe: importes[m.id] ?? null })) }}
+        />
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -159,11 +250,18 @@ export function PanelComisiones({ clientesCalculadora }: { clientesCalculadora: 
                   <Loader2 className="h-4 w-4 animate-spin text-white/40" />
                 </li>
               )}
-              {resumen?.clientes.map((c) => {
+              {resumen?.clientes.map((c, i) => {
                 const sit = SITUACION[c.situacion]
+                const primeroDeTesoreria = Boolean(c.soloTesoreria) && !resumen.clientes[i - 1]?.soloTesoreria
                 const activo = c.id === clienteId
                 return (
-                  <li key={c.id}>
+                  <Fragment key={c.id}>
+                  {primeroDeTesoreria && (
+                    <li className="px-4 py-2 bg-white/[0.03] text-[10px] uppercase tracking-wider text-white/40">
+                      Otros clientes de Tesorería · sin regla de cálculo todavía
+                    </li>
+                  )}
+                  <li>
                     <button
                       type="button"
                       onClick={() => setClienteId(c.id)}
@@ -193,6 +291,7 @@ export function PanelComisiones({ clientesCalculadora }: { clientesCalculadora: 
                       </span>
                     </button>
                   </li>
+                  </Fragment>
                 )
               })}
             </ul>
@@ -220,7 +319,13 @@ export function PanelComisiones({ clientesCalculadora }: { clientesCalculadora: 
                     {elegido.fee != null && <p className="text-[11px] text-white/40">Fee {euros(elegido.fee)}</p>}
                   </div>
                 </div>
-                <PantallaLiquidacion clienteId={elegido.id} anio={anio} mes={mes} onCambio={() => void cargarResumen()} />
+                {elegido.soloTesoreria ? (
+                  <DetalleSoloTesoreria cliente={elegido} anio={anio} mes={mes} />
+                ) : elegido.miembros ? (
+                  <DetalleDeGrupo key={`${elegido.id}-${anio}-${mes}`} cliente={elegido} anio={anio} mes={mes} onCambio={() => void cargarResumen()} />
+                ) : (
+                  <PantallaLiquidacion clienteId={elegido.id} anio={anio} mes={mes} onCambio={() => void cargarResumen()} />
+                )}
               </div>
             )}
           </section>

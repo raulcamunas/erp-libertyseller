@@ -12,6 +12,9 @@ import {
   type GuardadoHecho,
   type MesDeTesoreria,
   CLIENTES_FUERA_DEL_PANEL,
+  GRUPOS_DE_CLIENTES,
+  PAREJAS_CONOCIDAS,
+  type MiembroDeGrupo,
   type PlanDeCalculo,
   type ResumenDeCliente,
   type ResumenDelMes,
@@ -960,12 +963,119 @@ export async function leerResumenDelMes(anio: number, mes: number): Promise<Resu
     }
   })
 
+  /* Los clientes agrupados salen como UNO solo: el principal, con la suma de sus cuentas */
+  const peso: Record<SituacionDelCliente, number> = { sin_regla: 4, listo: 1, falta_anterior: 2, purgado: 3, sin_informe: 3, sin_tax_reports: 4 }
+  let lista = resumen
+  for (const grupo of GRUPOS_DE_CLIENTES) {
+    const principal = lista.find((c) => c.nombre === grupo.principal.nombre)
+    if (!principal) continue
+    const otros = grupo.otros.map((o) => ({ def: o, fila: lista.find((c) => c.nombre === o.nombre) })).filter((x) => x.fila)
+    if (otros.length === 0) continue
+
+    const miembros: MiembroDeGrupo[] = [
+      { id: principal.id, nombre: principal.nombre, etiqueta: grupo.principal.etiqueta, situacion: principal.situacion, comision: principal.comision },
+      ...otros.map((x) => ({ id: x.fila!.id, nombre: x.fila!.nombre, etiqueta: x.def.etiqueta, situacion: x.fila!.situacion, comision: x.fila!.comision })),
+    ]
+    // Lo apuntado en Tesorería es la suma ya validada; si no hay, se suman los informes guardados de cada cuenta
+    const sumaGuardada = miembros.filter((m) => m.comision != null).reduce((s, m) => s + (m.comision ?? 0), 0)
+    const hayAlguna = miembros.some((m) => m.comision != null)
+    const deTesoreria = principal.origenComision === 'tesoreria'
+    const fusionado: ResumenDeCliente = {
+      ...principal,
+      nombre: grupo.nombre,
+      situacion: miembros.reduce((peor, m) => (peso[m.situacion] > peso[peor] ? m.situacion : peor), principal.situacion),
+      comision: deTesoreria ? principal.comision : hayAlguna ? Math.round(sumaGuardada * 100) / 100 : null,
+      origenComision: deTesoreria ? 'tesoreria' : hayAlguna ? 'informe_guardado' : null,
+      miembros,
+    }
+    const quitar = new Set(otros.map((x) => x.fila!.id))
+    lista = lista.filter((c) => !quitar.has(c.id)).map((c) => (c.id === principal.id ? fusionado : c))
+  }
+
+  /* Los clientes que solo están en Tesorería, detrás de los de comisiones: sin regla de cálculo todavía, pero a la vista con lo que tienen apuntado */
+  lista = [...lista, ...(await clientesSoloDeTesoreria(lista, clientes, anio, mes, period))]
+
   return {
     anio,
     mes,
     period,
-    clientes: resumen,
-    totalComision: resumen.reduce((s, c) => s + (c.comision ?? 0), 0),
+    clientes: lista,
+    totalComision: lista.reduce((s, c) => s + (c.comision ?? 0), 0),
     faltaMigracion: faltaLa200Aqui ? '200' : hayColumna ? false : '201',
   }
+}
+
+/**
+ * LOS CLIENTES DE TESORERÍA QUE NO TIENEN CLIENTE DE COMISIONES.
+ * Raúl (2 nov 2026): «ponme todos los clientes que tengo en Tesorería ahí en Comisiones, y ahora te digo cómo calcula cada uno». Salen
+ * al final de la barra, sin regla de cálculo, con el fee y la comisión que Tesorería tiene apuntados. Se saltan los que ya tienen pareja
+ * (enlazados o con el mismo nombre que un cliente que SÍ se ve arriba) para no enseñar a nadie dos veces; los que no se parecen en nada
+ * (Lenobotics = «Ocio Global Import S.L») aparecen aquí hasta que se emparejen en el panel. Activos siempre; los de baja solo si tienen
+ * algo apuntado ese mes.
+ */
+async function clientesSoloDeTesoreria(
+  visibles: ResumenDeCliente[],
+  clientesDeComisiones: (ClienteDeComisiones & { treasury_client_id?: string | null })[],
+  anio: number,
+  mes: number,
+  period: string
+): Promise<ResumenDeCliente[]> {
+  const service = createServiceClient()
+
+  // Los cuatro meses que acaban en el pedido: el mes y tres de contexto
+  const desde = new Date(Date.UTC(anio, mes - 1 - 3, 1)).toISOString().slice(0, 10)
+
+  const [clientesRes, mesesRes, facturasRes] = await Promise.all([
+    service.from('treasury_clients').select('id, name, is_active').order('name', { ascending: true }),
+    service.from('treasury_client_months').select('client_id, period, fee, commission').gte('period', desde).lte('period', period),
+    service.from('invoices').select('treasury_client_id').eq('period', period).neq('status', 'cancelled'),
+  ])
+  if (clientesRes.error) throw clientesRes.error
+  if (mesesRes.error) throw mesesRes.error
+  if (facturasRes.error) throw facturasRes.error
+
+  // Quién tiene ya pareja: por columna (201) o por llamarse igual que un cliente que se ve arriba
+  const enlazados = new Set(
+    clientesDeComisiones.map((c) => c.treasury_client_id).filter((id): id is string => typeof id === 'string' && id.length > 0)
+  )
+  const nombresVisibles = new Set(visibles.map((c) => normalizarNombre(c.nombre)))
+  for (const c of visibles) for (const m of c.miembros ?? []) nombresVisibles.add(normalizarNombre(m.nombre))
+
+  const mesesPorCliente = new Map<string, { period: string; fee: number | null; commission: number | null }[]>()
+  for (const m of (mesesRes.data ?? []) as { client_id: string; period: string; fee: number | null; commission: number | null }[]) {
+    const lista = mesesPorCliente.get(m.client_id) ?? []
+    lista.push({ period: m.period, fee: m.fee != null ? Number(m.fee) : null, commission: m.commission != null ? Number(m.commission) : null })
+    mesesPorCliente.set(m.client_id, lista)
+  }
+  const facturados = new Set(((facturasRes.data ?? []) as { treasury_client_id: string }[]).map((f) => f.treasury_client_id))
+
+  const sinPerfil = { dosFicheros: false, porMarca: false, admiteTasaManual: false, pideTramoBeneficio: false }
+  const salida: ResumenDeCliente[] = []
+
+  for (const t of (clientesRes.data ?? []) as { id: string; name: string; is_active: boolean }[]) {
+    if (enlazados.has(t.id)) continue
+    if (nombresVisibles.has(normalizarNombre(t.name))) continue
+    // Pareja ya conocida de un cliente que se ve arriba, aunque no esté emparejada: no se repite ni se suma dos veces
+    const normalizado = normalizarNombre(t.name)
+    if (PAREJAS_CONOCIDAS.some((p) => nombresVisibles.has(normalizarNombre(p.comisiones)) && normalizado.startsWith(p.tesoreria))) continue
+
+    const historial = (mesesPorCliente.get(t.id) ?? []).sort((a, b) => b.period.localeCompare(a.period))
+    const delMes = historial.find((m) => m.period === period)
+    if (!t.is_active && delMes?.fee == null && delMes?.commission == null) continue
+
+    salida.push({
+      id: t.id,
+      nombre: t.name,
+      tasaBase: null,
+      perfil: sinPerfil,
+      situacion: 'sin_regla',
+      comision: delMes?.commission ?? null,
+      origenComision: delMes?.commission != null ? 'tesoreria' : null,
+      fee: delMes?.fee ?? null,
+      facturado: facturados.has(t.id),
+      enlazado: true,
+      soloTesoreria: { ultimosMeses: historial.filter((m) => m.period !== period), activo: t.is_active },
+    })
+  }
+  return salida
 }
