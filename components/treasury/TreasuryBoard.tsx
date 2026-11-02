@@ -93,6 +93,8 @@ export function TreasuryBoard({
   const [expenses, setExpenses] = useState(initialExpenses)
   const [offset, setOffset] = useState(0)
   const [busy, setBusy] = useState(false)
+  // Qué clientes se ven en la tabla: todos, o solo a los que aún falta enviar / cobrar la factura
+  const [filtro, setFiltro] = useState<'todos' | 'sin_enviar' | 'sin_cobrar'>('todos')
   const chartScrollRef = useRef<HTMLDivElement>(null)
 
   const period = useMemo(() => periodKey(offset), [offset])
@@ -509,6 +511,19 @@ export function TreasuryBoard({
     }
   }
 
+  const totalDe = (c: TreasuryClient) => {
+    const m = monthByClient.get(c.id)
+    return (Number(m?.fee) || 0) + (Number(m?.commission) || 0)
+  }
+  // Solo cuentan los clientes con algo que facturar este mes: los demás no tienen nada que enviar ni cobrar
+  const sinEnviar = visibleClients.filter((c) => totalDe(c) > 0 && !monthByClient.get(c.id)?.invoice_sent).length
+  const sinCobrar = visibleClients.filter((c) => totalDe(c) > 0 && !monthByClient.get(c.id)?.paid).length
+  const shownClients = visibleClients.filter((c) => {
+    if (filtro === 'sin_enviar') return totalDe(c) > 0 && !monthByClient.get(c.id)?.invoice_sent
+    if (filtro === 'sin_cobrar') return totalDe(c) > 0 && !monthByClient.get(c.id)?.paid
+    return true
+  })
+
   return (
     <div className="flex flex-col h-full gap-3 min-w-0">
       {/* ---------------- Lo pactado con cada cliente ----------------
@@ -568,48 +583,63 @@ export function TreasuryBoard({
       </div>
 
       {/* Resultado del mes */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 flex-shrink-0">
         {[
           {
             icon: TrendingUp,
             label: 'Ingresos',
             value: eurosPrecise(income),
             tone: 'text-green-300',
+            chip: 'bg-green-400/15 text-green-300',
             // Los ingresos no dependen del coste del equipo: nunca quedan a medias
             partial: false,
             note: '',
+            hint: income > 0 ? (pending > 0 ? `${eurosPrecise(pending)} sin cobrar` : 'Todo cobrado') : 'Nada facturado todavía',
           },
           {
             icon: TrendingDown,
             label: 'Gastos',
             value: eurosPrecise(expenseTotal),
             tone: 'text-red-300',
+            chip: 'bg-red-400/15 text-red-300',
             partial: employeesPartial,
             note: accruingNote && `sin cerrar: ${accruingNote}`,
+            hint: income > 0 ? `${Math.round((expenseTotal / income) * 100)} % de lo facturado` : '',
           },
           {
             icon: Wallet,
             label: 'Beneficio',
             value: eurosPrecise(profit),
             tone: profit >= 0 ? 'text-white' : 'text-red-300',
+            chip: 'bg-white/10 text-white/80',
             partial: employeesPartial,
             note: accruingNote && 'sin cerrar: bajará según fichen',
+            hint: income > 0 ? `Margen del ${Math.round((profit / income) * 100)} %` : '',
           },
           {
             icon: Users,
             label: `Para cada socio (÷${partners})`,
             value: eurosPrecise(perPartner),
-            tone: 'text-[#FF6600]',
+            tone: 'text-[#FF8A3D]',
+            chip: 'bg-[#FF6600]/20 text-[#FF8A3D]',
             partial: employeesPartial,
             note: accruingNote && 'sin cerrar: bajará según fichen',
+            hint: '',
           },
-        ].map((k) => (
+        ].map((k, i) => (
           <div
             key={k.label}
-            className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2"
+            className={`rounded-2xl border px-4 py-3 ${
+              i === 3
+                ? 'border-[#FF6600]/35 bg-gradient-to-br from-[#FF6600]/[0.10] to-white/[0.02]'
+                : 'border-white/10 bg-white/[0.025]'
+            }`}
           >
-            <p className="text-[10px] uppercase tracking-wider text-white/35 flex items-center gap-1.5">
-              <k.icon className="h-3 w-3" /> {k.label}
+            <p className="text-[11px] font-medium text-white/50 flex items-center gap-2">
+              <span className={`h-6 w-6 rounded-lg flex items-center justify-center ${k.chip}`}>
+                <k.icon className="h-3.5 w-3.5" />
+              </span>
+              {k.label}
             </p>
             {/* Dos cosas distintas y se dicen distinto. Si FALTA el coste del
                 equipo, la cifra está corta y se apaga entera. Si el dato está
@@ -620,21 +650,23 @@ export function TreasuryBoard({
                 en curso leído como definitivo se lleva por delante el reparto
                 entre socios. */}
             <p
-              className={`font-bold text-[19px] mt-0.5 tabular-nums ${k.tone} ${
+              className={`font-bold text-[28px] leading-tight mt-1.5 tabular-nums tracking-tight ${k.tone} ${
                 k.partial ? 'opacity-50' : ''
               }`}
               title={k.partial ? 'Falta por sumar el coste del equipo de este mes' : undefined}
             >
               {k.value}
             </p>
-            {k.note && (
+            {k.note ? (
               <p
-                className="text-[10px] text-yellow-400/90 truncate flex items-center gap-1"
+                className="mt-0.5 text-[11px] text-yellow-400/90 truncate flex items-center gap-1"
                 title={accruingTitle}
               >
-                <Clock className="h-2.5 w-2.5 flex-shrink-0" />
+                <Clock className="h-3 w-3 flex-shrink-0" />
                 {k.note}
               </p>
+            ) : (
+              <p className="mt-0.5 text-[11px] text-white/35 truncate">{k.hint || '\u00A0'}</p>
             )}
           </div>
         ))}
@@ -643,8 +675,8 @@ export function TreasuryBoard({
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-3 overflow-y-auto xl:overflow-hidden">
         {/* Clientes */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col min-h-0 overflow-hidden">
-          <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between flex-shrink-0">
-            <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider flex items-center gap-2">
+          <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center flex-shrink-0">
+            <h3 className="text-[11px] font-semibold text-white/55 uppercase tracking-wider flex items-center gap-2">
               Clientes · {periodLabel(period)}
               <button
                 type="button"
@@ -655,6 +687,25 @@ export function TreasuryBoard({
                 <Plus className="h-3 w-3" /> Nuevo
               </button>
             </h3>
+            <div className="flex items-center gap-1 mr-auto ml-3">
+              {([
+                ['todos', 'Todos', visibleClients.length],
+                ['sin_enviar', 'Sin enviar', sinEnviar],
+                ['sin_cobrar', 'Sin cobrar', sinCobrar],
+              ] as const).map(([id, label, n]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setFiltro(id)}
+                  className={`h-6 px-2.5 rounded-full text-[11px] font-medium normal-case tracking-normal flex items-center gap-1.5 transition-colors ${
+                    filtro === id ? 'bg-white/12 bg-white/10 text-white' : 'text-white/45 hover:text-white hover:bg-white/[0.05]'
+                  }`}
+                >
+                  {label}
+                  <span className="text-[10px] tabular-nums text-white/40">{n}</span>
+                </button>
+              ))}
+            </div>
             {income > 0 &&
               (pending > 0 ? (
                 <span className="text-[11px] text-yellow-300 flex items-center gap-1.5">
@@ -672,46 +723,46 @@ export function TreasuryBoard({
             <table className="w-full text-[12px] border-collapse">
               <thead className="sticky top-0 bg-[#0d0d0d] z-10">
                 <tr>
-                  <th className="text-left px-2.5 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10">
+                  <th className="text-left px-2.5 py-1.5 text-[10px] font-semibold text-white/45 uppercase tracking-wider border-b border-white/10">
                     Cliente
                   </th>
-                  <th className="text-center px-1 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[44px]">
+                  <th className="text-center px-1 py-1.5 text-[10px] font-semibold text-white/45 uppercase tracking-wider border-b border-white/10 w-[44px]">
                     Día
                   </th>
-                  <th className="text-right px-1 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[92px]">
+                  <th className="text-right px-1 py-1.5 text-[10px] font-semibold text-white/45 uppercase tracking-wider border-b border-white/10 w-[92px]">
                     Fee
                   </th>
-                  <th className="text-right px-1 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[92px]">
+                  <th className="text-right px-1 py-1.5 text-[10px] font-semibold text-white/45 uppercase tracking-wider border-b border-white/10 w-[92px]">
                     Comisiones
                   </th>
-                  <th className="text-right px-2 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[92px]">
+                  <th className="text-right px-2 py-1.5 text-[10px] font-semibold text-white/45 uppercase tracking-wider border-b border-white/10 w-[92px]">
                     Total
                   </th>
-                  <th className="text-center px-1 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[62px]">
+                  <th className="text-center px-1 py-1.5 text-[10px] font-semibold text-white/45 uppercase tracking-wider border-b border-white/10 w-[62px]">
                     Enviado
                   </th>
-                  <th className="text-center px-1 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider border-b border-white/10 w-[60px]">
+                  <th className="text-center px-1 py-1.5 text-[10px] font-semibold text-white/45 uppercase tracking-wider border-b border-white/10 w-[60px]">
                     Cobrado
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {visibleClients.map((c) => {
+                {shownClients.map((c) => {
                   const m = monthByClient.get(c.id)
-                  const total = (Number(m?.fee) || 0) + (Number(m?.commission) || 0)
+                  const total = totalDe(c)
                   return (
                     <tr
                       key={c.id}
                       // Verde al marcar cobrado: al repasar el mes se ve de
                       // un vistazo lo que ya ha entrado sin leer casilla a
                       // casilla.
-                      className={`border-b border-white/[0.04] group transition-colors ${
+                      className={`border-b border-white/[0.04] group transition-colors hover:bg-white/[0.03] ${
                         m?.paid
                           ? 'bg-green-500/[0.07]'
                           : m?.invoice_sent
                             ? 'bg-yellow-400/[0.06]'
                             : ''
-                      }`}
+                      } ${total === 0 ? 'opacity-55 hover:opacity-100' : ''}`}
                     >
                       <td className="px-1.5 py-1 text-white font-medium">
                         <input
@@ -744,7 +795,7 @@ export function TreasuryBoard({
                           className="w-full bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1 py-1 text-[11px] text-white/60 text-center outline-none transition-colors tabular-nums placeholder:text-white/20"
                         />
                       </td>
-                      <td className="px-1 py-1">
+                      <td className="px-1 py-1.5">
                         <input
                           defaultValue={m?.fee != null ? String(m.fee) : ''}
                           key={`fee-${c.id}-${period}`}
@@ -832,8 +883,8 @@ export function TreasuryBoard({
 
         {/* Gastos */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col min-h-0 overflow-hidden">
-          <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between flex-shrink-0">
-            <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider">
+          <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between flex-shrink-0">
+            <h3 className="text-[11px] font-semibold text-white/55 uppercase tracking-wider">
               Gastos · {periodLabel(period)}
             </h3>
             <span className="text-[11px] text-white/35">cambio USD {usdEur}</span>
@@ -905,9 +956,9 @@ export function TreasuryBoard({
               const rows = periodExpenses.filter((e) => e.category === cat)
               const subtotal = rows.reduce((s, e) => s + expenseInEuros(e, usdEur), 0)
               return (
-                <div key={cat}>
+                <div key={cat} className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-2.5" style={{ borderLeft: `3px solid ${EXPENSE_COLORS[cat]}` }}>
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white/60">
+                    <span className="flex items-center gap-1.5 text-[12px] font-semibold text-white/75">
                       <span
                         className="h-2 w-2 rounded-sm"
                         style={{ backgroundColor: EXPENSE_COLORS[cat] }}
@@ -915,13 +966,13 @@ export function TreasuryBoard({
                       {EXPENSE_LABELS[cat]}
                     </span>
                     <span className="flex items-center gap-2">
-                      <span className="text-[11px] text-white/45 tabular-nums">
+                      <span className="text-[12px] font-medium text-white/65 tabular-nums">
                         {eurosPrecise(subtotal)}
                       </span>
                       <button
                         type="button"
                         onClick={() => addExpense(cat)}
-                        className="h-5 w-5 rounded flex items-center justify-center text-white/30 hover:text-white hover:bg-white/[0.08] transition-colors"
+                        className="h-6 w-6 rounded-md flex items-center justify-center text-white/45 hover:text-white bg-white/[0.04] hover:bg-[#FF6600]/30 transition-colors"
                         title={`Añadir gasto de ${EXPENSE_LABELS[cat].toLowerCase()}`}
                       >
                         <Plus className="h-3 w-3" />
@@ -930,7 +981,7 @@ export function TreasuryBoard({
                   </div>
 
                   {rows.length === 0 ? (
-                    <p className="text-[10px] text-white/20 pl-3.5">Sin gastos</p>
+                    <p className="text-[11px] text-white/25 pl-1">Sin gastos · pulsa + para añadir uno</p>
                   ) : (
                     <div className="space-y-0.5">
                       {rows.map((e) => (
@@ -987,11 +1038,11 @@ export function TreasuryBoard({
             })}
           </div>
 
-          <div className="px-3 py-2 border-t border-white/10 flex items-center justify-between flex-shrink-0">
+          <div className="px-4 py-3 border-t border-white/10 bg-white/[0.02] flex items-center justify-between flex-shrink-0">
             <span className="text-[11px] uppercase tracking-wider text-white/40">
               Total gastos
             </span>
-            <span className="text-red-300 font-bold tabular-nums">{eurosPrecise(expenseTotal)}</span>
+            <span className="text-red-300 font-bold text-[18px] tabular-nums">{eurosPrecise(expenseTotal)}</span>
           </div>
         </div>
       </div>
@@ -999,8 +1050,8 @@ export function TreasuryBoard({
       {/* Evolución */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 pt-3 pb-2 flex-shrink-0">
         <div className="flex items-center justify-between gap-3 mb-3">
-          <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider">
-            Últimos 12 meses
+          <h3 className="text-[11px] font-semibold text-white/55 uppercase tracking-wider">
+            Últimos 12 meses · pulsa un mes para verlo
           </h3>
           <span className="flex items-center gap-3 text-[10px] text-white/45">
             <span className="flex items-center gap-1.5">
@@ -1052,11 +1103,14 @@ export function TreasuryBoard({
                   <button
                     key={e.key}
                     onClick={() => setOffset((o) => o + (i - 11))}
-                    className="group w-[92px] flex-shrink-0 h-full flex flex-col justify-end items-center rounded-t-md hover:bg-white/[0.03] transition-colors"
+                    title={`${periodLabel(e.key)}: ingresos ${eurosPrecise(e.income)} · gastos ${eurosPrecise(e.expense)} · beneficio ${eurosPrecise(e.income - e.expense)}`}
+                    className={`group w-[92px] flex-shrink-0 h-full flex flex-col justify-end items-center rounded-t-lg transition-colors ${
+                      isCurrent ? 'bg-white/[0.06]' : 'hover:bg-white/[0.04]'
+                    }`}
                   >
                     <span className="w-full flex items-end justify-center gap-[3px] h-full px-1">
                       <span
-                        className="w-1/2 max-w-[18px] rounded-t-[4px] transition-opacity"
+                        className="w-1/2 max-w-[24px] rounded-t-[6px] transition-opacity group-hover:opacity-100"
                         style={{
                           backgroundColor: CHART_INCOME,
                           opacity: isCurrent ? 1 : 0.75,
@@ -1064,7 +1118,7 @@ export function TreasuryBoard({
                         }}
                       />
                       <span
-                        className="w-1/2 max-w-[18px] rounded-t-[4px] transition-opacity"
+                        className="w-1/2 max-w-[24px] rounded-t-[6px] transition-opacity group-hover:opacity-100"
                         style={{
                           backgroundColor: CHART_EXPENSE,
                           opacity: isCurrent ? 1 : 0.7,
@@ -1104,6 +1158,9 @@ export function TreasuryBoard({
                       style={{ color: CHART_EXPENSE, opacity: e.expense > 0 ? 0.9 : 0.3 }}
                     >
                       {euros(e.expense)}
+                    </span>
+                    <span className={`mt-0.5 text-[10px] tabular-nums font-medium ${e.income - e.expense < 0 ? 'text-red-300/70' : 'text-white/55'}`}>
+                      {e.income === 0 && e.expense === 0 ? '' : `${e.income - e.expense >= 0 ? '+' : ''}${euros(e.income - e.expense)}`}
                     </span>
                   </span>
                 )
