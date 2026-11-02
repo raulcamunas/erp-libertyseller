@@ -14,6 +14,7 @@ import {
   CLIENTES_FUERA_DEL_PANEL,
   GRUPOS_DE_CLIENTES,
   PAREJAS_CONOCIDAS,
+  TESORERIA_FUERA_DEL_PANEL,
   type MiembroDeGrupo,
   type PlanDeCalculo,
   type ResumenDeCliente,
@@ -1054,6 +1055,7 @@ async function clientesSoloDeTesoreria(
 
   for (const t of (clientesRes.data ?? []) as { id: string; name: string; is_active: boolean }[]) {
     if (enlazados.has(t.id)) continue
+    if (TESORERIA_FUERA_DEL_PANEL.includes(normalizarNombre(t.name))) continue
     if (nombresVisibles.has(normalizarNombre(t.name))) continue
     // Pareja ya conocida de un cliente que se ve arriba, aunque no esté emparejada: no se repite ni se suma dos veces
     const normalizado = normalizarNombre(t.name)

@@ -87,7 +87,7 @@ export interface ClienteDeComisiones {
   name: string
   marca_propia?: string | null
   tasa_marca_propia?: number | null
-  modo_calculo?: 'facturacion' | 'beneficio' | null
+  modo_calculo?: 'facturacion' | 'beneficio' | 'excedente_anual' | null
 }
 
 /**
@@ -126,11 +126,13 @@ export interface PerfilDeCalculo {
 export function perfilDeCalculo(cliente: ClienteDeComisiones): PerfilDeCalculo {
   const esShoesF = cliente.name === 'ShoesF' || cliente.name === 'Farmacia Garrachon'
   const porMarca = Boolean(cliente.marca_propia && cliente.tasa_marca_propia != null)
+  // Cobo Family y los que se den de alta con este trato: lo mismo que ShoesF, decidido por el dato de la ficha (migración 266)
+  const excedenteAnual = cliente.modo_calculo === 'excedente_anual'
 
   return {
-    dosFicheros: esShoesF || porMarca,
+    dosFicheros: esShoesF || excedenteAnual || porMarca,
     porMarca,
-    admiteTasaManual: esShoesF,
+    admiteTasaManual: esShoesF || excedenteAnual,
     pideTramoBeneficio: cliente.name === 'SAUSI',
   }
 }
@@ -363,6 +365,12 @@ export interface ResumenDelMes {
 
 /** Clientes que no salen en el panel ni en la calculadora (Raúl, 2 nov 2026: Bodegas Valhalla, DIRU y SAUSI). Solo se esconden: nada se borra de la base */
 export const CLIENTES_FUERA_DEL_PANEL = ['Bodegas Valhalla', 'DIRU', 'SAUSI']
+
+/**
+ * Lo mismo para la sección de Tesorería, por nombre normalizado (minúsculas, sin tildes ni signos). Raúl, 2 nov 2026: Bodegas Valhalla ya
+ * no es cliente; Naelpaa LLC, Yo By Yolanda y «Pablo (seguridad social)» no se liquidan aquí.
+ */
+export const TESORERIA_FUERA_DEL_PANEL = ['bodegas valhalla', 'diru', 'sausi', 'naelpaa llc', 'yo by yolanda', 'pablo seguridad social']
 
 /**
  * CLIENTES QUE SE LIQUIDAN JUNTOS: UNA SOLA FILA EN TESORERÍA, VARIAS CUENTAS DE AMAZON.

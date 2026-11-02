@@ -85,7 +85,10 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const selectedClient = clients.find(c => c.id === selectedClientId)
   
   // Detectar tipo de cliente para lógica de cálculo y UI
-  const isShoesF = selectedClient?.name === 'ShoesF' || selectedClient?.name === 'Farmacia Garrachon'
+  const isShoesF =
+    selectedClient?.name === 'ShoesF' ||
+    selectedClient?.name === 'Farmacia Garrachon' ||
+    (selectedClient as { modo_calculo?: string } | undefined)?.modo_calculo === 'excedente_anual'
   /**
    * Dos tasas, una por marca. Se decide por los datos del cliente y no por su
    * nombre: el resto del módulo va con `name === 'X'` y por eso hay que tocar

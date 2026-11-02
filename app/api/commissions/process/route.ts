@@ -62,7 +62,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const isShoesF = client.name === 'ShoesF' || client.name === 'Farmacia Garrachon'
+    // `modo_calculo = 'excedente_anual'` (migración 266): el mismo cálculo que ShoesF —excedente del mes contra el mismo mes del año anterior, con la
+    // tasa de la ficha— para los clientes que se dan de alta con ese trato (Cobo Family) sin tener que tocar el código por su nombre.
+    const isShoesF =
+      client.name === 'ShoesF' || client.name === 'Farmacia Garrachon' || client.modo_calculo === 'excedente_anual'
     /**
      * Keslem compara dos años como ShoesF, pero PARTIENDO POR MARCA: 4 % sobre el
      * excedente de su marca propia y 2 % sobre el de arbitraje. Lo que decide de
