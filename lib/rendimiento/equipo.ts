@@ -38,3 +38,15 @@ export async function leerEquipoMedido(db: ClienteDePerfiles): Promise<{ data: P
   if (solo.error) return { data: null, error: solo.error }
   return { data: (solo.data ?? []) as PerfilDelEquipo[], error: null }
 }
+
+/**
+ * QUIÉN SALE EN EL INFORME SEMANAL: SOLO LOS COMERCIALES (`is_comercial`).
+ * Los managers comerciales (Jhanna) siguen en el panel de Rendimiento (leerEquipoMedido: su Rinkel, su tabla), pero NO en el informe del lunes: Raúl (2 nov 2026) los mide por otra parte, y con
+ * ellos el informe enseñaba una fila de ceros y rebajaba las cifras «por persona» (669 llamadas entre 6 salía a 112; entre los 5 que llaman a leads son 134). Una sola lectura y sin `puesto`:
+ * funciona igual con o sin la migración 257.
+ */
+export async function leerComercialesDelInforme(db: ClienteDePerfiles): Promise<{ data: PerfilDelEquipo[] | null; error: unknown }> {
+  const r = await db.from('profiles').select('id, full_name, email').eq('is_comercial', true).order('full_name', { ascending: true })
+  if (r.error) return { data: null, error: r.error }
+  return { data: (r.data ?? []) as PerfilDelEquipo[], error: null }
+}

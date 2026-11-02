@@ -1,4 +1,4 @@
-import { esDelEquipoMedido, FILTRO_DEL_EQUIPO_MEDIDO, leerEquipoMedido, type ClienteDePerfiles } from '@/lib/rendimiento/equipo'
+import { esDelEquipoMedido, FILTRO_DEL_EQUIPO_MEDIDO, leerComercialesDelInforme, leerEquipoMedido, type ClienteDePerfiles } from '@/lib/rendimiento/equipo'
 
 let fallos = 0
 let comprobaciones = 0
@@ -75,6 +75,20 @@ async function main() {
     const r = await leerEquipoMedido(cliente)
     ok('salen los dos comerciales y la manager, por nombre, y no el administrador ni gestión', r.error === null && r.data?.map((p) => p.id).join() === 'alejandro,jhanna,maoli', r.data?.map((p) => p.id).join())
     ok('con una sola lectura', llamadas.length === 1 && llamadas[0] === `or ${FILTRO_DEL_EQUIPO_MEDIDO}`, llamadas.join(' | '))
+  }
+
+  console.log('\n=== el informe semanal solo mide a los comerciales (los managers se miden por otra parte) ===')
+  {
+    const { cliente, llamadas } = base()
+    const r = await leerComercialesDelInforme(cliente)
+    ok('salen los dos comerciales y NO la manager (Jhanna), ni el administrador ni gestión', r.error === null && r.data?.map((p) => p.id).join() === 'alejandro,maoli', r.data?.map((p) => p.id).join())
+    ok('con una sola lectura por `is_comercial`, sin mirar `puesto`', llamadas.length === 1 && llamadas[0] === 'eq is_comercial=true', llamadas.join(' | '))
+    const sin = await leerComercialesDelInforme(base({ sinPuesto: true }).cliente)
+    ok('con o sin la migración 257 sale lo mismo', sin.error === null && sin.data?.map((p) => p.id).join() === 'alejandro,maoli')
+    const mal = await leerComercialesDelInforme(base({ falla: true }).cliente)
+    ok('si la lectura falla, error y ningún dato (no un informe vacío como si no hubiera nadie)', mal.data === null && mal.error !== null)
+    const panel = await leerEquipoMedido(base().cliente)
+    ok('el panel de Rendimiento SIGUE midiendo a la manager: no se ha tocado', panel.data?.some((p) => p.id === 'jhanna') === true)
   }
 
   console.log('\n=== una base sin la migración 257 (sin `puesto`) ===')
