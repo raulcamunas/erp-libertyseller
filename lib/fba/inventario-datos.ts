@@ -1,3 +1,4 @@
+import { leerTodo } from './paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   calcularInventario,
@@ -97,12 +98,17 @@ export async function enviosDelCliente(service: Servicio, clienteId: string): Pr
   const envios: EnvioInventario[] = []
   if (filasRemesa.length === 0) return envios
 
-  const { data: lineas } = await service
-    .from('fba_remesa_lineas')
-    .select('remesa_id, sku, unidades, unidades_recibidas')
-    .in('remesa_id', filasRemesa.map((r) => r.id))
+  // Paginadas: las líneas de TODOS los envíos de un cliente con muchas referencias pasan de 1.000 y Supabase las cortaría sin avisar
+  const lineas = await leerTodo<{ remesa_id: string; sku: string; unidades: number; unidades_recibidas: number | null }>((a, b) =>
+    service
+      .from('fba_remesa_lineas')
+      .select('remesa_id, sku, unidades, unidades_recibidas')
+      .in('remesa_id', filasRemesa.map((r) => r.id))
+      .order('id', { ascending: true })
+      .range(a, b)
+  )
   const porRemesa = new Map<string, EnvioInventario['lineas']>()
-  for (const l of (lineas ?? []) as Array<{ remesa_id: string; sku: string; unidades: number; unidades_recibidas: number | null }>) {
+  for (const l of lineas) {
     const lista = porRemesa.get(l.remesa_id) ?? []
     lista.push({ sku: l.sku, unidades: l.unidades, recibidas: l.unidades_recibidas })
     porRemesa.set(l.remesa_id, lista)

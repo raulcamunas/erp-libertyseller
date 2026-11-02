@@ -1,3 +1,4 @@
+import { leerTodo } from './paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { Cuadre, EstadoDeCajas } from './flujo'
 
@@ -89,15 +90,20 @@ export async function cajasDeRemesa(remesaId: string, service: ClienteDeBase = c
 
   const lista = (filas ?? []) as FilaCaja[]
 
-  const { data: contenidos } = lista.length
-    ? await service
-        .from('fba_caja_contenido')
-        .select('caja_id, sku, unidades')
-        .in('caja_id', lista.map((c) => c.id))
-    : { data: [] }
+  // Paginado: una remesa grande reparte cientos de referencias en decenas de cajas y las filas de contenido pueden pasar de 1.000
+  const contenidos = lista.length
+    ? await leerTodo<{ caja_id: string; sku: string; unidades: number }>((a, b) =>
+        service
+          .from('fba_caja_contenido')
+          .select('caja_id, sku, unidades')
+          .in('caja_id', lista.map((c) => c.id))
+          .order('id', { ascending: true })
+          .range(a, b)
+      )
+    : []
 
   const porCaja = new Map<string, ContenidoCaja[]>()
-  for (const c of (contenidos ?? []) as Array<{ caja_id: string; sku: string; unidades: number }>) {
+  for (const c of contenidos) {
     const lote = porCaja.get(c.caja_id) ?? []
     lote.push({ sku: c.sku, unidades: c.unidades })
     porCaja.set(c.caja_id, lote)

@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { leerTodo } from './paginar'
 import { cajasDeRemesa, type CajasDeRemesa } from './cajas'
 import type { AnalisisIa } from './analisis-ia'
 import type { EstadoRemesa } from './flujo'
@@ -289,12 +290,17 @@ export async function panelDeCliente(
   }
 
   const ids = filasRemesa.map((r) => r.id)
-  const { data: lineasRaw, error: errLineas } = await service
-    .from('fba_remesa_lineas')
-    .select('remesa_id, sku, unidades, nombre, variante, asin, referencia, unidades_recibidas, fnsku, ean')
-    .in('remesa_id', ids)
-  if (errLineas) throw errLineas
-  const filasLinea = (lineasRaw ?? []) as FilaLinea[]
+  // Paginadas: un cliente con muchas referencias (ShoesF: unas 300 por envío) pasa de las 1.000 líneas y Supabase las cortaría sin avisar
+  const filasLinea = await leerTodo<FilaLinea>((a, b) =>
+    service
+      .from('fba_remesa_lineas')
+      .select('remesa_id, sku, unidades, nombre, variante, asin, referencia, unidades_recibidas, fnsku, ean')
+      .in('remesa_id', ids)
+      .order('remesa_id', { ascending: true })
+      .order('sku', { ascending: true })
+      .order('id', { ascending: true })
+      .range(a, b)
+  )
 
   /**
    * LA ÚLTIMA TIRADA DE ETIQUETAS DE CADA REMESA.
@@ -382,15 +388,24 @@ export async function panelDeCliente(
     // Desde el primer envío: antes de eso ningún movimiento puede consumir nada.
     const desde = filasReales[0].fecha_envio
 
-    const { data: movsRaw, error: errMovs } = await service
-      .from('fba_movimientos')
-      .select('sku, fecha, tipo, cantidad, disposicion')
-      .eq('connection_id', connectionId)
-      .eq('marketplace_id', marketplaceId)
-      .in('sku', skus)
-      .gte('fecha', desde)
-    if (errMovs) throw errMovs
-    movimientos = ((movsRaw ?? []) as FilaMovimiento[]).map((m) => ({
+    /**
+     * EL LIBRO MAYOR ENTERO, PAGINADO. Antes era una sola consulta y Supabase la cortaba a las primeras 1.000 filas sin avisar: en Opinas
+     * (3.130 movimientos) el reparto veía una tercera parte de las ventas, y envíos con meses de vida salían «0 % vendido» con todo el stock.
+     * Ordenado por fecha y por id (único): `.range()` con empates repite o se salta filas.
+     */
+    const movsRaw = await leerTodo<FilaMovimiento>((a, b) =>
+      service
+        .from('fba_movimientos')
+        .select('sku, fecha, tipo, cantidad, disposicion')
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', marketplaceId)
+        .in('sku', skus)
+        .gte('fecha', desde)
+        .order('fecha', { ascending: true })
+        .order('id', { ascending: true })
+        .range(a, b)
+    )
+    movimientos = movsRaw.map((m) => ({
       sku: m.sku,
       fecha: m.fecha,
       tipo: m.tipo,
@@ -456,13 +471,22 @@ export async function panelDeCliente(
   // mano: si no está, no hay historial y el resto del panel sigue igual.
   const eventosPorRemesa = new Map<string, EventoDeRemesa[]>()
   if (filasRemesa.length > 0) {
-    const { data: filasEvento, error: errEventos } = await service
-      .from('fba_remesa_eventos')
-      .select('remesa_id, visto_at, estado_amazon, unidades_enviadas, unidades_recibidas')
-      .in('remesa_id', filasRemesa.map((r) => r.id))
-      .order('visto_at', { ascending: true })
-    if (errEventos && !faltaLa215(errEventos)) throw errEventos
-    for (const e of (filasEvento ?? []) as Array<Record<string, unknown>>) {
+    let filasEvento: Array<Record<string, unknown>> = []
+    try {
+      // Paginados: cada pasada guarda un evento por envío vivo y con los meses acaban pasando de 1.000
+      filasEvento = await leerTodo<Record<string, unknown>>((a, b) =>
+        service
+          .from('fba_remesa_eventos')
+          .select('remesa_id, visto_at, estado_amazon, unidades_enviadas, unidades_recibidas')
+          .in('remesa_id', filasRemesa.map((r) => r.id))
+          .order('visto_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(a, b)
+      )
+    } catch (errEventos) {
+      if (!faltaLa215(errEventos as { code?: string } | null)) throw errEventos
+    }
+    for (const e of filasEvento) {
       const lista = eventosPorRemesa.get(e.remesa_id as string) ?? []
       lista.push({
         vistoAt: e.visto_at as string,
