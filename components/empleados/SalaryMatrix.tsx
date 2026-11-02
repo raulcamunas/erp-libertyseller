@@ -461,13 +461,13 @@ function MonthCell({
     // de traducción de globals.css no toca los tonos de color y un
     // yellow-300/70 sobre blanco es prácticamente invisible.
     tone = 'text-yellow-400 font-semibold'
-    content = '—'
+    content = month.amount !== 0 ? shortMoney(usd) : '—'
     title =
       month.computed != null
-        ? `Este mes no se llegó a registrar, así que suma 0. Con lo que sabemos hoy habrían sido ${shortMoney(
+        ? `Este mes no se llegó a registrar: suma lo calculado (${shortMoney(
             month.computed
-          )}. Pulsa para apuntarlo.`
-        : 'Este mes no se llegó a registrar, así que suma 0. Pulsa para apuntarlo.'
+          )}). Pulsa para apuntarlo y dejarlo cerrado.`
+        : 'Este mes no se llegó a registrar y no hay con qué calcularlo, así que suma 0. Pulsa para apuntarlo.'
   } else if (month.source === 'sin_perfil') {
     tone = 'text-yellow-400 font-semibold'
     content = '—'

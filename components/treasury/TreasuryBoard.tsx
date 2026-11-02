@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -18,6 +18,7 @@ import {
   Check,
   CopyPlus,
   CalendarDays,
+  BarChart3,
 } from 'lucide-react'
 import {
   TreasuryClient,
@@ -30,7 +31,6 @@ import {
   periodKey,
   periodLabel,
   previousPeriod,
-  euros,
   eurosPrecise,
   expenseInEuros,
 } from '@/lib/types/treasury'
@@ -42,6 +42,7 @@ import {
 } from '@/lib/employees/payload'
 import { EmployeesMonthBlock } from './EmployeesMonthBlock'
 import { ApuntesComisiones } from './ApuntesComisiones'
+import { EvolucionModal } from './EvolucionModal'
 
 interface TreasuryBoardProps {
   clients: TreasuryClient[]
@@ -64,12 +65,6 @@ const numInputBase =
   'bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1.5 py-1 text-[13px] text-white text-right outline-none transition-colors tabular-nums placeholder:text-white/20'
 
 const numInput = `w-full ${numInputBase}`
-
-// Par validado para daltonismo sobre fondo oscuro: verde y rosa se
-// separan por tono Y por luminosidad, no solo por color. Un verde/rojo
-// clasico es justo el par que no distingue un deuteranope.
-const CHART_INCOME = '#34D399'
-const CHART_EXPENSE = '#FB7185'
 
 /**
  * Si esta pantalla sabe pintar esa categoría. Fuera del componente para que
@@ -95,7 +90,7 @@ export function TreasuryBoard({
   const [busy, setBusy] = useState(false)
   // Qué clientes se ven en la tabla: todos, o solo a los que aún falta enviar / cobrar la factura
   const [filtro, setFiltro] = useState<'todos' | 'sin_enviar' | 'sin_cobrar'>('todos')
-  const chartScrollRef = useRef<HTMLDivElement>(null)
+  const [evolucionAbierta, setEvolucionAbierta] = useState(false)
 
   const period = useMemo(() => periodKey(offset), [offset])
 
@@ -302,13 +297,6 @@ export function TreasuryBoard({
     // `offset` entra para poder reconstruir la ventana; `employeesMissing` ya
     // cambia con él y con lo que haya en caché.
   }, [employeesMissing, offset])
-
-  // El mes en curso es el último de la serie: se abre mostrándolo, no
-  // enseñando el de hace un año y obligando a desplazarse.
-  useEffect(() => {
-    const el = chartScrollRef.current
-    if (el) el.scrollLeft = el.scrollWidth
-  }, [evolution])
 
   // ---------- Guardado ----------
   async function saveMonth(clientId: string, patch: Partial<TreasuryClientMonth>) {
@@ -571,6 +559,16 @@ export function TreasuryBoard({
           )}
         </div>
 
+        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setEvolucionAbierta(true)}
+          title="Ingresos, gastos y beneficio de los últimos 12 meses"
+          className="h-9 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[13px] font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
+        >
+          <BarChart3 className="h-4 w-4 text-[#FF6600]" />
+          Evolución
+        </button>
         <button
           onClick={copyFromPrevious}
           disabled={busy}
@@ -580,6 +578,7 @@ export function TreasuryBoard({
           <CopyPlus className="h-4 w-4" />
           {busy ? 'Trayendo...' : 'Traer del mes anterior'}
         </button>
+        </div>
       </div>
 
       {/* Resultado del mes */}
@@ -1047,128 +1046,18 @@ export function TreasuryBoard({
         </div>
       </div>
 
-      {/* Evolución */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 pt-3 pb-2 flex-shrink-0">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <h3 className="text-[11px] font-semibold text-white/55 uppercase tracking-wider">
-            Últimos 12 meses · pulsa un mes para verlo
-          </h3>
-          <span className="flex items-center gap-3 text-[10px] text-white/45">
-            <span className="flex items-center gap-1.5">
-              <span
-                className="h-2 w-2 rounded-[2px]"
-                style={{ backgroundColor: CHART_INCOME }}
-              />
-              Ingresos
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span
-                className="h-2 w-2 rounded-[2px]"
-                style={{ backgroundColor: CHART_EXPENSE }}
-              />
-              Gastos
-            </span>
-          </span>
-        </div>
-
-        {/* Se desplaza en horizontal: con doce meses y las cifras de cada
-            uno debajo no caben todos a la vez en pantallas estrechas. La
-            rueda del ratón mueve de lado, que es lo que se espera aquí. */}
-        <div
-          ref={chartScrollRef}
-          onWheel={(ev) => {
-            const el = ev.currentTarget
-            if (el.scrollWidth <= el.clientWidth) return
-            // Solo se secuestra la rueda vertical; un trackpad que ya
-            // manda desplazamiento lateral se deja en paz.
-            if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) {
-              el.scrollLeft += ev.deltaY
-            }
+      {evolucionAbierta && (
+        <EvolucionModal
+          datos={evolution}
+          periodoActual={period}
+          incompleto={employeesMissing.length > 0}
+          onSelect={(i) => {
+            setOffset((o) => o + (i - 11))
+            setEvolucionAbierta(false)
           }}
-          className="relative overflow-x-auto pb-1"
-        >
-          <div className="min-w-max">
-            {/* Referencia superior: sin ella no hay contra qué medir alturas */}
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[9px] text-white/25 tabular-nums w-16 flex-shrink-0">
-                {euros(evoMax)}
-              </span>
-              <span className="flex-1 border-t border-dashed border-white/[0.07]" />
-            </div>
-
-            <div className="flex items-end gap-1 h-[104px] pl-16">
-              {evolution.map((e, i) => {
-                const isCurrent = e.key === period
-                return (
-                  <button
-                    key={e.key}
-                    onClick={() => setOffset((o) => o + (i - 11))}
-                    title={`${periodLabel(e.key)}: ingresos ${eurosPrecise(e.income)} · gastos ${eurosPrecise(e.expense)} · beneficio ${eurosPrecise(e.income - e.expense)}`}
-                    className={`group w-[92px] flex-shrink-0 h-full flex flex-col justify-end items-center rounded-t-lg transition-colors ${
-                      isCurrent ? 'bg-white/[0.06]' : 'hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    <span className="w-full flex items-end justify-center gap-[3px] h-full px-1">
-                      <span
-                        className="w-1/2 max-w-[24px] rounded-t-[6px] transition-opacity group-hover:opacity-100"
-                        style={{
-                          backgroundColor: CHART_INCOME,
-                          opacity: isCurrent ? 1 : 0.75,
-                          height: `${Math.max(e.income > 0 ? 3 : 0, (e.income / evoMax) * 100)}%`,
-                        }}
-                      />
-                      <span
-                        className="w-1/2 max-w-[24px] rounded-t-[6px] transition-opacity group-hover:opacity-100"
-                        style={{
-                          backgroundColor: CHART_EXPENSE,
-                          opacity: isCurrent ? 1 : 0.7,
-                          height: `${Math.max(e.expense > 0 ? 3 : 0, (e.expense / evoMax) * 100)}%`,
-                        }}
-                      />
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Línea base y, debajo, las cifras del mes */}
-            <div className="border-t border-white/10 flex gap-1 pl-16 pt-1.5">
-              {evolution.map((e) => {
-                const isCurrent = e.key === period
-                return (
-                  <span
-                    key={e.key}
-                    className="w-[92px] flex-shrink-0 flex flex-col items-center gap-0.5"
-                  >
-                    <span
-                      className={`text-[9px] uppercase tracking-wider ${
-                        isCurrent ? 'text-white font-bold' : 'text-white/30'
-                      }`}
-                    >
-                      {periodLabel(e.key).slice(0, 3)}
-                    </span>
-                    <span
-                      className="text-[10px] font-semibold tabular-nums"
-                      style={{ color: CHART_INCOME, opacity: e.income > 0 ? 1 : 0.3 }}
-                    >
-                      {euros(e.income)}
-                    </span>
-                    <span
-                      className="text-[10px] tabular-nums"
-                      style={{ color: CHART_EXPENSE, opacity: e.expense > 0 ? 0.9 : 0.3 }}
-                    >
-                      {euros(e.expense)}
-                    </span>
-                    <span className={`mt-0.5 text-[10px] tabular-nums font-medium ${e.income - e.expense < 0 ? 'text-red-300/70' : 'text-white/55'}`}>
-                      {e.income === 0 && e.expense === 0 ? '' : `${e.income - e.expense >= 0 ? '+' : ''}${euros(e.income - e.expense)}`}
-                    </span>
-                  </span>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
+          onClose={() => setEvolucionAbierta(false)}
+        />
+      )}
     </div>
   )
 }

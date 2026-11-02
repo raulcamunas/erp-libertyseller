@@ -195,7 +195,7 @@ export function EmployeesMonthBlock({
                   {month.source === 'sin_registro' && (
                     <span
                       className="ml-1.5 text-[10px] font-medium text-yellow-400"
-                      title="Este mes no se llegó a registrar, así que suma 0"
+                      title="Este mes no se llegó a registrar: suma lo calculado (su sueldo o sus horas del ciclo). Se puede apuntar en Control empleados."
                     >
                       sin registrar
                     </span>

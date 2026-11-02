@@ -185,7 +185,7 @@ export type MonthAmountSource =
   | 'escalon'
   /** Calculado desde «Mis Horas» */
   | 'horas'
-  /** Mes pasado sin ningún apunte. Suma 0 para no inventar historia */
+  /** Mes pasado sin ningún apunte. Suma lo calculado (escalón u horas) y cuenta como aviso hasta que se apunte */
   | 'sin_registro'
   /** Antes del alta o después de la baja: no cobra y no debe sumar */
   | 'fuera_de_alta'
@@ -539,14 +539,19 @@ export function employeeMonth(
     if (record) {
       return { ...base, amount: recorded ?? 0, currency: record.currency, source: 'registrado' }
     }
-    // Nadie lo apuntó. Suma 0 a propósito: rellenarlo con el escalón
-    // cambiaría el beneficio de un mes ya cerrado. `computed` sigue ahí
-    // para que la interfaz pueda enseñar «esto se quedó sin registrar».
+    // Nadie lo apuntó. ANTES sumaba 0 «para no cambiar el beneficio de un mes
+    // cerrado», pero en la práctica nadie cierra el mes a mano y Tesorería se
+    // quedaba sin sueldos (octubre de 2026: 0 US$ para todo el equipo). Ahora
+    // suma lo que dice el modelo —su escalón, o el ciclo de «Mis Horas»— y sigue
+    // marcado `sin_registro`, que cuenta como aviso: se ve y se puede apuntar.
+    if (!inContract) {
+      return { ...base, amount: 0, currency: employee.currency, source: 'fuera_de_alta' }
+    }
     return {
       ...base,
-      amount: 0,
-      currency: employee.currency,
-      source: inContract ? 'sin_registro' : 'fuera_de_alta',
+      amount: computed ?? 0,
+      currency: employee.pay_model === 'horas' ? 'USD' : step?.currency ?? employee.currency,
+      source: 'sin_registro',
     }
   }
 

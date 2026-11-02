@@ -101,7 +101,7 @@ export function ResumenDelMes({
       const sueltosLista = m.extras
       if (!isWithinContract(employee, period) && sueltosLista.length === 0) continue
       const cost = hoursDetail[employee.id]?.[period]
-      const porHoras = m.source === 'horas' && cost
+      const porHoras = (m.source === 'horas' || (m.source === 'sin_registro' && employee.pay_model === 'horas')) && cost
       const base = porHoras ? conv(cost.salary, 'USD') : conv(m.amount, m.currency)
       const citas = porHoras ? conv(cost.commissions, 'USD') : 0
       const sueltos = sueltosLista.reduce((s, e) => s + conv(Number(e.amount), e.currency), 0)
