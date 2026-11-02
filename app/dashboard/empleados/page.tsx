@@ -98,7 +98,8 @@ export default async function EmployeesPage() {
   // lanzar la 116 deja el botón de vacaciones apagado pero no tira la pantalla
   // de sueldos, que hoy funciona.
   const [data, vacations] = await Promise.all([
-    loadEmployeesData(periods),
+    // base 'ciclo': los comerciales se cuentan por el ciclo del 15 al 14 que se paga ese mes, igual que en Tesorería
+    loadEmployeesData(periods, { base: 'ciclo' }),
     loadVacationsData(),
   ])
 
@@ -149,8 +150,8 @@ export default async function EmployeesPage() {
       <div className="mb-3 flex-shrink-0">
         <h1 className="heading-medium text-white mb-1">Control empleados</h1>
         <p className="text-white/50 text-sm">
-          Quién está en plantilla, qué horas tiene contratadas y lo que cobra cada mes. Lo
-          que salga aquí es lo que suma en Tesorería.
+          Todo lo que se paga cada mes: los comerciales por su ciclo del 15 al 14, el resto por su
+          sueldo, y las comisiones o extras que apuntes a mano. Lo que salga aquí es lo que suma en Tesorería.
         </p>
       </div>
 
