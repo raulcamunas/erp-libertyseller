@@ -141,26 +141,38 @@ export interface ProductoPcc {
   marca: string | null
   ean: string | null
   mpn: string | null
+  /** La categoría de PcComponentes (la misma con la que cobra la comisión) */
+  categoria: string | null
   /** Cuántas tiendas lo venden ahora mismo */
   ofertas: number
-  /** El precio más bajo, si alguien lo vende */
+  /** El precio más bajo, con IVA, si alguien lo vende */
   precioMinimo: number | null
+  /** La tienda que lo tiene al precio más bajo */
+  tiendaMasBarata: string | null
 }
 
 export function productoDeRespuesta(crudo: unknown): ProductoPcc {
   const p = obj(crudo)
   const refs = lista(p.product_references).map(obj)
   const ref = (tipo: string) => texto(refs.find((r) => r.reference_type === tipo)?.reference)
-  const ofertas = lista(p.offers).map(obj)
-  const precios = ofertas.map((o) => numero(o.total_price) ?? numero(o.price)).filter((n): n is number => n !== null)
+  // Solo cuentan las ofertas que se pueden comprar: una oferta inactiva o sin stock no es competencia
+  const ofertas = lista(p.offers)
+    .map(obj)
+    .filter((o) => o.active !== false && (numero(o.quantity) ?? 1) > 0)
+  const conPrecio = ofertas
+    .map((o) => ({ precio: numero(o.total_price) ?? numero(o.price), tienda: texto(o.shop_name) }))
+    .filter((o): o is { precio: number; tienda: string | null } => o.precio !== null)
+  const masBarata = conPrecio.reduce<{ precio: number; tienda: string | null } | null>((m, o) => (m === null || o.precio < m.precio ? o : m), null)
   return {
     productoId: String(p.product_sku ?? ''),
     titulo: texto(p.product_title) ?? '',
     marca: texto(p.product_brand),
     ean: ref('EAN'),
     mpn: ref('MPN'),
+    categoria: texto(p.category_label),
     ofertas: ofertas.length || (numero(p.total_count) ?? 0),
-    precioMinimo: precios.length > 0 ? Math.min(...precios) : null,
+    precioMinimo: masBarata?.precio ?? null,
+    tiendaMasBarata: masBarata?.tienda ?? null,
   }
 }
 

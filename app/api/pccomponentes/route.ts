@@ -10,7 +10,6 @@ import { buscarProductos, productosDelProveedor } from '@/lib/pccomponentes/prov
  *
  *   GET  ?accion=proveedor&q=…         busca un producto en la API del proveedor (código, EAN, referencia o texto)
  *   GET  ?accion=producto&ean=…        ¿existe ese EAN en el catálogo de PcComponentes? ¿y la tienda ya lo oferta?
- *   GET  ?accion=cobertura&desde=&max= de los productos del proveedor con EAN, cuántos existen en PcComponentes (no escribe nada)
  *   GET  ?accion=importacion&id=…      cómo va una subida de ofertas y, si falló alguna línea, por qué
  *   POST { ofertas, confirmacion }     sube ofertas (solo las de prueba: hasta 5). ÚNICA que escribe en la tienda
  *
@@ -48,28 +47,6 @@ export async function GET(request: NextRequest) {
       if (!ean) return fail(400, 'Ese EAN no es válido (8, 12, 13 o 14 cifras con su dígito de control)')
       const [catalogo, ofertas] = await Promise.all([buscarProductosPorEan([ean]), leerTodasLasOfertas()])
       return NextResponse.json({ ean, enCatalogo: catalogo.get(ean) ?? null, nuestraOferta: ofertas.ofertas.find((o) => o.ean === ean) ?? null })
-    }
-
-    if (accion === 'cobertura') {
-      const desde = Math.max(0, Number(q.get('desde') ?? 0) || 0)
-      const max = Math.min(1000, Math.max(10, Number(q.get('max') ?? 300) || 300))
-      const lectura = await productosDelProveedor()
-      // Solo los que se pueden cruzar (EAN válido) y se pueden vender (no digitales, con stock)
-      const candidatos = lectura.productos.filter((p) => p.ean && !p.digital && p.stock > 0)
-      const trozo = candidatos.slice(desde, desde + max)
-      const hallados = await buscarProductosPorEan(trozo.map((p) => p.ean!))
-      const existen = trozo.filter((p) => hallados.has(p.ean!))
-      return NextResponse.json({
-        productosDelProveedor: lectura.productos.length,
-        sinEan: lectura.productos.filter((p) => !p.ean).length,
-        candidatos: candidatos.length,
-        desde,
-        mirados: trozo.length,
-        existenEnPcc: existen.length,
-        siguiente: desde + max < candidatos.length ? desde + max : null,
-        ejemplos: existen.slice(0, 40).map((p) => ({ ...p, pcc: hallados.get(p.ean!)! })),
-        llamadasQueQuedan: lectura.llamadasQueQuedan,
-      })
     }
 
     if (accion === 'importacion') {

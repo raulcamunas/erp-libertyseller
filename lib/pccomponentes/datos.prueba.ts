@@ -42,6 +42,18 @@ console.log('\n=== un producto del catálogo ===')
 {
   const p = productoDeRespuesta({ product_sku: 10595110, product_title: 'Gigabyte', product_references: [{ reference_type: 'EAN', reference: '4719331848774' }], offers: [{ total_price: 549.99 }, { price: 729 }] })
   ok('cuántas tiendas lo venden y el precio más bajo', p.ofertas === 2 && p.precioMinimo === 549.99 && p.ean === '4719331848774')
+  const q = productoDeRespuesta({
+    product_sku: 1,
+    category_label: 'Monitores',
+    product_references: [{ reference_type: 'EAN', reference: '4711377211062' }],
+    offers: [
+      { total_price: 90, shop_name: 'Inactiva', active: false, quantity: 5 },
+      { total_price: 95, shop_name: 'Sin stock', active: true, quantity: 0 },
+      { total_price: 120, shop_name: 'Cara', active: true, quantity: 3 },
+      { total_price: 116.71, shop_name: 'Barata', active: true, quantity: 999 },
+    ],
+  })
+  ok('solo cuentan las ofertas activas y con stock, y sale la tienda más barata y la categoría', q.ofertas === 2 && q.precioMinimo === 116.71 && q.tiendaMasBarata === 'Barata' && q.categoria === 'Monitores')
 }
 
 console.log('\n=== una importación ===')

@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Search, Store, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, Loader2, RefreshCw, Search, Store, Upload } from 'lucide-react'
 import { BOTON, CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
 import { FRASE_DE_CONFIRMACION } from '@/lib/pccomponentes/frase'
 import type { CuentaPcc, ImportacionPcc, OfertaPcc, ProductoPcc } from '@/lib/pccomponentes/datos'
+import type { FilaMercado } from '@/lib/pccomponentes/mercado'
+import { juzgar, type JuicioDeMercado } from '@/lib/pccomponentes/margenes'
 import { cx } from '@/components/remesas/comun/ui'
 
 /**
@@ -15,7 +17,8 @@ import { cx } from '@/components/remesas/comun/ui'
  *   OFERTAS     todo lo que la tienda tiene publicado hoy: producto, EAN, precio, stock y si está activa. Se lee de PcComponentes cada vez que se abre.
  *   PROBAR      busca un producto del proveedor, comprueba si existe en el catálogo de PcComponentes y sube UNA oferta de prueba, con una frase de
  *               confirmación y siguiendo la importación hasta que termina. La cantidad empieza en 0: una oferta sin stock no se puede comprar.
- *   COBERTURA   de los productos del proveedor con EAN, cuántos existen ya en PcComponentes: es el número que dice cuánto catálogo se puede publicar.
+ *   MERCADO Y MARGEN   cada producto del proveedor que ya existe en PcComponentes, con su coste, el precio más bajo del mercado (la oferta destacada, aproximada)
+ *               y el margen que quedaría con la comisión REAL de su categoría. Lee lo guardado en `pcc_mercado`; un botón lo refresca.
  *
  * Nada de aquí cambia la tienda salvo «Subir la oferta», y solo si se escribe la frase de confirmación. La clave de API no llega a esta pantalla.
  */
@@ -25,7 +28,7 @@ export type EstadoDelPanel =
   | { tipo: 'sin_clave'; mensaje: string }
   | { tipo: 'error'; mensaje: string }
 
-type Pestana = 'ofertas' | 'probar' | 'cobertura'
+type Pestana = 'ofertas' | 'probar' | 'mercado'
 
 const euros = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`)
 const POR_PAGINA = 50
@@ -61,7 +64,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
             [
               ['ofertas', 'Ofertas'],
               ['probar', 'Probar un producto'],
-              ['cobertura', 'Cobertura del catálogo'],
+              ['mercado', 'Mercado y margen'],
             ] as const
           ).map(([id, rotulo]) => (
             <button
@@ -92,7 +95,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
           <div className="px-5 pb-8">
             {pestana === 'ofertas' && <TablaDeOfertas ofertas={estado.ofertas} total={estado.total} />}
             {pestana === 'probar' && <ProbarUnProducto ofertas={estado.ofertas} onSubido={() => router.refresh()} />}
-            {pestana === 'cobertura' && <Cobertura />}
+            {pestana === 'mercado' && <MercadoYMargen ofertas={estado.ofertas} />}
           </div>
         </>
       )}
@@ -475,103 +478,290 @@ function Campo({ etiqueta, children }: { etiqueta: string; children: React.React
 }
 
 /* ------------------------------------------------------------------ */
-/* Cobertura                                                           */
+/* Mercado y margen                                                    */
 /* ------------------------------------------------------------------ */
 
-interface RespuestaCobertura {
-  productosDelProveedor: number
-  sinEan: number
-  candidatos: number
-  desde: number
-  mirados: number
-  existenEnPcc: number
-  siguiente: number | null
-  ejemplos: Array<ResultadoProveedor & { pcc: ProductoPcc }>
-  llamadasQueQuedan: number | null
+interface RespuestaMercado {
+  filas: FilaMercado[]
+  conEan: number
+  comprobados: number
+  existen: number
+  actualizadoAt: string | null
 }
 
-function Cobertura() {
-  const [cargando, setCargando] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [tandas, setTandas] = useState<RespuestaCobertura[]>([])
+type FiltroMercado = 'todos' | 'competitivos' | 'fuera' | 'sin_competencia'
+type Orden = 'beneficio' | 'margen' | 'cercania' | 'coste' | 'tiendas'
 
-  async function medir(desde: number) {
+const ORDENES: Record<Orden, string> = {
+  beneficio: 'Más beneficio por unidad',
+  margen: 'Más margen %',
+  cercania: 'Más cerca de ser competitivo',
+  coste: 'Coste más alto',
+  tiendas: 'Más tiendas lo venden',
+}
+
+const pct = (n: number, dec = 1) => `${(n * 100).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })} %`
+
+interface FilaJuzgada extends FilaMercado {
+  j: JuicioDeMercado
+  publicada: boolean
+}
+
+function MercadoYMargen({ ofertas }: { ofertas: OfertaPcc[] }) {
+  const [datos, setDatos] = useState<RespuestaMercado | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [progreso, setProgreso] = useState<string | null>(null)
+  const [margenTexto, setMargenTexto] = useState('5')
+  const [busqueda, setBusqueda] = useState('')
+  const [categoria, setCategoria] = useState('')
+  const [filtro, setFiltro] = useState<FiltroMercado>('competitivos')
+  const [orden, setOrden] = useState<Orden>('beneficio')
+  const [pagina, setPagina] = useState(0)
+
+  const cargar = useCallback(async () => {
     setCargando(true)
-    setError(null)
-    const r = await pedir<RespuestaCobertura>(`/api/pccomponentes?accion=cobertura&desde=${desde}&max=300`)
+    const r = await pedir<RespuestaMercado>('/api/pccomponentes/mercado')
     setCargando(false)
-    if (!r.ok) return setError(r.error)
-    setTandas((t) => (desde === 0 ? [r.datos] : [...t, r.datos]))
+    if (!r.ok) {
+      setError(r.error)
+      return
+    }
+    setError(null)
+    setDatos(r.datos)
+  }, [])
+
+  useEffect(() => {
+    void cargar()
+  }, [cargar])
+
+  async function actualizar() {
+    setError(null)
+    let desde = 0
+    for (;;) {
+      setProgreso(desde === 0 ? 'Preguntando a PcComponentes…' : `Preguntados ${desde.toLocaleString('es-ES')}…`)
+      const r = await pedir<{ siguiente: number | null; total: number }>('/api/pccomponentes/mercado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ desde }),
+      })
+      if (!r.ok) {
+        setProgreso(null)
+        setError(r.error)
+        return
+      }
+      if (r.datos.siguiente === null) break
+      desde = r.datos.siguiente
+    }
+    setProgreso(null)
+    await cargar()
+    toast.success('Mercado actualizado')
   }
 
-  const mirados = tandas.reduce((s, t) => s + t.mirados, 0)
-  const existen = tandas.reduce((s, t) => s + t.existenEnPcc, 0)
-  const ultima = tandas[tandas.length - 1]
-  const ejemplos = tandas.flatMap((t) => t.ejemplos).slice(0, 60)
+  const margenObjetivo = Math.min(0.9, Math.max(0, (Number(margenTexto.replace(',', '.')) || 0) / 100))
+  const nuestros = useMemo(() => new Set(ofertas.map((o) => o.sku)), [ofertas])
+
+  const filas = useMemo<FilaJuzgada[]>(
+    () => (datos?.filas ?? []).map((f) => ({ ...f, j: juzgar({ coste: f.coste, categoria: f.categoria, precioMercado: f.precioMin, margenObjetivo }), publicada: nuestros.has(f.sku) })),
+    [datos, margenObjetivo, nuestros]
+  )
+
+  const categorias = useMemo(() => {
+    const cuenta = new Map<string, number>()
+    for (const f of filas) cuenta.set(f.categoria ?? '(sin categoría)', (cuenta.get(f.categoria ?? '(sin categoría)') ?? 0) + 1)
+    return [...cuenta.entries()].sort((a, b) => b[1] - a[1])
+  }, [filas])
+
+  const visibles = useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
+    const sel = filas.filter((f) => {
+      if (categoria !== '' && (f.categoria ?? '(sin categoría)') !== categoria) return false
+      if (filtro === 'competitivos' && !f.j.competitivo) return false
+      if (filtro === 'fuera' && (f.j.competitivo || f.precioMin === null)) return false
+      if (filtro === 'sin_competencia' && f.precioMin !== null) return false
+      return q === '' || [f.sku, f.ean, f.titulo, f.marca ?? ''].some((t) => t.toLowerCase().includes(q))
+    })
+    const clave: Record<Orden, (f: FilaJuzgada) => number> = {
+      beneficio: (f) => -(f.j.alMercado?.beneficio ?? -1e9),
+      margen: (f) => -(f.j.alMercado?.margen ?? -1e9),
+      cercania: (f) => f.j.sobreElMercado ?? 1e9,
+      coste: (f) => -f.coste,
+      tiendas: (f) => -f.ofertas,
+    }
+    return sel.sort((a, b) => clave[orden](a) - clave[orden](b))
+  }, [filas, busqueda, categoria, filtro, orden])
+
+  const competitivos = filas.filter((f) => f.j.competitivo).length
+  const sinNadie = filas.filter((f) => f.precioMin === null).length
+  const paginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA))
+  const actual = Math.min(pagina, paginas - 1)
+  const trozo = visibles.slice(actual * POR_PAGINA, (actual + 1) * POR_PAGINA)
+
+  async function descargar() {
+    const XLSX = await import('xlsx')
+    const hoja = XLSX.utils.json_to_sheet(
+      visibles.map((f) => ({
+        SKU: f.sku,
+        EAN: f.ean,
+        PRODUCTO: f.titulo,
+        CATEGORIA: f.categoria ?? '',
+        COSTE: f.coste,
+        COMISION_PCT: f.j.comision.pct,
+        COMISION_FIJA: f.j.comision.fija,
+        COMISION_ESTIMADA: f.j.comision.porDefecto ? 'POR DEFECTO' : f.j.comision.origen,
+        PRECIO_MAS_BAJO: f.precioMin,
+        TIENDA_MAS_BARATA: f.tiendaMin ?? '',
+        TIENDAS: f.ofertas,
+        COMISION_EUR: f.j.alMercado?.comision ?? null,
+        BENEFICIO_EUR: f.j.alMercado?.beneficio ?? null,
+        MARGEN: f.j.alMercado?.margen ?? null,
+        PRECIO_MINIMO_PARA_EL_MARGEN: f.j.suelo,
+        COMPETITIVO: f.j.competitivo ? 'SI' : f.precioMin === null ? 'SIN COMPETENCIA' : 'NO',
+        YA_PUBLICADA: f.publicada ? 'SI' : '',
+      }))
+    )
+    const libro = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(libro, hoja, 'Mercado')
+    XLSX.writeFile(libro, `entrais-pccomponentes-mercado-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    toast.success(`${visibles.length.toLocaleString('es-ES')} filas descargadas`)
+  }
+
+  const celdas: Array<[string, string]> = datos
+    ? [
+        ['Con EAN en el proveedor', datos.conEan.toLocaleString('es-ES')],
+        ['Ya preguntados', datos.comprobados.toLocaleString('es-ES')],
+        ['Existen en PcComponentes', `${datos.existen.toLocaleString('es-ES')}${datos.comprobados > 0 ? ` · ${Math.round((datos.existen / datos.comprobados) * 100)} %` : ''}`],
+        ['Sin nadie vendiéndolo', sinNadie.toLocaleString('es-ES')],
+        [`Competitivos con ${pct(margenObjetivo, 0)}`, competitivos.toLocaleString('es-ES')],
+        ['Última actualización', datos.actualizadoAt ? new Date(datos.actualizadoAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'],
+      ]
+    : []
 
   return (
     <div className="space-y-3">
-      <p className="max-w-[820px] text-[12px] leading-[1.6] text-[var(--ls-t3)]">
-        PcComponentes solo deja ofertar sobre productos que ya están en su catálogo. Esto toma los productos del proveedor con EAN válido y stock, de 300 en 300, y pregunta cuáles existen ya allí. Usa el catálogo que ya trajo el ciclo de stock de Amazon, así que no gasta ninguna llamada al proveedor. <b className="text-[var(--ls-t2)]">No escribe nada.</b>
+      <p className="max-w-[900px] text-[12px] leading-[1.6] text-[var(--ls-t3)]">
+        Los productos del proveedor que ya existen en PcComponentes, con el <b className="text-[var(--ls-t2)]">precio más bajo del mercado</b> (la oferta destacada, aproximada: PcComponentes no dice cómo la elige) y lo que quedaría de margen con la comisión de su categoría. La comisión es una <b className="text-[var(--ls-t2)]">estimación sacada de vuestro histórico</b> y no cuenta las devoluciones. Los costes salen de la tabla de precios de Entrais Amazon: no se gasta ninguna llamada al proveedor. <b className="text-[var(--ls-t2)]">No escribe nada en la tienda.</b>
       </p>
-      <div className="flex items-center gap-2">
-        <button type="button" disabled={cargando} onClick={() => medir(0)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-          {cargando ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          {tandas.length === 0 ? 'Medir los primeros 300' : 'Volver a empezar'}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" disabled={progreso !== null} onClick={() => void actualizar()} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+          {progreso !== null ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          {progreso ?? 'Actualizar mercado'}
         </button>
-        {ultima?.siguiente !== null && ultima?.siguiente !== undefined && (
-          <button type="button" disabled={cargando} onClick={() => medir(ultima.siguiente!)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
-            Siguientes 300
-          </button>
-        )}
+        <label className="flex items-center gap-[6px] text-[12px] text-[var(--ls-t3)]">
+          Margen objetivo
+          <input value={margenTexto} onChange={(e) => { setMargenTexto(e.target.value); setPagina(0) }} inputMode="decimal" className={cx(CAMPO.input, CAMPO.numero, '!w-[64px]')} />
+          %
+        </label>
+        <button type="button" disabled={visibles.length === 0} onClick={() => void descargar()} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')}>
+          <Download className="h-3 w-3" />
+          Excel
+        </button>
       </div>
-      {error && <Aviso tono="rojo">{error}</Aviso>}
-      {ultima && (
-        <>
-          <div className="flex flex-wrap gap-2">
-            {(
-              [
-                ['Productos del proveedor', ultima.productosDelProveedor],
-                ['Sin EAN válido', ultima.sinEan],
-                ['Con EAN y stock', ultima.candidatos],
-                ['Mirados hasta ahora', mirados],
-                ['Existen en PcComponentes', existen],
-              ] as const
-            ).map(([k, v]) => (
-              <div key={k} className="rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-[6px]">
-                <div className="text-[10.5px] uppercase tracking-wide text-[var(--ls-t4)]">{k}</div>
-                <div className="text-[14px] font-semibold tabular-nums text-[var(--ls-t1)]">{v.toLocaleString('es-ES')}</div>
-              </div>
-            ))}
-            <div className="rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-[6px]">
-              <div className="text-[10.5px] uppercase tracking-wide text-[var(--ls-t4)]">Cobertura</div>
-              <div className="text-[14px] font-semibold tabular-nums text-[var(--ls-t1)]">{mirados > 0 ? `${Math.round((existen / mirados) * 100)} %` : '—'}</div>
+
+      {error && <Aviso tono={error.includes('migración 270') ? 'ambar' : 'rojo'}>{error}</Aviso>}
+      {cargando && !datos && <div className="flex items-center gap-2 text-[12px] text-[var(--ls-t3)]"><Loader2 className="h-3 w-3 animate-spin" /> Leyendo lo guardado…</div>}
+
+      {datos && datos.comprobados === 0 && !error && (
+        <Aviso tono="ambar">Todavía no se ha preguntado nada a PcComponentes. Pulsa «Actualizar mercado»: son unos 6.000 productos, tarda un par de minutos y se puede dejar la pantalla abierta. Si «Con EAN en el proveedor» sale en 0, falta recalcular los precios en Entrais Amazon (el EAN se guarda en cada recálculo).</Aviso>
+      )}
+
+      {datos && (
+        <div className="flex flex-wrap gap-2">
+          {celdas.map(([k, v]) => (
+            <div key={k} className="rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-[6px]">
+              <div className="text-[10.5px] uppercase tracking-wide text-[var(--ls-t4)]">{k}</div>
+              <div className="text-[14px] font-semibold tabular-nums text-[var(--ls-t1)]">{v}</div>
             </div>
+          ))}
+        </div>
+      )}
+
+      {datos && datos.filas.length > 0 && (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-[7px] h-3 w-3 text-[var(--ls-t4)]" />
+              <input value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(0) }} placeholder="Buscar por SKU, EAN, producto o marca" className={cx(CAMPO.input, 'w-[300px] pl-7')} />
+            </div>
+            {(['competitivos', 'fuera', 'sin_competencia', 'todos'] as const).map((f) => (
+              <button key={f} type="button" onClick={() => { setFiltro(f); setPagina(0) }} aria-pressed={filtro === f} className={cx(BOTON.chip, filtro === f && '!border-[var(--ls-acc-borde)] !bg-[var(--ls-sup3)] !text-[var(--ls-t1)]')}>
+                {{ competitivos: 'Competitivos', fuera: 'Por encima del mercado', sin_competencia: 'Nadie lo vende', todos: 'Todos' }[f]}
+              </button>
+            ))}
+            <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPagina(0) }} className={cx(CAMPO.input, '!w-[210px]')} aria-label="Categoría">
+              <option value="">Todas las categorías</option>
+              {categorias.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
+            </select>
+            <select value={orden} onChange={(e) => { setOrden(e.target.value as Orden); setPagina(0) }} className={cx(CAMPO.input, '!w-[210px]')} aria-label="Orden">
+              {(Object.keys(ORDENES) as Orden[]).map((o) => <option key={o} value={o}>{ORDENES[o]}</option>)}
+            </select>
+            <span className="ml-auto text-[11.5px] text-[var(--ls-t4)]">{visibles.length.toLocaleString('es-ES')} de {filas.length.toLocaleString('es-ES')}</span>
           </div>
-          {ejemplos.length > 0 && (
-            <div className="overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
-              <table className="w-full min-w-[860px] text-left text-[12.5px]">
-                <thead className="bg-[var(--ls-sup2)] text-[11px] font-semibold text-[var(--ls-t4)]">
-                  <tr>
-                    {['Código', 'Producto', 'EAN', 'Coste', 'Stock', 'Tiendas en PCC', 'Precio más bajo'].map((c) => <th key={c} className="px-3 py-[6px]">{c}</th>)}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--ls-linea)]">
-                  {ejemplos.map((p) => (
-                    <tr key={p.codigo}>
-                      <td className="px-3 py-[6px] font-mono text-[11.5px] text-[var(--ls-t2)]">{p.codigo}</td>
-                      <td className="max-w-[320px] truncate px-3 py-[6px] text-[var(--ls-t1)]" title={p.descripcion}>{p.descripcion}</td>
-                      <td className="px-3 py-[6px] font-mono text-[11.5px] text-[var(--ls-t3)]">{p.ean}</td>
-                      <td className="px-3 py-[6px] tabular-nums">{euros(p.coste)}</td>
-                      <td className="px-3 py-[6px] tabular-nums">{p.stock}</td>
-                      <td className="px-3 py-[6px] tabular-nums">{p.pcc.ofertas}</td>
-                      <td className="px-3 py-[6px] tabular-nums">{euros(p.pcc.precioMinimo)}</td>
-                    </tr>
+
+          <div className="overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+            <table className="w-full min-w-[1080px] text-left text-[12.5px]">
+              <thead className="bg-[var(--ls-sup2)] text-[11px] font-semibold text-[var(--ls-t4)]">
+                <tr>
+                  {['Producto', 'Coste', 'Comisión', 'Precio más bajo', 'Tiendas', 'Margen a ese precio', `Mínimo para el ${pct(margenObjetivo, 0)}`, 'Estado'].map((c, i) => (
+                    <th key={c} className={cx('px-3 py-[6px]', i >= 1 && i <= 6 && 'text-right')}>{c}</th>
                   ))}
-                </tbody>
-              </table>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--ls-linea)]">
+                {trozo.map((f) => {
+                  const m = f.j.alMercado
+                  const color = m === null ? undefined : m.margen < 0 ? COLOR_ESTADO.rojo : m.margen >= margenObjetivo ? COLOR_ESTADO.verde : COLOR_ESTADO.ambar
+                  return (
+                    <tr key={f.sku} className="hover:bg-[var(--ls-sup2)]">
+                      <td className="max-w-[380px] px-3 py-[6px]">
+                        <div className="truncate text-[var(--ls-t1)]" title={f.titulo}>{f.titulo || '—'}</div>
+                        <div className="truncate text-[11px] text-[var(--ls-t4)]"><span className="font-mono">{f.sku}</span> · <span className="font-mono">{f.ean}</span> · {f.categoria ?? 'sin categoría'}</div>
+                      </td>
+                      <td className="px-3 py-[6px] text-right tabular-nums text-[var(--ls-t2)]">{euros(f.coste)}</td>
+                      <td className="px-3 py-[6px] text-right tabular-nums text-[var(--ls-t3)]" title={f.j.comision.porDefecto ? 'Categoría sin histórico: se usa una tarifa prudente por defecto' : `Estimada con ${f.j.comision.lineas} líneas de vuestro histórico (${f.j.comision.origen})`}>
+                        {m ? euros(m.comision) : '—'}
+                        <div className="text-[11px] text-[var(--ls-t4)]">{pct(f.j.comision.pct)}{f.j.comision.fija > 0 ? ` + ${euros(f.j.comision.fija)}` : ''}{f.j.comision.porDefecto ? ' *' : ''}</div>
+                      </td>
+                      <td className="px-3 py-[6px] text-right tabular-nums text-[var(--ls-t1)]">
+                        {euros(f.precioMin)}
+                        <div className="max-w-[130px] truncate text-[11px] text-[var(--ls-t4)]" title={f.tiendaMin ?? ''}>{f.tiendaMin ?? ''}</div>
+                      </td>
+                      <td className="px-3 py-[6px] text-right tabular-nums text-[var(--ls-t3)]">{f.ofertas}</td>
+                      <td className="px-3 py-[6px] text-right tabular-nums" style={{ color }}>
+                        {m ? euros(m.beneficio) : '—'}
+                        <div className="text-[11px]">
+                          {m ? pct(m.margen) : ''}
+                          {m && m.margen > 0.4 && (
+                            <span className="ml-1 rounded-[4px] px-1" style={{ color: COLOR_ESTADO.ambar }} title="Un margen tan alto suele ser un coste desfasado o un producto de otro formato (pack, unidad): revisar antes de fiarse">
+                              revisar
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-[6px] text-right tabular-nums text-[var(--ls-t2)]">{euros(f.j.suelo)}</td>
+                      <td className="px-3 py-[6px] text-[11.5px]">
+                        <span className="inline-flex items-center gap-[5px] text-[var(--ls-t2)]">
+                          <span className="h-[7px] w-[7px] rounded-full" style={{ background: f.precioMin === null ? COLOR_ESTADO.gris : f.j.competitivo ? COLOR_ESTADO.verde : COLOR_ESTADO.ambar }} />
+                          {f.precioMin === null ? 'Nadie lo vende' : f.j.competitivo ? 'Competitivo' : `Por encima ${euros(f.j.sobreElMercado)}`}
+                        </span>
+                        {f.publicada && <div className="text-[11px] text-[var(--ls-t4)]">Ya publicada</div>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {paginas > 1 && (
+            <div className="flex items-center justify-end gap-2 text-[12px] text-[var(--ls-t3)]">
+              <button type="button" disabled={actual === 0} onClick={() => setPagina(actual - 1)} className={cx(BOTON.base, BOTON.secundario)}>Anterior</button>
+              <span className="tabular-nums">{actual + 1} / {paginas}</span>
+              <button type="button" disabled={actual >= paginas - 1} onClick={() => setPagina(actual + 1)} className={cx(BOTON.base, BOTON.secundario)}>Siguiente</button>
             </div>
           )}
+          <p className="text-[11px] text-[var(--ls-t4)]">* Categoría sin histórico: comisión por defecto prudente. El margen es sobre el precio sin IVA y antes de devoluciones. No se mira el stock del proveedor.</p>
         </>
       )}
     </div>
