@@ -94,7 +94,7 @@ async function llamar(ruta: string, opciones: { metodo?: 'GET' | 'POST'; query?:
       res.status === 401 || res.status === 403
         ? 'PcComponentes ha rechazado la clave de API (¿caducada o sin permiso de escritura de ofertas?)'
         : res.status === 429
-          ? 'PcComponentes ha cortado por exceso de llamadas: hay que esperar'
+          ? `PcComponentes ha cortado por exceso de llamadas: espera ${Math.min(120, Math.max(5, Math.round(Number(res.headers.get('retry-after')) || 30)))} s y vuelve a intentarlo.`
           : `PcComponentes ha contestado ${res.status} a ${ruta}`
     throw new MiraklError(motivo, res.status, recorte || null)
   }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { AlertTriangle, CheckCircle2, Download, Loader2, RefreshCw, Search, Store, Upload } from 'lucide-react'
 import { BOTON, CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
@@ -24,7 +24,7 @@ import { cx } from '@/components/remesas/comun/ui'
  */
 
 export type EstadoDelPanel =
-  | { tipo: 'ok'; cuenta: CuentaPcc; ofertas: OfertaPcc[]; total: number; leidoAt: string; servidor: string; deMemoria?: boolean }
+  | { tipo: 'ok'; cuenta: CuentaPcc; leidoAt: string; servidor: string }
   | { tipo: 'sin_clave'; mensaje: string }
   | { tipo: 'error'; mensaje: string }
 
@@ -44,12 +44,58 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<{ ok: true; da
   }
 }
 
+interface ListaDeOfertas {
+  ofertas: OfertaPcc[]
+  total: number
+  deCache: boolean
+  leidoAt: string
+}
+
 export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
   const router = useRouter()
-  const ruta = usePathname()
   const [pestana, setPestana] = useState<Pestana>('ofertas')
-  // La lista de ofertas se guarda un minuto en el servidor (PcComponentes admite muy pocas lecturas): ?fresco la pide de nuevo
-  const releer = () => router.replace(`${ruta}?fresco=${Date.now()}`)
+
+  /**
+   * LA LISTA DE OFERTAS SE PIDE APARTE DE LA PÁGINA. PcComponentes admite pocas lecturas de esa lista y de vez en cuando contesta 429 con los segundos que
+   * hay que esperar. Si la pidiera la página, un corte tiraba la pantalla entera. Aquí solo afecta a esta lista: se avisa, se reintenta sola cuando pasa la
+   * espera (hasta tres veces) y, si ya había una leída, se sigue enseñando.
+   */
+  const [lista, setLista] = useState<ListaDeOfertas | null>(null)
+  const [errorLista, setErrorLista] = useState<string | null>(null)
+  const [cargandoLista, setCargandoLista] = useState(false)
+  const reintentos = useRef(0)
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cargarOfertas = useCallback(async (fresco: boolean) => {
+    if (temporizador.current) clearTimeout(temporizador.current)
+    setCargandoLista(true)
+    const r = await pedir<{ ofertas: OfertaPcc[]; total: number; deCache: boolean; edadSegundos: number }>(`/api/pccomponentes?accion=ofertas${fresco ? '&fresco=1' : ''}`)
+    setCargandoLista(false)
+    if (r.ok) {
+      reintentos.current = 0
+      setErrorLista(null)
+      setLista({ ofertas: r.datos.ofertas, total: r.datos.total, deCache: r.datos.deCache, leidoAt: new Date(Date.now() - r.datos.edadSegundos * 1000).toISOString() })
+      return
+    }
+    setErrorLista(r.error)
+    const espera = /espera (\d+) s/.exec(r.error)
+    if (espera && reintentos.current < 3) {
+      reintentos.current += 1
+      temporizador.current = setTimeout(() => void cargarOfertas(fresco), (Number(espera[1]) + 2) * 1000)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (estado.tipo === 'ok') void cargarOfertas(false)
+    return () => {
+      if (temporizador.current) clearTimeout(temporizador.current)
+    }
+  }, [estado.tipo, cargarOfertas])
+
+  const releer = () => {
+    reintentos.current = 0
+    void cargarOfertas(true)
+  }
 
   return (
     <div className="fba-cockpit flex min-h-[calc(100vh-4rem)] flex-col">
@@ -81,8 +127,8 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
             </button>
           ))}
         </nav>
-        <button type="button" onClick={releer} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')} title="Vuelve a leer la tienda de PcComponentes">
-          <RefreshCw className="h-3 w-3" />
+        <button type="button" disabled={cargandoLista} onClick={estado.tipo === 'ok' ? releer : () => router.refresh()} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')} title="Vuelve a leer la tienda de PcComponentes">
+          {cargandoLista ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           Actualizar
         </button>
       </header>
@@ -97,11 +143,20 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
         </div>
       ) : (
         <>
-          <Cifras cuenta={estado.cuenta} total={estado.total} leidoAt={estado.leidoAt} deMemoria={estado.deMemoria === true} />
+          <Cifras cuenta={estado.cuenta} leidoAt={lista?.leidoAt ?? null} deMemoria={lista?.deCache === true} />
           <div className="px-5 pb-8">
-            {pestana === 'ofertas' && <TablaDeOfertas ofertas={estado.ofertas} total={estado.total} />}
-            {pestana === 'probar' && <ProbarUnProducto ofertas={estado.ofertas} onSubido={releer} />}
-            {pestana === 'mercado' && <MercadoYMargen ofertas={estado.ofertas} />}
+            {pestana === 'ofertas' && (
+              <div className="space-y-3">
+                {errorLista && <Aviso tono="ambar">{errorLista}{reintentos.current > 0 && reintentos.current <= 3 ? ' Se reintenta sola.' : ''}{lista ? ' Mientras tanto se enseña la última lista leída.' : ''}</Aviso>}
+                {lista ? (
+                  <TablaDeOfertas ofertas={lista.ofertas} total={lista.total} />
+                ) : (
+                  !errorLista && <div className="flex items-center gap-2 text-[12px] text-[var(--ls-t3)]"><Loader2 className="h-3 w-3 animate-spin" /> Leyendo las ofertas de la tienda…</div>
+                )}
+              </div>
+            )}
+            {pestana === 'probar' && <ProbarUnProducto ofertas={lista?.ofertas ?? []} onSubido={releer} />}
+            {pestana === 'mercado' && <MercadoYMargen ofertas={lista?.ofertas ?? []} />}
           </div>
         </>
       )}
@@ -122,14 +177,14 @@ function Aviso({ tono, children }: { tono: 'rojo' | 'ambar' | 'verde' | 'gris'; 
   )
 }
 
-function Cifras({ cuenta, total, leidoAt, deMemoria }: { cuenta: CuentaPcc; total: number; leidoAt: string; deMemoria: boolean }) {
+function Cifras({ cuenta, leidoAt, deMemoria }: { cuenta: CuentaPcc; leidoAt: string | null; deMemoria: boolean }) {
   const celdas: Array<[string, string]> = [
-    ['Ofertas publicadas', total.toLocaleString('es-ES')],
+    ['Ofertas publicadas', cuenta.ofertas.toLocaleString('es-ES')],
     ['Pedidos hechos', cuenta.pedidos.toLocaleString('es-ES')],
     ['Valoración', cuenta.valoracion === null ? '—' : `${cuenta.valoracion.toLocaleString('es-ES')} / 5`],
     ['Aprobación de ofertas', cuenta.tasaAprobacion === null ? '—' : `${Math.round(cuenta.tasaAprobacion * 100)} %`],
     ['Canales', cuenta.canales.map((c) => c.replace('WEB_', '')).join(' · ') || '—'],
-    ['Ofertas leídas', `${new Date(leidoAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}${deMemoria ? ' · memoria' : ''}`],
+    ['Ofertas leídas', leidoAt ? `${new Date(leidoAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}${deMemoria ? ' · memoria' : ''}` : '—'],
   ]
   return (
     <div className="flex flex-wrap gap-2 px-5 pb-3">

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
-import { MiraklError, baseDePcc, faltaConfigurarPcc, leerCuenta, leerTodasLasOfertas } from '@/lib/pccomponentes/mirakl'
+import { MiraklError, baseDePcc, faltaConfigurarPcc, leerCuenta } from '@/lib/pccomponentes/mirakl'
 import { PanelPccomponentes, type EstadoDelPanel } from '@/components/entrais/PanelPccomponentes'
 
 /**
@@ -16,7 +16,7 @@ import { PanelPccomponentes, type EstadoDelPanel } from '@/components/entrais/Pa
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-export default async function EntraisPccomponentesPage({ searchParams }: { searchParams?: Promise<{ fresco?: string }> | { fresco?: string } }) {
+export default async function EntraisPccomponentesPage() {
   const supabase = await createClient()
   const {
     data: { user },
@@ -25,25 +25,16 @@ export default async function EntraisPccomponentesPage({ searchParams }: { searc
   const perfil = await getUserProfile()
   if (perfil?.role !== 'admin') redirect('/dashboard')
 
-  // «Actualizar» y una subida añaden ?fresco=…: piden la lista de ofertas de verdad en vez de la que hay en memoria
-  const fresco = Boolean((await searchParams)?.fresco)
-
   let estado: EstadoDelPanel
   const falta = faltaConfigurarPcc()
   if (falta) {
     estado = { tipo: 'sin_clave', mensaje: falta }
   } else {
     try {
-      const [cuenta, lectura] = await Promise.all([leerCuenta(), leerTodasLasOfertas(5000, { forzar: fresco })])
-      estado = {
-        tipo: 'ok',
-        cuenta,
-        ofertas: lectura.ofertas,
-        total: lectura.total,
-        leidoAt: new Date(Date.now() - (lectura.edadSegundos ?? 0) * 1000).toISOString(),
-        servidor: new URL(baseDePcc()).host,
-        deMemoria: lectura.deCache === true,
-      }
+      // Solo la cuenta: es la lectura que no tiene límite. La lista de ofertas la pide la pantalla aparte, con su propio reintento, porque PcComponentes admite
+      // pocas lecturas de esa lista y no tiene que tumbar la pantalla entera
+      const cuenta = await leerCuenta()
+      estado = { tipo: 'ok', cuenta, leidoAt: new Date().toISOString(), servidor: new URL(baseDePcc()).host }
     } catch (e) {
       estado = { tipo: 'error', mensaje: e instanceof MiraklError ? `${e.message}${e.cuerpo ? ` (${e.cuerpo.slice(0, 160)})` : ''}` : 'No se ha podido leer la tienda de PcComponentes' }
     }

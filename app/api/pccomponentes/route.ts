@@ -8,6 +8,7 @@ import { buscarProductos, productosDelProveedor } from '@/lib/pccomponentes/prov
 /**
  * ENTRAIS · PCCOMPONENTES: LAS LLAMADAS DE LA PANTALLA. SOLO ADMIN.
  *
+ *   GET  ?accion=ofertas[&fresco=1]    todas las ofertas de la tienda (se guardan un minuto: PcComponentes admite muy pocas lecturas de esta lista)
  *   GET  ?accion=proveedor&q=…         busca un producto en la API del proveedor (código, EAN, referencia o texto)
  *   GET  ?accion=producto&ean=…        ¿existe ese EAN en el catálogo de PcComponentes? ¿y la tienda ya lo oferta?
  *   GET  ?accion=importacion&id=…      cómo va una subida de ofertas y, si falló alguna línea, por qué
@@ -36,6 +37,11 @@ export async function GET(request: NextRequest) {
     if (falta) return fail(503, falta)
     const q = request.nextUrl.searchParams
     const accion = q.get('accion')
+
+    if (accion === 'ofertas') {
+      const lectura = await leerTodasLasOfertas(5000, { forzar: q.get('fresco') === '1' })
+      return NextResponse.json({ ofertas: lectura.ofertas, total: lectura.total, deCache: lectura.deCache === true, edadSegundos: lectura.edadSegundos ?? 0 })
+    }
 
     if (accion === 'proveedor') {
       const lectura = await productosDelProveedor()
