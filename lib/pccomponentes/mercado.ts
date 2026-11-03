@@ -114,11 +114,17 @@ export interface ResultadoDeTramo {
   total: number
 }
 
-const PAUSA_ENTRE_LLAMADAS_MS = 700
+/**
+ * A PcComponentes se le pregunta despacio. A 700 ms entre llamadas (≈ 85 por minuto) acabó contestando 429 «Too Many Requests» —y al mismo tiempo la propia
+ * pantalla, que lee la cuenta y las ofertas, también—. Con unos 2,2 s por llamada (≈ 26 por minuto) se recorrió el catálogo entero sin un solo corte.
+ */
+const PAUSA_ENTRE_LLAMADAS_MS = 2000
+/** Esperas antes de reintentar una llamada que PcComponentes ha cortado: 8 s, 15 s y 25 s */
+const ESPERAS_DE_REINTENTO_MS = [8000, 15000, 25000]
 
 /**
  * Pregunta a PcComponentes por un tramo de EAN y guarda el resultado (también de los que no existen).
- * Un tramo de 1.000 son 10 llamadas y unos 15 segundos: la pantalla los encadena hasta terminar.
+ * Un tramo de 1.000 son 10 llamadas y unos 25 segundos: la pantalla los encadena hasta terminar.
  */
 export async function actualizarTramo(desde: number, max = 1000): Promise<ResultadoDeTramo> {
   const service = createServiceClient()
@@ -130,12 +136,12 @@ export async function actualizarTramo(desde: number, max = 1000): Promise<Result
   for (let i = 0; i < tramo.length; i += 100) {
     const trozo = tramo.slice(i, i + 100)
     let hallados: Awaited<ReturnType<typeof buscarProductosPorEan>> | null = null
-    for (let intento = 0; intento < 3 && hallados === null; intento++) {
+    for (let intento = 0; hallados === null; intento++) {
       try {
         hallados = await buscarProductosPorEan(trozo)
       } catch (error) {
-        if (intento === 2) throw error
-        await new Promise((r) => setTimeout(r, 4000))
+        if (intento >= ESPERAS_DE_REINTENTO_MS.length) throw error
+        await new Promise((r) => setTimeout(r, ESPERAS_DE_REINTENTO_MS[intento]))
       }
     }
     const filas = trozo.map((ean) => {

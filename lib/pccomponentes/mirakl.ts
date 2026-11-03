@@ -60,23 +60,34 @@ async function llamar(ruta: string, opciones: { metodo?: 'GET' | 'POST'; query?:
   const url = new URL(`${baseDePcc()}${ruta}`)
   for (const [k, v] of Object.entries(opciones.query ?? {})) if (v !== undefined && v !== '') url.searchParams.set(k, String(v))
 
+  // Una lectura que topa con el límite de llamadas se repite UNA vez tras una espera corta: un par de recargas seguidas de la pantalla no tienen por qué
+  // acabar en un error. Las escrituras no se repiten solas (una subida de ofertas ya tiene su propio control de una por minuto).
   let res: Response
-  try {
-    res = await fetch(url, {
-      method: opciones.metodo ?? 'GET',
-      headers: {
-        Authorization: clave,
-        Accept: opciones.aceptar ?? 'application/json',
-        ...(opciones.json !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: opciones.json !== undefined ? JSON.stringify(opciones.json) : undefined,
-      signal: AbortSignal.timeout(TIEMPO_MAXIMO_MS),
-      cache: 'no-store',
-    })
-  } catch (e) {
-    throw new MiraklError(`No se ha podido conectar con PcComponentes (${e instanceof Error ? e.name : 'error de red'})`, 0)
+  let texto = ''
+  for (let intento = 0; ; intento++) {
+    try {
+      res = await fetch(url, {
+        method: opciones.metodo ?? 'GET',
+        headers: {
+          Authorization: clave,
+          Accept: opciones.aceptar ?? 'application/json',
+          ...(opciones.json !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: opciones.json !== undefined ? JSON.stringify(opciones.json) : undefined,
+        signal: AbortSignal.timeout(TIEMPO_MAXIMO_MS),
+        cache: 'no-store',
+      })
+    } catch (e) {
+      throw new MiraklError(`No se ha podido conectar con PcComponentes (${e instanceof Error ? e.name : 'error de red'})`, 0)
+    }
+    texto = await res.text()
+    if (res.status === 429 && intento === 0 && (opciones.metodo ?? 'GET') === 'GET') {
+      const pedida = Number(res.headers.get('retry-after'))
+      await new Promise((r) => setTimeout(r, Math.min(8, Number.isFinite(pedida) && pedida > 0 ? pedida : 3) * 1000))
+      continue
+    }
+    break
   }
-  const texto = await res.text()
   if (!res.ok) {
     const recorte = texto.replace(clave, '***').slice(0, 400)
     const motivo =

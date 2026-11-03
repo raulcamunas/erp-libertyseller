@@ -85,9 +85,12 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
       </header>
 
       {estado.tipo !== 'ok' ? (
-        <div className="px-5 pb-6">
+        <div className="space-y-3 px-5 pb-6">
           <Aviso tono="rojo">{estado.mensaje}</Aviso>
-          {estado.tipo === 'sin_clave' && <p className="mt-2 text-[12px] text-[var(--ls-t3)]">Se pone en las variables de entorno del servidor (Easypanel) y se reinicia la aplicación.</p>}
+          {estado.tipo === 'sin_clave' && <p className="text-[12px] text-[var(--ls-t3)]">Se pone en las variables de entorno del servidor (Easypanel) y se reinicia la aplicación.</p>}
+          {/* Si solo ha fallado la lectura de la tienda (un corte de PcComponentes, por ejemplo), el mercado y el margen se pueden seguir viendo: salen de lo guardado */}
+          {estado.tipo === 'error' && pestana === 'mercado' && <MercadoYMargen ofertas={[]} />}
+          {estado.tipo === 'error' && pestana !== 'mercado' && <p className="text-[12px] text-[var(--ls-t3)]">Espera un minuto y pulsa «Actualizar». La pestaña «Mercado y margen» funciona igualmente.</p>}
         </div>
       ) : (
         <>
