@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CalendarDays, Calculator, ChevronLeft, ChevronRight, FileUp, Loader2, Lock } from 'lucide-react'
-import { MESES, mesEnLetra, type MiembroDeGrupo, type ResumenDeCliente, type ResumenDelMes, type SituacionDelCliente } from '@/lib/comisiones-puente/tipos'
+import { MESES, mesDelInforme, mesEnLetra, type MiembroDeGrupo, type ResumenDeCliente, type ResumenDelMes, type SituacionDelCliente } from '@/lib/comisiones-puente/tipos'
 import { PantallaLiquidacion, mesPorDefecto } from './PantallaLiquidacion'
 import { CommissionsCalculator } from './CommissionsCalculator'
 
@@ -13,13 +13,13 @@ const euros = (n: number | null | undefined) => (n == null || !Number.isFinite(n
 
 const SITUACION: Record<SituacionDelCliente, { texto: string; punto: string; ayuda: string }> = {
   sin_regla: { texto: 'Sin regla de cálculo', punto: 'bg-sky-400', ayuda: 'Cliente de Tesorería: todavía no hay regla para calcularle la comisión aquí' },
-  listo: { texto: 'Listo para calcular', punto: 'bg-emerald-400', ayuda: 'El informe del mes está en Tax Reports' },
+  listo: { texto: 'Listo para calcular', punto: 'bg-emerald-400', ayuda: 'El informe del mes anterior está en Tax Reports' },
   falta_anterior: {
     texto: 'Falta el año anterior',
     punto: 'bg-yellow-400',
     ayuda: 'Compara dos años: el del año pasado se sube a mano al calcular',
   },
-  sin_informe: { texto: 'Sin informe', punto: 'bg-red-400', ayuda: 'Nadie ha subido el informe de ese mes a Tax Reports' },
+  sin_informe: { texto: 'Sin informe', punto: 'bg-red-400', ayuda: 'Nadie ha subido a Tax Reports el informe del mes anterior, que es el que sirve para calcular esta comisión' },
   purgado: { texto: 'Informe retirado', punto: 'bg-red-400', ayuda: 'Se retiró a los seis meses: hay que volver a subirlo' },
   sin_tax_reports: { texto: 'Sin Tax Reports', punto: 'bg-white/25', ayuda: 'Este cliente no está dado de alta en Tax Reports' },
 }
@@ -303,7 +303,7 @@ export function PanelComisiones({ clientesCalculadora }: { clientesCalculadora: 
               <div className="rounded-2xl border border-dashed border-white/10 px-6 py-14 text-center">
                 <p className="text-[15px] font-medium text-white/80">Elige un cliente de la izquierda</p>
                 <p className="mt-1 text-[12px] text-white/40 max-w-md mx-auto">
-                  Verás su informe de {mesEnLetra(anio, mes)} en Tax Reports, calcularás su comisión con la regla de ese cliente y, al validarla, se escribe en Tesorería.
+                  Verás su informe de {mesEnLetra(mesDelInforme(anio, mes).anio, mesDelInforme(anio, mes).mes)} en Tax Reports (el que sirve para la comisión de {mesEnLetra(anio, mes)}), la calcularás con la regla de ese cliente y, al validarla, se escribe en Tesorería en {MESES[mes - 1].toLowerCase()}.
                 </p>
               </div>
             ) : (

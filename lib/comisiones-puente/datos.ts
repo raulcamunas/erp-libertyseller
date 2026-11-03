@@ -21,6 +21,8 @@ import {
   type ResumenDelMes,
   type SituacionDelCliente,
   importeDeCalculo,
+  emparejarConTaxReports,
+  mesDelInforme,
   mesEnLetra,
   perfilDeCalculo,
   periodoDe,
@@ -164,6 +166,8 @@ export async function leerEstadoDelMes(
 
   const perfil = perfilDeCalculo(cliente)
   const period = periodoDe(anio, mes)
+  // El informe que alimenta la comisión de este mes es el del mes ANTERIOR (ver mesDelInforme)
+  const informe = mesDelInforme(anio, mes)
 
   /* ---------- Los ficheros de Tax Reports ---------- */
 
@@ -173,27 +177,32 @@ export async function leerEstadoDelMes(
   let estaEnTaxReports = false
 
   try {
-    const { data: filaTax, error: errorTax } = await service
-      .from('tax_report_clientes')
-      .select('id')
-      .eq('client_id', clienteId)
-      .maybeSingle()
+    // Por la columna `client_id` y, si esa fila se dio de alta a mano, por el nombre (ver emparejarConTaxReports)
+    const [{ data: filasTax, error: errorTax }, { data: todosLosClientes, error: errorClientes }] = await Promise.all([
+      service.from('tax_report_clientes').select('id, nombre, client_id'),
+      service.from('clients').select('id, name'),
+    ])
 
     if (errorTax) throw errorTax
+    if (errorClientes) throw errorClientes
 
-    if (filaTax) {
+    const taxClienteId = emparejarConTaxReports(
+      (todosLosClientes ?? []) as { id: string; name: string }[],
+      (filasTax ?? []) as { id: string; nombre: string; client_id: string | null }[]
+    ).get(clienteId)
+
+    if (taxClienteId) {
       estaEnTaxReports = true
-      const taxClienteId = (filaTax as { id: string }).id
 
-      // Los dos meses de una vez: el pedido y el MISMO MES DEL AÑO ANTERIOR.
-      // `anio - 1` no es un mes anterior: los clientes de dos ficheros comparan
-      // el excedente de este año contra el del pasado.
+      // Los dos de una vez: el del mes del informe y ese MISMO MES UN AÑO ANTES.
+      // `informe.anio - 1` no es un mes anterior: los clientes de dos ficheros
+      // comparan el excedente de este año contra el del pasado.
       const { data: ficheros, error: errorFicheros } = await service
         .from('tax_report_ficheros')
         .select('id, anio, mes, nombre_original, subido_at, purgado_at')
         .eq('cliente_id', taxClienteId)
-        .in('anio', [anio, anio - 1])
-        .eq('mes', mes)
+        .in('anio', [informe.anio, informe.anio - 1])
+        .eq('mes', informe.mes)
 
       if (errorFicheros) throw errorFicheros
 
@@ -206,7 +215,7 @@ export async function leerEstadoDelMes(
           subidoAt: raw.subido_at,
           purgado: raw.purgado_at != null,
         }
-        if (raw.anio === anio) ficheroActual = fichero
+        if (raw.anio === informe.anio) ficheroActual = fichero
         else ficheroAnterior = fichero
       }
     }
@@ -241,12 +250,12 @@ export async function leerEstadoDelMes(
     )
   } else if (!ficheroActual) {
     faltan.push(
-      `No hay informe de ${mesEnLetra(anio, mes)} en Tax Reports. El día 3 lo cuelga quien recorre ` +
-        'las cuentas; hasta que esté, aquí no se calcula nada.'
+      `No hay informe de ${mesEnLetra(informe.anio, informe.mes)} en Tax Reports, que es el que sirve para calcular la comisión de ${mesEnLetra(anio, mes)}. ` +
+        'El día 3 lo cuelga quien recorre las cuentas; hasta que esté, aquí no se calcula nada.'
     )
   } else if (ficheroActual.purgado) {
     faltan.push(
-      `El informe de ${mesEnLetra(anio, mes)} ya se retiró: los ficheros se guardan seis meses ` +
+      `El informe de ${mesEnLetra(informe.anio, informe.mes)} ya se retiró: los ficheros se guardan seis meses ` +
         'porque llevan datos de los compradores. Hay que volver a bajarlo y subirlo a Tax Reports.'
     )
   }
@@ -284,6 +293,7 @@ export async function leerEstadoDelMes(
     anio,
     mes,
     period,
+    informe,
     ficheroActual,
     ficheroAnterior,
     faltan,
@@ -496,7 +506,7 @@ export async function planDeCalculo(
       estado: 409,
       mensaje:
         estado.faltan[0] ??
-        `No hay informe de ${mesEnLetra(anio, mes)} en Tax Reports para este cliente.`,
+        `No hay informe de ${mesEnLetra(mesDelInforme(anio, mes).anio, mesDelInforme(anio, mes).mes)} en Tax Reports para este cliente.`,
     }
   }
 
@@ -870,27 +880,29 @@ export async function leerResumenDelMes(anio: number, mes: number): Promise<Resu
   const clientes = ((filasClientes ?? []) as (FilaCliente & { base_commission_rate?: number | null })[]).filter(
     (c) => !CLIENTES_FUERA_DEL_PANEL.includes(c.name)
   )
+  // El informe de Tax Reports que alimenta la comisión de este mes es el del mes anterior (ver mesDelInforme)
+  const informe = mesDelInforme(anio, mes)
 
   const hayColumna = clientes.some((c) => Object.prototype.hasOwnProperty.call(c, 'treasury_client_id'))
 
-  /* Tax Reports: quién tiene fichero ese mes y el mismo mes del año pasado */
+  /* Tax Reports: quién tiene el fichero del mes del informe (el anterior al de cobro) y ese mismo mes del año pasado */
   const taxDe = new Map<string, string>()
   const ficherosPorTax = new Map<string, { actual?: FilaFichero; anterior?: FilaFichero }>()
   let faltaLa200Aqui = false
   try {
-    const { data: tax, error: errorTax } = await service.from('tax_report_clientes').select('id, client_id')
+    const { data: tax, error: errorTax } = await service.from('tax_report_clientes').select('id, nombre, client_id')
     if (errorTax) throw errorTax
-    for (const t of (tax ?? []) as { id: string; client_id: string }[]) taxDe.set(t.client_id, t.id)
+    for (const [clienteId, taxId] of emparejarConTaxReports(clientes, (tax ?? []) as { id: string; nombre: string; client_id: string | null }[])) taxDe.set(clienteId, taxId)
 
     const { data: ficheros, error: errorFicheros } = await service
       .from('tax_report_ficheros')
       .select('id, cliente_id, anio, mes, nombre_original, subido_at, purgado_at')
-      .in('anio', [anio, anio - 1])
-      .eq('mes', mes)
+      .in('anio', [informe.anio, informe.anio - 1])
+      .eq('mes', informe.mes)
     if (errorFicheros) throw errorFicheros
     for (const f of (ficheros ?? []) as (FilaFichero & { cliente_id: string })[]) {
       const celda = ficherosPorTax.get(f.cliente_id) ?? {}
-      if (f.anio === anio) celda.actual = f
+      if (f.anio === informe.anio) celda.actual = f
       else celda.anterior = f
       ficherosPorTax.set(f.cliente_id, celda)
     }

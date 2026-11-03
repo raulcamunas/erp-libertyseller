@@ -37,6 +37,7 @@ import {
   type PlanDeCalculo,
   esResultadoPorMarca,
   importeDeCalculo,
+  mesDelInforme,
   mesEnLetra,
 } from '@/lib/comisiones-puente/tipos'
 
@@ -126,13 +127,13 @@ function euros(valor: number | null | undefined): string {
   return EUROS.format(valor)
 }
 
-/** El mes que se va a liquidar casi siempre: el anterior al de hoy */
+/**
+ * El mes que se va a liquidar casi siempre: el DE HOY. El panel va por mes de COBRO (la comisión que se cobra en noviembre aparece en noviembre) y
+ * se calcula con el informe del mes anterior (lib/comisiones-puente/tipos.ts: mesDelInforme), que es el que se cuelga en Tax Reports el día 3.
+ */
 export function mesPorDefecto(): { anio: number; mes: number } {
   const hoy = new Date()
-  const m = hoy.getMonth() // 0-11, o sea que ya es «el mes pasado» en base 1
-  return m === 0
-    ? { anio: hoy.getFullYear() - 1, mes: 12 }
-    : { anio: hoy.getFullYear(), mes: m }
+  return { anio: hoy.getFullYear(), mes: hoy.getMonth() + 1 }
 }
 
 /**
@@ -566,17 +567,20 @@ export function PantallaLiquidacion({
           <div className={TARJETA.base}>
             <div className={TARJETA.cabecera}>
               <FileSpreadsheet className={`h-[13px] w-[13px] ${TEXTO.t4}`} />
-              <span className={TITULO.seccion}>El informe de {mesEnLetra(anio, mes)}</span>
+              <span className={TITULO.seccion}>
+                El informe de {mesEnLetra(mesDelInforme(anio, mes).anio, mesDelInforme(anio, mes).mes)}
+                <span className={`ml-2 font-normal ${TEXTO.t4}`}>para la comisión de {mesEnLetra(anio, mes)}</span>
+              </span>
             </div>
             <div className={`${TARJETA.cuerpo} space-y-[9px]`}>
               <FilaFichero
-                rotulo={perfil?.dosFicheros ? `Año actual (${anio})` : 'Informe del mes'}
+                rotulo={perfil?.dosFicheros ? `Año actual (${mesDelInforme(anio, mes).anio})` : 'Informe del mes anterior'}
                 fichero={estado.ficheroActual}
               />
 
               {perfil?.dosFicheros && (
                 <>
-                  <FilaFichero rotulo={`Año anterior (${anio - 1})`} fichero={estado.ficheroAnterior} />
+                  <FilaFichero rotulo={`Año anterior (${mesDelInforme(anio, mes).anio - 1})`} fichero={estado.ficheroAnterior} />
                   {estado.aMano.includes('filePreviousYear') && (
                     <Aviso tono="ambar" icono={Upload}>
                       <span className={AVISO.fuerte}>

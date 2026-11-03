@@ -72,6 +72,54 @@ export function periodoDe(anio: number, mes: number): string {
   return `${anio}-${String(mes).padStart(2, '0')}-01`
 }
 
+/**
+ * EL MES DEL INFORME QUE ALIMENTA LA COMISIÓN DE UN MES: EL ANTERIOR.
+ *
+ * Raúl (3 nov 2026): lo que se sube de octubre —el Sellerboard o el Tax Report— sirve para calcular lo que se cobra en NOVIEMBRE, y es en noviembre
+ * donde tiene que aparecer. Así se ha trabajado siempre (los informes guardados se llaman «Noviembre 2026» y se guardan el 2 o 3 de noviembre con los
+ * datos de octubre; Tesorería apunta la comisión en la fila de noviembre). Lo que estaba mal en el panel era dónde buscaba el fichero: lo buscaba en la
+ * celda de Tax Reports del MISMO mes, que en noviembre todavía no existe, y por eso salían todos «Sin informe».
+ *
+ *   mes del panel (cobro)   Tesorería · informe guardado `commission_reports.period`   → noviembre
+ *   mes del informe         celda de Tax Reports · Sellerboard · el año anterior       → octubre
+ *
+ * El año anterior de un cliente que compara dos años es el MISMO mes del informe un año antes (octubre 2025), no el del cobro.
+ */
+export function mesDelInforme(anio: number, mes: number): { anio: number; mes: number } {
+  return mes === 1 ? { anio: anio - 1, mes: 12 } : { anio, mes: mes - 1 }
+}
+
+/**
+ * QUÉ FILA DE TAX REPORTS ES DE CADA CLIENTE DE COMISIONES.
+ *
+ * Lo normal es la columna `client_id` (migración 200 la rellena para los clientes que ya existían). Pero una fila dada de alta A MANO en Tax Reports
+ * —que es como se hizo con Opinas, Solter y Cobofamily— nace con `client_id` a NULL, y el cliente de comisiones se creó después por su lado (migración
+ * 266): para el panel «no tenía Tax Reports» aunque tuviera su Sellerboard de octubre colgado. Se enlazan entonces por NOMBRE, sin espacios ni
+ * mayúsculas («Cobofamily» = «Cobo Family»), y solo si no hay duda: la fila no tiene cliente, el nombre coincide con UN solo cliente y ese cliente no
+ * tiene ya otra fila.
+ */
+export function emparejarConTaxReports(
+  clientes: ReadonlyArray<{ id: string; name: string }>,
+  filas: ReadonlyArray<{ id: string; nombre: string; client_id: string | null }>
+): Map<string, string> {
+  const porCliente = new Map<string, string>()
+  for (const f of filas) if (f.client_id) porCliente.set(f.client_id, f.id)
+
+  const clave = (n: string) => n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '')
+  const candidatos = new Map<string, string[]>()
+  for (const c of clientes) {
+    if (porCliente.has(c.id)) continue
+    const k = clave(c.name)
+    if (k) candidatos.set(k, [...(candidatos.get(k) ?? []), c.id])
+  }
+  for (const f of filas) {
+    if (f.client_id) continue
+    const posibles = candidatos.get(clave(f.nombre)) ?? []
+    if (posibles.length === 1 && !porCliente.has(posibles[0])) porCliente.set(posibles[0], f.id)
+  }
+  return porCliente
+}
+
 /** «Septiembre 2026». Para las pantallas y para el informe guardado. */
 export function mesEnLetra(anio: number, mes: number): string {
   return `${MESES[mes - 1] ?? '?'} ${anio}`
@@ -234,12 +282,15 @@ export interface EstadoDelMes {
     nombre: string | null
     candidatos: CandidatoTesoreria[]
   }
+  /** El mes de COBRO: el del panel, el de Tesorería y el del informe guardado */
   anio: number
   mes: number
   period: string
-  /** El del mes pedido */
+  /** El mes del INFORME que lo alimenta: el anterior al de cobro (ver `mesDelInforme`) */
+  informe: { anio: number; mes: number }
+  /** El informe de ese mes de Tax Reports */
   ficheroActual: FicheroDelMes | null
-  /** El MISMO MES DEL AÑO ANTERIOR. Solo para los que comparan dos años */
+  /** El MISMO MES DEL INFORME UN AÑO ANTES. Solo para los que comparan dos años */
   ficheroAnterior: FicheroDelMes | null
   /** Qué falta, ya escrito en español para enseñarlo tal cual */
   faltan: string[]
