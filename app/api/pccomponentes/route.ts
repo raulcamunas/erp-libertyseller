@@ -24,7 +24,7 @@ const MAX_OFERTAS_POR_SUBIDA = 5
 
 function problema(error: unknown, contexto: string): NextResponse {
   const codigo = (e: number | undefined) => (e !== undefined && e >= 400 && e < 600 ? e : 502)
-  if (error instanceof MiraklError) return fail(codigo(error.estado), error.cuerpo ? `${error.message}: ${error.cuerpo.slice(0, 200)}` : error.message)
+  if (error instanceof MiraklError) return fail(codigo(error.estado), error.cuerpo && error.estado !== 429 ? `${error.message}: ${error.cuerpo.slice(0, 200)}` : error.message)
   if (error instanceof EntraisError) return fail(codigo(error.estado), error.message)
   return errorResponse(error, contexto)
 }

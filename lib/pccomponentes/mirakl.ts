@@ -60,8 +60,7 @@ async function llamar(ruta: string, opciones: { metodo?: 'GET' | 'POST'; query?:
   const url = new URL(`${baseDePcc()}${ruta}`)
   for (const [k, v] of Object.entries(opciones.query ?? {})) if (v !== undefined && v !== '') url.searchParams.set(k, String(v))
 
-  // Una lectura que topa con el límite de llamadas se repite UNA vez, esperando lo que pide PcComponentes en `Retry-After` (hasta 30 s: la lista de ofertas
-  // pide 20-25 s). Así un par de recargas seguidas de la pantalla no tienen por qué acabar en un error. Las escrituras no se repiten solas (una subida de ofertas ya tiene su propio control de una por minuto).
+  // Una lectura que topa con el límite de llamadas se repite UNA vez si PcComponentes pide esperar poco (`Retry-After` de hasta 8 s). Las escrituras no se repiten solas (una subida de ofertas ya tiene su propio control de una por minuto).
   let res: Response
   let texto = ''
   for (let intento = 0; ; intento++) {
@@ -83,8 +82,13 @@ async function llamar(ruta: string, opciones: { metodo?: 'GET' | 'POST'; query?:
     texto = await res.text()
     if (res.status === 429 && intento === 0 && (opciones.metodo ?? 'GET') === 'GET') {
       const pedida = Number(res.headers.get('retry-after'))
-      await new Promise((r) => setTimeout(r, Math.min(30, Number.isFinite(pedida) && pedida > 0 ? pedida : 3) * 1000))
-      continue
+      const espera = Number.isFinite(pedida) && pedida > 0 ? pedida : 3
+      // Solo si la espera es corta. Una de 30-60 s no se puede aguantar dentro de una petición: la pantalla se quedaría cargando sin decir nada.
+      // Se falla enseguida con los segundos que hay que esperar y es la pantalla la que cuenta atrás y vuelve a pedirlo
+      if (espera <= 8) {
+        await new Promise((r) => setTimeout(r, espera * 1000))
+        continue
+      }
     }
     break
   }

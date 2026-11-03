@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { AlertTriangle, CheckCircle2, Download, Loader2, RefreshCw, Search, Store, Upload } from 'lucide-react'
 import { BOTON, CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
@@ -52,8 +51,8 @@ interface ListaDeOfertas {
 }
 
 export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
-  const router = useRouter()
-  const [pestana, setPestana] = useState<Pestana>('ofertas')
+  // Empieza en el mercado: no necesita la lista de ofertas, que es la lectura con límite. La lista se pide al abrir «Ofertas» o «Probar»
+  const [pestana, setPestana] = useState<Pestana>('mercado')
 
   /**
    * LA LISTA DE OFERTAS SE PIDE APARTE DE LA PÁGINA. PcComponentes admite pocas lecturas de esa lista y de vez en cuando contesta 429 con los segundos que
@@ -64,10 +63,14 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
   const [errorLista, setErrorLista] = useState<string | null>(null)
   const [cargandoLista, setCargandoLista] = useState(false)
   const reintentos = useRef(0)
-  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ultimoFresco = useRef(false)
+  // Cuenta atrás hasta poder volver a pedirla, cuando PcComponentes dice cuántos segundos esperar
+  const [esperaFin, setEsperaFin] = useState<number | null>(null)
+  const [ahora, setAhora] = useState(() => Date.now())
 
   const cargarOfertas = useCallback(async (fresco: boolean) => {
-    if (temporizador.current) clearTimeout(temporizador.current)
+    ultimoFresco.current = fresco
+    setEsperaFin(null)
     setCargandoLista(true)
     const r = await pedir<{ ofertas: OfertaPcc[]; total: number; deCache: boolean; edadSegundos: number }>(`/api/pccomponentes?accion=ofertas${fresco ? '&fresco=1' : ''}`)
     setCargandoLista(false)
@@ -79,21 +82,44 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
     }
     setErrorLista(r.error)
     const espera = /espera (\d+) s/.exec(r.error)
-    if (espera && reintentos.current < 3) {
-      reintentos.current += 1
-      temporizador.current = setTimeout(() => void cargarOfertas(fresco), (Number(espera[1]) + 2) * 1000)
+    if (espera) {
+      setAhora(Date.now())
+      setEsperaFin(Date.now() + (Number(espera[1]) + 2) * 1000)
     }
   }, [])
 
+  // La lista solo se pide cuando se necesita: al abrir «Ofertas» o «Probar» por primera vez
+  const necesitaLista = estado.tipo === 'ok' && pestana !== 'mercado'
+  const pedida = useRef(false)
   useEffect(() => {
-    if (estado.tipo === 'ok') void cargarOfertas(false)
-    return () => {
-      if (temporizador.current) clearTimeout(temporizador.current)
+    if (necesitaLista && !pedida.current) {
+      pedida.current = true
+      void cargarOfertas(false)
     }
-  }, [estado.tipo, cargarOfertas])
+  }, [necesitaLista, cargarOfertas])
+
+  useEffect(() => {
+    if (esperaFin === null) return
+    const id = setInterval(() => setAhora(Date.now()), 500)
+    return () => clearInterval(id)
+  }, [esperaFin])
+
+  // Pasada la espera, se vuelve a pedir sola (hasta tres veces)
+  useEffect(() => {
+    if (esperaFin !== null && ahora >= esperaFin) {
+      setEsperaFin(null)
+      if (reintentos.current < 3) {
+        reintentos.current += 1
+        void cargarOfertas(ultimoFresco.current)
+      }
+    }
+  }, [ahora, esperaFin, cargarOfertas])
+
+  const segundosDeEspera = esperaFin === null ? 0 : Math.max(0, Math.ceil((esperaFin - ahora) / 1000))
 
   const releer = () => {
     reintentos.current = 0
+    pedida.current = true
     void cargarOfertas(true)
   }
 
@@ -127,10 +153,13 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
             </button>
           ))}
         </nav>
-        <button type="button" disabled={cargandoLista} onClick={estado.tipo === 'ok' ? releer : () => router.refresh()} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')} title="Vuelve a leer la tienda de PcComponentes">
-          {cargandoLista ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          Actualizar
-        </button>
+        {/* En «Mercado y margen» no hay nada de la tienda que releer: aquí «Actualizar» pide la lista de ofertas, que es la lectura con límite */}
+        {pestana !== 'mercado' && (
+          <button type="button" disabled={cargandoLista || estado.tipo !== 'ok'} onClick={releer} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')} title="Vuelve a leer las ofertas de la tienda de PcComponentes">
+            {cargandoLista ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Actualizar
+          </button>
+        )}
       </header>
 
       {estado.tipo !== 'ok' ? (
@@ -147,7 +176,13 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
           <div className="px-5 pb-8">
             {pestana === 'ofertas' && (
               <div className="space-y-3">
-                {errorLista && <Aviso tono="ambar">{errorLista}{reintentos.current > 0 && reintentos.current <= 3 ? ' Se reintenta sola.' : ''}{lista ? ' Mientras tanto se enseña la última lista leída.' : ''}</Aviso>}
+                {errorLista && (
+                  <Aviso tono="ambar">
+                    {errorLista}
+                    {segundosDeEspera > 0 ? ` Se vuelve a intentar sola en ${segundosDeEspera} s.` : ''}
+                    {lista ? ' Mientras tanto se enseña la última lista leída.' : ''}
+                  </Aviso>
+                )}
                 {lista ? (
                   <TablaDeOfertas ofertas={lista.ofertas} total={lista.total} />
                 ) : (
