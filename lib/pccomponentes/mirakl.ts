@@ -60,8 +60,8 @@ async function llamar(ruta: string, opciones: { metodo?: 'GET' | 'POST'; query?:
   const url = new URL(`${baseDePcc()}${ruta}`)
   for (const [k, v] of Object.entries(opciones.query ?? {})) if (v !== undefined && v !== '') url.searchParams.set(k, String(v))
 
-  // Una lectura que topa con el límite de llamadas se repite UNA vez tras una espera corta: un par de recargas seguidas de la pantalla no tienen por qué
-  // acabar en un error. Las escrituras no se repiten solas (una subida de ofertas ya tiene su propio control de una por minuto).
+  // Una lectura que topa con el límite de llamadas se repite UNA vez, esperando lo que pide PcComponentes en `Retry-After` (hasta 30 s: la lista de ofertas
+  // pide 20-25 s). Así un par de recargas seguidas de la pantalla no tienen por qué acabar en un error. Las escrituras no se repiten solas (una subida de ofertas ya tiene su propio control de una por minuto).
   let res: Response
   let texto = ''
   for (let intento = 0; ; intento++) {
@@ -83,7 +83,7 @@ async function llamar(ruta: string, opciones: { metodo?: 'GET' | 'POST'; query?:
     texto = await res.text()
     if (res.status === 429 && intento === 0 && (opciones.metodo ?? 'GET') === 'GET') {
       const pedida = Number(res.headers.get('retry-after'))
-      await new Promise((r) => setTimeout(r, Math.min(8, Number.isFinite(pedida) && pedida > 0 ? pedida : 3) * 1000))
+      await new Promise((r) => setTimeout(r, Math.min(30, Number.isFinite(pedida) && pedida > 0 ? pedida : 3) * 1000))
       continue
     }
     break
@@ -117,17 +117,53 @@ export async function leerOfertas(desde = 0, max = 100): Promise<{ ofertas: Ofer
   return { ofertas: (r?.offers ?? []).map(ofertaDeRespuesta), total: typeof r?.total_count === 'number' ? r.total_count : (r?.offers ?? []).length }
 }
 
+/**
+ * LA LISTA DE OFERTAS TIENE UN LÍMITE MUY BAJO Y LA PANTALLA LA PIDE EN CADA CARGA.
+ * `GET /api/offers` admite muy pocas llamadas por minuto: contesta 429 con `Retry-After: 20-25` y alcanza con unas recargas seguidas, o con comprobar
+ * un par de productos, para quedarse sin ellas. La cuenta (`/api/account`) no tiene ese problema.
+ *
+ * Así que la lista se guarda un minuto en memoria, se tira cuando se sube una oferta (para ver lo recién subido) y, si PcComponentes corta, se sirve la última
+ * que hubiera aunque sea más vieja: es mejor enseñar lo de hace tres minutos, y decirlo, que dejar la pantalla en rojo.
+ */
+const FRESCURA_OFERTAS_MS = 60_000
+let cacheDeOfertas: { guardadoEn: number; valor: { ofertas: OfertaPcc[]; total: number } } | null = null
+
+export function olvidarLasOfertas(): void {
+  cacheDeOfertas = null
+}
+
+export interface LecturaDeOfertas {
+  ofertas: OfertaPcc[]
+  total: number
+  /** true = no se ha llamado a PcComponentes: sale de la memoria */
+  deCache?: boolean
+  /** Si sale de la memoria, cuánto hace que se leyó */
+  edadSegundos?: number
+}
+
 /** TODAS las ofertas, página a página. Con un tope: una tienda con decenas de miles no cabe en una petición */
-export async function leerTodasLasOfertas(tope = 5000): Promise<{ ofertas: OfertaPcc[]; total: number }> {
-  const salida: OfertaPcc[] = []
-  let total = 0
-  for (let desde = 0; salida.length < tope; desde += 100) {
-    const p = await leerOfertas(desde, 100)
-    total = p.total
-    salida.push(...p.ofertas)
-    if (p.ofertas.length < 100 || salida.length >= total) break
+export async function leerTodasLasOfertas(tope = 5000, opciones: { forzar?: boolean } = {}): Promise<LecturaDeOfertas> {
+  if (cacheDeOfertas && !opciones.forzar && Date.now() - cacheDeOfertas.guardadoEn < FRESCURA_OFERTAS_MS) {
+    return { ...cacheDeOfertas.valor, deCache: true, edadSegundos: Math.round((Date.now() - cacheDeOfertas.guardadoEn) / 1000) }
   }
-  return { ofertas: salida.slice(0, tope), total }
+  try {
+    const salida: OfertaPcc[] = []
+    let total = 0
+    for (let desde = 0; salida.length < tope; desde += 100) {
+      const p = await leerOfertas(desde, 100)
+      total = p.total
+      salida.push(...p.ofertas)
+      if (p.ofertas.length < 100 || salida.length >= total) break
+    }
+    const valor = { ofertas: salida.slice(0, tope), total }
+    cacheDeOfertas = { guardadoEn: Date.now(), valor }
+    return valor
+  } catch (error) {
+    if (error instanceof MiraklError && error.estado === 429 && cacheDeOfertas) {
+      return { ...cacheDeOfertas.valor, deCache: true, edadSegundos: Math.round((Date.now() - cacheDeOfertas.guardadoEn) / 1000) }
+    }
+    throw error
+  }
 }
 
 /**
@@ -182,6 +218,7 @@ export async function subirOfertas(ofertas: readonly OfertaParaSubir[], confirma
   if (espera > 0) throw new MiraklError(`PcComponentes admite una subida de ofertas por minuto: espera ${Math.ceil(espera / 1000)} s`, 429)
   const r = await llamar('/api/offers', { metodo: 'POST', json: cuerpo })
   ultimaSubida = Date.now()
+  olvidarLasOfertas()
   const id = (json(r.texto) as { import_id?: number | string } | null)?.import_id
   if (id === undefined || id === null) throw new MiraklError('PcComponentes no ha devuelto el número de la importación', r.estado, r.texto.slice(0, 300))
   return { importacionId: String(id) }
