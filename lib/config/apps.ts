@@ -11,6 +11,7 @@ import {
   PhoneCall,
   Landmark,
   FlaskConical,
+  Store,
   Megaphone,
   PhoneForwarded,
   CalendarDays,
@@ -242,10 +243,23 @@ export const apps: AppConfig[] = [
     // porque lo es: cuando se sepa qué datos merecen guardarse, esto se
     // convertirá en otra cosa con otro nombre.
     id: 'entrais-test',
-    name: 'Entrais',
-    description: 'El precio al que publicar cada referencia, con el coste del proveedor',
+    name: 'Entrais Amazon',
+    description: 'El precio al que publicar cada referencia en Amazon, con el coste del proveedor',
     icon: FlaskConical,
     route: '/dashboard/entrais-test',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
+    // La tienda de Entrais en PcComponentes (marketplace sobre Mirakl). Solo admin
+    // por lo mismo que Entrais Amazon: usa su clave de API contra su cuenta de
+    // vendedor y puede cambiar precios y stock de una tienda con pedidos reales.
+    // El id va letra por letra aquí, en APPS_SOLO_ADMIN y en middleware.ts.
+    id: 'entrais-pccomponentes',
+    name: 'Entrais PCcomponentes',
+    description: 'Su tienda en PcComponentes: ofertas, precios y stock, y la subida de productos',
+    icon: Store,
+    route: '/dashboard/entrais-pccomponentes',
     status: 'new',
     category: 'analytics'
   },
@@ -512,6 +526,7 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   // Las credenciales de un cliente contra el sistema de su proveedor, y sus
   // precios de COMPRA, que es de lo más sensible que hay en su negocio.
   'entrais-test',
+  'entrais-pccomponentes',
   'limpieza-ofertas',
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
   // de llevar datos de compradores —los lleva—, sino porque el trabajo del día 3
@@ -813,9 +828,17 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
   {
     id: 'herramientas-agencia',
     name: 'Herramientas Agencia',
-    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API, informes de marketing y Entrais',
+    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API e informes de marketing',
     icon: Wrench,
-    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'entrais-test'],
+    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads'],
+    despuesDe: 'correo',
+  },
+  {
+    id: 'herramientas-entrais',
+    name: 'Herramientas Entrais',
+    description: 'Entrais en Amazon y Entrais en PcComponentes',
+    icon: Store,
+    apps: ['entrais-test', 'entrais-pccomponentes'],
     despuesDe: 'correo',
   },
 ]

@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Boxes, ClipboardList, Database, Download, FileDown, Package, Plus, Sparkles, TrendingDown, Upload } from 'lucide-react'
+import { AlertTriangle, BellRing, Boxes, ClipboardList, Database, Download, FileDown, Package, Plus, Sparkles, TrendingDown, Upload } from 'lucide-react'
 import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
 import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
 import { filasACsv } from '@/lib/fba/catalogo/exportar'
@@ -74,6 +75,9 @@ export function EspacioRemesas({
   panel,
   esAdmin,
   remesaAbierta,
+  alertas,
+  vistaInicial,
+  abrirIa,
 }: {
   clientes: Cliente[]
   cliente: Cliente
@@ -82,6 +86,12 @@ export function EspacioRemesas({
   /** La remesa cuyas cajas ha traído el servidor. Viene de la URL */
   remesaAbierta: string | null
   nombreUsuario: string
+  /** Las alertas graves abiertas en los clientes que esta persona ve. null = no se enseñan (cliente de fuera) */
+  alertas?: { criticas: number; altas: number } | null
+  /** La vista que pide la URL (?vista=), por ejemplo desde una alerta */
+  vistaInicial?: string | null
+  /** Abre la propuesta con IA nada más entrar (?ia=1), por ejemplo desde una alerta de «reponer ya» */
+  abrirIa?: boolean
 }) {
   const router = useRouter()
   const verComo: Actor = esAdmin ? 'agencia' : 'cliente'
@@ -96,7 +106,8 @@ export function EspacioRemesas({
   // Si llegan por un enlace a una propuesta, se abre en Propuestas
   const [vistaElegida, setVista] = useState<Vista>(() => {
     const abierta = panel.remesas.find((r) => r.id === remesaAbierta)
-    return abierta && esPropuesta(abierta) ? 'propuestas' : 'envios'
+    if (abierta) return esPropuesta(abierta) ? 'propuestas' : 'envios'
+    return vistaInicial === 'envios' || vistaInicial === 'propuestas' || vistaInicial === 'referencias' || vistaInicial === 'inventario' ? vistaInicial : 'envios'
   })
 
   // La base de datos solo existe para los clientes que la tienen. Si se estaba en ella
@@ -109,7 +120,7 @@ export function EspacioRemesas({
   const [envioElegido, setEnvioElegido] = useState<string | null>(remesaAbierta)
   const [propuestaElegida, setPropuestaElegida] = useState<string | null>(remesaAbierta)
   const [nueva, setNueva] = useState(false)
-  const [conIa, setConIa] = useState(false)
+  const [conIa, setConIa] = useState(Boolean(abrirIa) && puedeProponerConIa)
   const [trayendo, setTrayendo] = useState(false)
   const [cambiando, setCambiando] = useState<string | null>(null)
 
@@ -263,6 +274,21 @@ export function EspacioRemesas({
         )}
 
         <div className="ml-auto flex items-center gap-3">
+          {alertas && (
+            <Link
+              href="/dashboard/remesas/alertas"
+              className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}
+              title="Lo que va mal en la logística de todos los clientes: roturas de stock, envíos parados, descuadres y stock parado"
+            >
+              <BellRing className="h-3 w-3" />
+              Alertas
+              {alertas.criticas + alertas.altas > 0 && (
+                <span className={INSIGNIA.contador} title={`${alertas.criticas} críticas y ${alertas.altas} altas`}>
+                  {alertas.criticas + alertas.altas}
+                </span>
+              )}
+            </Link>
+          )}
           {panel.leidoHasta && <span className="hidden text-[11px] text-[var(--ls-t4)] 2xl:inline">Ventas leídas hasta el {fecha(panel.leidoHasta)}</span>}
           {cliente.puedeEditar && vista === 'envios' && (
             <button type="button" onClick={() => setTrayendo(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Traer de Amazon un envío que ya existe, por su número FBA">

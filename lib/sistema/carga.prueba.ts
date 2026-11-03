@@ -35,7 +35,7 @@ async function main() {
     const esenciales = TAREAS_CRON.filter((t) => POLITICA_DE_CARGA[t.id].prioridad === 'esencial').map((t) => t.id).sort()
     ok('lo esencial es lo que no se puede dejar de hacer: llamadas, correo, seguimientos, agenda y precios', esenciales.join(',') === 'calendario,correo-secuencias,correo-sync,entrais-precios,rinkel-llamadas,rinkel-transcribir', esenciales.join(','))
     const pesadas = TAREAS_CRON.filter((t) => POLITICA_DE_CARGA[t.id].pesada).map((t) => t.id).sort()
-    ok('las pesadas son las que duran minutos: catálogo, trabajos, auditor, cumplimiento y remesas', pesadas.join(',') === 'amazon-jobs,amazon-sync,auditor-stock,cumplimiento,fba-remesas', pesadas.join(','))
+    ok('las pesadas son las que duran minutos: catálogo, trabajos, auditor, cumplimiento, remesas y alertas de FBA', pesadas.join(',') === 'amazon-jobs,amazon-sync,auditor-stock,cumplimiento,fba-alertas,fba-remesas', pesadas.join(','))
     ok('ninguna pesada es esencial (aplazarla nunca deja el ERP parado)', pesadas.every((id) => POLITICA_DE_CARGA[id as keyof typeof POLITICA_DE_CARGA].prioridad === 'baja'))
   }
 

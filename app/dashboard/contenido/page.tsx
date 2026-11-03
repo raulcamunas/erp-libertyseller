@@ -39,7 +39,8 @@ export default async function ContenidoPage() {
       )
       .gte('fecha', desdeISO)
       .order('fecha'),
-    supabase.from('contenido_piezas').select('*').order('creado_at', { ascending: false }),
+    // Las historias NO van aquí: son decenas y cada una vive en su día del calendario (llegan dentro de cada encargo)
+    supabase.from('contenido_piezas').select('*').neq('tipo', 'historia').order('creado_at', { ascending: false }),
     supabase.from('profiles').select('id, full_name, email, role').order('full_name'),
     // Los textos por red (migración 229). Son pocos —cuatro por vídeo— y se traen todos
     supabase

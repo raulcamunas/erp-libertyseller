@@ -19,6 +19,7 @@ const ok = (n: string, bien: boolean, d = '') => {
 console.log('\n=== dónde se publica cada cosa ===')
 ok('un vídeo va a las cuatro redes', redesEsperadas('video').join() === 'linkedin,instagram,tiktok,facebook')
 ok('un carrusel, solo a LinkedIn', redesEsperadas('carrusel').join() === 'linkedin')
+ok('una historia no exige ningún texto por red', redesEsperadas('historia').length === 0)
 ok('las cuatro tienen su ficha', REDES.every((r) => INFO_RED[r].limite > 0 && INFO_RED[r].nombre !== ''))
 ok('Instagram limita a 5 hashtags y lo impone', INFO_RED.instagram.maxHashtags === 5 && INFO_RED.instagram.hashtagsDuros)
 ok('TikTok recomienda 5 y no lo impone', INFO_RED.tiktok.maxHashtags === 5 && !INFO_RED.tiktok.hashtagsDuros)

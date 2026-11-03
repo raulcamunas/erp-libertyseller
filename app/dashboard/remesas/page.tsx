@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
+import type { SesionFba } from '@/lib/fba/acceso'
+import { contarAlertasGraves } from '@/lib/fba/alertas-lectura'
 import { panelDeCliente } from '@/lib/fba/datos'
 import { diaEnEspana } from '@/lib/fba/fechas'
 import { EspacioRemesas } from '@/components/remesas/EspacioRemesas'
@@ -155,6 +157,24 @@ export default async function RemesasPage({
     cajasDe: remesaAbierta,
   })
 
+  // La insignia de «Alertas FBA»: las críticas y altas abiertas en los clientes que esta persona ve. Solo para la agencia (un cliente de fuera
+  // no ve las alertas) y sin romper la pantalla si falta la migración 267 o la lectura falla.
+  let alertas: { criticas: number; altas: number } | null = null
+  if (profile.role !== 'cliente') {
+    const sesion: SesionFba = {
+      userId: user.id,
+      role: profile.role,
+      esAdmin,
+      clientesPermitidos: esAdmin ? null : clientes.map((c) => c.id),
+      clientesEditables: esAdmin ? null : clientes.filter((c) => c.puedeEditar).map((c) => c.id),
+    }
+    alertas = await contarAlertasGraves(sesion).catch(() => ({ criticas: 0, altas: 0 }))
+  }
+
+  // Enlaces desde las alertas: a una vista concreta del cliente, o directos a su propuesta con IA
+  const vistaPedida = uno(searchParams.vista)
+  const vistaInicial = vistaPedida && ['envios', 'propuestas', 'referencias', 'inventario'].includes(vistaPedida) ? vistaPedida : null
+
   return (
     <EspacioRemesas
       clientes={clientes}
@@ -163,6 +183,9 @@ export default async function RemesasPage({
       esAdmin={esAdmin}
       remesaAbierta={remesaAbierta}
       nombreUsuario={profile.full_name ?? profile.email ?? ''}
+      alertas={alertas}
+      vistaInicial={vistaInicial}
+      abrirIa={uno(searchParams.ia) === '1'}
     />
   )
 }

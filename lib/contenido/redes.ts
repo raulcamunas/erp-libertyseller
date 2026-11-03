@@ -76,8 +76,12 @@ export const INFO_RED: Record<Red, InfoRed> = {
   },
 }
 
-/** Dónde se publica cada tipo de pieza: un vídeo, en las cuatro; un carrusel, en LinkedIn */
-export function redesEsperadas(tipo: 'video' | 'carrusel'): readonly Red[] {
+/**
+ * Dónde se publica cada tipo de pieza: un vídeo, en las cuatro; un carrusel, en LinkedIn. Una historia no lleva texto por red (es la idea
+ * o el texto en pantalla, que vive en la propia pieza), así que no se le exige ninguno y no cuenta como «texto por escribir».
+ */
+export function redesEsperadas(tipo: 'video' | 'carrusel' | 'historia'): readonly Red[] {
+  if (tipo === 'historia') return []
   return tipo === 'video' ? REDES : ['linkedin']
 }
 

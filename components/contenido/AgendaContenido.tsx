@@ -9,6 +9,7 @@ import {
   Download,
   Plus,
   SkipForward,
+  Smartphone,
   Trash2,
   Undo2,
 } from 'lucide-react'
@@ -24,8 +25,9 @@ import {
   type EncargoResuelto,
   type TextoRed,
 } from '@/lib/types/contenido'
-import { cambiarEstado, quitarDelCalendario } from './acciones'
-import { ICONO_TIPO, nombreCorto, nombreDeVista, portada, urlPublica } from './comun'
+import { cambiarEstado, quitarDelCalendario, quitarHistoria } from './acciones'
+import { BloqueHistoria } from './BloqueHistoria'
+import { COLOR_CHIP_TIPO, ICONO_TIPO, esFicheroDeVideo, esVertical, nombreCorto, nombreDeVista, portada, urlPublica } from './comun'
 import { TextosPorRed } from './TextosPorRed'
 
 /**
@@ -54,6 +56,10 @@ interface Props {
   sinTabla: boolean
   usuarioId: string
   onProgramar: (iso: string) => void
+  /** Abre el cuadro de nueva historia para ese día */
+  onHistoria: (iso: string) => void
+  /** Abre el cuadro para cambiar una historia que ya existe */
+  onEditarHistoria: (pieza: ContenidoPieza) => void
   onCambio: () => void
 }
 
@@ -71,6 +77,10 @@ function queSeSube(p: ContenidoPieza): string {
   if (p.tipo === 'video') {
     return ['Vídeo MP4', peso, p.fichero_nombre].filter(Boolean).join(' · ')
   }
+  if (p.tipo === 'historia') {
+    if (!p.fichero_path) return 'Todavía sin foto ni vídeo'
+    return [esFicheroDeVideo(p) ? 'Vídeo' : 'Foto', peso, p.fichero_nombre].filter(Boolean).join(' · ')
+  }
   const fotos = p.vistas?.length ?? 0
   return [`${fotos > 0 ? fotos : 'Varias'} fotos`, peso && `ZIP de ${peso}`].filter(Boolean).join(' · ')
 }
@@ -84,6 +94,8 @@ export function AgendaContenido({
   sinTabla,
   usuarioId,
   onProgramar,
+  onHistoria,
+  onEditarHistoria,
   onCambio,
 }: Props) {
   const todos = useMemo(() => dias.flatMap((d) => porDia.get(aFechaISO(d)) ?? []), [dias, porDia])
@@ -101,6 +113,7 @@ export function AgendaContenido({
     })
 
   const videos = todos.filter((e) => e.pieza.tipo === 'video').length
+  const historias = todos.filter((e) => e.pieza.tipo === 'historia').length
   const textosQueFaltan = todos.reduce((t, e) => t + faltan(e.pieza, textosPorPieza.get(e.pieza_id) ?? []).length, 0)
   const sinMarcar = todos.filter((e) => e.estado === 'programado' && e.fecha < hoyISO).length
 
@@ -110,12 +123,13 @@ export function AgendaContenido({
       <div className="flex flex-wrap gap-2 text-sm">
         <Dato valor={n(todos.length)} que={todos.length === 1 ? 'publicación' : 'publicaciones'} />
         <Dato valor={n(videos)} que={videos === 1 ? 'vídeo' : 'vídeos'} />
-        <Dato valor={n(todos.length - videos)} que={todos.length - videos === 1 ? 'carrusel' : 'carruseles'} />
+        <Dato valor={n(todos.length - videos - historias)} que={todos.length - videos - historias === 1 ? 'carrusel' : 'carruseles'} />
+        <Dato valor={n(historias)} que={historias === 1 ? 'historia' : 'historias'} ayuda="Las historias no tienen cupo: se pueden añadir todas las que se quiera cada día" />
         <Dato
           valor={n(textosQueFaltan)}
           que={textosQueFaltan === 1 ? 'texto por escribir' : 'textos por escribir'}
           aviso={textosQueFaltan > 0}
-          ayuda="Un vídeo va a LinkedIn, Instagram, TikTok y Facebook; un carrusel, a LinkedIn. Cuenta las redes que no tienen texto."
+          ayuda="Un vídeo va a LinkedIn, Instagram, TikTok y Facebook; un carrusel, a LinkedIn. Las historias no llevan texto por red. Cuenta las redes que no tienen texto."
         />
         <Dato
           valor={n(sinMarcar)}
@@ -163,15 +177,22 @@ export function AgendaContenido({
                     ? 'Nada programado'
                     : `${lista.length} ${lista.length === 1 ? 'publicación' : 'publicaciones'}`}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="ml-auto h-7 px-2 text-muted-foreground"
-                  onClick={() => onProgramar(iso)}
-                >
-                  <Plus className="h-3.5 w-3.5 mr-1" />
-                  Programar
-                </Button>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-muted-foreground"
+                    onClick={() => onHistoria(iso)}
+                    title="Añadir una historia este día (sin límite)"
+                  >
+                    <Smartphone className="h-3.5 w-3.5 mr-1" />
+                    Historia
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" onClick={() => onProgramar(iso)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Programar
+                  </Button>
+                </div>
               </div>
 
               {lista.length > 0 && (
@@ -191,6 +212,7 @@ export function AgendaContenido({
                       puedeEditar={puedeEditar}
                       sinTabla={sinTabla}
                       usuarioId={usuarioId}
+                      onEditarHistoria={onEditarHistoria}
                       onCambio={onCambio}
                     />
                   ))}
@@ -229,6 +251,7 @@ function Publicacion({
   puedeEditar,
   sinTabla,
   usuarioId,
+  onEditarHistoria,
   onCambio,
 }: {
   e: EncargoResuelto
@@ -239,10 +262,13 @@ function Publicacion({
   puedeEditar: boolean
   sinTabla: boolean
   usuarioId: string
+  onEditarHistoria: (pieza: ContenidoPieza) => void
   onCambio: () => void
 }) {
   const p = e.pieza
-  const esVideo = p.tipo === 'video'
+  const esVideo = esVertical(p)
+  const esHistoria = p.tipo === 'historia'
+  const hayVideo = esFicheroDeVideo(p)
   const Icono = ICONO_TIPO[p.tipo]
   const url = urlPublica(p.fichero_path)
   const img = portada(p)
@@ -296,9 +322,7 @@ function Publicacion({
             </span>
             <span className="font-semibold">Publica {nombreCorto(e.responsable)}</span>
             <span
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                esVideo ? 'bg-[#FF6600]/15 text-[#FF8A3D]' : 'bg-sky-500/15 text-sky-300'
-              }`}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${COLOR_CHIP_TIPO[p.tipo]}`}
             >
               <Icono className="h-3 w-3" />
               {ETIQUETA_TIPO[p.tipo]}
@@ -332,7 +356,7 @@ function Publicacion({
             <span className="text-foreground/70">Se sube:</span> {queSeSube(p)}
           </div>
 
-          {/* las redes, con lo que mide el texto de cada una */}
+          {/* las redes, con lo que mide el texto de cada una (una historia no lleva) */}
           <div className="mt-2 flex flex-wrap gap-1.5">
             {redesEsperadas(p.tipo).map((red) => {
               const info = INFO_RED[red]
@@ -387,7 +411,11 @@ function Publicacion({
       {abierta && (
         <div className="border-t border-white/[0.07] bg-black/20 p-4 grid gap-5 lg:grid-cols-[minmax(240px,300px)_1fr]">
           <div className="space-y-3 min-w-0">
-            {esVideo && url ? (
+            {esHistoria && url && !hayVideo ? (
+              <img src={url} alt="" className="w-full max-h-[460px] rounded-lg border border-white/10 bg-black object-contain" />
+            ) : null}
+
+            {hayVideo && url ? (
               <video
                 src={url}
                 controls
@@ -398,7 +426,7 @@ function Publicacion({
               />
             ) : null}
 
-            {!esVideo && p.vistas?.length ? (
+            {p.tipo === 'carrusel' && p.vistas?.length ? (
               <div>
                 <div className="text-xs text-muted-foreground mb-1.5">{p.vistas.length} fotos, en este orden</div>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -434,7 +462,7 @@ function Publicacion({
                 <dt className="w-14 shrink-0">Peso</dt>
                 <dd className="text-foreground/80">{pesoLegible(p.fichero_bytes) || '—'}</dd>
               </div>
-              {!esVideo && p.vistas?.length ? (
+              {p.tipo === 'carrusel' && p.vistas?.length ? (
                 <div className="flex gap-2">
                   <dt className="w-14 shrink-0">Dentro</dt>
                   <dd className="min-w-0 break-words text-foreground/80">
@@ -454,21 +482,31 @@ function Publicacion({
               <a href={url} download={p.fichero_nombre ?? undefined} className="block">
                 <Button variant="outline" size="sm" className="w-full">
                   <Download className="h-4 w-4 mr-2" />
-                  {esVideo ? 'Descargar el vídeo' : `Descargar las ${p.vistas?.length || ''} fotos`.replace('  ', ' ')}
+                  {p.tipo === 'video'
+                    ? 'Descargar el vídeo'
+                    : esHistoria
+                      ? hayVideo
+                        ? 'Descargar el vídeo de la historia'
+                        : 'Descargar la foto de la historia'
+                      : `Descargar las ${p.vistas?.length || ''} fotos`.replace('  ', ' ')}
                 </Button>
               </a>
             )}
           </div>
 
           <div className="min-w-0 space-y-4">
-            <TextosPorRed
-              pieza={p}
-              textos={textos}
-              puedeEditar={puedeEditar}
-              sinTabla={sinTabla}
-              usuarioId={usuarioId}
-              onCambio={onCambio}
-            />
+            {esHistoria ? (
+              <BloqueHistoria pieza={p} onEditar={() => onEditarHistoria(p)} />
+            ) : (
+              <TextosPorRed
+                pieza={p}
+                textos={textos}
+                puedeEditar={puedeEditar}
+                sinTabla={sinTabla}
+                usuarioId={usuarioId}
+                onCambio={onCambio}
+              />
+            )}
 
             <div className="flex flex-wrap gap-2 pt-1 border-t border-white/[0.07]">
               {e.estado !== 'publicado' ? (
@@ -503,11 +541,11 @@ function Publicacion({
                 size="sm"
                 className="ml-auto text-muted-foreground"
                 disabled={ocupado}
-                onClick={() => hacer(() => quitarDelCalendario(e.id))}
+                onClick={() => hacer(() => (esHistoria ? quitarHistoria(p.id, p.fichero_path) : quitarDelCalendario(e.id)))}
                 title="Quitar del calendario"
               >
                 <Trash2 className="h-4 w-4 mr-1" />
-                Quitar
+                {esHistoria ? 'Quitar la historia' : 'Quitar'}
               </Button>
             </div>
           </div>

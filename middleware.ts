@@ -290,6 +290,19 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/entrais-pccomponentes - Solo admin
+      //
+      // La tienda de Entrais en PcComponentes: aquí se usa su clave de API de
+      // vendedor y se pueden cambiar precios y stock de una cuenta con pedidos
+      // reales. Mismo listón que Entrais Amazon.
+      if (pathname.startsWith('/dashboard/entrais-pccomponentes')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/marketing-api - Solo admin
       //
       // Desde aquí se autoriza el acceso a la cuenta de PUBLICIDAD de un

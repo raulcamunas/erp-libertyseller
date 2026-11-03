@@ -15,14 +15,15 @@ interface App {
 const app = (id: string): App => ({ id, route: `/dashboard/${id}` })
 
 // El registro de siempre, en su orden
-const TODAS = ['home', 'briefing', 'web-leads', 'agenda', 'commissions', 'cold-calling', 'horas', 'rendimiento', 'correo', 'tesoreria', 'empleados', 'entrais-test', 'marketing-ads', 'amazon-api', 'growth', 'remesas', 'telefonos', 'users', 'tax-reports', 'contenido'].map(app)
+const TODAS = ['home', 'briefing', 'web-leads', 'agenda', 'commissions', 'cold-calling', 'horas', 'rendimiento', 'correo', 'tesoreria', 'empleados', 'entrais-test', 'entrais-pccomponentes', 'marketing-ads', 'amazon-api', 'growth', 'remesas', 'telefonos', 'users', 'tax-reports', 'contenido'].map(app)
 
 interface Grupo extends GrupoParaElMenu {
   name: string
 }
 const GRUPOS: Grupo[] = [
   { id: 'contabilidad', name: 'Contabilidad', apps: ['tesoreria', 'empleados', 'commissions', 'tax-reports'], despuesDe: 'correo' },
-  { id: 'herramientas-agencia', name: 'Herramientas Agencia', apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'entrais-test'], despuesDe: 'correo' },
+  { id: 'herramientas-agencia', name: 'Herramientas Agencia', apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads'], despuesDe: 'correo' },
+  { id: 'herramientas-entrais', name: 'Herramientas Entrais', apps: ['entrais-test', 'entrais-pccomponentes'], despuesDe: 'correo' },
 ]
 
 const resumen = (menu: ReturnType<typeof armarMenu<App, Grupo>>) => menu.map((e) => (e.tipo === 'app' ? e.app.id : `[${e.grupo.id}: ${e.apps.map((a) => a.id).join(',')}]`)).join(' · ')
@@ -35,10 +36,10 @@ console.log('\n=== un administrador ve los dos desplegables, detrás de Correo =
   const r = resumen(m)
   ok(
     'el menú queda: lo de siempre, los dos grupos detrás de Correo y lo demás',
-    r === 'home · briefing · web-leads · agenda · cold-calling · horas · rendimiento · correo · [contabilidad: tesoreria,empleados,commissions,tax-reports] · [herramientas-agencia: telefonos,remesas,growth,amazon-api,marketing-ads,entrais-test] · users · contenido',
+    r === 'home · briefing · web-leads · agenda · cold-calling · horas · rendimiento · correo · [contabilidad: tesoreria,empleados,commissions,tax-reports] · [herramientas-agencia: telefonos,remesas,growth,amazon-api,marketing-ads] · [herramientas-entrais: entrais-test,entrais-pccomponentes] · users · contenido',
     r
   )
-  ok('las aplicaciones de dentro salen en el orden del grupo, no en el del registro', m.find((e) => e.tipo === 'grupo' && e.grupo.id === 'herramientas-agencia') !== undefined && resumen(m).includes('telefonos,remesas,growth,amazon-api,marketing-ads,entrais-test'))
+  ok('las aplicaciones de dentro salen en el orden del grupo, no en el del registro', m.find((e) => e.tipo === 'grupo' && e.grupo.id === 'herramientas-agencia') !== undefined && resumen(m).includes('telefonos,remesas,growth,amazon-api,marketing-ads]') && resumen(m).includes('[herramientas-entrais: entrais-test,entrais-pccomponentes]'))
   ok('ninguna aplicación sale dos veces ni se pierde', aplanarMenu(m).length === TODAS.length && new Set(aplanarMenu(m).map((a) => a.id)).size === TODAS.length)
   ok('dos grupos detrás de la misma aplicación se quedan en el orden en que se declaran', r.indexOf('[contabilidad') < r.indexOf('[herramientas-agencia'))
 }

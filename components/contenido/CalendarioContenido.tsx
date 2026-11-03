@@ -11,6 +11,7 @@ import {
   Download,
   Plus,
   SkipForward,
+  Smartphone,
   Trash2,
   Undo2,
   Upload,
@@ -53,7 +54,10 @@ import {
   type TipoPieza,
 } from '@/lib/types/contenido'
 import { AgendaContenido } from './AgendaContenido'
-import { BUCKET, ICONO_TIPO, nombreCorto, portada, urlPublica, type Perfil } from './comun'
+import { quitarHistoria } from './acciones'
+import { BUCKET, COLOR_CHIP_TIPO, ICONO_TIPO, esFicheroDeVideo, esVertical, nombreCorto, portada, urlPublica, type Perfil } from './comun'
+import { BloqueHistoria } from './BloqueHistoria'
+import { HistoriaDialog } from './HistoriaDialog'
 import { TextosPorRed } from './TextosPorRed'
 
 interface Props {
@@ -84,6 +88,9 @@ export function CalendarioContenido({
   const [lunes, setLunes] = useState(() => lunesDe(new Date()))
   const [diaAbierto, setDiaAbierto] = useState<string | null>(null)
   const [programando, setProgramando] = useState<string | null>(null)
+  // Las historias: el día al que se añaden (cuadro de nueva historia) y la que se está cambiando
+  const [historiaDia, setHistoriaDia] = useState<string | null>(null)
+  const [editandoHistoria, setEditandoHistoria] = useState<ContenidoPieza | null>(null)
   // La Agenda es la que enseña todo; la semana se queda a un clic. Se recuerda la última
   // que se usó (en este navegador), y si no se puede leer, se empieza por la Agenda.
   const [pestana, setPestanaEstado] = useState('agenda')
@@ -191,6 +198,8 @@ export function CalendarioContenido({
             sinTabla={sinTablaTextos}
             usuarioId={usuarioId}
             onProgramar={setProgramando}
+            onHistoria={setHistoriaDia}
+            onEditarHistoria={setEditandoHistoria}
             onCambio={() => router.refresh()}
           />
         </TabsContent>
@@ -247,7 +256,7 @@ export function CalendarioContenido({
 
                     <div className="flex-1 min-w-0">
                       {vacio ? (
-                        <div className="h-full flex items-center">
+                        <div className="h-full flex items-center gap-1">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -257,12 +266,21 @@ export function CalendarioContenido({
                             <Plus className="h-4 w-4 mr-1.5" />
                             Programar
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground"
+                            onClick={() => setHistoriaDia(iso)}
+                          >
+                            <Smartphone className="h-4 w-4 mr-1.5" />
+                            Historia
+                          </Button>
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                           {lista.map((e) => {
                             const Icono = ICONO_TIPO[e.pieza.tipo]
-                            const esVideo = e.pieza.tipo === 'video'
+                            const esVideo = esVertical(e.pieza)
                             return (
                               <button
                                 key={e.id}
@@ -302,9 +320,7 @@ export function CalendarioContenido({
                                   <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                                     <span
                                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                        esVideo
-                                          ? 'bg-[#FF6600]/15 text-[#FF8A3D]'
-                                          : 'bg-sky-500/15 text-sky-300'
+                                        COLOR_CHIP_TIPO[e.pieza.tipo]
                                       }`}
                                     >
                                       <Icono className="h-3 w-3" />
@@ -334,15 +350,26 @@ export function CalendarioContenido({
                     </div>
 
                     {!vacio && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0 text-muted-foreground self-start"
-                        onClick={() => setProgramando(iso)}
-                        title="Programar algo más este día"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
+                      <div className="flex md:flex-col gap-1 shrink-0 self-start">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          onClick={() => setProgramando(iso)}
+                          title="Programar algo más este día"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          onClick={() => setHistoriaDia(iso)}
+                          title="Añadir una historia este día"
+                        >
+                          <Smartphone className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -377,7 +404,29 @@ export function CalendarioContenido({
             setProgramando(diaAbierto)
             setDiaAbierto(null)
           }}
+          onHistoria={() => {
+            setHistoriaDia(diaAbierto)
+            setDiaAbierto(null)
+          }}
+          onEditarHistoria={(p) => {
+            setEditandoHistoria(p)
+            setDiaAbierto(null)
+          }}
           onCambio={() => router.refresh()}
+        />
+      )}
+
+      {(historiaDia || editandoHistoria) && (
+        <HistoriaDialog
+          iso={historiaDia ?? ''}
+          perfiles={perfiles}
+          usuarioId={usuarioId}
+          editar={editandoHistoria}
+          onCerrar={() => {
+            setHistoriaDia(null)
+            setEditandoHistoria(null)
+          }}
+          onGuardada={() => router.refresh()}
         />
       )}
 
@@ -416,6 +465,7 @@ function ResumenSemana({
   const todos = dias.flatMap((d) => porDia.get(aFechaISO(d)) ?? [])
   const videos = todos.filter((e) => e.pieza.tipo === 'video').length
   const carruseles = todos.filter((e) => e.pieza.tipo === 'carrusel').length
+  const historias = todos.filter((e) => e.pieza.tipo === 'historia').length
   const publicados = todos.filter((e) => e.estado === 'publicado').length
 
   const porPersona = perfiles
@@ -454,6 +504,14 @@ function ResumenSemana({
       <CardContent className="p-5 flex flex-wrap items-center gap-x-10 gap-y-4">
         <Barra n={videos} de={3} que="vídeos" />
         <Barra n={carruseles} de={6} que="carruseles" />
+        {/* Las historias no tienen cupo: se cuentan, sin barra que llenar */}
+        <div className="min-w-[110px]">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-2xl font-bold">{historias}</span>
+            <span className="text-muted-foreground text-sm">{historias === 1 ? 'historia' : 'historias'}</span>
+          </div>
+          <div className="mt-2 text-[11px] text-muted-foreground">sin límite</div>
+        </div>
         <Barra n={publicados} de={Math.max(todos.length, 1)} que="publicados" />
         <div className="flex flex-wrap gap-2 ml-auto">
           {porPersona.map(({ p, n }) => (
@@ -485,6 +543,8 @@ function DetalleDia({
   usuarioId,
   onCerrar,
   onProgramar,
+  onHistoria,
+  onEditarHistoria,
   onCambio,
 }: {
   iso: string
@@ -495,6 +555,8 @@ function DetalleDia({
   usuarioId: string
   onCerrar: () => void
   onProgramar: () => void
+  onHistoria: () => void
+  onEditarHistoria: (p: ContenidoPieza) => void
   onCambio: () => void
 }) {
   const [y, m, d] = iso.split('-').map(Number)
@@ -523,6 +585,13 @@ function DetalleDia({
   const quitar = async (e: EncargoResuelto) => {
     setOcupado(e.id)
     const supabase = createClient()
+    // Una historia no se reutiliza: se quita entera, con su fichero. Un vídeo o un carrusel solo salen del día
+    if (e.pieza.tipo === 'historia') {
+      const bien = await quitarHistoria(e.pieza.id, e.pieza.fichero_path)
+      setOcupado(null)
+      if (bien) onCambio()
+      return
+    }
     const { error } = await supabase.from('contenido_calendario').delete().eq('id', e.id)
     setOcupado(null)
     if (error) {
@@ -587,7 +656,15 @@ function DetalleDia({
                       láminas en una tira. El botón de descarga va DEBAJO, que
                       es el orden en que se usa: primero miras qué es, luego te
                       lo llevas. */}
-                  {e.pieza.tipo === 'video' && url ? (
+                  {e.pieza.tipo === 'historia' && url && !esFicheroDeVideo(e.pieza) ? (
+                    <img
+                      src={url}
+                      alt=""
+                      className="max-h-[420px] rounded-lg border border-white/10 bg-black object-contain"
+                    />
+                  ) : null}
+
+                  {esFicheroDeVideo(e.pieza) && url ? (
                     <video
                       src={url}
                       controls
@@ -632,7 +709,11 @@ function DetalleDia({
                         <Download className="h-4 w-4 mr-2" />
                         {e.pieza.tipo === 'video'
                           ? 'Descargar el vídeo'
-                          : `Descargar las ${e.pieza.vistas?.length || ''} fotos`.replace('  ', ' ')}
+                          : e.pieza.tipo === 'historia'
+                            ? esFicheroDeVideo(e.pieza)
+                              ? 'Descargar el vídeo de la historia'
+                              : 'Descargar la foto de la historia'
+                            : `Descargar las ${e.pieza.vistas?.length || ''} fotos`.replace('  ', ' ')}
                         {e.pieza.fichero_bytes ? (
                           <span className="ml-2 opacity-60">
                             {pesoLegible(e.pieza.fichero_bytes)}
@@ -642,14 +723,18 @@ function DetalleDia({
                     </a>
                   )}
 
-                  <TextosPorRed
-                    pieza={e.pieza}
-                    textos={textosPorPieza.get(e.pieza_id) ?? []}
-                    puedeEditar={puedeEditar}
-                    sinTabla={sinTabla}
-                    usuarioId={usuarioId}
-                    onCambio={onCambio}
-                  />
+                  {e.pieza.tipo === 'historia' ? (
+                    <BloqueHistoria pieza={e.pieza} onEditar={() => onEditarHistoria(e.pieza)} />
+                  ) : (
+                    <TextosPorRed
+                      pieza={e.pieza}
+                      textos={textosPorPieza.get(e.pieza_id) ?? []}
+                      puedeEditar={puedeEditar}
+                      sinTabla={sinTabla}
+                      usuarioId={usuarioId}
+                      onCambio={onCambio}
+                    />
+                  )}
 
                   <div className="flex gap-2">
                     {e.estado !== 'publicado' ? (
@@ -689,10 +774,16 @@ function DetalleDia({
             )
           })}
 
-          <Button variant="outline" className="w-full" onClick={onProgramar}>
-            <Plus className="h-4 w-4 mr-2" />
-            Programar algo este día
-          </Button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button variant="outline" onClick={onProgramar}>
+              <Plus className="h-4 w-4 mr-2" />
+              Programar algo este día
+            </Button>
+            <Button variant="outline" onClick={onHistoria}>
+              <Smartphone className="h-4 w-4 mr-2" />
+              Añadir una historia
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

@@ -160,6 +160,23 @@ export const TAREAS_CRON = [
       'nada en Amazon.',
   },
   {
+    /**
+     * UNA VEZ AL DÍA, DESPUÉS DE LAS REMESAS.
+     *
+     * Lee de la base —no llama a Amazon— el inventario, los envíos y los ajustes de cada cliente conectado y decide qué merece un aviso:
+     * rotura de stock según el plazo de reposición que haya puesto el equipo, envíos parados o recibidos de menos, descuadres, stock parado
+     * y antiguo. Pesada porque recorre el libro mayor de cada cliente; el libro solo cambia una vez al día, así que más a menudo no aporta.
+     */
+    id: 'fba-alertas',
+    nombre: 'Alertas de logística FBA',
+    ruta: '/api/fba/cron-alertas',
+    cadaMinutos: 1440,
+    que:
+      'Revisa cada cliente con Amazon conectado y avisa de lo que va mal en su logística FBA: productos que se quedan sin stock antes de ' +
+      'que llegue una reposición, envíos parados o recibidos de menos, descuadres con Amazon y stock parado o demasiado antiguo. Los lunes ' +
+      'manda el resumen semanal. Solo lee de la base del ERP.',
+  },
+  {
     id: 'stock-verificacion',
     nombre: 'Verificación del stock subido',
     ruta: '/api/stock-sync/cron-verificacion',
@@ -370,6 +387,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'entrais-precios': { prioridad: 'esencial' },
   'fba-remesas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 12 * 60 },
   'fba-seguimiento': { prioridad: 'normal' },
+  'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'stock-verificacion': { prioridad: 'normal' },
   cumplimiento: { prioridad: 'baja', pesada: true, ayunoMaxMin: 180 },
   'rinkel-llamadas': { prioridad: 'esencial' },

@@ -5,7 +5,7 @@
 
 import type { Red } from '@/lib/contenido/redes'
 
-export type TipoPieza = 'video' | 'carrusel'
+export type TipoPieza = 'video' | 'carrusel' | 'historia'
 export type EstadoEncargo = 'programado' | 'publicado' | 'saltado'
 
 export interface ContenidoPieza {
@@ -64,6 +64,7 @@ export interface EncargoResuelto extends ContenidoEncargo {
 export const ETIQUETA_TIPO: Record<TipoPieza, string> = {
   video: 'Vídeo',
   carrusel: 'Carrusel',
+  historia: 'Historia',
 }
 
 export const ETIQUETA_ESTADO: Record<EstadoEncargo, string> = {

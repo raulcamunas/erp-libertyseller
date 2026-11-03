@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Bell, BellOff, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Bell, BellOff, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
 import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
@@ -50,6 +50,8 @@ const ICONOS_DE_AVISO: Record<string, { Icono: LucideIcon; tono: Tono }> = {
   fallo_stock: { Icono: AlertTriangle, tono: 'rojo' },
   fallo_amazon: { Icono: AlertTriangle, tono: 'rojo' },
   job_amazon: { Icono: AlertTriangle, tono: 'ambar' },
+  fba_alerta: { Icono: Boxes, tono: 'ambar' },
+  fba_resumen: { Icono: Boxes, tono: 'acc' },
   comment: { Icono: MessageSquare, tono: 'neutro' },
   mention: { Icono: MessageSquare, tono: 'acc' },
   task_assigned: { Icono: CheckSquare, tono: 'neutro' },
@@ -209,6 +211,11 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
     // (Secuencias → Salud lo enseña con todo detalle)
     if (notification.type === 'alarma_correo') {
       return '/dashboard/correo'
+    }
+
+    // Una alerta de logística FBA (rotura de stock, envío parado…) o el resumen del lunes: al tablero de alertas
+    if (notification.type === 'fba_alerta' || notification.type === 'fba_resumen') {
+      return '/dashboard/remesas/alertas'
     }
 
     if (notification.related_client_id && notification.related_task_id) {

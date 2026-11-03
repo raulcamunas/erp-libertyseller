@@ -62,7 +62,7 @@ export interface TextoLeido {
 }
 
 const ESTADOS = ['programado', 'publicado', 'saltado'] as const
-const TIPOS = ['video', 'carrusel'] as const
+const TIPOS = ['video', 'carrusel', 'historia'] as const
 
 /** Un argumento opcional que, si viene, es uno de `validas`. Sin él, '' (y el mensaje de error que lee el modelo no lista un «vacío» entre las opciones) */
 function opcionOVacia<T extends string>(args: Record<string, unknown>, nombre: string, validas: readonly T[]): T | '' {
@@ -312,7 +312,7 @@ export const contenidoCalendario: Herramienta<ContextoMcp> = {
       hasta: { type: 'string', description: 'Último día, incluido. Si solo das `desde`, son 14 días desde él; si solo das `hasta`, los 14 días hasta él. Máximo 92 días de rango.' },
       responsable: { type: 'string', description: 'Quién publica: nombre (o parte), correo o id.' },
       estado: { type: 'string', enum: [...ESTADOS], description: 'programado · publicado · saltado.' },
-      tipo: { type: 'string', enum: [...TIPOS], description: 'video · carrusel.' },
+      tipo: { type: 'string', enum: [...TIPOS], description: 'video · carrusel · historia.' },
       limite: { type: 'integer', description: 'Publicaciones por página. Por defecto 30, hasta 100.' },
       pagina: { type: 'integer', description: 'Empieza en 0.' },
     },
@@ -401,7 +401,7 @@ export const contenidoPiezas: Herramienta<ContextoMcp> = {
     type: 'object',
     properties: {
       texto: { type: 'string', description: 'Parte del título, slug, ángulo o texto del post.' },
-      tipo: { type: 'string', enum: [...TIPOS], description: 'video · carrusel.' },
+      tipo: { type: 'string', enum: [...TIPOS], description: 'video · carrusel · historia.' },
       programacion: { type: 'string', enum: ['todas', 'sin_programar', 'en_el_calendario'], description: 'sin_programar = piezas que no están en ningún día del calendario (nunca se programaron, o solo se saltaron); en_el_calendario = las que tienen algún día programado o ya publicado. Por defecto todas.' },
       limite: { type: 'integer', description: 'Piezas por página. Por defecto 30, hasta 60.' },
       pagina: { type: 'integer', description: 'Empieza en 0.' },
