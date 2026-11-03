@@ -25,6 +25,8 @@ import {
 
 interface FilaPrecio {
   sku: string
+  /** null hasta que se lanza la migración 269 y pasa un recálculo */
+  ean?: string | null
   precio_proveedor: number | null
   canon: number | null
   coste: number | null
@@ -143,7 +145,7 @@ const ALTO_CAJA = 520
  * Quién tiene la Buy Box sí se sigue leyendo —esa fase es barata— y es lo que
  * dice dónde se están perdiendo ventas.
  */
-const REJILLA = '82px 84px 76px 68px 90px 84px 78px 78px 96px 1fr'
+const REJILLA = '82px 118px 84px 76px 68px 90px 84px 78px 78px 96px 1fr'
 
 function eur(v: number | null | undefined, dec = 2): string {
   if (v === null || v === undefined) return '—'
@@ -339,6 +341,7 @@ export function MotorPrecios() {
     const hoja = XLSX.utils.json_to_sheet(
       filas.map((p) => ({
         SKU: p.sku,
+        EAN: p.ean ?? '',
         COSTE: p.coste,
         TARIFA_PCT: p.tarifa_aplicada,
         TARIFA_REAL: p.tarifa_estimada ? 'NO' : 'SI',
@@ -758,6 +761,7 @@ export function MotorPrecios() {
         >
           {[
             ['SKU', 'El código del proveedor, que es el SKU en Amazon'],
+            ['EAN', 'El código de barras según el catálogo del proveedor. Vacío hasta el próximo recálculo'],
             ['Coste', 'Proveedor + canon + porte, sin IVA'],
             ['Tarifa', 'La de Amazon. En ámbar si es estimada'],
             ['Margen', 'El objetivo que se le aplica'],
@@ -772,7 +776,7 @@ export function MotorPrecios() {
               key={texto}
               title={pista}
               className={`px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 ${
-                i >= 1 && i <= 7 ? 'text-right' : 'text-left'
+                i >= 2 && i <= 8 ? 'text-right' : 'text-left'
               }`}
             >
               {texto}
@@ -807,6 +811,7 @@ export function MotorPrecios() {
                     }}
                   >
                     <span className="px-2 text-[11px] font-mono text-white/80">{p.sku}</span>
+                    <span className="px-2 text-[11px] font-mono text-white/45 select-all">{p.ean ?? '—'}</span>
                     <span className="px-2 text-[11px] text-right tabular-nums text-white/60">
                       {eur(p.coste)}
                     </span>

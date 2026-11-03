@@ -6,7 +6,8 @@ import { limpiarEan } from './datos'
  * LOS PRODUCTOS DEL PROVEEDOR DE ENTRAIS, VISTOS DESDE PCCOMPONENTES — SOLO SERVIDOR.
  * ==================================================================================
  * Es la misma API (y la misma caché y el mismo contador de cuota) que ya usan el ciclo de stock y el motor de precios de Amazon: `/api/v1/Products`
- * admite CUATRO llamadas por hora, así que aquí NUNCA se fuerza una llamada nueva. Si la caché está vacía, se hace la que toque y se avisa de lo que queda.
+ * admite muy pocas llamadas por hora (el proveedor ha llegado a decir 2) y el ciclo de stock se las gasta. Por eso aquí NUNCA se llama: se aprovecha
+ * el catálogo que el ciclo ya trajo, que sirve a Amazon y a PcComponentes a la vez. Si no hay ninguno en memoria, se avisa y se espera a la próxima pasada.
  *
  * De cada producto salen los datos con los que se publica en PcComponentes: `code` (el SKU de siempre), el EAN y la referencia del fabricante para que
  * PcComponentes lo reconozca, y el coste y el stock. El stock del proveedor PUEDE SER NEGATIVO: aquí se recorta a cero.
@@ -49,7 +50,8 @@ export interface LecturaDeProductos {
 export async function productosDelProveedor(): Promise<LecturaDeProductos> {
   const falta = faltaConfigurar('real')
   if (falta) throw new EntraisError(falta, 0)
-  const lectura = await llamarEntraisDetalle<ProductoEntrais[]>('real', '/api/v1/Products')
+  // Una hora y media de margen: el ciclo de stock lo renueva cada ~30 min y aquí no se pide nunca uno nuevo
+  const lectura = await llamarEntraisDetalle<ProductoEntrais[]>('real', '/api/v1/Products', { nuncaLlamar: true, frescuraMs: 90 * 60_000 })
   return {
     productos: (Array.isArray(lectura.datos) ? lectura.datos : []).map(aProducto),
     deCache: lectura.deCache,

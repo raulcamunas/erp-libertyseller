@@ -512,7 +512,7 @@ function Cobertura() {
   return (
     <div className="space-y-3">
       <p className="max-w-[820px] text-[12px] leading-[1.6] text-[var(--ls-t3)]">
-        PcComponentes solo deja ofertar sobre productos que ya están en su catálogo. Esto toma los productos del proveedor con EAN válido y stock, de 300 en 300, y pregunta cuáles existen ya allí. <b className="text-[var(--ls-t2)]">No escribe nada.</b>
+        PcComponentes solo deja ofertar sobre productos que ya están en su catálogo. Esto toma los productos del proveedor con EAN válido y stock, de 300 en 300, y pregunta cuáles existen ya allí. Usa el catálogo que ya trajo el ciclo de stock de Amazon, así que no gasta ninguna llamada al proveedor. <b className="text-[var(--ls-t2)]">No escribe nada.</b>
       </p>
       <div className="flex items-center gap-2">
         <button type="button" disabled={cargando} onClick={() => medir(0)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>

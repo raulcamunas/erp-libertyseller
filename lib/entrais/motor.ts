@@ -34,6 +34,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { llamarEntrais, type EntornoEntrais, type ProductoEntrais } from './api'
 import { leerBloqueados } from './bloqueados'
+import { limpiarEan } from '@/lib/pccomponentes/datos'
 import {
   calcularPrecio,
   type ConfigPrecios,
@@ -473,6 +474,7 @@ export async function calcularTodo(
     const ahora = new Date().toISOString()
     const filas = resultados.map((r) => ({
       sku: r.sku,
+      ean: null as string | null, // se rellena abajo
       precio_proveedor: null as number | null, // se rellena abajo
       canon: null as number | null,
       coste: r.coste,
@@ -500,15 +502,26 @@ export async function calcularTodo(
     productos.forEach((p, i) => {
       filas[i].precio_proveedor = Number(p.price) || 0
       filas[i].canon = Number(p.digitalCanon) || 0
+      filas[i].ean = limpiarEan(p.ean)
     })
 
     // De 500 en 500: un upsert de 6.900 filas de golpe se pasa del tamaño que
     // aguanta PostgREST y falla con un error que no menciona el tamaño.
     const CHUNK = 500
+    // La columna `ean` la añade la migración 269. Si todavía no está lanzada se guarda sin ella, y el precio sale igual
+    let conEan = true
     for (let i = 0; i < filas.length; i += CHUNK) {
-      const { error } = await service
+      const trozo = filas.slice(i, i + CHUNK)
+      let { error } = await service
         .from('entrais_precios')
-        .upsert(filas.slice(i, i + CHUNK), { onConflict: 'sku' })
+        .upsert(conEan ? trozo : trozo.map(({ ean: _ean, ...resto }) => resto), { onConflict: 'sku' })
+      if (error && conEan && (error.code === 'PGRST204' || error.code === '42703')) {
+        console.warn('[entrais] falta la migración 269: los precios se guardan sin EAN')
+        conEan = false
+        ;({ error } = await service
+          .from('entrais_precios')
+          .upsert(trozo.map(({ ean: _ean, ...resto }) => resto), { onConflict: 'sku' }))
+      }
       if (error) throw error
     }
 

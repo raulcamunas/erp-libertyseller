@@ -312,7 +312,7 @@ export interface LecturaEntrais<T> {
 export async function llamarEntraisDetalle<T>(
   entorno: EntornoEntrais,
   ruta: string,
-  opciones: { frescuraMs?: number; soloCache?: boolean } = {}
+  opciones: { frescuraMs?: number; soloCache?: boolean; nuncaLlamar?: boolean } = {}
 ): Promise<LecturaEntrais<T>> {
   const cuota = cuotaDe(ruta)
   const clave = `${entorno}|${ruta}`
@@ -326,6 +326,22 @@ export async function llamarEntraisDetalle<T>(
       edadMs: Date.now() - guardado.guardadoEn,
       cuota: cuotaRestante(entorno, ruta),
     }
+  }
+
+  /**
+   * NUNCA LLAMAR: SOLO LO QUE YA TRAJO OTRO. A diferencia de `soloCache`, esto no tiene la
+   * válvula de «si sobra cuota, llama»: esa válvula cuenta con un contador que se pone a cero en
+   * cada despliegue y que cree que hay cuatro llamadas cuando el proveedor ya ha dado dos. Es
+   * justo como una lectura de PcComponentes le quitó la llamada al ciclo de stock. Quien pide
+   * esto trabaja con el catálogo que trajo la pasada de stock o no trabaja.
+   */
+  if (opciones.nuncaLlamar) {
+    throw new EntraisError(
+      'Todavía no hay en memoria un catálogo reciente del proveedor (se borra en cada despliegue). ' +
+        'No se pide uno nuevo desde aquí para no quitarle la llamada al ciclo de stock: la próxima pasada ' +
+        '(cada ~30 min) lo trae y entonces se puede usar sin gastar nada. Vuelve a intentarlo en unos minutos.',
+      0
+    )
   }
 
   /**

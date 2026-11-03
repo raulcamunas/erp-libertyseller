@@ -10,7 +10,7 @@ import {
   Timer,
   PhoneCall,
   Landmark,
-  FlaskConical,
+  Tag,
   Store,
   Megaphone,
   PhoneForwarded,
@@ -245,7 +245,7 @@ export const apps: AppConfig[] = [
     id: 'entrais-test',
     name: 'Entrais Amazon',
     description: 'El precio al que publicar cada referencia en Amazon, con el coste del proveedor',
-    icon: FlaskConical,
+    icon: Tag,
     route: '/dashboard/entrais-test',
     status: 'new',
     category: 'analytics'
