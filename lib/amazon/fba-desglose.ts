@@ -81,7 +81,7 @@ export async function guardarFnskus(
     const tramo = skus.slice(i, i + TRAMO)
     const { data, error } = await service
       .from('amazon_listings')
-      .select('sku, fnsku')
+      .select('sku, fnsku, asin')
       .eq('connection_id', conexion)
       .eq('marketplace_id', mercado)
       .in('sku', tramo)
@@ -89,10 +89,15 @@ export async function guardarFnskus(
       console.error('[fba] no se han podido leer los FNSKU del catálogo:', error.message)
       return escritos
     }
-    const actual = new Map(((data ?? []) as Array<{ sku: string; fnsku: string | null }>).map((l) => [l.sku, l.fnsku]))
+    const filas = (data ?? []) as Array<{ sku: string; fnsku: string | null; asin: string | null }>
+    const actual = new Map(filas.map((l) => [l.sku, l]))
     for (const sku of tramo) {
       const nuevo = fnskus.get(sku)
-      if (!nuevo || !actual.has(sku) || actual.get(sku) === nuevo) continue
+      const fila = actual.get(sku)
+      if (!nuevo || !fila || fila.fnsku === nuevo) continue
+      // Un FNSKU de verdad (X00…) no se pisa con el ASIN: Amazon lo da cuando la referencia va con código del fabricante
+      const esAsin = (v: string | null) => !!v && !!fila.asin && v.toUpperCase() === fila.asin.toUpperCase()
+      if (esAsin(nuevo) && fila.fnsku && !esAsin(fila.fnsku)) continue
       const { error: errEscribir } = await service
         .from('amazon_listings')
         .update({ fnsku: nuevo })

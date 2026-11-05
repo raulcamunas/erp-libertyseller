@@ -597,6 +597,37 @@ export async function fetchFbaInventory(
   return out
 }
 
+/**
+ * El FNSKU de unos SKU concretos, directo del inventario de Amazon.
+ *
+ * `sellerSkus` admite hasta 50 por llamada y evita recorrer el inventario entero: se usa para pedir
+ * el FNSKU de las referencias de UNA remesa en el momento de imprimir sus etiquetas.
+ */
+export async function fetchFnskusPorSku(
+  creds: AmazonCredentials,
+  marketplaceId: string,
+  skus: string[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  for (let i = 0; i < skus.length; i += 50) {
+    const { data } = await spApiRequest<InventorySummariesResponse>(creds, 'getInventorySummaries', {
+      method: 'GET',
+      path: '/fba/inventory/v1/summaries',
+      query: {
+        granularityType: 'Marketplace',
+        granularityId: marketplaceId,
+        marketplaceIds: [marketplaceId],
+        details: false,
+        sellerSkus: skus.slice(i, i + 50),
+      },
+    })
+    for (const s of data.payload?.inventorySummaries ?? []) {
+      if (s.sellerSku && s.fnSku?.trim()) out.set(s.sellerSku, s.fnSku.trim())
+    }
+  }
+  return out
+}
+
 /* ------------------------------------------------------------------ */
 /* Marketplaces del vendedor                                           */
 /* ------------------------------------------------------------------ */

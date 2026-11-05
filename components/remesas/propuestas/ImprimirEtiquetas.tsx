@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, Loader2, Printer } from 'lucide-react'
+import { AlertTriangle, Loader2, Printer, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { BOTON, CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
 import { FORMATOS } from '@/lib/fba/formatos-etiqueta'
@@ -24,7 +24,41 @@ import { fecha } from '../formato'
 export function ImprimirEtiquetas({ remesa, destacado }: { remesa: RemesaDePanel; destacado?: boolean }) {
   const [imprimiendo, setImprimiendo] = useState(false)
   const [formato, setFormato] = useState(FORMATOS[0].id)
+  const [leyendo, setLeyendo] = useState(false)
   const vieja = remesa.ultimaImpresion && remesa.ultimaImpresion.version < remesa.version
+
+  /** Le pregunta a Amazon, ahora, el FNSKU de cada referencia y dice qué ha contestado de cada una */
+  async function actualizarFnsku() {
+    setLeyendo(true)
+    try {
+      const res = await fetch(`/api/fba/remesas/${remesa.id}/fnsku`, { method: 'POST' })
+      const p = (await res.json().catch(() => null)) as {
+        error?: string
+        reales?: number
+        conAsin?: number
+        sinFnsku?: number
+        leidos?: Array<{ sku: string; estado: 'real' | 'asin' | 'ninguno' }>
+      } | null
+      if (!res.ok || !p?.leidos) {
+        toast.error(p?.error ?? 'No se ha podido leer el FNSKU de Amazon')
+        return
+      }
+      const aparte = (estado: 'asin' | 'ninguno') => p.leidos!.filter((l) => l.estado === estado).map((l) => l.sku)
+      const conAsin = aparte('asin')
+      const sin = aparte('ninguno')
+      const detalle = [
+        conAsin.length > 0 ? `Con el código del fabricante (Amazon da su ASIN, sin etiqueta de Amazon): ${conAsin.join(', ')}.` : '',
+        sin.length > 0 ? `Sin FNSKU todavía (Amazon se lo da al meterlas en un envío en Seller Central): ${sin.join(', ')}.` : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+      const mensaje = `${p.reales ?? 0} con FNSKU de Amazon · ${conAsin.length} con código del fabricante · ${sin.length} sin FNSKU`
+      if (conAsin.length + sin.length === 0) toast.success(mensaje)
+      else toast.warning(mensaje, { description: detalle, duration: 14_000 })
+    } finally {
+      setLeyendo(false)
+    }
+  }
 
   async function imprimir() {
     setImprimiendo(true)
@@ -50,6 +84,9 @@ export function ImprimirEtiquetas({ remesa, destacado }: { remesa: RemesaDePanel
       } else {
         toast.success(`${impresas} etiquetas en ${paginas} página${paginas === '1' ? '' : 's'}`)
       }
+      // Impresas, pero con el ASIN en el código: se dice para que se mire si esa referencia necesita pegatina
+      const avisos = decodeURIComponent(res.headers.get('X-Avisos') ?? '')
+      if (avisos) toast.info('Hay etiquetas con el ASIN en el código', { description: avisos.slice(0, 300), duration: 12_000 })
     } finally {
       setImprimiendo(false)
     }
@@ -90,6 +127,16 @@ export function ImprimirEtiquetas({ remesa, destacado }: { remesa: RemesaDePanel
         >
           {imprimiendo ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <Printer className="h-[14px] w-[14px]" />}
           {imprimiendo ? 'Generando…' : 'Imprimir etiquetas'}
+        </button>
+        <button
+          type="button"
+          onClick={actualizarFnsku}
+          disabled={leyendo || imprimiendo}
+          title="Le pregunta a Amazon ahora el FNSKU de cada referencia de este envío. Las etiquetas también lo piden solas si falta alguno"
+          className={cx(BOTON.base, 'h-8 px-3 text-[12.5px]', BOTON.secundario)}
+        >
+          {leyendo ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
+          {leyendo ? 'Leyendo…' : 'Actualizar FNSKU'}
         </button>
         <label className="flex items-center gap-2 text-[11.5px] text-[var(--ls-t4)]">
           Hoja

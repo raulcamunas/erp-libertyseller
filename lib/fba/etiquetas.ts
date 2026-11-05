@@ -69,16 +69,14 @@ export interface EtiquetaProducto {
    */
   sku: string
   /**
-   * EL ASIN DE LA REFERENCIA, SI SE SABE. Sirve para UNA sola cosa y es
-   * importante: descartar la etiqueta cuando el «FNSKU» es en realidad el ASIN.
+   * EL ASIN DE LA REFERENCIA, SI SE SABE. Sirve para avisar cuando el «FNSKU» es en realidad el ASIN.
    *
-   * Amazon devuelve el ASIN en el campo del FNSKU cuando la referencia está en
-   * el programa de CÓDIGO DE BARRAS DEL FABRICANTE: esos artículos viajan con su
-   * EAN o UPC y NO LLEVAN etiqueta de Amazon. Imprimirles una con el ASIN dentro
-   * es pegar un código que el almacén no espera.
-   *
-   * No es teórico: en el catálogo de Cobo Family hay 40 referencias así, todas
-   * con fnsku == asin. Sin esta comprobación salían impresas y nadie lo veía.
+   * Amazon devuelve el ASIN en el campo del FNSKU cuando la referencia está en el programa de CÓDIGO
+   * DE BARRAS DEL FABRICANTE: esos artículos pueden viajar con su EAN o UPC sin etiqueta de Amazon.
+   * Pero Seller Central imprime igualmente su etiqueta con el ASIN en el código (se comprobó con el
+   * PDF de Solter, 5 nov 2026), y quien prepara el envío la necesita. Antes se DESCARTABA con un
+   * motivo y el cliente se quedaba sin etiquetas; ahora se IMPRIME, como hace Amazon, y se avisa en
+   * `avisos` por si esa referencia no necesita pegatina (en Cobo Family hay 40 así).
    */
   asin?: string | null
   /** 'Nuevo' salvo que se diga otra cosa. Amazon lo exige en la etiqueta */
@@ -93,6 +91,8 @@ export interface ResultadoEtiquetas {
   paginas: number
   /** Las que no se han podido imprimir y por qué. NO se callan */
   descartadas: Array<{ fnsku: string; motivo: string }>
+  /** Etiquetas que SÍ se han impreso pero conviene mirar: llevan el ASIN en el código en vez de un FNSKU */
+  avisos: string[]
 }
 
 /** Separación entre renglones, en milímetros. Medido sobre las tres hojas de FORMATOS */
@@ -369,6 +369,7 @@ export function hojaDeEtiquetas(
   })
 
   const descartadas: Array<{ fnsku: string; motivo: string }> = []
+  const avisos: string[] = []
   const porPagina = formato.rejilla.columnas * formato.rejilla.filas
 
   // Se aplana ANTES de paginar: una referencia de 8 unidades son 8 etiquetas, y
@@ -382,16 +383,9 @@ export function hojaDeEtiquetas(
       descartadas.push({ fnsku: '(sin FNSKU)', motivo: `${e.sku}: no tenemos su FNSKU` })
       continue
     }
-    // EL ASIN NO ES UN FNSKU. Ver el comentario del campo `asin`.
+    // El ASIN en lugar del FNSKU: se imprime igual, como Seller Central. Ver el comentario del campo `asin`.
     if (e.asin && e.fnsku.trim().toUpperCase() === e.asin.trim().toUpperCase()) {
-      descartadas.push({
-        fnsku: e.fnsku,
-        motivo:
-          `${e.sku}: Amazon da su ASIN como FNSKU, que es lo que hace cuando la referencia va ` +
-          'con el CÓDIGO DEL FABRICANTE y no lleva etiqueta de Amazon. Esta se envía con su ' +
-          'EAN/UPC tal cual; no hay que pegarle nada.',
-      })
-      continue
+      avisos.push(`${e.sku}: Amazon da su ASIN como FNSKU (código del fabricante); la etiqueta lleva el ASIN, igual que la de Seller Central`)
     }
 
     const modulos = code128B(e.fnsku)
@@ -441,5 +435,6 @@ export function hojaDeEtiquetas(
     etiquetas: impresas,
     paginas: Math.max(paginas, 0),
     descartadas,
+    avisos,
   }
 }

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { requireFbaAccess } from '@/lib/fba/acceso'
 import { FORMATOS, hojaDeEtiquetas, type EtiquetaProducto } from '@/lib/fba/etiquetas'
+import { leerFnskusDeAmazon } from '@/lib/fba/fnsku-amazon'
 import { puedeImprimirEtiquetas, type EstadoRemesa } from '@/lib/fba/flujo'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -135,6 +136,34 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
     }
 
+    /**
+     * SI FALTA EL FNSKU, SE LE PREGUNTA A AMAZON AHORA.
+     *
+     * El espejo del catálogo solo se rellena con el refresco y con el libro de la noche: la primera remesa
+     * de un cliente —referencias que aún no han movido stock— salía con todas las etiquetas descartadas
+     * hasta el día siguiente. Para las referencias sin FNSKU (o con el ASIN en su lugar, por si Amazon ya
+     * les ha dado el de verdad) se lee en el momento. Si Amazon no contesta, se sigue con lo que hay: el
+     * motivo de cada descartada ya lo dice la propia respuesta.
+     */
+    if (remesa.connection_id) {
+      const esAsin = (f: string, a: string | null) => !!a && f.trim().toUpperCase() === a.trim().toUpperCase()
+      const faltan = filas
+        .filter((l) => {
+          const c = catalogo.get(l.sku)
+          const f = l.fnsku ?? c?.fnsku ?? null
+          return !f || esAsin(f, c?.asin ?? null)
+        })
+        .map((l) => l.sku)
+      if (faltan.length > 0) {
+        const { leidos } = await leerFnskusDeAmazon(service, remesa.connection_id, remesa.marketplace_id, faltan)
+        for (const x of leidos) {
+          if (!x.fnsku) continue
+          const previo = catalogo.get(x.sku)
+          catalogo.set(x.sku, { fnsku: x.fnsku, title: previo?.title ?? null, asin: previo?.asin ?? null })
+        }
+      }
+    }
+
     const etiquetas: EtiquetaProducto[] = filas.map((l) => {
       const delEspejo = catalogo.get(l.sku)
       // El título de Amazon manda sobre el nuestro: quien pega la etiqueta y
@@ -157,7 +186,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
     })
 
-    const { pdf, etiquetas: impresas, paginas, descartadas } = hojaDeEtiquetas(etiquetas, formato)
+    const { pdf, etiquetas: impresas, paginas, descartadas, avisos } = hojaDeEtiquetas(etiquetas, formato)
 
     /**
      * NI UNA ETIQUETA IMPRIMIBLE NO ES UN PDF EN BLANCO.
@@ -240,6 +269,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         'X-Paginas': String(paginas),
         'X-Descartadas': String(descartadas.length),
         'X-Motivos': encodeURIComponent(descartadas.map((d) => d.motivo).join(' | ').slice(0, 900)),
+        'X-Avisos': encodeURIComponent(avisos.join(' | ').slice(0, 600)),
       },
     })
   } catch (error) {
