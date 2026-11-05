@@ -466,7 +466,10 @@ interface InventorySummariesResponse {
     inventorySummaries?: Array<{
       sellerSku?: string
       totalQuantity?: number
-      inventoryDetails?: { fulfillableQuantity?: number }
+      inventoryDetails?: {
+        fulfillableQuantity?: number
+        reservedQuantity?: { pendingTransshipmentQuantity?: number }
+      }
     }>
     // El nextToken de esta API viene en el propio payload y CADUCA A LOS 30
     // SEGUNDOS: no se puede guardar para más tarde ni repartir el paginado
@@ -474,6 +477,20 @@ interface InventorySummariesResponse {
     nextToken?: string
   }
   pagination?: { nextToken?: string }
+}
+
+/**
+ * LO QUE SE PUEDE VENDER AHORA: el «Disponible (FBA)» de Seller Central.
+ *
+ * `fulfillableQuantity` solo es el «Disponible» de un centro. Las unidades que Amazon está moviendo entre centros logísticos
+ * (`pendingTransshipmentQuantity`, dentro de las reservadas) Seller Central las suma como disponibles y se siguen vendiendo:
+ * un SKU con 0 en un centro y 56 en transferencia sale como «Disponible (FBA) 56». Las reservadas por pedidos de clientes
+ * y en procesamiento NO cuentan: ya tienen comprador.
+ */
+export function disponibleFba(detalle: { fulfillableQuantity?: number; reservedQuantity?: { pendingTransshipmentQuantity?: number } } | undefined): number | null {
+  if (typeof detalle?.fulfillableQuantity !== 'number') return null
+  const enTransferencia = detalle.reservedQuantity?.pendingTransshipmentQuantity
+  return detalle.fulfillableQuantity + (typeof enTransferencia === 'number' ? enTransferencia : 0)
 }
 
 /**
@@ -517,10 +534,7 @@ export async function fetchFbaInventory(
       if (!s.sellerSku) continue
       out.set(s.sellerSku, {
         total: typeof s.totalQuantity === 'number' ? s.totalQuantity : null,
-        fulfillable:
-          typeof s.inventoryDetails?.fulfillableQuantity === 'number'
-            ? s.inventoryDetails.fulfillableQuantity
-            : null,
+        fulfillable: disponibleFba(s.inventoryDetails),
       })
     }
 
