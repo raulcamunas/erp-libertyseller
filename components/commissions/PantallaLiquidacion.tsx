@@ -7,7 +7,10 @@ import {
   ArrowRight,
   Calculator,
   CheckCircle2,
+  Copy,
+  ExternalLink,
   FileSpreadsheet,
+  FileText,
   Link2,
   Loader2,
   Upload,
@@ -178,6 +181,11 @@ export function PantallaLiquidacion({
     null
   )
   const [guardado, setGuardado] = useState<GuardadoHecho | null>(null)
+
+  // El informe que ve el cliente (la misma tabla y el mismo enlace de la calculadora antigua). Va con el cliente y el mes de los
+  // que salió, igual que el cálculo: un enlace de otro mes no se enseña bajo este.
+  const [informe, setInforme] = useState<{ clienteId: string; anio: number; mes: number; ruta: string; actualizado: boolean } | null>(null)
+  const [creandoInforme, setCreandoInforme] = useState(false)
 
   const entradaManual = useRef<HTMLInputElement>(null)
 
@@ -440,6 +448,45 @@ export function PantallaLiquidacion({
     avisarImporte.current?.(importe)
   }, [importe])
 
+  /**
+   * GUARDA EL INFORME DEL CLIENTE Y DEJA SU ENLACE A MANO.
+   *
+   * Se llama solo al validar y también desde el botón (por ejemplo para la cuenta secundaria de un grupo, que no se valida aquí).
+   * Manda el cálculo con el cliente y el mes de los que salió, no los desplegables: el informe es de lo que se calculó.
+   */
+  async function crearInforme(avisar: boolean) {
+    if (!calculo) return
+    const mio = { clienteId: calculo.clienteId, anio: calculo.anio, mes: calculo.mes }
+    setCreandoInforme(true)
+    try {
+      const res = await fetch('/api/comisiones-puente/informe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...mio, data: calculo.data }),
+      })
+      const payload = (await res.json().catch(() => null)) as { ruta?: string; actualizado?: boolean; error?: string } | null
+      if (!res.ok || !payload?.ruta) {
+        toast.error(payload?.error ?? 'No se ha podido guardar el informe del cliente')
+        return
+      }
+      setInforme({ ...mio, ruta: payload.ruta, actualizado: payload.actualizado === true })
+      if (avisar) toast.success(payload.actualizado ? 'Informe del cliente actualizado (el enlace no cambia)' : 'Informe del cliente creado')
+    } catch {
+      toast.error('No hay conexión con el servidor. Inténtalo otra vez.')
+    } finally {
+      setCreandoInforme(false)
+    }
+  }
+
+  async function copiarEnlace(ruta: string) {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${ruta}`)
+      toast.success('Enlace copiado')
+    } catch {
+      toast.error('No se ha podido copiar. Ábrelo y copia la dirección del navegador.')
+    }
+  }
+
   async function guardar(confirmar: boolean) {
     if (importeAGuardar == null) return
 
@@ -505,6 +552,8 @@ export function PantallaLiquidacion({
       // no enseñar el fee y la comisión de un cliente bajo el nombre de otro.
       toast.success('Comisión guardada en Tesorería')
       onCambio?.()
+      // Y el informe del cliente, con su enlace: sin esto la liquidación nueva no dejaba nada que enseñarle
+      void crearInforme(true)
 
       if (!sigueSiendoLoElegido(calculo.clienteId, calculo.anio, calculo.mes)) return
 
@@ -689,6 +738,45 @@ export function PantallaLiquidacion({
               onGuardar={(confirmar) => void guardar(confirmar)}
               onCancelarConflicto={() => setConflicto(null)}
             />
+          )}
+
+          {/* ---------- El informe para el cliente ---------- */}
+          {resultado && calculo && (
+            <div className={TARJETA.base}>
+              <div className={TARJETA.cabecera}>
+                <FileText className={`h-[13px] w-[13px] ${TEXTO.t4}`} />
+                <span className={TITULO.seccion}>Informe para el cliente</span>
+              </div>
+              <div className={`${TARJETA.cuerpo} space-y-[9px]`}>
+                <p className={`${TIPO.s} ${TEXTO.t3}`}>
+                  El desglose de la comisión con la cuenta a la vista, en una página que se abre sin entrar al ERP. Se crea solo al validar; aquí se
+                  puede crear o actualizar a mano, y el enlace no cambia aunque se vuelva a guardar.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void crearInforme(true)}
+                    disabled={creandoInforme}
+                    className={`${BOTON.base} ${BOTON.secundario}`}
+                  >
+                    {creandoInforme ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <FileText className="h-[14px] w-[14px]" />}
+                    {informe && informe.clienteId === clienteId && informe.anio === anio && informe.mes === mes ? 'Actualizar informe' : 'Crear informe'}
+                  </button>
+                  {informe && informe.clienteId === clienteId && informe.anio === anio && informe.mes === mes && (
+                    <>
+                      <button type="button" onClick={() => void copiarEnlace(informe.ruta)} className={`${BOTON.base} ${BOTON.primario}`}>
+                        <Copy className="h-[14px] w-[14px]" />
+                        Copiar enlace
+                      </button>
+                      <a href={informe.ruta} target="_blank" rel="noreferrer" className={`${BOTON.base} ${BOTON.secundario}`}>
+                        <ExternalLink className="h-[14px] w-[14px]" />
+                        Ver como lo ve el cliente
+                      </a>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </>
       )}
