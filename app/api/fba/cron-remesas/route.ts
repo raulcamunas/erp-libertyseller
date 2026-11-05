@@ -3,6 +3,7 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { fetchFbaInventory } from '@/lib/amazon/sp-api'
+import { fnskusDe, guardarDesgloseFba, guardarFnskus } from '@/lib/amazon/fba-desglose'
 import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
 import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
@@ -174,6 +175,9 @@ export async function POST(request: NextRequest) {
               .eq('sku', sku)
             if (!errStock) conStock++
           }
+          // El desglose (de camino, reservado, no apto) y el FNSKU de Amazon. Aparte y sin lanzar: ver lib/amazon/fba-desglose.ts
+          await guardarDesgloseFba(service, u.conexion, u.mercado, fba).catch(() => false)
+          await guardarFnskus(service, u.conexion, u.mercado, fnskusDe([], fba)).catch(() => 0)
         } catch (e) {
           // Que falle el stock NO impide leer el libro mayor: son dos datos
           // independientes y el reparto es el que de verdad hace falta.

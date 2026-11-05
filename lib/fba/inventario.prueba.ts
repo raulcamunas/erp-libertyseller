@@ -311,6 +311,30 @@ console.log('\n=== G · cuánto se puede fiar uno del libro ===')
   ok('con 114 días de libro y nada vendido, sí es stock parado', largo.skus.find((x) => x.sku === 'G2')!.estado === 'parado' && largo.libro === 'ok')
 }
 
+console.log('\n=== F · el desglose de Amazon (Opinas 80-HGPJ-1F82) ===')
+{
+  // Seller Central: Disponibles 34, Enviado a Amazon 74, En reserva 1, No apto 7 → Total 116
+  const F = 'FFF'
+  const conDesglose: ListingInventario = { ...listing(F, 116, 34, 10), entranteAmazon: 74, reservadas: 1, noAptas: 7 }
+  const f = calcularInventario({ hoy: HOY, leidoHasta: LEIDO, listings: [conDesglose], movimientos: [mov(F, '2026-09-01', 'Receipts', 50, { referencia: 'FBA-F' })], envios: [] }).skus.find((s) => s.sku === F)!
+  ok('lo enviado a Amazon sin envío en el ERP sale «de camino» (74)', f.entrante === 74, String(f.entrante))
+  ok('«no vendibles» son solo las no aptas (7), no la resta (116 − 34 − 74 = 8)', f.noDisponibles === 7, String(f.noDisponibles))
+  ok('la reserva se ve aparte (1)', f.reservadas === 1, String(f.reservadas))
+  ok('lo vendible sigue siendo lo disponible (34)', f.vendibles === 34 && f.enAmazon === 116)
+  // Si el ERP va por delante de Amazon (lo acaba de registrar), manda el mayor
+  const adelantado = calcularInventario({
+    hoy: HOY,
+    leidoHasta: LEIDO,
+    listings: [{ ...conDesglose, entranteAmazon: 10 }],
+    movimientos: [],
+    envios: [{ ...envio('enviada', 'IN_TRANSIT', 74), lineas: [{ sku: F, unidades: 74, recibidas: null }] }],
+  }).skus.find((s) => s.sku === F)!
+  ok('si el ERP registra más de camino que Amazon, manda el ERP', adelantado.entrante === 74, String(adelantado.entrante))
+  // Sin el desglose (migración 271 sin lanzar) se calcula como antes
+  const sin = calcularInventario({ hoy: HOY, leidoHasta: LEIDO, listings: [listing(F, 116, 34, 10)], movimientos: [], envios: [] }).skus.find((s) => s.sku === F)!
+  ok('sin desglose: no vendibles = total − vendibles y no hay reserva que enseñar', sin.noDisponibles === 82 && sin.reservadas === null, `${sin.noDisponibles} ${sin.reservadas}`)
+}
+
 console.log('\n=== avisos sobre los datos ===')
 {
   const viejo = calcularInventario({ hoy: HOY, leidoHasta: '2026-10-10', listings: [], movimientos: [], envios: [] })

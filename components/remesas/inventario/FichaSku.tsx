@@ -25,7 +25,9 @@ const TEXTO_ALERTA: Record<string, (s: SkuInventario) => string> = {
   'stock de más de 270 días': (s) =>
     `${n0(s.porTramo.t271 + s.porTramo.t366)} unidades llevan más de 270 días en Amazon. A partir de ahí Amazon puede cobrar un recargo por antigüedad.`,
   'unidades no disponibles': (s) =>
-    `${n0(s.noDisponibles)} unidades están en la red de Amazon pero no se pueden vender ahora: pueden ser mercancía en tránsito que no está registrada, reservada para un pedido o un traslado, o dañada. Se mira en Seller Central.`,
+    s.reservadas != null
+      ? `${n0(s.noDisponibles)} unidades figuran como «No apto para envío» en Amazon: dañadas o defectuosas. Se mira en Seller Central.`
+      : `${n0(s.noDisponibles)} unidades están en la red de Amazon pero no se pueden vender ahora: pueden ser mercancía en tránsito que no está registrada, reservada para un pedido o un traslado, o dañada. Se mira en Seller Central.`,
   'ritmo poco fiable': () => 'Lleva poco tiempo en Amazon o ha vendido pocas unidades en el último mes: el ritmo y los días de stock son orientativos.',
 }
 
@@ -67,7 +69,7 @@ export function FichaSku({
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-          <Dato rotulo="En Amazon" valor={n0(sku.enAmazon)} sub={`vendibles ${n0(sku.vendibles)} · de camino ${n0(sku.entrante)} · no vendibles ${n0(sku.noDisponibles)}`} />
+          <Dato rotulo="En Amazon" valor={n0(enAlmacen)} sub={`vendibles ${n0(sku.vendibles)} · de camino ${n0(sku.entrante)} · no vendibles ${n0(sku.noDisponibles)}`} />
           <Dato
             rotulo="Días de stock"
             valor={sku.vendibles <= 0 ? (sku.entrante > 0 ? 'de camino' : 'agotado') : sku.cobertura === null ? '—' : `${n0(sku.cobertura)} d`}

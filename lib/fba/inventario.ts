@@ -64,6 +64,12 @@ export interface ListingInventario {
   enAmazon: number | null
   /** Lo que se puede vender ahora mismo. null = no se ha preguntado */
   vendibles: number | null
+  /** «Enviado a Amazon»: en envíos que Amazon aún no ha recibido. null = no se ha leído (migración 271) */
+  entranteAmazon?: number | null
+  /** «En reserva»: pedidos de clientes y procesamiento. null = no se ha leído */
+  reservadas?: number | null
+  /** «No apto para envío»: dañado o defectuoso. null = no se ha leído */
+  noAptas?: number | null
 }
 
 export interface MovimientoInventario extends Movimiento {
@@ -163,15 +169,20 @@ export interface SkuInventario {
   enAmazon: number
   /** Lo que se vende ahora mismo */
   vendibles: number
-  /** Registrado en el ERP y todavía sin recibir del todo */
+  /**
+   * Enviado y todavía sin recibir del todo. Es lo que dice Amazon («Enviado a Amazon») o, si es
+   * más, lo registrado en los envíos del ERP: puede haber envíos creados directamente en Seller
+   * Central que el ERP no conoce, y esas unidades también están de camino.
+   */
   entrante: number
   /**
-   * En la red de Amazon y no vendible ahora: total − vendible − lo registrado de camino.
-   * Puede ser mercancía en tránsito que nadie registró en el ERP, reservada para un pedido
-   * o un traslado, o dañada: el espejo del catálogo solo trae el total y lo vendible, así que
-   * desde aquí no se pueden separar. Si es mucho, hay que mirarlo en Seller Central.
+   * En la red de Amazon y no vendible ahora. Con el desglose de Amazon leído (`reservadas` no es
+   * null) son SOLO las dañadas o defectuosas («No apto»). Sin él, es el total − vendible − lo de
+   * camino, que mezcla reservado, tránsito sin registrar y dañado.
    */
   noDisponibles: number
+  /** «En reserva» de Amazon: pedidos de clientes y procesamiento. null = el desglose no está leído */
+  reservadas?: number | null
 
   /* --- ventas y devoluciones (unidades) --- */
   vendidas: { d7: number; d14: number; d30: number; d60: number; d90: number }
@@ -504,11 +515,14 @@ export function calcularInventario(entrada: EntradaInventario): InventarioClient
     const repartoPorLote = new Map(reparto.lineas.map((l) => [l.remesaId, l]))
 
     /* --- lo que hay de verdad, y lo que explican los lotes --- */
-    const enviosDelSku = entrante.get(sku) ?? 0
+    // De camino: lo que dice Amazon, o lo registrado en el ERP si es más (el ERP puede ir por delante)
+    const enviosDelSku = Math.max(entrante.get(sku) ?? 0, listing?.entranteAmazon ?? 0)
     const enAmazon = listing?.enAmazon ?? reparto.quedan
     const enAlmacen = Math.max(0, enAmazon - enviosDelSku)
     const vendibles = listing?.vendibles ?? reparto.quedanVendibles
-    const noDisponibles = Math.max(0, enAmazon - vendibles - enviosDelSku)
+    // Con el desglose leído, «no vendible» son las dañadas; sin él, lo que no se explica por vendible ni de camino
+    const desgloseLeido = listing?.reservadas != null && listing?.noAptas != null
+    const noDisponibles = desgloseLeido ? (listing?.noAptas ?? 0) : Math.max(0, enAmazon - vendibles - enviosDelSku)
 
     // Las vivas ahora, de la más antigua a la más nueva
     const vivos = lotes
@@ -602,6 +616,7 @@ export function calcularInventario(entrada: EntradaInventario): InventarioClient
       vendibles,
       entrante: enviosDelSku,
       noDisponibles,
+      reservadas: desgloseLeido ? (listing?.reservadas ?? 0) : null,
       vendidas: vend,
       devueltas: dev,
       tasaDevolucion90: tasa90,

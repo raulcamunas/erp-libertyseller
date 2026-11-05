@@ -57,6 +57,10 @@ interface FilaListing {
   currency: string | null
   fba_quantity: number | null
   fba_fulfillable_quantity: number | null
+  // Migración 271: si todavía no está lanzada no vienen y la cuenta sigue como antes
+  fba_inbound_quantity?: number | null
+  fba_reserved_quantity?: number | null
+  fba_unfulfillable_quantity?: number | null
 }
 
 const aListing = (l: FilaListing): ListingInventario => ({
@@ -69,9 +73,27 @@ const aListing = (l: FilaListing): ListingInventario => ({
   moneda: l.currency,
   enAmazon: typeof l.fba_quantity === 'number' ? l.fba_quantity : null,
   vendibles: typeof l.fba_fulfillable_quantity === 'number' ? l.fba_fulfillable_quantity : null,
+  entranteAmazon: typeof l.fba_inbound_quantity === 'number' ? l.fba_inbound_quantity : null,
+  reservadas: typeof l.fba_reserved_quantity === 'number' ? l.fba_reserved_quantity : null,
+  noAptas: typeof l.fba_unfulfillable_quantity === 'number' ? l.fba_unfulfillable_quantity : null,
 })
 
 const COLUMNAS_LISTING = 'sku, asin, fnsku, title, price, currency, fba_quantity, fba_fulfillable_quantity'
+const COLUMNAS_LISTING_CON_DESGLOSE = `${COLUMNAS_LISTING}, fba_inbound_quantity, fba_reserved_quantity, fba_unfulfillable_quantity`
+
+/**
+ * Lee listings pidiendo el desglose del stock (migración 271) y, si esa migración todavía no se ha
+ * lanzado (42703, columna inexistente), repite SIN él: el inventario sigue funcionando como antes en
+ * vez de quedarse en blanco por una columna que solo mejora un dato.
+ */
+async function leerListings(
+  consulta: (columnas: string) => PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>
+): Promise<FilaListing[]> {
+  let r = await consulta(COLUMNAS_LISTING_CON_DESGLOSE)
+  if (r.error && r.error.code === '42703') r = await consulta(COLUMNAS_LISTING)
+  if (r.error) throw r.error
+  return (r.data ?? []) as FilaListing[]
+}
 
 type Servicio = ReturnType<typeof createServiceClient>
 
@@ -279,30 +301,31 @@ export async function inventarioDeCliente(clienteId: string, opciones: { hoy: st
   /* ---------- el catálogo: lo que tiene stock y lo que ha vendido ---------- */
   const listings = new Map<string, ListingInventario>()
   for (let inicio = 0; ; inicio += PAGINA) {
-    const { data, error } = await service
-      .from('amazon_listings')
-      .select(COLUMNAS_LISTING)
-      .eq('connection_id', connectionId)
-      .eq('marketplace_id', marketplaceId)
-      .or('fba_quantity.gt.0,fba_fulfillable_quantity.gt.0')
-      .order('sku', { ascending: true })
-      .range(inicio, inicio + PAGINA - 1)
-    if (error) throw error
-    const filas = (data ?? []) as FilaListing[]
+    const filas = await leerListings((columnas) =>
+      service
+        .from('amazon_listings')
+        .select(columnas)
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', marketplaceId)
+        .or('fba_quantity.gt.0,fba_fulfillable_quantity.gt.0')
+        .order('sku', { ascending: true })
+        .range(inicio, inicio + PAGINA - 1)
+    )
     for (const f of filas) listings.set(f.sku, aListing(f))
     if (filas.length < PAGINA) break
   }
   // Los que han vendido o recibido y ahora están a cero: sin ellos no se vería lo agotado
   const faltan = [...new Set(movimientos.map((m) => m.sku))].filter((s) => !listings.has(s))
   for (let i = 0; i < faltan.length; i += 150) {
-    const { data, error } = await service
-      .from('amazon_listings')
-      .select(COLUMNAS_LISTING)
-      .eq('connection_id', connectionId)
-      .eq('marketplace_id', marketplaceId)
-      .in('sku', faltan.slice(i, i + 150))
-    if (error) throw error
-    for (const f of (data ?? []) as FilaListing[]) listings.set(f.sku, aListing(f))
+    const filas = await leerListings((columnas) =>
+      service
+        .from('amazon_listings')
+        .select(columnas)
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', marketplaceId)
+        .in('sku', faltan.slice(i, i + 150))
+    )
+    for (const f of filas) listings.set(f.sku, aListing(f))
   }
 
   /* ---------- los envíos del ERP ---------- */

@@ -252,6 +252,8 @@ export interface AmazonCatalogItem {
   /** Obligatorio para poder cambiar nada de este SKU */
   productType: string | null
   conditionType: string | null
+  /** El código de barras de Amazon (el de la etiqueta). Solo lo da si la referencia ya es de FBA */
+  fnsku?: string | null
   listingStatus: string[]
   price: number | null
   currency: string | null
@@ -308,6 +310,7 @@ interface RawListingItem {
   summaries?: Array<{
     marketplaceId?: string
     asin?: string
+    fnSku?: string
     productType?: string
     conditionType?: string
     status?: string[]
@@ -442,6 +445,7 @@ function normalizeListingItem(raw: RawListingItem, marketplaceId: string): Amazo
     title: summary?.itemName ?? null,
     productType: summary?.productType ?? null,
     conditionType: summary?.conditionType ?? null,
+    fnsku: summary?.fnSku?.trim() || null,
     listingStatus: summary?.status ?? [],
     price: parseAmazonAmount(oferta?.price?.amount),
     currency: oferta?.price?.currencyCode ?? null,
@@ -457,19 +461,40 @@ function normalizeListingItem(raw: RawListingItem, marketplaceId: string): Amazo
 /* ------------------------------------------------------------------ */
 
 export interface FbaQuantities {
+  /** Todo lo que Amazon tiene a tu nombre: disponible, de camino, reservado y no apto */
   total: number | null
+  /** El «Disponible (FBA)» de Seller Central: lo que se puede vender ahora */
   fulfillable: number | null
+  /** «Enviado a Amazon»: en envíos que Amazon todavía no ha terminado de recibir */
+  entrante?: number | null
+  /** «En reserva»: pedidos de clientes y procesamiento (las transferencias van en `fulfillable`) */
+  reservadas?: number | null
+  /** «No apto para envío»: dañado o defectuoso */
+  noAptas?: number | null
+  fnsku?: string | null
+}
+
+interface DetalleInventario {
+  fulfillableQuantity?: number
+  inboundWorkingQuantity?: number
+  inboundShippedQuantity?: number
+  inboundReceivingQuantity?: number
+  reservedQuantity?: {
+    totalReservedQuantity?: number
+    pendingCustomerOrderQuantity?: number
+    pendingTransshipmentQuantity?: number
+    fcProcessingQuantity?: number
+  }
+  unfulfillableQuantity?: { totalUnfulfillableQuantity?: number }
 }
 
 interface InventorySummariesResponse {
   payload?: {
     inventorySummaries?: Array<{
       sellerSku?: string
+      fnSku?: string
       totalQuantity?: number
-      inventoryDetails?: {
-        fulfillableQuantity?: number
-        reservedQuantity?: { pendingTransshipmentQuantity?: number }
-      }
+      inventoryDetails?: DetalleInventario
     }>
     // El nextToken de esta API viene en el propio payload y CADUCA A LOS 30
     // SEGUNDOS: no se puede guardar para más tarde ni repartir el paginado
@@ -487,10 +512,35 @@ interface InventorySummariesResponse {
  * un SKU con 0 en un centro y 56 en transferencia sale como «Disponible (FBA) 56». Las reservadas por pedidos de clientes
  * y en procesamiento NO cuentan: ya tienen comprador.
  */
-export function disponibleFba(detalle: { fulfillableQuantity?: number; reservedQuantity?: { pendingTransshipmentQuantity?: number } } | undefined): number | null {
+export function disponibleFba(detalle: DetalleInventario | undefined): number | null {
   if (typeof detalle?.fulfillableQuantity !== 'number') return null
   const enTransferencia = detalle.reservedQuantity?.pendingTransshipmentQuantity
   return detalle.fulfillableQuantity + (typeof enTransferencia === 'number' ? enTransferencia : 0)
+}
+
+const aNumero = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+
+/**
+ * EL DESGLOSE DE LO QUE NO ESTÁ DISPONIBLE, con los mismos nombres que Seller Central.
+ *
+ * `totalQuantity` de Amazon incluye lo que todavía viene de camino: un SKU con 34 disponibles y 74
+ * enviados a Amazon sale con total 108 (más lo reservado y lo no apto). Restar «disponible» al total
+ * para hallar lo «no vendible» mezclaba cuatro cosas distintas.
+ */
+export function desgloseFba(detalle: DetalleInventario | undefined): Pick<FbaQuantities, 'entrante' | 'reservadas' | 'noAptas'> {
+  if (!detalle) return { entrante: null, reservadas: null, noAptas: null }
+  const r = detalle.reservedQuantity
+  // «En reserva» de Seller Central = reservado sin las transferencias entre centros (esas cuentan como disponibles)
+  const reservadasBrutas =
+    typeof r?.totalReservedQuantity === 'number'
+      ? r.totalReservedQuantity
+      : aNumero(r?.pendingCustomerOrderQuantity) + aNumero(r?.fcProcessingQuantity) + aNumero(r?.pendingTransshipmentQuantity)
+  return {
+    entrante:
+      aNumero(detalle.inboundWorkingQuantity) + aNumero(detalle.inboundShippedQuantity) + aNumero(detalle.inboundReceivingQuantity),
+    reservadas: Math.max(0, reservadasBrutas - aNumero(r?.pendingTransshipmentQuantity)),
+    noAptas: aNumero(detalle.unfulfillableQuantity?.totalUnfulfillableQuantity),
+  }
 }
 
 /**
@@ -535,6 +585,8 @@ export async function fetchFbaInventory(
       out.set(s.sellerSku, {
         total: typeof s.totalQuantity === 'number' ? s.totalQuantity : null,
         fulfillable: disponibleFba(s.inventoryDetails),
+        ...desgloseFba(s.inventoryDetails),
+        fnsku: s.fnSku?.trim() || null,
       })
     }
 

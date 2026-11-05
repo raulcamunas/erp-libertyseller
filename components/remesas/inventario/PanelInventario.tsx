@@ -48,7 +48,7 @@ const FILTROS: Filtro[] = [
   { id: 'exceso', texto: 'Exceso', ayuda: ESTADO_SKU.exceso.ayuda, admite: (s) => s.estado === 'exceso' },
   { id: 'devoluciones', texto: 'Devoluciones altas', ayuda: 'Se devuelve el 12 % o más de lo que se vende', admite: (s) => s.alertas.includes('devoluciones altas') },
   { id: 'antiguas', texto: 'Más de 270 días', ayuda: 'Tiene unidades de más de 270 días en Amazon: zona de recargo por antigüedad', admite: (s) => s.porTramo.t271 + s.porTramo.t366 > 0 },
-  { id: 'no_vendibles', texto: 'No vendibles', ayuda: 'Tiene unidades en la red de Amazon que no se pueden vender ahora: en tránsito sin registrar, reservadas o dañadas', admite: (s) => s.noDisponibles > 0 },
+  { id: 'no_vendibles', texto: 'No vendibles', ayuda: 'Tiene unidades en los almacenes de Amazon que no se pueden vender: dañadas o defectuosas (si Amazon aún no ha dado el desglose, también reservadas o en tránsito sin registrar)', admite: (s) => s.noDisponibles > 0 },
   { id: 'todas', texto: 'Todas', ayuda: 'Todas las referencias que han tenido stock o ventas', admite: () => true },
 ]
 
@@ -94,7 +94,7 @@ const tonoCobertura = (s: SkuInventario): string => {
 
 const COLUMNAS: Columna[] = [
   { id: 'estado', titulo: 'Estado', valor: (s) => ORDEN_ESTADO[s.estado], celda: (s) => <ChipEstado estado={s.estado} /> },
-  { id: 'enAmazon', titulo: 'En Amazon', ayuda: 'Total en la red de Amazon, con lo que viene de camino', valor: (s) => s.enAmazon, celda: (s) => <b className="font-semibold text-[var(--ls-t1)]">{n0(s.enAmazon)}</b> },
+  { id: 'enAmazon', titulo: 'En Amazon', ayuda: 'Lo que hay dentro de los almacenes de Amazon: disponible, reservado y no apto. Lo que viene de camino va aparte, en «De camino»', valor: (s) => Math.max(0, s.enAmazon - s.entrante), celda: (s) => <b className="font-semibold text-[var(--ls-t1)]">{n0(Math.max(0, s.enAmazon - s.entrante))}</b> },
   {
     id: 'vendibles',
     titulo: 'Vendibles',
@@ -102,7 +102,7 @@ const COLUMNAS: Columna[] = [
     valor: (s) => s.vendibles,
     celda: (s) => <span style={s.noDisponibles > 0 ? { color: COLOR_ESTADO.ambar } : undefined}>{n0(s.vendibles)}</span>,
   },
-  { id: 'entrante', titulo: 'De camino', ayuda: 'En envíos registrados que Amazon todavía no ha terminado de recibir', valor: (s) => s.entrante, celda: (s) => (s.entrante > 0 ? n0(s.entrante) : <span className="text-[var(--ls-t4)]">—</span>) },
+  { id: 'entrante', titulo: 'De camino', ayuda: 'Enviado a Amazon y todavía sin recibir: lo que dice Amazon o, si es más, lo registrado en los envíos del ERP', valor: (s) => s.entrante, celda: (s) => (s.entrante > 0 ? n0(s.entrante) : <span className="text-[var(--ls-t4)]">—</span>) },
   { id: 'v7', titulo: '7 d', ayuda: 'Unidades vendidas en los últimos 7 días', valor: (s) => s.vendidas.d7, celda: (s) => n0(s.vendidas.d7) },
   { id: 'v30', titulo: '30 d', ayuda: 'Unidades vendidas en los últimos 30 días', valor: (s) => s.vendidas.d30, celda: (s) => n0(s.vendidas.d30) },
   { id: 'v90', titulo: '90 d', ayuda: 'Unidades vendidas en los últimos 90 días', valor: (s) => s.vendidas.d90, celda: (s) => n0(s.vendidas.d90) },
@@ -544,9 +544,9 @@ function Contenido({
           <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-8">
             <Kpi
               rotulo="En Amazon"
-              valor={n0(r.unidadesEnAmazon)}
+              valor={n0(enAlmacen)}
               sub={`vendibles ${n0(r.vendibles)} · de camino ${n0(r.entrante)} · no vendibles ${n0(r.noDisponibles)}`}
-              ayuda="Total en la red de Amazon (incluye lo que viene de camino). «No vendibles»: en tránsito sin registrar, reservadas o dañadas"
+              ayuda="Lo que hay dentro de los almacenes de Amazon, sin lo que viene de camino. «No vendibles»: dañadas o defectuosas (si Amazon aún no ha dado el desglose, también reservadas o en tránsito sin registrar)"
             />
             <Kpi rotulo="Valor del stock" valor={eur(r.valorStock)} sub={`a precio de venta · ${n0(r.referencias)} referencia${r.referencias === 1 ? '' : 's'}`} />
             <Kpi
@@ -770,7 +770,7 @@ function Contenido({
                       {tramoActivo && (
                         <td className={cx(TABLA.celda, TABLA.numero)}>
                           <b className="font-semibold text-[var(--ls-t1)]">{n0(unidadesEnTramo(s, informe, tramoActivo.id))}</b>
-                          <span className="text-[var(--ls-t4)]"> / {n0(s.enAmazon)}</span>
+                          <span className="text-[var(--ls-t4)]"> / {n0(Math.max(0, s.enAmazon - s.entrante))}</span>
                         </td>
                       )}
                       {COLUMNAS.map((c) => (

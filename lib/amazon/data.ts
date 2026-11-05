@@ -17,6 +17,7 @@ import { MAX_PRICE, MAX_QUANTITY, marketplaceDeEntrada, marketplacesCubiertos } 
 import { encryptToken, hasTokenKey, safeEqual } from './crypto'
 import { AmazonApiError, humanMessageOf } from './errors'
 import { clearAccessToken, exchangeAuthorizationCode, isAmazonConfigured } from './lwa'
+import { fnskusDe, guardarDesgloseFba, guardarFnskus } from './fba-desglose'
 import {
   applyChange,
   fetchCatalog,
@@ -1365,6 +1366,9 @@ export async function syncConnectionCatalog(
         : new Map()
 
       await upsertListings(service, connectionId, marketplaceId, catalogo.items, fba)
+      // Aparte y sin lanzar: el desglose necesita la migración 271 y el FNSKU es un extra que no debe tumbar el refresco
+      await guardarDesgloseFba(service, connectionId, marketplaceId, fba).catch(() => false)
+      await guardarFnskus(service, connectionId, marketplaceId, fnskusDe(catalogo.items, fba)).catch(() => 0)
       const confirmed = await confirmSubmissions(
         service,
         connectionId,
