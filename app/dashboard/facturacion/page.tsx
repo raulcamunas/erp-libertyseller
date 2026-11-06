@@ -4,11 +4,10 @@ import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { CentroFacturacion } from '@/components/facturacion/CentroFacturacion'
 
 /**
- * FACTURACIÓN: EL MES ENTERO EN UNA PANTALLA.
+ * FACTURACIÓN: EL MES ENTERO EN UNA PANTALLA, CONTRA ZOHO BOOKS.
  *
- * Lo que sustituye, por cliente y a mano: montar la factura fuera del ERP,
- * copiar su enlace, buscar el desglose de comisiones, abrir el correo, pegar la
- * plantilla, adjuntar el PDF y marcarlo en Tesorería.
+ * Crear la factura, enviarla con su plantilla y el enlace de comisiones, y registrar
+ * cobros y gastos sin entrar en Zoho.
  */
 export default async function FacturacionPage() {
   const supabase = await createClient()
@@ -25,16 +24,6 @@ export default async function FacturacionPage() {
   if (profile.role !== 'admin' && profile.role !== 'partner') redirect('/dashboard')
 
   return (
-    <div className="min-w-0">
-      <div className="mb-4">
-        <h1 className="heading-medium mb-1 text-white">Facturación</h1>
-        <p className="text-sm text-white/50">
-          Emite la factura de cada cliente y mándasela con el desglose y el PDF dentro, sin salir de
-          aquí.
-        </p>
-      </div>
-
-      <CentroFacturacion />
-    </div>
+    <CentroFacturacion />
   )
 }

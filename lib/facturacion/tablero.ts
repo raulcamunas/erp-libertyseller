@@ -1,189 +1,322 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { errorComoRespuesta, zohoConfigurado, zohoTodo } from '@/lib/zoho/books'
 import {
-  normalizarNombre,
-  type Emisor,
-  type EstadoFacturacion,
-  type FilaFacturacion,
-} from './tipos'
+  avisosDeFila,
+  claveDeContacto,
+  emparejarContacto,
+  estadoDesdeZoho,
+  estadoParaElReflejo,
+  etiquetaDeNumero,
+  mesDelPeriodo,
+  numeroPropuesto,
+  periodoDeFactura,
+} from './logica'
+import type { ContactoZoho, FacturaZoho, FilaFacturacion, InformeDeComision, Tablero } from './tipos'
 
-/**
- * LO QUE HAY QUE FACTURAR ESTE MES, DE UNA SOLA VEZ.
- *
- * Junta tres sitios que hasta ahora había que mirar por separado y en este
- * orden: Tesorería (cuánto se le cobra a cada cliente este mes), las facturas
- * ya emitidas (para no emitir dos veces) y los desgloses de comisiones (el
- * enlace que se le manda al cliente para que vea de dónde sale su comisión).
- */
-
-/** El emisor, con valores vacíos si todavía no se ha rellenado la ficha */
-export const EMISOR_VACIO: Emisor = {
-  legal_name: '',
-  tax_id: '',
-  address: '',
-  email: '',
-  phone: null,
-  bank_name: null,
-  iban: null,
-  bic: null,
-  invoice_prefix: 'LS',
-  footer_note: null,
+export interface ContactoCrudo {
+  contact_id: string
+  contact_name?: string
+  company_name?: string
+  email?: string
 }
 
-export async function cargarEmisor(): Promise<Emisor> {
-  const service = createServiceClient()
-  const { data, error } = await service.from('billing_issuer').select('*').limit(1).maybeSingle()
-  // Sin la migración 176 la tabla no existe. La pantalla tiene que abrirse
-  // igual y decir qué falta, no reventar.
-  if (error || !data) return EMISOR_VACIO
-  return { ...EMISOR_VACIO, ...(data as Partial<Emisor>) }
+export interface FacturaCruda {
+  invoice_id: string
+  invoice_number: string
+  customer_id: string
+  customer_name: string
+  date: string
+  due_date?: string
+  total: number
+  balance: number
+  currency_code: string
+  status: string
 }
 
-/** La dirección pública del ERP, para construir el enlace del desglose */
+export function facturaDesdeZoho(f: FacturaCruda): FacturaZoho {
+  return {
+    id: f.invoice_id,
+    numero: f.invoice_number,
+    fecha: f.date,
+    vence: f.due_date || null,
+    total: Number(f.total ?? 0),
+    saldo: Number(f.balance ?? 0),
+    moneda: f.currency_code,
+    estadoZoho: f.status,
+  }
+}
+
+type FilaCliente = { id: string; name: string; email?: string | null; email_alt?: string | null; zoho_contact_id?: string | null }
+
+function sumarMeses(period: string, salto: number): string {
+  const [a, m] = period.split('-').map(Number)
+  const d = new Date(Date.UTC(a, m - 1 + salto, 1))
+  return d.toISOString().slice(0, 10)
+}
+
+/** La dirección pública del ERP, para el enlace del informe que ve el cliente */
 export function baseDelSitio(): string {
-  const url =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
+  const url = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://app.libertyseller.com'
   return url.replace(/\/+$/, '')
 }
 
-export function urlDelDesglose(slug: string): string {
-  return `${baseDelSitio()}/report/commissions/${slug}`
-}
-
-function decidirEstado(args: {
-  fee: number | null
-  comision: number | null
-  cobrado: boolean
-  facturaEstado: string | null
-  emailEnviadoEl: string | null
-}): EstadoFacturacion {
-  if (args.cobrado) return 'cobrada'
-  if (args.emailEnviadoEl) return 'enviada'
-  if (args.facturaEstado) return 'emitida'
-  // «Sin importes» es 0 o nada: un cliente que este mes no factura no tiene que
-  // aparecer como pendiente de nada, o la lista de pendientes deja de servir.
-  const total = (args.fee ?? 0) + (args.comision ?? 0)
-  if (total <= 0) return 'sin_importes'
-  return 'por_emitir'
-}
-
-export async function cargarTablero(period: string): Promise<{
-  filas: FilaFacturacion[]
-  emisor: Emisor
-  faltaMigracion: boolean
-}> {
+/**
+ * EL MES ENTERO: TESORERÍA + ZOHO + LOS INFORMES DE COMISIÓN.
+ *
+ * Zoho se lee en directo y no se copia: la factura puede cambiar allí, y una
+ * copia que no se entera enseñaría una factura que ya no existe. Lo único que se
+ * escribe aquí es el reflejo que necesitan Comisiones y Tesorería.
+ */
+export async function cargarTablero(period: string): Promise<Tablero> {
   const service = createServiceClient()
 
-  // Las cuatro consultas son independientes: ninguna necesita el resultado de
-  // otra para lanzarse, así que van juntas.
-  const [clientesRes, mesesRes, facturasRes, reportesRes, emisor] = await Promise.all([
+  let contactos: ContactoCrudo[] = []
+  let facturas: FacturaCruda[] = []
+  let errorZoho: string | null = null
+
+  if (!zohoConfigurado()) {
+    errorZoho = 'Faltan las claves de Zoho en el servidor (ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN y ZOHO_ORGANIZATION_ID).'
+  } else {
+    try {
+      // Dos meses atrás por la etiqueta del número; dos adelante porque una factura se puede emitir más tarde del mes que cobra
+      ;[contactos, facturas] = await Promise.all([
+        zohoTodo<ContactoCrudo>('contacts', 'contacts', { contact_type: 'customer' }),
+        zohoTodo<FacturaCruda>('invoices', 'invoices', {
+          date_start: sumarMeses(period, -2),
+          date_end: sumarMeses(period, 3),
+          sort_column: 'date',
+          sort_order: 'D',
+        }),
+      ])
+    } catch (e) {
+      errorZoho = errorComoRespuesta(e).mensaje
+    }
+  }
+  const zohoOk = errorZoho === null
+
+  const [conPareja, mesesRes, informesRes] = await Promise.all([
     service
       .from('treasury_clients')
-      .select('id, name, email, email_alt, tax_address, tax_id, vat_rate, fee_concept, is_active, position')
+      .select('id, name, email, email_alt, position, zoho_contact_id')
       .eq('is_active', true)
       .order('position', { ascending: true, nullsFirst: false }),
-    service.from('treasury_client_months').select('*').eq('period', period),
-    service
-      .from('invoices')
-      .select('id, invoice_number, total, status, email_sent_at, treasury_client_id, period, report_url')
-      .eq('period', period),
+    service.from('treasury_client_months').select('client_id, fee, commission, paid, invoice_sent').eq('period', period),
     service
       .from('commission_reports')
-      .select('slug, period, created_at, clients:clients(name)')
-      .order('created_at', { ascending: false })
-      .limit(200),
-    cargarEmisor(),
+      .select('slug, clients:clients(name, treasury_client_id)')
+      .eq('period', mesDelPeriodo(period))
+      .not('slug', 'is', null),
   ])
 
-  // Si falta la 176, `tax_id`/`vat_rate` no existen y la consulta de clientes
-  // falla entera. Se reintenta sin esas columnas para que la pantalla abra y
-  // pueda decir qué hay que lanzar.
-  let clientes = clientesRes.data as Record<string, unknown>[] | null
-  const faltaMigracion = Boolean(clientesRes.error) || Boolean(facturasRes.error)
+  let clientes = conPareja.data as FilaCliente[] | null
+  const faltaMigracion = Boolean(conPareja.error)
   if (!clientes) {
     const { data } = await service
       .from('treasury_clients')
-      .select('id, name, email, email_alt, tax_address, is_active, position')
+      .select('id, name, email, email_alt, position')
       .eq('is_active', true)
       .order('position', { ascending: true, nullsFirst: false })
-    clientes = (data as Record<string, unknown>[] | null) ?? []
+    clientes = (data as FilaCliente[] | null) ?? []
   }
 
-  const meses = new Map<string, Record<string, unknown>>()
-  for (const m of (mesesRes.data ?? []) as Record<string, unknown>[]) {
-    meses.set(String(m.client_id), m)
-  }
+  const meses = new Map(
+    ((mesesRes.data ?? []) as { client_id: string; fee: number | null; commission: number | null; paid: boolean; invoice_sent: boolean }[]).map(
+      (m) => [m.client_id, m]
+    )
+  )
 
-  const facturas = new Map<string, Record<string, unknown>>()
-  for (const f of (facturasRes.data ?? []) as Record<string, unknown>[]) {
-    if (f.treasury_client_id) facturas.set(String(f.treasury_client_id), f)
-  }
+  const informes = (informesRes.data ?? []) as unknown as {
+    slug: string
+    clients: { name?: string; treasury_client_id?: string | null } | null
+  }[]
+  const informesDe = (id: string, nombre: string): InformeDeComision[] =>
+    informes
+      .filter(
+        (r) =>
+          r.clients?.treasury_client_id === id ||
+          (!r.clients?.treasury_client_id && claveDeContacto(r.clients?.name ?? '') === claveDeContacto(nombre))
+      )
+      .map((r) => ({ nombre: r.clients?.name ?? r.slug, url: `${baseDelSitio()}/report/commissions/${r.slug}` }))
 
-  /**
-   * EL DESGLOSE SE BUSCA POR NOMBRE, PORQUE NO HAY OTRA COSA POR LA QUE BUSCARLO.
-   *
-   * Tesorería y la calculadora de comisiones son dos listas de clientes
-   * distintas y sin enlace entre ellas. Se cruza por el nombre normalizado, y
-   * de los que coinciden se coge el más reciente, que es el del mes que se
-   * está facturando.
-   */
-  const desglosePorNombre = new Map<string, { slug: string; periodo: string | null }>()
-  for (const r of (reportesRes.data ?? []) as Record<string, unknown>[]) {
-    const nombre = (r.clients as { name?: string } | null)?.name
-    if (!nombre || !r.slug) continue
-    const clave = normalizarNombre(nombre)
-    // El primero que llega es el más reciente: la consulta viene ordenada.
-    if (!desglosePorNombre.has(clave)) {
-      desglosePorNombre.set(clave, { slug: String(r.slug), periodo: (r.period as string) ?? null })
-    }
-  }
+  const delMes = facturas.filter((f) => f.status !== 'void' && periodoDeFactura(f.invoice_number, f.date) === period)
 
-  const filas: FilaFacturacion[] = (clientes ?? []).map((c) => {
-    const id = String(c.id)
-    const mes = meses.get(id)
-    const factura = facturas.get(id)
-    const desglose = desglosePorNombre.get(normalizarNombre(String(c.name ?? '')))
+  const contactoPorId = new Map(contactos.map((c) => [c.contact_id, c]))
+  const yaGuardados = new Set(clientes.map((c) => c.zoho_contact_id).filter(Boolean))
+  const libres = contactos.filter((c) => !yaGuardados.has(c.contact_id))
+  const usados = new Set<string>()
 
+  const montarFila = (args: {
+    treasuryClientId: string | null
+    nombre: string
+    contacto: ContactoCrudo | null
+    parejaDeducida: boolean
+    correosTesoreria: string[]
+  }): FilaFacturacion => {
+    const { contacto } = args
+    const mes = args.treasuryClientId ? meses.get(args.treasuryClientId) : undefined
     const fee = mes?.fee != null ? Number(mes.fee) : null
     const comision = mes?.commission != null ? Number(mes.commission) : null
-    const cobrado = Boolean(mes?.paid)
+    const totalTesoreria = Math.round(((fee ?? 0) + (comision ?? 0)) * 100) / 100
+    const cobradoEnTesoreria = Boolean(mes?.paid)
+
+    const suyas = contacto ? delMes.filter((f) => f.customer_id === contacto.contact_id) : []
+    const crudo = suyas[0] ?? null
+    const factura = crudo ? facturaDesdeZoho(crudo) : null
+    const estado = factura ? estadoDesdeZoho(factura.estadoZoho) : totalTesoreria > 0 ? 'por_crear' : 'sin_importes'
+
+    const etiqueta =
+      facturas
+        .filter((f) => contacto && f.customer_id === contacto.contact_id)
+        .map((f) => etiquetaDeNumero(f.invoice_number))
+        .find(Boolean) || args.nombre
+    const informesDeFila = args.treasuryClientId ? informesDe(args.treasuryClientId, args.nombre) : []
+    const contactoTieneCorreo = Boolean(contacto?.email)
 
     return {
-      treasuryClientId: id,
-      nombre: String(c.name ?? ''),
-      email: (c.email as string) ?? null,
-      emailAlt: (c.email_alt as string) ?? null,
-      taxId: (c.tax_id as string) ?? null,
-      taxAddress: (c.tax_address as string) ?? null,
-      vatRate: c.vat_rate != null ? Number(c.vat_rate) : 0.21,
-      feeConcept: (c.fee_concept as string) ?? null,
+      treasuryClientId: args.treasuryClientId,
+      nombre: args.nombre,
+      contactoId: contacto?.contact_id ?? null,
+      contactoNombre: contacto?.contact_name ?? null,
+      contactoTieneCorreo,
+      correosTesoreria: args.correosTesoreria,
+      parejaDeducida: args.parejaDeducida,
       fee,
       comision,
-      cobrado,
-      marcadoEnviadoAMano: Boolean(mes?.invoice_sent) && !factura,
-      estado: decidirEstado({
-        fee,
-        comision,
-        cobrado,
-        facturaEstado: factura ? String(factura.status) : null,
-        emailEnviadoEl: (factura?.email_sent_at as string) ?? null,
-      }),
-      factura: factura
-        ? {
-            id: String(factura.id),
-            numero: String(factura.invoice_number),
-            total: Number(factura.total ?? 0),
-            estado: String(factura.status),
-            emailEnviadoEl: (factura.email_sent_at as string) ?? null,
-            reportUrl: (factura.report_url as string) ?? null,
-          }
-        : null,
-      desglose: desglose
-        ? { slug: desglose.slug, periodo: desglose.periodo, url: urlDelDesglose(desglose.slug) }
-        : null,
+      totalTesoreria,
+      cobradoEnTesoreria,
+      estado,
+      factura,
+      otrasFacturas: Math.max(0, suyas.length - 1),
+      numeroPropuesto: numeroPropuesto(etiqueta, period),
+      informes: informesDeFila,
+      avisos: zohoOk
+        ? avisosDeFila({
+            totalTesoreria,
+            cobradoEnTesoreria,
+            estadoZoho: factura?.estadoZoho ?? null,
+            totalZoho: factura?.total ?? null,
+            moneda: factura?.moneda ?? null,
+            comision,
+            hayInformes: informesDeFila.length > 0,
+            contactoTieneCorreo: contactoTieneCorreo || args.correosTesoreria.length > 0,
+            hayContacto: Boolean(contacto) && estado !== 'sin_importes',
+          })
+        : [],
     }
+  }
+
+  const filas: FilaFacturacion[] = clientes.map((c) => {
+    const guardado = c.zoho_contact_id ? (contactoPorId.get(c.zoho_contact_id) ?? null) : null
+    const deducido = guardado ? null : emparejarContacto(c.name, libres.filter((l) => !usados.has(l.contact_id)))
+    const contacto = guardado ?? deducido
+    if (contacto) usados.add(contacto.contact_id)
+    return montarFila({
+      treasuryClientId: c.id,
+      nombre: c.name,
+      contacto,
+      parejaDeducida: Boolean(deducido),
+      correosTesoreria: [c.email, c.email_alt].map((x) => x?.trim() ?? '').filter(Boolean),
+    })
   })
 
-  return { filas, emisor, faltaMigracion }
+  // Facturas de este mes de contactos que no están en Tesorería: existen, y se pueden enviar y cobrar igual
+  for (const f of delMes) {
+    if (usados.has(f.customer_id)) continue
+    usados.add(f.customer_id)
+    filas.push(
+      montarFila({
+        treasuryClientId: null,
+        nombre: f.customer_name,
+        contacto: contactoPorId.get(f.customer_id) ?? { contact_id: f.customer_id, contact_name: f.customer_name },
+        parejaDeducida: false,
+        correosTesoreria: [],
+      })
+    )
+  }
+
+  if (zohoOk && !faltaMigracion) await actualizarReflejo(period, filas, delMes, meses)
+
+  const contactosLista: ContactoZoho[] = contactos
+    .map((c) => ({ id: c.contact_id, nombre: c.contact_name ?? c.company_name ?? c.contact_id }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+
+  return {
+    filas,
+    contactos: contactosLista,
+    zohoOk,
+    errorZoho,
+    faltaMigracion,
+  }
+}
+
+/**
+ * LO QUE ZOHO DICE, PASADO A LO QUE MIRAN LOS DEMÁS MÓDULOS.
+ *
+ * `invoices` es lo que frena a Comisiones para no tocar un mes facturado, y la
+ * casilla de Tesorería es lo que se mira a diario. Solo se escribe lo que ha
+ * cambiado, y en Tesorería solo hacia delante: si allí dice «cobrado» y en Zoho
+ * no, eso es un aviso para una persona, no algo que se borre solo.
+ *
+ * Un fallo aquí no tumba la pantalla: el tablero sale igual de lo leído en directo.
+ */
+async function actualizarReflejo(
+  period: string,
+  filas: FilaFacturacion[],
+  delMes: FacturaCruda[],
+  meses: Map<string, { paid: boolean; invoice_sent: boolean }>
+): Promise<void> {
+  try {
+    const service = createServiceClient()
+    const { data: previos } = await service
+      .from('invoices')
+      .select('id, zoho_invoice_id, status, total, invoice_number')
+      .eq('period', period)
+      .not('zoho_invoice_id', 'is', null)
+    const porZoho = new Map(((previos ?? []) as { id: string; zoho_invoice_id: string; status: string; total: number; invoice_number: string }[]).map((p) => [p.zoho_invoice_id, p]))
+
+    for (const fila of filas) {
+      const f = fila.factura
+      if (!f || !fila.treasuryClientId) continue
+      const status = estadoParaElReflejo(f.estadoZoho)
+      const previo = porZoho.get(f.id)
+      if (!previo || previo.status !== status || Number(previo.total) !== f.total || previo.invoice_number !== f.numero) {
+        const { error } = await service.from('invoices').upsert(
+          {
+            zoho_invoice_id: f.id,
+            treasury_client_id: fila.treasuryClientId,
+            client_name: fila.nombre,
+            invoice_number: f.numero,
+            issue_date: f.fecha,
+            due_date: f.vence ?? f.fecha,
+            status,
+            period,
+            subtotal: f.total,
+            vat_rate: 0,
+            vat_amount: 0,
+            total: f.total,
+            currency: f.moneda,
+          },
+          { onConflict: 'zoho_invoice_id' }
+        )
+        if (error) console.error(`Reflejo de ${f.numero}:`, error.message)
+      }
+
+      const mes = meses.get(fila.treasuryClientId)
+      if (mes) {
+        const cambios: { invoice_sent?: boolean; paid?: boolean } = {}
+        if (f.estadoZoho !== 'draft' && !mes.invoice_sent) cambios.invoice_sent = true
+        if (f.estadoZoho === 'paid' && !mes.paid) cambios.paid = true
+        if (Object.keys(cambios).length > 0) {
+          await service.from('treasury_client_months').update(cambios).eq('client_id', fila.treasuryClientId).eq('period', period)
+        }
+      }
+    }
+
+    // Lo que se ha borrado o anulado en Zoho deja de frenar a Comisiones
+    const vivas = new Set(delMes.map((f) => f.invoice_id))
+    const muertas = [...porZoho.values()].filter((p) => !vivas.has(p.zoho_invoice_id)).map((p) => p.id)
+    if (muertas.length > 0) await service.from('invoices').delete().in('id', muertas)
+  } catch (e) {
+    console.error('No se ha podido actualizar el reflejo de Zoho:', e)
+  }
 }

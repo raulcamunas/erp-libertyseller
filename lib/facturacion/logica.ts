@@ -1,0 +1,264 @@
+import type { EstadoFila, InformeDeComision, LineaFactura, PlantillaResumen } from './tipos'
+
+/**
+ * LAS REGLAS DE FACTURACIÓN, SIN BASE DE DATOS NI RED, PARA PODER PROBARLAS.
+ */
+
+const MESES = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+]
+
+const quitarAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+/** Solo letras y números, sin espacios: «Poker Shop» y «Pokershop» son lo mismo */
+export const compacto = (s: string) => quitarAcentos(s).toLowerCase().replace(/[^a-z0-9]/g, '')
+
+export function mesDelPeriodo(period: string): string {
+  const [a, m] = period.split('-').map(Number)
+  const nombre = MESES[(m || 1) - 1]
+  return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)} ${a}`
+}
+
+const MES_EN_TEXTO = new RegExp(`\\b(${MESES.join('|')})\\s+(\\d{4})\\b`, 'i')
+
+/**
+ * ¿DE QUÉ MES ES UNA FACTURA?
+ *
+ * Primero el que dice el número y no su fecha: «Yo By Yolanda | Septiembre 2026»
+ * se emitió el 6 de octubre y es de septiembre. Si el número no dice mes, la fecha.
+ */
+export function periodoDeFactura(numero: string, fecha: string): string {
+  const hallado = quitarAcentos(numero).match(MES_EN_TEXTO)
+  if (hallado) {
+    const mes = MESES.indexOf(hallado[1].toLowerCase()) + 1
+    return `${hallado[2]}-${String(mes).padStart(2, '0')}-01`
+  }
+  return `${fecha.slice(0, 7)}-01`
+}
+
+/** «Lenobotics | Octubre 2026» → «Lenobotics». Vacío si el número solo dice el mes */
+export function etiquetaDeNumero(numero: string): string {
+  return numero
+    .replace(MES_EN_TEXTO, '')
+    .split('|')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join(' | ')
+}
+
+export function numeroPropuesto(etiqueta: string, period: string): string {
+  return `${etiqueta.trim()} | ${mesDelPeriodo(period)}`
+}
+
+const FORMAS_LEGALES = /\b(s\.?\s?l\.?\s?u\.?|s\.?\s?l\.?|s\.?\s?a\.?|llc|ltd|inc|fzco)\b\.?/gi
+
+/** La clave para cruzar un cliente de Tesorería con un contacto de Zoho */
+export function claveDeContacto(nombre: string): string {
+  return compacto(quitarAcentos(nombre).replace(FORMAS_LEGALES, ' '))
+}
+
+/**
+ * LA PAREJA POR NOMBRE.
+ *
+ * Solo si hay UN candidato. Con dos, se deja sin pareja para que la elija una
+ * persona: la factura de un cliente en la ficha de otro no se ve hasta que
+ * alguien la lee.
+ */
+export function emparejarContacto<T extends { contact_name?: string; company_name?: string }>(
+  nombre: string,
+  contactos: T[]
+): T | null {
+  const clave = claveDeContacto(nombre)
+  if (!clave) return null
+  const hallados = contactos.filter(
+    (c) => claveDeContacto(c.contact_name ?? '') === clave || claveDeContacto(c.company_name ?? '') === clave
+  )
+  return hallados.length === 1 ? hallados[0] : null
+}
+
+export function estadoDesdeZoho(estadoZoho: string): Exclude<EstadoFila, 'sin_importes' | 'por_crear'> {
+  switch (estadoZoho) {
+    case 'draft':
+      return 'borrador'
+    case 'overdue':
+      return 'vencida'
+    case 'partially_paid':
+      return 'parcial'
+    case 'paid':
+      return 'cobrada'
+    default:
+      return 'enviada'
+  }
+}
+
+/** Lo que admite la columna `status` de `invoices` (migración 069) */
+export function estadoParaElReflejo(estadoZoho: string): 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled' {
+  if (estadoZoho === 'draft') return 'draft'
+  if (estadoZoho === 'paid') return 'paid'
+  if (estadoZoho === 'overdue') return 'overdue'
+  if (estadoZoho === 'void') return 'cancelled'
+  return 'sent'
+}
+
+/** Las dos líneas de siempre. Un importe a cero no se factura */
+export function lineasDelMes(fee: number | null, comision: number | null): LineaFactura[] {
+  const lineas: LineaFactura[] = []
+  if (fee && fee > 0) lineas.push({ descripcion: 'Fee Mensual de Gestión', importe: fee })
+  if (comision && comision > 0) lineas.push({ descripcion: 'Comisiones Amazon', importe: comision })
+  return lineas
+}
+
+export function sumarDias(iso: string, dias: number): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + dias)
+  return d.toISOString().slice(0, 10)
+}
+
+export function avisosDeFila(args: {
+  totalTesoreria: number
+  cobradoEnTesoreria: boolean
+  estadoZoho: string | null
+  totalZoho: number | null
+  moneda: string | null
+  comision: number | null
+  hayInformes: boolean
+  contactoTieneCorreo: boolean
+  hayContacto: boolean
+}): string[] {
+  const avisos: string[] = []
+  if (args.totalZoho != null && args.totalTesoreria > 0 && Math.abs(args.totalZoho - args.totalTesoreria) >= 0.005) {
+    avisos.push(`Tesorería dice ${args.totalTesoreria.toFixed(2)}, Zoho ${args.totalZoho.toFixed(2)}`)
+  }
+  if (args.cobradoEnTesoreria && args.estadoZoho && !['draft', 'paid', 'void'].includes(args.estadoZoho)) {
+    avisos.push('Cobrada en Tesorería, sin cobro en Zoho')
+  }
+  // Solo mientras se puede hacer algo: una factura ya enviada salió con lo que salió
+  if ((args.comision ?? 0) > 0 && !args.hayInformes && (!args.estadoZoho || args.estadoZoho === 'draft')) avisos.push('Sin informe de comisión')
+  if (args.hayContacto && !args.contactoTieneCorreo) avisos.push('Sin correo en Zoho')
+  return avisos
+}
+
+/* ---------- Los huecos de enlace de las plantillas ---------- */
+
+const HUECO = /ENLACE_[A-Z0-9_]+/g
+
+/** Los huecos que aún no tienen enlace: `href="ENLACE_ERP"` */
+export function huecosDeEnlace(html: string): string[] {
+  return [...new Set(html.match(HUECO) ?? [])]
+}
+
+/** ENLACE_ERP es el de comisiones; el resto dice de qué tienda es */
+export function rotuloDeHueco(hueco: string): string {
+  if (hueco === 'ENLACE_ERP') return 'Enlace de comisiones'
+  const nombre = hueco.replace(/^ENLACE_/, '').toLowerCase().split('_')
+  return `Enlace de ${nombre.map((p) => `${p.charAt(0).toUpperCase()}${p.slice(1)}`).join(' ')}`
+}
+
+export function rellenarEnlaces(html: string, enlaces: Record<string, string>): string {
+  return html.replace(HUECO, (hueco) => {
+    const url = enlaces[hueco]?.trim()
+    return url ? url.replace(/&(?!amp;)/g, '&amp;').replace(/"/g, '%22') : hueco
+  })
+}
+
+/**
+ * QUÉ INFORME VA EN CADA HUECO.
+ *
+ * Un hueco con nombre solo se rellena con el informe que se llama igual. El
+ * genérico, solo si no hay duda: un enlace de otra tienda en el correo es peor
+ * que uno vacío, y uno vacío no deja enviar.
+ */
+export function proponerEnlaces(huecos: string[], informes: InformeDeComision[]): Record<string, string> {
+  const propuesta: Record<string, string> = {}
+  for (const hueco of huecos) {
+    if (hueco === 'ENLACE_ERP') {
+      propuesta[hueco] = informes.length === 1 ? informes[0].url : ''
+      continue
+    }
+    const clave = compacto(hueco.replace(/^ENLACE_/, ''))
+    propuesta[hueco] = informes.find((i) => compacto(i.nombre).includes(clave))?.url ?? ''
+  }
+  return propuesta
+}
+
+/* ---------- Qué plantilla se propone ---------- */
+
+/**
+ * LA ÚLTIMA QUE SE USÓ CON ESE CLIENTE; SI NO, LA QUE LE PEGA.
+ *
+ * Una plantilla con el nombre del cliente («… Tapas Party») va primero; después,
+ * con comisión la normal y sin comisión la de «Sin Comisiones».
+ */
+export function plantillaPropuesta(
+  plantillas: PlantillaResumen[],
+  args: { cliente: string; tieneComision: boolean; ultimaUsadaId?: string | null }
+): PlantillaResumen | null {
+  const ultima = plantillas.find((p) => p.id === args.ultimaUsadaId)
+  if (ultima) return ultima
+
+  const utiles = plantillas.filter((p) => compacto(p.nombre) !== 'predeterminado')
+  const lista = utiles.length > 0 ? utiles : plantillas
+  const esSinComision = (p: PlantillaResumen) => compacto(p.nombre).includes('sincomision')
+  const nombres = lista.map((p) => compacto(p.nombre))
+  // Lo común a todas («facturaciondeservicios») no cuenta para reconocer al cliente
+  const base = nombres.length > 1 ? prefijoComun(nombres) : ''
+  const cliente = compacto(args.cliente)
+  const delCliente = lista.find((p) => {
+    const resto = compacto(p.nombre).slice(base.length)
+    return resto.length >= 4 && !esSinComision(p) && cliente.includes(resto)
+  })
+  if (delCliente) return delCliente
+
+  if (!args.tieneComision) {
+    const sin = lista.find(esSinComision)
+    if (sin) return sin
+  }
+  return lista.find((p) => compacto(p.nombre) === base) ?? lista.find((p) => !esSinComision(p)) ?? lista[0] ?? null
+}
+
+function prefijoComun(textos: string[]): string {
+  let prefijo = textos[0] ?? ''
+  for (const t of textos) {
+    while (prefijo && !t.startsWith(prefijo)) prefijo = prefijo.slice(0, -1)
+  }
+  return prefijo
+}
+
+/* ---------- Direcciones de correo ---------- */
+
+const CORREO = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/
+
+export function correosValidos(lista: unknown): string[] | null {
+  if (!Array.isArray(lista)) return null
+  const limpios = [...new Set(lista.map((c) => String(c).trim()).filter(Boolean))]
+  return limpios.every((c) => CORREO.test(c)) ? limpios : null
+}
+
+/* ---------- Qué factura paga un ingreso ---------- */
+
+/**
+ * LAS FACTURAS QUE PUEDE PAGAR UN INGRESO, LA MÁS PROBABLE PRIMERO.
+ *
+ * Solo se ordena; nada se registra sin que se confirme. El importe exacto cuenta
+ * más que el nombre, porque el banco escribe el nombre como quiere («From
+ * ZAPATERIAS BASOCO, SOCIEDAD LIMITAD»).
+ */
+export function candidatasDeCobro<T extends { saldo: number; cliente: string; moneda: string }>(
+  movimiento: { importe: number; moneda: string; concepto: string },
+  pendientes: T[]
+): T[] {
+  const concepto = claveDeContacto(movimiento.concepto)
+  const puntos = (f: T) => {
+    let p = 0
+    if (Math.abs(f.saldo - movimiento.importe) < 0.005) p += 2
+    const cliente = claveDeContacto(f.cliente)
+    if (cliente.length >= 4 && concepto.includes(cliente)) p += 1
+    return p
+  }
+  return pendientes
+    .filter((f) => f.moneda === movimiento.moneda)
+    .map((f) => ({ f, p: puntos(f) }))
+    .sort((a, b) => b.p - a.p)
+    .map(({ f }) => f)
+}

@@ -20,7 +20,7 @@ import { fechaCorta, fechaLarga, limpio } from './propuesta-excel'
  *
  * ============ POR QUÉ jsPDF ============
  *
- * Es la que ya usan las facturas (lib/facturacion/pdf.ts) y las etiquetas: funciona en Node sin un
+ * Es la que ya usan las etiquetas: funciona en Node sin un
  * navegador detrás. Lo que no hace es recortar las tipografías, y por eso las tres que se usan van
  * recortadas de antemano (lib/fba/pdf/fuentes-marca.ts): el PDF pesa unos 100 KB en vez de medio mega.
  *

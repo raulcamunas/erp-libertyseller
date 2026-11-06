@@ -190,7 +190,7 @@ export const apps: AppConfig[] = [
     // salen de allí y la casilla «Enviado» se marca sola desde aquí.
     id: 'facturacion',
     name: 'Facturación',
-    description: 'Emite y manda la factura de cada cliente, con el desglose y el PDF dentro',
+    description: 'Crea y envía las facturas en Zoho con su plantilla, y registra cobros y gastos',
     icon: Receipt,
     route: '/dashboard/facturacion',
     status: 'new',

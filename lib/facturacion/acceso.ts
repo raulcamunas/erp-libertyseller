@@ -6,10 +6,11 @@ import { getUserProfile } from '@/lib/supabase/get-user-profile'
  *
  * Los mismos que entran en Tesorería: admin y socios. Aquí se emiten facturas
  * a nombre de la agencia y se mandan correos a clientes reales desde su
- * dirección — no es una pantalla de consulta.
+ * dirección — no es una pantalla de consulta. Devuelve quién es para dejarlo en
+ * el registro.
  */
 export async function exigirAdmin(): Promise<
-  { ok: true } | { ok: false; estado: number; mensaje: string }
+  { ok: true; userId: string; nombre: string | null } | { ok: false; estado: number; mensaje: string }
 > {
   const supabase = await createClient()
   const {
@@ -21,5 +22,5 @@ export async function exigirAdmin(): Promise<
   if (!profile || (profile.role !== 'admin' && profile.role !== 'partner')) {
     return { ok: false, estado: 403, mensaje: 'Solo admin y socios pueden facturar' }
   }
-  return { ok: true }
+  return { ok: true, userId: profile.id, nombre: profile.full_name ?? profile.email ?? null }
 }

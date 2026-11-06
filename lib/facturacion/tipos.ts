@@ -1,114 +1,15 @@
 /**
- * FACTURAR UN MES ENTERO DESDE UNA SOLA PANTALLA.
+ * FACTURAR, ENVIAR Y COBRAR CONTRA ZOHO BOOKS, DESDE UNA PANTALLA.
  *
- * El recorrido que sustituye, tal y como se hacía a mano y por cliente:
- * bajar los ficheros de Seller Central, subirlos a la calculadora, copiar el
- * enlace del desglose, montar la factura fuera del ERP, copiar su enlace,
- * abrir el correo y pegarlo todo en una plantilla. Once clientes, un día.
- *
- * Aquí eso son tres estados y un botón por cliente.
+ * Zoho guarda la factura; Tesorería dice cuánto se le cobra a cada cliente cada
+ * mes. Esta pantalla los junta y escribe en Zoho, para no tener que entrar allí.
  */
-
-/** Quién emite. Una sola fila en la base: `billing_issuer` (migración 176). */
-export interface Emisor {
-  legal_name: string
-  tax_id: string
-  address: string
-  email: string
-  phone: string | null
-  bank_name: string | null
-  iban: string | null
-  bic: string | null
-  invoice_prefix: string
-  footer_note: string | null
-}
-
-/**
- * En qué punto está el mes de un cliente.
- *
- * Es una escalera, no un conjunto de casillas: no se puede enviar lo que no
- * está emitido, ni cobrar lo que no se ha enviado. Tenerlo como un solo valor
- * —en vez de tres booleanos sueltos— impide que la pantalla muestre estados
- * que no existen, como «enviada» sin factura.
- */
-export type EstadoFacturacion =
-  /** Ni importes ni factura: no hay nada que facturar todavía */
-  | 'sin_importes'
-  /** Hay importes puestos en Tesorería, falta emitir */
-  | 'por_emitir'
-  /** Factura emitida, todavía sin mandar */
-  | 'emitida'
-  /** Correo enviado al cliente */
-  | 'enviada'
-  /** Marcada como cobrada en Tesorería */
-  | 'cobrada'
-
-export const ETIQUETA_ESTADO: Record<EstadoFacturacion, string> = {
-  sin_importes: 'Sin importes',
-  por_emitir: 'Por emitir',
-  emitida: 'Emitida',
-  enviada: 'Enviada',
-  cobrada: 'Cobrada',
-}
-
-/** Una fila de la pantalla: un cliente y su mes */
-export interface FilaFacturacion {
-  treasuryClientId: string
-  nombre: string
-  email: string | null
-  emailAlt: string | null
-  taxId: string | null
-  taxAddress: string | null
-  vatRate: number
-  feeConcept: string | null
-  /** Lo apuntado en Tesorería para ese mes */
-  fee: number | null
-  comision: number | null
-  cobrado: boolean
-  /**
-   * La casilla «Enviado» de Tesorería, que hasta ahora se pulsaba a mano.
-   *
-   * Se trae porque durante la mudanza va a haber meses marcados como enviados
-   * SIN factura en el ERP: son los que se mandaron desde fuera. Sin este dato,
-   * la pantalla los enseñaría como «por emitir» y se le acabaría mandando al
-   * cliente una segunda factura del mismo mes.
-   */
-  marcadoEnviadoAMano: boolean
-  estado: EstadoFacturacion
-  /** La factura de ese mes, si ya se emitió */
-  factura: {
-    id: string
-    numero: string
-    total: number
-    estado: string
-    emailEnviadoEl: string | null
-    reportUrl: string | null
-  } | null
-  /**
-   * El desglose público que le corresponde, buscado por nombre y periodo.
-   *
-   * Puede ser null y no pasa nada: hay clientes de cuota fija que no llevan
-   * comisión y por tanto no tienen desglose que enseñar.
-   */
-  desglose: {
-    slug: string
-    periodo: string | null
-    url: string
-  } | null
-}
 
 /**
  * NORMALIZAR UN NOMBRE PARA PODER CRUZARLO.
  *
- * Tesorería y la calculadora de comisiones son DOS LISTAS DE CLIENTES
- * distintas —«SHOPLAMP» en una, «Shoplamp» en la otra— y unificarlas está
- * pendiente desde hace tiempo. Mientras tanto, el desglose se encuentra
- * comparando nombres normalizados, que es como ya lo hace la migración 163
- * para enlazar clientes de Amazon.
- *
- * Es una heurística, no una verdad: por eso la pantalla enseña qué desglose ha
- * encontrado y deja quitarlo. Un enlace equivocado en un correo a un cliente es
- * peor que no mandar enlace.
+ * Tesorería y la calculadora de comisiones son dos listas de clientes distintas:
+ * «SHOPLAMP» en una, «Shoplamp» en la otra. Lo usa Comisiones para encontrar la pareja.
  */
 export function normalizarNombre(valor: string): string {
   return valor
@@ -119,12 +20,209 @@ export function normalizarNombre(valor: string): string {
     .trim()
 }
 
-/** 2026-09-01 -> «septiembre de 2026» */
-export function nombreDelMes(period: string): string {
-  const [a, m] = period.split('-').map(Number)
-  const meses = [
-    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-  ]
-  return `${meses[(m || 1) - 1]} de ${a}`
+export type EstadoFila =
+  /** Ni importes ni factura: este mes no hay nada que hacer */
+  | 'sin_importes'
+  /** Hay importes en Tesorería y aún no hay factura en Zoho */
+  | 'por_crear'
+  | 'borrador'
+  | 'enviada'
+  | 'parcial'
+  | 'vencida'
+  | 'cobrada'
+
+export const ETIQUETA_ESTADO: Record<EstadoFila, string> = {
+  sin_importes: 'Sin importes',
+  por_crear: 'Por crear',
+  borrador: 'Borrador',
+  enviada: 'Enviada',
+  parcial: 'Cobro parcial',
+  vencida: 'Vencida',
+  cobrada: 'Cobrada',
+}
+
+export interface FacturaZoho {
+  id: string
+  numero: string
+  fecha: string
+  vence: string | null
+  total: number
+  saldo: number
+  moneda: string
+  estadoZoho: string
+}
+
+export interface InformeDeComision {
+  nombre: string
+  url: string
+}
+
+/** Un cliente y su mes */
+export interface FilaFacturacion {
+  /** null: la factura está en Zoho, pero ese contacto no tiene cliente en Tesorería */
+  treasuryClientId: string | null
+  nombre: string
+  contactoId: string | null
+  contactoNombre: string | null
+  contactoTieneCorreo: boolean
+  /** Las direcciones de Tesorería, por si en Zoho no hay ninguna */
+  correosTesoreria: string[]
+  /** La pareja se ha deducido por el nombre y aún no está guardada */
+  parejaDeducida: boolean
+  fee: number | null
+  comision: number | null
+  totalTesoreria: number
+  cobradoEnTesoreria: boolean
+  estado: EstadoFila
+  factura: FacturaZoho | null
+  /** Otras facturas vivas del mismo cliente y mes */
+  otrasFacturas: number
+  /** Lo que se propone como número: «Creative Toys | Noviembre 2026» */
+  numeroPropuesto: string
+  informes: InformeDeComision[]
+  /** Lo que no cuadra entre Zoho y Tesorería. Vacío si todo está bien */
+  avisos: string[]
+}
+
+export interface ContactoZoho {
+  id: string
+  nombre: string
+}
+
+export interface Tablero {
+  filas: FilaFacturacion[]
+  contactos: ContactoZoho[]
+  zohoOk: boolean
+  errorZoho: string | null
+  faltaMigracion: boolean
+}
+
+export interface LineaFactura {
+  descripcion: string
+  importe: number
+}
+
+/** Una factura con sus líneas, para editar el borrador */
+export interface DetalleFactura extends FacturaZoho {
+  lineas: LineaFactura[]
+  plantillaPdfId: string | null
+  contactoId: string
+}
+
+export interface DestinatarioZoho {
+  email: string
+  nombre: string
+  marcado: boolean
+}
+
+export interface PlantillaResumen {
+  id: string
+  nombre: string
+}
+
+/** El correo de una factura, ya rellenado por Zoho con la plantilla elegida */
+export interface CorreoPreparado {
+  asunto: string
+  cuerpo: string
+  destinatarios: DestinatarioZoho[]
+  cc: string[]
+  plantillas: PlantillaResumen[]
+  plantillaId: string
+  plantillasPdf: PlantillaResumen[]
+  plantillaPdfId: string | null
+  estadoFactura: string
+}
+
+export interface PlantillaCompleta {
+  id: string
+  nombre: string
+  asunto: string
+  cuerpo: string
+  esPorDefecto: boolean
+  marcadores: { nombre: string; valor: string }[]
+}
+
+export interface FacturaPendiente extends FacturaZoho {
+  clienteId: string
+  cliente: string
+  diasVencida: number
+}
+
+export interface CuentaBancaria {
+  id: string
+  nombre: string
+  moneda: string
+  monedaId: string
+  saldo: number
+  sinCategorizar: number
+  esPayset: boolean
+}
+
+export interface MovimientoSinCategorizar {
+  id: string
+  cuentaId: string
+  cuentaNombre: string
+  fecha: string
+  importe: number
+  moneda: string
+  /** Entra dinero (en Zoho, `debit`) o sale (`credit`) */
+  entrada: boolean
+  concepto: string
+  referencia: string
+}
+
+export interface CuentaDeGasto {
+  id: string
+  nombre: string
+}
+
+export interface CobroReciente {
+  id: string
+  fecha: string
+  cliente: string
+  importe: number
+  moneda: string
+  referencia: string
+  cuenta: string
+}
+
+export interface DatosDeCobros {
+  pendientes: FacturaPendiente[]
+  cuentas: CuentaBancaria[]
+  movimientos: MovimientoSinCategorizar[]
+  cuentasDeGasto: CuentaDeGasto[]
+  cobros: CobroReciente[]
+}
+
+export type TipoRegistro =
+  | 'borrador'
+  | 'borrador_editado'
+  | 'borrador_borrado'
+  | 'envio'
+  | 'cobro'
+  | 'gasto'
+  | 'plantilla'
+  | 'contacto'
+
+export interface FilaRegistro {
+  id: string
+  tipo: TipoRegistro
+  numero: string | null
+  cliente: string | null
+  importe: number | null
+  moneda: string | null
+  detalle: Record<string, unknown>
+  hecho_por_nombre: string | null
+  creado_en: string
+}
+
+export const ETIQUETA_REGISTRO: Record<TipoRegistro, string> = {
+  borrador: 'Borrador creado',
+  borrador_editado: 'Borrador editado',
+  borrador_borrado: 'Borrador borrado',
+  envio: 'Factura enviada',
+  cobro: 'Cobro registrado',
+  gasto: 'Gasto registrado',
+  plantilla: 'Plantilla guardada',
+  contacto: 'Cliente enlazado',
 }
