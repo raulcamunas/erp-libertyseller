@@ -206,6 +206,22 @@ export function repartoDelMes(filas: { estado: EstadoFila; totalTesoreria: numbe
   return reparto
 }
 
+/** Cuánto lleva vencida una factura por cobrar. Lo primero que se reclama es lo que lleva más tiempo */
+export const TRAMOS_VENCIMIENTO = [
+  { id: 'en_plazo', nombre: 'En plazo' },
+  { id: 'hasta_15', nombre: 'Hasta 15 días' },
+  { id: 'hasta_30', nombre: 'De 16 a 30 días' },
+  { id: 'mas_de_30', nombre: 'Más de 30 días' },
+] as const
+export type IdVencimiento = (typeof TRAMOS_VENCIMIENTO)[number]['id']
+
+export function tramoDeVencimiento(diasVencida: number): IdVencimiento {
+  if (diasVencida <= 0) return 'en_plazo'
+  if (diasVencida <= 15) return 'hasta_15'
+  if (diasVencida <= 30) return 'hasta_30'
+  return 'mas_de_30'
+}
+
 export function avisosDeFila(args: {
   totalTesoreria: number
   cobradoEnTesoreria: boolean

@@ -3053,3 +3053,120 @@ a.lat-aviso:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offse
   .fac-velo[data-saliendo='true'] { animation: fac-velo-sale 0.17s ease-in forwards; }
   .fac-velo[data-saliendo='true'] .fac-cajon { animation: fac-cajon-sale 0.17s ease-in forwards; }
 }
+
+/* Facturación · las otras pestañas: cuentas del banco, línea de tiempo del registro, plantillas y chips. Mismas reglas que el bloque de arriba */
+.fac-icono {
+  display: inline-flex;
+  height: 24px;
+  width: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--tono);
+  background: color-mix(in srgb, var(--tono) 15%, var(--ls-sup));
+}
+.fac-cuenta {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid var(--ls-linea);
+  padding: 8px 10px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--tono) 9%, var(--ls-sup)), var(--ls-sup) 70%);
+}
+.fac-cuenta:hover { border-color: color-mix(in srgb, var(--tono) 45%, var(--ls-linea)); }
+.fac-mini {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ls-sup3);
+}
+.fac-chip {
+  display: inline-flex;
+  height: 24px;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid var(--ls-linea);
+  padding: 0 9px;
+  font-size: 11.5px;
+  color: var(--ls-t3);
+  background: var(--ls-sup);
+}
+.fac-chip:hover { color: var(--ls-t1); background: var(--ls-sup3); }
+.fac-chip:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 1px; }
+.fac-chip > svg { color: var(--tono); }
+.fac-chip[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--tono) 60%, transparent);
+  color: var(--ls-t1);
+  background: color-mix(in srgb, var(--tono) 14%, var(--ls-sup));
+}
+/* La raya de la línea de tiempo pasa por el centro de los iconos; `--eje` es esa posición */
+.fac-evento {
+  --eje: 69px;
+  position: relative;
+}
+.fac-evento::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--eje);
+  width: 1px;
+  background: var(--ls-linea2);
+}
+.fac-evento:first-child::before { top: 50%; }
+.fac-evento:last-child::before { bottom: 50%; }
+.fac-evento:only-child::before { display: none; }
+.fac-evento:hover { background: var(--ls-sup2); }
+.fac-evento .fac-icono { position: relative; }
+.fac-plantilla {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ls-t2);
+}
+.fac-plantilla:hover { background: var(--ls-sup3); }
+.fac-plantilla:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: -2px; }
+.fac-plantilla[aria-current='true'] {
+  color: var(--ls-t1);
+  background: color-mix(in srgb, var(--tono) 13%, var(--ls-sup));
+  box-shadow: inset 2px 0 0 var(--tono);
+}
+
+@keyframes fac-dialogo {
+  from { opacity: 0; translate: 0 10px; scale: 0.975; }
+  to   { opacity: 1; translate: none; scale: none; }
+}
+@keyframes fac-dialogo-sale {
+  to { opacity: 0; translate: 0 6px; scale: 0.985; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fac-dialogo { animation: fac-dialogo 0.24s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+  .fac-velo[data-saliendo='true'] .fac-dialogo { animation: fac-dialogo-sale 0.17s ease-in forwards; }
+  .fac-cuenta { animation: rend-aparece 0.42s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 60ms); transition: border-color 0.16s ease, translate 0.2s cubic-bezier(0.22, 0.8, 0.3, 1); }
+  .fac-cuenta:hover { translate: 0 -1px; }
+  .fac-mini > span { transition: width 0.5s cubic-bezier(0.22, 0.8, 0.3, 1); }
+  .fac-chip { transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, scale 0.12s ease; }
+  .fac-evento { animation: fac-fila 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(min(var(--i, 0), 18) * 14ms); transition: background-color 0.12s ease; }
+  .fac-evento .fac-icono { transition: scale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .fac-evento:hover .fac-icono { scale: 1.12; }
+  .fac-plantilla { transition: background-color 0.14s ease, color 0.14s ease, box-shadow 0.18s ease; }
+  .fac-plantilla .fac-icono { transition: scale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .fac-plantilla:hover .fac-icono { scale: 1.1; }
+  .fac-fila-simple { animation: fac-fila 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(min(var(--i, 0), 18) * 14ms); }
+  .fac-recien-caja { animation: fac-recien 2.2s ease-out 0.25s backwards; }
+}

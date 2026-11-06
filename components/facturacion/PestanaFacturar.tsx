@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import {
@@ -20,11 +20,11 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
-import { BarraDeCarga, Esqueleto, Numero } from '@/components/rendimiento/ui'
+import { BarraDeCarga } from '@/components/rendimiento/ui'
 import { BOTON, CAMPO, COLOR_ESTADO, PANTALLA, TABLA, TEXTO, TEXTO_ESTADO, TIPO, TITULO, type TonoEstado } from '@/lib/estilo/denso'
 import { AVISO_SIN_INFORME, GRUPOS_FACTURACION, agruparFilas, diasDesde, lineasDelMes, mesDelPeriodo, repartoDelMes, sumarDias, type IdGrupo } from '@/lib/facturacion/logica'
 import type { FilaFacturacion, Tablero } from '@/lib/facturacion/tipos'
-import { Aviso, dinero, fechaCorta, hoyISO, pedir } from './comun'
+import { Aviso, BarraDeReparto, CasillaDeResumen, Cuenta, dinero, EsqueletoDePestana, fechaCorta, hoyISO, pedir, tonoComoEstilo } from './comun'
 
 /**
  * EL MES, ORDENADO POR LO QUE TOCA HACER.
@@ -58,9 +58,7 @@ const PASOS: { id: IdGrupo; nombre: string; grupos: IdGrupo[]; urgente: boolean;
 ]
 
 const claveDeFila = (f: FilaFacturacion) => f.treasuryClientId ?? f.contactoId ?? f.nombre
-const tonoComoEstilo = (tono: TonoEstado) => ({ '--tono': COLOR_ESTADO[tono] }) as CSSProperties
 const totalDe = (f: FilaFacturacion) => f.factura?.total ?? f.totalTesoreria
-const enteros = (n: number) => Math.round(n).toLocaleString('es-ES')
 const sumar = (filas: FilaFacturacion[], valor: (f: FilaFacturacion) => number | null | undefined) => filas.reduce((s, f) => s + (valor(f) ?? 0), 0)
 /** Lo que aún falta por entrar: en lo que ya salió es el saldo, no el total */
 const importeDelPaso = (id: IdGrupo, f: FilaFacturacion) => (id === 'por_cobrar' ? (f.factura?.saldo ?? 0) : totalDe(f))
@@ -76,13 +74,6 @@ const COLUMNAS = 8
 
 /** La columna de los botones no se va de la pantalla en un portátil, aunque la tabla no quepa entera */
 const ACCIONES = 'sticky right-0 bg-[var(--ls-sup)]'
-
-/** Cuenta desde cero al aparecer y, después, de un valor al siguiente: el contador común parte de su valor la primera vez */
-function Cuenta({ valor, formato }: { valor: number; formato?: (n: number) => string }) {
-  const [objetivo, setObjetivo] = useState(0)
-  useEffect(() => setObjetivo(valor), [valor])
-  return <Numero valor={objetivo} formato={formato} />
-}
 
 export function PestanaFacturar({
   tablero,
@@ -218,7 +209,7 @@ export function PestanaFacturar({
 
       {!tablero ? (
         // Sin datos no se pintan los pasos a cero: si la lectura falla, parecería que este mes no hay nada que facturar
-        cargando && <EsqueletoDelMes />
+        cargando && <EsqueletoDePestana etiqueta="Leyendo Tesorería y Zoho" />
       ) : (
         <>
           <ResumenDelMes
@@ -318,35 +309,6 @@ export function PestanaFacturar({
   )
 }
 
-/** El hueco del resumen y de la tabla mientras se lee el mes por primera vez */
-function EsqueletoDelMes() {
-  return (
-    <div role="status" aria-label="Leyendo Tesorería y Zoho" className={PANTALLA.cuerpo}>
-      <div className="rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
-        <Esqueleto className="h-5 w-52" />
-        <Esqueleto className="mt-3 h-1.5 w-full" />
-        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {PASOS.map((p) => (
-            <Esqueleto key={p.id} className="h-10" />
-          ))}
-        </div>
-      </div>
-      <div className="flex flex-col gap-2 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
-        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-          <Esqueleto key={i} className="h-5" />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/** El foco de luz de un paso sigue al ratón */
-function seguirAlRaton(e: MouseEvent<HTMLElement>) {
-  const caja = e.currentTarget.getBoundingClientRect()
-  e.currentTarget.style.setProperty('--x', `${e.clientX - caja.left}px`)
-  e.currentTarget.style.setProperty('--y', `${e.clientY - caja.top}px`)
-}
-
 /** Cuánto dinero tiene el mes y dónde está: la barra lleva los mismos colores y el mismo orden que los pasos de debajo */
 function ResumenDelMes({
   filas,
@@ -393,59 +355,37 @@ function ResumenDelMes({
       </div>
 
       <div className="px-3 pb-2.5 pt-2">
-        <div className="fac-barra" data-completa={todoCobrado} role="img" aria-label={PASOS.map((p) => `${p.nombre}: ${dinero(reparto[p.parte])}`).join(', ')}>
-          {/* Un tramo a cero no se pinta: su separación se vería como una muesca al principio de la barra */}
-          {PASOS.filter((p) => reparto[p.parte] > 0).map((p) => (
-            <span
-              key={p.id}
-              title={`${p.nombre}: ${dinero(reparto[p.parte])}`}
-              className="fac-tramo"
-              data-apagado={paso !== null && paso !== p.id}
-              style={{ ...tonoComoEstilo(ESTILO_GRUPO[p.id].tono), '--parte': reparto[p.parte] } as CSSProperties}
-            />
-          ))}
-        </div>
+        <BarraDeReparto
+          completa={todoCobrado}
+          etiqueta={PASOS.map((p) => `${p.nombre}: ${dinero(reparto[p.parte])}`).join(', ')}
+          tramos={PASOS.map((p) => ({
+            id: p.id,
+            nombre: `${p.nombre}: ${dinero(reparto[p.parte])}`,
+            tono: ESTILO_GRUPO[p.id].tono,
+            valor: reparto[p.parte],
+            apagado: paso !== null && paso !== p.id,
+          }))}
+        />
       </div>
 
       <div className="fac-pasos grid-cols-2 lg:grid-cols-4" role="group" aria-label="Filtrar por paso">
         {PASOS.map((p, i) => {
           const dePaso = grupos.filter((g) => p.grupos.includes(g.grupo.id)).flatMap((g) => g.filas)
           const vencidas = p.id === 'por_cobrar' ? dePaso.filter((f) => f.estado === 'vencida').length : 0
-          const encendido = paso === p.id
-          const Icono = ESTILO_GRUPO[p.id].icono
           return (
-            <button
+            <CasillaDeResumen
               key={p.id}
-              type="button"
-              aria-pressed={encendido}
-              onClick={() => onPaso(encendido ? null : p.id)}
-              onMouseMove={seguirAlRaton}
-              className="fac-paso"
-              style={tonoComoEstilo(ESTILO_GRUPO[p.id].tono)}
-            >
-              <span className="fac-paso-icono">
-                <Icono className="h-[15px] w-[15px]" />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                <span className={`flex items-center gap-1.5 ${TIPO.xs} ${TEXTO.t3}`}>
-                  {p.nombre}
-                  {vencidas > 0 && (
-                    <span className={`font-medium ${TEXTO_ESTADO.rojo}`}>
-                      · {vencidas} {vencidas === 1 ? 'vencida' : 'vencidas'}
-                    </span>
-                  )}
-                </span>
-                <span className="flex items-baseline gap-2">
-                  <span className={`text-[18px] font-semibold leading-none tabular-nums ${p.urgente && dePaso.length > 0 ? TEXTO.acento : TEXTO.t1}`}>
-                    <Cuenta valor={dePaso.length} formato={enteros} />
-                  </span>
-                  <span className={`truncate ${TIPO.s} tabular-nums ${TEXTO.t3}`}>
-                    <Cuenta valor={sumar(dePaso, (f) => importeDelPaso(p.id, f))} formato={dinero} />
-                  </span>
-                </span>
-              </span>
-              {i < PASOS.length - 1 && <ChevronRight aria-hidden className="fac-paso-siguiente hidden lg:block" />}
-            </button>
+              tono={ESTILO_GRUPO[p.id].tono}
+              icono={ESTILO_GRUPO[p.id].icono}
+              nombre={p.nombre}
+              nota={vencidas > 0 ? `${vencidas} ${vencidas === 1 ? 'vencida' : 'vencidas'}` : null}
+              cantidad={dePaso.length}
+              importe={sumar(dePaso, (f) => importeDelPaso(p.id, f))}
+              destacar={p.urgente}
+              encendida={paso === p.id}
+              siguiente={i < PASOS.length - 1}
+              onPulsar={() => onPaso(paso === p.id ? null : p.id)}
+            />
           )
         })}
       </div>

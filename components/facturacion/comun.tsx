@@ -1,9 +1,10 @@
 'use client'
 
-import { forwardRef, useCallback, useImperativeHandle, useRef, type ReactNode } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { LucideIcon } from 'lucide-react'
-import { AVISO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
+import { ChevronRight, X, type LucideIcon } from 'lucide-react'
+import { Esqueleto, Numero } from '@/components/rendimiento/ui'
+import { AVISO, BOTON, COLOR_ESTADO, TARJETA, TEXTO, TEXTO_ESTADO, TIPO, TITULO, type TonoEstado } from '@/lib/estilo/denso'
 
 /**
  * LO QUE TAPA LA PANTALLA, COLGADO DEL <body>.
@@ -13,6 +14,201 @@ import { AVISO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
  */
 export function SobreLaPagina({ children }: { children: ReactNode }) {
   return createPortal(children, document.body)
+}
+
+/** Lo que tarda en irse lo que tapa la pantalla; la animación está en `.fac-velo[data-saliendo]` */
+export function useSalida(onCerrar: () => void) {
+  const [saliendo, setSaliendo] = useState(false)
+  const cerrar = useCallback(() => {
+    setSaliendo(true)
+    window.setTimeout(onCerrar, 170)
+  }, [onCerrar])
+  useEffect(() => {
+    const alPulsar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cerrar()
+    }
+    window.addEventListener('keydown', alPulsar)
+    return () => window.removeEventListener('keydown', alPulsar)
+  }, [cerrar])
+  return { saliendo, cerrar }
+}
+
+/** El color de una pieza `fac-*`, que siempre sale de COLOR_ESTADO */
+export const tonoComoEstilo = (tono: TonoEstado) => ({ '--tono': COLOR_ESTADO[tono] }) as CSSProperties
+export const enteros = (n: number) => Math.round(n).toLocaleString('es-ES')
+
+/** Cuenta desde cero al aparecer y, después, de un valor al siguiente: el contador común parte de su valor la primera vez */
+export function Cuenta({ valor, formato }: { valor: number; formato?: (n: number) => string }) {
+  const [objetivo, setObjetivo] = useState(0)
+  useEffect(() => setObjetivo(valor), [valor])
+  return <Numero valor={objetivo} formato={formato} />
+}
+
+/** El foco de luz de una tarjeta sigue al ratón */
+export function seguirAlRaton(e: MouseEvent<HTMLElement>) {
+  const caja = e.currentTarget.getBoundingClientRect()
+  e.currentTarget.style.setProperty('--x', `${e.clientX - caja.left}px`)
+  e.currentTarget.style.setProperty('--y', `${e.clientY - caja.top}px`)
+}
+
+/** Una barra de colores repartida entre sus tramos. Uno a cero no se pinta: su separación se vería como una muesca */
+export function BarraDeReparto({
+  tramos,
+  etiqueta,
+  completa = false,
+}: {
+  tramos: { id: string; nombre: string; tono: TonoEstado; valor: number; apagado?: boolean }[]
+  etiqueta: string
+  completa?: boolean
+}) {
+  return (
+    <div className="fac-barra" data-completa={completa} role="img" aria-label={etiqueta}>
+      {tramos
+        .filter((t) => t.valor > 0)
+        .map((t) => (
+          <span key={t.id} title={t.nombre} className="fac-tramo" data-apagado={Boolean(t.apagado)} style={{ ...tonoComoEstilo(t.tono), '--parte': t.valor } as CSSProperties} />
+        ))}
+    </div>
+  )
+}
+
+/** Una casilla de la tira de un resumen: cuántas hay, cuánto suman, y pulsarla deja solo esas */
+export function CasillaDeResumen({
+  tono,
+  icono: Icono,
+  nombre,
+  nota,
+  cantidad,
+  importe,
+  destacar = false,
+  encendida,
+  siguiente = false,
+  onPulsar,
+}: {
+  tono: TonoEstado
+  icono: LucideIcon
+  nombre: string
+  nota?: string | null
+  cantidad: number
+  importe: number
+  destacar?: boolean
+  encendida: boolean
+  /** Lleva a la siguiente casilla: una flecha lo dice */
+  siguiente?: boolean
+  onPulsar: () => void
+}) {
+  return (
+    <button type="button" aria-pressed={encendida} onClick={onPulsar} onMouseMove={seguirAlRaton} className="fac-paso" style={tonoComoEstilo(tono)}>
+      <span className="fac-paso-icono">
+        <Icono className="h-[15px] w-[15px]" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+        <span className={`flex items-center gap-1.5 ${TIPO.xs} ${TEXTO.t3}`}>
+          {nombre}
+          {nota && <span className={`font-medium ${TEXTO_ESTADO.rojo}`}>· {nota}</span>}
+        </span>
+        <span className="flex items-baseline gap-2">
+          <span className={`text-[18px] font-semibold leading-none tabular-nums ${destacar && cantidad > 0 ? TEXTO.acento : TEXTO.t1}`}>
+            <Cuenta valor={cantidad} formato={enteros} />
+          </span>
+          <span className={`truncate ${TIPO.s} tabular-nums ${TEXTO.t3}`}>
+            <Cuenta valor={importe} formato={dinero} />
+          </span>
+        </span>
+      </span>
+      {siguiente && <ChevronRight aria-hidden className="fac-paso-siguiente hidden lg:block" />}
+    </button>
+  )
+}
+
+/** La cabecera de una tarjeta: su icono de color, el título y cuántas cosas hay dentro */
+export function CabeceraDeTarjeta({
+  tono,
+  icono: Icono,
+  titulo,
+  cantidad,
+  derecha,
+}: {
+  tono: TonoEstado
+  icono: LucideIcon
+  titulo: string
+  cantidad?: number
+  derecha?: ReactNode
+}) {
+  return (
+    <div className={TARJETA.cabecera} style={tonoComoEstilo(tono)}>
+      <Icono className="h-[13px] w-[13px] shrink-0" style={{ color: COLOR_ESTADO[tono] }} />
+      <span className={`${TITULO.seccion} truncate`}>{titulo}</span>
+      {cantidad != null && <span className="fac-contador">{cantidad}</span>}
+      {derecha && <span className="ml-auto flex min-w-0 items-center gap-2">{derecha}</span>}
+    </div>
+  )
+}
+
+/** Lo que ocupa una pestaña mientras se lee por primera vez */
+export function EsqueletoDePestana({ etiqueta }: { etiqueta: string }) {
+  return (
+    <div role="status" aria-label={etiqueta} className="flex flex-col gap-2">
+      <div className="rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
+        <Esqueleto className="h-5 w-52" />
+        <Esqueleto className="mt-3 h-1.5 w-full" />
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Esqueleto key={i} className="h-10" />
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-col gap-2 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+          <Esqueleto key={i} className="h-5" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Un cuadro sobre la pantalla: entra, sale, y se cierra con Escape o pulsando fuera */
+export function Dialogo({
+  titulo,
+  tono,
+  icono,
+  onCerrar,
+  caja = 'max-h-[90vh] max-w-[520px]',
+  children,
+}: {
+  titulo: string
+  tono: TonoEstado
+  icono: LucideIcon
+  onCerrar: () => void
+  /** Medidas del cuadro */
+  caja?: string
+  children: ReactNode
+}) {
+  const { saliendo, cerrar } = useSalida(onCerrar)
+  return (
+    <SobreLaPagina>
+      <div data-saliendo={saliendo} className="fac-velo fac-zona fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px]" onClick={cerrar}>
+        <div
+          role="dialog"
+          aria-label={titulo}
+          onClick={(e) => e.stopPropagation()}
+          className={`fac-dialogo flex w-full flex-col overflow-hidden rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] shadow-[0_24px_70px_rgba(0,0,0,0.4)] ${caja}`}
+        >
+          <CabeceraDeTarjeta
+            tono={tono}
+            icono={icono}
+            titulo={titulo}
+            derecha={
+              <button type="button" aria-label="Cerrar" onClick={cerrar} className={BOTON.icono}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            }
+          />
+          {children}
+        </div>
+      </div>
+    </SobreLaPagina>
+  )
 }
 
 export function dinero(n: number | null | undefined, moneda = 'EUR'): string {

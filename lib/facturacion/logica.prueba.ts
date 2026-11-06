@@ -21,6 +21,7 @@ import {
   repartoDelMes,
   rotuloDeHueco,
   sumarDias,
+  tramoDeVencimiento,
 } from '@/lib/facturacion/logica'
 
 let fallos = 0
@@ -189,6 +190,8 @@ const reparto = repartoDelMes([
 ])
 igual('el mes se reparte entre los pasos', JSON.stringify(reparto), JSON.stringify({ porCrear: 500, porEnviar: 300, porCobrar: 1300, cobrado: 1400 }))
 igual('las partes suman el total del mes', reparto.porCrear + reparto.porEnviar + reparto.porCobrar + reparto.cobrado, 3500)
+
+igual('los tramos de vencimiento cortan donde dicen', [0, 1, 15, 16, 30, 31].map(tramoDeVencimiento).join(), 'en_plazo,hasta_15,hasta_15,hasta_30,hasta_30,mas_de_30')
 
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien`)
 if (fallos > 0) process.exit(1)

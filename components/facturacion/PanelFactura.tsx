@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink, FileText, Loader2, Plus, Sen
 import { BOTON, CAMPO, CIFRAS, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { huecosDeEnlace, lineasDelMes, proponerEnlaces, rotuloDeHueco, sumarDias } from '@/lib/facturacion/logica'
 import type { ContactoZoho, CorreoPreparado, DetalleFactura, FilaFacturacion, LineaFactura } from '@/lib/facturacion/tipos'
-import { Aviso, dinero, EditorCorreo, hoyISO, pedir, SobreLaPagina, type ManejoEditor } from './comun'
+import { Aviso, dinero, EditorCorreo, hoyISO, pedir, SobreLaPagina, useSalida, type ManejoEditor } from './comun'
 
 /**
  * UNA FACTURA, DE PRINCIPIO A FIN: CREARLA Y ENVIARLA.
@@ -37,22 +37,8 @@ export function PanelFactura({
 }) {
   const [facturaId, setFacturaId] = useState<string | null>(fila.factura?.id ?? null)
   const [paso, setPaso] = useState<'factura' | 'correo'>(fila.factura ? 'correo' : 'factura')
-  const [saliendo, setSaliendo] = useState(false)
+  const { saliendo, cerrar } = useSalida(onCerrar)
   const urlZoho = facturaId && zohoOrgId ? `https://books.zoho.com/app/${zohoOrgId}#/invoices/${facturaId}` : null
-
-  /** Se quita de la pantalla cuando acaba de salir; lo que dura la salida está en `.fac-velo[data-saliendo]` */
-  const cerrar = useCallback(() => {
-    setSaliendo(true)
-    window.setTimeout(onCerrar, 170)
-  }, [onCerrar])
-
-  useEffect(() => {
-    const alPulsar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') cerrar()
-    }
-    window.addEventListener('keydown', alPulsar)
-    return () => window.removeEventListener('keydown', alPulsar)
-  }, [cerrar])
 
   const estaEnviada = Boolean(fila.factura && fila.factura.estadoZoho !== 'draft')
   const pestanas: { id: 'factura' | 'correo'; nombre: string; activa: boolean }[] = [
