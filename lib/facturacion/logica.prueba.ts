@@ -1,8 +1,10 @@
 import {
+  agruparFilas,
   avisosDeFila,
   candidatasDeCobro,
   claveDeContacto,
   correosValidos,
+  diasDesde,
   emparejarContacto,
   estadoParaElReflejo,
   etiquetaDeNumero,
@@ -129,6 +131,23 @@ const orden = candidatasDeCobro({ importe: 300, moneda: 'EUR', concepto: 'From Z
 igual('importe + nombre primero', orden[0].cliente, 'Zapaterias Basoco S.L')
 igual('otra moneda fuera', orden.some((f) => f.moneda === 'USD'), false)
 igual('el resto sigue disponible', orden.length, 3)
+
+const filaDe = (nombre: string, estado: Parameters<typeof agruparFilas>[0][number]['estado'], avisos: string[] = [], contactoId: string | null = 'c') => ({ nombre, estado, avisos, contactoId })
+const grupos = agruparFilas([
+  filaDe('Con aviso', 'por_crear', ['Sin informe de comisión']),
+  filaDe('Sin enlazar', 'por_crear', [], null),
+  filaDe('Lista', 'por_crear'),
+  filaDe('Enviada', 'enviada'),
+  filaDe('Parcial', 'parcial'),
+  filaDe('Vencida', 'vencida'),
+  filaDe('Nada', 'sin_importes'),
+])
+igual('lo vencido primero y sin grupos vacíos', grupos.map((g) => g.grupo.id).join(), 'vencida,por_crear,por_cobrar,sin_importes')
+igual('lo que se puede hacer ya, arriba', grupos[1].filas.map((f) => f.nombre).join(), 'Lista,Con aviso,Sin enlazar')
+igual('enviada y parcial van juntas', grupos[2].filas.length, 2)
+igual('solo se pliega lo que no pide nada', grupos.filter((g) => g.grupo.plegado).map((g) => g.grupo.id).join(), 'sin_importes')
+igual('días desde una fecha', diasDesde('2026-11-01', '2026-11-06'), 5)
+igual('días de una fecha que no ha llegado', diasDesde('2026-11-13', '2026-11-06'), -7)
 
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien`)
 if (fallos > 0) process.exit(1)

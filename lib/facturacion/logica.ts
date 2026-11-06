@@ -115,6 +115,50 @@ export function sumarDias(iso: string, dias: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+export const AVISO_SIN_INFORME = 'Sin informe de comisión'
+
+/* ---------- Los grupos del tablero: lo que toca hacer con cada cliente ---------- */
+
+export type IdGrupo = 'vencida' | 'por_crear' | 'borrador' | 'por_cobrar' | 'cobrada' | 'sin_importes'
+
+export interface GrupoFacturacion {
+  id: IdGrupo
+  nombre: string
+  ayuda: string
+  estados: EstadoFila[]
+  /** Lo que ya no pide nada empieza plegado */
+  plegado: boolean
+}
+
+/** El vencido arriba porque corre prisa; el resto, en el orden en que se trabaja el mes */
+export const GRUPOS_FACTURACION: GrupoFacturacion[] = [
+  { id: 'vencida', nombre: 'Vencidas', ayuda: 'Ya pasó la fecha de pago. Si el dinero ha llegado, registra el cobro.', estados: ['vencida'], plegado: false },
+  { id: 'por_crear', nombre: 'Por crear', ayuda: 'Aún no están en Zoho. Crearlas no envía nada al cliente.', estados: ['por_crear'], plegado: false },
+  { id: 'borrador', nombre: 'Por enviar', ayuda: 'En Zoho como borrador. Revisa cada una y envíala.', estados: ['borrador'], plegado: false },
+  { id: 'por_cobrar', nombre: 'Por cobrar', ayuda: 'Enviadas y dentro de plazo.', estados: ['enviada', 'parcial'], plegado: false },
+  { id: 'cobrada', nombre: 'Cobradas', ayuda: 'Cerradas en Zoho.', estados: ['cobrada'], plegado: true },
+  { id: 'sin_importes', nombre: 'Sin importes este mes', ayuda: 'Tesorería no tiene nada que facturarles.', estados: ['sin_importes'], plegado: true },
+]
+
+/**
+ * LAS FILAS DE CADA GRUPO, SOLO LOS GRUPOS QUE TIENEN ALGUNA.
+ *
+ * Dentro de cada uno, primero lo que se puede hacer ya; lo que tiene algo pendiente (un aviso, o que falta enlazar el cliente
+ * con Zoho) va al final, sin desordenar el resto.
+ */
+export function agruparFilas<F extends { estado: EstadoFila; avisos: string[]; contactoId: string | null }>(filas: F[]): { grupo: GrupoFacturacion; filas: F[] }[] {
+  const pendiente = (f: F) => (f.avisos.length > 0 || !f.contactoId ? 1 : 0)
+  return GRUPOS_FACTURACION.map((grupo) => ({
+    grupo,
+    filas: filas.filter((f) => grupo.estados.includes(f.estado)).sort((a, b) => pendiente(a) - pendiente(b)),
+  })).filter((g) => g.filas.length > 0)
+}
+
+/** Días enteros que han pasado desde una fecha ISO; negativo si aún no ha llegado */
+export function diasDesde(fecha: string, hoy: string): number {
+  return Math.round((Date.parse(hoy.slice(0, 10)) - Date.parse(fecha.slice(0, 10))) / 86_400_000)
+}
+
 export function avisosDeFila(args: {
   totalTesoreria: number
   cobradoEnTesoreria: boolean
@@ -134,7 +178,7 @@ export function avisosDeFila(args: {
     avisos.push('Cobrada en Tesorería, sin cobro en Zoho')
   }
   // Solo mientras se puede hacer algo: una factura ya enviada salió con lo que salió
-  if ((args.comision ?? 0) > 0 && !args.hayInformes && (!args.estadoZoho || args.estadoZoho === 'draft')) avisos.push('Sin informe de comisión')
+  if ((args.comision ?? 0) > 0 && !args.hayInformes && (!args.estadoZoho || args.estadoZoho === 'draft')) avisos.push(AVISO_SIN_INFORME)
   if (args.hayContacto && !args.contactoTieneCorreo) avisos.push('Sin correo en Zoho')
   return avisos
 }

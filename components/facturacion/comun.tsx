@@ -6,7 +6,8 @@ import { AVISO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 
 export function dinero(n: number | null | undefined, moneda = 'EUR'): string {
   if (n == null) return '—'
-  return n.toLocaleString('es-ES', { style: 'currency', currency: moneda, minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // `es-ES` no pone el punto de miles en cuatro cifras («6083,88 €») si no se le pide: al comparar columnas, se lee peor
+  return n.toLocaleString('es-ES', { style: 'currency', currency: moneda, minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })
 }
 
 export function fechaCorta(iso: string | null | undefined): string {
