@@ -51,9 +51,3 @@ DROP POLICY IF EXISTS "facturacion_registro_lectura" ON public.facturacion_regis
 CREATE POLICY "facturacion_registro_lectura" ON public.facturacion_registro
   FOR SELECT TO authenticated
   USING (public.get_user_role_safe(auth.uid()) IN ('admin', 'partner'));
-
--- ---------- 4. Keslem ----------
--- Se le factura en Zoho y no estaba en Tesorería: sin esta fila no hay dónde guardar su comisión.
-INSERT INTO public.treasury_clients (name, is_active, position)
-SELECT 'Keslem', true, COALESCE((SELECT MAX(position) FROM public.treasury_clients), 0) + 1
-WHERE NOT EXISTS (SELECT 1 FROM public.treasury_clients WHERE lower(name) = 'keslem');
