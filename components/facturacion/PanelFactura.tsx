@@ -163,7 +163,7 @@ function PasoFactura({
   const [fecha, setFecha] = useState(hoy)
   const [vence, setVence] = useState(sumarDias(hoy, 7))
   const [lineas, setLineas] = useState<LineaFactura[]>(() => {
-    const iniciales = lineasDelMes(fila.fee, fila.comision)
+    const iniciales = lineasDelMes(fila.fee, fila.comision, fila.informes)
     return iniciales.length > 0 ? iniciales : [{ descripcion: 'Fee Mensual de Gestión', importe: 0 }]
   })
   const [contactoId, setContactoId] = useState(fila.contactoId ?? '')

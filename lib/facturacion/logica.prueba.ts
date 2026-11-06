@@ -1,5 +1,6 @@
 import {
   agruparFilas,
+  importeDeInformes,
   asuntoDeFactura,
   avisosDeFila,
   candidatasDeCobro,
@@ -158,6 +159,21 @@ igual('sin nota no queda %Notes% ni su salto', quitarMarcadoresSinRellenar('como
 igual('cualquier otro marcador sin rellenar', quitarMarcadoresSinRellenar('a %DueDate% b'), 'a  b')
 igual('no toca un enlace codificado', quitarMarcadoresSinRellenar('x?a=%C3%ABC%20y%AB%CD'), 'x?a=%C3%ABC%20y%AB%CD')
 igual('no toca un porcentaje', quitarMarcadoresSinRellenar('al 7,5 % y al 10 %'), 'al 7,5 % y al 10 %')
+const tapas = { nombre: 'Tapas Party', url: 'a', importe: 217.5850000000001, cuenta: true }
+const poker = { nombre: 'Poker Shop', url: 'b', importe: 43.90899999999999, cuenta: true }
+igual('una línea por cuenta', JSON.stringify(lineasDelMes(null, 261.5, [tapas, poker])), JSON.stringify([{ descripcion: 'Comisiones Tapas Party', importe: 217.59 }, { descripcion: 'Comisiones Poker Shop', importe: 43.91 }]))
+igual('el céntimo del redondeo va en la última', lineasDelMes(null, 261.49, [tapas, poker]).reduce((s, l) => s + l.importe, 0).toFixed(2), '261.49')
+igual('con fee, el fee primero', lineasDelMes(100, 261.5, [tapas, poker]).map((l) => l.descripcion).join(), 'Fee Mensual de Gestión,Comisiones Tapas Party,Comisiones Poker Shop')
+igual('si no cuadran, no se reparte', lineasDelMes(null, 300, [tapas, poker]).map((l) => l.descripcion).join(), 'Comisiones Amazon')
+igual('una cuenta a cero no lleva línea', lineasDelMes(null, 217.59, [tapas, { ...poker, importe: 0 }]).map((l) => l.descripcion).join(), 'Comisiones Tapas Party')
+igual('un cliente normal sigue igual', lineasDelMes(700, 235.9, [{ nombre: 'Creative Toys', url: 'c', importe: 235.89675 }]).map((l) => l.descripcion).join(), 'Fee Mensual de Gestión,Comisiones Amazon')
+igual('los informes suman', importeDeInformes([tapas, poker]), 261.49)
+igual('si uno no lo dice, no se compara', importeDeInformes([tapas, { nombre: 'K', url: 'k', importe: null }]), null)
+const avisosDe = (extra: Partial<Parameters<typeof avisosDeFila>[0]>) => avisosDeFila({ totalTesoreria: 935.9, cobradoEnTesoreria: false, estadoZoho: 'draft', totalZoho: 935.9, moneda: 'EUR', comision: 235.9, hayInformes: true, contactoTieneCorreo: true, hayContacto: true, ...extra })
+igual('avisa si el informe y Tesorería no coinciden', avisosDe({ importeInformes: 353.58 }).join(), 'El informe dice 353.58, Tesorería 235.90')
+igual('los céntimos del redondeo no avisan', avisosDe({ importeInformes: 235.9 }).length + avisosDe({ importeInformes: 235.87 }).length, 0)
+igual('ya enviada no avisa', avisosDe({ importeInformes: 353.58, estadoZoho: 'sent' }).length, 0)
+igual('dice qué cuenta no tiene informe', avisosDe({ cuentasSinInforme: ['Poker Shop'] }).join(), 'Sin informe de comisión: Poker Shop')
 igual('días desde una fecha', diasDesde('2026-11-01', '2026-11-06'), 5)
 igual('días de una fecha que no ha llegado', diasDesde('2026-11-13', '2026-11-06'), -7)
 

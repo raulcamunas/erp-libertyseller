@@ -134,7 +134,7 @@ export function PestanaFacturar({
             numero: f.numeroPropuesto,
             fecha: hoy,
             vence: sumarDias(hoy, 7),
-            lineas: lineasDelMes(f.fee, f.comision),
+            lineas: lineasDelMes(f.fee, f.comision, f.informes),
           },
         })
         hechos += 1
@@ -455,7 +455,7 @@ function Revisar({ fila, sinCliente }: { fila: FilaFacturacion; sinCliente: bool
   return (
     <span className={`flex max-w-[210px] items-center gap-2 ${TIPO.s} ${TEXTO_ESTADO.ambar}`}>
       {notas.map((n) =>
-        n === AVISO_SIN_INFORME ? (
+        n.startsWith(AVISO_SIN_INFORME) ? (
           <Link
             key={n}
             href="/dashboard/commissions"

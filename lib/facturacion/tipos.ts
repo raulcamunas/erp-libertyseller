@@ -55,6 +55,10 @@ export interface FacturaZoho {
 export interface InformeDeComision {
   nombre: string
   url: string
+  /** La comisión que dice el informe, sin redondear. null si no se puede leer (el de Keslem no la guarda ahí) */
+  importe?: number | null
+  /** Es una de las cuentas de un cliente que se factura junto (Tapas Party y Poker Shop) */
+  cuenta?: boolean
 }
 
 /** Un cliente y su mes */

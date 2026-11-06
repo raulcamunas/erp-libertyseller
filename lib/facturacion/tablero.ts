@@ -1,3 +1,4 @@
+import { GRUPOS_DE_CLIENTES } from '@/lib/comisiones-puente/tipos'
 import { createServiceClient } from '@/lib/supabase/service'
 import { errorComoRespuesta, zohoConfigurado, zohoTodo } from '@/lib/zoho/books'
 import {
@@ -10,6 +11,7 @@ import {
   mesDelPeriodo,
   numeroPropuesto,
   periodoDeFactura,
+  importeDeInformes,
 } from './logica'
 import type { ContactoZoho, FacturaZoho, FilaFacturacion, InformeDeComision, Tablero } from './tipos'
 
@@ -103,10 +105,31 @@ export async function cargarTablero(period: string): Promise<Tablero> {
     service.from('treasury_client_months').select('client_id, fee, commission, paid, invoice_sent').eq('period', period),
     service
       .from('commission_reports')
-      .select('slug, clients:clients(name, treasury_client_id)')
+      .select('slug, comision:data->summary->totalCommission, clients:clients(name, treasury_client_id)')
       .eq('period', mesDelPeriodo(period))
       .not('slug', 'is', null),
   ])
+
+  /**
+   * LOS CLIENTES QUE SE FACTURAN JUNTOS (Tapas Party y Poker Shop). Solo la cuenta principal está enlazada con Tesorería, así
+   * que el informe de la otra hay que encontrarlo por el grupo. Se lee aparte porque la principal puede no tener informe aún.
+   */
+  const { data: principales } = await service
+    .from('clients')
+    .select('name, treasury_client_id')
+    .in('name', GRUPOS_DE_CLIENTES.map((g) => g.principal.nombre))
+  const conEspacios = (etiqueta: string) => etiqueta.replace(/([a-z])([A-Z])/g, '$1 $2')
+  const grupos = GRUPOS_DE_CLIENTES.map((g) => ({
+    treasuryClientId: ((principales ?? []) as { name: string; treasury_client_id: string | null }[]).find((c) => c.name === g.principal.nombre)?.treasury_client_id ?? null,
+    cuentas: [g.principal, ...g.otros].map((m) => ({ cliente: m.nombre, nombre: conEspacios(m.etiqueta) })),
+  }))
+  const cuentaDe = (cliente: string | undefined) => {
+    for (const grupo of grupos) {
+      const cuenta = grupo.cuentas.find((c) => c.cliente === cliente)
+      if (cuenta) return { grupo, cuenta }
+    }
+    return null
+  }
 
   let clientes = conPareja.data as FilaCliente[] | null
   const faltaMigracion = Boolean(conPareja.error)
@@ -127,16 +150,25 @@ export async function cargarTablero(period: string): Promise<Tablero> {
 
   const informes = (informesRes.data ?? []) as unknown as {
     slug: string
+    comision: number | null
     clients: { name?: string; treasury_client_id?: string | null } | null
   }[]
   const informesDe = (id: string, nombre: string): InformeDeComision[] =>
     informes
-      .filter(
-        (r) =>
-          r.clients?.treasury_client_id === id ||
-          (!r.clients?.treasury_client_id && claveDeContacto(r.clients?.name ?? '') === claveDeContacto(nombre))
-      )
-      .map((r) => ({ nombre: r.clients?.name ?? r.slug, url: `${baseDelSitio()}/report/commissions/${r.slug}` }))
+      .filter((r) => {
+        const deGrupo = cuentaDe(r.clients?.name)
+        if (deGrupo) return deGrupo.grupo.treasuryClientId === id
+        return r.clients?.treasury_client_id === id || (!r.clients?.treasury_client_id && claveDeContacto(r.clients?.name ?? '') === claveDeContacto(nombre))
+      })
+      .map((r) => {
+        const deGrupo = cuentaDe(r.clients?.name)
+        return {
+          nombre: deGrupo?.cuenta.nombre ?? r.clients?.name ?? r.slug,
+          url: `${baseDelSitio()}/report/commissions/${r.slug}`,
+          importe: typeof r.comision === 'number' ? r.comision : null,
+          cuenta: Boolean(deGrupo),
+        }
+      })
 
   const delMes = facturas.filter((f) => f.status !== 'void' && periodoDeFactura(f.invoice_number, f.date) === period)
 
@@ -198,6 +230,11 @@ export async function cargarTablero(period: string): Promise<Tablero> {
             moneda: factura?.moneda ?? null,
             comision,
             hayInformes: informesDeFila.length > 0,
+            importeInformes: importeDeInformes(informesDeFila),
+            cuentasSinInforme: grupos
+              .filter((g) => g.treasuryClientId && g.treasuryClientId === args.treasuryClientId)
+              .flatMap((g) => g.cuentas.map((c) => c.nombre))
+              .filter((c) => !informesDeFila.some((i) => i.nombre === c)),
             contactoTieneCorreo: contactoTieneCorreo || args.correosTesoreria.length > 0,
             hayContacto: Boolean(contacto) && estado !== 'sin_importes',
           })

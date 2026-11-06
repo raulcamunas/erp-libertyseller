@@ -102,11 +102,39 @@ export function estadoParaElReflejo(estadoZoho: string): 'draft' | 'sent' | 'pai
 }
 
 /** Las dos líneas de siempre. Un importe a cero no se factura */
-export function lineasDelMes(fee: number | null, comision: number | null): LineaFactura[] {
+export function lineasDelMes(fee: number | null, comision: number | null, informes: InformeDeComision[] = []): LineaFactura[] {
   const lineas: LineaFactura[] = []
   if (fee && fee > 0) lineas.push({ descripcion: 'Fee Mensual de Gestión', importe: fee })
-  if (comision && comision > 0) lineas.push({ descripcion: 'Comisiones Amazon', importe: comision })
+  if (comision && comision > 0) lineas.push(...(lineasPorCuenta(comision, informes) ?? [{ descripcion: 'Comisiones Amazon', importe: comision }]))
   return lineas
+}
+
+const aCentimos = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * UNA LÍNEA POR CUENTA, EN EL CLIENTE QUE SE FACTURA JUNTO.
+ *
+ * Tesorería solo guarda la suma; lo de cada cuenta sale de su informe. La última línea se lleva el céntimo del redondeo, para
+ * que la factura dé exactamente lo que dice Tesorería. Si falta un informe o no cuadran, no se reparte: `avisosDeFila` lo dice.
+ */
+function lineasPorCuenta(comision: number, informes: InformeDeComision[]): LineaFactura[] | null {
+  const cuentas = informes.filter((i) => i.cuenta && (i.importe ?? 0) > 0)
+  if (cuentas.length === 0) return null
+  const suma = cuentas.reduce((s, i) => s + aCentimos(i.importe ?? 0), 0)
+  if (Math.abs(suma - comision) >= MARGEN_DE_INFORME) return null
+  return cuentas.map((i, n) => ({
+    descripcion: `Comisiones ${i.nombre}`,
+    importe: n < cuentas.length - 1 ? aCentimos(i.importe ?? 0) : aCentimos(comision - (suma - aCentimos(i.importe ?? 0))),
+  }))
+}
+
+/** Lo que puede separar un informe de Tesorería sin que sea un error: los céntimos del redondeo */
+const MARGEN_DE_INFORME = 0.05
+
+/** Lo que dicen los informes en total. null si alguno no lo dice: entonces no se puede comparar */
+export function importeDeInformes(informes: InformeDeComision[]): number | null {
+  if (informes.length === 0 || informes.some((i) => i.importe == null)) return null
+  return aCentimos(informes.reduce((s, i) => s + (i.importe ?? 0), 0))
 }
 
 export function sumarDias(iso: string, dias: number): string {
@@ -167,6 +195,10 @@ export function avisosDeFila(args: {
   moneda: string | null
   comision: number | null
   hayInformes: boolean
+  /** Lo que dicen los informes del mes, si se sabe */
+  importeInformes?: number | null
+  /** Las cuentas de un cliente que se factura junto que aún no tienen informe */
+  cuentasSinInforme?: string[]
   contactoTieneCorreo: boolean
   hayContacto: boolean
 }): string[] {
@@ -178,7 +210,15 @@ export function avisosDeFila(args: {
     avisos.push('Cobrada en Tesorería, sin cobro en Zoho')
   }
   // Solo mientras se puede hacer algo: una factura ya enviada salió con lo que salió
-  if ((args.comision ?? 0) > 0 && !args.hayInformes && (!args.estadoZoho || args.estadoZoho === 'draft')) avisos.push(AVISO_SIN_INFORME)
+  const antesDeEnviar = !args.estadoZoho || args.estadoZoho === 'draft'
+  if ((args.comision ?? 0) > 0 && antesDeEnviar) {
+    if (!args.hayInformes) avisos.push(AVISO_SIN_INFORME)
+    else for (const cuenta of args.cuentasSinInforme ?? []) avisos.push(`${AVISO_SIN_INFORME}: ${cuenta}`)
+    // El cliente vería una cifra en la factura y otra en el enlace
+    if (args.importeInformes != null && Math.abs(args.importeInformes - (args.comision ?? 0)) >= MARGEN_DE_INFORME) {
+      avisos.push(`El informe dice ${args.importeInformes.toFixed(2)}, Tesorería ${(args.comision ?? 0).toFixed(2)}`)
+    }
+  }
   if (args.hayContacto && !args.contactoTieneCorreo) avisos.push('Sin correo en Zoho')
   return avisos
 }
