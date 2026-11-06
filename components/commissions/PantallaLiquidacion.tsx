@@ -274,6 +274,28 @@ export function PantallaLiquidacion({
     void cargar()
   }, [cargar])
 
+  // El informe del cliente que ya existe de ese mes (de una validación anterior o de la calculadora antigua): se enseña su enlace
+  // al abrir el cliente, sin tener que validar otra vez.
+  useEffect(() => {
+    if (!clienteId) return
+    let vigente = true
+    void fetch(`/api/comisiones-puente/informe?clienteId=${encodeURIComponent(clienteId)}&anio=${anio}&mes=${mes}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: { ruta?: string | null } | null) => {
+        if (!vigente || !payload?.ruta) return
+        const ruta = payload.ruta
+        setInforme((previo) =>
+          previo && previo.clienteId === clienteId && previo.anio === anio && previo.mes === mes
+            ? previo
+            : { clienteId, anio, mes, ruta, actualizado: true }
+        )
+      })
+      .catch(() => {})
+    return () => {
+      vigente = false
+    }
+  }, [clienteId, anio, mes])
+
   /* ---------- Emparejar con Tesorería ---------- */
 
   async function emparejar(treasuryClientId: string | null) {
@@ -749,8 +771,8 @@ export function PantallaLiquidacion({
               </div>
               <div className={`${TARJETA.cuerpo} space-y-[9px]`}>
                 <p className={`${TIPO.s} ${TEXTO.t3}`}>
-                  El desglose de la comisión con la cuenta a la vista, en una página que se abre sin entrar al ERP. Se crea solo al validar; aquí se
-                  puede crear o actualizar a mano, y el enlace no cambia aunque se vuelva a guardar.
+                  El desglose de la comisión con la cuenta a la vista, en una página que se abre sin entrar al ERP. Se crea solo al validar; si la comisión ya estaba guardada en
+                  Tesorería, se crea o se actualiza aquí a mano. El enlace no cambia aunque se vuelva a guardar.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -939,6 +961,10 @@ function Resultado({
   const porMarca = esResultadoPorMarca(resultado)
   const yaFacturado = estado.tesoreria?.facturado === true
   const sinPareja = !estado.enlace.treasuryClientId
+  // La comisión que ya hay en Tesorería es la misma que sale del cálculo: validar sería escribir lo que ya está
+  const apuntada = estado.tesoreria?.commission
+  const yaApuntada =
+    apuntada != null && importeAGuardar != null && Math.abs(apuntada - importeAGuardar) < 0.005
 
   return (
     <div className={TARJETA.base}>
@@ -996,6 +1022,17 @@ function Resultado({
             para {mesEnLetra(estado.anio, estado.mes)} ({guardado.period}).{' '}
             {guardado.creada ? 'Ese mes no tenía fila y se ha creado. ' : ''}
             El fee ({euros(guardado.fee)}) no se ha tocado: ese lo pones tú.{' '}
+            <Link href="/dashboard/tesoreria" className="underline">
+              Ver en Tesorería
+            </Link>
+          </Aviso>
+        ) : yaApuntada ? (
+          <Aviso tono="verde" icono={CheckCircle2}>
+            <span className={AVISO.fuerte}>
+              Ya está guardado en Tesorería: {euros(estado.tesoreria?.commission ?? null)}
+            </span>{' '}
+            en «{estado.enlace.nombre}» para {mesEnLetra(estado.anio, estado.mes)}, el mismo importe que sale del cálculo. No hay nada que
+            validar.{' '}
             <Link href="/dashboard/tesoreria" className="underline">
               Ver en Tesorería
             </Link>

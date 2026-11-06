@@ -51,6 +51,41 @@ function esCalculo(data: unknown): boolean {
   return typeof d.summary === 'object' && d.summary !== null && Array.isArray(d.rows)
 }
 
+/**
+ * ¿YA HAY INFORME DE ESTE CLIENTE Y MES? Devuelve su enlace o `ruta: null`.
+ *
+ * Sirve para que la pantalla enseñe el enlace que ya existe al abrir el cliente, sin obligar a validar o crear otra vez.
+ */
+export async function GET(request: NextRequest) {
+  const permiso = await exigirSoloAdmin()
+  if (!permiso.ok) return fail(permiso.estado, permiso.mensaje)
+
+  try {
+    const url = new URL(request.url)
+    const clienteId = url.searchParams.get('clienteId') ?? ''
+    const anio = Number(url.searchParams.get('anio'))
+    const mes = Number(url.searchParams.get('mes'))
+    if (!UUID.test(clienteId)) return fail(400, 'Falta el cliente')
+    if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) return fail(400, 'Ese año no vale')
+    if (!Number.isInteger(mes) || mes < 1 || mes > 12) return fail(400, 'Ese mes no vale')
+
+    const service = createServiceClient()
+    const { data, error } = await service
+      .from('commission_reports')
+      .select('slug')
+      .eq('client_id', clienteId)
+      .eq('period', mesEnLetra(anio, mes))
+      .not('slug', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    if (error) throw error
+    const slug = ((data ?? [])[0] as { slug: string | null } | undefined)?.slug ?? null
+    return NextResponse.json({ ruta: slug ? `/report/commissions/${slug}` : null })
+  } catch (error) {
+    return errorResponse(error, 'No se ha podido leer el informe del cliente')
+  }
+}
+
 export async function POST(request: NextRequest) {
   const permiso = await exigirSoloAdmin()
   if (!permiso.ok) return fail(permiso.estado, permiso.mensaje)
