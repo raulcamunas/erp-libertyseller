@@ -169,6 +169,11 @@ export async function cargarTablero(period: string): Promise<Tablero> {
           cuenta: Boolean(deGrupo),
         }
       })
+      // La cuenta principal primero, que es como van las líneas en la factura
+      .sort((a, b) => {
+        const orden = (i: InformeDeComision) => grupos.flatMap((g) => g.cuentas).findIndex((c) => c.nombre === i.nombre)
+        return orden(a) - orden(b)
+      })
 
   const delMes = facturas.filter((f) => f.status !== 'void' && periodoDeFactura(f.invoice_number, f.date) === period)
 
