@@ -625,15 +625,7 @@ function PasoCorreo({
         )}
 
         <div className={CAMPO.contenedor}>
-          <label className={CAMPO.etiqueta}>Plantilla del PDF</label>
-          <select value={plantillaPdf} onChange={(e) => void cambiarPdf(e.target.value)} className={CAMPO.input}>
-            {correo.plantillasPdf.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre}
-              </option>
-            ))}
-          </select>
-          <div className="mt-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <label className={`flex items-center gap-1.5 ${TIPO.s} ${TEXTO.t2}`}>
               <input type="checkbox" checked={adjuntar} onChange={(e) => setAdjuntar(e.target.checked)} /> Adjuntar PDF
             </label>
@@ -641,6 +633,17 @@ function PasoCorreo({
               <FileText className="h-3 w-3" /> Ver PDF
             </a>
           </div>
+          {/* El diseño de la factura casi nunca se toca, y a la vista se confundía con la plantilla del correo */}
+          <details className="mt-1.5">
+            <summary className={`cursor-pointer ${TIPO.s} ${TEXTO.t3}`}>Cambiar el diseño del PDF</summary>
+            <select aria-label="Diseño del PDF" value={plantillaPdf} onChange={(e) => void cambiarPdf(e.target.value)} className={`${CAMPO.input} mt-1`}>
+              {correo.plantillasPdf.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
+                </option>
+              ))}
+            </select>
+          </details>
         </div>
 
         <div className="mt-auto pt-1">
