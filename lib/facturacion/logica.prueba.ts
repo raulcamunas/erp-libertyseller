@@ -1,5 +1,6 @@
 import {
   agruparFilas,
+  asuntoDeFactura,
   avisosDeFila,
   candidatasDeCobro,
   claveDeContacto,
@@ -14,6 +15,7 @@ import {
   periodoDeFactura,
   plantillaPropuesta,
   proponerEnlaces,
+  quitarMarcadoresSinRellenar,
   rellenarEnlaces,
   rotuloDeHueco,
   sumarDias,
@@ -146,6 +148,16 @@ igual('lo vencido primero y sin grupos vacíos', grupos.map((g) => g.grupo.id).j
 igual('lo que se puede hacer ya, arriba', grupos[1].filas.map((f) => f.nombre).join(), 'Lista,Con aviso,Sin enlazar')
 igual('enviada y parcial van juntas', grupos[2].filas.length, 2)
 igual('solo se pliega lo que no pide nada', grupos.filter((g) => g.grupo.plegado).map((g) => g.grupo.id).join(), 'sin_importes')
+const ZOHO = 'Facturación de Servicios | 05 nov 2026 | CREATIVE TOYS ESPAÑA S.L.U.'
+igual('asunto con el mes delante', asuntoDeFactura(ZOHO, 'Noviembre 2026 | Creative Toys', '2026-11-05'), 'Facturación de Servicios | Noviembre 2026 | Creative Toys')
+igual('asunto con el mes detrás', asuntoDeFactura(ZOHO, 'ShoesF | Noviembre 2026', '2026-11-06'), 'Facturación de Servicios | Noviembre 2026 | ShoesF')
+igual('el mes del número, no el de la emisión', asuntoDeFactura(ZOHO, 'Yo By Yolanda | Septiembre 2026', '2026-10-06'), 'Facturación de Servicios | Septiembre 2026 | Yo By Yolanda')
+igual('número sin cliente', asuntoDeFactura(ZOHO, 'Octubre 2026', '2026-10-06'), 'Facturación de Servicios | Octubre 2026')
+igual('otra plantilla se respeta', asuntoDeFactura('Factura - X de Liberty', 'Noviembre 2026 | X', '2026-11-05'), 'Factura - X de Liberty')
+igual('sin nota no queda %Notes% ni su salto', quitarMarcadoresSinRellenar('como referencia.<br>%Notes%</td>'), 'como referencia.</td>')
+igual('cualquier otro marcador sin rellenar', quitarMarcadoresSinRellenar('a %DueDate% b'), 'a  b')
+igual('no toca un enlace codificado', quitarMarcadoresSinRellenar('x?a=%C3%ABC%20y%AB%CD'), 'x?a=%C3%ABC%20y%AB%CD')
+igual('no toca un porcentaje', quitarMarcadoresSinRellenar('al 7,5 % y al 10 %'), 'al 7,5 % y al 10 %')
 igual('días desde una fecha', diasDesde('2026-11-01', '2026-11-06'), 5)
 igual('días de una fecha que no ha llegado', diasDesde('2026-11-13', '2026-11-06'), -7)
 

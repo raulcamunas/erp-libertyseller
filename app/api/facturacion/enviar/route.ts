@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { exigirAdmin } from '@/lib/facturacion/acceso'
-import { correosValidos, estadoParaElReflejo, huecosDeEnlace, rellenarEnlaces, rotuloDeHueco } from '@/lib/facturacion/logica'
+import { correosValidos, estadoParaElReflejo, huecosDeEnlace, quitarMarcadoresSinRellenar, rellenarEnlaces, rotuloDeHueco } from '@/lib/facturacion/logica'
 import { registrar } from '@/lib/facturacion/registro'
 import { createServiceClient } from '@/lib/supabase/service'
 import { errorComoRespuesta, zoho } from '@/lib/zoho/books'
@@ -47,7 +47,8 @@ export async function POST(request: NextRequest) {
   if (!c.asunto?.trim()) return NextResponse.json({ error: 'Falta el asunto' }, { status: 400 })
   if (!c.cuerpo?.trim()) return NextResponse.json({ error: 'El correo está vacío' }, { status: 400 })
 
-  const cuerpo = rellenarEnlaces(c.cuerpo, c.enlaces ?? {})
+  // Se quitan también aquí: un marcador sin rellenar no puede llegar al cliente aunque la pantalla se abriera antes de este arreglo
+  const cuerpo = quitarMarcadoresSinRellenar(rellenarEnlaces(c.cuerpo, c.enlaces ?? {}))
   const huecos = huecosDeEnlace(`${c.asunto} ${cuerpo}`)
   if (huecos.length > 0) {
     return NextResponse.json({ error: `Falta rellenar: ${huecos.map(rotuloDeHueco).join(', ')}.` }, { status: 422 })

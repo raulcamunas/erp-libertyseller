@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { exigirAdmin } from '@/lib/facturacion/acceso'
-import { plantillaPropuesta } from '@/lib/facturacion/logica'
+import { asuntoDeFactura, plantillaPropuesta, quitarMarcadoresSinRellenar } from '@/lib/facturacion/logica'
 import type { CorreoPreparado, PlantillaResumen } from '@/lib/facturacion/tipos'
 import { createServiceClient } from '@/lib/supabase/service'
 import { errorComoRespuesta, zoho } from '@/lib/zoho/books'
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     const [primero, { invoice }, { templates }] = await Promise.all([
       leer(pedida),
-      zoho<{ invoice: { template_id?: string; status: string } }>(ruta),
+      zoho<{ invoice: { template_id?: string; status: string; invoice_number: string; date: string } }>(ruta),
       zoho<{ templates?: { template_id: string; template_name: string }[] }>('invoices/templates'),
     ])
 
@@ -72,8 +72,8 @@ export async function GET(request: NextRequest) {
     }
 
     const correo: CorreoPreparado = {
-      asunto: datos.subject ?? '',
-      cuerpo: datos.body ?? '',
+      asunto: asuntoDeFactura(datos.subject ?? '', invoice.invoice_number, invoice.date),
+      cuerpo: quitarMarcadoresSinRellenar(datos.body ?? ''),
       destinatarios: (datos.to_contacts ?? [])
         .filter((c) => c.email)
         .map((c) => ({

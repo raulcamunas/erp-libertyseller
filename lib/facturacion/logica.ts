@@ -183,6 +183,32 @@ export function avisosDeFila(args: {
   return avisos
 }
 
+/* ---------- El correo, tal como lo devuelve Zoho ---------- */
+
+/**
+ * EL ASUNTO DE LAS PLANTILLAS DE FACTURACIÓN: «Facturación de Servicios | Noviembre 2026 | Creative Toys».
+ *
+ * Zoho no tiene un marcador con el mes facturado ni con el nombre corto del cliente: su asunto sale con la fecha de emisión y
+ * la razón social. El mes y el nombre salen del número de la factura, que los trae en cualquier orden. Una plantilla con otro
+ * asunto se respeta tal cual.
+ */
+export function asuntoDeFactura(asunto: string, numero: string, fecha: string): string {
+  const PREFIJO = 'Facturación de Servicios'
+  if (!asunto.startsWith(PREFIJO)) return asunto
+  return [PREFIJO, mesDelPeriodo(periodoDeFactura(numero, fecha)), etiquetaDeNumero(numero)].filter(Boolean).join(' | ')
+}
+
+/**
+ * LOS MARCADORES QUE ZOHO DEJA SIN RELLENAR.
+ *
+ * Una factura sin nota devuelve «%Notes%» tal cual, y el cliente lo leería así. Se quita también el salto de línea que lleva
+ * delante, para que no quede un hueco. Con nota, Zoho ya la ha puesto y aquí no queda nada que quitar.
+ */
+export function quitarMarcadoresSinRellenar(html: string): string {
+  // La minúscula en segundo lugar es lo que lo separa de un enlace codificado: «%C3%ABC%20» también va entre dos %
+  return html.replace(/(?:<br\s*\/?>\s*)?%[A-Z][a-z][A-Za-z]*%/g, '')
+}
+
 /* ---------- Los huecos de enlace de las plantillas ---------- */
 
 const HUECO = /ENLACE_[A-Z0-9_]+/g
