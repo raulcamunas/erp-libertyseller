@@ -2840,3 +2840,216 @@ a.lat-aviso:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offse
 @media (prefers-reduced-motion: reduce) {
   .lat-hilo { opacity: 0.35; }
 }
+
+
+/* =====================================================================
+   FACTURACIÓN · RESUMEN DEL MES Y MOVIMIENTO
+   =====================================================================
+   components/facturacion/*, clases `fac-*`. Cada pieza recibe su color en `--tono`, que sale siempre de COLOR_ESTADO, así que sirve en los dos temas.
+
+   MOVIMIENTO. Igual que «Mi rendimiento»: TODA `animation` y `transition` va dentro de `prefers-reduced-motion: no-preference`, `translate` y `scale`
+   van como propiedades sueltas y las entradas llevan `backwards`: al acabar no queda nada puesto, y la columna fija y los cuadros `fixed` no se enteran.
+   Es una pantalla de todos los días: nada tarda más de lo que se tarda en leerlo, y lo único que se repite (el punto de lo vencido) late unas veces y para.
+
+   CÓMO SE DESHACE: borrando este bloque. Las clases `fac-*` solo dan forma y movimiento; la pantalla sigue funcionando, pero sin la barra ni los pasos.
+   ===================================================================== */
+.fac-barra {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ls-sup3);
+}
+.fac-tramo {
+  flex: var(--parte, 0) 1 0;
+  min-width: 0;
+  background: var(--tono);
+}
+.fac-tramo[data-apagado='true'] { opacity: 0.22; }
+
+.fac-pasos {
+  display: grid;
+  gap: 1px;
+  border-top: 1px solid var(--ls-linea);
+  background: var(--ls-linea);
+}
+.fac-paso {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px 26px 10px 12px;
+  text-align: left;
+  background: var(--ls-sup);
+}
+.fac-paso:hover { background: var(--ls-sup2); }
+.fac-paso:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: -2px; }
+.fac-paso[aria-pressed='true'] { background: color-mix(in srgb, var(--tono) 9%, var(--ls-sup)); }
+/* El foco de luz que sigue al ratón: la posición la ponen `--x` y `--y` */
+.fac-paso::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(150px circle at var(--x, 50%) var(--y, 50%), color-mix(in srgb, var(--tono) 16%, transparent), transparent 70%);
+}
+.fac-paso:hover::before { opacity: 1; }
+.fac-paso::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: var(--tono);
+  transform-origin: left center;
+  scale: 0 1;
+}
+.fac-paso[aria-pressed='true']::after { scale: none; }
+.fac-paso > * { position: relative; }
+.fac-paso-icono {
+  display: flex;
+  height: 30px;
+  width: 30px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--tono);
+  background: color-mix(in srgb, var(--tono) 14%, transparent);
+}
+.fac-paso-siguiente {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  height: 14px;
+  width: 14px;
+  margin-top: -7px;
+  color: var(--ls-t4);
+}
+
+.fac-contador {
+  display: inline-flex;
+  height: 16px;
+  min-width: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--tono);
+  background: color-mix(in srgb, var(--tono) 14%, transparent);
+}
+.fac-fila > td:first-child { box-shadow: inset 0 0 0 transparent; }
+.fac-fila:hover > td:first-child { box-shadow: inset 2px 0 0 var(--tono); }
+.fac-punto {
+  position: relative;
+  height: 6px;
+  width: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--tono);
+}
+.fac-punto-vivo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--tono);
+  opacity: 0;
+}
+.fac-brillo { position: relative; overflow: hidden; }
+.fac-brillo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  translate: -110% 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.4) 50%, transparent 80%);
+}
+
+@keyframes fac-barrido {
+  from { clip-path: inset(0 100% 0 0 round 999px); }
+  to   { clip-path: inset(0 0 0 0 round 999px); }
+}
+@keyframes fac-luz {
+  from { translate: -110% 0; }
+  to   { translate: 110% 0; }
+}
+@keyframes fac-fila {
+  from { opacity: 0; translate: 0 5px; }
+  to   { opacity: 1; translate: none; }
+}
+/* Una sombra por dentro y no un fondo: la celda de los botones es opaca y fija, y el color tiene que pasar por encima de ese fondo */
+@keyframes fac-recien {
+  0%, 35% { box-shadow: inset 0 0 0 100px color-mix(in srgb, var(--tono) 24%, transparent); }
+  100%    { box-shadow: inset 0 0 0 100px transparent; }
+}
+@keyframes fac-mes {
+  from { opacity: 0; translate: calc(var(--dir, 1) * 10px) 0; }
+  to   { opacity: 1; translate: none; }
+}
+@keyframes fac-velo {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes fac-velo-sale {
+  to { opacity: 0; }
+}
+@keyframes fac-cajon {
+  from { opacity: 0.4; translate: 44px 0; }
+  to   { opacity: 1; translate: none; }
+}
+@keyframes fac-cajon-sale {
+  to { opacity: 0; translate: 32px 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fac-zona button { transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, filter 0.14s ease, scale 0.12s ease, opacity 0.2s ease; }
+  .fac-zona button:not(:disabled):active { scale: 0.97; }
+
+  .fac-entra { animation: rend-aparece 0.42s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--d, 0) * 45ms); }
+  .fac-barra { animation: fac-barrido 0.8s cubic-bezier(0.22, 0.8, 0.3, 1) 0.1s backwards; }
+  .fac-tramo { transition: flex-grow 0.6s cubic-bezier(0.22, 0.8, 0.3, 1), opacity 0.2s ease; }
+  /* Mes cobrado entero: una sola pasada de luz */
+  .fac-barra[data-completa='true']::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    translate: -110% 0;
+    background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
+    animation: fac-luz 1s ease-in-out 0.9s;
+  }
+
+  .fac-paso { transition: background-color 0.16s ease; }
+  .fac-paso::before { transition: opacity 0.2s ease; }
+  .fac-paso::after { transition: scale 0.28s cubic-bezier(0.22, 0.8, 0.3, 1); }
+  .fac-paso-icono { transition: scale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .fac-paso:hover .fac-paso-icono { scale: 1.08; }
+  .fac-paso-siguiente { transition: translate 0.22s cubic-bezier(0.22, 0.8, 0.3, 1), color 0.16s ease; }
+  .fac-paso:hover .fac-paso-siguiente { translate: 2px 0; color: var(--ls-t2); }
+
+  .fac-fila { animation: fac-fila 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(min(var(--i, 0), 18) * 14ms); }
+  .fac-fila > td { transition: background-color 0.12s ease, box-shadow 0.15s ease; }
+  .fac-recien > td { animation: fac-recien 2.2s ease-out 0.25s backwards; }
+  .fac-nombre { transition: translate 0.2s cubic-bezier(0.22, 0.8, 0.3, 1); }
+  .fac-fila:hover .fac-nombre { translate: 2px 0; }
+  .fac-flecha { transition: translate 0.2s cubic-bezier(0.22, 0.8, 0.3, 1); }
+  .fac-fila:hover .fac-flecha,
+  button:hover > .fac-flecha { translate: 2px 0; }
+  /* Late unas cuantas veces y descansa: con una factura vencida toda la semana, un latido eterno cansa */
+  .fac-punto-vivo::after { animation: rend-onda 1.8s ease-out 0.6s 5; }
+  .fac-plegar { transition: rotate 0.2s cubic-bezier(0.22, 0.8, 0.3, 1); }
+  .fac-brillo:not(:disabled):hover::after { animation: fac-luz 0.7s ease-out; }
+
+  .fac-mes { animation: fac-mes 0.26s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; }
+  .fac-velo { animation: fac-velo 0.2s ease-out backwards; }
+  .fac-cajon { animation: fac-cajon 0.28s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+  .fac-velo[data-saliendo='true'] { animation: fac-velo-sale 0.17s ease-in forwards; }
+  .fac-velo[data-saliendo='true'] .fac-cajon { animation: fac-cajon-sale 0.17s ease-in forwards; }
+}

@@ -37,15 +37,22 @@ export function PanelFactura({
 }) {
   const [facturaId, setFacturaId] = useState<string | null>(fila.factura?.id ?? null)
   const [paso, setPaso] = useState<'factura' | 'correo'>(fila.factura ? 'correo' : 'factura')
+  const [saliendo, setSaliendo] = useState(false)
   const urlZoho = facturaId && zohoOrgId ? `https://books.zoho.com/app/${zohoOrgId}#/invoices/${facturaId}` : null
+
+  /** Se quita de la pantalla cuando acaba de salir; lo que dura la salida está en `.fac-velo[data-saliendo]` */
+  const cerrar = useCallback(() => {
+    setSaliendo(true)
+    window.setTimeout(onCerrar, 170)
+  }, [onCerrar])
 
   useEffect(() => {
     const alPulsar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCerrar()
+      if (e.key === 'Escape') cerrar()
     }
     window.addEventListener('keydown', alPulsar)
     return () => window.removeEventListener('keydown', alPulsar)
-  }, [onCerrar])
+  }, [cerrar])
 
   const estaEnviada = Boolean(fila.factura && fila.factura.estadoZoho !== 'draft')
   const pestanas: { id: 'factura' | 'correo'; nombre: string; activa: boolean }[] = [
@@ -55,12 +62,12 @@ export function PanelFactura({
 
   return (
     <SobreLaPagina>
-    <div className="fixed inset-0 z-[100] flex justify-end bg-black/60" onClick={onCerrar}>
+    <div data-saliendo={saliendo} className="fac-velo fac-zona fixed inset-0 z-[100] flex justify-end bg-black/60 backdrop-blur-[2px]" onClick={cerrar}>
       <div
         role="dialog"
         aria-label={`Factura de ${fila.nombre}`}
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full max-w-[1120px] flex-col border-l border-[var(--ls-linea2)] bg-[var(--ls-fondo)]"
+        className="fac-cajon flex h-full w-full max-w-[1120px] flex-col border-l border-[var(--ls-linea2)] bg-[var(--ls-fondo)] shadow-[-24px_0_60px_rgba(0,0,0,0.35)]"
       >
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3">
           <span className={`${TITULO.seccion} truncate`}>{fila.nombre}</span>
@@ -88,13 +95,13 @@ export function PanelFactura({
                 Registrar cobro
               </button>
             )}
-            <button type="button" onClick={onCerrar} aria-label="Cerrar" className={BOTON.icono}>
+            <button type="button" onClick={cerrar} aria-label="Cerrar" className={BOTON.icono}>
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div key={paso} className="rend-fundido min-h-0 flex-1 overflow-auto">
           {paso === 'factura' ? (
             <PasoFactura
               fila={fila}
@@ -108,7 +115,7 @@ export function PanelFactura({
               }}
               onBorrada={() => {
                 onCambio()
-                onCerrar()
+                cerrar()
               }}
               onGuardada={() => {
                 setPaso('correo')
@@ -123,7 +130,7 @@ export function PanelFactura({
                 facturaId={facturaId}
                 onEnviada={() => {
                   onCambio()
-                  onCerrar()
+                  cerrar()
                 }}
               />
             )

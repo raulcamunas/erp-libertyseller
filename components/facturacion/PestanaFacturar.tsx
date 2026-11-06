@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import {
@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDashed,
@@ -21,20 +20,24 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
-import { BOTON, CAMPO, CIFRAS, COLOR_ESTADO, PANTALLA, TABLA, TEXTO, TEXTO_ESTADO, TIPO, TITULO, type TonoEstado } from '@/lib/estilo/denso'
-import { AVISO_SIN_INFORME, GRUPOS_FACTURACION, agruparFilas, diasDesde, lineasDelMes, mesDelPeriodo, sumarDias, type IdGrupo } from '@/lib/facturacion/logica'
+import { BarraDeCarga, Esqueleto, Numero } from '@/components/rendimiento/ui'
+import { BOTON, CAMPO, COLOR_ESTADO, PANTALLA, TABLA, TEXTO, TEXTO_ESTADO, TIPO, TITULO, type TonoEstado } from '@/lib/estilo/denso'
+import { AVISO_SIN_INFORME, GRUPOS_FACTURACION, agruparFilas, diasDesde, lineasDelMes, mesDelPeriodo, repartoDelMes, sumarDias, type IdGrupo } from '@/lib/facturacion/logica'
 import type { FilaFacturacion, Tablero } from '@/lib/facturacion/tipos'
 import { Aviso, dinero, fechaCorta, hoyISO, pedir } from './comun'
 
 /**
  * EL MES, ORDENADO POR LO QUE TOCA HACER.
  *
- * Arriba, los cuatro pasos por los que pasa una factura, con cuántas hay en cada uno y cuánto suman; pulsar uno deja solo ese.
- * Debajo, los clientes juntos según lo que piden, cada grupo con su explicación y sus sumas. Lo que ya no pide nada empieza
+ * Arriba, el dinero del mes en una barra y los cuatro pasos por los que pasa una factura, con cuántas hay en cada uno y cuánto
+ * suman; pulsar uno deja solo ese. Debajo, los clientes juntos según lo que piden, cada grupo con su explicación y sus sumas. Lo que ya no pide nada empieza
  * plegado, y pulsar una fila abre la factura.
  *
  * Crear borradores se puede hacer en bloque, porque no sale nada de la agencia; enviar no: un envío es un correo a un cliente
  * real, y se manda mirándolo.
+ *
+ * El movimiento está en las clases `fac-*` de app/globals.css. La fila que acaba de cambiar de paso se ilumina un momento: al
+ * volver de enviar una factura, los ojos van a ella.
  */
 
 const ESTILO_GRUPO: Record<IdGrupo, { icono: LucideIcon; tono: TonoEstado }> = {
@@ -47,14 +50,17 @@ const ESTILO_GRUPO: Record<IdGrupo, { icono: LucideIcon; tono: TonoEstado }> = {
 }
 
 /** Los pasos de arriba. «Por cobrar» reúne lo enviado en plazo y lo vencido */
-const PASOS: { id: IdGrupo; nombre: string; grupos: IdGrupo[]; urgente: boolean }[] = [
-  { id: 'por_crear', nombre: 'Por crear', grupos: ['por_crear'], urgente: true },
-  { id: 'borrador', nombre: 'Por enviar', grupos: ['borrador'], urgente: true },
-  { id: 'por_cobrar', nombre: 'Por cobrar', grupos: ['vencida', 'por_cobrar'], urgente: false },
-  { id: 'cobrada', nombre: 'Cobradas', grupos: ['cobrada'], urgente: false },
+const PASOS: { id: IdGrupo; nombre: string; grupos: IdGrupo[]; urgente: boolean; parte: keyof ReturnType<typeof repartoDelMes> }[] = [
+  { id: 'por_crear', nombre: 'Por crear', grupos: ['por_crear'], urgente: true, parte: 'porCrear' },
+  { id: 'borrador', nombre: 'Por enviar', grupos: ['borrador'], urgente: true, parte: 'porEnviar' },
+  { id: 'por_cobrar', nombre: 'Por cobrar', grupos: ['vencida', 'por_cobrar'], urgente: false, parte: 'porCobrar' },
+  { id: 'cobrada', nombre: 'Cobradas', grupos: ['cobrada'], urgente: false, parte: 'cobrado' },
 ]
 
+const claveDeFila = (f: FilaFacturacion) => f.treasuryClientId ?? f.contactoId ?? f.nombre
+const tonoComoEstilo = (tono: TonoEstado) => ({ '--tono': COLOR_ESTADO[tono] }) as CSSProperties
 const totalDe = (f: FilaFacturacion) => f.factura?.total ?? f.totalTesoreria
+const enteros = (n: number) => Math.round(n).toLocaleString('es-ES')
 const sumar = (filas: FilaFacturacion[], valor: (f: FilaFacturacion) => number | null | undefined) => filas.reduce((s, f) => s + (valor(f) ?? 0), 0)
 /** Lo que aún falta por entrar: en lo que ya salió es el saldo, no el total */
 const importeDelPaso = (id: IdGrupo, f: FilaFacturacion) => (id === 'por_cobrar' ? (f.factura?.saldo ?? 0) : totalDe(f))
@@ -71,8 +77,16 @@ const COLUMNAS = 8
 /** La columna de los botones no se va de la pantalla en un portátil, aunque la tabla no quepa entera */
 const ACCIONES = 'sticky right-0 bg-[var(--ls-sup)]'
 
+/** Cuenta desde cero al aparecer y, después, de un valor al siguiente: el contador común parte de su valor la primera vez */
+function Cuenta({ valor, formato }: { valor: number; formato?: (n: number) => string }) {
+  const [objetivo, setObjetivo] = useState(0)
+  useEffect(() => setObjetivo(valor), [valor])
+  return <Numero valor={objetivo} formato={formato} />
+}
+
 export function PestanaFacturar({
   tablero,
+  periodoLeido,
   cargando,
   error,
   period,
@@ -82,6 +96,8 @@ export function PestanaFacturar({
   onCobrar,
 }: {
   tablero: Tablero | null
+  /** El mes al que pertenece `tablero`: al cambiar de mes, el anterior sigue a la vista hasta que llega el nuevo */
+  periodoLeido: string | null
   cargando: boolean
   error: string | null
   period: string
@@ -93,12 +109,29 @@ export function PestanaFacturar({
   const [creando, setCreando] = useState(false)
   const [paso, setPaso] = useState<IdGrupo | null>(null)
   const [cambiados, setCambiados] = useState<Set<IdGrupo>>(new Set())
+  const [recien, setRecien] = useState<Set<string>>(new Set())
+  const estadosPrevios = useRef<{ period: string | null; estados: Map<string, string> } | null>(null)
+  const direccionMes = useRef(1)
 
   const filas = useMemo(() => tablero?.filas ?? [], [tablero])
   const grupos = useMemo(() => agruparFilas(filas), [filas])
   const pasoElegido = PASOS.find((p) => p.id === paso)
   const visibles = pasoElegido ? grupos.filter((g) => pasoElegido.grupos.includes(g.grupo.id)) : grupos
   const totalDelMes = sumar(filas, totalDe)
+
+  // Las filas que han cambiado de paso desde la última lectura del mismo mes
+  useEffect(() => {
+    if (!tablero) return
+    const previos = estadosPrevios.current
+    estadosPrevios.current = { period: periodoLeido, estados: new Map(filas.map((f) => [claveDeFila(f), f.estado])) }
+    if (previos?.period !== periodoLeido) return setRecien(new Set())
+    setRecien(new Set(filas.filter((f) => previos.estados.has(claveDeFila(f)) && previos.estados.get(claveDeFila(f)) !== f.estado).map(claveDeFila)))
+  }, [tablero, filas, periodoLeido])
+
+  function irAlMes(destino: string) {
+    direccionMes.current = destino > period ? 1 : -1
+    onCambiarMes(destino)
+  }
 
   /** Los que se pueden crear de golpe: con cliente en Zoho y con conceptos */
   const enBloque = useMemo(() => filas.filter((f) => f.estado === 'por_crear' && f.contactoId), [filas])
@@ -147,38 +180,34 @@ export function PestanaFacturar({
     await onActualizar()
   }
 
+  let escalon = 0
+
   return (
     <div className={`${PANTALLA.cuerpo} w-full max-w-[1440px]`}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex h-7 items-center rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
-          <button type="button" aria-label="Mes anterior" onClick={() => onCambiarMes(saltarMes(period, -1))} className={BOTON.icono}>
+          <button type="button" aria-label="Mes anterior" onClick={() => irAlMes(saltarMes(period, -1))} className={BOTON.icono}>
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          <span className={`min-w-[120px] text-center ${TIPO.xs} ${TEXTO.t1}`}>{mesDelPeriodo(period)}</span>
-          <button type="button" aria-label="Mes siguiente" onClick={() => onCambiarMes(saltarMes(period, 1))} className={BOTON.icono}>
+          <span className={`min-w-[120px] overflow-hidden text-center ${TIPO.xs} ${TEXTO.t1}`} aria-live="polite">
+            <span key={period} className="fac-mes inline-block" style={{ '--dir': direccionMes.current } as CSSProperties}>
+              {mesDelPeriodo(period)}
+            </span>
+          </span>
+          <button type="button" aria-label="Mes siguiente" onClick={() => irAlMes(saltarMes(period, 1))} className={BOTON.icono}>
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
         {period !== mesActual() && (
-          <button type="button" onClick={() => onCambiarMes(mesActual())} className={BOTON.chip}>
+          <button type="button" onClick={() => irAlMes(mesActual())} className={BOTON.chip}>
             Este mes
           </button>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
-          {totalDelMes > 0 && (
-            <span className={CIFRAS.tira}>
-              <span className={CIFRAS.celda}>
-                <span className={CIFRAS.rotulo}>Total del mes</span>
-                <span className={CIFRAS.valor}>{dinero(totalDelMes)}</span>
-              </span>
-            </span>
-          )}
-          <button type="button" disabled={cargando} onClick={() => void onActualizar()} className={`${BOTON.base} ${BOTON.secundario} ${BOTON.alto}`}>
-            {cargando ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            Actualizar
-          </button>
-        </div>
+        <button type="button" disabled={cargando} onClick={() => void onActualizar()} className={`${BOTON.base} ${BOTON.secundario} ${BOTON.alto} ml-auto`}>
+          <RefreshCw className={`h-3 w-3 ${cargando ? 'animate-spin' : ''}`} />
+          Actualizar
+        </button>
       </div>
 
       {error && (
@@ -189,45 +218,20 @@ export function PestanaFacturar({
 
       {!tablero ? (
         // Sin datos no se pintan los pasos a cero: si la lectura falla, parecería que este mes no hay nada que facturar
-        cargando && (
-          <div className={`flex items-center justify-center gap-2 py-16 ${TIPO.s} ${TEXTO.t3}`}>
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Leyendo Tesorería y Zoho…
-          </div>
-        )
+        cargando && <EsqueletoDelMes />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" role="group" aria-label="Filtrar por paso">
-            {PASOS.map((p, i) => {
-              const dePaso = grupos.filter((g) => p.grupos.includes(g.grupo.id)).flatMap((g) => g.filas)
-              const vencidas = p.id === 'por_cobrar' ? dePaso.filter((f) => f.estado === 'vencida').length : 0
-              const encendido = paso === p.id
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  aria-pressed={encendido}
-                  onClick={() => setPaso(encendido ? null : p.id)}
-                  className={`relative flex min-w-0 flex-col gap-[3px] rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-left hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup3)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ls-acc-graf)] ${encendido ? BOTON.chipEncendido : ''}`}
-                >
-                  <span className={`flex items-center gap-1.5 ${TIPO.xs} ${TEXTO.t3}`}>
-                    <span className="tabular-nums">{i + 1}</span>
-                    {p.nombre}
-                    {vencidas > 0 && (
-                      <span className={`ml-auto font-medium ${TEXTO_ESTADO.rojo}`}>
-                        {vencidas} {vencidas === 1 ? 'vencida' : 'vencidas'}
-                      </span>
-                    )}
-                  </span>
-                  <span className="flex items-baseline gap-2">
-                    <span className={`text-[18px] font-semibold leading-none tabular-nums ${p.urgente && dePaso.length > 0 ? TEXTO.acento : TEXTO.t1}`}>{dePaso.length}</span>
-                    <span className={`${TIPO.s} tabular-nums ${TEXTO.t3}`}>{dinero(sumar(dePaso, (f) => importeDelPaso(p.id, f)))}</span>
-                  </span>
-                </button>
-              )
-            })}
-          </div>
+          <ResumenDelMes
+            filas={filas}
+            grupos={grupos}
+            total={totalDelMes}
+            paso={paso}
+            cargando={cargando}
+            onPaso={setPaso}
+          />
 
-          <div className={TABLA.caja}>
+          {/* Con otro mes se monta de nuevo y las filas vuelven a entrar; mientras llega, lo anterior se apaga para que no se lea como del mes nuevo */}
+          <div key={periodoLeido} className={`${TABLA.caja} fac-entra transition-opacity duration-200 ${periodoLeido !== period ? 'opacity-50' : ''}`} style={{ '--d': 4 } as CSSProperties}>
             <table className={TABLA.tabla}>
               <thead>
                 <tr>
@@ -258,7 +262,7 @@ export function PestanaFacturar({
                         onPlegar={() => plegar(grupo.id)}
                         accion={
                           grupo.id === 'por_crear' && enBloque.length > 0 ? (
-                            <button type="button" disabled={creando} onClick={() => void crearTodos()} className={`${BOTON.base} ${BOTON.primario}`}>
+                            <button type="button" disabled={creando} onClick={() => void crearTodos()} className={`${BOTON.base} ${BOTON.primario} fac-brillo`}>
                               {creando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
                               Crear {enBloque.length} {enBloque.length === 1 ? 'borrador' : 'borradores'}
                             </button>
@@ -268,8 +272,11 @@ export function PestanaFacturar({
                       {!plegado &&
                         delGrupo.map((f) => (
                           <FilaCliente
-                            key={f.treasuryClientId ?? f.contactoId ?? f.nombre}
+                            key={claveDeFila(f)}
                             fila={f}
+                            tono={ESTILO_GRUPO[grupo.id].tono}
+                            escalon={escalon++}
+                            recien={recien.has(claveDeFila(f))}
                             contactos={tablero?.contactos ?? []}
                             onAbrir={() => onAbrir(f)}
                             onCobrar={onCobrar}
@@ -283,14 +290,19 @@ export function PestanaFacturar({
               {visibles.length === 0 && (
                 <tbody>
                   <tr>
-                    <td colSpan={COLUMNAS} className={`py-10 text-center ${TIPO.s} ${TEXTO.t3}`}>
+                    <td colSpan={COLUMNAS} className={`py-12 text-center ${TIPO.s} ${TEXTO.t3}`}>
                       {pasoElegido ? (
-                        <>
+                        <span className="rend-aparece inline-flex flex-col items-center gap-2">
+                          <span className="fac-paso-icono" style={tonoComoEstilo(ESTILO_GRUPO[pasoElegido.id].tono)}>
+                            <CheckCircle2 className="h-4 w-4" />
+                          </span>
+                          <span>
                           No hay ninguna en «{pasoElegido.nombre}» este mes.{' '}
                           <button type="button" onClick={() => setPaso(null)} className={`underline ${TEXTO.t2}`}>
                             Ver todas
                           </button>
-                        </>
+                          </span>
+                        </span>
                       ) : (
                         'Tesorería no tiene clientes para este mes.'
                       )}
@@ -303,6 +315,143 @@ export function PestanaFacturar({
         </>
       )}
     </div>
+  )
+}
+
+/** El hueco del resumen y de la tabla mientras se lee el mes por primera vez */
+function EsqueletoDelMes() {
+  return (
+    <div role="status" aria-label="Leyendo Tesorería y Zoho" className={PANTALLA.cuerpo}>
+      <div className="rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
+        <Esqueleto className="h-5 w-52" />
+        <Esqueleto className="mt-3 h-1.5 w-full" />
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {PASOS.map((p) => (
+            <Esqueleto key={p.id} className="h-10" />
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-col gap-2 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+          <Esqueleto key={i} className="h-5" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** El foco de luz de un paso sigue al ratón */
+function seguirAlRaton(e: MouseEvent<HTMLElement>) {
+  const caja = e.currentTarget.getBoundingClientRect()
+  e.currentTarget.style.setProperty('--x', `${e.clientX - caja.left}px`)
+  e.currentTarget.style.setProperty('--y', `${e.clientY - caja.top}px`)
+}
+
+/** Cuánto dinero tiene el mes y dónde está: la barra lleva los mismos colores y el mismo orden que los pasos de debajo */
+function ResumenDelMes({
+  filas,
+  grupos,
+  total,
+  paso,
+  cargando,
+  onPaso,
+}: {
+  filas: FilaFacturacion[]
+  grupos: ReturnType<typeof agruparFilas<FilaFacturacion>>
+  total: number
+  paso: IdGrupo | null
+  cargando: boolean
+  onPaso: (paso: IdGrupo | null) => void
+}) {
+  const reparto = repartoDelMes(filas)
+  const todoCobrado = total > 0 && reparto.porCrear + reparto.porEnviar + reparto.porCobrar < 0.005
+
+  return (
+    <section className="fac-entra relative overflow-hidden rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-3 pt-2.5">
+        <span className="flex items-baseline gap-2">
+          <span className={TITULO.rotulo}>Total del mes</span>
+          <span className={`text-[20px] font-semibold leading-none tracking-[-0.02em] tabular-nums ${TEXTO.t1}`}>
+            <Cuenta valor={total} formato={dinero} />
+          </span>
+        </span>
+        {todoCobrado ? (
+          <span className={`ml-auto inline-flex items-center gap-1.5 font-medium ${TIPO.s} ${TEXTO_ESTADO.verde}`}>
+            <CheckCircle2 className="rend-pop h-3.5 w-3.5" /> Todo cobrado
+          </span>
+        ) : (
+          total > 0 && (
+            <span className={`ml-auto tabular-nums ${TIPO.s} ${TEXTO.t3}`}>
+              Cobrado{' '}
+              <span className={`font-semibold ${TEXTO.t1}`}>
+                <Cuenta valor={reparto.cobrado} formato={dinero} />
+              </span>{' '}
+              · <Cuenta valor={(reparto.cobrado / total) * 100} formato={(n) => `${Math.round(n)} %`} />
+            </span>
+          )
+        )}
+      </div>
+
+      <div className="px-3 pb-2.5 pt-2">
+        <div className="fac-barra" data-completa={todoCobrado} role="img" aria-label={PASOS.map((p) => `${p.nombre}: ${dinero(reparto[p.parte])}`).join(', ')}>
+          {/* Un tramo a cero no se pinta: su separación se vería como una muesca al principio de la barra */}
+          {PASOS.filter((p) => reparto[p.parte] > 0).map((p) => (
+            <span
+              key={p.id}
+              title={`${p.nombre}: ${dinero(reparto[p.parte])}`}
+              className="fac-tramo"
+              data-apagado={paso !== null && paso !== p.id}
+              style={{ ...tonoComoEstilo(ESTILO_GRUPO[p.id].tono), '--parte': reparto[p.parte] } as CSSProperties}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="fac-pasos grid-cols-2 lg:grid-cols-4" role="group" aria-label="Filtrar por paso">
+        {PASOS.map((p, i) => {
+          const dePaso = grupos.filter((g) => p.grupos.includes(g.grupo.id)).flatMap((g) => g.filas)
+          const vencidas = p.id === 'por_cobrar' ? dePaso.filter((f) => f.estado === 'vencida').length : 0
+          const encendido = paso === p.id
+          const Icono = ESTILO_GRUPO[p.id].icono
+          return (
+            <button
+              key={p.id}
+              type="button"
+              aria-pressed={encendido}
+              onClick={() => onPaso(encendido ? null : p.id)}
+              onMouseMove={seguirAlRaton}
+              className="fac-paso"
+              style={tonoComoEstilo(ESTILO_GRUPO[p.id].tono)}
+            >
+              <span className="fac-paso-icono">
+                <Icono className="h-[15px] w-[15px]" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                <span className={`flex items-center gap-1.5 ${TIPO.xs} ${TEXTO.t3}`}>
+                  {p.nombre}
+                  {vencidas > 0 && (
+                    <span className={`font-medium ${TEXTO_ESTADO.rojo}`}>
+                      · {vencidas} {vencidas === 1 ? 'vencida' : 'vencidas'}
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-baseline gap-2">
+                  <span className={`text-[18px] font-semibold leading-none tabular-nums ${p.urgente && dePaso.length > 0 ? TEXTO.acento : TEXTO.t1}`}>
+                    <Cuenta valor={dePaso.length} formato={enteros} />
+                  </span>
+                  <span className={`truncate ${TIPO.s} tabular-nums ${TEXTO.t3}`}>
+                    <Cuenta valor={sumar(dePaso, (f) => importeDelPaso(p.id, f))} formato={dinero} />
+                  </span>
+                </span>
+              </span>
+              {i < PASOS.length - 1 && <ChevronRight aria-hidden className="fac-paso-siguiente hidden lg:block" />}
+            </button>
+          )
+        })}
+      </div>
+
+      <BarraDeCarga activa={cargando} />
+    </section>
   )
 }
 
@@ -325,17 +474,18 @@ function CabeceraDeGrupo({
 }) {
   const estilo = ESTILO_GRUPO[id]
   const Icono = estilo.icono
-  const Flecha = plegado ? ChevronRight : ChevronDown
   const celda = `${TABLA.celda} !h-8 bg-[var(--ls-sup2)]`
   const suma = (valor: number) => (valor > 0 ? dinero(valor) : '')
   return (
     <tr>
       <td colSpan={2} className={celda}>
         <button type="button" aria-expanded={!plegado} title={ayuda} onClick={onPlegar} className="flex w-full items-center gap-[7px] text-left focus-visible:outline-2 focus-visible:outline-[var(--ls-acc-graf)]">
-          <Flecha className={`h-3.5 w-3.5 shrink-0 ${TEXTO.t4}`} />
+          <ChevronRight className={`fac-plegar h-3.5 w-3.5 shrink-0 ${plegado ? '' : 'rotate-90'} ${TEXTO.t4}`} />
           <Icono className="h-[13px] w-[13px] shrink-0" style={{ color: COLOR_ESTADO[estilo.tono] }} />
           <span className={TITULO.seccion}>{nombre}</span>
-          <span className={`${TIPO.xs} tabular-nums ${TEXTO.t3}`}>{filas.length}</span>
+          <span className="fac-contador" style={tonoComoEstilo(estilo.tono)}>
+            {filas.length}
+          </span>
           <span className={`ml-2 hidden min-[1500px]:inline ${TIPO.s} ${TEXTO.t3}`}>{ayuda}</span>
         </button>
       </td>
@@ -350,12 +500,21 @@ function CabeceraDeGrupo({
 
 function FilaCliente({
   fila,
+  tono,
+  escalon,
+  recien,
   contactos,
   onAbrir,
   onCobrar,
   onCambio,
 }: {
   fila: FilaFacturacion
+  /** El color de su grupo */
+  tono: TonoEstado
+  /** Su turno en la entrada escalonada */
+  escalon: number
+  /** Acaba de cambiar de paso */
+  recien: boolean
   contactos: { id: string; nombre: string }[]
   onAbrir: () => void
   onCobrar: (id: string) => void
@@ -385,10 +544,17 @@ function FilaCliente({
   }
 
   return (
-    <tr onClick={seAbre ? onAbrir : undefined} className={`group/fila ${TABLA.fila} ${seAbre ? 'cursor-pointer' : ''}`}>
-      <td className={`${celda} pl-[30px]`}>
-        <span className={`${TABLA.corta} max-w-[220px] ${TEXTO.t1}`} title={fila.nombre}>
-          {fila.nombre}
+    <tr
+      onClick={seAbre ? onAbrir : undefined}
+      className={`group/fila fac-fila ${recien ? 'fac-recien' : ''} ${TABLA.fila} ${seAbre ? 'cursor-pointer' : ''}`}
+      style={{ ...tonoComoEstilo(tono), '--i': escalon } as CSSProperties}
+    >
+      <td className={`${celda} pl-4`}>
+        <span className="flex items-center gap-2">
+          <span aria-hidden className={`fac-punto ${fila.estado === 'vencida' ? 'fac-punto-vivo' : ''}`} />
+          <span className={`fac-nombre ${TABLA.corta} max-w-[220px] ${TEXTO.t1}`} title={fila.nombre}>
+            {fila.nombre}
+          </span>
         </span>
       </td>
       <td className={`${celda} ${f ? '' : TEXTO.t4}`}>
@@ -413,6 +579,7 @@ function FilaCliente({
         ) : fila.estado === 'por_crear' ? (
           <button type="button" onClick={onAbrir} className={`${BOTON.base} ${BOTON.secundario}`}>
             Crear factura
+            <ArrowRight className="fac-flecha h-3 w-3" />
           </button>
         ) : fila.estado === 'borrador' ? (
           <span className="inline-flex items-center gap-1.5">
@@ -428,6 +595,7 @@ function FilaCliente({
             </button>
             <button type="button" onClick={onAbrir} className={`${BOTON.base} ${BOTON.secundario} ${BOTON.chipEncendido}`}>
               Revisar y enviar
+              <ArrowRight className="fac-flecha h-3 w-3" />
             </button>
           </span>
         ) : f ? (

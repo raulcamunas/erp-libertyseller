@@ -187,6 +187,25 @@ export function diasDesde(fecha: string, hoy: string): number {
   return Math.round((Date.parse(hoy.slice(0, 10)) - Date.parse(fecha.slice(0, 10))) / 86_400_000)
 }
 
+/**
+ * CÓMO SE REPARTE EL DINERO DEL MES ENTRE LOS PASOS.
+ *
+ * Las cuatro partes suman el total del mes. De lo que ya ha salido, lo que falta por entrar cuenta como por cobrar y el resto
+ * como cobrado, así que un cobro parcial queda partido entre los dos.
+ */
+export function repartoDelMes(filas: { estado: EstadoFila; totalTesoreria: number; factura: { total: number; saldo: number } | null }[]) {
+  const reparto = { porCrear: 0, porEnviar: 0, porCobrar: 0, cobrado: 0 }
+  for (const f of filas) {
+    if (!f.factura) reparto.porCrear += f.totalTesoreria
+    else if (f.estado === 'borrador') reparto.porEnviar += f.factura.total
+    else {
+      reparto.porCobrar += f.factura.saldo
+      reparto.cobrado += f.factura.total - f.factura.saldo
+    }
+  }
+  return reparto
+}
+
 export function avisosDeFila(args: {
   totalTesoreria: number
   cobradoEnTesoreria: boolean

@@ -18,6 +18,7 @@ import {
   proponerEnlaces,
   quitarMarcadoresSinRellenar,
   rellenarEnlaces,
+  repartoDelMes,
   rotuloDeHueco,
   sumarDias,
 } from '@/lib/facturacion/logica'
@@ -176,6 +177,18 @@ igual('ya enviada no avisa', avisosDe({ importeInformes: 353.58, estadoZoho: 'se
 igual('dice qué cuenta no tiene informe', avisosDe({ cuentasSinInforme: ['Poker Shop'] }).join(), 'Sin informe de comisión: Poker Shop')
 igual('días desde una fecha', diasDesde('2026-11-01', '2026-11-06'), 5)
 igual('días de una fecha que no ha llegado', diasDesde('2026-11-13', '2026-11-06'), -7)
+
+const reparto = repartoDelMes([
+  { estado: 'por_crear', totalTesoreria: 500, factura: null },
+  { estado: 'sin_importes', totalTesoreria: 0, factura: null },
+  { estado: 'borrador', totalTesoreria: 300, factura: { total: 300, saldo: 300 } },
+  { estado: 'enviada', totalTesoreria: 400, factura: { total: 400, saldo: 400 } },
+  { estado: 'vencida', totalTesoreria: 600, factura: { total: 600, saldo: 600 } },
+  { estado: 'parcial', totalTesoreria: 800, factura: { total: 800, saldo: 300 } },
+  { estado: 'cobrada', totalTesoreria: 900, factura: { total: 900, saldo: 0 } },
+])
+igual('el mes se reparte entre los pasos', JSON.stringify(reparto), JSON.stringify({ porCrear: 500, porEnviar: 300, porCobrar: 1300, cobrado: 1400 }))
+igual('las partes suman el total del mes', reparto.porCrear + reparto.porEnviar + reparto.porCobrar + reparto.cobrado, 3500)
 
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien`)
 if (fallos > 0) process.exit(1)
