@@ -1,8 +1,19 @@
 'use client'
 
 import { forwardRef, useCallback, useImperativeHandle, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
 import { AVISO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
+
+/**
+ * LO QUE TAPA LA PANTALLA, COLGADO DEL <body>.
+ *
+ * La animación de entrada de la página deja puesto un `transform`, y con él un `fixed inset-0` mide como el contenido y no
+ * como la ventana: el panel se cortaba donde acababa la tabla, con media pantalla vacía debajo y la barra lateral sin tapar.
+ */
+export function SobreLaPagina({ children }: { children: ReactNode }) {
+  return createPortal(children, document.body)
+}
 
 export function dinero(n: number | null | undefined, moneda = 'EUR'): string {
   if (n == null) return '—'

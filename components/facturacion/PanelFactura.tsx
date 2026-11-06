@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink, FileText, Loader2, Plus, Sen
 import { BOTON, CAMPO, CIFRAS, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { huecosDeEnlace, lineasDelMes, proponerEnlaces, rotuloDeHueco, sumarDias } from '@/lib/facturacion/logica'
 import type { ContactoZoho, CorreoPreparado, DetalleFactura, FilaFacturacion, LineaFactura } from '@/lib/facturacion/tipos'
-import { Aviso, dinero, EditorCorreo, hoyISO, pedir, type ManejoEditor } from './comun'
+import { Aviso, dinero, EditorCorreo, hoyISO, pedir, SobreLaPagina, type ManejoEditor } from './comun'
 
 /**
  * UNA FACTURA, DE PRINCIPIO A FIN: CREARLA Y ENVIARLA.
@@ -54,7 +54,8 @@ export function PanelFactura({
   ]
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={onCerrar}>
+    <SobreLaPagina>
+    <div className="fixed inset-0 z-[100] flex justify-end bg-black/60" onClick={onCerrar}>
       <div
         role="dialog"
         aria-label={`Factura de ${fila.nombre}`}
@@ -130,6 +131,7 @@ export function PanelFactura({
         </div>
       </div>
     </div>
+    </SobreLaPagina>
   )
 }
 

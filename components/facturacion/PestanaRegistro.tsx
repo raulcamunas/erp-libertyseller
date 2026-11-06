@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Loader2, X } from 'lucide-react'
 import { BOTON, TABLA, TARJETA, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { ETIQUETA_REGISTRO, type FilaRegistro } from '@/lib/facturacion/tipos'
-import { Aviso, dinero, pedir } from './comun'
+import { Aviso, dinero, pedir, SobreLaPagina } from './comun'
 
 function resumen(f: FilaRegistro): string {
   const d = f.detalle as { para?: string[]; referencia?: string | null; accion?: string; tipo?: string | null; plantillaNombre?: string | null }
@@ -89,7 +89,8 @@ export function PestanaRegistro() {
       )}
 
       {correo && verCorreo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setCorreo(null)}>
+        <SobreLaPagina>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" onClick={() => setCorreo(null)}>
           <div onClick={(e) => e.stopPropagation()} className="flex h-[85vh] w-full max-w-[760px] flex-col overflow-hidden rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)]">
             <div className={`${TARJETA.cabecera} justify-between`}>
               <span className={`${TITULO.seccion} truncate`}>{verCorreo.asunto}</span>
@@ -104,6 +105,7 @@ export function PestanaRegistro() {
             <iframe srcDoc={verCorreo.cuerpo ?? ''} sandbox="" title="Correo enviado" className="min-h-0 w-full flex-1 border-0 bg-white" />
           </div>
         </div>
+        </SobreLaPagina>
       )}
     </div>
   )

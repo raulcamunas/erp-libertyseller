@@ -6,7 +6,7 @@ import { AlertTriangle, ExternalLink, Loader2, Plus, X } from 'lucide-react'
 import { BOTON, CAMPO, CIFRAS, TABLA, TARJETA, TEXTO, TEXTO_ESTADO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { candidatasDeCobro } from '@/lib/facturacion/logica'
 import type { CuentaBancaria, DatosDeCobros, FacturaPendiente, MovimientoSinCategorizar } from '@/lib/facturacion/tipos'
-import { Aviso, dinero, fechaCorta, hoyISO, pedir } from './comun'
+import { Aviso, dinero, fechaCorta, hoyISO, pedir, SobreLaPagina } from './comun'
 
 /**
  * LO QUE ESTÁ POR COBRAR Y LO QUE HA PASADO EN EL BANCO.
@@ -264,7 +264,8 @@ function Marco({ titulo, onCerrar, children }: { titulo: string; onCerrar: () =>
   }, [onCerrar])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onCerrar}>
+    <SobreLaPagina>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" onClick={onCerrar}>
       <div
         role="dialog"
         aria-label={titulo}
@@ -280,6 +281,7 @@ function Marco({ titulo, onCerrar, children }: { titulo: string; onCerrar: () =>
         <div className="flex flex-col gap-2.5 overflow-auto p-3">{children}</div>
       </div>
     </div>
+    </SobreLaPagina>
   )
 }
 
