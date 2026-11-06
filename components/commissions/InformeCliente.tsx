@@ -24,7 +24,7 @@ const NARANJA_BG = '#FEF3EC'
 const TITULAR = { fontFamily: 'var(--font-sora), var(--font-inter), system-ui, sans-serif' } as const
 
 /** Cuántas líneas se pintan de entrada: un cliente con 1.200 referencias no necesita 1.200 filas al abrir */
-const FILAS_INICIALES = 40
+const FILAS_INICIALES = 60
 
 export function InformeCliente({ informe, tituloFuente }: { informe: Informe; tituloFuente: string }) {
   const [todas, setTodas] = useState(false)
@@ -181,7 +181,7 @@ export function InformeCliente({ informe, tituloFuente }: { informe: Informe; ti
               <input
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar por producto, ASIN, pedido o fecha…"
+                placeholder={detalle.buscador ?? 'Buscar por producto, ASIN, pedido o fecha…'}
                 className="w-full rounded-[6px] px-3 py-2 text-[13px] outline-none"
                 style={{ border: `1px solid ${LINEA}`, background: '#fff' }}
               />

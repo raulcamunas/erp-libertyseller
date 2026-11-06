@@ -39,6 +39,8 @@ export interface TablaInforme {
   filas: string[][]
   /** Fila de totales, con una celda por columna ('' donde no aplique) */
   total?: string[]
+  /** Texto del buscador, si lo que se puede buscar no es lo de siempre (producto, ASIN, pedido o fecha) */
+  buscador?: string
 }
 
 export interface PasoDeCalculo {
@@ -113,13 +115,14 @@ export function fechaCorta(texto: unknown): string {
 const CUADRA = 0.05
 const cuadra = (a: number, b: number) => Math.abs(a - b) <= CUADRA
 
-/** Corta el nombre del producto en la primera coma o en el primer « - »: el título de Amazon es larguísimo */
+/**
+ * Corta el nombre del producto en la primera coma, « - » o « | »: el título de Amazon es larguísimo. Antes le quita la cola
+ * que añade Sellerboard («COG: 3,25 / Price: 19,99»), que además lleva una coma donde se partía el nombre.
+ */
 export function nombreCorto(titulo: unknown): string {
-  const s = typeof titulo === 'string' ? titulo.trim() : ''
+  const s = typeof titulo === 'string' ? titulo.replace(/\s*(COG:|\/\s*Price:).*$/i, '').trim() : ''
   if (!s) return '—'
-  const coma = s.indexOf(',')
-  const guion = s.indexOf(' - ')
-  const cortes = [coma, guion].filter((i) => i >= 0)
+  const cortes = [s.indexOf(','), s.indexOf(' - '), s.indexOf(' | ')].filter((i) => i >= 0)
   return cortes.length > 0 ? s.slice(0, Math.min(...cortes)).trim() : s
 }
 
@@ -238,6 +241,47 @@ function tasasDeLasLineas(filas: Fila[]): Array<{ tasa: number; lineas: number }
 }
 
 const sumar = (filas: Fila[], campo: keyof Fila): number => filas.reduce((s, f) => s + num(f[campo]), 0)
+
+/**
+ * UNA FILA POR PRODUCTO, NO POR VENTA.
+ *
+ * El informe de pedidos de Sellerboard trae una línea por venta: 762 filas de 41 productos, con el mismo juego repetido 153
+ * veces. Aquí se juntan por ASIN y se suma todo, así que el pie de la tabla sigue dando lo mismo. El margen se recalcula sobre
+ * lo sumado (no se suman porcentajes). El título es el más repetido: el mismo ASIN llega con varios, y una línea que solo es
+ * una devolución no trae ninguno.
+ */
+function agruparPorProducto(filas: Fila[]): Fila[] {
+  const grupos = new Map<string, Fila[]>()
+  for (const f of filas) {
+    const clave = f.asin || nombreCorto(f.productTitle)
+    grupos.set(clave, [...(grupos.get(clave) ?? []), f])
+  }
+  return [...grupos.values()].map((g) => {
+    const titulos = new Map<string, number>()
+    for (const f of g) {
+      if (typeof f.productTitle !== 'string' || !f.productTitle.trim()) continue
+      const t = nombreCorto(f.productTitle)
+      titulos.set(t, (titulos.get(t) ?? 0) + 1)
+    }
+    const beneficio = g.reduce((a, f) => a + num(f.netProfit ?? f.netBase), 0)
+    const ventas = sumar(g, 'grossSales')
+    return {
+      asin: g[0].asin,
+      productTitle: [...titulos.entries()].sort((a, b) => b[1] - a[1])[0]?.[0],
+      quantity: g.some((f) => hay(f.quantity)) ? sumar(g, 'quantity') : undefined,
+      grossSales: ventas,
+      refunds: sumar(g, 'refunds'),
+      costOfGoods: sumar(g, 'costOfGoods'),
+      amazonFees: sumar(g, 'amazonFees'),
+      adsSpend: sumar(g, 'adsSpend'),
+      netProfit: beneficio,
+      netBase: sumar(g, 'netBase'),
+      margin: ventas > 0 ? beneficio / ventas : undefined,
+      commission: sumar(g, 'commission'),
+      commissionRate: g.find((f) => hay(f.commissionRate))?.commissionRate,
+    }
+  })
+}
 
 /* ------------------------------------------------------------------ */
 /* El constructor                                                      */
@@ -437,7 +481,9 @@ function informeSobreVentas(
 
 /* ---------- sobre el beneficio: Creative Toys (Sellerboard), DIRU, SAUSI ---------- */
 
-function informeBeneficio(cliente: string, periodo: string, s: Resumen, filas: Fila[], rotuloComision: string, simple: boolean): InformeCliente {
+function informeBeneficio(cliente: string, periodo: string, s: Resumen, lineas: Fila[], rotuloComision: string, simple: boolean): InformeCliente {
+  const filas = agruparPorProducto(lineas)
+  const unidades = sumar(filas, 'quantity')
   const ventas = num(s.totalSales)
   const devoluciones = num(s.totalRefunds)
   const beneficio = num(s.totalBenefits ?? s.netBase)
@@ -449,11 +495,11 @@ function informeBeneficio(cliente: string, periodo: string, s: Resumen, filas: F
     ? [
         { rotulo: 'Ventas brutas', valor: dinero(ventas) },
         { rotulo: 'Devoluciones', valor: menos(devoluciones) },
-        { rotulo: 'Pedidos', valor: entero(s.totalOrders ?? filas.length) },
+        { rotulo: 'Productos', valor: entero(filas.length) },
         { rotulo: 'Beneficio', valor: dinero(beneficio), nota: 'Sobre el que se calcula' },
       ]
     : [
-        { rotulo: 'Ventas', valor: dinero(ventas), nota: `${entero(s.totalOrders ?? filas.length)} productos` },
+        { rotulo: 'Ventas', valor: dinero(ventas), nota: unidades > 0 ? `${entero(unidades)} unidades` : `${entero(filas.length)} productos` },
         { rotulo: 'Devoluciones', valor: menos(devoluciones) },
         {
           rotulo: 'Costes',
@@ -531,6 +577,7 @@ function informeBeneficio(cliente: string, periodo: string, s: Resumen, filas: F
       columnas,
       filas: orden.map(celdas),
       total,
+      buscador: 'Buscar por producto o ASIN…',
     },
     lectura: [
       'En este cliente la comisión no es un porcentaje de las ventas: se calcula sobre el beneficio.',

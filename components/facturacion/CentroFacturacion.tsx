@@ -16,6 +16,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import { BOTON, CAMPO, CIFRAS, COLOR_ESTADO, ESTADO, PANTALLA, TABLA, TEXTO, TEXTO_ESTADO, TIPO, TITULO, type TonoEstado } from '@/lib/estilo/denso'
@@ -316,6 +317,22 @@ function FilaCliente({
   const moneda = f?.moneda ?? 'EUR'
   const sinCliente = !fila.contactoId && fila.estado === 'por_crear'
   const vencida = f?.vence && fila.estado === 'vencida'
+  const [borrando, setBorrando] = useState(false)
+
+  /** Un borrador no ha salido de la agencia: se puede tirar y volver a crear con lo que diga Tesorería */
+  async function borrarBorrador() {
+    if (!f || !window.confirm(`¿Borrar de Zoho el borrador «${f.numero}»? No se ha enviado a nadie y luego se puede volver a crear.`)) return
+    setBorrando(true)
+    try {
+      await pedir(`/api/facturacion/factura?id=${encodeURIComponent(f.id)}`, { metodo: 'DELETE' })
+      toast.success('Borrador borrado de Zoho')
+      onCambio()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se ha podido borrar')
+    } finally {
+      setBorrando(false)
+    }
+  }
 
   return (
     <tr className={`${TABLA.fila} ${apagada ? 'opacity-55' : ''}`}>
@@ -355,9 +372,21 @@ function FilaCliente({
             Crear factura
           </button>
         ) : fila.estado === 'borrador' ? (
-          <button type="button" onClick={onAbrir} className={`${BOTON.base} ${BOTON.primario}`}>
-            Revisar y enviar
-          </button>
+          <span className="inline-flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={borrando}
+              onClick={() => void borrarBorrador()}
+              aria-label={`Borrar el borrador de ${fila.nombre}`}
+              title="Borrar borrador"
+              className={BOTON.icono}
+            >
+              {borrando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            </button>
+            <button type="button" onClick={onAbrir} className={`${BOTON.base} ${BOTON.primario}`}>
+              Revisar y enviar
+            </button>
+          </span>
         ) : f ? (
           <span className="inline-flex items-center gap-1.5">
             {f.saldo > 0 && (

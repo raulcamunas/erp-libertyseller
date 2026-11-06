@@ -140,6 +140,23 @@ console.log('\n=== sobre el beneficio (Creative Toys, DIRU) ===')
   ok('la comisión es el % del beneficio', i.principal.detalle === '7,5 % del beneficio' && i.calculo.pasos[0].valor === '40,00 €')
   const simple = construirInforme({ cliente: 'DIRU', periodo: 'Abril 2026', data: { summary: { totalSales: 100, totalRefunds: 0, totalBenefits: 40, netBase: 40, totalCommission: 18, averageCommissionRate: 0.45, totalOrders: 1 }, rows: [{ asin: 'B', productTitle: 'P', grossSales: 100, refunds: 0, netBase: 40, commission: 18, commissionRate: 0.45 }] } })
   ok('DIRU/SAUSI: «Beneficio», no «Base neta sin IVA»', simple.modo === 'beneficio_simple' && simple.cifras[3].rotulo === 'Beneficio' && simple.detalle!.columnas[4].titulo === 'Beneficio')
+
+  // El informe de pedidos de Sellerboard: una línea por venta, y una devolución suelta que no trae ni título ni unidades
+  const venta = (asin: string, productTitle: string, beneficio: number) => ({ asin, productTitle, quantity: 1, grossSales: 30, refunds: 0, costOfGoods: 5, amazonFees: 10, adsSpend: 0, netProfit: beneficio, netBase: beneficio, margin: beneficio / 30, commission: beneficio * 0.1, commissionRate: 0.1 })
+  const lineas = [
+    venta('B2', 'Trivial Terror - Juego de mesa / Price: 30', 15),
+    venta('B1', 'Trivial Harry Potter | Mundo mágico, Cultura COG: 2,63 / Price: 30', 10),
+    venta('B1', 'Trivial Harry Potter | Mundo mágico, Cultura COG: 2,63 / Price: 30', 10),
+    venta('B1', 'Otro título / Price: 0', 10),
+    { asin: 'B1', grossSales: 0, refunds: 5, costOfGoods: 0, amazonFees: 0, adsSpend: 0, netProfit: -4, netBase: -4, commission: -0.4, commissionRate: 0.1 },
+  ]
+  const g = construirInforme({ cliente: 'Creative Toys', periodo: 'Noviembre 2026', data: { summary: { modoCalculo: 'beneficio', totalSales: 120, totalRefunds: 5, totalCostOfGoods: 20, totalAmazonFees: 40, totalAds: 0, totalBenefits: 41, netBase: 41, totalCommission: 4.1, commissionRateUsed: 0.1, totalOrders: 5 }, rows: lineas } })
+  ok('una fila por producto, no por venta', g.detalle!.filas.length === 2 && g.detalle!.subtitulo === '2 productos', g.detalle!.subtitulo)
+  ok('el de más comisión primero, con todo sumado', g.detalle!.filas[0].join('|') === 'Trivial Harry Potter|B1|3|90,00 €|− 15,00 €|− 30,00 €|—|26,00 €|28,89 %|2,60 €', g.detalle!.filas[0].join('|'))
+  ok('el pie sigue dando lo mismo que el resumen', g.detalle!.total!.join('|') === 'Total||4|120,00 €|− 20,00 €|− 40,00 €|0,00 €|41,00 €||4,10 €', g.detalle!.total!.join('|'))
+  ok('«Ventas» cuenta unidades, no líneas', g.cifras[0].nota === '4 unidades', g.cifras[0].nota)
+  ok('buscador sin pedido ni fecha', g.detalle!.buscador === 'Buscar por producto o ASIN…')
+  ok('nombre sin la cola de Sellerboard', nombreCorto('Juego COG: 3,25 / Price: 19,99') === 'Juego' && nombreCorto('Juego / Price: 34,99') === 'Juego' && nombreCorto('/ Price: 0') === '—')
 }
 
 /* ------------------------------------------------------------------ */
