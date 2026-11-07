@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { AlertCircle, Archive, CalendarDays, CheckCircle2, ChevronDown, CloudOff, ExternalLink, Eye, EyeOff, History, Link2, Loader2, MessageSquare, Palette, Percent, Send, Trash2, UserCircle2, X } from 'lucide-react'
+import { AlertCircle, Archive, CalendarDays, CheckCircle2, ChevronDown, CircleDot, CloudOff, ExternalLink, Eye, EyeOff, Gauge, History, Link2, Loader2, MessageSquare, Palette, Send, Tag, Trash2, UserCircle2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/rendimiento/ui'
 import { huellaDeContenido, type Bloque } from '@/lib/tareas-clientes/bloques'
@@ -11,7 +11,7 @@ import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { BASE, pedir, type DatosDeTarea } from './api'
 import { Editor } from './Editor'
 import { SelectorDePortada, estiloDePortada } from './Portada'
-import { fechaCorta, SelectorDeColor, SelectorDeEmoji, SelectorDeOpcion, SelectorDePersonas } from './ui'
+import { Etiqueta, fechaCorta, SelectorDeColor, SelectorDeEmoji, SelectorDeOpcion, SelectorDePersonas } from './ui'
 
 /**
  * EL PANEL DE UNA TAREA: lo que se abre a la derecha al pulsar una tarjeta o una fila.
@@ -259,14 +259,14 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
     <div className="tc-panel-interior" style={{ '--tono': `var(--tc-${tarea?.color ?? estados.find((e) => e.nombre === tarea?.estado)?.color ?? 'default'})` } as CSSProperties}>
       <div className="tc-panel-barra">
         <button type="button" onClick={() => { void guardarCuerpo(); onCerrar() }} aria-label="Cerrar la tarea" className="tc-icono-boton !h-7 !w-7"><X className="h-4 w-4" /></button>
-        <span className="flex items-center gap-1.5 text-[11.5px] text-[var(--ls-t3)]" aria-live="polite">
+        <span className="tc-chip-estado" aria-live="polite">
           {guardado === 'guardando' && <><Loader2 className="h-3 w-3 animate-spin" /> Guardando…</>}
           {guardado === 'ok' && <><CheckCircle2 className="h-3 w-3 text-[var(--ls-e-verde)]" /> Guardado</>}
           {guardado === 'error' && <><AlertCircle className="h-3 w-3 text-[var(--ls-e-rojo)]" /> Sin guardar</>}
         </span>
         {tarea && conNotion && (
-          <span className="flex items-center gap-1 text-[11.5px] text-[var(--ls-t4)]" title={tarea.sync_error ?? (tarea.sync_estado === 'ok' ? 'En Notion al día' : 'Pendiente de enviar a Notion')}>
-            {tarea.sync_estado === 'error' ? <CloudOff className="h-3 w-3 text-[var(--ls-e-rojo)]" /> : tarea.sync_estado === 'pendiente' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          <span className="tc-chip-estado" title={tarea.sync_error ?? (tarea.sync_estado === 'ok' ? 'En Notion al día' : 'Pendiente de enviar a Notion')}>
+            {tarea.sync_estado === 'error' ? <CloudOff className="h-3 w-3 text-[var(--ls-e-rojo)]" /> : tarea.sync_estado === 'pendiente' ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 text-[var(--tc-blue)]" />}
             {tarea.sync_estado === 'ok' ? 'Notion al día' : tarea.sync_estado === 'pendiente' ? 'Enviando a Notion' : tarea.sync_estado === 'error' ? 'Error con Notion' : ''}
           </span>
         )}
@@ -281,8 +281,14 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
 
       <div className="tc-panel-cuerpo">
         {cubierta && <div className="tc-panel-portada" style={cubierta} />}
-        <div className="px-6 pb-8 pt-4">
-          <div className="-ml-1 flex items-start gap-1">
+        <div className="px-7 pb-10 pt-5">
+          {tarea && (
+            <div className="tc-migas">
+              {cliente && <span className="tc-miga"><span className="text-[13px] leading-none">{cliente.icono ?? '•'}</span>{cliente.nombre}</span>}
+              <Etiqueta color={estados.find((e) => e.nombre === tarea.estado)?.color ?? 'default'}>{tarea.estado}</Etiqueta>
+            </div>
+          )}
+          <div className="-ml-1 flex items-start gap-1.5">
             {tarea && (
               <SelectorDeEmoji valor={tarea.icono} onElegir={(e) => void guardar({ icono: e })}>
                 <button type="button" aria-label="Cambiar el emoji" className="tc-emoji-grande">{tarea.icono ?? <span className="text-[13px] text-[var(--ls-t4)]">😀</span>}</button>
@@ -304,7 +310,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
           {tarea && (
             <div className="mt-1 flex flex-wrap gap-1 text-[11.5px]">
               <SelectorDePortada valor={tarea.portada} titulo="Portada de la tarea" onElegir={(p) => void guardar({ portada: p })}>
-                <button type="button" className="tc-boton-suave"><Palette className="h-3 w-3" /> {cubierta ? 'Cambiar portada' : 'Añadir portada'}</button>
+                <button type="button" className="tc-boton-suave tc-discreto"><Palette className="h-3 w-3" /> {cubierta ? 'Cambiar portada' : 'Añadir portada'}</button>
               </SelectorDePortada>
             </div>
           )}
@@ -313,10 +319,9 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
             <div className="mt-6 space-y-3" role="status" aria-label="Cargando la tarea"><div className="tc-esqueleto h-5 w-2/3" /><div className="tc-esqueleto h-5 w-1/2" /><div className="tc-esqueleto h-40 w-full" /></div>
           ) : (
             <>
-              <div className="mt-3 flex flex-col gap-px">
-                {cliente && <Propiedad icono={<span className="text-[13px] leading-none">{cliente.icono ?? '•'}</span>} nombre="Cliente"><span className="px-2 text-[12.5px] text-[var(--ls-t2)]">{cliente.nombre}</span></Propiedad>}
-                <Propiedad icono={<ChevronDown className="h-3.5 w-3.5" />} nombre="Estado"><SelectorDeOpcion etiqueta="Estado" valor={tarea.estado} opciones={estados} onElegir={(n) => n && void guardar({ estado: n })} /></Propiedad>
-                <Propiedad icono={<Percent className="h-3.5 w-3.5" />} nombre="Departamento"><SelectorDeOpcion etiqueta="Departamento" valor={tarea.departamento} opciones={departamentos} permitirVacio onElegir={(n) => void guardar({ departamento: n })} /></Propiedad>
+              <div className="tc-props">
+                <Propiedad icono={<CircleDot className="h-3.5 w-3.5" />} nombre="Estado"><SelectorDeOpcion etiqueta="Estado" valor={tarea.estado} opciones={estados} onElegir={(n) => n && void guardar({ estado: n })} /></Propiedad>
+                <Propiedad icono={<Tag className="h-3.5 w-3.5" />} nombre="Departamento"><SelectorDeOpcion etiqueta="Departamento" valor={tarea.departamento} opciones={departamentos} permitirVacio onElegir={(n) => void guardar({ departamento: n })} /></Propiedad>
                 <Propiedad icono={<UserCircle2 className="h-3.5 w-3.5" />} nombre="Responsables">
                   <SelectorDePersonas valor={tarea.responsables} personas={personas} onCambio={(ids) => void guardar({ responsables: ids })} />
                   {tarea.responsables_notion.length > 0 && <p className="px-2 text-[11px] text-[var(--ls-t4)]" title="Personas de Notion que todavía no están enlazadas con el equipo del ERP">En Notion también: {tarea.responsables_notion.map((r) => r.nombre || 'alguien').join(', ')}</p>}
@@ -328,10 +333,10 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                     <input type="date" aria-label="Fecha de fin" value={tarea.fecha_fin?.slice(0, 10) ?? ''} min={tarea.fecha_inicio?.slice(0, 10)} disabled={!tarea.fecha_inicio} onChange={(e) => void guardar({ fecha_fin: e.target.value || null })} className="tc-fecha" />
                   </div>
                 </Propiedad>
-                <Propiedad icono={<Percent className="h-3.5 w-3.5" />} nombre="Progreso">
-                  <div className="flex items-center gap-2 px-2">
-                    <input type="range" min={0} max={100} step={5} aria-label="Progreso" defaultValue={tarea.progreso} key={`${tarea.id}-${tarea.progreso}`} onMouseUp={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} onKeyUp={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} onTouchEnd={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} className="h-1 w-28 accent-[var(--ls-acc-graf)]" />
-                    <span className="w-9 text-[12px] tabular-nums text-[var(--ls-t3)]">{tarea.progreso}%</span>
+                <Propiedad icono={<Gauge className="h-3.5 w-3.5" />} nombre="Progreso">
+                  <div className="flex items-center gap-3 px-2">
+                    <input type="range" min={0} max={100} step={5} aria-label="Progreso" defaultValue={tarea.progreso} key={`${tarea.id}-${tarea.progreso}`} style={{ '--p': `${tarea.progreso}%` } as CSSProperties} onInput={(e) => (e.target as HTMLInputElement).style.setProperty('--p', `${(e.target as HTMLInputElement).value}%`)} onMouseUp={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} onKeyUp={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} onTouchEnd={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} className="tc-rango" />
+                    <span className="w-9 text-[12px] font-medium tabular-nums text-[var(--ls-t2)]">{tarea.progreso}%</span>
                   </div>
                 </Propiedad>
                 <Propiedad icono={<Link2 className="h-3.5 w-3.5" />} nombre="Enlace">
@@ -348,13 +353,13 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                 )}
               </div>
 
-              <hr className="my-4 border-[var(--ls-linea)]" />
+              <div className="tc-separador" />
               <Editor bloques={contenido} onCambio={alEscribir} />
 
-              <hr className="my-5 border-[var(--ls-linea)]" />
+              <div className="tc-separador" />
               <section aria-label="Comentarios">
-                <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-[var(--ls-t1)]"><MessageSquare className="h-3.5 w-3.5" /> Comentarios <span className="tc-contador">{comentarios.length}</span></h3>
-                <ul className="flex flex-col gap-3">
+                <h3 className="tc-seccion-titulo"><MessageSquare className="h-3.5 w-3.5" /> Comentarios <span className="tc-contador">{comentarios.length}</span></h3>
+                <ul className="flex flex-col gap-3.5">
                   {comentarios.map((c) => {
                     const menciones = c.menciones ?? []
                     const nombres = menciones.map((id) => personaDe(id)?.nombre).filter((n): n is string => Boolean(n))
@@ -364,18 +369,18 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                         <Avatar id={c.autor_id ?? c.autor_nombre} nombre={c.autor_nombre || personaDe(c.autor_id)?.nombre || '?'} tamano={26} />
                         <div className="min-w-0 flex-1">
                           <p className="flex items-baseline gap-2 text-[12.5px]"><span className="font-medium text-[var(--ls-t1)]">{personaDe(c.autor_id)?.nombre ?? c.autor_nombre ?? 'Alguien'}</span><span className="text-[11px] text-[var(--ls-t4)]">{tiempoRelativo(c.creado_en)}{c.editado_en ? ' · editado' : ''}{c.origen === 'notion' ? ' · de Notion' : ''}</span></p>
-                          <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-[1.5] text-[var(--ls-t2)]">{partes.map((p, i) => (p.startsWith('@') && nombres.includes(p.slice(1)) ? <span key={i} className="tc-mencion">{p}</span> : <span key={i}>{p}</span>))}</p>
+                          <p className="tc-burbuja">{partes.map((p, i) => (p.startsWith('@') && nombres.includes(p.slice(1)) ? <span key={i} className="tc-mencion">{p}</span> : <span key={i}>{p}</span>))}</p>
                         </div>
                         {(c.autor_id === miId || esAdmin) && <button type="button" onClick={() => void borrarComentario(c.id)} aria-label="Borrar el comentario" className="tc-icono-boton opacity-0 group-hover/c:opacity-100 focus-visible:opacity-100"><Trash2 className="h-3 w-3" /></button>}
                       </li>
                     )
                   })}
-                  {comentarios.length === 0 && <li className="text-[12.5px] text-[var(--ls-t4)]">Todavía no hay comentarios. Usa «@» para avisar a alguien.</li>}
+                  {comentarios.length === 0 && <li className="tc-sin-comentarios">Todavía no hay comentarios. Usa «@» para avisar a alguien.</li>}
                 </ul>
 
                 <div className="relative mt-3 flex items-start gap-2">
                   <Avatar id={miId} nombre={personaDe(miId)?.nombre ?? 'Yo'} tamano={26} />
-                  <div className="min-w-0 flex-1">
+                  <div className="tc-compositor min-w-0 flex-1">
                     <textarea
                       ref={caja}
                       value={escrito}
@@ -395,7 +400,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                         {candidatos.map((p) => <li key={p.id}><button type="button" role="option" aria-selected="false" onMouseDown={(e) => { e.preventDefault(); mencionar(p) }} className="tc-opcion"><Avatar id={p.id} nombre={p.nombre} tamano={18} />{p.nombre}</button></li>)}
                       </ul>
                     )}
-                    <div className="mt-1 flex items-center justify-between">
+                    <div className="flex items-center justify-between px-2.5 pb-2">
                       <span className="text-[11px] text-[var(--ls-t4)]">{conNotion ? 'También se verá en Notion' : ''}{mencionesEnTexto(escrito, personas).length > 0 ? ` · Avisarás a ${mencionesEnTexto(escrito, personas).length}` : ''}</span>
                       <button type="button" disabled={!escrito.trim() || enviando} onClick={() => void enviar()} className="tc-enviar">{enviando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Comentar</button>
                     </div>
@@ -404,7 +409,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
               </section>
 
               <section className="mt-6" aria-label="Historial">
-                <button type="button" onClick={() => setVerActividad((v) => !v)} aria-expanded={verActividad} className="flex items-center gap-1.5 text-[12.5px] font-medium text-[var(--ls-t3)] hover:text-[var(--ls-t1)]"><History className="h-3.5 w-3.5" /> Historial <span className="tc-contador">{actividad.length}</span><ChevronDown className={`h-3.5 w-3.5 transition-transform ${verActividad ? 'rotate-180' : ''}`} /></button>
+                <button type="button" onClick={() => setVerActividad((v) => !v)} aria-expanded={verActividad} className="tc-seccion-titulo !mb-0 cursor-pointer hover:text-[var(--ls-t1)]"><History className="h-3.5 w-3.5" /> Historial <span className="tc-contador">{actividad.length}</span><ChevronDown className={`h-3.5 w-3.5 transition-transform ${verActividad ? 'rotate-180' : ''}`} /></button>
                 {verActividad && (
                   <ul className="mt-2 flex flex-col gap-1.5 border-l border-[var(--ls-linea)] pl-3">
                     {actividad.length === 0 && <li className="text-[12px] text-[var(--ls-t4)]">Sin movimientos todavía.</li>}

@@ -3576,7 +3576,15 @@ button.tc-crono-nombre:hover { background: var(--ls-sup3); }
 .tc-crono-hoy { position: absolute; top: 0; bottom: 0; z-index: 4; width: 2px; background: var(--tc-red); opacity: 0.7; pointer-events: none; }
 
 /* ---- El panel de la tarea ---- */
-.tc-panel-interior { display: flex; height: 100%; width: 100%; min-height: 0; flex-direction: column; }
+.tc-panel-interior {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  flex-direction: column;
+  /* El color de la tarea (su estado, o el que se le puso) asoma como una luz suave detrás del título */
+  background: radial-gradient(520px 230px at 18% 0%, color-mix(in srgb, var(--tono) 13%, transparent), transparent 72%), var(--ls-sup);
+}
 .tc-panel-barra { display: flex; height: 48px; flex-shrink: 0; align-items: center; gap: 10px; border-bottom: 1px solid var(--ls-linea); padding: 0 12px; }
 .tc-panel-cuerpo { min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ls-linea2) transparent; }
 .tc-panel-portada { height: 136px; width: 100%; background-color: var(--ls-sup2); }
@@ -3586,21 +3594,21 @@ button.tc-crono-nombre:hover { background: var(--ls-sup3); }
 .tc-titulo:focus { border-color: var(--ls-acc-graf); background: var(--ls-sup2); box-shadow: 0 0 0 3px var(--ls-acc-suave); }
 .tc-emoji-grande { display: flex; height: 46px; width: 46px; align-items: center; justify-content: center; border-radius: 12px; font-size: 28px; line-height: 1; }
 .tc-emoji-grande:hover { background: var(--ls-sup3); }
-.tc-prop { display: flex; min-height: 32px; align-items: flex-start; gap: 8px; }
-.tc-prop-nombre { display: flex; width: 124px; flex-shrink: 0; align-items: center; gap: 6px; padding-top: 6px; font-size: 12.5px; color: var(--ls-t3); }
+.tc-prop { display: flex; min-height: 38px; align-items: flex-start; gap: 8px; padding: 4px 8px; }
+.tc-prop-nombre { display: flex; width: 128px; flex-shrink: 0; align-items: center; gap: 8px; padding-top: 6px; font-size: 12.5px; color: var(--ls-t3); }
 .tc-fecha { height: 28px; border-radius: 7px; border: 1px solid transparent; background: transparent; padding: 0 7px; font-size: 12.5px; color: var(--ls-t2); color-scheme: dark; }
 html.light .tc-fecha { color-scheme: light; }
 .tc-fecha:hover:not(:disabled) { background: var(--ls-sup3); }
 .tc-fecha:focus { border-color: var(--ls-acc-graf); outline: none; background: var(--ls-sup2); }
 .tc-fecha:disabled { opacity: 0.4; }
-.tc-entrada { height: 28px; width: 100%; border-radius: 7px; border: 1px solid transparent; background: transparent; padding: 0 8px; font-size: 12.5px; color: var(--ls-t2); outline: none; }
+.tc-entrada { height: 28px; width: 100%; text-overflow: ellipsis; border-radius: 7px; border: 1px solid transparent; background: transparent; padding: 0 8px; font-size: 12.5px; color: var(--ls-t2); outline: none; }
 .tc-entrada::placeholder { color: var(--ls-t4); }
 .tc-entrada:hover { background: var(--ls-sup3); }
 .tc-entrada:focus { border-color: var(--ls-acc-graf); background: var(--ls-sup2); }
 .tc-contador { display: inline-flex; height: 16px; min-width: 18px; align-items: center; justify-content: center; border-radius: 999px; background: var(--ls-sup3); padding: 0 5px; font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ls-t3); }
 .tc-comentario { display: flex; align-items: flex-start; gap: 10px; }
 .tc-mencion { border-radius: 5px; background: var(--ls-acc-suave); padding: 0 4px; font-weight: 500; color: var(--ls-acc); }
-.tc-comentar { display: block; min-height: 60px; width: 100%; resize: vertical; border-radius: 11px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 9px 12px; font-size: 13px; line-height: 1.5; color: var(--ls-t1); outline: none; }
+.tc-comentar { display: block; min-height: 60px; width: 100%; resize: vertical; border-radius: 12px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 10px 12px; font-size: 13px; line-height: 1.5; color: var(--ls-t1); outline: none; }
 .tc-comentar::placeholder { color: var(--ls-t4); }
 .tc-comentar:focus { border-color: var(--ls-acc-graf); box-shadow: 0 0 0 3px var(--ls-acc-suave); }
 .tc-menciones { margin-top: 4px; border-radius: 12px; border: 1px solid var(--ls-linea2); background: var(--ls-sup); padding: 4px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35); }
@@ -3759,3 +3767,35 @@ html.light .tc-fecha { color-scheme: light; }
 .tc-editable [data-k='pink_background'] { background: color-mix(in srgb, var(--tc-pink) 24%, transparent); }
 .tc-editable [data-k='red'] { color: var(--tc-red); }
 .tc-editable [data-k='red_background'] { background: color-mix(in srgb, var(--tc-red) 24%, transparent); }
+
+/* ---- El panel de la tarea, afinado ---- */
+.tc-chip-estado { display: inline-flex; height: 24px; align-items: center; gap: 6px; border-radius: 999px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 0 10px; font-size: 11.5px; color: var(--ls-t3); }
+.tc-migas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.tc-miga { display: inline-flex; height: 22px; align-items: center; gap: 6px; border-radius: 6px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 0 8px; font-size: 11.5px; font-weight: 500; color: var(--ls-t2); }
+.tc-discreto { opacity: 0.5; }
+.tc-discreto:hover, .tc-discreto:focus-visible { opacity: 1; }
+/* Las propiedades en una sola tarjeta, con una línea fina entre filas */
+.tc-props { margin-top: 16px; overflow: hidden; border-radius: 14px; border: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-sup2) 70%, transparent); padding: 4px 0; }
+.tc-props > .tc-prop + .tc-prop { border-top: 1px solid color-mix(in srgb, var(--ls-linea) 70%, transparent); }
+.tc-prop-nombre svg { color: var(--ls-t4); }
+.tc-separador { height: 1px; margin: 26px 0 22px; background: linear-gradient(90deg, transparent, var(--ls-linea2), transparent); }
+.tc-seccion-titulo { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; font-size: 11.5px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ls-t3); }
+.tc-seccion-titulo .tc-contador { letter-spacing: 0; }
+.tc-burbuja { display: inline-block; max-width: 100%; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 4px 14px 14px 14px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 8px 12px; font-size: 13px; line-height: 1.5; color: var(--ls-t2); }
+.tc-sin-comentarios { border-radius: 12px; border: 1px dashed var(--ls-linea2); padding: 12px 14px; text-align: center; font-size: 12.5px; color: var(--ls-t4); }
+/* El cuadro de comentar es una sola caja: el texto arriba y, dentro, el aviso y el botón */
+.tc-compositor { border-radius: 14px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); }
+.tc-compositor:focus-within { border-color: var(--ls-acc-graf); box-shadow: 0 0 0 3px var(--ls-acc-suave); }
+.tc-compositor .tc-comentar { min-height: 64px; resize: none; border: 0; border-radius: 14px 14px 0 0; background: transparent; box-shadow: none; }
+.tc-compositor .tc-menciones { margin: 0 8px 6px; }
+/* El deslizador de progreso: el tramo hecho va relleno del color de acento */
+.tc-rango { appearance: none; height: 6px; width: 150px; cursor: pointer; border-radius: 999px; background: linear-gradient(90deg, var(--ls-acc-graf) var(--p, 0%), var(--ls-sup3) var(--p, 0%)); outline: none; }
+.tc-rango::-webkit-slider-thumb { appearance: none; height: 16px; width: 16px; border-radius: 999px; border: 3px solid var(--ls-sup); background: var(--ls-acc-graf); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
+.tc-rango::-moz-range-thumb { height: 12px; width: 12px; border-radius: 999px; border: 3px solid var(--ls-sup); background: var(--ls-acc-graf); }
+.tc-rango:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 4px; }
+@media (prefers-reduced-motion: no-preference) {
+  .tc-rango::-webkit-slider-thumb { transition: scale 0.15s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .tc-rango:active::-webkit-slider-thumb { scale: 1.2; }
+  .tc-discreto { transition: opacity 0.15s ease, background-color 0.12s ease, color 0.12s ease; }
+  .tc-burbuja { animation: tc-sube 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; }
+}
