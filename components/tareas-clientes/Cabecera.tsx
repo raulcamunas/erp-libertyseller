@@ -1,17 +1,17 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { CalendarDays, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Table2, X, ImageIcon } from 'lucide-react'
+import { CalendarDays, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Table2, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { hayFiltros } from '@/lib/tareas-clientes/filtros'
 import { departamentosDe, type ClienteTC, type FiltrosDeTareas, type PersonaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
 import { Avatar } from '@/components/rendimiento/ui'
-import { SelectorDePortada, estiloDePortada } from './Portada'
+import { SelectorDePortada } from './Portada'
 import { SelectorDeEmoji } from './ui'
 
 /**
- * LA CABECERA DE UN ESPACIO: la portada (que se cambia), el emoji y el nombre del cliente, una descripción, las cuatro vistas y las herramientas (buscar, filtrar, agrupar y
- * crear). En «Todas las tareas» y «Mis tareas» no hay cliente: la portada es la tuya.
+ * LA CABECERA DE UN ESPACIO: el emoji y el nombre del cliente, una descripción, las cuatro vistas y las herramientas (buscar, filtrar, agrupar y
+ * crear). El fondo de toda la pantalla se cambia con el botón «Fondo» (color, degradado, imagen o uno animado).
  */
 
 const ICONO_DE_VISTA: Record<TipoDeVista, typeof KanbanSquare> = { tablero: KanbanSquare, tabla: Table2, cronograma: GanttChartSquare, calendario: CalendarDays }
@@ -21,7 +21,6 @@ export interface PropsDeCabecera {
   titulo: string
   icono: string | null
   descripcion: string | null
-  portada: PortadaGuardada
   fondo: PortadaGuardada
   editable: boolean
   vistas: readonly TipoDeVista[]
@@ -35,7 +34,6 @@ export interface PropsDeCabecera {
   onTitulo?: (t: string) => void
   onIcono?: (e: string | null) => void
   onDescripcion?: (d: string) => void
-  onPortada: (p: PortadaGuardada) => void
   onFondo: (p: PortadaGuardada) => void
   onNueva: () => void
   total: number
@@ -46,24 +44,11 @@ export interface PropsDeCabecera {
 export function Cabecera(p: PropsDeCabecera) {
   const [titulo, setTitulo] = useState<string | null>(null)
   const [descripcion, setDescripcion] = useState<string | null>(null)
-  const cubierta = estiloDePortada(p.portada)
   const departamentos = [...new Map(p.clientesParaDepartamentos.flatMap((c) => departamentosDe(c)).map((d) => [d.nombre, d])).values()]
   const activos = hayFiltros(p.filtros)
 
   return (
     <header className="tc-cabecera">
-      <div className="tc-cover" style={cubierta} data-vacia={cubierta ? undefined : 'true'}>
-        {!cubierta && p.icono && <span className="tc-cover-marca" aria-hidden>{p.icono}</span>}
-        <div className="tc-cover-botones">
-          <SelectorDePortada valor={p.portada} titulo="Portada" onElegir={p.onPortada}>
-            <button type="button" className="tc-boton-cristal"><ImageIcon className="h-3 w-3" /> {cubierta ? 'Cambiar portada' : 'Añadir portada'}</button>
-          </SelectorDePortada>
-          <SelectorDePortada valor={p.fondo} titulo="Fondo del espacio" onElegir={p.onFondo}>
-            <button type="button" className="tc-boton-cristal"><Palette className="h-3 w-3" /> Fondo</button>
-          </SelectorDePortada>
-        </div>
-      </div>
-
       <div className="tc-cabecera-titulo">
         <SelectorDeEmoji valor={p.icono} onElegir={(e) => p.onIcono?.(e)}>
           <button type="button" disabled={!p.onIcono} aria-label="Cambiar el emoji" className="tc-emoji-cabecera">{p.icono ?? '📋'}</button>
@@ -131,6 +116,10 @@ export function Cabecera(p: PropsDeCabecera) {
             </div>
           </PopoverContent>
         </Popover>
+
+        <SelectorDePortada valor={p.fondo} titulo="Fondo del espacio" onElegir={p.onFondo} animados>
+          <button type="button" className="tc-boton-herramienta"><Palette className="h-3.5 w-3.5" /> Fondo</button>
+        </SelectorDePortada>
 
         {activos && <span className="text-[11.5px] tabular-nums text-[var(--ls-t3)]">{p.visibles} de {p.total}</span>}
         <button type="button" onClick={p.onNueva} className="tc-boton-primario"><Plus className="h-3.5 w-3.5" /> Nueva tarea</button>

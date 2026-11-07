@@ -29,9 +29,9 @@ export interface OpcionesDelCliente {
   departamentos: OpcionSimple[]
 }
 
-/** La portada o el fondo de una pantalla: un color liso, un degradado de la lista o una imagen subida */
+/** La portada o el fondo de una pantalla: un color liso, un degradado de la lista, una imagen subida o (solo el fondo) uno animado de la lista */
 export interface Portada {
-  tipo?: 'color' | 'degradado' | 'imagen'
+  tipo?: 'color' | 'degradado' | 'imagen' | 'animado'
   /** El nombre del color o del degradado, o la dirección de la imagen */
   valor?: string
   /** Hasta dónde se desplaza la imagen para encuadrarla, de 0 a 100 */

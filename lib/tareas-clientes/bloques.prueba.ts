@@ -13,7 +13,7 @@ import {
   type BloqueNotion,
 } from '@/lib/tareas-clientes/bloques'
 import { colocar, hayQueRenumerar, ordenAlFinal, ordenEntre, SEPARACION } from '@/lib/tareas-clientes/orden'
-import { colorCss, colorValido, fondoCss } from '@/lib/tareas-clientes/colores'
+import { colorCss, colorValido, fondoAnimadoId, fondoCss } from '@/lib/tareas-clientes/colores'
 
 let fallos = 0
 let comprobaciones = 0
@@ -51,6 +51,10 @@ igual('un degradado que no existe, nada', fondoCss({ tipo: 'degradado', valor: '
 igual('una imagen https se acepta', fondoCss({ tipo: 'imagen', valor: 'https://x.supabase.co/a.png' }), 'url("https://x.supabase.co/a.png")')
 igual('una imagen que intenta salirse del url() se rechaza', fondoCss({ tipo: 'imagen', valor: 'https://x.co/a.png") ;x:(' }), null)
 igual('javascript: no es una imagen', fondoCss({ tipo: 'imagen', valor: 'javascript:alert(1)' }), null)
+igual('un fondo animado de la lista', fondoAnimadoId({ tipo: 'animado', valor: 'aurora' }), 'aurora')
+igual('un fondo animado que no existe, nada', fondoAnimadoId({ tipo: 'animado', valor: 'inventado' }), null)
+igual('un color no es un fondo animado', fondoAnimadoId({ tipo: 'color', valor: 'aurora' }), null)
+igual('un fondo animado no se pinta como CSS suelto', fondoCss({ tipo: 'animado', valor: 'aurora' }), null)
 igual('un hexadecimal, tal cual', fondoCss({ tipo: 'color', valor: '#245ea8' }), '#245ea8')
 
 /* ---------- texto con formato ---------- */

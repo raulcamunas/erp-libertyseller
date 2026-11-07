@@ -15,7 +15,7 @@ import { Cabecera } from './Cabecera'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
 import { PanelDeTarea } from './PanelDeTarea'
-import { estiloDePortada, fondoNecesitaCortina } from './Portada'
+import { estiloDePortada, FondoAnimado, fondoNecesitaCortina } from './Portada'
 import { Tablero } from './Tablero'
 import { Tabla } from './Tabla'
 
@@ -114,7 +114,6 @@ export function EspacioDeTrabajo({ ambito, miId, esAdmin, tareaInicial }: { ambi
   const visibles = useMemo(() => filtrarTareas(delAmbito, filtros, miId, cliente ? estadosDelAmbito : [...mapa.values()].flatMap((c) => estadosDe(c)), nombreDe), [delAmbito, filtros, miId, cliente, estadosDelAmbito, mapa, nombreDe])
 
   const prefs: Preferencias = datos?.preferencias ?? { fondo: {}, portada: {}, favoritos: [] }
-  const portada: PortadaGuardada = cliente ? cliente.portada : prefs.portada
   const fondo: PortadaGuardada = cliente?.fondo?.tipo ? cliente.fondo : prefs.fondo
 
   /* ---- Cambios con respuesta inmediata ---- */
@@ -303,6 +302,7 @@ export function EspacioDeTrabajo({ ambito, miId, esAdmin, tareaInicial }: { ambi
 
   return (
     <div className="tc-zona" data-panel={panelAbierto ? 'true' : undefined} data-fondo={fondoNecesitaCortina(fondo) ? 'true' : undefined} style={{ '--tc-ambiente': cliente ? `var(--tc-${cliente.color || 'orange'})` : 'var(--ls-acc-graf)', ...(estiloDePortada(fondo, true) as CSSProperties | undefined) } as CSSProperties}>
+      <FondoAnimado valor={fondo} />
       <BarraLateral clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
 
       <section className="tc-centro">
@@ -310,7 +310,6 @@ export function EspacioDeTrabajo({ ambito, miId, esAdmin, tareaInicial }: { ambi
           titulo={titulo}
           icono={cliente?.icono ?? (ambito.tipo === 'mias' ? '🎯' : '🗂️')}
           descripcion={cliente?.descripcion ?? null}
-          portada={portada}
           fondo={fondo}
           editable
           vistas={vistasDisponibles}
@@ -324,7 +323,6 @@ export function EspacioDeTrabajo({ ambito, miId, esAdmin, tareaInicial }: { ambi
           onTitulo={cliente ? (t) => void cambiarCliente({ nombre: t }) : undefined}
           onIcono={cliente ? (e) => void cambiarCliente({ icono: e }) : undefined}
           onDescripcion={cliente ? (d) => void cambiarCliente({ descripcion: d }) : undefined}
-          onPortada={(p) => (cliente ? void cambiarCliente({ portada: p }) : void cambiarPreferencias({ portada: p }))}
           onFondo={(p) => (cliente ? void cambiarCliente({ fondo: p }) : void cambiarPreferencias({ fondo: p }))}
           onNueva={() => void nuevaTarea()}
           total={delAmbito.length}

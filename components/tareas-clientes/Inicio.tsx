@@ -11,7 +11,7 @@ import type { EstadisticasDeCliente } from '@/lib/tareas-clientes/servidor'
 import { ETIQUETA_DE_GRUPO, type ClienteTC, type GrupoDeCliente, type Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
 import { saludoDe } from '@/lib/inicio/saludo'
 import { BASE, pedir, type DatosDeInicio, type Preferencias } from './api'
-import { SelectorDePortada, estiloDePortada, fondoNecesitaCortina } from './Portada'
+import { FondoAnimado, SelectorDePortada, estiloDePortada, fondoNecesitaCortina } from './Portada'
 import { PilaDeAvatares } from './ui'
 
 /**
@@ -113,6 +113,7 @@ export function Inicio({ esAdmin }: { esAdmin: boolean }) {
 
   return (
     <div className="tc-inicio" data-fondo={fondoNecesitaCortina(prefs.fondo) ? 'true' : undefined} style={estiloDePortada(prefs.fondo, true)}>
+      <FondoAnimado valor={prefs.fondo} />
       <section className="tc-hero" style={estiloDePortada(prefs.portada)} data-vacia={prefs.portada.tipo ? undefined : 'true'}>
         <div className="tc-hero-velo" />
         <div className="relative z-10 flex flex-wrap items-end gap-x-8 gap-y-4 p-6">
@@ -129,7 +130,7 @@ export function Inicio({ esAdmin }: { esAdmin: boolean }) {
         </div>
         <div className="tc-cover-botones">
           <SelectorDePortada valor={prefs.portada} titulo="Tu portada" onElegir={(p: PortadaGuardada) => void guardarPrefs({ portada: p })}><button type="button" className="tc-boton-cristal"><ImageIcon className="h-3 w-3" /> Portada</button></SelectorDePortada>
-          <SelectorDePortada valor={prefs.fondo} titulo="Tu fondo" onElegir={(p: PortadaGuardada) => void guardarPrefs({ fondo: p })}><button type="button" className="tc-boton-cristal"><Palette className="h-3 w-3" /> Fondo</button></SelectorDePortada>
+          <SelectorDePortada animados valor={prefs.fondo} titulo="Tu fondo" onElegir={(p: PortadaGuardada) => void guardarPrefs({ fondo: p })}><button type="button" className="tc-boton-cristal"><Palette className="h-3 w-3" /> Fondo</button></SelectorDePortada>
         </div>
       </section>
 

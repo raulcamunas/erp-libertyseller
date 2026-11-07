@@ -3353,14 +3353,30 @@ main:has(.tc-inmersivo) { padding-top: 0; }
   flex: 0 0 292px;
   flex-direction: column;
   border-radius: 14px;
-  border: 1px solid var(--ls-linea);
-  /* Llena de arriba y cada vez más transparente hacia abajo: una columna casi vacía no pesa como un bloque */
-  background: linear-gradient(180deg, var(--tc-columna) 0%, color-mix(in srgb, var(--tc-columna) 40%, transparent) 100%);
+  border: 1px solid color-mix(in srgb, var(--tono) 16%, var(--ls-linea));
+  /* Un lavado del color de la columna arriba, y por debajo llena de arriba y cada vez más transparente: una columna casi vacía no pesa como un bloque */
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--tono) 11%, transparent) 0, transparent 150px),
+    linear-gradient(180deg, var(--tc-columna) 0%, color-mix(in srgb, var(--tc-columna) 40%, transparent) 100%);
 }
 /* El filo de color de la columna: lo único que la tiñe */
-.tc-columna::before { content: ''; position: absolute; left: 16px; right: 16px; top: -1px; height: 2px; border-radius: 0 0 3px 3px; background: var(--tono); opacity: 0.9; }
+.tc-columna::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: -1px;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  /* Un hilo de luz: el color de la columna con un tramo más claro que, con el movimiento, se desliza de un lado a otro */
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tono) 45%, transparent), var(--tono), color-mix(in srgb, var(--tono) 45%, #fff), var(--tono), color-mix(in srgb, var(--tono) 45%, transparent));
+  background-size: 260% 100%;
+  box-shadow: 0 0 16px -2px color-mix(in srgb, var(--tono) 75%, transparent);
+}
 .tc-columna[data-sobre='true'] { border-color: color-mix(in srgb, var(--tono) 46%, var(--ls-linea)); background: color-mix(in srgb, var(--tono) 7%, var(--tc-columna)); }
-.tc-columna-cabecera { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 13px 12px 8px 14px; }
+.tc-columna-cabecera { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 15px 12px 9px 14px; }
+.tc-columna-cabecera .tc-etiqueta { height: 25px; padding: 0 11px; font-size: 12px; font-weight: 650; background: linear-gradient(135deg, color-mix(in srgb, var(--tono) 26%, transparent), color-mix(in srgb, var(--tono) 10%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tono) 28%, transparent), 0 6px 14px -8px color-mix(in srgb, var(--tono) 80%, transparent); }
+.tc-columna-cabecera .tc-contador { height: 20px; min-width: 22px; font-size: 11px; }
 .tc-columna-cuerpo { display: flex; min-height: 72px; flex: 1; flex-direction: column; gap: 8px; overflow-y: auto; padding: 4px 8px 10px; scrollbar-width: thin; scrollbar-color: var(--ls-linea2) transparent; }
 .tc-ordenable { outline: none; touch-action: manipulation; }
 .tc-tarjeta {
@@ -3390,6 +3406,8 @@ main:has(.tc-inmersivo) { padding-top: 0; }
 .tc-tablero[data-arrastrando='true'] .tc-tarjeta:not([data-superpuesta='true']):hover { translate: none; border-color: var(--ls-linea); box-shadow: var(--tc-sombra-1); }
 body.tc-agarrando, body.tc-agarrando * { cursor: grabbing !important; }
 
+@keyframes tc-hilo { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+@keyframes tc-respira { 0%, 100% { scale: 1; opacity: 1; } 50% { scale: 1.35; opacity: 0.7; } }
 @keyframes tc-sube {
   from { opacity: 0; translate: 0 8px; }
   to   { opacity: 1; translate: none; }
@@ -3398,6 +3416,8 @@ body.tc-agarrando, body.tc-agarrando * { cursor: grabbing !important; }
   .tc-tablero[data-entrada='true'] .tc-columna { animation: tc-sube 0.42s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--i, 0) * 55ms); }
   .tc-tablero[data-entrada='true'] .tc-tarjeta { animation: tc-sube 0.36s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(var(--i, 0) * 30ms + 140ms); }
   .tc-columna { transition: border-color 0.15s ease, background-color 0.15s ease; }
+  .tc-columna::before { animation: tc-hilo 10s ease-in-out infinite alternate; animation-delay: calc(var(--i, 0) * -1.7s); }
+  .tc-columna-cabecera .tc-punto { animation: tc-respira 3.4s ease-in-out infinite; animation-delay: calc(var(--i, 0) * -0.6s); }
   .tc-tarjeta { transition: border-color 0.15s ease, box-shadow 0.18s ease, translate 0.18s cubic-bezier(0.22, 0.8, 0.3, 1), background-color 0.15s ease; }
   .tc-tarjeta:hover { translate: 0 -1px; }
   .tc-tarjeta[data-superpuesta='true'] { animation: none; transition: none; }
@@ -3483,34 +3503,10 @@ body.tc-agarrando, body.tc-agarrando * { cursor: grabbing !important; }
 /* ---- La cabecera ---- */
 .tc-cabecera { flex-shrink: 0; }
 /* Sin portada, el hueco de arriba es aire (con el botón «Añadir portada» al pasar el ratón); con portada, una imagen con un velo abajo para que el título se lea */
-.tc-cover {
-  position: relative;
-  height: 184px;
-  overflow: hidden;
-  margin: 0 14px;
-  border-radius: 0 0 28px 28px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-top: 0;
-  box-shadow: 0 22px 44px -26px rgba(0, 0, 0, 0.75);
-  background-color: var(--ls-sup2);
-}
-/* Un brillo arriba y una sombra abajo: da volumen a cualquier portada (imagen, degradado o color) y deja leer los botones que van encima */
-.tc-cover::before { content: ''; position: absolute; inset: 0; z-index: 0; background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 0%, transparent 28%, rgba(0, 0, 0, 0.22) 100%); pointer-events: none; }
-/* SIN PORTADA ELEGIDA no se deja el hueco vacío: un banner con la luz del color del cliente, una trama de puntos que se desvanece y su emoji enorme y casi transparente de marca de agua */
-.tc-cover[data-vacia='true'] {
-  height: 138px;
-  background:
-    radial-gradient(520px 240px at 8% -20%, color-mix(in srgb, var(--tc-ambiente, var(--ls-acc-graf)) 85%, transparent), transparent 68%),
-    radial-gradient(520px 240px at 92% 115%, color-mix(in srgb, var(--tc-purple) 48%, transparent), transparent 70%),
-    linear-gradient(135deg, color-mix(in srgb, var(--tc-ambiente, var(--ls-acc-graf)) 34%, var(--tc-base)), color-mix(in srgb, var(--tc-ambiente, var(--ls-acc-graf)) 12%, var(--tc-base)));
-}
-.tc-cover[data-vacia='true']::after { content: ''; position: absolute; inset: 0; z-index: 0; background-image: radial-gradient(rgba(255, 255, 255, 0.2) 1px, transparent 1.3px); background-size: 20px 20px; -webkit-mask-image: linear-gradient(to bottom left, #000, transparent 78%); mask-image: linear-gradient(to bottom left, #000, transparent 78%); pointer-events: none; }
-.tc-cover-marca { position: absolute; right: 12%; bottom: -34px; z-index: 0; font-size: 168px; line-height: 1; opacity: 0.24; rotate: -9deg; filter: saturate(0.85); pointer-events: none; user-select: none; }
 .tc-cover-botones { position: absolute; right: 18px; bottom: 14px; z-index: 2; display: flex; gap: 6px; opacity: 0; }
-.tc-cover:hover .tc-cover-botones, .tc-cover-botones:focus-within, .tc-hero:hover .tc-cover-botones { opacity: 1; }
-/* El emoji cabalga sobre el borde del banner y el título empieza justo debajo de él */
-.tc-cabecera-titulo { position: relative; display: flex; align-items: flex-start; gap: 16px; padding: 0 34px 6px; margin-top: -34px; }
-.tc-cabecera-titulo > .min-w-0 { padding-top: 40px; }
+.tc-cover-botones:focus-within, .tc-hero:hover .tc-cover-botones { opacity: 1; }
+/* Sin banner: el emoji y el nombre abren la pantalla (el fondo elegido ya le da el carácter) */
+.tc-cabecera-titulo { position: relative; display: flex; align-items: center; gap: 16px; padding: 26px 34px 6px 34px; }
 .tc-emoji-cabecera { display: flex; height: 68px; width: 68px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 20px; border: 1px solid var(--ls-linea2); background: linear-gradient(160deg, var(--tc-tarjeta-2), var(--tc-tarjeta)); font-size: 36px; line-height: 1; box-shadow: 0 16px 30px -14px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
 .tc-emoji-cabecera:not(:disabled):hover { background: var(--ls-sup3); }
 /* El nombre mide lo que mide su texto (lo fija el componente en `style`), no toda la fila */
@@ -3820,3 +3816,33 @@ html.light .tc-fecha { color-scheme: light; }
   .tc-discreto { transition: opacity 0.15s ease, background-color 0.12s ease, color 0.12s ease; }
   .tc-burbuja { animation: tc-sube 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; }
 }
+
+/* ---- Los fondos animados ----
+   Tres luces (`<i>`) de color que derivan despacio sobre una base oscura del mismo tono (clara en el tema claro). Solo se animan `translate` y `scale`, que el navegador
+   mueve en la tarjeta gráfica sin repintar nada: casi no cuestan. Quien pide menos movimiento los ve quietos. Cada receta solo pone sus tres colores (--fa-a/b/c). */
+.tc-fa { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; contain: layout paint; background: color-mix(in srgb, var(--fa-a) 9%, var(--tc-base)); }
+.tc-zona > .tc-fa, .tc-inicio > .tc-fa { position: absolute; }
+.tc-fa i { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, var(--fa-luz) 0%, transparent 100%); opacity: 0.5; will-change: translate, scale; }
+html.light .tc-fa i { opacity: 0.38; }
+.tc-fa i:nth-child(1) { --fa-luz: var(--fa-a); left: -12%; top: -38%; width: 68%; height: 100%; }
+.tc-fa i:nth-child(2) { --fa-luz: var(--fa-b); right: -18%; top: 8%; width: 62%; height: 92%; }
+.tc-fa i:nth-child(3) { --fa-luz: var(--fa-c); left: 22%; bottom: -52%; width: 70%; height: 96%; }
+.tc-fa[data-fa='aurora'] { --fa-a: #22d3a5; --fa-b: #6d5bff; --fa-c: #19a7ce; }
+.tc-fa[data-fa='nebulosa'] { --fa-a: #a855f7; --fa-b: #ec4899; --fa-c: #4f7cff; }
+.tc-fa[data-fa='brasas'] { --fa-a: #ff6a1a; --fa-b: #e11d48; --fa-c: #f59e0b; }
+.tc-fa[data-fa='oceano'] { --fa-a: #0ea5e9; --fa-b: #14b8a6; --fa-c: #3b5bdb; }
+.tc-fa[data-fa='crepusculo'] { --fa-a: #fb7185; --fa-b: #f59e0b; --fa-c: #6366f1; }
+.tc-fa[data-fa='malla'] { --fa-a: #4f7cff; --fa-b: #22d3ee; --fa-c: #8b5cf6; }
+/* La malla: una cuadrícula fina que se desvanece hacia los bordes, sobre las mismas luces */
+.tc-fa[data-fa='malla']::after { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px); background-size: 44px 44px; -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 78%); mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 78%); }
+html.light .tc-fa[data-fa='malla']::after { background-image: linear-gradient(rgba(20, 24, 40, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 24, 40, 0.08) 1px, transparent 1px); }
+@keyframes tc-fa-1 { from { translate: 0 0; scale: 1; } to { translate: 16% 14%; scale: 1.18; } }
+@keyframes tc-fa-2 { from { translate: 0 0; scale: 1.1; } to { translate: -18% 10%; scale: 0.92; } }
+@keyframes tc-fa-3 { from { translate: 0 0; scale: 0.95; } to { translate: 14% -16%; scale: 1.15; } }
+@media (prefers-reduced-motion: no-preference) {
+  .tc-fa i:nth-child(1) { animation: tc-fa-1 26s ease-in-out infinite alternate; }
+  .tc-fa i:nth-child(2) { animation: tc-fa-2 32s ease-in-out infinite alternate; }
+  .tc-fa i:nth-child(3) { animation: tc-fa-3 38s ease-in-out infinite alternate; }
+}
+/* En la muestra del selector las luces son más pequeñas y la caja las recorta */
+.tc-muestra-portada .tc-fa { border-radius: inherit; }

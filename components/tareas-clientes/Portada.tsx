@@ -4,7 +4,7 @@ import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { ImagePlus, Loader2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { COLORES_DE_PORTADA, DEGRADADOS, fondoCss } from '@/lib/tareas-clientes/colores'
+import { COLORES_DE_PORTADA, DEGRADADOS, fondoAnimadoId, FONDOS_ANIMADOS, fondoCss } from '@/lib/tareas-clientes/colores'
 import type { Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
 import { BASE, pedir } from './api'
 
@@ -28,14 +28,30 @@ export function estiloDePortada(p: PortadaGuardada | null | undefined, comoFondo
 /** ¿Hay un fondo de imagen o degradado que necesite la cortina para que el texto se lea? (el color liso ya se pinta oscurecido) */
 export const fondoNecesitaCortina = (p: PortadaGuardada | null | undefined): boolean => Boolean(fondoCss(p)) && p?.tipo !== 'color'
 
+/** Luces de color que derivan despacio detrás de todo (CSS puro: ver `tc-fa-*` en app/globals.css). Se pinta como primer hijo del recuadro, por debajo de todo lo demás */
+export function FondoAnimado({ valor }: { valor: PortadaGuardada | null | undefined }) {
+  const id = fondoAnimadoId(valor)
+  if (!id) return null
+  return (
+    <div className="tc-fa" data-fa={id} aria-hidden>
+      <i />
+      <i />
+      <i />
+    </div>
+  )
+}
+
 const PESTANAS = [
+  { id: 'animado', nombre: 'Animados' },
   { id: 'degradado', nombre: 'Degradados' },
   { id: 'color', nombre: 'Colores' },
   { id: 'imagen', nombre: 'Imagen' },
 ] as const
 
-export function SelectorDePortada({ valor, onElegir, titulo, children }: { valor: PortadaGuardada | null | undefined; onElegir: (p: PortadaGuardada) => void; titulo: string; children: ReactNode }) {
-  const [pestana, setPestana] = useState<(typeof PESTANAS)[number]['id']>(valor?.tipo === 'color' ? 'color' : valor?.tipo === 'imagen' ? 'imagen' : 'degradado')
+/** `animados`: ofrece también los fondos animados (solo tiene sentido para un FONDO, no para una portada) */
+export function SelectorDePortada({ valor, onElegir, titulo, children, animados = false }: { valor: PortadaGuardada | null | undefined; onElegir: (p: PortadaGuardada) => void; titulo: string; children: ReactNode; animados?: boolean }) {
+  const pestanas = PESTANAS.filter((p) => animados || p.id !== 'animado')
+  const [pestana, setPestana] = useState<(typeof PESTANAS)[number]['id']>(valor?.tipo === 'animado' && animados ? 'animado' : valor?.tipo === 'color' ? 'color' : valor?.tipo === 'imagen' ? 'imagen' : 'degradado')
   const [subiendo, setSubiendo] = useState(false)
   const [enlace, setEnlace] = useState('')
   const entrada = useRef<HTMLInputElement>(null)
@@ -67,13 +83,23 @@ export function SelectorDePortada({ valor, onElegir, titulo, children }: { valor
           )}
         </div>
         <div className="mb-2 flex gap-1 rounded-[8px] bg-[var(--ls-sup2)] p-0.5" role="tablist">
-          {PESTANAS.map((p) => (
+          {pestanas.map((p) => (
             <button key={p.id} type="button" role="tab" aria-selected={pestana === p.id} onClick={() => setPestana(p.id)} className={`flex-1 rounded-[6px] py-1 text-[11.5px] font-medium ${pestana === p.id ? 'bg-[var(--ls-sup3)] text-[var(--ls-t1)]' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'}`}>
               {p.nombre}
             </button>
           ))}
         </div>
 
+        {pestana === 'animado' && (
+          <div className="grid grid-cols-3 gap-1.5">
+            {FONDOS_ANIMADOS.map((f) => (
+              <button key={f.id} type="button" title={f.nombre} aria-label={f.nombre} aria-pressed={valor?.tipo === 'animado' && valor.valor === f.id} onClick={() => onElegir({ tipo: 'animado', valor: f.id })} className="tc-muestra-portada">
+                <FondoAnimado valor={{ tipo: 'animado', valor: f.id }} />
+                <span>{f.nombre}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {pestana === 'degradado' && (
           <div className="grid grid-cols-3 gap-1.5">
             {DEGRADADOS.map((d) => (

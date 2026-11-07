@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { destinatariosDeAsignacion, destinatariosDeComentario, mencionesEnTexto, resumen } from './avisos'
 import { contarChecklist, huellaDeContenido, textoPlano, TIPOS_EDITABLES, type Bloque } from './bloques'
+import { fondoAnimadoId } from './colores'
 import { colocar, ordenAlFinal } from './orden'
 import { departamentosDe, estadosDe, estaHecha, type ActividadTC, type ClienteTC, type ComentarioTC, type PersonaTC, type TareaTC, type TipoDeActividad } from './tipos'
 
@@ -565,9 +566,11 @@ export interface CambiosDeCliente {
 function portadaLimpia(v: unknown): Record<string, unknown> {
   if (!v || typeof v !== 'object') return {}
   const p = v as { tipo?: unknown; valor?: unknown; y?: unknown }
-  if (p.tipo !== 'color' && p.tipo !== 'degradado' && p.tipo !== 'imagen') return {}
+  if (p.tipo !== 'color' && p.tipo !== 'degradado' && p.tipo !== 'imagen' && p.tipo !== 'animado') return {}
   const valor = tope(p.valor, 600)
   if (!valor) return {}
+  // Un fondo animado es uno de la lista cerrada: cualquier otro nombre no se guarda
+  if (p.tipo === 'animado' && !fondoAnimadoId({ tipo: 'animado', valor })) return {}
   const y = Number(p.y)
   return { tipo: p.tipo, valor, ...(Number.isFinite(y) ? { y: Math.max(0, Math.min(100, Math.round(y))) } : {}) }
 }

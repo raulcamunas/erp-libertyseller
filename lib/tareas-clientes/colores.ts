@@ -62,6 +62,25 @@ export function fondoCss(p: { tipo?: string; valor?: string; y?: number } | null
   return null
 }
 
+/**
+ * LOS FONDOS ANIMADOS: luces de color que derivan despacio detrás de todo. Se pintan con CSS (clases `tc-fa-*` de app/globals.css), sin imágenes ni scripts, y solo mueven
+ * `translate` y `scale` (lo que el navegador anima en la tarjeta gráfica): casi no gastan. Quien pide menos movimiento los ve quietos.
+ */
+export const FONDOS_ANIMADOS: ReadonlyArray<{ id: string; nombre: string }> = [
+  { id: 'aurora', nombre: 'Aurora' },
+  { id: 'nebulosa', nombre: 'Nebulosa' },
+  { id: 'brasas', nombre: 'Brasas' },
+  { id: 'oceano', nombre: 'Océano' },
+  { id: 'crepusculo', nombre: 'Crepúsculo' },
+  { id: 'malla', nombre: 'Malla' },
+]
+const ANIMADOS: ReadonlySet<string> = new Set(FONDOS_ANIMADOS.map((f) => f.id))
+
+/** El nombre del fondo animado guardado, o null si no hay (o no se conoce: nunca se pinta algo que no está en la lista) */
+export function fondoAnimadoId(p: { tipo?: string; valor?: string } | null | undefined): string | null {
+  return p?.tipo === 'animado' && p.valor && ANIMADOS.has(p.valor) ? p.valor : null
+}
+
 /** Los colores lisos que se ofrecen para una portada */
 export const COLORES_DE_PORTADA: ReadonlyArray<{ id: string; nombre: string; valor: string }> = [
   { id: 'negro', nombre: 'Negro', valor: '#141518' },
