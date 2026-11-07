@@ -35,6 +35,12 @@ export interface DatosDeCliente {
   personas: PersonaTC[]
 }
 
+/**
+ * LO ÚLTIMO QUE SE LEYÓ de «todas las tareas», guardado en memoria mientras la pestaña siga abierta: al volver al espacio de trabajo (desde el inicio, por ejemplo) se
+ * pinta al instante con esto y se refresca por detrás. Solo vive en el navegador de esta persona; al recargar la página se pierde, que es lo que se quiere.
+ */
+export const memoria: { todas: DatosDeTodas | null } = { todas: null }
+
 export interface DatosDeTodas {
   clientes: ClienteTC[]
   tareas: TareaLigera[]

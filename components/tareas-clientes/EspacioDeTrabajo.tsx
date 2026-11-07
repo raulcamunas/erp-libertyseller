@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { colocar } from '@/lib/tareas-clientes/orden'
 import { filtrarTareas } from '@/lib/tareas-clientes/filtros'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { departamentosDe, estadosDe, FILTROS_VACIOS, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
-import { BASE, pedir, type DatosDeTodas, type Preferencias } from './api'
-import { BarraLateral, type Ambito } from './BarraLateral'
+import { ambitoDeRuta, mismoAmbito, type Ambito } from '@/lib/tareas-clientes/ambito'
+import { BASE, memoria, pedir, type DatosDeTodas, type Preferencias } from './api'
+import { BarraLateral } from './BarraLateral'
 import { Cabecera } from './Cabecera'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
@@ -47,9 +48,13 @@ function escribirLocal(clave: string, valor: string) {
   }
 }
 
-export function EspacioDeTrabajo({ ambito, miId, esAdmin, tareaInicial }: { ambito: Ambito; miId: string; esAdmin: boolean; tareaInicial?: string | null }) {
+export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaInicial }: { ambito: Ambito; miId: string; esAdmin: boolean; tareaInicial?: string | null }) {
   const router = useRouter()
-  const [datos, setDatos] = useState<DatosDeTodas | null>(null)
+  const pathname = usePathname()
+  // El ámbito (un cliente, «Todas», «Mis tareas») vive aquí y no en la página: cambiar de cliente solo cambia el filtro, no se vuelve a pedir nada (ver lib/tareas-clientes/ambito.ts)
+  const [ambito, setAmbito] = useState<Ambito>(ambitoInicial)
+  // Lo último que se leyó, si ya se leyó antes en esta pestaña: se pinta al momento y se refresca por detrás
+  const [datos, setDatos] = useState<DatosDeTodas | null>(memoria.todas)
   const [error, setError] = useState<string | null>(null)
   const [vistaElegida, setVistaElegida] = useState<TipoDeVista | null>(null)
   const [filtros, setFiltros] = useState<FiltrosDeTareas>(FILTROS_VACIOS)
@@ -71,6 +76,7 @@ export function EspacioDeTrabajo({ ambito, miId, esAdmin, tareaInicial }: { ambi
     try {
       const d = await pedir<DatosDeTodas>(`${BASE}/todas`)
       if (pendientes.current > 0) return
+      memoria.todas = d
       setDatos(d)
       setError(null)
     } catch (e) {
@@ -237,11 +243,55 @@ export function EspacioDeTrabajo({ ambito, miId, esAdmin, tareaInicial }: { ambi
     return () => window.removeEventListener('keydown', alPulsar)
   }, [abierta, abrir])
 
-  const navegar = (ruta: string) => {
+  // Cambiar de ámbito es instantáneo: se cambia el filtro y la dirección (con pushState, que Next sigue en `usePathname`) sin pasar por el servidor. Lo que no es un espacio
+  // de trabajo (el inicio) sí es otra página y se abre con el router
+  const irA = useCallback((nuevo: Ambito, ruta: string) => {
     setAbierta(null)
     setFiltros(FILTROS_VACIOS)
-    router.push(ruta, { scroll: false })
+    setAmbito(nuevo)
+    try {
+      window.history.pushState(null, '', ruta)
+    } catch {
+      router.push(ruta, { scroll: false })
+    }
+  }, [router])
+
+  const navegar = (ruta: string) => {
+    const nuevo = ambitoDeRuta(ruta)
+    if (nuevo) irA(nuevo, ruta)
+    else {
+      setAbierta(null)
+      setFiltros(FILTROS_VACIOS)
+      router.push(ruta, { scroll: false })
+    }
   }
+
+  // Atrás y adelante, o un enlace de fuera (el aviso de la campana): si la dirección es la de otro ámbito, se sigue
+  const ambitoRef = useRef(ambito)
+  ambitoRef.current = ambito
+  useEffect(() => {
+    const nuevo = ambitoDeRuta(pathname)
+    if (!nuevo || mismoAmbito(ambitoRef.current, nuevo)) return
+    setAbierta(null)
+    setFiltros(FILTROS_VACIOS)
+    setAmbito(nuevo)
+  }, [pathname])
+  // Atrás y adelante también por el propio navegador: con las direcciones que cambiamos nosotros no depende de que el router se entere
+  useEffect(() => {
+    const alVolver = () => {
+      const nuevo = ambitoDeRuta(window.location.pathname)
+      if (!nuevo || mismoAmbito(ambitoRef.current, nuevo)) return
+      setAbierta(null)
+      setFiltros(FILTROS_VACIOS)
+      setAmbito(nuevo)
+    }
+    window.addEventListener('popstate', alVolver)
+    return () => window.removeEventListener('popstate', alVolver)
+  }, [])
+  // Un aviso de la campana lleva a una tarea concreta (`?tarea=`): se abre aunque ya se estuviera en ese cliente
+  useEffect(() => {
+    if (tareaInicial) setAbierta(tareaInicial)
+  }, [tareaInicial])
 
   /* ---- Pintar ---- */
   if (error && !datos) {

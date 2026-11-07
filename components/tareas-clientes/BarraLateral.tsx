@@ -6,13 +6,14 @@ import { ChevronsLeft, ChevronsRight, Home, KanbanSquare, LayoutGrid, Search, St
 import { ETIQUETA_DE_GRUPO, estadosDe, type ClienteTC, type GrupoDeCliente } from '@/lib/tareas-clientes/tipos'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { colorValido } from '@/lib/tareas-clientes/colores'
+import type { Ambito } from '@/lib/tareas-clientes/ambito'
 
 /**
  * LA COLUMNA DE LA IZQUIERDA: de un vistazo, todos los clientes con lo que les queda por hacer, «Todas las tareas», «Mis tareas» y tus favoritos. Plegada, se queda en una
  * fila de iconos. El número de cada cliente son sus tareas sin terminar; en rojo si alguna ya está vencida.
  */
 
-export type Ambito = { tipo: 'cliente'; id: string } | { tipo: 'todas' } | { tipo: 'mias' }
+export type { Ambito }
 
 const ORDEN_DE_GRUPOS: GrupoDeCliente[] = ['agencia', 'marcas_eeuu', 'otros']
 

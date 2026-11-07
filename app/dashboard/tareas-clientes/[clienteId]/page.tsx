@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { exigirTareas } from '@/lib/tareas-clientes/acceso'
 import { EspacioDeTrabajo } from '@/components/tareas-clientes/EspacioDeTrabajo'
-import type { Ambito } from '@/components/tareas-clientes/BarraLateral'
+import type { Ambito } from '@/lib/tareas-clientes/ambito'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
