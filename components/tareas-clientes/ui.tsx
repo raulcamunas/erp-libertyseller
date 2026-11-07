@@ -37,7 +37,8 @@ export function PilaDeAvatares({ ids, personas, maximo = 3, tamano = 20 }: { ids
   return (
     <span className="inline-flex items-center" title={ids.map((i) => NombreDePersona(personas, i)).join(', ')}>
       {visibles.map((id, i) => (
-        <span key={id} className="tc-avatar-pila rounded-full" style={{ marginLeft: i === 0 ? 0 : -6, zIndex: visibles.length - i }}>
+        // El aro que separa las caras solapadas solo hace falta si hay más de una: una sola, sin aro (sobre una tarjeta de color se veía como un anillo oscuro)
+        <span key={id} className={`${ids.length > 1 ? 'tc-avatar-pila' : ''} rounded-full`} style={{ marginLeft: i === 0 ? 0 : -6, zIndex: visibles.length - i }}>
           <Avatar id={id} nombre={NombreDePersona(personas, id)} tamano={tamano} />
         </span>
       ))}

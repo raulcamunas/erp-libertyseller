@@ -3248,7 +3248,8 @@ html.light {
 .tc-barra::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--p, 0%); border-radius: inherit; background: var(--ls-e-verde); }
 .tc-icono-boton { display: inline-flex; height: 22px; width: 22px; align-items: center; justify-content: center; border-radius: 5px; color: var(--ls-t4); }
 .tc-icono-boton:hover { background: color-mix(in srgb, var(--tono, var(--ls-t1)) 16%, transparent); color: var(--ls-t1); }
-.tc-avatar-pila { box-shadow: 0 0 0 2px var(--ls-sup); }
+/* El aro lleva el color del fondo donde está la cara: en una tarjeta de color, el de la tarjeta */
+.tc-avatar-pila { box-shadow: 0 0 0 2px var(--tc-anillo, var(--ls-sup)); }
 
 /* ---- El tablero ---- */
 .tc-tablero { display: flex; height: 100%; min-height: 0; gap: 10px; overflow-x: auto; overflow-y: hidden; padding: 2px 2px 12px; }
@@ -3274,6 +3275,7 @@ html.light {
   background: color-mix(in srgb, var(--tono) 15%, var(--ls-sup));
   user-select: none;
 }
+.tc-tarjeta { --tc-anillo: color-mix(in srgb, var(--tono) 15%, var(--ls-sup)); }
 .tc-tarjeta:hover { border-color: color-mix(in srgb, var(--tono) 55%, var(--ls-linea)); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22); }
 .tc-tarjeta:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 1px; }
 .tc-tarjeta[data-activa='true'] { border-color: var(--ls-acc-graf); box-shadow: 0 0 0 1px var(--ls-acc-graf); }
