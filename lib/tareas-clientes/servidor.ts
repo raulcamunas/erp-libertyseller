@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { destinatariosDeAsignacion, destinatariosDeComentario, mencionesEnTexto, resumen } from './avisos'
 import { contarChecklist, huellaDeContenido, textoPlano, TIPOS_EDITABLES, type Bloque } from './bloques'
 import { fondoAnimadoId } from './colores'
+import { programarEnvioANotion } from './notion/pronto'
 import { colocar, ordenAlFinal } from './orden'
 import { departamentosDe, estadosDe, estaHecha, type ActividadTC, type ClienteTC, type ComentarioTC, type PersonaTC, type TareaTC, type TipoDeActividad } from './tipos'
 
@@ -216,6 +217,7 @@ async function encolar(clienteId: string, tareaId: string, operacion: OperacionD
   if (!cliente?.notion_ds_id) return 'solo_erp'
   const { error } = await service.from('tc_notion_cola').insert({ tarea_id: tareaId, cliente_id: clienteId, operacion, payload })
   if (error) console.error('No se ha podido dejar el cambio en la cola de Notion:', error.message)
+  else programarEnvioANotion()
   return 'pendiente'
 }
 

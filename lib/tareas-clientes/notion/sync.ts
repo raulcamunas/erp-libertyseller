@@ -32,8 +32,9 @@ import { tablaDePersonas, type TablaDePersonas } from './personas'
  * página que Notion editó antes de lo último que ya vimos se ignora. Lo que mandamos solo lleva los campos que cambiaron, así que lo que se toque en otro campo en Notion no
  * se pierde. Cuando mandamos algo, nos guardamos la hora que Notion le pone a su edición: así su propio eco no vuelve a entrar como si fuera un cambio de otra persona.
  *
- * ESCRIBIR EN NOTION SE ACTIVA APARTE (NOTION_ESCRITURA=1). Sin ella, la sincronización solo LEE: se puede comprobar que las columnas, los estados y las personas caen
- * donde deben antes de dejar que el ERP toque las tareas reales del equipo.
+ * ESCRIBIR EN NOTION está ACTIVO por defecto (desde que Raúl lo pidió, 8 nov 2026, tras la primera lectura completa sin errores). `NOTION_ESCRITURA=0` en el servidor lo
+ * apaga de golpe (la sincronización vuelve a solo LEER) sin tocar código. Cada cambio hecho en el ERP sale a los pocos segundos (pronto.ts); la pasada periódica del cron
+ * es la red de seguridad (reintentos y lo que se quedó a medias si el servidor se reinició).
  */
 
 const MARGEN_DE_RELOJ_MS = 120_000
@@ -41,7 +42,7 @@ const TANDA_DE_CUERPOS = 25
 const TANDA_DE_COMENTARIOS = 20
 const INTENTOS_ANTES_DE_ERROR = 6
 
-export const escrituraPermitida = (): boolean => (process.env.NOTION_ESCRITURA ?? '').trim() === '1'
+export const escrituraPermitida = (): boolean => (process.env.NOTION_ESCRITURA ?? '').trim() !== '0'
 
 export interface ResultadoDeSync {
   ok: boolean
@@ -402,6 +403,25 @@ async function vaciarCola(personas: TablaDePersonas, resultado: ResultadoDeSync,
     const { data: quedan } = await service.from('tc_notion_cola').select('id').eq('tarea_id', tareaId).is('hecho_en', null).limit(1)
     if ((quedan ?? []).length === 0) await service.from('tc_tareas').update({ sync_estado: 'ok', sync_error: null }).eq('id', tareaId)
   }
+}
+
+/**
+ * Solo manda lo que hay en la cola, sin leer nada de Notion: es lo que se lanza a los pocos segundos de cada cambio (pronto.ts). Comparte el turno con la pasada entera, así
+ * que nunca van las dos a la vez; si el turno está cogido devuelve `ocupado` y quien llama lo reintenta. `proximoEnMs`: cuándo toca el siguiente reintento de algo que falló.
+ */
+export async function vaciarSoloLaCola(presupuestoMs = 40_000): Promise<{ ocupado: boolean; proximoEnMs: number | null }> {
+  if (!escrituraPermitida() || !notionConfigurado()) return { ocupado: false, proximoEnMs: null }
+  if (!(await cogerTurno())) return { ocupado: true, proximoEnMs: null }
+  const service = createServiceClient()
+  try {
+    const personas = await cargarPersonas()
+    await vaciarCola(personas, vacio(), Date.now() + presupuestoMs)
+  } finally {
+    await soltarTurno()
+  }
+  const { data } = await service.from('tc_notion_cola').select('proximo_intento').is('hecho_en', null).order('proximo_intento').limit(1)
+  const siguiente = data?.[0]?.proximo_intento ? Date.parse(data[0].proximo_intento as string) - Date.now() : null
+  return { ocupado: false, proximoEnMs: siguiente === null || Number.isNaN(siguiente) ? null : Math.max(siguiente, 5_000) }
 }
 
 /* ------------------------------------------------------------------ */
