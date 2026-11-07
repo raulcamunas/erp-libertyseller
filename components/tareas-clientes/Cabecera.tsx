@@ -69,7 +69,7 @@ export function Cabecera(p: PropsDeCabecera) {
         </SelectorDeEmoji>
         <div className="min-w-0 flex-1">
           {p.onTitulo ? (
-            <input value={titulo ?? p.titulo} aria-label="Nombre del cliente" onChange={(e) => setTitulo(e.target.value)} onBlur={() => { if (titulo !== null && titulo.trim() && titulo.trim() !== p.titulo) p.onTitulo?.(titulo.trim()); setTitulo(null) }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setTitulo(null); (e.target as HTMLInputElement).blur() } }} className="tc-nombre" />
+            <input value={titulo ?? p.titulo} aria-label="Nombre del cliente" onChange={(e) => setTitulo(e.target.value)} onBlur={() => { if (titulo !== null && titulo.trim() && titulo.trim() !== p.titulo) p.onTitulo?.(titulo.trim()); setTitulo(null) }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setTitulo(null); (e.target as HTMLInputElement).blur() } }} className="tc-nombre" style={{ width: `${Math.max(8, (titulo ?? p.titulo).length + 1) * 0.6}em` }} />
           ) : (
             <h1 className="tc-nombre !cursor-default">{p.titulo}</h1>
           )}

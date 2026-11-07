@@ -13,12 +13,20 @@ import { BASE, pedir } from './api'
  * inicio de cada persona. `estiloDePortada` convierte lo guardado en el estilo que se pinta; lo que no se reconoce no pinta nada (nunca una dirección cualquiera).
  */
 
-export function estiloDePortada(p: PortadaGuardada | null | undefined): CSSProperties | undefined {
+export function estiloDePortada(p: PortadaGuardada | null | undefined, comoFondo = false): CSSProperties | undefined {
   const css = fondoCss(p)
   if (!css) return undefined
   if (p?.tipo === 'imagen') return { backgroundImage: css, backgroundSize: 'cover', backgroundPosition: `center ${p.y ?? 50}%`, backgroundRepeat: 'no-repeat' }
+  // Un color liso como FONDO de toda la pantalla (un naranja vivo a pantalla completa cansa y aplana todo): se pinta como una luz del color arriba a la izquierda
+  // sobre una versión oscura de ese mismo color (clara en el tema claro). Como portada se queda tal cual.
+  if (comoFondo && p?.tipo === 'color') {
+    return { background: `radial-gradient(1100px 560px at 8% -14%, color-mix(in srgb, ${css} 62%, transparent), transparent 72%), linear-gradient(165deg, color-mix(in srgb, ${css} 40%, var(--tc-base)), color-mix(in srgb, ${css} 14%, var(--tc-base)))` }
+  }
   return { background: css }
 }
+
+/** ¿Hay un fondo de imagen o degradado que necesite la cortina para que el texto se lea? (el color liso ya se pinta oscurecido) */
+export const fondoNecesitaCortina = (p: PortadaGuardada | null | undefined): boolean => Boolean(fondoCss(p)) && p?.tipo !== 'color'
 
 const PESTANAS = [
   { id: 'degradado', nombre: 'Degradados' },

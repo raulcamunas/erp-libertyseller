@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { closestCorners, DndContext, DragOverlay, KeyboardSensor, PointerSensor, useDroppable, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent } from '@dnd-kit/core'
+import { closestCenter, DndContext, DragOverlay, getFirstCollision, KeyboardSensor, MouseSensor, pointerWithin, rectIntersection, TouchSensor, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragOverEvent, type DragStartEvent, type UniqueIdentifier } from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Plus } from 'lucide-react'
@@ -54,19 +54,64 @@ export function Tablero({ estados: estadosBase, departamentos, tareas, personas,
 
   const [columnas, setColumnas] = useState<Columnas>(() => agrupar(tareas, estados))
   const [activa, setActiva] = useState<string | null>(null)
+  // Las entradas animadas (columnas y tarjetas que suben) solo corren al abrir el tablero. Si siguieran puestas, una tarjeta que cambia de columna al arrastrarla
+  // se montaría de nuevo y volvería a entrar desde transparente: eso era lo que hacía que el arrastre pareciera ir a tirones.
+  const [entrada, setEntrada] = useState(true)
   const arrastrando = useRef(false)
   const origen = useRef<{ estado: string; despuesDe: string | null } | null>(null)
+  const columnasRef = useRef(columnas)
+  columnasRef.current = columnas
+  const ultimoSobre = useRef<UniqueIdentifier | null>(null)
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setEntrada(false), 1500)
+    return () => {
+      window.clearTimeout(t)
+      document.body.classList.remove('tc-agarrando')
+    }
+  }, [])
 
   useEffect(() => {
     if (!arrastrando.current) setColumnas(agrupar(tareas, estados))
   }, [tareas, estados])
 
-  const sensores = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
+  // Ratón con un pequeño umbral (así un clic abre la tarea y un arrastre la mueve); en el móvil, mantener pulsado un instante para no pelearse con el desplazamiento
+  const sensores = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 170, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  /**
+   * DÓNDE ESTÁ LA TARJETA QUE SE ARRASTRA. `closestCorners` (lo de antes) elegía mal en cuanto había varias columnas con tarjetas: medía esquinas contra todo. Ahora manda el
+   * PUNTERO: si está dentro de una tarjeta, esa; si está dentro de una columna pero entre tarjetas (o la columna está vacía), la tarjeta de esa columna con el centro más cercano
+   * (o la columna misma si no tiene ninguna); y si se suelta fuera de todo, se queda donde estaba la última vez.
+   */
+  const colision: CollisionDetection = useCallback((args) => {
+    const delPuntero = pointerWithin(args)
+    const candidatas = delPuntero.length > 0 ? delPuntero : rectIntersection(args)
+    let sobreId = getFirstCollision(candidatas, 'id')
+    if (sobreId != null) {
+      const id = String(sobreId)
+      if (id.startsWith(COLUMNA)) {
+        const tarjetas = columnasRef.current[id.slice(COLUMNA.length)] ?? []
+        if (tarjetas.length > 0) {
+          const cercana = closestCenter({ ...args, droppableContainers: args.droppableContainers.filter((c) => tarjetas.includes(String(c.id))) })
+          sobreId = cercana[0]?.id ?? sobreId
+        }
+      }
+      ultimoSobre.current = sobreId
+      return [{ id: sobreId }]
+    }
+    return ultimoSobre.current != null ? [{ id: ultimoSobre.current }] : []
+  }, [])
 
   const contenedorDe = useCallback((id: string, c: Columnas): string | undefined => (id.startsWith(COLUMNA) ? id.slice(COLUMNA.length) : Object.keys(c).find((k) => c[k].includes(id))), [])
 
   const alEmpezar = (e: DragStartEvent) => {
     arrastrando.current = true
+    ultimoSobre.current = null
+    document.body.classList.add('tc-agarrando')
     const id = String(e.active.id)
     setActiva(id)
     const estado = contenedorDe(id, columnas) ?? ''
@@ -78,13 +123,17 @@ export function Tablero({ estados: estadosBase, departamentos, tareas, personas,
     const { active, over } = e
     if (!over) return
     const id = String(active.id)
+    const sobreId = String(over.id)
+    // Si el centro de la tarjeta arrastrada ya está por debajo del centro de aquella sobre la que pasa, entra DETRÁS de ella (si no, siempre entraba delante y la posición saltaba)
+    const t = active.rect.current.translated
+    const detras = Boolean(t && t.top + t.height / 2 > over.rect.top + over.rect.height / 2)
     setColumnas((prev) => {
       const desde = contenedorDe(id, prev)
-      const hacia = contenedorDe(String(over.id), prev)
+      const hacia = contenedorDe(sobreId, prev)
       if (!desde || !hacia || desde === hacia) return prev
       const destino = prev[hacia]
-      const sobre = destino.indexOf(String(over.id))
-      const i = sobre >= 0 ? sobre : destino.length
+      const sobre = destino.indexOf(sobreId)
+      const i = sobre >= 0 ? sobre + (detras ? 1 : 0) : destino.length
       return { ...prev, [desde]: prev[desde].filter((x) => x !== id), [hacia]: [...destino.slice(0, i), id, ...destino.slice(i)] }
     })
   }
@@ -103,6 +152,7 @@ export function Tablero({ estados: estadosBase, departamentos, tareas, personas,
       }
     }
     arrastrando.current = false
+    document.body.classList.remove('tc-agarrando')
     setActiva(null)
     const estado = contenedorDe(id, final)
     if (!estado) return
@@ -116,6 +166,7 @@ export function Tablero({ estados: estadosBase, departamentos, tareas, personas,
 
   const alCancelar = () => {
     arrastrando.current = false
+    document.body.classList.remove('tc-agarrando')
     setActiva(null)
     origen.current = null
     setColumnas(agrupar(tareas, estados))
@@ -124,8 +175,8 @@ export function Tablero({ estados: estadosBase, departamentos, tareas, personas,
   const tareaActiva = activa ? porId.get(activa) : null
 
   return (
-    <DndContext sensors={sensores} collisionDetection={closestCorners} onDragStart={alEmpezar} onDragOver={alPasarPor} onDragEnd={alSoltar} onDragCancel={alCancelar}>
-      <div className="tc-tablero" role="group" aria-label="Tablero de tareas">
+    <DndContext sensors={sensores} collisionDetection={colision} autoScroll={{ threshold: { x: 0.1, y: 0.14 }, acceleration: 7 }} onDragStart={alEmpezar} onDragOver={alPasarPor} onDragEnd={alSoltar} onDragCancel={alCancelar}>
+      <div className="tc-tablero" role="group" aria-label="Tablero de tareas" data-entrada={entrada ? 'true' : undefined} data-arrastrando={activa ? 'true' : undefined}>
         {estados.map((estado, i) => (
           <Columna key={estado.nombre} estado={estado} indice={i} ids={columnas[estado.nombre] ?? []} onCrear={onCrear}>
             {(columnas[estado.nombre] ?? []).map((id, j) => {
@@ -140,7 +191,7 @@ export function Tablero({ estados: estadosBase, departamentos, tareas, personas,
           </Columna>
         ))}
       </div>
-      <DragOverlay dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.22, 0.8, 0.3, 1)' }}>
+      <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }}>
         {tareaActiva ? <Tarjeta tarea={tareaActiva} estado={estados.find((x) => x.nombre === tareaActiva.estado)} personas={personas} departamentoColor={departamentos.find((d) => d.nombre === tareaActiva.departamento)?.color} superpuesta /> : null}
       </DragOverlay>
     </DndContext>
@@ -175,7 +226,7 @@ function Columna({ estado, indice, ids, onCrear, children }: { estado: OpcionDeE
   }
 
   return (
-    <section className="tc-columna" data-sobre={isOver ? 'true' : undefined} style={{ '--tono': `var(--tc-${estado.color})`, '--i': indice } as CSSProperties} aria-label={`Columna ${estado.nombre}`}>
+    <section ref={setNodeRef} className="tc-columna" data-sobre={isOver ? 'true' : undefined} style={{ '--tono': `var(--tc-${estado.color})`, '--i': indice } as CSSProperties} aria-label={`Columna ${estado.nombre}`}>
       <header className="tc-columna-cabecera">
         <Etiqueta color={estado.color}>
           <span className="tc-punto" style={{ '--tono': `var(--tc-${estado.color})` } as CSSProperties} />
@@ -187,7 +238,7 @@ function Columna({ estado, indice, ids, onCrear, children }: { estado: OpcionDeE
         </button>
       </header>
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <div ref={setNodeRef} className="tc-columna-cuerpo">
+        <div className="tc-columna-cuerpo">
           {children}
           {escribiendo ? (
             <div className="tc-nueva">

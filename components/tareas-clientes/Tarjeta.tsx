@@ -26,6 +26,7 @@ export interface PropsDeTarjeta {
 }
 
 export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas, departamentoColor, activa, superpuesta, fantasma, indice = 0, onAbrir }: PropsDeTarjeta) {
+  // Sin color propio la tarjeta es neutra (el color de la columna ya está en su filo); con color propio se tiñe entera
   const color = colorValido(tarea.color ?? estado?.color)
   const hecha = estado?.grupo === 'hecho'
   const dia = tarea.fecha_fin?.slice(0, 10) ?? tarea.fecha_inicio?.slice(0, 10) ?? null
@@ -38,6 +39,7 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
       tabIndex={0}
       aria-label={`Abrir la tarea ${tarea.titulo || 'sin título'}`}
       data-activa={activa ? 'true' : undefined}
+      data-color={tarea.color ? 'propio' : undefined}
       data-superpuesta={superpuesta ? 'true' : undefined}
       data-fantasma={fantasma ? 'true' : undefined}
       onClick={() => onAbrir?.(tarea.id)}

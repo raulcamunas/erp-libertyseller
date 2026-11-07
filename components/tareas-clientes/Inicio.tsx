@@ -9,8 +9,9 @@ import { AlertTriangle, CheckCircle2, CloudOff, Flame, ImageIcon, LayoutGrid, Lo
 import { toast } from 'sonner'
 import type { EstadisticasDeCliente } from '@/lib/tareas-clientes/servidor'
 import { ETIQUETA_DE_GRUPO, type ClienteTC, type GrupoDeCliente, type Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
+import { saludoDe } from '@/lib/inicio/saludo'
 import { BASE, pedir, type DatosDeInicio, type Preferencias } from './api'
-import { SelectorDePortada, estiloDePortada } from './Portada'
+import { SelectorDePortada, estiloDePortada, fondoNecesitaCortina } from './Portada'
 import { PilaDeAvatares } from './ui'
 
 /**
@@ -111,14 +112,14 @@ export function Inicio({ esAdmin }: { esAdmin: boolean }) {
   }
 
   return (
-    <div className="tc-inicio" style={estiloDePortada(prefs.fondo)}>
+    <div className="tc-inicio" data-fondo={fondoNecesitaCortina(prefs.fondo) ? 'true' : undefined} style={estiloDePortada(prefs.fondo, true)}>
       <section className="tc-hero" style={estiloDePortada(prefs.portada)} data-vacia={prefs.portada.tipo ? undefined : 'true'}>
         <div className="tc-hero-velo" />
         <div className="relative z-10 flex flex-wrap items-end gap-x-8 gap-y-4 p-6">
           <div className="min-w-0 flex-1">
-            <p className="text-[12px] font-medium text-white/70">Liberty Seller</p>
-            <h1 className="mt-0.5 text-[28px] font-semibold leading-tight tracking-[-0.02em] text-white">Tareas de clientes</h1>
-            <p className="mt-1 max-w-xl text-[13px] text-white/75">Todo lo que hay por hacer en cada cuenta, conectado con Notion: lo que se mueve aquí se mueve allí y al revés.</p>
+            <p className="tc-hero-sobre">{saludoDe(new Date().getHours())} · Liberty Seller</p>
+            <h1 className="tc-hero-titulo">Tareas de clientes</h1>
+            <p className="tc-hero-texto">Todo lo que hay por hacer en cada cuenta, conectado con Notion: lo que se mueve aquí se mueve allí y al revés.</p>
           </div>
           <div className="flex flex-wrap gap-2" aria-label="Resumen">
             <Cifra icono={<LayoutGrid className="h-3.5 w-3.5" />} valor={totales.abiertas} nombre="por hacer" />
@@ -152,8 +153,8 @@ function Cifra({ icono, valor, nombre, alerta }: { icono: React.ReactNode; valor
   return (
     <div className="tc-cifra" data-alerta={alerta ? 'true' : undefined}>
       {icono}
-      <span className="text-[20px] font-semibold tabular-nums leading-none">{valor}</span>
-      <span className="text-[11.5px] opacity-80">{nombre}</span>
+      <span className="text-[22px] font-semibold tabular-nums leading-none" style={{ color: '#fff' }}>{valor}</span>
+      <span className="text-[11.5px]" style={{ color: 'rgba(255,255,255,0.78)' }}>{nombre}</span>
     </div>
   )
 }
@@ -205,8 +206,8 @@ function GrupoDeTarjetas({ grupo, clientes, estadisticas, personas, favoritos, o
     onOrden(nuevo)
   }
   return (
-    <section className="mt-7" aria-label={ETIQUETA_DE_GRUPO[grupo]}>
-      <h2 className="mb-3 flex items-center gap-2 text-[16px] font-semibold tracking-[-0.01em]" style={{ color: `var(--tc-${COLOR_DE_GRUPO[grupo]})` }}>{ETIQUETA_DE_GRUPO[grupo]}<span className="text-[12px] font-normal text-[var(--ls-t4)]">{clientes.length}</span></h2>
+    <section className="mt-9" aria-label={ETIQUETA_DE_GRUPO[grupo]}>
+      <h2 className="tc-grupo-titulo" style={{ '--tono': `var(--tc-${COLOR_DE_GRUPO[grupo]})` } as CSSProperties}><span className="tc-punto" />{ETIQUETA_DE_GRUPO[grupo]}<span className="font-normal tracking-normal text-[var(--ls-t4)]">{clientes.length}</span></h2>
       <DndContext sensors={sensores} collisionDetection={closestCenter} onDragEnd={alSoltar}>
         <SortableContext items={clientes.map((c) => c.id)} strategy={rectSortingStrategy}>
           <div className="tc-rejilla">

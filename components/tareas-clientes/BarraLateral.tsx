@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
-import { ChevronsLeft, ChevronsRight, Home, LayoutGrid, Search, Star, UserCheck } from 'lucide-react'
+import { ChevronsLeft, ChevronsRight, Home, KanbanSquare, LayoutGrid, Search, Star, UserCheck } from 'lucide-react'
 import { ETIQUETA_DE_GRUPO, estadosDe, type ClienteTC, type GrupoDeCliente } from '@/lib/tareas-clientes/tipos'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { colorValido } from '@/lib/tareas-clientes/colores'
@@ -76,21 +76,27 @@ export function BarraLateral({
 
   return (
     <aside className="tc-lateral" data-colapsada={colapsada ? 'true' : undefined} aria-label="Clientes">
-      <div className="flex items-center gap-1 px-2 pb-1 pt-2">
-        {!colapsada && <p className="flex-1 truncate px-1.5 text-[12.5px] font-semibold text-[var(--ls-t1)]">Tareas de clientes</p>}
-        <button type="button" onClick={onAlternar} aria-label={colapsada ? 'Ampliar la barra' : 'Plegar la barra'} className="tc-icono-boton !h-6 !w-6">
+      <div className="tc-marca">
+        <span className="tc-marca-icono" aria-hidden><KanbanSquare className="h-4 w-4" /></span>
+        {!colapsada && (
+          <span className="tc-marca-texto">
+            <b>Tareas Clientes</b>
+            <span>{clientes.length} clientes</span>
+          </span>
+        )}
+        <button type="button" onClick={onAlternar} aria-label={colapsada ? 'Ampliar la barra' : 'Plegar la barra'} className="tc-icono-boton">
           {colapsada ? <ChevronsRight className="h-3.5 w-3.5" /> : <ChevronsLeft className="h-3.5 w-3.5" />}
         </button>
       </div>
 
       {!colapsada && (
-        <label className="mx-2 mb-1.5 flex items-center gap-1.5 rounded-[7px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2">
+        <label className="mx-2.5 mb-1.5 flex items-center gap-1.5 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2.5 focus-within:border-[var(--ls-acc-graf)]">
           <Search className="h-3 w-3 text-[var(--ls-t4)]" />
-          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar cliente…" aria-label="Buscar cliente" className="h-7 w-full bg-transparent text-[12px] outline-none placeholder:text-[var(--ls-t4)]" />
+          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar cliente…" aria-label="Buscar cliente" className="h-8 w-full bg-transparent text-[12px] outline-none placeholder:text-[var(--ls-t4)]" />
         </label>
       )}
 
-      <nav className="min-h-0 flex-1 space-y-px overflow-y-auto px-1.5 pb-3">
+      <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
         <Link href="/dashboard/tareas-clientes" className="tc-lat-item" title={colapsada ? 'Inicio' : undefined}>
           <span className="tc-lat-icono"><Home className="h-3.5 w-3.5" /></span>
           {!colapsada && <span className="flex-1 truncate">Inicio</span>}

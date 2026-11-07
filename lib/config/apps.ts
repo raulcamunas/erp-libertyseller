@@ -867,6 +867,13 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
  */
 export const APPS_FUERA_DEL_MENU: ReadonlySet<string> = new Set(['actividad'])
 
+/**
+ * APLICACIONES QUE VAN EN EL PIE DE LA BARRA LATERAL (entre tu nombre y los avisos) y no en la lista de arriba. Siguen en la rejilla del Inicio.
+ *
+ *   · 'tareas-clientes' («Tareas Clientes»): se abre a pantalla completa, como otra aplicación (lib/layout/inmersivo.ts).
+ */
+export const APPS_EN_EL_PIE: ReadonlySet<string> = new Set(['tareas-clientes'])
+
 export const getAppById = (id: string): AppConfig | undefined => {
   return apps.find(app => app.id === id)
 }

@@ -15,7 +15,7 @@ import { Cabecera } from './Cabecera'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
 import { PanelDeTarea } from './PanelDeTarea'
-import { estiloDePortada } from './Portada'
+import { estiloDePortada, fondoNecesitaCortina } from './Portada'
 import { Tablero } from './Tablero'
 import { Tabla } from './Tabla'
 
@@ -302,7 +302,7 @@ export function EspacioDeTrabajo({ ambito, miId, esAdmin, tareaInicial }: { ambi
   )
 
   return (
-    <div className="tc-zona" data-panel={panelAbierto ? 'true' : undefined} style={{ ...(estiloDePortada(fondo) as CSSProperties | undefined) }}>
+    <div className="tc-zona" data-panel={panelAbierto ? 'true' : undefined} data-fondo={fondoNecesitaCortina(fondo) ? 'true' : undefined} style={{ '--tc-ambiente': cliente ? `var(--tc-${cliente.color || 'orange'})` : 'var(--ls-acc-graf)', ...(estiloDePortada(fondo, true) as CSSProperties | undefined) } as CSSProperties}>
       <BarraLateral clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
 
       <section className="tc-centro">

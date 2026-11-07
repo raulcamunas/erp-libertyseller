@@ -3,13 +3,14 @@
 import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, LogOut, Menu, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, KanbanSquare, LogOut, Menu, X } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 import { NotificationsBell } from '@/components/layout/NotificationsBell'
 import { leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
-import { apps, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CRM, APP_GROWTH, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
+import { apps, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
+import { esRutaInmersiva, EVENTO_ABRIR_MENU } from '@/lib/layout/inmersivo'
 import { etiquetaDeInsignia, inicialesDe, rutaActivaDelMenu } from '@/lib/layout/barra'
 import { aplanarMenu, armarMenu, grupoDeLaRuta, rutaParaElMenu } from '@/lib/layout/menu'
 import { createClient } from '@/lib/supabase/client'
@@ -40,7 +41,8 @@ const ANCHO_ABIERTA = '16rem'
 const ANCHO_PLEGADA = '4.5rem'
 
 export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  // Lo que la persona eligió; a pantalla completa (Tareas de clientes) la barra es un cajón y no va plegada: ver `isCollapsed` más abajo
+  const [plegadaElegida, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
   const [permisosCargados, setPermisosCargados] = useState(false)
@@ -52,6 +54,9 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   const correoSinLeer = useSyncExternalStore(suscribirContadores, leerCorreoSinLeer, () => 0)
   const pathname = usePathname()
   const router = useRouter()
+  // Hay pantallas que se abren «como otra aplicación»: sin barra, con un botón arriba a la derecha que la abre como un cajón (lib/layout/inmersivo.ts)
+  const inmersivo = esRutaInmersiva(pathname)
+  const isCollapsed = plegadaElegida && !inmersivo
   const supabase = createClient()
 
   // Una sola vez al montar: el perfil y los permisos no cambian mientras la
@@ -161,6 +166,8 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   const filteredApps = apps.filter(app => {
     // Las que se abren desde otra pantalla (Actividad del equipo, desde Mi rendimiento) no van en el menú
     if (APPS_FUERA_DEL_MENU.has(app.id)) return false
+    // Las que tienen su sitio en el pie de la barra (entre tu nombre y los avisos) no se repiten en la lista
+    if (APPS_EN_EL_PIE.has(app.id)) return false
     // El rol 'cliente' es gente de fuera: ve Remesas a FBA y absolutamente nada
     // más, ni el Inicio. El middleware ya le cierra las rutas; esto es para que
     // el menú no le enseñe puertas que no puede abrir.
@@ -205,6 +212,9 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     // Para employees, verificar permisos
     return userPermissions.has(app.id)
   })
+
+  // Tareas Clientes vive en el pie: lo ve un administrador y quien tenga su casilla (un partner o un cliente no entran por serlo)
+  const puedeVerTareas = userRole === 'admin' || (userRole === 'employee' && userPermissions.has(APP_TAREAS_CLIENTES))
 
   // Un empleado ve «Inicio» y, hasta que llegan sus permisos, unas filas que se están rellenando (en vez de un menú que de repente crece)
   const cargandoPermisos = userRole === 'employee' && !permisosCargados
@@ -298,11 +308,28 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   // El contenido de la página se aparta lo que ocupe la barra (el layout lee esta variable)
   useEffect(() => {
     const raiz = document.documentElement
-    raiz.style.setProperty('--lat-ancho', isCollapsed ? ANCHO_PLEGADA : ANCHO_ABIERTA)
+    raiz.style.setProperty('--lat-ancho', inmersivo ? '0px' : isCollapsed ? ANCHO_PLEGADA : ANCHO_ABIERTA)
     return () => {
       raiz.style.removeProperty('--lat-ancho')
     }
-  }, [isCollapsed])
+  }, [isCollapsed, inmersivo])
+
+  // El cajón se cierra al cambiar de página; a pantalla completa se abre con el botón de la página (que avisa por `window`) y se cierra con Escape
+  useEffect(() => {
+    setIsMobileOpen(false)
+  }, [pathname])
+  useEffect(() => {
+    const abrir = () => setIsMobileOpen(true)
+    const alPulsar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMobileOpen(false)
+    }
+    window.addEventListener(EVENTO_ABRIR_MENU, abrir)
+    window.addEventListener('keydown', alPulsar)
+    return () => {
+      window.removeEventListener(EVENTO_ABRIR_MENU, abrir)
+      window.removeEventListener('keydown', alPulsar)
+    }
+  }, [])
 
   // En una pantalla estrecha la barra es un cajón y no se pliega: si se estrecha la ventana con la barra plegada, se despliega
   useEffect(() => {
@@ -337,7 +364,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   }
 
   const toggleCollapse = () => {
-    setIsCollapsed(!isCollapsed)
+    setIsCollapsed(!plegadaElegida)
   }
 
   const toggleMobile = () => {
@@ -354,18 +381,27 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
 
   return (
     <>
-      {/* Botón del menú, solo en pantallas estrechas */}
-      <button
-        type="button"
-        onClick={toggleMobile}
-        className="lat-hamburguesa"
-        aria-label={isMobileOpen ? 'Cerrar el menú' : 'Abrir el menú'}
-        aria-expanded={isMobileOpen}
-      >
-        {isMobileOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
-      </button>
+      {/* Botón del menú, solo en pantallas estrechas (a pantalla completa lo trae la propia página) */}
+      {!inmersivo && (
+        <button
+          type="button"
+          onClick={toggleMobile}
+          className="lat-hamburguesa"
+          aria-label={isMobileOpen ? 'Cerrar el menú' : 'Abrir el menú'}
+          aria-expanded={isMobileOpen}
+        >
+          {isMobileOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
+        </button>
+      )}
 
-      <aside className="lat" data-plegada={isCollapsed ? 'true' : undefined} data-movil={isMobileOpen ? 'abierta' : undefined} aria-label="Menú principal">
+      <aside
+        className="lat"
+        data-plegada={isCollapsed ? 'true' : undefined}
+        data-movil={isMobileOpen ? 'abierta' : undefined}
+        data-inmersivo={inmersivo ? 'true' : undefined}
+        aria-label="Menú principal"
+        aria-hidden={inmersivo && !isMobileOpen ? true : undefined}
+      >
         {/* El fondo: una luz que se mueve despacio arriba y un hilo de luz que baja por el borde */}
         <div className="lat-decorado" aria-hidden>
           <span className="lat-aurora" />
@@ -525,6 +561,15 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
             </button>
           </div>
 
+          {puedeVerTareas && (
+            <Link href="/dashboard/tareas-clientes" className="lat-app" data-activa={inmersivo ? 'true' : undefined} aria-current={inmersivo ? 'page' : undefined} title={isCollapsed ? 'Tareas Clientes' : undefined} onClick={() => setIsMobileOpen(false)}>
+              <span className="lat-icono">
+                <KanbanSquare className="lat-icono-svg" aria-hidden />
+              </span>
+              <span className="lat-app-texto">Tareas Clientes</span>
+            </Link>
+          )}
+
           <div className="lat-acciones">
             <NotificationsBell colapsado={isCollapsed} />
             <ThemeToggle />
@@ -544,7 +589,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
       </aside>
 
       {/* Telón del cajón en pantallas estrechas */}
-      {isMobileOpen && <div className="lat-velo" onClick={toggleMobile} aria-hidden />}
+      {isMobileOpen && <div className="lat-velo" data-inmersivo={inmersivo ? 'true' : undefined} onClick={toggleMobile} aria-hidden />}
     </>
   )
 }
