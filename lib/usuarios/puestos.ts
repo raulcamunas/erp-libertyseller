@@ -96,7 +96,7 @@ export const PERMISOS_DEL_PUESTO: Readonly<Record<Puesto, readonly string[]>> = 
   manager_comercial: [...BASE_COMERCIAL, 'equipo-comercial', 'correo-supervision', 'gestion-listas'],
   // Solo lo suyo: el CRM de sus clientes. El resto (agenda, correo…) se le marca a mano si lo necesita
   comercial_autonomo: ['crm-propios'],
-  gestion_administrativa: ['correo', 'vacaciones'],
+  gestion_administrativa: ['correo', 'vacaciones', 'tareas-clientes'],
 }
 
 export interface Casilla {

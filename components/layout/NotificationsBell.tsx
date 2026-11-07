@@ -218,6 +218,12 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
       return '/dashboard/remesas/alertas'
     }
 
+    // Una tarea de cliente (comentario, mención o asignación): se abre en su tablero, con la tarea a la vista
+    const datosTarea = notification.datos as { app?: string; clienteId?: string; tareaId?: string } | null | undefined
+    if (datosTarea?.app === 'tareas-clientes' && datosTarea.clienteId) {
+      return `/dashboard/tareas-clientes/${datosTarea.clienteId}${datosTarea.tareaId ? `?tarea=${datosTarea.tareaId}` : ''}`
+    }
+
     if (notification.related_client_id && notification.related_task_id) {
       return `/dashboard/clients/${notification.related_client_id}`
     }

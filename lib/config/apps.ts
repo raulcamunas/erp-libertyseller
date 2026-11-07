@@ -31,6 +31,7 @@ import {
   Wrench,
   BookOpenText,
   Handshake,
+  KanbanSquare,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -107,6 +108,19 @@ export const apps: AppConfig[] = [
     description: 'Cada cliente en un solo sitio: su fase, lo hablado en la reunión, la propuesta y los documentos',
     icon: Handshake,
     route: '/dashboard/crm',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // LAS TAREAS DE CADA CLIENTE, en tablero, tabla, cronograma y calendario, conectadas en los dos sentidos con el Notion «Tareas Clientes». Lo ve un administrador y
+    // quien tenga esta casilla en Gestión de Usuarios; un `partner` NO entra por serlo. El filtro de verdad son las políticas RLS de las tablas tc_* (migración 275) y
+    // exigirTareas() en las rutas de /api/tareas-clientes. El id va LETRA POR LETRA igual que en la función SQL `puede_ver_tareas_clientes`, en lib/tareas-clientes/acceso.ts
+    // y en lib/usuarios/puestos.ts.
+    id: 'tareas-clientes',
+    name: 'Tareas de clientes',
+    description: 'El tablero de tareas de cada cliente, conectado con Notion: arrastrar, comentar y asignar',
+    icon: KanbanSquare,
+    route: '/dashboard/tareas-clientes',
     status: 'new',
     category: 'core'
   },
@@ -582,6 +596,8 @@ export const APPS_OCULTAS_A_ADMIN: ReadonlySet<string> = new Set([
 
 export const APP_GROWTH = 'growth'
 export const PERMISO_STOCK_SYNC = 'stock-sync'
+/** El id de Tareas de clientes, escrito UNA vez: lo usan la entrada de `apps`, las rutas y la página */
+export const APP_TAREAS_CLIENTES = 'tareas-clientes'
 /** El id del CRM de clientes, escrito UNA vez: lo usan la entrada de `apps`, el filtro del menú, el de la rejilla de Inicio y APPS_SIN_EFECTO */
 export const APP_CRM = 'crm'
 
