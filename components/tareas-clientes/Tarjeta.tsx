@@ -5,6 +5,7 @@ import { AlertCircle, CalendarDays, CheckSquare, MessageSquare } from 'lucide-re
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import type { ClienteTC, OpcionDeEstado, PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { colorValido } from '@/lib/tareas-clientes/colores'
+import { colorDePersona } from '@/components/rendimiento/ui'
 import { Etiqueta, fechaCorta, hoyISO, PilaDeAvatares } from './ui'
 
 /**
@@ -31,6 +32,10 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
   const hecha = estado?.grupo === 'hecho'
   const dia = tarea.fecha_fin?.slice(0, 10) ?? tarea.fecha_inicio?.slice(0, 10) ?? null
   const vencida = Boolean(dia && !hecha && dia < hoyISO())
+  // El color de quien la lleva, el mismo de su avatar; una persona de Notion sin enlazar con el equipo saca el suyo de su nombre
+  const quienes = tarea.responsables.length > 0 ? tarea.responsables : tarea.responsables_notion.map((r) => r.nombre || r.id)
+  const colorResp = tarea.color || quienes.length === 0 ? null : colorDePersona(quienes[0])
+  const colorResp2 = colorResp && quienes.length > 1 ? colorDePersona(quienes[1]) : null
   const porcentaje = tarea.checklist_total > 0 ? Math.round((tarea.checklist_hecho / tarea.checklist_total) * 100) : 0
 
   return (
@@ -40,6 +45,7 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
       aria-label={`Abrir la tarea ${tarea.titulo || 'sin título'}`}
       data-activa={activa ? 'true' : undefined}
       data-color={tarea.color ? 'propio' : undefined}
+      data-resp={colorResp ? (colorResp2 && colorResp2 !== colorResp ? 'varios' : 'uno') : undefined}
       data-superpuesta={superpuesta ? 'true' : undefined}
       data-fantasma={fantasma ? 'true' : undefined}
       onClick={() => onAbrir?.(tarea.id)}
@@ -50,7 +56,7 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
         }
       }}
       className="tc-tarjeta group/t"
-      style={{ '--tono': `var(--tc-${color})`, '--i': Math.min(indice, 14) } as CSSProperties}
+      style={{ '--tono': `var(--tc-${color})`, '--i': Math.min(indice, 14), ...(colorResp ? { '--resp': colorResp, '--resp2': colorResp2 ?? colorResp } : {}) } as CSSProperties}
     >
       <div className="flex items-start gap-2">
         {tarea.icono ? <span className="mt-px text-[15px] leading-none">{tarea.icono}</span> : null}
