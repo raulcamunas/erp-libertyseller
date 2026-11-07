@@ -53,6 +53,7 @@ export function Cabecera(p: PropsDeCabecera) {
   return (
     <header className="tc-cabecera">
       <div className="tc-cover" style={cubierta} data-vacia={cubierta ? undefined : 'true'}>
+        {!cubierta && p.icono && <span className="tc-cover-marca" aria-hidden>{p.icono}</span>}
         <div className="tc-cover-botones">
           <SelectorDePortada valor={p.portada} titulo="Portada" onElegir={p.onPortada}>
             <button type="button" className="tc-boton-cristal"><ImageIcon className="h-3 w-3" /> {cubierta ? 'Cambiar portada' : 'Añadir portada'}</button>

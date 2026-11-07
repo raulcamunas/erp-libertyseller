@@ -232,7 +232,7 @@ function Columna({ estado, indice, ids, onCrear, children }: { estado: OpcionDeE
           <span className="tc-punto" style={{ '--tono': `var(--tc-${estado.color})` } as CSSProperties} />
           {estado.nombre}
         </Etiqueta>
-        <span className="text-[12px] tabular-nums text-[var(--ls-t3)]">{ids.length}</span>
+        <span className="tc-contador">{ids.length}</span>
         <button type="button" aria-label={`Añadir una tarea en ${estado.nombre}`} onClick={() => setEscribiendo(true)} className="tc-icono-boton ml-auto">
           <Plus className="h-3.5 w-3.5" />
         </button>

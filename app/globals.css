@@ -3354,7 +3354,8 @@ main:has(.tc-inmersivo) { padding-top: 0; }
   flex-direction: column;
   border-radius: 14px;
   border: 1px solid var(--ls-linea);
-  background: var(--tc-columna);
+  /* Llena de arriba y cada vez más transparente hacia abajo: una columna casi vacía no pesa como un bloque */
+  background: linear-gradient(180deg, var(--tc-columna) 0%, color-mix(in srgb, var(--tc-columna) 40%, transparent) 100%);
 }
 /* El filo de color de la columna: lo único que la tiñe */
 .tc-columna::before { content: ''; position: absolute; left: 16px; right: 16px; top: -1px; height: 2px; border-radius: 0 0 3px 3px; background: var(--tono); opacity: 0.9; }
@@ -3364,9 +3365,9 @@ main:has(.tc-inmersivo) { padding-top: 0; }
 .tc-ordenable { outline: none; touch-action: manipulation; }
 .tc-tarjeta {
   cursor: pointer;
-  border-radius: 11px;
+  border-radius: 12px;
   border: 1px solid var(--ls-linea);
-  padding: 11px 12px 12px;
+  padding: 12px 13px 13px;
   background: var(--tc-tarjeta);
   box-shadow: var(--tc-sombra-1);
   user-select: none;
@@ -3432,14 +3433,14 @@ body.tc-agarrando, body.tc-agarrando * { cursor: grabbing !important; }
   flex: 0 0 256px;
   flex-direction: column;
   border-right: 1px solid var(--ls-linea);
-  background: color-mix(in srgb, var(--ls-sup) 84%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tc-ambiente, var(--ls-acc-graf)) 9%, color-mix(in srgb, var(--ls-sup) 86%, transparent)) 0%, color-mix(in srgb, var(--ls-sup) 86%, transparent) 42%);
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
   backdrop-filter: blur(18px) saturate(1.15);
 }
 .tc-lateral[data-colapsada='true'] { width: 58px; flex-basis: 58px; }
 @media (max-width: 860px) { .tc-lateral { display: none; } }
 .tc-centro { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
-.tc-vista { min-height: 0; flex: 1; overflow: auto; padding: 8px 20px 16px; scrollbar-width: thin; scrollbar-color: var(--ls-linea2) transparent; }
+.tc-vista { min-height: 0; flex: 1; overflow: auto; padding: 8px 34px 16px; scrollbar-width: thin; scrollbar-color: var(--ls-linea2) transparent; }
 .tc-vista > .tc-tablero { height: 100%; }
 .tc-panel {
   display: flex;
@@ -3482,25 +3483,45 @@ body.tc-agarrando, body.tc-agarrando * { cursor: grabbing !important; }
 /* ---- La cabecera ---- */
 .tc-cabecera { flex-shrink: 0; }
 /* Sin portada, el hueco de arriba es aire (con el botón «Añadir portada» al pasar el ratón); con portada, una imagen con un velo abajo para que el título se lea */
-.tc-cover { position: relative; height: 148px; background: linear-gradient(120deg, color-mix(in srgb, var(--ls-acc-graf) 26%, var(--ls-sup)), var(--ls-sup2) 70%); }
-.tc-cover::after { content: ''; position: absolute; inset: auto 0 0 0; height: 70%; background: linear-gradient(to top, color-mix(in srgb, var(--tc-base) 80%, transparent), transparent); pointer-events: none; }
-.tc-cover[data-vacia='true'] { height: 58px; background: none; }
-.tc-cover[data-vacia='true']::after { display: none; }
-.tc-cover-botones { position: absolute; right: 64px; bottom: 10px; z-index: 2; display: flex; gap: 6px; opacity: 0; }
+.tc-cover {
+  position: relative;
+  height: 184px;
+  overflow: hidden;
+  margin: 0 14px;
+  border-radius: 0 0 28px 28px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-top: 0;
+  box-shadow: 0 22px 44px -26px rgba(0, 0, 0, 0.75);
+  background-color: var(--ls-sup2);
+}
+/* Un brillo arriba y una sombra abajo: da volumen a cualquier portada (imagen, degradado o color) y deja leer los botones que van encima */
+.tc-cover::before { content: ''; position: absolute; inset: 0; z-index: 0; background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 0%, transparent 28%, rgba(0, 0, 0, 0.22) 100%); pointer-events: none; }
+/* SIN PORTADA ELEGIDA no se deja el hueco vacío: un banner con la luz del color del cliente, una trama de puntos que se desvanece y su emoji enorme y casi transparente de marca de agua */
+.tc-cover[data-vacia='true'] {
+  height: 138px;
+  background:
+    radial-gradient(520px 240px at 8% -20%, color-mix(in srgb, var(--tc-ambiente, var(--ls-acc-graf)) 85%, transparent), transparent 68%),
+    radial-gradient(520px 240px at 92% 115%, color-mix(in srgb, var(--tc-purple) 48%, transparent), transparent 70%),
+    linear-gradient(135deg, color-mix(in srgb, var(--tc-ambiente, var(--ls-acc-graf)) 34%, var(--tc-base)), color-mix(in srgb, var(--tc-ambiente, var(--ls-acc-graf)) 12%, var(--tc-base)));
+}
+.tc-cover[data-vacia='true']::after { content: ''; position: absolute; inset: 0; z-index: 0; background-image: radial-gradient(rgba(255, 255, 255, 0.2) 1px, transparent 1.3px); background-size: 20px 20px; -webkit-mask-image: linear-gradient(to bottom left, #000, transparent 78%); mask-image: linear-gradient(to bottom left, #000, transparent 78%); pointer-events: none; }
+.tc-cover-marca { position: absolute; right: 12%; bottom: -34px; z-index: 0; font-size: 168px; line-height: 1; opacity: 0.24; rotate: -9deg; filter: saturate(0.85); pointer-events: none; user-select: none; }
+.tc-cover-botones { position: absolute; right: 18px; bottom: 14px; z-index: 2; display: flex; gap: 6px; opacity: 0; }
 .tc-cover:hover .tc-cover-botones, .tc-cover-botones:focus-within, .tc-hero:hover .tc-cover-botones { opacity: 1; }
-.tc-cabecera-titulo { position: relative; display: flex; align-items: flex-end; gap: 14px; padding: 0 22px 8px; margin-top: -34px; }
-.tc-cover[data-vacia='true'] + .tc-cabecera-titulo { margin-top: -20px; }
-.tc-emoji-cabecera { display: flex; height: 58px; width: 58px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 16px; border: 1px solid var(--ls-linea2); background: linear-gradient(160deg, var(--tc-tarjeta-2), var(--tc-tarjeta)); font-size: 30px; line-height: 1; box-shadow: var(--tc-sombra-2); }
+/* El emoji cabalga sobre el borde del banner y el título empieza justo debajo de él */
+.tc-cabecera-titulo { position: relative; display: flex; align-items: flex-start; gap: 16px; padding: 0 34px 6px; margin-top: -34px; }
+.tc-cabecera-titulo > .min-w-0 { padding-top: 40px; }
+.tc-emoji-cabecera { display: flex; height: 68px; width: 68px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 20px; border: 1px solid var(--ls-linea2); background: linear-gradient(160deg, var(--tc-tarjeta-2), var(--tc-tarjeta)); font-size: 36px; line-height: 1; box-shadow: 0 16px 30px -14px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
 .tc-emoji-cabecera:not(:disabled):hover { background: var(--ls-sup3); }
 /* El nombre mide lo que mide su texto (lo fija el componente en `style`), no toda la fila */
-.tc-nombre { display: block; max-width: 100%; border-radius: 8px; border: 1px solid transparent; background: transparent; padding: 1px 8px; font-size: 26px; font-weight: 700; line-height: 1.25; letter-spacing: -0.025em; color: var(--ls-t1); outline: none; }
+.tc-nombre { display: block; max-width: 100%; border-radius: 8px; border: 1px solid transparent; background: transparent; padding: 1px 8px; font-size: 30px; font-weight: 750; line-height: 1.2; letter-spacing: -0.03em; color: var(--ls-t1); outline: none; }
 input.tc-nombre:hover { background: color-mix(in srgb, var(--ls-sup3) 70%, transparent); }
 input.tc-nombre:focus { border-color: var(--ls-acc-graf); background: var(--ls-sup2); box-shadow: 0 0 0 3px var(--ls-acc-suave); }
 .tc-descripcion { display: block; width: 100%; max-width: 640px; border-radius: 7px; border: 1px solid transparent; background: transparent; padding: 1px 8px; font-size: 13px; color: var(--ls-t3); outline: none; }
 .tc-descripcion::placeholder { color: var(--ls-t4); }
 .tc-descripcion:hover { background: color-mix(in srgb, var(--ls-sup3) 70%, transparent); }
 .tc-descripcion:focus { border-color: var(--ls-acc-graf); background: var(--ls-sup2); }
-.tc-herramientas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 22px 12px; }
+.tc-herramientas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 34px 14px; }
 .tc-vistas { display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px; border: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-sup) 80%, transparent); }
 .tc-vista-boton { display: inline-flex; height: 28px; align-items: center; gap: 6px; border-radius: 8px; padding: 0 11px; font-size: 12.5px; font-weight: 500; color: var(--ls-t3); }
 .tc-vista-boton:hover { color: var(--ls-t1); }
