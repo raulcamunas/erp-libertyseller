@@ -174,7 +174,9 @@ export async function cargarInicio(userId: string, permitidos?: Permitidos) {
       if (limite && limite < hoy) mias.vencidas += 1
     }
   }
-  return { clientes: lista, estadisticas, preferencias: preferencias.data ?? null, personas, mias }
+  // Al inicio no le hace falta lo pesado de cada cliente (el esquema de Notion, los enlaces con otras tablas, las opciones…): la página llega antes sin ello
+  const ligeros = lista.map(({ notion_esquema: _e, vinculos: _v, opciones: _o, ...resto }) => (void _e, void _v, void _o, resto)) as unknown as ClienteTC[]
+  return { clientes: ligeros, estadisticas, preferencias: preferencias.data ?? null, personas, mias }
 }
 
 export async function cargarCliente(clienteId: string, userId: string, permitidos?: Permitidos) {

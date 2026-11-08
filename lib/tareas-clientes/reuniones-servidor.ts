@@ -7,7 +7,7 @@ import { esfuerzoDeIa, modeloDeIa, razona } from '@/lib/ia/modelo'
 import { createServiceClient } from '@/lib/supabase/service'
 import { costeDeTexto } from '@/lib/transcripcion/precios'
 import { filtrarPorCliente, type Permitidos } from './permisos'
-import { clienteDeLaReunion, cuerpoDePropuesta, encargoDeReunion, ESQUEMA_DE_PROPUESTAS, leerPropuestas, limpiarEdicion, type EdicionDeAceptacion, type PropuestaLeida } from './reuniones'
+import { clienteDeLaReunion, cuentaLaReunion, REUNIONES_DESDE, cuerpoDePropuesta, encargoDeReunion, ESQUEMA_DE_PROPUESTAS, leerPropuestas, limpiarEdicion, type EdicionDeAceptacion, type PropuestaLeida } from './reuniones'
 import { avisar, crearTarea, ErrorDeTareas, esUuid, exigirAcceso, personasConAcceso, type Actor, type TareaLigera } from './servidor'
 import { departamentosDe, estadosDe, type ClienteTC } from './tipos'
 
@@ -100,6 +100,8 @@ export async function pasadaDeReuniones(opciones: { forzar?: boolean } = {}): Pr
   const candidatas = ((notas ?? []) as FilaDeNota[])
     .map((n) => ({ n, cliente: clienteDeLaReunion(n.titulo, lista) }))
     .filter((x): x is { n: FilaDeNota; cliente: { id: string; nombre: string } } => Boolean(x.cliente))
+    // Solo las reuniones de la fecha de arranque en adelante: lo anterior ya está resuelto
+    .filter(({ n }) => cuentaLaReunion(n.fecha_reunion ?? n.creada_en))
     .filter(({ n }) => {
       const previa = yaVistas.get(n.gmail_message_id as string)
       return !previa || (previa.estado === 'pendiente' && previa.intentos < INTENTOS_MAXIMOS)
@@ -210,15 +212,15 @@ export async function propuestasDeUnCliente(clienteId: string, permitidos: Permi
   const { data: reuniones } = await service.from('tc_reuniones').select('id, titulo, fecha_reunion').in('id', [...new Set(filas.map((f) => f.reunion_id))]).order('fecha_reunion', { ascending: false })
   return {
     disponible: true,
-    reuniones: ((reuniones ?? []) as Array<{ id: string; titulo: string; fecha_reunion: string | null }>).map((r) => ({ ...r, propuestas: filas.filter((f) => f.reunion_id === r.id).map(({ reunion_id: _r, ...p }) => (void _r, { ...p, subtareas: Array.isArray(p.subtareas) ? p.subtareas : [] })) })),
+    reuniones: ((reuniones ?? []) as Array<{ id: string; titulo: string; fecha_reunion: string | null }>).filter((r) => cuentaLaReunion(r.fecha_reunion)).map((r) => ({ ...r, propuestas: filas.filter((f) => f.reunion_id === r.id).map(({ reunion_id: _r, ...p }) => (void _r, { ...p, subtareas: Array.isArray(p.subtareas) ? p.subtareas : [] })) })),
   }
 }
 
 /** Cuántas propuestas pendientes hay por cliente (para el aviso de la barra lateral y para abrir la ventana al entrar) */
 export async function contarPropuestas(permitidos: Permitidos): Promise<Record<string, number>> {
-  const { data, error } = await createServiceClient().from('tc_propuestas').select('cliente_id').eq('estado', 'pendiente').limit(5000)
+  const { data, error } = await createServiceClient().from('tc_propuestas').select('cliente_id, tc_reuniones!inner(fecha_reunion)').eq('estado', 'pendiente').gte('tc_reuniones.fecha_reunion', REUNIONES_DESDE).limit(5000)
   if (error) return {}
-  const visibles = filtrarPorCliente((data ?? []) as Array<{ cliente_id: string }>, permitidos, (p) => p.cliente_id)
+  const visibles = filtrarPorCliente((data ?? []) as unknown as Array<{ cliente_id: string }>, permitidos, (p) => p.cliente_id)
   const cuenta: Record<string, number> = {}
   for (const p of visibles) cuenta[p.cliente_id] = (cuenta[p.cliente_id] ?? 0) + 1
   return cuenta

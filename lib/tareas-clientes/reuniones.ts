@@ -14,6 +14,14 @@ import { nombreParaCruzar } from './automaticas'
 export const COLUMNAS_DE_PROPUESTA = ['En progreso', 'Backlog'] as const
 export type ColumnaDePropuesta = (typeof COLUMNAS_DE_PROPUESTA)[number]
 
+/**
+ * LAS REUNIONES QUE CUENTAN: solo las de esta fecha en adelante (el lunes 9 nov 2026). Todo lo anterior —las 15 reuniones que se analizaron al estrenarlo, con sus 103 propuestas— ya estaba
+ * resuelto a mano y Raúl pidió que no volviera a salir. Se compara el día de la reunión («AAAA-MM-DD»).
+ */
+export const REUNIONES_DESDE = '2026-11-09'
+
+export const cuentaLaReunion = (fecha: string | null | undefined): boolean => Boolean(fecha) && (fecha as string).slice(0, 10) >= REUNIONES_DESDE
+
 export const MAX_PROPUESTAS = 15
 export const MAX_SUBTAREAS_PROPUESTA = 4
 

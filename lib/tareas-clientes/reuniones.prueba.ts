@@ -1,5 +1,5 @@
 import { textoPlano } from '@/lib/tareas-clientes/bloques'
-import { clienteDeLaReunion, cuerpoDePropuesta, encargoDeReunion, leerPropuestas, limpiarEdicion, MAX_DETALLE, MAX_PROPUESTAS } from '@/lib/tareas-clientes/reuniones'
+import { clienteDeLaReunion, cuentaLaReunion, cuerpoDePropuesta, encargoDeReunion, leerPropuestas, limpiarEdicion, MAX_DETALLE, MAX_PROPUESTAS } from '@/lib/tareas-clientes/reuniones'
 
 let fallos = 0
 let comprobaciones = 0
@@ -51,6 +51,8 @@ const ed = limpiarEdicion({ id: 'x', titulo: ' Nuevo  título ', columna: 'Backl
 igual('la edición se aplica y se limpia', [ed.titulo, ed.columna, ed.departamento, ed.responsables, ed.fecha_inicio, ed.subtareas, ed.contexto], ['Nuevo título', 'Backlog', 'MARKETING', ['u1'], '2026-11-20', ['x', 'y'], 'ctx'])
 const ed2 = limpiarEdicion({ id: 'x', columna: 'Inventada', departamento: 'NoExiste', fecha_inicio: 'mañana' }, base, ['Backlog', 'En progreso'], ['STOCK'])
 igual('lo inválido cae a lo de la propuesta', [ed2.columna, ed2.departamento, ed2.fecha_inicio, ed2.titulo], ['En progreso', null, null, 'Base'])
+
+igual('solo cuentan las reuniones desde el 9 de noviembre', [cuentaLaReunion('2026-10-30T10:00:00Z'), cuentaLaReunion('2026-11-08'), cuentaLaReunion('2026-11-09T09:00:00Z'), cuentaLaReunion('2026-12-01'), cuentaLaReunion(null)], [false, false, true, true, false])
 
 console.log(`\n${fallos === 0 ? 'TODO BIEN' : `HAY ${fallos} FALLOS`} (${comprobaciones} comprobaciones)`)
 process.exit(fallos === 0 ? 0 : 1)

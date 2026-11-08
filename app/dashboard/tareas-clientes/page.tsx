@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { exigirTareas } from '@/lib/tareas-clientes/acceso'
+import { cargarInicio } from '@/lib/tareas-clientes/servidor'
 import { Inicio } from '@/components/tareas-clientes/Inicio'
 
 /**
@@ -9,5 +10,7 @@ import { Inicio } from '@/components/tareas-clientes/Inicio'
 export default async function TareasClientesPage() {
   const permiso = await exigirTareas()
   if (!permiso.ok) redirect(permiso.estado === 401 ? '/auth/login' : '/dashboard')
-  return <Inicio esAdmin={permiso.esAdmin} />
+  // Los datos se leen AQUÍ, al servir la página: llega ya con todo pintado (sin pantalla de carga ni una segunda petición) y el navegador solo la refresca por detrás
+  const inicial = await cargarInicio(permiso.userId, permiso.clientes).catch(() => null)
+  return <Inicio esAdmin={permiso.esAdmin} inicial={inicial as never} />
 }

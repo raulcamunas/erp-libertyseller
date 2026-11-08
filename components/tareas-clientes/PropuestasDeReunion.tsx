@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { CalendarDays, Check, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react'
+import { CalendarDays, Check, ChevronDown, Loader2, Plus, Sparkles, Trash2, Users, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { ReunionConPropuestas } from '@/lib/tareas-clientes/reuniones-servidor'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
@@ -12,8 +12,8 @@ import { fechaCorta, SelectorDePersonas } from './ui'
 
 /**
  * LAS TAREAS QUE PROPONE LA IA TRAS UNA REUNIÓN, en una ventana sobre la página del cliente. Cada propuesta se marca (buena) o se deja sin marcar (mala), y se puede cambiar su
- * título, su columna, su departamento, quién la lleva, su fecha y sus pasos antes de crearla. «Crear» hace las dos cosas a la vez: crea las marcadas (con lo que se haya
- * cambiado) y descarta las demás. Hasta entonces no se crea nada. Ver lib/tareas-clientes/reuniones.ts.
+ * título, su columna, su departamento, quién la lleva, su fecha y sus pasos antes de crearla; arriba hay un «Asignar a las marcadas» para ponerle responsable a todas de golpe.
+ * «Crear» hace las dos cosas a la vez: crea las marcadas (con lo que se haya cambiado) y descarta las demás. Hasta entonces no se crea nada. Ver lib/tareas-clientes/reuniones.ts.
  */
 
 interface Borrador {
@@ -29,6 +29,8 @@ interface Borrador {
   abierta: boolean
 }
 
+const tono = (color: string | undefined) => ({ '--tono': `var(--tc-${color || 'default'})` }) as CSSProperties
+
 export function PropuestasDeReunion({ cliente, personas, onCerrar, onCreadas, onCambioDePendientes }: { cliente: ClienteTC; personas: readonly PersonaTC[]; onCerrar: () => void; onCreadas: (t: TareaLigera[]) => void; onCambioDePendientes: (n: number) => void }) {
   const [reuniones, setReuniones] = useState<ReunionConPropuestas[] | null>(null)
   const [disponible, setDisponible] = useState(true)
@@ -38,6 +40,7 @@ export function PropuestasDeReunion({ cliente, personas, onCerrar, onCreadas, on
   const [buscando, setBuscando] = useState(false)
 
   const columnas = useMemo(() => estadosDe(cliente), [cliente])
+  const abiertas = useMemo(() => columnas.filter((c) => c.grupo !== 'hecho'), [columnas])
   const departamentos = useMemo(() => departamentosDe(cliente), [cliente])
   const gente = useMemo(() => personas.filter((p) => !p.clientes || p.clientes.includes(cliente.id)), [personas, cliente.id])
 
@@ -73,6 +76,14 @@ export function PropuestasDeReunion({ cliente, personas, onCerrar, onCreadas, on
   const marcadas = lista.filter((b) => b.marcada)
   const cambiar = (id: string, c: Partial<Borrador>) => setBorradores((b) => ({ ...b, [id]: { ...b[id], ...c } }))
   const marcarTodas = (v: boolean) => setBorradores((b) => Object.fromEntries(Object.entries(b).map(([k, x]) => [k, { ...x, marcada: v }])))
+  // Lo que se elige arriba se aplica a TODAS las marcadas
+  const asignarALasMarcadas = (ids: string[]) => setBorradores((b) => Object.fromEntries(Object.entries(b).map(([k, x]) => [k, x.marcada ? { ...x, responsables: ids } : x])))
+  const responsablesComunes = marcadas.length > 0 && marcadas.every((m) => JSON.stringify(m.responsables) === JSON.stringify(marcadas[0].responsables)) ? marcadas[0].responsables : []
+  const porColumna = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const b of marcadas) m.set(b.columna, (m.get(b.columna) ?? 0) + 1)
+    return [...m.entries()]
+  }, [marcadas])
 
   const decidir = async (aceptar: Borrador[], descartar: string[]) => {
     setEnviando(true)
@@ -112,74 +123,107 @@ export function PropuestasDeReunion({ cliente, personas, onCerrar, onCreadas, on
 
   const ventana = (
     <div className="tc-modal-fondo" onClick={(e) => e.target === e.currentTarget && onCerrar()}>
-      <div className="tc-modal" role="dialog" aria-modal="true" aria-label="Tareas propuestas de la reunión">
-        <header className="tc-modal-cabecera">
-          <Sparkles className="h-4 w-4 text-[var(--ls-acc)]" />
-          <span className="text-[15px] font-semibold text-[var(--ls-t1)]">Tareas que salen de la reunión · {cliente.nombre}</span>
-          <button type="button" onClick={onCerrar} aria-label="Cerrar" className="tc-icono-boton ml-auto"><X className="h-4 w-4" /></button>
+      <div className="tc-modal tc-pr-modal" role="dialog" aria-modal="true" aria-label="Tareas propuestas de la reunión">
+        <header className="tc-pr-cabecera">
+          <span className="tc-pr-icono"><Sparkles className="h-4 w-4" /></span>
+          <div className="min-w-0 flex-1">
+            <h2>Tareas que salen de la reunión</h2>
+            <p>{cliente.icono ? `${cliente.icono} ` : ''}{cliente.nombre}{lista.length > 0 ? ` · ${lista.length} ${lista.length === 1 ? 'propuesta' : 'propuestas'} por decidir` : ''}</p>
+          </div>
+          <button type="button" onClick={onCerrar} aria-label="Cerrar" className="tc-icono-boton"><X className="h-4 w-4" /></button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        {lista.length > 0 && (
+          <div className="tc-pr-barra">
+            <span className="tc-pr-contador"><b>{marcadas.length}</b> de {lista.length} marcadas</span>
+            <button type="button" onClick={() => marcarTodas(marcadas.length < lista.length)} className="tc-boton-suave tc-discreto">{marcadas.length < lista.length ? 'Marcar todas' : 'Desmarcar todas'}</button>
+            <span className="ml-auto flex items-center gap-1.5 text-[12px] text-[var(--ls-t3)]"><Users className="h-3.5 w-3.5" /> Asignar a las marcadas
+              <SelectorDePersonas valor={responsablesComunes} personas={gente} onCambio={asignarALasMarcadas} deshabilitado={marcadas.length === 0} />
+            </span>
+          </div>
+        )}
+
+        <div className="tc-pr-cuerpo">
           {error && <p role="alert" className="text-[13px] text-[var(--ls-e-rojo)]">{error}</p>}
-          {!reuniones && !error && <div className="space-y-2" role="status" aria-label="Cargando"><div className="tc-esqueleto h-16 w-full" /><div className="tc-esqueleto h-16 w-full" /></div>}
+          {!reuniones && !error && <div className="space-y-2" role="status" aria-label="Cargando"><div className="tc-esqueleto h-[110px] w-full" /><div className="tc-esqueleto h-[110px] w-full" /></div>}
           {reuniones && !disponible && <p className="text-[13px] text-[var(--ls-e-ambar)]">Falta lanzar la migración 279 en Supabase.</p>}
           {reuniones && disponible && reuniones.length === 0 && (
-            <div className="py-10 text-center text-[13px] text-[var(--ls-t3)]">
-              <p>No hay tareas propuestas esperando.</p>
-              <p className="mt-1 text-[12px] text-[var(--ls-t4)]">Cuando termine una reunión de seguimiento con este cliente y Gemini suba las notas, las tareas aparecerán aquí.</p>
-              <button type="button" onClick={() => void buscar()} disabled={buscando} className="tc-boton-suave mx-auto mt-4">{buscando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Buscar reuniones nuevas ahora</button>
+            <div className="tc-pr-vacio">
+              <span><Sparkles className="h-6 w-6" /></span>
+              <p>No hay tareas esperando</p>
+              <small>Cuando acabe una reunión de seguimiento con este cliente y Gemini suba las notas, las tareas aparecerán aquí para que elijas las buenas.</small>
+              <button type="button" onClick={() => void buscar()} disabled={buscando} className="tc-boton-suave">{buscando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Buscar reuniones nuevas ahora</button>
             </div>
           )}
 
           {(reuniones ?? []).map((re) => (
-            <section key={re.id} className="mb-6">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">{re.titulo}</h3>
-                {re.fecha_reunion && <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--ls-t4)]"><CalendarDays className="h-3 w-3" />{fechaCorta(re.fecha_reunion)}</span>}
+            <section key={re.id} className="tc-pr-reunion">
+              <div className="tc-pr-reunion-cabecera">
+                <h3>{re.titulo}</h3>
+                {re.fecha_reunion && <span className="tc-pr-fecha"><CalendarDays className="h-3 w-3" />{fechaCorta(re.fecha_reunion)}</span>}
                 <button type="button" onClick={() => void decidir([], re.propuestas.map((p) => p.id))} disabled={enviando} className="tc-boton-suave tc-discreto ml-auto"><Trash2 className="h-3 w-3" /> Descartar toda la reunión</button>
               </div>
-              <ul className="flex flex-col gap-2">
-                {re.propuestas.map((p) => {
+              <ul className="flex flex-col gap-2.5">
+                {re.propuestas.map((p, i) => {
                   const b = borradores[p.id]
                   if (!b) return null
+                  const col = columnas.find((c) => c.nombre === b.columna)
+                  const dep = departamentos.find((d) => d.nombre === b.departamento)
                   return (
-                    <li key={p.id} className="tc-propuesta" data-marcada={b.marcada ? 'true' : undefined}>
+                    <li key={p.id} className="tc-pr" data-marcada={b.marcada ? 'true' : undefined} style={{ ...tono(col?.color), '--i': Math.min(i, 10) } as CSSProperties}>
                       <div className="flex items-start gap-3">
-                        <button type="button" role="checkbox" aria-checked={b.marcada} aria-label={b.marcada ? 'Quitar de las que se crean' : 'Incluir entre las que se crean'} onClick={() => cambiar(p.id, { marcada: !b.marcada })} className="tc-propuesta-marca" data-on={b.marcada ? 'true' : undefined}>{b.marcada && <Check className="h-3.5 w-3.5" />}</button>
+                        <button type="button" role="checkbox" aria-checked={b.marcada} aria-label={b.marcada ? 'Quitar de las que se crean' : 'Incluir entre las que se crean'} onClick={() => cambiar(p.id, { marcada: !b.marcada })} className="tc-pr-marca" data-on={b.marcada ? 'true' : undefined}><Check className="h-3.5 w-3.5" strokeWidth={3} /></button>
                         <div className="min-w-0 flex-1">
-                          <input value={b.titulo} onChange={(e) => cambiar(p.id, { titulo: e.target.value })} maxLength={200} aria-label="Título de la tarea" className="tc-propuesta-titulo" />
-                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                            <div className="tc-vistas" role="group" aria-label="Columna">
-                              {columnas.filter((c) => c.grupo !== 'hecho' || c.nombre === b.columna).slice(0, 8).map((c) => (
-                                <button key={c.nombre} type="button" aria-pressed={b.columna === c.nombre} onClick={() => cambiar(p.id, { columna: c.nombre })} className="tc-vista-boton !h-7" data-on={b.columna === c.nombre ? 'true' : undefined} style={b.columna === c.nombre ? { background: 'var(--ls-sup3)', color: 'var(--ls-t1)', boxShadow: 'inset 0 0 0 1px var(--ls-linea2)' } : undefined}>{c.nombre}</button>
-                              ))}
-                            </div>
-                            <select aria-label="Departamento" value={b.departamento ?? ''} onChange={(e) => cambiar(p.id, { departamento: e.target.value || null })} className="h-7 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-1.5 text-[12px]">
-                              <option value="">Sin departamento</option>
-                              {departamentos.map((d) => <option key={d.nombre} value={d.nombre}>{d.nombre}</option>)}
-                            </select>
-                            <input type="date" aria-label="Fecha" value={b.fecha_inicio} onChange={(e) => cambiar(p.id, { fecha_inicio: e.target.value })} className="tc-fecha" />
-                            <SelectorDePersonas valor={b.responsables} personas={gente} onCambio={(ids) => cambiar(p.id, { responsables: ids })} />
+                          <div className="flex items-start gap-2">
+                            <input value={b.titulo} onChange={(e) => cambiar(p.id, { titulo: e.target.value })} maxLength={200} aria-label="Título de la tarea" className="tc-pr-titulo" />
+                            <label className="tc-pr-pastilla tc-pr-columna" title="Columna donde se crea">
+                              <span className="tc-pr-punto" />
+                              <select aria-label="Columna" value={b.columna} onChange={(e) => cambiar(p.id, { columna: e.target.value })}>
+                                {abiertas.map((c) => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
+                                {!abiertas.some((c) => c.nombre === b.columna) && <option value={b.columna}>{b.columna}</option>}
+                              </select>
+                              <ChevronDown className="h-3 w-3 opacity-60" />
+                            </label>
                           </div>
-                          {b.contexto && !b.abierta && <p className="mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-[var(--ls-t3)]">{b.contexto}</p>}
-                          <button type="button" onClick={() => cambiar(p.id, { abierta: !b.abierta })} className="mt-1 text-[11.5px] text-[var(--ls-t4)] hover:text-[var(--ls-t1)]">{b.abierta ? 'Ocultar el detalle' : `Ver y editar el detalle${b.subtareas.length > 0 ? ` · ${b.subtareas.length} subtareas` : ''}`}</button>
+
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <label className="tc-pr-pastilla" style={tono(dep?.color)} data-vacia={b.departamento ? undefined : 'true'}>
+                              <select aria-label="Departamento" value={b.departamento ?? ''} onChange={(e) => cambiar(p.id, { departamento: e.target.value || null })}>
+                                <option value="">Sin departamento</option>
+                                {departamentos.map((d) => <option key={d.nombre} value={d.nombre}>{d.nombre}</option>)}
+                              </select>
+                              <ChevronDown className="h-3 w-3 opacity-60" />
+                            </label>
+                            <label className="tc-pr-pastilla tc-pr-fecha-campo" data-vacia={b.fecha_inicio ? undefined : 'true'}>
+                              <CalendarDays className="h-3 w-3" />
+                              <span>{b.fecha_inicio ? fechaCorta(b.fecha_inicio) : 'Fecha'}</span>
+                              <input type="date" aria-label="Fecha" value={b.fecha_inicio} onClick={(e) => (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.()} onChange={(e) => cambiar(p.id, { fecha_inicio: e.target.value })} />
+                            </label>
+                            <SelectorDePersonas valor={b.responsables} personas={gente} onCambio={(ids) => cambiar(p.id, { responsables: ids })} />
+                            <button type="button" onClick={() => cambiar(p.id, { abierta: !b.abierta })} className="tc-pr-detalle" aria-expanded={b.abierta}>
+                              {b.subtareas.length > 0 ? `${b.subtareas.length} subtareas` : 'Detalle'}<ChevronDown className={`h-3 w-3 transition-transform ${b.abierta ? 'rotate-180' : ''}`} />
+                            </button>
+                          </div>
+
+                          {b.contexto && !b.abierta && <p className="tc-pr-contexto">{b.contexto}</p>}
                           {b.abierta && (
-                            <div className="mt-2 flex flex-col gap-2">
-                              <label className="text-[11.5px] font-semibold text-[var(--ls-t4)]">Contexto
-                                <textarea value={b.contexto} onChange={(e) => cambiar(p.id, { contexto: e.target.value })} rows={3} className="tc-dia-texto mt-1 !text-[12.5px] font-normal" />
+                            <div className="tc-pr-ampliado">
+                              <label>Contexto
+                                <textarea value={b.contexto} onChange={(e) => cambiar(p.id, { contexto: e.target.value })} rows={3} />
                               </label>
-                              {b.columna === 'Backlog' ? null : (
+                              {b.columna !== 'Backlog' && (
                                 <div>
-                                  <p className="mb-1 text-[11.5px] font-semibold text-[var(--ls-t4)]">Subtareas</p>
+                                  <p className="tc-pr-rotulo">Subtareas</p>
                                   <ul className="flex flex-col gap-1">
-                                    {b.subtareas.map((s, i) => (
-                                      <li key={i} className="flex items-center gap-1.5">
-                                        <input value={s} onChange={(e) => cambiar(p.id, { subtareas: b.subtareas.map((x, j) => (j === i ? e.target.value : x)) })} aria-label={`Subtarea ${i + 1}`} className="tc-subtarea-titulo !bg-[var(--ls-sup2)]" />
-                                        <button type="button" onClick={() => cambiar(p.id, { subtareas: b.subtareas.filter((_, j) => j !== i) })} aria-label="Quitar la subtarea" className="tc-icono-boton"><Trash2 className="h-3 w-3" /></button>
+                                    {b.subtareas.map((s, j) => (
+                                      <li key={j} className="tc-pr-subtarea">
+                                        <span>{j + 1}</span>
+                                        <input value={s} onChange={(e) => cambiar(p.id, { subtareas: b.subtareas.map((x, k) => (k === j ? e.target.value : x)) })} aria-label={`Subtarea ${j + 1}`} />
+                                        <button type="button" onClick={() => cambiar(p.id, { subtareas: b.subtareas.filter((_, k) => k !== j) })} aria-label="Quitar la subtarea" className="tc-icono-boton !h-6 !w-6"><Trash2 className="h-3 w-3" /></button>
                                       </li>
                                     ))}
                                   </ul>
-                                  <button type="button" onClick={() => cambiar(p.id, { subtareas: [...b.subtareas, ''] })} className="tc-boton-suave tc-discreto mt-1"><Plus className="h-3 w-3" /> Añadir subtarea</button>
+                                  <button type="button" onClick={() => cambiar(p.id, { subtareas: [...b.subtareas, ''] })} className="tc-boton-suave tc-discreto mt-1.5"><Plus className="h-3 w-3" /> Añadir subtarea</button>
                                 </div>
                               )}
                             </div>
@@ -195,11 +239,15 @@ export function PropuestasDeReunion({ cliente, personas, onCerrar, onCreadas, on
         </div>
 
         {lista.length > 0 && (
-          <footer className="tc-modal-pie">
-            <button type="button" onClick={() => marcarTodas(marcadas.length < lista.length)} className="tc-boton-suave">{marcadas.length < lista.length ? 'Marcar todas' : 'Desmarcar todas'}</button>
-            <span className="text-[12px] text-[var(--ls-t4)]">{marcadas.length} de {lista.length} marcadas</span>
+          <footer className="tc-pr-pie">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {porColumna.map(([nombre, n]) => (
+                <span key={nombre} className="tc-pr-resumen" style={tono(columnas.find((c) => c.nombre === nombre)?.color)}><span className="tc-pr-punto" />{n} {nombre}</span>
+              ))}
+              {marcadas.length === 0 && <span className="text-[12px] text-[var(--ls-t4)]">Ninguna marcada: se descartarán todas</span>}
+            </div>
             <button type="button" onClick={onCerrar} className="tc-boton-suave ml-auto">Decidir luego</button>
-            <button type="button" disabled={enviando || lista.length === 0} onClick={() => void decidir(marcadas, lista.filter((b) => !b.marcada).map((b) => b.id))} className="tc-boton-primario disabled:opacity-50">
+            <button type="button" disabled={enviando || lista.length === 0} onClick={() => void decidir(marcadas, lista.filter((b) => !b.marcada).map((b) => b.id))} className="tc-boton-primario tc-pr-crear disabled:opacity-50">
               {enviando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               {marcadas.length === 0 ? `Descartar las ${lista.length}` : `Crear ${marcadas.length}${lista.length - marcadas.length > 0 ? ` y descartar ${lista.length - marcadas.length}` : ''}`}
             </button>
