@@ -571,7 +571,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
           )}
 
           <div className="lat-acciones">
-            <NotificationsBell colapsado={isCollapsed} />
+            <NotificationsBell colapsado={isCollapsed} conTareas={puedeVerTareas} />
             <ThemeToggle />
           </div>
         </div>

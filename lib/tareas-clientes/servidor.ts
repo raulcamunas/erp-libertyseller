@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { destinatariosDeAsignacion, destinatariosDeComentario, mencionesEnTexto, resumen } from './avisos'
 import { contarChecklist, huellaDeContenido, textoPlano, TIPOS_EDITABLES, type Bloque } from './bloques'
 import { fondoAnimadoId } from './colores'
+import { avisosDeFecha } from './vencimientos'
 import { programarEnvioANotion } from './notion/pronto'
 import { colocar, ordenAlFinal } from './orden'
 import { departamentosDe, estadosDe, estaHecha, type ActividadTC, type ClienteTC, type ComentarioTC, type PersonaTC, type TareaTC, type TipoDeActividad } from './tipos'
@@ -181,12 +182,15 @@ async function registrar(actor: Actor | null, fila: { tareaId: string | null; cl
 
 export interface AvisoParaCampana {
   userId: string
-  tipo: 'comment' | 'mention' | 'task_assigned'
+  /** `task_updated` lo usan los recordatorios de fecha: la tabla de avisos solo admite una lista cerrada de tipos (migración 251) y este ya estaba */
+  tipo: 'comment' | 'mention' | 'task_assigned' | 'task_updated'
   titulo: string
   mensaje: string
   clave: string
   clienteId: string
-  tareaId: string
+  tareaId: string | null
+  /** Para los recordatorios de fecha: `vence` o `vencidas` (la campana les pone su icono) */
+  motivo?: 'vence' | 'vencidas'
 }
 
 /** Escribe los avisos en la campana. NUNCA lanza: un aviso que falla no puede tumbar lo que avisaba */
@@ -196,13 +200,32 @@ async function avisar(avisos: AvisoParaCampana[]) {
     const { error } = await createServiceClient()
       .from('notifications')
       .upsert(
-        avisos.map((a) => ({ user_id: a.userId, type: a.tipo, title: a.titulo, message: a.mensaje, clave: a.clave, datos: { app: 'tareas-clientes', clienteId: a.clienteId, tareaId: a.tareaId }, read: false })),
+        avisos.map((a) => ({ user_id: a.userId, type: a.tipo, title: a.titulo, message: a.mensaje, clave: a.clave, datos: { app: 'tareas-clientes', clienteId: a.clienteId, tareaId: a.tareaId, ...(a.motivo ? { motivo: a.motivo } : {}) }, read: false })),
         { onConflict: 'user_id,clave', ignoreDuplicates: true }
       )
     if (error) console.error('No se han podido escribir los avisos de tareas en la campana:', error.message)
   } catch (e) {
     console.error('No se han podido escribir los avisos de tareas en la campana:', e)
   }
+}
+
+/**
+ * LOS RECORDATORIOS DE FECHA DE UNA PERSONA: «vence hoy», «vence mañana» y un resumen de las vencidas (lib/tareas-clientes/vencimientos.ts). Los pide la campana de esa persona
+ * al abrir el ERP y cada media hora; la clave de cada aviso es única por persona, así que pedirlos varias veces el mismo día no duplica nada ni vuelve a hacer sonar.
+ */
+export async function generarAvisosDeFecha(userId: string): Promise<number> {
+  const service = createServiceClient()
+  const [clientes, tareas] = await Promise.all([
+    service.from('tc_clientes').select('id, opciones').eq('activo', true),
+    service.from('tc_tareas').select('id, cliente_id, titulo, estado, fecha_inicio, fecha_fin').eq('archivada', false).contains('responsables', [userId]).limit(5000),
+  ])
+  const hechas = new Map((clientes.data ?? []).map((c: { id: string; opciones: ClienteTC['opciones'] }) => [c.id, new Set(estadosDe({ opciones: c.opciones }).filter((e) => e.grupo === 'hecho').map((e) => e.nombre))]))
+  const abiertas = ((tareas.data ?? []) as Array<{ id: string; cliente_id: string; titulo: string; estado: string; fecha_inicio: string | null; fecha_fin: string | null }>).filter((t) => !hechas.get(t.cliente_id)?.has(t.estado))
+  // El «hoy» es el de España: a las 23:30 de allí no puede ser ya mañana
+  const hoy = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })
+  const avisos = avisosDeFecha(abiertas, hoy)
+  await avisar(avisos.map((a) => ({ userId, tipo: 'task_updated' as const, titulo: a.titulo, mensaje: a.mensaje, clave: a.clave, clienteId: a.clienteId, tareaId: a.tareaId, motivo: a.tipo === 'tarea_vencidas' ? ('vencidas' as const) : ('vence' as const) })))
+  return avisos.length
 }
 
 type OperacionDeCola = 'crear' | 'propiedades' | 'contenido' | 'archivar' | 'comentar'

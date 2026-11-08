@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Bell, BellOff, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
 import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
+import { activarEscritorio, avisarEnEscritorio, desactivarEscritorio, escritorioActivo, escritorioDenegado, escritorioDisponible, ficheroDeSonidoDeTarea, ponerSonidoDeTareas, probarSonidoDeTarea, sonarTarea, sonidoDeTareasActivo, suscribirSonidoDeTareas } from '@/lib/avisos/sonido-tareas'
 import { destinoDeAvisoDeCorreo, type DestinoDeAviso } from '@/lib/correo/campana-tipos'
 import { pedirAlCorreo } from '@/lib/correo/peticiones'
 import {
@@ -57,7 +58,13 @@ const ICONOS_DE_AVISO: Record<string, { Icono: LucideIcon; tono: Tono }> = {
   task_assigned: { Icono: CheckSquare, tono: 'neutro' },
   task_updated: { Icono: CheckSquare, tono: 'neutro' },
 }
-const iconoDeAviso = (tipo: string) => ICONOS_DE_AVISO[tipo] ?? { Icono: Bell, tono: 'neutro' as Tono }
+const iconoDeAviso = (tipo: string, datos?: unknown) => {
+  // Los recordatorios de fecha de las tareas viajan como `task_updated` con su motivo dentro: se distinguen por él
+  const motivo = (datos as { motivo?: string } | null | undefined)?.motivo
+  if (motivo === 'vencidas') return { Icono: Flame, tono: 'rojo' as Tono }
+  if (motivo === 'vence') return { Icono: AlertTriangle, tono: 'ambar' as Tono }
+  return ICONOS_DE_AVISO[tipo] ?? { Icono: Bell, tono: 'neutro' as Tono }
+}
 
 /**
  * LA CAMPANA DE NOTIFICACIONES, EN LA BARRA LATERAL.
@@ -71,7 +78,7 @@ const iconoDeAviso = (tipo: string) => ICONOS_DE_AVISO[tipo] ?? { Icono: Bell, t
  * Correo → Secuencias (lib/correo/peticiones.ts, el mismo camino que el aviso de «correo nuevo» de abajo a la derecha). Escribirlos es cosa del servidor
  * (lib/correo/campana-servidor.ts); aquí solo se pintan. Los de antes (leads web, Amazon, alarmas) funcionan igual que siempre.
  */
-export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }) {
+export function NotificationsBell({ colapsado = false, conTareas = false }: { colapsado?: boolean; conTareas?: boolean }) {
   const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -83,6 +90,23 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
   // El sonido suave que avisa de un correo nuevo (lib/avisos/sonido.ts): suena aunque el ERP esté en segundo plano
   const sonidoActivo = useSyncExternalStore(suscribirSonido, sonidoDeCorreoActivo, () => true)
   const [pruebaDeSonido, setPruebaDeSonido] = useState<'' | 'bloqueado' | 'sin_audio'>('')
+  // Lo mismo para los avisos de tareas: su sonido (que puede ser un fichero propio en public/sonidos/) y las notificaciones del escritorio
+  const sonidoDeTareas = useSyncExternalStore(suscribirSonidoDeTareas, sonidoDeTareasActivo, () => true)
+  const escritorio = useSyncExternalStore(suscribirSonidoDeTareas, escritorioActivo, () => false)
+  const [notaDeTareas, setNotaDeTareas] = useState('')
+  const [ficheroPropio, setFicheroPropio] = useState<string | null>(null)
+  useEffect(() => {
+    if (conTareas) void ficheroDeSonidoDeTarea().then(setFicheroPropio)
+  }, [conTareas])
+
+  // Los recordatorios de fecha (vence hoy, vence mañana, vencidas) los genera el servidor para esta persona al abrir el ERP y cada media hora
+  useEffect(() => {
+    if (!conTareas) return
+    const pedir = () => void fetch('/api/tareas-clientes/avisos/vencimientos', { method: 'POST' }).catch(() => undefined)
+    pedir()
+    const id = window.setInterval(() => document.visibilityState === 'visible' && pedir(), 30 * 60_000)
+    return () => window.clearInterval(id)
+  }, [conTareas])
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -135,8 +159,14 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
         .channel(`notifications-${user.id}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, (payload) => {
           // Un correo nuevo en MI buzón (lo escribe el servidor al leerlo, con la pestaña a la vista o no): suena. La clave es «msg:<id del correo>»
-          const fila = (payload as { new?: { type?: unknown; clave?: unknown } }).new
+          const fila = (payload as { new?: { type?: unknown; clave?: unknown; title?: unknown; message?: unknown; datos?: unknown } }).new
           if (fila?.type === 'correo_nuevo') void sonarCorreo(typeof fila.clave === 'string' ? fila.clave.replace(/^msg:/, '') : undefined)
+          // Un aviso de tareas (te asignan, te mencionan, comentan, o una fecha): su propio sonido, y la notificación del escritorio si la pestaña no se está viendo
+          const d = fila?.datos as { app?: string; clienteId?: string; tareaId?: string } | null | undefined
+          if (d?.app === 'tareas-clientes') {
+            void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
+            if (d.clienteId) avisarEnEscritorio(String(fila?.title ?? 'Tareas de clientes'), String(fila?.message ?? ''), `/dashboard/tareas-clientes/${d.clienteId}${d.tareaId ? `?tarea=${d.tareaId}` : ''}`)
+          }
           recargarEnBreve()
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, recargarEnBreve)
@@ -300,7 +330,7 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
             </div>
           ) : (
             notifications.map((notification, i) => {
-              const { Icono, tono } = iconoDeAviso(notification.type)
+              const { Icono, tono } = iconoDeAviso(notification.type, notification.datos)
               const destino = destinoDeAvisoDeCorreo(notification.type, notification.datos)
               const link = destino ? null : getNotificationLink(notification)
               const propios = {
@@ -399,6 +429,58 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
             <p className="lat-avisos-nota" role="status">
               {pruebaDeSonido === 'bloqueado' ? 'El navegador no deja sonar todavía: pulsa en cualquier parte de la página y vuelve a probar.' : 'Este navegador no tiene audio.'}
             </p>
+          )}
+          {conTareas && (
+            <>
+              <div className="lat-avisos-sonido">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nuevo = !sonidoDeTareas
+                    ponerSonidoDeTareas(nuevo)
+                    setNotaDeTareas('')
+                    if (nuevo) void probarSonidoDeTarea().then((r) => setNotaDeTareas(r === 'bloqueado' ? 'El navegador no deja sonar todavía: pulsa en cualquier parte de la página y vuelve a probar.' : r === 'sin_audio' ? 'Este navegador no tiene audio.' : ''))
+                  }}
+                  aria-pressed={sonidoDeTareas}
+                  className="lat-avisos-silencio"
+                  title={ficheroPropio ? `Suena ${ficheroPropio}` : 'Suena el «ding» de siempre; para poner el tuyo, copia un tarea.mp3 en public/sonidos'}
+                >
+                  {sonidoDeTareas ? <Volume2 className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <VolumeX className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+                  <span className="flex-1">{sonidoDeTareas ? 'Suena al llegar un aviso de tareas' : 'Sin sonido en los avisos de tareas'}</span>
+                  <span className="lat-avisos-silencio-accion">{sonidoDeTareas ? 'Quitar' : 'Poner'}</span>
+                </button>
+                {sonidoDeTareas && (
+                  <button type="button" className="lat-avisos-probar" onClick={() => void probarSonidoDeTarea().then((r) => setNotaDeTareas(r === 'bloqueado' ? 'El navegador no deja sonar todavía: pulsa en cualquier parte de la página y vuelve a probar.' : ''))} title="Oír el aviso">
+                    Probar
+                  </button>
+                )}
+              </div>
+              {escritorioDisponible() && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (escritorio) {
+                      desactivarEscritorio()
+                      return
+                    }
+                    const r = await activarEscritorio()
+                    setNotaDeTareas(r === 'denegado' ? 'El navegador tiene bloqueadas las notificaciones de esta página: se desbloquean en el candado de la barra de direcciones.' : '')
+                  }}
+                  aria-pressed={escritorio}
+                  className="lat-avisos-silencio"
+                  title="Una notificación del sistema cuando llegue un aviso de tareas y la pestaña del ERP no esté a la vista"
+                >
+                  <BellRing className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span className="flex-1">{escritorio ? 'Avisos del escritorio activados' : escritorioDenegado() ? 'Avisos del escritorio bloqueados' : 'Avisos del escritorio apagados'}</span>
+                  <span className="lat-avisos-silencio-accion">{escritorio ? 'Quitar' : 'Activar'}</span>
+                </button>
+              )}
+              {notaDeTareas !== '' && (
+                <p className="lat-avisos-nota" role="status">
+                  {notaDeTareas}
+                </p>
+              )}
+            </>
           )}
           <button type="button" onClick={() => silenciarEquipo(!silenciados)} aria-pressed={silenciados} className="lat-avisos-silencio">
             {silenciados ? <BellOff className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <Bell className="h-3.5 w-3.5 shrink-0" aria-hidden />}
