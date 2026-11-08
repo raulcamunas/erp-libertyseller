@@ -41,6 +41,10 @@ interface Props {
   borradorInicial?: string
   alCambiarBorrador?: (texto: string) => void
   alEscribir?: () => void
+  /** Mientras se graba una nota de voz, cada pocos segundos (para avisar al resto) */
+  alGrabar?: () => void
+  /** Al terminar o descartar la grabación */
+  alPararDeGrabar?: () => void
   /** Envía el texto con las menciones ya como identificadores. Si falla, lanza el error y el texto se queda */
   alEnviar: (cuerpo: string, adjuntos: AdjuntoChat[]) => Promise<void>
   /** Si se da, sale el reloj para dejar el mensaje programado a una hora */
@@ -62,7 +66,7 @@ interface Props {
   ficherosSoltados?: { n: number; ficheros: File[] } | null
 }
 
-export function Redactor({ candidatos, placeholder, borradorInicial = '', alCambiarBorrador, alEscribir, alEnviar, alProgramar, autoEnfocar, compacto, cita, alQuitarCita, ficherosSoltados, esAdmin = false, alComando, permitirTodos = false, alEncuesta }: Props) {
+export function Redactor({ candidatos, placeholder, borradorInicial = '', alCambiarBorrador, alEscribir, alGrabar, alPararDeGrabar, alEnviar, alProgramar, autoEnfocar, compacto, cita, alQuitarCita, ficherosSoltados, esAdmin = false, alComando, permitirTodos = false, alEncuesta }: Props) {
   const [texto, setTexto] = useState(borradorInicial)
   const [enviando, setEnviando] = useState(false)
   const [cursor, setCursor] = useState(borradorInicial.length)
@@ -223,6 +227,8 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
   // El contador, y el corte a los 5 minutos
   useEffect(() => {
     if (!grabando) return
+    alGrabar?.()
+    const aviso = alGrabar ? setInterval(alGrabar, 2_500) : null
     const t = setInterval(() => {
       const g = grabadora.current
       if (!g) return
@@ -230,7 +236,11 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
       setGrabando({ segundos: s })
       if (s >= 300) pararDeGrabar(false)
     }, 500)
-    return () => clearInterval(t)
+    return () => {
+      clearInterval(t)
+      if (aviso) clearInterval(aviso)
+      alPararDeGrabar?.()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grabando !== null])
   useEffect(() => () => pararDeGrabar(true), [])  // eslint-disable-line react-hooks/exhaustive-deps

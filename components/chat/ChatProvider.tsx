@@ -17,6 +17,30 @@ const RELEER_CANAL_MS = 6_000
 const RELEER_INICIO_MS = 15_000
 const ESCRIBIENDO_VIDA_MS = 4_500
 
+type Avisos = Record<string, Record<string, number>>
+
+const quitarDe = (e: Avisos, canal: string, id: string): Avisos => {
+  if (!e[canal]?.[id]) return e
+  const { [id]: _, ...resto } = e[canal]
+  const nuevo = { ...e }
+  if (Object.keys(resto).length > 0) nuevo[canal] = resto
+  else delete nuevo[canal]
+  return nuevo
+}
+
+/** Quita a quien ya no ha avisado a tiempo; si no cambia nada devuelve el mismo objeto (no repinta) */
+const caducados = (e: Avisos): Avisos => {
+  const ahora = Date.now()
+  let cambia = false
+  const nuevo: Avisos = {}
+  for (const [canal, quienes] of Object.entries(e)) {
+    const vivos = Object.fromEntries(Object.entries(quienes).filter(([, hasta]) => hasta > ahora))
+    if (Object.keys(vivos).length !== Object.keys(quienes).length) cambia = true
+    if (Object.keys(vivos).length > 0) nuevo[canal] = vivos
+  }
+  return cambia ? nuevo : e
+}
+
 export interface EstadoDeCanal {
   mensajes: MensajeChat[]
   hayMas: boolean
@@ -71,7 +95,12 @@ interface ContextoDeChat {
   cerrarAsistente: () => void
   conectados: ReadonlySet<string>
   escribiendo: (canalId: string) => string[]
-  avisarQueEscribo: (canalId: string) => void
+  /** Quién está grabando una nota de voz en el canal */
+  grabando: (canalId: string) => string[]
+  /** Avisa al resto de que estás escribiendo (por defecto) o grabando una nota de voz */
+  avisarQueEscribo: (canalId: string, que?: 'escribe' | 'graba') => void
+  /** Avisa de que has dejado de escribir o grabar (al enviar o descartar) */
+  avisarQuePara: (canalId: string) => void
   /** El directo está funcionando (si no, la pantalla se relee sola) */
   enVivo: boolean
   recargar: () => void
@@ -136,6 +165,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
   const [mensajesDelHilo, setMensajesDelHilo] = useState<MensajeChat[]>([])
   const [conectados, setConectados] = useState<ReadonlySet<string>>(new Set())
   const [escribiendoPor, setEscribiendoPor] = useState<Record<string, Record<string, number>>>({})
+  const [grabandoPor, setGrabandoPor] = useState<Record<string, Record<string, number>>>({})
   const [enVivo, setEnVivo] = useState(false)
   const [llamadaEntrante, setLlamadaEntrante] = useState<{ canalId: string; de: string; en: number } | null>(null)
   const [versionDeJuntas, setVersionDeJuntas] = useState(0)
@@ -383,9 +413,18 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       presencia
         .on('presence', { event: 'sync' }, sincronizar)
         .on('broadcast', { event: 'escribe' }, ({ payload }) => {
-          const p = payload as { canalId?: string; id?: string }
+          const p = payload as { canalId?: string; id?: string; que?: string }
           if (!p.canalId || !p.id || p.id === yoRef.current) return
-          setEscribiendoPor((e) => ({ ...e, [p.canalId as string]: { ...(e[p.canalId as string] ?? {}), [p.id as string]: Date.now() + ESCRIBIENDO_VIDA_MS } }))
+          const poner = p.que === 'graba' ? setGrabandoPor : setEscribiendoPor
+          const quitar = p.que === 'graba' ? setEscribiendoPor : setGrabandoPor
+          poner((e) => ({ ...e, [p.canalId as string]: { ...(e[p.canalId as string] ?? {}), [p.id as string]: Date.now() + ESCRIBIENDO_VIDA_MS } }))
+          quitar((e) => quitarDe(e, p.canalId as string, p.id as string))
+        })
+        .on('broadcast', { event: 'para' }, ({ payload }) => {
+          const p = payload as { canalId?: string; id?: string }
+          if (!p.canalId || !p.id) return
+          setEscribiendoPor((e) => quitarDe(e, p.canalId as string, p.id as string))
+          setGrabandoPor((e) => quitarDe(e, p.canalId as string, p.id as string))
         })
         .subscribe((s) => {
           if (s === 'SUBSCRIBED' && presencia) void presencia.track({ id: yo.id, en: Date.now() })
@@ -399,20 +438,11 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
     }
   }, [yo.id, cargarInicio, cargarCanal])
 
-  // «Escribiendo…» se apaga solo
+  // «Escribiendo…» y «grabando…» se apagan solos
   useEffect(() => {
     const t = setInterval(() => {
-      setEscribiendoPor((e) => {
-        const ahora = Date.now()
-        let cambia = false
-        const nuevo: typeof e = {}
-        for (const [canal, quienes] of Object.entries(e)) {
-          const vivos = Object.fromEntries(Object.entries(quienes).filter(([, hasta]) => hasta > ahora))
-          if (Object.keys(vivos).length !== Object.keys(quienes).length) cambia = true
-          if (Object.keys(vivos).length > 0) nuevo[canal] = vivos
-        }
-        return cambia ? nuevo : e
-      })
+      setEscribiendoPor(caducados)
+      setGrabandoPor(caducados)
     }, 1500)
     return () => clearInterval(t)
   }, [])
@@ -643,11 +673,22 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
 
   const estadoDe = useCallback((id: string | null | undefined) => (id && estaVigente(estadosDePersonas[id]) ? estadosDePersonas[id] : null), [estadosDePersonas])
 
-  const avisarQueEscribo = useCallback((canalId: string) => {
+  const avisarQueEscribo = useCallback((canalId: string, que: 'escribe' | 'graba' = 'escribe') => {
     const c = canalDePresencia.current
     if (!c) return
-    void c.send({ type: 'broadcast', event: 'escribe', payload: { canalId, id: yoRef.current } })
+    void c.send({ type: 'broadcast', event: 'escribe', payload: { canalId, id: yoRef.current, que } })
   }, [])
+
+  const avisarQuePara = useCallback((canalId: string) => {
+    const c = canalDePresencia.current
+    if (!c) return
+    void c.send({ type: 'broadcast', event: 'para', payload: { canalId, id: yoRef.current } })
+  }, [])
+
+  const grabando = useCallback(
+    (canalId: string) => Object.entries(grabandoPor[canalId] ?? {}).filter(([, hasta]) => hasta > Date.now()).map(([id]) => id),
+    [grabandoPor]
+  )
 
   const escribiendo = useCallback(
     (canalId: string) => Object.entries(escribiendoPor[canalId] ?? {}).filter(([, hasta]) => hasta > Date.now()).map(([id]) => id),
@@ -689,7 +730,9 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       cambiar,
       conectados,
       escribiendo,
+      grabando,
       avisarQueEscribo,
+      avisarQuePara,
       enVivo,
       recargar: () => void cargarInicio(),
       llamadaEntrante,
@@ -714,7 +757,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       abrirAsistente,
       cerrarAsistente,
     }),
-    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
+    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>

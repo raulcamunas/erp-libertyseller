@@ -4500,7 +4500,6 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 .chat-marco[data-fondo='aurora'] .chat-lista { background: radial-gradient(900px 520px at 90% -8%, color-mix(in srgb, var(--c-acc, var(--ls-acc)) 12%, transparent), transparent 62%), radial-gradient(760px 520px at -6% 108%, color-mix(in srgb, var(--c-acc-dos, var(--ls-acc)) 10%, transparent), transparent 62%); }
 .chat-marco[data-fondo='puntos'] .chat-lista { background-image: radial-gradient(color-mix(in srgb, var(--ls-t1) 12%, transparent) 1px, transparent 1.4px); background-size: 22px 22px; }
 .chat-marco[data-fondo='malla'] .chat-lista { background-image: linear-gradient(color-mix(in srgb, var(--ls-t1) 6%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--ls-t1) 6%, transparent) 1px, transparent 1px); background-size: 30px 30px; }
-.chat-cargando-arriba { padding: 6px; text-align: center; font-size: 12px; color: var(--ls-t4); }
 .chat-inicio-canal { padding: 30px 24px 14px; }
 .chat-inicio-canal h2 { font-size: 22px; font-weight: 750; letter-spacing: -.015em; color: var(--ls-t1); }
 .chat-inicio-canal p { margin-top: 4px; font-size: 13.5px; color: var(--ls-t3); }
@@ -4514,6 +4513,8 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 .chat-ir-al-final { position: absolute; right: 24px; bottom: 112px; z-index: 5; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: 1px solid var(--ls-linea2); background: var(--ls-sup); padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--ls-t1); box-shadow: 0 10px 24px -12px rgba(0, 0, 0, .6); }
 .chat-pie { flex-shrink: 0; padding: 0 20px 16px; }
 .chat-escribiendo { display: flex; height: 20px; align-items: center; gap: 7px; padding-left: 4px; font-size: 12px; font-style: italic; color: var(--ls-t3); }
+.chat-puntos { display: inline-flex; align-items: center; gap: 3px; }
+.chat-puntos i { display: block; height: 4px; width: 4px; border-radius: 999px; background: var(--c-acc, var(--ls-acc)); opacity: .6; }
 .chat-puntos { display: inline-flex; gap: 3px; }
 .chat-puntos i { height: 5px; width: 5px; border-radius: 999px; background: var(--c-acc, var(--ls-acc)); opacity: .8; }
 .chat-unirse { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-radius: 14px; border: 1px solid var(--ls-linea2); background: var(--ls-sup); padding: 12px 16px; font-size: 13px; color: var(--ls-t2); }
@@ -4994,6 +4995,10 @@ kbd { border-radius: 6px; border: 1px solid var(--ls-linea2); background: var(--
   .chat-asistente { animation: chat-desliza .3s cubic-bezier(.2, .9, .3, 1); }
   .chat-encuesta { animation: chat-pop .25s cubic-bezier(.3, 1.4, .5, 1); }
   .chat-voz-pendiente { animation: chat-parpadea 1.4s ease-in-out infinite; }
+  @keyframes chat-punto-salta { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-3px); opacity: 1; } }
+  .chat-puntos i { animation: chat-punto-salta 1.1s ease-in-out infinite; }
+  .chat-puntos i:nth-child(2) { animation-delay: .15s; }
+  .chat-puntos i:nth-child(3) { animation-delay: .3s; }
   @keyframes chat-grabando { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.8); } }
   @keyframes chat-parpadea { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 }

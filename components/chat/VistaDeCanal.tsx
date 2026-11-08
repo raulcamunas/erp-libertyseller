@@ -48,7 +48,7 @@ export function VistaDeCanal() {
 }
 
 function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
-  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, avisarQueEscribo, unirse, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe, cambiarAvisos, ponerEstado, abrirAsistente } = useChat()
+  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, grabando, avisarQueEscribo, avisarQuePara, unirse, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe, cambiarAvisos, ponerEstado, abrirAsistente } = useChat()
   const { disponible: juntasDisponibles, activas, actual: juntaActual, entrar: entrarEnJunta } = useJunta()
   const [miembrosAbierto, setMiembrosAbierto] = useState(false)
   const [pegado, setPegado] = useState(true)
@@ -72,6 +72,9 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const filas = useMemo(() => filasDeMensajes(e.mensajes, { yo: yo.id, ultimoLeidoEn: marca }), [e.mensajes, yo.id, marca])
   if (e.cargado && maxInicial.current === null) maxInicial.current = e.mensajes.reduce((max, m) => Math.max(max, m.id), 0)
   const quienesEscriben = escribiendo(canal.id).map((id) => nombreDe(id).split(' ')[0])
+  const quienesGrabAn = grabando(canal.id).map((id) => nombreDe(id).split(' ')[0])
+  const frase = (n: string[], uno: string, varios: string) => (n.length === 1 ? `${n[0]} ${uno}` : `${n.join(' y ')} ${varios}`)
+  const textoAvisos = [quienesEscriben.length > 0 ? frase(quienesEscriben, 'está escribiendo', 'están escribiendo') : '', quienesGrabAn.length > 0 ? frase(quienesGrabAn, 'está grabando un audio', 'están grabando un audio') : ''].filter(Boolean).join(' · ')
   const otro = canal.tipo === 'directo' ? canal.miembros.find((m) => m !== yo.id) : undefined
   const candidatos = canal.tipo === 'canal' ? personas.filter((p) => p.id !== yo.id) : personas.filter((p) => p.id !== yo.id && canal.miembros.includes(p.id))
 
@@ -248,7 +251,6 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
       )}
 
       <div className="chat-lista" ref={lista} onScroll={alDesplazar} role="log" aria-live="polite" aria-label={`Mensajes de ${nombre}`}>
-        {e.cargando && e.mensajes.length > 0 && <p className="chat-cargando-arriba">Cargando mensajes anteriores…</p>}
         {!e.hayMas && e.cargado && (
           <div className="chat-inicio-canal">
             {icono && <span className="chat-inicio-icono">{icono}</span>}
@@ -290,7 +292,9 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
       )}
 
       <div className="chat-pie">
-        <p className="chat-escribiendo" aria-live="polite">{quienesEscriben.length === 0 ? ' ' : quienesEscriben.length === 1 ? `${quienesEscriben[0]} está escribiendo…` : `${quienesEscriben.join(' y ')} están escribiendo…`}</p>
+        <p className="chat-escribiendo" aria-live="polite" data-activo={textoAvisos ? 'true' : undefined}>
+          {textoAvisos ? <><span className="chat-puntos" aria-hidden="true"><i /><i /><i /></span>{textoAvisos}</> : ' '}
+        </p>
         {canal.soy_miembro && canal.anuncios && !canal.soy_admin ? (
           <div className="chat-unirse chat-solo-anuncios">
             <Megaphone className="h-4 w-4 shrink-0" />
@@ -303,6 +307,8 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
             borradorInicial={borradores.get(canal.id) ?? ''}
             alCambiarBorrador={(t) => (t ? borradores.set(canal.id, t) : borradores.delete(canal.id))}
             alEscribir={() => avisarQueEscribo(canal.id)}
+            alGrabar={() => avisarQueEscribo(canal.id, 'graba')}
+            alPararDeGrabar={() => avisarQuePara(canal.id)}
             cita={citando ? { autor: citando.autor_id === yo.id ? 'Tú' : nombreDe(citando.autor_id), texto: textoPlano(citando.cuerpo, (id) => nombreDe(id).split(' ')[0], 90) || '📎 Archivo adjunto' } : null}
             alQuitarCita={() => setCitando(null)}
             ficherosSoltados={canal.soy_miembro ? soltados : null}
@@ -312,6 +318,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
             alEncuesta={() => setEncuestaAbierta(true)}
             alEnviar={async (cuerpo, adjuntos) => {
               await enviar(canal.id, cuerpo, { respondeA: citando?.id, adjuntos })
+              avisarQuePara(canal.id)
               setCitando(null)
               pegadoRef.current = true
             }}
