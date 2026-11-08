@@ -69,7 +69,7 @@ export function esUrlDeNotion(url: string | undefined | null): boolean {
   if (!url) return false
   try {
     const u = new URL(url)
-    return (u.hostname.endsWith('.amazonaws.com') && /notion/i.test(u.href)) || u.hostname.endsWith('notion.so') || u.hostname.endsWith('notion-static.com') || u.hostname.endsWith('notionusercontent.com')
+    return (u.hostname.endsWith('.amazonaws.com') && (u.hostname.startsWith('prod-files-secure.') || /notion/i.test(u.href))) || u.hostname.endsWith('notion.so') || u.hostname.endsWith('notion-static.com') || u.hostname.endsWith('notionusercontent.com')
   } catch {
     return false
   }

@@ -157,6 +157,7 @@ igual('una tabla sin hijos traídos sigue siendo un bloque ajeno', bloquesDesdeN
 igual('el texto de las celdas cuenta para buscar', textoPlano([tabla]).includes('A B'), true)
 
 igual('una dirección firmada de Notion caduca (se copia)', esUrlDeNotion('https://prod-files-secure.s3.us-west-2.amazonaws.com/abc/notion/imagen.png?X-Amz-Signature=1'), true)
+igual('el almacén de ficheros de Notion (prod-files-secure) también', esUrlDeNotion('https://prod-files-secure.s3.us-west-2.amazonaws.com/4cc4eb84-0d9d/746c9208/Captura.png?X-Amz-Algorithm=AWS4-HMAC-SHA256'), true)
 igual('un fichero de notion.so también', esUrlDeNotion('https://www.notion.so/image/https%3A%2F%2Fx?table=block'), true)
 igual('una dirección nuestra no', esUrlDeNotion('https://abc.supabase.co/storage/v1/object/public/tareas-portadas/notion/a.png'), false)
 igual('un amazonaws que no es de Notion no', esUrlDeNotion('https://s3.amazonaws.com/mi-bucket/a.png'), false)
