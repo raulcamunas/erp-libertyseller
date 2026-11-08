@@ -2149,6 +2149,8 @@ html.light {
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--ls-linea2), transparent);
 }
+.lat-marca { display: flex; min-width: 0; align-items: center; gap: 0.625rem; }
+.lat-icono { display: block; height: 2.25rem; width: 2.25rem; flex: none; border-radius: 0.65rem; background: #0f1114; box-shadow: 0 6px 18px -8px var(--lat-sombra-icono), inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
 .lat-logo { position: relative; display: flex; align-items: center; min-width: 0; }
 /* Una luz detrás del logo, que respira */
 .lat-logo::before {

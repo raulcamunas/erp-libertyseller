@@ -171,6 +171,8 @@ export interface DatosDeInicioChat {
 export async function cargarInicio(quien: QuienEscribe): Promise<DatosDeInicioChat> {
   const service = db()
   const personas = await personasDelChat()
+  // #notificaciones-erp: se crea (y se mete al equipo) la primera vez, antes de leer los canales de cada uno
+  await import('./sistema-servidor').then((m) => m.prepararCanalDeNotificaciones()).catch(() => null)
 
   // Los canales a los que entra todo el mundo (#general): se entra una sola vez, la primera
   let lecturaPropios = await service.from('chat_miembros').select('canal_id, silenciado, ultimo_leido_en, avisos, rol').eq('usuario_id', quien.userId)

@@ -3,6 +3,8 @@ import { fetchListingsBySku } from '@/lib/amazon/sp-api'
 import { AmazonApiError } from '@/lib/amazon/errors'
 import { leerTramos } from '@/lib/auditor-stock/paralelo'
 import { enviarSlack } from '@/lib/notificaciones/slack'
+import { slackAChat } from '@/lib/chat/sistema'
+import { publicarEnElChat } from '@/lib/chat/sistema-servidor'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { createServiceClient } from '@/lib/supabase/service'
 import { construirInforme, textoSlack, type EntradaVerificacion } from './verificacion-pura'
@@ -141,6 +143,7 @@ export async function ejecutarVencidas(): Promise<{ hechas: number; errores: num
         .eq('id', fila.id)
       const aviso = await enviarSlack(`:x: No se ha podido verificar el stock subido (lote ${fila.batch_id.slice(0, 8)}): ${mensaje.slice(0, 300)}`)
       if (!aviso.ok) console.warn('[verificacion] Slack:', aviso.motivo)
+      await publicarEnElChat({ clave: `verificacion:${fila.id}`, titulo: 'Stock: no se ha podido verificar', cuerpo: `❌ No se ha podido verificar el stock subido (lote ${fila.batch_id.slice(0, 8)}): ${mensaje.slice(0, 300)}` })
     }
   }
 
@@ -249,6 +252,8 @@ async function verificar(fila: FilaVerificacion): Promise<void> {
   })
   if (notaVentas) texto += `\n_Ventas: ${notaVentas}_`
   const aviso = await enviarSlack(texto)
+  // Lo mismo, en el chat del ERP (#notificaciones-erp)
+  await publicarEnElChat({ clave: `verificacion:${fila.id}`, titulo: `Stock de ${cliente}: ${informe.fallos === 0 ? 'subido bien' : 'hay que revisar'}`, cuerpo: slackAChat(texto) })
 
   await service
     .from('stock_verificaciones')
