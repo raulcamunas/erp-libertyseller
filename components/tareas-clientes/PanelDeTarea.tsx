@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { AlertCircle, Archive, Lock, CalendarDays, CheckCircle2, ChevronDown, CircleDot, CloudOff, ExternalLink, Eye, EyeOff, Gauge, History, Link2, Loader2, MessageSquare, Palette, Send, Tag, Trash2, UserCircle2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { Avatar } from '@/components/rendimiento/ui'
+import { Avatar } from './AvatarTC'
 import { huellaDeContenido, type Bloque } from '@/lib/tareas-clientes/bloques'
 import { mencionesEnTexto } from '@/lib/tareas-clientes/avisos'
 import { departamentosDe, estadosDe, type ActividadTC, type ClienteTC, type ComentarioTC, type PersonaTC } from '@/lib/tareas-clientes/tipos'

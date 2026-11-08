@@ -1,6 +1,8 @@
+import { AparienciaProvider } from '@/components/tareas-clientes/AparienciaProvider'
 import { BotonDelMenu } from '@/components/tareas-clientes/BotonDelMenu'
 import { PresenciaProvider } from '@/components/tareas-clientes/PresenciaProvider'
 import { exigirTareas } from '@/lib/tareas-clientes/acceso'
+import { leerApariencias } from '@/lib/tareas-clientes/apariencia-servidor'
 
 /**
  * TAREAS DE CLIENTES SE ABRE A PANTALLA COMPLETA, como otra aplicación: la barra lateral del ERP se esconde (AppSidebar, lib/layout/inmersivo.ts) y este recuadro ocupa toda
@@ -15,5 +17,11 @@ export default async function TareasClientesLayout({ children }: { children: Rea
       {children}
     </div>
   )
-  return permiso.ok ? <PresenciaProvider yo={{ id: permiso.userId, nombre: permiso.nombre }}>{contenido}</PresenciaProvider> : contenido
+  if (!permiso.ok) return contenido
+  const apariencias = await leerApariencias()
+  return (
+    <AparienciaProvider inicial={apariencias.mapa} disponibleAlInicio={apariencias.disponible}>
+      <PresenciaProvider yo={{ id: permiso.userId, nombre: permiso.nombre }}>{contenido}</PresenciaProvider>
+    </AparienciaProvider>
+  )
 }

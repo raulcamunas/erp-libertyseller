@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Check, Search, X } from 'lucide-react'
-import { Avatar } from '@/components/rendimiento/ui'
+import { Avatar } from './AvatarTC'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { COLORES_NOTION, type ColorNotion, type PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { colorCss, NOMBRE_DE_COLOR } from '@/lib/tareas-clientes/colores'

@@ -5,7 +5,7 @@ import { AlertCircle, CalendarDays, CheckSquare, ListChecks, Lock, MessageSquare
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import type { ClienteTC, OpcionDeEstado, PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { colorValido } from '@/lib/tareas-clientes/colores'
-import { colorDePersona } from '@/components/rendimiento/ui'
+import { useTonoDePersona } from './AvatarTC'
 import { useBloqueadas } from './contexto'
 import { usePresencia } from './PresenciaProvider'
 import { Presentes } from './PresenciaVisual'
@@ -34,6 +34,7 @@ export interface PropsDeTarjeta {
 }
 
 export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas, departamentoColor, activa, superpuesta, fantasma, indice = 0, onAbrir, seleccionada, haySeleccion, onSeleccionar }: PropsDeTarjeta) {
+  const tonoDe = useTonoDePersona()
   // Sin color propio la tarjeta es neutra (el color de la columna ya está en su filo); con color propio se tiñe entera
   const color = colorValido(tarea.color ?? estado?.color)
   const hecha = estado?.grupo === 'hecho'
@@ -41,8 +42,8 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
   const vencida = Boolean(dia && !hecha && dia < hoyISO())
   // El color de quien la lleva, el mismo de su avatar; una persona de Notion sin enlazar con el equipo saca el suyo de su nombre
   const quienes = tarea.responsables.length > 0 ? tarea.responsables : tarea.responsables_notion.map((r) => r.nombre || r.id)
-  const colorResp = tarea.color || quienes.length === 0 ? null : colorDePersona(quienes[0])
-  const colorResp2 = colorResp && quienes.length > 1 ? colorDePersona(quienes[1]) : null
+  const colorResp = tarea.color || quienes.length === 0 ? null : tonoDe(quienes[0])
+  const colorResp2 = colorResp && quienes.length > 1 ? tonoDe(quienes[1]) : null
   const bloqueada = useBloqueadas().has(tarea.id) && !hecha
   // Quién más la tiene abierta ahora (no se pinta la tarjeta que se arrastra: es una copia)
   const viendo = usePresencia().deTarea.get(tarea.id)

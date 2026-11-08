@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Loader2, ShieldCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { Avatar } from '@/components/rendimiento/ui'
+import { Avatar } from './AvatarTC'
 import { ETIQUETA_DE_GRUPO, type GrupoDeCliente, type PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { BASE, pedir } from './api'
 

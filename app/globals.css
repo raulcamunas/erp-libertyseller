@@ -4378,3 +4378,16 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 .tc-sal-fila { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 10px; }
 .tc-sal-fila:hover { background: var(--ls-bg3, rgba(127,127,127,.1)); }
 .tc-sal-fila[data-bloqueada='true'] { opacity: .55; cursor: not-allowed; }
+
+/* Tu perfil (icono y color de cada persona) */
+.tc-perfil-cabecera { display: flex; width: 100%; align-items: center; gap: 10px; border-radius: 12px; }
+.tc-perfil-titulo { margin-bottom: 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ls-t4); }
+.tc-perfil-rejilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); gap: 6px; }
+.tc-perfil-color { display: flex; height: 30px; align-items: center; justify-content: center; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); transition: transform .12s ease, opacity .12s ease; }
+.tc-perfil-color:hover:not(:disabled) { transform: scale(1.12); }
+.tc-perfil-color[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--ls-sup), 0 0 0 4px var(--ls-acc); }
+.tc-perfil-color[data-cogido='true'] { opacity: .3; cursor: not-allowed; }
+.tc-perfil-icono { display: flex; height: 30px; align-items: center; justify-content: center; border-radius: 10px; border: 1px solid var(--ls-linea); color: var(--ls-t2); transition: background .12s ease, color .12s ease; }
+.tc-perfil-icono:hover:not(:disabled) { background: var(--ls-acc-suave); color: var(--ls-acc); }
+.tc-perfil-icono[data-mio='true'] { border-color: var(--ls-acc); background: var(--ls-acc-suave); color: var(--ls-acc); }
+.tc-perfil-icono[data-cogido='true'] { opacity: .3; cursor: not-allowed; }

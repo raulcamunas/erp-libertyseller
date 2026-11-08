@@ -2,7 +2,7 @@
 
 import { Eye, Pencil } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Avatar } from '@/components/rendimiento/ui'
+import { Avatar } from './AvatarTC'
 import { desconectados, describirLugar, escribiendoEnTarea, nombresEnFrase, type Conectado } from '@/lib/tareas-clientes/presencia'
 import type { PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { usePresencia } from './PresenciaProvider'

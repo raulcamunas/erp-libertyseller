@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { AlertCircle, AtSign, Bell, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Eye, ListChecks, Loader2, Lock, MessageSquare, NotebookPen, Plus, Sparkles, Sun, Trash2, UserPlus, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { Avatar } from '@/components/rendimiento/ui'
+import { Avatar } from './AvatarTC'
 import { hoyEnEspana } from '@/lib/tareas-clientes/filtros'
 import { idNuevoDePunto, progresoDelPlan, repartirPorFecha, saludoDeLaHora, sugerirRevision, sumarDiasA, type PuntoDelPlan } from '@/lib/tareas-clientes/mi-dia'
 import type { DatosDeMiDia } from '@/lib/tareas-clientes/mi-dia-servidor'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import type { ClienteTC, PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { AvisosPush } from '@/components/push/AvisosPush'
+import { PerfilDeAvatar } from './PerfilDeAvatar'
 import { BASE, pedir } from './api'
 import { Calendario } from './Calendario'
 import { useBloqueadas } from './contexto'
@@ -412,6 +413,8 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
               })}
             </ul>
           </section>
+
+          {!soloLectura && <PerfilDeAvatar miId={miId} nombre={nombreDe(miId) || 'Yo'} personas={personas} />}
 
           <section className="tc-dia-tarjeta" aria-label="Avisos">
             <h2 className="tc-seccion-titulo"><Bell className="h-3.5 w-3.5" /> Avisos <span className="tc-contador">{avisos.filter((a) => !a.read).length || avisos.length}</span></h2>

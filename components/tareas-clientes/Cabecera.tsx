@@ -6,7 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { hayFiltros } from '@/lib/tareas-clientes/filtros'
 import { describirRecurrencia, recurrenciaValida } from '@/lib/tareas-clientes/recurrencia'
 import { departamentosDe, FILTROS_VACIOS, type ClienteTC, type FiltrosDeTareas, type PersonaTC, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
-import { Avatar } from '@/components/rendimiento/ui'
+import { Avatar } from './AvatarTC'
 import { MenuDeVistas } from './MenuDeVistas'
 import { SelectorDePortada } from './Portada'
 import { SelectorDeEmoji } from './ui'
