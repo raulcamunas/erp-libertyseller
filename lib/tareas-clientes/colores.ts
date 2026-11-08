@@ -48,6 +48,18 @@ export const DEGRADADOS: ReadonlyArray<{ id: string; nombre: string; css: string
   { id: 'menta', nombre: 'Menta', css: 'linear-gradient(120deg, #0d4d4d 0%, #1f9c8c 55%, #b6f0d4 100%)' },
   { id: 'cereza', nombre: 'Cereza', css: 'linear-gradient(120deg, #3b0a1c 0%, #a31948 55%, #ff7aa2 100%)' },
   { id: 'arena', nombre: 'Arena', css: 'linear-gradient(120deg, #3a2e1e 0%, #8c6b3f 55%, #e6c88f 100%)' },
+  { id: 'violeta', nombre: 'Violeta', css: 'linear-gradient(120deg, #2e1065 0%, #7c3aed 55%, #f0abfc 100%)' },
+  { id: 'cobre', nombre: 'Cobre', css: 'linear-gradient(120deg, #2b1408 0%, #9a3412 55%, #fdba74 100%)' },
+  { id: 'jade', nombre: 'Jade', css: 'linear-gradient(120deg, #022c22 0%, #047857 55%, #6ee7b7 100%)' },
+  { id: 'zafiro', nombre: 'Zafiro', css: 'linear-gradient(120deg, #0c1445 0%, #1d4ed8 55%, #7dd3fc 100%)' },
+  { id: 'rubi', nombre: 'Rubí', css: 'linear-gradient(120deg, #2a0a12 0%, #be123c 55%, #fda4af 100%)' },
+  { id: 'tormenta', nombre: 'Tormenta', css: 'linear-gradient(120deg, #0f172a 0%, #334155 55%, #94a3b8 100%)' },
+  { id: 'lima', nombre: 'Lima', css: 'linear-gradient(120deg, #1a2e05 0%, #4d7c0f 55%, #d9f99d 100%)' },
+  { id: 'oro', nombre: 'Oro', css: 'linear-gradient(120deg, #3a2a05 0%, #b45309 55%, #fde68a 100%)' },
+  { id: 'cielo', nombre: 'Cielo', css: 'linear-gradient(120deg, #0b1b3b 0%, #38bdf8 55%, #fef9c3 100%)' },
+  { id: 'noche-rosa', nombre: 'Noche rosa', css: 'linear-gradient(120deg, #1f0a2e 0%, #c026d3 55%, #fb7185 100%)' },
+  { id: 'duna', nombre: 'Duna', css: 'linear-gradient(160deg, #1c1917 0%, #78350f 45%, #f59e0b 100%)' },
+  { id: 'bruma', nombre: 'Bruma', css: 'linear-gradient(160deg, #111827 0%, #475569 50%, #cbd5e1 100%)' },
 ]
 
 const DEGRADADO_POR_ID = new Map(DEGRADADOS.map((d) => [d.id, d.css]))
@@ -67,12 +79,31 @@ export function fondoCss(p: { tipo?: string; valor?: string; y?: number } | null
  * `translate` y `scale` (lo que el navegador anima en la tarjeta gráfica): casi no gastan. Quien pide menos movimiento los ve quietos.
  */
 export const FONDOS_ANIMADOS: ReadonlyArray<{ id: string; nombre: string }> = [
+  // Luces de color que derivan
   { id: 'aurora', nombre: 'Aurora' },
   { id: 'nebulosa', nombre: 'Nebulosa' },
   { id: 'brasas', nombre: 'Brasas' },
   { id: 'oceano', nombre: 'Océano' },
   { id: 'crepusculo', nombre: 'Crepúsculo' },
+  { id: 'bosque', nombre: 'Bosque' },
+  { id: 'lava', nombre: 'Lava' },
+  { id: 'hielo', nombre: 'Hielo' },
+  { id: 'sakura', nombre: 'Sakura' },
+  { id: 'medianoche', nombre: 'Medianoche' },
+  { id: 'dorado', nombre: 'Dorado' },
+  { id: 'neon', nombre: 'Neón' },
+  { id: 'coral', nombre: 'Coral' },
+  { id: 'lavanda', nombre: 'Lavanda' },
+  { id: 'tormenta', nombre: 'Tormenta' },
+  { id: 'grafito', nombre: 'Grafito' },
+  // Con dibujo
   { id: 'malla', nombre: 'Malla' },
+  { id: 'puntos', nombre: 'Puntos' },
+  { id: 'estrellas', nombre: 'Estrellas' },
+  { id: 'ondas', nombre: 'Ondas' },
+  { id: 'prisma', nombre: 'Prisma' },
+  { id: 'diagonales', nombre: 'Diagonales' },
+  { id: 'latido', nombre: 'Latido' },
 ]
 const ANIMADOS: ReadonlySet<string> = new Set(FONDOS_ANIMADOS.map((f) => f.id))
 
@@ -91,4 +122,12 @@ export const COLORES_DE_PORTADA: ReadonlyArray<{ id: string; nombre: string; val
   { id: 'violeta', nombre: 'Violeta', valor: '#6a45b0' },
   { id: 'rosa', nombre: 'Rosa', valor: '#b8386f' },
   { id: 'arena', nombre: 'Arena', valor: '#8a7355' },
+  { id: 'rojo', nombre: 'Rojo', valor: '#b91c1c' },
+  { id: 'amarillo', nombre: 'Amarillo', valor: '#ca8a04' },
+  { id: 'turquesa', nombre: 'Turquesa', valor: '#0f766e' },
+  { id: 'indigo', nombre: 'Índigo', valor: '#4338ca' },
+  { id: 'fucsia', nombre: 'Fucsia', valor: '#a21caf' },
+  { id: 'lima', nombre: 'Lima', valor: '#4d7c0f' },
+  { id: 'cielo', nombre: 'Cielo', valor: '#0369a1' },
+  { id: 'carbon', nombre: 'Carbón', valor: '#0b0d11' },
 ]

@@ -15,7 +15,7 @@ import {
   type BloqueNotion,
 } from '@/lib/tareas-clientes/bloques'
 import { colocar, hayQueRenumerar, ordenAlFinal, ordenEntre, SEPARACION } from '@/lib/tareas-clientes/orden'
-import { colorCss, colorValido, fondoAnimadoId, fondoCss } from '@/lib/tareas-clientes/colores'
+import { colorCss, colorValido, DEGRADADOS, fondoAnimadoId, FONDOS_ANIMADOS, fondoCss } from '@/lib/tareas-clientes/colores'
 
 let fallos = 0
 let comprobaciones = 0
@@ -54,6 +54,9 @@ igual('una imagen https se acepta', fondoCss({ tipo: 'imagen', valor: 'https://x
 igual('una imagen que intenta salirse del url() se rechaza', fondoCss({ tipo: 'imagen', valor: 'https://x.co/a.png") ;x:(' }), null)
 igual('javascript: no es una imagen', fondoCss({ tipo: 'imagen', valor: 'javascript:alert(1)' }), null)
 igual('un fondo animado de la lista', fondoAnimadoId({ tipo: 'animado', valor: 'aurora' }), 'aurora')
+igual('todos los fondos animados de la lista se reconocen', FONDOS_ANIMADOS.every((f) => fondoAnimadoId({ tipo: 'animado', valor: f.id }) === f.id), true)
+igual('ningún id de fondo animado se repite', new Set(FONDOS_ANIMADOS.map((f) => f.id)).size, FONDOS_ANIMADOS.length)
+igual('ningún id de degradado se repite', new Set(DEGRADADOS.map((d) => d.id)).size, DEGRADADOS.length)
 igual('un fondo animado que no existe, nada', fondoAnimadoId({ tipo: 'animado', valor: 'inventado' }), null)
 igual('un color no es un fondo animado', fondoAnimadoId({ tipo: 'color', valor: 'aurora' }), null)
 igual('un fondo animado no se pinta como CSS suelto', fondoCss({ tipo: 'animado', valor: 'aurora' }), null)

@@ -91,7 +91,7 @@ export function SelectorDePortada({ valor, onElegir, titulo, children, animados 
         </div>
 
         {pestana === 'animado' && (
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid max-h-[330px] grid-cols-3 gap-1.5 overflow-y-auto pr-0.5">
             {FONDOS_ANIMADOS.map((f) => (
               <button key={f.id} type="button" title={f.nombre} aria-label={f.nombre} aria-pressed={valor?.tipo === 'animado' && valor.valor === f.id} onClick={() => onElegir({ tipo: 'animado', valor: f.id })} className="tc-muestra-portada">
                 <FondoAnimado valor={{ tipo: 'animado', valor: f.id }} />
@@ -101,7 +101,7 @@ export function SelectorDePortada({ valor, onElegir, titulo, children, animados 
           </div>
         )}
         {pestana === 'degradado' && (
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid max-h-[330px] grid-cols-3 gap-1.5 overflow-y-auto pr-0.5">
             {DEGRADADOS.map((d) => (
               <button key={d.id} type="button" title={d.nombre} aria-label={d.nombre} aria-pressed={valor?.tipo === 'degradado' && valor.valor === d.id} onClick={() => onElegir({ tipo: 'degradado', valor: d.id })} className="tc-muestra-portada" style={{ background: d.css }}>
                 <span>{d.nombre}</span>
@@ -110,7 +110,7 @@ export function SelectorDePortada({ valor, onElegir, titulo, children, animados 
           </div>
         )}
         {pestana === 'color' && (
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid max-h-[330px] grid-cols-4 gap-1.5 overflow-y-auto pr-0.5">
             {COLORES_DE_PORTADA.map((c) => (
               <button key={c.id} type="button" title={c.nombre} aria-label={c.nombre} aria-pressed={valor?.tipo === 'color' && valor.valor === c.valor} onClick={() => onElegir({ tipo: 'color', valor: c.valor })} className="tc-muestra-portada" style={{ background: c.valor }}>
                 <span>{c.nombre}</span>

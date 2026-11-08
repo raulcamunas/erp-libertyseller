@@ -3845,13 +3845,18 @@ html.light .tc-fa i { opacity: 0.38; }
 /* La malla: una cuadrícula fina que se desvanece hacia los bordes, sobre las mismas luces */
 .tc-fa[data-fa='malla']::after { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px); background-size: 44px 44px; -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 78%); mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 78%); }
 html.light .tc-fa[data-fa='malla']::after { background-image: linear-gradient(rgba(20, 24, 40, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 24, 40, 0.08) 1px, transparent 1px); }
-@keyframes tc-fa-1 { from { translate: 0 0; scale: 1; } to { translate: 16% 14%; scale: 1.18; } }
-@keyframes tc-fa-2 { from { translate: 0 0; scale: 1.1; } to { translate: -18% 10%; scale: 0.92; } }
-@keyframes tc-fa-3 { from { translate: 0 0; scale: 0.95; } to { translate: 14% -16%; scale: 1.15; } }
+/* Con 26-38 s por vuelta y poco recorrido no se notaba que se movía: ahora cada luz da una vuelta en 11-17 s y recorre un tercio de la pantalla */
+@keyframes tc-fa-1 { from { translate: 0 0; scale: 1; } to { translate: 42% 30%; scale: 1.35; } }
+@keyframes tc-fa-2 { from { translate: 0 0; scale: 1.15; } to { translate: -46% 22%; scale: 0.85; } }
+@keyframes tc-fa-3 { from { translate: 0 0; scale: 0.9; } to { translate: 34% -40%; scale: 1.3; } }
+@keyframes tc-fa-gira { from { rotate: 0deg; } to { rotate: 360deg; } }
+@keyframes tc-fa-onda { from { translate: 0 0; } to { translate: -50% 0; } }
+@keyframes tc-fa-onda-inversa { from { translate: -50% 0; } to { translate: 0 0; } }
+@keyframes tc-fa-pulso { from { scale: 0.3; opacity: 0.8; } to { scale: 1.7; opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {
-  .tc-fa i:nth-child(1) { animation: tc-fa-1 26s ease-in-out infinite alternate; }
-  .tc-fa i:nth-child(2) { animation: tc-fa-2 32s ease-in-out infinite alternate; }
-  .tc-fa i:nth-child(3) { animation: tc-fa-3 38s ease-in-out infinite alternate; }
+  .tc-fa i:nth-child(1) { animation: tc-fa-1 13s ease-in-out infinite alternate; }
+  .tc-fa i:nth-child(2) { animation: tc-fa-2 17s ease-in-out infinite alternate; }
+  .tc-fa i:nth-child(3) { animation: tc-fa-3 11s ease-in-out infinite alternate; }
 }
 /* En la muestra del selector las luces son más pequeñas y la caja las recorta */
 .tc-muestra-portada .tc-fa { border-radius: inherit; }
@@ -3965,3 +3970,71 @@ body:has(.tc-inmersivo) [data-radix-popper-content-wrapper] { z-index: 500 !impo
 .tc-imagen-quitar { position: absolute; right: 6px; top: 6px; display: grid; height: 24px; width: 24px; place-items: center; border-radius: 8px; background: rgba(10, 12, 16, 0.72); color: #fff; opacity: 0; }
 .tc-imagen:hover .tc-imagen-quitar, .tc-imagen-quitar:focus-visible { opacity: 1; }
 @media (pointer: coarse) { .tc-imagen-quitar, .tc-tabla-quitar-fila button, .tc-tabla-quitar-col button { opacity: 1; } }
+
+/* ---- Más fondos animados: colores nuevos y fondos con dibujo ---- */
+.tc-fa[data-fa='bosque'] { --fa-a: #22c55e; --fa-b: #0d9488; --fa-c: #a3e635; }
+.tc-fa[data-fa='lava'] { --fa-a: #ef4444; --fa-b: #f97316; --fa-c: #b91c1c; }
+.tc-fa[data-fa='hielo'] { --fa-a: #67e8f9; --fa-b: #60a5fa; --fa-c: #c7d2fe; }
+.tc-fa[data-fa='sakura'] { --fa-a: #f9a8d4; --fa-b: #fb7185; --fa-c: #c084fc; }
+.tc-fa[data-fa='medianoche'] { --fa-a: #4338ca; --fa-b: #1d4ed8; --fa-c: #7c3aed; }
+.tc-fa[data-fa='dorado'] { --fa-a: #f59e0b; --fa-b: #fde047; --fa-c: #ea580c; }
+.tc-fa[data-fa='neon'] { --fa-a: #ff2d95; --fa-b: #22d3ee; --fa-c: #a3e635; }
+.tc-fa[data-fa='coral'] { --fa-a: #ff7f6b; --fa-b: #ffb199; --fa-c: #ff5e7e; }
+.tc-fa[data-fa='lavanda'] { --fa-a: #a78bfa; --fa-b: #c4b5fd; --fa-c: #818cf8; }
+.tc-fa[data-fa='tormenta'] { --fa-a: #6366f1; --fa-b: #475569; --fa-c: #94a3b8; }
+.tc-fa[data-fa='grafito'] { --fa-a: #94a3b8; --fa-b: #64748b; --fa-c: #cbd5e1; }
+html.light .tc-fa[data-fa='grafito'] i, html.light .tc-fa[data-fa='tormenta'] i { opacity: 0.3; }
+
+/* PUNTOS: las luces de siempre y, encima, una rejilla de puntos que se desvanece hacia los bordes */
+.tc-fa[data-fa='puntos'] { --fa-a: #38bdf8; --fa-b: #818cf8; --fa-c: #2dd4bf; }
+.tc-fa[data-fa='puntos']::after { content: ''; position: absolute; inset: 0; background-image: radial-gradient(var(--fa-punto) 1.4px, transparent 1.8px); background-size: 26px 26px; -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 25%, transparent 80%); mask-image: radial-gradient(ellipse at 50% 40%, #000 25%, transparent 80%); }
+
+/* ESTRELLAS: dos capas de estrellas que se desplazan a distinta velocidad (una vuelta exacta de su baldosa, así el bucle no se nota) sobre una nebulosa tenue */
+.tc-fa[data-fa='estrellas'] { --fa-a: #6d5bff; --fa-b: #22d3ee; --fa-c: #a855f7; }
+.tc-fa[data-fa='estrellas'] i { opacity: 0.22; }
+.tc-fa[data-fa='estrellas']::before, .tc-fa[data-fa='estrellas']::after { content: ''; position: absolute; inset: -460px; background-repeat: repeat; will-change: translate; }
+.tc-fa[data-fa='estrellas']::before { background-image: radial-gradient(1.4px 1.4px at 30px 40px, var(--fa-estrella), transparent 100%), radial-gradient(1px 1px at 120px 180px, var(--fa-estrella), transparent 100%), radial-gradient(1.6px 1.6px at 220px 90px, var(--fa-estrella), transparent 100%), radial-gradient(1px 1px at 270px 250px, var(--fa-estrella), transparent 100%); background-size: 300px 300px; opacity: 0.85; }
+.tc-fa[data-fa='estrellas']::after { background-image: radial-gradient(1.2px 1.2px at 70px 90px, var(--fa-estrella), transparent 100%), radial-gradient(2px 2px at 260px 140px, var(--fa-estrella), transparent 100%), radial-gradient(1px 1px at 380px 360px, var(--fa-estrella), transparent 100%), radial-gradient(1.4px 1.4px at 150px 330px, var(--fa-estrella), transparent 100%); background-size: 450px 450px; opacity: 0.55; }
+@keyframes tc-fa-estrellas-1 { from { translate: 0 0; } to { translate: 300px 300px; } }
+@keyframes tc-fa-estrellas-2 { from { translate: 0 0; } to { translate: -450px 450px; } }
+
+/* ONDAS: tres olas (una máscara con forma de ola rellena del color) que corren de lado a lado a distinta velocidad; la ola mide el doble de ancho y se desplaza justo la mitad */
+.tc-fa[data-fa='ondas'] { --fa-a: #0ea5e9; --fa-b: #14b8a6; --fa-c: #6366f1; }
+.tc-fa[data-fa='ondas'] i { top: auto; right: auto; left: 0; width: 200%; height: 46%; border-radius: 0; opacity: 0.3; background: var(--fa-luz); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0 60 C150 0 300 120 450 60 S750 0 900 60 S1050 120 1200 60 L1200 120 L0 120 Z'/%3E%3C/svg%3E") 0 0 / 50% 100% repeat-x; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0 60 C150 0 300 120 450 60 S750 0 900 60 S1050 120 1200 60 L1200 120 L0 120 Z'/%3E%3C/svg%3E") 0 0 / 50% 100% repeat-x; }
+.tc-fa[data-fa='ondas'] i:nth-child(1) { bottom: -4%; }
+.tc-fa[data-fa='ondas'] i:nth-child(2) { bottom: 8%; opacity: 0.24; }
+.tc-fa[data-fa='ondas'] i:nth-child(3) { bottom: 20%; opacity: 0.18; }
+
+/* PRISMA: un degradado cónico enorme que gira despacio, suavizado por un viñeteado */
+.tc-fa[data-fa='prisma'] { --fa-a: #f472b6; --fa-b: #60a5fa; --fa-c: #a78bfa; }
+.tc-fa[data-fa='prisma'] i:nth-child(1) { inset: -60%; width: auto; height: auto; border-radius: 0; opacity: 0.42; background: conic-gradient(from 0deg at 50% 50%, var(--fa-a), var(--fa-b), var(--fa-c), var(--fa-a)); }
+.tc-fa[data-fa='prisma'] i:nth-child(2) { inset: 0; width: auto; height: auto; border-radius: 0; opacity: 0.85; background: radial-gradient(ellipse at 50% 38%, transparent 22%, var(--tc-base) 100%); }
+.tc-fa[data-fa='prisma'] i:nth-child(3) { display: none; }
+
+/* DIAGONALES: rayas finas que avanzan en diagonal (una vuelta exacta de su periodo, 120 px) sobre dos luces de color */
+.tc-fa[data-fa='diagonales'] { --fa-a: #fb7185; --fa-b: #f59e0b; --fa-c: #8b5cf6; }
+.tc-fa[data-fa='diagonales'] i:nth-child(1) { inset: -420px; width: auto; height: auto; border-radius: 0; opacity: 1; background: repeating-linear-gradient(115deg, transparent 0 58px, color-mix(in srgb, var(--fa-a) 22%, transparent) 58px 61px, transparent 61px 120px); }
+.tc-fa[data-fa='diagonales'] i:nth-child(2) { opacity: 0.4; }
+@keyframes tc-fa-rayas { from { translate: 0 0; scale: 1; } to { translate: 109px 51px; scale: 1; } }
+
+/* LATIDO: anillos de luz que nacen en el centro y se expanden y se apagan, uno tras otro */
+.tc-fa[data-fa='latido'] { --fa-a: #f472b6; --fa-b: #38bdf8; --fa-c: #facc15; }
+.tc-fa[data-fa='latido'] i { left: 50%; top: 50%; width: 130%; height: 130%; margin: -65% 0 0 -65%; opacity: 0; background: radial-gradient(closest-side, transparent 58%, var(--fa-luz) 62%, transparent 72%); }
+.tc-fa[data-fa='latido'] i:nth-child(2) { margin: -65% 0 0 -65%; }
+
+:root, html { --fa-estrella: #ffffff; --fa-punto: rgba(255, 255, 255, 0.2); }
+html.light { --fa-estrella: #4f46e5; --fa-punto: rgba(30, 41, 59, 0.22); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .tc-fa[data-fa='estrellas']::before { animation: tc-fa-estrellas-1 70s linear infinite; }
+  .tc-fa[data-fa='estrellas']::after { animation: tc-fa-estrellas-2 110s linear infinite; }
+  .tc-fa[data-fa='ondas'] i:nth-child(1) { animation: tc-fa-onda 14s linear infinite; }
+  .tc-fa[data-fa='ondas'] i:nth-child(2) { animation: tc-fa-onda-inversa 21s linear infinite; }
+  .tc-fa[data-fa='ondas'] i:nth-child(3) { animation: tc-fa-onda 30s linear infinite; }
+  .tc-fa[data-fa='prisma'] i:nth-child(1) { animation: tc-fa-gira 40s linear infinite; }
+  .tc-fa[data-fa='prisma'] i:nth-child(2) { animation: none; }
+  .tc-fa[data-fa='diagonales'] i:nth-child(1) { animation: tc-fa-rayas 7s linear infinite; }
+  .tc-fa[data-fa='latido'] i { animation: tc-fa-pulso 9s ease-out infinite; }
+  .tc-fa[data-fa='latido'] i:nth-child(2) { animation-delay: -3s; }
+  .tc-fa[data-fa='latido'] i:nth-child(3) { animation-delay: -6s; }
+}
