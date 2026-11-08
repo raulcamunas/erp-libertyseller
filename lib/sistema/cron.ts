@@ -381,6 +381,19 @@ export const TAREAS_CRON = [
       'Lee las notas de Gemini de las reuniones de seguimiento con clientes y propone a la IA las tareas que salen de ellas, para que el equipo elija las buenas en la página del cliente. No crea nada solo.',
   },
   {
+    /**
+     * CADA MINUTO, Y SIN NADA QUE HACER ES UNA CONSULTA PEQUEÑA.
+     *
+     * Manda como notificación al móvil o al ordenador los avisos NUEVOS de la campana (de los últimos diez minutos, sin leer) a quien haya activado los avisos push, según lo que haya
+     * elegido recibir (solo tareas o todo). Solo escribe en `push_enviados` y en `push_suscripciones`; no toca los avisos.
+     */
+    id: 'push-avisos',
+    nombre: 'Avisos push al móvil',
+    ruta: '/api/push/cron',
+    cadaMinutos: 1,
+    que: 'Manda a los móviles y ordenadores con los avisos activados las notificaciones nuevas de la campana, aunque la app esté cerrada.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
@@ -430,6 +443,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   calendario: { prioridad: 'esencial' },
   'tareas-notion': { prioridad: 'normal' },
   'tareas-reuniones': { prioridad: 'normal' },
+  'push-avisos': { prioridad: 'esencial' },
 }
 
 const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true

@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next'
 
 /**
  * EL ERP COMO APLICACIÓN INSTALABLE (móvil y escritorio): «Añadir a pantalla de inicio» en el móvil y «Instalar» en Chrome. Se abre sin la barra del navegador y arranca en
- * el panel. No lleva service worker a propósito: no guarda nada sin conexión, así que no hay nada viejo que se quede pegado tras un despliegue.
+ * el panel. Su service worker (public/sw.js) SOLO atiende los avisos push: no guarda nada sin conexión ni intercepta peticiones, así que no hay nada viejo que se quede pegado tras un despliegue.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {

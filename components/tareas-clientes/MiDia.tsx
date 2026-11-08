@@ -9,6 +9,7 @@ import { idNuevoDePunto, progresoDelPlan, repartirPorFecha, saludoDeLaHora, suge
 import type { DatosDeMiDia } from '@/lib/tareas-clientes/mi-dia-servidor'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import type { ClienteTC, PersonaTC } from '@/lib/tareas-clientes/tipos'
+import { AvisosPush } from '@/components/push/AvisosPush'
 import { BASE, pedir } from './api'
 import { Calendario } from './Calendario'
 import { useBloqueadas } from './contexto'
@@ -414,6 +415,7 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
 
           <section className="tc-dia-tarjeta" aria-label="Avisos">
             <h2 className="tc-seccion-titulo"><Bell className="h-3.5 w-3.5" /> Avisos <span className="tc-contador">{avisos.filter((a) => !a.read).length || avisos.length}</span></h2>
+            <AvisosPush />
             {avisos.length === 0 && <p className="text-[12px] text-[var(--ls-t4)]">Sin avisos.</p>}
             <ul className="flex flex-col gap-1">
               {avisos.slice(0, 8).map((a) => {

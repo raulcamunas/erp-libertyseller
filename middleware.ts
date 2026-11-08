@@ -112,7 +112,9 @@ export async function middleware(request: NextRequest) {
                        pathname === '/connect' ||
                        pathname === '/callback' ||
                        // El manifiesto de la aplicación instalable: el navegador lo pide sin sesión y no lleva nada privado
-                       pathname === '/manifest.webmanifest'
+                       pathname === '/manifest.webmanifest' ||
+                       // El service worker de los avisos push: el navegador lo pide al registrarlo y al comprobar si hay versión nueva, y no lleva nada privado
+                       pathname === '/sw.js'
 
   // Si no hay usuario y no es ruta pública, redirigir a login
   if (!user && !isPublicRoute) {
