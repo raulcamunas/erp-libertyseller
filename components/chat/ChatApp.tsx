@@ -15,6 +15,7 @@ import { SaltarA } from './SaltarA'
 import { VistaDeBandeja } from './VistaDeBandeja'
 import { TemaDelChatProvider, useTemaDelChat } from './TemaDelChat'
 import { PanelDeHilo } from './PanelDeHilo'
+import { PanelDeMiembros, useMiembrosALaVista } from './PanelDeMiembros'
 import { VistaDeCanal } from './VistaDeCanal'
 
 /** En el dock, lo que debe cubrir la ventana entera (una llamada, el asistente) sale del recuadro pequeño y se pinta sobre la página */
@@ -25,6 +26,7 @@ function EnLaPagina({ activo, children }: { activo: boolean; children: ReactNode
 export function Marco({ dock = false }: { dock?: boolean }) {
   const { canales, hilo, actual, vista } = useChat()
   const [buscando, setBuscando] = useState(false)
+  const miembrosALaVista = useMiembrosALaVista()
   const { ajustes } = useTemaDelChat()
   // Lo que hay sin leer, a la barra del ERP; y mientras el chat está vivo, el dock deja de preguntarlo al servidor
   useEffect(() => {
@@ -73,10 +75,11 @@ export function Marco({ dock = false }: { dock?: boolean }) {
     return () => window.removeEventListener('keydown', alTeclear)
   }, [dock])
   return (
-    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-vista={actual || vista !== 'canal' ? 'canal' : 'barra'} data-fondo={ajustes.fondo} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto} data-dock={dock ? 'true' : undefined}>
+    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-con-miembros={miembrosALaVista ? 'true' : undefined} data-vista={actual || vista !== 'canal' ? 'canal' : 'barra'} data-fondo={ajustes.fondo} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto} data-dock={dock ? 'true' : undefined}>
       <BarraDeChat alBuscar={() => setBuscando(true)} />
       {vista === 'canal' ? <VistaDeCanal /> : <VistaDeBandeja />}
       <PanelDeHilo />
+      <PanelDeMiembros />
       <EnLaPagina activo={dock}>
         <PanelDeJunta />
         <AsistenteDelErp />

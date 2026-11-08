@@ -106,6 +106,20 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
     a.style.height = 'auto'
     a.style.height = `${Math.min(a.scrollHeight, 180)}px`
   }, [texto])
+  // Y se reajusta si cambia el ancho (un panel que se abre con animación se mide primero estrecho)
+  useEffect(() => {
+    const a = area.current
+    if (!a || typeof ResizeObserver === 'undefined') return
+    let ancho = a.clientWidth
+    const o = new ResizeObserver(() => {
+      if (a.clientWidth === ancho) return
+      ancho = a.clientWidth
+      a.style.height = 'auto'
+      a.style.height = `${Math.min(a.scrollHeight, 180)}px`
+    })
+    o.observe(a)
+    return () => o.disconnect()
+  }, [])
 
   useEffect(() => {
     if (autoEnfocar) area.current?.focus()

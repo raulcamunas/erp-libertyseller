@@ -14,6 +14,7 @@ import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { useChat } from './ChatProvider'
 import { pedir } from '@/components/tareas-clientes/api'
 import { DialogoMiembros } from './Dialogos'
+import { alternarMiembros, EVENTO_AJUSTES_DEL_CANAL } from '@/lib/chat/miembros-estado'
 import { DialogoDeEncuesta, HoraLocalDe, MenuDeAvisos } from './Extras'
 import { DialogoDeFijados, DialogoDeResumen, EmojiDeEstado } from './Paneles'
 import { AvisoDeSoltar, useZonaDeSoltar } from './ZonaDeSoltar'
@@ -51,6 +52,11 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, grabando, avisarQueEscribo, avisarQuePara, unirse, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe, cambiarAvisos, ponerEstado, abrirAsistente } = useChat()
   const { disponible: juntasDisponibles, activas, actual: juntaActual, entrar: entrarEnJunta } = useJunta()
   const [miembrosAbierto, setMiembrosAbierto] = useState(false)
+  useEffect(() => {
+    const abrir = () => setMiembrosAbierto(true)
+    window.addEventListener(EVENTO_AJUSTES_DEL_CANAL, abrir)
+    return () => window.removeEventListener(EVENTO_AJUSTES_DEL_CANAL, abrir)
+  }, [])
   const [pegado, setPegado] = useState(true)
   const [citando, setCitando] = useState<MensajeChat | null>(null)
   const [fijadosAbierto, setFijadosAbierto] = useState(false)
@@ -220,9 +226,14 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
           )}
           {canal.soy_miembro && <MenuDeAvisos canal={canal} />}
           {canal.tipo !== 'directo' && (
-            <button type="button" className="chat-icono chat-miembros-boton" onClick={() => setMiembrosAbierto(true)} aria-label="Miembros y ajustes del canal" title="Miembros y ajustes">
+            <button type="button" className="chat-icono chat-miembros-boton" onClick={(ev) => {
+              // En un chat estrecho no cabe la barra de la derecha: se abre la ventana de miembros
+              const ancho = ev.currentTarget.closest<HTMLElement>('.chat-contenedor')?.clientWidth ?? 9999
+              if (ancho < 1060) setMiembrosAbierto(true)
+              else alternarMiembros()
+            }} aria-label="Mostrar u ocultar los miembros" title="Miembros del canal">
               <span className="chat-pila">{canal.miembros.slice(0, 3).map((id) => <Avatar key={id} id={id} nombre={nombreDe(id)} tamano={20} />)}</span>
-              <span>{canal.miembros.length}</span> <Settings2 className="h-3.5 w-3.5 opacity-60" />
+              <span>{canal.miembros.length}</span>
             </button>
           )}
           {canal.soy_miembro && canal.tipo !== 'directo' && !canal.auto_unirse && (
