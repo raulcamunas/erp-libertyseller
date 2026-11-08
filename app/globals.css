@@ -4432,6 +4432,10 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 .chat-barra { position: relative; display: flex; min-height: 0; flex-direction: column; border-right: 1px solid var(--ls-linea); background: linear-gradient(180deg, color-mix(in srgb, var(--c-acc, var(--ls-acc)) 8%, var(--ls-sup2)) 0%, var(--ls-sup2) 240px); }
 .chat-barra-cabecera { display: flex; align-items: center; gap: 8px; padding: 16px 14px 8px 16px; }
 .chat-barra-cabecera h2 { font-size: 18px; font-weight: 750; letter-spacing: -.01em; color: var(--ls-t1); }
+.chat-cabecera-iconos { display: flex; align-items: center; margin-left: auto; margin-right: -6px; }
+.chat-cabecera-iconos .chat-icono { position: relative; height: 26px; min-width: 26px; padding: 0 4px; }
+.chat-cabecera-iconos .chat-icono[data-activa='true'] { background: color-mix(in srgb, var(--c-acc, var(--ls-acc)) 18%, transparent); color: var(--c-acc, var(--ls-acc)); }
+.chat-icono-punto { position: absolute; right: -1px; top: -3px; min-width: 15px; height: 15px; border-radius: 999px; padding: 0 4px; background: var(--c-acc, var(--ls-acc)); color: #fff; font-size: 9px; font-weight: 700; line-height: 15px; text-align: center; }
 .chat-en-vivo { height: 7px; width: 7px; border-radius: 999px; background: var(--ls-e-ambar); }
 .chat-en-vivo[data-vivo='true'] { background: var(--ls-e-verde); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ls-e-verde) 22%, transparent); }
 .chat-buscar { display: flex; align-items: center; gap: 8px; border-radius: 11px; border: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-sup) 80%, transparent); padding: 0 10px; color: var(--ls-t4); transition: border-color .15s ease, box-shadow .15s ease; }

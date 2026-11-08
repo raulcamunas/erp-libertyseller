@@ -12,6 +12,14 @@ import { DialogoNuevoCanal, DialogoNuevoDirecto } from './Dialogos'
 import { ImportarDeSlack } from './ImportarDeSlack'
 import { useJunta } from './JuntaProvider'
 
+const BANDEJAS = [
+  { vista: 'menciones', nombre: 'Menciones', Icono: AtSign },
+  { vista: 'hilos', nombre: 'Hilos', Icono: MessageSquareReply },
+  { vista: 'guardados', nombre: 'Guardados', Icono: Bookmark },
+  { vista: 'recordatorios', nombre: 'Recordatorios', Icono: Clock },
+  { vista: 'programados', nombre: 'Programados', Icono: CalendarClock },
+] as const
+
 export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
   const { canales, actual, seleccionar, yo, persona, conectados, enVivo, vista, abrirBandeja, estadoDe, abrirAsistente } = useChat()
   const [estadoAbierto, setEstadoAbierto] = useState(false)
@@ -31,7 +39,15 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
       <header className="chat-barra-cabecera">
         <h2>Chat</h2>
         <span className="chat-en-vivo" data-vivo={enVivo ? 'true' : undefined} title={enVivo ? 'Los mensajes llegan en directo' : 'Sin conexión en directo: se actualiza solo cada pocos segundos'} />
-        <button type="button" className="chat-icono ml-auto" onClick={() => setDialogo('directo')} aria-label="Nuevo mensaje directo" title="Nuevo mensaje directo"><MessageSquarePlus className="h-4 w-4" /></button>
+        <div className="chat-cabecera-iconos">
+          {BANDEJAS.map(({ vista: v, nombre, Icono }) => (
+            <button key={v} type="button" className="chat-icono" data-activa={vista === v ? 'true' : undefined} onClick={() => abrirBandeja(v)} aria-label={nombre} aria-current={vista === v ? 'true' : undefined} title={nombre}>
+              <Icono className="h-4 w-4" />
+              {v === 'menciones' && menciones > 0 ? <span key={menciones} className="chat-icono-punto" aria-label={`${menciones} menciones sin leer`}>{menciones > 9 ? '9+' : menciones}</span> : null}
+            </button>
+          ))}
+          <button type="button" className="chat-icono" onClick={() => setDialogo('directo')} aria-label="Nuevo mensaje directo" title="Nuevo mensaje directo"><MessageSquarePlus className="h-4 w-4" /></button>
+        </div>
       </header>
       <button type="button" className="chat-buscar chat-buscar-barra chat-buscar-boton" onClick={alBuscar} aria-label="Buscar en el chat">
         <Search className="h-3.5 w-3.5" />
@@ -40,16 +56,6 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
       </button>
 
       <div className="chat-barra-lista">
-        <section>
-          <ul className="chat-bandeja">
-            <li><FilaDeBandeja icono={<AtSign className="h-3.5 w-3.5" />} nombre="Menciones" activa={vista === 'menciones'} insignia={menciones} onClick={() => abrirBandeja('menciones')} /></li>
-            <li><FilaDeBandeja icono={<MessageSquareReply className="h-3.5 w-3.5" />} nombre="Hilos" activa={vista === 'hilos'} onClick={() => abrirBandeja('hilos')} /></li>
-            <li><FilaDeBandeja icono={<Bookmark className="h-3.5 w-3.5" />} nombre="Guardados" activa={vista === 'guardados'} onClick={() => abrirBandeja('guardados')} /></li>
-            <li><FilaDeBandeja icono={<Clock className="h-3.5 w-3.5" />} nombre="Recordatorios" activa={vista === 'recordatorios'} onClick={() => abrirBandeja('recordatorios')} /></li>
-            <li><FilaDeBandeja icono={<CalendarClock className="h-3.5 w-3.5" />} nombre="Programados" activa={vista === 'programados'} onClick={() => abrirBandeja('programados')} /></li>
-          </ul>
-        </section>
-
         <section>
           <h3 className="chat-barra-titulo">
             <span>Canales</span>
@@ -150,12 +156,3 @@ function FilaDeCanal({ canal, activa, onClick, children }: { canal: CanalChat; a
   )
 }
 
-function FilaDeBandeja({ icono, nombre, activa, insignia, onClick }: { icono: React.ReactNode; nombre: string; activa: boolean; insignia?: number; onClick: () => void }) {
-  return (
-    <button type="button" className="chat-fila" data-activa={activa ? 'true' : undefined} data-sin-leer={insignia ? 'true' : undefined} onClick={onClick} aria-current={activa ? 'true' : undefined}>
-      {icono}
-      <span className="chat-fila-nombre">{nombre}</span>
-      {insignia ? <span key={insignia} className="chat-insignia" data-mencion="true">@{insignia > 9 ? '9+' : insignia}</span> : null}
-    </button>
-  )
-}
