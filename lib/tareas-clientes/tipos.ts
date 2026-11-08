@@ -27,6 +27,11 @@ export interface OpcionSimple {
 export interface OpcionesDelCliente {
   estados: OpcionDeEstado[]
   departamentos: OpcionSimple[]
+  /**
+   * El orden de las columnas que ha elegido el equipo arrastrándolas (nombres de estado). Solo existe en el ERP: Notion no se entera y la sincronización no lo toca. Un estado
+   * que no esté en la lista (uno nuevo de Notion) va al final, en el orden de Notion.
+   */
+  orden_columnas?: string[]
 }
 
 /** La portada o el fondo de una pantalla: un color liso, un degradado de la lista, una imagen subida o (solo el fondo) uno animado de la lista */
@@ -223,7 +228,19 @@ export const DEPARTAMENTOS_POR_DEFECTO: OpcionSimple[] = [
 
 export function estadosDe(cliente: Pick<ClienteTC, 'opciones'> | null | undefined): OpcionDeEstado[] {
   const propios = cliente?.opciones?.estados
-  return propios && propios.length > 0 ? propios : ESTADOS_POR_DEFECTO
+  const base = propios && propios.length > 0 ? propios : ESTADOS_POR_DEFECTO
+  const orden = cliente?.opciones?.orden_columnas
+  if (!orden || orden.length === 0) return base
+  return ordenarSegun(base, orden)
+}
+
+/** Las opciones en el orden de `orden` (por nombre); las que no estén en ella, al final y como venían */
+export function ordenarSegun<T extends { nombre: string }>(lista: readonly T[], orden: readonly string[]): T[] {
+  const sitio = new Map(orden.map((n, i) => [n, i]))
+  return lista
+    .map((o, i) => ({ o, k: sitio.has(o.nombre) ? (sitio.get(o.nombre) as number) : orden.length + i }))
+    .sort((a, b) => a.k - b.k)
+    .map((x) => x.o)
 }
 
 export function departamentosDe(cliente: Pick<ClienteTC, 'opciones'> | null | undefined): OpcionSimple[] {

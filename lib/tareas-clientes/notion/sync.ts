@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
-import { arbolParaNotion, bloquesDesdeNotion, contarChecklist, contenidoParaNotion, huellaDeContenido, planDeContenido, textoPlano, tipoDeNotionDe, type Bloque } from '../bloques'
+import { arbolParaNotion, bloquesDesdeNotion, contarChecklist, contenidoParaNotion, esUrlDeNotion, filaParaNotion, huellaDeContenido, planDeContenido, textoPlano, tipoDeNotionDe, type Bloque, type TramoNuevo } from '../bloques'
 import { estadosDe, type ClienteTC, type TareaTC } from '../tipos'
 import {
   actualizarBloque,
@@ -19,6 +19,7 @@ import {
   type PaginaNotion,
 } from './cliente'
 import { camposDesdePagina, esquemaDe, iconoParaNotion, opcionesDe, propiedadesParaNotion } from './mapeo'
+import { rehospedarImagenes } from './imagenes'
 import { tablaDePersonas, type TablaDePersonas } from './personas'
 
 /**
@@ -164,18 +165,21 @@ async function aplicarPagina(c: ClienteTC, pagina: PaginaNotion, personas: Tabla
 /** El cuerpo de una página de Notion, traído al editor. No pisa un cuerpo con cambios nuestros sin enviar */
 export async function traerContenido(tareaId: string): Promise<boolean> {
   const service = createServiceClient()
-  const { data: t } = await service.from('tc_tareas').select('id, notion_page_id, notion_contenido_hash').eq('id', tareaId).maybeSingle()
+  const { data: t } = await service.from('tc_tareas').select('id, notion_page_id, notion_contenido_hash, contenido').eq('id', tareaId).maybeSingle()
   if (!t?.notion_page_id) return false
   const { data: pendiente } = await service.from('tc_notion_cola').select('id').eq('tarea_id', tareaId).in('operacion', ['contenido', 'crear']).is('hecho_en', null).limit(1)
   if ((pendiente ?? []).length > 0) return false
 
-  const bloques = bloquesDesdeNotion(await bloquesDe(t.notion_page_id))
-  const huella = huellaDeContenido(bloques)
+  const leidos = bloquesDesdeNotion(await bloquesDe(t.notion_page_id))
+  const huella = huellaDeContenido(leidos)
   const marca = { notion_contenido_revisado: new Date().toISOString() }
-  if (huella === t.notion_contenido_hash) {
+  // Lo guardado puede tener una imagen con dirección de Notion (que caduca): aunque nada haya cambiado, se vuelve a leer para copiarla a nuestro almacén
+  const conImagenCaducable = ((t.contenido ?? []) as Bloque[]).some((b) => b.tipo === 'imagen' && esUrlDeNotion(b.url))
+  if (huella === t.notion_contenido_hash && !conImagenCaducable) {
     await service.from('tc_tareas').update(marca).eq('id', tareaId)
     return false
   }
+  const { bloques } = await rehospedarImagenes(leidos, tareaId)
   const lista = contarChecklist(bloques)
   await service
     .from('tc_tareas')
@@ -318,6 +322,49 @@ async function anadirAlFinal(paginaId: string, bloques: Bloque[]) {
   for (const trozo of aTrozos(arbolParaNotion(bloques), 100)) await anadirBloques(paginaId, trozo)
 }
 
+/** Añade un tramo de bloques nuevos detrás de `despues` (o al final si no se sabe): los trozos siguientes van detrás del último creado */
+async function anadirTramo(paginaId: string, tramo: TramoNuevo) {
+  let despues = tramo.despues ?? undefined
+  for (const trozo of aTrozos(arbolParaNotion(tramo.bloques), 100)) {
+    const r = await anadirBloques(paginaId, trozo, despues)
+    if (despues !== undefined) despues = r.results?.at(-1)?.id ?? despues
+  }
+}
+
+const textoDeCelda = (c: Bloque['filas']) => JSON.stringify(c)
+
+/**
+ * Una tabla que ya está en Notion: se mandan solo las filas que cambian (cada una con su identificador), se borran las que ya no están y las nuevas se añaden detrás de la
+ * última. Las columnas no se tocan (Notion no deja cambiar el ancho de una tabla): el editor no las ofrece cuando la tabla ya está en Notion.
+ */
+async function actualizarTabla(nuevo: Bloque, previo: Bloque | undefined): Promise<void> {
+  const tablaId = nuevo.notion_id as string
+  const filas = nuevo.filas ?? []
+  const ids = nuevo.filaIds ?? []
+  const idsPrevios = previo?.filaIds ?? []
+  const conservadas = new Set(ids.filter(Boolean))
+  for (const id of idsPrevios) if (id && !conservadas.has(id)) await borrarBloque(id).catch(ignorarSiNoExiste)
+  const ancho = Math.max(1, previo?.filas ? Math.max(...previo.filas.map((f) => f.length)) : Math.max(...filas.map((f) => f.length)))
+  let ultimo: string | undefined
+  for (let i = 0; i < filas.length; i++) {
+    const id = ids[i]
+    if (id) {
+      const anterior = previo?.filas?.[idsPrevios.indexOf(id)]
+      if (!anterior || textoDeCelda([anterior]) !== textoDeCelda([filas[i]])) {
+        const fila = filaParaNotion(filas[i], ancho)
+        await actualizarBloque(id, { table_row: fila.table_row })
+      }
+      ultimo = id
+    } else {
+      const r = await anadirBloques(tablaId, [filaParaNotion(filas[i], ancho)], ultimo)
+      ultimo = r.results?.at(-1)?.id ?? ultimo
+    }
+  }
+  if (previo && (Boolean(previo.encabezadoFila) !== Boolean(nuevo.encabezadoFila) || Boolean(previo.encabezadoColumna) !== Boolean(nuevo.encabezadoColumna))) {
+    await actualizarBloque(tablaId, { table: { has_column_header: Boolean(nuevo.encabezadoFila), has_row_header: Boolean(nuevo.encabezadoColumna) } })
+  }
+}
+
 async function empujarContenido(t: TareaTC): Promise<void> {
   const pagina = t.notion_page_id as string
   const actual = bloquesDesdeNotion(await bloquesDe(pagina))
@@ -331,11 +378,17 @@ async function empujarContenido(t: TareaTC): Promise<void> {
     return
   }
   for (const b of plan.actualizar) {
+    // Las imágenes ya subidas no se tocan; una tabla se actualiza fila a fila
+    if (b.tipo === 'imagen') continue
+    if (b.tipo === 'tabla') {
+      await actualizarTabla(b, actual.find((x) => x.notion_id === b.notion_id))
+      continue
+    }
     const tipo = tipoDeNotionDe(b)
     const cuerpo = contenidoParaNotion(b)
     if (b.notion_id && tipo && cuerpo) await actualizarBloque(b.notion_id, { [tipo]: cuerpo })
   }
-  if (plan.crear.length > 0) await anadirAlFinal(pagina, plan.crear)
+  for (const tramo of plan.tramos) await anadirTramo(pagina, tramo)
   for (const id of plan.borrar) await borrarBloque(id).catch(ignorarSiNoExiste)
 }
 

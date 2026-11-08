@@ -2,6 +2,8 @@ import {
   arbolParaNotion,
   bloquesDesdeNotion,
   contarChecklist,
+  esUrlDeNotion,
+  estaBloqueado,
   huellaDeContenido,
   juntarIguales,
   planDeContenido,
@@ -130,6 +132,61 @@ const cambioDeTipo = planDeContenido(conAjeno, conAjeno.map((b, i) => (i === 0 ?
 igual('cambiar de tipo es borrar y crear', cambioDeTipo.modo === 'diferencial' ? [cambioDeTipo.borrar, cambioDeTipo.crear.length] : cambioDeTipo, [['id0'], 1])
 igual('la huella no depende de los ids de aquí', huellaDeContenido([{ id: 'x', tipo: 'parrafo', texto: [{ t: 'a' }] }]), huellaDeContenido([{ id: 'otro', tipo: 'parrafo', texto: [{ t: 'a' }] }]))
 igual('y cambia cuando cambia el texto', huellaDeContenido([{ id: 'x', tipo: 'parrafo', texto: [{ t: 'a' }] }]) === huellaDeContenido([{ id: 'x', tipo: 'parrafo', texto: [{ t: 'b' }] }]), false)
+
+/* ---------- desplegables, tablas e imágenes ---------- */
+const toggleNotion = [
+  { id: 't1', type: 'toggle', has_children: true, toggle: { rich_text: [{ plain_text: 'Detalles', annotations: {} }] }, children: [{ id: 't1a', type: 'paragraph', paragraph: { rich_text: [{ plain_text: 'Dentro', annotations: {} }] } }] },
+]
+const deToggle = bloquesDesdeNotion(toggleNotion as never)
+igual('un toggle de Notion es un desplegable con sus hijos aplanados', deToggle.map((b) => [b.tipo, b.nivel ?? 0, textoPlano([b])]), [['desplegable', 0, 'Detalles'], ['parrafo', 1, 'Dentro']])
+const arbolToggle = arbolParaNotion(deToggle) as Array<{ type: string; toggle?: { children?: Array<{ type: string }> } }>
+igual('y vuelve a ser un toggle con su hijo dentro', [arbolToggle[0].type, arbolToggle[0].toggle?.children?.map((x) => x.type)], ['toggle', ['paragraph']])
+
+const tablaNotion = [
+  { id: 'tb', type: 'table', has_children: true, table: { table_width: 2, has_column_header: true, has_row_header: false }, children: [
+    { id: 'r1', type: 'table_row', table_row: { cells: [[{ plain_text: 'A', annotations: { bold: true } }], [{ plain_text: 'B', annotations: {} }]] } },
+    { id: 'r2', type: 'table_row', table_row: { cells: [[{ plain_text: '1', annotations: {} }], []] } },
+  ] },
+]
+const [tabla] = bloquesDesdeNotion(tablaNotion as never)
+igual('una tabla de Notion es una tabla editable', [tabla.tipo, tabla.filas?.length, tabla.filaIds, tabla.encabezadoFila, tabla.encabezadoColumna], ['tabla', 2, ['r1', 'r2'], true, false])
+igual('con el formato de cada celda', tabla.filas?.[0][0], [{ t: 'A', b: true }])
+const arbolTabla = arbolParaNotion([{ ...tabla, notion_id: undefined }]) as Array<{ type: string; table: { table_width: number; has_column_header: boolean; children: Array<{ type: string; table_row: { cells: unknown[][] } }> } }>
+igual('se manda con su ancho, su encabezado y sus filas (rellenas hasta el ancho)', [arbolTabla[0].type, arbolTabla[0].table.table_width, arbolTabla[0].table.has_column_header, arbolTabla[0].table.children.map((f) => f.table_row.cells.length)], ['table', 2, true, [2, 2]])
+igual('una tabla sin hijos traídos sigue siendo un bloque ajeno', bloquesDesdeNotion([{ id: 'x', type: 'table', has_children: true, table: { table_width: 2 } }] as never)[0].tipo, 'notion')
+igual('el texto de las celdas cuenta para buscar', textoPlano([tabla]).includes('A B'), true)
+
+igual('una dirección firmada de Notion caduca (se copia)', esUrlDeNotion('https://prod-files-secure.s3.us-west-2.amazonaws.com/abc/notion/imagen.png?X-Amz-Signature=1'), true)
+igual('un fichero de notion.so también', esUrlDeNotion('https://www.notion.so/image/https%3A%2F%2Fx?table=block'), true)
+igual('una dirección nuestra no', esUrlDeNotion('https://abc.supabase.co/storage/v1/object/public/tareas-portadas/notion/a.png'), false)
+igual('un amazonaws que no es de Notion no', esUrlDeNotion('https://s3.amazonaws.com/mi-bucket/a.png'), false)
+igual('sin dirección, no', esUrlDeNotion(undefined), false)
+const imagenDeNotion: Bloque = { id: 'i', tipo: 'imagen', texto: [], url: 'https://x/a.png', notion_id: 'img1' }
+igual('una imagen que viene de Notion es un bloque protegido', estaBloqueado(imagenDeNotion), true)
+igual('una imagen subida desde aquí (sin id de Notion) se puede mover y borrar', estaBloqueado({ id: 'j', tipo: 'imagen', texto: [], url: 'https://x/b.png' }), false)
+const arbolImagen = arbolParaNotion([{ id: 'j', tipo: 'imagen', texto: [{ t: 'Pie' }], url: 'https://x/b.png' }]) as Array<{ type: string; image: { type: string; external: { url: string } } }>
+igual('se manda como imagen externa', [arbolImagen[0].type, arbolImagen[0].image.type, arbolImagen[0].image.external.url], ['image', 'external', 'https://x/b.png'])
+igual('la huella no depende de la dirección firmada de una imagen de Notion', huellaDeContenido([imagenDeNotion]), huellaDeContenido([{ ...imagenDeNotion, url: 'https://x/otra-firma.png' }]))
+
+const conImagen = conIds([{ id: '1', tipo: 'parrafo', texto: [{ t: 'a' }] }, { ...imagenDeNotion, notion_id: undefined }])
+const planImagen = planDeContenido(conImagen, [...conImagen.slice(0, 1).map((b) => ({ ...b, texto: [{ t: 'a cambiado' }] })), conImagen[1]])
+igual('con una imagen en la página, editar un párrafo NO borra la imagen', planImagen.modo === 'diferencial' ? [planImagen.borrar, planImagen.actualizar.map((b) => b.notion_id)] : planImagen, [[], ['id0']])
+
+const conTabla = conIds([{ id: '1', tipo: 'parrafo', texto: [{ t: 'a' }] }, { ...tabla, notion_id: undefined }, { id: '3', tipo: 'parrafo', texto: [{ t: 'z' }] }])
+const planTabla = planDeContenido(conTabla, conTabla.map((b, i) => (i === 0 ? { ...b, texto: [{ t: 'a2' }] } : b)))
+igual('con una tabla, tocar un párrafo no recrea la tabla', planTabla.modo === 'diferencial' ? [planTabla.borrar, planTabla.crear.length, planTabla.actualizar.map((b) => b.tipo)] : planTabla, [[], 0, ['parrafo']])
+const tablaEditada = conTabla.map((b) => (b.tipo === 'tabla' ? { ...b, filas: [[[{ t: 'A' }], [{ t: 'B2' }]], ...(b.filas ?? []).slice(1)] } : b))
+const planCelda = planDeContenido(conTabla, tablaEditada)
+igual('cambiar una celda actualiza la tabla (no la borra)', planCelda.modo === 'diferencial' ? [planCelda.actualizar.map((b) => b.tipo), planCelda.borrar] : planCelda, [['tabla'], []])
+
+const medio = conIds([{ id: '1', tipo: 'parrafo', texto: [{ t: 'a' }] }, { id: '2', tipo: 'parrafo', texto: [{ t: 'b' }] }, { id: '3', tipo: 'notion', texto: [], notion_tipo: 'file', vista: 'Archivo' }])
+const conNuevoEnMedio = [medio[0], { id: 'n', tipo: 'parrafo' as const, texto: [{ t: 'nuevo' }] }, medio[1], medio[2]]
+const planMedio = planDeContenido(medio, conNuevoEnMedio)
+igual('un párrafo nuevo en medio se añade DETRÁS del anterior, no al final', planMedio.modo === 'diferencial' ? planMedio.tramos.map((t) => [t.despues, t.bloques.map((b) => textoPlano([b]))]) : planMedio, [['id0', ['nuevo']]])
+const planFinal = planDeContenido(medio, [...medio, { id: 'm', tipo: 'parrafo' as const, texto: [{ t: 'al final' }] }])
+igual('uno nuevo al final va detrás del último bloque', planFinal.modo === 'diferencial' ? planFinal.tramos.map((t) => t.despues) : planFinal, ['id2'])
+const planSeguidos = planDeContenido(medio, [medio[0], { id: 'n1', tipo: 'parrafo' as const, texto: [{ t: 'uno' }] }, { id: 'n2', tipo: 'parrafo' as const, texto: [{ t: 'dos' }] }, medio[1], medio[2]])
+igual('varios nuevos seguidos forman un solo tramo', planSeguidos.modo === 'diferencial' ? planSeguidos.tramos.map((t) => [t.despues, t.bloques.length]) : planSeguidos, [['id0', 2]])
 
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien`)
 if (fallos > 0) process.exit(1)

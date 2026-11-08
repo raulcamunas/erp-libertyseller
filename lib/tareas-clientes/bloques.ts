@@ -24,7 +24,7 @@ export interface Segmento {
   k?: string
 }
 
-export type TipoDeBloque = 'parrafo' | 'h1' | 'h2' | 'h3' | 'vineta' | 'numerada' | 'tarea' | 'cita' | 'aviso' | 'divisor' | 'codigo' | 'imagen' | 'notion'
+export type TipoDeBloque = 'parrafo' | 'h1' | 'h2' | 'h3' | 'vineta' | 'numerada' | 'tarea' | 'cita' | 'aviso' | 'divisor' | 'codigo' | 'desplegable' | 'tabla' | 'imagen' | 'notion'
 
 export interface Bloque {
   id: string
@@ -37,6 +37,15 @@ export interface Bloque {
   lenguaje?: string
   /** Una imagen: su dirección y su pie */
   url?: string
+  /**
+   * UNA TABLA: sus filas (cada celda es un texto con formato), si la primera fila y la primera columna son encabezados, y el identificador de Notion de cada fila (`filaIds`,
+   * en el mismo orden que `filas`; una fila nueva, hecha aquí, no lo tiene). Con ellos se manda a Notion solo la celda que cambió. En una tabla que ya está en Notion no se
+   * pueden añadir ni quitar columnas (la API de Notion no deja cambiar su ancho): sí filas y celdas.
+   */
+  filas?: Segmento[][][]
+  filaIds?: Array<string | null>
+  encabezadoFila?: boolean
+  encabezadoColumna?: boolean
   /** El bloque de Notion que le corresponde. Un bloque nuevo, creado aquí, no lo tiene hasta que llega a Notion */
   notion_id?: string
   /** De qué tipo es el bloque de Notion que no sabemos editar (`table`, `child_database`…) */
@@ -46,14 +55,28 @@ export interface Bloque {
 }
 
 /** Los tipos que el editor sabe crear y editar */
-export const TIPOS_EDITABLES: readonly TipoDeBloque[] = ['parrafo', 'h1', 'h2', 'h3', 'vineta', 'numerada', 'tarea', 'cita', 'aviso', 'divisor', 'codigo']
+export const TIPOS_EDITABLES: readonly TipoDeBloque[] = ['parrafo', 'h1', 'h2', 'h3', 'vineta', 'numerada', 'tarea', 'cita', 'aviso', 'divisor', 'codigo', 'desplegable', 'tabla']
 
-const TIPOS_CON_TEXTO: ReadonlySet<TipoDeBloque> = new Set(['parrafo', 'h1', 'h2', 'h3', 'vineta', 'numerada', 'tarea', 'cita', 'aviso', 'codigo'])
+const TIPOS_CON_TEXTO: ReadonlySet<TipoDeBloque> = new Set(['parrafo', 'h1', 'h2', 'h3', 'vineta', 'numerada', 'tarea', 'cita', 'aviso', 'codigo', 'desplegable'])
 
 export const conTexto = (tipo: TipoDeBloque): boolean => TIPOS_CON_TEXTO.has(tipo)
 
+/**
+ * ¿Es la dirección de un fichero ALOJADO POR NOTION? Esas direcciones van firmadas y CADUCAN (a la hora): una imagen guardada con una de ellas se rompe sola. Al leer el cuerpo
+ * de Notion se copian a nuestro almacén (notion/imagenes.ts) y se guarda la nuestra.
+ */
+export function esUrlDeNotion(url: string | undefined | null): boolean {
+  if (!url) return false
+  try {
+    const u = new URL(url)
+    return (u.hostname.endsWith('.amazonaws.com') && /notion/i.test(u.href)) || u.hostname.endsWith('notion.so') || u.hostname.endsWith('notion-static.com') || u.hostname.endsWith('notionusercontent.com')
+  } catch {
+    return false
+  }
+}
+
 /** Un bloque está bloqueado si el editor no puede tocarlo: no se edita, no se mueve y no se manda a Notion */
-export const estaBloqueado = (b: Bloque): boolean => b.tipo === 'notion' || (b.tipo === 'imagen' && !b.url)
+export const estaBloqueado = (b: Bloque): boolean => b.tipo === 'notion' || (b.tipo === 'imagen' && (!b.url || Boolean(b.notion_id)))
 
 let contador = 0
 /** Un identificador de bloque que no se repite en esta pantalla */
@@ -75,7 +98,7 @@ export const textoDe = (segmentos: readonly Segmento[]): string => segmentos.map
 /** Todo el texto del cuerpo, para buscar */
 export function textoPlano(bloques: readonly Bloque[]): string {
   return bloques
-    .map((b) => (conTexto(b.tipo) ? textoDe(b.texto) : b.tipo === 'notion' ? (b.vista ?? '') : ''))
+    .map((b) => (conTexto(b.tipo) ? textoDe(b.texto) : b.tipo === 'tabla' ? (b.filas ?? []).map((f) => f.map((c) => textoDe(c)).join(' ')).join('\n') : b.tipo === 'notion' ? (b.vista ?? '') : ''))
     .filter(Boolean)
     .join('\n')
 }
@@ -99,7 +122,7 @@ export function progresoDeChecklist(c: { total: number; hecho: number }): number
 
 /** Una huella del contenido que no depende de los ids de aquí: dos cuerpos iguales dan la misma, y cambia en cuanto cambia algo que se ve */
 export function huellaDeContenido(bloques: readonly Bloque[]): string {
-  const forma = bloques.map((b) => [b.tipo, b.texto.map((s) => [s.t, s.b ? 1 : 0, s.i ? 1 : 0, s.u ? 1 : 0, s.s ? 1 : 0, s.c ? 1 : 0, s.l ?? '', s.k ?? '']), b.hecho ? 1 : 0, b.nivel ?? 0, b.icono ?? '', b.lenguaje ?? '', b.url ?? '', b.notion_id ?? ''])
+  const forma = bloques.map((b) => [b.tipo, b.texto.map((s) => [s.t, s.b ? 1 : 0, s.i ? 1 : 0, s.u ? 1 : 0, s.s ? 1 : 0, s.c ? 1 : 0, s.l ?? '', s.k ?? '']), b.hecho ? 1 : 0, b.nivel ?? 0, b.icono ?? '', b.lenguaje ?? '', b.tipo === 'imagen' && b.notion_id ? '' : (b.url ?? ''), b.notion_id ?? '', b.filas ? [b.filas.map((f) => f.map((c) => c.map((s) => [s.t, s.b ? 1 : 0, s.i ? 1 : 0, s.l ?? '']))), b.encabezadoFila ? 1 : 0, b.encabezadoColumna ? 1 : 0] : 0])
   const texto = JSON.stringify(forma)
   let h = 5381
   for (let i = 0; i < texto.length; i++) h = ((h * 33) ^ texto.charCodeAt(i)) >>> 0
@@ -201,6 +224,7 @@ const TIPO_DE_NOTION: Record<string, TipoDeBloque> = {
   callout: 'aviso',
   divider: 'divisor',
   code: 'codigo',
+  toggle: 'desplegable',
 }
 
 /** Qué se enseña de un bloque que no sabemos editar */
@@ -229,6 +253,18 @@ export function bloquesDesdeNotion(lista: readonly BloqueNotion[], nivel = 0): B
       if (tipo === 'codigo') bloque.lenguaje = c.language ?? 'plain text'
       salida.push(bloque)
       if (n.children?.length) salida.push(...bloquesDesdeNotion(n.children, nivel + 1))
+    } else if (n.type === 'table' && (n.children ?? []).some((r) => r.type === 'table_row')) {
+      const t = contenidoDe(n) as unknown as { has_column_header?: boolean; has_row_header?: boolean }
+      const filas = (n.children ?? []).filter((r) => r.type === 'table_row')
+      salida.push({
+        ...base,
+        tipo: 'tabla',
+        texto: [],
+        filas: filas.map((r) => ((r.table_row as { cells?: TextoNotion[][] } | undefined)?.cells ?? []).map((celda) => segmentosDesdeNotion(celda))),
+        filaIds: filas.map((r) => r.id),
+        encabezadoFila: Boolean(t.has_column_header),
+        encabezadoColumna: Boolean(t.has_row_header),
+      })
     } else if (n.type === 'image') {
       const c = contenidoDe(n)
       const url = c.type === 'external' ? c.external?.url : c.file?.url
@@ -256,10 +292,20 @@ const TIPO_A_NOTION: Partial<Record<TipoDeBloque, string>> = {
   aviso: 'callout',
   divisor: 'divider',
   codigo: 'code',
+  desplegable: 'toggle',
+  tabla: 'table',
+  imagen: 'image',
 }
 
 /** El tipo de Notion que le toca a un bloque del editor; undefined si no se puede mandar (un bloque ajeno) */
 export const tipoDeNotionDe = (b: Bloque): string | undefined => TIPO_A_NOTION[b.tipo]
+
+/** Una fila de tabla para Notion, rellenada con celdas vacías hasta el ancho de la tabla */
+export const filaParaNotion = (celdas: readonly Segmento[][], ancho: number): Record<string, unknown> => ({
+  object: 'block',
+  type: 'table_row',
+  table_row: { cells: Array.from({ length: ancho }, (_, i) => textoParaNotion(celdas[i] ?? [])) },
+})
 
 /** Lo que va dentro de `{ [tipo]: ... }` al crear o actualizar un bloque en Notion */
 export function contenidoParaNotion(b: Bloque): Record<string, unknown> | null {
@@ -275,6 +321,20 @@ export function contenidoParaNotion(b: Bloque): Record<string, unknown> | null {
       return { rich_text, icon: { type: 'emoji', emoji: b.icono || '💡' } }
     case 'codigo':
       return { rich_text, language: b.lenguaje || 'plain text' }
+    case 'imagen':
+      // Una imagen subida desde aquí se manda como enlace a nuestro almacén (las de Notion no se tocan: son bloques protegidos)
+      return b.url ? { type: 'external', external: { url: b.url }, caption: rich_text } : null
+    case 'tabla': {
+      const filas = (b.filas ?? []).filter((f) => f.length > 0)
+      if (filas.length === 0) return null
+      const ancho = Math.max(...filas.map((f) => f.length))
+      return {
+        table_width: ancho,
+        has_column_header: Boolean(b.encabezadoFila),
+        has_row_header: Boolean(b.encabezadoColumna),
+        children: filas.map((f) => filaParaNotion(f, ancho)),
+      }
+    }
     default:
       return { rich_text }
   }
@@ -302,6 +362,8 @@ export function arbolParaNotion(bloques: readonly Bloque[]): Array<Record<string
     while (pila.length > 1 && pila[pila.length - 1].nivel >= nivel) pila.pop()
     const padre = pila[pila.length - 1]
     padre.hijos.push(crear)
+    // Una tabla (que ya lleva sus filas), una imagen y un divisor no tienen hijos: lo que viene detrás con más sangría cuelga del bloque anterior
+    if (b.tipo === 'tabla' || b.tipo === 'imagen' || b.tipo === 'divisor') continue
     const tipo = crear.type as string
     const cuerpo = crear[tipo] as Record<string, unknown>
     const hijos: Array<Record<string, unknown>> = []
@@ -330,7 +392,16 @@ export type PlanDeContenido =
   /** El cuerpo entero se sustituye: solo cuando NO hay ningún bloque ajeno, porque no se puede recrear lo que no se entiende */
   | { modo: 'reemplazar'; borrar: string[]; crear: Bloque[] }
   /** Hay bloques ajenos: se toca solo lo que cambió, sin borrar ni mover lo que no se entiende */
-  | { modo: 'diferencial'; actualizar: Bloque[]; borrar: string[]; crear: Bloque[] }
+  | { modo: 'diferencial'; actualizar: Bloque[]; borrar: string[]; crear: Bloque[]; tramos: TramoNuevo[] }
+
+/**
+ * Los bloques nuevos, agrupados en tramos seguidos, cada uno con el bloque de Notion DESPUÉS del cual va (`despues`). Así un párrafo añadido en medio queda en medio y no al
+ * final de la página. `despues` es null cuando no se sabe (el principio de la página, o algo que cuelga de otro bloque): ahí se añade al final, como antes.
+ */
+export interface TramoNuevo {
+  despues: string | null
+  bloques: Bloque[]
+}
 
 const iguales = (a: Bloque, b: Bloque) => huellaDeContenido([{ ...a, notion_id: undefined }]) === huellaDeContenido([{ ...b, notion_id: undefined }])
 
@@ -340,7 +411,9 @@ const iguales = (a: Bloque, b: Bloque) => huellaDeContenido([{ ...a, notion_id: 
 export function planDeContenido(anterior: readonly Bloque[], nuevo: readonly Bloque[]): PlanDeContenido {
   if (huellaDeContenido(anterior) === huellaDeContenido(nuevo)) return { modo: 'nada' }
 
-  if (!tieneBloquesAjenos(anterior) && !tieneBloquesAjenos(nuevo)) {
+  // Una tabla tampoco se recrea por tocar un párrafo de al lado: con tablas se va por diferencias (se mandan solo sus celdas cambiadas)
+  const delicado = (b: Bloque) => b.tipo === 'tabla'
+  if (!tieneBloquesAjenos(anterior) && !tieneBloquesAjenos(nuevo) && !anterior.some(delicado) && !nuevo.some(delicado)) {
     return { modo: 'reemplazar', borrar: anterior.map((b) => b.notion_id).filter((x): x is string => Boolean(x)), crear: nuevo.map((b) => ({ ...b, notion_id: undefined })) }
   }
 
@@ -349,25 +422,46 @@ export function planDeContenido(anterior: readonly Bloque[], nuevo: readonly Blo
   const actualizar: Bloque[] = []
   const crear: Bloque[] = []
   const borrar: string[] = []
+  const tramos: TramoNuevo[] = []
+  let tramo: TramoNuevo | null = null
+  // El último bloque de arriba (sin sangría) que ya está en Notion: detrás de él va lo nuevo que venga a continuación
+  let ultimoDeArriba: string | null = null
+  const cerrar = () => {
+    if (tramo) tramos.push(tramo)
+    tramo = null
+  }
+  const nuevoBloque = (b: Bloque) => {
+    const copia = { ...b, notion_id: undefined, filaIds: undefined }
+    crear.push(copia)
+    tramo ??= { despues: (b.nivel ?? 0) === 0 ? ultimoDeArriba : null, bloques: [] }
+    tramo.bloques.push(copia)
+  }
   for (const b of nuevo) {
     if (estaBloqueado(b)) {
-      if (b.notion_id) vistos.add(b.notion_id)
+      cerrar()
+      if (b.notion_id) {
+        vistos.add(b.notion_id)
+        if ((b.nivel ?? 0) === 0) ultimoDeArriba = b.notion_id
+      }
       continue
     }
     const previo = b.notion_id ? antes.get(b.notion_id) : undefined
     if (!previo) {
-      crear.push({ ...b, notion_id: undefined })
+      nuevoBloque(b)
       continue
     }
     vistos.add(b.notion_id as string)
     if (tipoDeNotionDe(previo) !== tipoDeNotionDe(b)) {
       // Notion no deja cambiar el tipo de un bloque: se borra y se crea otro
       borrar.push(b.notion_id as string)
-      crear.push({ ...b, notion_id: undefined })
-    } else if (!iguales(previo, b)) {
-      actualizar.push(b)
+      nuevoBloque(b)
+      continue
     }
+    cerrar()
+    if (!iguales(previo, b)) actualizar.push(b)
+    if ((b.nivel ?? 0) === 0) ultimoDeArriba = b.notion_id as string
   }
+  cerrar()
   for (const [id, b] of antes) if (!vistos.has(id) && !estaBloqueado(b)) borrar.push(id)
-  return { modo: 'diferencial', actualizar, borrar, crear }
+  return { modo: 'diferencial', actualizar, borrar, crear, tramos }
 }

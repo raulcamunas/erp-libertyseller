@@ -5,10 +5,13 @@ import { createPortal } from 'react-dom'
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Bold, Code, GripVertical, Heading1, Heading2, Heading3, Info, Italic, Link2, List, ListChecks, ListOrdered, Minus, Plus, Quote, Strikethrough, Text, Underline, Lock, Terminal, type LucideIcon } from 'lucide-react'
+import { Bold, ChevronRight, Code, GripVertical, Heading1, ImagePlus, Heading2, Heading3, Info, Italic, Link2, List, ListChecks, ListOrdered, Minus, Plus, Quote, Strikethrough, Table2, Text, Underline, Lock, Terminal, X, type LucideIcon } from 'lucide-react'
 import { bloqueNuevo, estaBloqueado, textoDe, tieneBloquesAjenos, type Bloque, type Segmento, type TipoDeBloque } from '@/lib/tareas-clientes/bloques'
-import { atajoDeMarkdown, cambiarTipo, dividir, insertarDespues, mover, numeracion, reemplazar, retrocederAlInicio, sangrar } from '@/lib/tareas-clientes/edicion'
+import { atajoDeMarkdown, borrar, cambiarTipo, dividir, insertarDespues, mover, numeracion, reemplazar, retrocederAlInicio, sangrar } from '@/lib/tareas-clientes/edicion'
 import { htmlASegmentos, segmentosAHtml } from './textoHtml'
+import { toast } from 'sonner'
+import { BASE, pedir } from './api'
+import { TablaEditable } from './TablaEditable'
 import { SelectorDeEmoji } from './ui'
 
 /**
@@ -41,6 +44,9 @@ const ELEMENTOS: ElementoDelMenu[] = [
   { id: 'cita', nombre: 'Cita', ayuda: 'Una frase destacada', icono: Quote, tipo: 'cita', busca: 'cita quote frase' },
   { id: 'aviso', nombre: 'Aviso', ayuda: 'Un recuadro con icono', icono: Info, tipo: 'aviso', busca: 'aviso callout nota' },
   { id: 'codigo', nombre: 'Código', ayuda: 'Texto con letra de código', icono: Terminal, tipo: 'codigo', busca: 'codigo code' },
+  { id: 'desplegable', nombre: 'Desplegable', ayuda: 'Un título que esconde lo que lleva debajo', icono: ChevronRight, tipo: 'desplegable', busca: 'desplegable toggle plegable acordeon' },
+  { id: 'tabla', nombre: 'Tabla', ayuda: 'Filas y columnas', icono: Table2, tipo: 'tabla', busca: 'tabla filas columnas' },
+  { id: 'imagen', nombre: 'Imagen', ayuda: 'Sube una imagen', icono: ImagePlus, tipo: 'imagen', busca: 'imagen foto captura subir' },
   { id: 'divisor', nombre: 'Divisor', ayuda: 'Una línea que separa', icono: Minus, tipo: 'divisor', busca: 'divisor linea separador' },
 ]
 
@@ -205,6 +211,10 @@ interface PropsDeFila {
   onMarcar: (id: string, hecho: boolean) => void
   onCambio: (id: string, cambios: Partial<Bloque>) => void
   onMas: (id: string) => void
+  /** Un desplegable: si está plegado, y cómo plegarlo o desplegarlo; y quitar una imagen o tabla */
+  colapsado: boolean
+  onAlternar: (id: string) => void
+  onQuitar: (id: string) => void
 }
 
 const CLASE_DE_TIPO: Partial<Record<TipoDeBloque, string>> = {
@@ -226,9 +236,10 @@ const MARCADOR_DE_TIPO: Partial<Record<TipoDeBloque, string>> = {
   cita: 'Escribe una cita',
   aviso: 'Escribe un aviso',
   codigo: 'Código',
+  desplegable: 'Desplegable',
 }
 
-const Fila = memo(function Fila({ bloque: b, numero, soloLectura, puedeArrastrar, registrar, onTexto, onTecla, onPegar, onEnfoque, onMarcar, onCambio, onMas }: PropsDeFila) {
+const Fila = memo(function Fila({ bloque: b, numero, soloLectura, puedeArrastrar, registrar, onTexto, onTecla, onPegar, onEnfoque, onMarcar, onCambio, onMas, colapsado, onAlternar, onQuitar }: PropsDeFila) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: b.id, disabled: !puedeArrastrar || estaBloqueado(b) })
   const nivel = b.nivel ?? 0
   const bloqueado = estaBloqueado(b)
@@ -244,12 +255,14 @@ const Fila = memo(function Fila({ bloque: b, numero, soloLectura, puedeArrastrar
         </div>
       )
     }
+    if (b.tipo === 'tabla') return <TablaEditable bloque={b} soloLectura={soloLectura} onCambio={(c) => onCambio(b.id, c)} />
     if (b.tipo === 'imagen') {
       return b.url ? (
-        <figure className="my-1">
+        <figure className="tc-imagen my-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={b.url} alt={textoDe(b.texto) || 'Imagen de la tarea'} loading="lazy" className="max-h-[420px] max-w-full rounded-[8px] border border-[var(--ls-linea)]" />
           {b.texto.length > 0 && <figcaption className="mt-1 text-[11.5px] text-[var(--ls-t3)]">{textoDe(b.texto)}</figcaption>}
+          {!bloqueado && !soloLectura && <button type="button" onClick={() => onQuitar(b.id)} aria-label="Quitar la imagen" className="tc-imagen-quitar"><X className="h-3 w-3" /></button>}
         </figure>
       ) : (
         <div className="tc-ajeno">
@@ -271,6 +284,16 @@ const Fila = memo(function Fila({ bloque: b, numero, soloLectura, puedeArrastrar
         className={`${CLASE_DE_TIPO[b.tipo] ?? 'text-[13.5px] leading-[1.6]'} ${b.tipo === 'tarea' && b.hecho ? 'tc-hecha' : ''}`}
       />
     )
+    if (b.tipo === 'desplegable') {
+      return (
+        <div className="flex gap-1">
+          <button type="button" aria-expanded={!colapsado} aria-label={colapsado ? 'Desplegar' : 'Plegar'} onClick={() => onAlternar(b.id)} className="tc-asa mt-[3px] !h-5 !w-5 shrink-0 !text-[var(--ls-t2)]">
+            <ChevronRight className={`h-3.5 w-3.5 transition-transform ${colapsado ? '' : 'rotate-90'}`} />
+          </button>
+          {texto}
+        </div>
+      )
+    }
     if (b.tipo === 'vineta') return <div className="flex gap-2"><span aria-hidden className="mt-[0.62em] h-[5px] w-[5px] shrink-0 rounded-full bg-[var(--ls-t2)]" />{texto}</div>
     if (b.tipo === 'numerada') return <div className="flex gap-1.5"><span aria-hidden className="w-5 shrink-0 text-right text-[13.5px] tabular-nums leading-[1.6] text-[var(--ls-t3)]">{numero}.</span>{texto}</div>
     if (b.tipo === 'tarea') {
@@ -391,6 +414,20 @@ export function Editor({ bloques, onCambio, soloLectura = false }: PropsDeEditor
     (e: ElementoDelMenu, id: string) => {
       setMenu(null)
       let lista = reemplazar(actual.current, id, { texto: [] })
+      if (e.tipo === 'imagen') {
+        // El bloque queda como un párrafo vacío mientras se elige el fichero; al subirse se vuelve imagen
+        aplicar(lista, { id, posicion: 'inicio' })
+        bloqueDeImagen.current = id
+        entradaDeImagen.current?.click()
+        return
+      }
+      if (e.tipo === 'tabla') {
+        const vacia = () => [[], [], []] as Segmento[][]
+        lista = cambiarTipo(lista, id, 'tabla', { filas: [vacia(), vacia(), vacia()], filaIds: [null, null, null], encabezadoFila: true, encabezadoColumna: false })
+        const detras = bloqueNuevo('parrafo')
+        aplicar(insertarDespues(lista, id, detras), { id: detras.id, posicion: 'inicio' })
+        return
+      }
       lista = cambiarTipo(lista, id, e.tipo)
       if (e.tipo === 'divisor') {
         const nuevo = bloqueNuevo('parrafo')
@@ -608,6 +645,46 @@ export function Editor({ bloques, onCambio, soloLectura = false }: PropsDeEditor
 
   const vacio = bloques.length === 0
 
+  /* ---- Desplegables: lo que cuelga de uno plegado (los bloques siguientes con más sangría) no se enseña ---- */
+  const [plegados, setPlegados] = useState<ReadonlySet<string>>(() => new Set())
+  const alternarPlegado = useCallback((id: string) => setPlegados((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n }), [])
+  const ocultos = useMemo(() => {
+    const salida = new Set<string>()
+    let tope: number | null = null
+    for (const b of bloques) {
+      const nivel = b.nivel ?? 0
+      if (tope !== null && nivel > tope) { salida.add(b.id); continue }
+      tope = null
+      if (b.tipo === 'desplegable' && plegados.has(b.id)) tope = nivel
+    }
+    return salida
+  }, [bloques, plegados])
+
+  const alQuitar = useCallback((id: string) => aplicar(borrar(actual.current, id)), [aplicar])
+
+  /* ---- Imágenes: el menú «/» abre el selector de ficheros y la imagen se sube al almacén de las tareas ---- */
+  const entradaDeImagen = useRef<HTMLInputElement>(null)
+  const bloqueDeImagen = useRef<string | null>(null)
+  const [subiendo, setSubiendo] = useState(false)
+  async function subirImagen(fichero: File) {
+    const id = bloqueDeImagen.current
+    bloqueDeImagen.current = null
+    if (!id) return
+    setSubiendo(true)
+    try {
+      const f = new FormData()
+      f.set('fichero', fichero)
+      const { url } = await pedir<{ url: string }>(`${BASE}/subir`, { metodo: 'POST', formulario: f })
+      const lista = reemplazar(actual.current, id, { tipo: 'imagen', texto: [], url })
+      const detras = bloqueNuevo('parrafo')
+      aplicar(insertarDespues(lista, id, detras), { id: detras.id, posicion: 'inicio' })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se ha podido subir la imagen')
+    } finally {
+      setSubiendo(false)
+    }
+  }
+
   return (
     <div ref={raiz} className="tc-editor" onClick={(e) => {
       // Pulsar en el hueco de debajo del último bloque pone el cursor al final, o crea un párrafo si el último ya tiene algo
@@ -625,11 +702,13 @@ export function Editor({ bloques, onCambio, soloLectura = false }: PropsDeEditor
       )}
       <DndContext sensors={sensores} collisionDetection={closestCenter} onDragEnd={alArrastrar}>
         <SortableContext items={bloques.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-          {bloques.map((b, i) => (
-            <Fila key={b.id} bloque={b} numero={numeros[i]} soloLectura={soloLectura} puedeArrastrar={!hayAjenos} registrar={registrar} onTexto={alTexto} onTecla={alTecla} onPegar={alPegar} onEnfoque={alEnfocar} onMarcar={alMarcar} onCambio={alCambiarBloque} onMas={alMas} />
-          ))}
+          {bloques.map((b, i) => (ocultos.has(b.id) ? null : (
+            <Fila key={b.id} bloque={b} numero={numeros[i]} soloLectura={soloLectura} puedeArrastrar={!hayAjenos} registrar={registrar} onTexto={alTexto} onTecla={alTecla} onPegar={alPegar} onEnfoque={alEnfocar} onMarcar={alMarcar} onCambio={alCambiarBloque} onMas={alMas} colapsado={plegados.has(b.id)} onAlternar={alternarPlegado} onQuitar={alQuitar} />
+          )))}
         </SortableContext>
       </DndContext>
+      <input ref={entradaDeImagen} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" tabIndex={-1} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void subirImagen(f) }} />
+      {subiendo && <p className="my-1 text-[12px] text-[var(--ls-t3)]" role="status">Subiendo la imagen…</p>}
       {vacio && !soloLectura && (
         <button type="button" onClick={() => { const n = bloqueNuevo('parrafo'); aplicar([n], { id: n.id, posicion: 'inicio' }) }} className="tc-vacio">
           Escribe aquí… o pulsa «/» para elegir un bloque

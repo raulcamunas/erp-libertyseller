@@ -266,6 +266,12 @@ export function bloquesValidos(v: unknown): Bloque[] | null {
   for (const b of v as Array<Partial<Bloque>>) {
     if (!b || typeof b.id !== 'string' || !TIPOS_DE_BLOQUE.has(b.tipo as string) || !Array.isArray(b.texto)) return null
     for (const s of b.texto) if (typeof s?.t !== 'string') return null
+    if (b.tipo === 'tabla') {
+      // Una tabla: hasta 200 filas de 30 celdas, cada celda una lista de trozos de texto
+      const filas = b.filas
+      if (!Array.isArray(filas) || filas.length > 200 || filas.some((f) => !Array.isArray(f) || f.length > 30 || f.some((c) => !Array.isArray(c) || c.length > 200 || c.some((s) => typeof s?.t !== 'string' || s.t.length > 2000)))) return null
+    }
+    if (b.tipo === 'imagen' && b.url !== undefined && (typeof b.url !== 'string' || !/^https:\/\/[^\s"'()]+$/.test(b.url) || b.url.length > 2000)) return null
   }
   return v as Bloque[]
 }
@@ -577,6 +583,8 @@ export async function editarComentario(actor: Actor, id: string, cuerpoBruto: un
 /* ------------------------------------------------------------------ */
 
 export interface CambiosDeCliente {
+  /** El orden de las columnas (nombres de estado): se guarda dentro de `opciones` y solo vale en el ERP */
+  orden_columnas?: unknown
   nombre?: unknown
   icono?: unknown
   color?: unknown
@@ -625,6 +633,11 @@ export async function actualizarCliente(actor: Actor & { esAdmin: boolean }, id:
   if ('activo' in cambios) {
     if (!actor.esAdmin) throw new ErrorDeTareas('Solo un administrador puede activar o desactivar un cliente.', 403)
     l.activo = cambios.activo !== false
+  }
+  if ('orden_columnas' in cambios) {
+    const lista = Array.isArray(cambios.orden_columnas) ? [...new Set(cambios.orden_columnas.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, 80)).filter(Boolean))].slice(0, 40) : []
+    const { data: actual } = await createServiceClient().from('tc_clientes').select('opciones').eq('id', id).maybeSingle()
+    l.opciones = { ...((actual?.opciones as Record<string, unknown> | null) ?? {}), orden_columnas: lista }
   }
   if (Object.keys(l).length === 0) throw new ErrorDeTareas('No hay nada que cambiar.')
   const { data, error } = await createServiceClient().from('tc_clientes').update(l).eq('id', id).select('*').single()

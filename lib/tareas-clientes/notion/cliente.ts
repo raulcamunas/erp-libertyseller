@@ -192,7 +192,7 @@ export async function bloquesDe(id: string, profundidad = 4): Promise<import('..
   return lista
 }
 
-const SE_ABREN: ReadonlySet<string> = new Set(['paragraph', 'heading_1', 'heading_2', 'heading_3', 'bulleted_list_item', 'numbered_list_item', 'to_do', 'quote', 'callout'])
+const SE_ABREN: ReadonlySet<string> = new Set(['paragraph', 'heading_1', 'heading_2', 'heading_3', 'bulleted_list_item', 'numbered_list_item', 'to_do', 'quote', 'callout', 'toggle', 'table'])
 
 export const anadirBloques = (padreId: string, hijos: unknown[], despues?: string) =>
   notion<Lista<{ id: string }>>(`blocks/${padreId}/children`, { metodo: 'PATCH', cuerpo: { children: hijos, ...(despues ? { after: despues } : {}) } })

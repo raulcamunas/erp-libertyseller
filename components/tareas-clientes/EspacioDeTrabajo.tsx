@@ -1,14 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
 import { usePathname, useRouter } from 'next/navigation'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { colocar } from '@/lib/tareas-clientes/orden'
 import { filtrarTareas } from '@/lib/tareas-clientes/filtros'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
-import { departamentosDe, estadosDe, FILTROS_VACIOS, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
+import { departamentosDe, estadosDe, FILTROS_VACIOS, ordenarSegun, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
 import { ambitoDeRuta, mismoAmbito, type Ambito } from '@/lib/tareas-clientes/ambito'
 import { BASE, memoria, pedir, type DatosDeTodas, type Preferencias } from './api'
 import { BarraLateral, SelectorMovil } from './BarraLateral'
@@ -243,6 +242,23 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     [cliente]
   )
 
+  // Arrastrar una columna para cambiarla de sitio: se pinta ya y se guarda en el cliente (solo en el ERP: Notion no se entera)
+  const ordenarColumnas = useCallback(
+    async (nombres: string[]) => {
+      if (!cliente) return
+      const previo = cliente
+      setDatos((d) => (d ? { ...d, clientes: d.clientes.map((c) => (c.id === previo.id ? { ...c, opciones: { ...c.opciones, orden_columnas: nombres } } : c)) } : d))
+      try {
+        const { cliente: nuevo } = await pedir<{ cliente: ClienteTC }>(`${BASE}/clientes/${previo.id}`, { metodo: 'PATCH', cuerpo: { orden_columnas: nombres } })
+        setDatos((d) => (d ? { ...d, clientes: d.clientes.map((c) => (c.id === nuevo.id ? nuevo : c)) } : d))
+      } catch (e) {
+        setDatos((d) => (d ? { ...d, clientes: d.clientes.map((c) => (c.id === previo.id ? previo : c)) } : d))
+        toast.error(e instanceof Error ? e.message : 'No se ha podido guardar el orden de las columnas')
+      }
+    },
+    [cliente]
+  )
+
   const cambiarPreferencias = useCallback(async (cambios: Partial<Preferencias>) => {
     setDatos((d) => (d ? { ...d, preferencias: { ...(d.preferencias ?? { fondo: {}, portada: {}, favoritos: [] }), ...cambios } } : d))
     try {
@@ -267,13 +283,36 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     }
   }, [])
 
+  // Cerrar el panel: primero sale (0,24 s) y luego se quita; quien pide menos movimiento lo ve cerrarse al instante
+  const [saliendo, setSaliendo] = useState(false)
+  const temporizadorDeSalida = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cerrarPanel = useCallback(() => {
+    if (!abierta || temporizadorDeSalida.current) return
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      abrir(null)
+      return
+    }
+    setSaliendo(true)
+    temporizadorDeSalida.current = setTimeout(() => {
+      temporizadorDeSalida.current = null
+      setSaliendo(false)
+      abrir(null)
+    }, 240)
+  }, [abierta, abrir])
+  useEffect(
+    () => () => {
+      if (temporizadorDeSalida.current) clearTimeout(temporizadorDeSalida.current)
+    },
+    []
+  )
+
   useEffect(() => {
     const alPulsar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && abierta && !(e.target as HTMLElement | null)?.closest?.('[role="dialog"], [data-radix-popper-content-wrapper], .tc-editable')) abrir(null)
+      if (e.key === 'Escape' && abierta && !(e.target as HTMLElement | null)?.closest?.('[role="dialog"], [data-radix-popper-content-wrapper], .tc-editable, .tc-modal')) cerrarPanel()
     }
     window.addEventListener('keydown', alPulsar)
     return () => window.removeEventListener('keydown', alPulsar)
-  }, [abierta, abrir])
+  }, [abierta, cerrarPanel])
 
   // Cambiar de ámbito es instantáneo: se cambia el filtro y la dirección (con pushState, que Next sigue en `usePathname`) sin pasar por el servidor. Lo que no es un espacio
   // de trabajo (el inicio) sí es otra página y se abre con el router
@@ -359,31 +398,34 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   const titulo = cliente?.nombre ?? (ambito.tipo === 'mias' ? 'Mis tareas' : 'Todas las tareas')
   const abiertaLigera = abierta ? (datos.tareas.find((t) => t.id === abierta) ?? null) : null
   const clienteDeLaAbierta = abiertaLigera ? (mapa.get(abiertaLigera.cliente_id) ?? null) : null
-  const panelAbierto = Boolean(abierta)
 
+  // LA TAREA ABIERTA es una hoja flotante por encima del tablero (como el «vistazo lateral» de Notion): no estrecha lo de debajo, entra y sale con movimiento, y pulsar fuera la cierra
   const panel = abierta && (
-    <aside className="tc-panel" aria-label="Tarea" data-abierto="true">
-      <PanelDeTarea
-        key={abierta}
-        tareaId={abierta}
-        inicial={abiertaLigera}
-        cliente={clienteDeLaAbierta}
-        personas={personas}
-        miId={miId}
-        esAdmin={esAdmin}
-        onCerrar={() => abrir(null)}
-        onCambio={aplicarFila}
-        onArchivada={(id) => {
-          setDatos((d) => (d ? { ...d, tareas: d.tareas.filter((t) => t.id !== id) } : d))
-          abrir(null)
-          toast.success('Tarea archivada')
-        }}
-      />
-    </aside>
+    <div className="tc-panel-capa" data-saliendo={saliendo ? 'true' : undefined}>
+      <div className="tc-panel-fondo" onClick={cerrarPanel} aria-hidden />
+      <aside className="tc-panel" aria-label="Tarea">
+        <PanelDeTarea
+          key={abierta}
+          tareaId={abierta}
+          inicial={abiertaLigera}
+          cliente={clienteDeLaAbierta}
+          personas={personas}
+          miId={miId}
+          esAdmin={esAdmin}
+          onCerrar={cerrarPanel}
+          onCambio={aplicarFila}
+          onArchivada={(id) => {
+            setDatos((d) => (d ? { ...d, tareas: d.tareas.filter((t) => t.id !== id) } : d))
+            abrir(null)
+            toast.success('Tarea archivada')
+          }}
+        />
+      </aside>
+    </div>
   )
 
   return (
-    <div className="tc-zona" data-panel={panelAbierto ? 'true' : undefined} data-fondo={fondoNecesitaCortina(fondo) ? 'true' : undefined} style={{ '--tc-ambiente': cliente ? `var(--tc-${cliente.color || 'orange'})` : 'var(--ls-acc-graf)', ...(estiloDePortada(fondo, true) as CSSProperties | undefined) } as CSSProperties}>
+    <div className="tc-zona" data-fondo={fondoNecesitaCortina(fondo) ? 'true' : undefined} style={{ '--tc-ambiente': cliente ? `var(--tc-${cliente.color || 'orange'})` : 'var(--ls-acc-graf)', ...(estiloDePortada(fondo, true) as CSSProperties | undefined) } as CSSProperties}>
       <FondoAnimado valor={fondo} />
       <BarraLateral clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
 
@@ -417,7 +459,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
         />
 
         <div className="tc-vista" key={`${ambito.tipo}-${'id' in ambito ? ambito.id : ''}-${vista}`}>
-          {vista === 'tablero' && cliente && <Tablero estados={estadosDelAmbito} departamentos={departamentosDe(cliente)} tareas={visibles} personas={personas} tareaAbierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} onCrear={async (estado, t) => void (await crear(cliente.id, estado, t))} />}
+          {vista === 'tablero' && cliente && <Tablero estados={estadosDelAmbito} departamentos={departamentosDe(cliente)} tareas={visibles} personas={personas} tareaAbierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} onOrdenarColumnas={(n) => void ordenarColumnas(n)} onCrear={async (estado, t) => void (await crear(cliente.id, estado, t))} />}
           {vista === 'tablero' && !cliente && <TableroDeVarios clientes={datos.clientes} tareas={visibles} personas={personas} abierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} />}
           {vista === 'tabla' && <Tabla tareas={visibles} clientes={mapa} personas={personas} agruparPor={cliente ? filtros.agruparPor : filtros.agruparPor === 'estado' ? 'cliente' : filtros.agruparPor} mostrarCliente={!cliente} tareaAbierta={abierta} onAbrir={abrir} onCambiar={(id, c) => void cambiar(id, c)} onCrear={cliente ? async (clave, t) => void (await crear(cliente.id, filtros.agruparPor === 'estado' ? clave : null, t, filtros.agruparPor === 'departamento' && clave ? { departamento: clave } : {})) : undefined} />}
           {vista === 'cronograma' && <Cronograma tareas={visibles} clientes={mapa} tareaAbierta={abierta} onAbrir={abrir} />}
@@ -427,7 +469,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
 
       {gestorAbierto && cliente && <PlantillasGestor cliente={cliente} personas={personas} onCerrar={() => setGestorAbierto(false)} onCambio={setPlantillas} onCreada={(t) => { aplicarFila(t); setAbierta(t.id) }} />}
 
-      {panel && (typeof window !== 'undefined' && window.innerWidth < 1180 ? createPortal(<div className="tc-panel-flotante" onClick={(e) => e.target === e.currentTarget && abrir(null)}>{panel}</div>, document.body) : panel)}
+      {panel}
     </div>
   )
 }
@@ -447,5 +489,16 @@ function TableroDeVarios({ clientes, tareas, personas, abierta, onAbrir, onMover
     }
     return { estados: [...e.values()], departamentos: [...d.values()] }
   }, [clientes])
-  return <Tablero estados={estados} departamentos={departamentos} tareas={tareas} personas={personas} tareaAbierta={abierta} onAbrir={onAbrir} onMover={onMover} onCrear={() => { toast.message('Para crear una tarea, abre un cliente de la izquierda') }} />
+  // Con varios clientes no hay un orden «del cliente» que guardar: el que cada persona elige arrastrando se recuerda en su navegador
+  const [orden, setOrden] = useState<string[]>([])
+  useEffect(() => {
+    try {
+      const guardado = JSON.parse(leerLocal('tc-orden-columnas-global') ?? '[]')
+      if (Array.isArray(guardado)) setOrden(guardado.filter((x): x is string => typeof x === 'string'))
+    } catch {
+      /* sin orden guardado */
+    }
+  }, [])
+  const estadosEnOrden = useMemo(() => (orden.length > 0 ? ordenarSegun(estados, orden) : estados), [estados, orden])
+  return <Tablero estados={estadosEnOrden} departamentos={departamentos} tareas={tareas} personas={personas} tareaAbierta={abierta} onAbrir={onAbrir} onMover={onMover} clientes={clientes} onOrdenarColumnas={(n) => { setOrden(n); escribirLocal('tc-orden-columnas-global', JSON.stringify(n)) }} onCrear={() => { toast.message('Para crear una tarea, abre un cliente de la izquierda') }} />
 }
