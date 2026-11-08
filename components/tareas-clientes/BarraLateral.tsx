@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
-import { ChevronsLeft, ChevronsRight, Home, KanbanSquare, LayoutGrid, Search, Star, UserCheck } from 'lucide-react'
+import { ChevronsLeft, ChevronsRight, Home, KanbanSquare, LayoutGrid, Search, Star, Sun, UserCheck } from 'lucide-react'
 import { ETIQUETA_DE_GRUPO, estadosDe, type ClienteTC, type GrupoDeCliente } from '@/lib/tareas-clientes/tipos'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { colorValido } from '@/lib/tareas-clientes/colores'
@@ -30,10 +30,11 @@ export function SelectorMovil({ clientes, ambito, onNavegar }: { clientes: reado
         value={valor}
         onChange={(e) => {
           const v = e.target.value
-          onNavegar(v === 'inicio' ? '/dashboard/tareas-clientes' : v === 'todas' ? '/dashboard/tareas-clientes/todas' : v === 'mias' ? '/dashboard/tareas-clientes/mis-tareas' : `/dashboard/tareas-clientes/${v}`)
+          onNavegar(v === 'inicio' ? '/dashboard/tareas-clientes' : v === 'todas' ? '/dashboard/tareas-clientes/todas' : v === 'mias' ? '/dashboard/tareas-clientes/mis-tareas' : v === 'dia' ? '/dashboard/tareas-clientes/mi-dia' : `/dashboard/tareas-clientes/${v}`)
         }}
       >
         <option value="inicio">🏠 Inicio</option>
+        <option value="dia">☀ Mi día</option>
         <option value="todas">▦ Todas las tareas</option>
         <option value="mias">✓ Mis tareas</option>
         {ORDEN_DE_GRUPOS.map((g) => {
@@ -150,6 +151,7 @@ export function BarraLateral({
           <span className="tc-lat-icono"><Home className="h-3.5 w-3.5" /></span>
           {!colapsada && <span className="flex-1 truncate">Inicio</span>}
         </Link>
+        <Item activo={ambito.tipo === 'dia'} icono={<Sun className="h-3.5 w-3.5" />} nombre="Mi día" ruta="/dashboard/tareas-clientes/mi-dia" />
         <Item activo={ambito.tipo === 'todas'} icono={<LayoutGrid className="h-3.5 w-3.5" />} nombre="Todas las tareas" ruta="/dashboard/tareas-clientes/todas" />
         <Item activo={ambito.tipo === 'mias'} icono={<UserCheck className="h-3.5 w-3.5" />} nombre="Mis tareas" cifra={cifras.mias} ruta="/dashboard/tareas-clientes/mis-tareas" />
 

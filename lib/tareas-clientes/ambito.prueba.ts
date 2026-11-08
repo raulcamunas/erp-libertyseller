@@ -10,6 +10,7 @@ const igual = (n: string, a: unknown, b: unknown) => {
 }
 
 const ID = '8a1f0c3e-0000-4000-8000-000000000001'
+igual('mi día', [ambitoDeRuta('/dashboard/tareas-clientes/mi-dia'), rutaDeAmbito({ tipo: 'dia' })], [{ tipo: 'dia' }, '/dashboard/tareas-clientes/mi-dia'])
 igual('un cliente', ambitoDeRuta(`/dashboard/tareas-clientes/${ID}`), { tipo: 'cliente', id: ID })
 igual('un cliente con ?tarea=', ambitoDeRuta(`/dashboard/tareas-clientes/${ID}?tarea=x`), { tipo: 'cliente', id: ID })
 igual('un cliente con barra final', ambitoDeRuta(`/dashboard/tareas-clientes/${ID}/`), { tipo: 'cliente', id: ID })

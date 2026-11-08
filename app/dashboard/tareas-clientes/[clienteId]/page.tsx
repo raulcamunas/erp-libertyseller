@@ -6,7 +6,7 @@ import type { Ambito } from '@/lib/tareas-clientes/ambito'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * EL ESPACIO DE TRABAJO: `/dashboard/tareas-clientes/<id del cliente>`, `/todas` o `/mis-tareas`. Con `?tarea=<id>` se abre esa tarea a la derecha (así llevan hasta ella
+ * EL ESPACIO DE TRABAJO: `/dashboard/tareas-clientes/<id del cliente>`, `/todas`, `/mis-tareas` o `/mi-dia`. Con `?tarea=<id>` se abre esa tarea a la derecha (así llevan hasta ella
  * los avisos de la campana).
  */
 export default async function EspacioPage({ params, searchParams }: { params: { clienteId: string }; searchParams: { tarea?: string } }) {
@@ -16,6 +16,7 @@ export default async function EspacioPage({ params, searchParams }: { params: { 
   let ambito: Ambito
   if (params.clienteId === 'todas') ambito = { tipo: 'todas' }
   else if (params.clienteId === 'mis-tareas') ambito = { tipo: 'mias' }
+  else if (params.clienteId === 'mi-dia') ambito = { tipo: 'dia' }
   else if (UUID.test(params.clienteId)) ambito = { tipo: 'cliente', id: params.clienteId.toLowerCase() }
   else notFound()
 

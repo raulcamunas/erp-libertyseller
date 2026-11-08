@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { AlertTriangle, Bot, CheckCircle2, CloudOff, Flame, ImageIcon, LayoutGrid, Loader2, Palette, RefreshCw, ShieldCheck, Star, UserCheck } from 'lucide-react'
+import { AlertTriangle, Bot, CheckCircle2, Sun, CloudOff, Flame, ImageIcon, LayoutGrid, Loader2, Palette, RefreshCw, ShieldCheck, Star, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import type { EstadisticasDeCliente } from '@/lib/tareas-clientes/servidor'
 import { ETIQUETA_DE_GRUPO, type ClienteTC, type GrupoDeCliente, type Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
@@ -138,7 +138,8 @@ export function Inicio({ esAdmin }: { esAdmin: boolean }) {
         </div>
       </section>
 
-      <div className={`mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 ${esAdmin ? 'xl:grid-cols-4' : ''}`}>
+      <div className={`mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 ${esAdmin ? 'xl:grid-cols-5' : 'xl:grid-cols-3'}`}>
+        <Atajo icono={<Sun className="h-4 w-4" />} titulo="Mi día" detalle="Tu briefing, tus tareas, comentarios y calendario" onClick={() => router.push('/dashboard/tareas-clientes/mi-dia')} color="orange" />
         <Atajo icono={<LayoutGrid className="h-4 w-4" />} titulo="Todas las tareas" detalle={`${totales.abiertas} por hacer en ${datos.clientes.length} clientes`} onClick={() => router.push('/dashboard/tareas-clientes/todas')} color="blue" />
         <Atajo icono={<UserCheck className="h-4 w-4" />} titulo="Mis tareas" detalle={datos.mias.abiertas === 0 ? 'Nada pendiente' : `${datos.mias.abiertas} por hacer${datos.mias.vencidas > 0 ? ` · ${datos.mias.vencidas} vencidas` : ''}`} onClick={() => router.push('/dashboard/tareas-clientes/mis-tareas')} color="green" alerta={datos.mias.vencidas > 0} />
         {esAdmin && <Atajo icono={<ShieldCheck className="h-4 w-4" />} titulo="Quién ve qué" detalle="Limitar a cada persona a unos clientes" onClick={() => setAccesosAbierto(true)} color="purple" />}

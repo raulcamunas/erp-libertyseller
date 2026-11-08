@@ -20,6 +20,7 @@ import { Cabecera } from './Cabecera'
 import { CompartirConElCliente } from './CompartirConElCliente'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
+import { MiDia } from './MiDia'
 import { BloqueadasContexto } from './contexto'
 import { PanelDeTarea } from './PanelDeTarea'
 import { PlantillasGestor } from './PlantillasGestor'
@@ -492,7 +493,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     )
   }
 
-  const titulo = cliente?.nombre ?? (ambito.tipo === 'mias' ? 'Mis tareas' : 'Todas las tareas')
+  const titulo = cliente?.nombre ?? (ambito.tipo === 'mias' ? 'Mis tareas' : ambito.tipo === 'dia' ? 'Mi día' : 'Todas las tareas')
   const abiertaLigera = abierta ? (datos.tareas.find((t) => t.id === abierta) ?? null) : null
   const clienteDeLaAbierta = abiertaLigera ? (mapa.get(abiertaLigera.cliente_id) ?? null) : null
 
@@ -531,6 +532,12 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
 
       <section className="tc-centro" ref={setCentro}>
         <div className="tc-movil-barra"><SelectorMovil clientes={datos.clientes} ambito={ambito} onNavegar={navegar} /><button type="button" onClick={() => setBuscadorAbierto(true)} aria-label="Buscar en todo" className="tc-movil-buscar"><Search className="h-4 w-4" /></button></div>
+        {ambito.tipo === 'dia' ? (
+          <div className="tc-vista" key="mi-dia">
+            <MiDia miId={miId} esAdmin={esAdmin} personas={personas} tareas={datos.tareas} clientes={datos.clientes} mapa={mapa} abierta={abierta} onAbrir={abrir} onCambiar={(id, c) => void cambiar(id, c)} />
+          </div>
+        ) : (
+          <>
         <Cabecera
           titulo={titulo}
           icono={cliente?.icono ?? (ambito.tipo === 'mias' ? '🎯' : '🗂️')}
@@ -567,6 +574,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           {vista === 'cronograma' && <Cronograma tareas={visibles} clientes={mapa} tareaAbierta={abierta} onAbrir={abrir} />}
           {vista === 'calendario' && <Calendario tareas={visibles} clientes={mapa} tareaAbierta={abierta} onAbrir={abrir} onCambiar={(id, c) => void cambiar(id, c)} />}
         </div>
+          </>
+        )}
       </section>
 
       {seleccion.size > 0 && (
