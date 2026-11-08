@@ -23,7 +23,8 @@ const TIPOS_DE_TAREAS = new Set(['comment', 'mention', 'task_assigned', 'task_up
 /** ¿Es un aviso del módulo de tareas de clientes? */
 export function esAvisoDeTareas(a: Pick<AvisoParaPush, 'type' | 'datos'>): boolean {
   const d = a.datos as { app?: string } | null | undefined
-  return d?.app === 'tareas-clientes' || TIPOS_DE_TAREAS.has(a.type)
+  // Los mensajes del chat (directos y menciones) cuentan como trabajo: llegan a quien eligió «solo tareas»
+  return d?.app === 'tareas-clientes' || d?.app === 'chat' || TIPOS_DE_TAREAS.has(a.type)
 }
 
 /** ¿Le llega a quien eligió esta categoría? «tareas» = solo lo de tareas de clientes; «todo» = todo lo que sale en la campana */
@@ -36,6 +37,10 @@ export function urlDeAviso(a: Pick<AvisoParaPush, 'type' | 'datos' | 'related_cl
   if (a.type === 'freno_stock' || a.type === 'fallo_stock') return '/dashboard/amazon-api'
   if (a.type === 'alarma_correo' || a.type === 'correo_nuevo' || a.type === 'respuesta_lead') return '/dashboard/correo'
   if (a.type === 'fba_alerta' || a.type === 'fba_resumen') return '/dashboard/remesas/alertas'
+  if ((d as { app?: string; canalId?: string } | null)?.app === 'chat') {
+    const canalId = (d as { canalId?: string }).canalId
+    return typeof canalId === 'string' && /^[0-9a-f-]{36}$/i.test(canalId) ? `/dashboard/chat?canal=${canalId}` : '/dashboard/chat'
+  }
   if (d?.app === 'tareas-clientes' && d.clienteId && /^[0-9a-f-]{36}$/i.test(d.clienteId)) {
     return `/dashboard/tareas-clientes/${d.clienteId}${d.tareaId && /^[0-9a-f-]{36}$/i.test(d.tareaId) ? `?tarea=${d.tareaId}` : ''}`
   }

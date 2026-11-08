@@ -16,6 +16,9 @@ const n = (type: string, datos: unknown = null, extra: object = {}) => ({ type, 
 
 igual('una tarea abre su tablero con la tarea', urlDeAviso(n('task_assigned', { app: 'tareas-clientes', clienteId: C, tareaId: T })), `/dashboard/tareas-clientes/${C}?tarea=${T}`)
 igual('sin tarea, el cliente', urlDeAviso(n('task_updated', { app: 'tareas-clientes', clienteId: C })), `/dashboard/tareas-clientes/${C}`)
+igual('un mensaje del chat abre su canal', urlDeAviso(n('comment', { app: 'chat', canalId: C })), `/dashboard/chat?canal=${C}`)
+igual('un chat sin canal válido abre el chat', urlDeAviso(n('mention', { app: 'chat', canalId: 'x' })), '/dashboard/chat')
+igual('el chat llega a quien eligió «solo tareas»', leToca('tareas', n('comment', { app: 'chat', canalId: C })), true)
 igual('un id raro no se mete en la dirección', urlDeAviso(n('task_updated', { app: 'tareas-clientes', clienteId: '../x', tareaId: T })), '/dashboard/tareas-clientes/mi-dia')
 igual('el resto de tipos como la campana', [urlDeAviso(n('web_lead')), urlDeAviso(n('freno_stock')), urlDeAviso(n('alarma_correo')), urlDeAviso(n('fba_alerta')), urlDeAviso(n('otro'))], ['/dashboard/web-leads', '/dashboard/amazon-api', '/dashboard/correo', '/dashboard/remesas/alertas', '/dashboard'])
 igual('con cliente de CRM', urlDeAviso(n('otro', null, { related_client_id: 'abc' })), '/dashboard/clients/abc')

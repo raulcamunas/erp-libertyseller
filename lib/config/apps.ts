@@ -1,4 +1,5 @@
 import {
+  MessagesSquare,
   Boxes,
   Home,
   Users,
@@ -121,6 +122,18 @@ export const apps: AppConfig[] = [
     description: 'El tablero de tareas de cada cliente, conectado con Notion: arrastrar, comentar y asignar',
     icon: KanbanSquare,
     route: '/dashboard/tareas-clientes',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // EL CHAT DEL EQUIPO: canales, chats privados y mensajes directos dentro del ERP (y, después, juntas con pantalla compartida). Lo ve un administrador y quien tenga esta casilla en
+    // Gestión de Usuarios. Las tablas chat_* están cerradas al navegador: todo pasa por /api/chat, que comprueba quién es miembro de qué (migración 284). El id va LETRA POR LETRA
+    // igual que en la función SQL `puede_ver_chat` y en lib/chat/acceso.ts.
+    id: 'chat',
+    name: 'Chat',
+    description: 'Canales, chats privados y mensajes directos del equipo, sin salir del ERP',
+    icon: MessagesSquare,
+    route: '/dashboard/chat',
     status: 'new',
     category: 'core'
   },
@@ -598,6 +611,8 @@ export const APP_GROWTH = 'growth'
 export const PERMISO_STOCK_SYNC = 'stock-sync'
 /** El id de Tareas de clientes, escrito UNA vez: lo usan la entrada de `apps`, las rutas y la página */
 export const APP_TAREAS_CLIENTES = 'tareas-clientes'
+/** El id del Chat del equipo, escrito UNA vez: lo usan la entrada de `apps`, el grupo del menú, el acceso (lib/chat/acceso.ts) y la función SQL `puede_ver_chat` (migración 284) */
+export const APP_CHAT = 'chat'
 /** El id del CRM de clientes, escrito UNA vez: lo usan la entrada de `apps`, el filtro del menú, el de la rejilla de Inicio y APPS_SIN_EFECTO */
 export const APP_CRM = 'crm'
 
@@ -842,9 +857,9 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
   {
     id: 'herramientas-agencia',
     name: 'Herramientas Agencia',
-    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API e informes de marketing',
+    description: 'Chat del equipo, teléfonos, remesas a FBA, Growth Partner, Amazon API e informes de marketing',
     icon: Wrench,
-    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads'],
+    apps: ['chat', 'telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads'],
     despuesDe: 'correo',
   },
   {

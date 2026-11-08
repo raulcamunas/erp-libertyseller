@@ -13,6 +13,8 @@ ok('el espacio de un cliente', esRutaInmersiva('/dashboard/tareas-clientes/8a1f0
 ok('todas las tareas', esRutaInmersiva('/dashboard/tareas-clientes/todas'))
 ok('otra aplicación no', !esRutaInmersiva('/dashboard/agenda'))
 ok('el inicio del ERP no', !esRutaInmersiva('/dashboard'))
+ok('el chat también', esRutaInmersiva('/dashboard/chat') && esRutaInmersiva('/dashboard/chat?canal=x'.split('?')[0]))
+ok('un nombre parecido al del chat no', !esRutaInmersiva('/dashboard/chatbot'))
 ok('un nombre parecido no', !esRutaInmersiva('/dashboard/tareas-clientes-viejo'))
 ok('sin ruta no', !esRutaInmersiva(null) && !esRutaInmersiva(undefined) && !esRutaInmersiva(''))
 

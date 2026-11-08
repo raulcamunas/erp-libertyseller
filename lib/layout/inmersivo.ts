@@ -6,7 +6,7 @@
  */
 
 /** Lo que cuelga de estas rutas se abre a pantalla completa */
-const RUTAS_INMERSIVAS: readonly string[] = ['/dashboard/tareas-clientes']
+const RUTAS_INMERSIVAS: readonly string[] = ['/dashboard/tareas-clientes', '/dashboard/chat']
 
 /** Aviso (en `window`) que pide abrir el menú del ERP; lo escucha AppSidebar */
 export const EVENTO_ABRIR_MENU = 'ls:abrir-menu'

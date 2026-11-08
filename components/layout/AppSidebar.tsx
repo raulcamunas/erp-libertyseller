@@ -562,7 +562,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
           </div>
 
           {puedeVerTareas && (
-            <Link href="/dashboard/tareas-clientes" className="lat-app" data-activa={inmersivo ? 'true' : undefined} aria-current={inmersivo ? 'page' : undefined} title={isCollapsed ? 'Tareas Clientes' : undefined} onClick={() => setIsMobileOpen(false)}>
+            <Link href="/dashboard/tareas-clientes" className="lat-app" data-activa={inmersivo && !pathname?.startsWith('/dashboard/chat') ? 'true' : undefined} aria-current={inmersivo && !pathname?.startsWith('/dashboard/chat') ? 'page' : undefined} title={isCollapsed ? 'Tareas Clientes' : undefined} onClick={() => setIsMobileOpen(false)}>
               <span className="lat-icono">
                 <KanbanSquare className="lat-icono-svg" aria-hidden />
               </span>
