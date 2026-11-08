@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { AlertTriangle, CheckCircle2, CloudOff, Flame, ImageIcon, LayoutGrid, Loader2, Palette, RefreshCw, ShieldCheck, Star, UserCheck } from 'lucide-react'
+import { AlertTriangle, Bot, CheckCircle2, CloudOff, Flame, ImageIcon, LayoutGrid, Loader2, Palette, RefreshCw, ShieldCheck, Star, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import type { EstadisticasDeCliente } from '@/lib/tareas-clientes/servidor'
 import { ETIQUETA_DE_GRUPO, type ClienteTC, type GrupoDeCliente, type Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
@@ -13,6 +13,7 @@ import { saludoDe } from '@/lib/inicio/saludo'
 import { BASE, pedir, type DatosDeInicio, type Preferencias } from './api'
 import { FondoAnimado, SelectorDePortada, estiloDePortada, fondoNecesitaCortina } from './Portada'
 import { AccesosDeClientes } from './AccesosDeClientes'
+import { TareasAutomaticas } from './TareasAutomaticas'
 import { PilaDeAvatares } from './ui'
 
 /**
@@ -40,6 +41,7 @@ export function Inicio({ esAdmin }: { esAdmin: boolean }) {
   const [notion, setNotion] = useState<EstadoDeNotion | null>(null)
   const [sincronizando, setSincronizando] = useState(false)
   const [accesosAbierto, setAccesosAbierto] = useState(false)
+  const [automaticasAbierto, setAutomaticasAbierto] = useState(false)
 
   const cargar = useCallback(async () => {
     try {
@@ -136,12 +138,14 @@ export function Inicio({ esAdmin }: { esAdmin: boolean }) {
         </div>
       </section>
 
-      <div className={`mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 ${esAdmin ? 'xl:grid-cols-3' : ''}`}>
+      <div className={`mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 ${esAdmin ? 'xl:grid-cols-4' : ''}`}>
         <Atajo icono={<LayoutGrid className="h-4 w-4" />} titulo="Todas las tareas" detalle={`${totales.abiertas} por hacer en ${datos.clientes.length} clientes`} onClick={() => router.push('/dashboard/tareas-clientes/todas')} color="blue" />
         <Atajo icono={<UserCheck className="h-4 w-4" />} titulo="Mis tareas" detalle={datos.mias.abiertas === 0 ? 'Nada pendiente' : `${datos.mias.abiertas} por hacer${datos.mias.vencidas > 0 ? ` · ${datos.mias.vencidas} vencidas` : ''}`} onClick={() => router.push('/dashboard/tareas-clientes/mis-tareas')} color="green" alerta={datos.mias.vencidas > 0} />
         {esAdmin && <Atajo icono={<ShieldCheck className="h-4 w-4" />} titulo="Quién ve qué" detalle="Limitar a cada persona a unos clientes" onClick={() => setAccesosAbierto(true)} color="purple" />}
+        {esAdmin && <Atajo icono={<Bot className="h-4 w-4" />} titulo="Tareas automáticas" detalle="Que el ERP abra tareas con las alertas de FBA y los listings suprimidos" onClick={() => setAutomaticasAbierto(true)} color="blue" />}
       </div>
       {accesosAbierto && <AccesosDeClientes onCerrar={() => setAccesosAbierto(false)} />}
+      {automaticasAbierto && <TareasAutomaticas personas={datos.personas} onCerrar={() => setAutomaticasAbierto(false)} />}
 
       {esAdmin && notion?.permitido && <EstadoDeNotionPanel notion={notion} sincronizando={sincronizando} onSincronizar={() => void sincronizar()} />}
 

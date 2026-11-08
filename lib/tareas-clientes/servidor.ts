@@ -408,6 +408,8 @@ function limpiarCambios(cambios: CambiosDeTarea, personas: ReadonlySet<string>):
 
 export interface EntradaDeTarea extends CambiosDeTarea {
   clienteId: string
+  /** La clave de una tarea que crea el propio ERP (automaticas.ts): única por cliente, y lo que impide crear dos veces lo mismo */
+  origenRef?: string
 }
 
 export async function crearTarea(actor: Actor, entrada: EntradaDeTarea): Promise<TareaLigera> {
@@ -427,7 +429,7 @@ export async function crearTarea(actor: Actor, entrada: EntradaDeTarea): Promise
   const { data, error } = await conLigeras((c) =>
     service
       .from('tc_tareas')
-      .insert({ titulo: '', ...limpio, estado, cliente_id: entrada.clienteId, orden, origen: 'erp', creado_por: actor.userId || null, actualizado_por: actor.userId || null, sync_estado: conNotion ? 'pendiente' : 'solo_erp' })
+      .insert({ titulo: '', ...limpio, estado, cliente_id: entrada.clienteId, orden, origen: 'erp', ...(entrada.origenRef ? { origen_ref: entrada.origenRef } : {}), creado_por: actor.userId || null, actualizado_por: actor.userId || null, sync_estado: conNotion ? 'pendiente' : 'solo_erp' })
       .select(c)
       .single()
   )

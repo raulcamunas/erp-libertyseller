@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { sincronizarTodo } from '@/lib/tareas-clientes/notion/sync'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
+import { generarAutomaticas } from '@/lib/tareas-clientes/automaticas-servidor'
 import { ejecutarRecurrencias } from '@/lib/tareas-clientes/plantillas'
 
 export const dynamic = 'force-dynamic'
@@ -24,7 +25,9 @@ export async function POST(request: NextRequest) {
     // Las tareas que se repiten sin que nadie tenga el ERP abierto: se crean aquí
     const repetidas = await ejecutarRecurrencias().catch(() => ({ creadas: 0, fallidas: 0 }))
     const r = await sincronizarTodo({ presupuestoMs: 50_000 })
-    return { ...r, repetidas }
+    // Las tareas que abre el propio ERP (alertas de FBA, listings suprimidos): solo si un administrador encendió alguna fuente, y como mucho una vez cada 50 minutos
+    const automaticas = await generarAutomaticas().catch(() => null)
+    return { ...r, repetidas, automaticas }
   })
   return NextResponse.json(salida)
 }
