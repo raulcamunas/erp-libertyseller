@@ -351,6 +351,21 @@ export const TAREAS_CRON = [
       'devuelve a Fase 1 a los de «No responde» a los 60 días. Solo escribe en el lead; no lee secuencias ni llamadas.',
   },
   {
+    /**
+     * CADA DOS MINUTOS. LA RED DE SEGURIDAD DEL WEBHOOK DE NOTION.
+     *
+     * El webhook de Notion llevaba activo sin recibir un solo evento (8 nov 2026), así que lo que se edita en Notion llega al ERP por esta pasada: manda lo pendiente del ERP, trae lo que cambió en
+     * Notion desde la última vez y crea las tareas que se repiten. Una pasada que encuentra otra en marcha se salta sola (el turno de notion/sync.ts). Ligera: pregunta a Notion solo por lo editado
+     * desde la última lectura de cada cliente.
+     */
+    id: 'tareas-notion',
+    nombre: 'Tareas de clientes con Notion',
+    ruta: '/api/tareas-clientes/notion/cron',
+    cadaMinutos: 2,
+    que:
+      'Envía a Notion lo que se ha cambiado en el ERP, trae lo que se ha editado en Notion y crea las tareas que se repiten (plantillas recurrentes), sin que nadie tenga el ERP abierto.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
@@ -398,6 +413,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'ubicacion-leads': { prioridad: 'baja', ayunoMaxMin: 60 },
   'ciclo-leads': { prioridad: 'normal' },
   calendario: { prioridad: 'esencial' },
+  'tareas-notion': { prioridad: 'normal' },
 }
 
 const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true
