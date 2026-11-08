@@ -95,9 +95,14 @@ const nextConfig = {
              * verdad en components/agenda/AudioRecordingField.tsx. Poniendo
              * `microphone=()` esa grabación DEJARÍA DE FUNCIONAR, que es
              * justo lo que no puede pasar.
+             *
+             * `camera=(self)` y `display-capture=(self)` (8 nov 2026): las juntas
+             * del chat (components/chat/Junta*.tsx) usan la cámara y la pantalla
+             * compartida. Siguen cerrados a cualquier iframe de fuera: solo el
+             * propio ERP los puede pedir, y el navegador pregunta cada vez.
              */
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(self), geolocation=(), payment=()',
+            value: 'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
           },
           {
             /**

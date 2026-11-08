@@ -59,6 +59,11 @@ interface ContextoDeChat {
   /** El directo está funcionando (si no, la pantalla se relee sola) */
   enVivo: boolean
   recargar: () => void
+  /** Alguien ha abierto una junta en un canal mío (y no soy yo): suena si es un directo */
+  llamadaEntrante: { canalId: string; de: string; en: number } | null
+  descartarLlamada: () => void
+  /** Sube cada vez que llega el aviso de una junta nueva: la pantalla de juntas relee las que hay abiertas */
+  versionDeJuntas: number
 }
 
 const Contexto = createContext<ContextoDeChat | null>(null)
@@ -100,6 +105,8 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   const [conectados, setConectados] = useState<ReadonlySet<string>>(new Set())
   const [escribiendoPor, setEscribiendoPor] = useState<Record<string, Record<string, number>>>({})
   const [enVivo, setEnVivo] = useState(false)
+  const [llamadaEntrante, setLlamadaEntrante] = useState<{ canalId: string; de: string; en: number } | null>(null)
+  const [versionDeJuntas, setVersionDeJuntas] = useState(0)
 
   // Lo último, siempre a mano para los avisos del directo (que llegan con el estado de cuando se abrió el canal)
   const canalesRef = useRef<CanalChat[]>([])
@@ -235,7 +242,11 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   const aplicarEvento = useCallback(
     (e: EventoDeChat) => {
       if (e.tipo === 'canales') return refrescarEnBreve()
-      if (e.tipo === 'junta') return
+      if (e.tipo === 'junta') {
+        setVersionDeJuntas((v) => v + 1)
+        if (e.de !== yoRef.current) setLlamadaEntrante({ canalId: e.canalId, de: e.de, en: Date.now() })
+        return
+      }
       const reemplazar = (lista: MensajeChat[], id: number, f: (m: MensajeChat) => MensajeChat) => lista.map((m) => (m.id === id ? f(m) : m))
       if (e.tipo === 'editado') {
         cambiarEstado(e.mensaje.canal_id, (x) => ({ ...x, mensajes: reemplazar(x.mensajes, e.mensaje.id, (m) => ({ ...e.mensaje, respuestas: m.respuestas })) }))
@@ -525,8 +536,11 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
       avisarQueEscribo,
       enVivo,
       recargar: () => void cargarInicio(),
+      llamadaEntrante,
+      descartarLlamada: () => setLlamadaEntrante(null),
+      versionDeJuntas,
     }),
-    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio]
+    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>

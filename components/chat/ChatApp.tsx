@@ -4,6 +4,9 @@ import { useEffect } from 'react'
 import { totalSinLeer } from '@/lib/chat/canales'
 import { BarraDeChat } from './BarraDeChat'
 import { ChatProvider, useChat } from './ChatProvider'
+import { JuntaProvider } from './JuntaProvider'
+import { LlamadaEntrante } from './LlamadaEntrante'
+import { PanelDeJunta } from './PanelDeJunta'
 import { PanelDeHilo } from './PanelDeHilo'
 import { VistaDeCanal } from './VistaDeCanal'
 
@@ -24,6 +27,8 @@ function Marco() {
       <BarraDeChat />
       <VistaDeCanal />
       <PanelDeHilo />
+      <PanelDeJunta />
+      <LlamadaEntrante />
     </div>
   )
 }
@@ -31,7 +36,9 @@ function Marco() {
 export function ChatApp({ canalInicial }: { canalInicial?: string | null }) {
   return (
     <ChatProvider canalInicial={canalInicial}>
-      <Marco />
+      <JuntaProvider>
+        <Marco />
+      </JuntaProvider>
     </ChatProvider>
   )
 }

@@ -61,4 +61,5 @@ export type EventoDeChat =
   | { tipo: 'reaccion'; canalId: string; id: number; reacciones: Record<string, string[]> }
   /** Cambió algo del canal o de quién está en él: la pantalla relee la lista */
   | { tipo: 'canales' }
-  | { tipo: 'junta'; canalId: string; de: string; sala: string }
+  /** Alguien ha abierto una junta en este canal */
+  | { tipo: 'junta'; canalId: string; de: string; sala: string; estado: 'llama' }

@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, Bell, BellOff, Hash, LogOut, Lock, MessageCircle, Settings2, Users } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Bell, BellOff, Hash, Headphones, LogOut, Lock, MessageCircle, Phone, Settings2, Users, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { filasDeMensajes } from '@/lib/chat/agrupar'
 import { nombreVisible } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
 import { useChat } from './ChatProvider'
 import { DialogoMiembros } from './Dialogos'
+import { useJunta } from './JuntaProvider'
 import { MensajeVista } from './MensajeVista'
 import { Redactor } from './Redactor'
 
@@ -39,6 +40,7 @@ export function VistaDeCanal() {
 
 function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, avisarQueEscribo, unirse, silenciar, salir, nombreDe, conectados, seleccionar } = useChat()
+  const { disponible: juntasDisponibles, activas, actual: juntaActual, entrar: entrarEnJunta } = useJunta()
   const [miembrosAbierto, setMiembrosAbierto] = useState(false)
   const [pegado, setPegado] = useState(true)
   const lista = useRef<HTMLDivElement>(null)
@@ -113,6 +115,12 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
           {canal.descripcion && <span className="chat-descripcion" title={canal.descripcion}>{canal.descripcion}</span>}
         </div>
         <div className="chat-cabecera-acciones">
+          {canal.soy_miembro && juntasDisponibles && !(juntaActual?.canalId === canal.id) && (
+            <button type="button" className="chat-icono chat-llamar" onClick={() => hacer(() => entrarEnJunta(canal.id))} aria-label={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta'} title={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta de voz y vídeo'}>
+              {canal.tipo === 'directo' ? <Phone className="h-4 w-4" /> : <Video className="h-4 w-4" />}
+              <span>{canal.tipo === 'directo' ? 'Llamar' : 'Junta'}</span>
+            </button>
+          )}
           {canal.soy_miembro && (
             <button type="button" className="chat-icono" onClick={() => hacer(() => silenciar(canal.id, !canal.silenciado))} aria-label={canal.silenciado ? 'Quitar el silencio' : 'Silenciar'} title={canal.silenciado ? 'Silenciado: pulsa para recibir avisos' : 'Silenciar los avisos de este canal'}>
               {canal.silenciado ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
@@ -128,6 +136,16 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
           )}
         </div>
       </header>
+
+      {canal.soy_miembro && activas[canal.id] && juntaActual?.canalId !== canal.id && (
+        <div className="chat-junta-aviso" role="status">
+          <Headphones className="h-4 w-4 text-[var(--ls-e-verde)]" />
+          <span>
+            Junta en curso · <b>{activas[canal.id].personas.map((id) => nombreDe(id).split(' ')[0]).join(', ')}</b>
+          </span>
+          <button type="button" className="tc-boton-primario" onClick={() => hacer(() => entrarEnJunta(canal.id))}>Unirme</button>
+        </div>
+      )}
 
       <div className="chat-lista" ref={lista} onScroll={alDesplazar} role="log" aria-live="polite" aria-label={`Mensajes de ${nombre}`}>
         {e.cargando && e.mensajes.length > 0 && <p className="chat-cargando-arriba">Cargando mensajes anteriores…</p>}

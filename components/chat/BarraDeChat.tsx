@@ -1,12 +1,13 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ChevronDown, Hash, Lock, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import { ChevronDown, Hash, Headphones, Lock, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible, repartirCanales } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
 import { useChat } from './ChatProvider'
 import { DialogoNuevoCanal, DialogoNuevoDirecto } from './Dialogos'
+import { useJunta } from './JuntaProvider'
 
 const SIN_ACENTOS = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -103,11 +104,13 @@ export function BarraDeChat() {
 }
 
 function FilaDeCanal({ canal, activa, onClick, children }: { canal: CanalChat; activa: boolean; onClick: () => void; children: React.ReactNode }) {
+  const { activas } = useJunta()
   const sinLeer = canal.soy_miembro && !canal.silenciado && canal.no_leidos > 0
   const mencion = canal.soy_miembro && canal.menciones > 0
   return (
     <button type="button" className="chat-fila" data-activa={activa ? 'true' : undefined} data-sin-leer={sinLeer || mencion ? 'true' : undefined} data-silenciado={canal.silenciado ? 'true' : undefined} onClick={onClick} aria-current={activa ? 'true' : undefined}>
       {children}
+      {activas[canal.id] && <Headphones className="h-3.5 w-3.5 shrink-0 text-[var(--ls-e-verde)]" aria-label="Hay una junta en curso" />}
       {mencion ? <span className="chat-insignia" data-mencion="true" aria-label={`${canal.menciones} menciones`}>@{canal.menciones > 9 ? '9+' : canal.menciones}</span> : sinLeer ? <span className="chat-insignia" aria-label={`${canal.no_leidos} sin leer`}>{canal.no_leidos > 99 ? '99+' : canal.no_leidos}</span> : null}
     </button>
   )

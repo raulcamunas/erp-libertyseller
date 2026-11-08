@@ -36,6 +36,8 @@
     "html2canvas": "^1.4.1",
     "imapflow": "^2.0.6",
     "jspdf": "^2.5.2",
+    "livekit-client": "2.23.0",
+    "livekit-server-sdk": "2.19.2",
     "lucide-react": "^0.460.0",
     "mailparser": "^3.12.3",
     "nanoid": "^5.1.6",

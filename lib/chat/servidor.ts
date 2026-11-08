@@ -27,7 +27,7 @@ export interface QuienEscribe {
   esAdmin: boolean
 }
 
-interface FilaCanal {
+export interface FilaCanal {
   id: string
   tipo: TipoDeCanal
   nombre: string | null
@@ -53,7 +53,7 @@ interface FilaMensaje {
   creado_en: string
 }
 
-interface FilaMiembro {
+export interface FilaMiembro {
   usuario_id: string
   rol: 'admin' | 'miembro'
   silenciado: boolean
@@ -102,7 +102,7 @@ export async function personasDelChat(): Promise<PersonaChat[]> {
 /* Canales: acceso                                                     */
 /* ------------------------------------------------------------------ */
 
-async function canalDe(id: unknown): Promise<FilaCanal> {
+export async function canalDe(id: unknown): Promise<FilaCanal> {
   if (!esUuid(id)) throw new ErrorDeChat('Falta el canal.')
   const { data, error } = await db().from('chat_canales').select('*').eq('id', id).maybeSingle()
   if (error) fallo(error, 'leer el canal')
@@ -110,7 +110,7 @@ async function canalDe(id: unknown): Promise<FilaCanal> {
   return data as FilaCanal
 }
 
-async function miembrosDe(canalId: string): Promise<FilaMiembro[]> {
+export async function miembrosDe(canalId: string): Promise<FilaMiembro[]> {
   const { data, error } = await db().from('chat_miembros').select('usuario_id, rol, silenciado').eq('canal_id', canalId)
   if (error) fallo(error, 'leer los miembros')
   return (data ?? []) as FilaMiembro[]
@@ -123,7 +123,7 @@ async function exigirVer(quien: QuienEscribe, canal: FilaCanal): Promise<FilaMie
   return miembros
 }
 
-async function exigirMiembro(quien: QuienEscribe, canal: FilaCanal): Promise<FilaMiembro[]> {
+export async function exigirMiembro(quien: QuienEscribe, canal: FilaCanal): Promise<FilaMiembro[]> {
   const miembros = await miembrosDe(canal.id)
   if (!miembros.some((m) => m.usuario_id === quien.userId)) throw new ErrorDeChat(canal.tipo === 'canal' ? 'Únete al canal para escribir.' : 'Ese canal no existe.', canal.tipo === 'canal' ? 403 : 404)
   return miembros
