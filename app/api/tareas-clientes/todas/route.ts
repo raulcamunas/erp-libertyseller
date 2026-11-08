@@ -6,5 +6,5 @@ export const runtime = 'nodejs'
 
 /** Las tareas de todos los clientes, para «Todas las tareas» y «Mis tareas» */
 export async function GET() {
-  return conPermiso((p) => cargarTodas(p.userId))
+  return conPermiso((p) => cargarTodas(p.userId, p.clientes))
 }

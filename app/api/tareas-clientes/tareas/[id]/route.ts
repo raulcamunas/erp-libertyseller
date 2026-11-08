@@ -13,13 +13,13 @@ export const runtime = 'nodejs'
  */
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const fresca = request.nextUrl.searchParams.get('fresca') !== '0'
-  return conPermiso(async () => {
-    let datos = await cargarTarea(params.id)
+  return conPermiso(async (p) => {
+    let datos = await cargarTarea(params.id, p.clientes)
     if (fresca && notionConfigurado() && datos.tarea.notion_page_id) {
       const antes = Date.parse(datos.tarea.notion_contenido_revisado ?? '') || 0
       if (Date.now() - antes > 20_000) {
         const [cuerpo, comentarios] = await Promise.all([traerContenido(params.id).catch(() => false), traerComentarios(params.id, new Map()).catch(() => 0)])
-        if (cuerpo || comentarios > 0) datos = await cargarTarea(params.id)
+        if (cuerpo || comentarios > 0) datos = await cargarTarea(params.id, p.clientes)
       }
     }
     return datos

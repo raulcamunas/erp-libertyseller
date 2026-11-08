@@ -15,9 +15,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 }
 
 export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
-  return conPermiso(async () => {
+  return conPermiso(async (p) => {
     if (!esUuid(params.id)) throw new ErrorDeTareas('Esa plantilla no existe.', 404)
-    await borrarPlantilla(params.id)
+    await borrarPlantilla(params.id, p.clientes)
     return { ok: true }
   })
 }

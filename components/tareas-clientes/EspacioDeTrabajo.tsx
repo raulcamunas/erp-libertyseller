@@ -3,17 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname, useRouter } from 'next/navigation'
-import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Loader2, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { colocar } from '@/lib/tareas-clientes/orden'
 import { filtrarTareas } from '@/lib/tareas-clientes/filtros'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { departamentosDe, estadosDe, FILTROS_VACIOS, ordenarSegun, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
-import { ambitoDeRuta, mismoAmbito, type Ambito } from '@/lib/tareas-clientes/ambito'
+import { ambitoDeRuta, mismoAmbito, rutaDeAmbito, type Ambito } from '@/lib/tareas-clientes/ambito'
 import { BASE, memoria, pedir, type DatosDeTodas, type Preferencias } from './api'
 import { alternar } from '@/lib/tareas-clientes/seleccion'
 import { BarraDeSeleccion } from './BarraDeSeleccion'
 import { BarraLateral, SelectorMovil } from './BarraLateral'
+import { BuscadorGlobal } from './BuscadorGlobal'
 import { Cabecera } from './Cabecera'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
@@ -409,6 +410,32 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     setFiltros(FILTROS_VACIOS)
     setAmbito(nuevo)
   }, [pathname])
+  /* ---- El buscador: Ctrl/Cmd + K, o «/» fuera de un campo ---- */
+  const [buscadorAbierto, setBuscadorAbierto] = useState(false)
+  useEffect(() => {
+    const alPulsar = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      const enCampo = Boolean(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setBuscadorAbierto(true)
+      } else if (e.key === '/' && !enCampo && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        setBuscadorAbierto(true)
+      }
+    }
+    window.addEventListener('keydown', alPulsar)
+    return () => window.removeEventListener('keydown', alPulsar)
+  }, [])
+  // Elegir un resultado: se abre la tarea, yendo antes a su cliente si no se está viendo (en «Mis tareas» no tiene por qué salir)
+  const elegirResultado = useCallback(
+    (tareaId: string, clienteId: string) => {
+      if (ambito.tipo === 'mias' || (ambito.tipo === 'cliente' && ambito.id !== clienteId)) irA({ tipo: 'cliente', id: clienteId }, rutaDeAmbito({ tipo: 'cliente', id: clienteId }))
+      setAbierta(tareaId)
+    },
+    [ambito, irA]
+  )
+
   // Atrás y adelante también por el propio navegador: con las direcciones que cambiamos nosotros no depende de que el router se entere
   useEffect(() => {
     const alVolver = () => {
@@ -489,10 +516,10 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   return (
     <div className="tc-zona" data-fondo={fondoNecesitaCortina(fondo) ? 'true' : undefined} style={{ '--tc-ambiente': cliente ? `var(--tc-${cliente.color || 'orange'})` : 'var(--ls-acc-graf)', ...(estiloDePortada(fondo, true) as CSSProperties | undefined) } as CSSProperties}>
       <FondoAnimado valor={fondo} />
-      <BarraLateral clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
+      <BarraLateral onBuscar={() => setBuscadorAbierto(true)} clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
 
       <section className="tc-centro" ref={setCentro}>
-        <div className="tc-movil-barra"><SelectorMovil clientes={datos.clientes} ambito={ambito} onNavegar={navegar} /></div>
+        <div className="tc-movil-barra"><SelectorMovil clientes={datos.clientes} ambito={ambito} onNavegar={navegar} /><button type="button" onClick={() => setBuscadorAbierto(true)} aria-label="Buscar en todo" className="tc-movil-buscar"><Search className="h-4 w-4" /></button></div>
         <Cabecera
           titulo={titulo}
           icono={cliente?.icono ?? (ambito.tipo === 'mias' ? '🎯' : '🗂️')}
@@ -533,6 +560,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
         <BarraDeSeleccion cantidad={seleccion.size} columnas={estadosDeLote} ocupada={lotePendiente} onMover={(e) => void aplicarLote('mover', e)} onArchivar={() => void aplicarLote('archivar')} onQuitar={() => setSeleccion(new Set())} />
       )}
       {marco && typeof document !== 'undefined' && createPortal(<div className="tc-marco" style={{ left: marco.left, top: marco.top, width: marco.right - marco.left, height: marco.bottom - marco.top }} aria-hidden />, document.body)}
+
+      {buscadorAbierto && <BuscadorGlobal tareas={datos.tareas} clientes={datos.clientes} clienteActual={cliente} onElegirTarea={elegirResultado} onElegirCliente={(id) => irA({ tipo: 'cliente', id }, rutaDeAmbito({ tipo: 'cliente', id }))} onCerrar={() => setBuscadorAbierto(false)} />}
 
       {gestorAbierto && cliente && <PlantillasGestor cliente={cliente} personas={personas} onCerrar={() => setGestorAbierto(false)} onCambio={setPlantillas} onCreada={(t) => { aplicarFila(t); setAbierta(t.id) }} />}
 

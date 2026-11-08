@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { destinatariosDeAsignacion, destinatariosDeComentario, mencionesEnTexto, resumen } from './avisos'
 import { contarChecklist, huellaDeContenido, progresoDeChecklist, textoPlano, TIPOS_EDITABLES, type Bloque } from './bloques'
 import { fondoAnimadoId } from './colores'
+import { personaPuedeVer, puedeVer, type Permitidos } from './permisos'
 import { avisosDeFecha } from './vencimientos'
 import { programarEnvioANotion } from './notion/pronto'
 import { colocar, ordenAlFinal } from './orden'
@@ -18,6 +19,8 @@ import { departamentosDe, estadosDe, estaHecha, type ActividadTC, type ClienteTC
  */
 
 export interface Actor {
+  /** Los clientes que puede ver (acceso por cliente); `null` o sin decir = todos. Lo rellena `actorDe(p)`; el sistema (una plantilla que se repite) no lleva */
+  clientes?: Permitidos
   /** Vacío = la hace el sistema (una plantilla que se repite): no hay persona a la que apuntarle la tarea ni el historial, y nadie se queda sin su aviso de asignación */
   userId: string
   nombre: string
@@ -39,6 +42,11 @@ export class ErrorDeTareas extends Error {
   }
 }
 
+/** Falla con un 403 si la persona no puede ver ese cliente */
+export function exigirAcceso(permitidos: Permitidos, clienteId: string | null | undefined): void {
+  if (!puedeVer(permitidos, clienteId)) throw new ErrorDeTareas('No tienes acceso a ese cliente.', 403)
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const esUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v)
 
@@ -47,19 +55,26 @@ export const esUuid = (v: unknown): v is string => typeof v === 'string' && UUID
 /* ------------------------------------------------------------------ */
 
 /** Quién puede estar en una tarea: los administradores y quien tiene la casilla. Un `partner` solo si la tiene */
-export async function personasConAcceso(): Promise<PersonaTC[]> {
+export async function personasConAcceso(clienteId?: string): Promise<PersonaTC[]> {
   const service = createServiceClient()
-  const [admins, permisos] = await Promise.all([
+  const [admins, permisos, filas] = await Promise.all([
     service.from('profiles').select('id, full_name, email').eq('role', 'admin'),
     service.from('user_app_permissions').select('user_id').eq('app_id', 'tareas-clientes').eq('can_access', true),
+    // Si la tabla de accesos por cliente todavía no existe, falla sin más y todos ven todo
+    service.from('tc_acceso_clientes').select('usuario_id, cliente_id'),
   ])
+  const limitadas = new Map<string, string[]>()
+  for (const f of (filas.data ?? []) as Array<{ usuario_id: string; cliente_id: string }>) limitadas.set(f.usuario_id, [...(limitadas.get(f.usuario_id) ?? []), f.cliente_id])
+  const esAdmin = new Set(((admins.data ?? []) as Array<{ id: string }>).map((a) => a.id))
   const ids = (permisos.data ?? []).map((p: { user_id: string }) => p.user_id)
   const conCasilla = ids.length > 0 ? await service.from('profiles').select('id, full_name, email').in('id', ids) : { data: [] }
   const porId = new Map<string, PersonaTC>()
   for (const p of [...(admins.data ?? []), ...(conCasilla.data ?? [])] as Array<{ id: string; full_name: string | null; email: string | null }>) {
-    porId.set(p.id, { id: p.id, nombre: (p.full_name ?? '').trim() || p.email || 'Sin nombre', email: p.email })
+    porId.set(p.id, { id: p.id, nombre: (p.full_name ?? '').trim() || p.email || 'Sin nombre', email: p.email, clientes: esAdmin.has(p.id) ? null : (limitadas.get(p.id) ?? null) })
   }
-  return [...porId.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  const todas = [...porId.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  // Con un cliente: solo quien puede verlo (para asignar tareas, mencionar y avisar)
+  return clienteId ? todas.filter((p) => personaPuedeVer(p, clienteId)) : todas
 }
 
 export interface EstadisticasDeCliente {
@@ -98,11 +113,12 @@ export function estadisticasDe(cliente: Pick<ClienteTC, 'opciones'>, tareas: Rea
   return e
 }
 
-export async function cargarInicio(userId: string) {
+export async function cargarInicio(userId: string, permitidos?: Permitidos) {
   const service = createServiceClient()
+  const ids = permitidos ? [...permitidos] : null
   const [clientes, tareas, preferencias, personas] = await Promise.all([
-    service.from('tc_clientes').select('*').eq('activo', true).order('grupo').order('orden').order('nombre'),
-    service.from('tc_tareas').select('cliente_id, estado, fecha_inicio, fecha_fin, responsables, archivada').eq('archivada', false).limit(20000),
+    (ids ? service.from('tc_clientes').select('*').in('id', ids) : service.from('tc_clientes').select('*')).eq('activo', true).order('grupo').order('orden').order('nombre'),
+    (ids ? service.from('tc_tareas').select('cliente_id, estado, fecha_inicio, fecha_fin, responsables, archivada').in('cliente_id', ids) : service.from('tc_tareas').select('cliente_id, estado, fecha_inicio, fecha_fin, responsables, archivada')).eq('archivada', false).limit(20000),
     service.from('tc_preferencias').select('*').eq('usuario_id', userId).maybeSingle(),
     personasConAcceso(),
   ])
@@ -131,7 +147,8 @@ export async function cargarInicio(userId: string) {
   return { clientes: lista, estadisticas, preferencias: preferencias.data ?? null, personas, mias }
 }
 
-export async function cargarCliente(clienteId: string, userId: string) {
+export async function cargarCliente(clienteId: string, userId: string, permitidos?: Permitidos) {
+  exigirAcceso(permitidos, clienteId)
   const service = createServiceClient()
   const [cliente, tareas, otros, preferencias, personas] = await Promise.all([
     service.from('tc_clientes').select('*').eq('id', clienteId).maybeSingle(),
@@ -141,22 +158,24 @@ export async function cargarCliente(clienteId: string, userId: string) {
     personasConAcceso(),
   ])
   if (!cliente.data) throw new ErrorDeTareas('Ese cliente no existe.', 404)
-  return { cliente: cliente.data as ClienteTC, tareas: (tareas.data ?? []) as TareaLigera[], clientes: (otros.data ?? []) as Array<Pick<ClienteTC, 'id' | 'nombre' | 'icono' | 'color' | 'grupo' | 'orden'>>, preferencias: preferencias.data ?? null, personas }
+  const clientes = ((otros.data ?? []) as Array<Pick<ClienteTC, 'id' | 'nombre' | 'icono' | 'color' | 'grupo' | 'orden'>>).filter((c) => puedeVer(permitidos, c.id))
+  return { cliente: cliente.data as ClienteTC, tareas: (tareas.data ?? []) as TareaLigera[], clientes, preferencias: preferencias.data ?? null, personas }
 }
 
 /** Las tareas de TODOS los clientes, para la vista «Todas» y «Mis tareas» */
-export async function cargarTodas(userId: string) {
+export async function cargarTodas(userId: string, permitidos?: Permitidos) {
   const service = createServiceClient()
+  const ids = permitidos ? [...permitidos] : null
   const [clientes, tareas, preferencias, personas] = await Promise.all([
-    service.from('tc_clientes').select('*').eq('activo', true).order('grupo').order('orden').order('nombre'),
-    service.from('tc_tareas').select(COLUMNAS_LIGERAS).eq('archivada', false).order('orden').limit(20000),
+    (ids ? service.from('tc_clientes').select('*').in('id', ids) : service.from('tc_clientes').select('*')).eq('activo', true).order('grupo').order('orden').order('nombre'),
+    (ids ? service.from('tc_tareas').select(COLUMNAS_LIGERAS).in('cliente_id', ids) : service.from('tc_tareas').select(COLUMNAS_LIGERAS)).eq('archivada', false).order('orden').limit(20000),
     service.from('tc_preferencias').select('*').eq('usuario_id', userId).maybeSingle(),
     personasConAcceso(),
   ])
   return { clientes: (clientes.data ?? []) as ClienteTC[], tareas: (tareas.data ?? []) as TareaLigera[], preferencias: preferencias.data ?? null, personas }
 }
 
-export async function cargarTarea(id: string) {
+export async function cargarTarea(id: string, permitidos?: Permitidos) {
   const service = createServiceClient()
   const [tarea, comentarios, actividad] = await Promise.all([
     service.from('tc_tareas').select('*').eq('id', id).maybeSingle(),
@@ -164,6 +183,7 @@ export async function cargarTarea(id: string) {
     service.from('tc_actividad').select('*').eq('tarea_id', id).order('creado_en', { ascending: false }).limit(60),
   ])
   if (!tarea.data) throw new ErrorDeTareas('Esa tarea no existe.', 404)
+  exigirAcceso(permitidos, (tarea.data as { cliente_id: string }).cliente_id)
   return { tarea: tarea.data as TareaTC, comentarios: (comentarios.data ?? []) as ComentarioTC[], actividad: (actividad.data ?? []) as ActividadTC[] }
 }
 
@@ -214,14 +234,14 @@ async function avisar(avisos: AvisoParaCampana[]) {
  * LOS RECORDATORIOS DE FECHA DE UNA PERSONA: «vence hoy», «vence mañana» y un resumen de las vencidas (lib/tareas-clientes/vencimientos.ts). Los pide la campana de esa persona
  * al abrir el ERP y cada media hora; la clave de cada aviso es única por persona, así que pedirlos varias veces el mismo día no duplica nada ni vuelve a hacer sonar.
  */
-export async function generarAvisosDeFecha(userId: string): Promise<number> {
+export async function generarAvisosDeFecha(userId: string, permitidos?: Permitidos): Promise<number> {
   const service = createServiceClient()
   const [clientes, tareas] = await Promise.all([
     service.from('tc_clientes').select('id, opciones').eq('activo', true),
     service.from('tc_tareas').select('id, cliente_id, titulo, estado, fecha_inicio, fecha_fin').eq('archivada', false).contains('responsables', [userId]).limit(5000),
   ])
   const hechas = new Map((clientes.data ?? []).map((c: { id: string; opciones: ClienteTC['opciones'] }) => [c.id, new Set(estadosDe({ opciones: c.opciones }).filter((e) => e.grupo === 'hecho').map((e) => e.nombre))]))
-  const abiertas = ((tareas.data ?? []) as Array<{ id: string; cliente_id: string; titulo: string; estado: string; fecha_inicio: string | null; fecha_fin: string | null }>).filter((t) => !hechas.get(t.cliente_id)?.has(t.estado))
+  const abiertas = ((tareas.data ?? []) as Array<{ id: string; cliente_id: string; titulo: string; estado: string; fecha_inicio: string | null; fecha_fin: string | null }>).filter((t) => !hechas.get(t.cliente_id)?.has(t.estado) && puedeVer(permitidos, t.cliente_id))
   // El «hoy» es el de España: a las 23:30 de allí no puede ser ya mañana
   const hoy = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })
   const avisos = avisosDeFecha(abiertas, hoy)
@@ -363,9 +383,10 @@ export interface EntradaDeTarea extends CambiosDeTarea {
 
 export async function crearTarea(actor: Actor, entrada: EntradaDeTarea): Promise<TareaLigera> {
   const service = createServiceClient()
+  exigirAcceso(actor.clientes, entrada.clienteId)
   const { data: cliente } = await service.from('tc_clientes').select('*').eq('id', entrada.clienteId).maybeSingle()
   if (!cliente) throw new ErrorDeTareas('Ese cliente no existe.', 404)
-  const personas = new Set((await personasConAcceso()).map((p) => p.id))
+  const personas = new Set((await personasConAcceso(entrada.clienteId)).map((p) => p.id))
   const limpio = limpiarCambios(entrada, personas)
   const estado = (limpio.estado as string | undefined) ?? estadosDe(cliente as ClienteTC)[0]?.nombre ?? 'Backlog'
   if (limpio.estado) await exigirEstadoDelCliente(entrada.clienteId, estado)
@@ -395,7 +416,8 @@ export async function actualizarTarea(actor: Actor, id: string, cambios: Cambios
   const { data: antes } = await service.from('tc_tareas').select(`${COLUMNAS_LIGERAS}, contenido`).eq('id', id).maybeSingle()
   if (!antes) throw new ErrorDeTareas('Esa tarea no existe.', 404)
   const previa = antes as unknown as TareaTC
-  const personas = new Set((await personasConAcceso()).map((p) => p.id))
+  exigirAcceso(actor.clientes, previa.cliente_id)
+  const personas = new Set((await personasConAcceso(previa.cliente_id)).map((p) => p.id))
   const limpio = limpiarCambios(cambios, personas)
 
   // Solo cuenta lo que ha cambiado de verdad: guardar dos veces lo mismo no ensucia el historial ni la cola
@@ -485,6 +507,7 @@ export async function moverTarea(actor: Actor, id: string, destino: DestinoDeMov
   const service = createServiceClient()
   const { data: previa } = await service.from('tc_tareas').select('id, cliente_id, estado, orden, notion_page_id, titulo').eq('id', id).maybeSingle()
   if (!previa) throw new ErrorDeTareas('Esa tarea no existe.', 404)
+  exigirAcceso(actor.clientes, previa.cliente_id)
   const estado = tope(destino.estado, 80)
   if (!estado) throw new ErrorDeTareas('Falta la columna de destino.')
 
@@ -533,7 +556,10 @@ export async function crearComentario(actor: Actor, tareaId: string, cuerpoBruto
   const service = createServiceClient()
   const { data: tarea } = await service.from('tc_tareas').select('id, cliente_id, titulo, responsables, creado_por, notion_page_id').eq('id', tareaId).maybeSingle()
   if (!tarea) throw new ErrorDeTareas('Esa tarea no existe.', 404)
-  const personas = await personasConAcceso()
+  exigirAcceso(actor.clientes, tarea.cliente_id)
+  // Solo se puede mencionar, y solo se avisa, a quien ve ese cliente
+  const personas = await personasConAcceso(tarea.cliente_id)
+  const conAcceso = new Set(personas.map((p) => p.id))
   const menciones = mencionesEnTexto(cuerpo, personas)
 
   const { data, error } = await service
@@ -547,7 +573,7 @@ export async function crearComentario(actor: Actor, tareaId: string, cuerpoBruto
   await recontarComentarios(tareaId)
   await registrar(actor, { tareaId, clienteId: tarea.cliente_id, tipo: 'comentario', datos: { comentarioId: comentario.id } })
   const { data: cli } = await service.from('tc_clientes').select('nombre').eq('id', tarea.cliente_id).maybeSingle()
-  const destinatarios = destinatariosDeComentario({ actorId: actor.userId, responsables: tarea.responsables ?? [], creadoPor: tarea.creado_por, menciones })
+  const destinatarios = destinatariosDeComentario({ actorId: actor.userId, responsables: tarea.responsables ?? [], creadoPor: tarea.creado_por, menciones }).filter((d) => conAcceso.has(d.userId))
   await avisar(
     destinatarios.map((d) => ({
       userId: d.userId,
@@ -563,10 +589,18 @@ export async function crearComentario(actor: Actor, tareaId: string, cuerpoBruto
   return comentario
 }
 
+/** Lo mismo que `exigirAcceso`, partiendo de una tarea: se mira de qué cliente es */
+async function exigirAccesoDeTarea(permitidos: Permitidos, tareaId: string): Promise<void> {
+  if (!permitidos) return
+  const { data } = await createServiceClient().from('tc_tareas').select('cliente_id').eq('id', tareaId).maybeSingle()
+  exigirAcceso(permitidos, data?.cliente_id)
+}
+
 export async function borrarComentario(actor: Actor & { esAdmin: boolean }, id: string): Promise<void> {
   const service = createServiceClient()
   const { data } = await service.from('tc_comentarios').select('id, tarea_id, autor_id').eq('id', id).maybeSingle()
   if (!data) throw new ErrorDeTareas('Ese comentario no existe.', 404)
+  await exigirAccesoDeTarea(actor.clientes, data.tarea_id)
   if (data.autor_id !== actor.userId && !actor.esAdmin) throw new ErrorDeTareas('Solo puede borrar un comentario quien lo escribió o un administrador.', 403)
   await service.from('tc_comentarios').update({ borrado: true }).eq('id', id)
   await recontarComentarios(data.tarea_id)
@@ -576,8 +610,9 @@ export async function editarComentario(actor: Actor, id: string, cuerpoBruto: un
   const cuerpo = tope(cuerpoBruto, 8000)
   if (!cuerpo) throw new ErrorDeTareas('El comentario está vacío.')
   const service = createServiceClient()
-  const { data } = await service.from('tc_comentarios').select('id, autor_id').eq('id', id).maybeSingle()
+  const { data } = await service.from('tc_comentarios').select('id, tarea_id, autor_id').eq('id', id).maybeSingle()
   if (!data) throw new ErrorDeTareas('Ese comentario no existe.', 404)
+  await exigirAccesoDeTarea(actor.clientes, data.tarea_id)
   if (data.autor_id !== actor.userId) throw new ErrorDeTareas('Solo puede editar un comentario quien lo escribió.', 403)
   const { data: nuevo, error } = await service.from('tc_comentarios').update({ cuerpo, editado_en: new Date().toISOString() }).eq('id', id).select('*').single()
   if (error || !nuevo) throw new ErrorDeTareas('No se ha podido editar el comentario.', 500)
@@ -616,6 +651,7 @@ function portadaLimpia(v: unknown): Record<string, unknown> {
 }
 
 export async function actualizarCliente(actor: Actor & { esAdmin: boolean }, id: string, cambios: CambiosDeCliente): Promise<ClienteTC> {
+  exigirAcceso(actor.clientes, id)
   const l: Record<string, unknown> = {}
   if ('nombre' in cambios) {
     const n = tope(cambios.nombre, 120)

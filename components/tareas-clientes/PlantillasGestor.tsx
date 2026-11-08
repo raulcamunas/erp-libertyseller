@@ -219,7 +219,7 @@ export function PlantillasGestor({ cliente, personas, onCerrar, onCambio, onCrea
               </div>
               <div className="tc-prop">
                 <span className="tc-prop-nombre">Responsables</span>
-                <div className="min-w-0 flex-1"><SelectorDePersonas valor={b.responsables} personas={personas} onCambio={(ids) => set('responsables', ids)} /></div>
+                <div className="min-w-0 flex-1"><SelectorDePersonas valor={b.responsables} personas={personas.filter((p) => !p.clientes || p.clientes.includes(cliente.id))} onCambio={(ids) => set('responsables', ids)} /></div>
               </div>
               <div className="tc-prop">
                 <span className="tc-prop-nombre">Vence a los</span>

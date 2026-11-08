@@ -35,4 +35,4 @@ export async function cuerpoDe(request: Request): Promise<Record<string, unknown
   return c && typeof c === 'object' && !Array.isArray(c) ? (c as Record<string, unknown>) : {}
 }
 
-export const actorDe = (p: PermisoConcedido) => ({ userId: p.userId, nombre: p.nombre })
+export const actorDe = (p: PermisoConcedido) => ({ userId: p.userId, nombre: p.nombre, clientes: p.clientes })

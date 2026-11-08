@@ -73,6 +73,9 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
   const estados = estadosDe(cliente)
   const departamentos = departamentosDe(cliente)
   const tarea = datos?.tarea ?? null
+  // Solo se asigna, y solo se menciona, a quien ve el cliente de la tarea (acceso por cliente)
+  const clienteDeLaTarea = (tarea ?? inicial)?.cliente_id
+  const gente = personas.filter((p) => !p.clientes || !clienteDeLaTarea || p.clientes.includes(clienteDeLaTarea))
 
   /* ---- Cargar y mantener al día ---- */
   const cargar = useCallback(
@@ -209,7 +212,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
     const m = /(?:^|\s)@([\p{L}\p{N}]*)$/u.exec(valor.slice(0, caja.current?.selectionStart ?? valor.length))
     setSugerir(m ? m[1].toLowerCase() : null)
   }
-  const candidatos = sugerir === null ? [] : personas.filter((p) => p.nombre.toLowerCase().startsWith(sugerir) || p.nombre.toLowerCase().split(' ').some((x) => x.startsWith(sugerir))).slice(0, 5)
+  const candidatos = sugerir === null ? [] : gente.filter((p) => p.nombre.toLowerCase().startsWith(sugerir) || p.nombre.toLowerCase().split(' ').some((x) => x.startsWith(sugerir))).slice(0, 5)
   const mencionar = (p: PersonaTC) => {
     const el = caja.current
     const hasta = escrito.slice(0, el?.selectionStart ?? escrito.length)
@@ -323,7 +326,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                 <Propiedad icono={<CircleDot className="h-3.5 w-3.5" />} nombre="Estado"><SelectorDeOpcion etiqueta="Estado" valor={tarea.estado} opciones={estados} onElegir={(n) => n && void guardar({ estado: n })} /></Propiedad>
                 <Propiedad icono={<Tag className="h-3.5 w-3.5" />} nombre="Departamento"><SelectorDeOpcion etiqueta="Departamento" valor={tarea.departamento} opciones={departamentos} permitirVacio onElegir={(n) => void guardar({ departamento: n })} /></Propiedad>
                 <Propiedad icono={<UserCircle2 className="h-3.5 w-3.5" />} nombre="Responsables">
-                  <SelectorDePersonas valor={tarea.responsables} personas={personas} onCambio={(ids) => void guardar({ responsables: ids })} />
+                  <SelectorDePersonas valor={tarea.responsables} personas={gente} onCambio={(ids) => void guardar({ responsables: ids })} />
                   {tarea.responsables_notion.length > 0 && <p className="px-2 text-[11px] text-[var(--ls-t4)]" title="Personas de Notion que todavía no están enlazadas con el equipo del ERP">En Notion también: {tarea.responsables_notion.map((r) => r.nombre || 'alguien').join(', ')}</p>}
                 </Propiedad>
                 <Propiedad icono={<CalendarDays className="h-3.5 w-3.5" />} nombre="Fecha">
@@ -410,7 +413,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                       </ul>
                     )}
                     <div className="flex items-center justify-between px-2.5 pb-2">
-                      <span className="text-[11px] text-[var(--ls-t4)]">{conNotion ? 'También se verá en Notion' : ''}{mencionesEnTexto(escrito, personas).length > 0 ? ` · Avisarás a ${mencionesEnTexto(escrito, personas).length}` : ''}</span>
+                      <span className="text-[11px] text-[var(--ls-t4)]">{conNotion ? 'También se verá en Notion' : ''}{mencionesEnTexto(escrito, gente).length > 0 ? ` · Avisarás a ${mencionesEnTexto(escrito, gente).length}` : ''}</span>
                       <button type="button" disabled={!escrito.trim() || enviando} onClick={() => void enviar()} className="tc-enviar">{enviando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Comentar</button>
                     </div>
                   </div>

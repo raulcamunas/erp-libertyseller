@@ -8,7 +8,7 @@ export const runtime = 'nodejs'
 /** Las plantillas de un cliente y las generales (`?clienteId=`); sin cliente, todas */
 export async function GET(request: NextRequest) {
   const clienteId = request.nextUrl.searchParams.get('clienteId')
-  return conPermiso(async () => ({ plantillas: await listarPlantillas(clienteId) }))
+  return conPermiso(async (p) => ({ plantillas: await listarPlantillas(clienteId, p.clientes) }))
 }
 
 export async function POST(request: NextRequest) {

@@ -168,6 +168,8 @@ export interface PersonaTC {
   id: string
   nombre: string
   email: string | null
+  /** Los clientes que ve (acceso por cliente, migración 277); `null` o sin decir = todos */
+  clientes?: string[] | null
 }
 
 export interface EtiquetaDeVista {

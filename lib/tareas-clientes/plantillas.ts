@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
-import { bloquesValidos, crearTarea, ErrorDeTareas, esUuid, personasConAcceso, type Actor, type TareaLigera } from './servidor'
+import { puedeVer, type Permitidos } from './permisos'
+import { bloquesValidos, crearTarea, ErrorDeTareas, esUuid, exigirAcceso, personasConAcceso, type Actor, type TareaLigera } from './servidor'
 import { cuerpoDesdePlantilla, ocurrenciaPendiente, primeraFecha, recurrenciaValida, sumarDias, titularDesdePlantilla } from './recurrencia'
 import { estadosDe, type ClienteTC, type PlantillaTC } from './tipos'
 
@@ -16,14 +17,16 @@ const tope = (v: unknown, largo: number): string | null => (typeof v === 'string
 /** El día de hoy en España, como `AAAA-MM-DD`: a las 23:30 de allí no puede ser ya mañana */
 export const hoyEnEspana = (): string => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })
 
-export async function listarPlantillas(clienteId?: string | null): Promise<PlantillaTC[]> {
+export async function listarPlantillas(clienteId?: string | null, permitidos?: Permitidos): Promise<PlantillaTC[]> {
+  if (clienteId) exigirAcceso(permitidos, clienteId)
   const service = createServiceClient()
   let consulta = service.from('tc_plantillas').select('*').order('nombre')
   // Las de ese cliente y las generales
   if (clienteId) consulta = consulta.or(`cliente_id.eq.${clienteId},cliente_id.is.null`)
   const { data, error } = await consulta
   if (error) throw new ErrorDeTareas(`No se han podido leer las plantillas: ${error.message}`, 500)
-  return (data ?? []) as PlantillaTC[]
+  // Quien solo ve unos clientes no ve las plantillas de los demás (las generales sí)
+  return ((data ?? []) as PlantillaTC[]).filter((p) => puedeVer(permitidos, p.cliente_id))
 }
 
 /** Lo que llega del navegador, comprobado: lo que no se reconoce se ignora; lo que está mal falla con el motivo */
@@ -31,6 +34,7 @@ export async function guardarPlantilla(actor: Actor, id: string | null, entrada:
   const service = createServiceClient()
   const previa = id ? ((await service.from('tc_plantillas').select('*').eq('id', id).maybeSingle()).data as PlantillaTC | null) : null
   if (id && !previa) throw new ErrorDeTareas('Esa plantilla no existe.', 404)
+  if (previa) exigirAcceso(actor.clientes, previa.cliente_id)
 
   const fila: Record<string, unknown> = {}
   if ('nombre' in entrada || !previa) {
@@ -63,6 +67,7 @@ export async function guardarPlantilla(actor: Actor, id: string | null, entrada:
   }
   if ('activa' in entrada) fila.activa = entrada.activa === true
 
+  exigirAcceso(actor.clientes, (fila.cliente_id as string | null | undefined) ?? undefined)
   // La repetición: necesita un cliente, y cuando cambia (o se reactiva) se recalcula el día de la próxima
   const rec = 'recurrencia' in entrada ? recurrenciaValida(entrada.recurrencia) : recurrenciaValida(previa?.recurrencia)
   const clienteFinal = ('cliente_id' in fila ? fila.cliente_id : previa?.cliente_id) as string | null
@@ -85,7 +90,11 @@ export async function guardarPlantilla(actor: Actor, id: string | null, entrada:
   return data as PlantillaTC
 }
 
-export async function borrarPlantilla(id: string): Promise<void> {
+export async function borrarPlantilla(id: string, permitidos?: Permitidos): Promise<void> {
+  if (permitidos) {
+    const { data } = await createServiceClient().from('tc_plantillas').select('cliente_id').eq('id', id).maybeSingle()
+    exigirAcceso(permitidos, data?.cliente_id)
+  }
   const { error } = await createServiceClient().from('tc_plantillas').delete().eq('id', id)
   if (error) throw new ErrorDeTareas(`No se ha podido borrar la plantilla: ${error.message}`, 500)
 }
@@ -93,6 +102,7 @@ export async function borrarPlantilla(id: string): Promise<void> {
 /** Una tarea nueva con lo de la plantilla. `fecha` es el día que se le pone (hoy si no se dice) */
 export async function usarPlantilla(actor: Actor, plantilla: PlantillaTC, clienteId: string, fecha: string = hoyEnEspana(), marcarOrigen = false): Promise<TareaLigera> {
   if (plantilla.cliente_id && plantilla.cliente_id !== clienteId) throw new ErrorDeTareas('Esa plantilla es de otro cliente.')
+  exigirAcceso(actor.clientes, clienteId)
   const service = createServiceClient()
   const { data: cliente } = await service.from('tc_clientes').select('*').eq('id', clienteId).maybeSingle()
   if (!cliente) throw new ErrorDeTareas('Ese cliente no existe.', 404)

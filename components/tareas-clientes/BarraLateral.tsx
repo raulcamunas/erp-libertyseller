@@ -64,6 +64,7 @@ export function BarraLateral({
   onAlternar,
   onNavegar,
   onFavorito,
+  onBuscar,
 }: {
   clientes: readonly ClienteTC[]
   tareas: readonly TareaLigera[]
@@ -74,6 +75,8 @@ export function BarraLateral({
   onAlternar: () => void
   onNavegar: (ruta: string) => void
   onFavorito: (id: string) => void
+  /** Abre el buscador de todo (Ctrl/Cmd + K) */
+  onBuscar?: () => void
 }) {
   const [busqueda, setBusqueda] = useState('')
   const hoy = new Date().toISOString().slice(0, 10)
@@ -126,6 +129,14 @@ export function BarraLateral({
           {colapsada ? <ChevronsRight className="h-3.5 w-3.5" /> : <ChevronsLeft className="h-3.5 w-3.5" />}
         </button>
       </div>
+
+      {onBuscar && (
+        <button type="button" onClick={onBuscar} className="tc-buscar-global" title="Buscar en todas las tareas (Ctrl/Cmd + K)" aria-label="Buscar en todas las tareas">
+          <Search className="h-3.5 w-3.5 shrink-0" />
+          {!colapsada && <span className="flex-1 truncate text-left">Buscar en todo…</span>}
+          {!colapsada && <kbd>⌘K</kbd>}
+        </button>
+      )}
 
       {!colapsada && (
         <label className="mx-2.5 mb-1.5 flex items-center gap-1.5 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2.5 focus-within:border-[var(--ls-acc-graf)]">
