@@ -3336,8 +3336,11 @@ main:has(.tc-inmersivo) { padding-top: 0; }
 .tc-muestra[aria-pressed='true'] { outline: 2px solid var(--ls-t1); outline-offset: 2px; }
 .tc-emoji { display: flex; height: 28px; width: 28px; align-items: center; justify-content: center; border-radius: 7px; font-size: 16px; }
 .tc-emoji:hover, .tc-emoji[aria-pressed='true'] { background: var(--ls-sup3); }
-.tc-barra { position: relative; display: inline-block; height: 4px; width: 38px; overflow: hidden; border-radius: 999px; background: var(--ls-sup3); }
-.tc-barra::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--p, 0%); border-radius: inherit; background: var(--tc-green); }
+.tc-barra { position: relative; display: block; height: 5px; min-width: 34px; flex: 1 1 auto; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--ls-t4) 22%, transparent); }
+.tc-barra::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--p, 0%); border-radius: inherit; background: linear-gradient(90deg, var(--tc-blue), color-mix(in srgb, var(--tc-blue) 55%, #fff)); }
+/* Completa: verde, como en Trello */
+.tc-barra[data-completa='true']::after { background: linear-gradient(90deg, var(--tc-green), color-mix(in srgb, var(--tc-green) 60%, #fff)); }
+.tc-barra-grande { height: 8px; max-width: 200px; }
 .tc-icono-boton { display: inline-flex; height: 24px; width: 24px; align-items: center; justify-content: center; border-radius: 7px; color: var(--ls-t4); }
 .tc-icono-boton:hover { background: color-mix(in srgb, var(--tono, var(--ls-t1)) 16%, transparent); color: var(--ls-t1); }
 /* El aro lleva el color del fondo donde está la cara: en una tarjeta de color, el de la tarjeta */

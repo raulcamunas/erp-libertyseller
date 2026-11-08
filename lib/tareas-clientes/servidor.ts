@@ -1,6 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { destinatariosDeAsignacion, destinatariosDeComentario, mencionesEnTexto, resumen } from './avisos'
-import { contarChecklist, huellaDeContenido, textoPlano, TIPOS_EDITABLES, type Bloque } from './bloques'
+import { contarChecklist, huellaDeContenido, progresoDeChecklist, textoPlano, TIPOS_EDITABLES, type Bloque } from './bloques'
 import { fondoAnimadoId } from './colores'
 import { avisosDeFecha } from './vencimientos'
 import { programarEnvioANotion } from './notion/pronto'
@@ -229,13 +229,13 @@ export async function generarAvisosDeFecha(userId: string): Promise<number> {
   return avisos.length
 }
 
-type OperacionDeCola = 'crear' | 'propiedades' | 'contenido' | 'archivar' | 'comentar'
+export type OperacionDeCola = 'crear' | 'propiedades' | 'contenido' | 'archivar' | 'comentar'
 
 /**
  * Deja un cambio en la cola para Notion. Si el cliente no está conectado con una base de Notion no hace nada y la tarea queda como `solo_erp`.
  * Devuelve el estado de sincronización en el que queda la tarea.
  */
-async function encolar(clienteId: string, tareaId: string, operacion: OperacionDeCola, payload: Record<string, unknown> = {}): Promise<'pendiente' | 'solo_erp'> {
+export async function encolar(clienteId: string, tareaId: string, operacion: OperacionDeCola, payload: Record<string, unknown> = {}): Promise<'pendiente' | 'solo_erp'> {
   const service = createServiceClient()
   const { data: cliente } = await service.from('tc_clientes').select('notion_ds_id').eq('id', clienteId).maybeSingle()
   if (!cliente?.notion_ds_id) return 'solo_erp'
@@ -349,6 +349,10 @@ function limpiarCambios(cambios: CambiosDeTarea, personas: ReadonlySet<string>):
     l.contenido_texto = textoPlano(b).slice(0, 200_000)
     l.checklist_total = c.total
     l.checklist_hecho = c.hecho
+    // EL PROGRESO SALE SOLO DE LA CHECKLIST (casillas hechas ÷ casillas, en %): es lo que hacía a mano una automatización de n8n sobre Notion. Con casillas manda la cuenta;
+    // una tarea sin ninguna conserva el progreso que se le haya puesto a mano. Si la misma petición trae un progreso explícito, se respeta ese.
+    const p = progresoDeChecklist(c)
+    if (p !== null && !('progreso' in cambios)) l.progreso = p
   }
   return l
 }

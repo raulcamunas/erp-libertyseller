@@ -334,10 +334,19 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                   </div>
                 </Propiedad>
                 <Propiedad icono={<Gauge className="h-3.5 w-3.5" />} nombre="Progreso">
+                  {tarea.checklist_total > 0 ? (
+                    // Con casillas, el progreso es la cuenta de las casillas hechas: se calcula solo y se manda a Notion
+                    <div className="flex items-center gap-3 px-2" title="Se calcula solo con las casillas de la lista de tareas">
+                      <span className="tc-barra tc-barra-grande" data-completa={tarea.checklist_hecho === tarea.checklist_total ? 'true' : undefined} style={{ '--p': `${Math.round((tarea.checklist_hecho / tarea.checklist_total) * 100)}%` } as CSSProperties} />
+                      <span className="text-[12px] font-medium tabular-nums text-[var(--ls-t2)]">{Math.round((tarea.checklist_hecho / tarea.checklist_total) * 100)}%</span>
+                      <span className="text-[11px] text-[var(--ls-t4)]">{tarea.checklist_hecho} de {tarea.checklist_total} casillas · automático</span>
+                    </div>
+                  ) : (
                   <div className="flex items-center gap-3 px-2">
                     <input type="range" min={0} max={100} step={5} aria-label="Progreso" defaultValue={tarea.progreso} key={`${tarea.id}-${tarea.progreso}`} style={{ '--p': `${tarea.progreso}%` } as CSSProperties} onInput={(e) => (e.target as HTMLInputElement).style.setProperty('--p', `${(e.target as HTMLInputElement).value}%`)} onMouseUp={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} onKeyUp={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} onTouchEnd={(e) => void guardar({ progreso: Number((e.target as HTMLInputElement).value) })} className="tc-rango" />
                     <span className="w-9 text-[12px] font-medium tabular-nums text-[var(--ls-t2)]">{tarea.progreso}%</span>
                   </div>
+                  )}
                 </Propiedad>
                 <Propiedad icono={<Link2 className="h-3.5 w-3.5" />} nombre="Enlace">
                   <input type="url" defaultValue={tarea.url ?? ''} key={`${tarea.id}-${tarea.url}`} placeholder="https://…" aria-label="Enlace" onBlur={(e) => { const v = e.target.value.trim(); if (v !== (tarea.url ?? '')) void guardar({ url: v || null }) }} className="tc-entrada" />

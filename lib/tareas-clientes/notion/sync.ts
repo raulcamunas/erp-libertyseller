@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
-import { arbolParaNotion, bloquesDesdeNotion, contarChecklist, contenidoParaNotion, esUrlDeNotion, filaParaNotion, huellaDeContenido, planDeContenido, textoPlano, tipoDeNotionDe, type Bloque, type TramoNuevo } from '../bloques'
+import { arbolParaNotion, bloquesDesdeNotion, contarChecklist, contenidoParaNotion, esUrlDeNotion, filaParaNotion, huellaDeContenido, planDeContenido, progresoDeChecklist, textoPlano, tipoDeNotionDe, type Bloque, type TramoNuevo } from '../bloques'
+import { encolar } from '../servidor'
 import { estadosDe, type ClienteTC, type TareaTC } from '../tipos'
 import {
   actualizarBloque,
@@ -165,7 +166,7 @@ async function aplicarPagina(c: ClienteTC, pagina: PaginaNotion, personas: Tabla
 /** El cuerpo de una página de Notion, traído al editor. No pisa un cuerpo con cambios nuestros sin enviar */
 export async function traerContenido(tareaId: string): Promise<boolean> {
   const service = createServiceClient()
-  const { data: t } = await service.from('tc_tareas').select('id, notion_page_id, notion_contenido_hash, contenido').eq('id', tareaId).maybeSingle()
+  const { data: t } = await service.from('tc_tareas').select('id, cliente_id, progreso, notion_page_id, notion_contenido_hash, contenido').eq('id', tareaId).maybeSingle()
   if (!t?.notion_page_id) return false
   const { data: pendiente } = await service.from('tc_notion_cola').select('id').eq('tarea_id', tareaId).in('operacion', ['contenido', 'crear']).is('hecho_en', null).limit(1)
   if ((pendiente ?? []).length > 0) return false
@@ -181,10 +182,15 @@ export async function traerContenido(tareaId: string): Promise<boolean> {
   }
   const { bloques } = await rehospedarImagenes(leidos, tareaId)
   const lista = contarChecklist(bloques)
+  // El progreso es casillas hechas ÷ casillas. Si alguien marcó una casilla en Notion, el «Progreso» de Notion se quedó atrás: aquí se corrige y se manda a Notion
+  // (antes lo hacía una automatización de n8n). Una tarea sin casillas conserva su progreso.
+  const progreso = progresoDeChecklist(lista)
+  const cambiaElProgreso = progreso !== null && progreso !== Number(t.progreso)
   await service
     .from('tc_tareas')
-    .update({ ...marca, contenido: bloques, contenido_texto: textoPlano(bloques).slice(0, 200_000), checklist_total: lista.total, checklist_hecho: lista.hecho, notion_contenido_hash: huella })
+    .update({ ...marca, contenido: bloques, contenido_texto: textoPlano(bloques).slice(0, 200_000), checklist_total: lista.total, checklist_hecho: lista.hecho, notion_contenido_hash: huella, ...(cambiaElProgreso ? { progreso } : {}) })
     .eq('id', tareaId)
+  if (cambiaElProgreso && t.cliente_id) await encolar(t.cliente_id as string, tareaId, 'propiedades', { campos: ['progreso'] })
   return true
 }
 

@@ -104,10 +104,10 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
       {(tarea.checklist_total > 0 || tarea.comentarios > 0) && (
         <div className="mt-2 flex items-center gap-2.5 text-[11.5px] tabular-nums text-[var(--ls-t3)]">
           {tarea.checklist_total > 0 && (
-            <span className="inline-flex items-center gap-1.5" title={`${tarea.checklist_hecho} de ${tarea.checklist_total} hechas`}>
+            <span className="flex min-w-0 flex-1 items-center gap-1.5" title={`${tarea.checklist_hecho} de ${tarea.checklist_total} hechas · ${porcentaje}%`}>
               <CheckSquare className="h-3 w-3" style={{ color: tarea.checklist_hecho === tarea.checklist_total ? 'var(--ls-e-verde)' : undefined }} />
               {tarea.checklist_hecho}/{tarea.checklist_total}
-              <span className="tc-barra" style={{ '--p': `${porcentaje}%` } as CSSProperties} />
+              <span className="tc-barra" data-completa={porcentaje === 100 ? 'true' : undefined} style={{ '--p': `${porcentaje}%` } as CSSProperties} />
             </span>
           )}
           {tarea.comentarios > 0 && (
