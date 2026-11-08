@@ -194,8 +194,14 @@ export interface FiltrosDeTareas {
   /** Las tareas que ya están hechas se esconden con esto; por defecto se ven */
   ocultarHechas: boolean
   soloMias: boolean
+  /** Por su fecha, respecto a hoy: las vencidas (sin hacer), las de hoy, las de esta semana o las que no tienen fecha; 'todas' = sin filtrar */
+  fecha: FiltroDeFecha
+  /** Solo las tareas que nadie lleva */
+  sinResponsable: boolean
   agruparPor: 'estado' | 'departamento' | 'responsable' | 'cliente'
 }
+
+export type FiltroDeFecha = 'todas' | 'vencidas' | 'hoy' | 'semana' | 'sin_fecha'
 
 export const FILTROS_VACIOS: FiltrosDeTareas = {
   busqueda: '',
@@ -203,6 +209,8 @@ export const FILTROS_VACIOS: FiltrosDeTareas = {
   departamentos: [],
   ocultarHechas: false,
   soloMias: false,
+  fecha: 'todas',
+  sinResponsable: false,
   agruparPor: 'estado',
 }
 

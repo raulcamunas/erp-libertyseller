@@ -531,6 +531,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           onVista={(v) => { setVistaElegida(v); escribirLocal('tc-vista', v) }}
           filtros={filtros}
           onFiltros={setFiltros}
+          esAdmin={esAdmin}
           personas={personas}
           clientesParaDepartamentos={cliente ? [cliente] : datos.clientes}
           puedeAgrupar={vista === 'tabla'}

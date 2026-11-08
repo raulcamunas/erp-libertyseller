@@ -1,4 +1,4 @@
-import type { FiltrosDeTareas, OpcionDeEstado, TareaTC } from './tipos'
+import type { FiltroDeFecha, FiltrosDeTareas, OpcionDeEstado, TareaTC } from './tipos'
 
 /**
  * QUÉ TAREAS SE VEN, EN QUÉ ORDEN Y AGRUPADAS DE QUÉ MANERA — PURO.
@@ -7,7 +7,7 @@ import type { FiltrosDeTareas, OpcionDeEstado, TareaTC } from './tipos'
  * que pedir al servidor.
  */
 
-type Filtrable = Pick<TareaTC, 'titulo' | 'estado' | 'departamento' | 'responsables' | 'responsables_notion' | 'etiquetas'>
+type Filtrable = Pick<TareaTC, 'titulo' | 'estado' | 'departamento' | 'responsables' | 'responsables_notion' | 'etiquetas'> & Partial<Pick<TareaTC, 'fecha_inicio' | 'fecha_fin'>>
 
 const limpio = (s: string) =>
   s
@@ -15,12 +15,45 @@ const limpio = (s: string) =>
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
 
-export function filtrarTareas<T extends Filtrable>(tareas: readonly T[], f: FiltrosDeTareas, miId: string, estados: readonly OpcionDeEstado[], nombreDe: (id: string) => string): T[] {
+const sumar = (dia: string, n: number): string => {
+  const [a, m, d] = dia.split('-').map(Number)
+  return new Date(Date.UTC(a, m - 1, d + n)).toISOString().slice(0, 10)
+}
+
+/** El lunes y el domingo de la semana de un día «AAAA-MM-DD» */
+export function semanaDe(dia: string): { lunes: string; domingo: string } {
+  const [a, m, d] = dia.split('-').map(Number)
+  const lunes = sumar(dia, -((new Date(Date.UTC(a, m - 1, d)).getUTCDay() + 6) % 7))
+  return { lunes, domingo: sumar(lunes, 6) }
+}
+
+/** El hoy de España como «AAAA-MM-DD» (el huso del equipo, no el del navegador de quien mira) */
+export const hoyEnEspana = (ahora: Date = new Date()): string => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' }).format(ahora)
+
+/**
+ * ¿Cumple el filtro de fecha? Una tarea cubre de su inicio a su fin (o solo su inicio). «Vencida» = su último día ya pasó y NO está hecha: una hecha no vence.
+ */
+export function cumpleFecha(t: Partial<Pick<TareaTC, 'fecha_inicio' | 'fecha_fin'>>, filtro: FiltroDeFecha, hoy: string, hecha: boolean): boolean {
+  if (filtro === 'todas') return true
+  const desde = t.fecha_inicio?.slice(0, 10) ?? null
+  if (filtro === 'sin_fecha') return !desde
+  if (!desde) return false
+  const fin = t.fecha_fin?.slice(0, 10)
+  const hasta = fin && fin >= desde ? fin : desde
+  if (filtro === 'vencidas') return !hecha && hasta < hoy
+  if (filtro === 'hoy') return desde <= hoy && hoy <= hasta
+  const { lunes, domingo } = semanaDe(hoy)
+  return desde <= domingo && hasta >= lunes
+}
+
+export function filtrarTareas<T extends Filtrable>(tareas: readonly T[], f: FiltrosDeTareas, miId: string, estados: readonly OpcionDeEstado[], nombreDe: (id: string) => string, hoy: string = hoyEnEspana()): T[] {
   const texto = limpio(f.busqueda.trim())
   const hechas = new Set(estados.filter((e) => e.grupo === 'hecho').map((e) => e.nombre))
   return tareas.filter((t) => {
     if (f.ocultarHechas && hechas.has(t.estado)) return false
     if (f.soloMias && !t.responsables.includes(miId)) return false
+    if (f.sinResponsable && (t.responsables.length > 0 || t.responsables_notion.length > 0)) return false
+    if (f.fecha !== 'todas' && !cumpleFecha(t, f.fecha, hoy, hechas.has(t.estado))) return false
     if (f.responsables.length > 0 && !f.responsables.some((r) => t.responsables.includes(r))) return false
     if (f.departamentos.length > 0 && !(t.departamento && f.departamentos.includes(t.departamento))) return false
     if (texto) {
@@ -32,7 +65,7 @@ export function filtrarTareas<T extends Filtrable>(tareas: readonly T[], f: Filt
 }
 
 /** ¿Hay algún filtro puesto? Para enseñar el botón «Quitar filtros» */
-export const hayFiltros = (f: FiltrosDeTareas): boolean => Boolean(f.busqueda.trim() || f.responsables.length || f.departamentos.length || f.ocultarHechas || f.soloMias)
+export const hayFiltros = (f: FiltrosDeTareas): boolean => Boolean(f.busqueda.trim() || f.responsables.length || f.departamentos.length || f.ocultarHechas || f.soloMias || f.fecha !== 'todas' || f.sinResponsable)
 
 export interface GrupoDeTareas<T> {
   clave: string

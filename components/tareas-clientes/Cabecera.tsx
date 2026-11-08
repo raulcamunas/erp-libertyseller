@@ -5,8 +5,9 @@ import { CalendarClock, CalendarDays, ChevronDown, Filter, GanttChartSquare, Kan
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { hayFiltros } from '@/lib/tareas-clientes/filtros'
 import { describirRecurrencia, recurrenciaValida } from '@/lib/tareas-clientes/recurrencia'
-import { departamentosDe, type ClienteTC, type FiltrosDeTareas, type PersonaTC, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
+import { departamentosDe, FILTROS_VACIOS, type ClienteTC, type FiltrosDeTareas, type PersonaTC, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
 import { Avatar } from '@/components/rendimiento/ui'
+import { MenuDeVistas } from './MenuDeVistas'
 import { SelectorDePortada } from './Portada'
 import { SelectorDeEmoji } from './ui'
 
@@ -29,6 +30,8 @@ export interface PropsDeCabecera {
   onVista: (v: TipoDeVista) => void
   filtros: FiltrosDeTareas
   onFiltros: (f: FiltrosDeTareas) => void
+  /** Un administrador puede compartir una vista guardada con todo el equipo */
+  esAdmin?: boolean
   personas: readonly PersonaTC[]
   clientesParaDepartamentos: readonly ClienteTC[]
   puedeAgrupar: boolean
@@ -86,6 +89,8 @@ export function Cabecera(p: PropsDeCabecera) {
           {p.filtros.busqueda && <button type="button" aria-label="Borrar la búsqueda" onClick={() => p.onFiltros({ ...p.filtros, busqueda: '' })}><X className="h-3 w-3 text-[var(--ls-t4)]" /></button>}
         </label>
 
+        <MenuDeVistas filtros={p.filtros} vista={p.vista} esAdmin={p.esAdmin === true} onAplicar={(f, v) => { p.onFiltros(f); if (v && p.vistas.includes(v)) p.onVista(v) }} />
+
         <Popover>
           <PopoverTrigger asChild>
             <button type="button" className="tc-boton-herramienta" data-activo={activos ? 'true' : undefined}><Filter className="h-3.5 w-3.5" /> Filtros{activos ? ' ·' : ''}</button>
@@ -93,6 +98,12 @@ export function Cabecera(p: PropsDeCabecera) {
           <PopoverContent align="end" className="!w-[300px] !rounded-[12px] !border-[var(--ls-linea2)] !bg-[var(--ls-sup)] !p-3 !text-[var(--ls-t1)] shadow-[0_18px_50px_rgba(0,0,0,0.4)]">
             <div className="flex flex-col gap-3 text-[12.5px]">
               <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" className="tc-casilla" checked={p.filtros.soloMias} onChange={(e) => p.onFiltros({ ...p.filtros, soloMias: e.target.checked })} /> Solo mis tareas</label>
+              <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" className="tc-casilla" checked={p.filtros.sinResponsable} onChange={(e) => p.onFiltros({ ...p.filtros, sinResponsable: e.target.checked })} /> Sin responsable</label>
+              <label className="flex items-center justify-between gap-2">Fecha
+                <select value={p.filtros.fecha} onChange={(e) => p.onFiltros({ ...p.filtros, fecha: e.target.value as FiltrosDeTareas['fecha'] })} className="h-7 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-1.5 text-[12px]">
+                  <option value="todas">Cualquiera</option><option value="vencidas">Vencidas</option><option value="hoy">Hoy</option><option value="semana">Esta semana</option><option value="sin_fecha">Sin fecha</option>
+                </select>
+              </label>
               <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" className="tc-casilla" checked={p.filtros.ocultarHechas} onChange={(e) => p.onFiltros({ ...p.filtros, ocultarHechas: e.target.checked })} /> Ocultar las hechas</label>
               <fieldset>
                 <legend className="mb-1 text-[11px] font-semibold text-[var(--ls-t4)]">Responsable</legend>
@@ -118,7 +129,7 @@ export function Cabecera(p: PropsDeCabecera) {
                   </select>
                 </label>
               )}
-              {activos && <button type="button" onClick={() => p.onFiltros({ ...p.filtros, busqueda: '', responsables: [], departamentos: [], ocultarHechas: false, soloMias: false })} className="self-start text-[12px] text-[var(--ls-e-rojo)] hover:underline">Quitar los filtros</button>}
+              {activos && <button type="button" onClick={() => p.onFiltros({ ...FILTROS_VACIOS, agruparPor: p.filtros.agruparPor })} className="self-start text-[12px] text-[var(--ls-e-rojo)] hover:underline">Quitar los filtros</button>}
             </div>
           </PopoverContent>
         </Popover>
