@@ -444,8 +444,6 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
             </Link>
           ) : (
             <span className="lat-marca">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="lat-icono" src="/pwa/icono-192.png" alt="" width={36} height={36} draggable={false} />
               <span className="lat-logo">
                 <Logo width={132} height={21} />
               </span>
