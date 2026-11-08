@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, Bell, BellOff, Hash, Headphones, LogOut, Lock, MessageCircle, Phone, Settings2, Video } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Bell, BellOff, Hash, Headphones, LogOut, Lock, MessageCircle, Phone, Pin, Settings2, Sparkles, Video, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { filasDeMensajes } from '@/lib/chat/agrupar'
 import { nombreVisible } from '@/lib/chat/canales'
@@ -9,7 +9,9 @@ import { textoPlano } from '@/lib/chat/mensajes'
 import type { CanalChat, MensajeChat } from '@/lib/chat/tipos'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { useChat } from './ChatProvider'
+import { pedir } from '@/components/tareas-clientes/api'
 import { DialogoMiembros } from './Dialogos'
+import { DialogoDeFijados, DialogoDeResumen, EmojiDeEstado } from './Paneles'
 import { useJunta } from './JuntaProvider'
 import { MensajeVista } from './MensajeVista'
 import { Redactor } from './Redactor'
@@ -41,11 +43,14 @@ export function VistaDeCanal() {
 }
 
 function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
-  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, avisarQueEscribo, unirse, silenciar, salir, nombreDe, conectados, seleccionar } = useChat()
+  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, avisarQueEscribo, unirse, silenciar, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe } = useChat()
   const { disponible: juntasDisponibles, activas, actual: juntaActual, entrar: entrarEnJunta } = useJunta()
   const [miembrosAbierto, setMiembrosAbierto] = useState(false)
   const [pegado, setPegado] = useState(true)
   const [citando, setCitando] = useState<MensajeChat | null>(null)
+  const [fijadosAbierto, setFijadosAbierto] = useState(false)
+  const [resumenAbierto, setResumenAbierto] = useState(false)
+  const [tiraOculta, setTiraOculta] = useState(false)
   // El id más alto que había al abrir el canal: lo que llega después entra con animación, el historial no
   const maxInicial = useRef<number | null>(null)
   const lista = useRef<HTMLDivElement>(null)
@@ -107,24 +112,35 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }
 
-  /** Lleva al mensaje citado (cargando más historial si hace falta) y lo resalta un momento */
+  /** Lleva al mensaje citado y lo resalta un momento; si no está cargado (queda muy atrás), el proveedor abre una ventana alrededor de él */
   const irAlMensaje = async (id: number) => {
-    const el0 = lista.current
-    if (!el0) return
-    for (let intento = 0; intento < 6; intento++) {
-      const el = lista.current?.querySelector(`[data-mensaje-id="${id}"]`)
-      if (el) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-        el.setAttribute('data-resaltado', 'true')
-        setTimeout(() => el.removeAttribute('data-resaltado'), 1800)
-        return
-      }
-      if (!estado(canal.id).hayMas) break
-      await cargarMas(canal.id)
-      await new Promise((r) => setTimeout(r, 120))
+    const el = lista.current?.querySelector(`[data-mensaje-id="${id}"]`)
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      el.setAttribute('data-resaltado', 'true')
+      setTimeout(() => el.removeAttribute('data-resaltado'), 1800)
+      return
     }
-    toast.message('Ese mensaje queda muy atrás: no se ha podido encontrar.')
+    await irAMensaje(canal.id, id)
   }
+
+  // Al llegar desde una búsqueda, un guardado o una cita: cuando el mensaje ya está pintado, se le lleva allí y se resalta
+  useEffect(() => {
+    if (!objetivo || objetivo.canalId !== canal.id || !e.cargado) return
+    const el = lista.current?.querySelector(`[data-mensaje-id="${objetivo.id}"]`)
+    if (!el) return
+    const t = setTimeout(() => {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      el.setAttribute('data-resaltado', 'true')
+      setTimeout(() => el.removeAttribute('data-resaltado'), 1800)
+      limpiarObjetivo()
+    }, 60)
+    return () => clearTimeout(t)
+  }, [objetivo, e.cargado, e.mensajes, canal.id, limpiarObjetivo])
+
+  // Cuántos mensajes de otros hay sin leer desde que se abrió el canal: si son muchos, se ofrece el resumen
+  const nuevos = marca ? e.mensajes.filter((m) => m.autor_id !== yo.id && m.borrado_en === null && Date.parse(m.creado_en) > Date.parse(marca)).length : 0
+  const estadoDelOtro = otro ? estadoDe(otro) : null
 
   const hacer = (f: () => Promise<unknown>) => void f().catch((err: Error) => toast.error(err.message))
   const icono = canal.tipo === 'privado' ? <Lock className="h-4 w-4" /> : canal.tipo === 'directo' ? null : <Hash className="h-4 w-4" />
@@ -136,10 +152,19 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
           <button type="button" className="chat-icono chat-atras" onClick={() => seleccionar(null)} aria-label="Volver a la lista"><ArrowLeft className="h-4 w-4" /></button>
           {icono}
           <h1>{nombre}</h1>
-          {otro && <span className="chat-estado-persona" data-en-linea={conectados.has(otro) ? 'true' : undefined}>{conectados.has(otro) ? 'En línea' : 'Desconectado'}</span>}
+          {otro && <EmojiDeEstado id={otro} />}
+          {otro && <span className="chat-estado-persona" data-en-linea={conectados.has(otro) ? 'true' : undefined}>{estadoDelOtro?.texto || (conectados.has(otro) ? 'En línea' : 'Desconectado')}</span>}
           {canal.descripcion && <span className="chat-descripcion" title={canal.descripcion}>{canal.descripcion}</span>}
         </div>
         <div className="chat-cabecera-acciones">
+          <button type="button" className="chat-icono chat-resumen-boton" onClick={() => setResumenAbierto(true)} aria-label="Ponme al día" title="Ponme al día: un resumen de lo que no has leído">
+            <Sparkles className="h-4 w-4" />
+          </button>
+          {(canal.fijados > 0 || canal.soy_miembro) && (
+            <button type="button" className="chat-icono" onClick={() => setFijadosAbierto(true)} aria-label={`Mensajes fijados${canal.fijados > 0 ? ` (${canal.fijados})` : ''}`} title="Mensajes fijados">
+              <Pin className="h-4 w-4" />{canal.fijados > 0 && <span className="text-[12px] font-bold">{canal.fijados}</span>}
+            </button>
+          )}
           {canal.soy_miembro && juntasDisponibles && !(juntaActual?.canalId === canal.id) && (
             <button type="button" className="chat-icono chat-llamar" onClick={() => hacer(() => entrarEnJunta(canal.id))} aria-label={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta'} title={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta de voz y vídeo'}>
               {canal.tipo === 'directo' ? <Phone className="h-4 w-4" /> : <Video className="h-4 w-4" />}
@@ -170,6 +195,15 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
             Junta en curso · <b>{activas[canal.id].personas.map((id) => nombreDe(id).split(' ')[0]).join(', ')}</b>
           </span>
           <button type="button" className="tc-boton-primario" onClick={() => hacer(() => entrarEnJunta(canal.id))}>Unirme</button>
+        </div>
+      )}
+
+      {nuevos >= 8 && !tiraOculta && (
+        <div className="chat-tira-resumen" role="status">
+          <Sparkles className="h-4 w-4 shrink-0" />
+          <span><b>{nuevos} mensajes nuevos</b> desde la última vez que estuviste</span>
+          <button type="button" className="tc-boton-primario" onClick={() => setResumenAbierto(true)}>Ponme al día</button>
+          <button type="button" className="chat-icono" onClick={() => setTiraOculta(true)} aria-label="Ocultar"><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
 
@@ -204,7 +238,12 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
         {e.cargado && e.mensajes.length === 0 && <p className="chat-sin-mensajes">Aún no hay mensajes. ¡Escribe el primero!</p>}
       </div>
 
-      {!pegado && (
+      {e.conSalto && (
+        <button type="button" className="chat-ir-al-final" onClick={() => void irAlFinal(canal.id)} aria-label="Ir a lo más reciente">
+          <ArrowDown className="h-3.5 w-3.5" /> Volver a lo más reciente
+        </button>
+      )}
+      {!pegado && !e.conSalto && (
         <button type="button" className="chat-ir-al-final" onClick={alIrAlFinal} aria-label="Ir al último mensaje">
           <ArrowDown className="h-3.5 w-3.5" /> Ir al final
         </button>
@@ -221,10 +260,14 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
             alEscribir={() => avisarQueEscribo(canal.id)}
             cita={citando ? { autor: citando.autor_id === yo.id ? 'Tú' : nombreDe(citando.autor_id), texto: textoPlano(citando.cuerpo, (id) => nombreDe(id).split(' ')[0], 90) || '📎 Archivo adjunto' } : null}
             alQuitarCita={() => setCitando(null)}
-            alEnviar={async (cuerpo) => {
-              await enviar(canal.id, cuerpo, citando ? { respondeA: citando.id } : undefined)
+            alEnviar={async (cuerpo, adjuntos) => {
+              await enviar(canal.id, cuerpo, { respondeA: citando?.id, adjuntos })
               setCitando(null)
               pegadoRef.current = true
+            }}
+            alProgramar={async (cuerpo, adjuntos, enviarEn) => {
+              await pedir('/api/chat/programados', { metodo: 'POST', cuerpo: { canalId: canal.id, cuerpo, respondeA: citando?.id, adjuntos, enviarEn } })
+              setCitando(null)
             }}
             autoEnfocar
           />
@@ -236,6 +279,8 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
         )}
       </div>
       {miembrosAbierto && <DialogoMiembros canal={canal} onCerrar={() => setMiembrosAbierto(false)} />}
+      {fijadosAbierto && <DialogoDeFijados canalId={canal.id} nombre={nombre} onCerrar={() => setFijadosAbierto(false)} />}
+      {resumenAbierto && <DialogoDeResumen canalId={canal.id} nombre={nombre} onCerrar={() => setResumenAbierto(false)} />}
     </section>
   )
 }

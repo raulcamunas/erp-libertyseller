@@ -11,7 +11,7 @@ import { useChat } from './ChatProvider'
 
 const SIN_ACENTOS = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-function Ventana({ titulo, onCerrar, children, pie }: { titulo: string; onCerrar: () => void; children: ReactNode; pie?: ReactNode }) {
+export function Ventana({ titulo, onCerrar, children, pie }: { titulo: string; onCerrar: () => void; children: ReactNode; pie?: ReactNode }) {
   const cuerpo = (
     <div className="tc-modal-fondo" onClick={(e) => e.target === e.currentTarget && onCerrar()} onKeyDown={(e) => e.key === 'Escape' && onCerrar()}>
       <div className="tc-modal chat-dialogo" role="dialog" aria-modal="true" aria-label={titulo}>

@@ -39,7 +39,7 @@ export function PanelDeHilo() {
           candidatos={candidatos}
           placeholder="Responder en el hilo…"
           alEscribir={() => avisarQueEscribo(hilo.canalId)}
-          alEnviar={(cuerpo) => enviar(hilo.canalId, cuerpo, { hiloDe: hilo.id })}
+          alEnviar={(cuerpo, adjuntos) => enviar(hilo.canalId, cuerpo, { hiloDe: hilo.id, adjuntos })}
         />
       )}
     </aside>

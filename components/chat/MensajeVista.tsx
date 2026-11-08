@@ -1,13 +1,17 @@
 'use client'
 
 import { memo, useState } from 'react'
-import { CornerUpLeft, MessageSquareReply, Pencil, SmilePlus, Trash2 } from 'lucide-react'
+import { Bookmark, BookmarkCheck, Clock, CornerUpLeft, FileText, MessageSquareReply, MoreHorizontal, Pencil, Pin, PinOff, SmilePlus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
+import { pedir } from '@/components/tareas-clientes/api'
+import { esImagen, formatoDeTamano } from '@/lib/chat/archivos'
 import { horaDe } from '@/lib/chat/agrupar'
 import { aTextoEditable, desdeTextoEditable, type Mencionado } from '@/lib/chat/mensajes'
-import type { MensajeChat } from '@/lib/chat/tipos'
+import { describirInstante } from '@/lib/chat/tiempo'
+import type { AdjuntoChat, MensajeChat } from '@/lib/chat/tipos'
 import { useChat } from './ChatProvider'
+import { ElegirHora, EmojiDeEstado, VisorDeImagen } from './Paneles'
 import { TextoDeMensaje } from './TextoDeMensaje'
 
 const RAPIDAS = ['👍', '❤️', '😂', '🎉', '👀', '🙏']
@@ -28,9 +32,12 @@ interface Props {
 }
 
 export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo, nuevo, puedeBorrarAjeno, alAbrirHilo, alCitar, alIrALaCita }: Props) {
-  const { yo, persona, nombreDe, editar, borrar, reaccionar } = useChat()
+  const { yo, persona, nombreDe, editar, borrar, reaccionar, guardados, guardar: marcarGuardado, fijar } = useChat()
   const [editando, setEditando] = useState<{ texto: string; mencionados: Mencionado[] } | null>(null)
   const [guardando, setGuardando] = useState(false)
+  const [visor, setVisor] = useState<AdjuntoChat | null>(null)
+  const [recordando, setRecordando] = useState(false)
+  const guardado = guardados.has(m.id)
   const autor = persona(m.autor_id)
   const mio = m.autor_id === yo.id
   const eliminado = m.borrado_en !== null
@@ -82,7 +89,10 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
         {!continuacion && (
           <p className="chat-mensaje-cabecera">
             <b>{mio ? 'Tú' : autor?.nombre ?? nombreDe(m.autor_id)}</b>
+            <EmojiDeEstado id={m.autor_id} />
             <time dateTime={m.creado_en}>{horaDe(m.creado_en)}</time>
+            {m.fijado_en && <span className="chat-marca-fijado" title="Fijado arriba del canal"><Pin className="h-3 w-3" /> Fijado</span>}
+            {guardado && <BookmarkCheck className="h-3 w-3 text-[var(--c-acc,var(--ls-acc))]" aria-label="Guardado" />}
           </p>
         )}
         <div className="chat-burbuja">
@@ -121,17 +131,21 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
           {m.adjuntos.length > 0 && (
             <ul className="chat-adjuntos">
               {m.adjuntos.map((a) => (
-                <li key={a.url}>
-                  {a.tipo.startsWith('image/') ? (
-                    <a href={a.url} target="_blank" rel="noopener noreferrer"><img src={a.url} alt={a.nombre} loading="lazy" className="chat-imagen" /></a>
+                <li key={a.ruta ?? a.url}>
+                  {esImagen(a.tipo, a.nombre) ? (
+                    <button type="button" className="chat-imagen-boton" onClick={() => setVisor(a)} aria-label={`Ver ${a.nombre}`}><img src={a.url} alt={a.nombre} loading="lazy" className="chat-imagen" /></button>
                   ) : (
-                    <a href={a.url} target="_blank" rel="noopener noreferrer" className="chat-archivo">📎 {a.nombre}</a>
+                    <a href={a.url} target="_blank" rel="noopener noreferrer" className="chat-archivo" download={a.nombre}>
+                      <FileText className="h-4 w-4 shrink-0" />
+                      <span><b>{a.nombre}</b><i>{formatoDeTamano(a.tamano)}</i></span>
+                    </a>
                   )}
                 </li>
               ))}
             </ul>
           )}
         </div>
+        {visor && <VisorDeImagen adjunto={visor} onCerrar={() => setVisor(null)} />}
         {reacciones.length > 0 && (
           <div className="chat-reacciones">
             {reacciones.map(([emoji, quienes]) => (
@@ -150,7 +164,7 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
       </div>
       {!editando && (
         <div className="chat-herramientas" role="toolbar" aria-label="Acciones del mensaje">
-          {RAPIDAS.slice(0, 4).map((e) => (
+          {RAPIDAS.slice(0, 3).map((e) => (
             <button key={e} type="button" onClick={() => alReaccionar(e)} aria-label={`Reaccionar con ${e}`}>{e}</button>
           ))}
           <ReaccionarConOtra alElegir={alReaccionar} />
@@ -166,7 +180,26 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
           {(mio || puedeBorrarAjeno) && (
             <button type="button" onClick={alBorrar} aria-label="Borrar" title="Borrar" data-peligro="true"><Trash2 className="h-3.5 w-3.5" /></button>
           )}
+          <MasAcciones
+            guardado={guardado}
+            fijado={m.fijado_en !== null}
+            puedeFijar={Boolean(alCitar)}
+            alGuardar={() => void marcarGuardado(m.id, !guardado).then(() => toast.success(guardado ? 'Quitado de guardados' : 'Guardado')).catch((e: Error) => toast.error(e.message))}
+            alFijar={() => void fijar(m.id, m.fijado_en === null).then(() => toast.success(m.fijado_en === null ? 'Fijado arriba del canal' : 'Quitado de fijados')).catch((e: Error) => toast.error(e.message))}
+            alRecordar={() => setRecordando(true)}
+          />
         </div>
+      )}
+      {recordando && (
+        <ElegirHora
+          titulo="Recordármelo"
+          ayuda="Te avisaré por la campana (y el móvil) a esa hora."
+          onElegir={async (avisarEn) => {
+            await pedir('/api/chat/recordatorios', { metodo: 'POST', cuerpo: { mensajeId: m.id, avisarEn } })
+            toast.success(`Te lo recordaré ${describirInstante(Date.parse(avisarEn))}`)
+          }}
+          onCerrar={() => setRecordando(false)}
+        />
       )}
     </div>
   )
@@ -184,6 +217,26 @@ function ReaccionarConOtra({ alElegir }: { alElegir: (emoji: string) => void }) 
           {[...RAPIDAS, ...MAS_EMOJIS].map((e) => (
             <button key={e} type="button" onClick={() => { alElegir(e); setAbierto(false) }}>{e}</button>
           ))}
+        </span>
+      )}
+    </span>
+  )
+}
+
+function MasAcciones({ guardado, fijado, puedeFijar, alGuardar, alFijar, alRecordar }: { guardado: boolean; fijado: boolean; puedeFijar: boolean; alGuardar: () => void; alFijar: () => void; alRecordar: () => void }) {
+  const [abierto, setAbierto] = useState(false)
+  const elegir = (f: () => void) => () => {
+    setAbierto(false)
+    f()
+  }
+  return (
+    <span className="chat-mas-emojis">
+      <button type="button" onClick={() => setAbierto((v) => !v)} aria-label="Más acciones" aria-expanded={abierto} title="Más acciones"><MoreHorizontal className="h-3.5 w-3.5" /></button>
+      {abierto && (
+        <span className="chat-menu-mensaje" role="menu" onMouseLeave={() => setAbierto(false)}>
+          <button type="button" role="menuitem" onClick={elegir(alGuardar)}>{guardado ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />} {guardado ? 'Quitar de guardados' : 'Guardar'}</button>
+          {puedeFijar && <button type="button" role="menuitem" onClick={elegir(alFijar)}>{fijado ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />} {fijado ? 'Quitar de fijados' : 'Fijar en el canal'}</button>}
+          <button type="button" role="menuitem" onClick={elegir(alRecordar)}><Clock className="h-3.5 w-3.5" /> Recordármelo</button>
         </span>
       )}
     </span>

@@ -5,7 +5,8 @@ import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
 import { conMensaje } from '@/lib/chat/agrupar'
 import type { DatosDeInicioChat } from '@/lib/chat/servidor'
-import type { AdjuntoChat, CanalChat, EventoDeChat, MensajeChat, PersonaChat } from '@/lib/chat/tipos'
+import { estaVigente } from '@/lib/chat/estado'
+import type { AdjuntoChat, CanalChat, EstadoChat, EventoDeChat, MensajeChat, PersonaChat } from '@/lib/chat/tipos'
 import { createClient } from '@/lib/supabase/client'
 
 const BASE = '/api/chat'
@@ -19,9 +20,13 @@ export interface EstadoDeCanal {
   hayMas: boolean
   cargado: boolean
   cargando: boolean
+  /** Se ha saltado a un mensaje antiguo: lo que hay no llega hasta lo último, y lo nuevo no se añade solo (hay que «ir al final») */
+  conSalto: boolean
 }
 
-const VACIO: EstadoDeCanal = { mensajes: [], hayMas: false, cargado: false, cargando: false }
+export type VistaDelChat = 'canal' | 'menciones' | 'guardados' | 'recordatorios' | 'programados'
+
+const VACIO: EstadoDeCanal = { mensajes: [], hayMas: false, cargado: false, cargando: false, conSalto: false }
 const SIN_YO = { id: '', nombre: '', esAdmin: false }
 
 interface ContextoDeChat {
@@ -64,6 +69,22 @@ interface ContextoDeChat {
   descartarLlamada: () => void
   /** Sube cada vez que llega el aviso de una junta nueva: la pantalla de juntas relee las que hay abiertas */
   versionDeJuntas: number
+  /** Qué se ve: un canal o una de las listas de la «bandeja» */
+  vista: VistaDelChat
+  abrirBandeja: (v: Exclude<VistaDelChat, 'canal'>) => void
+  /** Salta a un mensaje, aunque sea muy antiguo (una respuesta de un hilo abre el hilo) */
+  irAMensaje: (canalId: string, id: number, hiloDe?: number | null) => Promise<void>
+  /** El mensaje al que hay que llevar la pantalla en cuanto esté pintado */
+  objetivo: { canalId: string; id: number; n: number } | null
+  limpiarObjetivo: () => void
+  /** Vuelve a lo último del canal (después de saltar a un mensaje antiguo) */
+  irAlFinal: (canalId: string) => Promise<void>
+  guardados: ReadonlySet<number>
+  guardar: (id: number, valor: boolean) => Promise<void>
+  fijar: (id: number, valor: boolean) => Promise<void>
+  /** El estado vigente de una persona («En reunión»…), o null */
+  estadoDe: (id: string | null | undefined) => EstadoChat | null
+  ponerEstado: (emoji: string, texto: string, duracion: string) => Promise<void>
 }
 
 const Contexto = createContext<ContextoDeChat | null>(null)
@@ -107,6 +128,10 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   const [enVivo, setEnVivo] = useState(false)
   const [llamadaEntrante, setLlamadaEntrante] = useState<{ canalId: string; de: string; en: number } | null>(null)
   const [versionDeJuntas, setVersionDeJuntas] = useState(0)
+  const [vista, setVista] = useState<VistaDelChat>('canal')
+  const [guardados, setGuardados] = useState<ReadonlySet<number>>(new Set())
+  const [estadosDePersonas, setEstadosDePersonas] = useState<Record<string, EstadoChat>>({})
+  const [objetivo, setObjetivo] = useState<{ canalId: string; id: number; n: number } | null>(null)
 
   // Lo último, siempre a mano para los avisos del directo (que llegan con el estado de cuando se abrió el canal)
   const canalesRef = useRef<CanalChat[]>([])
@@ -137,6 +162,8 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
       const d = await pedir<DatosDeInicioChat>(`${BASE}/inicio`)
       setDatos(d)
       setCanales(d.canales)
+      setGuardados(new Set(d.guardados ?? []))
+      setEstadosDePersonas(d.estados ?? {})
       setError(null)
       return d
     } catch (e) {
@@ -152,6 +179,8 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   const cargarCanal = useCallback(
     async (canalId: string, { sustituir = false }: { sustituir?: boolean } = {}) => {
       if (estadosRef.current[canalId]?.cargando) return
+      // Con un salto a un mensaje antiguo no se mezcla lo último en medio: se vuelve al final cuando la persona lo pide
+      if (estadosRef.current[canalId]?.conSalto && !sustituir) return
       cambiarEstado(canalId, (e) => ({ ...e, cargando: true }))
       try {
         const r = await pedir<{ mensajes: MensajeChat[]; hayMas: boolean }>(`${BASE}/mensajes?canalId=${canalId}`)
@@ -159,7 +188,7 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
         cambiarEstado(canalId, (e) => {
           // Al releer no se pierde lo que ya había más arriba: se mezcla
           const mezclados = sustituir || !e.cargado ? r.mensajes : r.mensajes.reduce((acc, m) => conMensaje(acc, m), e.mensajes)
-          return { mensajes: mezclados, hayMas: e.cargado && !sustituir ? e.hayMas : r.hayMas, cargado: true, cargando: false }
+          return { mensajes: mezclados, hayMas: e.cargado && !sustituir ? e.hayMas : r.hayMas, cargado: true, cargando: false, conSalto: false }
         })
       } catch (e) {
         cambiarEstado(canalId, (x) => ({ ...x, cargando: false, cargado: x.cargado }))
@@ -209,6 +238,7 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   const seleccionar = useCallback(
     (id: string | null) => {
       setActualId(id)
+      setVista('canal')
       setHilo(null)
       setMensajesDelHilo([])
       if (!id) return
@@ -242,6 +272,15 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   const aplicarEvento = useCallback(
     (e: EventoDeChat) => {
       if (e.tipo === 'canales') return refrescarEnBreve()
+      if (e.tipo === 'estado') {
+        setEstadosDePersonas((previo) => {
+          const nuevo = { ...previo }
+          if (e.estado) nuevo[e.usuario] = e.estado
+          else delete nuevo[e.usuario]
+          return nuevo
+        })
+        return
+      }
       if (e.tipo === 'junta') {
         setVersionDeJuntas((v) => v + 1)
         if (e.de !== yoRef.current) setLlamadaEntrante({ canalId: e.canalId, de: e.de, en: Date.now() })
@@ -270,7 +309,8 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
       vistos.current.add(m.id)
       const mio = m.autor_id === yoRef.current
       if (m.hilo_de === null) {
-        if (estadosRef.current[m.canal_id]?.cargado) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: conMensaje(x.mensajes, m) }))
+        const estadoDelCanal = estadosRef.current[m.canal_id]
+        if (estadoDelCanal?.cargado && !estadoDelCanal.conSalto) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: conMensaje(x.mensajes, m) }))
       } else {
         if (nuevo) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: x.mensajes.map((p) => (p.id === m.hilo_de ? { ...p, respuestas: p.respuestas + 1 } : p)) }))
         if (hiloRef.current?.id === m.hilo_de) setMensajesDelHilo((l) => conMensaje(l, m))
@@ -487,6 +527,81 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
     setMensajesDelHilo([])
   }, [])
 
+  const abrirBandeja = useCallback((v: Exclude<VistaDelChat, 'canal'>) => {
+    setVista(v)
+    setActualId(null)
+    setHilo(null)
+  }, [])
+
+  const abrirHiloRef = useRef<(canalId: string, id: number) => void>(() => undefined)
+  abrirHiloRef.current = abrirHilo
+
+  const irAMensaje = useCallback(
+    async (canalId: string, id: number, hiloDe?: number | null) => {
+      const destino = hiloDe ?? id
+      const marca = () => setObjetivo({ canalId, id: destino, n: Date.now() })
+      setVista('canal')
+      setActualId(canalId)
+      setHilo(null)
+      guardarUltimo(canalId)
+      const c = canalesRef.current.find((x) => x.id === canalId)
+      setMarcas((m) => ({ ...m, [canalId]: c?.ultimo_leido_en ?? null }))
+      if (c?.soy_miembro && (c.no_leidos > 0 || c.menciones > 0)) marcarLeido(canalId)
+      // Si ya está cargado, basta con llevar la pantalla hasta él
+      const actual = estadosRef.current[canalId]
+      if (actual?.cargado && actual.mensajes.some((m) => m.id === destino)) {
+        marca()
+      } else {
+        try {
+          const r = await pedir<{ mensajes: MensajeChat[]; hayMas: boolean; hayMasNuevos?: boolean }>(`${BASE}/mensajes?canalId=${canalId}&alrededor=${destino}`)
+          for (const m of r.mensajes) vistos.current.add(m.id)
+          cambiarEstado(canalId, () => ({ mensajes: r.mensajes, hayMas: r.hayMas, cargado: true, cargando: false, conSalto: Boolean(r.hayMasNuevos) }))
+          marca()
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : 'No se ha podido abrir ese mensaje')
+          return
+        }
+      }
+      if (hiloDe) abrirHiloRef.current(canalId, hiloDe)
+    },
+    [cambiarEstado, marcarLeido]
+  )
+
+  const irAlFinal = useCallback((canalId: string) => cargarCanal(canalId, { sustituir: true }), [cargarCanal])
+
+  const guardar = useCallback(async (id: number, valor: boolean) => {
+    setGuardados((g) => {
+      const n = new Set(g)
+      if (valor) n.add(id)
+      else n.delete(id)
+      return n
+    })
+    try {
+      await pedir(`${BASE}/marcas`, { metodo: 'POST', cuerpo: { accion: 'guardar', id, valor } })
+    } catch (e) {
+      // Si falla se deshace
+      setGuardados((g) => {
+        const n = new Set(g)
+        if (valor) n.delete(id)
+        else n.add(id)
+        return n
+      })
+      throw e
+    }
+  }, [])
+
+  const fijar = useCallback(async (id: number, valor: boolean) => {
+    const r = await pedir<{ mensaje: MensajeChat }>(`${BASE}/marcas`, { metodo: 'POST', cuerpo: { accion: 'fijar', id, valor } })
+    aplicarRef.current({ tipo: 'editado', mensaje: r.mensaje })
+  }, [])
+
+  const ponerEstado = useCallback(async (emoji: string, texto: string, duracion: string) => {
+    const r = await pedir<{ estado: EstadoChat | null }>(`${BASE}/estado`, { metodo: 'PUT', cuerpo: { emoji, texto, duracion } })
+    aplicarRef.current({ tipo: 'estado', usuario: yoRef.current, estado: r.estado })
+  }, [])
+
+  const estadoDe = useCallback((id: string | null | undefined) => (id && estaVigente(estadosDePersonas[id]) ? estadosDePersonas[id] : null), [estadosDePersonas])
+
   const avisarQueEscribo = useCallback((canalId: string) => {
     const c = canalDePresencia.current
     if (!c) return
@@ -539,8 +654,19 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
       llamadaEntrante,
       descartarLlamada: () => setLlamadaEntrante(null),
       versionDeJuntas,
+      vista,
+      abrirBandeja,
+      irAMensaje,
+      objetivo,
+      limpiarObjetivo: () => setObjetivo(null),
+      irAlFinal,
+      guardados,
+      guardar,
+      fijar,
+      estadoDe,
+      ponerEstado,
     }),
-    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas]
+    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>

@@ -394,6 +394,19 @@ export const TAREAS_CRON = [
     que: 'Manda a los móviles y ordenadores con los avisos activados las notificaciones nuevas de la campana, aunque la app esté cerrada.',
   },
   {
+    /**
+     * CADA MINUTO, Y SIN NADA PENDIENTE ES UNA CONSULTA PEQUEÑA.
+     *
+     * Avisa por la campana (y el móvil) de los recordatorios del chat cuya hora ha llegado y envía los mensajes programados que ya tocan, como si su autor los escribiera entonces.
+     * Cada uno se «reclama» antes de hacerlo (marcándolo como enviado), así que dos pasadas que se solapen no lo repiten.
+     */
+    id: 'chat-avisos',
+    nombre: 'Chat: recordatorios y mensajes programados',
+    ruta: '/api/chat/cron',
+    cadaMinutos: 1,
+    que: 'Avisa de los recordatorios del chat cuando llega su hora y envía los mensajes programados.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
@@ -444,6 +457,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'tareas-notion': { prioridad: 'normal' },
   'tareas-reuniones': { prioridad: 'normal' },
   'push-avisos': { prioridad: 'normal' },
+  'chat-avisos': { prioridad: 'normal' },
 }
 
 const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true

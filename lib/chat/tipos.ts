@@ -1,9 +1,16 @@
 /** Los tipos del chat del equipo, los mismos en el servidor y en la pantalla */
 
+import type { EstadoChat } from './estado'
+
+export type { EstadoChat }
+
 export type TipoDeCanal = 'canal' | 'privado' | 'directo'
 
 export interface AdjuntoChat {
   nombre: string
+  /** La ruta en el almacén privado: es lo que se guarda y lo que viaja al enviar */
+  ruta?: string
+  /** El enlace firmado para abrirlo (lo pone el servidor al leer; caduca) */
   url: string
   tipo: string
   tamano: number
@@ -28,6 +35,8 @@ export interface CanalChat {
   silenciado: boolean
   /** Hasta cuándo he leído (para la marca «Nuevos») */
   ultimo_leido_en: string | null
+  /** Cuántos mensajes fijados tiene */
+  fijados: number
 }
 
 /** Lo que dice el mensaje al que se responde, para pintar la cita sin pedirlo aparte */
@@ -51,6 +60,8 @@ export interface MensajeChat {
   menciones: string[]
   adjuntos: AdjuntoChat[]
   editado_en: string | null
+  /** Cuándo se fijó arriba del canal (null = no está fijado) */
+  fijado_en: string | null
   borrado_en: string | null
   creado_en: string
   /** emoji → quién ha reaccionado */
@@ -73,5 +84,52 @@ export type EventoDeChat =
   | { tipo: 'reaccion'; canalId: string; id: number; reacciones: Record<string, string[]> }
   /** Cambió algo del canal o de quién está en él: la pantalla relee la lista */
   | { tipo: 'canales' }
+  /** Alguien ha cambiado su estado (null = lo ha quitado) */
+  | { tipo: 'estado'; usuario: string; estado: EstadoChat | null }
   /** Alguien ha abierto una junta en este canal */
   | { tipo: 'junta'; canalId: string; de: string; sala: string; estado: 'llama' }
+
+/** Un mensaje en una lista aparte (menciones, guardados, fijados) con el canal al que pertenece */
+export interface ItemDeBandeja {
+  mensaje: MensajeChat
+  canalId: string
+}
+
+export interface ResultadoDeBusqueda {
+  id: number
+  canalId: string
+  autor_id: string | null
+  /** El principio del mensaje */
+  cuerpo: string
+  hilo_de: number | null
+  creado_en: string
+}
+
+export interface RecordatorioChat {
+  id: string
+  texto: string
+  canal_id: string | null
+  mensaje_id: number | null
+  avisar_en: string
+  enviado_en: string | null
+}
+
+export interface ProgramadoChat {
+  id: string
+  canal_id: string
+  cuerpo: string
+  enviar_en: string
+  estado: 'pendiente' | 'enviado' | 'cancelado' | 'error'
+  error: string | null
+  adjuntos: AdjuntoChat[]
+}
+
+export interface ResumenDeCanal {
+  resumen: string
+  decisiones: string[]
+  pendientes: string[]
+  preguntas: string[]
+  /** Cuántos mensajes se han leído para hacerlo, y desde cuándo */
+  mensajes: number
+  desde: string
+}

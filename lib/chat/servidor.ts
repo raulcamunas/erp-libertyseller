@@ -1,6 +1,8 @@
 import { APP_CHAT } from '@/lib/config/apps'
 import { createServiceClient } from '@/lib/supabase/service'
+import { esRutaDe } from './archivos'
 import { claveDeDirecto, normalizarNombreDeCanal } from './canales'
+import { estaVigente, type EstadoChat } from './estado'
 import { cuerpoValido, CUERPO_MAX, extraerMenciones, limpiarCuerpo, textoPlano } from './mensajes'
 import { emitir } from './tiempo-real'
 import type { AdjuntoChat, CanalChat, CitaChat, MensajeChat, PersonaChat, TipoDeCanal } from './tipos'
@@ -40,7 +42,7 @@ export interface FilaCanal {
   creado_por: string | null
 }
 
-interface FilaMensaje {
+export interface FilaMensaje {
   id: number
   canal_id: string
   autor_id: string | null
@@ -48,6 +50,8 @@ interface FilaMensaje {
   hilo_de: number | null
   /** Solo existe con la migración 285 */
   responde_a?: number | null
+  /** Solo existe con la migración 286 */
+  fijado_en?: string | null
   menciones: string[] | null
   adjuntos: AdjuntoChat[] | null
   editado_en: string | null
@@ -142,6 +146,10 @@ export interface DatosDeInicioChat {
   yo: { id: string; nombre: string; esAdmin: boolean }
   personas: PersonaChat[]
   canales: CanalChat[]
+  /** Los mensajes que tengo guardados (solo los ids) */
+  guardados: number[]
+  /** El estado vigente de cada persona que tiene uno */
+  estados: Record<string, EstadoChat>
 }
 
 export async function cargarInicio(quien: QuienEscribe): Promise<DatosDeInicioChat> {
@@ -174,6 +182,19 @@ export async function cargarInicio(quien: QuienEscribe): Promise<DatosDeInicioCh
   for (const m of (miembros.data ?? []) as Array<{ canal_id: string; usuario_id: string }>) miembrosPorCanal.set(m.canal_id, [...(miembrosPorCanal.get(m.canal_id) ?? []), m.usuario_id])
   const sinLeer = new Map(((resumen.data ?? []) as Array<{ canal_id: string; no_leidos: number; menciones: number }>).map((r) => [r.canal_id, r]))
 
+  // Lo de la migración 286: si todavía no está lanzada, estas consultas fallan y se queda en vacío (el chat sigue igual)
+  const idsDeCanales = canales.map((c) => c.id)
+  const [guardadosFilas, estadosFilas, fijadosFilas] = await Promise.all([
+    service.from('chat_guardados').select('mensaje_id').eq('usuario_id', quien.userId).order('creado_en', { ascending: false }).limit(500),
+    service.from('chat_estados').select('usuario_id, emoji, texto, hasta'),
+    idsDeCanales.length > 0 ? service.from('chat_mensajes').select('canal_id').in('canal_id', idsDeCanales).not('fijado_en', 'is', null).limit(2000) : Promise.resolve({ data: [] as Array<{ canal_id: string }>, error: null }),
+  ])
+  const guardados = guardadosFilas.error ? [] : ((guardadosFilas.data ?? []) as Array<{ mensaje_id: number }>).map((g) => g.mensaje_id)
+  const estados: Record<string, EstadoChat> = {}
+  if (!estadosFilas.error) for (const e of (estadosFilas.data ?? []) as Array<{ usuario_id: string; emoji: string; texto: string; hasta: string | null }>) if (estaVigente(e)) estados[e.usuario_id] = { emoji: e.emoji, texto: e.texto, hasta: e.hasta }
+  const fijadosPorCanal = new Map<string, number>()
+  if (!fijadosFilas.error) for (const f of (fijadosFilas.data ?? []) as Array<{ canal_id: string }>) fijadosPorCanal.set(f.canal_id, (fijadosPorCanal.get(f.canal_id) ?? 0) + 1)
+
   return {
     yo: { id: quien.userId, nombre: quien.nombre, esAdmin: quien.esAdmin },
     personas,
@@ -196,8 +217,11 @@ export async function cargarInicio(quien: QuienEscribe): Promise<DatosDeInicioCh
         menciones: propio ? r?.menciones ?? 0 : 0,
         silenciado: propio?.silenciado ?? false,
         ultimo_leido_en: propio?.ultimo_leido_en ?? null,
+        fijados: fijadosPorCanal.get(c.id) ?? 0,
       }
     }),
+    guardados,
+    estados,
   }
 }
 
@@ -217,6 +241,7 @@ async function armarMensajes(filas: readonly FilaMensaje[]): Promise<MensajeChat
     idsCitados.length > 0 ? personasDelChat() : Promise.resolve([] as PersonaChat[]),
   ])
   const nombreDe = (id: string) => personas.find((p) => p.id === id)?.nombre.split(' ')[0] ?? 'alguien'
+  const enlaces = await firmarAdjuntos(filas.flatMap((f) => (f.borrado_en ? [] : f.adjuntos ?? [])))
   const citas = new Map<number, CitaChat>()
   for (const c of (citados.data ?? []) as Array<{ id: number; autor_id: string | null; cuerpo: string; adjuntos: AdjuntoChat[] | null; borrado_en: string | null }>) {
     citas.set(c.id, { id: c.id, autor_id: c.autor_id, borrado: c.borrado_en !== null, texto: c.borrado_en ? '' : textoPlano(c.cuerpo, nombreDe, 140) || ((c.adjuntos ?? []).length > 0 ? '📎 Archivo adjunto' : '') })
@@ -238,8 +263,9 @@ async function armarMensajes(filas: readonly FilaMensaje[]): Promise<MensajeChat
     hilo_de: f.hilo_de,
     cita: f.borrado_en || !f.responde_a ? null : citas.get(f.responde_a) ?? null,
     menciones: f.borrado_en ? [] : f.menciones ?? [],
-    adjuntos: f.borrado_en ? [] : f.adjuntos ?? [],
+    adjuntos: f.borrado_en ? [] : (f.adjuntos ?? []).map((a) => ({ ...a, url: (a.ruta && enlaces.get(a.ruta)) || a.url || '' })),
     editado_en: f.editado_en,
+    fijado_en: f.borrado_en ? null : f.fijado_en ?? null,
     borrado_en: f.borrado_en,
     creado_en: f.creado_en,
     reacciones: f.borrado_en ? {} : porMensaje.get(f.id) ?? {},
@@ -253,7 +279,7 @@ export const MENSAJES_POR_PAGINA = 50
  * Los mensajes de un canal, del más viejo al más nuevo, de 50 en 50: con `antes` (el id del más viejo que ya tienes) vienen los anteriores. Con `hilo` (el id de un mensaje) vienen ese
  * mensaje y sus respuestas.
  */
-export async function mensajesDe(quien: QuienEscribe, entrada: { canalId: unknown; antes?: unknown; hilo?: unknown }): Promise<{ mensajes: MensajeChat[]; hayMas: boolean }> {
+export async function mensajesDe(quien: QuienEscribe, entrada: { canalId: unknown; antes?: unknown; hilo?: unknown; alrededor?: unknown }): Promise<{ mensajes: MensajeChat[]; hayMas: boolean; hayMasNuevos?: boolean }> {
   const canal = await canalDe(entrada.canalId)
   await exigirVer(quien, canal)
   const service = db()
@@ -268,6 +294,23 @@ export async function mensajesDe(quien: QuienEscribe, entrada: { canalId: unknow
     if (!padre.data) throw new ErrorDeChat('Ese mensaje no existe.', 404)
     return { mensajes: await armarMensajes([padre.data as FilaMensaje, ...((hijos.data ?? []) as FilaMensaje[])]), hayMas: false }
   }
+  // Una ventana alrededor de un mensaje (al saltar desde una búsqueda, una cita o un guardado): 25 antes y 25 después
+  if (entrada.alrededor !== undefined && entrada.alrededor !== null) {
+    const objetivo = Number(entrada.alrededor)
+    if (!esNumeroDeMensaje(objetivo)) throw new ErrorDeChat('Ese mensaje no es válido.')
+    const { data: m } = await service.from('chat_mensajes').select('id, hilo_de').eq('id', objetivo).eq('canal_id', canal.id).maybeSingle()
+    if (!m) throw new ErrorDeChat('Ese mensaje no existe.', 404)
+    // Una respuesta de un hilo se busca por el mensaje de arriba
+    const centro = (m as { hilo_de: number | null }).hilo_de ?? objetivo
+    const [antes, despues] = await Promise.all([
+      service.from('chat_mensajes').select('*').eq('canal_id', canal.id).is('hilo_de', null).lte('id', centro).order('id', { ascending: false }).limit(26),
+      service.from('chat_mensajes').select('*').eq('canal_id', canal.id).is('hilo_de', null).gt('id', centro).order('id', { ascending: true }).limit(26),
+    ])
+    if (antes.error) fallo(antes.error, 'leer los mensajes')
+    const previos = (antes.data ?? []) as FilaMensaje[]
+    const siguientes = (despues.data ?? []) as FilaMensaje[]
+    return { mensajes: await armarMensajes([...previos.slice(0, 25).reverse(), ...siguientes.slice(0, 25)]), hayMas: previos.length > 25, hayMasNuevos: siguientes.length > 25 }
+  }
   let consulta = service.from('chat_mensajes').select('*').eq('canal_id', canal.id).is('hilo_de', null).order('id', { ascending: false }).limit(MENSAJES_POR_PAGINA + 1)
   const antes = entrada.antes === undefined || entrada.antes === null ? null : Number(entrada.antes)
   if (antes !== null) {
@@ -281,21 +324,35 @@ export async function mensajesDe(quien: QuienEscribe, entrada: { canalId: unknow
   return { mensajes: await armarMensajes(filas.slice(0, MENSAJES_POR_PAGINA).reverse()), hayMas }
 }
 
-/** Los archivos que se pueden colgar de un mensaje: https, con nombre, y pocos */
-export function adjuntosValidos(entrada: unknown): AdjuntoChat[] {
+export const ALMACEN_DE_ARCHIVOS = 'chat-archivos'
+const VALIDEZ_DE_LOS_ENLACES_S = 12 * 3600
+
+/** Los enlaces firmados de los archivos de unos mensajes (caducan; se piden al leer, nunca se guardan) */
+async function firmarAdjuntos(adjuntos: readonly AdjuntoChat[]): Promise<Map<string, string>> {
+  const rutas = [...new Set(adjuntos.map((a) => a.ruta).filter((r): r is string => Boolean(r)))]
+  if (rutas.length === 0) return new Map()
+  const { data } = await db().storage.from(ALMACEN_DE_ARCHIVOS).createSignedUrls(rutas, VALIDEZ_DE_LOS_ENLACES_S)
+  return new Map(((data ?? []) as Array<{ path: string | null; signedUrl: string }>).filter((f) => f.path).map((f) => [f.path as string, f.signedUrl]))
+}
+
+/** Los archivos que se pueden colgar de un mensaje: solo los que ha subido quien lo envía (la ruta lleva su id), con nombre, y pocos */
+export function adjuntosValidos(entrada: unknown, usuarioId: string): AdjuntoChat[] {
   if (!Array.isArray(entrada)) return []
   return entrada
     .filter((a): a is Record<string, unknown> => Boolean(a) && typeof a === 'object')
-    .map((a) => ({ nombre: typeof a.nombre === 'string' ? a.nombre.slice(0, 200) : '', url: typeof a.url === 'string' ? a.url : '', tipo: typeof a.tipo === 'string' ? a.tipo.slice(0, 100) : '', tamano: typeof a.tamano === 'number' && Number.isFinite(a.tamano) ? Math.max(0, Math.round(a.tamano)) : 0 }))
-    .filter((a) => a.nombre && /^https:\/\//i.test(a.url) && a.url.length <= 1000)
+    .filter((a) => esRutaDe(a.ruta, usuarioId))
+    .map((a) => ({ nombre: typeof a.nombre === 'string' ? a.nombre.slice(0, 200) : '', ruta: a.ruta as string, url: '', tipo: typeof a.tipo === 'string' ? a.tipo.slice(0, 100) : '', tamano: typeof a.tamano === 'number' && Number.isFinite(a.tamano) ? Math.max(0, Math.round(a.tamano)) : 0 }))
+    .filter((a) => a.nombre)
     .slice(0, 10)
+    // Lo que se guarda no lleva enlace: se firma al leer
+    .map(({ url: _url, ...resto }) => ({ ...resto, url: '' }))
 }
 
 const nombreDeCanal = (c: FilaCanal) => c.nombre ?? 'mensaje directo'
 
 export async function enviarMensaje(quien: QuienEscribe, entrada: { canalId: unknown; cuerpo: unknown; hiloDe?: unknown; adjuntos?: unknown; respondeA?: unknown }): Promise<MensajeChat> {
   const cuerpo = limpiarCuerpo(entrada.cuerpo)
-  const adjuntos = adjuntosValidos(entrada.adjuntos)
+  const adjuntos = adjuntosValidos(entrada.adjuntos, quien.userId)
   if (!cuerpo && adjuntos.length === 0) throw new ErrorDeChat('Escribe algo antes de enviar.')
   if (!cuerpoValido(cuerpo)) throw new ErrorDeChat(`El mensaje es demasiado largo (máximo ${CUERPO_MAX} caracteres).`)
   const canal = await canalDe(entrada.canalId)
@@ -412,6 +469,9 @@ export async function borrarMensaje(quien: QuienEscribe, id: unknown): Promise<{
   const { error } = await db().from('chat_mensajes').update({ borrado_en: new Date().toISOString(), cuerpo: '', adjuntos: [], menciones: [] }).eq('id', fila.id)
   if (error) fallo(error, 'borrar el mensaje')
   await db().from('chat_reacciones').delete().eq('mensaje_id', fila.id)
+  // Y los archivos que llevaba (si falla, quedan huérfanos en el almacén; no pasa nada grave)
+  const rutas = (fila.adjuntos ?? []).map((a) => a.ruta).filter((r): r is string => Boolean(r))
+  if (rutas.length > 0) void db().storage.from(ALMACEN_DE_ARCHIVOS).remove(rutas)
   void emitir(miembros.map((m) => m.usuario_id), { tipo: 'borrado', canalId: canal.id, id: fila.id })
   return { ok: true }
 }
@@ -556,3 +616,17 @@ export async function cambiarCanal(quien: QuienEscribe, canalId: unknown, cambio
   void emitir(destinatarios, { tipo: 'canales' })
   return { ok: true }
 }
+
+
+/** Los canales que esta persona puede leer: los abiertos y aquellos en los que está */
+export async function canalesVisibles(quien: QuienEscribe): Promise<Array<{ id: string; tipo: TipoDeCanal; nombre: string | null }>> {
+  const service = db()
+  const { data: propios } = await service.from('chat_miembros').select('canal_id').eq('usuario_id', quien.userId)
+  const ids = ((propios ?? []) as Array<{ canal_id: string }>).map((m) => m.canal_id)
+  const consulta = service.from('chat_canales').select('id, tipo, nombre').eq('archivado', false)
+  const { data, error } = await (ids.length > 0 ? consulta.or(`tipo.eq.canal,id.in.(${ids.join(',')})`) : consulta.eq('tipo', 'canal'))
+  if (error) fallo(error, 'leer los canales')
+  return (data ?? []) as Array<{ id: string; tipo: TipoDeCanal; nombre: string | null }>
+}
+
+export { armarMensajes, esNumeroDeMensaje, esUuid, mensajeDe }

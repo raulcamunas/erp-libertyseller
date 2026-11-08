@@ -168,13 +168,14 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
           const fila = (payload as { new?: { type?: unknown; clave?: unknown; title?: unknown; message?: unknown; datos?: unknown } }).new
           if (fila?.type === 'correo_nuevo') void sonarCorreo(typeof fila.clave === 'string' ? fila.clave.replace(/^msg:/, '') : undefined)
           // Un mensaje del chat (un directo o una mención): suena, sale en el escritorio si la pestaña está oculta y asoma abajo a la derecha. Dentro del propio chat no: allí ya se ve en la barra
-          const dChat = fila?.datos as { app?: string; canalId?: string } | null | undefined
-          if (dChat?.app === 'chat' && typeof dChat.canalId === 'string' && /^[0-9a-f-]{36}$/i.test(dChat.canalId)) {
-            const rutaDelChat = `/dashboard/chat?canal=${dChat.canalId}`
-            if (!window.location.pathname.startsWith('/dashboard/chat')) {
+          const dChat = fila?.datos as { app?: string; canalId?: string | null; tipo?: string } | null | undefined
+          if (dChat?.app === 'chat') {
+            const rutaDelChat = typeof dChat.canalId === 'string' && /^[0-9a-f-]{36}$/i.test(dChat.canalId) ? `/dashboard/chat?canal=${dChat.canalId}` : '/dashboard/chat'
+            // Un recordatorio suena siempre; un mensaje, solo si no estás ya dentro del chat (allí se ve en la barra)
+            if (dChat.tipo === 'recordatorio' || !window.location.pathname.startsWith('/dashboard/chat')) {
               void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
               avisarEnEscritorio(String(fila?.title ?? 'Chat'), String(fila?.message ?? ''), rutaDelChat)
-              publicarAviso({ id: `chat:${typeof fila?.clave === 'string' ? fila.clave : String(Date.now())}`, tipo: 'tarea', titulo: String(fila?.title ?? 'Chat'), detalle: String(fila?.message ?? ''), duracionMs: 9000, accion: { etiqueta: 'Abrir', alPulsar: () => router.push(rutaDelChat) } })
+              publicarAviso({ id: `chat:${typeof fila?.clave === 'string' ? fila.clave : String(Date.now())}`, tipo: 'tarea', titulo: String(fila?.title ?? 'Chat'), detalle: String(fila?.message ?? ''), duracionMs: dChat.tipo === 'recordatorio' ? 14000 : 9000, accion: { etiqueta: 'Abrir', alPulsar: () => router.push(rutaDelChat) } })
             }
           }
           // Un aviso de tareas (te asignan, te mencionan, comentan, o una fecha): su propio sonido, y la notificación del escritorio si la pestaña no se está viendo
@@ -272,9 +273,9 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
     }
 
     // Un mensaje del chat: se abre en su canal
-    const datosChat = notification.datos as { app?: string; canalId?: string } | null | undefined
-    if (datosChat?.app === 'chat' && typeof datosChat.canalId === 'string' && /^[0-9a-f-]{36}$/i.test(datosChat.canalId)) {
-      return `/dashboard/chat?canal=${datosChat.canalId}`
+    const datosChat = notification.datos as { app?: string; canalId?: string | null } | null | undefined
+    if (datosChat?.app === 'chat') {
+      return typeof datosChat.canalId === 'string' && /^[0-9a-f-]{36}$/i.test(datosChat.canalId) ? `/dashboard/chat?canal=${datosChat.canalId}` : '/dashboard/chat'
     }
 
     // Una tarea de cliente (comentario, mención o asignación): se abre en su tablero, con la tarea a la vista

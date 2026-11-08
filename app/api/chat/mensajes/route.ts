@@ -5,10 +5,10 @@ import { conChat, cuerpoDe } from '@/lib/chat/rutas'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-/** Los mensajes de un canal: `?canalId=…[&antes=<id>][&hilo=<id>]` */
+/** Los mensajes de un canal: `?canalId=…[&antes=<id>][&hilo=<id>][&alrededor=<id>]` (esta última da una ventana alrededor de un mensaje) */
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams
-  return conChat((quien) => mensajesDe(quien, { canalId: q.get('canalId'), antes: q.get('antes') ?? undefined, hilo: q.get('hilo') ?? undefined }))
+  return conChat((quien) => mensajesDe(quien, { canalId: q.get('canalId'), antes: q.get('antes') ?? undefined, hilo: q.get('hilo') ?? undefined, alrededor: q.get('alrededor') ?? undefined }))
 }
 
 /** Escribe: `{ canalId, cuerpo, hiloDe?, respondeA?, adjuntos? }` (`respondeA` = el mensaje que se cita) */

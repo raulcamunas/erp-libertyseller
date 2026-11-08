@@ -82,6 +82,7 @@ RUN { \
       echo "* * * * * /app/scripts/tareas-notion.sh"; \
       echo "* * * * * /app/scripts/tareas-reuniones.sh"; \
       echo "* * * * * /app/scripts/push-avisos.sh"; \
+      echo "* * * * * /app/scripts/chat-avisos.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto

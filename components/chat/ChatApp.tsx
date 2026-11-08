@@ -1,18 +1,21 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { totalSinLeer } from '@/lib/chat/canales'
 import { BarraDeChat } from './BarraDeChat'
 import { ChatProvider, useChat } from './ChatProvider'
 import { JuntaProvider } from './JuntaProvider'
 import { LlamadaEntrante } from './LlamadaEntrante'
 import { PanelDeJunta } from './PanelDeJunta'
+import { SaltarA } from './SaltarA'
+import { VistaDeBandeja } from './VistaDeBandeja'
 import { TemaDelChatProvider, useTemaDelChat } from './TemaDelChat'
 import { PanelDeHilo } from './PanelDeHilo'
 import { VistaDeCanal } from './VistaDeCanal'
 
-function Marco() {
-  const { canales, hilo, actual } = useChat()
+export function Marco() {
+  const { canales, hilo, actual, vista } = useChat()
+  const [buscando, setBuscando] = useState(false)
   const { ajustes } = useTemaDelChat()
   // El título de la pestaña avisa de lo que hay sin leer aunque estés en otra
   useEffect(() => {
@@ -24,13 +27,25 @@ function Marco() {
       document.title = document.title.replace(/^\(\d+\+?\)\s*/, '')
     }
   }, [canales])
+  // Cmd+K (o Ctrl+K) abre el buscador desde cualquier sitio del chat
+  useEffect(() => {
+    const alTeclear = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setBuscando((b) => !b)
+      }
+    }
+    window.addEventListener('keydown', alTeclear)
+    return () => window.removeEventListener('keydown', alTeclear)
+  }, [])
   return (
-    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-vista={actual ? 'canal' : 'barra'} data-fondo={ajustes.fondo} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto}>
-      <BarraDeChat />
-      <VistaDeCanal />
+    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-vista={actual || vista !== 'canal' ? 'canal' : 'barra'} data-fondo={ajustes.fondo} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto}>
+      <BarraDeChat alBuscar={() => setBuscando(true)} />
+      {vista === 'canal' ? <VistaDeCanal /> : <VistaDeBandeja />}
       <PanelDeHilo />
       <PanelDeJunta />
       <LlamadaEntrante />
+      {buscando && <SaltarA onCerrar={() => setBuscando(false)} />}
     </div>
   )
 }
