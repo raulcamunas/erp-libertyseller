@@ -72,7 +72,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   const [filtros, setFiltros] = useState<FiltrosDeTareas>(FILTROS_VACIOS)
   const [abierta, setAbierta] = useState<string | null>(tareaInicial ?? null)
   // La barra de clientes empieza plegada (una tira de iconos): con la barra del ERP a la vista, dos barras anchas se comen media pantalla. Se despliega al pasar el ratón sin empujar nada
-  const [colapsada, setColapsada] = useState(true)
+  const [colapsada, setColapsada] = useState(false)
   const [asoma, setAsoma] = useState(false)
   const temporizadorAsoma = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [releyendo, setReleyendo] = useState(false)
@@ -87,7 +87,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
 
   useEffect(() => {
     // Solo se queda abierta si la persona la dejó abierta a propósito ('0')
-    setColapsada(leerLocal('tc-lateral-2') !== '0')
+    setColapsada(leerLocal('tc-lateral-3') === '1')
     const v = leerLocal('tc-vista') as TipoDeVista | null
     if (v && VISTAS_DE_CLIENTE.includes(v)) setVistaElegida(v)
   }, [])
@@ -599,7 +599,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
         onFocus={() => colapsada && setAsoma(true)}
         onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setAsoma(false)}
       >
-        <BarraLateral personas={personas} onBuscar={() => { setAsoma(false); setBuscadorAbierto(true) }} clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada && !asoma} onAlternar={() => { setColapsada(!colapsada); setAsoma(false); escribirLocal('tc-lateral-2', colapsada ? '0' : '1') }} onNavegar={(r) => { setAsoma(false); navegar(r) }} onFavorito={alternarFavorito} />
+        <BarraLateral personas={personas} onBuscar={() => { setAsoma(false); setBuscadorAbierto(true) }} clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada && !asoma} onAlternar={() => { setColapsada(!colapsada); setAsoma(false); escribirLocal('tc-lateral-3', colapsada ? '0' : '1') }} onNavegar={(r) => { setAsoma(false); navegar(r) }} onFavorito={alternarFavorito} />
       </div>
 
       <section className="tc-centro" ref={setCentro}>
