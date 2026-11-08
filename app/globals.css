@@ -4748,7 +4748,7 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
   .chat-atras { display: inline-flex; }
   .chat-hilo { position: absolute; inset: 0; z-index: 60; }
   .chat-hilo-interior { width: 100%; border-left: 0; }
-  .chat-cabecera { padding-left: 12px; padding-right: 56px; }
+  .chat-cabecera { padding-left: 12px; padding-right: 12px; }
   .chat-mensaje { grid-template-columns: 48px minmax(0, 1fr); padding-right: 12px; }
   .chat-pie { padding: 0 12px 12px; }
   .chat-herramientas { right: 8px; }
@@ -5076,4 +5076,29 @@ body > .chat-junta[data-grande='true'] { inset: 12px 12px 12px calc(var(--lat-an
 @media (min-width: 1024px) {
   .lat[data-inmersivo='true'] .lat-decorado { display: none; }
   .lat[data-inmersivo='true'] { background: var(--ls-sup2); box-shadow: none; }
+}
+
+
+/* ==========================================================================
+   CHAT EN EL MÓVIL: COMO UNA APLICACIÓN (components/chat/useAjusteMovil.ts pone `html.chat-abierto` y las medidas de la parte visible)
+   ========================================================================== */
+html.chat-abierto, html.chat-abierto body { overflow: hidden; overscroll-behavior: none; touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html.chat-abierto .chat-contenedor { -webkit-tap-highlight-color: transparent; overflow-x: clip; }
+html.chat-abierto .chat-contenedor button, html.chat-abierto .chat-barra, html.chat-abierto .chat-cabecera, html.chat-abierto .chat-redactor-caja { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-abierto .chat-hilo-lista, html.chat-abierto .chat-miembros-lista { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+/* Con 16 px el móvil no hace zoom al tocar un campo para escribir */
+@media (pointer: coarse) {
+  html.chat-abierto textarea, html.chat-abierto input, html.chat-abierto select { font-size: 16px !important; }
+}
+@media (max-width: 1023.98px) {
+  /* Ocupa justo la parte visible (sin teclado: toda la pantalla; con teclado: lo que queda encima), respetando la muesca y la barra de inicio */
+  html.chat-abierto .chat-inmersivo { position: fixed; inset: 0; min-height: 0; height: var(--chat-alto, 100dvh); transform: translateY(var(--chat-sube, 0px)); padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); background: var(--ls-fondo); }
+  html.chat-abierto .chat-inmersivo .chat-contenedor { height: 100%; }
+  html.chat-abierto:not([data-teclado]) .chat-pie { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  html.chat-abierto:not([data-teclado]) .chat-barra-pie { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+}
+/* En un chat estrecho (móvil) la caja de escribir da su sitio al texto: la encuesta se crea desde una pantalla más ancha */
+@container chat (max-width: 520px) {
+  .chat-redactor-caja .chat-icono[aria-label='Crear una encuesta'] { display: none; }
+  .chat-redactor-caja { gap: 4px; }
 }

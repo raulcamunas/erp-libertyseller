@@ -362,8 +362,8 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
       alQuitarCita?.()
       return
     }
-    // Enter envía; Mayús+Enter es un salto de línea. Mientras se compone un acento (IME) no se envía
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Enter envía; Mayús+Enter es un salto de línea. Mientras se compone un acento (IME) no se envía. En el móvil (pantalla táctil) Intro es siempre un salto de línea: se envía con el botón
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !window.matchMedia('(pointer: coarse)').matches) {
       e.preventDefault()
       void enviar()
     }

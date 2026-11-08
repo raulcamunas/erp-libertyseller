@@ -15,6 +15,7 @@ import { SaltarA } from './SaltarA'
 import { VistaDeBandeja } from './VistaDeBandeja'
 import { TemaDelChatProvider, useTemaDelChat } from './TemaDelChat'
 import { PanelDeHilo } from './PanelDeHilo'
+import { useAjusteMovil } from './useAjusteMovil'
 import { PanelDeMiembros, useMiembrosALaVista } from './PanelDeMiembros'
 import { VistaDeCanal } from './VistaDeCanal'
 
@@ -92,6 +93,7 @@ export function Marco({ dock = false }: { dock?: boolean }) {
 
 /** El chat entero. En el dock (`dock`) va dentro de una ventana pequeña: se adapta solo a su ancho y no toca la dirección, el título ni los atajos de la página */
 export function ChatApp({ canalInicial, dock = false }: { canalInicial?: string | null; dock?: boolean }) {
+  useAjusteMovil(!dock)
   return (
     <TemaDelChatProvider>
       <ChatProvider canalInicial={canalInicial} sincronizarUrl={!dock}>
