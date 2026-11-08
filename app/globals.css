@@ -4160,3 +4160,49 @@ body.tc-marcando * { cursor: crosshair !important; }
 /* ---- Avisos push (Mi día) ---- */
 .tc-dia-push { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; border-radius: 10px; border: 1px dashed var(--ls-linea2); padding: 7px 9px; }
 .tc-dia-push[data-estado='activo'] { border-style: solid; border-color: color-mix(in srgb, var(--ls-e-verde) 40%, transparent); }
+
+
+/* ---- El cuerpo de la tarea en dos tarjetas: lista de tareas y contexto ---- */
+.tc-cuerpo-tarjeta { border-radius: 16px; border: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-sup2) 55%, transparent); padding: 12px 14px 14px; }
+.tc-cuerpo-cabecera { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.tc-cuerpo-cabecera h3 { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; color: var(--ls-t1); }
+.tc-cuerpo-icono { display: grid; height: 24px; width: 24px; place-items: center; border-radius: 8px; background: var(--ls-sup3); color: var(--ls-t2); }
+.tc-cuerpo-icono[data-tono='verde'] { background: color-mix(in srgb, var(--ls-e-verde) 18%, transparent); color: var(--ls-e-verde); }
+.tc-cuerpo-icono[data-tono='azul'] { background: color-mix(in srgb, var(--tc-blue) 18%, transparent); color: var(--tc-blue); }
+.tc-cuerpo-editor { min-height: 90px; padding: 2px 4px 2px 22px; }
+.tc-editor[data-encima='true'] { border-radius: 10px; box-shadow: 0 0 0 2px var(--ls-acc-graf); background: var(--ls-acc-suave); }
+.tc-lista-progreso { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 11.5px; font-weight: 600; color: var(--ls-t3); }
+.tc-lista-progreso-barra { height: 6px; flex: 1; overflow: hidden; border-radius: 999px; background: var(--ls-sup3); }
+.tc-lista-progreso-barra span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--ls-acc-graf), var(--tc-orange)); transition: width 0.35s cubic-bezier(0.22, 0.8, 0.3, 1); }
+.tc-lista-progreso[data-completa='true'] { color: var(--ls-e-verde); }
+.tc-lista-progreso[data-completa='true'] .tc-lista-progreso-barra span { background: var(--ls-e-verde); }
+.tc-tarea-fila { display: flex; align-items: center; gap: 6px; border-radius: 10px; padding: 3px 6px 3px 0; background: transparent; transition: background-color 0.12s ease; }
+.tc-tarea-fila:hover, .tc-tarea-fila:focus-within { background: var(--ls-sup3); }
+.tc-tarea-fila[data-arrastrando='true'] { background: var(--ls-sup3); box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6); }
+.tc-tarea-asa { display: grid; height: 24px; width: 18px; flex-shrink: 0; place-items: center; cursor: grab; color: var(--ls-t4); opacity: 0; touch-action: none; }
+.tc-tarea-fila:hover .tc-tarea-asa, .tc-tarea-asa:focus-visible { opacity: 1; }
+.tc-tarea-marca { display: grid; height: 22px; width: 22px; flex-shrink: 0; place-items: center; border-radius: 999px; border: 1.8px solid var(--ls-linea2); color: transparent; transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, scale 0.18s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.tc-tarea-marca:hover { border-color: var(--ls-e-verde); }
+.tc-tarea-marca:active { scale: 0.88; }
+.tc-tarea-marca[data-on='true'] { border-color: var(--ls-e-verde); background: var(--ls-e-verde); color: #fff; }
+.tc-tarea-texto { min-width: 0; flex: 1; background: transparent; padding: 4px 4px; font-size: 14px; line-height: 1.4; color: var(--ls-t1); outline: none; text-overflow: ellipsis; }
+.tc-tarea-texto::placeholder { color: var(--ls-t4); }
+.tc-tarea-fila[data-hecha='true'] .tc-tarea-texto { color: var(--ls-t4); text-decoration: line-through; text-decoration-color: var(--ls-linea2); }
+.tc-tarea-quitar { display: grid; height: 24px; width: 24px; flex-shrink: 0; place-items: center; border-radius: 8px; color: var(--ls-t4); opacity: 0; }
+.tc-tarea-fila:hover .tc-tarea-quitar, .tc-tarea-quitar:focus-visible { opacity: 1; }
+.tc-tarea-quitar:hover { background: var(--ls-sup2); color: var(--ls-e-rojo); }
+.tc-tarea-nueva { display: flex; align-items: center; gap: 8px; margin-top: 6px; border-radius: 10px; border: 1px dashed var(--ls-linea2); padding: 7px 10px; transition: border-color 0.12s ease, background-color 0.12s ease; }
+.tc-tarea-nueva:focus-within { border-color: var(--ls-acc-graf); border-style: solid; background: var(--ls-sup2); }
+.tc-tarea-nueva[data-vacia='true'] { padding: 14px 12px; }
+.tc-tarea-nueva input { min-width: 0; flex: 1; background: transparent; font-size: 13.5px; color: var(--ls-t1); outline: none; }
+.tc-tarea-nueva input::placeholder { color: var(--ls-t4); }
+@media (prefers-reduced-motion: reduce) { .tc-tarea-marca, .tc-lista-progreso-barra span { transition: none; } }
+
+
+/* ---- Arrastrar una tarjeta o una columna sin tirones ----
+   Mientras se arrastra se PAUSAN las animaciones que no paran nunca: el hilo de luz de las cabeceras de columna (anima `background-position`, que obliga a repintar cada columna en cada
+   fotograma) y los fondos animados (cuyas capas, con la barra lateral desenfocada encima, se recalculan sin parar). Pausadas no se nota; en cuanto se suelta, siguen donde estaban.
+   La tarjeta que se mueve va en su propia capa de la tarjeta gráfica (`will-change`) y no se vuelve a pintar al moverse. */
+body.tc-agarrando .tc-columna::before { animation-play-state: paused !important; }
+body.tc-agarrando .tc-fa, body.tc-agarrando .tc-fa *, body.tc-agarrando .tc-fa::before, body.tc-agarrando .tc-fa::after, body.tc-agarrando .tc-fa *::before, body.tc-agarrando .tc-fa *::after { animation-play-state: paused !important; }
+.tc-tarjeta[data-superpuesta='true'], .tc-chip[data-superpuesta='true'] { will-change: transform; backface-visibility: hidden; }

@@ -11,9 +11,8 @@ import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { BASE, pedir, type DatosDeTarea } from './api'
 import { Adjuntos } from './Adjuntos'
 import { Bloqueos } from './Bloqueos'
-import { Editor } from './Editor'
+import { CuerpoDeLaTarea } from './CuerpoDeLaTarea'
 import { PropiedadesPropias } from './PropiedadesPropias'
-import { Subtareas } from './Subtareas'
 import { VersionesDelCuerpo } from './VersionesDelCuerpo'
 import { SelectorDePortada, estiloDePortada } from './Portada'
 import { Etiqueta, fechaCorta, SelectorDeColor, SelectorDeEmoji, SelectorDeOpcion, SelectorDePersonas } from './ui'
@@ -395,9 +394,8 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
               </div>
 
               <div className="tc-separador" />
-              <Editor bloques={contenido} onCambio={alEscribir} />
+              <CuerpoDeLaTarea contenido={contenido} onCambio={alEscribir} />
 
-              <Subtareas tareaId={tareaId} gente={gente} onContadores={aplicarLocal} />
               <Adjuntos tareaId={tareaId} onTotal={(n) => aplicarLocal({ adjuntos_total: n })} />
 
               <div className="tc-separador" />

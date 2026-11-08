@@ -666,8 +666,8 @@ export function Editor({ bloques, onCambio, soloLectura = false }: PropsDeEditor
   const entradaDeImagen = useRef<HTMLInputElement>(null)
   const bloqueDeImagen = useRef<string | null>(null)
   const [subiendo, setSubiendo] = useState(false)
-  async function subirImagen(fichero: File) {
-    const id = bloqueDeImagen.current
+  async function subirImagen(fichero: File, idDestino?: string) {
+    const id = idDestino ?? bloqueDeImagen.current
     bloqueDeImagen.current = null
     if (!id) return
     setSubiendo(true)
@@ -685,8 +685,48 @@ export function Editor({ bloques, onCambio, soloLectura = false }: PropsDeEditor
     }
   }
 
+  /** Una imagen pegada (Ctrl/Cmd+V) o soltada encima: se pone detrás del bloque donde estaba el cursor (o al final) y se sube igual que con el menú «/» */
+  const TIPOS_DE_IMAGEN = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  const [encima, setEncima] = useState(false)
+  async function insertarImagenes(ficheros: File[]) {
+    for (const f of ficheros) {
+      if (!TIPOS_DE_IMAGEN.includes(f.type)) {
+        toast.error('Solo se pueden subir imágenes JPG, PNG, WebP o GIF.')
+        continue
+      }
+      const destino = ultimoEnfocado.current && actual.current.some((b) => b.id === ultimoEnfocado.current) ? ultimoEnfocado.current : (actual.current[actual.current.length - 1]?.id ?? null)
+      const nuevo = bloqueNuevo('parrafo')
+      aplicar(destino ? insertarDespues(actual.current, destino, nuevo) : [...actual.current, nuevo])
+      await subirImagen(f, nuevo.id)
+    }
+  }
+
   return (
-    <div ref={raiz} className="tc-editor" onClick={(e) => {
+    <div
+      ref={raiz}
+      className="tc-editor"
+      data-encima={encima ? 'true' : undefined}
+      onPasteCapture={(e) => {
+        if (soloLectura) return
+        const imagenes = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'))
+        if (imagenes.length === 0) return
+        e.preventDefault()
+        e.stopPropagation()
+        void insertarImagenes(imagenes)
+      }}
+      onDragOver={(e) => {
+        if (soloLectura || !e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        setEncima(true)
+      }}
+      onDragLeave={(e) => e.currentTarget === e.target && setEncima(false)}
+      onDrop={(e) => {
+        setEncima(false)
+        if (soloLectura || e.dataTransfer.files.length === 0) return
+        e.preventDefault()
+        void insertarImagenes([...e.dataTransfer.files])
+      }}
+      onClick={(e) => {
       // Pulsar en el hueco de debajo del último bloque pone el cursor al final, o crea un párrafo si el último ya tiene algo
       if (soloLectura || e.target !== e.currentTarget) return
       const ultimo = actual.current[actual.current.length - 1]

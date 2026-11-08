@@ -287,6 +287,20 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     [seleccion, lotePendiente, datos?.tareas, cargar]
   )
 
+  // Con tareas marcadas, Suprimir (o la tecla de borrar del Mac) las archiva, igual que el botón «Archivar» (que pregunta antes: Enter lo confirma). No actúa si se está escribiendo en algo
+  // ni con una ventana abierta, para que borrar una letra nunca archive nada
+  useEffect(() => {
+    if (seleccion.size === 0) return
+    const alPulsar = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], [data-radix-popper-content-wrapper], .tc-editable, .tc-modal')) return
+      e.preventDefault()
+      void aplicarLote('archivar')
+    }
+    window.addEventListener('keydown', alPulsar)
+    return () => window.removeEventListener('keydown', alPulsar)
+  }, [seleccion.size, aplicarLote])
+
   const nuevaTarea = useCallback(async () => {
     const destino = cliente ?? (datos?.clientes[0] ?? null)
     if (!destino) return

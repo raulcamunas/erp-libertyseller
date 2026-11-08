@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
+import { cuentaEnElMarcador } from '@/lib/tareas-clientes/marcador'
 import { ChevronsLeft, ChevronsRight, Home, KanbanSquare, LayoutGrid, Search, Star, Sun, UserCheck } from 'lucide-react'
 import { ETIQUETA_DE_GRUPO, estadosDe, type ClienteTC, type GrupoDeCliente } from '@/lib/tareas-clientes/tipos'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
@@ -84,10 +85,10 @@ export function BarraLateral({
 
   const cifras = useMemo(() => {
     const porCliente = new Map<string, { abiertas: number; vencidas: number }>()
-    const hechas = new Map(clientes.map((c) => [c.id, new Set(estadosDe(c).filter((e) => e.grupo === 'hecho').map((e) => e.nombre))]))
     let mias = 0
+    // El marcador cuenta solo lo que está En progreso o En revisión (lib/tareas-clientes/marcador.ts): ni el Backlog, ni las Recurrentes, ni lo hecho
     for (const t of tareas) {
-      if (hechas.get(t.cliente_id)?.has(t.estado)) continue
+      if (!cuentaEnElMarcador(t.estado)) continue
       const f = porCliente.get(t.cliente_id) ?? { abiertas: 0, vencidas: 0 }
       f.abiertas += 1
       const limite = (t.fecha_fin ?? t.fecha_inicio)?.slice(0, 10)
@@ -96,7 +97,7 @@ export function BarraLateral({
       if (t.responsables.includes(miId)) mias += 1
     }
     return { porCliente, mias }
-  }, [clientes, tareas, hoy, miId])
+  }, [tareas, hoy, miId])
 
   const filtrados = clientes.filter((c) => c.nombre.toLowerCase().includes(busqueda.trim().toLowerCase()))
   const losFavoritos = filtrados.filter((c) => favoritos.includes(c.id))
