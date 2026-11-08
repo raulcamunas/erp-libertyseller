@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { AlertTriangle, ArrowUpRight, Bot, CheckCircle2, Flame, ImageIcon, LayoutGrid, Palette, Search, ShieldCheck, Star, Sun, Timer, UserCheck, X } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Bot, CheckCircle2, Flame, ImageIcon, LayoutGrid, LogOut, Palette, Search, ShieldCheck, Star, Sun, Timer, UserCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { EstadisticasDeCliente } from '@/lib/tareas-clientes/servidor'
 import { ETIQUETA_DE_GRUPO, type ClienteTC, type GrupoDeCliente, type Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
@@ -15,6 +15,7 @@ import type { Conectado } from '@/lib/tareas-clientes/presencia'
 import { BASE, pedir, type DatosDeInicio, type Preferencias } from './api'
 import { FondoAnimado, SelectorDePortada, estiloDePortada, fondoNecesitaCortina } from './Portada'
 import { AccesosDeClientes } from './AccesosDeClientes'
+import { SalidaDeNotion } from './SalidaDeNotion'
 import { TareasAutomaticas } from './TareasAutomaticas'
 import { PilaDeAvatares } from './ui'
 import { usePresencia } from './PresenciaProvider'
@@ -65,6 +66,7 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
   const [error, setError] = useState<string | null>(null)
   const [accesosAbierto, setAccesosAbierto] = useState(false)
   const [automaticasAbierto, setAutomaticasAbierto] = useState(false)
+  const [salidaAbierta, setSalidaAbierta] = useState(false)
   const [filtro, setFiltro] = useState('')
   const [soloVencidas, setSoloVencidas] = useState(false)
   const { deCliente } = usePresencia()
@@ -176,10 +178,12 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
           <div className="tc-ini-herramientas">
             <Atajo icono={<ShieldCheck className="h-4 w-4" />} titulo="Quién ve qué" detalle="Limitar a cada persona a unos clientes" onClick={() => setAccesosAbierto(true)} color="purple" i={3} />
             <Atajo icono={<Bot className="h-4 w-4" />} titulo="Tareas automáticas" detalle="Que el ERP abra tareas con las alertas" onClick={() => setAutomaticasAbierto(true)} color="blue" i={4} />
+            <Atajo icono={<LogOut className="h-4 w-4" />} titulo="Salir de Notion" detalle="Qué falta para dejarlo en solo lectura" onClick={() => setSalidaAbierta(true)} color="orange" i={5} />
           </div>
         )}
       </div>
       {accesosAbierto && <AccesosDeClientes onCerrar={() => setAccesosAbierto(false)} />}
+      {salidaAbierta && <SalidaDeNotion onCerrar={() => setSalidaAbierta(false)} />}
       {automaticasAbierto && <TareasAutomaticas personas={datos.personas} onCerrar={() => setAutomaticasAbierto(false)} />}
 
       <div className="tc-ini-filtros">

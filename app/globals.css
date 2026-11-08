@@ -4371,3 +4371,10 @@ body.tc-agarrando .tc-fa, body.tc-agarrando .tc-fa *, body.tc-agarrando .tc-fa::
 @keyframes tc-pulso { 0%, 100% { box-shadow: 0 0 0 2px var(--ls-sup), 0 0 0 2px transparent; } 50% { box-shadow: 0 0 0 2px var(--ls-sup), 0 0 0 5px color-mix(in srgb, var(--ls-e-verde) 28%, transparent); } }
 
 body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
+
+/* La lista para dejar Notion */
+.tc-sal-barra { height: 6px; border-radius: 999px; background: var(--ls-bg3, rgba(127,127,127,.18)); overflow: hidden; }
+.tc-sal-barra > span { display: block; height: 100%; border-radius: inherit; background: var(--ls-acc); transition: width .4s ease; }
+.tc-sal-fila { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 10px; }
+.tc-sal-fila:hover { background: var(--ls-bg3, rgba(127,127,127,.1)); }
+.tc-sal-fila[data-bloqueada='true'] { opacity: .55; cursor: not-allowed; }
