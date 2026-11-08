@@ -9,7 +9,7 @@ import type { JuntaActiva } from '@/lib/chat/junta'
 import { useChat } from './ChatProvider'
 
 const BASE = '/api/chat'
-const RELEER_JUNTAS_MS = 30_000
+const RELEER_JUNTAS_MS = 15_000
 
 interface ContextoDeJunta {
   /** Las juntas están configuradas en el servidor (LiveKit) */
@@ -64,7 +64,7 @@ const EVENTOS_QUE_REPINTAN = [
 const mensajeDe = (e: unknown, por: string) => (e instanceof Error && e.message ? e.message : por)
 
 export function JuntaProvider({ children }: { children: ReactNode }) {
-  const { versionDeJuntas } = useChat()
+  const { versionDeJuntas, anunciarVoz } = useChat()
   const [disponible, setDisponible] = useState(false)
   const [activas, setActivas] = useState<Record<string, JuntaActiva>>({})
   const [actual, setActual] = useState<ContextoDeJunta['actual']>(null)
@@ -184,10 +184,11 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     audios.current?.replaceChildren()
     ensordecidoRef.current = false
     setEnsordecido(false)
+    anunciarVoz(null)
     setActual(null)
     bump()
     void leerActivas()
-  }, [bump, leerActivas])
+  }, [anunciarVoz, bump, leerActivas])
 
   const salir = useCallback(() => limpiar(), [limpiar])
 
@@ -220,6 +221,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
         await nueva.connect(llave.url, llave.token)
         if (room.current !== nueva) return
         setActual({ canalId, estado: 'conectada' })
+        anunciarVoz(canalId)
         try {
           await nueva.localParticipant.setMicrophoneEnabled(true)
         } catch {
@@ -238,7 +240,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
         conectando.current = false
       }
     },
-    [actual?.canalId, bump, limpiar]
+    [actual?.canalId, anunciarVoz, bump, limpiar]
   )
 
   const alternar = useCallback(

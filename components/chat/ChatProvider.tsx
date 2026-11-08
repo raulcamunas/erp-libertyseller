@@ -95,6 +95,10 @@ interface ContextoDeChat {
   abrirAsistente: (pregunta?: string) => void
   cerrarAsistente: () => void
   conectados: ReadonlySet<string>
+  /** Quién está en cada canal de voz AHORA (sale de la presencia: al entrar o salir se ve al instante, sin esperar a preguntarlo) */
+  enVoz: Record<string, string[]>
+  /** Avisa al resto de en qué canal de voz estás (null = en ninguno) */
+  anunciarVoz: (canalId: string | null) => void
   escribiendo: (canalId: string) => string[]
   /** Quién está grabando una nota de voz en el canal */
   grabando: (canalId: string) => string[]
@@ -165,6 +169,8 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
   const [hilo, setHilo] = useState<{ canalId: string; id: number } | null>(null)
   const [mensajesDelHilo, setMensajesDelHilo] = useState<MensajeChat[]>([])
   const [conectados, setConectados] = useState<ReadonlySet<string>>(new Set())
+  const [enVoz, setEnVoz] = useState<Record<string, string[]>>({})
+  const vozActual = useRef<string | null>(null)
   const [escribiendoPor, setEscribiendoPor] = useState<Record<string, Record<string, number>>>({})
   const [grabandoPor, setGrabandoPor] = useState<Record<string, Record<string, number>>>({})
   const [enVivo, setEnVivo] = useState(false)
@@ -409,7 +415,12 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       canalDePresencia.current = presencia
       const sincronizar = () => {
         if (!vivo || !presencia) return
-        setConectados(new Set(Object.keys(presencia.presenceState())))
+        const estado = presencia.presenceState() as Record<string, Array<{ voz?: string | null }>>
+        setConectados(new Set(Object.keys(estado)))
+        // Quién está en qué canal de voz: cada persona anuncia el suyo en su presencia
+        const porVoz: Record<string, string[]> = {}
+        for (const [id, metas] of Object.entries(estado)) for (const meta of metas) if (meta.voz && !(porVoz[meta.voz] ?? []).includes(id)) porVoz[meta.voz] = [...(porVoz[meta.voz] ?? []), id]
+        setEnVoz(porVoz)
       }
       presencia
         .on('presence', { event: 'sync' }, sincronizar)
@@ -428,7 +439,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
           setGrabandoPor((e) => quitarDe(e, p.canalId as string, p.id as string))
         })
         .subscribe((s) => {
-          if (s === 'SUBSCRIBED' && presencia) void presencia.track({ id: yo.id, en: Date.now() })
+          if (s === 'SUBSCRIBED' && presencia) void presencia.track({ id: yo.id, en: Date.now(), voz: vozActual.current })
         })
     })()
     return () => {
@@ -717,6 +728,11 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
 
   const estadoDe = useCallback((id: string | null | undefined) => (id && estaVigente(estadosDePersonas[id]) ? estadosDePersonas[id] : null), [estadosDePersonas])
 
+  const anunciarVoz = useCallback((canalId: string | null) => {
+    vozActual.current = canalId
+    void canalDePresencia.current?.track({ id: yoRef.current, en: Date.now(), voz: canalId })
+  }, [])
+
   const avisarQueEscribo = useCallback((canalId: string, que: 'escribe' | 'graba' = 'escribe') => {
     const c = canalDePresencia.current
     if (!c) return
@@ -773,6 +789,8 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       anadir,
       cambiar,
       conectados,
+      enVoz,
+      anunciarVoz,
       escribiendo,
       grabando,
       avisarQueEscribo,
@@ -801,7 +819,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       abrirAsistente,
       cerrarAsistente,
     }),
-    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
+    [enVoz, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>

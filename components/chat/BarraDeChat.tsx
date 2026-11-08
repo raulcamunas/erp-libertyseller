@@ -22,7 +22,7 @@ const BANDEJAS = [
 ] as const
 
 export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
-  const { canales, actual, seleccionar, yo, persona, nombreDe, conectados, enVivo, vista, abrirBandeja, estadoDe, abrirAsistente } = useChat()
+  const { enVoz = {}, canales, actual, seleccionar, yo, persona, nombreDe, conectados, enVivo, vista, abrirBandeja, estadoDe, abrirAsistente } = useChat()
   const [estadoAbierto, setEstadoAbierto] = useState(false)
   const [importando, setImportando] = useState(false)
   const [dialogo, setDialogo] = useState<'canal' | 'directo' | 'voz' | null>(null)
@@ -86,8 +86,10 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
             </h3>
             <ul>
               {voces.map((c) => {
-                const dentro = activas[c.id]?.personas ?? []
                 const conectado = enSala?.canalId === c.id
+                // Quien está dentro ahora: la presencia (al instante; si no hay, lo que dice LiveKit) y tú mismo en cuanto entras
+                const base = conectados.size > 0 ? enVoz[c.id] ?? [] : activas[c.id]?.personas ?? []
+                const dentro = [...new Set([...base.filter((id) => id !== yo.id || conectado), ...(conectado ? [yo.id] : [])])]
                 return (
                   <li key={c.id}>
                     <button
