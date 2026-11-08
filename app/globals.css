@@ -4420,7 +4420,7 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 /* El recuadro del chat: sus reglas «de pantalla estrecha» miran el ancho DE ESTE RECUADRO y no el de la ventana (@container), así el mismo chat sirve entero a pantalla completa y pequeño en el dock */
 .chat-contenedor { container: chat / inline-size; position: relative; height: 100%; }
 .chat-inmersivo .chat-contenedor { height: 100dvh; }
-.chat-marco { display: grid; height: 100%; grid-template-columns: 276px minmax(0, 1fr); background: var(--ls-fondo); }
+.chat-marco { display: grid; height: 100%; grid-template-columns: 276px minmax(0, 1fr) 0px; background: var(--ls-fondo); }
 .chat-marco[data-con-hilo='true'] { grid-template-columns: 276px minmax(0, 1fr) 396px; }
 .chat-icono { display: inline-flex; height: 28px; min-width: 28px; align-items: center; justify-content: center; gap: 4px; border-radius: 8px; padding: 0 6px; color: var(--ls-t3); transition: background .15s ease, color .15s ease, transform .15s ease; }
 .chat-icono:hover { background: var(--ls-sup3); color: var(--ls-t1); }
@@ -4608,7 +4608,8 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 .chat-sugeridos button[data-activa='true'] { background: color-mix(in srgb, var(--c-acc, var(--ls-acc)) 16%, transparent); }
 
 /* ---------- Hilo ---------- */
-.chat-hilo { display: flex; min-height: 0; flex-direction: column; border-left: 1px solid var(--ls-linea); background: var(--ls-fondo); }
+.chat-hilo { min-height: 0; min-width: 0; overflow: hidden; background: var(--ls-fondo); }
+.chat-hilo-interior { display: flex; height: 100%; width: 396px; max-width: 100%; flex-direction: column; border-left: 1px solid var(--ls-linea); }
 .chat-hilo-cabecera { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--ls-linea); padding: 14px 16px 14px 20px; min-height: 58px; font-size: 15px; color: var(--ls-t1); }
 .chat-hilo-lista { min-height: 0; flex: 1; overflow-y: auto; padding: 12px 0; }
 .chat-hilo-separador { display: flex; align-items: center; gap: 10px; margin: 10px 20px; font-size: 11.5px; color: var(--ls-t4); }
@@ -4684,7 +4685,9 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
   .chat-insignia { animation: chat-pop .32s cubic-bezier(.3, 1.6, .5, 1); }
   .chat-herramientas { animation: chat-herramienta .14s ease-out; }
   .chat-emojis-menu, .chat-sugeridos { animation: chat-menu .16s cubic-bezier(.2, .9, .3, 1.2); }
-  .chat-hilo { animation: chat-desliza .3s cubic-bezier(.2, .9, .3, 1); }
+  .chat-marco { transition: grid-template-columns .28s cubic-bezier(.2, .9, .3, 1); }
+  .chat-hilo-interior { animation: chat-desliza .3s cubic-bezier(.2, .9, .3, 1); }
+  .chat-hilo[data-saliendo='true'] .chat-hilo-interior { animation: chat-sale .24s ease-in forwards; }
   .chat-apariencia { animation: chat-menu-abajo .2s cubic-bezier(.2, .9, .3, 1.15); transform-origin: bottom left; }
   .tc-modal-fondo:has(> .chat-dialogo) { animation: chat-aparece .18s ease-out; }
   .chat-dialogo { animation: chat-modal .24s cubic-bezier(.2, .9, .3, 1.1); }
@@ -4707,6 +4710,7 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 @keyframes chat-herramienta { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes chat-menu { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
 @keyframes chat-menu-abajo { from { opacity: 0; transform: translateY(10px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes chat-sale { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(28px); } }
 @keyframes chat-desliza { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
 @keyframes chat-modal { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
 @keyframes chat-rebota-entra { from { opacity: 0; transform: translateY(12px) scale(.9); } to { opacity: 1; transform: none; } }
@@ -4722,6 +4726,7 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
   .chat-marco[data-vista='barra'] .chat-principal, .chat-marco[data-vista='barra'] .chat-vacio { display: none; }
   .chat-atras { display: inline-flex; }
   .chat-hilo { position: absolute; inset: 0; z-index: 60; }
+  .chat-hilo-interior { width: 100%; border-left: 0; }
   .chat-cabecera { padding-left: 12px; padding-right: 56px; }
   .chat-mensaje { grid-template-columns: 48px minmax(0, 1fr); padding-right: 12px; }
   .chat-pie { padding: 0 12px 12px; }

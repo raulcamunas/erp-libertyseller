@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import type { CanalChat, MensajeChat } from '@/lib/chat/tipos'
 import { X } from 'lucide-react'
 import { useChat } from './ChatProvider'
 import { MensajeVista } from './MensajeVista'
@@ -8,19 +9,57 @@ import { Redactor } from './Redactor'
 import { AvisoDeSoltar, useZonaDeSoltar } from './ZonaDeSoltar'
 
 /** Las respuestas de un mensaje, a la derecha: el mensaje de arriba, lo que se le ha contestado y una caja para contestar */
+const SALIDA_MS = 260
+
 export function PanelDeHilo() {
-  const { hilo, mensajesDelHilo, cerrarHilo, enviar, avisarQueEscribo, actual, personas, yo } = useChat()
+  const chat = useChat()
+  const { cerrarHilo, enviar, avisarQueEscribo, personas, yo } = chat
+  // Al cerrar, el panel se queda un momento con lo último que enseñaba para poder salir con animación
+  const ultimo = useRef<{ hilo: NonNullable<typeof chat.hilo>; mensajes: MensajeChat[]; actual: CanalChat } | null>(null)
+  if (chat.hilo && chat.actual) ultimo.current = { hilo: chat.hilo, mensajes: chat.mensajesDelHilo, actual: chat.actual }
+  const [montado, setMontado] = useState(Boolean(chat.hilo))
+  const saliendo = !chat.hilo
+  useEffect(() => {
+    if (chat.hilo) {
+      setMontado(true)
+      return
+    }
+    const t = setTimeout(() => setMontado(false), SALIDA_MS)
+    return () => clearTimeout(t)
+  }, [chat.hilo])
+  const hilo = chat.hilo ?? ultimo.current?.hilo ?? null
+  const actual = chat.actual ?? ultimo.current?.actual ?? null
+  const mensajesDelHilo = chat.hilo ? chat.mensajesDelHilo : ultimo.current?.mensajes ?? []
+  const panel = useRef<HTMLElement>(null)
+  // Al salir no recibe foco ni clics (React 18 no pinta `inert` por prop)
+  useEffect(() => {
+    panel.current?.toggleAttribute('inert', saliendo)
+  })
+  // Un clic fuera del hilo lo cierra (salvo sobre botones, enlaces, campos, menús y ventanas: ahí se hace lo suyo)
+  useEffect(() => {
+    if (!chat.hilo) return
+    const fuera = (ev: PointerEvent) => {
+      const t = ev.target
+      if (!(t instanceof Element) || !panel.current || panel.current.contains(t) || !t.isConnected) return
+      if (t.closest('button, a, input, textarea, select, summary, [role="button"], [role="menu"], [role="dialog"], [role="listbox"], .tc-modal-fondo, .chat-emojis-menu, .chat-apariencia, .chat-junta, .chat-barra')) return
+      cerrarHilo()
+    }
+    document.addEventListener('pointerdown', fuera)
+    return () => document.removeEventListener('pointerdown', fuera)
+  }, [chat.hilo, cerrarHilo])
   const fin = useRef<HTMLDivElement>(null)
   const [soltados, setSoltados] = useState<{ n: number; ficheros: File[] } | null>(null)
   const zona = useZonaDeSoltar({ alSoltar: (ficheros) => setSoltados({ n: Date.now(), ficheros }) })
   useEffect(() => {
     fin.current?.scrollIntoView({ block: 'end' })
   }, [mensajesDelHilo.length])
+  if (!montado && !chat.hilo) return null
   if (!hilo || !actual) return null
   const [padre, ...respuestas] = mensajesDelHilo
   const candidatos = actual.tipo === 'canal' ? personas.filter((p) => p.id !== yo.id) : personas.filter((p) => p.id !== yo.id && actual.miembros.includes(p.id))
   return (
-    <aside className="chat-hilo" aria-label="Hilo" {...zona.props}>
+    <aside ref={panel} className="chat-hilo" data-saliendo={saliendo ? 'true' : undefined} aria-label="Hilo" {...zona.props}>
+      <div className="chat-hilo-interior">
       {zona.encima && <AvisoDeSoltar donde="este hilo" permitido={actual.soy_miembro} />}
       <header className="chat-hilo-cabecera">
         <b>Hilo</b>
@@ -47,6 +86,7 @@ export function PanelDeHilo() {
           alEnviar={(cuerpo, adjuntos) => enviar(hilo.canalId, cuerpo, { hiloDe: hilo.id, adjuntos })}
         />
       )}
+      </div>
     </aside>
   )
 }
