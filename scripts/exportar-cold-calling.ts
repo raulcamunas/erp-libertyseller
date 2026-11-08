@@ -134,7 +134,7 @@ async function main() {
   const carpeta = process.argv[2] ?? join(homedir(), 'Downloads')
   const dia = new Date().toISOString().slice(0, 10)
   const ruta = join(carpeta, `Base de datos Cold Calling ${dia}.xlsx`)
-  XLSX.writeFile(libro, ruta)
+  XLSX.writeFile(libro, ruta, { compression: true })
   console.log(`Guardado: ${ruta}`)
   console.log(`${leads.length} leads en ${listas.length} listas (${leads.filter((l) => texto(l.phone) || texto(l.telefonos_extra)).length} con teléfono)`)
   for (const [lista, filas] of listas) console.log(`  ${String(filas.length).padStart(6)}  ${lista}`)
