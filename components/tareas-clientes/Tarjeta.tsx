@@ -7,6 +7,8 @@ import type { ClienteTC, OpcionDeEstado, PersonaTC } from '@/lib/tareas-clientes
 import { colorValido } from '@/lib/tareas-clientes/colores'
 import { colorDePersona } from '@/components/rendimiento/ui'
 import { useBloqueadas } from './contexto'
+import { usePresencia } from './PresenciaProvider'
+import { Presentes } from './PresenciaVisual'
 import { Etiqueta, fechaCorta, hoyISO, PilaDeAvatares } from './ui'
 
 /**
@@ -42,6 +44,8 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
   const colorResp = tarea.color || quienes.length === 0 ? null : colorDePersona(quienes[0])
   const colorResp2 = colorResp && quienes.length > 1 ? colorDePersona(quienes[1]) : null
   const bloqueada = useBloqueadas().has(tarea.id) && !hecha
+  // Quién más la tiene abierta ahora (no se pinta la tarjeta que se arrastra: es una copia)
+  const viendo = usePresencia().deTarea.get(tarea.id)
   const sub = { total: tarea.subtareas_total ?? 0, hechas: tarea.subtareas_hechas ?? 0 }
   const adjuntos = tarea.adjuntos_total ?? 0
   const porcentaje = tarea.checklist_total > 0 ? Math.round((tarea.checklist_hecho / tarea.checklist_total) * 100) : 0
@@ -59,6 +63,7 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
       data-superpuesta={superpuesta ? 'true' : undefined}
       data-fantasma={fantasma ? 'true' : undefined}
       data-bloqueada={bloqueada ? 'true' : undefined}
+      data-viendo={viendo && viendo.length > 0 && !superpuesta ? 'true' : undefined}
       onClick={(e) => (onSeleccionar && (e.metaKey || e.ctrlKey || e.shiftKey || haySeleccion) ? onSeleccionar(tarea.id) : onAbrir?.(tarea.id))}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -145,6 +150,7 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
           )}
         </div>
       )}
+      {viendo && viendo.length > 0 && !superpuesta && <span className="tc-tarjeta-presentes"><Presentes personas={viendo} max={2} tamano={18} etiqueta="Viendo esta tarea" /></span>}
     </div>
   )
 })

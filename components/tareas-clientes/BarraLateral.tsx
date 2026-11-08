@@ -2,9 +2,11 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
+import { EnLinea, Presentes } from './PresenciaVisual'
+import { usePresencia } from './PresenciaProvider'
 import { cuentaEnElMarcador } from '@/lib/tareas-clientes/marcador'
 import { ChevronsLeft, ChevronsRight, Home, KanbanSquare, LayoutGrid, Search, Star, Sun, UserCheck } from 'lucide-react'
-import { ETIQUETA_DE_GRUPO, estadosDe, type ClienteTC, type GrupoDeCliente } from '@/lib/tareas-clientes/tipos'
+import { ETIQUETA_DE_GRUPO, estadosDe, type ClienteTC, type GrupoDeCliente, type PersonaTC } from '@/lib/tareas-clientes/tipos'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { colorValido } from '@/lib/tareas-clientes/colores'
 import type { Ambito } from '@/lib/tareas-clientes/ambito'
@@ -67,6 +69,7 @@ export function BarraLateral({
   onNavegar,
   onFavorito,
   onBuscar,
+  personas = [],
 }: {
   clientes: readonly ClienteTC[]
   tareas: readonly TareaLigera[]
@@ -79,8 +82,11 @@ export function BarraLateral({
   onFavorito: (id: string) => void
   /** Abre el buscador de todo (Ctrl/Cmd + K) */
   onBuscar?: () => void
+  /** El equipo con acceso, para saber quién está en línea y quién no */
+  personas?: ReadonlyArray<PersonaTC>
 }) {
   const [busqueda, setBusqueda] = useState('')
+  const { deCliente } = usePresencia()
   const hoy = new Date().toISOString().slice(0, 10)
 
   const cifras = useMemo(() => {
@@ -107,6 +113,7 @@ export function BarraLateral({
       <button type="button" aria-current={activo ? 'page' : undefined} title={colapsada ? nombre : undefined} onClick={() => onNavegar(ruta)} className="tc-lat-item" data-activo={activo ? 'true' : undefined}>
         <span className="tc-lat-icono">{icono}</span>
         {!colapsada && <span className="min-w-0 flex-1 truncate text-left">{nombre}</span>}
+        {!colapsada && id && (deCliente.get(id)?.length ?? 0) > 0 && <Presentes personas={deCliente.get(id) ?? []} max={3} tamano={16} etiqueta="Viendo" />}
         {!colapsada && cifra != null && cifra > 0 && <span className={`text-[11px] tabular-nums ${rojo ? 'font-medium text-[var(--ls-e-rojo)]' : 'text-[var(--ls-t4)]'}`}>{cifra}</span>}
       </button>
       {!colapsada && id && (
@@ -131,6 +138,8 @@ export function BarraLateral({
           {colapsada ? <ChevronsRight className="h-3.5 w-3.5" /> : <ChevronsLeft className="h-3.5 w-3.5" />}
         </button>
       </div>
+
+      {!colapsada && <EnLinea equipo={personas} nombreDeCliente={(id) => clientes.find((c) => c.id === id)?.nombre} tituloDeTarea={(id) => tareas.find((t) => t.id === id)?.titulo} compacto />}
 
       {onBuscar && (
         <button type="button" onClick={onBuscar} className="tc-buscar-global" title="Buscar en todas las tareas (Ctrl/Cmd + K)" aria-label="Buscar en todas las tareas">

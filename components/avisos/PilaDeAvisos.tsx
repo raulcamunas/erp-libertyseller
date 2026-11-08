@@ -1,6 +1,6 @@
 'use client'
 
-import { CalendarCheck, Flame, Mail, MailWarning, X, type LucideIcon } from 'lucide-react'
+import { CalendarCheck, Flame, Mail, MailWarning, MessageSquare, X, type LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { cerrarAviso, leerAvisos, suscribirAvisos, type Aviso, type TipoDeAviso } from '@/lib/avisos/pila'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
@@ -22,6 +22,7 @@ const ICONO: Record<TipoDeAviso, { icono: LucideIcon; tono: TonoEstado }> = {
   rebote: { icono: MailWarning, tono: 'ambar' },
   hito: { icono: Flame, tono: 'ambar' },
   cita: { icono: CalendarCheck, tono: 'verde' },
+  tarea: { icono: MessageSquare, tono: 'azul' },
 }
 
 const vacia: readonly Aviso[] = []

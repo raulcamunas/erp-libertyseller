@@ -22,6 +22,7 @@ import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
 import { MiDia } from './MiDia'
 import { BloqueadasContexto } from './contexto'
+import { usePresencia } from './PresenciaProvider'
 import { PanelDeTarea } from './PanelDeTarea'
 import { PlantillasGestor } from './PlantillasGestor'
 import { PropuestasDeReunion } from './PropuestasDeReunion'
@@ -78,6 +79,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   // Las tareas que propone la IA tras una reunión con cada cliente y están esperando que alguien las elija
   const [propuestas, setPropuestas] = useState<Record<string, number>>({})
   const [propuestasAbierto, setPropuestasAbierto] = useState(false)
+  const { ponerTarea } = usePresencia()
   const pendientes = useRef(0)
 
   useEffect(() => {
@@ -169,6 +171,12 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
 
   // Las tareas que esperan a otra: se calcula una vez y las tarjetas y las filas solo lo miran
   const bloqueadas = useMemo(() => tareasBloqueadas(datos?.tareas ?? [], (t) => estaHechaLaTarea(t, mapa)), [datos?.tareas, mapa])
+
+  // Los demás ven qué tarea tengo abierta
+  useEffect(() => {
+    ponerTarea(abierta)
+    return () => ponerTarea(null)
+  }, [abierta, ponerTarea])
 
   /* ---- Tareas propuestas tras una reunión ---- */
   useEffect(() => {
@@ -571,7 +579,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     <BloqueadasContexto.Provider value={bloqueadas}>
     <div className="tc-zona" data-fondo={fondoNecesitaCortina(fondo) ? 'true' : undefined} style={{ '--tc-ambiente': cliente ? `var(--tc-${cliente.color || 'orange'})` : 'var(--ls-acc-graf)', ...(estiloDePortada(fondo, true) as CSSProperties | undefined) } as CSSProperties}>
       <FondoAnimado valor={fondo} />
-      <BarraLateral onBuscar={() => setBuscadorAbierto(true)} clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
+      <BarraLateral personas={personas} onBuscar={() => setBuscadorAbierto(true)} clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
 
       <section className="tc-centro" ref={setCentro}>
         <div className="tc-movil-barra"><SelectorMovil clientes={datos.clientes} ambito={ambito} onNavegar={navegar} /><button type="button" onClick={() => setBuscadorAbierto(true)} aria-label="Buscar en todo" className="tc-movil-buscar"><Search className="h-4 w-4" /></button></div>

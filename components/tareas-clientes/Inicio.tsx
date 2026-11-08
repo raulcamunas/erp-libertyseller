@@ -11,11 +11,14 @@ import type { EstadisticasDeCliente } from '@/lib/tareas-clientes/servidor'
 import { ETIQUETA_DE_GRUPO, type ClienteTC, type GrupoDeCliente, type Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
 import { sinAcentos } from '@/lib/tareas-clientes/busqueda'
 import { saludoDe } from '@/lib/inicio/saludo'
+import type { Conectado } from '@/lib/tareas-clientes/presencia'
 import { BASE, pedir, type DatosDeInicio, type Preferencias } from './api'
 import { FondoAnimado, SelectorDePortada, estiloDePortada, fondoNecesitaCortina } from './Portada'
 import { AccesosDeClientes } from './AccesosDeClientes'
 import { TareasAutomaticas } from './TareasAutomaticas'
 import { PilaDeAvatares } from './ui'
+import { usePresencia } from './PresenciaProvider'
+import { EnLinea, Presentes } from './PresenciaVisual'
 
 /**
  * LA PÁGINA DE INICIO DE TAREAS DE CLIENTES, a todo el ancho: una portada con las cifras en vivo, los accesos rápidos y todos los clientes en tarjetas (por grupos). Las tarjetas se
@@ -64,6 +67,7 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
   const [automaticasAbierto, setAutomaticasAbierto] = useState(false)
   const [filtro, setFiltro] = useState('')
   const [soloVencidas, setSoloVencidas] = useState(false)
+  const { deCliente } = usePresencia()
 
   const cargar = useCallback(async () => {
     try {
@@ -144,6 +148,7 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
             <p className="tc-hero-sobre">{saludoDe(new Date().getHours())} · Liberty Seller</p>
             <h1 className="tc-hero-titulo">Tareas de clientes</h1>
             <p className="tc-hero-texto">{datos.clientes.length} clientes · {totales.abiertas} tareas por hacer{totales.vencidas > 0 ? `, ${totales.vencidas} ya vencidas` : ''}.</p>
+            <div className="mt-3 flex"><EnLinea equipo={datos.personas} nombreDeCliente={(id) => datos.clientes.find((c) => c.id === id)?.nombre} tituloDeTarea={() => undefined} /></div>
             <div className="tc-ini-salud" role="img" aria-label={`${totales.hechas} hechas, ${totales.enCurso} en curso, ${totales.pendientes} pendientes`}>
               <span style={{ '--w': `${(totales.hechas / total) * 100}%`, '--c': 'var(--ls-e-verde)' } as CSSProperties} />
               <span style={{ '--w': `${(totales.enCurso / total) * 100}%`, '--c': 'var(--tc-blue)' } as CSSProperties} />
@@ -194,6 +199,7 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
         return (
           <GrupoDeTarjetas
             key={g}
+            viendoPorCliente={deCliente}
             grupo={g}
             clientes={lista}
             ordenable={!filtrando}
@@ -234,7 +240,7 @@ function Atajo({ icono, titulo, detalle, onClick, color, alerta, grande, i = 0 }
   )
 }
 
-function GrupoDeTarjetas({ grupo, clientes, ordenable, estadisticas, personas, favoritos, onAbrir, onFavorito, onOrden, onReordenado }: { grupo: GrupoDeCliente; clientes: ClienteTC[]; ordenable: boolean; estadisticas: Record<string, EstadisticasDeCliente>; personas: DatosDeInicio['personas']; favoritos: string[]; onAbrir: (id: string) => void; onFavorito: (id: string) => void; onOrden: (ids: string[]) => void; onReordenado: (ids: string[]) => void }) {
+function GrupoDeTarjetas({ viendoPorCliente, grupo, clientes, ordenable, estadisticas, personas, favoritos, onAbrir, onFavorito, onOrden, onReordenado }: { viendoPorCliente: ReadonlyMap<string, Conectado[]>; grupo: GrupoDeCliente; clientes: ClienteTC[]; ordenable: boolean; estadisticas: Record<string, EstadisticasDeCliente>; personas: DatosDeInicio['personas']; favoritos: string[]; onAbrir: (id: string) => void; onFavorito: (id: string) => void; onOrden: (ids: string[]) => void; onReordenado: (ids: string[]) => void }) {
   const sensores = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const alSoltar = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return
@@ -243,7 +249,7 @@ function GrupoDeTarjetas({ grupo, clientes, ordenable, estadisticas, personas, f
     onReordenado(nuevo)
     onOrden(nuevo)
   }
-  const tarjetas = clientes.map((c, i) => <Tarjeta key={c.id} cliente={c} e={estadisticas[c.id]} personas={personas} favorito={favoritos.includes(c.id)} indice={i} ordenable={ordenable} onAbrir={onAbrir} onFavorito={onFavorito} />)
+  const tarjetas = clientes.map((c, i) => <Tarjeta key={c.id} cliente={c} e={estadisticas[c.id]} personas={personas} viendo={viendoPorCliente.get(c.id) ?? []} favorito={favoritos.includes(c.id)} indice={i} ordenable={ordenable} onAbrir={onAbrir} onFavorito={onFavorito} />)
   return (
     <section className="tc-ini-grupo" aria-label={ETIQUETA_DE_GRUPO[grupo]}>
       <h2 className="tc-grupo-titulo" style={{ '--tono': `var(--tc-${COLOR_DE_GRUPO[grupo]})` } as CSSProperties}><span className="tc-punto" />{ETIQUETA_DE_GRUPO[grupo]}<span className="font-normal tracking-normal text-[var(--ls-t4)]">{clientes.length}</span><span className="tc-ini-linea" /></h2>
@@ -260,7 +266,7 @@ function GrupoDeTarjetas({ grupo, clientes, ordenable, estadisticas, personas, f
   )
 }
 
-function Tarjeta({ cliente: c, e, personas, favorito, indice, ordenable, onAbrir, onFavorito }: { cliente: ClienteTC; e: EstadisticasDeCliente | undefined; personas: DatosDeInicio['personas']; favorito: boolean; indice: number; ordenable: boolean; onAbrir: (id: string) => void; onFavorito: (id: string) => void }) {
+function Tarjeta({ viendo, cliente: c, e, personas, favorito, indice, ordenable, onAbrir, onFavorito }: { viendo: Conectado[]; cliente: ClienteTC; e: EstadisticasDeCliente | undefined; personas: DatosDeInicio['personas']; favorito: boolean; indice: number; ordenable: boolean; onAbrir: (id: string) => void; onFavorito: (id: string) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id, disabled: !ordenable })
   const total = e?.total ?? 0
   const hechas = e?.hechas ?? 0
@@ -308,6 +314,7 @@ function Tarjeta({ cliente: c, e, personas, favorito, indice, ordenable, onAbrir
         </div>
         {c.sync_error && <p className="mt-2 flex items-center gap-1 text-[11px] text-[var(--ls-e-ambar)]" title={c.sync_error}><AlertTriangle className="h-3 w-3" /> Con problemas de sincronización</p>}
       </div>
+      {viendo.length > 0 && <span className="tc-ini-cliente-presentes"><Presentes personas={viendo} max={3} tamano={20} etiqueta="Viendo" /> viendo ahora</span>}
       <ArrowUpRight className="tc-ini-cliente-flecha h-4 w-4" />
     </div>
   )

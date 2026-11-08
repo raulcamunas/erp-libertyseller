@@ -12,6 +12,8 @@ import { BASE, pedir, type DatosDeTarea } from './api'
 import { Adjuntos } from './Adjuntos'
 import { Bloqueos } from './Bloqueos'
 import { CuerpoDeLaTarea } from './CuerpoDeLaTarea'
+import { usePresencia } from './PresenciaProvider'
+import { PresenciaDeTarea } from './PresenciaVisual'
 import { PropiedadesPropias } from './PropiedadesPropias'
 import { VersionesDelCuerpo } from './VersionesDelCuerpo'
 import { SelectorDePortada, estiloDePortada } from './Portada'
@@ -71,6 +73,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
   const [guardado, setGuardado] = useState<Guardado>('ok')
   const [titulo, setTitulo] = useState(inicial?.titulo ?? '')
   const [verActividad, setVerActividad] = useState(false)
+  const { escribiendo: avisarQueEscribo } = usePresencia()
   const [verVersiones, setVerVersiones] = useState(false)
   const sinGuardar = useRef(false)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -170,6 +173,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
 
   const alEscribir = useCallback(
     (nuevo: Bloque[]) => {
+      avisarQueEscribo()
       contenidoRef.current = nuevo
       setContenido(nuevo)
       sinGuardar.current = true
@@ -177,7 +181,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
       if (temporizador.current) clearTimeout(temporizador.current)
       temporizador.current = setTimeout(() => void guardarCuerpo(), AUTOGUARDADO_MS)
     },
-    [guardarCuerpo]
+    [guardarCuerpo, avisarQueEscribo]
   )
 
   // Al cerrar o cambiar de tarea no se pierde lo último que se escribió
@@ -295,6 +299,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
             {tarea.sync_estado === 'ok' ? 'Notion al día' : tarea.sync_estado === 'pendiente' ? 'Enviando a Notion' : tarea.sync_estado === 'error' ? 'Error con Notion' : ''}
           </span>
         )}
+        <PresenciaDeTarea tareaId={tareaId} />
         <span className="flex-1" />
         {tarea?.notion_url && (
           <a href={tarea.notion_url} target="_blank" rel="noreferrer" className="tc-boton-suave"><ExternalLink className="h-3 w-3" /> Abrir en Notion</a>

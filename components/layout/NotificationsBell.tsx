@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
+import { publicarAviso } from '@/lib/avisos/pila'
 import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
 import { activarEscritorio, avisarEnEscritorio, desactivarEscritorio, escritorioActivo, escritorioDenegado, escritorioDisponible, ficheroDeSonidoDeTarea, ponerSonidoDeTareas, probarSonidoDeTarea, sonarTarea, sonidoDeTareasActivo, suscribirSonidoDeTareas } from '@/lib/avisos/sonido-tareas'
 import { destinoDeAvisoDeCorreo, type DestinoDeAviso } from '@/lib/correo/campana-tipos'
@@ -170,7 +171,14 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
           const d = fila?.datos as { app?: string; clienteId?: string; tareaId?: string } | null | undefined
           if (d?.app === 'tareas-clientes') {
             void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
-            if (d.clienteId) avisarEnEscritorio(String(fila?.title ?? 'Tareas de clientes'), String(fila?.message ?? ''), `/dashboard/tareas-clientes/${d.clienteId}${d.tareaId ? `?tarea=${d.tareaId}` : ''}`)
+            const rutaDeTarea = d.clienteId ? `/dashboard/tareas-clientes/${d.clienteId}${d.tareaId ? `?tarea=${d.tareaId}` : ''}` : null
+            if (rutaDeTarea) avisarEnEscritorio(String(fila?.title ?? 'Tareas de clientes'), String(fila?.message ?? ''), rutaDeTarea)
+            // Y el aviso lateral de abajo a la derecha, como los de las llamadas: comentarios, menciones, asignaciones y tareas propuestas. Los recordatorios de fecha («vence hoy») no: salen
+            // varios de golpe al abrir el ERP y ya están en la campana
+            const motivo = (fila?.datos as { motivo?: string } | null | undefined)?.motivo
+            if (rutaDeTarea && !motivo) {
+              publicarAviso({ id: `tarea:${typeof fila?.clave === 'string' ? fila.clave : String(Date.now())}`, tipo: 'tarea', titulo: String(fila?.title ?? 'Tareas de clientes'), detalle: String(fila?.message ?? ''), duracionMs: 9000, accion: { etiqueta: 'Abrir', alPulsar: () => router.push(rutaDeTarea) } })
+            }
           }
           recargarEnBreve()
         })
