@@ -99,10 +99,15 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
     if (conTareas) void ficheroDeSonidoDeTarea().then(setFicheroPropio)
   }, [conTareas])
 
-  // Los recordatorios de fecha (vence hoy, vence mañana, vencidas) los genera el servidor para esta persona al abrir el ERP y cada media hora
+  // Al abrir el ERP y cada media hora: se crean las tareas que se repiten y el servidor genera los recordatorios de fecha de esta persona (vence hoy, vence mañana, vencidas)
   useEffect(() => {
     if (!conTareas) return
-    const pedir = () => void fetch('/api/tareas-clientes/avisos/vencimientos', { method: 'POST' }).catch(() => undefined)
+    // Primero las tareas que se repiten (las de hoy se crean), y después los recordatorios, que ya cuentan con ellas
+    const pedir = () =>
+      void fetch('/api/tareas-clientes/plantillas/ejecutar', { method: 'POST' })
+        .catch(() => undefined)
+        .then(() => fetch('/api/tareas-clientes/avisos/vencimientos', { method: 'POST' }))
+        .catch(() => undefined)
     pedir()
     const id = window.setInterval(() => document.visibilityState === 'visible' && pedir(), 30 * 60_000)
     return () => window.clearInterval(id)

@@ -18,6 +18,7 @@ import { departamentosDe, estadosDe, estaHecha, type ActividadTC, type ClienteTC
  */
 
 export interface Actor {
+  /** Vacío = la hace el sistema (una plantilla que se repite): no hay persona a la que apuntarle la tarea ni el historial, y nadie se queda sin su aviso de asignación */
   userId: string
   nombre: string
 }
@@ -39,7 +40,7 @@ export class ErrorDeTareas extends Error {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const esUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v)
+export const esUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v)
 
 /* ------------------------------------------------------------------ */
 /* Lectura                                                             */
@@ -174,7 +175,7 @@ async function registrar(actor: Actor | null, fila: { tareaId: string | null; cl
   try {
     await createServiceClient()
       .from('tc_actividad')
-      .insert({ tarea_id: fila.tareaId, cliente_id: fila.clienteId, actor_id: actor?.userId ?? null, actor_nombre: actor?.nombre ?? 'Notion', tipo: fila.tipo, datos: fila.datos ?? {} })
+      .insert({ tarea_id: fila.tareaId, cliente_id: fila.clienteId, actor_id: actor?.userId || null, actor_nombre: actor?.nombre ?? 'Notion', tipo: fila.tipo, datos: fila.datos ?? {} })
   } catch (e) {
     console.error('No se ha podido apuntar el historial de la tarea:', e)
   }
@@ -260,7 +261,7 @@ function fechaValida(v: unknown): string | null | undefined {
 
 const TIPOS_DE_BLOQUE: ReadonlySet<string> = new Set([...TIPOS_EDITABLES, 'imagen', 'notion'])
 
-function bloquesValidos(v: unknown): Bloque[] | null {
+export function bloquesValidos(v: unknown): Bloque[] | null {
   if (!Array.isArray(v) || v.length > 3000) return null
   for (const b of v as Array<Partial<Bloque>>) {
     if (!b || typeof b.id !== 'string' || !TIPOS_DE_BLOQUE.has(b.tipo as string) || !Array.isArray(b.texto)) return null
@@ -365,7 +366,7 @@ export async function crearTarea(actor: Actor, entrada: EntradaDeTarea): Promise
 
   const { data, error } = await service
     .from('tc_tareas')
-    .insert({ titulo: '', ...limpio, estado, cliente_id: entrada.clienteId, orden, origen: 'erp', creado_por: actor.userId, actualizado_por: actor.userId, sync_estado: conNotion ? 'pendiente' : 'solo_erp' })
+    .insert({ titulo: '', ...limpio, estado, cliente_id: entrada.clienteId, orden, origen: 'erp', creado_por: actor.userId || null, actualizado_por: actor.userId || null, sync_estado: conNotion ? 'pendiente' : 'solo_erp' })
     .select(COLUMNAS_LIGERAS)
     .single()
   if (error || !data) throw new ErrorDeTareas(`No se ha podido crear la tarea: ${error?.message ?? 'sin respuesta'}`, 500)

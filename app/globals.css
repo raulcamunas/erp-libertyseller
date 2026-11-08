@@ -3888,3 +3888,35 @@ html.light .tc-fa[data-fa='malla']::after { background-image: linear-gradient(rg
   .tc-lat-estrella { opacity: 1; }
   .tc-menu-erp { height: 40px; width: 40px; }
 }
+
+/* ---- El botón partido «Nueva tarea ▾» y la ventana de plantillas ---- */
+.tc-split { display: inline-flex; }
+.tc-split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.tc-split-flecha { width: 30px; justify-content: center; padding: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(20, 22, 26, 0.28); }
+/* Los desplegables de Radix de este módulo van por encima de los paneles flotantes y de la ventana de plantillas (que van a z-index 100 y 120) */
+body:has(.tc-inmersivo) [data-radix-popper-content-wrapper] { z-index: 500 !important; }
+.tc-modal-fondo { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(5, 7, 10, 0.62); }
+.tc-modal { display: flex; width: min(980px, 100%); height: min(780px, 100%); flex-direction: column; overflow: hidden; border-radius: 20px; border: 1px solid var(--ls-linea2); background: var(--ls-sup); box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.8); }
+.tc-modal-cabecera { display: flex; flex-shrink: 0; align-items: center; gap: 10px; padding: 14px 16px 14px 20px; border-bottom: 1px solid var(--ls-linea); }
+.tc-modal-cuerpo { display: grid; min-height: 0; flex: 1; grid-template-columns: 230px minmax(0, 1fr); }
+.tc-modal-lista { overflow-y: auto; border-right: 1px solid var(--ls-linea); background: var(--tc-columna); padding: 12px; }
+.tc-modal-form { min-width: 0; overflow-y: auto; padding: 16px 20px 24px; }
+.tc-modal-pie { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--ls-linea); }
+.tc-modal-editor { border-radius: 14px; border: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-sup2) 70%, transparent); padding: 12px 16px 4px 28px; }
+.tc-plantilla-item { display: flex; width: 100%; align-items: center; gap: 10px; border-radius: 10px; padding: 8px 10px; }
+.tc-plantilla-item:hover { background: var(--ls-sup3); }
+.tc-plantilla-item[data-activa='true'] { background: var(--ls-acc-suave); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ls-acc-graf) 40%, transparent); }
+.tc-selector { height: 30px; border-radius: 8px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 0 8px; font-size: 12.5px; color: var(--ls-t1); }
+.tc-selector:disabled { opacity: 0.5; }
+.tc-selector:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 1px; }
+@media (max-width: 700px) {
+  .tc-modal-fondo { padding: 0; }
+  .tc-modal { height: 100%; border-radius: 0; }
+  .tc-modal-cuerpo { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .tc-modal-lista { max-height: 150px; border-right: 0; border-bottom: 1px solid var(--ls-linea); }
+  .tc-modal-form { padding: 14px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tc-modal-fondo { animation: tc-velo 0.18s ease-out backwards; }
+  .tc-modal { animation: tc-menu 0.22s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; }
+}

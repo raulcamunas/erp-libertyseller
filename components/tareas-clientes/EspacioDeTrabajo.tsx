@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { colocar } from '@/lib/tareas-clientes/orden'
 import { filtrarTareas } from '@/lib/tareas-clientes/filtros'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
-import { departamentosDe, estadosDe, FILTROS_VACIOS, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
+import { departamentosDe, estadosDe, FILTROS_VACIOS, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
 import { ambitoDeRuta, mismoAmbito, type Ambito } from '@/lib/tareas-clientes/ambito'
 import { BASE, memoria, pedir, type DatosDeTodas, type Preferencias } from './api'
 import { BarraLateral, SelectorMovil } from './BarraLateral'
@@ -16,6 +16,7 @@ import { Cabecera } from './Cabecera'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
 import { PanelDeTarea } from './PanelDeTarea'
+import { PlantillasGestor } from './PlantillasGestor'
 import { estiloDePortada, FondoAnimado, fondoNecesitaCortina } from './Portada'
 import { Tablero } from './Tablero'
 import { Tabla } from './Tabla'
@@ -61,6 +62,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   const [abierta, setAbierta] = useState<string | null>(tareaInicial ?? null)
   const [colapsada, setColapsada] = useState(false)
   const [releyendo, setReleyendo] = useState(false)
+  const [plantillas, setPlantillas] = useState<PlantillaTC[]>([])
+  const [gestorAbierto, setGestorAbierto] = useState(false)
   const pendientes = useRef(0)
 
   useEffect(() => {
@@ -194,6 +197,35 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     const t = await crear(destino.id, null, '', ambito.tipo === 'mias' ? { responsables: [miId] } : {})
     if (t) setAbierta(t.id)
   }, [cliente, datos?.clientes, crear, ambito.tipo, miId])
+
+  // Las plantillas del cliente que se está viendo (para «Nueva tarea ▾»). Si todavía no existe la tabla o falla, simplemente no hay ninguna
+  const idDelCliente = cliente?.id ?? null
+  useEffect(() => {
+    setPlantillas([])
+    if (!idDelCliente) return
+    let vigente = true
+    void pedir<{ plantillas: PlantillaTC[] }>(`${BASE}/plantillas?clienteId=${idDelCliente}`)
+      .then((r) => vigente && setPlantillas(r.plantillas))
+      .catch(() => undefined)
+    return () => {
+      vigente = false
+    }
+  }, [idDelCliente])
+
+  const usarPlantilla = useCallback(
+    async (id: string) => {
+      if (!idDelCliente) return
+      try {
+        const { tarea } = await pedir<{ tarea: TareaLigera }>(`${BASE}/plantillas/${id}/usar`, { metodo: 'POST', cuerpo: { clienteId: idDelCliente } })
+        aplicarFila(tarea)
+        setAbierta(tarea.id)
+        toast.success('Tarea creada desde la plantilla')
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'No se ha podido crear la tarea')
+      }
+    },
+    [idDelCliente, aplicarFila]
+  )
 
   const cambiarCliente = useCallback(
     async (cambios: Record<string, unknown>) => {
@@ -376,6 +408,9 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           onDescripcion={cliente ? (d) => void cambiarCliente({ descripcion: d }) : undefined}
           onFondo={(p) => (cliente ? void cambiarCliente({ fondo: p }) : void cambiarPreferencias({ fondo: p }))}
           onNueva={() => void nuevaTarea()}
+          plantillas={plantillas}
+          onPlantilla={(id) => void usarPlantilla(id)}
+          onGestionarPlantillas={cliente ? () => setGestorAbierto(true) : undefined}
           total={delAmbito.length}
           visibles={visibles.length}
           extra={releyendo ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--ls-t4)]" aria-label="Actualizando" /> : cliente?.sync_error ? <span title={cliente.sync_error} className="inline-flex items-center gap-1 text-[11.5px] text-[var(--ls-e-ambar)]"><AlertTriangle className="h-3 w-3" /> Notion con problemas</span> : null}
@@ -389,6 +424,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           {vista === 'calendario' && <Calendario tareas={visibles} clientes={mapa} tareaAbierta={abierta} onAbrir={abrir} onCambiar={(id, c) => void cambiar(id, c)} />}
         </div>
       </section>
+
+      {gestorAbierto && cliente && <PlantillasGestor cliente={cliente} personas={personas} onCerrar={() => setGestorAbierto(false)} onCambio={setPlantillas} onCreada={(t) => { aplicarFila(t); setAbierta(t.id) }} />}
 
       {panel && (typeof window !== 'undefined' && window.innerWidth < 1180 ? createPortal(<div className="tc-panel-flotante" onClick={(e) => e.target === e.currentTarget && abrir(null)}>{panel}</div>, document.body) : panel)}
     </div>

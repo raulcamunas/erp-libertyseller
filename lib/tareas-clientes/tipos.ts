@@ -235,3 +235,24 @@ export function departamentosDe(cliente: Pick<ClienteTC, 'opciones'> | null | un
 export function estaHecha(tarea: Pick<TareaTC, 'estado'>, estados: readonly OpcionDeEstado[]): boolean {
   return estados.find((e) => e.nombre === tarea.estado)?.grupo === 'hecho'
 }
+
+/** Una plantilla de tarea: el molde de una tarea que se usa a mano o se repite sola (lib/tareas-clientes/recurrencia.ts) */
+export interface PlantillaTC {
+  id: string
+  cliente_id: string | null
+  nombre: string
+  icono: string | null
+  titulo: string
+  estado: string | null
+  departamento: string | null
+  responsables: string[]
+  dias_para_vencer: number | null
+  contenido: unknown[]
+  recurrencia: { tipo: string; diaSemana?: number; diaMes?: number }
+  activa: boolean
+  proxima_en: string | null
+  ultima_en: string | null
+  creado_por: string | null
+  creado_en: string
+  actualizado_en: string
+}

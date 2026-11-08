@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { CalendarDays, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Table2, X } from 'lucide-react'
+import { CalendarClock, CalendarDays, ChevronDown, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Settings2, Table2, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { hayFiltros } from '@/lib/tareas-clientes/filtros'
-import { departamentosDe, type ClienteTC, type FiltrosDeTareas, type PersonaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
+import { describirRecurrencia, recurrenciaValida } from '@/lib/tareas-clientes/recurrencia'
+import { departamentosDe, type ClienteTC, type FiltrosDeTareas, type PersonaTC, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
 import { Avatar } from '@/components/rendimiento/ui'
 import { SelectorDePortada } from './Portada'
 import { SelectorDeEmoji } from './ui'
@@ -36,6 +37,10 @@ export interface PropsDeCabecera {
   onDescripcion?: (d: string) => void
   onFondo: (p: PortadaGuardada) => void
   onNueva: () => void
+  /** Las plantillas del cliente (con ellas «Nueva tarea» lleva una flecha) y qué hacer al elegir una o al querer gestionarlas; sin `onGestionarPlantillas` no hay flecha */
+  plantillas?: readonly PlantillaTC[]
+  onPlantilla?: (id: string) => void
+  onGestionarPlantillas?: () => void
   total: number
   visibles: number
   extra?: ReactNode
@@ -44,6 +49,7 @@ export interface PropsDeCabecera {
 export function Cabecera(p: PropsDeCabecera) {
   const [titulo, setTitulo] = useState<string | null>(null)
   const [descripcion, setDescripcion] = useState<string | null>(null)
+  const [menuDePlantillas, setMenuDePlantillas] = useState(false)
   const departamentos = [...new Map(p.clientesParaDepartamentos.flatMap((c) => departamentosDe(c)).map((d) => [d.nombre, d])).values()]
   const activos = hayFiltros(p.filtros)
 
@@ -122,7 +128,37 @@ export function Cabecera(p: PropsDeCabecera) {
         </SelectorDePortada>
 
         {activos && <span className="text-[11.5px] tabular-nums text-[var(--ls-t3)]">{p.visibles} de {p.total}</span>}
-        <button type="button" onClick={p.onNueva} className="tc-boton-primario"><Plus className="h-3.5 w-3.5" /> Nueva tarea</button>
+        <div className="tc-split">
+          <button type="button" onClick={p.onNueva} className="tc-boton-primario tc-split-main"><Plus className="h-3.5 w-3.5" /> Nueva tarea</button>
+          {p.onGestionarPlantillas && (
+            <Popover open={menuDePlantillas} onOpenChange={setMenuDePlantillas}>
+              <PopoverTrigger asChild>
+                <button type="button" className="tc-boton-primario tc-split-flecha" aria-label="Nueva tarea desde una plantilla"><ChevronDown className="h-3.5 w-3.5" /></button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="!w-[300px] !rounded-[12px] !border-[var(--ls-linea2)] !bg-[var(--ls-sup)] !p-1.5 !text-[var(--ls-t1)] shadow-[0_18px_50px_rgba(0,0,0,0.4)]">
+                <p className="tc-lat-rotulo !pt-2">Desde plantilla</p>
+                <div className="flex max-h-[260px] flex-col gap-px overflow-auto">
+                  {(p.plantillas ?? []).length === 0 && <p className="px-2 py-2 text-[12px] text-[var(--ls-t4)]">Todavía no hay plantillas de este cliente.</p>}
+                  {(p.plantillas ?? []).map((pl) => {
+                    const r = recurrenciaValida(pl.recurrencia)
+                    return (
+                      <button key={pl.id} type="button" className="tc-opcion" onClick={() => { setMenuDePlantillas(false); p.onPlantilla?.(pl.id) }}>
+                        <span className="text-[15px] leading-none">{pl.icono ?? '📋'}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{pl.nombre}</span>
+                          {r.tipo !== 'ninguna' && <span className="flex items-center gap-1 text-[11px] text-[var(--ls-t4)]"><CalendarClock className="h-3 w-3" />{describirRecurrencia(r)}</span>}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="mt-1 border-t border-[var(--ls-linea)] pt-1">
+                  <button type="button" className="tc-opcion" onClick={() => { setMenuDePlantillas(false); p.onGestionarPlantillas?.() }}><Settings2 className="h-3.5 w-3.5" /> Gestionar plantillas y repeticiones…</button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+        </div>
       </div>
     </header>
   )
