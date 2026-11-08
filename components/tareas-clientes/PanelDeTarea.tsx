@@ -12,6 +12,7 @@ import { BASE, pedir, type DatosDeTarea } from './api'
 import { Adjuntos } from './Adjuntos'
 import { Bloqueos } from './Bloqueos'
 import { Editor } from './Editor'
+import { PropiedadesPropias } from './PropiedadesPropias'
 import { Subtareas } from './Subtareas'
 import { VersionesDelCuerpo } from './VersionesDelCuerpo'
 import { SelectorDePortada, estiloDePortada } from './Portada'
@@ -259,7 +260,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
       case 'comentario': return 'comentó'
       case 'archivada': return 'la archivó'
       case 'restaurada': return 'la recuperó'
-      case 'editada': return `editó ${Array.isArray(d.campos) ? (d.campos as string[]).map((c) => ({ contenido: 'el cuerpo', titulo: 'el título', adjuntos: 'los archivos', fecha_inicio: 'la fecha', fecha_fin: 'la fecha', departamento: 'el departamento', progreso: 'el progreso', url: 'el enlace', icono: 'el icono', color: 'el color', portada: 'la portada', visible_cliente: 'lo que ve el cliente', etiquetas: 'las etiquetas' })[c] ?? c).filter((x, i, l) => l.indexOf(x) === i).join(', ') : 'la tarea'}`
+      case 'editada': return `editó ${Array.isArray(d.campos) ? (d.campos as string[]).map((c) => ({ contenido: 'el cuerpo', titulo: 'el título', adjuntos: 'los archivos', propiedades: 'las propiedades', fecha_inicio: 'la fecha', fecha_fin: 'la fecha', departamento: 'el departamento', progreso: 'el progreso', url: 'el enlace', icono: 'el icono', color: 'el color', portada: 'la portada', visible_cliente: 'lo que ve el cliente', etiquetas: 'las etiquetas' })[c] ?? c).filter((x, i, l) => l.indexOf(x) === i).join(', ') : 'la tarea'}`
       default: return 'hizo un cambio'
     }
   }
@@ -376,6 +377,9 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                 <Propiedad icono={<Link2 className="h-3.5 w-3.5" />} nombre="Enlace">
                   <input type="url" defaultValue={tarea.url ?? ''} key={`${tarea.id}-${tarea.url}`} placeholder="https://…" aria-label="Enlace" onBlur={(e) => { const v = e.target.value.trim(); if (v !== (tarea.url ?? '')) void guardar({ url: v || null }) }} className="tc-entrada" />
                 </Propiedad>
+                {tarea.propiedades !== undefined && (cliente?.notion_esquema?.extras ?? []).length > 0 && (
+                  <PropiedadesPropias extras={cliente?.notion_esquema?.extras ?? []} valores={tarea.propiedades ?? {}} onCambio={(nombre, valor) => void guardar({ propiedades: { [nombre]: valor } })} />
+                )}
                 <Propiedad icono={<Lock className="h-3.5 w-3.5" />} nombre="Depende de">
                   <Bloqueos tarea={tarea as TareaLigera} candidatas={tareas.filter((t) => t.cliente_id === tarea.cliente_id)} hecha={estaHecha} onCambio={(ids) => aplicarLocal({ bloqueada_por: ids })} />
                 </Propiedad>

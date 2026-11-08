@@ -124,6 +124,7 @@ export interface PropiedadDelEsquema {
   type: string
   status?: { options?: Array<{ id?: string; name: string; color?: string }>; groups?: Array<{ id?: string; name: string; color?: string; option_ids?: string[] }> }
   select?: { options?: Array<{ id?: string; name: string; color?: string }> }
+  multi_select?: { options?: Array<{ id?: string; name: string; color?: string }> }
 }
 
 export interface ComentarioNotion {

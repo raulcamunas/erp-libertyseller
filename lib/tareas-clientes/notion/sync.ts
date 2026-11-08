@@ -20,7 +20,8 @@ import {
   paginasDeLaBase,
   type PaginaNotion,
 } from './cliente'
-import { camposDesdePagina, esquemaDe, iconoParaNotion, opcionesDe, propiedadesParaNotion } from './mapeo'
+import { camposDesdePagina, esquemaDe, iconoParaNotion, opcionesDe, propiedadesExtraDesdePagina, propiedadesExtraParaNotion, propiedadesParaNotion } from './mapeo'
+import type { PropiedadExtra } from '../propiedades'
 import { rehospedarImagenes } from './imagenes'
 import { tablaDePersonas, type TablaDePersonas } from './personas'
 
@@ -114,6 +115,21 @@ async function guardarEnlacesNuevos(tabla: TablaDePersonas) {
 
 type FilaDeTarea = Pick<TareaTC, 'id' | 'notion_page_id' | 'notion_editado' | 'estado' | 'orden' | 'sync_estado'>
 
+/** Lo que se sabe de las propiedades propias de un cliente: su firma (para saber si ya se leyeron todas las tareas con ellas) */
+const firmaDeExtras = (extras: readonly PropiedadExtra[] | undefined): string => JSON.stringify((extras ?? []).map((e) => `${e.nombre}:${e.tipo}`))
+
+let sinColumnaDePropiedadesHasta = 0
+/** ¿Existe ya la columna `tc_tareas.propiedades` (migración 278)? Mientras no, no se lee ni se escribe nada de eso y la sincronización sigue igual. Se vuelve a mirar cada 5 minutos */
+async function hayColumnaDePropiedades(): Promise<boolean> {
+  if (Date.now() < sinColumnaDePropiedadesHasta) return false
+  const { error } = await createServiceClient().from('tc_tareas').select('propiedades').limit(1)
+  if (error && (error.code === '42703' || /propiedades/.test(error.message))) {
+    sinColumnaDePropiedadesHasta = Date.now() + 5 * 60_000
+    return false
+  }
+  return true
+}
+
 /** Lee la base de un cliente y deja su esquema y sus opciones al día */
 async function prepararCliente(c: ClienteTC): Promise<ClienteTC> {
   if (!c.notion_ds_id) return c
@@ -136,9 +152,11 @@ async function tareasConCambiosPendientes(clienteId: string): Promise<Set<string
 /**
  * Pone al día UNA página de Notion en el ERP. Devuelve qué ha hecho y el id de la tarea (para traer su cuerpo y sus comentarios).
  */
-async function aplicarPagina(c: ClienteTC, pagina: PaginaNotion, personas: TablaDePersonas, existentes: Map<string, FilaDeTarea>, pendientes: Set<string>, finalDeColumna: Map<string, number>): Promise<{ accion: 'creada' | 'actualizada' | 'igual'; tareaId: string | null }> {
+async function aplicarPagina(c: ClienteTC, pagina: PaginaNotion, personas: TablaDePersonas, existentes: Map<string, FilaDeTarea>, pendientes: Set<string>, finalDeColumna: Map<string, number>, extras: readonly PropiedadExtra[] | null = null, releerTodo = false): Promise<{ accion: 'creada' | 'actualizada' | 'igual'; tareaId: string | null }> {
   const service = createServiceClient()
   const campos = camposDesdePagina(pagina, c.notion_esquema, personas.deNotion, estadosDe(c)[0]?.nombre ?? 'Backlog')
+  // Las columnas propias de esa base, solo si la columna de la base de datos ya existe
+  const propias = extras && extras.length > 0 ? { propiedades: propiedadesExtraDesdePagina(pagina, extras) } : {}
   const previa = existentes.get(pagina.id)
 
   if (!previa) {
@@ -146,7 +164,7 @@ async function aplicarPagina(c: ClienteTC, pagina: PaginaNotion, personas: Tabla
     finalDeColumna.set(campos.estado, orden)
     const { data, error } = await service
       .from('tc_tareas')
-      .insert({ ...campos, cliente_id: c.id, orden, origen: 'notion', sync_estado: 'ok' })
+      .insert({ ...campos, ...propias, cliente_id: c.id, orden, origen: 'notion', sync_estado: 'ok' })
       .select('id')
       .single()
     if (error || !data) throw new Error(`No se ha podido crear la tarea de Notion «${campos.titulo}»: ${error?.message ?? 'sin respuesta'}`)
@@ -154,12 +172,12 @@ async function aplicarPagina(c: ClienteTC, pagina: PaginaNotion, personas: Tabla
   }
   // Con cambios nuestros todavía sin enviar, no se pisa; y una edición de Notion que ya vimos tampoco se repite
   if (pendientes.has(previa.id)) return { accion: 'igual', tareaId: previa.id }
-  if (previa.notion_editado && pagina.last_edited_time <= previa.notion_editado) return { accion: 'igual', tareaId: previa.id }
+  if (!releerTodo && previa.notion_editado && pagina.last_edited_time <= previa.notion_editado) return { accion: 'igual', tareaId: previa.id }
 
   const cambiaDeColumna = previa.estado !== campos.estado
   const orden = cambiaDeColumna ? (finalDeColumna.get(campos.estado) ?? 0) + 1024 : previa.orden
   if (cambiaDeColumna) finalDeColumna.set(campos.estado, orden)
-  const { error } = await service.from('tc_tareas').update({ ...campos, orden, sync_estado: 'ok', sync_error: null }).eq('id', previa.id)
+  const { error } = await service.from('tc_tareas').update({ ...campos, ...propias, orden, sync_estado: 'ok', sync_error: null }).eq('id', previa.id)
   if (error) throw new Error(`No se ha podido actualizar la tarea «${campos.titulo}»: ${error.message}`)
   return { accion: 'actualizada', tareaId: previa.id }
 }
@@ -229,7 +247,11 @@ async function traerCliente(c0: ClienteTC, personas: TablaDePersonas, completa: 
   if (!c0.notion_ds_id) return
   const service = createServiceClient()
   const c = await prepararCliente(c0)
-  const desde = !completa && c.sync_ultima ? new Date(Date.parse(c.sync_ultima) - MARGEN_DE_RELOJ_MS).toISOString() : undefined
+  // Las columnas propias de esa base: se leen si la columna existe, y mientras no se hayan leído TODAS las tareas con ellas se hace una lectura completa (una sola vez por cambio de columnas)
+  const extras = (c.notion_esquema.extras ?? []).length > 0 && (await hayColumnaDePropiedades()) ? (c.notion_esquema.extras as PropiedadExtra[]) : null
+  const firma = firmaDeExtras(extras ?? undefined)
+  const faltaLeerlas = Boolean(extras) && (c.opciones as unknown as { extras_leidas?: string }).extras_leidas !== firma
+  const desde = !completa && !faltaLeerlas && c.sync_ultima ? new Date(Date.parse(c.sync_ultima) - MARGEN_DE_RELOJ_MS).toISOString() : undefined
   const empezo = new Date().toISOString()
   const paginas = await paginasDeLaBase(c.notion_ds_id as string, desde)
 
@@ -244,7 +266,7 @@ async function traerCliente(c0: ClienteTC, personas: TablaDePersonas, completa: 
   const tocadas: string[] = []
   for (const p of paginas) {
     if (Date.now() > limite) break
-    const r = await aplicarPagina(c, p, personas, existentes, pendientes, finalDeColumna)
+    const r = await aplicarPagina(c, p, personas, existentes, pendientes, finalDeColumna, extras, faltaLeerlas)
     if (r.accion === 'creada') resultado.creadas += 1
     if (r.accion === 'actualizada') resultado.actualizadas += 1
     if (r.accion !== 'igual' && r.tareaId) tocadas.push(r.tareaId)
@@ -274,7 +296,9 @@ async function traerCliente(c0: ClienteTC, personas: TablaDePersonas, completa: 
     }
   }
   // Solo se adelanta la marca si se leyó todo lo que había: si se cortó por tiempo, la próxima pasada sigue por donde iba
-  if (Date.now() <= limite) await service.from('tc_clientes').update({ sync_ultima: empezo, sync_error: null }).eq('id', c.id)
+  if (Date.now() <= limite) {
+    await service.from('tc_clientes').update({ sync_ultima: empezo, sync_error: null, ...(faltaLeerlas ? { opciones: { ...c.opciones, extras_leidas: firma } } : {}) }).eq('id', c.id)
+  }
 }
 
 /** Una página concreta, avisada por un webhook de Notion: se trae ella sola, sin esperar a la próxima pasada */
@@ -293,7 +317,8 @@ export async function sincronizarPagina(paginaId: string): Promise<'hecha' | 'aj
   const finalDeColumna = new Map<string, number>()
   const { data: maximos } = await service.from('tc_tareas').select('estado, orden').eq('cliente_id', c.id).order('orden', { ascending: false }).limit(2000)
   for (const m of (maximos ?? []) as Array<{ estado: string; orden: number }>) if (!finalDeColumna.has(m.estado)) finalDeColumna.set(m.estado, Number(m.orden))
-  const r = await aplicarPagina(c, pagina, personas, existentes, pendientes, finalDeColumna)
+  const extras = (c.notion_esquema.extras ?? []).length > 0 && (await hayColumnaDePropiedades()) ? (c.notion_esquema.extras as PropiedadExtra[]) : null
+  const r = await aplicarPagina(c, pagina, personas, existentes, pendientes, finalDeColumna, extras)
   await guardarEnlacesNuevos(personas)
   if (r.tareaId) {
     await traerContenido(r.tareaId).catch(() => false)
@@ -322,6 +347,7 @@ async function empujarPropiedades(t: TareaTC, c: ClienteTC, campos: readonly str
   for (const k of campos) if (k !== 'icono') cambios[k] = (t as unknown as Record<string, unknown>)[k]
   if (campos.includes('responsables')) cambios.responsables_notion = t.responsables_notion
   const propiedades = propiedadesParaNotion(cambios, c.notion_esquema, personas.haciaNotion)
+  if (campos.includes('propiedades')) Object.assign(propiedades, propiedadesExtraParaNotion(t.propiedades, c.notion_esquema.extras ?? []))
   return actualizarPagina(t.notion_page_id as string, { ...(Object.keys(propiedades).length > 0 ? { properties: propiedades } : {}), ...(campos.includes('icono') ? { icon: iconoParaNotion(t.icono) } : {}) })
 }
 
@@ -432,6 +458,7 @@ async function vaciarCola(personas: TablaDePersonas, resultado: ResultadoDeSync,
       const crear = ops.find((o) => o.operacion === 'crear')
       if (crear && !t.notion_page_id) {
         const props = propiedadesParaNotion(Object.fromEntries(TODOS_LOS_CAMPOS.filter((k) => k !== 'icono').map((k) => [k, (t as unknown as Record<string, unknown>)[k]])), c.notion_esquema, personas.haciaNotion)
+        Object.assign(props, propiedadesExtraParaNotion(t.propiedades, c.notion_esquema.extras ?? []))
         const arbol = arbolParaNotion((t.contenido ?? []) as Bloque[])
         const pagina = await crearPagina(c.notion_ds_id as string, props, { ...(t.icono ? { icon: iconoParaNotion(t.icono) } : {}), ...(arbol.length > 0 ? { children: arbol.slice(0, 100) } : {}) })
         for (const trozo of aTrozos(arbol.slice(100), 100)) await anadirBloques(pagina.id, trozo)

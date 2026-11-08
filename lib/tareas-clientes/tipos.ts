@@ -1,3 +1,4 @@
+import type { PropiedadExtra } from './propiedades'
 /**
  * TAREAS DE CLIENTES: LOS TIPOS.
  *
@@ -58,6 +59,8 @@ export interface PropiedadNotion {
 }
 
 export interface EsquemaNotion {
+  /** Las columnas propias de esa base que el ERP no conocía y sabe mostrar y escribir (propiedades.ts) */
+  extras?: PropiedadExtra[]
   titulo?: PropiedadNotion
   estado?: PropiedadNotion
   departamento?: PropiedadNotion

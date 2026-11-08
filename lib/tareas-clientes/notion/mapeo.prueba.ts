@@ -1,4 +1,4 @@
-import { aProgreso, camposDesdePagina, esquemaDe, grupoPorNombre, opcionesDe, propiedadesParaNotion } from '@/lib/tareas-clientes/notion/mapeo'
+import { aProgreso, camposDesdePagina, esquemaDe, grupoPorNombre, opcionesDe, propiedadesExtraDesdePagina, propiedadesExtraParaNotion, propiedadesParaNotion } from '@/lib/tareas-clientes/notion/mapeo'
 import type { DataSourceNotion, PaginaNotion } from '@/lib/tareas-clientes/notion/cliente'
 
 let fallos = 0
@@ -103,6 +103,44 @@ igual('un select de estado va como select', propiedadesParaNotion({ estado: 'Hec
 igual('las fechas van como rango', propiedadesParaNotion({ fecha_inicio: '2026-11-05', fecha_fin: '2026-11-09' }, esq, inverso), { 'Fecha de inicio': { date: { start: '2026-11-05', end: '2026-11-09' } } })
 igual('sin fecha de inicio, la vacía', propiedadesParaNotion({ fecha_inicio: null, fecha_fin: null }, esq, inverso), { 'Fecha de inicio': { date: null } })
 igual('una propiedad que esa base no tiene no se manda', propiedadesParaNotion({ progreso: 10, departamento: 'X' }, esq2, inverso), {})
+
+/* ---- Las columnas propias de cada base ---- */
+const conExtras: DataSourceNotion = {
+  id: 'ds9',
+  properties: {
+    Nombre: { name: 'Nombre', type: 'title' },
+    Estado: { name: 'Estado', type: 'status', status: { options: [{ name: 'Backlog', color: 'yellow' }], groups: [] } },
+    Departamento: { name: 'Departamento', type: 'select', select: { options: [{ name: 'MARKETING', color: 'green' }] } },
+    Prioridad: { name: 'Prioridad', type: 'select', select: { options: [{ name: 'Alta', color: 'red' }, { name: 'Baja', color: 'gray' }] } },
+    Etiquetas: { name: 'Etiquetas', type: 'multi_select', multi_select: { options: [{ name: 'Urgente', color: 'red' }] } },
+    Progreso: { name: 'Progreso', type: 'number' },
+    Horas: { name: 'Horas', type: 'number' },
+    Revisado: { name: 'Revisado', type: 'checkbox' },
+    Enlace: { name: 'Enlace', type: 'url' },
+    Informe: { name: 'Informe', type: 'url' },
+    Notas: { name: 'Notas', type: 'rich_text' },
+    Creado: { name: 'Creado', type: 'created_time' },
+    Calculo: { name: 'Calculo', type: 'formula' },
+  },
+}
+const esqX = esquemaDe(conExtras)
+igual('las columnas que sobran y se saben tratar son propias; fórmulas y fechas automáticas no', (esqX.extras ?? []).map((x) => `${x.nombre}:${x.tipo}`), ['Prioridad:select', 'Etiquetas:multi_select', 'Horas:number', 'Revisado:checkbox', 'Informe:url', 'Notas:rich_text'])
+igual('un select propio lleva sus opciones', esqX.extras?.[0].opciones, [{ nombre: 'Alta', color: 'red' }, { nombre: 'Baja', color: 'gray' }])
+igual('una base sin columnas propias no lleva "extras"', 'extras' in esquemaDe({ properties: { Nombre: { name: 'Nombre', type: 'title' } } }), false)
+const paginaX: PaginaNotion = { id: 'p1', last_edited_time: '2026-11-08T10:00:00Z', properties: { Prioridad: { type: 'select', select: { name: 'Alta' } }, Etiquetas: { type: 'multi_select', multi_select: [{ name: 'Urgente' }, { name: 'Otra' }] }, Horas: { type: 'number', number: 3.5 }, Revisado: { type: 'checkbox', checkbox: true }, Informe: { type: 'url', url: null }, Notas: { type: 'rich_text', rich_text: [{ plain_text: 'Hola ' }, { plain_text: 'mundo' }] } } } as unknown as PaginaNotion
+const valores = propiedadesExtraDesdePagina(paginaX, esqX.extras ?? [])
+igual('se leen de la página', valores, { Prioridad: 'Alta', Etiquetas: ['Urgente', 'Otra'], Horas: 3.5, Revisado: true, Informe: null, Notas: 'Hola mundo' })
+igual('y se escriben de vuelta con la forma de Notion', propiedadesExtraParaNotion(valores, esqX.extras ?? []), {
+  Prioridad: { select: { name: 'Alta' } },
+  Etiquetas: { multi_select: [{ name: 'Urgente' }, { name: 'Otra' }] },
+  Horas: { number: 3.5 },
+  Revisado: { checkbox: true },
+  Informe: { url: null },
+  Notas: { rich_text: [{ type: 'text', text: { content: 'Hola mundo' } }] },
+})
+igual('solo se mandan las que hay en los valores', propiedadesExtraParaNotion({ Horas: 2 }, esqX.extras ?? []), { Horas: { number: 2 } })
+igual('un valor que no vale o una columna que no existe no se manda', propiedadesExtraParaNotion({ Horas: 'mucho', Inventada: 1, Informe: 'javascript:x' }, esqX.extras ?? []), {})
+igual('vaciar un select manda null', propiedadesExtraParaNotion({ Prioridad: null }, esqX.extras ?? []), { Prioridad: { select: null } })
 
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien`)
 if (fallos > 0) process.exit(1)

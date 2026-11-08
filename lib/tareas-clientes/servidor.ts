@@ -3,6 +3,7 @@ import { destinatariosDeAsignacion, destinatariosDeComentario, mencionesEnTexto,
 import { contarChecklist, huellaDeContenido, progresoDeChecklist, textoPlano, TIPOS_EDITABLES, type Bloque } from './bloques'
 import { fondoAnimadoId } from './colores'
 import { guardarVersion } from './historial-servidor'
+import { mezclarPropiedades, type PropiedadExtra } from './propiedades'
 import { personaPuedeVer, puedeVer, type Permitidos } from './permisos'
 import { avisosDeFecha } from './vencimientos'
 import { programarEnvioANotion } from './notion/pronto'
@@ -341,9 +342,11 @@ export interface CambiosDeTarea {
   visible_cliente?: unknown
   archivada?: unknown
   contenido?: unknown
+  /** Las propiedades propias del cliente (propiedades.ts): solo las que se tocan */
+  propiedades?: unknown
 }
 
-const CAMPOS_QUE_VAN_A_NOTION = ['titulo', 'icono', 'estado', 'departamento', 'fecha_inicio', 'fecha_fin', 'progreso', 'url', 'responsables'] as const
+const CAMPOS_QUE_VAN_A_NOTION = ['titulo', 'icono', 'estado', 'departamento', 'fecha_inicio', 'fecha_fin', 'progreso', 'url', 'responsables', 'propiedades'] as const
 
 /** Un cambio del navegador, comprobado y limpio. Lo que no se reconoce se ignora; lo que está mal, falla con el motivo */
 function limpiarCambios(cambios: CambiosDeTarea, personas: ReadonlySet<string>): Record<string, unknown> {
@@ -452,6 +455,12 @@ export async function actualizarTarea(actor: Actor, id: string, cambios: Cambios
   exigirAcceso(actor.clientes, previa.cliente_id)
   const personas = new Set((await personasConAcceso(previa.cliente_id)).map((p) => p.id))
   const limpio = limpiarCambios(cambios, personas)
+  if ('propiedades' in cambios) {
+    const { data: esquemaDelCliente } = await service.from('tc_clientes').select('notion_esquema').eq('id', previa.cliente_id).maybeSingle()
+    const mezcla = mezclarPropiedades(cambios.propiedades, (esquemaDelCliente as { notion_esquema?: { extras?: PropiedadExtra[] } } | null)?.notion_esquema?.extras ?? [], previa.propiedades)
+    if (!mezcla.ok) throw new ErrorDeTareas(mezcla.motivo)
+    if (mezcla.cambiadas.length > 0) limpio.propiedades = mezcla.valores
+  }
 
   // Solo cuenta lo que ha cambiado de verdad: guardar dos veces lo mismo no ensucia el historial ni la cola
   const reales: Record<string, unknown> = {}

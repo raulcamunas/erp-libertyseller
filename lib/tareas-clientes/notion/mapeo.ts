@@ -1,5 +1,6 @@
 import type { ColorNotion, EsquemaNotion, GrupoDeEstado, OpcionDeEstado, OpcionSimple, OpcionesDelCliente, PropiedadNotion, ResponsableNotion, TareaTC } from '../tipos'
 import { COLORES_NOTION } from '../tipos'
+import { esTipoSoportado, limpiarValor, MAX_EXTRAS, type PropiedadExtra } from '../propiedades'
 import type { DataSourceNotion, PaginaNotion, PropiedadDelEsquema, PropiedadDePagina } from './cliente'
 
 /**
@@ -39,7 +40,15 @@ export function esquemaDe(fuente: Pick<DataSourceNotion, 'properties'>): Esquema
   const fecha = tomar(primeraDe(sinUsar(), ['date'], /fecha|date|inicio/i))
   const progreso = tomar(primeraDe(sinUsar(), ['number'], /progreso|progress/i))
   const url = tomar(primeraDe(sinUsar(), ['url'], /url|enlace|link/i))
-  return { titulo, estado, departamento, responsable, fecha, progreso, url }
+  // Lo que queda y se sabe mostrar y escribir son las columnas propias de esa base
+  const extras: PropiedadExtra[] = sinUsar()
+    .filter((p) => esTipoSoportado(p.type))
+    .slice(0, MAX_EXTRAS)
+    .map((p) => {
+      const opciones = p.type === 'select' ? p.select?.options : p.type === 'multi_select' ? p.multi_select?.options : undefined
+      return { nombre: p.name, tipo: p.type as PropiedadExtra['tipo'], ...(opciones ? { opciones: opciones.map((o) => ({ nombre: o.name, color: color(o.color) })) } : {}) }
+    })
+  return { titulo, estado, departamento, responsable, fecha, progreso, url, ...(extras.length > 0 ? { extras } : {}) }
 }
 
 /* ------------------------------------------------------------------ */
@@ -183,3 +192,78 @@ export function propiedadesParaNotion(cambios: CambiosDeTarea, esquema: EsquemaN
 
 /** La portada del icono de la página */
 export const iconoParaNotion = (emoji: string | null | undefined) => (emoji ? { type: 'emoji', emoji } : null)
+
+
+/* ------------------------------------------------------------------ */
+/* Las propiedades propias de cada base                                */
+/* ------------------------------------------------------------------ */
+
+/** Los valores de las columnas propias de una página de Notion, ya en la forma que guarda el ERP (propiedades.ts) */
+export function propiedadesExtraDesdePagina(pagina: PaginaNotion, extras: readonly PropiedadExtra[]): Record<string, unknown> {
+  const salida: Record<string, unknown> = {}
+  for (const x of extras) {
+    const p = pagina.properties[x.nombre]
+    if (!p || p.type !== x.tipo) continue
+    const v = p[p.type] as unknown
+    let valor: unknown
+    switch (x.tipo) {
+      case 'select':
+        valor = (v as { name?: string } | null)?.name ?? null
+        break
+      case 'multi_select':
+        valor = Array.isArray(v) ? (v as Array<{ name?: string }>).map((o) => o.name ?? '').filter(Boolean) : []
+        break
+      case 'rich_text':
+        valor = textoPlano(v) || null
+        break
+      case 'date': {
+        const d = v as { start?: string; end?: string | null } | null
+        valor = d?.start ? { start: d.start, end: d.end ?? null } : null
+        break
+      }
+      case 'checkbox':
+        valor = v === true
+        break
+      case 'number':
+        valor = typeof v === 'number' && Number.isFinite(v) ? v : null
+        break
+      default:
+        valor = typeof v === 'string' && v ? v : null
+    }
+    salida[x.nombre] = valor
+  }
+  return salida
+}
+
+/** Las propiedades de Notion a mandar para estos valores. Solo las que el cliente tiene y de un valor que vale; una que no se reconoce no se manda */
+export function propiedadesExtraParaNotion(valores: Record<string, unknown> | null | undefined, extras: readonly PropiedadExtra[]): Record<string, unknown> {
+  const salida: Record<string, unknown> = {}
+  for (const x of extras) {
+    if (!valores || !(x.nombre in valores)) continue
+    const v = limpiarValor(x, valores[x.nombre])
+    if (v === undefined) continue
+    switch (x.tipo) {
+      case 'select':
+        salida[x.nombre] = { select: v ? { name: v as string } : null }
+        break
+      case 'multi_select':
+        salida[x.nombre] = { multi_select: (v as string[]).map((name) => ({ name })) }
+        break
+      case 'rich_text':
+        salida[x.nombre] = { rich_text: v ? rt(v as string) : [] }
+        break
+      case 'date':
+        salida[x.nombre] = { date: v }
+        break
+      case 'checkbox':
+        salida[x.nombre] = { checkbox: v === true }
+        break
+      case 'number':
+        salida[x.nombre] = { number: v as number | null }
+        break
+      default:
+        salida[x.nombre] = { [x.tipo]: (v as string | null) ?? null }
+    }
+  }
+  return salida
+}
