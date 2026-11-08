@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { BarChart3, Bell, BellOff, BellRing, Check, Lock, Moon, Pause, Play, Plus, X } from 'lucide-react'
+import { BarChart3, Bell, BellOff, BellRing, Check, Moon, Pause, Play, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { contarVotos, MAX_OPCIONES, MIN_OPCIONES } from '@/lib/chat/encuesta'
 import type { NivelDeAvisos } from '@/lib/chat/avisos'
@@ -201,5 +201,5 @@ export function HoraLocalDe({ id, conNombre }: { id: string | null | undefined; 
 }
 
 export function EtiquetaDeSlack() {
-  return <span className="chat-etiqueta-slack" title="Mensaje importado de Slack"><Lock className="h-2.5 w-2.5" />Slack</span>
+  return <span className="chat-etiqueta-slack" title="Mensaje importado de Slack">Slack</span>
 }

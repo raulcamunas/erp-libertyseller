@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useState } from 'react'
-import { Bookmark, BookmarkCheck, Clock, CornerUpLeft, FileText, MessageSquareReply, MoreHorizontal, Pencil, Pin, PinOff, SmilePlus, Trash2 } from 'lucide-react'
+import { Bookmark, BookmarkCheck, Clock, CornerUpLeft, FileText, Image as ImageIcon, MessageSquareReply, MoreHorizontal, Paperclip, Pencil, Pin, PinOff, SmilePlus, Trash2, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { pedir } from '@/components/tareas-clientes/api'
@@ -11,6 +11,7 @@ import { aTextoEditable, desdeTextoEditable, type Mencionado } from '@/lib/chat/
 import { describirInstante } from '@/lib/chat/tiempo'
 import type { AdjuntoChat, MensajeChat } from '@/lib/chat/tipos'
 import { useChat } from './ChatProvider'
+import { esAvisoDeUnion, separarArchivosDeSlack } from '@/lib/chat/importado'
 import { EtiquetaDeSlack, NotaDeVoz, TarjetaDeEncuesta } from './Extras'
 import { ElegirHora, EmojiDeEstado, VisorDeImagen } from './Paneles'
 import { TextoDeMensaje } from './TextoDeMensaje'
@@ -74,6 +75,17 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
   }
 
   const reacciones = Object.entries(m.reacciones).filter(([, quienes]) => quienes.length > 0)
+  const importado = Boolean(m.autor_externo && !m.autor_id)
+  // Un «se ha unido al canal» de Slack es un aviso, no un mensaje: una línea discreta
+  if (importado && esAvisoDeUnion(m.cuerpo)) {
+    return (
+      <div className="chat-sistema" data-mensaje-id={m.id}>
+        <UserPlus className="h-3 w-3" /> <span>{m.cuerpo.trim().replace(/^@/, '')}</span> <time dateTime={m.creado_en}>{horaDe(m.creado_en)}</time>
+      </div>
+    )
+  }
+  // Los archivos de Slack no se han traído: se enseñan como etiquetas, no como líneas de texto
+  const { texto: cuerpoLimpio, archivos: archivosDeSlack } = importado ? separarArchivosDeSlack(m.cuerpo) : { texto: m.cuerpo, archivos: [] }
   return (
     <div
       className="chat-mensaje"
@@ -128,7 +140,17 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
               </span>
             </div>
           ) : (
-            m.cuerpo && !m.encuesta && <TextoDeMensaje cuerpo={m.cuerpo} editado={m.editado_en !== null} />
+            cuerpoLimpio && !m.encuesta && <TextoDeMensaje cuerpo={cuerpoLimpio} editado={m.editado_en !== null} />
+          )}
+          {archivosDeSlack.length > 0 && (
+            <ul className="chat-archivos-slack">
+              {archivosDeSlack.map((a, i) => (
+                <li key={i} className="chat-archivo-slack" data-tipo={a.tipo} title={`${a.nombre} (archivo de Slack, no importado)`}>
+                  {a.tipo === 'imagen' ? <ImageIcon className="h-3.5 w-3.5" /> : <Paperclip className="h-3.5 w-3.5" />}
+                  <span>{{ imagen: 'Imagen', pdf: 'PDF', audio: 'Audio', video: 'Vídeo', hoja: 'Hoja de cálculo', archivo: 'Archivo' }[a.tipo]}{a.extension && a.tipo !== 'pdf' ? ` · ${a.extension}` : ''}</span>
+                </li>
+              ))}
+            </ul>
           )}
           {m.encuesta && <TarjetaDeEncuesta m={m} />}
           {m.adjuntos.length > 0 && (
