@@ -366,6 +366,21 @@ export const TAREAS_CRON = [
       'Envía a Notion lo que se ha cambiado en el ERP, trae lo que se ha editado en Notion y crea las tareas que se repiten (plantillas recurrentes), sin que nadie tenga el ERP abierto.',
   },
   {
+    /**
+     * CADA DIEZ MINUTOS. LAS TAREAS QUE PROPONE LA IA TRAS UNA REUNIÓN CON UN CLIENTE.
+     *
+     * Parte de las notas de Gemini que el CRM dejó como «ignoradas» (reuniones que no son de venta) y cuyo título lleva el nombre de un cliente de tareas («Seguimiento Semanal | Solter»): abre
+     * SOLO esas (correo y documento), le pide a la IA las tareas con las reglas de siempre (En progreso lo nuestro, Backlog lo del cliente) y las guarda como PROPUESTAS que el equipo acepta o
+     * descarta en la página del cliente. Tres reuniones como mucho por pasada; sin nada que hacer es una consulta pequeña. Nada se crea solo. Solo LEE de Google.
+     */
+    id: 'tareas-reuniones',
+    nombre: 'Tareas propuestas desde reuniones',
+    ruta: '/api/tareas-clientes/reuniones/cron',
+    cadaMinutos: 10,
+    que:
+      'Lee las notas de Gemini de las reuniones de seguimiento con clientes y propone a la IA las tareas que salen de ellas, para que el equipo elija las buenas en la página del cliente. No crea nada solo.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
@@ -414,6 +429,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'ciclo-leads': { prioridad: 'normal' },
   calendario: { prioridad: 'esencial' },
   'tareas-notion': { prioridad: 'normal' },
+  'tareas-reuniones': { prioridad: 'normal' },
 }
 
 const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true

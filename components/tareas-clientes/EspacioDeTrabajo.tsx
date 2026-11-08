@@ -24,6 +24,7 @@ import { MiDia } from './MiDia'
 import { BloqueadasContexto } from './contexto'
 import { PanelDeTarea } from './PanelDeTarea'
 import { PlantillasGestor } from './PlantillasGestor'
+import { PropuestasDeReunion } from './PropuestasDeReunion'
 import { useMarco } from './useMarco'
 import { estiloDePortada, FondoAnimado, fondoNecesitaCortina } from './Portada'
 import { Tablero } from './Tablero'
@@ -74,6 +75,9 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   const [plantillas, setPlantillas] = useState<PlantillaTC[]>([])
   const [gestorAbierto, setGestorAbierto] = useState(false)
   const [compartirAbierto, setCompartirAbierto] = useState(false)
+  // Las tareas que propone la IA tras una reunión con cada cliente y están esperando que alguien las elija
+  const [propuestas, setPropuestas] = useState<Record<string, number>>({})
+  const [propuestasAbierto, setPropuestasAbierto] = useState(false)
   const pendientes = useRef(0)
 
   useEffect(() => {
@@ -165,6 +169,31 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
 
   // Las tareas que esperan a otra: se calcula una vez y las tarjetas y las filas solo lo miran
   const bloqueadas = useMemo(() => tareasBloqueadas(datos?.tareas ?? [], (t) => estaHechaLaTarea(t, mapa)), [datos?.tareas, mapa])
+
+  /* ---- Tareas propuestas tras una reunión ---- */
+  useEffect(() => {
+    let vivo = true
+    const leer = () => pedir<{ porCliente: Record<string, number> }>(`${BASE}/propuestas`).then((r) => vivo && setPropuestas(r.porCliente)).catch(() => undefined)
+    void leer()
+    const t = setInterval(() => document.visibilityState === 'visible' && void leer(), 120_000)
+    return () => {
+      vivo = false
+      clearInterval(t)
+    }
+  }, [])
+  const propuestasDelCliente = ambito.tipo === 'cliente' ? (propuestas[ambito.id] ?? 0) : 0
+  // Al entrar en un cliente con tareas por elegir se abre la ventana, una sola vez por sesión y cliente (después, el botón de la cabecera)
+  useEffect(() => {
+    if (ambito.tipo !== 'cliente' || propuestasDelCliente === 0) return
+    try {
+      const clave = `tc-propuestas-vistas:${ambito.id}`
+      if (window.sessionStorage.getItem(clave)) return
+      window.sessionStorage.setItem(clave, '1')
+    } catch {
+      /* sin almacenamiento: se abre igual */
+    }
+    setPropuestasAbierto(true)
+  }, [ambito, propuestasDelCliente])
 
   const prefs: Preferencias = datos?.preferencias ?? { fondo: {}, portada: {}, favoritos: [] }
   const fondo: PortadaGuardada = cliente?.fondo?.tipo ? cliente.fondo : prefs.fondo
@@ -551,6 +580,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           onFiltros={setFiltros}
           esAdmin={esAdmin}
           onCompartir={esAdmin && cliente ? () => setCompartirAbierto(true) : undefined}
+          propuestasPendientes={propuestasDelCliente}
+          onPropuestas={cliente ? () => setPropuestasAbierto(true) : undefined}
           personas={personas}
           clientesParaDepartamentos={cliente ? [cliente] : datos.clientes}
           puedeAgrupar={vista === 'tabla'}
@@ -586,6 +617,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
       {buscadorAbierto && <BuscadorGlobal tareas={datos.tareas} clientes={datos.clientes} clienteActual={cliente} onElegirTarea={elegirResultado} onElegirCliente={(id) => irA({ tipo: 'cliente', id }, rutaDeAmbito({ tipo: 'cliente', id }))} onCerrar={() => setBuscadorAbierto(false)} />}
 
       {gestorAbierto && cliente && <PlantillasGestor cliente={cliente} personas={personas} onCerrar={() => setGestorAbierto(false)} onCambio={setPlantillas} onCreada={(t) => { aplicarFila(t); setAbierta(t.id) }} />}
+
+      {propuestasAbierto && cliente && <PropuestasDeReunion cliente={cliente} personas={personas} onCerrar={() => setPropuestasAbierto(false)} onCreadas={(ts) => ts.forEach(aplicarFila)} onCambioDePendientes={(n) => setPropuestas((c) => ({ ...c, [cliente.id]: n }))} />}
 
       {compartirAbierto && esAdmin && cliente && <CompartirConElCliente clienteId={cliente.id} clienteNombre={cliente.nombre} onCerrar={() => setCompartirAbierto(false)} />}
 

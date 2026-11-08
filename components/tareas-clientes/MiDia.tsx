@@ -269,7 +269,7 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
       <header className="tc-dia-cabecera">
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-[12.5px] text-[var(--ls-t3)]"><Sun className="h-3.5 w-3.5 text-[var(--ls-acc)]" />{soloLectura ? `Briefing de ${nombreDe(de) || 'otra persona'}` : `${saludoDeLaHora()}${miNombre ? `, ${miNombre}` : ''}`}</p>
-          <h1 className="mt-0.5 text-[24px] font-semibold capitalize leading-tight text-[var(--ls-t1)]">{diaLegible(dia, hoy)}</h1>
+          <h1 className="mt-0.5 text-[24px] font-semibold leading-tight text-[var(--ls-t1)] first-letter:uppercase">{diaLegible(dia, hoy)}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="tc-chip-estado" aria-live="polite">

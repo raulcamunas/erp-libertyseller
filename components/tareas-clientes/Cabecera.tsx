@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { CalendarClock, CalendarDays, ChevronDown, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Settings2, Share2, Table2, X } from 'lucide-react'
+import { CalendarClock, CalendarDays, ChevronDown, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Settings2, Share2, Sparkles, Table2, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { hayFiltros } from '@/lib/tareas-clientes/filtros'
 import { describirRecurrencia, recurrenciaValida } from '@/lib/tareas-clientes/recurrencia'
@@ -34,6 +34,9 @@ export interface PropsDeCabecera {
   esAdmin?: boolean
   /** Si se pasa, aparece «Compartir» (el panel del cliente): solo se pasa para un administrador dentro de un cliente */
   onCompartir?: () => void
+  /** Tareas propuestas por la IA tras una reunión con este cliente que esperan decisión: si hay, aparece el botón que abre la ventana */
+  propuestasPendientes?: number
+  onPropuestas?: () => void
   personas: readonly PersonaTC[]
   clientesParaDepartamentos: readonly ClienteTC[]
   puedeAgrupar: boolean
@@ -140,6 +143,7 @@ export function Cabecera(p: PropsDeCabecera) {
           <button type="button" className="tc-boton-herramienta"><Palette className="h-3.5 w-3.5" /> Fondo</button>
         </SelectorDePortada>
 
+        {(p.propuestasPendientes ?? 0) > 0 && p.onPropuestas && <button type="button" onClick={p.onPropuestas} className="tc-boton-primario" title="Tareas que salen de la última reunión con este cliente"><Sparkles className="h-3.5 w-3.5" /> {p.propuestasPendientes} {p.propuestasPendientes === 1 ? 'tarea propuesta' : 'tareas propuestas'}</button>}
         {p.onCompartir && <button type="button" onClick={p.onCompartir} className="tc-boton-herramienta" title="Compartir el panel con el cliente"><Share2 className="h-3.5 w-3.5" /> Compartir</button>}
 
         {activos && <span className="text-[11.5px] tabular-nums text-[var(--ls-t3)]">{p.visibles} de {p.total}</span>}

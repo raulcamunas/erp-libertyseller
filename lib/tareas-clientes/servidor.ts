@@ -245,7 +245,7 @@ export interface AvisoParaCampana {
 }
 
 /** Escribe los avisos en la campana. NUNCA lanza: un aviso que falla no puede tumbar lo que avisaba */
-async function avisar(avisos: AvisoParaCampana[]) {
+export async function avisar(avisos: AvisoParaCampana[]) {
   if (avisos.length === 0) return
   try {
     const { error } = await createServiceClient()

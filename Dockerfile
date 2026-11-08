@@ -80,6 +80,7 @@ RUN { \
       echo "* * * * * /app/scripts/ciclo-leads.sh"; \
       echo "* * * * * /app/scripts/fba-alertas.sh"; \
       echo "* * * * * /app/scripts/tareas-notion.sh"; \
+      echo "* * * * * /app/scripts/tareas-reuniones.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto
