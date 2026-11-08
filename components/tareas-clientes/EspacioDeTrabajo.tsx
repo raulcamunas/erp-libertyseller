@@ -71,7 +71,10 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   const [vistaElegida, setVistaElegida] = useState<TipoDeVista | null>(null)
   const [filtros, setFiltros] = useState<FiltrosDeTareas>(FILTROS_VACIOS)
   const [abierta, setAbierta] = useState<string | null>(tareaInicial ?? null)
-  const [colapsada, setColapsada] = useState(false)
+  // La barra de clientes empieza plegada (una tira de iconos): con la barra del ERP a la vista, dos barras anchas se comen media pantalla. Se despliega al pasar el ratón sin empujar nada
+  const [colapsada, setColapsada] = useState(true)
+  const [asoma, setAsoma] = useState(false)
+  const temporizadorAsoma = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [releyendo, setReleyendo] = useState(false)
   const [plantillas, setPlantillas] = useState<PlantillaTC[]>([])
   const [gestorAbierto, setGestorAbierto] = useState(false)
@@ -83,7 +86,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   const pendientes = useRef(0)
 
   useEffect(() => {
-    setColapsada(leerLocal('tc-lateral') === '1')
+    // Solo se queda abierta si la persona la dejó abierta a propósito ('0')
+    setColapsada(leerLocal('tc-lateral') !== '0')
     const v = leerLocal('tc-vista') as TipoDeVista | null
     if (v && VISTAS_DE_CLIENTE.includes(v)) setVistaElegida(v)
   }, [])
@@ -579,7 +583,24 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     <BloqueadasContexto.Provider value={bloqueadas}>
     <div className="tc-zona" data-fondo={fondoNecesitaCortina(fondo) ? 'true' : undefined} style={{ '--tc-ambiente': cliente ? `var(--tc-${cliente.color || 'orange'})` : 'var(--ls-acc-graf)', ...(estiloDePortada(fondo, true) as CSSProperties | undefined) } as CSSProperties}>
       <FondoAnimado valor={fondo} />
-      <BarraLateral personas={personas} onBuscar={() => setBuscadorAbierto(true)} clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
+      <div
+        className="tc-lateral-hueco"
+        data-colapsada={colapsada ? 'true' : undefined}
+        data-asoma={colapsada && asoma ? 'true' : undefined}
+        onMouseEnter={() => {
+          if (!colapsada) return
+          if (temporizadorAsoma.current) clearTimeout(temporizadorAsoma.current)
+          temporizadorAsoma.current = setTimeout(() => setAsoma(true), 140)
+        }}
+        onMouseLeave={() => {
+          if (temporizadorAsoma.current) clearTimeout(temporizadorAsoma.current)
+          temporizadorAsoma.current = setTimeout(() => setAsoma(false), 220)
+        }}
+        onFocus={() => colapsada && setAsoma(true)}
+        onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setAsoma(false)}
+      >
+        <BarraLateral personas={personas} onBuscar={() => { setAsoma(false); setBuscadorAbierto(true) }} clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada && !asoma} onAlternar={() => { setColapsada(!colapsada); setAsoma(false); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={(r) => { setAsoma(false); navegar(r) }} onFavorito={alternarFavorito} />
+      </div>
 
       <section className="tc-centro" ref={setCentro}>
         <div className="tc-movil-barra"><SelectorMovil clientes={datos.clientes} ambito={ambito} onNavegar={navegar} /><button type="button" onClick={() => setBuscadorAbierto(true)} aria-label="Buscar en todo" className="tc-movil-buscar"><Search className="h-4 w-4" /></button></div>

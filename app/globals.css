@@ -3469,6 +3469,17 @@ body.tc-agarrando, body.tc-agarrando * { cursor: grabbing !important; }
   backdrop-filter: blur(18px) saturate(1.15);
 }
 .tc-lateral[data-colapsada='true'] { width: 58px; flex-basis: 58px; }
+/* El hueco que ocupa la barra de clientes: 256 px abierta o 58 px plegada. Plegada, al pasar el ratón la barra se despliega ENCIMA del contenido (sin empujarlo); su botón la deja fija */
+.tc-lateral-hueco { position: relative; display: flex; min-height: 0; width: 256px; flex: 0 0 256px; }
+.tc-lateral-hueco[data-colapsada='true'] { width: 58px; flex-basis: 58px; }
+.tc-lateral-hueco > .tc-lateral { width: 100%; flex: 1 1 auto; }
+.tc-lateral-hueco[data-colapsada='true'] > .tc-lateral { position: absolute; inset: 0 auto 0 0; z-index: 30; width: 58px; flex: none; }
+.tc-lateral-hueco[data-asoma='true'] > .tc-lateral { width: 256px; box-shadow: 22px 0 46px -22px rgba(0, 0, 0, .65); }
+.tc-lateral-hueco[data-asoma='true'] > .tc-lateral { background: color-mix(in srgb, var(--ls-sup) 97%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .tc-lateral-hueco[data-colapsada='true'] > .tc-lateral { transition: width .18s cubic-bezier(.2, .9, .3, 1), box-shadow .18s ease; }
+}
+@media (max-width: 860px) { .tc-lateral-hueco { display: none; } }
 @media (max-width: 860px) { .tc-lateral { display: none; } }
 .tc-centro { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 .tc-vista { min-height: 0; flex: 1; overflow: auto; padding: 8px 34px 16px; scrollbar-width: thin; scrollbar-color: var(--ls-linea2) transparent; }
@@ -5024,4 +5035,10 @@ body > .chat-junta[data-grande='true'] { inset: 12px 12px 12px calc(var(--lat-an
   .chat-cabecera { gap: 4px; }
   .chat-cabecera-titulo h1 { font-size: 15px; }
   .chat-barra-cabecera { padding-left: 14px; }
+}
+
+/* El carril del ERP a la vista junto a una aplicación: más plano y callado, sin la luz que se mueve ni el hilo del borde */
+@media (min-width: 1024px) {
+  .lat[data-inmersivo='true'] .lat-decorado { display: none; }
+  .lat[data-inmersivo='true'] { background: var(--ls-sup2); box-shadow: none; }
 }
