@@ -443,7 +443,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   calendario: { prioridad: 'esencial' },
   'tareas-notion': { prioridad: 'normal' },
   'tareas-reuniones': { prioridad: 'normal' },
-  'push-avisos': { prioridad: 'esencial' },
+  'push-avisos': { prioridad: 'normal' },
 }
 
 const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true
