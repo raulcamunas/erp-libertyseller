@@ -5210,7 +5210,6 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
 .chat-voz-cuenta { border-radius: 999px; background: color-mix(in srgb, var(--ls-e-verde) 20%, transparent); padding: 0 7px; font-size: 11px; font-weight: 700; line-height: 17px; color: var(--ls-e-verde); }
 .chat-voz-personas { margin: 1px 0 4px 24px; display: flex; flex-direction: column; gap: 1px; border-left: 1px solid var(--ls-linea); padding-left: 8px; }
 .chat-voz-persona { display: flex; align-items: center; gap: 7px; border-radius: 8px; padding: 3px 6px; font-size: 12.5px; color: var(--ls-t2); }
-.chat-voz-persona span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-voz-conectado { display: flex; align-items: center; gap: 8px; margin: 0 10px 6px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--ls-e-verde) 35%, transparent); background: color-mix(in srgb, var(--ls-e-verde) 10%, var(--ls-sup)); padding: 7px 8px 7px 12px; }
 .chat-voz-conectado b { display: block; font-size: 12px; font-weight: 700; color: var(--ls-e-verde); }
 .chat-voz-conectado i { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-style: normal; color: var(--ls-t3); }
@@ -5253,3 +5252,9 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
 /* Un mensaje que se está enviando se ve un poco apagado hasta que el servidor lo confirma */
 .chat-mensaje[data-enviando='true'] { opacity: .62; }
 .chat-mensaje[data-enviando='true'] .chat-hora-lado { display: none; }
+
+/* Quién habla en el canal de voz (el aro verde del avatar), como en Discord */
+.chat-voz-avatar { display: inline-flex; flex-shrink: 0; border-radius: 999px; box-shadow: 0 0 0 0 transparent; transition: box-shadow .12s ease; }
+.chat-voz-persona[data-habla='true'] .chat-voz-avatar { box-shadow: 0 0 0 2px var(--ls-e-verde); }
+.chat-voz-persona[data-habla='true'] .chat-voz-nombre { color: var(--ls-t1); font-weight: 600; }
+.chat-voz-nombre { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

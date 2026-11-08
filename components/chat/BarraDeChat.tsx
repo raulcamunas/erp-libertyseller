@@ -110,12 +110,19 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
                     </button>
                     {dentro.length > 0 && (
                       <ul className="chat-voz-personas" aria-label={`En ${c.nombre}`}>
-                        {dentro.map((id) => (
-                          <li key={id} className="chat-voz-persona">
-                            <Avatar id={id} nombre={nombreDe(id)} tamano={18} />
-                            <span>{id === yo.id ? `${nombreDe(id)} (tú)` : nombreDe(id)}</span>
-                          </li>
-                        ))}
+                        {dentro.map((id) => {
+                          // Quién habla y quién tiene el micrófono apagado, solo se sabe en la sala a la que estás conectado
+                          const p = conectado ? (id === yo.id ? room?.localParticipant : room?.remoteParticipants.get(id)) : undefined
+                          const habla = Boolean(p?.isSpeaking && p.isMicrophoneEnabled)
+                          const apagado = p ? !p.isMicrophoneEnabled : false
+                          return (
+                            <li key={id} className="chat-voz-persona" data-habla={habla ? 'true' : undefined}>
+                              <span className="chat-voz-avatar"><Avatar id={id} nombre={nombreDe(id)} tamano={20} /></span>
+                              <span className="chat-voz-nombre">{id === yo.id ? `${nombreDe(id)} (tú)` : nombreDe(id)}</span>
+                              {apagado && <MicOff className="h-3 w-3 shrink-0 text-[var(--ls-e-rojo)]" aria-label="Micrófono apagado" />}
+                            </li>
+                          )
+                        })}
                       </ul>
                     )}
                   </li>
