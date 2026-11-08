@@ -40,6 +40,11 @@ import { tablaDePersonas, type TablaDePersonas } from './personas'
 const MARGEN_DE_RELOJ_MS = 120_000
 const TANDA_DE_CUERPOS = 25
 const TANDA_DE_COMENTARIOS = 20
+/** Peticiones de comentarios por pasada, entre todos los clientes: a 3 por segundo, 300 (20 por cliente) eran ~100 s de cada pasada */
+const COMENTARIOS_POR_PASADA = 40
+/** Si Notion dice que la integración no puede leer comentarios, no se vuelve a probar en un buen rato */
+const ESPERA_SIN_PERMISO_DE_COMENTARIOS_MS = 30 * 60_000
+let comentariosSinPermisoHasta = 0
 const INTENTOS_ANTES_DE_ERROR = 6
 
 export const escrituraPermitida = (): boolean => (process.env.NOTION_ESCRITURA ?? '').trim() !== '0'
@@ -206,7 +211,7 @@ export async function traerComentarios(tareaId: string, nombres: Map<string, str
 }
 
 /** Trae de Notion todo lo nuevo de la base de un cliente */
-async function traerCliente(c0: ClienteTC, personas: TablaDePersonas, completa: boolean, resultado: ResultadoDeSync, limite: number): Promise<void> {
+async function traerCliente(c0: ClienteTC, personas: TablaDePersonas, completa: boolean, resultado: ResultadoDeSync, limite: number, comentarios: { restantes: number }): Promise<void> {
   if (!c0.notion_ds_id) return
   const service = createServiceClient()
   const c = await prepararCliente(c0)
@@ -242,8 +247,17 @@ async function traerCliente(c0: ClienteTC, personas: TablaDePersonas, completa: 
   }
   const { data: sinComentarios } = await service.from('tc_tareas').select('id').eq('cliente_id', c.id).not('notion_page_id', 'is', null).eq('archivada', false).order('notion_comentarios_revisados', { ascending: true, nullsFirst: true }).limit(TANDA_DE_COMENTARIOS)
   for (const s of (sinComentarios ?? []) as Array<{ id: string }>) {
-    if (Date.now() > limite) break
-    resultado.comentarios += await traerComentarios(s.id, nombres).catch(() => 0)
+    if (Date.now() > limite || comentarios.restantes <= 0 || Date.now() < comentariosSinPermisoHasta) break
+    comentarios.restantes -= 1
+    try {
+      resultado.comentarios += await traerComentarios(s.id, nombres)
+    } catch (e) {
+      // Sin la capacidad «Leer comentarios» Notion contesta 403 a todas: no se insiste con las demás (y no se marca ninguna como revisada)
+      if (e instanceof ErrorDeNotion && e.estado === 403) {
+        comentariosSinPermisoHasta = Date.now() + ESPERA_SIN_PERMISO_DE_COMENTARIOS_MS
+        break
+      }
+    }
   }
   // Solo se adelanta la marca si se leyó todo lo que había: si se cortó por tiempo, la próxima pasada sigue por donde iba
   if (Date.now() <= limite) await service.from('tc_clientes').update({ sync_ultima: empezo, sync_error: null }).eq('id', c.id)
@@ -440,10 +454,13 @@ export async function sincronizarTodo(opciones: { completa?: boolean; presupuest
     if (opciones.clienteId) consulta = consulta.eq('id', opciones.clienteId)
     const { data: clientes } = await consulta
     const personas = await cargarPersonas()
+    // PRIMERO SALE LO NUESTRO, y con su propio tiempo: antes se mandaba al final, y si leer los clientes se comía el presupuesto lo del ERP no llegaba nunca a Notion
+    if (escrituraPermitida()) await vaciarCola(personas, r, Math.min(limite, Date.now() + 40_000))
+    const comentarios = { restantes: COMENTARIOS_POR_PASADA }
     for (const c of (clientes ?? []) as ClienteTC[]) {
       if (Date.now() > limite) break
       try {
-        await traerCliente(c, personas, Boolean(opciones.completa), r, limite)
+        await traerCliente(c, personas, Boolean(opciones.completa), r, limite, comentarios)
         r.clientes += 1
       } catch (e) {
         const motivo = e instanceof Error ? e.message : 'Error desconocido'
@@ -452,7 +469,6 @@ export async function sincronizarTodo(opciones: { completa?: boolean; presupuest
         r.motivo = motivo
       }
     }
-    if (escrituraPermitida()) await vaciarCola(personas, r, limite)
   } finally {
     await soltarTurno()
     r.tiempoMs = Date.now() - inicio
