@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { esAvisoDeTareas } from '@/lib/push/aviso'
 import { arrastrarPendientes, esDiaValido, limpiarPlan, limpiarTexto, MAX_NOTAS, MAX_REVISION, progresoDelPlan, sumarDiasA, type PuntoDelPlan } from './mi-dia'
 import { filtrarPorCliente, type Permitidos } from './permisos'
 import { ErrorDeTareas, esUuid, personasConAcceso } from './servidor'
@@ -150,9 +151,10 @@ async function tareasNuevas(yo: string, permitidos: Permitidos): Promise<TareaNu
   return lista.map(({ cliente: _c, ...resto }) => (void _c, resto))
 }
 
+/** Solo los avisos del módulo de tareas (asignaciones, menciones, comentarios, vencimientos, tareas propuestas): los fallos del catálogo, el correo y demás se quedan en la campana */
 async function avisosRecientes(yo: string): Promise<AvisoDeMiDia[]> {
-  const { data } = await createServiceClient().from('notifications').select('id, type, title, message, datos, read, created_at').eq('user_id', yo).order('created_at', { ascending: false }).limit(15)
-  return (data ?? []) as AvisoDeMiDia[]
+  const { data } = await createServiceClient().from('notifications').select('id, type, title, message, datos, read, created_at').eq('user_id', yo).order('created_at', { ascending: false }).limit(150)
+  return ((data ?? []) as AvisoDeMiDia[]).filter((a) => esAvisoDeTareas(a)).slice(0, 15)
 }
 
 async function equipoDeHoy(hoy: string): Promise<PersonaDelEquipo[]> {
