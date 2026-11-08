@@ -27,6 +27,18 @@ export function Marco() {
       document.title = document.title.replace(/^\(\d+\+?\)\s*/, '')
     }
   }, [canales])
+  // Soltar un archivo fuera de una zona (la barra, una cabecera…) haría que el navegador lo abra y se pierda el chat: se frena
+  useEffect(() => {
+    const frenar = (e: DragEvent) => {
+      if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault()
+    }
+    window.addEventListener('dragover', frenar)
+    window.addEventListener('drop', frenar)
+    return () => {
+      window.removeEventListener('dragover', frenar)
+      window.removeEventListener('drop', frenar)
+    }
+  }, [])
   // Cmd+K (o Ctrl+K) abre el buscador desde cualquier sitio del chat
   useEffect(() => {
     const alTeclear = (e: KeyboardEvent) => {

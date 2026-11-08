@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { CalendarClock, CornerUpLeft, FileText, Loader2, Paperclip, SendHorizonal, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
@@ -49,16 +49,17 @@ interface Props {
   /** El mensaje al que se está respondiendo (se envía citado) */
   cita?: { autor: string; texto: string } | null
   alQuitarCita?: () => void
+  /** Archivos que se han soltado encima de la zona del chat: cada vez que cambia `n`, se suben */
+  ficherosSoltados?: { n: number; ficheros: File[] } | null
 }
 
-export function Redactor({ candidatos, placeholder, borradorInicial = '', alCambiarBorrador, alEscribir, alEnviar, alProgramar, autoEnfocar, compacto, cita, alQuitarCita }: Props) {
+export function Redactor({ candidatos, placeholder, borradorInicial = '', alCambiarBorrador, alEscribir, alEnviar, alProgramar, autoEnfocar, compacto, cita, alQuitarCita, ficherosSoltados }: Props) {
   const [texto, setTexto] = useState(borradorInicial)
   const [enviando, setEnviando] = useState(false)
   const [cursor, setCursor] = useState(borradorInicial.length)
   const [elegida, setElegida] = useState(0)
   const [cerrada, setCerrada] = useState(false)
   const [archivos, setArchivos] = useState<Subido[]>([])
-  const [arrastrando, setArrastrando] = useState(false)
   const [programando, setProgramando] = useState(false)
   const mencionados = useRef<Mencionado[]>([])
   const area = useRef<HTMLTextAreaElement>(null)
@@ -164,12 +165,13 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
     const con = ficheros.map((f, i) => (/^image\.(png|jpe?g|gif|webp)$/i.test(f.name) ? new File([f], `captura-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}${ficheros.length > 1 ? `-${i + 1}` : ''}.${f.name.split('.').pop()}`, { type: f.type }) : f))
     void subir(con)
   }
-  const alSoltar = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    setArrastrando(false)
-    const ficheros = [...e.dataTransfer.files]
-    if (ficheros.length > 0) void subir(ficheros)
-  }
+  // Lo que se suelta encima del canal (o del hilo) llega por aquí
+  const ultimoSoltado = useRef(0)
+  useEffect(() => {
+    if (!ficherosSoltados || ficherosSoltados.n === ultimoSoltado.current) return
+    ultimoSoltado.current = ficherosSoltados.n
+    void subir(ficherosSoltados.ficheros)
+  }, [ficherosSoltados, subir])
 
   /* ---------------- Enviar y programar ---------------- */
 
@@ -240,7 +242,7 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
   }
 
   return (
-    <div className="chat-redactor" data-compacto={compacto ? 'true' : undefined} data-arrastrando={arrastrando ? 'true' : undefined} onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setArrastrando(true) } }} onDragLeave={() => setArrastrando(false)} onDrop={alSoltar}>
+    <div className="chat-redactor" data-compacto={compacto ? 'true' : undefined}>
       {sugeridos.length > 0 && (
         <ul className="chat-sugeridos" role="listbox" aria-label="Mencionar a">
           {sugeridos.map((p, i) => (
@@ -294,7 +296,6 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
           {enviando || subiendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizonal className="h-4 w-4" />}
         </button>
       </div>
-      {arrastrando && <div className="chat-soltar">Suelta los archivos para adjuntarlos</div>}
       {!compacto && <p className="chat-ayuda">Enter envía · Mayús+Enter, salto de línea · @ para mencionar · pega capturas o arrastra archivos · **negrita** · _cursiva_ · `código`</p>}
       {programando && <ElegirHora titulo="Programar el envío" ayuda="El mensaje saldrá solo a esa hora, como si lo escribieras entonces." onElegir={programar} onCerrar={() => setProgramando(false)} />}
     </div>

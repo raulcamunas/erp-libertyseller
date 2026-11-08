@@ -12,6 +12,7 @@ import { useChat } from './ChatProvider'
 import { pedir } from '@/components/tareas-clientes/api'
 import { DialogoMiembros } from './Dialogos'
 import { DialogoDeFijados, DialogoDeResumen, EmojiDeEstado } from './Paneles'
+import { AvisoDeSoltar, useZonaDeSoltar } from './ZonaDeSoltar'
 import { useJunta } from './JuntaProvider'
 import { MensajeVista } from './MensajeVista'
 import { Redactor } from './Redactor'
@@ -51,6 +52,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const [fijadosAbierto, setFijadosAbierto] = useState(false)
   const [resumenAbierto, setResumenAbierto] = useState(false)
   const [tiraOculta, setTiraOculta] = useState(false)
+  const [soltados, setSoltados] = useState<{ n: number; ficheros: File[] } | null>(null)
   // El id más alto que había al abrir el canal: lo que llega después entra con animación, el historial no
   const maxInicial = useRef<number | null>(null)
   const lista = useRef<HTMLDivElement>(null)
@@ -59,6 +61,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const primerId = useRef<number | null>(null)
   const posicionado = useRef(false)
   const e = estado(canal.id)
+  const zona = useZonaDeSoltar({ alSoltar: (ficheros) => setSoltados({ n: Date.now(), ficheros }) })
   const marca = marcaDeNuevos(canal.id)
   const nombre = nombreVisible(canal, yo.id, persona)
   const filas = useMemo(() => filasDeMensajes(e.mensajes, { yo: yo.id, ultimoLeidoEn: marca }), [e.mensajes, yo.id, marca])
@@ -146,7 +149,8 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const icono = canal.tipo === 'privado' ? <Lock className="h-4 w-4" /> : canal.tipo === 'directo' ? null : <Hash className="h-4 w-4" />
 
   return (
-    <section className="chat-principal" aria-label={nombre}>
+    <section className="chat-principal" aria-label={nombre} {...zona.props}>
+      {zona.encima && <AvisoDeSoltar donde={canal.tipo === 'directo' ? nombre : `${canal.tipo === 'privado' ? '🔒' : '#'}${nombre}`} permitido={canal.soy_miembro} />}
       <header className="chat-cabecera">
         <div className="chat-cabecera-titulo">
           <button type="button" className="chat-icono chat-atras" onClick={() => seleccionar(null)} aria-label="Volver a la lista"><ArrowLeft className="h-4 w-4" /></button>
@@ -260,6 +264,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
             alEscribir={() => avisarQueEscribo(canal.id)}
             cita={citando ? { autor: citando.autor_id === yo.id ? 'Tú' : nombreDe(citando.autor_id), texto: textoPlano(citando.cuerpo, (id) => nombreDe(id).split(' ')[0], 90) || '📎 Archivo adjunto' } : null}
             alQuitarCita={() => setCitando(null)}
+            ficherosSoltados={canal.soy_miembro ? soltados : null}
             alEnviar={async (cuerpo, adjuntos) => {
               await enviar(canal.id, cuerpo, { respondeA: citando?.id, adjuntos })
               setCitando(null)
