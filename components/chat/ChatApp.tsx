@@ -7,11 +7,13 @@ import { ChatProvider, useChat } from './ChatProvider'
 import { JuntaProvider } from './JuntaProvider'
 import { LlamadaEntrante } from './LlamadaEntrante'
 import { PanelDeJunta } from './PanelDeJunta'
+import { TemaDelChatProvider, useTemaDelChat } from './TemaDelChat'
 import { PanelDeHilo } from './PanelDeHilo'
 import { VistaDeCanal } from './VistaDeCanal'
 
 function Marco() {
   const { canales, hilo, actual } = useChat()
+  const { ajustes } = useTemaDelChat()
   // El título de la pestaña avisa de lo que hay sin leer aunque estés en otra
   useEffect(() => {
     const t = totalSinLeer(canales)
@@ -23,7 +25,7 @@ function Marco() {
     }
   }, [canales])
   return (
-    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-vista={actual ? 'canal' : 'barra'}>
+    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-vista={actual ? 'canal' : 'barra'} data-fondo={ajustes.fondo} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto}>
       <BarraDeChat />
       <VistaDeCanal />
       <PanelDeHilo />
@@ -35,10 +37,12 @@ function Marco() {
 
 export function ChatApp({ canalInicial }: { canalInicial?: string | null }) {
   return (
-    <ChatProvider canalInicial={canalInicial}>
-      <JuntaProvider>
-        <Marco />
-      </JuntaProvider>
-    </ChatProvider>
+    <TemaDelChatProvider>
+      <ChatProvider canalInicial={canalInicial}>
+        <JuntaProvider>
+          <Marco />
+        </JuntaProvider>
+      </ChatProvider>
+    </TemaDelChatProvider>
   )
 }

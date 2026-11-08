@@ -42,7 +42,7 @@ interface ContextoDeChat {
   mensajesDelHilo: MensajeChat[]
   abrirHilo: (canalId: string, id: number) => void
   cerrarHilo: () => void
-  enviar: (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; adjuntos?: AdjuntoChat[] }) => Promise<void>
+  enviar: (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; respondeA?: number; adjuntos?: AdjuntoChat[] }) => Promise<void>
   editar: (id: number, cuerpo: string) => Promise<void>
   borrar: (id: number) => Promise<void>
   reaccionar: (id: number, emoji: string) => Promise<void>
@@ -413,8 +413,8 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   /* ---------------- Acciones ---------------- */
 
   const enviar = useCallback(
-    async (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; adjuntos?: AdjuntoChat[] }) => {
-      const m = await pedir<MensajeChat>(`${BASE}/mensajes`, { metodo: 'POST', cuerpo: { canalId, cuerpo, hiloDe: opciones?.hiloDe, adjuntos: opciones?.adjuntos } })
+    async (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; respondeA?: number; adjuntos?: AdjuntoChat[] }) => {
+      const m = await pedir<MensajeChat>(`${BASE}/mensajes`, { metodo: 'POST', cuerpo: { canalId, cuerpo, hiloDe: opciones?.hiloDe, respondeA: opciones?.respondeA, adjuntos: opciones?.adjuntos } })
       aplicarRef.current({ tipo: 'mensaje', mensaje: m })
     },
     []

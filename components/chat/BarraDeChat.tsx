@@ -1,11 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ChevronDown, Hash, Headphones, Lock, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import { ChevronDown, Hash, Headphones, Lock, MessageSquarePlus, Palette, Plus, Search } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible, repartirCanales } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
 import { useChat } from './ChatProvider'
+import { AparienciaDelChat } from './AparienciaDelChat'
 import { DialogoNuevoCanal, DialogoNuevoDirecto } from './Dialogos'
 import { useJunta } from './JuntaProvider'
 
@@ -16,6 +17,7 @@ export function BarraDeChat() {
   const [q, setQ] = useState('')
   const [dialogo, setDialogo] = useState<'canal' | 'directo' | null>(null)
   const [abiertosVisibles, setAbiertosVisibles] = useState(false)
+  const [apariencia, setApariencia] = useState(false)
   const reparto = useMemo(() => repartirCanales(canales), [canales])
   const coincide = (c: CanalChat) => !q.trim() || SIN_ACENTOS(nombreVisible(c, yo.id, persona)).includes(SIN_ACENTOS(q.trim()))
   const canalesVisibles = reparto.canales.filter(coincide)
@@ -97,6 +99,13 @@ export function BarraDeChat() {
         )}
       </div>
 
+      <footer className="chat-barra-pie">
+        <span className="chat-persona-avatar" data-en-linea="true"><Avatar id={yo.id} nombre={yo.nombre} tamano={30} /></span>
+        <span className="chat-barra-yo"><b>{yo.nombre}</b><i>En línea</i></span>
+        <button type="button" className="chat-icono" data-abre-apariencia onClick={() => setApariencia((v) => !v)} aria-label="Apariencia del chat" aria-expanded={apariencia} title="Apariencia: tema, fondo y estilo"><Palette className="h-4 w-4" /></button>
+      </footer>
+      {apariencia && <AparienciaDelChat onCerrar={() => setApariencia(false)} />}
+
       {dialogo === 'canal' && <DialogoNuevoCanal onCerrar={() => setDialogo(null)} alCrear={(id) => seleccionar(id)} />}
       {dialogo === 'directo' && <DialogoNuevoDirecto onCerrar={() => setDialogo(null)} alAbrir={(id) => seleccionar(id)} />}
     </nav>
@@ -111,7 +120,7 @@ function FilaDeCanal({ canal, activa, onClick, children }: { canal: CanalChat; a
     <button type="button" className="chat-fila" data-activa={activa ? 'true' : undefined} data-sin-leer={sinLeer || mencion ? 'true' : undefined} data-silenciado={canal.silenciado ? 'true' : undefined} onClick={onClick} aria-current={activa ? 'true' : undefined}>
       {children}
       {activas[canal.id] && <Headphones className="h-3.5 w-3.5 shrink-0 text-[var(--ls-e-verde)]" aria-label="Hay una junta en curso" />}
-      {mencion ? <span className="chat-insignia" data-mencion="true" aria-label={`${canal.menciones} menciones`}>@{canal.menciones > 9 ? '9+' : canal.menciones}</span> : sinLeer ? <span className="chat-insignia" aria-label={`${canal.no_leidos} sin leer`}>{canal.no_leidos > 99 ? '99+' : canal.no_leidos}</span> : null}
+      {mencion ? <span key={`m${canal.menciones}`} className="chat-insignia" data-mencion="true" aria-label={`${canal.menciones} menciones`}>@{canal.menciones > 9 ? '9+' : canal.menciones}</span> : sinLeer ? <span key={`n${canal.no_leidos}`} className="chat-insignia" aria-label={`${canal.no_leidos} sin leer`}>{canal.no_leidos > 99 ? '99+' : canal.no_leidos}</span> : null}
     </button>
   )
 }

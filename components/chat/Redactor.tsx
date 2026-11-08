@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Loader2, SendHorizonal } from 'lucide-react'
+import { CornerUpLeft, Loader2, SendHorizonal, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { desdeTextoEditable, type Mencionado } from '@/lib/chat/mensajes'
 import type { PersonaChat } from '@/lib/chat/tipos'
@@ -28,9 +28,12 @@ interface Props {
   alEnviar: (cuerpo: string) => Promise<void>
   autoEnfocar?: boolean
   compacto?: boolean
+  /** El mensaje al que se está respondiendo (se envía citado) */
+  cita?: { autor: string; texto: string } | null
+  alQuitarCita?: () => void
 }
 
-export function Redactor({ candidatos, placeholder, borradorInicial = '', alCambiarBorrador, alEscribir, alEnviar, autoEnfocar, compacto }: Props) {
+export function Redactor({ candidatos, placeholder, borradorInicial = '', alCambiarBorrador, alEscribir, alEnviar, autoEnfocar, compacto, cita, alQuitarCita }: Props) {
   const [texto, setTexto] = useState(borradorInicial)
   const [enviando, setEnviando] = useState(false)
   const [cursor, setCursor] = useState(borradorInicial.length)
@@ -58,6 +61,10 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
   useEffect(() => {
     if (autoEnfocar) area.current?.focus()
   }, [autoEnfocar])
+  // Al pulsar «responder» el cursor salta a la caja
+  useEffect(() => {
+    if (cita) area.current?.focus()
+  }, [cita])
 
   const cambiar = (valor: string, posicion: number) => {
     setTexto(valor)
@@ -132,6 +139,11 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
         return
       }
     }
+    if (e.key === 'Escape' && cita) {
+      e.preventDefault()
+      alQuitarCita?.()
+      return
+    }
     // Enter envía; Mayús+Enter es un salto de línea. Mientras se compone un acento (IME) no se envía
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
@@ -152,6 +164,13 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
             </li>
           ))}
         </ul>
+      )}
+      {cita && (
+        <div className="chat-cita-barra" role="status">
+          <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
+          <span className="chat-cita-barra-texto">Respondiendo a <b>{cita.autor}</b><em>{cita.texto}</em></span>
+          <button type="button" className="chat-icono" onClick={alQuitarCita} aria-label="Quitar la cita"><X className="h-3.5 w-3.5" /></button>
+        </div>
       )}
       <div className="chat-redactor-caja">
         <textarea

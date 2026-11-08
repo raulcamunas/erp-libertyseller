@@ -61,7 +61,7 @@ igual('una mención que se borró del texto no deja rastro, y @Anabel no es @Ana
 igual('un nombre con paréntesis no rompe nada', desdeTextoEditable('hola @Ana (la jefa)', [{ id: A, nombre: 'Ana (la jefa)' }]), `hola ${tokenDeMencion(A)}`)
 
 // Agrupar
-const ms = (id: number, autor: string | null, iso: string, extra: Partial<MensajeChat> = {}): MensajeChat => ({ id, canal_id: 'c', autor_id: autor, cuerpo: 'x', hilo_de: null, menciones: [], adjuntos: [], editado_en: null, borrado_en: null, creado_en: iso, reacciones: {}, respuestas: 0, ...extra })
+const ms = (id: number, autor: string | null, iso: string, extra: Partial<MensajeChat> = {}): MensajeChat => ({ id, canal_id: 'c', autor_id: autor, cuerpo: 'x', hilo_de: null, cita: null, menciones: [], adjuntos: [], editado_en: null, borrado_en: null, creado_en: iso, reacciones: {}, respuestas: 0, ...extra })
 const AHORA = Date.parse('2026-11-08T12:00:00Z')
 igual('día en hora de España', [diaDe('2026-11-08T23:30:00Z'), diaDe('2026-11-08T10:00:00Z')], ['2026-11-09', '2026-11-08'])
 igual('etiquetas de día', [etiquetaDeDia('2026-11-08T10:00:00Z', AHORA), etiquetaDeDia('2026-11-07T10:00:00Z', AHORA), etiquetaDeDia('2026-11-02T10:00:00Z', AHORA), etiquetaDeDia('2025-11-02T10:00:00Z', AHORA)], ['Hoy', 'Ayer', 'Lunes, 2 de noviembre', 'Domingo, 2 de noviembre de 2025'])

@@ -30,12 +30,24 @@ export interface CanalChat {
   ultimo_leido_en: string | null
 }
 
+/** Lo que dice el mensaje al que se responde, para pintar la cita sin pedirlo aparte */
+export interface CitaChat {
+  id: number
+  autor_id: string | null
+  /** El principio del mensaje, en texto plano */
+  texto: string
+  /** El original se ha eliminado */
+  borrado: boolean
+}
+
 export interface MensajeChat {
   id: number
   canal_id: string
   autor_id: string | null
   cuerpo: string
   hilo_de: number | null
+  /** El mensaje que se cita al responder (no es lo mismo que un hilo) */
+  cita: CitaChat | null
   menciones: string[]
   adjuntos: AdjuntoChat[]
   editado_en: string | null

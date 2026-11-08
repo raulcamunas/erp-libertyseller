@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useState } from 'react'
-import { MessageSquareReply, Pencil, SmilePlus, Trash2 } from 'lucide-react'
+import { CornerUpLeft, MessageSquareReply, Pencil, SmilePlus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { horaDe } from '@/lib/chat/agrupar'
@@ -15,13 +15,19 @@ const RAPIDAS = ['👍', '❤️', '😂', '🎉', '👀', '🙏']
 interface Props {
   m: MensajeChat
   continuacion: boolean
-  /** Dentro del panel de un hilo no se vuelve a responder */
+  /** Dentro del panel de un hilo no se vuelve a abrir otro hilo */
   enHilo?: boolean
+  /** Ha llegado ahora, con el canal ya abierto: entra con animación (el historial no) */
+  nuevo?: boolean
   puedeBorrarAjeno?: boolean
-  alResponder?: (m: MensajeChat) => void
+  alAbrirHilo?: (m: MensajeChat) => void
+  /** Responder citando este mensaje */
+  alCitar?: (m: MensajeChat) => void
+  /** Ir al mensaje citado */
+  alIrALaCita?: (id: number) => void
 }
 
-export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo, puedeBorrarAjeno, alResponder }: Props) {
+export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo, nuevo, puedeBorrarAjeno, alAbrirHilo, alCitar, alIrALaCita }: Props) {
   const { yo, persona, nombreDe, editar, borrar, reaccionar } = useChat()
   const [editando, setEditando] = useState<{ texto: string; mencionados: Mencionado[] } | null>(null)
   const [guardando, setGuardando] = useState(false)
@@ -52,7 +58,7 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
 
   if (eliminado) {
     return (
-      <div className="chat-mensaje" data-continuacion={continuacion ? 'true' : undefined} data-eliminado="true">
+      <div className="chat-mensaje" data-mensaje-id={m.id} data-continuacion={continuacion ? 'true' : undefined} data-eliminado="true" data-mio={mio ? 'true' : undefined}>
         <span className="chat-mensaje-lado" />
         <p className="chat-eliminado">Mensaje eliminado</p>
       </div>
@@ -61,68 +67,83 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
 
   const reacciones = Object.entries(m.reacciones).filter(([, quienes]) => quienes.length > 0)
   return (
-    <div className="chat-mensaje" data-continuacion={continuacion ? 'true' : undefined} data-menciona-me={m.menciones.includes(yo.id) ? 'true' : undefined}>
+    <div
+      className="chat-mensaje"
+      data-mensaje-id={m.id}
+      data-continuacion={continuacion ? 'true' : undefined}
+      data-mio={mio ? 'true' : undefined}
+      data-nuevo={nuevo ? 'true' : undefined}
+      data-menciona-me={m.menciones.includes(yo.id) ? 'true' : undefined}
+    >
       <span className="chat-mensaje-lado">
         {continuacion ? <time className="chat-hora-lado" dateTime={m.creado_en}>{horaDe(m.creado_en)}</time> : <Avatar id={m.autor_id ?? 'x'} nombre={autor?.nombre ?? 'Alguien'} tamano={34} />}
       </span>
       <div className="chat-mensaje-cuerpo">
         {!continuacion && (
           <p className="chat-mensaje-cabecera">
-            <b>{autor?.nombre ?? nombreDe(m.autor_id)}</b>
+            <b>{mio ? 'Tú' : autor?.nombre ?? nombreDe(m.autor_id)}</b>
             <time dateTime={m.creado_en}>{horaDe(m.creado_en)}</time>
           </p>
         )}
-        {editando ? (
-          <div className="chat-edicion">
-            <textarea
-              autoFocus
-              value={editando.texto}
-              rows={Math.min(8, editando.texto.split('\n').length + 1)}
-              maxLength={8000}
-              onChange={(e) => setEditando({ ...editando, texto: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') setEditando(null)
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  void guardar()
-                }
-              }}
-              aria-label="Editar el mensaje"
-            />
-            <span className="chat-edicion-botones">
-              <button type="button" onClick={() => setEditando(null)}>Cancelar</button>
-              <button type="button" onClick={() => void guardar()} disabled={guardando} data-primario="true">Guardar</button>
-            </span>
-          </div>
-        ) : (
-          <>
-            {m.cuerpo && <TextoDeMensaje cuerpo={m.cuerpo} editado={m.editado_en !== null} />}
-          </>
-        )}
-        {m.adjuntos.length > 0 && (
-          <ul className="chat-adjuntos">
-            {m.adjuntos.map((a) => (
-              <li key={a.url}>
-                {a.tipo.startsWith('image/') ? (
-                  <a href={a.url} target="_blank" rel="noopener noreferrer"><img src={a.url} alt={a.nombre} loading="lazy" className="chat-imagen" /></a>
-                ) : (
-                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="chat-archivo">📎 {a.nombre}</a>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="chat-burbuja">
+          {m.cita && (
+            <button type="button" className="chat-cita" onClick={() => alIrALaCita?.(m.cita!.id)} title="Ir al mensaje original" data-borrada={m.cita.borrado ? 'true' : undefined}>
+              <CornerUpLeft className="h-3 w-3 shrink-0" />
+              <b>{m.cita.autor_id === yo.id ? 'Tú' : nombreDe(m.cita.autor_id)}</b>
+              <span>{m.cita.borrado ? 'Mensaje eliminado' : m.cita.texto}</span>
+            </button>
+          )}
+          {editando ? (
+            <div className="chat-edicion">
+              <textarea
+                autoFocus
+                value={editando.texto}
+                rows={Math.min(8, editando.texto.split('\n').length + 1)}
+                maxLength={8000}
+                onChange={(e) => setEditando({ ...editando, texto: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setEditando(null)
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    void guardar()
+                  }
+                }}
+                aria-label="Editar el mensaje"
+              />
+              <span className="chat-edicion-botones">
+                <button type="button" onClick={() => setEditando(null)}>Cancelar</button>
+                <button type="button" onClick={() => void guardar()} disabled={guardando} data-primario="true">Guardar</button>
+              </span>
+            </div>
+          ) : (
+            m.cuerpo && <TextoDeMensaje cuerpo={m.cuerpo} editado={m.editado_en !== null} />
+          )}
+          {m.adjuntos.length > 0 && (
+            <ul className="chat-adjuntos">
+              {m.adjuntos.map((a) => (
+                <li key={a.url}>
+                  {a.tipo.startsWith('image/') ? (
+                    <a href={a.url} target="_blank" rel="noopener noreferrer"><img src={a.url} alt={a.nombre} loading="lazy" className="chat-imagen" /></a>
+                  ) : (
+                    <a href={a.url} target="_blank" rel="noopener noreferrer" className="chat-archivo">📎 {a.nombre}</a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {reacciones.length > 0 && (
           <div className="chat-reacciones">
             {reacciones.map(([emoji, quienes]) => (
-              <button key={emoji} type="button" onClick={() => alReaccionar(emoji)} data-mia={quienes.includes(yo.id) ? 'true' : undefined} title={quienes.map((q) => nombreDe(q)).join(', ')}>
+              // La clave lleva la cuenta: al cambiar, el botón se vuelve a montar y «salta»
+              <button key={`${emoji}-${quienes.length}`} type="button" onClick={() => alReaccionar(emoji)} data-mia={quienes.includes(yo.id) ? 'true' : undefined} title={quienes.map((q) => nombreDe(q)).join(', ')}>
                 <span>{emoji}</span> {quienes.length}
               </button>
             ))}
           </div>
         )}
         {!enHilo && m.respuestas > 0 && (
-          <button type="button" className="chat-hilo-enlace" onClick={() => alResponder?.(m)}>
+          <button type="button" className="chat-hilo-enlace" onClick={() => alAbrirHilo?.(m)}>
             <MessageSquareReply className="h-3 w-3" /> {m.respuestas} {m.respuestas === 1 ? 'respuesta' : 'respuestas'}
           </button>
         )}
@@ -133,8 +154,11 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
             <button key={e} type="button" onClick={() => alReaccionar(e)} aria-label={`Reaccionar con ${e}`}>{e}</button>
           ))}
           <ReaccionarConOtra alElegir={alReaccionar} />
+          {alCitar && (
+            <button type="button" onClick={() => alCitar(m)} aria-label="Responder a este mensaje" title="Responder a este mensaje"><CornerUpLeft className="h-3.5 w-3.5" /></button>
+          )}
           {!enHilo && (
-            <button type="button" onClick={() => alResponder?.(m)} aria-label="Responder en un hilo" title="Responder en un hilo"><MessageSquareReply className="h-3.5 w-3.5" /></button>
+            <button type="button" onClick={() => alAbrirHilo?.(m)} aria-label="Abrir un hilo" title="Responder en un hilo"><MessageSquareReply className="h-3.5 w-3.5" /></button>
           )}
           {mio && (
             <button type="button" onClick={() => setEditando(aTextoEditable(m.cuerpo, nombreDe))} aria-label="Editar" title="Editar"><Pencil className="h-3.5 w-3.5" /></button>

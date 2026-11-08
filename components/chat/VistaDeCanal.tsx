@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, Bell, BellOff, Hash, Headphones, LogOut, Lock, MessageCircle, Phone, Settings2, Users, Video } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Bell, BellOff, Hash, Headphones, LogOut, Lock, MessageCircle, Phone, Settings2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { filasDeMensajes } from '@/lib/chat/agrupar'
 import { nombreVisible } from '@/lib/chat/canales'
-import type { CanalChat } from '@/lib/chat/tipos'
+import { textoPlano } from '@/lib/chat/mensajes'
+import type { CanalChat, MensajeChat } from '@/lib/chat/tipos'
+import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { useChat } from './ChatProvider'
 import { DialogoMiembros } from './Dialogos'
 import { useJunta } from './JuntaProvider'
@@ -43,6 +45,9 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const { disponible: juntasDisponibles, activas, actual: juntaActual, entrar: entrarEnJunta } = useJunta()
   const [miembrosAbierto, setMiembrosAbierto] = useState(false)
   const [pegado, setPegado] = useState(true)
+  const [citando, setCitando] = useState<MensajeChat | null>(null)
+  // El id más alto que había al abrir el canal: lo que llega después entra con animación, el historial no
+  const maxInicial = useRef<number | null>(null)
   const lista = useRef<HTMLDivElement>(null)
   const pegadoRef = useRef(true)
   const alturaPrevia = useRef(0)
@@ -52,6 +57,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const marca = marcaDeNuevos(canal.id)
   const nombre = nombreVisible(canal, yo.id, persona)
   const filas = useMemo(() => filasDeMensajes(e.mensajes, { yo: yo.id, ultimoLeidoEn: marca }), [e.mensajes, yo.id, marca])
+  if (e.cargado && maxInicial.current === null) maxInicial.current = e.mensajes.reduce((max, m) => Math.max(max, m.id), 0)
   const quienesEscriben = escribiendo(canal.id).map((id) => nombreDe(id).split(' ')[0])
   const otro = canal.tipo === 'directo' ? canal.miembros.find((m) => m !== yo.id) : undefined
   const candidatos = canal.tipo === 'canal' ? personas.filter((p) => p.id !== yo.id) : personas.filter((p) => p.id !== yo.id && canal.miembros.includes(p.id))
@@ -101,6 +107,25 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }
 
+  /** Lleva al mensaje citado (cargando más historial si hace falta) y lo resalta un momento */
+  const irAlMensaje = async (id: number) => {
+    const el0 = lista.current
+    if (!el0) return
+    for (let intento = 0; intento < 6; intento++) {
+      const el = lista.current?.querySelector(`[data-mensaje-id="${id}"]`)
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        el.setAttribute('data-resaltado', 'true')
+        setTimeout(() => el.removeAttribute('data-resaltado'), 1800)
+        return
+      }
+      if (!estado(canal.id).hayMas) break
+      await cargarMas(canal.id)
+      await new Promise((r) => setTimeout(r, 120))
+    }
+    toast.message('Ese mensaje queda muy atrás: no se ha podido encontrar.')
+  }
+
   const hacer = (f: () => Promise<unknown>) => void f().catch((err: Error) => toast.error(err.message))
   const icono = canal.tipo === 'privado' ? <Lock className="h-4 w-4" /> : canal.tipo === 'directo' ? null : <Hash className="h-4 w-4" />
 
@@ -128,7 +153,8 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
           )}
           {canal.tipo !== 'directo' && (
             <button type="button" className="chat-icono chat-miembros-boton" onClick={() => setMiembrosAbierto(true)} aria-label="Miembros y ajustes del canal" title="Miembros y ajustes">
-              <Users className="h-4 w-4" /> <span>{canal.miembros.length}</span> <Settings2 className="h-3.5 w-3.5 opacity-60" />
+              <span className="chat-pila">{canal.miembros.slice(0, 3).map((id) => <Avatar key={id} id={id} nombre={nombreDe(id)} tamano={20} />)}</span>
+              <span>{canal.miembros.length}</span> <Settings2 className="h-3.5 w-3.5 opacity-60" />
             </button>
           )}
           {canal.soy_miembro && canal.tipo !== 'directo' && !canal.auto_unirse && (
@@ -163,7 +189,16 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
           ) : f.tipo === 'nuevos' ? (
             <div key={f.clave} className="chat-nuevos" data-marca-nuevos><span>Nuevos</span></div>
           ) : (
-            <MensajeVista key={f.clave} m={f.mensaje} continuacion={f.continuacion} puedeBorrarAjeno={yo.esAdmin && canal.tipo === 'canal'} alResponder={(m) => abrirHilo(canal.id, m.id)} />
+            <MensajeVista
+              key={f.clave}
+              m={f.mensaje}
+              continuacion={f.continuacion}
+              nuevo={maxInicial.current !== null && f.mensaje.id > maxInicial.current}
+              puedeBorrarAjeno={yo.esAdmin && canal.tipo === 'canal'}
+              alAbrirHilo={(m) => abrirHilo(canal.id, m.id)}
+              alCitar={canal.soy_miembro ? setCitando : undefined}
+              alIrALaCita={(id) => void irAlMensaje(id)}
+            />
           )
         )}
         {e.cargado && e.mensajes.length === 0 && <p className="chat-sin-mensajes">Aún no hay mensajes. ¡Escribe el primero!</p>}
@@ -184,8 +219,11 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
             borradorInicial={borradores.get(canal.id) ?? ''}
             alCambiarBorrador={(t) => (t ? borradores.set(canal.id, t) : borradores.delete(canal.id))}
             alEscribir={() => avisarQueEscribo(canal.id)}
+            cita={citando ? { autor: citando.autor_id === yo.id ? 'Tú' : nombreDe(citando.autor_id), texto: textoPlano(citando.cuerpo, (id) => nombreDe(id).split(' ')[0], 90) || '📎 Archivo adjunto' } : null}
+            alQuitarCita={() => setCitando(null)}
             alEnviar={async (cuerpo) => {
-              await enviar(canal.id, cuerpo)
+              await enviar(canal.id, cuerpo, citando ? { respondeA: citando.id } : undefined)
+              setCitando(null)
               pegadoRef.current = true
             }}
             autoEnfocar
