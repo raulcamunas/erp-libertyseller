@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useSyncExternalStore, type CS
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { chatALaVista } from '@/lib/chat/dock-estado'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
 import { publicarAviso } from '@/lib/avisos/pila'
 import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
@@ -172,7 +173,7 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
           if (dChat?.app === 'chat') {
             const rutaDelChat = typeof dChat.canalId === 'string' && /^[0-9a-f-]{36}$/i.test(dChat.canalId) ? `/dashboard/chat?canal=${dChat.canalId}` : '/dashboard/chat'
             // Un recordatorio suena siempre; un mensaje, solo si no estás ya dentro del chat (allí se ve en la barra)
-            if (dChat.tipo === 'recordatorio' || !window.location.pathname.startsWith('/dashboard/chat')) {
+            if (dChat.tipo === 'recordatorio' || !chatALaVista(window.location.pathname)) {
               void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
               avisarEnEscritorio(String(fila?.title ?? 'Chat'), String(fila?.message ?? ''), rutaDelChat)
               publicarAviso({ id: `chat:${typeof fila?.clave === 'string' ? fila.clave : String(Date.now())}`, tipo: 'tarea', titulo: String(fila?.title ?? 'Chat'), detalle: String(fila?.message ?? ''), duracionMs: dChat.tipo === 'recordatorio' ? 14000 : 9000, accion: { etiqueta: 'Abrir', alPulsar: () => router.push(rutaDelChat) } })

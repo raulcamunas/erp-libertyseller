@@ -3,12 +3,12 @@
 import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, KanbanSquare, LogOut, Menu, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, KanbanSquare, LogOut, Menu, MessagesSquare, X } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 import { NotificationsBell } from '@/components/layout/NotificationsBell'
-import { leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
+import { leerChatSinLeer, leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
-import { apps, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
+import { apps, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CHAT, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
 import { esRutaInmersiva, EVENTO_ABRIR_MENU } from '@/lib/layout/inmersivo'
 import { etiquetaDeInsignia, inicialesDe, rutaActivaDelMenu } from '@/lib/layout/barra'
@@ -41,8 +41,17 @@ const ANCHO_ABIERTA = '16rem'
 const ANCHO_PLEGADA = '4.5rem'
 
 export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
-  // Lo que la persona eligió; a pantalla completa (Tareas de clientes) la barra es un cajón y no va plegada: ver `isCollapsed` más abajo
+  // Lo que la persona eligió para las pantallas normales. En las aplicaciones que se abren a pantalla completa (Tareas, Chat) la barra se queda SIEMPRE a la vista, pero como un carril fino:
+  // se amplía con el botón de plegar y se acuerda esa elección (aparte de la de las pantallas normales)
   const [plegadaElegida, setIsCollapsed] = useState(false)
+  const [ampliadaEnApps, setAmpliadaEnApps] = useState(false)
+  useEffect(() => {
+    try {
+      setAmpliadaEnApps(window.localStorage.getItem('lat:ampliada-en-apps') === '1')
+    } catch {
+      /* sin almacenamiento: carril fino */
+    }
+  }, [])
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
   const [permisosCargados, setPermisosCargados] = useState(false)
@@ -54,9 +63,11 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   const correoSinLeer = useSyncExternalStore(suscribirContadores, leerCorreoSinLeer, () => 0)
   const pathname = usePathname()
   const router = useRouter()
-  // Hay pantallas que se abren «como otra aplicación»: sin barra, con un botón arriba a la derecha que la abre como un cajón (lib/layout/inmersivo.ts)
+  // Hay pantallas que se abren «como otra aplicación» (lib/layout/inmersivo.ts): la barra no se esconde, se queda como un carril fino (en pantallas estrechas sigue siendo un cajón)
   const inmersivo = esRutaInmersiva(pathname)
-  const isCollapsed = plegadaElegida && !inmersivo
+  const isCollapsed = inmersivo ? !ampliadaEnApps : plegadaElegida
+  // Cuánto chat hay sin leer: lo publica el dock del chat (o la propia aplicación), esté donde esté la persona
+  const chatSinLeer = useSyncExternalStore(suscribirContadores, leerChatSinLeer, leerChatSinLeer)
   const supabase = createClient()
 
   // Una sola vez al montar: el perfil y los permisos no cambian mientras la
@@ -215,6 +226,9 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
 
   // Tareas Clientes vive en el pie: lo ve un administrador y quien tenga su casilla (un partner o un cliente no entran por serlo)
   const puedeVerTareas = userRole === 'admin' || (userRole === 'employee' && userPermissions.has(APP_TAREAS_CLIENTES))
+  // El Chat, también en el pie, junto a Tareas: son las dos de cada día (con lo que hay sin leer)
+  const puedeVerChat = userRole === 'admin' || (userRole === 'employee' && userPermissions.has(APP_CHAT))
+  const enElChat = Boolean(pathname?.startsWith('/dashboard/chat'))
 
   // Un empleado ve «Inicio» y, hasta que llegan sus permisos, unas filas que se están rellenando (en vez de un menú que de repente crece)
   const cargandoPermisos = userRole === 'employee' && !permisosCargados
@@ -308,11 +322,11 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   // El contenido de la página se aparta lo que ocupe la barra (el layout lee esta variable)
   useEffect(() => {
     const raiz = document.documentElement
-    raiz.style.setProperty('--lat-ancho', inmersivo ? '0px' : isCollapsed ? ANCHO_PLEGADA : ANCHO_ABIERTA)
+    raiz.style.setProperty('--lat-ancho', isCollapsed ? ANCHO_PLEGADA : ANCHO_ABIERTA)
     return () => {
       raiz.style.removeProperty('--lat-ancho')
     }
-  }, [isCollapsed, inmersivo])
+  }, [isCollapsed])
 
   // El cajón se cierra al cambiar de página; a pantalla completa se abre con el botón de la página (que avisa por `window`) y se cierra con Escape
   useEffect(() => {
@@ -364,6 +378,16 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   }
 
   const toggleCollapse = () => {
+    if (inmersivo) {
+      const nueva = !ampliadaEnApps
+      setAmpliadaEnApps(nueva)
+      try {
+        window.localStorage.setItem('lat:ampliada-en-apps', nueva ? '1' : '0')
+      } catch {
+        /* se queda para esta sesión */
+      }
+      return
+    }
     setIsCollapsed(!plegadaElegida)
   }
 
@@ -400,7 +424,6 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
         data-movil={isMobileOpen ? 'abierta' : undefined}
         data-inmersivo={inmersivo ? 'true' : undefined}
         aria-label="Menú principal"
-        aria-hidden={inmersivo && !isMobileOpen ? true : undefined}
       >
         {/* El fondo: una luz que se mueve despacio arriba y un hilo de luz que baja por el borde */}
         <div className="lat-decorado" aria-hidden>
@@ -562,11 +585,24 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
           </div>
 
           {puedeVerTareas && (
-            <Link href="/dashboard/tareas-clientes" className="lat-app" data-activa={inmersivo && !pathname?.startsWith('/dashboard/chat') ? 'true' : undefined} aria-current={inmersivo && !pathname?.startsWith('/dashboard/chat') ? 'page' : undefined} title={isCollapsed ? 'Tareas Clientes' : undefined} onClick={() => setIsMobileOpen(false)}>
+            <Link href="/dashboard/tareas-clientes" className="lat-app" data-activa={inmersivo && !enElChat ? 'true' : undefined} aria-current={inmersivo && !enElChat ? 'page' : undefined} title={isCollapsed ? 'Tareas Clientes' : undefined} onClick={() => setIsMobileOpen(false)}>
               <span className="lat-icono">
                 <KanbanSquare className="lat-icono-svg" aria-hidden />
               </span>
               <span className="lat-app-texto">Tareas Clientes</span>
+            </Link>
+          )}
+          {puedeVerChat && (
+            <Link href="/dashboard/chat" className="lat-app" data-activa={enElChat ? 'true' : undefined} aria-current={enElChat ? 'page' : undefined} title={isCollapsed ? 'Chat' : undefined} onClick={() => setIsMobileOpen(false)}>
+              <span className="lat-icono">
+                <MessagesSquare className="lat-icono-svg" aria-hidden />
+                {chatSinLeer.menciones + chatSinLeer.mensajes > 0 && (
+                  <span className="lat-insignia-chat" data-mencion={chatSinLeer.menciones > 0 ? 'true' : undefined} aria-label={`${chatSinLeer.menciones + chatSinLeer.mensajes} sin leer en el chat`}>
+                    {chatSinLeer.menciones + chatSinLeer.mensajes > 99 ? '99+' : chatSinLeer.menciones + chatSinLeer.mensajes}
+                  </span>
+                )}
+              </span>
+              <span className="lat-app-texto">Chat</span>
             </Link>
           )}
 

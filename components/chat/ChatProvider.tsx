@@ -125,7 +125,7 @@ const guardarUltimo = (id: string | null) => {
   }
 }
 
-export function ChatProvider({ canalInicial, children }: { canalInicial?: string | null; children: ReactNode }) {
+export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: { canalInicial?: string | null; children: ReactNode; /** Falso en el dock: ahí el chat no debe poner `?canal=` en la dirección de la página que se está viendo */ sincronizarUrl?: boolean }) {
   const [datos, setDatos] = useState<DatosDeInicioChat | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [canales, setCanales] = useState<CanalChat[]>([])
@@ -255,12 +255,14 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
       setMensajesDelHilo([])
       if (!id) return
       guardarUltimo(id)
-      try {
-        const url = new URL(window.location.href)
-        url.searchParams.set('canal', id)
-        window.history.replaceState(null, '', url.toString())
-      } catch {
-        /* sin historial: no pasa nada */
+      if (sincronizarUrl) {
+        try {
+          const url = new URL(window.location.href)
+          url.searchParams.set('canal', id)
+          window.history.replaceState(null, '', url.toString())
+        } catch {
+          /* sin historial: no pasa nada */
+        }
       }
       const c = canalesRef.current.find((x) => x.id === id)
       // La marca «Nuevos» se queda donde estaba al abrir
@@ -268,7 +270,7 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
       if (!estadosRef.current[id]?.cargado) void cargarCanal(id)
       if (c?.soy_miembro && (c.no_leidos > 0 || c.menciones > 0)) marcarLeido(id)
     },
-    [cargarCanal, marcarLeido]
+    [cargarCanal, marcarLeido, sincronizarUrl]
   )
 
   /* ---------------- El directo ---------------- */

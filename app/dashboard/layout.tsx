@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation'
 import { AppSidebar } from '@/components/layout/AppSidebar'
 import { AppsPersistentes } from '@/components/layout/AppsPersistentes'
 import { AvisosEnVivo } from '@/components/avisos/AvisosEnVivo'
+import { DockDelChat } from '@/components/chat/DockDelChat'
+import { exigirChat } from '@/lib/chat/acceso'
 import { RegistroDeActividad } from '@/components/actividad/RegistroDeActividad'
 import { debeCerrarseLaSesion, limiteDeInactividadMin } from '@/lib/actividad/inactividad'
 import { ultimoEventoDe } from '@/lib/actividad/inactividad-servidor'
@@ -48,6 +50,9 @@ export default async function DashboardLayout({
     }
   }
 
+  // El chat a mano en cualquier pantalla (un dock pequeño y ampliable): solo para quien tiene el chat
+  const puedeChat = (await exigirChat()).ok
+
   return (
     <div className="min-h-screen bg-[var(--bg-color)] flex relative">
       {/* El rol y el nombre ya los tiene el servidor: con ellos la barra pinta desde el primer momento el menú de quien es, sin esperar a preguntarlo */}
@@ -56,7 +61,7 @@ export default async function DashboardLayout({
           estira el main y arrastra toda la página en horizontal, barra
           lateral incluida. Con esto, quien scrollea es la propia tabla.
           El margen izquierdo es lo que ocupa la barra: `--lat-ancho` lo escribe ella (16rem abierta, 4,5rem plegada) y, hasta que lo escribe, vale 16rem. */}
-      <main className="flex-1 min-w-0 lg:ml-[var(--lat-ancho,16rem)] transition-all duration-500 ease-in-out min-h-screen pt-16 lg:pt-0 relative z-10 [&:has([data-app-persistente])_.pagina-de-ruta]:hidden">
+      <main className="flex-1 min-w-0 lg:ml-[var(--lat-ancho,16rem)] lg:mr-[var(--dock-ancho,0px)] transition-all duration-500 ease-in-out min-h-screen pt-16 lg:pt-0 relative z-10 [&:has([data-app-persistente])_.pagina-de-ruta]:hidden">
         {/* LA PÁGINA DE LA RUTA, con su entrada animada. Esa animación deja puestos `transform` y `filter` para siempre (la animación termina
             `forwards`), y eso tiene dos costes: todo lo que cuelga de aquí se pinta en una capa aparte con un filtro por encima (en el móvil
             se nota al hacer scroll en una lista larga) y los elementos `fixed` de dentro se colocan respecto a este recuadro y no respecto a
@@ -73,6 +78,7 @@ export default async function DashboardLayout({
       {/* Correo nuevo y noticias del equipo, abajo a la derecha, en cualquier pantalla. Fuera del recuadro animado de arriba a propósito:
           ahí dentro `fixed` sería relativo a ese recuadro y no a la ventana */}
       <AvisosEnVivo perfil={profile} />
+      {puedeChat && <DockDelChat />}
       {/* El registro de actividad: no pinta nada y solo se monta para los empleados. Lo lee quien supervisa en /dashboard/actividad */}
       {profile.role === 'employee' && <RegistroDeActividad limiteMin={limiteInactividadMin} />}
     </div>

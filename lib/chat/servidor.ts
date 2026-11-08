@@ -774,3 +774,27 @@ export async function ponerZona(quien: QuienEscribe, zona: unknown): Promise<{ z
   cachePersonas = null
   return { zona }
 }
+
+
+/**
+ * Cuánto hay sin leer en el chat, para el número de la barra del ERP (se pregunta cada minuto desde cualquier pantalla): mensajes de canales y directos con avisos activados, y las menciones
+ * (que cuentan aunque el canal esté silenciado). Los canales archivados no cuentan.
+ */
+export async function resumenSinLeer(quien: QuienEscribe): Promise<{ mensajes: number; menciones: number }> {
+  const service = db()
+  const [resumen, miembros] = await Promise.all([service.rpc('chat_resumen', { p_usuario: quien.userId }), service.from('chat_miembros').select('canal_id, silenciado').eq('usuario_id', quien.userId)])
+  if (resumen.error) fallo(resumen.error, 'contar lo que no has leído')
+  const filas = (resumen.data ?? []) as Array<{ canal_id: string; no_leidos: number; menciones: number }>
+  if (filas.length === 0) return { mensajes: 0, menciones: 0 }
+  const silenciados = new Set(((miembros.data ?? []) as Array<{ canal_id: string; silenciado: boolean }>).filter((m) => m.silenciado).map((m) => m.canal_id))
+  const { data: archivados } = await service.from('chat_canales').select('id').in('id', filas.map((f) => f.canal_id)).eq('archivado', true)
+  const fuera = new Set(((archivados ?? []) as Array<{ id: string }>).map((c) => c.id))
+  let mensajes = 0
+  let menciones = 0
+  for (const f of filas) {
+    if (fuera.has(f.canal_id)) continue
+    menciones += f.menciones
+    if (!silenciados.has(f.canal_id)) mensajes += f.no_leidos
+  }
+  return { mensajes, menciones }
+}

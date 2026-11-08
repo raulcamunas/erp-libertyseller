@@ -1,7 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { ponerChatSinLeer } from '@/lib/avisos/contadores'
 import { totalSinLeer } from '@/lib/chat/canales'
+import { ponerProveedorDelChatVivo } from '@/lib/chat/dock-estado'
 import { AsistenteDelErp } from './AsistenteDelErp'
 import { BarraDeChat } from './BarraDeChat'
 import { ChatProvider, useChat } from './ChatProvider'
@@ -14,12 +17,27 @@ import { TemaDelChatProvider, useTemaDelChat } from './TemaDelChat'
 import { PanelDeHilo } from './PanelDeHilo'
 import { VistaDeCanal } from './VistaDeCanal'
 
-export function Marco() {
+/** En el dock, lo que debe cubrir la ventana entera (una llamada, el asistente) sale del recuadro pequeño y se pinta sobre la página */
+function EnLaPagina({ activo, children }: { activo: boolean; children: ReactNode }) {
+  return activo && typeof document !== 'undefined' ? createPortal(children, document.body) : <>{children}</>
+}
+
+export function Marco({ dock = false }: { dock?: boolean }) {
   const { canales, hilo, actual, vista } = useChat()
   const [buscando, setBuscando] = useState(false)
   const { ajustes } = useTemaDelChat()
-  // El título de la pestaña avisa de lo que hay sin leer aunque estés en otra
+  // Lo que hay sin leer, a la barra del ERP; y mientras el chat está vivo, el dock deja de preguntarlo al servidor
   useEffect(() => {
+    const t = totalSinLeer(canales)
+    ponerChatSinLeer(t.mensajes, t.menciones)
+  }, [canales])
+  useEffect(() => {
+    ponerProveedorDelChatVivo(true)
+    return () => ponerProveedorDelChatVivo(false)
+  }, [])
+  // El título de la pestaña avisa de lo que hay sin leer aunque estés en otra (no en el dock: ahí el título es el de la página que se está viendo)
+  useEffect(() => {
+    if (dock) return
     const t = totalSinLeer(canales)
     const n = t.mensajes + t.menciones
     const titulo = document.title.replace(/^\(\d+\+?\)\s*/, '')
@@ -27,9 +45,10 @@ export function Marco() {
     return () => {
       document.title = document.title.replace(/^\(\d+\+?\)\s*/, '')
     }
-  }, [canales])
+  }, [canales, dock])
   // Soltar un archivo fuera de una zona (la barra, una cabecera…) haría que el navegador lo abra y se pierda el chat: se frena
   useEffect(() => {
+    if (dock) return
     const frenar = (e: DragEvent) => {
       if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault()
     }
@@ -39,9 +58,11 @@ export function Marco() {
       window.removeEventListener('dragover', frenar)
       window.removeEventListener('drop', frenar)
     }
-  }, [])
+  }, [dock])
   // Cmd+K (o Ctrl+K) abre el buscador desde cualquier sitio del chat
   useEffect(() => {
+    // En el dock no se toma Cmd+K: es el buscador del ERP entero
+    if (dock) return
     const alTeclear = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -50,26 +71,31 @@ export function Marco() {
     }
     window.addEventListener('keydown', alTeclear)
     return () => window.removeEventListener('keydown', alTeclear)
-  }, [])
+  }, [dock])
   return (
-    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-vista={actual || vista !== 'canal' ? 'canal' : 'barra'} data-fondo={ajustes.fondo} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto}>
+    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-vista={actual || vista !== 'canal' ? 'canal' : 'barra'} data-fondo={ajustes.fondo} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto} data-dock={dock ? 'true' : undefined}>
       <BarraDeChat alBuscar={() => setBuscando(true)} />
       {vista === 'canal' ? <VistaDeCanal /> : <VistaDeBandeja />}
       <PanelDeHilo />
-      <PanelDeJunta />
-      <AsistenteDelErp />
-      <LlamadaEntrante />
+      <EnLaPagina activo={dock}>
+        <PanelDeJunta />
+        <AsistenteDelErp />
+        <LlamadaEntrante />
+      </EnLaPagina>
       {buscando && <SaltarA onCerrar={() => setBuscando(false)} />}
     </div>
   )
 }
 
-export function ChatApp({ canalInicial }: { canalInicial?: string | null }) {
+/** El chat entero. En el dock (`dock`) va dentro de una ventana pequeña: se adapta solo a su ancho y no toca la dirección, el título ni los atajos de la página */
+export function ChatApp({ canalInicial, dock = false }: { canalInicial?: string | null; dock?: boolean }) {
   return (
     <TemaDelChatProvider>
-      <ChatProvider canalInicial={canalInicial}>
+      <ChatProvider canalInicial={canalInicial} sincronizarUrl={!dock}>
         <JuntaProvider>
-          <Marco />
+          <div className="chat-contenedor" data-dock={dock ? 'true' : undefined}>
+            <Marco dock={dock} />
+          </div>
         </JuntaProvider>
       </ChatProvider>
     </TemaDelChatProvider>

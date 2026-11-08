@@ -2579,16 +2579,24 @@ html.light .lat-logo img { filter: invert(1) hue-rotate(180deg) saturate(1.15); 
 .lat-app[data-activa='true'] .lat-icono { color: var(--ls-acc-tinta); background: linear-gradient(135deg, var(--lat-relleno-a), var(--lat-relleno-b)); box-shadow: 0 5px 14px -4px var(--lat-sombra-icono), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
 .lat-app-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* A PANTALLA COMPLETA (Tareas de clientes) la barra es siempre un cajón, también en una pantalla ancha: escondida hasta que se pide con el botón de arriba a la derecha de la página.
-   Cerrada, además de salirse de la ventana se vuelve invisible (después de deslizarse), para que el teclado no entre en ella. */
-.lat[data-inmersivo='true'] { translate: -100% 0; box-shadow: none; visibility: hidden; }
-.lat[data-inmersivo='true'][data-movil='abierta'] { translate: 0 0; box-shadow: var(--lat-sombra); visibility: visible; }
-.lat[data-inmersivo='true'] .lat-plegar { display: none; }
-.lat-velo[data-inmersivo='true'] { display: block; }
-@media (prefers-reduced-motion: no-preference) {
+/* A PANTALLA COMPLETA (Tareas de clientes, Chat) la barra se queda a la vista como un CARRIL fino (el JS la pliega) y se amplía con su botón; solo en pantallas estrechas sigue siendo un cajón
+   que se pide con el botón de la página. Cerrado, además de salirse de la ventana se vuelve invisible (después de deslizarse), para que el teclado no entre en él. */
+@media (max-width: 1023.98px) {
+  .lat[data-inmersivo='true'] { translate: -100% 0; box-shadow: none; visibility: hidden; }
+  .lat[data-inmersivo='true'][data-movil='abierta'] { translate: 0 0; box-shadow: var(--lat-sombra); visibility: visible; }
+  .lat[data-inmersivo='true'] .lat-plegar { display: none; }
+  .lat-velo[data-inmersivo='true'] { display: block; }
+}
+@media (max-width: 1023.98px) and (prefers-reduced-motion: no-preference) {
   .lat[data-inmersivo='true'] { transition: translate 0.4s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.4s; }
   .lat[data-inmersivo='true'][data-movil='abierta'] { transition: translate 0.4s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s; }
 }
+/* El botón de arriba a la derecha que abría el menú ya no hace falta cuando la barra está a la vista */
+@media (min-width: 1024px) { .tc-menu-erp { display: none; } }
+/* La insignia del Chat sobre su icono */
+.lat-insignia-chat { position: absolute; right: -6px; top: -6px; min-width: 16px; border-radius: 999px; background: var(--ls-acc); padding: 0 4px; text-align: center; font-size: 10px; font-weight: 700; line-height: 16px; color: var(--ls-acc-tinta); box-shadow: 0 0 0 2px var(--ls-sup); }
+.lat-insignia-chat[data-mencion='true'] { background: var(--ls-e-rojo); color: #fff; }
+.lat-icono { position: relative; }
 
 /* El interruptor de tema: el sol y la luna, uno encima del otro; el que sobra se esconde girando */
 .lat-tema { flex: 0 0 auto; justify-content: center; width: 2.5rem; padding: 0; }
@@ -4398,7 +4406,10 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
    Las animaciones solo corren si la persona no ha pedido reducir el movimiento.
    ========================================================================== */
 .chat-inmersivo { height: 100dvh; min-height: 0; overflow: hidden; }
-.chat-marco { display: grid; height: 100dvh; grid-template-columns: 276px minmax(0, 1fr); background: var(--ls-fondo); }
+/* El recuadro del chat: sus reglas «de pantalla estrecha» miran el ancho DE ESTE RECUADRO y no el de la ventana (@container), así el mismo chat sirve entero a pantalla completa y pequeño en el dock */
+.chat-contenedor { container: chat / inline-size; position: relative; height: 100%; }
+.chat-inmersivo .chat-contenedor { height: 100dvh; }
+.chat-marco { display: grid; height: 100%; grid-template-columns: 276px minmax(0, 1fr); background: var(--ls-fondo); }
 .chat-marco[data-con-hilo='true'] { grid-template-columns: 276px minmax(0, 1fr) 396px; }
 .chat-icono { display: inline-flex; height: 28px; min-width: 28px; align-items: center; justify-content: center; gap: 4px; border-radius: 8px; padding: 0 6px; color: var(--ls-t3); transition: background .15s ease, color .15s ease, transform .15s ease; }
 .chat-icono:hover { background: var(--ls-sup3); color: var(--ls-t1); }
@@ -4458,7 +4469,7 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 /* ---------- Canal ---------- */
 .chat-principal { position: relative; display: flex; min-width: 0; min-height: 0; flex-direction: column; }
 .chat-vacio { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--ls-t3); font-size: 14px; }
-.chat-cabecera { position: relative; z-index: 3; display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-fondo) 84%, transparent); padding: 12px 64px 12px 20px; min-height: 58px; backdrop-filter: blur(12px); }
+.chat-cabecera { position: relative; z-index: 3; display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-fondo) 84%, transparent); padding: 12px 20px; min-height: 58px; backdrop-filter: blur(12px); }
 .chat-cabecera-titulo { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--ls-t2); }
 .chat-cabecera-titulo h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 750; letter-spacing: -.01em; color: var(--ls-t1); }
 .chat-descripcion { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-left: 1px solid var(--ls-linea2); padding-left: 10px; font-size: 12.5px; color: var(--ls-t3); }
@@ -4688,13 +4699,13 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 @keyframes chat-llamada-entra { from { opacity: 0; transform: translate(-50%, -14px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes chat-llamada-late { 0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, .5); } 50% { box-shadow: 0 0 0 10px rgba(74, 222, 128, 0); } }
 
-/* ---------- Móvil: una sola columna; la barra o el canal, y el hilo encima ---------- */
-@media (max-width: 820px) {
+/* ---------- Estrecho (el móvil o el dock): una sola columna; la barra o el canal, y el hilo encima ---------- */
+@container chat (max-width: 820px) {
   .chat-marco, .chat-marco[data-con-hilo='true'] { grid-template-columns: minmax(0, 1fr); }
   .chat-marco[data-vista='canal'] .chat-barra { display: none; }
   .chat-marco[data-vista='barra'] .chat-principal, .chat-marco[data-vista='barra'] .chat-vacio { display: none; }
   .chat-atras { display: inline-flex; }
-  .chat-hilo { position: fixed; inset: 0; z-index: 60; }
+  .chat-hilo { position: absolute; inset: 0; z-index: 60; }
   .chat-cabecera { padding-left: 12px; padding-right: 56px; }
   .chat-mensaje { grid-template-columns: 48px minmax(0, 1fr); padding-right: 12px; }
   .chat-pie { padding: 0 12px 12px; }
@@ -4829,10 +4840,12 @@ kbd { border-radius: 6px; border: 1px solid var(--ls-linea2); background: var(--
   .chat-tira-resumen { animation: chat-aparece .25s ease-out; }
   .chat-subidas li { animation: chat-pop .22s cubic-bezier(.3, 1.6, .5, 1); }
 }
-@media (max-width: 820px) {
+@container chat (max-width: 820px) {
   .chat-estado-panel { left: 8px; right: 8px; width: auto; }
-  .chat-saltar-fondo { padding-top: 6vh; }
   .chat-buscar-boton kbd { display: none; }
+}
+@media (max-width: 820px) {
+  .chat-saltar-fondo { padding-top: 6vh; }
 }
 
 /* Arrastrar archivos al chat: el aviso grande que tapa el canal (o el hilo) */
@@ -4969,7 +4982,46 @@ kbd { border-radius: 6px; border: 1px solid var(--ls-linea2); background: var(--
   @keyframes chat-grabando { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.8); } }
   @keyframes chat-parpadea { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 }
-@media (max-width: 820px) {
+@container chat (max-width: 820px) {
   .chat-asistente { inset: 0; width: auto; border-radius: 0; }
 }
 .chat-solo-anuncios { justify-content: flex-start; gap: 10px; }
+
+/* ==========================================================================
+   EL DOCK DEL CHAT (components/chat/DockDelChat.tsx): pastilla → ventana pequeña → panel lateral que aparta la página.
+   Lo que se pinta fuera del recuadro (la junta, la llamada, el asistente) cuelga directamente del <body>.
+   ========================================================================== */
+.chat-dock-pastilla { position: fixed; right: 18px; bottom: 18px; z-index: 70; display: inline-flex; height: 42px; align-items: center; gap: 8px; border-radius: 999px; border: 1px solid var(--ls-linea2); background: var(--ls-sup); padding: 0 16px 0 14px; font-size: 13.5px; font-weight: 650; color: var(--ls-t1); box-shadow: 0 14px 34px -14px rgba(0, 0, 0, .7); transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
+.chat-dock-pastilla:hover { transform: translateY(-2px); border-color: var(--ls-acc); box-shadow: 0 18px 40px -14px rgba(0, 0, 0, .75); }
+.chat-dock-pastilla:active { transform: scale(.97); }
+.chat-dock-pastilla svg { color: var(--ls-acc); }
+.chat-dock-pastilla b { min-width: 20px; border-radius: 999px; background: var(--ls-acc); padding: 1px 6px; text-align: center; font-size: 11px; font-weight: 700; line-height: 16px; color: var(--ls-acc-tinta); }
+.chat-dock-pastilla[data-menciona='true'] b { background: var(--ls-e-rojo); color: #fff; }
+.chat-dock { position: fixed; z-index: 70; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--ls-linea2); background: var(--ls-fondo); }
+.chat-dock[hidden] { display: none; }
+.chat-dock[data-modo='pequeno'] { right: 18px; bottom: 18px; width: 380px; height: min(580px, calc(100dvh - 36px)); border-radius: 18px; box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .8); }
+.chat-dock[data-modo='lateral'] { right: 0; top: 0; bottom: 0; width: 420px; border-width: 0 0 0 1px; box-shadow: -24px 0 60px -34px rgba(0, 0, 0, .6); }
+.chat-dock-cabecera { display: flex; flex-shrink: 0; align-items: center; gap: 8px; border-bottom: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 6px 8px 6px 14px; font-size: 13px; color: var(--ls-t2); }
+.chat-dock-cabecera svg:first-child { color: var(--ls-acc); }
+.chat-dock-cabecera b { color: var(--ls-t1); }
+.chat-dock-cabecera i { border-radius: 999px; background: color-mix(in srgb, var(--ls-acc) 18%, transparent); padding: 0 8px; font-size: 11px; font-style: normal; font-weight: 650; color: var(--ls-acc); }
+.chat-dock-cuerpo { min-height: 0; flex: 1; }
+.chat-contenedor[data-dock='true'] .chat-cabecera { min-height: 48px; padding-right: 12px; }
+/* Una junta o una llamada que sale del dock se coloca junto a la barra del ERP, no pegada a la esquina del dock */
+body > .chat-junta { left: calc(var(--lat-ancho, 4.5rem) + 16px); right: auto; bottom: 16px; }
+body > .chat-junta[data-grande='true'] { inset: 12px 12px 12px calc(var(--lat-ancho, 4.5rem) + 12px); }
+@media (prefers-reduced-motion: no-preference) {
+  .chat-dock[data-modo='pequeno'] { animation: chat-modal .24s cubic-bezier(.2, .9, .3, 1.1); }
+  .chat-dock[data-modo='lateral'] { animation: chat-desliza .28s cubic-bezier(.2, .9, .3, 1); }
+  .chat-dock-pastilla { animation: chat-pop .3s cubic-bezier(.3, 1.5, .5, 1); }
+  .chat-dock-pastilla b { animation: chat-pop .3s cubic-bezier(.3, 1.6, .5, 1); }
+}
+@media (max-width: 1023.98px) { .chat-dock, .chat-dock-pastilla { display: none; } }
+/* Muy estrecho (el dock): en la cabecera se quita lo que no cabe, para que el nombre del canal se lea */
+@container chat (max-width: 520px) {
+  .chat-pila, .chat-estado-persona, .chat-etiqueta-anuncios, .chat-hora-local { display: none; }
+  .chat-cabecera-acciones { gap: 0; }
+  .chat-cabecera { gap: 4px; }
+  .chat-cabecera-titulo h1 { font-size: 15px; }
+  .chat-barra-cabecera { padding-left: 14px; }
+}
