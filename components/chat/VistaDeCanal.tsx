@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, Hash, Headphones, LogOut, Lock, Megaphone, MessageCircle, Phone, Pin, Settings2, Sparkles, Video, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Hash, Headphones, LogOut, Lock, Megaphone, MessageCircle, Phone, Pin, Settings2, Sparkles, Video, Volume2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { filasDeMensajes } from '@/lib/chat/agrupar'
 import { nombreVisible } from '@/lib/chat/canales'
@@ -193,7 +193,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   }
 
   const hacer = (f: () => Promise<unknown>) => void f().catch((err: Error) => toast.error(err.message))
-  const icono = canal.tipo === 'privado' ? <Lock className="h-4 w-4" /> : canal.tipo === 'directo' ? null : <Hash className="h-4 w-4" />
+  const icono = canal.voz ? <Volume2 className="h-4 w-4" /> : canal.tipo === 'privado' ? <Lock className="h-4 w-4" /> : canal.tipo === 'directo' ? null : <Hash className="h-4 w-4" />
 
   return (
     <section className="chat-principal" aria-label={nombre} {...zona.props}>
@@ -220,8 +220,8 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
           )}
           {canal.soy_miembro && juntasDisponibles && !(juntaActual?.canalId === canal.id) && (
             <button type="button" className="chat-icono chat-llamar" onClick={() => hacer(() => entrarEnJunta(canal.id))} aria-label={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta'} title={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta de voz y vídeo'}>
-              {canal.tipo === 'directo' ? <Phone className="h-4 w-4" /> : <Video className="h-4 w-4" />}
-              <span>{canal.tipo === 'directo' ? 'Llamar' : 'Junta'}</span>
+              {canal.tipo === 'directo' ? <Phone className="h-4 w-4" /> : canal.voz ? <Volume2 className="h-4 w-4" /> : <Video className="h-4 w-4" />}
+              <span>{canal.tipo === 'directo' ? 'Llamar' : canal.voz ? 'Unirme a la voz' : 'Junta'}</span>
             </button>
           )}
           {canal.soy_miembro && <MenuDeAvisos canal={canal} />}
@@ -328,10 +328,12 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
             permitirTodos={canal.tipo !== 'directo' && canal.miembros.length > 2}
             alEncuesta={() => setEncuestaAbierta(true)}
             alEnviar={async (cuerpo, adjuntos) => {
-              await enviar(canal.id, cuerpo, { respondeA: citando?.id, adjuntos })
-              avisarQuePara(canal.id)
+              // Al instante: pegado abajo, sin la cita y sin el aviso de «está escribiendo»; si el envío falla, el redactor devuelve el texto
+              const respondeA = citando?.id
               setCitando(null)
               pegadoRef.current = true
+              avisarQuePara(canal.id)
+              await enviar(canal.id, cuerpo, { respondeA, adjuntos })
             }}
             alProgramar={async (cuerpo, adjuntos, enviarEn) => {
               await pedir('/api/chat/programados', { metodo: 'POST', cuerpo: { canalId: canal.id, cuerpo, respondeA: citando?.id, adjuntos, enviarEn } })

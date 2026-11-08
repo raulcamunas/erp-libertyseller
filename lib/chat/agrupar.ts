@@ -71,3 +71,21 @@ export function conMensaje(lista: readonly MensajeChat[], nuevo: MensajeChat): M
   salida.sort((a, b) => a.id - b.id)
   return salida
 }
+
+/**
+ * EL ENVÍO INSTANTÁNEO. Al enviar, el mensaje sale en pantalla al momento con un número provisional (enorme, para que se ordene al final) y se cambia por el de verdad cuando el servidor contesta.
+ * Así se puede escribir a toda velocidad sin esperar la ida y vuelta de cada mensaje. Se comprueba en envio.prueba.ts.
+ */
+export const ID_TEMPORAL_DESDE = 1_000_000_000_000
+
+export const esMensajeTemporal = (id: number): boolean => id >= ID_TEMPORAL_DESDE
+
+/** Quita de la lista un mensaje provisional */
+export const sinTemporal = (lista: readonly MensajeChat[], id: number): MensajeChat[] => lista.filter((m) => m.id !== id)
+
+/** Cuando llega el mensaje de verdad (por el directo o por la respuesta), el provisional más antiguo con el mismo texto y autor sobra: se quita para no verlo duplicado */
+export function sinTemporalParecido(lista: readonly MensajeChat[], real: MensajeChat): MensajeChat[] {
+  if (esMensajeTemporal(real.id)) return [...lista]
+  const i = lista.findIndex((m) => esMensajeTemporal(m.id) && m.autor_id === real.autor_id && m.cuerpo === real.cuerpo && m.hilo_de === real.hilo_de)
+  return i < 0 ? [...lista] : [...lista.slice(0, i), ...lista.slice(i + 1)]
+}

@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { AtSign, Bookmark, CalendarClock, ChevronDown, Clock, Database, FileArchive, Hash, Headphones, Lock, MessageSquarePlus, MessageSquareReply, Palette, Plus, Search } from 'lucide-react'
+import { toast } from 'sonner'
+import { AtSign, Bookmark, CalendarClock, ChevronDown, Clock, Database, FileArchive, Hash, Headphones, Lock, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Volume2 } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible, repartirCanales } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
@@ -21,14 +22,17 @@ const BANDEJAS = [
 ] as const
 
 export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
-  const { canales, actual, seleccionar, yo, persona, conectados, enVivo, vista, abrirBandeja, estadoDe, abrirAsistente } = useChat()
+  const { canales, actual, seleccionar, yo, persona, nombreDe, conectados, enVivo, vista, abrirBandeja, estadoDe, abrirAsistente } = useChat()
   const [estadoAbierto, setEstadoAbierto] = useState(false)
   const [importando, setImportando] = useState(false)
-  const [dialogo, setDialogo] = useState<'canal' | 'directo' | null>(null)
+  const [dialogo, setDialogo] = useState<'canal' | 'directo' | 'voz' | null>(null)
+  const { disponible: hayJuntas, actual: enSala, activas, entrar, salir, alternarMicro, room, version } = useJunta()
+  void version
   const [abiertosVisibles, setAbiertosVisibles] = useState(false)
   const [apariencia, setApariencia] = useState(false)
   const reparto = useMemo(() => repartirCanales(canales), [canales])
   const canalesVisibles = reparto.canales
+  const voces = reparto.voces
   const directosVisibles = reparto.directos
   const sinUnirme = reparto.sinUnirme
   const miEstado = estadoDe(yo.id)
@@ -73,6 +77,51 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
             {canalesVisibles.length === 0 && <li className="chat-barra-vacio">Aún no estás en ningún canal.</li>}
           </ul>
         </section>
+
+        {voces.length > 0 && (
+          <section>
+            <h3 className="chat-barra-titulo">
+              <span>Canales de voz</span>
+              {yo.esAdmin && <button type="button" className="chat-icono" onClick={() => setDialogo('voz')} aria-label="Crear un canal de voz" title="Crear un canal de voz"><Plus className="h-3.5 w-3.5" /></button>}
+            </h3>
+            <ul>
+              {voces.map((c) => {
+                const dentro = activas[c.id]?.personas ?? []
+                const conectado = enSala?.canalId === c.id
+                return (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      className="chat-fila chat-fila-voz"
+                      data-activa={actual?.id === c.id ? 'true' : undefined}
+                      data-conectado={conectado ? 'true' : undefined}
+                      onClick={() => {
+                        seleccionar(c.id)
+                        if (!hayJuntas) return toast.error('Las juntas todavía no están configuradas en el servidor.')
+                        if (!conectado) void entrar(c.id)
+                      }}
+                      title={conectado ? 'Estás en este canal de voz' : `Entrar al canal de voz ${c.nombre}`}
+                    >
+                      <Volume2 className="h-3.5 w-3.5 shrink-0" />
+                      <span className="chat-fila-nombre">{c.nombre}</span>
+                      {dentro.length > 0 && <span className="chat-voz-cuenta">{dentro.length}</span>}
+                    </button>
+                    {dentro.length > 0 && (
+                      <ul className="chat-voz-personas" aria-label={`En ${c.nombre}`}>
+                        {dentro.map((id) => (
+                          <li key={id} className="chat-voz-persona">
+                            <Avatar id={id} nombre={nombreDe(id)} tamano={18} />
+                            <span>{id === yo.id ? `${nombreDe(id)} (tú)` : nombreDe(id)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )}
 
         <section>
           <h3 className="chat-barra-titulo">
@@ -119,6 +168,20 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
         )}
       </div>
 
+      {enSala && (
+        <div className="chat-voz-conectado" role="status">
+          <Volume2 className="h-4 w-4 shrink-0 text-[var(--ls-e-verde)]" />
+          <span className="min-w-0 flex-1">
+            <b>{enSala.estado === 'conectando' ? 'Conectando…' : 'Voz conectada'}</b>
+            <i>{(() => { const c = canales.find((x) => x.id === enSala.canalId); return c ? nombreVisible(c, yo.id, persona) : 'Junta' })()}</i>
+          </span>
+          <button type="button" className="chat-icono" onClick={() => void alternarMicro()} aria-label={room?.localParticipant.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'} title={room?.localParticipant.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'} data-apagado={room && !room.localParticipant.isMicrophoneEnabled ? 'true' : undefined}>
+            {room && !room.localParticipant.isMicrophoneEnabled ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </button>
+          <button type="button" className="chat-icono" onClick={salir} aria-label="Salir de la junta" title="Salir de la junta"><PhoneOff className="h-4 w-4" /></button>
+        </div>
+      )}
+
       {yo.esAdmin && (
         <div className="chat-herramientas-admin">
           <button type="button" onClick={() => abrirAsistente()}><Database className="h-3.5 w-3.5" /> Preguntar al ERP</button>
@@ -138,6 +201,7 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
       {importando && <ImportarDeSlack onCerrar={() => setImportando(false)} />}
 
       {dialogo === 'canal' && <DialogoNuevoCanal onCerrar={() => setDialogo(null)} alCrear={(id) => seleccionar(id)} />}
+      {dialogo === 'voz' && <DialogoNuevoCanal voz onCerrar={() => setDialogo(null)} alCrear={(id) => seleccionar(id)} />}
       {dialogo === 'directo' && <DialogoNuevoDirecto onCerrar={() => setDialogo(null)} alAbrir={(id) => seleccionar(id)} />}
     </nav>
   )

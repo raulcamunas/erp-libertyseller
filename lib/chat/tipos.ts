@@ -49,6 +49,8 @@ export interface CanalChat {
   anuncios: boolean
   /** Administro este canal (o soy administrador del ERP): puedo publicar en uno de anuncios y cambiarlo */
   soy_admin: boolean
+  /** Es un canal de voz (lib/chat/voz.ts): se entra con un clic a su sala y se ve quién está dentro */
+  voz: boolean
 }
 
 /** Lo que dice el mensaje al que se responde, para pintar la cita sin pedirlo aparte */
@@ -107,7 +109,7 @@ export type EventoDeChat =
   /** Alguien ha cambiado su estado (null = lo ha quitado) */
   | { tipo: 'estado'; usuario: string; estado: EstadoChat | null }
   /** Alguien ha abierto una junta en este canal */
-  | { tipo: 'junta'; canalId: string; de: string; sala: string; estado: 'llama' }
+  | { tipo: 'junta'; canalId: string; de: string; sala: string; estado: 'llama' | 'voz' }
 
 /** Un mensaje en una lista aparte (menciones, guardados, fijados) con el canal al que pertenece */
 export interface ItemDeBandeja {

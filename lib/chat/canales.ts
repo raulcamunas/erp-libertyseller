@@ -43,12 +43,13 @@ export function ordenarCanales<T extends Pick<CanalChat, 'ultimo_mensaje_en' | '
 }
 
 /** Las tres listas de la barra lateral: canales (abiertos y privados a los que pertenezco), directos, y los abiertos a los que aún no me he unido */
-export function repartirCanales<T extends Pick<CanalChat, 'tipo' | 'soy_miembro' | 'archivado' | 'ultimo_mensaje_en' | 'nombre' | 'creado_en'>>(canales: readonly T[]) {
+export function repartirCanales<T extends Pick<CanalChat, 'tipo' | 'soy_miembro' | 'archivado' | 'ultimo_mensaje_en' | 'nombre' | 'creado_en'> & { voz?: boolean }>(canales: readonly T[]) {
   const vivos = canales.filter((c) => !c.archivado)
   return {
-    canales: ordenarCanales(vivos.filter((c) => c.tipo !== 'directo' && c.soy_miembro)).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es')),
+    canales: ordenarCanales(vivos.filter((c) => c.tipo !== 'directo' && c.soy_miembro && !c.voz)).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es')),
+    voces: vivos.filter((c) => c.voz === true && c.soy_miembro).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es')),
     directos: ordenarCanales(vivos.filter((c) => c.tipo === 'directo' && c.soy_miembro)),
-    sinUnirme: vivos.filter((c) => c.tipo === 'canal' && !c.soy_miembro).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es')),
+    sinUnirme: vivos.filter((c) => c.tipo === 'canal' && !c.soy_miembro && !c.voz).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es')),
   }
 }
 

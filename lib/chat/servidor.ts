@@ -1,3 +1,4 @@
+import { esCanalDeVoz, origenDeVoz } from './voz'
 import { APP_CHAT } from '@/lib/config/apps'
 import { createServiceClient } from '@/lib/supabase/service'
 import { esRutaDe } from './archivos'
@@ -45,6 +46,7 @@ export interface FilaCanal {
   creado_por: string | null
   /** Solo existe con la migración 287 */
   anuncios?: boolean
+  origen_id?: string | null
 }
 
 export interface FilaMensaje {
@@ -146,9 +148,14 @@ async function exigirVer(quien: QuienEscribe, canal: FilaCanal): Promise<FilaMie
   return miembros
 }
 
+/** La comprobación de «¿estás dentro?» con los miembros ya leídos (para poder pedir canal y miembros a la vez) */
+function comprobarMiembro(quien: QuienEscribe, canal: FilaCanal, miembros: readonly FilaMiembro[]): void {
+  if (!miembros.some((m) => m.usuario_id === quien.userId)) throw new ErrorDeChat(canal.tipo === 'canal' ? 'Únete al canal para escribir.' : 'Ese canal no existe.', canal.tipo === 'canal' ? 403 : 404)
+}
+
 export async function exigirMiembro(quien: QuienEscribe, canal: FilaCanal): Promise<FilaMiembro[]> {
   const miembros = await miembrosDe(canal.id)
-  if (!miembros.some((m) => m.usuario_id === quien.userId)) throw new ErrorDeChat(canal.tipo === 'canal' ? 'Únete al canal para escribir.' : 'Ese canal no existe.', canal.tipo === 'canal' ? 403 : 404)
+  comprobarMiembro(quien, canal, miembros)
   return miembros
 }
 
@@ -173,6 +180,7 @@ export async function cargarInicio(quien: QuienEscribe): Promise<DatosDeInicioCh
   const personas = await personasDelChat()
   // #notificaciones-erp: se crea (y se mete al equipo) la primera vez, antes de leer los canales de cada uno
   await import('./sistema-servidor').then((m) => m.prepararCanalDeNotificaciones()).catch(() => null)
+  await import('./salas-de-voz-servidor').then((m) => m.prepararCanalesDeVoz()).catch(() => null)
 
   // Los canales a los que entra todo el mundo (#general): se entra una sola vez, la primera
   let lecturaPropios = await service.from('chat_miembros').select('canal_id, silenciado, ultimo_leido_en, avisos, rol').eq('usuario_id', quien.userId)
@@ -241,6 +249,7 @@ export async function cargarInicio(quien: QuienEscribe): Promise<DatosDeInicioCh
         avisos: nivelDe({ avisos: propio?.avisos, silenciado: propio?.silenciado }, c.tipo),
         anuncios: c.anuncios === true,
         soy_admin: quien.esAdmin || propio?.rol === 'admin',
+        voz: esCanalDeVoz(c.origen_id),
       }
     }),
     guardados,
@@ -305,6 +314,29 @@ async function armarMensajes(filas: readonly FilaMensaje[]): Promise<MensajeChat
     reacciones: f.borrado_en ? {} : porMensaje.get(f.id) ?? {},
     respuestas: cuenta.get(f.id) ?? 0,
   }))
+}
+
+/** Un mensaje recién creado sin cita, encuesta ni archivos, armado sin consultas (no tiene reacciones, respuestas ni votos) */
+function mensajeSencillo(f: FilaMensaje): MensajeChat {
+  return {
+    id: f.id,
+    canal_id: f.canal_id,
+    autor_id: f.autor_id,
+    cuerpo: f.cuerpo,
+    hilo_de: f.hilo_de,
+    cita: null,
+    menciones: f.menciones ?? [],
+    adjuntos: [],
+    editado_en: f.editado_en,
+    fijado_en: f.fijado_en ?? null,
+    encuesta: null,
+    votos: {},
+    autor_externo: f.autor_externo ?? null,
+    borrado_en: f.borrado_en,
+    creado_en: f.creado_en,
+    reacciones: {},
+    respuestas: 0,
+  }
 }
 
 export const MENSAJES_POR_PAGINA = 50
@@ -400,8 +432,10 @@ export async function enviarMensaje(quien: QuienEscribe, entrada: { canalId: unk
   const adjuntos = adjuntosValidos(entrada.adjuntos, quien.userId)
   if (!cuerpo && adjuntos.length === 0 && !encuesta) throw new ErrorDeChat('Escribe algo antes de enviar.')
   if (!cuerpoValido(cuerpo)) throw new ErrorDeChat(`El mensaje es demasiado largo (máximo ${CUERPO_MAX} caracteres).`)
-  const canal = await canalDe(entrada.canalId)
-  const miembros = await exigirMiembro(quien, canal)
+  // El canal, sus miembros y las personas del chat se piden A LA VEZ (antes iban uno detrás de otro y cada ida y vuelta a la base sumaba)
+  if (!esUuid(entrada.canalId)) throw new ErrorDeChat('Falta el canal.')
+  const [canal, miembros, personas] = await Promise.all([canalDe(entrada.canalId), miembrosDe(entrada.canalId), personasDelChat()])
+  comprobarMiembro(quien, canal, miembros)
   const service = db()
   // En un canal de anuncios solo publican quienes lo administran; el resto reacciona y responde en los hilos
   if (canal.anuncios && (entrada.hiloDe === undefined || entrada.hiloDe === null) && !puedeGestionar(quien, miembros)) throw new ErrorDeChat('Este canal es de anuncios: solo lo publican quienes lo administran. Puedes reaccionar y responder en un hilo.', 403)
@@ -427,7 +461,6 @@ export async function enviarMensaje(quien: QuienEscribe, entrada: { canalId: unk
     autorCitado = (citado as { autor_id: string | null }).autor_id
   }
 
-  const personas = await personasDelChat()
   const idsDeMiembros = new Set(miembros.map((m) => m.usuario_id))
   // En un canal privado o un directo solo se puede mencionar a quien está dentro; en uno abierto, a cualquiera con chat
   const mencionesExplicitas = extraerMenciones(cuerpo).filter((id) => id !== quien.userId && personas.some((p) => p.id === id) && (canal.tipo === 'canal' || idsDeMiembros.has(id)))
@@ -445,9 +478,13 @@ export async function enviarMensaje(quien: QuienEscribe, entrada: { canalId: unk
   }
   const ahora = (data as FilaMensaje).creado_en
   // Lo que escribes lo das por leído; y el canal sube en la lista de todos
-  await Promise.all([service.from('chat_canales').update({ ultimo_mensaje_en: ahora }).eq('id', canal.id), service.from('chat_miembros').update({ ultimo_leido_en: ahora }).eq('canal_id', canal.id).eq('usuario_id', quien.userId)])
+  // Que el canal suba en la lista y que lo tuyo cuente como leído no hace falta esperarlo para contestar: va por detrás
+  void Promise.all([service.from('chat_canales').update({ ultimo_mensaje_en: ahora }).eq('id', canal.id), service.from('chat_miembros').update({ ultimo_leido_en: ahora }).eq('canal_id', canal.id).eq('usuario_id', quien.userId)]).then(undefined, (e) => console.error('Chat: no se ha podido actualizar el canal tras enviar:', e instanceof Error ? e.message : e))
 
-  const mensaje = (await armarMensajes([data as FilaMensaje]))[0]
+  // Un mensaje recién escrito, sin cita, encuesta ni archivos, no tiene reacciones, respuestas ni votos: no hace falta preguntarlo a la base
+  const nueva = data as FilaMensaje
+  const sencillo = !nueva.responde_a && !nueva.encuesta && (nueva.adjuntos ?? []).length === 0
+  const mensaje = sencillo ? mensajeSencillo(nueva) : (await armarMensajes([nueva]))[0]
   void emitir([...idsDeMiembros], { tipo: 'mensaje', mensaje })
   void avisarDelMensaje(quien, canal, miembros, mensaje, personas, autorCitado)
   // Las notas de voz se transcriben por detrás (módulo aparte, que se carga al hacer falta)
@@ -571,7 +608,10 @@ async function personasValidas(ids: unknown, excepto: string): Promise<string[]>
   return [...new Set(ids.filter(esUuid))].filter((id) => id !== excepto && todas.some((p) => p.id === id)).slice(0, 200)
 }
 
-export async function crearCanal(quien: QuienEscribe, entrada: { tipo: unknown; nombre: unknown; descripcion?: unknown; miembros?: unknown; clienteId?: unknown; anuncios?: unknown }): Promise<{ canalId: string }> {
+export async function crearCanal(quien: QuienEscribe, entrada: { tipo: unknown; nombre: unknown; descripcion?: unknown; miembros?: unknown; clienteId?: unknown; anuncios?: unknown; voz?: unknown }): Promise<{ canalId: string }> {
+  const esVoz = entrada.voz === true
+  if (esVoz && !quien.esAdmin) throw new ErrorDeChat('Los canales de voz los crean los administradores.', 403)
+  if (esVoz) entrada = { ...entrada, tipo: 'canal', miembros: [] }
   if (entrada.tipo !== 'canal' && entrada.tipo !== 'privado') throw new ErrorDeChat('Elige si el canal es abierto o privado.')
   const nombre = normalizarNombreDeCanal(entrada.nombre)
   if (!nombre) throw new ErrorDeChat('Ponle un nombre al canal.')
@@ -581,6 +621,8 @@ export async function crearCanal(quien: QuienEscribe, entrada: { tipo: unknown; 
   const service = db()
   const fila: Record<string, unknown> = { tipo: entrada.tipo, nombre, descripcion, cliente_id: clienteId, creado_por: quien.userId }
   if (entrada.anuncios === true) fila.anuncios = true
+  // Un canal de voz lo ve y lo usa todo el equipo: entra solo y lleva su marca
+  if (esVoz) Object.assign(fila, { origen_id: origenDeVoz(crypto.randomUUID().slice(0, 8)), auto_unirse: true })
   const { data, error } = await service.from('chat_canales').insert(fila).select('id').single()
   if (error) {
     if (entrada.anuncios === true && faltaColumna(error)) throw new ErrorDeChat('Falta lanzar la migración 287 en Supabase para crear canales de anuncios.', 409)

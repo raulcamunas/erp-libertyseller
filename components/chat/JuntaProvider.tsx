@@ -1,9 +1,10 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Room, RoomEvent, Track } from 'livekit-client'
+import { Room, RoomEvent, Track, type LocalAudioTrack } from 'livekit-client'
 import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
+import { AJUSTES_DE_AUDIO_POR_DEFECTO, CLAVE_DE_AUDIO, CLAVE_DE_VOLUMENES, leerAjustesDeAudio, leerVolumenes, limitarVolumen, limpiarAjustesDeAudio, restriccionesDeMicro, volumenEfectivo, type AjustesDeAudio, type Volumenes } from '@/lib/chat/audio'
 import type { JuntaActiva } from '@/lib/chat/junta'
 import { useChat } from './ChatProvider'
 
@@ -26,11 +27,20 @@ interface ContextoDeJunta {
   alternarMicro: () => Promise<void>
   alternarCamara: () => Promise<void>
   alternarPantalla: () => Promise<void>
+  /** Tus ajustes de audio (supresión de ruido, eco, nivelación, micrófono y altavoz) */
+  audio: AjustesDeAudio
+  cambiarAudio: (cambios: Partial<AjustesDeAudio>) => Promise<void>
+  /** Cuánto oyes a cada persona (de 0 a 1; 0 = silenciada solo para ti) */
+  volumenes: Volumenes
+  ponerVolumen: (id: string, volumen: number) => void
+  /** No oyes a nadie (y tu micrófono se apaga) hasta que lo quites */
+  ensordecido: boolean
+  alternarEnsordecer: () => Promise<void>
 }
 
 const Contexto = createContext<ContextoDeJunta | null>(null)
 
-const SIN_JUNTAS: ContextoDeJunta = { disponible: false, activas: {}, actual: null, room: null, version: 0, puedePantalla: false, entrar: async () => undefined, salir: () => undefined, alternarMicro: async () => undefined, alternarCamara: async () => undefined, alternarPantalla: async () => undefined }
+const SIN_JUNTAS: ContextoDeJunta = { disponible: false, activas: {}, actual: null, room: null, version: 0, puedePantalla: false, entrar: async () => undefined, salir: () => undefined, alternarMicro: async () => undefined, alternarCamara: async () => undefined, alternarPantalla: async () => undefined, audio: AJUSTES_DE_AUDIO_POR_DEFECTO, cambiarAudio: async () => undefined, volumenes: {}, ponerVolumen: () => undefined, ensordecido: false, alternarEnsordecer: async () => undefined }
 
 export const useJunta = (): ContextoDeJunta => useContext(Contexto) ?? SIN_JUNTAS
 /** Solo para probar las pantallas con datos inventados (la vista de pruebas) */
@@ -64,6 +74,84 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
   const conectando = useRef(false)
   const bump = useCallback(() => setVersion((v) => v + 1), [])
 
+  // Lo que decides para ti (se guarda en este navegador): el audio y cuánto oyes a cada persona
+  const [audio, setAudio] = useState<AjustesDeAudio>(AJUSTES_DE_AUDIO_POR_DEFECTO)
+  const [volumenes, setVolumenes] = useState<Volumenes>({})
+  const [ensordecido, setEnsordecido] = useState(false)
+  const audioRef = useRef(audio)
+  const volumenesRef = useRef(volumenes)
+  const ensordecidoRef = useRef(false)
+  const microAntesDeEnsordecer = useRef(false)
+  useEffect(() => {
+    try {
+      const a = leerAjustesDeAudio(window.localStorage.getItem(CLAVE_DE_AUDIO))
+      const v = leerVolumenes(window.localStorage.getItem(CLAVE_DE_VOLUMENES))
+      audioRef.current = a
+      volumenesRef.current = v
+      setAudio(a)
+      setVolumenes(v)
+    } catch {
+      /* sin almacenamiento: lo de siempre */
+    }
+  }, [])
+  const guardar = (clave: string, valor: unknown) => {
+    try {
+      window.localStorage.setItem(clave, JSON.stringify(valor))
+    } catch {
+      /* no se guarda, pero vale para esta junta */
+    }
+  }
+  /** Pone a cada persona de la sala al volumen que le toca */
+  const aplicarVolumenes = useCallback(() => {
+    for (const p of room.current?.remoteParticipants.values() ?? []) p.setVolume(volumenEfectivo(volumenesRef.current, p.identity, ensordecidoRef.current))
+  }, [])
+  const ponerVolumen = useCallback(
+    (id: string, volumen: number) => {
+      const nuevos = { ...volumenesRef.current, [id]: limitarVolumen(volumen) }
+      volumenesRef.current = nuevos
+      setVolumenes(nuevos)
+      guardar(CLAVE_DE_VOLUMENES, nuevos)
+      room.current?.remoteParticipants.get(id)?.setVolume(volumenEfectivo(nuevos, id, ensordecidoRef.current))
+    },
+    []
+  )
+  const cambiarAudio = useCallback(async (cambios: Partial<AjustesDeAudio>) => {
+    const antes = audioRef.current
+    const despues = limpiarAjustesDeAudio({ ...antes, ...cambios })
+    audioRef.current = despues
+    setAudio(despues)
+    guardar(CLAVE_DE_AUDIO, despues)
+    const r = room.current
+    if (!r) return
+    try {
+      if (despues.entrada !== antes.entrada) await r.switchActiveDevice('audioinput', despues.entrada || 'default')
+      if (despues.salida !== antes.salida) await r.switchActiveDevice('audiooutput', despues.salida || 'default')
+      if (despues.supresion !== antes.supresion || despues.eco !== antes.eco || despues.nivelacion !== antes.nivelacion) {
+        const pista = r.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack as LocalAudioTrack | undefined
+        await pista?.restartTrack(restriccionesDeMicro(despues))
+      }
+    } catch {
+      toast.error('Ese cambio de audio no ha podido aplicarse en este navegador.')
+    }
+  }, [])
+  const alternarEnsordecer = useCallback(async () => {
+    const lp = room.current?.localParticipant
+    const ahora = !ensordecidoRef.current
+    ensordecidoRef.current = ahora
+    setEnsordecido(ahora)
+    aplicarVolumenes()
+    // Ensordecido no se oye ni se habla: el micrófono se apaga, y al quitarlo vuelve como estaba
+    try {
+      if (ahora) {
+        microAntesDeEnsordecer.current = Boolean(lp?.isMicrophoneEnabled)
+        if (lp?.isMicrophoneEnabled) await lp.setMicrophoneEnabled(false)
+      } else if (microAntesDeEnsordecer.current) await lp?.setMicrophoneEnabled(true)
+    } catch {
+      /* el micrófono se queda como esté */
+    }
+    bump()
+  }, [aplicarVolumenes, bump])
+
   const leerActivas = useCallback(async () => {
     try {
       const r = await pedir<{ disponible: boolean; activas: JuntaActiva[] }>(`${BASE}/junta`)
@@ -94,6 +182,8 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       void r.disconnect()
     }
     audios.current?.replaceChildren()
+    ensordecidoRef.current = false
+    setEnsordecido(false)
     setActual(null)
     bump()
     void leerActivas()
@@ -110,12 +200,16 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       setActual({ canalId, estado: 'conectando' })
       try {
         const llave = await pedir<{ token: string; url: string }>(`${BASE}/junta`, { metodo: 'POST', cuerpo: { canalId } })
-        const nueva = new Room({ adaptiveStream: true, dynacast: true, audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+        const nueva = new Room({ adaptiveStream: true, dynacast: true, audioCaptureDefaults: restriccionesDeMicro(audioRef.current), ...(audioRef.current.salida ? { audioOutput: { deviceId: audioRef.current.salida } } : {}) })
         room.current = nueva
         for (const e of EVENTOS_QUE_REPINTAN) nueva.on(e, bump)
         // El sonido de los demás: cada pista de audio se cuelga de un <audio> oculto
-        nueva.on(RoomEvent.TrackSubscribed, (track) => {
-          if (track.kind === Track.Kind.Audio) audios.current?.appendChild(track.attach())
+        nueva.on(RoomEvent.TrackSubscribed, (track, _publicacion, participante) => {
+          if (track.kind === Track.Kind.Audio) {
+            audios.current?.appendChild(track.attach())
+            // Cada persona a su volumen (y a cero si estás ensordecido)
+            participante.setVolume(volumenEfectivo(volumenesRef.current, participante.identity, ensordecidoRef.current))
+          }
         })
         nueva.on(RoomEvent.TrackUnsubscribed, (track) => {
           for (const el of track.detach()) el.remove()
@@ -187,8 +281,14 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       alternarMicro: () => alternar('micro'),
       alternarCamara: () => alternar('camara'),
       alternarPantalla: () => alternar('pantalla'),
+      audio,
+      cambiarAudio,
+      volumenes,
+      ponerVolumen,
+      ensordecido,
+      alternarEnsordecer,
     }),
-    [disponible, activas, actual, version, puedePantalla, entrar, salir, alternar]
+    [disponible, activas, actual, version, puedePantalla, entrar, salir, alternar, audio, cambiarAudio, volumenes, ponerVolumen, ensordecido, alternarEnsordecer]
   )
   return (
     <Contexto.Provider value={valor}>

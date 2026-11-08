@@ -9,7 +9,7 @@ export const runtime = 'nodejs'
 /** Crea un canal: `{ tipo: 'canal' | 'privado', nombre, descripcion?, miembros?: [id], clienteId? }` → `{ canalId }` */
 export async function POST(request: NextRequest) {
   const c = await cuerpoDe(request)
-  return conChat((quien) => crearCanal(quien, { tipo: c.tipo, nombre: c.nombre, descripcion: c.descripcion, miembros: c.miembros, clienteId: c.clienteId, anuncios: c.anuncios }), 201)
+  return conChat((quien) => crearCanal(quien, { tipo: c.tipo, nombre: c.nombre, descripcion: c.descripcion, miembros: c.miembros, clienteId: c.clienteId, anuncios: c.anuncios, voz: c.voz }), 201)
 }
 
 /**

@@ -3,7 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
-import { conMensaje } from '@/lib/chat/agrupar'
+import { textoPlano } from '@/lib/chat/mensajes'
+import { conMensaje, ID_TEMPORAL_DESDE, sinTemporal, sinTemporalParecido } from '@/lib/chat/agrupar'
 import type { DatosDeInicioChat } from '@/lib/chat/servidor'
 import { estaVigente } from '@/lib/chat/estado'
 import type { EncuestaChat } from '@/lib/chat/encuesta'
@@ -77,7 +78,7 @@ interface ContextoDeChat {
   editar: (id: number, cuerpo: string) => Promise<void>
   borrar: (id: number) => Promise<void>
   reaccionar: (id: number, emoji: string) => Promise<void>
-  crearCanal: (datos: { tipo: 'canal' | 'privado'; nombre: string; descripcion?: string; miembros?: string[]; clienteId?: string; anuncios?: boolean }) => Promise<string>
+  crearCanal: (datos: { tipo: 'canal' | 'privado'; nombre: string; descripcion?: string; miembros?: string[]; clienteId?: string; anuncios?: boolean; voz?: boolean }) => Promise<string>
   abrirDirecto: (con: string) => Promise<string>
   unirse: (canalId: string) => Promise<void>
   salir: (canalId: string) => Promise<void>
@@ -327,7 +328,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       }
       if (e.tipo === 'junta') {
         setVersionDeJuntas((v) => v + 1)
-        if (e.de !== yoRef.current) setLlamadaEntrante({ canalId: e.canalId, de: e.de, en: Date.now() })
+        if (e.estado === 'llama' && e.de !== yoRef.current) setLlamadaEntrante({ canalId: e.canalId, de: e.de, en: Date.now() })
         return
       }
       const reemplazar = (lista: MensajeChat[], id: number, f: (m: MensajeChat) => MensajeChat) => lista.map((m) => (m.id === id ? f(m) : m))
@@ -354,10 +355,10 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       const mio = m.autor_id === yoRef.current
       if (m.hilo_de === null) {
         const estadoDelCanal = estadosRef.current[m.canal_id]
-        if (estadoDelCanal?.cargado && !estadoDelCanal.conSalto) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: conMensaje(x.mensajes, m) }))
+        if (estadoDelCanal?.cargado && !estadoDelCanal.conSalto) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: conMensaje(mio ? sinTemporalParecido(x.mensajes, m) : x.mensajes, m) }))
       } else {
         if (nuevo) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: x.mensajes.map((p) => (p.id === m.hilo_de ? { ...p, respuestas: p.respuestas + 1 } : p)) }))
-        if (hiloRef.current?.id === m.hilo_de) setMensajesDelHilo((l) => conMensaje(l, m))
+        if (hiloRef.current?.id === m.hilo_de) setMensajesDelHilo((l) => conMensaje(mio ? sinTemporalParecido(l, m) : l, m))
       }
       const canal = canalesRef.current.find((c) => c.id === m.canal_id)
       if (!canal) return refrescarEnBreve()
@@ -496,12 +497,55 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
 
   /* ---------------- Acciones ---------------- */
 
+  const contadorDeProvisionales = useRef(0)
+  const colaDeEnvios = useRef<Promise<void>>(Promise.resolve())
   const enviar = useCallback(
     async (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; respondeA?: number; adjuntos?: AdjuntoChat[]; encuesta?: Pick<EncuestaChat, 'pregunta' | 'opciones' | 'multiple'> }) => {
-      const m = await pedir<MensajeChat>(`${BASE}/mensajes`, { metodo: 'POST', cuerpo: { canalId, cuerpo, hiloDe: opciones?.hiloDe, respondeA: opciones?.respondeA, adjuntos: opciones?.adjuntos, encuesta: opciones?.encuesta } })
-      aplicarRef.current({ tipo: 'mensaje', mensaje: m })
+      // EL MENSAJE SALE EN PANTALLA AL MOMENTO (con un número provisional) y se cambia por el de verdad cuando el servidor contesta. Una encuesta sí espera: sus datos los pone el servidor
+      const provisional = opciones?.encuesta ? null : ID_TEMPORAL_DESDE + ++contadorDeProvisionales.current
+      const hiloDe = opciones?.hiloDe ?? null
+      if (provisional !== null) {
+        const original = opciones?.respondeA ? estadosRef.current[canalId]?.mensajes.find((x) => x.id === opciones.respondeA) : undefined
+        const msj: MensajeChat = {
+          id: provisional,
+          canal_id: canalId,
+          autor_id: yoRef.current,
+          cuerpo,
+          hilo_de: hiloDe,
+          cita: original && !original.borrado_en ? { id: original.id, autor_id: original.autor_id, borrado: false, texto: textoPlano(original.cuerpo, () => 'alguien', 140) || '📎 Archivo adjunto' } : null,
+          menciones: [],
+          adjuntos: opciones?.adjuntos ?? [],
+          editado_en: null,
+          fijado_en: null,
+          encuesta: null,
+          votos: {},
+          autor_externo: null,
+          borrado_en: null,
+          creado_en: new Date().toISOString(),
+          reacciones: {},
+          respuestas: 0,
+        }
+        if (hiloDe === null) cambiarEstado(canalId, (x) => ({ ...x, mensajes: conMensaje(x.mensajes, msj) }))
+        else setMensajesDelHilo((l) => conMensaje(l, msj))
+      }
+      const quitarProvisional = () => {
+        if (provisional === null) return
+        if (hiloDe === null) cambiarEstado(canalId, (x) => ({ ...x, mensajes: sinTemporal(x.mensajes, provisional) }))
+        else setMensajesDelHilo((l) => sinTemporal(l, provisional))
+      }
+      // Los envíos salen de uno en uno y en el orden en que se escribieron, aunque se escriba muy deprisa
+      const turno = colaDeEnvios.current.then(() => pedir<MensajeChat>(`${BASE}/mensajes`, { metodo: 'POST', cuerpo: { canalId, cuerpo, hiloDe: opciones?.hiloDe, respondeA: opciones?.respondeA, adjuntos: opciones?.adjuntos, encuesta: opciones?.encuesta } }))
+      colaDeEnvios.current = turno.then(() => undefined, () => undefined)
+      try {
+        const m = await turno
+        quitarProvisional()
+        aplicarRef.current({ tipo: 'mensaje', mensaje: m })
+      } catch (e) {
+        quitarProvisional()
+        throw e
+      }
     },
-    []
+    [cambiarEstado]
   )
 
   const editar = useCallback(async (id: number, cuerpo: string) => {

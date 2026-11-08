@@ -70,7 +70,7 @@ function SelectorDePersonas({ personas, elegidas, alCambiar, deshabilitadas = []
   )
 }
 
-export function DialogoNuevoCanal({ onCerrar, alCrear }: { onCerrar: () => void; alCrear: (id: string) => void }) {
+export function DialogoNuevoCanal({ onCerrar, alCrear, voz = false }: { onCerrar: () => void; alCrear: (id: string) => void; voz?: boolean }) {
   const { personas, yo, crearCanal } = useChat()
   const [tipo, setTipo] = useState<'canal' | 'privado'>('canal')
   const [nombre, setNombre] = useState('')
@@ -84,7 +84,7 @@ export function DialogoNuevoCanal({ onCerrar, alCrear }: { onCerrar: () => void;
     if (!normalizado) return toast.error('Ponle un nombre al canal.')
     setGuardando(true)
     try {
-      const id = await crearCanal({ tipo, nombre: normalizado, descripcion, miembros: tipo === 'privado' ? [...miembros] : [], anuncios })
+      const id = await crearCanal(voz ? { tipo: 'canal', nombre: normalizado, descripcion, voz: true } : { tipo, nombre: normalizado, descripcion, miembros: tipo === 'privado' ? [...miembros] : [], anuncios })
       alCrear(id)
       onCerrar()
     } catch (e) {
@@ -96,32 +96,32 @@ export function DialogoNuevoCanal({ onCerrar, alCrear }: { onCerrar: () => void;
 
   return (
     <Ventana
-      titulo="Crear un canal"
+      titulo={voz ? 'Crear un canal de voz' : 'Crear un canal'}
       onCerrar={onCerrar}
       pie={
         <>
           <button type="button" className="chat-boton-secundario" onClick={onCerrar}>Cancelar</button>
           <button type="button" className="tc-boton-primario ml-auto disabled:opacity-50" disabled={guardando || !normalizado} onClick={() => void crear()}>
-            {guardando && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Crear canal
+            {guardando && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {voz ? 'Crear canal de voz' : 'Crear canal'}
           </button>
         </>
       }
     >
-      <div className="chat-opciones-tipo" role="radiogroup" aria-label="Tipo de canal">
+      {!voz && <div className="chat-opciones-tipo" role="radiogroup" aria-label="Tipo de canal">
         <button type="button" role="radio" aria-checked={tipo === 'canal'} onClick={() => setTipo('canal')}><Hash className="h-4 w-4" /><b>Abierto</b><span>Cualquiera del equipo puede verlo y entrar</span></button>
         <button type="button" role="radio" aria-checked={tipo === 'privado'} onClick={() => setTipo('privado')}><Lock className="h-4 w-4" /><b>Privado</b><span>Solo ven y entran quienes añadas</span></button>
-      </div>
+      </div>}
       <label className="chat-campo">
         <span>Nombre</span>
-        <input autoFocus value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} placeholder="p. ej. ventas-españa" onKeyDown={(e) => e.key === 'Enter' && tipo === 'canal' && void crear()} />
+        <input autoFocus value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} placeholder={voz ? 'p. ej. sala-ventas' : 'p. ej. ventas-españa'} onKeyDown={(e) => e.key === 'Enter' && tipo === 'canal' && void crear()} />
         {nombre && normalizado !== nombre && <small>Se llamará «{normalizado ?? '…'}» (en minúsculas y con guiones).</small>}
       </label>
       <label className="chat-campo">
         <span>Descripción <i>(opcional)</i></span>
         <input value={descripcion} maxLength={300} onChange={(e) => setDescripcion(e.target.value)} placeholder="¿De qué se habla aquí?" />
       </label>
-      <label className="chat-casilla"><input type="checkbox" checked={anuncios} onChange={(e) => setAnuncios(e.target.checked)} /> <Megaphone className="h-3.5 w-3.5" /> Canal de anuncios: solo lo publican quienes lo administran</label>
-      {tipo === 'privado' && (
+      {!voz && <label className="chat-casilla"><input type="checkbox" checked={anuncios} onChange={(e) => setAnuncios(e.target.checked)} /> <Megaphone className="h-3.5 w-3.5" /> Canal de anuncios: solo lo publican quienes lo administran</label>}
+      {!voz && tipo === 'privado' && (
         <div className="chat-campo">
           <span>Quién entra <i>({miembros.size} + tú)</i></span>
           <SelectorDePersonas personas={personas.filter((p) => p.id !== yo.id)} elegidas={miembros} alCambiar={setMiembros} />

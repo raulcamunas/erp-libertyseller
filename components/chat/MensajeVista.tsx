@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { pedir } from '@/components/tareas-clientes/api'
 import { esImagen, formatoDeTamano } from '@/lib/chat/archivos'
-import { horaDe } from '@/lib/chat/agrupar'
+import { esMensajeTemporal, horaDe } from '@/lib/chat/agrupar'
 import { aTextoEditable, desdeTextoEditable, type Mencionado } from '@/lib/chat/mensajes'
 import { describirInstante } from '@/lib/chat/tiempo'
 import type { AdjuntoChat, MensajeChat } from '@/lib/chat/tipos'
@@ -93,6 +93,7 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
       data-continuacion={continuacion ? 'true' : undefined}
       data-mio={mio ? 'true' : undefined}
       data-nuevo={nuevo ? 'true' : undefined}
+      data-enviando={esMensajeTemporal(m.id) ? 'true' : undefined}
       data-menciona-me={m.menciones.includes(yo.id) ? 'true' : undefined}
     >
       <span className="chat-mensaje-lado">
@@ -189,7 +190,7 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
           </button>
         )}
       </div>
-      {!editando && (
+      {!editando && !esMensajeTemporal(m.id) && (
         <div className="chat-herramientas" role="toolbar" aria-label="Acciones del mensaje">
           {RAPIDAS.slice(0, 3).map((e) => (
             <button key={e} type="button" onClick={() => alReaccionar(e)} aria-label={`Reaccionar con ${e}`}>{e}</button>

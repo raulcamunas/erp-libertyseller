@@ -300,17 +300,16 @@ export function Redactor({ candidatos, placeholder, borradorInicial = '', alCamb
       return
     }
     const cuerpo = desdeTextoEditable(texto, mencionados.current).trim()
-    if ((!cuerpo && listos.length === 0) || enviando || subiendo) return
-    setEnviando(true)
-    try {
-      await alEnviar(cuerpo, listos)
-      limpiar()
-    } catch (e) {
+    if ((!cuerpo && listos.length === 0) || subiendo) return
+    // NO SE ESPERA AL SERVIDOR: la caja se vacía al momento y se puede seguir escribiendo; el mensaje ya sale en pantalla y los envíos van en cola, en orden. Si uno falla, vuelve su texto a la caja
+    const textoAntes = texto
+    const adjuntosAntes = listos
+    limpiar()
+    requestAnimationFrame(() => area.current?.focus())
+    void alEnviar(cuerpo, adjuntosAntes).catch((e: unknown) => {
       toast.error(e instanceof Error ? e.message : 'No se ha podido enviar')
-    } finally {
-      setEnviando(false)
-      requestAnimationFrame(() => area.current?.focus())
-    }
+      if (textoAntes.trim()) setTexto((actual) => (actual.trim() ? `${textoAntes}\n${actual}` : textoAntes))
+    })
   }
 
   const programar = async (enviarEn: string) => {

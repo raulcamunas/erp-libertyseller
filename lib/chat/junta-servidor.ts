@@ -1,3 +1,4 @@
+import { esCanalDeVoz } from './voz'
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk'
 import { createServiceClient } from '@/lib/supabase/service'
 import { canalDeSala, configuracionDeJunta, PREFIJO_DE_SALA, salaDe, VIDA_DE_LA_LLAVE_S, type ConfiguracionDeJunta, type JuntaActiva } from './junta'
@@ -79,7 +80,8 @@ export async function entrarEnJunta(quien: QuienEscribe, canalId: unknown): Prom
   const token = await llave.toJwt()
 
   if (estabaVacia) {
-    void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala, estado: 'llama' })
+    // En un canal de voz no suena nada a nadie: se avisa solo para que se actualice quién está dentro
+    void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala, estado: esCanalDeVoz(canal.origen_id) ? 'voz' : 'llama' })
     if (canal.tipo === 'directo') void avisarDeLlamada(quien, canal.id, miembros.filter((m) => m.usuario_id !== quien.userId && !m.silenciado).map((m) => m.usuario_id))
   }
   return { token, url: c.url, sala }
