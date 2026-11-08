@@ -108,7 +108,9 @@ export async function middleware(request: NextRequest) {
                        // registradas en el portal de desarrollador de Amazon y
                        // no se pueden cambiar sin volver a pasar por allí.
                        pathname === '/connect' ||
-                       pathname === '/callback'
+                       pathname === '/callback' ||
+                       // El manifiesto de la aplicación instalable: el navegador lo pide sin sesión y no lleva nada privado
+                       pathname === '/manifest.webmanifest'
 
   // Si no hay usuario y no es ruta pública, redirigir a login
   if (!user && !isPublicRoute) {

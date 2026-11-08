@@ -17,6 +17,43 @@ export type { Ambito }
 
 const ORDEN_DE_GRUPOS: GrupoDeCliente[] = ['agencia', 'marcas_eeuu', 'otros']
 
+/**
+ * EL SELECTOR DEL MÓVIL: por debajo de 860 px la columna de clientes se esconde (no cabe), y esto es su sustituto: una lista desplegable con el inicio, «Todas», «Mis tareas» y
+ * los clientes por grupos. Es el desplegable nativo del teléfono, que es lo que mejor se maneja con el pulgar.
+ */
+export function SelectorMovil({ clientes, ambito, onNavegar }: { clientes: readonly ClienteTC[]; ambito: Ambito; onNavegar: (ruta: string) => void }) {
+  const valor = ambito.tipo === 'cliente' ? ambito.id : ambito.tipo
+  return (
+    <label className="tc-selector-movil">
+      <span className="sr-only">Ir a</span>
+      <select
+        value={valor}
+        onChange={(e) => {
+          const v = e.target.value
+          onNavegar(v === 'inicio' ? '/dashboard/tareas-clientes' : v === 'todas' ? '/dashboard/tareas-clientes/todas' : v === 'mias' ? '/dashboard/tareas-clientes/mis-tareas' : `/dashboard/tareas-clientes/${v}`)
+        }}
+      >
+        <option value="inicio">🏠 Inicio</option>
+        <option value="todas">▦ Todas las tareas</option>
+        <option value="mias">✓ Mis tareas</option>
+        {ORDEN_DE_GRUPOS.map((g) => {
+          const delGrupo = clientes.filter((c) => c.grupo === g)
+          if (delGrupo.length === 0) return null
+          return (
+            <optgroup key={g} label={ETIQUETA_DE_GRUPO[g]}>
+              {delGrupo.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.icono ?? '•'} {c.nombre}
+                </option>
+              ))}
+            </optgroup>
+          )
+        })}
+      </select>
+    </label>
+  )
+}
+
 export function BarraLateral({
   clientes,
   tareas,

@@ -3846,3 +3846,45 @@ html.light .tc-fa[data-fa='malla']::after { background-image: linear-gradient(rg
 }
 /* En la muestra del selector las luces son más pequeñas y la caja las recorta */
 .tc-muestra-portada .tc-fa { border-radius: inherit; }
+
+/* ---- En el móvil ----
+   Por debajo de 860 px: la columna de clientes se cambia por un desplegable, la cabecera y el tablero se ajustan al ancho (las columnas, casi a pantalla completa y con imán al
+   deslizar), las propiedades de la tarea se apilan y, en pantallas táctiles, los botones crecen hasta un tamaño que se pulsa con el dedo. */
+.tc-movil-barra { display: none; }
+.tc-selector-movil { display: block; width: 100%; }
+.tc-selector-movil select { height: 40px; width: 100%; appearance: none; border-radius: 12px; border: 1px solid var(--ls-linea2); background: var(--tc-cristal) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6.5l4 4 4-4' fill='none' stroke='%239AA2AE' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 12px center / 14px no-repeat; padding: 0 36px 0 12px; font-size: 14px; font-weight: 600; color: var(--ls-t1); }
+.tc-selector-movil select:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 2px; }
+@media (max-width: 860px) {
+  .tc-movil-barra { display: block; padding: 12px 58px 0 14px; }
+  .tc-cabecera-titulo { gap: 12px; padding: 14px 14px 4px; }
+  .tc-emoji-cabecera { height: 52px; width: 52px; border-radius: 16px; font-size: 28px; }
+  .tc-nombre { font-size: 22px; }
+  .tc-descripcion { font-size: 12.5px; }
+  .tc-herramientas { gap: 6px; padding: 8px 14px 10px; }
+  .tc-vistas { width: 100%; overflow-x: auto; }
+  .tc-vista-boton { flex: 1; justify-content: center; padding: 0 6px; }
+  @media (max-width: 430px) { .tc-vista-boton svg { display: none; } }
+  .tc-buscar { order: 5; width: 100%; flex: 1 1 100%; }
+  .tc-buscar:focus-within { width: 100%; }
+  .tc-vista { padding: 4px 12px 12px; }
+  .tc-tablero { scroll-snap-type: x proximity; scroll-padding-inline: 12px; }
+  .tc-columna { flex: 0 0 84vw; scroll-snap-align: start; }
+  .tc-inicio { padding: 14px 14px 40px; }
+  .tc-hero { min-height: 160px; border-radius: 18px; }
+  .tc-hero-titulo { font-size: 24px; }
+  .tc-hero .tc-cover-botones { right: 58px; }
+  .tc-panel-flotante .tc-panel-cuerpo > div { padding-inline: 16px; }
+  .tc-panel-flotante .tc-titulo { font-size: 22px; }
+  .tc-prop { flex-direction: column; gap: 0; }
+  .tc-prop-nombre { width: auto; padding-top: 2px; }
+  .tc-props { margin-top: 12px; }
+}
+@media (pointer: coarse) {
+  .tc-icono-boton { height: 34px; width: 34px; }
+  .tc-vista-boton { height: 36px; }
+  .tc-boton-herramienta, .tc-boton-primario, .tc-buscar { height: 38px; }
+  .tc-casilla { height: 20px; width: 20px; }
+  .tc-anadir { padding: 11px 10px; }
+  .tc-lat-estrella { opacity: 1; }
+  .tc-menu-erp { height: 40px; width: 40px; }
+}

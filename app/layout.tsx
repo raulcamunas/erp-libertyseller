@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import localFont from "next/font/local"
 import "./globals.css"
 
@@ -49,8 +49,15 @@ export const metadata: Metadata = {
   description: "ERP interno para Liberty Seller",
   icons: {
     icon: '/logos/icon.png',
-    apple: '/logos/icon.png',
+    apple: '/pwa/icono-180.png',
   },
+  // En el iPhone, con «Añadir a pantalla de inicio» se abre como una aplicación, sin la barra de Safari
+  appleWebApp: { capable: true, title: 'Liberty Hub', statusBarStyle: 'black-translucent' },
+}
+
+// El color de la barra del sistema (móvil y aplicación instalada) es el del fondo del ERP
+export const viewport: Viewport = {
+  themeColor: '#0F1114',
 }
 
 export default function RootLayout({

@@ -11,7 +11,7 @@ import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { departamentosDe, estadosDe, FILTROS_VACIOS, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
 import { ambitoDeRuta, mismoAmbito, type Ambito } from '@/lib/tareas-clientes/ambito'
 import { BASE, memoria, pedir, type DatosDeTodas, type Preferencias } from './api'
-import { BarraLateral } from './BarraLateral'
+import { BarraLateral, SelectorMovil } from './BarraLateral'
 import { Cabecera } from './Cabecera'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
@@ -356,6 +356,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
       <BarraLateral clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
 
       <section className="tc-centro">
+        <div className="tc-movil-barra"><SelectorMovil clientes={datos.clientes} ambito={ambito} onNavegar={navegar} /></div>
         <Cabecera
           titulo={titulo}
           icono={cliente?.icono ?? (ambito.tipo === 'mias' ? '🎯' : '🗂️')}
