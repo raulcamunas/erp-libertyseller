@@ -1,9 +1,12 @@
 import { APP_CHAT } from '@/lib/config/apps'
 import { createServiceClient } from '@/lib/supabase/service'
 import { esRutaDe } from './archivos'
+import { esNivel, motivoDeAviso, nivelDe, type NivelDeAvisos } from './avisos'
 import { claveDeDirecto, normalizarNombreDeCanal } from './canales'
+import { limpiarEncuesta, votosTrasPulsar, type EncuestaChat } from './encuesta'
 import { estaVigente, type EstadoChat } from './estado'
-import { cuerpoValido, CUERPO_MAX, extraerMenciones, limpiarCuerpo, textoPlano } from './mensajes'
+import { cuerpoValido, CUERPO_MAX, extraerMenciones, limpiarCuerpo, mencionaATodos, textoPlano } from './mensajes'
+import { zonaValida } from './zonas'
 import { emitir } from './tiempo-real'
 import type { AdjuntoChat, CanalChat, CitaChat, MensajeChat, PersonaChat, TipoDeCanal } from './tipos'
 
@@ -40,6 +43,8 @@ export interface FilaCanal {
   ultimo_mensaje_en: string | null
   creado_en: string
   creado_por: string | null
+  /** Solo existe con la migración 287 */
+  anuncios?: boolean
 }
 
 export interface FilaMensaje {
@@ -52,6 +57,9 @@ export interface FilaMensaje {
   responde_a?: number | null
   /** Solo existe con la migración 286 */
   fijado_en?: string | null
+  /** Solo existen con la migración 287 */
+  encuesta?: EncuestaChat | null
+  autor_externo?: string | null
   menciones: string[] | null
   adjuntos: AdjuntoChat[] | null
   editado_en: string | null
@@ -63,6 +71,8 @@ export interface FilaMiembro {
   usuario_id: string
   rol: 'admin' | 'miembro'
   silenciado: boolean
+  /** Solo existe con la migración 287 */
+  avisos?: string | null
 }
 
 const db = () => createServiceClient()
@@ -72,6 +82,7 @@ const esNumeroDeMensaje = (v: unknown): v is number => typeof v === 'number' && 
 
 const FALTA_LA_MIGRACION = 'Falta lanzar la migración 284 en Supabase para que funcione el chat.'
 const tablaNoExiste = (e: { code?: string; message?: string } | null | undefined) => Boolean(e && (e.code === '42P01' || e.code === 'PGRST205' || /does not exist|schema cache/i.test(e.message ?? '')))
+const faltaColumna = (e: { code?: string; message?: string } | null | undefined) => Boolean(e && (e.code === '42703' || e.code === 'PGRST204' || /column .* does not exist|could not find the .* column/i.test(e.message ?? '')))
 const columnaNoExiste = (e: { code?: string; message?: string } | null | undefined) => Boolean(e && (e.code === '42703' || e.code === 'PGRST204' || /column .*responde_a|responde_a.* column/i.test(e.message ?? '')))
 function fallo(e: { code?: string; message?: string }, que: string): never {
   if (tablaNoExiste(e)) throw new ErrorDeChat(FALTA_LA_MIGRACION, 409)
@@ -100,6 +111,9 @@ export async function personasDelChat(): Promise<PersonaChat[]> {
   for (const f of [...((admins.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>), ...((otros.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>)]) {
     unicas.set(f.id, { id: f.id, nombre: (f.full_name ?? '').trim() || f.email || 'Alguien del equipo', email: f.email })
   }
+  // La zona horaria de cada una (migración 287): si la tabla no existe, se queda sin zonas
+  const { data: zonas, error: errorZonas } = await service.from('chat_perfiles').select('usuario_id, zona')
+  if (!errorZonas) for (const z of (zonas ?? []) as Array<{ usuario_id: string; zona: string }>) { const p = unicas.get(z.usuario_id); if (p) p.zona = z.zona }
   const lista = [...unicas.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
   cachePersonas = { en: Date.now(), lista }
   return lista
@@ -118,9 +132,11 @@ export async function canalDe(id: unknown): Promise<FilaCanal> {
 }
 
 export async function miembrosDe(canalId: string): Promise<FilaMiembro[]> {
-  const { data, error } = await db().from('chat_miembros').select('usuario_id, rol, silenciado').eq('canal_id', canalId)
-  if (error) fallo(error, 'leer los miembros')
-  return (data ?? []) as FilaMiembro[]
+  // Con la migración 287 también hay `avisos`; sin ella, se lee sin esa columna
+  let r = await db().from('chat_miembros').select('usuario_id, rol, silenciado, avisos').eq('canal_id', canalId)
+  if (r.error && faltaColumna(r.error)) r = (await db().from('chat_miembros').select('usuario_id, rol, silenciado').eq('canal_id', canalId)) as typeof r
+  if (r.error) fallo(r.error, 'leer los miembros')
+  return (r.data ?? []) as unknown as FilaMiembro[]
 }
 
 /** Quien puede LEER el canal. Devuelve sus miembros (que casi siempre hacen falta después) */
@@ -157,14 +173,16 @@ export async function cargarInicio(quien: QuienEscribe): Promise<DatosDeInicioCh
   const personas = await personasDelChat()
 
   // Los canales a los que entra todo el mundo (#general): se entra una sola vez, la primera
-  const { data: propios, error: errorPropios } = await service.from('chat_miembros').select('canal_id, silenciado, ultimo_leido_en').eq('usuario_id', quien.userId)
+  let lecturaPropios = await service.from('chat_miembros').select('canal_id, silenciado, ultimo_leido_en, avisos, rol').eq('usuario_id', quien.userId)
+  if (lecturaPropios.error && faltaColumna(lecturaPropios.error)) lecturaPropios = (await service.from('chat_miembros').select('canal_id, silenciado, ultimo_leido_en, rol').eq('usuario_id', quien.userId)) as typeof lecturaPropios
+  const { data: propios, error: errorPropios } = lecturaPropios
   if (errorPropios) fallo(errorPropios, 'leer tus canales')
-  const mios = new Map(((propios ?? []) as Array<{ canal_id: string; silenciado: boolean; ultimo_leido_en: string }>).map((m) => [m.canal_id, m]))
+  const mios = new Map(((propios ?? []) as unknown as Array<{ canal_id: string; silenciado: boolean; ultimo_leido_en: string; avisos?: string | null; rol?: string }>).map((m) => [m.canal_id, m]))
   const { data: autos } = await service.from('chat_canales').select('id').eq('auto_unirse', true).eq('archivado', false)
   const faltan = ((autos ?? []) as Array<{ id: string }>).filter((c) => !mios.has(c.id))
   if (faltan.length > 0) {
     await service.from('chat_miembros').upsert(faltan.map((c) => ({ canal_id: c.id, usuario_id: quien.userId })), { onConflict: 'canal_id,usuario_id', ignoreDuplicates: true })
-    for (const c of faltan) mios.set(c.id, { canal_id: c.id, silenciado: false, ultimo_leido_en: new Date().toISOString() })
+    for (const c of faltan) mios.set(c.id, { canal_id: c.id, silenciado: false, ultimo_leido_en: new Date().toISOString(), avisos: null })
   }
 
   // Los abiertos (todos) y los privados y directos en los que estoy
@@ -218,6 +236,9 @@ export async function cargarInicio(quien: QuienEscribe): Promise<DatosDeInicioCh
         silenciado: propio?.silenciado ?? false,
         ultimo_leido_en: propio?.ultimo_leido_en ?? null,
         fijados: fijadosPorCanal.get(c.id) ?? 0,
+        avisos: nivelDe({ avisos: propio?.avisos, silenciado: propio?.silenciado }, c.tipo),
+        anuncios: c.anuncios === true,
+        soy_admin: quien.esAdmin || propio?.rol === 'admin',
       }
     }),
     guardados,
@@ -234,12 +255,20 @@ async function armarMensajes(filas: readonly FilaMensaje[]): Promise<MensajeChat
   const ids = filas.map((f) => f.id)
   const service = db()
   const idsCitados = [...new Set(filas.map((f) => f.responde_a).filter((x): x is number => typeof x === 'number'))]
-  const [reacciones, respuestas, citados, personas] = await Promise.all([
+  const idsConEncuesta = filas.filter((f) => f.encuesta).map((f) => f.id)
+  const [reacciones, respuestas, citados, personas, votosFilas] = await Promise.all([
     service.from('chat_reacciones').select('mensaje_id, usuario_id, emoji').in('mensaje_id', ids),
     service.from('chat_mensajes').select('hilo_de').in('hilo_de', ids).is('borrado_en', null),
     idsCitados.length > 0 ? service.from('chat_mensajes').select('id, autor_id, cuerpo, adjuntos, borrado_en').in('id', idsCitados) : Promise.resolve({ data: [] as Array<{ id: number; autor_id: string | null; cuerpo: string; adjuntos: AdjuntoChat[] | null; borrado_en: string | null }>, error: null }),
     idsCitados.length > 0 ? personasDelChat() : Promise.resolve([] as PersonaChat[]),
+    idsConEncuesta.length > 0 ? service.from('chat_votos').select('mensaje_id, usuario_id, opcion').in('mensaje_id', idsConEncuesta) : Promise.resolve({ data: [] as Array<{ mensaje_id: number; usuario_id: string; opcion: number }>, error: null }),
   ])
+  const votosPorMensaje = new Map<number, Record<number, string[]>>()
+  for (const v of (votosFilas.data ?? []) as Array<{ mensaje_id: number; usuario_id: string; opcion: number }>) {
+    const m = votosPorMensaje.get(v.mensaje_id) ?? {}
+    m[v.opcion] = [...(m[v.opcion] ?? []), v.usuario_id]
+    votosPorMensaje.set(v.mensaje_id, m)
+  }
   const nombreDe = (id: string) => personas.find((p) => p.id === id)?.nombre.split(' ')[0] ?? 'alguien'
   const enlaces = await firmarAdjuntos(filas.flatMap((f) => (f.borrado_en ? [] : f.adjuntos ?? [])))
   const citas = new Map<number, CitaChat>()
@@ -266,6 +295,9 @@ async function armarMensajes(filas: readonly FilaMensaje[]): Promise<MensajeChat
     adjuntos: f.borrado_en ? [] : (f.adjuntos ?? []).map((a) => ({ ...a, url: (a.ruta && enlaces.get(a.ruta)) || a.url || '' })),
     editado_en: f.editado_en,
     fijado_en: f.borrado_en ? null : f.fijado_en ?? null,
+    encuesta: f.borrado_en ? null : f.encuesta ?? null,
+    votos: f.borrado_en ? {} : votosPorMensaje.get(f.id) ?? {},
+    autor_externo: f.autor_externo ?? null,
     borrado_en: f.borrado_en,
     creado_en: f.creado_en,
     reacciones: f.borrado_en ? {} : porMensaje.get(f.id) ?? {},
@@ -341,7 +373,15 @@ export function adjuntosValidos(entrada: unknown, usuarioId: string): AdjuntoCha
   return entrada
     .filter((a): a is Record<string, unknown> => Boolean(a) && typeof a === 'object')
     .filter((a) => esRutaDe(a.ruta, usuarioId))
-    .map((a) => ({ nombre: typeof a.nombre === 'string' ? a.nombre.slice(0, 200) : '', ruta: a.ruta as string, url: '', tipo: typeof a.tipo === 'string' ? a.tipo.slice(0, 100) : '', tamano: typeof a.tamano === 'number' && Number.isFinite(a.tamano) ? Math.max(0, Math.round(a.tamano)) : 0 }))
+    .map((a) => ({
+      nombre: typeof a.nombre === 'string' ? a.nombre.slice(0, 200) : '',
+      ruta: a.ruta as string,
+      url: '',
+      tipo: typeof a.tipo === 'string' ? a.tipo.slice(0, 100) : '',
+      tamano: typeof a.tamano === 'number' && Number.isFinite(a.tamano) ? Math.max(0, Math.round(a.tamano)) : 0,
+      // Una nota de voz: solo si es un audio. La transcripción no viene del navegador: la pone el servidor
+      ...(a.voz === true && typeof a.tipo === 'string' && a.tipo.startsWith('audio/') ? { voz: true, duracion: typeof a.duracion === 'number' && Number.isFinite(a.duracion) ? Math.min(600, Math.max(0, Math.round(a.duracion))) : 0 } : {}),
+    }))
     .filter((a) => a.nombre)
     .slice(0, 10)
     // Lo que se guarda no lleva enlace: se firma al leer
@@ -350,14 +390,20 @@ export function adjuntosValidos(entrada: unknown, usuarioId: string): AdjuntoCha
 
 const nombreDeCanal = (c: FilaCanal) => c.nombre ?? 'mensaje directo'
 
-export async function enviarMensaje(quien: QuienEscribe, entrada: { canalId: unknown; cuerpo: unknown; hiloDe?: unknown; adjuntos?: unknown; respondeA?: unknown }): Promise<MensajeChat> {
-  const cuerpo = limpiarCuerpo(entrada.cuerpo)
+export async function enviarMensaje(quien: QuienEscribe, entrada: { canalId: unknown; cuerpo: unknown; hiloDe?: unknown; adjuntos?: unknown; respondeA?: unknown; encuesta?: unknown }): Promise<MensajeChat> {
+  const encuestaLeida = entrada.encuesta !== undefined && entrada.encuesta !== null ? limpiarEncuesta(entrada.encuesta) : null
+  if (encuestaLeida && !encuestaLeida.ok) throw new ErrorDeChat(encuestaLeida.motivo)
+  const encuesta = encuestaLeida?.ok ? encuestaLeida.encuesta : null
+  const cuerpo = limpiarCuerpo(entrada.cuerpo) || (encuesta ? encuesta.pregunta : '')
   const adjuntos = adjuntosValidos(entrada.adjuntos, quien.userId)
-  if (!cuerpo && adjuntos.length === 0) throw new ErrorDeChat('Escribe algo antes de enviar.')
+  if (!cuerpo && adjuntos.length === 0 && !encuesta) throw new ErrorDeChat('Escribe algo antes de enviar.')
   if (!cuerpoValido(cuerpo)) throw new ErrorDeChat(`El mensaje es demasiado largo (máximo ${CUERPO_MAX} caracteres).`)
   const canal = await canalDe(entrada.canalId)
   const miembros = await exigirMiembro(quien, canal)
   const service = db()
+  // En un canal de anuncios solo publican quienes lo administran; el resto reacciona y responde en los hilos
+  if (canal.anuncios && (entrada.hiloDe === undefined || entrada.hiloDe === null) && !puedeGestionar(quien, miembros)) throw new ErrorDeChat('Este canal es de anuncios: solo lo publican quienes lo administran. Puedes reaccionar y responder en un hilo.', 403)
+  if (encuesta && entrada.hiloDe !== undefined && entrada.hiloDe !== null) throw new ErrorDeChat('Una encuesta no puede ir dentro de un hilo.')
 
   let hiloDe: number | null = null
   if (entrada.hiloDe !== undefined && entrada.hiloDe !== null) {
@@ -382,13 +428,17 @@ export async function enviarMensaje(quien: QuienEscribe, entrada: { canalId: unk
   const personas = await personasDelChat()
   const idsDeMiembros = new Set(miembros.map((m) => m.usuario_id))
   // En un canal privado o un directo solo se puede mencionar a quien está dentro; en uno abierto, a cualquiera con chat
-  const menciones = extraerMenciones(cuerpo).filter((id) => id !== quien.userId && personas.some((p) => p.id === id) && (canal.tipo === 'canal' || idsDeMiembros.has(id)))
+  const mencionesExplicitas = extraerMenciones(cuerpo).filter((id) => id !== quien.userId && personas.some((p) => p.id === id) && (canal.tipo === 'canal' || idsDeMiembros.has(id)))
+  // «@todos» nombra a cada miembro (y solo vale en canales: en un directo no tiene sentido)
+  const menciones = mencionaATodos(cuerpo) && canal.tipo !== 'directo' ? [...new Set([...mencionesExplicitas, ...[...idsDeMiembros].filter((id) => id !== quien.userId)])] : mencionesExplicitas
 
   const fila: Record<string, unknown> = { canal_id: canal.id, autor_id: quien.userId, cuerpo, hilo_de: hiloDe, menciones, adjuntos }
+  if (encuesta) fila.encuesta = encuesta
   if (respondeA !== null) fila.responde_a = respondeA
   const { data, error } = await service.from('chat_mensajes').insert(fila).select('*').single()
   if (error) {
     if (respondeA !== null && columnaNoExiste(error)) throw new ErrorDeChat('Falta lanzar la migración 285 en Supabase para poder responder a un mensaje.', 409)
+    if (encuesta && faltaColumna(error)) throw new ErrorDeChat('Falta lanzar la migración 287 en Supabase para poder crear encuestas.', 409)
     fallo(error, 'guardar el mensaje')
   }
   const ahora = (data as FilaMensaje).creado_en
@@ -398,28 +448,44 @@ export async function enviarMensaje(quien: QuienEscribe, entrada: { canalId: unk
   const mensaje = (await armarMensajes([data as FilaMensaje]))[0]
   void emitir([...idsDeMiembros], { tipo: 'mensaje', mensaje })
   void avisarDelMensaje(quien, canal, miembros, mensaje, personas, autorCitado)
+  // Las notas de voz se transcriben por detrás (módulo aparte, que se carga al hacer falta)
+  if (mensaje.adjuntos.some((a) => a.voz)) void import('./voz-servidor').then((m) => m.transcribirNotasDeVoz(mensaje.id)).catch((e) => console.error('Chat: no se ha podido transcribir la nota de voz:', e instanceof Error ? e.message : e))
   return mensaje
 }
 
-/** A la campana (y al móvil, por el push que ya existe) solo llegan los directos y las menciones; el resto de un canal es lo que sale en rojo en la barra */
+/**
+ * A la campana (y al móvil, por el push que ya existe) llegan los avisos que cada persona ha pedido para ese canal (lib/chat/avisos.ts): por defecto, los directos, las menciones, las
+ * respuestas a un mensaje suyo y lo que pasa en un hilo en el que está.
+ */
 async function avisarDelMensaje(quien: QuienEscribe, canal: FilaCanal, miembros: readonly FilaMiembro[], mensaje: MensajeChat, personas: readonly PersonaChat[], autorCitado: string | null): Promise<void> {
   try {
     const nombreDe = (id: string) => personas.find((p) => p.id === id)?.nombre.split(' ')[0] ?? 'alguien'
-    const vista = textoPlano(mensaje.cuerpo, nombreDe, 140) || (mensaje.adjuntos.length > 0 ? '📎 Archivo adjunto' : '')
+    const hayVoz = mensaje.adjuntos.some((a) => a.voz)
+    const vista = mensaje.encuesta ? `📊 ${mensaje.encuesta.pregunta}` : hayVoz ? '🎤 Nota de voz' : textoPlano(mensaje.cuerpo, nombreDe, 140) || (mensaje.adjuntos.length > 0 ? '📎 Archivo adjunto' : '')
     const ventana = Math.floor(Date.now() / 600_000)
+    const donde = canal.tipo === 'directo' ? '' : ` en #${nombreDeCanal(canal)}`
+
+    // Quién está en el hilo: quien escribió el mensaje de arriba y quien ya ha respondido
+    let enElHilo = new Set<string>()
+    if (mensaje.hilo_de !== null) {
+      const service = db()
+      const [padre, respuestas] = await Promise.all([service.from('chat_mensajes').select('autor_id').eq('id', mensaje.hilo_de).maybeSingle(), service.from('chat_mensajes').select('autor_id').eq('hilo_de', mensaje.hilo_de).limit(300)])
+      enElHilo = new Set([(padre.data as { autor_id: string | null } | null)?.autor_id, ...((respuestas.data ?? []) as Array<{ autor_id: string | null }>).map((r) => r.autor_id)].filter((x): x is string => Boolean(x)))
+    }
+
+    const datos = { app: 'chat', canalId: canal.id, mensajeId: mensaje.id }
     const filas: Array<Record<string, unknown>> = []
     for (const m of miembros) {
-      if (m.usuario_id === quien.userId || m.silenciado) continue
-      const mencionado = mensaje.menciones.includes(m.usuario_id)
-      if (mencionado) {
-        filas.push({ user_id: m.usuario_id, type: 'mention', title: `${quien.nombre} te ha mencionado${canal.tipo === 'directo' ? '' : ` en #${nombreDeCanal(canal)}`}`, message: vista, clave: `chat-m:${mensaje.id}`, datos: { app: 'chat', canalId: canal.id, mensajeId: mensaje.id }, read: false })
-      } else if (autorCitado === m.usuario_id && canal.tipo !== 'directo') {
-        // Te han respondido a un mensaje tuyo
-        filas.push({ user_id: m.usuario_id, type: 'mention', title: `${quien.nombre} te ha respondido en #${nombreDeCanal(canal)}`, message: vista, clave: `chat-r:${mensaje.id}`, datos: { app: 'chat', canalId: canal.id, mensajeId: mensaje.id }, read: false })
-      } else if (canal.tipo === 'directo') {
-        // Un solo aviso por conversación cada diez minutos: si no, una charla rápida llenaría la campana
-        filas.push({ user_id: m.usuario_id, type: 'comment', title: quien.nombre, message: vista, clave: `chat-d:${canal.id}:${ventana}`, datos: { app: 'chat', canalId: canal.id, mensajeId: mensaje.id }, read: false })
-      }
+      if (m.usuario_id === quien.userId) continue
+      const motivo = motivoDeAviso({ tipoDeCanal: canal.tipo, esDeHilo: mensaje.hilo_de !== null, estaEnElHilo: enElHilo.has(m.usuario_id), mencionada: mensaje.menciones.includes(m.usuario_id), citada: autorCitado === m.usuario_id, nivel: nivelDe(m, canal.tipo) })
+      if (!motivo) continue
+      const base = { user_id: m.usuario_id, message: vista, datos, read: false }
+      if (motivo === 'mencion') filas.push({ ...base, type: 'mention', title: `${quien.nombre} te ha mencionado${donde}`, clave: `chat-m:${mensaje.id}` })
+      else if (motivo === 'respuesta') filas.push({ ...base, type: 'mention', title: `${quien.nombre} te ha respondido${donde}`, clave: `chat-r:${mensaje.id}` })
+      // Un solo aviso por hilo, por conversación o por canal cada diez minutos: si no, una charla rápida llenaría la campana
+      else if (motivo === 'hilo') filas.push({ ...base, type: 'comment', title: `${quien.nombre} ha respondido en un hilo${canal.tipo === 'directo' ? '' : ` de #${nombreDeCanal(canal)}`}`, clave: `chat-h:${mensaje.hilo_de}:${ventana}` })
+      else if (motivo === 'directo') filas.push({ ...base, type: 'comment', title: quien.nombre, clave: `chat-d:${canal.id}:${ventana}` })
+      else filas.push({ ...base, type: 'comment', title: `${quien.nombre}${donde}`, clave: `chat-c:${canal.id}:${ventana}` })
     }
     if (filas.length > 0) {
       const { error } = await db().from('notifications').upsert(filas, { onConflict: 'user_id,clave', ignoreDuplicates: true })
@@ -503,7 +569,7 @@ async function personasValidas(ids: unknown, excepto: string): Promise<string[]>
   return [...new Set(ids.filter(esUuid))].filter((id) => id !== excepto && todas.some((p) => p.id === id)).slice(0, 200)
 }
 
-export async function crearCanal(quien: QuienEscribe, entrada: { tipo: unknown; nombre: unknown; descripcion?: unknown; miembros?: unknown; clienteId?: unknown }): Promise<{ canalId: string }> {
+export async function crearCanal(quien: QuienEscribe, entrada: { tipo: unknown; nombre: unknown; descripcion?: unknown; miembros?: unknown; clienteId?: unknown; anuncios?: unknown }): Promise<{ canalId: string }> {
   if (entrada.tipo !== 'canal' && entrada.tipo !== 'privado') throw new ErrorDeChat('Elige si el canal es abierto o privado.')
   const nombre = normalizarNombreDeCanal(entrada.nombre)
   if (!nombre) throw new ErrorDeChat('Ponle un nombre al canal.')
@@ -511,8 +577,11 @@ export async function crearCanal(quien: QuienEscribe, entrada: { tipo: unknown; 
   const clienteId = esUuid(entrada.clienteId) ? entrada.clienteId : null
   const invitados = await personasValidas(entrada.miembros, quien.userId)
   const service = db()
-  const { data, error } = await service.from('chat_canales').insert({ tipo: entrada.tipo, nombre, descripcion, cliente_id: clienteId, creado_por: quien.userId }).select('id').single()
+  const fila: Record<string, unknown> = { tipo: entrada.tipo, nombre, descripcion, cliente_id: clienteId, creado_por: quien.userId }
+  if (entrada.anuncios === true) fila.anuncios = true
+  const { data, error } = await service.from('chat_canales').insert(fila).select('id').single()
   if (error) {
+    if (entrada.anuncios === true && faltaColumna(error)) throw new ErrorDeChat('Falta lanzar la migración 287 en Supabase para crear canales de anuncios.', 409)
     if (error.code === '23505') throw new ErrorDeChat(`Ya existe un canal llamado «${nombre}».`, 409)
     fallo(error, 'crear el canal')
   }
@@ -577,12 +646,27 @@ export async function anadirMiembros(quien: QuienEscribe, canalId: unknown, ids:
   return { ok: true }
 }
 
-export async function silenciar(quien: QuienEscribe, canalId: unknown, silenciado: unknown): Promise<{ ok: true }> {
+/** Cuánto te avisa este canal: `todo`, `menciones` o `nada` (null vuelve a lo de siempre) */
+export async function cambiarAvisos(quien: QuienEscribe, canalId: unknown, nivel: unknown): Promise<{ ok: true }> {
   const canal = await canalDe(canalId)
   await exigirMiembro(quien, canal)
-  await db().from('chat_miembros').update({ silenciado: silenciado === true }).eq('canal_id', canal.id).eq('usuario_id', quien.userId)
+  const valor: NivelDeAvisos | null = esNivel(nivel) ? nivel : null
+  const service = db()
+  const filtro = { canal_id: canal.id, usuario_id: quien.userId }
+  const { error } = await service.from('chat_miembros').update({ avisos: valor, silenciado: valor === 'nada' }).match(filtro)
+  if (error) {
+    // Sin la migración 287 solo se puede silenciar o no
+    if (faltaColumna(error)) {
+      if (valor === 'todo') throw new ErrorDeChat('Falta lanzar la migración 287 en Supabase para recibir avisos de todo el canal.', 409)
+      await service.from('chat_miembros').update({ silenciado: valor === 'nada' }).match(filtro)
+      return { ok: true }
+    }
+    fallo(error, 'cambiar los avisos')
+  }
   return { ok: true }
 }
+
+export const silenciar = (quien: QuienEscribe, canalId: unknown, silenciado: unknown) => cambiarAvisos(quien, canalId, silenciado === true ? 'nada' : null)
 
 export async function marcarLeido(quien: QuienEscribe, canalId: unknown): Promise<{ ok: true }> {
   if (!esUuid(canalId)) throw new ErrorDeChat('Falta el canal.')
@@ -590,7 +674,7 @@ export async function marcarLeido(quien: QuienEscribe, canalId: unknown): Promis
   return { ok: true }
 }
 
-export async function cambiarCanal(quien: QuienEscribe, canalId: unknown, cambios: { nombre?: unknown; descripcion?: unknown; archivar?: unknown }): Promise<{ ok: true }> {
+export async function cambiarCanal(quien: QuienEscribe, canalId: unknown, cambios: { nombre?: unknown; descripcion?: unknown; archivar?: unknown; anuncios?: unknown }): Promise<{ ok: true }> {
   const canal = await canalDe(canalId)
   if (canal.tipo === 'directo') throw new ErrorDeChat('Una conversación directa no se cambia.')
   const miembros = await miembrosDe(canal.id)
@@ -602,6 +686,10 @@ export async function cambiarCanal(quien: QuienEscribe, canalId: unknown, cambio
     fila.nombre = nombre
   }
   if (cambios.descripcion !== undefined) fila.descripcion = typeof cambios.descripcion === 'string' ? cambios.descripcion.trim().slice(0, 300) : ''
+  if (typeof cambios.anuncios === 'boolean') {
+    if (canal.auto_unirse && cambios.anuncios) throw new ErrorDeChat('El canal general no puede ser de anuncios.')
+    fila.anuncios = cambios.anuncios
+  }
   if (cambios.archivar === true) {
     if (canal.auto_unirse) throw new ErrorDeChat('El canal general no se archiva.')
     fila.archivado = true
@@ -610,6 +698,7 @@ export async function cambiarCanal(quien: QuienEscribe, canalId: unknown, cambio
   const { error } = await db().from('chat_canales').update(fila).eq('id', canal.id)
   if (error) {
     if (error.code === '23505') throw new ErrorDeChat('Ya existe un canal con ese nombre.', 409)
+    if (faltaColumna(error)) throw new ErrorDeChat('Falta lanzar la migración 287 en Supabase para esta opción.', 409)
     fallo(error, 'cambiar el canal')
   }
   const destinatarios = canal.tipo === 'canal' ? (await personasDelChat()).map((p) => p.id) : miembros.map((m) => m.usuario_id)
@@ -630,3 +719,58 @@ export async function canalesVisibles(quien: QuienEscribe): Promise<Array<{ id: 
 }
 
 export { armarMensajes, esNumeroDeMensaje, esUuid, mensajeDe }
+
+
+/* ------------------------------------------------------------------ */
+/* Encuestas y zona horaria                                            */
+/* ------------------------------------------------------------------ */
+
+export async function votar(quien: QuienEscribe, mensajeId: unknown, opcion: unknown): Promise<{ mensaje: MensajeChat }> {
+  const fila = await mensajeDe(mensajeId)
+  if (!fila.encuesta || fila.borrado_en) throw new ErrorDeChat('Ese mensaje no es una encuesta.', 404)
+  if (fila.encuesta.cerrada) throw new ErrorDeChat('Esta encuesta ya está cerrada.', 409)
+  const canal = await canalDe(fila.canal_id)
+  const miembros = await exigirMiembro(quien, canal)
+  const op = Number(opcion)
+  if (!Number.isInteger(op) || op < 0 || op >= fila.encuesta.opciones.length) throw new ErrorDeChat('Esa opción no existe.')
+  const service = db()
+  const { data: mios, error } = await service.from('chat_votos').select('opcion').eq('mensaje_id', fila.id).eq('usuario_id', quien.userId)
+  if (error) fallo(error, 'leer tus votos')
+  const antes = ((mios ?? []) as Array<{ opcion: number }>).map((v) => v.opcion)
+  const despues = votosTrasPulsar(fila.encuesta, antes, op)
+  const quitar = antes.filter((o) => !despues.includes(o))
+  const poner = despues.filter((o) => !antes.includes(o))
+  if (quitar.length > 0) await service.from('chat_votos').delete().eq('mensaje_id', fila.id).eq('usuario_id', quien.userId).in('opcion', quitar)
+  if (poner.length > 0) {
+    const { error: errorAlPoner } = await service.from('chat_votos').insert(poner.map((o) => ({ mensaje_id: fila.id, usuario_id: quien.userId, opcion: o })))
+    if (errorAlPoner) fallo(errorAlPoner, 'guardar tu voto')
+  }
+  const mensaje = (await armarMensajes([fila]))[0]
+  void emitir(miembros.map((m) => m.usuario_id), { tipo: 'editado', mensaje })
+  return { mensaje }
+}
+
+export async function cerrarEncuesta(quien: QuienEscribe, mensajeId: unknown): Promise<{ mensaje: MensajeChat }> {
+  const fila = await mensajeDe(mensajeId)
+  if (!fila.encuesta || fila.borrado_en) throw new ErrorDeChat('Ese mensaje no es una encuesta.', 404)
+  if (fila.autor_id !== quien.userId && !quien.esAdmin) throw new ErrorDeChat('Solo quien la creó puede cerrarla.', 403)
+  const canal = await canalDe(fila.canal_id)
+  const miembros = await exigirVer(quien, canal)
+  const { data, error } = await db().from('chat_mensajes').update({ encuesta: { ...fila.encuesta, cerrada: true } }).eq('id', fila.id).select('*').single()
+  if (error) fallo(error, 'cerrar la encuesta')
+  const mensaje = (await armarMensajes([data as FilaMensaje]))[0]
+  void emitir(miembros.map((m) => m.usuario_id), { tipo: 'editado', mensaje })
+  return { mensaje }
+}
+
+/** Tu zona horaria, para que los demás vean la hora que es allí */
+export async function ponerZona(quien: QuienEscribe, zona: unknown): Promise<{ zona: string }> {
+  if (!zonaValida(zona)) throw new ErrorDeChat('Esa zona horaria no está en la lista.')
+  const { error } = await db().from('chat_perfiles').upsert({ usuario_id: quien.userId, zona, actualizado_en: new Date().toISOString() }, { onConflict: 'usuario_id' })
+  if (error) {
+    if (tablaNoExiste(error)) throw new ErrorDeChat('Falta lanzar la migración 287 en Supabase para guardar tu zona horaria.', 409)
+    fallo(error, 'guardar la zona horaria')
+  }
+  cachePersonas = null
+  return { zona }
+}

@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 /** Escribe: `{ canalId, cuerpo, hiloDe?, respondeA?, adjuntos? }` (`respondeA` = el mensaje que se cita) */
 export async function POST(request: NextRequest) {
   const c = await cuerpoDe(request)
-  return conChat((quien) => enviarMensaje(quien, { canalId: c.canalId, cuerpo: c.cuerpo, hiloDe: c.hiloDe, respondeA: c.respondeA, adjuntos: c.adjuntos }), 201)
+  return conChat((quien) => enviarMensaje(quien, { canalId: c.canalId, cuerpo: c.cuerpo, hiloDe: c.hiloDe, respondeA: c.respondeA, adjuntos: c.adjuntos, encuesta: c.encuesta }), 201)
 }
 
 /** Edita lo tuyo: `{ id, cuerpo }` */

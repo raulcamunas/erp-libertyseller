@@ -133,6 +133,21 @@ export async function bandeja(quien: QuienEscribe, tipo: unknown, canalId?: unkn
     const { data, error } = await service.from('chat_mensajes').select('*').eq('canal_id', canalId).not('fijado_en', 'is', null).is('borrado_en', null).order('fijado_en', { ascending: false }).limit(50)
     if (error) fallo(error, 'leer los fijados')
     filas = (data ?? []) as FilaMensaje[]
+  } else if (tipo === 'hilos') {
+    // Los hilos en los que participo (escribí el mensaje de arriba o he respondido), con el último movimiento primero
+    const [mias, propios] = await Promise.all([
+      service.from('chat_mensajes').select('hilo_de').eq('autor_id', quien.userId).not('hilo_de', 'is', null).order('id', { ascending: false }).limit(300),
+      ids.size > 0 ? service.from('chat_mensajes').select('id').eq('autor_id', quien.userId).is('hilo_de', null).in('canal_id', [...ids]).order('id', { ascending: false }).limit(200) : Promise.resolve({ data: [] as Array<{ id: number }>, error: null }),
+    ])
+    const candidatos = [...new Set([...((mias.data ?? []) as Array<{ hilo_de: number }>).map((m) => m.hilo_de), ...((propios.data ?? []) as Array<{ id: number }>).map((m) => m.id)])]
+    if (candidatos.length === 0) return { items: [] }
+    const [padres, respuestas] = await Promise.all([
+      service.from('chat_mensajes').select('*').in('id', candidatos).is('borrado_en', null),
+      service.from('chat_mensajes').select('hilo_de, id').in('hilo_de', candidatos).is('borrado_en', null).order('id', { ascending: false }),
+    ])
+    const ultimoMovimiento = new Map<number, number>()
+    for (const r of (respuestas.data ?? []) as Array<{ hilo_de: number; id: number }>) if (!ultimoMovimiento.has(r.hilo_de)) ultimoMovimiento.set(r.hilo_de, r.id)
+    filas = ((padres.data ?? []) as FilaMensaje[]).filter((f) => ultimoMovimiento.has(f.id)).sort((a, b) => (ultimoMovimiento.get(b.id) ?? 0) - (ultimoMovimiento.get(a.id) ?? 0)).slice(0, 40)
   } else throw new ErrorDeChat('Esa lista no existe.')
   const permitidas = filas.filter((f) => ids.has(f.canal_id))
   const mensajes = await armarMensajes(permitidas)

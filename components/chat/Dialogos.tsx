@@ -2,12 +2,13 @@
 
 import { useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Hash, Loader2, Lock, Search, X } from 'lucide-react'
+import { Check, Hash, Loader2, Lock, Megaphone, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { normalizarNombreDeCanal } from '@/lib/chat/canales'
 import type { CanalChat, PersonaChat } from '@/lib/chat/tipos'
 import { useChat } from './ChatProvider'
+import { HoraLocalDe } from './Extras'
 
 const SIN_ACENTOS = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -74,6 +75,7 @@ export function DialogoNuevoCanal({ onCerrar, alCrear }: { onCerrar: () => void;
   const [tipo, setTipo] = useState<'canal' | 'privado'>('canal')
   const [nombre, setNombre] = useState('')
   const [descripcion, setDescripcion] = useState('')
+  const [anuncios, setAnuncios] = useState(false)
   const [miembros, setMiembros] = useState<Set<string>>(new Set())
   const [guardando, setGuardando] = useState(false)
   const normalizado = normalizarNombreDeCanal(nombre)
@@ -82,7 +84,7 @@ export function DialogoNuevoCanal({ onCerrar, alCrear }: { onCerrar: () => void;
     if (!normalizado) return toast.error('Ponle un nombre al canal.')
     setGuardando(true)
     try {
-      const id = await crearCanal({ tipo, nombre: normalizado, descripcion, miembros: tipo === 'privado' ? [...miembros] : [] })
+      const id = await crearCanal({ tipo, nombre: normalizado, descripcion, miembros: tipo === 'privado' ? [...miembros] : [], anuncios })
       alCrear(id)
       onCerrar()
     } catch (e) {
@@ -118,6 +120,7 @@ export function DialogoNuevoCanal({ onCerrar, alCrear }: { onCerrar: () => void;
         <span>Descripción <i>(opcional)</i></span>
         <input value={descripcion} maxLength={300} onChange={(e) => setDescripcion(e.target.value)} placeholder="¿De qué se habla aquí?" />
       </label>
+      <label className="chat-casilla"><input type="checkbox" checked={anuncios} onChange={(e) => setAnuncios(e.target.checked)} /> <Megaphone className="h-3.5 w-3.5" /> Canal de anuncios: solo lo publican quienes lo administran</label>
       {tipo === 'privado' && (
         <div className="chat-campo">
           <span>Quién entra <i>({miembros.size} + tú)</i></span>
@@ -200,6 +203,9 @@ export function DialogoMiembros({ canal, onCerrar }: { canal: CanalChat; onCerra
           )}
         </div>
       </section>
+      {(yo.esAdmin || canal.soy_admin) && (
+        <label className="chat-casilla"><input type="checkbox" checked={canal.anuncios} disabled={guardando || canal.auto_unirse} onChange={(e) => void hacer(() => cambiar(canal.id, { anuncios: e.target.checked }), e.target.checked ? 'Ahora es un canal de anuncios' : 'Ya no es un canal de anuncios')} /> <Megaphone className="h-3.5 w-3.5" /> Canal de anuncios: solo lo publican quienes lo administran</label>
+      )}
       <section className="chat-campo">
         <span>En el canal <i>({dentro.length})</i></span>
         <ul className="chat-selector-lista chat-lista-corta">
@@ -208,6 +214,7 @@ export function DialogoMiembros({ canal, onCerrar }: { canal: CanalChat; onCerra
               <span className="chat-persona-fila">
                 <span className="chat-persona-avatar" data-en-linea={conectados.has(p.id) ? 'true' : undefined}><Avatar id={p.id} nombre={p.nombre} tamano={26} /></span>
                 <span className="min-w-0 flex-1 truncate">{p.nombre}{p.id === yo.id ? ' (tú)' : ''}</span>
+                <HoraLocalDe id={p.id} conNombre />
               </span>
             </li>
           ))}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, AtSign, Bookmark, BookmarkX, CalendarClock, Check, Clock, Plus, TriangleAlert, X } from 'lucide-react'
+import { ArrowLeft, AtSign, Bookmark, BookmarkX, CalendarClock, Check, Clock, MessageSquareReply, Plus, TriangleAlert, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
 import { nombreVisible } from '@/lib/chat/canales'
@@ -13,6 +13,7 @@ import { ElegirHora, FilaDeMensaje } from './Paneles'
 
 const TITULOS: Record<Exclude<VistaDelChat, 'canal'>, { titulo: string; ayuda: string; icono: React.ReactNode }> = {
   menciones: { titulo: 'Menciones', ayuda: 'Los mensajes en los que te han nombrado con @.', icono: <AtSign className="h-4 w-4" /> },
+  hilos: { titulo: 'Hilos', ayuda: 'Las conversaciones en hilo en las que participas, con lo último arriba.', icono: <MessageSquareReply className="h-4 w-4" /> },
   guardados: { titulo: 'Guardados', ayuda: 'Mensajes que has guardado para volver a ellos. Solo los ves tú.', icono: <Bookmark className="h-4 w-4" /> },
   recordatorios: { titulo: 'Recordatorios', ayuda: 'Te aviso por la campana (y el móvil) cuando llegue la hora.', icono: <Clock className="h-4 w-4" /> },
   programados: { titulo: 'Mensajes programados', ayuda: 'Salen solos a la hora elegida, como si los escribieras entonces.', icono: <CalendarClock className="h-4 w-4" /> },
@@ -34,7 +35,7 @@ export function VistaDeBandeja() {
         </div>
       </header>
       <div className="chat-bandeja-cuerpo">
-        {(vista === 'menciones' || vista === 'guardados') && <ListaDeMensajes key={vista} tipo={vista} />}
+        {(vista === 'menciones' || vista === 'guardados' || vista === 'hilos') && <ListaDeMensajes key={vista} tipo={vista} />}
         {vista === 'recordatorios' && <ListaDeRecordatorios />}
         {vista === 'programados' && <ListaDeProgramados />}
       </div>
@@ -46,8 +47,8 @@ function Vacio({ icono, texto }: { icono: React.ReactNode; texto: string }) {
   return <p className="chat-sin-nada">{icono} {texto}</p>
 }
 
-function ListaDeMensajes({ tipo }: { tipo: 'menciones' | 'guardados' }) {
-  const { irAMensaje, guardar } = useChat()
+function ListaDeMensajes({ tipo }: { tipo: 'menciones' | 'guardados' | 'hilos' }) {
+  const { irAMensaje, guardar, abrirHilo } = useChat()
   const [items, setItems] = useState<ItemDeBandeja[] | null>(null)
   useEffect(() => {
     let vivo = true
@@ -62,6 +63,7 @@ function ListaDeMensajes({ tipo }: { tipo: 'menciones' | 'guardados' }) {
     }
   }, [tipo])
   if (items === null) return <div className="tc-esqueleto m-4 h-20" role="status" aria-label="Cargando" />
+  if (items.length === 0 && tipo === 'hilos') return <Vacio icono={<MessageSquareReply className="h-5 w-5" />} texto="Aún no participas en ningún hilo. Responde en un hilo (el botón de la flecha de un mensaje) y saldrá aquí." />
   if (items.length === 0) return tipo === 'menciones' ? <Vacio icono={<AtSign className="h-5 w-5" />} texto="Nadie te ha mencionado todavía." /> : <Vacio icono={<Bookmark className="h-5 w-5" />} texto="No has guardado nada. Guarda un mensaje desde el menú «⋯» del propio mensaje." />
   return (
     <ul className="chat-lista-mensajes">
@@ -69,9 +71,11 @@ function ListaDeMensajes({ tipo }: { tipo: 'menciones' | 'guardados' }) {
         <FilaDeMensaje
           key={it.mensaje.id}
           item={it}
-          onAbrir={() => void irAMensaje(it.canalId, it.mensaje.id, it.mensaje.hilo_de)}
+          onAbrir={() => void irAMensaje(it.canalId, it.mensaje.id, it.mensaje.hilo_de).then(() => (tipo === 'hilos' ? abrirHilo(it.canalId, it.mensaje.id) : undefined))}
           extra={
-            tipo === 'guardados' ? (
+            tipo === 'hilos' ? (
+              <span className="chat-hilo-cuenta">{it.mensaje.respuestas} {it.mensaje.respuestas === 1 ? 'respuesta' : 'respuestas'}</span>
+            ) : tipo === 'guardados' ? (
               <button type="button" className="chat-icono" aria-label="Quitar de guardados" title="Quitar de guardados" onClick={() => void guardar(it.mensaje.id, false).then(() => setItems((l) => l && l.filter((x) => x.mensaje.id !== it.mensaje.id))).catch((e: Error) => toast.error(e.message))}>
                 <BookmarkX className="h-4 w-4" />
               </button>

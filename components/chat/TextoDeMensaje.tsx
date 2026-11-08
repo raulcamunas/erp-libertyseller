@@ -20,7 +20,7 @@ export function TextoDeMensaje({ cuerpo, editado }: { cuerpo: string; editado?: 
           case 'bloque':
             return <pre key={i} className="chat-bloque"><code>{t.v}</code></pre>
           case 'mencion':
-            return <span key={i} className="chat-mencion" data-yo={t.id === yo.id ? 'true' : undefined}>@{nombreDe(t.id)}</span>
+            return <span key={i} className="chat-mencion" data-yo={t.id === yo.id || t.id === 'todos' ? 'true' : undefined}>@{t.id === 'todos' ? 'todos' : nombreDe(t.id)}</span>
           case 'enlace':
             return esEnlaceSeguro(t.url) ? <a key={i} href={t.url} target="_blank" rel="noopener noreferrer nofollow" className="chat-enlace">{t.v}</a> : <Fragment key={i}>{t.v}</Fragment>
           default:

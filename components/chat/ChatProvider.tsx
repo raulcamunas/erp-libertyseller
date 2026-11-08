@@ -6,7 +6,9 @@ import { pedir } from '@/components/tareas-clientes/api'
 import { conMensaje } from '@/lib/chat/agrupar'
 import type { DatosDeInicioChat } from '@/lib/chat/servidor'
 import { estaVigente } from '@/lib/chat/estado'
-import type { AdjuntoChat, CanalChat, EstadoChat, EventoDeChat, MensajeChat, PersonaChat } from '@/lib/chat/tipos'
+import type { EncuestaChat } from '@/lib/chat/encuesta'
+import type { AdjuntoChat, CanalChat, EstadoChat, EventoDeChat, MensajeChat, NivelDeAvisos, PersonaChat } from '@/lib/chat/tipos'
+import { zonaDetectada } from '@/lib/chat/zonas'
 import { createClient } from '@/lib/supabase/client'
 
 const BASE = '/api/chat'
@@ -24,7 +26,7 @@ export interface EstadoDeCanal {
   conSalto: boolean
 }
 
-export type VistaDelChat = 'canal' | 'menciones' | 'guardados' | 'recordatorios' | 'programados'
+export type VistaDelChat = 'canal' | 'menciones' | 'guardados' | 'hilos' | 'recordatorios' | 'programados'
 
 const VACIO: EstadoDeCanal = { mensajes: [], hayMas: false, cargado: false, cargando: false, conSalto: false }
 const SIN_YO = { id: '', nombre: '', esAdmin: false }
@@ -47,17 +49,26 @@ interface ContextoDeChat {
   mensajesDelHilo: MensajeChat[]
   abrirHilo: (canalId: string, id: number) => void
   cerrarHilo: () => void
-  enviar: (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; respondeA?: number; adjuntos?: AdjuntoChat[] }) => Promise<void>
+  enviar: (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; respondeA?: number; adjuntos?: AdjuntoChat[]; encuesta?: Pick<EncuestaChat, 'pregunta' | 'opciones' | 'multiple'> }) => Promise<void>
   editar: (id: number, cuerpo: string) => Promise<void>
   borrar: (id: number) => Promise<void>
   reaccionar: (id: number, emoji: string) => Promise<void>
-  crearCanal: (datos: { tipo: 'canal' | 'privado'; nombre: string; descripcion?: string; miembros?: string[]; clienteId?: string }) => Promise<string>
+  crearCanal: (datos: { tipo: 'canal' | 'privado'; nombre: string; descripcion?: string; miembros?: string[]; clienteId?: string; anuncios?: boolean }) => Promise<string>
   abrirDirecto: (con: string) => Promise<string>
   unirse: (canalId: string) => Promise<void>
   salir: (canalId: string) => Promise<void>
   silenciar: (canalId: string, silenciado: boolean) => Promise<void>
   anadir: (canalId: string, miembros: string[]) => Promise<void>
-  cambiar: (canalId: string, cambios: { nombre?: string; descripcion?: string; archivar?: boolean }) => Promise<void>
+  cambiar: (canalId: string, cambios: { nombre?: string; descripcion?: string; archivar?: boolean; anuncios?: boolean }) => Promise<void>
+  /** Cuánto te avisa un canal: todo · solo menciones · nada (null = lo de siempre) */
+  cambiarAvisos: (canalId: string, nivel: NivelDeAvisos | null) => Promise<void>
+  votar: (id: number, opcion: number) => Promise<void>
+  cerrarEncuesta: (id: number) => Promise<void>
+  ponerZona: (zona: string) => Promise<void>
+  /** El asistente del ERP (solo administradores): abierto, con una pregunta ya escrita si viene de «/erp» */
+  asistente: { abierto: boolean; pregunta: string | null }
+  abrirAsistente: (pregunta?: string) => void
+  cerrarAsistente: () => void
   conectados: ReadonlySet<string>
   escribiendo: (canalId: string) => string[]
   avisarQueEscribo: (canalId: string) => void
@@ -132,6 +143,7 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   const [guardados, setGuardados] = useState<ReadonlySet<number>>(new Set())
   const [estadosDePersonas, setEstadosDePersonas] = useState<Record<string, EstadoChat>>({})
   const [objetivo, setObjetivo] = useState<{ canalId: string; id: number; n: number } | null>(null)
+  const [asistente, setAsistente] = useState<{ abierto: boolean; pregunta: string | null }>({ abierto: false, pregunta: null })
 
   // Lo último, siempre a mano para los avisos del directo (que llegan con el estado de cuando se abrió el canal)
   const canalesRef = useRef<CanalChat[]>([])
@@ -453,8 +465,8 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   /* ---------------- Acciones ---------------- */
 
   const enviar = useCallback(
-    async (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; respondeA?: number; adjuntos?: AdjuntoChat[] }) => {
-      const m = await pedir<MensajeChat>(`${BASE}/mensajes`, { metodo: 'POST', cuerpo: { canalId, cuerpo, hiloDe: opciones?.hiloDe, respondeA: opciones?.respondeA, adjuntos: opciones?.adjuntos } })
+    async (canalId: string, cuerpo: string, opciones?: { hiloDe?: number; respondeA?: number; adjuntos?: AdjuntoChat[]; encuesta?: Pick<EncuestaChat, 'pregunta' | 'opciones' | 'multiple'> }) => {
+      const m = await pedir<MensajeChat>(`${BASE}/mensajes`, { metodo: 'POST', cuerpo: { canalId, cuerpo, hiloDe: opciones?.hiloDe, respondeA: opciones?.respondeA, adjuntos: opciones?.adjuntos, encuesta: opciones?.encuesta } })
       aplicarRef.current({ tipo: 'mensaje', mensaje: m })
     },
     []
@@ -478,7 +490,7 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   }, [])
 
   const crearCanal = useCallback(
-    async (d: { tipo: 'canal' | 'privado'; nombre: string; descripcion?: string; miembros?: string[]; clienteId?: string }) => {
+    async (d: { tipo: 'canal' | 'privado'; nombre: string; descripcion?: string; miembros?: string[]; clienteId?: string; anuncios?: boolean }) => {
       const r = await pedir<{ canalId: string }>(`${BASE}/canales`, { metodo: 'POST', cuerpo: d })
       await cargarInicio()
       return r.canalId
@@ -512,7 +524,34 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
   )
   const silenciar = useCallback((canalId: string, silenciado: boolean) => accion({ accion: 'silenciar', canalId, silenciado }), [accion])
   const anadir = useCallback((canalId: string, miembros: string[]) => accion({ accion: 'anadir', canalId, miembros }), [accion])
-  const cambiar = useCallback((canalId: string, cambios: { nombre?: string; descripcion?: string; archivar?: boolean }) => accion({ accion: 'cambiar', canalId, ...cambios }), [accion])
+  const cambiar = useCallback((canalId: string, cambios: { nombre?: string; descripcion?: string; archivar?: boolean; anuncios?: boolean }) => accion({ accion: 'cambiar', canalId, ...cambios }), [accion])
+  const cambiarAvisos = useCallback((canalId: string, nivel: NivelDeAvisos | null) => accion({ accion: 'avisos', canalId, nivel }), [accion])
+
+  const votar = useCallback(async (id: number, opcion: number) => {
+    const r = await pedir<{ mensaje: MensajeChat }>(`${BASE}/votos`, { metodo: 'POST', cuerpo: { accion: 'votar', id, opcion } })
+    aplicarRef.current({ tipo: 'editado', mensaje: r.mensaje })
+  }, [])
+  const cerrarEncuesta = useCallback(async (id: number) => {
+    const r = await pedir<{ mensaje: MensajeChat }>(`${BASE}/votos`, { metodo: 'POST', cuerpo: { accion: 'cerrar', id } })
+    aplicarRef.current({ tipo: 'editado', mensaje: r.mensaje })
+  }, [])
+  const ponerZona = useCallback(async (zona: string) => {
+    await pedir(`${BASE}/zona`, { metodo: 'PUT', cuerpo: { zona } })
+    await cargarInicio()
+  }, [cargarInicio])
+  const abrirAsistente = useCallback((pregunta?: string) => setAsistente({ abierto: true, pregunta: pregunta ?? null }), [])
+  const cerrarAsistente = useCallback(() => setAsistente({ abierto: false, pregunta: null }), [])
+
+  // La primera vez, se guarda la zona horaria del navegador (si es una de la lista) para que los demás vean la hora que es allí
+  const zonaIntentada = useRef(false)
+  useEffect(() => {
+    if (!datos || zonaIntentada.current) return
+    zonaIntentada.current = true
+    const mia = datos.personas.find((p) => p.id === datos.yo.id)
+    if (mia?.zona) return
+    const z = zonaDetectada(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    if (z) void pedir(`${BASE}/zona`, { metodo: 'PUT', cuerpo: { zona: z } }).then(() => cargarInicio()).catch(() => undefined)
+  }, [datos, cargarInicio])
 
   const abrirHilo = useCallback(
     (canalId: string, id: number) => {
@@ -665,8 +704,15 @@ export function ChatProvider({ canalInicial, children }: { canalInicial?: string
       fijar,
       estadoDe,
       ponerEstado,
+      cambiarAvisos,
+      votar,
+      cerrarEncuesta,
+      ponerZona,
+      asistente,
+      abrirAsistente,
+      cerrarAsistente,
     }),
-    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado]
+    [yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>

@@ -11,6 +11,7 @@ import { aTextoEditable, desdeTextoEditable, type Mencionado } from '@/lib/chat/
 import { describirInstante } from '@/lib/chat/tiempo'
 import type { AdjuntoChat, MensajeChat } from '@/lib/chat/tipos'
 import { useChat } from './ChatProvider'
+import { EtiquetaDeSlack, NotaDeVoz, TarjetaDeEncuesta } from './Extras'
 import { ElegirHora, EmojiDeEstado, VisorDeImagen } from './Paneles'
 import { TextoDeMensaje } from './TextoDeMensaje'
 
@@ -83,12 +84,13 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
       data-menciona-me={m.menciones.includes(yo.id) ? 'true' : undefined}
     >
       <span className="chat-mensaje-lado">
-        {continuacion ? <time className="chat-hora-lado" dateTime={m.creado_en}>{horaDe(m.creado_en)}</time> : <Avatar id={m.autor_id ?? 'x'} nombre={autor?.nombre ?? 'Alguien'} tamano={34} />}
+        {continuacion ? <time className="chat-hora-lado" dateTime={m.creado_en}>{horaDe(m.creado_en)}</time> : <Avatar id={m.autor_id ?? `slack-${m.autor_externo ?? 'x'}`} nombre={autor?.nombre ?? m.autor_externo ?? 'Alguien'} tamano={34} />}
       </span>
       <div className="chat-mensaje-cuerpo">
         {!continuacion && (
           <p className="chat-mensaje-cabecera">
-            <b>{mio ? 'Tú' : autor?.nombre ?? nombreDe(m.autor_id)}</b>
+            <b>{mio ? 'Tú' : autor?.nombre ?? m.autor_externo ?? nombreDe(m.autor_id)}</b>
+            {m.autor_externo && !m.autor_id && <EtiquetaDeSlack />}
             <EmojiDeEstado id={m.autor_id} />
             <time dateTime={m.creado_en}>{horaDe(m.creado_en)}</time>
             {m.fijado_en && <span className="chat-marca-fijado" title="Fijado arriba del canal"><Pin className="h-3 w-3" /> Fijado</span>}
@@ -126,13 +128,16 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
               </span>
             </div>
           ) : (
-            m.cuerpo && <TextoDeMensaje cuerpo={m.cuerpo} editado={m.editado_en !== null} />
+            m.cuerpo && !m.encuesta && <TextoDeMensaje cuerpo={m.cuerpo} editado={m.editado_en !== null} />
           )}
+          {m.encuesta && <TarjetaDeEncuesta m={m} />}
           {m.adjuntos.length > 0 && (
             <ul className="chat-adjuntos">
               {m.adjuntos.map((a) => (
                 <li key={a.ruta ?? a.url}>
-                  {esImagen(a.tipo, a.nombre) ? (
+                  {a.voz ? (
+                    <NotaDeVoz a={a} reciente={Date.now() - Date.parse(m.creado_en) < 180_000} />
+                  ) : esImagen(a.tipo, a.nombre) ? (
                     <button type="button" className="chat-imagen-boton" onClick={() => setVisor(a)} aria-label={`Ver ${a.nombre}`}><img src={a.url} alt={a.nombre} loading="lazy" className="chat-imagen" /></button>
                   ) : (
                     <a href={a.url} target="_blank" rel="noopener noreferrer" className="chat-archivo" download={a.nombre}>

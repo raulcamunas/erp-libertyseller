@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { totalSinLeer } from '@/lib/chat/canales'
+import { AsistenteDelErp } from './AsistenteDelErp'
 import { BarraDeChat } from './BarraDeChat'
 import { ChatProvider, useChat } from './ChatProvider'
 import { JuntaProvider } from './JuntaProvider'
@@ -56,6 +57,7 @@ export function Marco() {
       {vista === 'canal' ? <VistaDeCanal /> : <VistaDeBandeja />}
       <PanelDeHilo />
       <PanelDeJunta />
+      <AsistenteDelErp />
       <LlamadaEntrante />
       {buscando && <SaltarA onCerrar={() => setBuscando(false)} />}
     </div>

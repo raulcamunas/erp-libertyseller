@@ -8,6 +8,7 @@ import { pedir } from '@/components/tareas-clientes/api'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { horaDe } from '@/lib/chat/agrupar'
 import { DURACIONES, ESTADOS_RAPIDOS } from '@/lib/chat/estado'
+import { ZONAS } from '@/lib/chat/zonas'
 import { textoPlano } from '@/lib/chat/mensajes'
 import { OPCIONES_RAPIDAS, instanteDeOpcion } from '@/lib/chat/recordatorios'
 import { desdeCampoDeFecha, describirInstante, haciaCampoDeFecha } from '@/lib/chat/tiempo'
@@ -191,7 +192,7 @@ export function DialogoDeResumen({ canalId, nombre, onCerrar }: { canalId: strin
 
 /** Tu estado: elegir uno rápido o escribir el tuyo, y cuándo se quita solo */
 export function EstadoPropio({ onCerrar }: { onCerrar: () => void }) {
-  const { yo, estadoDe, ponerEstado } = useChat()
+  const { yo, estadoDe, ponerEstado, persona, ponerZona } = useChat()
   const actual = estadoDe(yo.id)
   const [emoji, setEmoji] = useState(actual?.emoji ?? '💬')
   const [texto, setTexto] = useState(actual?.texto ?? '')
@@ -230,6 +231,13 @@ export function EstadoPropio({ onCerrar }: { onCerrar: () => void }) {
         <span>Quitarlo</span>
         <select value={duracion} onChange={(e) => setDuracion(e.target.value)}>
           {DURACIONES.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+        </select>
+      </label>
+      <label className="chat-estado-duracion">
+        <span>Tu zona horaria</span>
+        <select value={persona(yo.id)?.zona ?? ''} onChange={(e) => void ponerZona(e.target.value).then(() => toast.success('Zona horaria guardada')).catch((err: Error) => toast.error(err.message))}>
+          <option value="" disabled>Elige…</option>
+          {ZONAS.map((z) => <option key={z.id} value={z.id}>{z.nombre}</option>)}
         </select>
       </label>
       <div className="chat-fila-botones">

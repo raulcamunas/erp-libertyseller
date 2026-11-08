@@ -1,8 +1,10 @@
 /** Los tipos del chat del equipo, los mismos en el servidor y en la pantalla */
 
+import type { NivelDeAvisos } from './avisos'
+import type { EncuestaChat } from './encuesta'
 import type { EstadoChat } from './estado'
 
-export type { EstadoChat }
+export type { EstadoChat, NivelDeAvisos, EncuestaChat }
 
 export type TipoDeCanal = 'canal' | 'privado' | 'directo'
 
@@ -14,6 +16,10 @@ export interface AdjuntoChat {
   url: string
   tipo: string
   tamano: number
+  /** Una nota de voz: cuánto dura (segundos) y lo que dice, escrito por la IA cuando termina de transcribirla */
+  voz?: boolean
+  duracion?: number
+  transcripcion?: string
 }
 
 export interface CanalChat {
@@ -37,6 +43,12 @@ export interface CanalChat {
   ultimo_leido_en: string | null
   /** Cuántos mensajes fijados tiene */
   fijados: number
+  /** Cuánto me avisa este canal */
+  avisos: NivelDeAvisos
+  /** Un canal de anuncios: solo publican quienes lo administran */
+  anuncios: boolean
+  /** Administro este canal (o soy administrador del ERP): puedo publicar en uno de anuncios y cambiarlo */
+  soy_admin: boolean
 }
 
 /** Lo que dice el mensaje al que se responde, para pintar la cita sin pedirlo aparte */
@@ -62,6 +74,12 @@ export interface MensajeChat {
   editado_en: string | null
   /** Cuándo se fijó arriba del canal (null = no está fijado) */
   fijado_en: string | null
+  /** Si el mensaje es una encuesta, sus datos; los votos van en `votos` */
+  encuesta: EncuestaChat | null
+  /** opción → quién la ha votado */
+  votos: Record<number, string[]>
+  /** Quién lo escribió si no es del ERP (una importación de Slack) */
+  autor_externo: string | null
   borrado_en: string | null
   creado_en: string
   /** emoji → quién ha reaccionado */
@@ -74,6 +92,8 @@ export interface PersonaChat {
   id: string
   nombre: string
   email: string | null
+  /** Su zona horaria (`Europe/Madrid`…) si la ha puesto */
+  zona?: string | null
 }
 
 /** Lo que viaja por el canal en directo de cada persona (`chat:<id>`) */

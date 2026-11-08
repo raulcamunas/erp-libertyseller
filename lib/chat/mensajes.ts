@@ -9,8 +9,13 @@ export const CUERPO_MAX = 8000
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const RE_MENCION = new RegExp(`<@(${UUID})>`, 'gi')
+/** Una mención a una persona o a todo el canal («@todos») */
+const RE_MENCION_O_TODOS = new RegExp(`<@(${UUID}|todos)>`, 'gi')
 
 export const tokenDeMencion = (id: string): string => `<@${id}>`
+
+/** ¿Avisa a todo el canal? (`@todos`) */
+export const mencionaATodos = (cuerpo: string): boolean => /<@todos>/i.test(cuerpo)
 
 /** El texto tal como se guarda: saltos de línea normales, sin espacios ni líneas vacías de más. Vacío si no es texto */
 export function limpiarCuerpo(entrada: unknown): string {
@@ -46,7 +51,7 @@ const RE_TROZOS = new RegExp(
   [
     '```([\\s\\S]+?)```', // 1 bloque
     '`([^`\\n]+)`', // 2 código
-    `<@(${UUID})>`, // 3 mención
+    `<@(${UUID}|todos)>`, // 3 mención
     '(https?:\\/\\/[^\\s<>]+)', // 4 enlace
     '\\*\\*([^*\\n]+)\\*\\*', // 5 negrita
     '(?<![\\p{L}\\p{N}_])_([^_\\n]+)_(?![\\p{L}\\p{N}_])', // 6 cursiva
@@ -93,7 +98,7 @@ export function textoPlano(cuerpo: string, nombreDe: (id: string) => string, max
     .map((t) => {
       switch (t.t) {
         case 'mencion':
-          return `@${nombreDe(t.id)}`
+          return t.id === 'todos' ? '@todos' : `@${nombreDe(t.id)}`
         case 'bloque':
           return '[código]'
         default:
@@ -120,8 +125,8 @@ export interface Mencionado {
  */
 export function aTextoEditable(cuerpo: string, nombreDe: (id: string) => string): { texto: string; mencionados: Mencionado[] } {
   const mencionados = new Map<string, Mencionado>()
-  const texto = cuerpo.replace(RE_MENCION, (_, id: string) => {
-    const nombre = nombreDe(id.toLowerCase())
+  const texto = cuerpo.replace(RE_MENCION_O_TODOS, (_, id: string) => {
+    const nombre = id.toLowerCase() === 'todos' ? 'todos' : nombreDe(id.toLowerCase())
     mencionados.set(id.toLowerCase(), { id: id.toLowerCase(), nombre })
     return `@${nombre}`
   })

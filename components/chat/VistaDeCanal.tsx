@@ -1,16 +1,20 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, Bell, BellOff, Hash, Headphones, LogOut, Lock, MessageCircle, Phone, Pin, Settings2, Sparkles, Video, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Hash, Headphones, LogOut, Lock, Megaphone, MessageCircle, Phone, Pin, Settings2, Sparkles, Video, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { filasDeMensajes } from '@/lib/chat/agrupar'
 import { nombreVisible } from '@/lib/chat/canales'
+import type { Comando } from '@/lib/chat/comandos'
 import { textoPlano } from '@/lib/chat/mensajes'
+import { leerRecordatorio } from '@/lib/chat/comandos'
+import { describirInstante } from '@/lib/chat/tiempo'
 import type { CanalChat, MensajeChat } from '@/lib/chat/tipos'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { useChat } from './ChatProvider'
 import { pedir } from '@/components/tareas-clientes/api'
 import { DialogoMiembros } from './Dialogos'
+import { DialogoDeEncuesta, HoraLocalDe, MenuDeAvisos } from './Extras'
 import { DialogoDeFijados, DialogoDeResumen, EmojiDeEstado } from './Paneles'
 import { AvisoDeSoltar, useZonaDeSoltar } from './ZonaDeSoltar'
 import { useJunta } from './JuntaProvider'
@@ -44,7 +48,7 @@ export function VistaDeCanal() {
 }
 
 function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
-  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, avisarQueEscribo, unirse, silenciar, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe } = useChat()
+  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, avisarQueEscribo, unirse, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe, cambiarAvisos, ponerEstado, abrirAsistente } = useChat()
   const { disponible: juntasDisponibles, activas, actual: juntaActual, entrar: entrarEnJunta } = useJunta()
   const [miembrosAbierto, setMiembrosAbierto] = useState(false)
   const [pegado, setPegado] = useState(true)
@@ -53,6 +57,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const [resumenAbierto, setResumenAbierto] = useState(false)
   const [tiraOculta, setTiraOculta] = useState(false)
   const [soltados, setSoltados] = useState<{ n: number; ficheros: File[] } | null>(null)
+  const [encuestaAbierta, setEncuestaAbierta] = useState(false)
   // El id más alto que había al abrir el canal: lo que llega después entra con animación, el historial no
   const maxInicial = useRef<number | null>(null)
   const lista = useRef<HTMLDivElement>(null)
@@ -145,6 +150,39 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
   const nuevos = marca ? e.mensajes.filter((m) => m.autor_id !== yo.id && m.borrado_en === null && Date.parse(m.creado_en) > Date.parse(marca)).length : 0
   const estadoDelOtro = otro ? estadoDe(otro) : null
 
+  /** Lo que hace cada comando con «/» de la caja de escribir */
+  const hacerComando = async (c: Comando) => {
+    switch (c.nombre) {
+      case 'junta':
+        if (!juntasDisponibles) throw new Error('Las juntas todavía no están configuradas en el servidor.')
+        await entrarEnJunta(canal.id)
+        return
+      case 'encuesta':
+        setEncuestaAbierta(true)
+        return
+      case 'silenciar':
+        await cambiarAvisos(canal.id, canal.avisos === 'nada' ? null : 'nada')
+        toast.success(canal.avisos === 'nada' ? 'Avisos activados' : 'Canal silenciado')
+        return
+      case 'estado':
+        if (!c.argumentos) throw new Error('Escribe tu estado: /estado En una reunión')
+        await ponerEstado('💬', c.argumentos, '1h')
+        toast.success('Estado puesto durante una hora')
+        return
+      case 'recordar': {
+        const r = leerRecordatorio(c.argumentos, Date.now())
+        if (!r.ok) throw new Error(r.motivo)
+        await pedir('/api/chat/recordatorios', { metodo: 'POST', cuerpo: { texto: r.texto, avisarEn: new Date(r.en).toISOString(), canalId: canal.id } })
+        toast.success(`Te lo recordaré ${describirInstante(r.en)}`)
+        return
+      }
+      case 'erp':
+        if (!c.argumentos) throw new Error('Escribe la pregunta: /erp ¿cuántas citas hay hoy?')
+        abrirAsistente(c.argumentos)
+        return
+    }
+  }
+
   const hacer = (f: () => Promise<unknown>) => void f().catch((err: Error) => toast.error(err.message))
   const icono = canal.tipo === 'privado' ? <Lock className="h-4 w-4" /> : canal.tipo === 'directo' ? null : <Hash className="h-4 w-4" />
 
@@ -156,7 +194,9 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
           <button type="button" className="chat-icono chat-atras" onClick={() => seleccionar(null)} aria-label="Volver a la lista"><ArrowLeft className="h-4 w-4" /></button>
           {icono}
           <h1>{nombre}</h1>
+          {canal.anuncios && <span className="chat-etiqueta-anuncios" title="Solo publican quienes administran el canal"><Megaphone className="h-3 w-3" /> Anuncios</span>}
           {otro && <EmojiDeEstado id={otro} />}
+          {otro && <HoraLocalDe id={otro} />}
           {otro && <span className="chat-estado-persona" data-en-linea={conectados.has(otro) ? 'true' : undefined}>{estadoDelOtro?.texto || (conectados.has(otro) ? 'En línea' : 'Desconectado')}</span>}
           {canal.descripcion && <span className="chat-descripcion" title={canal.descripcion}>{canal.descripcion}</span>}
         </div>
@@ -175,11 +215,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
               <span>{canal.tipo === 'directo' ? 'Llamar' : 'Junta'}</span>
             </button>
           )}
-          {canal.soy_miembro && (
-            <button type="button" className="chat-icono" onClick={() => hacer(() => silenciar(canal.id, !canal.silenciado))} aria-label={canal.silenciado ? 'Quitar el silencio' : 'Silenciar'} title={canal.silenciado ? 'Silenciado: pulsa para recibir avisos' : 'Silenciar los avisos de este canal'}>
-              {canal.silenciado ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
-            </button>
-          )}
+          {canal.soy_miembro && <MenuDeAvisos canal={canal} />}
           {canal.tipo !== 'directo' && (
             <button type="button" className="chat-icono chat-miembros-boton" onClick={() => setMiembrosAbierto(true)} aria-label="Miembros y ajustes del canal" title="Miembros y ajustes">
               <span className="chat-pila">{canal.miembros.slice(0, 3).map((id) => <Avatar key={id} id={id} nombre={nombreDe(id)} tamano={20} />)}</span>
@@ -255,7 +291,12 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
 
       <div className="chat-pie">
         <p className="chat-escribiendo" aria-live="polite">{quienesEscriben.length === 0 ? ' ' : quienesEscriben.length === 1 ? `${quienesEscriben[0]} está escribiendo…` : `${quienesEscriben.join(' y ')} están escribiendo…`}</p>
-        {canal.soy_miembro ? (
+        {canal.soy_miembro && canal.anuncios && !canal.soy_admin ? (
+          <div className="chat-unirse chat-solo-anuncios">
+            <Megaphone className="h-4 w-4 shrink-0" />
+            <span>Este canal es de <b>anuncios</b>: solo lo publican quienes lo administran. Puedes <b>reaccionar</b> y <b>responder en un hilo</b>.</span>
+          </div>
+        ) : canal.soy_miembro ? (
           <Redactor
             candidatos={candidatos}
             placeholder={canal.tipo === 'directo' ? `Escribe a ${nombre}` : `Escribe en ${canal.tipo === 'privado' ? '🔒 ' : '#'}${nombre}`}
@@ -265,6 +306,10 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
             cita={citando ? { autor: citando.autor_id === yo.id ? 'Tú' : nombreDe(citando.autor_id), texto: textoPlano(citando.cuerpo, (id) => nombreDe(id).split(' ')[0], 90) || '📎 Archivo adjunto' } : null}
             alQuitarCita={() => setCitando(null)}
             ficherosSoltados={canal.soy_miembro ? soltados : null}
+            esAdmin={yo.esAdmin}
+            alComando={hacerComando}
+            permitirTodos={canal.tipo !== 'directo' && canal.miembros.length > 2}
+            alEncuesta={() => setEncuestaAbierta(true)}
             alEnviar={async (cuerpo, adjuntos) => {
               await enviar(canal.id, cuerpo, { respondeA: citando?.id, adjuntos })
               setCitando(null)
@@ -284,6 +329,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
         )}
       </div>
       {miembrosAbierto && <DialogoMiembros canal={canal} onCerrar={() => setMiembrosAbierto(false)} />}
+      {encuestaAbierta && <DialogoDeEncuesta onCerrar={() => setEncuestaAbierta(false)} alCrear={(enc) => enviar(canal.id, '', { encuesta: enc })} />}
       {fijadosAbierto && <DialogoDeFijados canalId={canal.id} nombre={nombre} onCerrar={() => setFijadosAbierto(false)} />}
       {resumenAbierto && <DialogoDeResumen canalId={canal.id} nombre={nombre} onCerrar={() => setResumenAbierto(false)} />}
     </section>
