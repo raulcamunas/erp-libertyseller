@@ -46,9 +46,12 @@ export interface PropsDeTablero {
   onOrdenarColumnas?: (nombres: string[]) => void
   /** Si hay varios clientes en el tablero, cada columna separa sus tarjetas con un rótulo por cliente (en este orden) */
   clientes?: readonly ClienteTC[]
+  /** Las tareas marcadas con el cuadro (o con Mayús/Ctrl/Cmd + clic) y cómo marcar una */
+  seleccion?: ReadonlySet<string>
+  onSeleccionar?: (id: string) => void
 }
 
-export function Tablero({ estados: estadosBase, departamentos, tareas, personas, tareaAbierta, onAbrir, onMover, onCrear, onOrdenarColumnas, clientes }: PropsDeTablero) {
+export function Tablero({ estados: estadosBase, departamentos, tareas, personas, tareaAbierta, onAbrir, onMover, onCrear, onOrdenarColumnas, clientes, seleccion, onSeleccionar }: PropsDeTablero) {
   // El orden de las columnas recién arrastrado se pinta ya, sin esperar a que el padre lo guarde y lo devuelva
   const [ordenLocal, setOrdenLocal] = useState<string[] | null>(null)
   useEffect(() => setOrdenLocal(null), [estadosBase])
@@ -234,7 +237,7 @@ export function Tablero({ estados: estadosBase, departamentos, tareas, personas,
                     <Fragment key={id}>
                       {cliente && <RotuloDeCliente cliente={cliente} cantidad={lista.filter((x) => porId.get(x)?.cliente_id === cliente.id).length} primero={j === 0} />}
                       <TarjetaOrdenable id={id}>
-                        <Tarjeta tarea={t} estado={estados.find((x) => x.nombre === t.estado) ?? estado} personas={personas} departamentoColor={departamentos.find((d) => d.nombre === t.departamento)?.color} activa={tareaAbierta === id} fantasma={activa === id} indice={j} onAbrir={onAbrir} />
+                        <Tarjeta tarea={t} estado={estados.find((x) => x.nombre === t.estado) ?? estado} personas={personas} departamentoColor={departamentos.find((d) => d.nombre === t.departamento)?.color} activa={tareaAbierta === id} fantasma={activa === id} indice={j} onAbrir={onAbrir} seleccionada={seleccion?.has(id)} haySeleccion={(seleccion?.size ?? 0) > 0} onSeleccionar={onSeleccionar} />
                       </TarjetaOrdenable>
                     </Fragment>
                   )

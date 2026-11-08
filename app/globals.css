@@ -4041,3 +4041,23 @@ html.light { --fa-estrella: #4f46e5; --fa-punto: rgba(30, 41, 59, 0.22); }
   .tc-fa[data-fa='latido'] i:nth-child(2) { animation-delay: -3s; }
   .tc-fa[data-fa='latido'] i:nth-child(3) { animation-delay: -6s; }
 }
+
+/* ---- Seleccionar varias tareas: el cuadro, lo marcado y la barra de acciones ---- */
+.tc-marco { position: fixed; z-index: 60; pointer-events: none; border-radius: 6px; border: 1px solid var(--ls-acc-graf); background: color-mix(in srgb, var(--ls-acc-graf) 14%, transparent); }
+body.tc-marcando { user-select: none; cursor: crosshair; }
+body.tc-marcando * { cursor: crosshair !important; }
+.tc-tarjeta[data-seleccionada='true'] { outline: 2px solid var(--ls-acc-graf); outline-offset: 1px; box-shadow: 0 0 0 4px var(--ls-acc-suave), var(--tc-sombra-2); }
+.tc-tarjeta[data-seleccionada='true']::after { content: '✓'; position: absolute; right: 8px; top: 8px; display: grid; height: 18px; width: 18px; place-items: center; border-radius: 999px; background: var(--ls-acc-relleno); color: var(--ls-acc-tinta); font-size: 11px; font-weight: 800; }
+.tc-tarjeta { position: relative; }
+.tc-fila[data-seleccionada='true'] { background: var(--ls-acc-suave); box-shadow: inset 3px 0 0 var(--ls-acc-graf); }
+.tc-seleccion-barra { position: absolute; bottom: 22px; left: 50%; z-index: 25; display: flex; translate: -50% 0; align-items: center; gap: 6px; border-radius: 16px; border: 1px solid var(--ls-linea2); background: var(--tc-cristal); padding: 6px 8px 6px 14px; box-shadow: 0 22px 50px -18px rgba(0, 0, 0, 0.75); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.tc-seleccion-cuenta { font-size: 12.5px; color: var(--ls-t2); white-space: nowrap; }
+.tc-seleccion-cuenta b { color: var(--ls-t1); font-size: 14px; }
+.tc-seleccion-sep { height: 18px; width: 1px; margin: 0 4px; background: var(--ls-linea2); }
+.tc-seleccion-boton { display: inline-flex; height: 32px; align-items: center; gap: 6px; border-radius: 10px; padding: 0 12px; font-size: 12.5px; font-weight: 550; color: var(--ls-t1); }
+.tc-seleccion-boton:hover:not(:disabled) { background: var(--ls-sup3); }
+.tc-seleccion-boton:disabled { opacity: 0.5; }
+.tc-seleccion-peligro:hover:not(:disabled) { background: color-mix(in srgb, var(--ls-e-rojo) 16%, transparent); color: var(--ls-e-rojo); }
+@media (max-width: 700px) { .tc-seleccion-barra { bottom: 12px; max-width: calc(100% - 20px); } }
+@media (prefers-reduced-motion: no-preference) { .tc-seleccion-barra { animation: tc-sube-centro 0.28s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; } }
+@keyframes tc-sube-centro { from { opacity: 0; translate: -50% 14px; } to { opacity: 1; translate: -50% 0; } }

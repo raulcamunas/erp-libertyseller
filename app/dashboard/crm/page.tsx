@@ -1,3 +1,4 @@
+import { ESTADOS_QUE_COBRAN } from '@/lib/types/payroll'
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { fetchAll, fetchAllTolerante } from '@/lib/supabase/paginacion'
@@ -119,8 +120,8 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
         ? fetchAllTolerante<CrmQualifiedAppointment>('appointments cualificadas (crm)', (desde, hasta) =>
             supabase
               .from('appointments')
-              .select('id, comercial_id, start_time')
-              .eq('status', 'qualified')
+              .select('id, comercial_id, status, start_time')
+              .in('status', [...ESTADOS_QUE_COBRAN])
               .eq('is_external', false)
               .order('id', { ascending: true })
               .range(desde, hasta)

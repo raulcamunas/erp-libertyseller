@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { usePathname, useRouter } from 'next/navigation'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
@@ -10,12 +11,15 @@ import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { departamentosDe, estadosDe, FILTROS_VACIOS, ordenarSegun, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
 import { ambitoDeRuta, mismoAmbito, type Ambito } from '@/lib/tareas-clientes/ambito'
 import { BASE, memoria, pedir, type DatosDeTodas, type Preferencias } from './api'
+import { alternar } from '@/lib/tareas-clientes/seleccion'
+import { BarraDeSeleccion } from './BarraDeSeleccion'
 import { BarraLateral, SelectorMovil } from './BarraLateral'
 import { Cabecera } from './Cabecera'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
 import { PanelDeTarea } from './PanelDeTarea'
 import { PlantillasGestor } from './PlantillasGestor'
+import { useMarco } from './useMarco'
 import { estiloDePortada, FondoAnimado, fondoNecesitaCortina } from './Portada'
 import { Tablero } from './Tablero'
 import { Tabla } from './Tabla'
@@ -109,6 +113,30 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   const vistasDisponibles = ambito.tipo === 'cliente' ? VISTAS_DE_CLIENTE : VISTAS_DE_TODAS
   const vista = vistaElegida && vistasDisponibles.includes(vistaElegida) ? vistaElegida : vistasDisponibles[0]
   const personas = useMemo(() => datos?.personas ?? [], [datos?.personas])
+
+  /* ---- Varias tareas a la vez: el cuadro de selección, Mayús/Ctrl/Cmd + clic, y la barra con «Mover a…» y «Archivar» ---- */
+  const [seleccion, setSeleccion] = useState<ReadonlySet<string>>(() => new Set())
+  const [lotePendiente, setLotePendiente] = useState(false)
+  const [centro, setCentro] = useState<HTMLElement | null>(null)
+  const { marco } = useMarco(centro, { seleccion, fijar: setSeleccion, vaciar: () => setSeleccion(new Set()), activo: vista === 'tablero' || vista === 'tabla' })
+  const alternarSeleccion = useCallback((id: string) => setSeleccion((s) => alternar(s, id)), [])
+  // Al cambiar de cliente o de vista la selección se quita; y lo que ya no existe (archivado por otro compañero) sale de ella
+  useEffect(() => setSeleccion(new Set()), [ambito, vista])
+  useEffect(() => {
+    const ids = new Set((datos?.tareas ?? []).map((t) => t.id))
+    setSeleccion((s) => {
+      const vivas = [...s].filter((id) => ids.has(id))
+      return vivas.length === s.size ? s : new Set(vivas)
+    })
+  }, [datos?.tareas])
+  useEffect(() => {
+    if (seleccion.size === 0) return
+    const alPulsar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !(e.target as HTMLElement | null)?.closest?.('input, textarea, [role="dialog"], [data-radix-popper-content-wrapper], .tc-editable, .tc-modal')) setSeleccion(new Set())
+    }
+    window.addEventListener('keydown', alPulsar)
+    return () => window.removeEventListener('keydown', alPulsar)
+  }, [seleccion.size])
   const nombreDe = useCallback((id: string) => personas.find((p) => p.id === id)?.nombre ?? '', [personas])
 
   const delAmbito = useMemo(() => {
@@ -119,6 +147,13 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   }, [datos?.tareas, ambito, miId])
 
   const estadosDelAmbito = useMemo(() => estadosDe(cliente), [cliente])
+  // Las columnas a las que se puede mover lo seleccionado: las del cliente, o la unión de las de todos (cada nombre una vez)
+  const estadosDeLote = useMemo(() => {
+    if (cliente) return estadosDelAmbito
+    const unicos = new Map<string, OpcionDeEstado>()
+    for (const c of datos?.clientes ?? []) for (const e of estadosDe(c)) if (!unicos.has(e.nombre)) unicos.set(e.nombre, e)
+    return [...unicos.values()]
+  }, [cliente, estadosDelAmbito, datos?.clientes])
   const visibles = useMemo(() => filtrarTareas(delAmbito, filtros, miId, cliente ? estadosDelAmbito : [...mapa.values()].flatMap((c) => estadosDe(c)), nombreDe), [delAmbito, filtros, miId, cliente, estadosDelAmbito, mapa, nombreDe])
 
   const prefs: Preferencias = datos?.preferencias ?? { fondo: {}, portada: {}, favoritos: [] }
@@ -184,6 +219,33 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
       }
     },
     [aplicarFila]
+  )
+
+  const aplicarLote = useCallback(
+    async (accion: 'mover' | 'archivar', estado?: string) => {
+      const ids = [...seleccion]
+      if (ids.length === 0 || lotePendiente) return
+      if (accion === 'archivar' && !window.confirm(`¿Archivar ${ids.length} ${ids.length === 1 ? 'tarea' : 'tareas'}? No se borran: se pueden recuperar (en Notion van a la papelera).`)) return
+      const previas = datos?.tareas ?? []
+      setLotePendiente(true)
+      pendientes.current += 1
+      setDatos((d) => (d ? { ...d, tareas: accion === 'archivar' ? d.tareas.filter((t) => !ids.includes(t.id)) : d.tareas.map((t) => (ids.includes(t.id) ? { ...t, estado: estado as string } : t)) } : d))
+      try {
+        const r = await pedir<{ hechas: number; fallidas: Array<{ id: string; motivo: string }> }>(`${BASE}/tareas/lote`, { metodo: 'POST', cuerpo: { ids, accion, estado } })
+        if (r.fallidas.length > 0) toast.error(`${r.hechas} hechas y ${r.fallidas.length} no: ${r.fallidas[0].motivo}`)
+        else toast.success(accion === 'mover' ? `${r.hechas} movidas a «${estado}»` : `${r.hechas} archivadas`)
+        // Las que no han podido quedan marcadas, para ver cuáles son
+        setSeleccion(new Set(r.fallidas.map((f) => f.id)))
+      } catch (e) {
+        setDatos((d) => (d ? { ...d, tareas: previas } : d))
+        toast.error(e instanceof Error ? e.message : 'No se ha podido aplicar')
+      } finally {
+        pendientes.current -= 1
+        setLotePendiente(false)
+        void cargar(true)
+      }
+    },
+    [seleccion, lotePendiente, datos?.tareas, cargar]
   )
 
   const nuevaTarea = useCallback(async () => {
@@ -429,7 +491,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
       <FondoAnimado valor={fondo} />
       <BarraLateral clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
 
-      <section className="tc-centro">
+      <section className="tc-centro" ref={setCentro}>
         <div className="tc-movil-barra"><SelectorMovil clientes={datos.clientes} ambito={ambito} onNavegar={navegar} /></div>
         <Cabecera
           titulo={titulo}
@@ -459,13 +521,18 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
         />
 
         <div className="tc-vista" key={`${ambito.tipo}-${'id' in ambito ? ambito.id : ''}-${vista}`}>
-          {vista === 'tablero' && cliente && <Tablero estados={estadosDelAmbito} departamentos={departamentosDe(cliente)} tareas={visibles} personas={personas} tareaAbierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} onOrdenarColumnas={(n) => void ordenarColumnas(n)} onCrear={async (estado, t) => void (await crear(cliente.id, estado, t))} />}
-          {vista === 'tablero' && !cliente && <TableroDeVarios clientes={datos.clientes} tareas={visibles} personas={personas} abierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} />}
-          {vista === 'tabla' && <Tabla tareas={visibles} clientes={mapa} personas={personas} agruparPor={cliente ? filtros.agruparPor : filtros.agruparPor === 'estado' ? 'cliente' : filtros.agruparPor} mostrarCliente={!cliente} tareaAbierta={abierta} onAbrir={abrir} onCambiar={(id, c) => void cambiar(id, c)} onCrear={cliente ? async (clave, t) => void (await crear(cliente.id, filtros.agruparPor === 'estado' ? clave : null, t, filtros.agruparPor === 'departamento' && clave ? { departamento: clave } : {})) : undefined} />}
+          {vista === 'tablero' && cliente && <Tablero estados={estadosDelAmbito} departamentos={departamentosDe(cliente)} tareas={visibles} personas={personas} tareaAbierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} onOrdenarColumnas={(n) => void ordenarColumnas(n)} seleccion={seleccion} onSeleccionar={alternarSeleccion} onCrear={async (estado, t) => void (await crear(cliente.id, estado, t))} />}
+          {vista === 'tablero' && !cliente && <TableroDeVarios clientes={datos.clientes} tareas={visibles} personas={personas} abierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} seleccion={seleccion} onSeleccionar={alternarSeleccion} />}
+          {vista === 'tabla' && <Tabla tareas={visibles} clientes={mapa} personas={personas} agruparPor={cliente ? filtros.agruparPor : filtros.agruparPor === 'estado' ? 'cliente' : filtros.agruparPor} mostrarCliente={!cliente} tareaAbierta={abierta} onAbrir={abrir} onCambiar={(id, c) => void cambiar(id, c)} seleccion={seleccion} onSeleccionar={alternarSeleccion} onCrear={cliente ? async (clave, t) => void (await crear(cliente.id, filtros.agruparPor === 'estado' ? clave : null, t, filtros.agruparPor === 'departamento' && clave ? { departamento: clave } : {})) : undefined} />}
           {vista === 'cronograma' && <Cronograma tareas={visibles} clientes={mapa} tareaAbierta={abierta} onAbrir={abrir} />}
           {vista === 'calendario' && <Calendario tareas={visibles} clientes={mapa} tareaAbierta={abierta} onAbrir={abrir} onCambiar={(id, c) => void cambiar(id, c)} />}
         </div>
       </section>
+
+      {seleccion.size > 0 && (
+        <BarraDeSeleccion cantidad={seleccion.size} columnas={estadosDeLote} ocupada={lotePendiente} onMover={(e) => void aplicarLote('mover', e)} onArchivar={() => void aplicarLote('archivar')} onQuitar={() => setSeleccion(new Set())} />
+      )}
+      {marco && typeof document !== 'undefined' && createPortal(<div className="tc-marco" style={{ left: marco.left, top: marco.top, width: marco.right - marco.left, height: marco.bottom - marco.top }} aria-hidden />, document.body)}
 
       {gestorAbierto && cliente && <PlantillasGestor cliente={cliente} personas={personas} onCerrar={() => setGestorAbierto(false)} onCambio={setPlantillas} onCreada={(t) => { aplicarFila(t); setAbierta(t.id) }} />}
 
@@ -479,7 +546,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
  * solo se puede mover a una columna que su cliente tenga (el servidor lo comprueba y, si no, dice cuáles tiene). Es una vista de repaso: crear tareas se hace dentro de
  * cada cliente.
  */
-function TableroDeVarios({ clientes, tareas, personas, abierta, onAbrir, onMover }: { clientes: readonly ClienteTC[]; tareas: readonly TareaLigera[]; personas: DatosDeTodas['personas']; abierta: string | null; onAbrir: (id: string) => void; onMover: (id: string, estado: string, despuesDe: string | null) => void }) {
+function TableroDeVarios({ clientes, tareas, personas, abierta, onAbrir, onMover, seleccion, onSeleccionar }: { seleccion: ReadonlySet<string>; onSeleccionar: (id: string) => void; clientes: readonly ClienteTC[]; tareas: readonly TareaLigera[]; personas: DatosDeTodas['personas']; abierta: string | null; onAbrir: (id: string) => void; onMover: (id: string, estado: string, despuesDe: string | null) => void }) {
   const { estados, departamentos } = useMemo(() => {
     const e = new Map<string, OpcionDeEstado>()
     const d = new Map<string, OpcionSimple>()
@@ -500,5 +567,5 @@ function TableroDeVarios({ clientes, tareas, personas, abierta, onAbrir, onMover
     }
   }, [])
   const estadosEnOrden = useMemo(() => (orden.length > 0 ? ordenarSegun(estados, orden) : estados), [estados, orden])
-  return <Tablero estados={estadosEnOrden} departamentos={departamentos} tareas={tareas} personas={personas} tareaAbierta={abierta} onAbrir={onAbrir} onMover={onMover} clientes={clientes} onOrdenarColumnas={(n) => { setOrden(n); escribirLocal('tc-orden-columnas-global', JSON.stringify(n)) }} onCrear={() => { toast.message('Para crear una tarea, abre un cliente de la izquierda') }} />
+  return <Tablero estados={estadosEnOrden} departamentos={departamentos} tareas={tareas} personas={personas} tareaAbierta={abierta} onAbrir={onAbrir} onMover={onMover} clientes={clientes} seleccion={seleccion} onSeleccionar={onSeleccionar} onOrdenarColumnas={(n) => { setOrden(n); escribirLocal('tc-orden-columnas-global', JSON.stringify(n)) }} onCrear={() => { toast.message('Para crear una tarea, abre un cliente de la izquierda') }} />
 }

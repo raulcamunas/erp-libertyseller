@@ -24,9 +24,13 @@ export interface PropsDeTarjeta {
   fantasma?: boolean
   indice?: number
   onAbrir?: (id: string) => void
+  /** Selección de varias: si la tarjeta está marcada, si hay alguna marcada en el tablero, y cómo marcarla o desmarcarla (clic con Mayús/Ctrl/Cmd, o clic normal si ya hay selección) */
+  seleccionada?: boolean
+  haySeleccion?: boolean
+  onSeleccionar?: (id: string) => void
 }
 
-export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas, departamentoColor, activa, superpuesta, fantasma, indice = 0, onAbrir }: PropsDeTarjeta) {
+export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas, departamentoColor, activa, superpuesta, fantasma, indice = 0, onAbrir, seleccionada, haySeleccion, onSeleccionar }: PropsDeTarjeta) {
   // Sin color propio la tarjeta es neutra (el color de la columna ya está en su filo); con color propio se tiñe entera
   const color = colorValido(tarea.color ?? estado?.color)
   const hecha = estado?.grupo === 'hecho'
@@ -43,12 +47,14 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
       role="button"
       tabIndex={0}
       aria-label={`Abrir la tarea ${tarea.titulo || 'sin título'}`}
+      data-tarea-id={superpuesta ? undefined : tarea.id}
+      data-seleccionada={seleccionada ? 'true' : undefined}
       data-activa={activa ? 'true' : undefined}
       data-color={tarea.color ? 'propio' : undefined}
       data-resp={colorResp ? (colorResp2 && colorResp2 !== colorResp ? 'varios' : 'uno') : undefined}
       data-superpuesta={superpuesta ? 'true' : undefined}
       data-fantasma={fantasma ? 'true' : undefined}
-      onClick={() => onAbrir?.(tarea.id)}
+      onClick={(e) => (onSeleccionar && (e.metaKey || e.ctrlKey || e.shiftKey || haySeleccion) ? onSeleccionar(tarea.id) : onAbrir?.(tarea.id))}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()

@@ -22,13 +22,16 @@ export interface PropsDeTabla {
   tareaAbierta: string | null
   onAbrir: (id: string) => void
   onCambiar: (id: string, cambios: Record<string, unknown>) => void
+  /** Las tareas marcadas con el cuadro (o con Mayús/Ctrl/Cmd + clic) y cómo marcar una */
+  seleccion?: ReadonlySet<string>
+  onSeleccionar?: (id: string) => void
   /** Solo si la tabla es de UN cliente: se puede crear una fila dentro de cada grupo */
   onCrear?: (grupoClave: string, titulo: string) => Promise<void> | void
 }
 
 const COLUMNAS = 'minmax(260px,1.7fr) var(--tc-col-cliente, 0px) 150px 150px 170px 130px 76px 54px'
 
-export function Tabla({ tareas, clientes, personas, agruparPor, mostrarCliente, tareaAbierta, onAbrir, onCambiar, onCrear }: PropsDeTabla) {
+export function Tabla({ tareas, clientes, personas, agruparPor, mostrarCliente, tareaAbierta, onAbrir, onCambiar, seleccion, onSeleccionar, onCrear }: PropsDeTabla) {
   const [plegados, setPlegados] = useState<Set<string>>(new Set())
   const [escribiendo, setEscribiendo] = useState<string | null>(null)
   const [titulo, setTitulo] = useState('')
@@ -99,7 +102,7 @@ export function Tabla({ tareas, clientes, personas, agruparPor, mostrarCliente, 
               const dia = (t.fecha_fin ?? t.fecha_inicio)?.slice(0, 10)
               const vencida = Boolean(dia && !hecha && dia < hoy)
               return (
-                <div key={`${g.clave}-${t.id}`} role="row" tabIndex={0} aria-label={`Abrir ${t.titulo || 'tarea sin título'}`} data-activa={tareaAbierta === t.id ? 'true' : undefined} onClick={() => onAbrir(t.id)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) onAbrir(t.id) }} className="tc-fila" style={{ gridTemplateColumns: COLUMNAS, '--i': Math.min(i, 16) } as CSSProperties}>
+                <div key={`${g.clave}-${t.id}`} role="row" tabIndex={0} aria-label={`Abrir ${t.titulo || 'tarea sin título'}`} data-activa={tareaAbierta === t.id ? 'true' : undefined} data-tarea-id={t.id} data-seleccionada={seleccion?.has(t.id) ? 'true' : undefined} onClick={(e) => (onSeleccionar && (e.metaKey || e.ctrlKey || e.shiftKey || (seleccion?.size ?? 0) > 0) ? onSeleccionar(t.id) : onAbrir(t.id))} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) onAbrir(t.id) }} className="tc-fila" style={{ gridTemplateColumns: COLUMNAS, '--i': Math.min(i, 16) } as CSSProperties}>
                   <span role="cell" className="flex min-w-0 items-center gap-2">
                     <span className="w-5 shrink-0 text-center text-[14px]">{t.icono ?? <span className="text-[var(--ls-t4)]">·</span>}</span>
                     <span className={`truncate text-[13px] text-[var(--ls-t1)] ${hecha ? 'tc-hecha' : ''}`}>{t.titulo || <span className="text-[var(--ls-t4)]">Sin título</span>}</span>

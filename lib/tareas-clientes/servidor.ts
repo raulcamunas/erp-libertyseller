@@ -476,6 +476,8 @@ export interface DestinoDeMovimiento {
   estado: string
   /** La tarea que queda justo ANTES de la movida en su columna nueva; null = la primera */
   despuesDe: string | null
+  /** Al final de la columna (lo que hace «Mover a…» con varias tareas): manda sobre `despuesDe` */
+  alFinal?: boolean
 }
 
 /** Arrastrar una tarjeta: cambia de columna y/o de sitio. Es lo único que se hace cientos de veces, así que va por un camino corto */
@@ -490,8 +492,8 @@ export async function moverTarea(actor: Actor, id: string, destino: DestinoDeMov
   const { data: columna } = await service.from('tc_tareas').select('id, orden').eq('cliente_id', previa.cliente_id).eq('estado', estado).eq('archivada', false).neq('id', id).order('orden')
   const ids = (columna ?? []).map((c: { id: string }) => c.id)
   const ordenes = new Map((columna ?? []).map((c: { id: string; orden: number }) => [c.id, Number(c.orden)] as const))
-  const i = destino.despuesDe ? ids.indexOf(destino.despuesDe) : -1
-  if (destino.despuesDe && i < 0) throw new ErrorDeTareas('La tarea que va antes ya no está en esa columna. Recarga el tablero.', 409)
+  const i = destino.alFinal ? ids.length - 1 : destino.despuesDe ? ids.indexOf(destino.despuesDe) : -1
+  if (!destino.alFinal && destino.despuesDe && i < 0) throw new ErrorDeTareas('La tarea que va antes ya no está en esa columna. Recarga el tablero.', 409)
   const { orden, renumeradas } = colocar(ids, ordenes, i + 1)
 
   if (renumeradas) {
