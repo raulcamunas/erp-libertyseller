@@ -435,7 +435,8 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
         <div className="lat-cabecera">
           {isCollapsed ? (
             <Link href="/" className="lat-monograma" aria-label="Liberty Seller Hub">
-              <span>LS</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/pwa/icono-192.png" alt="" width={38} height={38} draggable={false} />
             </Link>
           ) : (
             <span className="lat-logo">

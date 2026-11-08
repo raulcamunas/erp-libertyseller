@@ -2179,9 +2179,10 @@ html.light .lat-logo img { filter: invert(1) hue-rotate(180deg) saturate(1.15); 
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--ls-acc-tinta);
-  background: linear-gradient(135deg, var(--lat-relleno-a), var(--lat-relleno-b));
-  box-shadow: 0 6px 18px -6px var(--lat-sombra-icono), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  background: #0f1114;
+  box-shadow: 0 6px 18px -8px var(--lat-sombra-icono), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
+.lat-monograma img { display: block; height: 100%; width: 100%; object-fit: cover; }
 .lat-monograma::after {
   content: '';
   position: absolute;
