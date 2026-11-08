@@ -6,6 +6,8 @@
  * El claro u oscuro lo sigue decidiendo el ERP: el tema solo pone el color y el fondo encima.
  */
 
+import { FONDOS_DEL_CHAT } from './fondos'
+
 export interface TemaDeColor {
   id: string
   nombre: string
@@ -32,17 +34,13 @@ export interface OpcionDeAjuste<T extends string> {
   detalle?: string
 }
 
-export type FondoDelChat = 'liso' | 'aurora' | 'puntos' | 'malla'
+/** El id de un fondo de lib/chat/fondos.ts */
+export type FondoDelChat = string
 export type EstiloDeMensajes = 'filas' | 'burbujas'
 export type DensidadDelChat = 'comoda' | 'compacta'
 export type TextoDelChat = 'normal' | 'grande'
 
-export const FONDOS: ReadonlyArray<OpcionDeAjuste<FondoDelChat>> = [
-  { id: 'liso', nombre: 'Liso' },
-  { id: 'aurora', nombre: 'Aurora', detalle: 'Luz suave del color elegido' },
-  { id: 'puntos', nombre: 'Puntos' },
-  { id: 'malla', nombre: 'Cuadrícula' },
-]
+export const FONDOS: ReadonlyArray<OpcionDeAjuste<FondoDelChat>> = FONDOS_DEL_CHAT.map((f) => ({ id: f.id, nombre: f.nombre }))
 export const ESTILOS: ReadonlyArray<OpcionDeAjuste<EstiloDeMensajes>> = [
   { id: 'filas', nombre: 'Filas', detalle: 'Como Slack' },
   { id: 'burbujas', nombre: 'Burbujas', detalle: 'Como WhatsApp' },

@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Check, RotateCcw, X } from 'lucide-react'
-import { DENSIDADES, ESTILOS, FONDOS, TEMAS, TEXTOS, type OpcionDeAjuste } from '@/lib/chat/temas'
+import { FONDOS_DEL_CHAT, GRUPOS_DE_FONDOS, fondoDelChat, variablesDeFondo, type GrupoDeFondo } from '@/lib/chat/fondos'
+import { DENSIDADES, ESTILOS, TEMAS, TEXTOS, type OpcionDeAjuste } from '@/lib/chat/temas'
 import { useTemaDelChat } from './TemaDelChat'
 
 function Selector<T extends string>({ titulo, opciones, valor, alElegir }: { titulo: string; opciones: ReadonlyArray<OpcionDeAjuste<T>>; valor: T; alElegir: (v: T) => void }) {
@@ -13,6 +14,29 @@ function Selector<T extends string>({ titulo, opciones, valor, alElegir }: { tit
         {opciones.map((o) => (
           <button key={o.id} type="button" role="radio" aria-checked={valor === o.id} onClick={() => alElegir(o.id)} title={o.detalle}>
             {o.nombre}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+/** Los fondos, por familias y con una muestra de cada uno (se ven con el color del tema elegido) */
+function SelectorDeFondos({ valor, alElegir }: { valor: string; alElegir: (id: string) => void }) {
+  const [grupo, setGrupo] = useState<GrupoDeFondo>(fondoDelChat(valor)?.grupo ?? 'luces')
+  const actual = fondoDelChat(valor)
+  return (
+    <fieldset className="chat-ap-grupo">
+      <legend>Fondo{actual ? ` · ${actual.nombre}` : ''}</legend>
+      <div className="chat-ap-segmentos" role="tablist" aria-label="Familias de fondos">
+        {GRUPOS_DE_FONDOS.map((g) => (
+          <button key={g.id} type="button" role="tab" aria-selected={grupo === g.id} aria-checked={grupo === g.id} onClick={() => setGrupo(g.id)}>{g.nombre}</button>
+        ))}
+      </div>
+      <div className="chat-fondos" role="radiogroup" aria-label="Fondo">
+        {FONDOS_DEL_CHAT.filter((f) => f.grupo === grupo).map((f) => (
+          <button key={f.id} type="button" role="radio" aria-checked={valor === f.id} title={f.nombre} aria-label={f.nombre} className="chat-fondo-muestra" style={variablesDeFondo(f.id) as CSSProperties} onClick={() => alElegir(f.id)}>
+            <span>{f.nombre}</span>
           </button>
         ))}
       </div>
@@ -56,7 +80,7 @@ export function AparienciaDelChat({ onCerrar }: { onCerrar: () => void }) {
           ))}
         </div>
       </fieldset>
-      <Selector titulo="Fondo" opciones={FONDOS} valor={ajustes.fondo} alElegir={(fondo) => cambiar({ fondo })} />
+      <SelectorDeFondos valor={ajustes.fondo} alElegir={(fondo) => cambiar({ fondo })} />
       <Selector titulo="Mensajes" opciones={ESTILOS} valor={ajustes.estilo} alElegir={(estilo) => cambiar({ estilo })} />
       <Selector titulo="Densidad" opciones={DENSIDADES} valor={ajustes.densidad} alElegir={(densidad) => cambiar({ densidad })} />
       <Selector titulo="Tamaño del texto" opciones={TEXTOS} valor={ajustes.texto} alElegir={(texto) => cambiar({ texto })} />

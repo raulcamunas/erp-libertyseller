@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ponerChatSinLeer } from '@/lib/avisos/contadores'
 import { totalSinLeer } from '@/lib/chat/canales'
 import { ponerProveedorDelChatVivo } from '@/lib/chat/dock-estado'
+import { variablesDeFondo } from '@/lib/chat/fondos'
 import { AsistenteDelErp } from './AsistenteDelErp'
 import { BarraDeChat } from './BarraDeChat'
 import { ChatProvider, useChat } from './ChatProvider'
@@ -76,7 +77,7 @@ export function Marco({ dock = false }: { dock?: boolean }) {
     return () => window.removeEventListener('keydown', alTeclear)
   }, [dock])
   return (
-    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-con-miembros={miembrosALaVista ? 'true' : undefined} data-vista={actual || vista !== 'canal' ? 'canal' : 'barra'} data-fondo={ajustes.fondo} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto} data-dock={dock ? 'true' : undefined}>
+    <div className="chat-marco" data-con-hilo={hilo ? 'true' : undefined} data-con-miembros={miembrosALaVista ? 'true' : undefined} data-vista={actual || vista !== 'canal' ? 'canal' : 'barra'} data-fondo={ajustes.fondo} style={variablesDeFondo(ajustes.fondo) as CSSProperties} data-estilo={ajustes.estilo} data-densidad={ajustes.densidad} data-texto={ajustes.texto} data-dock={dock ? 'true' : undefined}>
       <BarraDeChat alBuscar={() => setBuscando(true)} />
       {vista === 'canal' ? <VistaDeCanal /> : <VistaDeBandeja />}
       <PanelDeHilo />

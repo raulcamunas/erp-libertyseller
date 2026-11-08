@@ -4,7 +4,7 @@ import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { ImagePlus, Loader2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { COLORES_DE_PORTADA, DEGRADADOS, fondoAnimadoId, FONDOS_ANIMADOS, fondoCss } from '@/lib/tareas-clientes/colores'
+import { COLORES_DE_PORTADA, DEGRADADOS, fondoAnimadoId, FONDOS_ANIMADOS, fondoCss, PATRONES_DE_FONDO } from '@/lib/tareas-clientes/colores'
 import type { Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
 import { BASE, pedir } from './api'
 
@@ -44,6 +44,7 @@ export function FondoAnimado({ valor }: { valor: PortadaGuardada | null | undefi
 const PESTANAS = [
   { id: 'animado', nombre: 'Animados' },
   { id: 'degradado', nombre: 'Degradados' },
+  { id: 'patron', nombre: 'Patrones' },
   { id: 'color', nombre: 'Colores' },
   { id: 'imagen', nombre: 'Imagen' },
 ] as const
@@ -51,7 +52,7 @@ const PESTANAS = [
 /** `animados`: ofrece también los fondos animados (solo tiene sentido para un FONDO, no para una portada) */
 export function SelectorDePortada({ valor, onElegir, titulo, children, animados = false }: { valor: PortadaGuardada | null | undefined; onElegir: (p: PortadaGuardada) => void; titulo: string; children: ReactNode; animados?: boolean }) {
   const pestanas = PESTANAS.filter((p) => animados || p.id !== 'animado')
-  const [pestana, setPestana] = useState<(typeof PESTANAS)[number]['id']>(valor?.tipo === 'animado' && animados ? 'animado' : valor?.tipo === 'color' ? 'color' : valor?.tipo === 'imagen' ? 'imagen' : 'degradado')
+  const [pestana, setPestana] = useState<(typeof PESTANAS)[number]['id']>(valor?.tipo === 'animado' && animados ? 'animado' : valor?.tipo === 'color' ? 'color' : valor?.tipo === 'imagen' ? 'imagen' : valor?.tipo === 'degradado' && valor.valor?.startsWith('p-') ? 'patron' : 'degradado')
   const [subiendo, setSubiendo] = useState(false)
   const [enlace, setEnlace] = useState('')
   const entrada = useRef<HTMLInputElement>(null)
@@ -103,6 +104,15 @@ export function SelectorDePortada({ valor, onElegir, titulo, children, animados 
         {pestana === 'degradado' && (
           <div className="grid max-h-[330px] grid-cols-3 gap-1.5 overflow-y-auto pr-0.5">
             {DEGRADADOS.map((d) => (
+              <button key={d.id} type="button" title={d.nombre} aria-label={d.nombre} aria-pressed={valor?.tipo === 'degradado' && valor.valor === d.id} onClick={() => onElegir({ tipo: 'degradado', valor: d.id })} className="tc-muestra-portada" style={{ background: d.css }}>
+                <span>{d.nombre}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {pestana === 'patron' && (
+          <div className="grid max-h-[330px] grid-cols-3 gap-1.5 overflow-y-auto pr-0.5">
+            {PATRONES_DE_FONDO.map((d) => (
               <button key={d.id} type="button" title={d.nombre} aria-label={d.nombre} aria-pressed={valor?.tipo === 'degradado' && valor.valor === d.id} onClick={() => onElegir({ tipo: 'degradado', valor: d.id })} className="tc-muestra-portada" style={{ background: d.css }}>
                 <span>{d.nombre}</span>
               </button>

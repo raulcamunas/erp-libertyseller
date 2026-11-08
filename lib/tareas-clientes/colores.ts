@@ -1,3 +1,5 @@
+import { PALETAS, PALETAS_ANIMADAS_NUEVAS, conAlfa, oscurecer } from '@/lib/fondos/paletas'
+import { PATRONES, patronComoFondo } from '@/lib/fondos/patrones'
 import type { ColorNotion } from './tipos'
 
 /**
@@ -37,7 +39,7 @@ export const NOMBRE_DE_COLOR: Record<ColorNotion, string> = {
 }
 
 /** Los degradados para portadas y fondos: el nombre que se guarda y la receta que se pinta */
-export const DEGRADADOS: ReadonlyArray<{ id: string; nombre: string; css: string }> = [
+const DEGRADADOS_BASE: ReadonlyArray<{ id: string; nombre: string; css: string }> = [
   { id: 'aurora', nombre: 'Aurora', css: 'linear-gradient(120deg, #1f3b73 0%, #6b3fa0 45%, #e0527a 100%)' },
   { id: 'atardecer', nombre: 'Atardecer', css: 'linear-gradient(120deg, #3a1c71 0%, #d76d77 50%, #ffaf7b 100%)' },
   { id: 'oceano', nombre: 'Océano', css: 'linear-gradient(120deg, #0f2027 0%, #1f5f7a 55%, #2c9ab7 100%)' },
@@ -62,7 +64,19 @@ export const DEGRADADOS: ReadonlyArray<{ id: string; nombre: string; css: string
   { id: 'bruma', nombre: 'Bruma', css: 'linear-gradient(160deg, #111827 0%, #475569 50%, #cbd5e1 100%)' },
 ]
 
-const DEGRADADO_POR_ID = new Map(DEGRADADOS.map((d) => [d.id, d.css]))
+/** Más degradados: uno por paleta nueva, del color de la paleta oscurecido al color claro (ángulos alternados) */
+export const DEGRADADOS: ReadonlyArray<{ id: string; nombre: string; css: string }> = [
+  ...DEGRADADOS_BASE,
+  ...PALETAS_ANIMADAS_NUEVAS.map((p, i) => ({ id: `g-${p.id}`, nombre: p.nombre, css: `linear-gradient(${i % 2 === 0 ? 120 : 160}deg, ${oscurecer(p.a, 0.2)} 0%, ${p.b} 55%, ${p.c} 100%)` })),
+]
+
+/** Los PATRONES: un dibujo (puntos, olas, hexágonos…) del color de una paleta, muy suave, sobre un fondo oscuro de ese mismo color. Se guardan como degradados (`tipo: 'degradado'`) */
+export const PATRONES_DE_FONDO: ReadonlyArray<{ id: string; nombre: string; css: string }> = PATRONES.map((p, i) => {
+  const paleta = PALETAS[(i * 3) % PALETAS.length]
+  return { id: `p-${p.id}`, nombre: `${p.nombre} · ${paleta.nombre}`, css: patronComoFondo(p, conAlfa(paleta.c, 0.2), oscurecer(paleta.a, 0.2)) }
+})
+
+const DEGRADADO_POR_ID = new Map([...DEGRADADOS, ...PATRONES_DE_FONDO].map((d) => [d.id, d.css]))
 
 /** El CSS de fondo de una portada o un fondo guardados; null si no hay ninguno que pintar */
 export function fondoCss(p: { tipo?: string; valor?: string; y?: number } | null | undefined): string | null {
@@ -78,7 +92,7 @@ export function fondoCss(p: { tipo?: string; valor?: string; y?: number } | null
  * LOS FONDOS ANIMADOS: luces de color que derivan despacio detrás de todo. Se pintan con CSS (clases `tc-fa-*` de app/globals.css), sin imágenes ni scripts, y solo mueven
  * `translate` y `scale` (lo que el navegador anima en la tarjeta gráfica): casi no gastan. Quien pide menos movimiento los ve quietos.
  */
-export const FONDOS_ANIMADOS: ReadonlyArray<{ id: string; nombre: string }> = [
+const FONDOS_ANIMADOS_BASE: ReadonlyArray<{ id: string; nombre: string }> = [
   // Luces de color que derivan
   { id: 'aurora', nombre: 'Aurora' },
   { id: 'nebulosa', nombre: 'Nebulosa' },
@@ -105,6 +119,9 @@ export const FONDOS_ANIMADOS: ReadonlyArray<{ id: string; nombre: string }> = [
   { id: 'diagonales', nombre: 'Diagonales' },
   { id: 'latido', nombre: 'Latido' },
 ]
+/** Más fondos animados: una luz por cada paleta nueva (los colores están en app/globals.css, `tc-fa-*`) */
+export const FONDOS_ANIMADOS: ReadonlyArray<{ id: string; nombre: string }> = [...FONDOS_ANIMADOS_BASE, ...PALETAS_ANIMADAS_NUEVAS.map((p) => ({ id: p.id, nombre: p.nombre }))]
+
 const ANIMADOS: ReadonlySet<string> = new Set(FONDOS_ANIMADOS.map((f) => f.id))
 
 /** El nombre del fondo animado guardado, o null si no hay (o no se conoce: nunca se pinta algo que no está en la lista) */
