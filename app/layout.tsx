@@ -48,7 +48,10 @@ export const metadata: Metadata = {
   title: "Liberty Seller Hub - ERP",
   description: "ERP interno para Liberty Seller",
   icons: {
-    icon: '/logos/icon.png',
+    icon: [
+      { url: '/pwa/icono-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/logos/icon.png', sizes: '512x512', type: 'image/png' },
+    ],
     apple: '/pwa/icono-180.png',
   },
   // En el iPhone, con «Añadir a pantalla de inicio» se abre como una aplicación, sin la barra de Safari
