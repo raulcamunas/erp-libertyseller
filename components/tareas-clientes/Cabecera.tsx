@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { CalendarClock, CalendarDays, ChevronDown, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Settings2, Table2, X } from 'lucide-react'
+import { CalendarClock, CalendarDays, ChevronDown, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Settings2, Share2, Table2, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { hayFiltros } from '@/lib/tareas-clientes/filtros'
 import { describirRecurrencia, recurrenciaValida } from '@/lib/tareas-clientes/recurrencia'
@@ -32,6 +32,8 @@ export interface PropsDeCabecera {
   onFiltros: (f: FiltrosDeTareas) => void
   /** Un administrador puede compartir una vista guardada con todo el equipo */
   esAdmin?: boolean
+  /** Si se pasa, aparece «Compartir» (el panel del cliente): solo se pasa para un administrador dentro de un cliente */
+  onCompartir?: () => void
   personas: readonly PersonaTC[]
   clientesParaDepartamentos: readonly ClienteTC[]
   puedeAgrupar: boolean
@@ -137,6 +139,8 @@ export function Cabecera(p: PropsDeCabecera) {
         <SelectorDePortada valor={p.fondo} titulo="Fondo del espacio" onElegir={p.onFondo} animados>
           <button type="button" className="tc-boton-herramienta"><Palette className="h-3.5 w-3.5" /> Fondo</button>
         </SelectorDePortada>
+
+        {p.onCompartir && <button type="button" onClick={p.onCompartir} className="tc-boton-herramienta" title="Compartir el panel con el cliente"><Share2 className="h-3.5 w-3.5" /> Compartir</button>}
 
         {activos && <span className="text-[11.5px] tabular-nums text-[var(--ls-t3)]">{p.visibles} de {p.total}</span>}
         <div className="tc-split">

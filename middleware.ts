@@ -101,6 +101,8 @@ export async function middleware(request: NextRequest) {
                        // token de la dirección (lib/fba/encaje-enlace.ts): da paso a UN envío y se comprueba
                        // en el servidor en cada petición. Solo esta carpeta: nada más del ERP se abre así
                        pathname.startsWith('/encajar/') ||
+                       // El panel del cliente (qué tareas se le enseñan): igual, el token de la dirección es la credencial y solo sirve para ESE cliente. Solo esta carpeta
+                       pathname.startsWith('/tareas-cliente/') ||
                        // OAuth de Amazon. Quien llega a estas dos direcciones es
                        // el CLIENTE desde su Seller Central, sin sesión en el
                        // ERP: mandarle al login rompe el flujo a mitad y él no

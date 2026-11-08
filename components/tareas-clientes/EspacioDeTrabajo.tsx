@@ -17,6 +17,7 @@ import { BarraDeSeleccion } from './BarraDeSeleccion'
 import { BarraLateral, SelectorMovil } from './BarraLateral'
 import { BuscadorGlobal } from './BuscadorGlobal'
 import { Cabecera } from './Cabecera'
+import { CompartirConElCliente } from './CompartirConElCliente'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
 import { BloqueadasContexto } from './contexto'
@@ -71,6 +72,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   const [releyendo, setReleyendo] = useState(false)
   const [plantillas, setPlantillas] = useState<PlantillaTC[]>([])
   const [gestorAbierto, setGestorAbierto] = useState(false)
+  const [compartirAbierto, setCompartirAbierto] = useState(false)
   const pendientes = useRef(0)
 
   useEffect(() => {
@@ -541,6 +543,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           filtros={filtros}
           onFiltros={setFiltros}
           esAdmin={esAdmin}
+          onCompartir={esAdmin && cliente ? () => setCompartirAbierto(true) : undefined}
           personas={personas}
           clientesParaDepartamentos={cliente ? [cliente] : datos.clientes}
           puedeAgrupar={vista === 'tabla'}
@@ -574,6 +577,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
       {buscadorAbierto && <BuscadorGlobal tareas={datos.tareas} clientes={datos.clientes} clienteActual={cliente} onElegirTarea={elegirResultado} onElegirCliente={(id) => irA({ tipo: 'cliente', id }, rutaDeAmbito({ tipo: 'cliente', id }))} onCerrar={() => setBuscadorAbierto(false)} />}
 
       {gestorAbierto && cliente && <PlantillasGestor cliente={cliente} personas={personas} onCerrar={() => setGestorAbierto(false)} onCambio={setPlantillas} onCreada={(t) => { aplicarFila(t); setAbierta(t.id) }} />}
+
+      {compartirAbierto && esAdmin && cliente && <CompartirConElCliente clienteId={cliente.id} clienteNombre={cliente.nombre} onCerrar={() => setCompartirAbierto(false)} />}
 
       {panel}
     </div>
