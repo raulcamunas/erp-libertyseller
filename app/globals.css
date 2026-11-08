@@ -2840,9 +2840,6 @@ a.lat-aviso:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offse
   .lat { transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), translate 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
   .lat-aurora { animation: lat-deriva 18s ease-in-out infinite alternate; }
   .lat-hilo { animation: lat-baja 9s linear infinite; }
-  .lat-logo::before { animation: lat-respira 6s ease-in-out infinite alternate; }
-  .lat-monograma::after { animation: lat-destello 5.5s ease-in-out infinite; }
-  .lat-avatar::before { animation: lat-gira 7s linear infinite; }
 
   .lat-item,
   .lat-espera { animation: lat-entra 0.55s cubic-bezier(0.22, 0.8, 0.3, 1) backwards; animation-delay: calc(min(var(--i, 0), 14) * 26ms + 90ms); }
@@ -5201,3 +5198,6 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
 .tc-perfil-rejilla-alta { max-height: 196px; overflow-y: auto; padding: 2px; scrollbar-width: thin; }
 .tc-perfil-personaje { font-size: 18px; line-height: 1; }
 .tc-perfil-personaje[data-mio='true'] { border-color: var(--ls-acc); background: var(--ls-acc-suave); }
+
+/* Sin el aro que giraba alrededor de tu círculo ni el destello que cruzaba el logo de vez en cuando */
+.lat-avatar::before, .lat-monograma::after { display: none; }
