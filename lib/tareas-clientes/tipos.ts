@@ -119,6 +119,14 @@ export interface TareaTC {
   checklist_total: number
   checklist_hecho: number
   comentarios: number
+  /** Lo de abajo lo añade la migración 278: mientras no esté lanzada no viene (se cuenta como 0 / vacío) */
+  subtareas_total?: number
+  subtareas_hechas?: number
+  adjuntos_total?: number
+  /** Las tareas que tienen que estar hechas antes de esta */
+  bloqueada_por?: string[]
+  /** Los valores de las propiedades propias del cliente (las que Notion tiene y el ERP no conocía), por nombre */
+  propiedades?: Record<string, unknown>
   visible_cliente: boolean
   archivada: boolean
   origen: 'erp' | 'notion'

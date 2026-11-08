@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { destinatariosDeAsignacion, destinatariosDeComentario, mencionesEnTexto, resumen } from './avisos'
 import { contarChecklist, huellaDeContenido, progresoDeChecklist, textoPlano, TIPOS_EDITABLES, type Bloque } from './bloques'
 import { fondoAnimadoId } from './colores'
+import { guardarVersion } from './historial-servidor'
 import { personaPuedeVer, puedeVer, type Permitidos } from './permisos'
 import { avisosDeFecha } from './vencimientos'
 import { programarEnvioANotion } from './notion/pronto'
@@ -26,8 +27,27 @@ export interface Actor {
   nombre: string
 }
 
-const COLUMNAS_LIGERAS =
+const COLUMNAS_BASE =
   'id, cliente_id, titulo, icono, color, portada, estado, departamento, etiquetas, fecha_inicio, fecha_fin, fecha_con_hora, progreso, url, responsables, responsables_notion, orden, checklist_total, checklist_hecho, comentarios, visible_cliente, archivada, origen, notion_page_id, notion_url, notion_editado, sync_estado, sync_error, creado_por, actualizado_por, creado_en, actualizado_en'
+/** Lo que añade la migración 278 (subtareas, adjuntos, bloqueos, propiedades propias). Mientras no esté lanzada se pide sin ello */
+const COLUMNAS_NUEVAS = 'subtareas_total, subtareas_hechas, adjuntos_total, bloqueada_por, propiedades'
+const COLUMNAS_LIGERAS = `${COLUMNAS_BASE}, ${COLUMNAS_NUEVAS}`
+
+let sinColumnasNuevasHasta = 0
+const faltaUnaColumna = (e: { message?: string; code?: string } | null | undefined): boolean => Boolean(e && (e.code === '42703' || /column .* does not exist|could not find the .* column/i.test(e.message ?? '')))
+
+/**
+ * LEE TAREAS PIDIENDO LAS COLUMNAS NUEVAS Y, SI LA BASE TODAVÍA NO LAS TIENE, SIN ELLAS. Las migraciones se lanzan a mano y el código puede llegar antes: sin esto, un
+ * `select` con una columna que no existe tumbaría el tablero entero. Cuando falta, se vuelve a probar cada 5 minutos, así que al lanzar el SQL se activa solo.
+ */
+async function conLigeras<R extends { error: { message?: string; code?: string } | null }>(consulta: (columnas: string) => PromiseLike<R>): Promise<R> {
+  if (Date.now() >= sinColumnasNuevasHasta) {
+    const r = await consulta(COLUMNAS_LIGERAS)
+    if (!faltaUnaColumna(r.error)) return r
+    sinColumnasNuevasHasta = Date.now() + 5 * 60_000
+  }
+  return consulta(COLUMNAS_BASE)
+}
 
 /** Una tarea sin su cuerpo: lo que hace falta para pintar tableros y tablas sin arrastrar el texto de todas */
 export type TareaLigera = Omit<TareaTC, 'contenido' | 'contenido_texto'>
@@ -43,6 +63,15 @@ export class ErrorDeTareas extends Error {
 }
 
 /** Falla con un 403 si la persona no puede ver ese cliente */
+/** Una tarea que existe y que esta persona puede ver (si no, el error que toca) */
+export async function exigirTarea(id: string, permitidos: Permitidos): Promise<{ id: string; cliente_id: string; titulo: string }> {
+  if (!esUuid(id)) throw new ErrorDeTareas('Esa tarea no existe.', 404)
+  const { data } = await createServiceClient().from('tc_tareas').select('id, cliente_id, titulo').eq('id', id).maybeSingle()
+  if (!data) throw new ErrorDeTareas('Esa tarea no existe.', 404)
+  exigirAcceso(permitidos, (data as { cliente_id: string }).cliente_id)
+  return data as { id: string; cliente_id: string; titulo: string }
+}
+
 export function exigirAcceso(permitidos: Permitidos, clienteId: string | null | undefined): void {
   if (!puedeVer(permitidos, clienteId)) throw new ErrorDeTareas('No tienes acceso a ese cliente.', 403)
 }
@@ -152,14 +181,14 @@ export async function cargarCliente(clienteId: string, userId: string, permitido
   const service = createServiceClient()
   const [cliente, tareas, otros, preferencias, personas] = await Promise.all([
     service.from('tc_clientes').select('*').eq('id', clienteId).maybeSingle(),
-    service.from('tc_tareas').select(COLUMNAS_LIGERAS).eq('cliente_id', clienteId).eq('archivada', false).order('orden').limit(5000),
+    conLigeras((c) => service.from('tc_tareas').select(c).eq('cliente_id', clienteId).eq('archivada', false).order('orden').limit(5000)),
     service.from('tc_clientes').select('id, nombre, icono, color, grupo, orden').eq('activo', true).order('grupo').order('orden').order('nombre'),
     service.from('tc_preferencias').select('*').eq('usuario_id', userId).maybeSingle(),
     personasConAcceso(),
   ])
   if (!cliente.data) throw new ErrorDeTareas('Ese cliente no existe.', 404)
   const clientes = ((otros.data ?? []) as Array<Pick<ClienteTC, 'id' | 'nombre' | 'icono' | 'color' | 'grupo' | 'orden'>>).filter((c) => puedeVer(permitidos, c.id))
-  return { cliente: cliente.data as ClienteTC, tareas: (tareas.data ?? []) as TareaLigera[], clientes, preferencias: preferencias.data ?? null, personas }
+  return { cliente: cliente.data as ClienteTC, tareas: (tareas.data ?? []) as unknown as TareaLigera[], clientes, preferencias: preferencias.data ?? null, personas }
 }
 
 /** Las tareas de TODOS los clientes, para la vista «Todas» y «Mis tareas» */
@@ -168,11 +197,11 @@ export async function cargarTodas(userId: string, permitidos?: Permitidos) {
   const ids = permitidos ? [...permitidos] : null
   const [clientes, tareas, preferencias, personas] = await Promise.all([
     (ids ? service.from('tc_clientes').select('*').in('id', ids) : service.from('tc_clientes').select('*')).eq('activo', true).order('grupo').order('orden').order('nombre'),
-    (ids ? service.from('tc_tareas').select(COLUMNAS_LIGERAS).in('cliente_id', ids) : service.from('tc_tareas').select(COLUMNAS_LIGERAS)).eq('archivada', false).order('orden').limit(20000),
+    conLigeras((c) => (ids ? service.from('tc_tareas').select(c).in('cliente_id', ids) : service.from('tc_tareas').select(c)).eq('archivada', false).order('orden').limit(20000)),
     service.from('tc_preferencias').select('*').eq('usuario_id', userId).maybeSingle(),
     personasConAcceso(),
   ])
-  return { clientes: (clientes.data ?? []) as ClienteTC[], tareas: (tareas.data ?? []) as TareaLigera[], preferencias: preferencias.data ?? null, personas }
+  return { clientes: (clientes.data ?? []) as ClienteTC[], tareas: (tareas.data ?? []) as unknown as TareaLigera[], preferencias: preferencias.data ?? null, personas }
 }
 
 export async function cargarTarea(id: string, permitidos?: Permitidos) {
@@ -395,13 +424,15 @@ export async function crearTarea(actor: Actor, entrada: EntradaDeTarea): Promise
   const orden = ordenAlFinal((hermanas ?? []).map((h: { orden: number }) => Number(h.orden)))
   const conNotion = Boolean((cliente as ClienteTC).notion_ds_id)
 
-  const { data, error } = await service
-    .from('tc_tareas')
-    .insert({ titulo: '', ...limpio, estado, cliente_id: entrada.clienteId, orden, origen: 'erp', creado_por: actor.userId || null, actualizado_por: actor.userId || null, sync_estado: conNotion ? 'pendiente' : 'solo_erp' })
-    .select(COLUMNAS_LIGERAS)
-    .single()
+  const { data, error } = await conLigeras((c) =>
+    service
+      .from('tc_tareas')
+      .insert({ titulo: '', ...limpio, estado, cliente_id: entrada.clienteId, orden, origen: 'erp', creado_por: actor.userId || null, actualizado_por: actor.userId || null, sync_estado: conNotion ? 'pendiente' : 'solo_erp' })
+      .select(c)
+      .single()
+  )
   if (error || !data) throw new ErrorDeTareas(`No se ha podido crear la tarea: ${error?.message ?? 'sin respuesta'}`, 500)
-  const tarea = data as TareaLigera
+  const tarea = data as unknown as TareaLigera
 
   await registrar(actor, { tareaId: tarea.id, clienteId: tarea.cliente_id, tipo: 'creada', datos: { titulo: tarea.titulo, estado } })
   await encolar(tarea.cliente_id, tarea.id, 'crear')
@@ -413,7 +444,7 @@ export async function crearTarea(actor: Actor, entrada: EntradaDeTarea): Promise
 /** Cambia lo que se pida de una tarea, y deja constancia y cola de Notion de lo que haya cambiado de verdad */
 export async function actualizarTarea(actor: Actor, id: string, cambios: CambiosDeTarea): Promise<TareaLigera> {
   const service = createServiceClient()
-  const { data: antes } = await service.from('tc_tareas').select(`${COLUMNAS_LIGERAS}, contenido`).eq('id', id).maybeSingle()
+  const { data: antes } = await conLigeras((c) => service.from('tc_tareas').select(`${c}, contenido`).eq('id', id).maybeSingle())
   if (!antes) throw new ErrorDeTareas('Esa tarea no existe.', 404)
   const previa = antes as unknown as TareaTC
   exigirAcceso(actor.clientes, previa.cliente_id)
@@ -435,14 +466,18 @@ export async function actualizarTarea(actor: Actor, id: string, cambios: Cambios
 
   if (typeof reales.estado === 'string') await exigirEstadoDelCliente(previa.cliente_id, reales.estado)
   const conNotion = Boolean(previa.notion_page_id) || (await tieneBaseDeNotion(previa.cliente_id))
-  const { data, error } = await service
-    .from('tc_tareas')
-    .update({ ...reales, actualizado_por: actor.userId, ...(conNotion ? { sync_estado: 'pendiente', sync_error: null } : {}) })
-    .eq('id', id)
-    .select(COLUMNAS_LIGERAS)
-    .single()
+  // El cuerpo de antes se guarda en el historial antes de pisarlo (no puede fallar el guardado por esto)
+  if ('contenido' in reales) await guardarVersion({ id, titulo: previa.titulo }, ((previa as unknown as { contenido: Bloque[] | null }).contenido ?? []) as Bloque[], actor, 'erp')
+  const { data, error } = await conLigeras((c) =>
+    service
+      .from('tc_tareas')
+      .update({ ...reales, actualizado_por: actor.userId, ...(conNotion ? { sync_estado: 'pendiente', sync_error: null } : {}) })
+      .eq('id', id)
+      .select(c)
+      .single()
+  )
   if (error || !data) throw new ErrorDeTareas(`No se ha podido guardar la tarea: ${error?.message ?? 'sin respuesta'}`, 500)
-  const tarea = data as TareaLigera
+  const tarea = data as unknown as TareaLigera
 
   // Historial
   if ('estado' in reales) await registrar(actor, { tareaId: id, clienteId: tarea.cliente_id, tipo: 'movida', datos: { de: previa.estado, a: tarea.estado } })
@@ -486,7 +521,7 @@ async function tieneBaseDeNotion(clienteId: string): Promise<boolean> {
 }
 
 /** Las ediciones seguidas de la misma persona en la misma tarea (escribir un cuerpo genera decenas) se apuntan como UNA cada diez minutos */
-async function registrarEdicion(actor: Actor, tareaId: string, clienteId: string, campos: string[]) {
+export async function registrarEdicion(actor: Actor, tareaId: string, clienteId: string, campos: string[]) {
   const service = createServiceClient()
   const desde = new Date(Date.now() - 10 * 60_000).toISOString()
   const { data } = await service.from('tc_actividad').select('id').eq('tarea_id', tareaId).eq('actor_id', actor.userId).eq('tipo', 'editada').gte('creado_en', desde).limit(1)
@@ -524,19 +559,21 @@ export async function moverTarea(actor: Actor, id: string, destino: DestinoDeMov
   }
   const cambiaDeColumna = previa.estado !== estado
   const conNotion = cambiaDeColumna && (Boolean(previa.notion_page_id) || (await tieneBaseDeNotion(previa.cliente_id)))
-  const { data, error } = await service
-    .from('tc_tareas')
-    .update({ estado, orden, actualizado_por: actor.userId, ...(conNotion ? { sync_estado: 'pendiente', sync_error: null } : {}) })
-    .eq('id', id)
-    .select(COLUMNAS_LIGERAS)
-    .single()
+  const { data, error } = await conLigeras((c) =>
+    service
+      .from('tc_tareas')
+      .update({ estado, orden, actualizado_por: actor.userId, ...(conNotion ? { sync_estado: 'pendiente', sync_error: null } : {}) })
+      .eq('id', id)
+      .select(c)
+      .single()
+  )
   if (error || !data) throw new ErrorDeTareas(`No se ha podido mover la tarea: ${error?.message ?? 'sin respuesta'}`, 500)
 
   if (cambiaDeColumna) {
     await registrar(actor, { tareaId: id, clienteId: previa.cliente_id, tipo: 'movida', datos: { de: previa.estado, a: estado } })
     if (conNotion) await encolar(previa.cliente_id, id, previa.notion_page_id ? 'propiedades' : 'crear', { campos: ['estado'] })
   }
-  return { tarea: data as TareaLigera, renumeradas }
+  return { tarea: data as unknown as TareaLigera, renumeradas }
 }
 
 /* ------------------------------------------------------------------ */

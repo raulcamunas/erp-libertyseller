@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { AlertCircle, Archive, CalendarDays, CheckCircle2, ChevronDown, CircleDot, CloudOff, ExternalLink, Eye, EyeOff, Gauge, History, Link2, Loader2, MessageSquare, Palette, Send, Tag, Trash2, UserCircle2, X } from 'lucide-react'
+import { AlertCircle, Archive, Lock, CalendarDays, CheckCircle2, ChevronDown, CircleDot, CloudOff, ExternalLink, Eye, EyeOff, Gauge, History, Link2, Loader2, MessageSquare, Palette, Send, Tag, Trash2, UserCircle2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/rendimiento/ui'
 import { huellaDeContenido, type Bloque } from '@/lib/tareas-clientes/bloques'
@@ -9,7 +9,11 @@ import { mencionesEnTexto } from '@/lib/tareas-clientes/avisos'
 import { departamentosDe, estadosDe, type ActividadTC, type ClienteTC, type ComentarioTC, type PersonaTC } from '@/lib/tareas-clientes/tipos'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { BASE, pedir, type DatosDeTarea } from './api'
+import { Adjuntos } from './Adjuntos'
+import { Bloqueos } from './Bloqueos'
 import { Editor } from './Editor'
+import { Subtareas } from './Subtareas'
+import { VersionesDelCuerpo } from './VersionesDelCuerpo'
 import { SelectorDePortada, estiloDePortada } from './Portada'
 import { Etiqueta, fechaCorta, SelectorDeColor, SelectorDeEmoji, SelectorDeOpcion, SelectorDePersonas } from './ui'
 
@@ -35,6 +39,9 @@ export interface PropsDelPanel {
   onCerrar: () => void
   onCambio: (t: TareaLigera) => void
   onArchivada: (id: string) => void
+  /** Todas las tareas que hay cargadas (para elegir de cuáles depende ésta) y cómo saber si una está hecha */
+  tareas?: readonly TareaLigera[]
+  estaHecha?: (t: TareaLigera) => boolean
 }
 
 type Guardado = 'ok' | 'guardando' | 'error'
@@ -57,22 +64,27 @@ function Propiedad({ icono, nombre, children }: { icono: ReactNode; nombre: stri
   )
 }
 
-export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmin, onCerrar, onCambio, onArchivada }: PropsDelPanel) {
+export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmin, onCerrar, onCambio, onArchivada, tareas = [], estaHecha = () => false }: PropsDelPanel) {
   const [datos, setDatos] = useState<DatosDeTarea | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [contenido, setContenido] = useState<Bloque[]>([])
   const [guardado, setGuardado] = useState<Guardado>('ok')
   const [titulo, setTitulo] = useState(inicial?.titulo ?? '')
   const [verActividad, setVerActividad] = useState(false)
+  const [verVersiones, setVerVersiones] = useState(false)
   const sinGuardar = useRef(false)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
   const idActual = useRef(tareaId)
   const contenidoRef = useRef<Bloque[]>([])
   const tituloEditado = useRef(false)
+  const datosRef = useRef<DatosDeTarea | null>(null)
+  const inicialRef = useRef(inicial)
 
   const estados = estadosDe(cliente)
   const departamentos = departamentosDe(cliente)
   const tarea = datos?.tarea ?? null
+  datosRef.current = datos
+  inicialRef.current = inicial
   // Solo se asigna, y solo se menciona, a quien ve el cliente de la tarea (acceso por cliente)
   const clienteDeLaTarea = (tarea ?? inicial)?.cliente_id
   const gente = personas.filter((p) => !p.clientes || !clienteDeLaTarea || p.clientes.includes(clienteDeLaTarea))
@@ -132,6 +144,16 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
         toast.error(e instanceof Error ? e.message : 'No se ha podido guardar')
         return null
       }
+    },
+    [tareaId, onCambio]
+  )
+
+  /** Un cambio que ya hizo el servidor por otra ruta (contadores de subtareas y archivos, bloqueos): se refleja aquí y en el tablero sin volver a guardar */
+  const aplicarLocal = useCallback(
+    (parcial: Partial<TareaLigera>) => {
+      setDatos((d) => (d && d.tarea.id === tareaId ? { ...d, tarea: { ...d.tarea, ...parcial } } : d))
+      const base = datosRef.current?.tarea ?? inicialRef.current
+      if (base) onCambio({ ...(base as TareaLigera), ...parcial })
     },
     [tareaId, onCambio]
   )
@@ -237,7 +259,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
       case 'comentario': return 'comentó'
       case 'archivada': return 'la archivó'
       case 'restaurada': return 'la recuperó'
-      case 'editada': return `editó ${Array.isArray(d.campos) ? (d.campos as string[]).map((c) => ({ contenido: 'el cuerpo', titulo: 'el título', fecha_inicio: 'la fecha', fecha_fin: 'la fecha', departamento: 'el departamento', progreso: 'el progreso', url: 'el enlace', icono: 'el icono', color: 'el color', portada: 'la portada', visible_cliente: 'lo que ve el cliente', etiquetas: 'las etiquetas' })[c] ?? c).filter((x, i, l) => l.indexOf(x) === i).join(', ') : 'la tarea'}`
+      case 'editada': return `editó ${Array.isArray(d.campos) ? (d.campos as string[]).map((c) => ({ contenido: 'el cuerpo', titulo: 'el título', adjuntos: 'los archivos', fecha_inicio: 'la fecha', fecha_fin: 'la fecha', departamento: 'el departamento', progreso: 'el progreso', url: 'el enlace', icono: 'el icono', color: 'el color', portada: 'la portada', visible_cliente: 'lo que ve el cliente', etiquetas: 'las etiquetas' })[c] ?? c).filter((x, i, l) => l.indexOf(x) === i).join(', ') : 'la tarea'}`
       default: return 'hizo un cambio'
     }
   }
@@ -354,6 +376,9 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                 <Propiedad icono={<Link2 className="h-3.5 w-3.5" />} nombre="Enlace">
                   <input type="url" defaultValue={tarea.url ?? ''} key={`${tarea.id}-${tarea.url}`} placeholder="https://…" aria-label="Enlace" onBlur={(e) => { const v = e.target.value.trim(); if (v !== (tarea.url ?? '')) void guardar({ url: v || null }) }} className="tc-entrada" />
                 </Propiedad>
+                <Propiedad icono={<Lock className="h-3.5 w-3.5" />} nombre="Depende de">
+                  <Bloqueos tarea={tarea as TareaLigera} candidatas={tareas.filter((t) => t.cliente_id === tarea.cliente_id)} hecha={estaHecha} onCambio={(ids) => aplicarLocal({ bloqueada_por: ids })} />
+                </Propiedad>
                 <Propiedad icono={<Palette className="h-3.5 w-3.5" />} nombre="Color"><SelectorDeColor valor={tarea.color} onElegir={(c) => void guardar({ color: c })} etiqueta="Color de la tarjeta" /></Propiedad>
                 {esAdmin && (
                   <Propiedad icono={tarea.visible_cliente ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />} nombre="Ve el cliente">
@@ -367,6 +392,9 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
 
               <div className="tc-separador" />
               <Editor bloques={contenido} onCambio={alEscribir} />
+
+              <Subtareas tareaId={tareaId} gente={gente} onContadores={aplicarLocal} />
+              <Adjuntos tareaId={tareaId} onTotal={(n) => aplicarLocal({ adjuntos_total: n })} />
 
               <div className="tc-separador" />
               <section aria-label="Comentarios">
@@ -431,7 +459,20 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                   </ul>
                 )}
               </section>
-              <p className="mt-6 text-[11px] text-[var(--ls-t4)]">Creada {fechaCorta(tarea.creado_en)} · {tarea.origen === 'notion' ? 'viene de Notion' : 'creada en el ERP'}</p>
+              <button type="button" onClick={() => { void guardarCuerpo(); setVerVersiones(true) }} className="tc-boton-suave tc-discreto mt-4"><History className="h-3 w-3" /> Versiones del cuerpo…</button>
+              {verVersiones && (
+                <VersionesDelCuerpo
+                  tareaId={tareaId}
+                  onCerrar={() => setVerVersiones(false)}
+                  onRestaurada={() => {
+                    // Lo restaurado manda: se suelta lo que hubiera sin guardar y se vuelve a leer la tarea
+                    sinGuardar.current = false
+                    contenidoRef.current = []
+                    void cargar(false)
+                  }}
+                />
+              )}
+              <p className="mt-2 text-[11px] text-[var(--ls-t4)]">Creada {fechaCorta(tarea.creado_en)} · {tarea.origen === 'notion' ? 'viene de Notion' : 'creada en el ERP'}</p>
             </>
           )}
         </div>

@@ -9,6 +9,7 @@ import { colocar } from '@/lib/tareas-clientes/orden'
 import { filtrarTareas } from '@/lib/tareas-clientes/filtros'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { departamentosDe, estadosDe, FILTROS_VACIOS, ordenarSegun, type ClienteTC, type FiltrosDeTareas, type OpcionDeEstado, type OpcionSimple, type PlantillaTC, type Portada as PortadaGuardada, type TipoDeVista } from '@/lib/tareas-clientes/tipos'
+import { tareasBloqueadas } from '@/lib/tareas-clientes/subtareas'
 import { ambitoDeRuta, mismoAmbito, rutaDeAmbito, type Ambito } from '@/lib/tareas-clientes/ambito'
 import { BASE, memoria, pedir, type DatosDeTodas, type Preferencias } from './api'
 import { alternar } from '@/lib/tareas-clientes/seleccion'
@@ -18,12 +19,14 @@ import { BuscadorGlobal } from './BuscadorGlobal'
 import { Cabecera } from './Cabecera'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
+import { BloqueadasContexto } from './contexto'
 import { PanelDeTarea } from './PanelDeTarea'
 import { PlantillasGestor } from './PlantillasGestor'
 import { useMarco } from './useMarco'
 import { estiloDePortada, FondoAnimado, fondoNecesitaCortina } from './Portada'
 import { Tablero } from './Tablero'
 import { Tabla } from './Tabla'
+import { estaHechaLaTarea } from './vistas'
 
 /**
  * EL ESPACIO DE TRABAJO: tres columnas (los clientes, la vista elegida y la tarea abierta).
@@ -156,6 +159,9 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     return [...unicos.values()]
   }, [cliente, estadosDelAmbito, datos?.clientes])
   const visibles = useMemo(() => filtrarTareas(delAmbito, filtros, miId, cliente ? estadosDelAmbito : [...mapa.values()].flatMap((c) => estadosDe(c)), nombreDe), [delAmbito, filtros, miId, cliente, estadosDelAmbito, mapa, nombreDe])
+
+  // Las tareas que esperan a otra: se calcula una vez y las tarjetas y las filas solo lo miran
+  const bloqueadas = useMemo(() => tareasBloqueadas(datos?.tareas ?? [], (t) => estaHechaLaTarea(t, mapa)), [datos?.tareas, mapa])
 
   const prefs: Preferencias = datos?.preferencias ?? { fondo: {}, portada: {}, favoritos: [] }
   const fondo: PortadaGuardada = cliente?.fondo?.tipo ? cliente.fondo : prefs.fondo
@@ -501,6 +507,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           personas={personas}
           miId={miId}
           esAdmin={esAdmin}
+          tareas={datos.tareas}
+          estaHecha={(t) => estaHechaLaTarea(t, mapa)}
           onCerrar={cerrarPanel}
           onCambio={aplicarFila}
           onArchivada={(id) => {
@@ -514,6 +522,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   )
 
   return (
+    <BloqueadasContexto.Provider value={bloqueadas}>
     <div className="tc-zona" data-fondo={fondoNecesitaCortina(fondo) ? 'true' : undefined} style={{ '--tc-ambiente': cliente ? `var(--tc-${cliente.color || 'orange'})` : 'var(--ls-acc-graf)', ...(estiloDePortada(fondo, true) as CSSProperties | undefined) } as CSSProperties}>
       <FondoAnimado valor={fondo} />
       <BarraLateral onBuscar={() => setBuscadorAbierto(true)} clientes={datos.clientes} tareas={datos.tareas} ambito={ambito} miId={miId} favoritos={prefs.favoritos} colapsada={colapsada} onAlternar={() => { setColapsada(!colapsada); escribirLocal('tc-lateral', colapsada ? '0' : '1') }} onNavegar={navegar} onFavorito={alternarFavorito} />
@@ -568,6 +577,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
 
       {panel}
     </div>
+    </BloqueadasContexto.Provider>
   )
 }
 

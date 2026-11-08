@@ -1,11 +1,12 @@
 'use client'
 
 import { memo, type CSSProperties } from 'react'
-import { AlertCircle, CalendarDays, CheckSquare, MessageSquare } from 'lucide-react'
+import { AlertCircle, CalendarDays, CheckSquare, ListChecks, Lock, MessageSquare, Paperclip } from 'lucide-react'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import type { ClienteTC, OpcionDeEstado, PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { colorValido } from '@/lib/tareas-clientes/colores'
 import { colorDePersona } from '@/components/rendimiento/ui'
+import { useBloqueadas } from './contexto'
 import { Etiqueta, fechaCorta, hoyISO, PilaDeAvatares } from './ui'
 
 /**
@@ -40,6 +41,9 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
   const quienes = tarea.responsables.length > 0 ? tarea.responsables : tarea.responsables_notion.map((r) => r.nombre || r.id)
   const colorResp = tarea.color || quienes.length === 0 ? null : colorDePersona(quienes[0])
   const colorResp2 = colorResp && quienes.length > 1 ? colorDePersona(quienes[1]) : null
+  const bloqueada = useBloqueadas().has(tarea.id) && !hecha
+  const sub = { total: tarea.subtareas_total ?? 0, hechas: tarea.subtareas_hechas ?? 0 }
+  const adjuntos = tarea.adjuntos_total ?? 0
   const porcentaje = tarea.checklist_total > 0 ? Math.round((tarea.checklist_hecho / tarea.checklist_total) * 100) : 0
 
   return (
@@ -54,6 +58,7 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
       data-resp={colorResp ? (colorResp2 && colorResp2 !== colorResp ? 'varios' : 'uno') : undefined}
       data-superpuesta={superpuesta ? 'true' : undefined}
       data-fantasma={fantasma ? 'true' : undefined}
+      data-bloqueada={bloqueada ? 'true' : undefined}
       onClick={(e) => (onSeleccionar && (e.metaKey || e.ctrlKey || e.shiftKey || haySeleccion) ? onSeleccionar(tarea.id) : onAbrir?.(tarea.id))}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -107,13 +112,29 @@ export const Tarjeta = memo(function Tarjeta({ tarea, estado, cliente, personas,
         </div>
       )}
 
-      {(tarea.checklist_total > 0 || tarea.comentarios > 0) && (
+      {bloqueada && (
+        <p className="tc-aviso-bloqueo" title="Espera a que se haga otra tarea"><Lock className="h-3 w-3" /> Bloqueada</p>
+      )}
+
+      {(tarea.checklist_total > 0 || tarea.comentarios > 0 || sub.total > 0 || adjuntos > 0) && (
         <div className="mt-2 flex items-center gap-2.5 text-[11.5px] tabular-nums text-[var(--ls-t3)]">
           {tarea.checklist_total > 0 && (
             <span className="flex min-w-0 flex-1 items-center gap-1.5" title={`${tarea.checklist_hecho} de ${tarea.checklist_total} hechas · ${porcentaje}%`}>
               <CheckSquare className="h-3 w-3" style={{ color: tarea.checklist_hecho === tarea.checklist_total ? 'var(--ls-e-verde)' : undefined }} />
               {tarea.checklist_hecho}/{tarea.checklist_total}
               <span className="tc-barra" data-completa={porcentaje === 100 ? 'true' : undefined} style={{ '--p': `${porcentaje}%` } as CSSProperties} />
+            </span>
+          )}
+          {sub.total > 0 && (
+            <span className="inline-flex items-center gap-1" title={`${sub.hechas} de ${sub.total} subtareas hechas`}>
+              <ListChecks className="h-3 w-3" style={{ color: sub.hechas === sub.total ? 'var(--ls-e-verde)' : undefined }} />
+              {sub.hechas}/{sub.total}
+            </span>
+          )}
+          {adjuntos > 0 && (
+            <span className="inline-flex items-center gap-1" title={`${adjuntos} archivos`}>
+              <Paperclip className="h-3 w-3" />
+              {adjuntos}
             </span>
           )}
           {tarea.comentarios > 0 && (

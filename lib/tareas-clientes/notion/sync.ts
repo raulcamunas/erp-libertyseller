@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { arbolParaNotion, bloquesDesdeNotion, contarChecklist, contenidoParaNotion, esUrlDeNotion, filaParaNotion, huellaDeContenido, planDeContenido, progresoDeChecklist, textoPlano, tipoDeNotionDe, type Bloque, type TramoNuevo } from '../bloques'
+import { guardarVersion } from '../historial-servidor'
 import { encolar } from '../servidor'
 import { estadosDe, type ClienteTC, type TareaTC } from '../tipos'
 import {
@@ -181,6 +182,9 @@ export async function traerContenido(tareaId: string): Promise<boolean> {
     return false
   }
   const { bloques } = await rehospedarImagenes(leidos, tareaId)
+  // Lo que había antes de que Notion lo cambiara, al historial
+  const { data: titulo } = await service.from('tc_tareas').select('titulo').eq('id', tareaId).maybeSingle()
+  await guardarVersion({ id: tareaId, titulo: (titulo as { titulo?: string } | null)?.titulo ?? '' }, ((t.contenido ?? []) as Bloque[]), { nombre: 'Notion' }, 'notion')
   const lista = contarChecklist(bloques)
   // El progreso es casillas hechas ÷ casillas. Si alguien marcó una casilla en Notion, el «Progreso» de Notion se quedó atrás: aquí se corrige y se manda a Notion
   // (antes lo hacía una automatización de n8n). Una tarea sin casillas conserva su progreso.

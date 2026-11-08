@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo, useState, type CSSProperties } from 'react'
-import { CalendarDays, CheckSquare, ChevronRight, MessageSquare, Plus } from 'lucide-react'
+import { CalendarDays, CheckSquare, ChevronRight, Lock, MessageSquare, Plus } from 'lucide-react'
 import { agruparTareas } from '@/lib/tareas-clientes/filtros'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import { departamentosDe, type FiltrosDeTareas, type PersonaTC } from '@/lib/tareas-clientes/tipos'
+import { useBloqueadas } from './contexto'
 import { Etiqueta, fechaCorta, hoyISO, PilaDeAvatares, SelectorDeOpcion, SelectorDePersonas } from './ui'
 import { estaHechaLaTarea, estadosDeLaTarea, type MapaDeClientes } from './vistas'
 
@@ -32,6 +33,7 @@ export interface PropsDeTabla {
 const COLUMNAS = 'minmax(260px,1.7fr) var(--tc-col-cliente, 0px) 150px 150px 170px 130px 76px 54px'
 
 export function Tabla({ tareas, clientes, personas, agruparPor, mostrarCliente, tareaAbierta, onAbrir, onCambiar, seleccion, onSeleccionar, onCrear }: PropsDeTabla) {
+  const bloqueadas = useBloqueadas()
   const [plegados, setPlegados] = useState<Set<string>>(new Set())
   const [escribiendo, setEscribiendo] = useState<string | null>(null)
   const [titulo, setTitulo] = useState('')
@@ -106,6 +108,7 @@ export function Tabla({ tareas, clientes, personas, agruparPor, mostrarCliente, 
                   <span role="cell" className="flex min-w-0 items-center gap-2">
                     <span className="w-5 shrink-0 text-center text-[14px]">{t.icono ?? <span className="text-[var(--ls-t4)]">·</span>}</span>
                     <span className={`truncate text-[13px] text-[var(--ls-t1)] ${hecha ? 'tc-hecha' : ''}`}>{t.titulo || <span className="text-[var(--ls-t4)]">Sin título</span>}</span>
+                    {bloqueadas.has(t.id) && !hecha && <span className="tc-aviso-bloqueo !mt-0 shrink-0" title="Espera a que se haga otra tarea"><Lock className="h-3 w-3" /> Bloqueada</span>}
                   </span>
                   <span role="cell" aria-hidden={!mostrarCliente} className={`min-w-0 items-center gap-1 overflow-hidden text-[12px] text-[var(--ls-t3)] ${mostrarCliente ? 'flex' : 'invisible'}`}><span>{cliente?.icono ?? '•'}</span><span className="truncate">{cliente?.nombre ?? ''}</span></span>
                   <span role="cell" onClick={(e) => e.stopPropagation()}><SelectorDeOpcion etiqueta="Estado" valor={t.estado} opciones={estados} onElegir={(n) => n && n !== t.estado && onCambiar(t.id, { estado: n })} /></span>
