@@ -1,8 +1,6 @@
 import type { Viewport } from 'next'
 import { redirect } from 'next/navigation'
-import { AparienciaProvider } from '@/components/tareas-clientes/AparienciaProvider'
 import { exigirChat } from '@/lib/chat/acceso'
-import { leerApariencias } from '@/lib/tareas-clientes/apariencia-servidor'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,12 +21,5 @@ export const viewport: Viewport = {
 export default async function ChatLayout({ children }: { children: React.ReactNode }) {
   const permiso = await exigirChat()
   if (!permiso.ok) redirect('/dashboard')
-  const apariencias = await leerApariencias()
-  return (
-    <AparienciaProvider inicial={apariencias.mapa} disponibleAlInicio={apariencias.disponible}>
-      <div className="tc-inmersivo chat-inmersivo">
-        {children}
-      </div>
-    </AparienciaProvider>
-  )
+  return <div className="tc-inmersivo chat-inmersivo">{children}</div>
 }

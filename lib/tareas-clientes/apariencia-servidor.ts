@@ -3,12 +3,20 @@ import { elegirApariencia, type MapaDeApariencia } from './apariencia'
 import { ErrorDeTareas } from './servidor'
 
 /** Lo que ha elegido cada persona. Si todavía falta la migración 283 devuelve vacío (todo el mundo sigue con sus iniciales) y `disponible: false` */
-export async function leerApariencias(): Promise<{ mapa: MapaDeApariencia; disponible: boolean }> {
-  const { data, error } = await createServiceClient().from('tc_preferencias').select('usuario_id, avatar_color, avatar_icono').or('avatar_color.not.is.null,avatar_icono.not.is.null')
-  if (error) return { mapa: {}, disponible: false }
+export async function leerApariencias(): Promise<{ mapa: MapaDeApariencia; disponible: boolean; nombres: Record<string, string> }> {
+  const service = createServiceClient()
+  const { data, error } = await service.from('tc_preferencias').select('usuario_id, avatar_color, avatar_icono').or('avatar_color.not.is.null,avatar_icono.not.is.null')
+  if (error) return { mapa: {}, disponible: false, nombres: {} }
   const mapa: MapaDeApariencia = {}
   for (const f of (data ?? []) as Array<{ usuario_id: string; avatar_color: string | null; avatar_icono: string | null }>) mapa[f.usuario_id] = { color: f.avatar_color, icono: f.avatar_icono }
-  return { mapa, disponible: true }
+  // Los nombres de quien tiene algo cogido, para decir «lo tiene Ana» sin pedir la lista de personas
+  const ids = Object.keys(mapa)
+  const nombres: Record<string, string> = {}
+  if (ids.length > 0) {
+    const { data: perfiles } = await service.from('profiles').select('id, full_name').in('id', ids)
+    for (const p of (perfiles ?? []) as Array<{ id: string; full_name: string | null }>) nombres[p.id] = (p.full_name ?? '').trim().split(' ')[0] || 'otra persona'
+  }
+  return { mapa, disponible: true, nombres }
 }
 
 export async function guardarApariencia(userId: string, quiere: { color: unknown; icono: unknown }): Promise<MapaDeApariencia> {

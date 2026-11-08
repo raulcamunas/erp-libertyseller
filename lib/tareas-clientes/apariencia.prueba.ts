@@ -1,4 +1,4 @@
-import { COLORES, ICONOS, elegirApariencia, hexDeColor, ocupadosPorOtros, type MapaDeApariencia } from '@/lib/tareas-clientes/apariencia'
+import { COLORES, ICONOS, PERSONAJES, EMOJI_DE_PERSONAJE, esIconoValido, elegirApariencia, hexDeColor, ocupadosPorOtros, type MapaDeApariencia } from '@/lib/tareas-clientes/apariencia'
 
 let fallos = 0
 let comprobaciones = 0
@@ -26,6 +26,14 @@ igual('un icono de otra persona se rechaza y dice quién', elegirApariencia(mapa
 igual('quitarlo todo vale', elegirApariencia(mapa, 'ana', { color: null, icono: null }), { ok: true, color: null, icono: null })
 igual('lo que no existe se rechaza', [elegirApariencia(mapa, 'ana', { color: 'x', icono: null }).ok, elegirApariencia(mapa, 'ana', { color: null, icono: 7 }).ok, elegirApariencia(mapa, 'ana', { color: undefined, icono: undefined }).ok], [false, false, true])
 igual('una persona nueva puede coger lo que dejó otra al quitárselo', elegirApariencia({ ...mapa, ana: { color: null, icono: null } }, 'dan', { color: 'azul', icono: 'cohete' }).ok, true)
+
+// ---------- iconos y personajes
+igual('ids de icono y de personaje, todos distintos', new Set([...ICONOS.map((x) => x.id), ...PERSONAJES.map((x) => x.id)]).size, ICONOS.length + PERSONAJES.length)
+igual('los personajes llevan «e-» y solo letras minúsculas', PERSONAJES.every((x) => /^e-[a-z]+$/.test(x.id)), true)
+igual('cada personaje tiene su emoji', PERSONAJES.every((x) => EMOJI_DE_PERSONAJE.get(x.id) === x.emoji && x.emoji.length > 0), true)
+igual('un personaje es un icono válido, uno inventado no', [esIconoValido('e-zorro'), esIconoValido('e-inventado'), esIconoValido('robot')], [true, false, true])
+igual('un personaje se puede elegir y es exclusivo', [elegirApariencia({}, 'ana', { color: null, icono: 'e-zorro' }).ok, elegirApariencia({ ana: { color: null, icono: 'e-zorro' } }, 'bea', { color: null, icono: 'e-zorro' }).ok], [true, false])
+igual('hay más de 60 iconos y 50 personajes o más', [ICONOS.length > 60, PERSONAJES.length >= 50], [true, true])
 
 console.log(`\n${fallos === 0 ? 'TODO BIEN' : `HAY ${fallos} FALLOS`} (${comprobaciones} comprobaciones)`)
 process.exit(fallos === 0 ? 0 : 1)

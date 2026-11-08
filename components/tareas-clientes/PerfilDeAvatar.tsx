@@ -1,24 +1,23 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Check, ChevronDown, Lock, UserRound } from 'lucide-react'
+import { Check, Lock, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
-import { COLORES, ICONOS, ocupadosPorOtros } from '@/lib/tareas-clientes/apariencia'
-import type { PersonaTC } from '@/lib/tareas-clientes/tipos'
+import { COLORES, ICONOS, PERSONAJES, ocupadosPorOtros } from '@/lib/tareas-clientes/apariencia'
 import { useApariencia } from './AparienciaProvider'
 import { AvatarDePersona, DIBUJOS } from './AvatarTC'
 
 /**
- * «TU PERFIL» en Mi día: eliges el icono y el color con los que sales en las tareas (responsables, comentarios, quién está en línea) y con el que se tiñen las tarjetas que llevas.
+ * EL PERFIL: eliges el color y el icono (o un personaje) con los que sales en las tareas, en el chat y en la barra del ERP. Se abre al pulsar tu círculo, abajo a la izquierda (components/layout/PerfilEnLaBarra.tsx).
  * Lo que ya tiene un compañero sale bloqueado, con su nombre. Ver lib/tareas-clientes/apariencia.ts.
  */
-export function PerfilDeAvatar({ miId, nombre, personas }: { miId: string; nombre: string; personas: readonly PersonaTC[] }) {
-  const { mapa, disponible, guardar } = useApariencia()
-  const [abierto, setAbierto] = useState(false)
+export function EditorDePerfil({ miId, nombre }: { miId: string; nombre: string }) {
+  const { mapa, disponible, guardar, nombres } = useApariencia()
   const [ocupado, setOcupado] = useState(false)
   const yo = mapa[miId] ?? { color: null, icono: null }
+  const [pestana, setPestana] = useState<'iconos' | 'personajes'>(yo.icono?.startsWith('e-') ? 'personajes' : 'iconos')
   const otros = useMemo(() => ocupadosPorOtros(mapa, miId), [mapa, miId])
-  const quien = (id: string) => personas.find((p) => p.id === id)?.nombre.split(' ')[0] ?? 'otra persona'
+  const quien = (id: string) => nombres[id] ?? 'otra persona'
 
   const elegir = async (color: string | null, icono: string | null) => {
     setOcupado(true)
@@ -32,19 +31,21 @@ export function PerfilDeAvatar({ miId, nombre, personas }: { miId: string; nombr
   }
 
   return (
-    <section className="tc-dia-tarjeta" aria-label="Tu perfil">
-      <button type="button" onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} className="tc-perfil-cabecera">
-        <AvatarDePersona color={yo.color} icono={yo.icono} id={miId} nombre={nombre} tamano={34} />
-        <span className="min-w-0 flex-1 text-left">
-          <span className="block text-[13px] font-semibold text-[var(--ls-t1)]">Tu perfil</span>
-          <span className="block truncate text-[11.5px] text-[var(--ls-t3)]">{yo.color || yo.icono ? 'Así sales en las tareas' : 'Elige tu icono y tu color'}</span>
+    <div className="flex flex-col gap-3" aria-busy={ocupado}>
+      <div className="flex items-center gap-3">
+        <AvatarDePersona color={yo.color} icono={yo.icono} id={miId} nombre={nombre} tamano={44} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-semibold text-[var(--ls-t1)]">{nombre}</span>
+          <span className="block text-[11.5px] text-[var(--ls-t3)]">{yo.color || yo.icono ? 'Así sales en las tareas y el chat' : 'Elige tu color y tu icono'}</span>
         </span>
-        <ChevronDown className="h-4 w-4 text-[var(--ls-t4)] transition-transform" style={{ transform: abierto ? 'rotate(180deg)' : undefined }} />
-      </button>
+        {(yo.color || yo.icono) && (
+          <button type="button" disabled={ocupado} onClick={() => void elegir(null, null)} className="rounded-[7px] px-2 py-1 text-[11.5px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]">Quitar</button>
+        )}
+      </div>
 
-      {abierto && !disponible && <p className="mt-3 text-[12px] text-[var(--ls-e-ambar)]">Falta lanzar la migración 283 en Supabase para poder elegir.</p>}
-      {abierto && disponible && (
-        <div className="mt-3 flex flex-col gap-3" aria-busy={ocupado}>
+      {!disponible && <p className="text-[12px] text-[var(--ls-e-ambar)]">Falta lanzar la migración 283 en Supabase para poder elegir.</p>}
+      {disponible && (
+        <>
           <div>
             <h3 className="tc-perfil-titulo">Color</h3>
             <div className="tc-perfil-rejilla">
@@ -70,37 +71,63 @@ export function PerfilDeAvatar({ miId, nombre, personas }: { miId: string; nombr
               })}
             </div>
           </div>
+
           <div>
-            <h3 className="tc-perfil-titulo">Icono <span className="font-normal normal-case text-[var(--ls-t4)]">· sin icono, tus iniciales</span></h3>
-            <div className="tc-perfil-rejilla">
+            <div className="tc-perfil-pestanas" role="tablist" aria-label="Icono o personaje">
+              <button type="button" role="tab" aria-selected={pestana === 'iconos'} onClick={() => setPestana('iconos')}>Iconos · {ICONOS.length}</button>
+              <button type="button" role="tab" aria-selected={pestana === 'personajes'} onClick={() => setPestana('personajes')}>Personajes · {PERSONAJES.length}</button>
+            </div>
+            <div className="tc-perfil-rejilla tc-perfil-rejilla-alta">
               <button type="button" disabled={ocupado} aria-pressed={!yo.icono} aria-label="Mis iniciales" title="Mis iniciales" onClick={() => void elegir(yo.color, null)} className="tc-perfil-icono" data-mio={!yo.icono ? 'true' : undefined}>
                 <UserRound className="h-4 w-4" />
               </button>
-              {ICONOS.map((i) => {
-                const Dibujo = DIBUJOS[i.id]
-                const dueno = otros.iconos.get(i.id)
-                const mio = yo.icono === i.id
-                return (
-                  <button
-                    key={i.id}
-                    type="button"
-                    disabled={ocupado || Boolean(dueno)}
-                    aria-pressed={mio}
-                    aria-label={dueno ? `${i.nombre}, lo tiene ${quien(dueno)}` : i.nombre}
-                    title={dueno ? `${i.nombre} · lo tiene ${quien(dueno)}` : i.nombre}
-                    onClick={() => void elegir(yo.color, mio ? null : i.id)}
-                    className="tc-perfil-icono"
-                    data-mio={mio ? 'true' : undefined}
-                    data-cogido={dueno ? 'true' : undefined}
-                  >
-                    {Dibujo && <Dibujo className="h-4 w-4" />}
-                  </button>
-                )
-              })}
+              {pestana === 'iconos' &&
+                ICONOS.map((i) => {
+                  const Dibujo = DIBUJOS[i.id]
+                  const dueno = otros.iconos.get(i.id)
+                  const mio = yo.icono === i.id
+                  return (
+                    <button
+                      key={i.id}
+                      type="button"
+                      disabled={ocupado || Boolean(dueno)}
+                      aria-pressed={mio}
+                      aria-label={dueno ? `${i.nombre}, lo tiene ${quien(dueno)}` : i.nombre}
+                      title={dueno ? `${i.nombre} · lo tiene ${quien(dueno)}` : i.nombre}
+                      onClick={() => void elegir(yo.color, mio ? null : i.id)}
+                      className="tc-perfil-icono"
+                      data-mio={mio ? 'true' : undefined}
+                      data-cogido={dueno ? 'true' : undefined}
+                    >
+                      {Dibujo && <Dibujo className="h-4 w-4" />}
+                    </button>
+                  )
+                })}
+              {pestana === 'personajes' &&
+                PERSONAJES.map((p) => {
+                  const dueno = otros.iconos.get(p.id)
+                  const mio = yo.icono === p.id
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      disabled={ocupado || Boolean(dueno)}
+                      aria-pressed={mio}
+                      aria-label={dueno ? `${p.nombre}, lo tiene ${quien(dueno)}` : p.nombre}
+                      title={dueno ? `${p.nombre} · lo tiene ${quien(dueno)}` : p.nombre}
+                      onClick={() => void elegir(yo.color, mio ? null : p.id)}
+                      className="tc-perfil-icono tc-perfil-personaje"
+                      data-mio={mio ? 'true' : undefined}
+                      data-cogido={dueno ? 'true' : undefined}
+                    >
+                      <span aria-hidden>{p.emoji}</span>
+                    </button>
+                  )
+                })}
             </div>
           </div>
-        </div>
+        </>
       )}
-    </section>
+    </div>
   )
 }

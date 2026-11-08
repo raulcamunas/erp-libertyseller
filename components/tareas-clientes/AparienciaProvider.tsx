@@ -10,9 +10,11 @@ interface ContextoDeApariencia {
   disponible: boolean
   /** Pone el mío (`null` = quitarlo). Falla con el motivo si ya lo tiene otra persona */
   guardar: (color: string | null, icono: string | null) => Promise<void>
+  /** El nombre de pila de quien tiene algo elegido (para decir «lo tiene Ana») */
+  nombres: Record<string, string>
 }
 
-const VACIO: ContextoDeApariencia = { mapa: {}, disponible: false, guardar: async () => undefined }
+const VACIO: ContextoDeApariencia = { mapa: {}, disponible: false, guardar: async () => undefined, nombres: {} }
 const Contexto = createContext<ContextoDeApariencia>(VACIO)
 export const useApariencia = (): ContextoDeApariencia => useContext(Contexto)
 /** Solo para probar las pantallas con datos inventados (la vista de pruebas) */
@@ -24,8 +26,9 @@ const REFRESCO_MINIMO_MS = 60_000
  * El icono y el color de cada persona, a mano para todas las pantallas del módulo. Llega ya leído del servidor (sin parpadeo) y se relee al volver a la pestaña para ver lo que han
  * cambiado los demás.
  */
-export function AparienciaProvider({ inicial, disponibleAlInicio, children }: { inicial: MapaDeApariencia; disponibleAlInicio: boolean; children: ReactNode }) {
+export function AparienciaProvider({ inicial, disponibleAlInicio, nombresIniciales = {}, children }: { inicial: MapaDeApariencia; disponibleAlInicio: boolean; nombresIniciales?: Record<string, string>; children: ReactNode }) {
   const [mapa, setMapa] = useState<MapaDeApariencia>(inicial)
+  const [nombres, setNombres] = useState<Record<string, string>>(nombresIniciales)
   const [disponible, setDisponible] = useState(disponibleAlInicio)
   const ultima = useRef(Date.now())
 
@@ -33,9 +36,10 @@ export function AparienciaProvider({ inicial, disponibleAlInicio, children }: { 
     const alVolver = () => {
       if (document.visibilityState !== 'visible' || Date.now() - ultima.current < REFRESCO_MINIMO_MS) return
       ultima.current = Date.now()
-      pedir<{ mapa: MapaDeApariencia; disponible: boolean }>(`${BASE}/apariencia`)
+      pedir<{ mapa: MapaDeApariencia; disponible: boolean; nombres?: Record<string, string> }>(`${BASE}/apariencia`)
         .then((r) => {
           setMapa(r.mapa)
+          if (r.nombres) setNombres(r.nombres)
           setDisponible(r.disponible)
         })
         .catch(() => undefined)
@@ -50,6 +54,6 @@ export function AparienciaProvider({ inicial, disponibleAlInicio, children }: { 
     setMapa(r.mapa)
   }, [])
 
-  const valor = useMemo(() => ({ mapa, disponible, guardar }), [mapa, disponible, guardar])
+  const valor = useMemo(() => ({ mapa, disponible, guardar, nombres }), [mapa, disponible, guardar, nombres])
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>
 }

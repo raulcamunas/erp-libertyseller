@@ -5189,3 +5189,15 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
 .tc-fa[data-fa='invierno'] { --fa-a: #93c5fd; --fa-b: #cbd5e1; --fa-c: #818cf8; }
 .tc-fa[data-fa='cristal'] { --fa-a: #a5f3fc; --fa-b: #e9d5ff; --fa-c: #bae6fd; }
 .tc-fa[data-fa='ceniza'] { --fa-a: #9ca3af; --fa-b: #6b7280; --fa-c: #d1d5db; }
+
+/* ---------- Tu perfil desde la barra: el círculo es un botón, y la lista de iconos y personajes ---------- */
+.lat-avatar-boton { display: inline-flex; flex: 0 0 auto; border-radius: 999px; cursor: pointer; transition: transform .16s cubic-bezier(.3, 1.5, .5, 1); }
+.lat-avatar-boton:hover { transform: scale(1.08); }
+.lat-avatar-boton:active { transform: scale(.94); }
+.lat-avatar-boton:focus-visible { outline: 2px solid var(--ls-acc-graf, var(--ls-acc)); outline-offset: 3px; }
+.tc-perfil-pestanas { display: flex; gap: 3px; margin-bottom: 8px; border-radius: 9px; background: var(--ls-sup2); padding: 3px; }
+.tc-perfil-pestanas button { flex: 1; border-radius: 7px; padding: 4px 6px; font-size: 11.5px; font-weight: 600; color: var(--ls-t3); transition: background .14s ease, color .14s ease; }
+.tc-perfil-pestanas button[aria-selected='true'] { background: var(--ls-sup3); color: var(--ls-t1); }
+.tc-perfil-rejilla-alta { max-height: 196px; overflow-y: auto; padding: 2px; scrollbar-width: thin; }
+.tc-perfil-personaje { font-size: 18px; line-height: 1; }
+.tc-perfil-personaje[data-mio='true'] { border-color: var(--ls-acc); background: var(--ls-acc-suave); }

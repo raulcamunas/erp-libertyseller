@@ -1,5 +1,6 @@
 'use client'
 
+import { PerfilEnLaBarra } from './PerfilEnLaBarra'
 import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -26,6 +27,7 @@ import type { RolUsuario } from '@/lib/types/users'
  * mundo antes de que se encoja al suyo. Sin él (una vista previa, una prueba) se pregunta al navegador como siempre.
  */
 export interface PerfilDeLaBarra {
+  id?: string
   role: RolUsuario
   email: string | null
   full_name: string | null
@@ -58,6 +60,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   const [userRole, setUserRole] = useState<RolUsuario | null>(perfil?.role ?? null)
   const [userEmail, setUserEmail] = useState<string | null>(perfil?.email ?? null)
   const [userName, setUserName] = useState<string | null>(perfil?.full_name ?? null)
+  const [userId, setUserId] = useState<string | null>(perfil?.id ?? null)
   const [webLeadsBadge, setWebLeadsBadge] = useState<number | undefined>(undefined)
   // Cuántas conversaciones de correo tienen algo sin leer: lo publica el lector de correo nuevo (components/avisos), esté donde esté la persona
   const correoSinLeer = useSyncExternalStore(suscribirContadores, leerCorreoSinLeer, () => 0)
@@ -138,6 +141,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
         .eq('id', user.id)
         .single()
 
+      setUserId(user.id)
       if (profile) {
         setUserRole(profile.role)
         setUserEmail(profile.email)
@@ -577,9 +581,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
             «Gestión de usuarios» ya no se repite aquí: es una entrada más del menú y solo la ve quien puede abrirla (a los demás este enlace les devolvía al inicio). */}
         <div className="lat-pie">
           <div className="lat-usuario">
-            <span className="lat-avatar" aria-hidden>
-              <span>{inicialesDe(userName, userEmail)}</span>
-            </span>
+            <PerfilEnLaBarra id={userId} nombre={nombreVisible} iniciales={inicialesDe(userName, userEmail)} />
             <span className="lat-usuario-datos">
               <span className="lat-usuario-nombre">{nombreVisible}</span>
               <span className="lat-usuario-rol">{etiquetaDeRol(userRole)}</span>
