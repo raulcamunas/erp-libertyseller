@@ -5339,3 +5339,17 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
 .sonidos-fila-mando button:active:not(:disabled) { transform: scale(.92); }
 .sonidos-fila-mando button:disabled { opacity: .4; cursor: not-allowed; }
 @media (max-width: 560px) { .sonidos-fila { grid-template-columns: 1fr; gap: 8px; } .sonidos-fila-mando select { width: 100%; } }
+
+
+/* ---- «Nueva actualización disponible»: banner discreto arriba (components/layout/AvisoDeVersion.tsx) ---- */
+.aviso-version { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); left: 50%; z-index: 95; display: flex; max-width: calc(100vw - 24px); transform: translateX(-50%); align-items: center; gap: 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--ls-acc) 40%, var(--ls-linea2)); background: color-mix(in srgb, var(--ls-sup) 94%, var(--ls-acc)); padding: 6px 6px 6px 14px; font-size: 12.5px; color: var(--ls-t2); box-shadow: 0 14px 34px -14px rgba(0, 0, 0, .7); animation: aviso-version-entra .32s cubic-bezier(.2, .9, .3, 1.1) both; }
+.aviso-version svg { color: var(--ls-acc); }
+.aviso-version b { font-weight: 650; color: var(--ls-t1); }
+.aviso-version-actualizar { flex-shrink: 0; border-radius: 999px; background: var(--ls-acc); padding: 5px 12px; font-size: 12px; font-weight: 700; color: var(--ls-acc-tinta, #fff); transition: transform .12s ease, filter .15s ease; }
+.aviso-version-actualizar:hover { filter: brightness(1.08); }
+.aviso-version-actualizar:active { transform: scale(.96); }
+.aviso-version-cerrar { display: grid; height: 24px; width: 24px; flex-shrink: 0; place-items: center; border-radius: 999px; color: var(--ls-t3); transition: background .15s ease, color .15s ease; }
+.aviso-version-cerrar:hover { background: color-mix(in srgb, var(--ls-t1) 12%, transparent); color: var(--ls-t1); }
+@keyframes aviso-version-entra { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translateX(-50%); } }
+@media (max-width: 640px) { .aviso-version > span { font-size: 12px; line-height: 1.3; } .aviso-version { border-radius: 18px; } }
+@media (prefers-reduced-motion: reduce) { .aviso-version { animation: none; } }

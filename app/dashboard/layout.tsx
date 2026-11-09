@@ -6,6 +6,8 @@ import { AppsPersistentes } from '@/components/layout/AppsPersistentes'
 import { AvisosEnVivo } from '@/components/avisos/AvisosEnVivo'
 import { DockDelChat } from '@/components/chat/DockDelChat'
 import { ProveedoresDelChat } from '@/components/chat/ProveedoresDelChat'
+import { AvisoDeVersion } from '@/components/layout/AvisoDeVersion'
+import { idDeLaVersion } from '@/lib/sistema/version'
 import { exigirChat } from '@/lib/chat/acceso'
 import { AparienciaProvider } from '@/components/tareas-clientes/AparienciaProvider'
 import { leerApariencias } from '@/lib/tareas-clientes/apariencia-servidor'
@@ -81,6 +83,8 @@ export default async function DashboardLayout({
         {/* Correo nuevo y noticias del equipo, abajo a la derecha, en cualquier pantalla. Fuera del recuadro animado de arriba a propósito:
             ahí dentro `fixed` sería relativo a ese recuadro y no a la ventana */}
         <AvisosEnVivo perfil={profile} />
+        {/* «Nueva actualización disponible»: la pestaña compara la versión con la que se pintó con la de ahora (components/layout/AvisoDeVersion.tsx) */}
+        <AvisoDeVersion idInicial={idDeLaVersion()} />
         {puedeChat && <DockDelChat />}
         {/* El registro de actividad: no pinta nada y solo se monta para los empleados. Lo lee quien supervisa en /dashboard/actividad */}
         {profile.role === 'employee' && <RegistroDeActividad limiteMin={limiteInactividadMin} />}
