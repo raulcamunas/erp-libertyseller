@@ -11,6 +11,7 @@ import type { AvisoDeCorreo } from '@/lib/correo/avisos'
 import { pedirAlCorreo } from '@/lib/correo/peticiones'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
+import { DialogoDeSonidos } from '@/components/sonidos/DialogoDeSonidos'
 import { PilaDeAvisos } from './PilaDeAvisos'
 import { useCorreoNuevo } from './useCorreoNuevo'
 
@@ -93,5 +94,11 @@ export function AvisosEnVivo({ perfil }: { perfil: UserProfile }) {
     }
   }, [perfil.id, perfil.role])
 
-  return <PilaDeAvisos />
+  return (
+    <>
+      <PilaDeAvisos />
+      {/* El selector de sonidos (se abre desde la campana, la apariencia del chat y los ajustes de audio) */}
+      <DialogoDeSonidos />
+    </>
+  )
 }

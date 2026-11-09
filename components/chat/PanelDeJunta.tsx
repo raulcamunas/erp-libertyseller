@@ -7,7 +7,7 @@ import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible } from '@/lib/chat/canales'
 import { useChat } from './ChatProvider'
 import { useJunta } from './JuntaProvider'
-import { ProbadorDeSonidos } from './ProbadorDeSonidos'
+import { BotonDeSonidos } from './BotonDeSonidos'
 
 /** Un vídeo (cámara o pantalla) pegado a su elemento: se desengancha solo al cambiar o irse */
 function Imagen({ pub, silenciado }: { pub: TrackPublication; silenciado?: boolean }) {
@@ -111,7 +111,7 @@ export function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
           </select>
         </label>
       )}
-      <ProbadorDeSonidos />
+      <BotonDeSonidos />
       <p className="chat-audio-nota">El volumen de cada persona se ajusta desde su cuadro.</p>
     </div>
   )

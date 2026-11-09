@@ -5320,9 +5320,22 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
 }
 @media (prefers-reduced-motion: reduce) { .junta-capsula, .junta-persona, .junta-ajustes, .junta-cara[data-habla='true'] { animation: none; } }
 
-/* ---- El probador de sonidos (Apariencia del chat y Ajustes de audio) ---- */
-.chat-sonidos-prueba { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.chat-sonidos-prueba button { display: inline-flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; border-radius: 10px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 6px 9px; text-align: left; font-size: 12px; font-weight: 600; color: var(--ls-t2); white-space: nowrap; text-overflow: ellipsis; transition: background .15s ease, color .15s ease, border-color .15s ease, transform .12s ease; }
-.chat-sonidos-prueba button svg { flex-shrink: 0; color: var(--ls-acc); }
-.chat-sonidos-prueba button:hover { border-color: color-mix(in srgb, var(--ls-acc) 45%, var(--ls-linea)); color: var(--ls-t1); }
-.chat-sonidos-prueba button:active { transform: scale(.96); background: color-mix(in srgb, var(--ls-acc) 18%, var(--ls-sup2)); }
+/* ---- La biblioteca de sonidos: selector (components/sonidos/DialogoDeSonidos.tsx) ---- */
+.chat-boton-sonidos { display: inline-flex; width: 100%; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 8px 10px; font-size: 12.5px; font-weight: 650; color: var(--ls-t2); transition: background .15s ease, color .15s ease, border-color .15s ease; }
+.chat-boton-sonidos svg { color: var(--ls-acc); }
+.chat-boton-sonidos:hover { border-color: color-mix(in srgb, var(--ls-acc) 45%, var(--ls-linea)); color: var(--ls-t1); }
+.sonidos-dialogo { width: min(640px, 100%) !important; }
+.sonidos-intro { margin: 0; font-size: 12.5px; color: var(--ls-t3); }
+.sonidos-grupo h3 { margin: 4px 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ls-t4); }
+.sonidos-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--ls-linea); padding: 10px 0; }
+.sonidos-fila:last-child { border-bottom: 0; }
+.sonidos-fila-texto { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.sonidos-fila-texto b { font-size: 13px; font-weight: 650; color: var(--ls-t1); }
+.sonidos-fila-texto small { font-size: 11.5px; line-height: 1.35; color: var(--ls-t3); }
+.sonidos-fila-mando { display: flex; align-items: center; gap: 8px; }
+.sonidos-fila-mando select { height: 34px; width: 210px; max-width: 100%; border-radius: 10px; border: 1px solid var(--ls-linea2); background: var(--ls-sup2); padding: 0 8px; font-size: 12.5px; color: var(--ls-t1); }
+.sonidos-fila-mando button { display: grid; height: 34px; width: 34px; flex-shrink: 0; place-items: center; border-radius: 999px; background: color-mix(in srgb, var(--ls-acc) 18%, var(--ls-sup3)); color: var(--ls-acc); transition: transform .12s ease, background .15s ease; }
+.sonidos-fila-mando button:hover:not(:disabled) { background: color-mix(in srgb, var(--ls-acc) 30%, var(--ls-sup3)); }
+.sonidos-fila-mando button:active:not(:disabled) { transform: scale(.92); }
+.sonidos-fila-mando button:disabled { opacity: .4; cursor: not-allowed; }
+@media (max-width: 560px) { .sonidos-fila { grid-template-columns: 1fr; gap: 8px; } .sonidos-fila-mando select { width: 100%; } }

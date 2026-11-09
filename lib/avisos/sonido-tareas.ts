@@ -12,6 +12,9 @@
  * cerrado hará falta otro camino (avisos push o Slack), que no está.
  */
 
+import { SIN_SONIDO, interaccionDe, sonidoElegidoPara } from '@/lib/sonidos/biblioteca'
+import { eleccionGuardada, reproducirSonido } from '@/lib/sonidos/reproductor'
+
 const CLAVE_SONIDO = 'avisos:sonido-de-tareas'
 const CLAVE_ESCRITORIO = 'avisos:escritorio-de-tareas'
 const FICHEROS = ['/sonidos/tarea.mp3', '/sonidos/tarea.ogg', '/sonidos/tarea.wav'] as const
@@ -116,6 +119,14 @@ function sintetizar(): ResultadoDeSonidoDeTarea | Promise<ResultadoDeSonidoDeTar
 
 async function reproducir(): Promise<ResultadoDeSonidoDeTarea> {
   if (!hayNavegador) return 'sin_audio'
+  // Lo que la persona ha elegido en la biblioteca de sonidos (selector «Sonidos»): el silencio no suena; otro sonido, ese; el de fábrica, el de siempre (fichero o «ding»)
+  const elegido = sonidoElegidoPara(eleccionGuardada(), 'avisos')
+  if (elegido === SIN_SONIDO) return 'silenciado'
+  if (elegido !== interaccionDe('avisos')?.defecto) {
+    const r = await reproducirSonido(elegido)
+    if (r === 'sono') ultimoSonido = Date.now()
+    return r === 'sono' ? 'sono' : r === 'bloqueado' ? 'bloqueado' : 'sin_audio'
+  }
   const fichero = await buscarFichero()
   if (fichero) {
     try {

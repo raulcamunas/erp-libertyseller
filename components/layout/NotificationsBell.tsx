@@ -8,6 +8,7 @@ import { chatALaVista } from '@/lib/chat/dock-estado'
 import { pastillaDelChatVisible, publicarVistaPrevia } from '@/lib/chat/vista-previa'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
 import { publicarAviso } from '@/lib/avisos/pila'
+import { abrirDialogoDeSonidos } from '@/lib/sonidos/dialogo'
 import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
 import { activarEscritorio, avisarEnEscritorio, desactivarEscritorio, escritorioActivo, escritorioDenegado, escritorioDisponible, ficheroDeSonidoDeTarea, ponerSonidoDeTareas, probarSonidoDeTarea, sonarTarea, sonidoDeTareasActivo, suscribirSonidoDeTareas } from '@/lib/avisos/sonido-tareas'
 import { destinoDeAvisoDeCorreo, type DestinoDeAviso } from '@/lib/correo/campana-tipos'
@@ -520,6 +521,11 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
               )}
             </>
           )}
+          <button type="button" onClick={abrirDialogoDeSonidos} className="lat-avisos-silencio" title="Elegir qué suena en cada caso: mensajes, correo, juntas de voz y llamadas">
+            <Volume2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="flex-1">Elegir los sonidos</span>
+            <span className="lat-avisos-silencio-accion">Abrir</span>
+          </button>
           <button type="button" onClick={() => silenciarEquipo(!silenciados)} aria-pressed={silenciados} className="lat-avisos-silencio">
             {silenciados ? <BellOff className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <Bell className="h-3.5 w-3.5 shrink-0" aria-hidden />}
             <span className="flex-1">{silenciados ? 'Avisos del equipo silenciados' : 'Avisos del equipo: llamadas y citas'}</span>

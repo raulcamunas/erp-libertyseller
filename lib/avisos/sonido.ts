@@ -16,6 +16,9 @@
  * bloqueando (nadie ha tocado la página desde que se abrió), no suena y se dice «bloqueado»: no hay forma de saltárselo ni se debe intentar.
  */
 
+import { SIN_SONIDO, interaccionDe, sonidoElegidoPara } from '@/lib/sonidos/biblioteca'
+import { eleccionGuardada, reproducirSonido } from '@/lib/sonidos/reproductor'
+
 export interface NodoDeAudio {
   connect(destino: unknown): unknown
 }
@@ -249,6 +252,13 @@ const sonido = hayNavegador
         }
       },
       async ficheroPropio() {
+        // Lo que la persona ha elegido en la biblioteca de sonidos (selector «Sonidos»): el silencio no suena nada; otro sonido, ese; el de fábrica, el de siempre
+        const elegido = sonidoElegidoPara(eleccionGuardada(), 'correo')
+        if (elegido === SIN_SONIDO) return 'sono'
+        if (elegido !== interaccionDe('correo')?.defecto) {
+          const r = await reproducirSonido(elegido)
+          return r === 'sono' ? 'sono' : r === 'bloqueado' ? 'bloqueado' : null
+        }
         // Si no existe el fichero, `play()` falla con otro error y se sigue con el sintetizado
         try {
           const a = new Audio('/sonidos/correo.mp3')
