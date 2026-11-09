@@ -88,7 +88,7 @@ export const esUuid = (v: unknown): v is string => typeof v === 'string' && UUID
 export async function personasConAcceso(clienteId?: string): Promise<PersonaTC[]> {
   const service = createServiceClient()
   const [admins, permisos, filas] = await Promise.all([
-    service.from('profiles').select('id, full_name, email').eq('role', 'admin'),
+    service.from('profiles').select('id, full_name, email, puesto').eq('role', 'admin'),
     service.from('user_app_permissions').select('user_id').eq('app_id', 'tareas-clientes').eq('can_access', true),
     // Si la tabla de accesos por cliente todavía no existe, falla sin más y todos ven todo
     service.from('tc_acceso_clientes').select('usuario_id, cliente_id'),
@@ -99,7 +99,9 @@ export async function personasConAcceso(clienteId?: string): Promise<PersonaTC[]
   const ids = (permisos.data ?? []).map((p: { user_id: string }) => p.user_id)
   const conCasilla = ids.length > 0 ? await service.from('profiles').select('id, full_name, email').in('id', ids) : { data: [] }
   const porId = new Map<string, PersonaTC>()
-  for (const p of [...(admins.data ?? []), ...(conCasilla.data ?? [])] as Array<{ id: string; full_name: string | null; email: string | null }>) {
+  // Un CEO no entra por ser administrador: solo si tiene la casilla (y entonces sale en la otra lectura, viendo todos los clientes como un administrador)
+  const adminsSinCeo = ((admins.data ?? []) as Array<{ id: string; puesto?: string | null }>).filter((x) => x.puesto !== 'ceo')
+  for (const p of [...adminsSinCeo, ...(conCasilla.data ?? [])] as Array<{ id: string; full_name: string | null; email: string | null }>) {
     porId.set(p.id, { id: p.id, nombre: (p.full_name ?? '').trim() || p.email || 'Sin nombre', email: p.email, clientes: esAdmin.has(p.id) ? null : (limitadas.get(p.id) ?? null) })
   }
   const todas = [...porId.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))

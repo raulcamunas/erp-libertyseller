@@ -40,7 +40,7 @@ function main() {
     ok('son cuatro y tienen nombre', PUESTOS.length === 4 && PUESTOS.every((p) => ETIQUETA_DE_PUESTO[p].length > 0))
     ok('los nombres son los que pidió Raúl', ETIQUETA_DE_PUESTO.comercial === 'Comercial' && ETIQUETA_DE_PUESTO.manager_comercial === 'Manager Comercial' && ETIQUETA_DE_PUESTO.comercial_autonomo === 'Comercial Autónomo' && ETIQUETA_DE_PUESTO.gestion_administrativa === 'Gestión Administrativa')
     ok('esPuesto acepta los cuatro y nada más', PUESTOS.every(esPuesto) && !esPuesto('admin') && !esPuesto('employee') && !esPuesto(null) && !esPuesto(3) && !esPuesto('') && !esPuesto('autonomo'))
-    ok('el desplegable ofrece Empleado, los cuatro puestos, Admin, Partner y Cliente, sin repetir', OPCIONES_DE_ROL.map((o) => o.valor).join() === 'employee,comercial,manager_comercial,comercial_autonomo,gestion_administrativa,admin,partner,cliente')
+    ok('el desplegable ofrece Empleado, los cuatro puestos, Admin, CEO, Partner y Cliente, sin repetir', OPCIONES_DE_ROL.map((o) => o.valor).join() === 'employee,comercial,manager_comercial,comercial_autonomo,gestion_administrativa,admin,ceo,partner,cliente')
     ok('y cada opción dice qué significa', OPCIONES_DE_ROL.every((o) => o.ayuda.length > 20 && o.etiqueta.length > 0))
   }
 
@@ -135,7 +135,9 @@ function main() {
     ok('un puesto a un admin: rechazado', !c9.ok && /empleado/.test(c9.error))
     ok('a un partner y a un cliente también', !cambioDePuestoDeLaPeticion({ puesto: 'comercial' }, 'partner').ok && !cambioDePuestoDeLaPeticion({ puesto: 'comercial' }, 'cliente').ok)
     const c10 = cambioDePuestoDeLaPeticion({}, 'admin')
-    ok('pasar a alguien a admin sin decir nada del puesto: se le quita el que tuviera', c10.ok && c10.puesto === null)
+    ok('un admin sin decir nada del puesto: no se toca (puede ser un CEO y editarlo no lo vuelve admin sin más)', c10.ok && !('puesto' in c10))
+    const c10b = cambioDePuestoDeLaPeticion({}, 'partner')
+    ok('un partner o un cliente sin decir nada: se le quita el puesto que tuviera', c10b.ok && c10b.puesto === null)
     const c11 = cambioDePuestoDeLaPeticion({ puesto: null }, 'cliente')
     ok('y con null explícito lo mismo', c11.ok && c11.puesto === null)
     const c12 = cambioDePuestoDeLaPeticion({ puesto: 'cocinero' }, 'employee')
@@ -145,6 +147,29 @@ function main() {
   }
 }
 
+function ceo() {
+  console.log('\n=== el CEO ===')
+  const sustituir = aplicarPuesto(casillasDe('chat', 'tareas-clientes', 'correo'), 'ceo', 'sustituir')
+  const marcadasCeo = marcadas(sustituir)
+  ok('se guarda como administrador + puesto «ceo»', JSON.stringify(rolYPuestoDe('ceo')) === JSON.stringify({ role: 'admin', puesto: 'ceo' }))
+  ok('y vuelve a salir como CEO en el desplegable y en la tabla', opcionDeRol('admin', 'ceo') === 'ceo' && etiquetaDeRol('admin', 'ceo') === 'CEO')
+  ok('un admin a secas sigue siendo Admin', opcionDeRol('admin', null) === 'admin' && etiquetaDeRol('admin', null) === 'Admin')
+  ok('un puesto «ceo» en un empleado no lo convierte en CEO', opcionDeRol('employee', 'ceo') === 'employee')
+  ok('al elegir CEO se marcan todas las aplicaciones menos el Chat y Tareas de clientes', marcadasCeo.length === apps.length - 2 && !marcadasCeo.includes('chat') && !marcadasCeo.includes('tareas-clientes') && marcadasCeo.includes('tesoreria') && marcadasCeo.includes('correo'), `${marcadasCeo.length} de ${apps.length}`)
+  ok('no marca los permisos sueltos (equipo-comercial, crm-propios…)', PERMISOS_SUELTOS.every((p) => !marcadasCeo.includes(p.id)))
+  const sumar = aplicarPuesto(casillasDe('chat'), 'ceo', 'sumar')
+  ok('al editar a alguien a CEO se suman las aplicaciones y lo que ya tenía se conserva (también el Chat si lo tenía)', marcadas(sumar).includes('chat') && marcadas(sumar).includes('tesoreria'))
+  const ok1 = cambioDePuestoDeLaPeticion({ puesto: 'ceo' }, 'admin')
+  ok('el puesto «ceo» se acepta en un admin', ok1.ok && ok1.puesto === 'ceo')
+  const mal = cambioDePuestoDeLaPeticion({ puesto: 'ceo' }, 'employee')
+  ok('y se rechaza en un empleado, con su motivo', !mal.ok && /administrador/.test(mal.error))
+  ok('un puesto de empleado en un admin sigue rechazado', !cambioDePuestoDeLaPeticion({ puesto: 'comercial' }, 'admin').ok)
+  const quitar = cambioDePuestoDeLaPeticion({ puesto: null }, 'admin')
+  ok('volver a Admin (puesto null) lo quita', quitar.ok && quitar.puesto === null)
+  ok('un CEO no es «comercial»: no cambia is_comercial', (() => { const c = cambioDePuestoDeLaPeticion({ puesto: 'ceo' }, 'admin'); return c.ok && !('is_comercial' in c) })())
+}
+
 main()
+ceo()
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS de ${comprobaciones} comprobaciones\n`)
 if (fallos > 0) process.exit(1)

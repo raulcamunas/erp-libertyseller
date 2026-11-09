@@ -33,7 +33,7 @@ interface Props {
 export function SelectorDeRol({ idBase, opcion, onCambiar, llama, onLlama, crearLista, onCrearLista }: Props) {
   const actual = OPCIONES_DE_ROL.find((o) => o.valor === opcion) ?? OPCIONES_DE_ROL[0]
   const { puesto } = rolYPuestoDe(opcion)
-  const casillas = puesto ? PERMISOS_DEL_PUESTO[puesto].map((id) => NOMBRE_DE_CASILLA.get(id) ?? id) : []
+  const casillas = puesto && esPuesto(puesto) ? PERMISOS_DEL_PUESTO[puesto].map((id) => NOMBRE_DE_CASILLA.get(id) ?? id) : []
   const ofreceLista = crearLista !== undefined && onCrearLista !== undefined && llevaListaPropia(puesto, puesto === 'comercial' ? true : llama)
   const grupo = (g: 'empleado' | 'puesto' | 'direccion' | 'externo') => OPCIONES_DE_ROL.filter((o) => o.grupo === g)
 

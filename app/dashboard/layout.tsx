@@ -61,7 +61,7 @@ export default async function DashboardLayout({
   const contenido = (
       <div className="min-h-screen bg-[var(--bg-color)] flex relative">
         {/* El rol y el nombre ya los tiene el servidor: con ellos la barra pinta desde el primer momento el menú de quien es, sin esperar a preguntarlo */}
-        <AppSidebar perfil={{ id: profile.id, role: profile.role, email: profile.email, full_name: profile.full_name }} />
+        <AppSidebar perfil={{ id: profile.id, role: profile.role, email: profile.email, full_name: profile.full_name, puesto: profile.puesto ?? null }} />
         {/* min-w-0: sin esto, un hijo ancho (una tabla de muchas columnas)
             estira el main y arrastra toda la página en horizontal, barra
             lateral incluida. Con esto, quien scrollea es la propia tabla.

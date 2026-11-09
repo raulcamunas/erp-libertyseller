@@ -51,6 +51,7 @@ const formularioVacio = (): CreateUserData => ({
 /** El color de la insignia de cada rol o puesto en la tabla */
 const COLOR_DE_OPCION: Record<OpcionDeRol, string> = {
   admin: 'bg-[#FF6600]/20 text-[#FF6600] border border-[#FF6600]/30',
+  ceo: 'bg-rose-500/15 text-rose-300 border border-rose-500/30',
   partner: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
   comercial: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
   manager_comercial: 'bg-violet-500/15 text-violet-300 border border-violet-500/30',

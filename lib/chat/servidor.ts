@@ -104,13 +104,15 @@ export async function personasDelChat(): Promise<PersonaChat[]> {
   if (cachePersonas && Date.now() - cachePersonas.en < VIDA_DE_LA_CACHE_MS) return cachePersonas.lista
   const service = db()
   const [admins, permisos] = await Promise.all([
-    service.from('profiles').select('id, full_name, email').eq('role', 'admin'),
+    service.from('profiles').select('id, full_name, email, puesto').eq('role', 'admin'),
     service.from('user_app_permissions').select('user_id').eq('app_id', APP_CHAT).eq('can_access', true),
   ])
   const ids = ((permisos.data ?? []) as Array<{ user_id: string }>).map((p) => p.user_id)
   const otros = ids.length > 0 ? await service.from('profiles').select('id, full_name, email').in('id', ids) : { data: [] as Array<{ id: string; full_name: string | null; email: string | null }> }
   const unicas = new Map<string, PersonaChat>()
-  for (const f of [...((admins.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>), ...((otros.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>)]) {
+  // Un CEO no entra por ser administrador: solo si tiene la casilla «Chat» (y entonces sale en la otra lectura)
+  const adminsSinCeo = ((admins.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null; puesto?: string | null }>).filter((a) => a.puesto !== 'ceo')
+  for (const f of [...adminsSinCeo, ...((otros.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>)]) {
     unicas.set(f.id, { id: f.id, nombre: (f.full_name ?? '').trim() || f.email || 'Alguien del equipo', email: f.email })
   }
   // La zona horaria de cada una (migración 287): si la tabla no existe, se queda sin zonas

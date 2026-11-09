@@ -148,7 +148,7 @@ export async function middleware(request: NextRequest) {
     // 'employee' y no quedaba rastro de por qué.
     const { data: profile, error: errorPerfil } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, puesto')
       .eq('id', user.id)
       .single()
 
@@ -164,6 +164,8 @@ export async function middleware(request: NextRequest) {
     }
 
     const userRole = profile?.role || 'employee'
+    // Un CEO (administrador con puesto 'ceo', lib/usuarios/ceo.ts) entra solo a las pantallas con casilla que tenga marcada, como un empleado. Inline: el middleware no importa la configuración de apps
+    const esCeoUsuario = profile?.role === 'admin' && profile?.puesto === 'ceo'
 
     // Ruta /admin/* - Solo admins
     if (pathname.startsWith('/admin')) {
@@ -435,7 +437,7 @@ export async function middleware(request: NextRequest) {
       }
 
       // Verificar permisos por aplicación (excepto para admins, partners y rutas especiales)
-      if (userRole === 'employee' && pathname !== '/dashboard' && pathname !== '/dashboard/users') {
+      if ((userRole === 'employee' || esCeoUsuario) && pathname !== '/dashboard' && pathname !== '/dashboard/users') {
         // Mapear rutas a app_ids
         const routeToAppId: Record<string, string> = {
           '/dashboard/leads': 'leads',

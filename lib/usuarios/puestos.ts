@@ -1,4 +1,6 @@
 import type { RolUsuario } from '@/lib/types/users'
+import { PERMISOS_SUELTOS, apps } from '@/lib/config/apps'
+import { APPS_SIN_MARCAR_AL_HACER_CEO, PUESTO_CEO } from '@/lib/usuarios/ceo'
 
 /**
  * LOS PUESTOS DEL EQUIPO: COMERCIAL, MANAGER COMERCIAL, COMERCIAL AUTÓNOMO Y GESTIÓN ADMINISTRATIVA — PURO.
@@ -28,8 +30,17 @@ export const ETIQUETA_DE_PUESTO: Record<Puesto, string> = {
   gestion_administrativa: 'Gestión Administrativa',
 }
 
-/** Lo que se elige en el desplegable «Rol»: los roles del ERP y, además, los tres puestos */
-export type OpcionDeRol = RolUsuario | Puesto
+/**
+ * «CEO» también se elige en el desplegable, pero NO es un puesto de empleado: se guarda como administrador + `profiles.puesto = 'ceo'` (lib/usuarios/ceo.ts) y por eso no está en
+ * PUESTOS ni tiene casillas que pre-marcar. Es la dirección sin las apps de desarrollo (Chat y Tareas de clientes).
+ */
+export type PuestoDeDireccion = typeof PUESTO_CEO
+
+/** Lo que se guarda en `profiles.puesto`: el de un empleado o el de dirección */
+export type PuestoGuardado = Puesto | PuestoDeDireccion
+
+/** Lo que se elige en el desplegable «Rol»: los roles del ERP y, además, los puestos y el CEO */
+export type OpcionDeRol = RolUsuario | Puesto | PuestoDeDireccion
 
 export interface OpcionDelDesplegable {
   valor: OpcionDeRol
@@ -57,6 +68,12 @@ export const OPCIONES_DE_ROL: readonly OpcionDelDesplegable[] = [
   },
   { valor: 'gestion_administrativa', etiqueta: 'Gestión Administrativa', grupo: 'puesto', ayuda: 'Administración: correo y vacaciones. No llama ni entra en Cold Calling.' },
   { valor: 'admin', etiqueta: 'Admin', grupo: 'direccion', ayuda: 'Dirección: accede a todo.' },
+  {
+    valor: PUESTO_CEO,
+    etiqueta: 'CEO',
+    grupo: 'direccion',
+    ayuda: 'Dirección con el acceso que se le marque, como cualquier otro rol. Al elegirlo se marcan todas las aplicaciones MENOS el Chat del equipo y Tareas de clientes (lo que se desarrolla dentro del ERP); se le puede dar o quitar cualquier acceso abajo.',
+  },
   { valor: 'partner', etiqueta: 'Partner', grupo: 'direccion', ayuda: 'Socio: accede a casi todo, incluidas las finanzas.' },
   { valor: 'cliente', etiqueta: 'Cliente (solo Remesas a FBA)', grupo: 'externo', ayuda: 'Fuera de la agencia: solo entra en Remesas a FBA, a las cuentas que se le den.' },
 ]
@@ -65,18 +82,21 @@ const ROLES: readonly string[] = ['admin', 'employee', 'partner', 'cliente']
 
 /** La opción del desplegable que corresponde a un usuario ya guardado */
 export function opcionDeRol(role: unknown, puesto: unknown): OpcionDeRol {
+  if (role === 'admin' && puesto === PUESTO_CEO) return PUESTO_CEO
   if (typeof role === 'string' && ROLES.includes(role) && role !== 'employee') return role as RolUsuario
   return esPuesto(puesto) ? puesto : 'employee'
 }
 
 /** Lo que se guarda para una opción del desplegable: el rol del ERP y, si es un puesto, el puesto */
-export function rolYPuestoDe(opcion: OpcionDeRol): { role: RolUsuario; puesto: Puesto | null } {
+export function rolYPuestoDe(opcion: OpcionDeRol): { role: RolUsuario; puesto: PuestoGuardado | null } {
+  if (opcion === PUESTO_CEO) return { role: 'admin', puesto: PUESTO_CEO }
   return esPuesto(opcion) ? { role: 'employee', puesto: opcion } : { role: opcion, puesto: null }
 }
 
 /** Cómo se nombra a alguien en la tabla de usuarios */
 export function etiquetaDeRol(role: unknown, puesto: unknown): string {
   const opcion = opcionDeRol(role, puesto)
+  if (opcion === PUESTO_CEO) return 'CEO'
   if (esPuesto(opcion)) return ETIQUETA_DE_PUESTO[opcion]
   return opcion === 'admin' ? 'Admin' : opcion === 'partner' ? 'Partner' : opcion === 'cliente' ? 'Cliente' : 'Empleado'
 }
@@ -110,21 +130,26 @@ export interface Casilla {
  *   · 'sumar'      añade las del puesto a las que ya tenía (al editar: cambiar de puesto no le quita lo que ya se le dio)
  * Sin puesto (un empleado a secas) no toca nada. Solo cambia las casillas que existen en la lista.
  */
-export function aplicarPuesto<T extends Casilla>(casillas: readonly T[], puesto: Puesto | null, modo: 'sustituir' | 'sumar'): T[] {
+export function aplicarPuesto<T extends Casilla>(casillas: readonly T[], puesto: PuestoGuardado | null, modo: 'sustituir' | 'sumar'): T[] {
   if (puesto === null) return casillas.map((c) => ({ ...c }))
+  // El CEO: todas las aplicaciones (las que tienen tarjeta; no los permisos sueltos) menos lo que se desarrolla dentro del ERP
+  if (puesto === PUESTO_CEO) {
+    const delCeo = new Set(apps.map((a) => a.id).filter((id) => !APPS_SIN_MARCAR_AL_HACER_CEO.has(id) && !PERMISOS_SUELTOS.some((p) => p.id === id)))
+    return casillas.map((c) => ({ ...c, can_access: delCeo.has(c.app_id) ? true : modo === 'sustituir' ? false : c.can_access }))
+  }
   const del = new Set(PERMISOS_DEL_PUESTO[puesto])
   return casillas.map((c) => ({ ...c, can_access: del.has(c.app_id) ? true : modo === 'sustituir' ? false : c.can_access }))
 }
 
 /** ¿Es alguien que llama? Un Comercial sí, siempre; una Gestión Administrativa no; un Manager o un Autónomo según lo que se marque (por defecto, lo que ya era: un autónomo no) */
-export function esComercialDelPuesto(puesto: Puesto | null, marcado: boolean | undefined): boolean | undefined {
+export function esComercialDelPuesto(puesto: PuestoGuardado | null, marcado: boolean | undefined): boolean | undefined {
   if (puesto === 'comercial') return true
   if (puesto === 'gestion_administrativa') return false
   return marcado
 }
 
 /** ¿Se le crea una lista de leads propia al darlo de alta? A quien llama (un comercial, o un manager que también llama) */
-export function llevaListaPropia(puesto: Puesto | null, esComercial: boolean): boolean {
+export function llevaListaPropia(puesto: PuestoGuardado | null, esComercial: boolean): boolean {
   return puesto === 'comercial' || (puesto === 'manager_comercial' && esComercial)
 }
 
@@ -132,7 +157,7 @@ export function llevaListaPropia(puesto: Puesto | null, esComercial: boolean): b
 /* Lo que llega a las rutas                                            */
 /* ------------------------------------------------------------------ */
 
-export type CambioDePuesto = { ok: true; puesto?: Puesto | null; is_comercial?: boolean } | { ok: false; error: string }
+export type CambioDePuesto = { ok: true; puesto?: PuestoGuardado | null; is_comercial?: boolean } | { ok: false; error: string }
 
 /**
  * Lo que una petición de crear o editar un usuario quiere cambiar de su puesto, ya validado.
@@ -141,23 +166,26 @@ export type CambioDePuesto = { ok: true; puesto?: Puesto | null; is_comercial?: 
  * `rolFinal` es el rol que tendrá la persona al terminar (el de la petición, o el que ya tenía si la petición no lo cambia).
  */
 export function cambioDePuestoDeLaPeticion(cuerpo: { puesto?: unknown; is_comercial?: unknown }, rolFinal: string): CambioDePuesto {
-  let puesto: Puesto | null | undefined
+  let puesto: PuestoGuardado | null | undefined
   if (cuerpo.puesto === undefined) puesto = undefined
   else if (cuerpo.puesto === null || cuerpo.puesto === '') puesto = null
-  else if (esPuesto(cuerpo.puesto)) puesto = cuerpo.puesto
+  else if (esPuesto(cuerpo.puesto) || cuerpo.puesto === PUESTO_CEO) puesto = cuerpo.puesto
   else return { ok: false, error: 'Ese puesto no existe' }
 
-  if (puesto && rolFinal !== 'employee') return { ok: false, error: 'Un puesto solo se le puede dar a un empleado' }
-  if (puesto === undefined && rolFinal !== 'employee') puesto = null
+  // El CEO es un administrador; los demás puestos, de empleados
+  if (puesto === PUESTO_CEO && rolFinal !== 'admin') return { ok: false, error: 'El puesto de CEO solo se le puede dar a un administrador' }
+  if (puesto && puesto !== PUESTO_CEO && rolFinal !== 'employee') return { ok: false, error: 'Un puesto solo se le puede dar a un empleado' }
+  // Sin decir nada del puesto: a un empleado no se le toca; a un admin tampoco (puede ser un CEO y editarlo no lo vuelve admin); al resto se le quita el que se le quedara
+  if (puesto === undefined && rolFinal !== 'employee' && rolFinal !== 'admin') puesto = null
 
   let marcado: boolean | undefined
   if (cuerpo.is_comercial === undefined) marcado = undefined
   else if (typeof cuerpo.is_comercial === 'boolean') marcado = cuerpo.is_comercial
   else return { ok: false, error: 'is_comercial tiene que ser verdadero o falso' }
 
-  const salida: { ok: true; puesto?: Puesto | null; is_comercial?: boolean } = { ok: true }
+  const salida: { ok: true; puesto?: PuestoGuardado | null; is_comercial?: boolean } = { ok: true }
   if (puesto !== undefined) salida.puesto = puesto
-  const comercial = esComercialDelPuesto(puesto ?? null, marcado)
+  const comercial = esComercialDelPuesto(puesto && puesto !== PUESTO_CEO ? puesto : null, marcado)
   if (comercial !== undefined) salida.is_comercial = comercial
   return salida
 }

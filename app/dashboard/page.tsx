@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
+import { esCeo } from '@/lib/usuarios/ceo'
 import { apps, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CRM, APP_GROWTH, puedeVerCrm, puedeVerGrowth } from '@/lib/config/apps'
 import { InicioApps } from '@/components/inicio/InicioApps'
 import { primerNombre } from '@/lib/inicio/saludo'
@@ -22,8 +23,8 @@ export default async function DashboardPage() {
   // Obtener permisos del usuario
   let userPermissions: Set<string> = new Set()
   
-  // Si es admin, tiene acceso a todo
-  if (profile.role === 'admin') {
+  // Si es admin, tiene acceso a todo. Un CEO (lib/usuarios/ceo.ts) no: se cargan sus casillas como las de un empleado
+  if (profile.role === 'admin' && !esCeo(profile.role, profile.puesto)) {
     userPermissions = new Set(apps.map(app => app.id))
   } else if (profile.role === 'partner') {
     // Los partners solo tienen acceso a client-canvas (si son miembros de algún cliente)
@@ -61,6 +62,8 @@ export default async function DashboardPage() {
 
     // Home siempre visible
     if (app.id === 'home') return true
+    // Un CEO ve solo las aplicaciones con casilla (lib/usuarios/ceo.ts)
+    if (esCeo(profile.role, profile.puesto) && app.id !== 'users') return userPermissions.has(app.id)
     
     // Gestión de usuarios solo para admin específico
     if (app.id === 'users') {

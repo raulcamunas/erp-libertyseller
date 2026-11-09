@@ -52,6 +52,8 @@ export interface Sesion {
   userId: string
   role: string
   isAdmin: boolean
+  /** Administrador cuyo acceso a cada aplicación lo deciden las casillas (puesto 'ceo', lib/usuarios/ceo.ts). Sigue siendo `isAdmin`: conserva lo que solo hace un administrador */
+  esCeo?: boolean
 }
 
 /**
@@ -96,7 +98,7 @@ export async function requireSession(
 
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, puesto')
     .eq('id', user.id)
     .single()
 
@@ -110,7 +112,7 @@ export async function requireSession(
 
   const role = profile?.role ?? 'employee'
 
-  return { supabase, userId: user.id, role, isAdmin: role === 'admin' }
+  return { supabase, userId: user.id, role, isAdmin: role === 'admin', esCeo: role === 'admin' && profile?.puesto === 'ceo' }
 }
 
 /**
@@ -166,7 +168,8 @@ export async function requireAppAccess(
 ): Promise<Sesion | NextResponse> {
   const sesion = await requireSession()
   if (sesion instanceof NextResponse) return sesion
-  if (sesion.isAdmin) return sesion
+  // Un administrador entra siempre; un CEO, como cualquier otro rol, solo con la casilla de la aplicación
+  if (sesion.isAdmin && !sesion.esCeo) return sesion
 
   const { data: permiso } = await sesion.supabase
     .from('user_app_permissions')

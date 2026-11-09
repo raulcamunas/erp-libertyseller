@@ -9,6 +9,7 @@ import { Logo } from '@/components/ui/Logo'
 import { NotificationsBell } from '@/components/layout/NotificationsBell'
 import { leerChatSinLeer, leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
+import { esCeo } from '@/lib/usuarios/ceo'
 import { apps, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CHAT, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
 import { esRutaInmersiva, EVENTO_ABRIR_MENU } from '@/lib/layout/inmersivo'
@@ -31,6 +32,8 @@ export interface PerfilDeLaBarra {
   role: RolUsuario
   email: string | null
   full_name: string | null
+  /** El puesto: 'ceo' = administrador cuyo acceso a cada aplicación lo deciden las casillas (lib/usuarios/ceo.ts) */
+  puesto?: string | null
 }
 
 // Antes de pintar, medir dónde está la entrada encendida; en el servidor no hay nada que medir y `useLayoutEffect` avisa
@@ -58,6 +61,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
   const [permisosCargados, setPermisosCargados] = useState(false)
   const [userRole, setUserRole] = useState<RolUsuario | null>(perfil?.role ?? null)
+  const [userPuesto, setUserPuesto] = useState<string | null>(perfil?.puesto ?? null)
   const [userEmail, setUserEmail] = useState<string | null>(perfil?.email ?? null)
   const [userName, setUserName] = useState<string | null>(perfil?.full_name ?? null)
   const [userId, setUserId] = useState<string | null>(perfil?.id ?? null)
@@ -137,18 +141,19 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
       // Obtener perfil del usuario
       const { data: profile } = await supabase
         .from('profiles')
-        .select('role, email, full_name')
+        .select('role, email, full_name, puesto')
         .eq('id', user.id)
         .single()
 
       setUserId(user.id)
       if (profile) {
         setUserRole(profile.role)
+        setUserPuesto(profile.puesto ?? null)
         setUserEmail(profile.email)
         setUserName(profile.full_name ?? null)
 
-        // Si es admin, tiene acceso a todo
-        if (profile.role === 'admin') {
+        // Si es admin, tiene acceso a todo. Un CEO (administrador cuyo acceso decide la casilla, lib/usuarios/ceo.ts) no: se cargan sus casillas como las de un empleado
+        if (profile.role === 'admin' && !esCeo(profile.role, profile.puesto)) {
           setUserPermissions(new Set(apps.map(app => app.id)))
           return
         }
@@ -194,6 +199,8 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     if (app.id === 'users') {
       return userRole === 'admin' && userEmail === 'raulcamunas369@gmail.com'
     }
+    // Un CEO abre solo las aplicaciones que tiene marcadas, como un empleado (lib/usuarios/ceo.ts). Antes de todo lo de abajo: mientras no llegan sus casillas no se le enseña nada
+    if (esCeo(userRole, userPuesto)) return userPermissions.has(app.id)
     // Las apps de solo-admin, con el motivo de cada una escrito junto a la
     // lista en lib/config/apps.ts. Va ANTES del "si aún no se ha cargado el
     // rol, mostrar todas" de abajo: si no, aparecen un instante en el menú de
@@ -229,13 +236,14 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   })
 
   // Tareas Clientes vive en el pie: lo ve un administrador y quien tenga su casilla (un partner o un cliente no entran por serlo)
-  const puedeVerTareas = userRole === 'admin' || (userRole === 'employee' && userPermissions.has(APP_TAREAS_CLIENTES))
+  const ceo = esCeo(userRole, userPuesto)
+  const puedeVerTareas = (userRole === 'admin' && !ceo) || ((userRole === 'employee' || ceo) && userPermissions.has(APP_TAREAS_CLIENTES))
   // El Chat, también en el pie, junto a Tareas: son las dos de cada día (con lo que hay sin leer)
-  const puedeVerChat = userRole === 'admin' || (userRole === 'employee' && userPermissions.has(APP_CHAT))
+  const puedeVerChat = (userRole === 'admin' && !ceo) || ((userRole === 'employee' || ceo) && userPermissions.has(APP_CHAT))
   const enElChat = Boolean(pathname?.startsWith('/dashboard/chat'))
 
   // Un empleado ve «Inicio» y, hasta que llegan sus permisos, unas filas que se están rellenando (en vez de un menú que de repente crece)
-  const cargandoPermisos = userRole === 'employee' && !permisosCargados
+  const cargandoPermisos = (userRole === 'employee' || ceo) && !permisosCargados
 
   // Al pulsar una entrada se enciende ya, sin esperar a que cargue la página: si la ruta nueva no llega a abrirse se deshace sola
   const [pendiente, setPendiente] = useState<string | null>(null)

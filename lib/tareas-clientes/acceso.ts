@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { APP_TAREAS_CLIENTES } from '@/lib/config/apps'
+import { esCeo } from '@/lib/usuarios/ceo'
 
 /**
  * QUIÉN PUEDE VER LAS TAREAS DE LOS CLIENTES.
@@ -39,11 +40,13 @@ export async function exigirTareas(): Promise<PermisoTareas> {
   if (!perfil) return { ok: false, estado: 401, mensaje: 'Hay que iniciar sesión' }
 
   const nombre = (perfil.full_name ?? '').trim() || perfil.email || 'Alguien del equipo'
-  if (perfil.role === 'admin') return { ok: true, userId: perfil.id, nombre, esAdmin: true, email: perfil.email ?? null, clientes: null }
+  const ceo = esCeo(perfil.role, perfil.puesto)
+  // Un administrador entra siempre; un CEO, como cualquier otro rol, solo con la casilla (y entonces ve todos los clientes)
+  if (perfil.role === 'admin' && !ceo) return { ok: true, userId: perfil.id, nombre, esAdmin: true, email: perfil.email ?? null, clientes: null }
 
-  if (perfil.role === 'employee' || perfil.role === 'partner') {
+  if (perfil.role === 'employee' || perfil.role === 'partner' || ceo) {
     const { data } = await supabase.from('user_app_permissions').select('can_access').eq('user_id', user.id).eq('app_id', APP_TAREAS_CLIENTES).maybeSingle()
-    if (data?.can_access) return { ok: true, userId: perfil.id, nombre, esAdmin: false, email: perfil.email ?? null, clientes: await clientesPermitidos(perfil.id) }
+    if (data?.can_access) return { ok: true, userId: perfil.id, nombre, esAdmin: ceo, email: perfil.email ?? null, clientes: ceo ? null : await clientesPermitidos(perfil.id) }
   }
   return { ok: false, estado: 403, mensaje: 'No tienes acceso a las tareas de clientes. Pídeselo a un administrador.' }
 }

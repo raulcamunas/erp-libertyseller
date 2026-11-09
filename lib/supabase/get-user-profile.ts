@@ -7,6 +7,8 @@ export interface UserProfile {
   email: string | null
   full_name: string | null
   role: RolUsuario
+  /** El puesto (migración 257). 'ceo' = administrador cuyo acceso a cada aplicación lo deciden las casillas (lib/usuarios/ceo.ts) */
+  puesto?: string | null
 }
 
 /**
@@ -24,7 +26,7 @@ export const getUserProfile = cache(async (): Promise<UserProfile | null> => {
 
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('id, email, full_name, role')
+    .select('id, email, full_name, role, puesto')
     .eq('id', user.id)
     .single()
 
