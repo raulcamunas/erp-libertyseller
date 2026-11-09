@@ -67,6 +67,24 @@ export function DockDelChat() {
     }
   }, [ofrecido, modo, ancho, abierto])
 
+  // Dónde queda la cápsula de la junta de voz (JuntaFlotante): a la izquierda de lo que ocupe la esquina de abajo a la derecha, la pastilla o la ventana del chat. Sin dock, en la esquina
+  useEffect(() => {
+    const raiz = document.documentElement
+    const el = document.querySelector<HTMLElement>(ofrecido && efectivo === 'cerrado' ? '.chat-dock-pastilla' : ofrecido && abierto ? '.chat-dock' : '__ninguno__')
+    if (!el) {
+      raiz.style.removeProperty('--junta-derecha')
+      return
+    }
+    const poner = () => raiz.style.setProperty('--junta-derecha', `${18 + el.offsetWidth + 10}px`)
+    poner()
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(poner) : null
+    ro?.observe(el)
+    return () => {
+      ro?.disconnect()
+      raiz.style.removeProperty('--junta-derecha')
+    }
+  }, [ofrecido, efectivo, abierto, sinLeer])
+
   // La campana enseña las tarjetas encima de la pastilla solo mientras la pastilla está a la vista
   const pastillaVisible = ofrecido && efectivo === 'cerrado'
   useEffect(() => {

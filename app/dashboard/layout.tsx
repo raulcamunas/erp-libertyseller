@@ -5,6 +5,7 @@ import { AppSidebar } from '@/components/layout/AppSidebar'
 import { AppsPersistentes } from '@/components/layout/AppsPersistentes'
 import { AvisosEnVivo } from '@/components/avisos/AvisosEnVivo'
 import { DockDelChat } from '@/components/chat/DockDelChat'
+import { ProveedoresDelChat } from '@/components/chat/ProveedoresDelChat'
 import { exigirChat } from '@/lib/chat/acceso'
 import { AparienciaProvider } from '@/components/tareas-clientes/AparienciaProvider'
 import { leerApariencias } from '@/lib/tareas-clientes/apariencia-servidor'
@@ -55,8 +56,7 @@ export default async function DashboardLayout({
   // El chat a mano en cualquier pantalla (un dock pequeño y ampliable): solo para quien tiene el chat
   const [puedeChat, apariencias] = await Promise.all([exigirChat().then((p) => p.ok), leerApariencias()])
 
-  return (
-    <AparienciaProvider inicial={apariencias.mapa} disponibleAlInicio={apariencias.disponible} nombresIniciales={apariencias.nombres}>
+  const contenido = (
       <div className="min-h-screen bg-[var(--bg-color)] flex relative">
         {/* El rol y el nombre ya los tiene el servidor: con ellos la barra pinta desde el primer momento el menú de quien es, sin esperar a preguntarlo */}
         <AppSidebar perfil={{ id: profile.id, role: profile.role, email: profile.email, full_name: profile.full_name }} />
@@ -85,6 +85,12 @@ export default async function DashboardLayout({
         {/* El registro de actividad: no pinta nada y solo se monta para los empleados. Lo lee quien supervisa en /dashboard/actividad */}
         {profile.role === 'employee' && <RegistroDeActividad limiteMin={limiteInactividadMin} />}
       </div>
+  )
+
+  return (
+    <AparienciaProvider inicial={apariencias.mapa} disponibleAlInicio={apariencias.disponible} nombresIniciales={apariencias.nombres}>
+      {/* El chat y la junta de voz, vivos en TODO el ERP: salir de la pantalla del Chat o cambiar de pestaña no corta la junta (components/chat/ProveedoresDelChat.tsx) */}
+      {puedeChat ? <ProveedoresDelChat>{contenido}</ProveedoresDelChat> : contenido}
     </AparienciaProvider>
   )
 }

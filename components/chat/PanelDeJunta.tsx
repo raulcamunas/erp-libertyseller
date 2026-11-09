@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Room, Track, type Participant, type TrackPublication } from 'livekit-client'
-import { HeadphoneOff, Headphones, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, PhoneOff, Settings2, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
+import { HeadphoneOff, Headphones, Mic, MicOff, Minimize2, MonitorUp, MonitorX, PhoneOff, Settings2, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible } from '@/lib/chat/canales'
 import { useChat } from './ChatProvider'
@@ -60,7 +60,7 @@ function Cuadro({ t, foco }: { t: Tesela; foco?: boolean }) {
 }
 
 /** Los ajustes de tu audio: limpiar el micrófono, elegir micrófono y altavoz. Solo cambian lo tuyo */
-function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
+export function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
   const { audio, cambiarAudio } = useJunta()
   const [micros, setMicros] = useState<MediaDeviceInfo[]>([])
   const [altavoces, setAltavoces] = useState<MediaDeviceInfo[]>([])
@@ -114,11 +114,13 @@ function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
   )
 }
 
-/** La junta en curso: cuadros de cada persona, quien comparte pantalla en grande, y los mandos. Se queda abierta aunque cambies de canal */
+/**
+ * LA VENTANA GRANDE DE LA JUNTA: cuadros de cada persona, cámaras, quien comparte pantalla en grande, y los mandos. La junta es por defecto una cápsula pequeña junto al chat
+ * (components/chat/JuntaFlotante.tsx); esta ventana se abre solo si se pide («Ver la junta») y se vuelve a la cápsula con «Minimizar». Se queda abierta aunque cambies de canal o de pantalla.
+ */
 export function PanelDeJunta() {
-  const { actual, room, version, salir, alternarMicro, alternarCamara, alternarPantalla, puedePantalla, ensordecido, alternarEnsordecer } = useJunta()
+  const { actual, room, version, salir, alternarMicro, alternarCamara, alternarPantalla, puedePantalla, ensordecido, alternarEnsordecer, ponerVistaGrande } = useJunta()
   const { canales, yo, persona } = useChat()
-  const [grande, setGrande] = useState(false)
   const [ajustes, setAjustes] = useState(false)
   void version
   if (!actual) return null
@@ -135,13 +137,13 @@ export function PanelDeJunta() {
   const hayPantalla = teselas.some((t) => t.pantalla)
 
   return (
-    <section className="chat-junta" data-grande={grande ? 'true' : undefined} data-con-pantalla={hayPantalla ? 'true' : undefined} role="region" aria-label={`Junta en ${nombre}`}>
+    <section className="chat-junta" data-grande="true" data-con-pantalla={hayPantalla ? 'true' : undefined} role="region" aria-label={`Junta en ${nombre}`}>
       <header className="chat-junta-cabecera">
         <Headphones className="h-4 w-4 text-[var(--ls-e-verde)]" />
         <b>{nombre}</b>
         <span>{actual.estado === 'conectando' ? 'Conectando…' : `${gente.length} ${gente.length === 1 ? 'persona' : 'personas'}`}</span>
-        <button type="button" className="chat-icono ml-auto" onClick={() => setGrande((g) => !g)} aria-label={grande ? 'Hacer pequeña la junta' : 'Agrandar la junta'} title={grande ? 'Hacer pequeña' : 'Agrandar'}>
-          {grande ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        <button type="button" className="chat-icono ml-auto" onClick={() => ponerVistaGrande(false)} aria-label="Minimizar la junta" title="Minimizar: seguir en la junta con la cápsula pequeña">
+          <Minimize2 className="h-4 w-4" />
         </button>
       </header>
       <div className="chat-junta-cuadros">

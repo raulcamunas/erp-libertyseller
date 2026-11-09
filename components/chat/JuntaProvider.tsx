@@ -1,11 +1,12 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Room, RoomEvent, Track, type LocalAudioTrack } from 'livekit-client'
+import { DisconnectReason, Room, RoomEvent, Track, type LocalAudioTrack } from 'livekit-client'
 import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
 import { AJUSTES_DE_AUDIO_POR_DEFECTO, CLAVE_DE_AUDIO, CLAVE_DE_VOLUMENES, leerAjustesDeAudio, leerVolumenes, limitarVolumen, limpiarAjustesDeAudio, restriccionesDeMicro, volumenEfectivo, type AjustesDeAudio, type Volumenes } from '@/lib/chat/audio'
 import type { JuntaActiva } from '@/lib/chat/junta'
+import { ponerJuntaConectada } from '@/lib/chat/dock-estado'
 import { useChat } from './ChatProvider'
 
 const BASE = '/api/chat'
@@ -36,11 +37,14 @@ interface ContextoDeJunta {
   /** No oyes a nadie (y tu micrófono se apaga) hasta que lo quites */
   ensordecido: boolean
   alternarEnsordecer: () => Promise<void>
+  /** La ventana grande de la junta (cuadros, cámaras, pantalla compartida) está abierta. Por defecto la junta es una cápsula pequeña junto al chat */
+  vistaGrande: boolean
+  ponerVistaGrande: (v: boolean) => void
 }
 
 const Contexto = createContext<ContextoDeJunta | null>(null)
 
-const SIN_JUNTAS: ContextoDeJunta = { disponible: false, activas: {}, actual: null, room: null, version: 0, puedePantalla: false, entrar: async () => undefined, salir: () => undefined, alternarMicro: async () => undefined, alternarCamara: async () => undefined, alternarPantalla: async () => undefined, audio: AJUSTES_DE_AUDIO_POR_DEFECTO, cambiarAudio: async () => undefined, volumenes: {}, ponerVolumen: () => undefined, ensordecido: false, alternarEnsordecer: async () => undefined }
+const SIN_JUNTAS: ContextoDeJunta = { disponible: false, activas: {}, actual: null, room: null, version: 0, puedePantalla: false, entrar: async () => undefined, salir: () => undefined, alternarMicro: async () => undefined, alternarCamara: async () => undefined, alternarPantalla: async () => undefined, audio: AJUSTES_DE_AUDIO_POR_DEFECTO, cambiarAudio: async () => undefined, volumenes: {}, ponerVolumen: () => undefined, ensordecido: false, alternarEnsordecer: async () => undefined, vistaGrande: false, ponerVistaGrande: () => undefined }
 
 export const useJunta = (): ContextoDeJunta => useContext(Contexto) ?? SIN_JUNTAS
 /** Solo para probar las pantallas con datos inventados (la vista de pruebas) */
@@ -61,6 +65,11 @@ const EVENTOS_QUE_REPINTAN = [
   RoomEvent.ConnectionStateChanged,
 ] as const
 
+/** Cuántas veces se intenta volver sola a la junta si se corta sin que la persona la haya dejado (la red, el portátil que se duerme un momento) */
+const INTENTOS_DE_VUELTA = 4
+/** Las razones por las que NO se vuelve: alguien la ha cerrado a propósito o se ha entrado desde otro sitio con la misma persona (volver haría que las dos pestañas se echaran sin parar) */
+const NO_VOLVER_POR = new Set<DisconnectReason | undefined>([DisconnectReason.CLIENT_INITIATED, DisconnectReason.DUPLICATE_IDENTITY, DisconnectReason.PARTICIPANT_REMOVED, DisconnectReason.ROOM_DELETED])
+
 const mensajeDe = (e: unknown, por: string) => (e instanceof Error && e.message ? e.message : por)
 
 export function JuntaProvider({ children }: { children: ReactNode }) {
@@ -78,6 +87,11 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
   const [audio, setAudio] = useState<AjustesDeAudio>(AJUSTES_DE_AUDIO_POR_DEFECTO)
   const [volumenes, setVolumenes] = useState<Volumenes>({})
   const [ensordecido, setEnsordecido] = useState(false)
+  const [vistaGrande, setVistaGrande] = useState(false)
+  // La junta a la que hay que volver si se corta sola, y cuántas veces se ha intentado. null = no se vuelve (se salió a propósito)
+  const volverA = useRef<string | null>(null)
+  const intentosDeVuelta = useRef(0)
+  const entrarRef = useRef<(canalId: string) => Promise<void>>(async () => undefined)
   const audioRef = useRef(audio)
   const volumenesRef = useRef(volumenes)
   const ensordecidoRef = useRef(false)
@@ -190,7 +204,13 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     void leerActivas()
   }, [anunciarVoz, bump, leerActivas])
 
-  const salir = useCallback(() => limpiar(), [limpiar])
+  // Salir a propósito: no se vuelve sola, y la ventana grande se cierra
+  const salir = useCallback(() => {
+    volverA.current = null
+    intentosDeVuelta.current = 0
+    setVistaGrande(false)
+    limpiar()
+  }, [limpiar])
 
   const entrar = useCallback(
     async (canalId: string) => {
@@ -215,11 +235,26 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
         nueva.on(RoomEvent.TrackUnsubscribed, (track) => {
           for (const el of track.detach()) el.remove()
         })
-        nueva.on(RoomEvent.Disconnected, () => {
-          if (room.current === nueva) limpiar()
+        nueva.on(RoomEvent.Disconnected, (razon) => {
+          if (room.current !== nueva) return
+          // Se corta sin que la persona haya salido (la red, el equipo que se duerme un momento): se vuelve sola a la misma junta, unas pocas veces y con espera creciente
+          const canalAlQueVolver = volverA.current
+          limpiar()
+          if (!canalAlQueVolver || NO_VOLVER_POR.has(razon) || intentosDeVuelta.current >= INTENTOS_DE_VUELTA) {
+            volverA.current = null
+            if (canalAlQueVolver && !NO_VOLVER_POR.has(razon)) toast.error('Se ha cortado la conexión de la junta y no se ha podido recuperar.')
+            return
+          }
+          intentosDeVuelta.current += 1
+          setActual({ canalId: canalAlQueVolver, estado: 'conectando' })
+          setTimeout(() => {
+            if (volverA.current === canalAlQueVolver && !room.current) void entrarRef.current(canalAlQueVolver)
+          }, 1500 * intentosDeVuelta.current)
         })
         await nueva.connect(llave.url, llave.token)
         if (room.current !== nueva) return
+        volverA.current = canalId
+        intentosDeVuelta.current = 0
         setActual({ canalId, estado: 'conectada' })
         anunciarVoz(canalId)
         try {
@@ -235,13 +270,24 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
           room.current = null
         }
         setActual(null)
-        toast.error(mensajeDe(e, 'No se ha podido entrar a la junta.'))
+        // Si era una vuelta tras un corte, se sigue intentando; si era entrar por primera vez, se avisa y ya
+        if (volverA.current === canalId && intentosDeVuelta.current > 0 && intentosDeVuelta.current < INTENTOS_DE_VUELTA) {
+          intentosDeVuelta.current += 1
+          setActual({ canalId, estado: 'conectando' })
+          setTimeout(() => {
+            if (volverA.current === canalId && !room.current) void entrarRef.current(canalId)
+          }, 1500 * intentosDeVuelta.current)
+        } else {
+          volverA.current = null
+          toast.error(mensajeDe(e, 'No se ha podido entrar a la junta.'))
+        }
       } finally {
         conectando.current = false
       }
     },
     [actual?.canalId, anunciarVoz, bump, limpiar]
   )
+  entrarRef.current = entrar
 
   const alternar = useCallback(
     async (que: 'micro' | 'camara' | 'pantalla') => {
@@ -261,13 +307,28 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     [bump]
   )
 
-  // Si se cierra la pestaña o se sale del chat, la junta se corta
-  useEffect(() => () => limpiar(), [limpiar])
+  // La junta solo se corta al cerrar la pestaña o al salir del ERP (este proveedor vive en el layout de todo el ERP): cambiar de pantalla o de pestaña no la toca
+  const limpiarAlDesmontar = useRef(limpiar)
+  limpiarAlDesmontar.current = limpiar
+  useEffect(() => () => {
+    volverA.current = null
+    limpiarAlDesmontar.current()
+  }, [])
   useEffect(() => {
-    const alCerrar = () => void room.current?.disconnect()
+    const alCerrar = () => {
+      volverA.current = null
+      void room.current?.disconnect()
+    }
     window.addEventListener('pagehide', alCerrar)
     return () => window.removeEventListener('pagehide', alCerrar)
   }, [])
+
+  // Quien está en una junta está presente: el cierre por inactividad de los empleados no le cierra la sesión (y con ella la junta) por no tocar el ratón
+  const conectada = actual?.estado === 'conectada'
+  useEffect(() => {
+    ponerJuntaConectada(conectada)
+    return () => ponerJuntaConectada(false)
+  }, [conectada])
 
   const puedePantalla = typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function'
   const valor = useMemo<ContextoDeJunta>(
@@ -289,8 +350,10 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       ponerVolumen,
       ensordecido,
       alternarEnsordecer,
+      vistaGrande,
+      ponerVistaGrande: setVistaGrande,
     }),
-    [disponible, activas, actual, version, puedePantalla, entrar, salir, alternar, audio, cambiarAudio, volumenes, ponerVolumen, ensordecido, alternarEnsordecer]
+    [disponible, activas, actual, version, puedePantalla, entrar, salir, alternar, audio, cambiarAudio, volumenes, ponerVolumen, ensordecido, alternarEnsordecer, vistaGrande]
   )
   return (
     <Contexto.Provider value={valor}>

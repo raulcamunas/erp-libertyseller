@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { AtSign, Bookmark, CalendarClock, ChevronDown, Clock, Hash, Headphones, Lock, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Volume2 } from 'lucide-react'
+import { AtSign, Maximize2, Bookmark, CalendarClock, ChevronDown, Clock, Hash, Headphones, Lock, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Volume2 } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible, repartirCanales } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
@@ -24,7 +24,7 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
   const { enVoz = {}, canales, actual, seleccionar, yo, persona, nombreDe, conectados, enVivo, vista, abrirBandeja, estadoDe } = useChat()
   const [estadoAbierto, setEstadoAbierto] = useState(false)
   const [dialogo, setDialogo] = useState<'canal' | 'directo' | 'voz' | null>(null)
-  const { disponible: hayJuntas, actual: enSala, activas, entrar, salir, alternarMicro, room, version } = useJunta()
+  const { disponible: hayJuntas, actual: enSala, activas, entrar, salir, alternarMicro, room, version, ponerVistaGrande } = useJunta()
   void version
   const [abiertosVisibles, setAbiertosVisibles] = useState(false)
   const [apariencia, setApariencia] = useState(false)
@@ -185,6 +185,7 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
           <button type="button" className="chat-icono" onClick={() => void alternarMicro()} aria-label={room?.localParticipant.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'} title={room?.localParticipant.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'} data-apagado={room && !room.localParticipant.isMicrophoneEnabled ? 'true' : undefined}>
             {room && !room.localParticipant.isMicrophoneEnabled ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </button>
+          <button type="button" className="chat-icono" onClick={() => ponerVistaGrande(true)} aria-label="Ver la junta en grande" title="Ver la junta en grande (quién está, cámaras y pantalla compartida)"><Maximize2 className="h-4 w-4" /></button>
           <button type="button" className="chat-icono" onClick={salir} aria-label="Salir de la junta" title="Salir de la junta"><PhoneOff className="h-4 w-4" /></button>
         </div>
       )}

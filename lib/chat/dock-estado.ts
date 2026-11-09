@@ -46,3 +46,10 @@ export function tomarCanalPedido(): string | null {
   canalPedido = null
   return c
 }
+
+/** ¿Hay una junta de voz conectada ahora? La mira el cierre por inactividad (components/actividad/RegistroDeActividad.tsx): quien está en una junta está presente aunque no toque ni ratón ni teclado */
+let juntaConectada = false
+export function ponerJuntaConectada(v: boolean): void {
+  juntaConectada = v
+}
+export const hayJuntaConectada = (): boolean => juntaConectada

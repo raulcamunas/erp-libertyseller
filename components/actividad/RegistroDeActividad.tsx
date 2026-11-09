@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { enviarLote, etiquetaDeControl, idDeSesion, SELECTOR_DE_CONTROL, SELECTOR_DE_TABLA, SELECTOR_SIN_REGISTRO } from '@/lib/actividad/cliente'
 import { estadoDeInactividad } from '@/lib/actividad/inactividad'
+import { hayJuntaConectada } from '@/lib/chat/dock-estado'
 import type { TipoDeEvento } from '@/lib/actividad/ingesta'
 import { createClient } from '@/lib/supabase/client'
 import { AvisoDeInactividad } from './AvisoDeInactividad'
@@ -135,8 +136,8 @@ export function RegistroDeActividad({ limiteMin }: { limiteMin: number }) {
     }
     const revisar = () => {
       if (cerrando.current) return
-      // Una grabación sonando es alguien escuchando: no se le cierra a mitad
-      if (hayAudioSonando()) {
+      // Una grabación sonando es alguien escuchando, y una junta de voz conectada es alguien hablando: no se le cierra a mitad
+      if (hayAudioSonando() || hayJuntaConectada()) {
         const ahora = Date.now()
         ultimaInteraccion.current = ahora
         guardarToque(ahora)

@@ -293,7 +293,8 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       setMensajesDelHilo([])
       if (!id) return
       guardarUltimo(id)
-      if (sincronizarUrl) {
+      // Solo en la pantalla del chat: con el chat vivo en todo el ERP (la llamada no se corta al cambiar de pantalla), `?canal=` no debe aparecer en la dirección de cualquier otra página
+      if (sincronizarUrl && window.location.pathname.startsWith('/dashboard/chat')) {
         try {
           const url = new URL(window.location.href)
           url.searchParams.set('canal', id)
