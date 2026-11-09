@@ -166,3 +166,22 @@ export function iniciarTonoDeLlamada(): () => void {
   }
 }
 export const notasDelTonoDeLlamada = (): readonly Nota[] => TONO_DE_LLAMADA
+
+/** Los sonidos que se pueden escuchar a mano (el probador de Apariencia y de Ajustes de audio), con cuándo suena cada uno */
+export const SONIDOS_PARA_PROBAR: ReadonlyArray<{ id: SonidoDeVoz | 'llamada'; nombre: string; cuando: string }> = [
+  { id: 'entrar', nombre: 'Entras', cuando: 'Cuando entras a una junta de voz' },
+  { id: 'salir', nombre: 'Sales', cuando: 'Cuando dejas la junta' },
+  { id: 'otro-entra', nombre: 'Alguien entra', cuando: 'Lo oyes si ya estás dentro y entra otra persona (más suave)' },
+  { id: 'otro-sale', nombre: 'Alguien sale', cuando: 'Lo oyes si ya estás dentro y sale otra persona (más suave)' },
+  { id: 'mute', nombre: 'Te silencias', cuando: 'Cuando apagas tu micrófono' },
+  { id: 'unmute', nombre: 'Te desmuteas', cuando: 'Cuando enciendes tu micrófono' },
+  { id: 'ensordecer', nombre: 'Te ensordeces', cuando: 'Cuando dejas de oír a todos' },
+  { id: 'oir', nombre: 'Vuelves a oír', cuando: 'Cuando quitas el ensordecer' },
+  { id: 'llamando', nombre: 'Estás llamando', cuando: 'Lo oyes tú mientras la otra persona no contesta' },
+  { id: 'llamada', nombre: 'Te llaman', cuando: 'El tono cuando alguien te llama por el chat' },
+]
+
+/** Suena un sonido aunque los sonidos de la junta estén apagados: es para escucharlo (el probador) */
+export function probarSonidoDeVoz(id: SonidoDeVoz | 'llamada'): void {
+  tocar(id === 'llamada' ? TONO_DE_LLAMADA : NOTAS[id])
+}

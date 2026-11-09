@@ -5319,3 +5319,10 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
   .junta-capsula-estado i { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .junta-capsula, .junta-persona, .junta-ajustes, .junta-cara[data-habla='true'] { animation: none; } }
+
+/* ---- El probador de sonidos (Apariencia del chat y Ajustes de audio) ---- */
+.chat-sonidos-prueba { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.chat-sonidos-prueba button { display: inline-flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; border-radius: 10px; border: 1px solid var(--ls-linea); background: var(--ls-sup2); padding: 6px 9px; text-align: left; font-size: 12px; font-weight: 600; color: var(--ls-t2); white-space: nowrap; text-overflow: ellipsis; transition: background .15s ease, color .15s ease, border-color .15s ease, transform .12s ease; }
+.chat-sonidos-prueba button svg { flex-shrink: 0; color: var(--ls-acc); }
+.chat-sonidos-prueba button:hover { border-color: color-mix(in srgb, var(--ls-acc) 45%, var(--ls-linea)); color: var(--ls-t1); }
+.chat-sonidos-prueba button:active { transform: scale(.96); background: color-mix(in srgb, var(--ls-acc) 18%, var(--ls-sup2)); }

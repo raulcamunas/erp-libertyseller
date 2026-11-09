@@ -1,4 +1,4 @@
-import { CADA_LLAMANDO_MS, CADA_TONO_DE_LLAMADA_MS, MAX_LLAMANDO_MS, duracionDe, notasDe, notasDelTonoDeLlamada, type SonidoDeVoz } from '@/lib/chat/sonidos-voz'
+import { CADA_LLAMANDO_MS, CADA_TONO_DE_LLAMADA_MS, MAX_LLAMANDO_MS, SONIDOS_PARA_PROBAR, duracionDe, notasDe, notasDelTonoDeLlamada, type SonidoDeVoz } from '@/lib/chat/sonidos-voz'
 import { AJUSTES_DE_AUDIO_POR_DEFECTO, leerAjustesDeAudio, limpiarAjustesDeAudio } from '@/lib/chat/audio'
 
 let fallos = 0
@@ -43,6 +43,13 @@ function main() {
     const tono = notasDelTonoDeLlamada()
     const dura = Math.max(...tono.map((n) => n.t + n.d))
     ok('el tono de llamada cabe entre repeticiones y se oye más que un aviso de la junta', dura * 1000 < CADA_TONO_DE_LLAMADA_MS && Math.max(...tono.map((n) => n.g)) > volumen('otro-entra'))
+  }
+
+  console.log('\n=== el probador ===')
+  {
+    const ids = SONIDOS_PARA_PROBAR.map((x) => x.id)
+    ok('se puede probar cada sonido de la junta y el tono de llamada, una vez cada uno', [...TODOS, 'llamada'].every((s) => ids.filter((i) => i === s).length === 1) && ids.length === TODOS.length + 1, ids.join())
+    ok('cada uno dice cuándo suena', SONIDOS_PARA_PROBAR.every((x) => x.nombre.length > 2 && x.cuando.length > 10))
   }
 
   console.log('\n=== el interruptor «Sonidos de la junta» ===')

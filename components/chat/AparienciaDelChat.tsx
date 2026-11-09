@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Check, RotateCcw, X } from 'lucide-react'
 import { FONDOS_DEL_CHAT, GRUPOS_DE_FONDOS, fondoDelChat, variablesDeFondo, type GrupoDeFondo } from '@/lib/chat/fondos'
 import { DENSIDADES, ESTILOS, TEMAS, TEXTOS, type OpcionDeAjuste } from '@/lib/chat/temas'
+import { ProbadorDeSonidos } from './ProbadorDeSonidos'
 import { useTemaDelChat } from './TemaDelChat'
 
 function Selector<T extends string>({ titulo, opciones, valor, alElegir }: { titulo: string; opciones: ReadonlyArray<OpcionDeAjuste<T>>; valor: T; alElegir: (v: T) => void }) {
@@ -84,6 +85,7 @@ export function AparienciaDelChat({ onCerrar }: { onCerrar: () => void }) {
       <Selector titulo="Mensajes" opciones={ESTILOS} valor={ajustes.estilo} alElegir={(estilo) => cambiar({ estilo })} />
       <Selector titulo="Densidad" opciones={DENSIDADES} valor={ajustes.densidad} alElegir={(densidad) => cambiar({ densidad })} />
       <Selector titulo="Tamaño del texto" opciones={TEXTOS} valor={ajustes.texto} alElegir={(texto) => cambiar({ texto })} />
+      <ProbadorDeSonidos />
       <p className="chat-ap-nota">Solo lo ves tú, en este navegador.</p>
     </div>
   )
