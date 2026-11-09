@@ -3,7 +3,10 @@
  * cuál descartó el usuario con la «x» (`descartada`). Se comprueba en version.prueba.ts.
  */
 
-import { VERSION_DE_DESARROLLO } from './version'
+/**
+ * ESTE FICHERO LO USA EL NAVEGADOR: no puede importar nada que toque el sistema de ficheros (`version.ts` usa node:fs y node:path y reventaría la construcción). La constante vive aquí y `version.ts` (servidor) la importa.
+ */
+export const VERSION_DE_DESARROLLO = 'desarrollo'
 
 export type DecisionDeAviso = 'ninguno' | 'mostrar'
 

@@ -7,7 +7,9 @@ import { join } from 'node:path'
  * y /api/version (la versión de ahora), y el navegador compara las dos (lib/sistema/version-cliente.ts).
  */
 
-export const VERSION_DE_DESARROLLO = 'desarrollo'
+import { VERSION_DE_DESARROLLO } from './version-cliente'
+
+export { VERSION_DE_DESARROLLO }
 
 /** Lee el identificador del fichero; cualquier fallo o contenido raro es «desarrollo». `leer` se inyecta para probarlo */
 export function leerIdDeVersion(ruta: string, leer: (r: string) => string = (r) => readFileSync(r, 'utf8')): string {
