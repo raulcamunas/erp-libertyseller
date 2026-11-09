@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { chatALaVista } from '@/lib/chat/dock-estado'
+import { pastillaDelChatVisible, publicarVistaPrevia } from '@/lib/chat/vista-previa'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
 import { publicarAviso } from '@/lib/avisos/pila'
 import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
@@ -176,7 +177,13 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
             if (dChat.tipo === 'recordatorio' || !chatALaVista(window.location.pathname)) {
               void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
               avisarEnEscritorio(String(fila?.title ?? 'Chat'), String(fila?.message ?? ''), rutaDelChat)
-              publicarAviso({ id: `chat:${typeof fila?.clave === 'string' ? fila.clave : String(Date.now())}`, tipo: 'tarea', titulo: String(fila?.title ?? 'Chat'), detalle: String(fila?.message ?? ''), duracionMs: dChat.tipo === 'recordatorio' ? 14000 : 9000, accion: { etiqueta: 'Abrir', alPulsar: () => router.push(rutaDelChat) } })
+              const claveDelAviso = typeof fila?.clave === 'string' ? fila.clave : String(Date.now())
+              // Con la pastilla del chat a la vista, el mensaje asoma ENCIMA de ella (quién es y el principio de lo que dice); si no, el aviso lateral de siempre. Un recordatorio, siempre el lateral
+              if (dChat.tipo !== 'recordatorio' && pastillaDelChatVisible()) {
+                publicarVistaPrevia({ clave: claveDelAviso, titulo: String(fila?.title ?? 'Chat'), texto: String(fila?.message ?? ''), canalId: typeof dChat.canalId === 'string' ? dChat.canalId : null })
+              } else {
+                publicarAviso({ id: `chat:${claveDelAviso}`, tipo: 'tarea', titulo: String(fila?.title ?? 'Chat'), detalle: String(fila?.message ?? ''), duracionMs: dChat.tipo === 'recordatorio' ? 14000 : 9000, accion: { etiqueta: 'Abrir', alPulsar: () => router.push(rutaDelChat) } })
+              }
             }
           }
           // Un aviso de tareas (te asignan, te mencionan, comentan, o una fecha): su propio sonido, y la notificación del escritorio si la pestaña no se está viendo

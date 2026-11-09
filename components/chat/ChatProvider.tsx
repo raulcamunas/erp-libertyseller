@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
+import { atenderPeticionesDeCanal, tomarCanalPedido } from '@/lib/chat/dock-estado'
 import { pedir } from '@/components/tareas-clientes/api'
 import { textoPlano } from '@/lib/chat/mensajes'
 import { conMensaje, ID_TEMPORAL_DESDE, sinTemporal, sinTemporalParecido } from '@/lib/chat/agrupar'
@@ -310,6 +311,9 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
     [cargarCanal, marcarLeido, sincronizarUrl]
   )
 
+  // Si desde fuera (la tarjeta que asoma encima de la pastilla del dock) piden abrir un canal, se abre
+  useEffect(() => atenderPeticionesDeCanal((canalId) => seleccionar(canalId)), [seleccionar])
+
   /* ---------------- El directo ---------------- */
 
   const refrescarEnBreve = useCallback(() => {
@@ -464,7 +468,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
   useEffect(() => {
     void cargarInicio().then((d) => {
       if (!d) return
-      const pedido = canalInicial ?? leerUltimo()
+      const pedido = tomarCanalPedido() ?? canalInicial ?? leerUltimo()
       const elegido = d.canales.find((c) => c.id === pedido && (c.soy_miembro || c.tipo === 'canal')) ?? d.canales.find((c) => c.auto_unirse && c.soy_miembro) ?? d.canales.find((c) => c.soy_miembro) ?? null
       if (elegido) seleccionar(elegido.id)
     })

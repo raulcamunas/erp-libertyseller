@@ -5,8 +5,10 @@ import { usePathname, useRouter } from 'next/navigation'
 import { ChevronDown, ExternalLink, MessagesSquare, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { leerChatSinLeer, ponerChatSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ANCHO_MINIMO_PARA_EL_DOCK, anchoQueAparta, CLAVE_DEL_DOCK, leerModo, modoEfectivo, seOfreceElDock, type ModoDelDock } from '@/lib/chat/dock'
-import { ponerChatAbiertoEnElDock, proveedorDelChatVivo } from '@/lib/chat/dock-estado'
+import { pedirCanalAlChat, ponerChatAbiertoEnElDock, proveedorDelChatVivo } from '@/lib/chat/dock-estado'
+import { ponerPastillaDelChatVisible, quitarVistaPrevia, type VistaPrevia } from '@/lib/chat/vista-previa'
 import { ChatApp } from './ChatApp'
+import { VistasPreviasDelChat } from './VistasPreviasDelChat'
 
 const PREGUNTAR_CADA_MS = 60_000
 
@@ -65,6 +67,22 @@ export function DockDelChat() {
     }
   }, [ofrecido, modo, ancho, abierto])
 
+  // La campana enseña las tarjetas encima de la pastilla solo mientras la pastilla está a la vista
+  const pastillaVisible = ofrecido && efectivo === 'cerrado'
+  useEffect(() => {
+    ponerPastillaDelChatVisible(pastillaVisible)
+    return () => ponerPastillaDelChatVisible(false)
+  }, [pastillaVisible])
+
+  const abrirDesdeUnaTarjeta = useCallback(
+    (v: VistaPrevia) => {
+      quitarVistaPrevia(v.clave)
+      if (v.canalId) pedirCanalAlChat(v.canalId)
+      cambiar('pequeno')
+    },
+    [cambiar]
+  )
+
   // Mientras el chat no está vivo, se pregunta cada minuto cuánto hay sin leer (una consulta pequeña) para el número de la barra y de la pastilla
   useEffect(() => {
     let vivo = true
@@ -91,6 +109,7 @@ export function DockDelChat() {
 
   return (
     <>
+      {pastillaVisible && <VistasPreviasDelChat alAbrir={abrirDesdeUnaTarjeta} />}
       {ofrecido && efectivo === 'cerrado' && (
         <button type="button" className="chat-dock-pastilla" data-menciona={sinLeer.menciones > 0 ? 'true' : undefined} onClick={() => cambiar('pequeno')} aria-label={total > 0 ? `Abrir el chat (${total} sin leer)` : 'Abrir el chat'}>
           <MessagesSquare className="h-4 w-4" />

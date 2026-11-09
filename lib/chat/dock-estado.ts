@@ -19,3 +19,30 @@ export const proveedorDelChatVivo = (): boolean => proveedorVivo
 export function chatALaVista(ruta: string): boolean {
   return ruta.startsWith('/dashboard/chat') || abiertoEnElDock
 }
+
+/**
+ * PEDIRLE AL CHAT QUE ABRA UN CANAL (desde fuera de él: la tarjeta que asoma encima de la pastilla). Si el chat ya está vivo se atiende al momento; si todavía no se ha montado (se monta la
+ * primera vez que se abre), la petición espera y la recoge al arrancar (`tomarCanalPedido`).
+ */
+let canalPedido: string | null = null
+let atiende: ((canalId: string) => void) | null = null
+
+export function pedirCanalAlChat(canalId: string): void {
+  if (atiende) atiende(canalId)
+  else canalPedido = canalId
+}
+
+/** El chat vivo se registra para atender las peticiones. Devuelve cómo darse de baja */
+export function atenderPeticionesDeCanal(f: (canalId: string) => void): () => void {
+  atiende = f
+  return () => {
+    if (atiende === f) atiende = null
+  }
+}
+
+/** Al arrancar, el chat recoge (una sola vez) el canal que le pidieron antes de existir */
+export function tomarCanalPedido(): string | null {
+  const c = canalPedido
+  canalPedido = null
+  return c
+}
