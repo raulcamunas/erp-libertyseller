@@ -7,6 +7,7 @@ import { pedir } from '@/components/tareas-clientes/api'
 import { AJUSTES_DE_AUDIO_POR_DEFECTO, CLAVE_DE_AUDIO, CLAVE_DE_VOLUMENES, leerAjustesDeAudio, leerVolumenes, limitarVolumen, limpiarAjustesDeAudio, restriccionesDeMicro, volumenEfectivo, type AjustesDeAudio, type Volumenes } from '@/lib/chat/audio'
 import type { JuntaActiva } from '@/lib/chat/junta'
 import { ponerJuntaConectada } from '@/lib/chat/dock-estado'
+import { ponerSonidosDeVoz } from '@/lib/chat/sonidos-voz'
 import { useChat } from './ChatProvider'
 
 const BASE = '/api/chat'
@@ -322,6 +323,11 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     window.addEventListener('pagehide', alCerrar)
     return () => window.removeEventListener('pagehide', alCerrar)
   }, [])
+
+  // Lo que cada persona ha decidido de los sonidos de la junta (si suenan y por qué altavoz)
+  useEffect(() => {
+    ponerSonidosDeVoz({ activos: audio.sonidos, salida: audio.salida })
+  }, [audio.sonidos, audio.salida])
 
   // Quien está en una junta está presente: el cierre por inactividad de los empleados no le cierra la sesión (y con ella la junta) por no tocar el ratón
   const conectada = actual?.estado === 'conectada'

@@ -8,6 +8,7 @@ import { ChatProvider, useChat } from './ChatProvider'
 import { JuntaFlotante } from './JuntaFlotante'
 import { JuntaProvider } from './JuntaProvider'
 import { LlamadaEntrante } from './LlamadaEntrante'
+import { SonidosDeLaJunta } from './SonidosDeLaJunta'
 
 /** Lo que el resto del ERP necesita saber del chat aunque no esté abierto: lo que hay sin leer (barra y pastilla) y que el chat está vivo (el dock deja de preguntarlo al servidor) */
 function EfectosDelChat() {
@@ -36,6 +37,7 @@ export function ProveedoresDelChat({ children }: { children: ReactNode }) {
     <ChatProvider>
       <JuntaProvider>
         <EfectosDelChat />
+        <SonidosDeLaJunta />
         {children}
         <JuntaFlotante />
         <LlamadaEntrante />

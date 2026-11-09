@@ -3,47 +3,12 @@
 import { useEffect } from 'react'
 import { Phone, PhoneOff } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
+import { avisarEnEscritorio } from '@/lib/avisos/sonido-tareas'
+import { iniciarTonoDeLlamada } from '@/lib/chat/sonidos-voz'
 import { useChat } from './ChatProvider'
 import { useJunta } from './JuntaProvider'
 
 const SUENA_MS = 40_000
-
-/** El tono de llamada: dos pitidos cada dos segundos. Si el navegador no deja sonar (aún no se ha tocado nada), se queda en silencio y solo se ve el aviso */
-function sonarLlamada(): () => void {
-  let parar = false
-  let ctx: AudioContext | null = null
-  try {
-    ctx = new AudioContext()
-  } catch {
-    return () => undefined
-  }
-  const pitido = (frecuencia: number, empieza: number) => {
-    if (!ctx) return
-    const o = ctx.createOscillator()
-    const g = ctx.createGain()
-    o.type = 'sine'
-    o.frequency.value = frecuencia
-    g.gain.setValueAtTime(0.0001, ctx.currentTime + empieza)
-    g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + empieza + 0.02)
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + empieza + 0.32)
-    o.connect(g).connect(ctx.destination)
-    o.start(ctx.currentTime + empieza)
-    o.stop(ctx.currentTime + empieza + 0.36)
-  }
-  const tanda = () => {
-    if (parar || !ctx) return
-    void ctx.resume().catch(() => undefined)
-    pitido(740, 0)
-    pitido(587, 0.4)
-  }
-  tanda()
-  const t = setInterval(tanda, 2000)
-  return () => {
-    parar = true
-    clearInterval(t)
-    void ctx?.close().catch(() => undefined)
-  }
-}
 
 /** «Daniella te llama»: solo en los directos, y solo si no estás ya en otra junta */
 export function LlamadaEntrante() {
@@ -54,12 +19,15 @@ export function LlamadaEntrante() {
 
   useEffect(() => {
     if (!visible) return
-    const parar = sonarLlamada()
+    const parar = iniciarTonoDeLlamada()
+    // Con la pestaña oculta, también sale la notificación del sistema (si están activadas): pulsarla lleva a la conversación
+    if (llamadaEntrante) avisarEnEscritorio(`${nombreDe(llamadaEntrante.de)} te llama`, 'Llamada de voz en el chat', `/dashboard/chat?canal=${llamadaEntrante.canalId}`)
     const apagar = setTimeout(descartarLlamada, SUENA_MS)
     return () => {
       parar()
       clearTimeout(apagar)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, llamadaEntrante?.en, descartarLlamada])
 
   if (!visible || !llamadaEntrante) return null

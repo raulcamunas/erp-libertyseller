@@ -14,9 +14,11 @@ export interface AjustesDeAudio {
   entrada: string
   /** El altavoz elegido (vacío = el del sistema) */
   salida: string
+  /** Los sonidos de la junta: alguien entra o sale, te silencias, te ensordeces (lib/chat/sonidos-voz.ts). El tono de cuando te llaman no depende de esto */
+  sonidos: boolean
 }
 
-export const AJUSTES_DE_AUDIO_POR_DEFECTO: AjustesDeAudio = { supresion: true, eco: true, nivelacion: true, entrada: '', salida: '' }
+export const AJUSTES_DE_AUDIO_POR_DEFECTO: AjustesDeAudio = { supresion: true, eco: true, nivelacion: true, entrada: '', salida: '', sonidos: true }
 export const CLAVE_DE_AUDIO = 'chat:audio'
 export const CLAVE_DE_VOLUMENES = 'chat:volumenes'
 
@@ -28,7 +30,7 @@ export function limpiarAjustesDeAudio(bruto: unknown): AjustesDeAudio {
   const d = AJUSTES_DE_AUDIO_POR_DEFECTO
   if (!bruto || typeof bruto !== 'object') return { ...d }
   const b = bruto as Record<string, unknown>
-  return { supresion: logico(b.supresion, d.supresion), eco: logico(b.eco, d.eco), nivelacion: logico(b.nivelacion, d.nivelacion), entrada: texto(b.entrada), salida: texto(b.salida) }
+  return { supresion: logico(b.supresion, d.supresion), eco: logico(b.eco, d.eco), nivelacion: logico(b.nivelacion, d.nivelacion), entrada: texto(b.entrada), salida: texto(b.salida), sonidos: logico(b.sonidos, d.sonidos) }
 }
 
 export function leerAjustesDeAudio(texto: string | null | undefined): AjustesDeAudio {

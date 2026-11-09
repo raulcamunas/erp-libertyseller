@@ -18,10 +18,10 @@ igual('los canales de voz de siempre: tres, con clave y nombre distintos', [CANA
 igual('los nombres sirven de nombre de canal (minúsculas y guiones)', CANALES_DE_VOZ_POR_DEFECTO.every((c) => /^[a-z0-9-]+$/.test(c.nombre)), true)
 
 igual('sin nada guardado: todo activado', leerAjustesDeAudio(null), AJUSTES_DE_AUDIO_POR_DEFECTO)
-igual('lo guardado se respeta', leerAjustesDeAudio(JSON.stringify({ supresion: false, eco: true, nivelacion: false, entrada: 'mic-1', salida: 'alt-2' })), { supresion: false, eco: true, nivelacion: false, entrada: 'mic-1', salida: 'alt-2' })
+igual('lo guardado se respeta', leerAjustesDeAudio(JSON.stringify({ supresion: false, eco: true, nivelacion: false, entrada: 'mic-1', salida: 'alt-2' })), { supresion: false, eco: true, nivelacion: false, entrada: 'mic-1', salida: 'alt-2', sonidos: true })
 igual('lo roto vuelve al valor de siempre sin afectar a lo demás', limpiarAjustesDeAudio({ supresion: 'sí', eco: false, entrada: 7 }), { ...AJUSTES_DE_AUDIO_POR_DEFECTO, eco: false })
 igual('un JSON roto vuelve a lo de siempre', leerAjustesDeAudio('{no'), AJUSTES_DE_AUDIO_POR_DEFECTO)
-igual('las restricciones del micrófono', restriccionesDeMicro({ supresion: true, eco: false, nivelacion: true, entrada: 'x', salida: '' }), { noiseSuppression: true, echoCancellation: false, autoGainControl: true, deviceId: 'x' })
+igual('las restricciones del micrófono', restriccionesDeMicro({ supresion: true, eco: false, nivelacion: true, entrada: 'x', salida: '', sonidos: true }), { noiseSuppression: true, echoCancellation: false, autoGainControl: true, deviceId: 'x' })
 igual('sin micrófono elegido no se pide ninguno', 'deviceId' in restriccionesDeMicro(AJUSTES_DE_AUDIO_POR_DEFECTO), false)
 
 igual('el volumen se limita entre 0 y 1', [limitarVolumen(-3), limitarVolumen(0.4), limitarVolumen(9), limitarVolumen('a'), limitarVolumen(NaN)], [0, 0.4, 1, 1, 1])

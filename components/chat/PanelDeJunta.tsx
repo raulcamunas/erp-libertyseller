@@ -81,7 +81,7 @@ export function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
       document.removeEventListener('pointerdown', fuera)
     }
   }, [onCerrar])
-  const interruptor = (clave: 'supresion' | 'eco' | 'nivelacion', titulo: string, ayuda: string) => (
+  const interruptor = (clave: 'supresion' | 'eco' | 'nivelacion' | 'sonidos', titulo: string, ayuda: string) => (
     <label className="chat-audio-fila">
       <span><b>{titulo}</b><small>{ayuda}</small></span>
       <input type="checkbox" role="switch" checked={audio[clave]} onChange={(e) => void cambiarAudio({ [clave]: e.target.checked })} />
@@ -93,6 +93,7 @@ export function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
       {interruptor('supresion', 'Supresión de ruido', 'Quita teclado, ventilador y ruido de fondo')}
       {interruptor('eco', 'Cancelar el eco', 'Evita que tu voz vuelva por los altavoces')}
       {interruptor('nivelacion', 'Nivelar mi micrófono', 'Sube o baja el volumen solo, para que se te oiga siempre igual')}
+      {interruptor('sonidos', 'Sonidos de la junta', 'Un aviso cuando alguien entra o sale, y cuando te silencias o te ensordeces')}
       <label className="chat-audio-campo">
         <span>Micrófono</span>
         <select value={audio.entrada} onChange={(e) => void cambiarAudio({ entrada: e.target.value })}>
