@@ -40,6 +40,9 @@ function main() {
     ok('un aviso no dura más de 1,3 s', SONIDOS_DE_AVISO.every((s) => duracionDeSonido(s.id) <= 1.3), SONIDOS_DE_AVISO.map((s) => `${s.id}:${duracionDeSonido(s.id).toFixed(2)}`).join(' '))
     ok('un tono dura menos de lo que tarda en repetirse', SONIDOS_DE_TONO.every((s) => typeof s.cada === 'number' && s.cada >= 2000 && duracionDeSonido(s.id) * 1000 < s.cada))
     ok('solo los tonos llevan `cada`; solo los dos «de siempre» llevan fichero', BIBLIOTECA.every((s) => (s.familia === 'tono') === (s.cada !== undefined)) && BIBLIOTECA.filter((s) => s.fichero).map((s) => s.id).sort().join() === 'din-don-correo,ding-tareas')
+    const arpa = notasDeSonido('arpa').map((x) => x.f)
+    const inversa = notasDeSonido('arpa-inversa').map((x) => x.f)
+    ok('el arpa inversa son las mismas notas del arpa al revés: una sube y la otra baja', arpa.length === 4 && inversa.join() === [...arpa].reverse().join() && arpa[3] > arpa[0] && inversa[3] < inversa[0])
     ok('todos tienen nombre y grupo', BIBLIOTECA.every((s) => s.nombre.length > 2 && s.grupo.length > 2))
   }
 

@@ -74,6 +74,7 @@ export const BIBLIOTECA: readonly SonidoDeBiblioteca[] = [
   aviso('madera', 'Madera', 'Cálidos', [n(330, 0, 0.12, 0.2, 'sine', 250), n(660, 0, 0.07, 0.07)]),
   aviso('din-don', 'Din-don largo', 'Cálidos', [n(659.25, 0, 0.4, 0.1), n(523.25, 0.32, 0.7, 0.1)]),
   aviso('arpa', 'Arpa', 'Cálidos', [n(392, 0, 0.25, 0.1), n(523.25, 0.07, 0.25, 0.1), n(659.25, 0.14, 0.25, 0.1), n(784, 0.21, 0.4, 0.1)]),
+  aviso('arpa-inversa', 'Arpa inversa (bajando)', 'Cálidos', [n(784, 0, 0.25, 0.1), n(659.25, 0.07, 0.25, 0.1), n(523.25, 0.14, 0.25, 0.1), n(392, 0.21, 0.4, 0.1)]),
 
   // Digitales
   aviso('bip', 'Bip', 'Digitales', [n(880, 0, 0.09, 0.06, 'square')]),
