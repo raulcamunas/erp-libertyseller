@@ -48,7 +48,7 @@ igual('en una múltiple se suma y se quita', [votosTrasPulsar({ ...enc, multiple
 igual('una opción que no existe no cambia nada', votosTrasPulsar(enc, [1], 9), [1])
 
 // ---------- comandos
-igual('comandos', [leerComando('/junta', false), leerComando('/recordar mañana 9:00 llamar', false), leerComando('/erp ¿cuántas citas?', false), leerComando('/erp ¿cuántas citas?', true), leerComando('/Users/raul/foto.png', true), leerComando('hola /junta', true)], [{ nombre: 'junta', argumentos: '' }, { nombre: 'recordar', argumentos: 'mañana 9:00 llamar' }, null, { nombre: 'erp', argumentos: '¿cuántas citas?' }, null, null])
+igual('comandos', [leerComando('/junta', false), leerComando('/recordar mañana 9:00 llamar', false), leerComando('/erp ¿cuántas citas?', false), leerComando('/erp ¿cuántas citas?', true), leerComando('/Users/raul/foto.png', true), leerComando('hola /junta', true)], [{ nombre: 'junta', argumentos: '' }, { nombre: 'recordar', argumentos: 'mañana 9:00 llamar' }, null, null, null, null])
 igual('sugerencias al escribir «/»', [sugerenciasDeComandos('/', false).map((c) => c.nombre), sugerenciasDeComandos('/re', true).map((c) => c.nombre), sugerenciasDeComandos('/e', false).map((c) => c.nombre), sugerenciasDeComandos('/erp hola', true).length, sugerenciasDeComandos('hola', true).length], [['recordar', 'estado', 'junta', 'encuesta', 'silenciar'], ['recordar'], ['estado', 'encuesta'], 0, 0])
 igual('todos los comandos tienen uso y descripción', COMANDOS.every((c) => c.uso.startsWith(`/${c.nombre}`) && c.descripcion.length > 5), true)
 const DOMINGO = Date.parse('2026-11-08T21:00:00Z') // domingo 22:00 en Madrid

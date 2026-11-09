@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { AtSign, Bookmark, CalendarClock, ChevronDown, Clock, Database, FileArchive, Hash, Headphones, Lock, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Volume2 } from 'lucide-react'
+import { AtSign, Bookmark, CalendarClock, ChevronDown, Clock, Hash, Headphones, Lock, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Volume2 } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible, repartirCanales } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
@@ -10,7 +10,6 @@ import { EmojiDeEstado, EstadoPropio } from './Paneles'
 import { useChat } from './ChatProvider'
 import { AparienciaDelChat } from './AparienciaDelChat'
 import { DialogoNuevoCanal, DialogoNuevoDirecto } from './Dialogos'
-import { ImportarDeSlack } from './ImportarDeSlack'
 import { useJunta } from './JuntaProvider'
 
 const BANDEJAS = [
@@ -22,9 +21,8 @@ const BANDEJAS = [
 ] as const
 
 export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
-  const { enVoz = {}, canales, actual, seleccionar, yo, persona, nombreDe, conectados, enVivo, vista, abrirBandeja, estadoDe, abrirAsistente } = useChat()
+  const { enVoz = {}, canales, actual, seleccionar, yo, persona, nombreDe, conectados, enVivo, vista, abrirBandeja, estadoDe } = useChat()
   const [estadoAbierto, setEstadoAbierto] = useState(false)
-  const [importando, setImportando] = useState(false)
   const [dialogo, setDialogo] = useState<'canal' | 'directo' | 'voz' | null>(null)
   const { disponible: hayJuntas, actual: enSala, activas, entrar, salir, alternarMicro, room, version } = useJunta()
   void version
@@ -191,12 +189,6 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
         </div>
       )}
 
-      {yo.esAdmin && (
-        <div className="chat-herramientas-admin">
-          <button type="button" onClick={() => abrirAsistente()}><Database className="h-3.5 w-3.5" /> Preguntar al ERP</button>
-          <button type="button" onClick={() => setImportando(true)}><FileArchive className="h-3.5 w-3.5" /> Importar de Slack</button>
-        </div>
-      )}
       <footer className="chat-barra-pie">
         <span className="chat-persona-avatar" data-en-linea="true"><Avatar id={yo.id} nombre={yo.nombre} tamano={30} /></span>
         <button type="button" className="chat-barra-yo chat-barra-yo-boton" data-abre-estado onClick={() => setEstadoAbierto((v) => !v)} aria-label="Cambiar tu estado" title="Cambiar tu estado">
@@ -207,7 +199,6 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
       </footer>
       {apariencia && <AparienciaDelChat onCerrar={() => setApariencia(false)} />}
       {estadoAbierto && <EstadoPropio onCerrar={() => setEstadoAbierto(false)} />}
-      {importando && <ImportarDeSlack onCerrar={() => setImportando(false)} />}
 
       {dialogo === 'canal' && <DialogoNuevoCanal onCerrar={() => setDialogo(null)} alCrear={(id) => seleccionar(id)} />}
       {dialogo === 'voz' && <DialogoNuevoCanal voz onCerrar={() => setDialogo(null)} alCrear={(id) => seleccionar(id)} />}

@@ -8,11 +8,10 @@ import { horaDeMadridEnDias, partesEnMadrid, instanteEnMadrid } from './tiempo'
  *   /estado <texto>                pone tu estado (una hora)
  *   /junta                         abre una junta en este canal
  *   /encuesta                      abre el cuadro de la encuesta
- *   /erp <pregunta>                pregunta a los datos del ERP (solo administradores)
  *   /silenciar                     silencia o activa los avisos de este canal
  */
 
-export type NombreDeComando = 'recordar' | 'estado' | 'junta' | 'encuesta' | 'erp' | 'silenciar'
+export type NombreDeComando = 'recordar' | 'estado' | 'junta' | 'encuesta' | 'silenciar'
 
 export interface DefinicionDeComando {
   nombre: NombreDeComando
@@ -26,7 +25,6 @@ export const COMANDOS: readonly DefinicionDeComando[] = [
   { nombre: 'estado', uso: '/estado En una reunión', descripcion: 'Pone tu estado durante una hora' },
   { nombre: 'junta', uso: '/junta', descripcion: 'Abre una junta de voz y vídeo aquí' },
   { nombre: 'encuesta', uso: '/encuesta', descripcion: 'Crea una encuesta en este canal' },
-  { nombre: 'erp', uso: '/erp ¿cuántas citas hay hoy?', descripcion: 'Pregunta a los datos del ERP (solo administradores)', soloAdmin: true },
   { nombre: 'silenciar', uso: '/silenciar', descripcion: 'Silencia o activa los avisos de este canal' },
 ]
 

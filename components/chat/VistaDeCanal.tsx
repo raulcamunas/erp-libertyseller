@@ -49,7 +49,7 @@ export function VistaDeCanal() {
 }
 
 function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
-  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, grabando, avisarQueEscribo, avisarQuePara, unirse, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe, cambiarAvisos, ponerEstado, abrirAsistente } = useChat()
+  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, grabando, avisarQueEscribo, avisarQuePara, unirse, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe, cambiarAvisos, ponerEstado } = useChat()
   const { disponible: juntasDisponibles, activas, actual: juntaActual, entrar: entrarEnJunta } = useJunta()
   const [miembrosAbierto, setMiembrosAbierto] = useState(false)
   useEffect(() => {
@@ -185,10 +185,6 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
         toast.success(`Te lo recordaré ${describirInstante(r.en)}`)
         return
       }
-      case 'erp':
-        if (!c.argumentos) throw new Error('Escribe la pregunta: /erp ¿cuántas citas hay hoy?')
-        abrirAsistente(c.argumentos)
-        return
     }
   }
 

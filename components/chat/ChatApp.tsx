@@ -6,7 +6,6 @@ import { ponerChatSinLeer } from '@/lib/avisos/contadores'
 import { totalSinLeer } from '@/lib/chat/canales'
 import { ponerProveedorDelChatVivo } from '@/lib/chat/dock-estado'
 import { variablesDeFondo } from '@/lib/chat/fondos'
-import { AsistenteDelErp } from './AsistenteDelErp'
 import { BarraDeChat } from './BarraDeChat'
 import { ChatProvider, useChat } from './ChatProvider'
 import { JuntaProvider } from './JuntaProvider'
@@ -84,7 +83,6 @@ export function Marco({ dock = false }: { dock?: boolean }) {
       <PanelDeMiembros />
       <EnLaPagina activo={dock}>
         <PanelDeJunta />
-        <AsistenteDelErp />
         <LlamadaEntrante />
       </EnLaPagina>
       {buscando && <SaltarA onCerrar={() => setBuscando(false)} />}
