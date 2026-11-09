@@ -161,6 +161,32 @@ async function main() {
     ok('repetir la pasada no duplica nada', m.base.size === antes)
   }
 
+  console.log('\n=== una cuenta que cambia de manos: «empieza aquí» ===')
+  {
+    // 100 llamadas de la persona anterior (hace una semana) y 20 de las últimas horas, también suyas: la nueva no debe heredar NINGUNA
+    const previas = cuenta(120).map((l, i) => (i >= 100 ? { ...l, fecha: new Date(T0 - (120 - i) * 600_000).toISOString() } : l))
+    const { m, deps } = mundo([...previas])
+    const corte = new Date(T0 + 60_000).toISOString()
+    const estado = { historico_completo: true, siguiente_pagina: 9, ultimo_sync_at: new Date(T0).toISOString() }
+    const r1 = await sincronizarCuenta(estado, deps, { usuario: USUARIO, presupuestoMs: 600_000, soloDesde: corte })
+    ok('no guarda ninguna llamada anterior al corte (el solape de 3 días no las trae)', m.base.size === 0 && r1.error === null, `${m.base.size}`)
+    ok('y no las pide a Rinkel: el filtro de fecha ya va desde el corte', m.peticiones.every((p) => p.desdeSeg !== undefined && p.desdeSeg >= Math.floor(Date.parse(corte) / 1000)), JSON.stringify(m.peticiones))
+    // Después del corte entran dos llamadas de la nueva persona y se guardan; las anteriores, siguen sin entrar aunque se relea otra vez
+    m.reloj.ahora = T0 + 3_600_000
+    m.api.push(llamada(121, { fecha: new Date(T0 + 600_000).toISOString() }), llamada(122, { fecha: new Date(T0 + 900_000).toISOString() }))
+    const r2 = await sincronizarCuenta(r1.estado, deps, { usuario: USUARIO, presupuestoMs: 600_000, soloDesde: corte })
+    ok('las posteriores sí entran', m.base.size === 2 && m.base.has('rk-00121') && m.base.has('rk-00122') && r2.error === null)
+    m.reloj.ahora += 86_400_000
+    await sincronizarCuenta(r2.estado, deps, { usuario: USUARIO, presupuestoMs: 600_000, soloDesde: corte })
+    ok('un día después, con el solape otra vez, siguen sin colarse las anteriores', m.base.size === 2, `${m.base.size}`)
+    const { m: m2, deps: d2 } = mundo(previas)
+    await sincronizarCuenta(estado, d2, { usuario: USUARIO, presupuestoMs: 600_000 })
+    ok('sin corte (lo normal) se lee como siempre: las 20 recientes entran', m2.base.size === 20, `${m2.base.size}`)
+    const { m: m3, deps: d3 } = mundo(previas)
+    await sincronizarCuenta(estado, d3, { usuario: USUARIO, presupuestoMs: 600_000, soloDesde: 'no es una fecha' })
+    ok('un corte ilegible se ignora en vez de dejar la cuenta sin leer', m3.base.size === 20, `${m3.base.size}`)
+  }
+
   console.log('\n=== cada llamada con el lead al que se llamó ===')
   {
     const { m, deps } = mundo(cuenta(3), [['622000001', 'lead-A'], ['622000003', 'lead-C']])
