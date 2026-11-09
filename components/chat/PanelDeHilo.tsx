@@ -1,5 +1,6 @@
 'use client'
 
+import { claveDeMensaje } from '@/lib/chat/agrupar'
 import { useEffect, useRef, useState } from 'react'
 import type { CanalChat, MensajeChat } from '@/lib/chat/tipos'
 import { X } from 'lucide-react'
@@ -70,7 +71,7 @@ export function PanelDeHilo() {
         {padre && <MensajeVista m={padre} continuacion={false} enHilo puedeBorrarAjeno={yo.esAdmin && actual.tipo === 'canal'} />}
         {padre && <p className="chat-hilo-separador">{respuestas.length === 0 ? 'Aún sin respuestas' : `${respuestas.length} ${respuestas.length === 1 ? 'respuesta' : 'respuestas'}`}</p>}
         {respuestas.map((m, i) => (
-          <MensajeVista key={m.id} m={m} enHilo continuacion={i > 0 && respuestas[i - 1].autor_id === m.autor_id && Date.parse(m.creado_en) - Date.parse(respuestas[i - 1].creado_en) < 300_000} puedeBorrarAjeno={yo.esAdmin && actual.tipo === 'canal'} />
+          <MensajeVista key={claveDeMensaje(m)} m={m} enHilo continuacion={i > 0 && respuestas[i - 1].autor_id === m.autor_id && Date.parse(m.creado_en) - Date.parse(respuestas[i - 1].creado_en) < 300_000} puedeBorrarAjeno={yo.esAdmin && actual.tipo === 'canal'} />
         ))}
         <div ref={fin} />
       </div>

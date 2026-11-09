@@ -5250,8 +5250,7 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
 }
 
 /* Un mensaje que se está enviando se ve un poco apagado hasta que el servidor lo confirma */
-.chat-mensaje[data-enviando='true'] { opacity: .62; }
-.chat-mensaje[data-enviando='true'] .chat-hora-lado { display: none; }
+/* Un mensaje recién enviado se ve igual que cuando el servidor lo confirma: apagarlo y volver a encenderlo era lo que lo hacía parpadear */
 
 /* Quién habla en el canal de voz (el aro verde del avatar), como en Discord */
 .chat-voz-avatar { display: inline-flex; flex-shrink: 0; border-radius: 999px; box-shadow: 0 0 0 0 transparent; transition: box-shadow .12s ease; }

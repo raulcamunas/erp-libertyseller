@@ -53,7 +53,7 @@ export function filasDeMensajes(mensajes: readonly MensajeChat[], opciones: { yo
       previo = null
     }
     const continuacion = Boolean(previo && previo.autor_id === m.autor_id && previo.autor_id !== null && previo.borrado_en === null && m.borrado_en === null && Date.parse(m.creado_en) - Date.parse(previo.creado_en) < MINUTOS_DE_RACHA * 60_000)
-    filas.push({ tipo: 'mensaje', clave: `m-${m.id}`, mensaje: m, continuacion })
+    filas.push({ tipo: 'mensaje', clave: claveDeMensaje(m), mensaje: m, continuacion })
     previo = m
   }
   return filas
@@ -88,4 +88,24 @@ export function sinTemporalParecido(lista: readonly MensajeChat[], real: Mensaje
   if (esMensajeTemporal(real.id)) return [...lista]
   const i = lista.findIndex((m) => esMensajeTemporal(m.id) && m.autor_id === real.autor_id && m.cuerpo === real.cuerpo && m.hilo_de === real.hilo_de)
   return i < 0 ? [...lista] : [...lista.slice(0, i), ...lista.slice(i + 1)]
+}
+
+/**
+ * LA CLAVE CON LA QUE SE PINTA UN MENSAJE. Un mensaje recién enviado nace con un id provisional y cambia al de verdad cuando el servidor contesta; si la clave cambiara con el id, React lo
+ * desmontaría y montaría otro (y la animación de entrada se repetiría: el mensaje «parpadea y vibra»). Por eso el de verdad conserva la clave del provisional (`clave_local`).
+ */
+export const claveDeMensaje = (m: Pick<MensajeChat, 'id' | 'clave_local'>): string => `m-${m.clave_local ?? m.id}`
+
+/**
+ * Pone el mensaje de verdad EN EL SITIO del provisional, heredando su clave. Con `temporalId` sustituye ese; sin él, el provisional más antiguo con el mismo autor, texto e hilo (cuando
+ * el de verdad llega por el directo y no se sabe cuál fue). Si no hay provisional (ya se sustituyó, o es un mensaje ajeno) simplemente lo mete o lo fusiona.
+ */
+export function reemplazarTemporal(lista: readonly MensajeChat[], real: MensajeChat, temporalId?: number): MensajeChat[] {
+  if (esMensajeTemporal(real.id)) return [...lista]
+  const i = lista.findIndex((m) =>
+    temporalId !== undefined ? m.id === temporalId : esMensajeTemporal(m.id) && m.autor_id === real.autor_id && m.cuerpo === real.cuerpo && m.hilo_de === real.hilo_de
+  )
+  if (i < 0) return conMensaje(lista, real)
+  const temporal = lista[i]
+  return conMensaje([...lista.slice(0, i), ...lista.slice(i + 1)], { ...real, clave_local: temporal.clave_local ?? temporal.id })
 }

@@ -88,6 +88,8 @@ export interface MensajeChat {
   reacciones: Record<string, string[]>
   /** Cuántas respuestas tiene el hilo (solo en los mensajes de arriba) */
   respuestas: number
+  /** Solo en el navegador: el id provisional con el que nació el mensaje al enviarlo. Se pinta con esa clave para que, al llegar el de verdad, no se vuelva a montar (ni repita la animación) */
+  clave_local?: number
 }
 
 export interface PersonaChat {

@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { atenderPeticionesDeCanal, tomarCanalPedido } from '@/lib/chat/dock-estado'
 import { pedir } from '@/components/tareas-clientes/api'
 import { textoPlano } from '@/lib/chat/mensajes'
-import { conMensaje, ID_TEMPORAL_DESDE, sinTemporal, sinTemporalParecido } from '@/lib/chat/agrupar'
+import { conMensaje, ID_TEMPORAL_DESDE, reemplazarTemporal, sinTemporal } from '@/lib/chat/agrupar'
 import type { DatosDeInicioChat } from '@/lib/chat/servidor'
 import { estaVigente } from '@/lib/chat/estado'
 import type { EncuestaChat } from '@/lib/chat/encuesta'
@@ -365,10 +365,10 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       const mio = m.autor_id === yoRef.current
       if (m.hilo_de === null) {
         const estadoDelCanal = estadosRef.current[m.canal_id]
-        if (estadoDelCanal?.cargado && !estadoDelCanal.conSalto) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: conMensaje(mio ? sinTemporalParecido(x.mensajes, m) : x.mensajes, m) }))
+        if (estadoDelCanal?.cargado && !estadoDelCanal.conSalto) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: (mio ? reemplazarTemporal(x.mensajes, m) : conMensaje(x.mensajes, m)) }))
       } else {
         if (nuevo) cambiarEstado(m.canal_id, (x) => ({ ...x, mensajes: x.mensajes.map((p) => (p.id === m.hilo_de ? { ...p, respuestas: p.respuestas + 1 } : p)) }))
-        if (hiloRef.current?.id === m.hilo_de) setMensajesDelHilo((l) => conMensaje(mio ? sinTemporalParecido(l, m) : l, m))
+        if (hiloRef.current?.id === m.hilo_de) setMensajesDelHilo((l) => (mio ? reemplazarTemporal(l, m) : conMensaje(l, m)))
       }
       const canal = canalesRef.current.find((c) => c.id === m.canal_id)
       if (!canal) return refrescarEnBreve()
@@ -553,7 +553,11 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       colaDeEnvios.current = turno.then(() => undefined, () => undefined)
       try {
         const m = await turno
-        quitarProvisional()
+        // El de verdad ocupa el sitio del provisional y hereda su clave: el mensaje no se apaga, no se vuelve a montar y no repite la animación de entrada
+        if (provisional !== null) {
+          if (hiloDe === null) cambiarEstado(canalId, (x) => ({ ...x, mensajes: reemplazarTemporal(x.mensajes, m, provisional) }))
+          else setMensajesDelHilo((l) => reemplazarTemporal(l, m, provisional))
+        }
         aplicarRef.current({ tipo: 'mensaje', mensaje: m })
       } catch (e) {
         quitarProvisional()
