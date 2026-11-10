@@ -3,14 +3,15 @@
 import { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Search } from 'lucide-react'
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TEXTO, TIPO } from '@/lib/estilo/denso'
-import { porCampana, tipoDeCampana, totalesDe, type CampanaConCifras, type Totales } from '@/lib/ads/rendimiento-calculo'
+import { diasDelRango, porCampana, tipoDeCampana, totalesDe, type CampanaConCifras } from '@/lib/ads/rendimiento-calculo'
 import { agruparPorProducto } from '@/lib/ads/productos-agrupar'
 import { COLOR_DE_TIPO, EtiquetaDeTipo, PuntoDeEstado, SelectorDePeriodo, textoDeEstado, type Dias } from './piezas'
 import { useProductosConocidos } from './useProductosConocidos'
+import { TarjetaDeProducto, type FilaDeCampana } from './TarjetaDeProducto'
 import { dinero, decimal, entero, porcentaje } from './formato'
-import { useRendimiento, type CampanaViva } from './useRendimiento'
+import { useRendimiento } from './useRendimiento'
 
-type Fila = Totales & { campaignId: string; nombre: string; estado: CampanaViva['estado'] | null; presupuesto: number | null; segmentacion: CampanaViva['segmentacion']; tipo: string }
+type Fila = FilaDeCampana
 type Orden = 'nombre' | 'presupuesto' | 'gasto' | 'ventas' | 'acos' | 'roas' | 'pedidos' | 'clics' | 'cpc' | 'ctr'
 type Filtro = 'ENABLED' | 'PAUSED' | 'ARCHIVED' | 'TODAS'
 type Vista = 'producto' | 'lista'
@@ -33,7 +34,7 @@ const valorDe = (f: Fila, o: Orden): number | string => (o === 'nombre' ? f.nomb
  * LAS CAMPAÑAS QUE YA HAY EN LA CUENTA, con sus cifras del periodo: las de la lista en vivo de Amazon (activas, pausadas y archivadas) cruzadas por id con el informe diario. Una campaña sin gasto
  * en el periodo sale con ceros; una con gasto que ya no está en la lista (archivada y fuera de las primeras páginas) sale igualmente, sin estado.
  */
-export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda: string | null }) {
+export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; moneda: string | null; irA: (pestana: string) => void }) {
   const [dias, setDias] = useState<Dias>(14)
   const [filtro, setFiltro] = useState<Filtro>('ENABLED')
   const [busqueda, setBusqueda] = useState('')
@@ -96,6 +97,12 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
     })
   const maxGasto = Math.max(...visibles.map((f) => f.gasto), 0.0001)
   const conCifras = informe.fase === 'listo'
+  const diasDelPeriodo = useMemo(() => (informe.fase === 'listo' ? diasDelRango(informe.datos.periodos.actual.desde, informe.datos.periodos.actual.hasta) : []), [informe])
+  const filasDiariasDe = (ids: readonly string[]) => {
+    if (informe.fase !== 'listo') return []
+    const conjunto = new Set(ids)
+    return informe.datos.actual.filter((f) => conjunto.has(f.campaignId))
+  }
 
   /** Una fila de campaña. `sangria` 1 = dentro de un producto */
   function filaDeCampana(f: Fila, sangria: 0 | 1) {
@@ -188,6 +195,35 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
         </div>
       )}
 
+      {vista === 'producto' ? (
+        <div className="flex max-w-[1180px] flex-col gap-2">
+          {conCifras && grupos.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-1 py-1">
+              <ResumenSuelto etiqueta="Productos" valor={entero(grupos.filter((g) => g.asin !== null).length)} />
+              <ResumenSuelto etiqueta="Gasto" valor={dinero(total.gasto, moneda)} />
+              <ResumenSuelto etiqueta="Ventas" valor={dinero(total.ventas, moneda)} />
+              <ResumenSuelto etiqueta="ACoS" valor={porcentaje(total.acos)} />
+              <ResumenSuelto etiqueta="Pedidos" valor={entero(total.pedidos)} />
+            </div>
+          )}
+          {campanas.fase === 'cargando' && grupos.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>Leyendo las campañas de Amazon…</p>}
+          {campanas.fase !== 'cargando' && grupos.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>No hay campañas con ese filtro.</p>}
+          {grupos.map((g) => (
+            <TarjetaDeProducto
+              key={g.clave}
+              grupo={g}
+              moneda={moneda}
+              equilibrio={g.asin ? (conocidos.get(g.asin)?.equilibrio ?? null) : null}
+              filasDiarias={filasDiariasDe(g.campanas.map((c) => c.campaignId))}
+              dias={diasDelPeriodo}
+              conCifras={conCifras}
+              abierto={abiertos.has(g.clave)}
+              alternar={() => alternarGrupo(g.clave)}
+              irAProductos={() => irA('productos')}
+            />
+          ))}
+        </div>
+      ) : (
       <div className="min-w-0 overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
         <table className={TABLA.tabla}>
           <thead>
@@ -213,56 +249,12 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
                 <td className={`${TABLA.celda} ${TEXTO.t3}`} colSpan={COLUMNAS.length + 1}>No hay campañas con ese filtro.</td>
               </tr>
             )}
-            {vista === 'lista' && visibles.map((f) => filaDeCampana(f, 0))}
-            {vista === 'producto' &&
-              grupos.map((g) => {
-                const abierto = abiertos.has(g.clave)
-                const conocido = g.asin ? conocidos.get(g.asin) : undefined
-                const eq = conocido?.equilibrio ?? null
-                const acos = g.totales.acos
-                const colorAcos = eq !== null && acos !== null ? (acos <= eq ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo) : undefined
-                const activas = g.campanas.filter((c) => c.estado === 'ENABLED').length
-                return [
-                  <tr key={`g-${g.clave}`} className="cursor-pointer hover:[&>td]:bg-[var(--ls-sup3)]" onClick={() => alternarGrupo(g.clave)}>
-                    <td className={`${TABLA.celda} h-[44px] bg-[var(--ls-sup2)]`}>
-                      <div className="flex items-center gap-2">
-                        {abierto ? <ChevronDown className="h-3 w-3 shrink-0 text-[var(--ls-t3)]" /> : <ChevronRight className="h-3 w-3 shrink-0 text-[var(--ls-t3)]" />}
-                        <div className="min-w-0">
-                          <div className={`${TEXTO.t1} ${TABLA.corta} max-w-[420px] font-semibold`} title={g.titulo}>{g.titulo}</div>
-                          <div className={`${TIPO.xs} ${TEXTO.t4}`}>
-                            {g.asin ?? 'Campañas sin ASIN en el nombre'} · {g.campanas.length} {g.campanas.length === 1 ? 'campaña' : 'campañas'}
-                            {activas > 0 ? ` · ${activas} ${activas === 1 ? 'activa' : 'activas'}` : ''}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)]`}>{dinero(g.campanas.reduce((a, c) => a + (c.presupuesto ?? 0), 0), moneda)}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? dinero(g.totales.gasto, moneda) : '—'}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? dinero(g.totales.ventas, moneda) : '—'}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`} title={eq !== null ? `ACoS de equilibrio de este producto: ${porcentaje(eq)}` : 'Pon el coste del producto en «Productos» para ver su ACoS de equilibrio'}>
-                      {conCifras ? (
-                        <div>
-                          <div style={colorAcos ? { color: colorAcos } : undefined}>{porcentaje(acos)}</div>
-                          {eq !== null && <div className={`${TIPO.xs} ${TEXTO.t4} font-normal`}>equilibrio {porcentaje(eq, 0)}</div>}
-                        </div>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras && g.totales.roas != null ? decimal(g.totales.roas) : '—'}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? entero(g.totales.pedidos) : '—'}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? entero(g.totales.clics) : '—'}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? dinero(g.totales.cpc, moneda) : '—'}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? porcentaje(g.totales.ctr, 2) : '—'}</td>
-                  </tr>,
-                  ...(abierto ? g.campanas.map((f) => filaDeCampana(f, 1)) : []),
-                ]
-              })}
+            {visibles.map((f) => filaDeCampana(f, 0))}
           </tbody>
           {visibles.length > 0 && conCifras && (
             <tfoot>
               <tr className="font-semibold">
-                <td className={`${TABLA.celda} bg-[var(--ls-sup2)] ${TEXTO.t1}`}>Total de las {visibles.length} campañas que se ven{vista === 'producto' ? ` (${grupos.length} ${grupos.length === 1 ? 'producto' : 'productos'})` : ''}</td>
+                <td className={`${TABLA.celda} bg-[var(--ls-sup2)] ${TEXTO.t1}`}>Total de las {visibles.length} campañas que se ven</td>
                 <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)]`}>{dinero(visibles.reduce((s, f) => s + (f.presupuesto ?? 0), 0), moneda)}</td>
                 <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)]`}>{dinero(total.gasto, moneda)}</td>
                 <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)]`}>{dinero(total.ventas, moneda)}</td>
@@ -277,7 +269,18 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
           )}
         </table>
       </div>
+      )}
+
       <p className={`${TIPO.xs} ${TEXTO.t4}`}>Ventas y pedidos atribuidos a 7 días, como en la consola de Amazon Ads. Las cifras de hoy no están: el periodo acaba ayer.</p>
+    </div>
+  )
+}
+
+function ResumenSuelto({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+  return (
+    <div className="flex items-baseline gap-[6px]">
+      <span className={`${TIPO.s} ${TEXTO.t4}`}>{etiqueta}</span>
+      <span className="text-[15px] font-semibold tabular-nums text-[var(--ls-t1)]">{valor}</span>
     </div>
   )
 }
