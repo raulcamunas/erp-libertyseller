@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import type { Participant } from 'livekit-client'
 import { HeadphoneOff, Headphones, Maximize2, Mic, MicOff, MonitorUp, PhoneOff, Settings2, Volume2, VolumeX } from 'lucide-react'
@@ -28,6 +28,14 @@ export function JuntaFlotante() {
   const { canales, yo, persona, nombreDe } = useChat()
   const [abierta, setAbierta] = useState<string | null>(null)
   void version
+  // Mientras la cápsula está a la vista, los avisos emergentes (llamadas, correos…) suben por encima de ella en vez de quedarse debajo (ver `.pila-de-avisos` en globals.css)
+  const capsulaVisible = Boolean(actual) && !vistaGrande && !ruta.startsWith('/dashboard/chat')
+  useEffect(() => {
+    if (!capsulaVisible) return
+    const raiz = document.documentElement
+    raiz.setAttribute('data-junta-capsula', '')
+    return () => raiz.removeAttribute('data-junta-capsula')
+  }, [capsulaVisible])
   if (!actual) return null
   if (vistaGrande) return <PanelDeJunta />
   if (ruta.startsWith('/dashboard/chat')) return null

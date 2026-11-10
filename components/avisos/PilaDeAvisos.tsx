@@ -93,7 +93,7 @@ export function PilaDeAvisos() {
   const avisos = useSyncExternalStore(suscribirAvisos, leerAvisos, () => vacia)
   if (avisos.length === 0) return null
   return (
-    <ol aria-label="Avisos" className="pointer-events-none fixed inset-x-3 bottom-3 z-[70] flex flex-col items-end gap-2 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[360px]">
+    <ol aria-label="Avisos" className="pila-de-avisos pointer-events-none fixed inset-x-3 bottom-3 z-[70] flex flex-col items-end gap-2 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[360px]">
       {avisos.map((a) => (
         <Tarjeta key={a.id} aviso={a} />
       ))}

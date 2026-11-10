@@ -5305,6 +5305,9 @@ html.chat-abierto .chat-lista, html.chat-abierto .chat-barra-lista, html.chat-ab
 
 /* ---- La junta de voz en pequeño: una cápsula junto a la pastilla del chat (components/chat/JuntaFlotante.tsx) ---- */
 .junta-capsula { position: fixed; right: var(--junta-derecha, 18px); bottom: 18px; z-index: 75; display: flex; height: 46px; max-width: calc(100vw - 24px); align-items: center; gap: 10px; border-radius: 999px; border: 1px solid var(--ls-linea2); background: var(--ls-sup); padding: 0 7px 0 14px; box-shadow: 0 14px 34px -14px rgba(0, 0, 0, .7); animation: junta-entra .26s cubic-bezier(.2, .9, .3, 1.15) both; transition: border-color .2s ease; }
+/* Los avisos emergentes (PilaDeAvisos) suben sobre la cápsula de la junta: su borde de arriba está a 64 px del suelo, y se deja un hueco */
+.pila-de-avisos { transition: bottom .2s ease; }
+html[data-junta-capsula] .pila-de-avisos { bottom: 76px; }
 .junta-capsula[data-hablando='true'] { border-color: color-mix(in srgb, var(--ls-e-verde) 55%, var(--ls-linea2)); }
 .junta-capsula-estado { display: flex; min-width: 0; max-width: 168px; align-items: center; gap: 8px; color: var(--ls-e-verde); }
 .junta-capsula-estado > span { display: flex; min-width: 0; flex-direction: column; line-height: 1.15; }
