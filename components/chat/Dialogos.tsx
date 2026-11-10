@@ -170,13 +170,15 @@ export function DialogoNuevoDirecto({ onCerrar, alAbrir }: { onCerrar: () => voi
 
 /** Quién está en el canal, para añadir gente y para cambiarle el nombre o archivarlo */
 export function DialogoMiembros({ canal, onCerrar }: { canal: CanalChat; onCerrar: () => void }) {
-  const { personas, persona, conectados, anadir, cambiar, yo } = useChat()
+  const { personas, persona, conectados, anadir, quitar, cambiar, yo } = useChat()
   const [nuevos, setNuevos] = useState<Set<string>>(new Set())
   const [nombre, setNombre] = useState(canal.nombre ?? '')
   const [descripcion, setDescripcion] = useState(canal.descripcion)
   const [guardando, setGuardando] = useState(false)
   const dentro = canal.miembros.map((id) => persona(id)).filter((p): p is PersonaChat => Boolean(p))
   const cambios = normalizarNombreDeCanal(nombre) !== canal.nombre || descripcion.trim() !== canal.descripcion
+  const gestiono = yo.esAdmin || canal.soy_admin
+  const privado = canal.tipo === 'privado'
 
   const hacer = async (f: () => Promise<unknown>, ok: string) => {
     setGuardando(true)
@@ -203,7 +205,24 @@ export function DialogoMiembros({ canal, onCerrar }: { canal: CanalChat; onCerra
           )}
         </div>
       </section>
-      {(yo.esAdmin || canal.soy_admin) && (
+      {gestiono && !canal.voz && (
+        <label className="chat-casilla">
+          <input
+            type="checkbox"
+            checked={privado}
+            disabled={guardando}
+            onChange={() => {
+              const aPrivado = !privado
+              const aviso = aPrivado
+                ? '¿Hacer este canal privado? Lo dejará de ver quien no esté dentro. Después podrás quitar a quien no deba estar.'
+                : '¿Volver a hacerlo abierto? Todo el equipo lo verá y podrá entrar.'
+              if (window.confirm(aviso)) void hacer(() => cambiar(canal.id, { tipo: aPrivado ? 'privado' : 'canal' }), aPrivado ? 'Ahora es un canal privado' : 'Ahora es un canal abierto')
+            }}
+          />{' '}
+          <Lock className="h-3.5 w-3.5" /> Canal privado: solo lo ven quienes estén dentro
+        </label>
+      )}
+      {gestiono && (
         <label className="chat-casilla"><input type="checkbox" checked={canal.anuncios} disabled={guardando || canal.auto_unirse} onChange={(e) => void hacer(() => cambiar(canal.id, { anuncios: e.target.checked }), e.target.checked ? 'Ahora es un canal de anuncios' : 'Ya no es un canal de anuncios')} /> <Megaphone className="h-3.5 w-3.5" /> Canal de anuncios: solo lo publican quienes lo administran</label>
       )}
       <section className="chat-campo">
@@ -215,10 +234,23 @@ export function DialogoMiembros({ canal, onCerrar }: { canal: CanalChat; onCerra
                 <span className="chat-persona-avatar" data-en-linea={conectados.has(p.id) ? 'true' : undefined}><Avatar id={p.id} nombre={p.nombre} tamano={26} /></span>
                 <span className="min-w-0 flex-1 truncate">{p.nombre}{p.id === yo.id ? ' (tú)' : ''}</span>
                 <HoraLocalDe id={p.id} conNombre />
+                {gestiono && privado && !canal.auto_unirse && p.id !== yo.id && (
+                  <button
+                    type="button"
+                    className="tc-icono-boton"
+                    disabled={guardando}
+                    aria-label={`Quitar a ${p.nombre} del canal`}
+                    title={`Quitar a ${p.nombre} del canal`}
+                    onClick={() => window.confirm(`¿Quitar a ${p.nombre} de este canal? Dejará de verlo y no podrá volver a entrar si no lo añades de nuevo.`) && void hacer(() => quitar(canal.id, p.id), `${p.nombre} ya no está en el canal`)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </span>
             </li>
           ))}
         </ul>
+        {gestiono && !privado && !canal.voz && <small className="text-[12px] text-[var(--ls-t4)]">Para quitar a alguien, haz el canal privado: en uno abierto cualquiera puede volver a entrar.</small>}
       </section>
       <section className="chat-campo">
         <span>Añadir gente</span>

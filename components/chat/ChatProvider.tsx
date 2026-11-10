@@ -85,7 +85,8 @@ interface ContextoDeChat {
   salir: (canalId: string) => Promise<void>
   silenciar: (canalId: string, silenciado: boolean) => Promise<void>
   anadir: (canalId: string, miembros: string[]) => Promise<void>
-  cambiar: (canalId: string, cambios: { nombre?: string; descripcion?: string; archivar?: boolean; anuncios?: boolean }) => Promise<void>
+  quitar: (canalId: string, usuarioId: string) => Promise<void>
+  cambiar: (canalId: string, cambios: { nombre?: string; descripcion?: string; archivar?: boolean; anuncios?: boolean; tipo?: 'canal' | 'privado' }) => Promise<void>
   /** Cuánto te avisa un canal: todo · solo menciones · nada (null = lo de siempre) */
   cambiarAvisos: (canalId: string, nivel: NivelDeAvisos | null) => Promise<void>
   votar: (id: number, opcion: number) => Promise<void>
@@ -661,7 +662,8 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
   )
   const silenciar = useCallback((canalId: string, silenciado: boolean) => accion({ accion: 'silenciar', canalId, silenciado }), [accion])
   const anadir = useCallback((canalId: string, miembros: string[]) => accion({ accion: 'anadir', canalId, miembros }), [accion])
-  const cambiar = useCallback((canalId: string, cambios: { nombre?: string; descripcion?: string; archivar?: boolean; anuncios?: boolean }) => accion({ accion: 'cambiar', canalId, ...cambios }), [accion])
+  const quitar = useCallback((canalId: string, usuarioId: string) => accion({ accion: 'quitar', canalId, usuarioId }), [accion])
+  const cambiar = useCallback((canalId: string, cambios: { nombre?: string; descripcion?: string; archivar?: boolean; anuncios?: boolean; tipo?: 'canal' | 'privado' }) => accion({ accion: 'cambiar', canalId, ...cambios }), [accion])
   const cambiarAvisos = useCallback((canalId: string, nivel: NivelDeAvisos | null) => accion({ accion: 'avisos', canalId, nivel }), [accion])
 
   const votar = useCallback(async (id: number, opcion: number) => {
@@ -837,6 +839,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       salir,
       silenciar,
       anadir,
+      quitar,
       cambiar,
       conectados,
       enVoz,
@@ -873,7 +876,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       abrirAsistente,
       cerrarAsistente,
     }),
-    [puertas, respuestaDePuerta, descartarPuerta, enVoz, ponerVozDeLiveKit, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
+    [puertas, respuestaDePuerta, descartarPuerta, enVoz, ponerVozDeLiveKit, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, quitar, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>

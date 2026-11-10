@@ -4,7 +4,8 @@ import { armarMensajes, personasDelChat, type FilaMensaje } from './servidor'
 import { emitir } from './tiempo-real'
 
 /**
- * #notificaciones-erp: EL CANAL DONDE EL ERP AVISA SOLO. Un canal abierto y de anuncios (nadie escribe en él; se puede reaccionar y responder en hilos) al que entra todo el equipo con
+ * #notificaciones-erp: EL CANAL DONDE EL ERP AVISA SOLO. Nace abierto y de todo el equipo, pero un administrador puede hacerlo privado desde sus ajustes y quitar a quien no deba estar: desde
+ * entonces no se vuelve a meter a nadie solo (ni al arrancar ni al entrar). Un canal abierto y de anuncios (nadie escribe en él; se puede reaccionar y responder en hilos) al que entra todo el equipo con
  * avisos activados. De momento llegan aquí:
  *   · la verificación del stock que se sube a los clientes (Lenobotics, Shoplamp…): si ha quedado bien o qué hay que revisar;
  *   · las citas que agendan los comerciales.
@@ -72,7 +73,9 @@ export function prepararCanalDeNotificaciones(): Promise<string | null> {
         const service = createServiceClient()
         const canalId = await crearOEncontrarCanal(service)
         if (!canalId) return null
-        await asegurarMiembros(service, canalId, (await personasDelChat()).map((p) => p.id))
+        // Si un administrador lo ha hecho privado para elegir quién está (auto_unirse = false), no se vuelve a meter a todo el equipo en cada arranque
+        const { data: fila } = await service.from('chat_canales').select('auto_unirse').eq('id', canalId).maybeSingle()
+        if ((fila as { auto_unirse: boolean } | null)?.auto_unirse !== false) await asegurarMiembros(service, canalId, (await personasDelChat()).map((p) => p.id))
         const hay = await service.from('chat_mensajes').select('id', { count: 'exact', head: true }).eq('canal_id', canalId)
         if ((hay.count ?? 0) === 0) await publicar(canalId, { clave: 'bienvenida', titulo: 'Notificaciones del ERP', cuerpo: '👋 Aquí avisa el ERP solo: el **stock** que se sube a los clientes y las **citas** que agendan los comerciales. Iremos añadiendo más.', avisar: false })
         return canalId

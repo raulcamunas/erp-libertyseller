@@ -720,12 +720,46 @@ export async function marcarLeido(quien: QuienEscribe, canalId: unknown): Promis
   return { ok: true }
 }
 
-export async function cambiarCanal(quien: QuienEscribe, canalId: unknown, cambios: { nombre?: unknown; descripcion?: unknown; archivar?: unknown; anuncios?: unknown }): Promise<{ ok: true }> {
+/**
+ * Sacar a alguien de un canal PRIVADO. Solo quien administra el canal (o un administrador del ERP). En un canal abierto no tiene sentido (cualquiera vuelve a entrar) y en uno de todo el equipo
+ * (#general, las salas de voz) tampoco: para elegir quién está, primero se hace privado (cambiarCanal con `tipo`). Salirse uno mismo va por `salir`.
+ */
+export async function quitarMiembro(quien: QuienEscribe, canalId: unknown, usuarioId: unknown): Promise<{ ok: true }> {
+  const canal = await canalDe(canalId)
+  if (canal.tipo === 'directo') throw new ErrorDeChat('A una conversación directa no se le quita a nadie.')
+  if (canal.auto_unirse) throw new ErrorDeChat('A este canal pertenece todo el equipo. Hazlo privado para elegir quién está dentro.', 409)
+  if (canal.tipo === 'canal') throw new ErrorDeChat('Es un canal abierto: cualquiera puede volver a entrar. Hazlo privado para decidir quién está dentro.', 409)
+  if (!esUuid(usuarioId)) throw new ErrorDeChat('Falta la persona.')
+  const miembros = await miembrosDe(canal.id)
+  if (!puedeGestionar(quien, miembros)) throw new ErrorDeChat('Solo quien administra el canal (o un administrador) puede quitar a alguien.', 403)
+  const objetivo = miembros.find((m) => m.usuario_id === usuarioId)
+  if (!objetivo) throw new ErrorDeChat('Esa persona ya no está en el canal.', 404)
+  if (usuarioId === quien.userId) throw new ErrorDeChat('Para irte tú, usa «Salir del canal».')
+  if (!quien.esAdmin && objetivo.rol === 'admin') throw new ErrorDeChat('A quien administra el canal solo lo puede quitar un administrador del ERP.', 403)
+  const { error } = await db().from('chat_miembros').delete().eq('canal_id', canal.id).eq('usuario_id', usuarioId)
+  if (error) fallo(error, 'quitar a la persona')
+  // También a quien se quita: su pantalla recarga la lista y el canal desaparece
+  void emitir(miembros.map((m) => m.usuario_id), { tipo: 'canales' })
+  return { ok: true }
+}
+
+export async function cambiarCanal(quien: QuienEscribe, canalId: unknown, cambios: { nombre?: unknown; descripcion?: unknown; archivar?: unknown; anuncios?: unknown; tipo?: unknown }): Promise<{ ok: true }> {
   const canal = await canalDe(canalId)
   if (canal.tipo === 'directo') throw new ErrorDeChat('Una conversación directa no se cambia.')
   const miembros = await miembrosDe(canal.id)
   if (!puedeGestionar(quien, miembros)) throw new ErrorDeChat('Solo quien administra el canal (o un administrador) puede cambiarlo.', 403)
   const fila: Record<string, unknown> = {}
+  // Abierto ↔ privado. Un canal que pasa a privado deja de ser «de todo el equipo» (si no, volvería a meter a todos al entrar). Ni las salas de voz ni #general se pueden hacer privados
+  const cambiaDeTipo = cambios.tipo !== undefined && cambios.tipo !== canal.tipo
+  if (cambios.tipo !== undefined) {
+    if (cambios.tipo !== 'canal' && cambios.tipo !== 'privado') throw new ErrorDeChat('Elige si el canal es abierto o privado.')
+    if (cambiaDeTipo) {
+      if (esCanalDeVoz(canal.origen_id)) throw new ErrorDeChat('Las salas de voz son de todo el equipo.', 409)
+      if (cambios.tipo === 'privado' && canal.auto_unirse && !canal.origen_id) throw new ErrorDeChat('#general es de todo el equipo: no se puede hacer privado.', 409)
+      fila.tipo = cambios.tipo
+      if (cambios.tipo === 'privado') fila.auto_unirse = false
+    }
+  }
   if (cambios.nombre !== undefined) {
     const nombre = normalizarNombreDeCanal(cambios.nombre)
     if (!nombre) throw new ErrorDeChat('Ponle un nombre al canal.')
@@ -747,7 +781,15 @@ export async function cambiarCanal(quien: QuienEscribe, canalId: unknown, cambio
     if (faltaColumna(error)) throw new ErrorDeChat('Falta lanzar la migración 287 en Supabase para esta opción.', 409)
     fallo(error, 'cambiar el canal')
   }
-  const destinatarios = canal.tipo === 'canal' ? (await personasDelChat()).map((p) => p.id) : miembros.map((m) => m.usuario_id)
+  // Quien lo hace privado se queda dentro (un administrador del ERP puede no ser miembro de un canal abierto y, si no, lo perdería de vista)
+  const ids = miembros.map((m) => m.usuario_id)
+  if (fila.tipo === 'privado' && !ids.includes(quien.userId)) {
+    const { error: errorMiembro } = await db().from('chat_miembros').upsert({ canal_id: canal.id, usuario_id: quien.userId, rol: 'admin' }, { onConflict: 'canal_id,usuario_id', ignoreDuplicates: true })
+    if (errorMiembro) fallo(errorMiembro, 'añadirte al canal')
+    ids.push(quien.userId)
+  }
+  // Si era o pasa a ser abierto, lo ve todo el equipo (y por eso hay que avisar también a quien deja de verlo)
+  const destinatarios = canal.tipo === 'canal' || fila.tipo === 'canal' ? [...new Set([...(await personasDelChat()).map((p) => p.id), ...ids])] : ids
   void emitir(destinatarios, { tipo: 'canales' })
   return { ok: true }
 }
