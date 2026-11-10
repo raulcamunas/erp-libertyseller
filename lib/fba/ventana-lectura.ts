@@ -99,3 +99,22 @@ export function desdeParaLeerAhora(
 
   return new Date(Math.max(desde, limite))
 }
+
+/**
+ * QUÉ ENVÍOS SIN LLEGADA CONFIRMADA SIGUEN SIN SER LEÍDOS: los que caen ANTES de donde empieza el libro que tenemos.
+ *
+ * La pasada de la noche solo releía 14 días hacia atrás, así que un envío antiguo traído después (Cobo Family: ocho remesas desde noviembre de 2025, con el libro empezando el 2 de
+ * julio de 2026) se quedaba para siempre con todas sus unidades «vivas» en el FIFO. Esto elige las fechas que obligan a ir más atrás.
+ *
+ * «Sin llegada confirmada» NO basta por sí solo: un envío que está dentro de lo leído y aun así no tiene su `Receipts` (ShoesF, Yo By Yolanda) haría releer meses cada noche sin ganar nada.
+ * Solo cuentan los que, con su colchón de 7 días, empiezan antes del primer día que hay en el libro (`primerDiaLeido`; null = no hay nada leído y entonces cuentan todos).
+ * Pura: se comprueba con ventana-lectura.prueba.ts.
+ */
+export function fechasPorCubrir(sinLlegada: readonly string[], primerDiaLeido: string | null): string[] {
+  const primero = primerDiaLeido ? Date.parse(`${primerDiaLeido}T00:00:00Z`) : null
+  return sinLlegada.filter((f) => {
+    const dia = Date.parse(`${f}T00:00:00Z`)
+    if (!Number.isFinite(dia)) return false
+    return primero === null || Number.isFinite(primero) === false || dia - HOLGURA_FECHA_DE_ENVIO_DIAS * 86_400_000 < primero
+  })
+}

@@ -97,6 +97,8 @@ export function TraerEnvioDialog({
         return
       }
       toast.success(`Envío traído de Amazon: ${traido.lineas.length} referencias`)
+      // Las ventas se leen solas desde este envío (el servidor decide si hace falta ir más atrás); solo la agencia puede lanzarlo, si no, lo recoge la pasada de la noche
+      void fetch(`/api/fba/sincronizar?remesa=${encodeURIComponent(p.id)}`, { method: 'POST' }).catch(() => undefined)
       onCerrar()
       onTraido(p.id)
     } finally {

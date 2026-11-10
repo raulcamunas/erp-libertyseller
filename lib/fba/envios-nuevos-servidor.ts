@@ -105,7 +105,7 @@ export async function enviosNuevosDeClientes(ids: readonly string[], paralelo = 
 }
 
 export interface ResultadoImportacion {
-  importados: Array<{ shipmentId: string; id: string; referencias: number }>
+  importados: Array<{ shipmentId: string; id: string; referencias: number; fecha: string }>
   fallidos: Array<{ shipmentId: string; error: string }>
 }
 
@@ -136,7 +136,7 @@ export async function importarEnvios(opciones: { clienteId: string; userId: stri
       if (crudas === 0 || lineas.length === 0) throw new Error('Amazon no devuelve ninguna referencia con unidades')
       const fecha = diaDeCreacionDeEnvio(info.nombre, marketplaceById(e.mercadoId)?.region ?? null) ?? opciones.hoy
       const id = await crearRemesaDeEnvio(service, { clienteId: opciones.clienteId, connectionId: c.id, mercado: e.mercadoId, shipmentId: e.shipmentId, nombre: info.nombre, fecha, estadoAmazon: info.estado, lineas, userId: opciones.userId })
-      salida.importados.push({ shipmentId: e.shipmentId, id, referencias: lineas.length })
+      salida.importados.push({ shipmentId: e.shipmentId, id, referencias: lineas.length, fecha })
     } catch (err) {
       salida.fallidos.push({ shipmentId: e.shipmentId, error: err instanceof Error ? err.message.slice(0, 160) : 'No se ha podido importar' })
     }

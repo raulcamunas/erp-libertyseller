@@ -99,6 +99,7 @@ export function ImportarPedidosDialog({
     setErrores({})
     setImportando({ hechos: 0, total: lista.length })
     const creados: string[] = []
+    let masAntiguo: { id: string; fecha: string } | null = null
     const fallos: Record<string, string> = {}
     for (let i = 0; i < lista.length; i += POR_TANDA) {
       const tanda = lista.slice(i, i + POR_TANDA)
@@ -108,10 +109,13 @@ export function ImportarPedidosDialog({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ clienteId, envios: tanda.map((e) => ({ shipmentId: e.shipmentId, mercadoId: e.mercadoId })) }),
         })
-        const p = (await res.json().catch(() => null)) as { error?: string; importados?: Array<{ id: string }>; fallidos?: Array<{ shipmentId: string; error: string }> } | null
+        const p = (await res.json().catch(() => null)) as { error?: string; importados?: Array<{ id: string; fecha?: string }>; fallidos?: Array<{ shipmentId: string; error: string }> } | null
         if (!res.ok || !p) for (const e of tanda) fallos[e.shipmentId] = p?.error ?? 'No se ha podido importar'
         else {
-          for (const m of p.importados ?? []) creados.push(m.id)
+          for (const m of p.importados ?? []) {
+            creados.push(m.id)
+            if (m.fecha && (!masAntiguo || m.fecha < masAntiguo.fecha)) masAntiguo = { id: m.id, fecha: m.fecha }
+          }
           for (const f of p.fallidos ?? []) fallos[f.shipmentId] = f.error
         }
       } catch {
@@ -125,6 +129,13 @@ export function ImportarPedidosDialog({
     if (creados.length > 0) {
       toast.success(creados.length === 1 ? 'Envío importado' : `${creados.length} envíos importados`)
       onImportados(creados)
+      // Las ventas se leen solas desde el envío más antiguo que se acaba de traer: si no, el FIFO lo pinta intacto hasta la pasada de la noche. Tarda unos minutos
+      // y solo la puede lanzar la agencia (si no, la pasada de la noche lo recoge igual); aquí no se espera a que acabe
+      const desde = masAntiguo as { id: string; fecha: string } | null
+      if (desde) {
+        toast.message(`Leyendo las ventas desde el ${desde.fecha.split('-').reverse().join('/')}…`, { description: 'Tarda unos minutos. Puedes seguir trabajando: el FIFO se pone al día solo.' })
+        void fetch(`/api/fba/sincronizar?remesa=${encodeURIComponent(desde.id)}`, { method: 'POST' }).catch(() => undefined)
+      }
     }
     if (nFallos === 0) onCerrar()
     else {

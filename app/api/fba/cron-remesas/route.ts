@@ -6,7 +6,8 @@ import { fetchFbaInventory } from '@/lib/amazon/sp-api'
 import { fnskusDe, guardarDesgloseFba, guardarFnskus } from '@/lib/amazon/fba-desglose'
 import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
 import { anotarSeguimiento } from '@/lib/fba/seguimiento'
-import { desdeCuandoLeer, leerLedger } from '@/lib/fba/ledger'
+import { leerLedger } from '@/lib/fba/ledger'
+import { desdeParaLeerAhora, fechasPorCubrir } from '@/lib/fba/ventana-lectura'
 import { claveDeCuenta, haceCuanto, pedirTurnoDeLectura } from '@/lib/fba/lectura-en-curso'
 import { claveDeLectura, planDeLectura, type ConexionParaLeer } from '@/lib/fba/lectura-plan'
 import { esperarPlanificacion, leerYGuardarPlanificacion } from '@/lib/fba/planificacion-amazon'
@@ -278,7 +279,35 @@ export async function POST(request: NextRequest) {
           (lecturaPrevia as { leido_hasta: string | null } | null)?.leido_hasta ?? null
 
         const hoy = new Date()
-        const desde = desdeCuandoLeer(leidoHasta, hoy, u.primera)
+        // SI HAY ENVÍOS IMPORTADOS DE ANTES DE DONDE EMPIEZA EL LIBRO, SE VA A POR ELLOS: la noche releía solo 14 días y un envío antiguo traído después
+        // (ocho remesas de Cobo desde noviembre de 2025, libro desde el 2 de julio) se quedaba con todas sus unidades «vivas» en el FIFO. Ver fechasPorCubrir().
+        // Lo que se lee aquí es el libro de TODA la cuenta, con todos sus países (la columna `pais`): no hace falta una lectura por país.
+        let fechasAtrasadas: string[] = []
+        try {
+          const { data: sinLlegada } = await service
+            .from('fba_remesas')
+            .select('fecha_envio')
+            .eq('connection_id', u.conexion)
+            .eq('marketplace_id', u.mercado)
+            .in('estado', ['enviada', 'cerrada'])
+            .not('referencia_envio', 'is', null)
+            .is('llegada_at', null)
+          const candidatas = ((sinLlegada ?? []) as Array<{ fecha_envio: string }>).map((r) => r.fecha_envio)
+          if (candidatas.length > 0) {
+            const { data: primero } = await service
+              .from('fba_movimientos')
+              .select('fecha')
+              .eq('connection_id', u.conexion)
+              .eq('marketplace_id', u.mercado)
+              .order('fecha', { ascending: true })
+              .limit(1)
+              .maybeSingle()
+            fechasAtrasadas = fechasPorCubrir(candidatas, (primero as { fecha: string } | null)?.fecha ?? null)
+          }
+        } catch {
+          // Si no se puede mirar, se lee lo de siempre: es una mejora, no puede tumbar la pasada
+        }
+        const desde = desdeParaLeerAhora(leidoHasta, hoy, u.primera, fechasAtrasadas)
         const hasta = new Date(hoy.getTime() - 60 * 60_000)
 
         // La antigüedad del stock que cuenta Amazon se pide A LA VEZ: los dos informes tardan minutos y lo
@@ -425,6 +454,7 @@ export async function POST(request: NextRequest) {
           conexion: connection.name,
           desde: lectura.desde,
           hasta: lectura.hasta,
+          recuperandoHistorico: fechasAtrasadas.length > 0 ? `${fechasAtrasadas.length} envíos anteriores al libro` : undefined,
           movimientos: filas.length,
           descartadas: lectura.descartadas,
           stockRefrescado: conStock,
