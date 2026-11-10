@@ -37,6 +37,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { textoDeError } from './error-texto'
 import { TIEMPO_MAXIMO_DE_MUESTRA_MS, anotarMuestra, decidirPorPresion, estadoDeLaPresion, otraPesadaEnMarcha, type EstadoDePresion, type PrioridadDeTarea } from './presion'
 
 /** Los procesos que corren solos. El id es el que se guarda en la tabla */
@@ -797,7 +798,7 @@ export async function conRegistro<T>(
   } catch (error) {
     await cerrar(registro, {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: textoDeError(error),
       duracionMs: Date.now() - arranque,
     })
     throw error
