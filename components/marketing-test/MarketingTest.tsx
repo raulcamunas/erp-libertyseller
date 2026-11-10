@@ -92,8 +92,8 @@ export function MarketingTest({ clientes, cliente, cuentas, cuentaId, pestana }:
 
       <div className="min-h-0 min-w-0 flex-1 overflow-auto">
         {!cuenta ? (
-          <Vacio icono={<FlaskConical />} titulo="Este cliente no tiene ninguna cuenta de anunciante">
-            Se conecta en <strong>Amazon API · Publicidad</strong>.
+          <Vacio icono={<FlaskConical />} titulo="Este cliente no tiene ninguna cuenta de anunciante en uso">
+            Se encienden («Se usa») en <strong>Amazon API · Publicidad</strong>.
           </Vacio>
         ) : activa === 'ficha' ? (
           <PestanaFicha key={cuenta.id} perfilId={cuenta.id} />

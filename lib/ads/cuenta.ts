@@ -30,10 +30,10 @@ export interface CuentaDeAnunciante {
 }
 
 /**
- * TODAS las cuentas de anunciante de un cliente (una por país), con España primero. Vacío si no tiene Amazon Ads conectado.
+ * Las cuentas de anunciante EN USO de un cliente (una por país), con España primero. Vacío si no tiene Amazon Ads conectado.
  *
- * NO se filtra por `en_uso`: esa marca decide si el ERP descarga informes y guarda datos de la cuenta (migración 149), no con qué países se puede trabajar aquí. Marketing Test lee las campañas en vivo y
- * escribe solo cuando una persona lo pide, así que cualquier país de la autorización del cliente vale.
+ * Se respeta `en_uso`, que es la cerradura que ya tiene Amazon API · Publicidad: Amazon devuelve todas las cuentas a las que llega el correo que autorizó, incluidas las de encargos antiguos, y de las
+ * apagadas no se pide ni se escribe nada. Para trabajar un país aquí, se enciende su interruptor «Se usa» allí.
  */
 export async function cuentasDeCliente(amazonClientId: string): Promise<CuentaDeAnunciante[]> {
   const service = createServiceClient()
@@ -45,6 +45,7 @@ export async function cuentasDeCliente(amazonClientId: string): Promise<CuentaDe
     .from('ads_profiles')
     .select('id, profile_id, connection_id, pais, moneda, nombre, tipo')
     .in('connection_id', ids)
+    .eq('en_uso', true)
     .order('pais')
   if (e2) throw e2
   const filas = ((data ?? []) as Array<{ id: string; profile_id: number; connection_id: string; pais: string | null; moneda: string | null; nombre: string | null; tipo: string | null }>).sort((a, b) => Number(b.pais === 'ES') - Number(a.pais === 'ES'))
@@ -59,10 +60,10 @@ export async function cuentasDeCliente(amazonClientId: string): Promise<CuentaDe
   }))
 }
 
-/** Los clientes (ids de amazon_clients) con Amazon Ads conectado y alguna cuenta de anunciante: los únicos con los que se puede trabajar en Marketing Test */
+/** Los clientes (ids de amazon_clients) que tienen alguna cuenta de anunciante en uso: los únicos con los que se puede trabajar en Marketing Test */
 export async function clientesConAds(): Promise<Set<string>> {
   const service = createServiceClient()
-  const { data: perfiles, error } = await service.from('ads_profiles').select('connection_id')
+  const { data: perfiles, error } = await service.from('ads_profiles').select('connection_id').eq('en_uso', true)
   if (error) throw error
   const conexiones = [...new Set(((perfiles ?? []) as Array<{ connection_id: string }>).map((p) => p.connection_id))]
   if (conexiones.length === 0) return new Set()
@@ -71,16 +72,16 @@ export async function clientesConAds(): Promise<Set<string>> {
   return new Set(((data ?? []) as Array<{ client_id: string }>).map((c) => c.client_id))
 }
 
-/** La cuenta de anunciante por su id, con lo necesario para llamar a Amazon. null si no existe */
+/** La cuenta de anunciante por su id, con lo necesario para llamar a Amazon. null si no existe o está apagada */
 export async function cuentaPorId(perfilId: string): Promise<(CuentaDeAnunciante & { clienteAmazonId: string | null }) | null> {
   const service = createServiceClient()
   const { data, error } = await service
     .from('ads_profiles')
-    .select('id, profile_id, connection_id, pais, moneda, nombre, tipo, ads_connections(client_id)')
+    .select('id, profile_id, connection_id, pais, moneda, nombre, tipo, en_uso, ads_connections(client_id)')
     .eq('id', perfilId)
     .maybeSingle()
   if (error) throw error
-  if (!data) return null
+  if (!data || !(data as { en_uso: boolean }).en_uso) return null
   const d = data as unknown as { id: string; profile_id: number; connection_id: string; pais: string | null; moneda: string | null; nombre: string | null; tipo: string | null; ads_connections: { client_id: string } | { client_id: string }[] | null }
   const con = Array.isArray(d.ads_connections) ? d.ads_connections[0] : d.ads_connections
   return { id: d.id, profileId: Number(d.profile_id), conexionId: d.connection_id, pais: d.pais ?? '', moneda: d.moneda, nombre: d.nombre, tipo: d.tipo, clienteAmazonId: con?.client_id ?? null }

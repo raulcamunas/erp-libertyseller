@@ -45,8 +45,8 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
 
   if (clientes.length === 0) {
     return (
-      <Vacio icono={<FlaskConical />} titulo="Ningún cliente tiene Amazon Ads conectado">
-        Se conectan en <strong>Amazon API · Publicidad</strong>. En cuanto uno esté, aparece aquí con todos sus países.
+      <Vacio icono={<FlaskConical />} titulo="Ningún cliente tiene una cuenta de Amazon Ads en uso">
+        Se conectan y se encienden («Se usa») en <strong>Amazon API · Publicidad</strong>. En cuanto una esté, el cliente aparece aquí con los países que tenga encendidos.
       </Vacio>
     )
   }
