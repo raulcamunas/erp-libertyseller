@@ -13,10 +13,8 @@ type Campos = Omit<FichaDeCuenta, 'firmadaPor' | 'firmadaPorNombre' | 'firmadaAt
 /** Los campos numéricos de la ficha, agrupados como en el SOP (sección 05). `nota` es lo que dice el SOP de cada uno */
 const GRUPOS: Array<{ titulo: string; campos: Array<{ clave: keyof Campos; nombre: string; unidad: string; nota: string; paso?: number }> }> = [
   {
-    titulo: 'Objetivos',
+    titulo: 'Objetivos de la cuenta',
     campos: [
-      { clave: 'acosLanzamientoX', nombre: 'ACoS objetivo · lanzamiento', unidad: '× equilibrio', nota: 'Hasta 1,5× el ACoS de equilibrio durante los primeros 60 días.', paso: 0.05 },
-      { clave: 'acosMaduroX', nombre: 'ACoS objetivo · maduro', unidad: '× equilibrio', nota: '≤ 0,7× el de equilibrio.', paso: 0.05 },
       { clave: 'tacosObjetivoPct', nombre: 'TACoS objetivo', unidad: '%', nota: '8-12 % en fase madura.', paso: 0.5 },
       { clave: 'presupuestoMensual', nombre: 'Presupuesto mensual', unidad: 'moneda', nota: 'Del contrato. Vacío si todavía no está acordado.', paso: 10 },
     ],
@@ -40,12 +38,6 @@ const GRUPOS: Array<{ titulo: string; campos: Array<{ clave: keyof Campos; nombr
       { clave: 'muestraMinimaClics', nombre: 'Muestra mínima de clics', unidad: 'clics', nota: '1 ÷ CVR de la categoría. Típico: 10-15.' },
     ],
   },
-]
-
-const FASES: Array<{ id: Campos['fase']; nombre: string }> = [
-  { id: 'lanzamiento', nombre: 'Lanzamiento' },
-  { id: 'crecimiento', nombre: 'Crecimiento' },
-  { id: 'madurez', nombre: 'Madurez' },
 ]
 
 const aCampos = (f: FichaDeCuenta): Campos => {
@@ -132,19 +124,11 @@ export function PestanaFicha({ perfilId }: { perfilId: string }) {
         </div>
       )}
 
-      <section className={TARJETA.base}>
-        <header className={TARJETA.cabecera}>
-          <h2 className={TITULO.seccion}>Fase de la cuenta</h2>
-        </header>
-        <div className={`${TARJETA.cuerpo} flex flex-wrap items-center gap-[6px]`}>
-          {FASES.map((f) => (
-            <button key={f.id} type="button" onClick={() => setCampos({ ...campos, fase: f.id })} className={`${BOTON.chip} ${campos.fase === f.id ? BOTON.chipEncendido : ''}`}>
-              {f.nombre}
-            </button>
-          ))}
-          <span className={`${TIPO.xs} ${TEXTO.t3}`}>Si cambia, cambia el ACoS objetivo: lanzamiento usa el factor de lanzamiento, madurez el maduro y crecimiento el punto medio.</span>
-        </div>
-      </section>
+      <div className={`${AVISO.base}`}>
+        <span>
+          El <span className={AVISO.fuerte}>ACoS objetivo</span> ya no se fija aquí: se elige en cada producto (pestaña <strong>Productos</strong>), que es donde se sabe cuánto margen tiene.
+        </span>
+      </div>
 
       {GRUPOS.map((g) => (
         <section key={g.titulo} className={TARJETA.base}>

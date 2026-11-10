@@ -168,7 +168,10 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
               </thead>
               <tbody>
                 {productos.slice(0, 8).map((g) => {
-                  const eq = g.asin ? (conocidos.get(g.asin)?.equilibrio ?? null) : null
+                  // Se compara con el ACoS objetivo que fijó una persona y, si no hay, con el equilibrio
+                  const conocido = g.asin ? conocidos.get(g.asin) : undefined
+                  const eq = conocido?.objetivo ?? conocido?.equilibrio ?? null
+                  const etiquetaRef = conocido?.objetivo != null ? 'objetivo' : 'equilibrio'
                   const color = eq !== null && g.totales.acos !== null ? (g.totales.acos <= eq ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo) : undefined
                   const totalGasto = calculo?.t.gasto || 1
                   return (
@@ -185,9 +188,9 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
                         <div className={`${TIPO.xs} ${TEXTO.t4} mt-[2px] tabular-nums`}>{porcentaje(g.totales.gasto / totalGasto, 0)}</div>
                       </td>
                       <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{dinero(g.totales.ventas, moneda)}</td>
-                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums" title={eq !== null ? `ACoS de equilibrio: ${porcentaje(eq)}` : 'Pon su coste en «Productos» para ver el equilibrio'}>
+                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums" title={eq !== null ? `ACoS ${etiquetaRef}: ${porcentaje(eq)}` : 'Fija su ACoS objetivo en «Productos»'}>
                         <span style={color ? { color } : undefined} className={color ? undefined : TEXTO.t1}>{porcentaje(g.totales.acos)}</span>
-                        {eq !== null && <div className={`${TIPO.xs} ${TEXTO.t4}`}>equilibrio {porcentaje(eq, 0)}</div>}
+                        {eq !== null && <div className={`${TIPO.xs} ${TEXTO.t4}`}>{etiquetaRef} {porcentaje(eq, 0)}</div>}
                       </td>
                       <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{entero(g.totales.pedidos)}</td>
                     </tr>

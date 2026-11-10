@@ -54,6 +54,7 @@ export function TarjetaDeProducto({
   grupo,
   moneda,
   equilibrio,
+  objetivo,
   filasDiarias,
   dias,
   conCifras,
@@ -64,6 +65,8 @@ export function TarjetaDeProducto({
   grupo: GrupoDeProducto<FilaDeCampana>
   moneda: string | null
   equilibrio: number | null
+  /** El ACoS objetivo que ha fijado una persona (fracción), o null */
+  objetivo: number | null
   filasDiarias: readonly FilaDiaria[]
   dias: readonly string[]
   conCifras: boolean
@@ -75,14 +78,13 @@ export function TarjetaDeProducto({
   const activas = grupo.campanas.filter((c) => c.estado === 'ENABLED').length
   const serie = serieDiaria(filasDiarias, dias)
 
-  // El veredicto: ¿el ACoS de este producto está por debajo de lo que aguanta su margen?
+  // El veredicto: primero, ¿pierde dinero (ACoS por encima de su equilibrio)?; después, ¿cumple el ACoS objetivo que fijó una persona?; y si no hay objetivo, ¿es rentable frente al equilibrio?
   let veredicto: { texto: string; color: string } | null = null
-  if (conCifras && grupo.asin) {
-    if (equilibrio === null) veredicto = null
-    else if (t.acos === null) veredicto = t.gasto > 0 ? { texto: 'Gasta sin vender', color: COLOR_ESTADO.rojo } : null
-    else if (t.acos <= equilibrio * 0.7) veredicto = { texto: 'Muy rentable', color: COLOR_ESTADO.verde }
-    else if (t.acos <= equilibrio) veredicto = { texto: 'Rentable', color: COLOR_ESTADO.verde }
-    else veredicto = { texto: 'Pierde dinero', color: COLOR_ESTADO.rojo }
+  if (conCifras && grupo.asin && (equilibrio !== null || objetivo !== null)) {
+    if (t.acos === null) veredicto = t.gasto > 0 ? { texto: 'Gasta sin vender', color: COLOR_ESTADO.rojo } : null
+    else if (equilibrio !== null && t.acos > equilibrio) veredicto = { texto: 'Pierde dinero', color: COLOR_ESTADO.rojo }
+    else if (objetivo !== null) veredicto = t.acos <= objetivo ? { texto: 'En objetivo', color: COLOR_ESTADO.verde } : { texto: 'Por encima del objetivo', color: COLOR_ESTADO.ambar }
+    else if (equilibrio !== null) veredicto = t.acos <= equilibrio * 0.7 ? { texto: 'Muy rentable', color: COLOR_ESTADO.verde } : { texto: 'Rentable', color: COLOR_ESTADO.verde }
   }
   const colorAcos = veredicto?.color
 
@@ -113,7 +115,7 @@ export function TarjetaDeProducto({
             <div className={`mt-[2px] ${TIPO.xs} ${TEXTO.t4}`}>
               {grupo.asin ?? 'Campañas sin ASIN en el nombre'} · {grupo.campanas.length} {grupo.campanas.length === 1 ? 'campaña' : 'campañas'}
               {activas !== grupo.campanas.length ? ` · ${activas} ${activas === 1 ? 'activa' : 'activas'}` : ''}
-              {grupo.asin && equilibrio === null && (
+              {grupo.asin && objetivo === null && (
                 <>
                   {' · '}
                   <span
@@ -126,7 +128,7 @@ export function TarjetaDeProducto({
                     }}
                     onKeyDown={(e) => e.key === 'Enter' && irAProductos()}
                   >
-                    falta su coste para saber si es rentable
+                    fija su ACoS objetivo para valorarlo
                   </span>
                 </>
               )}
@@ -137,7 +139,7 @@ export function TarjetaDeProducto({
             <div className="hidden shrink-0 grid-cols-5 gap-5 md:grid">
               <Cifra etiqueta="Gasto" valor={dinero(t.gasto, moneda)} />
               <Cifra etiqueta="Ventas" valor={dinero(t.ventas, moneda)} />
-              <Cifra etiqueta="ACoS" valor={porcentaje(t.acos)} color={colorAcos} nota={equilibrio !== null ? `equilibrio ${porcentaje(equilibrio, 0)}` : undefined} />
+              <Cifra etiqueta="ACoS" valor={porcentaje(t.acos)} color={colorAcos} nota={objetivo !== null ? `objetivo ${porcentaje(objetivo, 0)}` : equilibrio !== null ? `equilibrio ${porcentaje(equilibrio, 0)}` : undefined} />
               <Cifra etiqueta="ROAS" valor={t.roas == null ? '—' : decimal(t.roas)} />
               <Cifra etiqueta="Pedidos" valor={entero(t.pedidos)} />
             </div>

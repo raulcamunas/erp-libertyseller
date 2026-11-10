@@ -306,11 +306,35 @@ export interface ProductoDeAds {
   comisionPct: number
   tarifaFba: number
   otrosCostes: number
+  /** El ACoS objetivo que ha FIJADO una persona, en %. null = sin fijar (el motor no le propone nada) */
+  acosObjetivoPct: number | null
   activo: boolean
   notas: string | null
 }
 
-const COLUMNAS_PRODUCTO = 'id, asin, sku, titulo, resumen, precio, iva_pct, coste_producto, comision_pct, tarifa_fba, otros_costes, activo, notas'
+const COLUMNAS_BASE_PRODUCTO = 'id, asin, sku, titulo, resumen, precio, iva_pct, coste_producto, comision_pct, tarifa_fba, otros_costes, activo, notas'
+const COLUMNAS_PRODUCTO = `${COLUMNAS_BASE_PRODUCTO}, acos_objetivo_pct`
+
+/**
+ * SIN LA MIGRACIÓN 295 NO EXISTE LA COLUMNA `acos_objetivo_pct`: una lectura que la pidiera daría error y se llevaría por delante TODA la pestaña de productos. Se prueba con ella y, si Amazon... si la base
+ * dice que no existe, se recuerda y se lee sin ella (el ACoS objetivo sale vacío). Guardar un ACoS objetivo sin la columna lanza un error que dice qué migración falta.
+ */
+let hayColumnaDeAcos: boolean | null = null
+const columnasDeProducto = () => (hayColumnaDeAcos === false ? COLUMNAS_BASE_PRODUCTO : COLUMNAS_PRODUCTO)
+const faltaLaColumnaDeAcos = (error: unknown) => isMissingSchema(error) && /acos_objetivo_pct/.test(String((error as { message?: string })?.message ?? ''))
+
+async function conRespaldoDeAcos<T>(consulta: () => PromiseLike<{ data: T; error: { code?: string; message?: string } | null }>): Promise<T> {
+  const r = await consulta()
+  if (r.error && faltaLaColumnaDeAcos(r.error)) {
+    hayColumnaDeAcos = false
+    const otra = await consulta()
+    if (otra.error) throw otra.error
+    return otra.data
+  }
+  if (r.error) throw r.error
+  if (hayColumnaDeAcos === null) hayColumnaDeAcos = true
+  return r.data
+}
 
 function productoDeFila(f: Record<string, unknown>): ProductoDeAds {
   const n = (v: unknown) => (v == null ? null : Number(v))
@@ -326,26 +350,28 @@ function productoDeFila(f: Record<string, unknown>): ProductoDeAds {
     comisionPct: Number(f.comision_pct),
     tarifaFba: Number(f.tarifa_fba),
     otrosCostes: Number(f.otros_costes),
+    acosObjetivoPct: n(f.acos_objetivo_pct),
     activo: f.activo as boolean,
     notas: (f.notas as string | null) ?? null,
   }
 }
 
 export async function productosDeCuenta(perfilId: string): Promise<ProductoDeAds[]> {
-  const { data, error } = await createServiceClient().from('ads_productos').select(COLUMNAS_PRODUCTO).eq('perfil_id', perfilId).order('created_at', { ascending: true })
-  if (error) throw error
-  return ((data ?? []) as Array<Record<string, unknown>>).map(productoDeFila)
+  const data = await conRespaldoDeAcos(() => createServiceClient().from('ads_productos').select(columnasDeProducto()).eq('perfil_id', perfilId).order('created_at', { ascending: true }))
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map(productoDeFila)
 }
 
 export async function productoDeCuenta(perfilId: string, productoId: string): Promise<ProductoDeAds | null> {
-  const { data, error } = await createServiceClient().from('ads_productos').select(COLUMNAS_PRODUCTO).eq('perfil_id', perfilId).eq('id', productoId).maybeSingle()
-  if (error) throw error
-  return data ? productoDeFila(data as Record<string, unknown>) : null
+  const data = await conRespaldoDeAcos(() => createServiceClient().from('ads_productos').select(columnasDeProducto()).eq('perfil_id', perfilId).eq('id', productoId).maybeSingle())
+  return data ? productoDeFila(data as unknown as Record<string, unknown>) : null
 }
 
 export type CamposDeProducto = Omit<ProductoDeAds, 'id'>
 
-const aFila = (c: CamposDeProducto) => ({
+const aFila = (c: CamposDeProducto) => {
+  // Sin la columna (migración 295 sin lanzar) no se puede guardar un ACoS objetivo: se dice en vez de perderlo en silencio
+  if (hayColumnaDeAcos === false && c.acosObjetivoPct != null) throw new Error('Falta lanzar la migración 295 en Supabase para poder guardar el ACoS objetivo del producto.')
+  return {
   asin: c.asin.trim().toUpperCase(),
   sku: c.sku.trim(),
   titulo: c.titulo,
@@ -356,26 +382,28 @@ const aFila = (c: CamposDeProducto) => ({
   comision_pct: c.comisionPct,
   tarifa_fba: c.tarifaFba,
   otros_costes: c.otrosCostes,
+  ...(hayColumnaDeAcos === false ? {} : { acos_objetivo_pct: c.acosObjetivoPct }),
   activo: c.activo,
   notas: c.notas,
-})
+  }
+}
 
 export async function crearProducto(perfilId: string, c: CamposDeProducto, userId: string): Promise<ProductoDeAds> {
-  const { data, error } = await createServiceClient().from('ads_productos').insert({ perfil_id: perfilId, created_by: userId, ...aFila(c) }).select(COLUMNAS_PRODUCTO).single()
-  if (error) throw error
-  return productoDeFila(data as Record<string, unknown>)
+  const data = await conRespaldoDeAcos(() => createServiceClient().from('ads_productos').insert({ perfil_id: perfilId, created_by: userId, ...aFila(c) }).select(columnasDeProducto()).single())
+  return productoDeFila(data as unknown as Record<string, unknown>)
 }
 
 export async function actualizarProducto(perfilId: string, productoId: string, c: CamposDeProducto): Promise<ProductoDeAds> {
-  const { data, error } = await createServiceClient()
-    .from('ads_productos')
-    .update({ ...aFila(c), updated_at: new Date().toISOString() })
-    .eq('perfil_id', perfilId)
-    .eq('id', productoId)
-    .select(COLUMNAS_PRODUCTO)
-    .single()
-  if (error) throw error
-  return productoDeFila(data as Record<string, unknown>)
+  const data = await conRespaldoDeAcos(() =>
+    createServiceClient()
+      .from('ads_productos')
+      .update({ ...aFila(c), updated_at: new Date().toISOString() })
+      .eq('perfil_id', perfilId)
+      .eq('id', productoId)
+      .select(columnasDeProducto())
+      .single()
+  )
+  return productoDeFila(data as unknown as Record<string, unknown>)
 }
 
 /** Quita un producto. Con campañas creadas por el ERP NO se puede: borrar la fila perdería a qué producto pertenece cada una */

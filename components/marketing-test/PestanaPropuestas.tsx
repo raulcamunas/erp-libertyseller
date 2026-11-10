@@ -171,9 +171,9 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
           <h3 className={TITULO.seccion}>Cómo funciona</h3>
           <ul className={`mt-2 flex list-disc flex-col gap-1 pl-5 ${TIPO.s} ${TEXTO.t2}`}>
             <li>Una vez al día lee de Amazon los términos de búsqueda de los últimos 14 días de esta cuenta.</li>
-            <li>Aplica las reglas del SOP con los números de la ficha: <strong>negativizar</strong> lo que gasta sin vender y <strong>promover</strong> de Automática a Amplia y de Amplia a Exacta lo que compra.</li>
+            <li>Aplica las reglas del SOP con los umbrales de la ficha y el ACoS objetivo de cada producto: <strong>negativizar</strong> lo que gasta sin vender y <strong>promover</strong> de Automática a Amplia y de Amplia a Exacta lo que compra.</li>
             <li>Cada propuesta lleva su motivo. Empieza en «Solo sugiere» unos días para ver qué propondría, sin tocar nada.</li>
-            <li>Necesita el <strong>coste de cada producto</strong> (pestaña Productos): sin él no se puede calcular su ACoS objetivo y no se le propone nada.</li>
+            <li>Necesita el <strong>ACoS objetivo de cada producto</strong> (lo fijas tú en la pestaña Productos) y su precio: de ahí sale lo que puede gastar un término sin vender. Sin él, no se le propone nada.</li>
           </ul>
         </section>
       ) : (
@@ -211,7 +211,7 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
                   {terminos.filas === 0 ? 'Cuando lleguen los términos, las propuestas aparecerán aquí.' : 'No hay nada que proponer ahora mismo: ningún término cumple las reglas con la muestra suficiente.'}
                 </span>
               </div>
-              <p className={`mt-2 ${TIPO.xs} ${TEXTO.t4}`}>Los productos sin coste (pestaña Productos) no se evalúan. Los términos que ya se propusieron o se resolvieron hace menos de 14 días tampoco se repiten.</p>
+              <p className={`mt-2 ${TIPO.xs} ${TEXTO.t4}`}>Los productos sin ACoS objetivo (pestaña Productos) no se evalúan. Los términos que ya se propusieron o se resolvieron hace menos de 14 días tampoco se repiten.</p>
             </section>
           ) : (
             <>

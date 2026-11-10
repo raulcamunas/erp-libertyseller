@@ -22,6 +22,7 @@ interface Form {
   comisionPct: string
   tarifaFba: string
   otrosCostes: string
+  acosObjetivoPct: string
   notas: string
   activo: boolean
 }
@@ -33,7 +34,7 @@ const num = (s: string): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
-const vacio = (pais: string): Form => ({ asin: '', sku: '', titulo: '', resumen: '', precio: '', ivaPct: String(ivaPorDefecto(pais)), costeProducto: '', comisionPct: '15', tarifaFba: '0', otrosCostes: '0', notas: '', activo: true })
+const vacio = (pais: string): Form => ({ asin: '', sku: '', titulo: '', resumen: '', precio: '', ivaPct: String(ivaPorDefecto(pais)), costeProducto: '', comisionPct: '15', tarifaFba: '0', otrosCostes: '0', acosObjetivoPct: '', notas: '', activo: true })
 
 const deProducto = (p: ProductoDeAds): Form => ({
   id: p.id,
@@ -47,6 +48,7 @@ const deProducto = (p: ProductoDeAds): Form => ({
   comisionPct: String(p.comisionPct),
   tarifaFba: String(p.tarifaFba),
   otrosCostes: String(p.otrosCostes),
+  acosObjetivoPct: p.acosObjetivoPct == null ? '' : String(p.acosObjetivoPct),
   notas: p.notas ?? '',
   activo: p.activo,
 })
@@ -119,7 +121,7 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
         <button type="button" onClick={() => { setEditor(vacio(pais)); setEligiendo(false) }} className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}>
           Añadir a mano
         </button>
-        <span className={`${TIPO.xs} ${TEXTO.t3}`}>El coste del producto da el ACoS de equilibrio, que manda en los objetivos de la ficha.</span>
+        <span className={`${TIPO.xs} ${TEXTO.t3}`}>Aquí fijas el ACoS objetivo de cada producto; el coste solo sirve para decirte cuál es su ACoS de equilibrio (el máximo antes de perder dinero).</span>
       </div>
 
       {eligiendo && <Selector perfilId={perfilId} moneda={moneda} cerrar={() => setEligiendo(false)} elegir={(c) => { setEditor({ ...vacio(pais), asin: c.asin, sku: c.sku, titulo: c.titulo ?? '', resumen: resumenDesdeTitulo(c.titulo), precio: c.precio == null ? '' : String(c.precio) }); setEligiendo(false) }} />}
@@ -128,7 +130,7 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
 
       {productos.length === 0 && !editor && !eligiendo ? (
         <Vacio icono={<Search />} titulo="Todavía no hay productos en esta cuenta">
-          Elige uno del catálogo del cliente y ponle su coste: sin coste no hay ACoS de equilibrio y no se pueden crear las campañas con objetivos.
+          Elige uno del catálogo del cliente, ponle su ACoS objetivo y, si quieres saber tu equilibrio, su coste.
         </Vacio>
       ) : (
         productos.length > 0 && (
@@ -136,8 +138,8 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
             <table className={TABLA.tabla}>
               <thead>
                 <tr>
-                  {['Producto', 'Precio', 'Coste', 'Margen / ud.', 'ACoS de equilibrio', 'Campañas', ''].map((h, i) => (
-                    <th key={i} className={`${TABLA.cabecera} ${i >= 1 && i <= 4 ? TABLA.derecha : ''}`}>{h}</th>
+                  {['Producto', 'Precio', 'Coste', 'Margen / ud.', 'ACoS de equilibrio', 'ACoS objetivo', 'Campañas', ''].map((h, i) => (
+                    <th key={i} className={`${TABLA.cabecera} ${i >= 1 && i <= 5 ? TABLA.derecha : ''}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -155,6 +157,15 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
                       <td className={`${TABLA.celda} ${TABLA.numero}`}>{p.costeProducto == null ? <span className={TEXTO.t4}>falta</span> : fmt(p.costeProducto)}</td>
                       <td className={`${TABLA.celda} ${TABLA.numero}`} style={m && m.margen < 0 ? { color: COLOR_ESTADO.rojo } : undefined}>{m ? fmt(m.margen) : '—'}</td>
                       <td className={`${TABLA.celda} ${TABLA.numero}`}>{m ? (m.acosEquilibrioPct > 0 ? `${fmt(m.acosEquilibrioPct, 1)} %` : <span style={{ color: COLOR_ESTADO.rojo }}>pierde sin publicidad</span>) : '—'}</td>
+                      <td className={`${TABLA.celda} ${TABLA.numero}`}>
+                        {p.acosObjetivoPct == null ? (
+                          <span style={{ color: COLOR_ESTADO.ambar }} title="Sin ACoS objetivo el motor no le propone nada">sin fijar</span>
+                        ) : (
+                          <span className={m && m.acosEquilibrioPct > 0 && p.acosObjetivoPct > m.acosEquilibrioPct ? '' : TEXTO.t1} style={m && m.acosEquilibrioPct > 0 && p.acosObjetivoPct > m.acosEquilibrioPct ? { color: COLOR_ESTADO.ambar } : undefined} title={m && m.acosEquilibrioPct > 0 && p.acosObjetivoPct > m.acosEquilibrioPct ? 'Por encima del equilibrio: cada venta con ese ACoS pierde dinero' : undefined}>
+                            {fmt(p.acosObjetivoPct, 1)} %
+                          </span>
+                        )}
+                      </td>
                       <td className={TABLA.celda}>{n === 0 ? <span className={TEXTO.t4}>ninguna</span> : `${n} creada${n === 1 ? '' : 's'}`}</td>
                       <td className={`${TABLA.celda} ${TABLA.derecha}`}>
                         <button type="button" className={BOTON.icono} title="Editar" onClick={() => { setEditor(deProducto(p)); setEligiendo(false) }}><Pencil className="h-3 w-3" /></button>
@@ -250,6 +261,9 @@ function Editor({ form, cambiar, guardar, cancelar, ocupado, moneda }: { form: F
           {campo('comisionPct', 'Comisión Amazon (%)', { numero: true })}
           {campo('tarifaFba', 'Tarifa FBA', { numero: true })}
           {campo('otrosCostes', 'Otros costes / ud.', { numero: true })}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {campo('acosObjetivoPct', 'ACoS objetivo (%)', { numero: true, nota: m && m.acosEquilibrioPct > 0 ? `Tu equilibrio es ${fmt(m.acosEquilibrioPct, 1)} %: por encima de eso pierdes dinero con cada venta.` : 'Lo eliges tú. Pon el coste para ver tu equilibrio.' })}
         </div>
         <div className={`${TIPO.s} ${TEXTO.t2}`}>
           {m ? (

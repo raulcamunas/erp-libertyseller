@@ -35,8 +35,8 @@ export interface PropuestaNueva {
 
 export interface PlanDelMotor {
   nuevas: PropuestaNueva[]
-  /** Productos con términos pero sin coste puesto: no se les puede calcular el CPA objetivo y no se les propone nada */
-  sinCoste: string[]
+  /** Productos con términos pero sin ACoS objetivo fijado (o sin precio): no se les puede calcular el CPA objetivo y no se les propone nada */
+  sinObjetivo: string[]
   /** Términos de campañas con la nomenclatura del SOP que se han evaluado */
   evaluados: number
   /** Propuestas descartadas por ya estar pendientes o resueltas hace poco */
@@ -48,7 +48,7 @@ const clave = (campaignId: string, termino: string, tipo: string) => `${campaign
 export function planificarPropuestas(a: {
   terminos: readonly FilaDeTermino[]
   umbrales: UmbralesDeFicha
-  /** Por ASIN: el objetivo del producto, o null si le falta el coste */
+  /** Por ASIN: el objetivo del producto, o null si no tiene ACoS objetivo fijado */
   objetivos: ReadonlyMap<string, ObjetivosParaReglas | null>
   /** La campaña a la que sube un término de ese producto, o null si no existe */
   destino: (asin: string, rol: Rol) => DestinoDeCampana | null
@@ -66,14 +66,14 @@ export function planificarPropuestas(a: {
   }
 
   const nuevas: PropuestaNueva[] = []
-  const sinCoste: string[] = []
+  const sinObjetivo: string[] = []
   let evaluados = 0
   let repetidas = 0
 
   for (const [asin, terminos] of porAsin) {
     const objetivos = a.objetivos.get(asin)
     if (!objetivos) {
-      sinCoste.push(asin)
+      sinObjetivo.push(asin)
       continue
     }
     evaluados += terminos.length
@@ -105,7 +105,7 @@ export function planificarPropuestas(a: {
       })
     }
   }
-  return { nuevas, sinCoste, evaluados, repetidas }
+  return { nuevas, sinObjetivo, evaluados, repetidas }
 }
 
 export { clave as claveDePropuesta }

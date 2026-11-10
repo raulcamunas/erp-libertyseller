@@ -8,7 +8,7 @@ import { Cargando, Vacio } from '@/components/plataforma/comun'
 import type { EstructuraCreada, FichaDeCuenta, ProductoDeAds } from '@/lib/ads/cuenta'
 import type { CampanaPlan } from '@/lib/ads/estructura'
 import type { ResultadoDeCampana } from '@/lib/ads/crear-estructura'
-import { margenDeProducto, objetivosDeProducto, pujaBaseSugerida } from '@/lib/ads/margen'
+import { margenDeProducto, objetivosDesdeAcos, pujaBaseSugerida } from '@/lib/ads/margen'
 import { fmt, llamar } from './llamar'
 
 type Fila = CampanaPlan & { yaExiste: boolean }
@@ -61,18 +61,15 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
 
   const producto = productos?.find((p) => p.id === productoId) ?? null
   const margen = useMemo(() => (producto ? margenDeProducto(producto) : null), [producto])
-  const objetivos = useMemo(
-    () => (producto && margen && ficha && producto.precio ? objetivosDeProducto(margen, producto.precio, { fase: ficha.fase, acosLanzamientoX: ficha.acosLanzamientoX, acosMaduroX: ficha.acosMaduroX, gastoSinVentaX: ficha.gastoSinVentaX }) : null),
-    [producto, margen, ficha]
-  )
+  // El ACoS objetivo es el que ha fijado una persona en el producto: ya no sale de la fase de la cuenta
+  const objetivos = useMemo(() => (producto && ficha ? objetivosDesdeAcos(producto.precio, producto.acosObjetivoPct, ficha.gastoSinVentaX) : null), [producto, ficha])
 
   function elegir(id: string) {
     setProductoId(id)
     setVista(null)
     setResultados(null)
     const p = productos?.find((x) => x.id === id)
-    const m = p ? margenDeProducto(p) : null
-    const o = p && m && ficha && p.precio ? objetivosDeProducto(m, p.precio, { fase: ficha.fase, acosLanzamientoX: ficha.acosLanzamientoX, acosMaduroX: ficha.acosMaduroX, gastoSinVentaX: ficha.gastoSinVentaX }) : null
+    const o = p && ficha ? objetivosDesdeAcos(p.precio, p.acosObjetivoPct, ficha.gastoSinVentaX) : null
     const sugerida = p ? pujaBaseSugerida(p.precio, o?.acosObjetivoPct ?? null) : null
     setPuja(sugerida == null ? '' : String(sugerida).replace('.', ','))
   }
@@ -130,8 +127,8 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
   }
 
   const hechas = producto ? estructuras.filter((e) => e.productoId === producto.id) : []
-  const faltaCoste = !!producto && producto.costeProducto == null
-  const puedeVer = !!producto && !faltaCoste && num(presupuesto) > 0 && num(puja) > 0
+  const sinAcosObjetivo = !!producto && producto.acosObjetivoPct == null
+  const puedeVer = !!producto && num(presupuesto) > 0 && num(puja) > 0
 
   return (
     <div className="flex max-w-[1100px] flex-col gap-2 pb-6">
@@ -174,20 +171,19 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
 
           {producto && (
             <div className={`${TIPO.s} ${TEXTO.t2}`}>
-              {faltaCoste ? (
-                <span style={{ color: COLOR_ESTADO.rojo }}>A este producto le falta el coste: ponlo en Productos antes de crear las campañas.</span>
-              ) : margen && margen.acosEquilibrioPct === 0 ? (
-                <span style={{ color: COLOR_ESTADO.rojo }}>Este producto pierde dinero antes de gastar en publicidad (margen {fmt(margen.margen)} por unidad): revisa el precio y los costes en Productos.</span>
-              ) : margen ? (
+              {objetivos ? (
                 <>
-                  ACoS de equilibrio <strong className={TEXTO.t1}>{fmt(margen.acosEquilibrioPct, 1)} %</strong>
-                  {objetivos && (
-                    <>
-                      {' '}· objetivo en {ficha.fase} <strong className={TEXTO.t1}>{fmt(objetivos.acosObjetivoPct, 1)} %</strong> · CPA objetivo <strong className={TEXTO.t1}>{fmt(objetivos.cpaObjetivo)}</strong> · gasto sin venta antes de negativizar {fmt(objetivos.gastoMaximoSinVenta)}
-                    </>
-                  )}
+                  ACoS objetivo <strong className={TEXTO.t1}>{fmt(objetivos.acosObjetivoPct, 1)} %</strong> · CPA objetivo <strong className={TEXTO.t1}>{fmt(objetivos.cpaObjetivo)}</strong> · gasto sin venta antes de negativizar {fmt(objetivos.gastoMaximoSinVenta)}
+                  {margen && margen.acosEquilibrioPct > 0 && <> · equilibrio {fmt(margen.acosEquilibrioPct, 1)} %</>}
+                  {margen && margen.acosEquilibrioPct > 0 && objetivos.acosObjetivoPct > margen.acosEquilibrioPct && <span style={{ color: COLOR_ESTADO.ambar }}> · ojo: el objetivo está por encima del equilibrio</span>}
                 </>
-              ) : null}
+              ) : sinAcosObjetivo ? (
+                <span style={{ color: COLOR_ESTADO.ambar }}>
+                  Este producto no tiene ACoS objetivo: puedes crear las campañas igualmente, pero el motor no le propondrá nada hasta que lo fijes en <button type="button" className="underline" onClick={() => irA('productos')}>Productos</button>.
+                </span>
+              ) : (
+                <span className={TEXTO.t3}>Falta el precio del producto para calcular su CPA objetivo.</span>
+              )}
             </div>
           )}
 

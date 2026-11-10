@@ -38,6 +38,9 @@ console.log('\n=== producto ===')
   ok('resumen de más de 40 caracteres → error', !productoDesdeCuerpo({ ...buena, resumen: 'A'.repeat(41) }).ok)
   ok('coste negativo → error', !productoDesdeCuerpo({ ...buena, costeProducto: -1 }).ok)
   ok('precio y coste pueden quedar vacíos (se rellenan después)', productoDesdeCuerpo({ asin: 'B0H5F7RJ5F', sku: 'X', resumen: 'A' }).ok)
+  ok('ACoS objetivo vacío = sin fijar (null)', (() => { const x = productoDesdeCuerpo(buena); return x.ok && x.campos.acosObjetivoPct === null })())
+  ok('ACoS objetivo «32,5» con coma se lee', (() => { const x = productoDesdeCuerpo({ ...buena, acosObjetivoPct: '32,5' }); return x.ok && x.campos.acosObjetivoPct === 32.5 })())
+  ok('ACoS objetivo 0 o 150 → error', !productoDesdeCuerpo({ ...buena, acosObjetivoPct: 0 }).ok && !productoDesdeCuerpo({ ...buena, acosObjetivoPct: 150 }).ok)
   ok('IVA 50 → error', !productoDesdeCuerpo({ ...buena, ivaPct: 50 }).ok)
 }
 

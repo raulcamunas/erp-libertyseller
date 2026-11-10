@@ -87,6 +87,9 @@ export function productoDesdeCuerpo(c: unknown): Resultado<CamposDeProducto> {
   const otros = enRango('Otros costes', b.otrosCostes ?? 0, 0, 100000)
   if (!otros.ok) return otros
 
+  const acosObjetivo = numero(b.acosObjetivoPct)
+  if (Number.isNaN(acosObjetivo) || (acosObjetivo != null && (acosObjetivo <= 0 || acosObjetivo > 100))) return { ok: false, error: '«ACoS objetivo» tiene que estar entre 0 y 100 % (o dejarse vacío).' }
+
   const titulo = typeof b.titulo === 'string' ? b.titulo.trim().slice(0, 300) : ''
   const notas = typeof b.notas === 'string' ? b.notas.trim().slice(0, 2000) : ''
   return {
@@ -102,6 +105,7 @@ export function productoDesdeCuerpo(c: unknown): Resultado<CamposDeProducto> {
       comisionPct: comision.valor,
       tarifaFba: fba.valor,
       otrosCostes: otros.valor,
+      acosObjetivoPct: acosObjetivo,
       activo: b.activo !== false,
       notas: notas || null,
     },

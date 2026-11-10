@@ -59,16 +59,6 @@ export function margenDeProducto(d: DatosDeCoste): MargenDeProducto | null {
   }
 }
 
-export interface ParametrosDeObjetivo {
-  fase: 'lanzamiento' | 'crecimiento' | 'madurez'
-  /** Veces el ACoS de equilibrio que se tolera durante el lanzamiento (SOP: hasta 1,5) */
-  acosLanzamientoX: number
-  /** Veces el ACoS de equilibrio que se exige en madurez (SOP: ≤ 0,7) */
-  acosMaduroX: number
-  /** Veces el CPA objetivo que se puede gastar sin vender antes de negativizar (SOP: 2) */
-  gastoSinVentaX: number
-}
-
 export interface ObjetivosDeProducto {
   acosObjetivoPct: number
   /** Lo que se puede gastar para conseguir UNA venta y quedar en el objetivo, en la moneda de la cuenta */
@@ -78,18 +68,16 @@ export interface ObjetivosDeProducto {
 }
 
 /**
- * El ACoS objetivo según la fase de la cuenta.
+ * LOS OBJETIVOS DE UN PRODUCTO a partir del ACoS objetivo que ha FIJADO una persona (ya no sale de una fórmula sobre el equilibrio):
  *
- *   · lanzamiento → equilibrio × acosLanzamientoX (se acepta ganar menos o nada por posicionar).
- *   · madurez     → equilibrio × acosMaduroX (se exige un margen sobre el equilibrio).
- *   · crecimiento → el punto medio entre los dos factores: el SOP no define esta fase y se decide que sea la transición, no un tercer número que alguien tendría que firmar.
+ *   CPA objetivo = precio × ACoS objetivo          gasto máximo sin venta = (veces el CPA de la ficha) × CPA objetivo
+ *
+ * null si falta el precio o el ACoS objetivo, o si no valen (el precio tiene que ser positivo y el ACoS estar entre 0 y 100): sin esos dos números no se puede decidir nada y NO se inventa un valor.
  */
-export function objetivosDeProducto(m: MargenDeProducto, precio: number, p: ParametrosDeObjetivo): ObjetivosDeProducto | null {
-  if (m.acosEquilibrioPct <= 0 || !(precio > 0)) return null
-  const factor = p.fase === 'lanzamiento' ? p.acosLanzamientoX : p.fase === 'madurez' ? p.acosMaduroX : (p.acosLanzamientoX + p.acosMaduroX) / 2
-  const acosObjetivoPct = redondear(m.acosEquilibrioPct * factor, 1)
+export function objetivosDesdeAcos(precio: number | null | undefined, acosObjetivoPct: number | null | undefined, gastoSinVentaX: number): ObjetivosDeProducto | null {
+  if (precio == null || acosObjetivoPct == null || !(precio > 0) || !(acosObjetivoPct > 0) || acosObjetivoPct > 100 || !(gastoSinVentaX > 0)) return null
   const cpaObjetivo = redondear((precio * acosObjetivoPct) / 100)
-  return { acosObjetivoPct, cpaObjetivo, gastoMaximoSinVenta: redondear(cpaObjetivo * p.gastoSinVentaX) }
+  return { acosObjetivoPct: redondear(acosObjetivoPct, 1), cpaObjetivo, gastoMaximoSinVenta: redondear(cpaObjetivo * gastoSinVentaX) }
 }
 
 /**

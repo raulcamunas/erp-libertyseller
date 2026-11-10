@@ -21,7 +21,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { campanasDe } from './campanas'
 import { anotarCambio, leerFicha, productosDeCuenta } from './cuenta'
 import { borrarKeyword, borrarNegativaDeCampana, crearKeyword, crearNegativaDeCampana, gruposActivosDe } from './escritura'
-import { margenDeProducto, objetivosDeProducto } from './margen'
+import { objetivosDesdeAcos } from './margen'
 import { decidirSiSePuedeAplicar, planificarPropuestas, type DestinoDeCampana, type PropuestaNueva } from './motor-calculo'
 import { asinDeCampana } from './productos-agrupar'
 import { partesDeNombre, type ObjetivosParaReglas, type TipoDePropuesta } from './reglas'
@@ -132,13 +132,13 @@ export interface ResumenDeGeneracion {
   nuevas: number
   repetidas: number
   evaluados: number
-  sinCoste: string[]
+  sinObjetivo: string[]
   caducadas: number
 }
 
 /** Los términos y la ficha → propuestas nuevas, guardadas como pendientes. No toca Amazon salvo para LEER las campañas y sus grupos */
 export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<ResumenDeGeneracion> {
-  const vacio = { nuevas: 0, repetidas: 0, evaluados: 0, sinCoste: [], caducadas: 0 }
+  const vacio = { nuevas: 0, repetidas: 0, evaluados: 0, sinObjetivo: [], caducadas: 0 }
   const modo = await leerModo(cuenta.id)
   if (modo === 'apagado') return { ...vacio, omitido: 'apagado' }
 
@@ -151,10 +151,10 @@ export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<
   if (terminos.length === 0) return { ...vacio, omitido: 'sin-terminos', caducadas: caducadas?.length ?? 0 }
 
   const [ficha, productos] = await Promise.all([leerFicha(cuenta.id), productosDeCuenta(cuenta.id)])
+  // El objetivo de cada producto es el ACoS que ha FIJADO una persona en su ficha de producto; sin él (o sin precio) el producto no se evalúa
   const objetivos = new Map<string, ObjetivosParaReglas | null>()
   for (const p of productos) {
-    const m = margenDeProducto(p)
-    const o = m && p.precio ? objetivosDeProducto(m, p.precio, { fase: ficha.fase, acosLanzamientoX: ficha.acosLanzamientoX, acosMaduroX: ficha.acosMaduroX, gastoSinVentaX: ficha.gastoSinVentaX }) : null
+    const o = objetivosDesdeAcos(p.precio, p.acosObjetivoPct, ficha.gastoSinVentaX)
     objetivos.set(p.asin.toUpperCase(), o ? { acosObjetivoPct: o.acosObjetivoPct, gastoMaximoSinVenta: o.gastoMaximoSinVenta } : null)
   }
 
@@ -219,7 +219,7 @@ export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<
     if (!error) nuevas += 1
     else if (error.code !== '23505') throw error // 23505 = ya había una pendiente igual: no es un error
   }
-  return { nuevas, repetidas: plan.repetidas, evaluados: plan.evaluados, sinCoste: plan.sinCoste, caducadas: caducadas?.length ?? 0 }
+  return { nuevas, repetidas: plan.repetidas, evaluados: plan.evaluados, sinObjetivo: plan.sinObjetivo, caducadas: caducadas?.length ?? 0 }
 }
 
 /* ------------------------------------------------------------------ */

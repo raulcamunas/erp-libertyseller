@@ -21,12 +21,12 @@ console.log('\n=== por producto, con su objetivo ===')
   ok('lleva las métricas con las que se decidió', r.nuevas[0].metricas.clics === 30 && r.nuevas[0].metricas.gasto === 20)
 }
 
-console.log('\n=== sin coste no se propone ===')
+console.log('\n=== sin ACoS objetivo no se propone ===')
 {
   const r = planificarPropuestas({ ...base, objetivos: new Map([['B0AAAAAAA1', null]]), terminos: [t({ termino: 'fedora', gasto: 20 })] })
-  ok('producto sin coste → ninguna propuesta y queda anotado', r.nuevas.length === 0 && r.sinCoste.join() === 'B0AAAAAAA1')
+  ok('producto sin ACoS objetivo → ninguna propuesta y queda anotado', r.nuevas.length === 0 && r.sinObjetivo.join() === 'B0AAAAAAA1')
   const r2 = planificarPropuestas({ ...base, objetivos: new Map(), terminos: [t({ termino: 'fedora', gasto: 20 })] })
-  ok('producto que ni existe en la lista → igual', r2.nuevas.length === 0 && r2.sinCoste.length === 1)
+  ok('producto que ni existe en la lista → igual', r2.nuevas.length === 0 && r2.sinObjetivo.length === 1)
 }
 
 console.log('\n=== promover resuelve su destino ===')
@@ -56,7 +56,7 @@ console.log('\n=== lo que no se toca ===')
     objetivos: new Map([['B0AAAAAAA1', OBJ], ['B0BBBBBBB2', null]]),
     terminos: [t({ termino: 'a', gasto: 20 }), t({ termino: 'b', gasto: 20, campaignId: 'c2', campaignName: nom('B0BBBBBBB2', 'AUTO RADAR') })],
   })
-  ok('cada producto con lo suyo: uno propone y el otro, sin coste, se anota', dos.nuevas.length === 1 && dos.sinCoste.join() === 'B0BBBBBBB2')
+  ok('cada producto con lo suyo: uno propone y el otro, sin ACoS objetivo, se anota', dos.nuevas.length === 1 && dos.sinObjetivo.join() === 'B0BBBBBBB2')
 }
 console.log('\n=== los candados de aplicar ===')
 {

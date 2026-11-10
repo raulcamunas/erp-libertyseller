@@ -1,4 +1,4 @@
-import { ivaPorDefecto, margenDeProducto, objetivosDeProducto, pujaBaseSugerida } from './margen'
+import { ivaPorDefecto, margenDeProducto, objetivosDesdeAcos, pujaBaseSugerida } from './margen'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -35,19 +35,15 @@ console.log('\n=== datos que faltan o no valen ===')
   ok('si pierde dinero sin publicidad: margen negativo y equilibrio 0 (no negativo)', !!pierde && pierde.margen < 0 && pierde.acosEquilibrioPct === 0, JSON.stringify(pierde))
 }
 
-console.log('\n=== objetivos por fase ===')
+console.log('\n=== objetivos desde el ACoS que elige una persona ===')
 {
-  const m = margenDeProducto({ precio: 24.2, ivaPct: 21, costeProducto: 6, comisionPct: 15, tarifaFba: 3.5, otrosCostes: 1 })!
-  const p = { acosLanzamientoX: 1.5, acosMaduroX: 0.7, gastoSinVentaX: 2 }
-  const lan = objetivosDeProducto(m, 24.2, { ...p, fase: 'lanzamiento' })
-  ok('lanzamiento: 24,3 × 1,5 = 36,5 %', lan?.acosObjetivoPct === 36.5, JSON.stringify(lan))
-  ok('CPA objetivo = 24,20 × 36,5 % = 8,83', lan?.cpaObjetivo === 8.83, JSON.stringify(lan))
-  ok('gasto máximo sin venta = 2 × CPA = 17,66', lan?.gastoMaximoSinVenta === 17.66, JSON.stringify(lan))
-  const mad = objetivosDeProducto(m, 24.2, { ...p, fase: 'madurez' })
-  ok('madurez: 24,3 × 0,7 = 17 %', mad?.acosObjetivoPct === 17, JSON.stringify(mad))
-  const cre = objetivosDeProducto(m, 24.2, { ...p, fase: 'crecimiento' })
-  ok('crecimiento: punto medio (1,1×) = 26,7 %', cre?.acosObjetivoPct === 26.7, JSON.stringify(cre))
-  ok('con equilibrio 0 no hay objetivo', objetivosDeProducto({ ...m, acosEquilibrioPct: 0 }, 24.2, { ...p, fase: 'lanzamiento' }) === null)
+  const o = objetivosDesdeAcos(24.2, 30, 2)
+  ok('precio 24,20 y ACoS objetivo 30 % → CPA objetivo 7,26', o?.cpaObjetivo === 7.26, JSON.stringify(o))
+  ok('gasto máximo sin venta = 2 × CPA = 14,52', o?.gastoMaximoSinVenta === 14.52)
+  ok('el ACoS se devuelve tal cual lo fijó', o?.acosObjetivoPct === 30)
+  ok('sin precio o sin ACoS objetivo → null (no se inventa nada)', objetivosDesdeAcos(null, 30, 2) === null && objetivosDesdeAcos(24.2, null, 2) === null && objetivosDesdeAcos(24.2, undefined, 2) === null)
+  ok('valores que no valen → null', objetivosDesdeAcos(0, 30, 2) === null && objetivosDesdeAcos(24.2, 0, 2) === null && objetivosDesdeAcos(24.2, 101, 2) === null && objetivosDesdeAcos(24.2, 30, 0) === null)
+  ok('ya NO depende del equilibrio: se puede fijar un objetivo mayor que él', objetivosDesdeAcos(24.2, 60, 2)?.cpaObjetivo === 14.52)
 }
 
 console.log('\n=== puja base sugerida ===')

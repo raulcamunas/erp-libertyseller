@@ -214,6 +214,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
               grupo={g}
               moneda={moneda}
               equilibrio={g.asin ? (conocidos.get(g.asin)?.equilibrio ?? null) : null}
+              objetivo={g.asin ? (conocidos.get(g.asin)?.objetivo ?? null) : null}
               filasDiarias={filasDiariasDe(g.campanas.map((c) => c.campaignId))}
               dias={diasDelPeriodo}
               conCifras={conCifras}
