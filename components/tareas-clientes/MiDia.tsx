@@ -1,15 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { AlertCircle, AtSign, Bell, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Eye, ListChecks, Loader2, Lock, MessageSquare, NotebookPen, Plus, Sparkles, Sun, Trash2, UserPlus, X } from 'lucide-react'
+import { AlertCircle, AtSign, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Eye, ListChecks, Loader2, Lock, MessageSquare, NotebookPen, Plus, Sun, Trash2, UserPlus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from './AvatarTC'
 import { hoyEnEspana } from '@/lib/tareas-clientes/filtros'
-import { idNuevoDePunto, progresoDelPlan, repartirPorFecha, saludoDeLaHora, sugerirRevision, sumarDiasA, type PuntoDelPlan } from '@/lib/tareas-clientes/mi-dia'
+import { idNuevoDePunto, progresoDelPlan, repartirPorFecha, saludoDeLaHora, sumarDiasA, type PuntoDelPlan } from '@/lib/tareas-clientes/mi-dia'
 import type { DatosDeMiDia } from '@/lib/tareas-clientes/mi-dia-servidor'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import type { ClienteTC, PersonaTC } from '@/lib/tareas-clientes/tipos'
-import { AvisosPush } from '@/components/push/AvisosPush'
 import { BASE, pedir } from './api'
 import { Calendario } from './Calendario'
 import { useBloqueadas } from './contexto'
@@ -17,8 +16,8 @@ import { fechaCorta } from './ui'
 import { estaHechaLaTarea, type MapaDeClientes } from './vistas'
 
 /**
- * «MI DÍA»: el sitio desde el que se trabaja. Arriba, el briefing de hoy (el plan como checklist y la revisión de final de día, lo que antes eran las páginas «Briefing de …» de
- * Notion); debajo, mis tareas por fecha o en calendario; a la derecha, lo que ha pasado desde la última vez (comentarios y menciones, tareas nuevas, avisos) y mis anotaciones.
+ * «MI DÍA»: el sitio desde el que se trabaja. Arriba, el briefing de hoy (el plan como checklist y las anotaciones del día, lo que antes eran las páginas «Briefing de …» de
+ * Notion); debajo, mis tareas por fecha o en calendario; a la derecha, lo que ha pasado desde la última vez (comentarios y menciones, tareas nuevas) y mi bloc fijo. Los avisos están en la campana.
  * Un administrador puede mirar el briefing de cualquiera del equipo (solo leer).
  */
 
@@ -93,7 +92,6 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
   const [nuevo, setNuevo] = useState('')
   const [pestana, setPestana] = useState<'tareas' | 'calendario'>('tareas')
   const [guardado, setGuardado] = useState<'ok' | 'guardando' | 'error'>('ok')
-  const [sugiriendo, setSugiriendo] = useState(false)
   const sucioPlan = useRef(false)
   const sucioRevision = useRef(false)
   const sucioNotas = useRef(false)
@@ -219,20 +217,6 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
   const cambiarPunto = (id: string, cambios: Partial<PuntoDelPlan>) => guardarPlan(plan.map((p) => (p.id === id ? { ...p, ...cambios } : p)))
   const quitarPunto = (id: string) => guardarPlan(plan.filter((p) => p.id !== id))
 
-  const rellenarRevision = async () => {
-    setSugiriendo(true)
-    try {
-      const a = await pedir<{ cerradas: string[]; comentarios: number }>(`${BASE}/mi-dia/actividad?dia=${dia}`)
-      const texto = sugerirRevision({ puntosHechos: plan.filter((p) => p.hecho).map((p) => p.texto), puntosPendientes: plan.filter((p) => !p.hecho).map((p) => p.texto), tareasCerradas: a.cerradas, comentarios: a.comentarios })
-      if (!texto) return toast.message('Todavía no hay nada que resumir de este día')
-      guardarRevision(revision.trim() ? `${revision.trimEnd()}\n\n${texto}` : texto)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se ha podido preparar el resumen')
-    } finally {
-      setSugiriendo(false)
-    }
-  }
-
   /* ---- Mis tareas ---- */
   const lasDe = useMemo(() => tareas.filter((t) => t.responsables.includes(de) && !estaHechaLaTarea(t, mapa)), [tareas, de, mapa])
   const reparto = useMemo(() => repartirPorFecha(lasDe, hoy), [lasDe, hoy])
@@ -263,7 +247,6 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
   const esHoy = dia === hoy
   const nuevas = (datos?.nuevas ?? []).filter((n) => lasTareasDe.has(n.tarea_id))
   const comentarios = datos?.comentarios ?? []
-  const avisos = datos?.avisos ?? []
 
   return (
     <div className="tc-dia">
@@ -346,11 +329,11 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
             )}
           </section>
 
-          <section className="tc-dia-tarjeta" aria-label="Revisión de final de día">
-            <h2 className="tc-seccion-titulo"><Sparkles className="h-3.5 w-3.5" /> Revisión de final de día
-              {!soloLectura && <button type="button" onClick={() => void rellenarRevision()} disabled={sugiriendo} className="tc-boton-suave tc-discreto ml-auto">{sugiriendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Rellenar con lo que hice</button>}
+          <section className="tc-dia-tarjeta" aria-label="Anotaciones del día">
+            <h2 className="tc-seccion-titulo"><NotebookPen className="h-3.5 w-3.5" /> Anotaciones del día
+              <span className="ml-auto text-[11px] font-normal normal-case tracking-normal text-[var(--ls-t4)]">Cada día tiene las suyas: cambia de día arriba para ver las anteriores</span>
             </h2>
-            <textarea value={revision} readOnly={soloLectura} onChange={(e) => guardarRevision(e.target.value)} rows={5} maxLength={5000} placeholder={soloLectura ? 'Sin revisión.' : '¿Cómo ha ido el día? Qué se ha hecho, qué se ha atascado, qué queda para mañana…'} aria-label="Revisión de final de día" className="tc-dia-texto" />
+            <textarea value={revision} readOnly={soloLectura} onChange={(e) => guardarRevision(e.target.value)} rows={7} maxLength={5000} placeholder={soloLectura ? 'Sin anotaciones este día.' : 'Apunta lo que pase hoy: lo que has hecho, lo que se ha atascado, lo que queda para mañana, números, recordatorios… se guarda solo.'} aria-label="Anotaciones del día" className="tc-dia-texto" />
           </section>
 
           <section className="tc-dia-tarjeta" aria-label={soloLectura ? 'Tareas' : 'Mis tareas'}>
@@ -413,29 +396,9 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
             </ul>
           </section>
 
-          <section className="tc-dia-tarjeta" aria-label="Avisos">
-            <h2 className="tc-seccion-titulo"><Bell className="h-3.5 w-3.5" /> Avisos <span className="tc-contador">{avisos.filter((a) => !a.read).length || avisos.length}</span></h2>
-            <AvisosPush />
-            {avisos.length === 0 && <p className="text-[12px] text-[var(--ls-t4)]">Sin avisos.</p>}
-            <ul className="flex flex-col gap-1">
-              {avisos.slice(0, 8).map((a) => {
-                const tareaId = (a.datos as { tareaId?: string } | null)?.tareaId
-                return (
-                  <li key={a.id}>
-                    <button type="button" disabled={!tareaId} onClick={() => tareaId && onAbrir(tareaId)} className="tc-dia-item" data-sin-leer={a.read ? undefined : 'true'}>
-                      <span className="block truncate text-[12.5px] text-[var(--ls-t1)]">{a.title}</span>
-                      {a.message && <span className="block truncate text-[11px] text-[var(--ls-t4)]">{a.message}</span>}
-                      <span className="block text-[10.5px] text-[var(--ls-t4)]">{hace(a.created_at)}</span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-
-          <section className="tc-dia-tarjeta" aria-label="Anotaciones">
-            <h2 className="tc-seccion-titulo"><NotebookPen className="h-3.5 w-3.5" /> Anotaciones</h2>
-            <textarea value={notas} onChange={(e) => guardarNotas(e.target.value)} rows={7} maxLength={20000} placeholder="Tu bloc de notas: ideas, números, recordatorios… se guarda solo." aria-label="Anotaciones personales" className="tc-dia-texto" />
+          <section className="tc-dia-tarjeta" aria-label="Bloc fijo">
+            <h2 className="tc-seccion-titulo"><NotebookPen className="h-3.5 w-3.5" /> Bloc fijo</h2>
+            <textarea value={notas} onChange={(e) => guardarNotas(e.target.value)} rows={7} maxLength={20000} placeholder="Notas que no son de un día en concreto: se quedan siempre aquí. Se guarda solo." aria-label="Anotaciones personales" className="tc-dia-texto" />
           </section>
         </aside>
       </div>

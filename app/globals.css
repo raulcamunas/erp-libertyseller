@@ -4191,7 +4191,7 @@ body.tc-marcando * { cursor: crosshair !important; }
 .tc-propuesta-titulo:focus { background: var(--ls-sup2); box-shadow: 0 0 0 1px var(--ls-linea2); }
 
 /* ---- Avisos push (Mi día) ---- */
-.tc-dia-push { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; border-radius: 10px; border: 1px dashed var(--ls-linea2); padding: 7px 9px; }
+.tc-dia-push { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; border-radius: 10px; border: 1px dashed var(--ls-linea2); padding: 7px 9px; }
 .tc-dia-push[data-estado='activo'] { border-style: solid; border-color: color-mix(in srgb, var(--ls-e-verde) 40%, transparent); }
 
 

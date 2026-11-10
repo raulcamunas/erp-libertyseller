@@ -19,6 +19,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import Link from 'next/link'
+import { AvisosPush } from '@/components/push/AvisosPush'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -514,6 +515,7 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
                   <span className="lat-avisos-silencio-accion">{escritorio ? 'Quitar' : 'Activar'}</span>
                 </button>
               )}
+              <AvisosPush />
               {notaDeTareas !== '' && (
                 <p className="lat-avisos-nota" role="status">
                   {notaDeTareas}

@@ -1,5 +1,4 @@
 import { createServiceClient } from '@/lib/supabase/service'
-import { esAvisoDeTareas } from '@/lib/push/aviso'
 import { arrastrarPendientes, esDiaValido, limpiarPlan, limpiarTexto, MAX_NOTAS, MAX_REVISION, progresoDelPlan, sumarDiasA, type PuntoDelPlan } from './mi-dia'
 import { filtrarPorCliente, type Permitidos } from './permisos'
 import { ErrorDeTareas, esUuid, personasConAcceso } from './servidor'
@@ -48,16 +47,6 @@ export interface TareaNueva {
   motivo: 'asignada' | 'creada'
 }
 
-export interface AvisoDeMiDia {
-  id: string
-  type: string
-  title: string
-  message: string | null
-  datos: unknown
-  read: boolean
-  created_at: string
-}
-
 export interface PersonaDelEquipo {
   id: string
   nombre: string
@@ -73,7 +62,6 @@ export interface DatosDeMiDia {
   notas: string
   comentarios: ComentarioReciente[]
   nuevas: TareaNueva[]
-  avisos: AvisoDeMiDia[]
   equipo: PersonaDelEquipo[] | null
 }
 
@@ -151,12 +139,6 @@ async function tareasNuevas(yo: string, permitidos: Permitidos): Promise<TareaNu
   return lista.map(({ cliente: _c, ...resto }) => (void _c, resto))
 }
 
-/** Solo los avisos del módulo de tareas (asignaciones, menciones, comentarios, vencimientos, tareas propuestas): los fallos del catálogo, el correo y demás se quedan en la campana */
-async function avisosRecientes(yo: string): Promise<AvisoDeMiDia[]> {
-  const { data } = await createServiceClient().from('notifications').select('id, type, title, message, datos, read, created_at').eq('user_id', yo).order('created_at', { ascending: false }).limit(150)
-  return ((data ?? []) as AvisoDeMiDia[]).filter((a) => esAvisoDeTareas(a)).slice(0, 15)
-}
-
 async function equipoDeHoy(hoy: string): Promise<PersonaDelEquipo[]> {
   const personas = await personasConAcceso()
   const { data } = await createServiceClient().from('tc_briefings').select('usuario_id, plan, actualizado_en').eq('dia', hoy).in('usuario_id', personas.map((p) => p.id))
@@ -177,15 +159,14 @@ export async function leerMiDia(quien: Quien, dia: string | null, usuario: strin
   if (de !== quien.userId && !quien.esAdmin) throw new ErrorDeTareas('Solo un administrador puede ver el briefing de otra persona.', 403)
 
   const service = createServiceClient()
-  const [lectura, notas, comentarios, nuevas, avisos, equipo] = await Promise.all([
+  const [lectura, notas, comentarios, nuevas, equipo] = await Promise.all([
     leerBriefing(de, diaFinal, de === quien.userId, hoy),
     service.from('tc_notas_personales').select('texto').eq('usuario_id', quien.userId).maybeSingle(),
     comentariosRecientes(quien.userId, quien.clientes).catch(() => []),
     tareasNuevas(quien.userId, quien.clientes).catch(() => []),
-    avisosRecientes(quien.userId).catch(() => []),
     quien.esAdmin ? equipoDeHoy(hoy).catch(() => null) : Promise.resolve(null),
   ])
-  return { disponible: lectura.disponible, hoy, briefing: lectura.briefing, notas: (notas.data as { texto?: string } | null)?.texto ?? '', comentarios, nuevas, avisos, equipo }
+  return { disponible: lectura.disponible, hoy, briefing: lectura.briefing, notas: (notas.data as { texto?: string } | null)?.texto ?? '', comentarios, nuevas, equipo }
 }
 
 export async function guardarBriefing(quien: Quien, dia: unknown, cambios: Record<string, unknown>): Promise<BriefingDelDia> {
