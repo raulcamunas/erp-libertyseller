@@ -185,6 +185,7 @@ export default async function RemesasPage({
       nombreUsuario={profile.full_name ?? profile.email ?? ''}
       alertas={alertas}
       vistaInicial={vistaInicial}
+      conClientePedido={pedido !== undefined && clientes.some((c) => c.id === pedido)}
       abrirIa={uno(searchParams.ia) === '1'}
     />
   )

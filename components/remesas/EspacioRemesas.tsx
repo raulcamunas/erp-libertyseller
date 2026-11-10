@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, BellRing, Boxes, ClipboardList, Database, Download, FileDown, Package, Plus, Sparkles, Upload } from 'lucide-react'
+import { AlertTriangle, BellRing, Boxes, ClipboardList, Columns3, Database, FileDown, Package, PackagePlus, Plus, Sparkles, Upload } from 'lucide-react'
 import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
 import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
 import { filasACsv } from '@/lib/fba/catalogo/exportar'
@@ -20,7 +20,10 @@ import { cx, Vacio } from './comun/ui'
 import { DetalleEnvio } from './envios/DetalleEnvio'
 import { PanelInventario } from './inventario/PanelInventario'
 import { ListaEnvios } from './envios/ListaEnvios'
+import { ImportarPedidosDialog } from './envios/ImportarPedidosDialog'
 import { TraerEnvioDialog } from './envios/TraerEnvioDialog'
+import { useEnviosNuevosDeTodos } from './envios/useEnviosNuevos'
+import { TableroClientes } from './tablero/TableroClientes'
 import { EspacioPropuesta } from './propuestas/EspacioPropuesta'
 import { ListaPropuestas } from './propuestas/ListaPropuestas'
 import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
@@ -65,7 +68,7 @@ interface Cliente {
   propuestas: number
 }
 
-type Vista = 'envios' | 'propuestas' | 'inventario' | 'base'
+type Vista = 'tablero' | 'envios' | 'propuestas' | 'inventario' | 'base'
 
 export function EspacioRemesas({
   clientes,
@@ -75,6 +78,7 @@ export function EspacioRemesas({
   remesaAbierta,
   alertas,
   vistaInicial,
+  conClientePedido,
   abrirIa,
 }: {
   clientes: Cliente[]
@@ -88,6 +92,8 @@ export function EspacioRemesas({
   alertas?: { criticas: number; altas: number } | null
   /** La vista que pide la URL (?vista=), por ejemplo desde una alerta */
   vistaInicial?: string | null
+  /** La URL pedía un cliente concreto (?cliente=): entonces no se abre el tablero sino su pantalla */
+  conClientePedido?: boolean
   /** Abre la propuesta con IA nada más entrar (?ia=1), por ejemplo desde una alerta de «reponer ya» */
   abrirIa?: boolean
 }) {
@@ -105,7 +111,9 @@ export function EspacioRemesas({
   const [vistaElegida, setVista] = useState<Vista>(() => {
     const abierta = panel.remesas.find((r) => r.id === remesaAbierta)
     if (abierta) return esPropuesta(abierta) ? 'propuestas' : 'envios'
-    return vistaInicial === 'envios' || vistaInicial === 'propuestas' || vistaInicial === 'inventario' ? vistaInicial : 'envios'
+    if (vistaInicial === 'envios' || vistaInicial === 'propuestas' || vistaInicial === 'inventario') return vistaInicial
+    // Con varios clientes, lo primero que se ve es el tablero de todos; si se llega a un cliente concreto (un enlace, una alerta), su pantalla
+    return clientes.length > 1 && !conClientePedido ? 'tablero' : 'envios'
   })
 
   // La base de datos solo existe para los clientes que la tienen. Si se estaba en ella
@@ -120,11 +128,21 @@ export function EspacioRemesas({
   const [nueva, setNueva] = useState(false)
   const [conIa, setConIa] = useState(Boolean(abrirIa) && puedeProponerConIa)
   const [trayendo, setTrayendo] = useState(false)
+  // IMPORTAR PEDIDOS: de qué cliente (puede no ser el que está abierto: se pide desde el tablero) y cuántos envíos nuevos tiene cada uno en Amazon
+  const [importandoDe, setImportandoDe] = useState<string | null>(null)
+  const [versionTablero, setVersionTablero] = useState(0)
+  const hayQueImportar = clientes.some((c) => c.puedeEditar)
+  const { porCliente: nuevosPorCliente, refrescar: refrescarNuevos } = useEnviosNuevosDeTodos(hayQueImportar)
+  const nuevosDeEste = cliente.puedeEditar ? (nuevosPorCliente[cliente.id] ?? 0) : 0
   const [cambiando, setCambiando] = useState<string | null>(null)
 
-  function irACliente(id: string) {
+  function irACliente(id: string, remesa?: string | null) {
+    // Desde el tablero se va a los envíos del cliente elegido
+    if (vistaElegida === 'tablero') setVista('envios')
+    if (remesa) setEnvioElegido(remesa)
     if (id === cliente.id) return
     setCambiando(id)
+    // El envío elegido va en el estado, no en la URL: `?remesa=` obliga al servidor a leer las cajas de esa remesa y un envío no las necesita
     router.push(`/dashboard/remesas?cliente=${id}`)
   }
   useEffect(() => setCambiando(null), [cliente.id])
@@ -210,6 +228,11 @@ export function EspacioRemesas({
         <h1 className={cx(TIPO.xl, 'text-[var(--ls-t1)]')}>Remesas a FBA</h1>
 
         <nav aria-label="Vistas" className="flex items-center gap-[2px] rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]">
+          {clientes.length > 1 && (
+            <Pestana activa={vista === 'tablero'} onClick={() => setVista('tablero')} icono={<Columns3 className="h-[14px] w-[14px]" />} titulo="Todos los clientes en columnas: el estado de sus envíos de un vistazo">
+              Tablero
+            </Pestana>
+          )}
           <Pestana activa={vista === 'envios'} onClick={() => setVista('envios')} icono={<Package className="h-[14px] w-[14px]" />} titulo="Lo que ya ha salido y existe en Amazon">
             Envíos
             <span className="tabular-nums text-[var(--ls-t4)]">{envios.filter(estaEnlazada).length}</span>
@@ -279,12 +302,13 @@ export function EspacioRemesas({
           )}
           {panel.leidoHasta && <span className="hidden text-[11px] text-[var(--ls-t4)] 2xl:inline">Ventas leídas hasta el {fecha(panel.leidoHasta)}</span>}
           {cliente.puedeEditar && vista === 'envios' && (
-            <button type="button" onClick={() => setTrayendo(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Traer de Amazon un envío que ya existe, por su número FBA">
-              <Download className="h-3 w-3" />
-              Traer envío de Amazon
+            <button type="button" onClick={() => setImportandoDe(cliente.id)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Los envíos que Amazon tiene en la cuenta de este cliente y el ERP todavía no: se marcan y se importan de golpe">
+              <PackagePlus className="h-3 w-3" />
+              Importar pedidos
+              {nuevosDeEste > 0 && <span className={INSIGNIA.contador} title={`${nuevosDeEste} nuevo${nuevosDeEste === 1 ? '' : 's'} en Amazon`}>{nuevosDeEste}</span>}
             </button>
           )}
-          {vista === 'base' ? (
+          {vista === 'tablero' ? null : vista === 'base' ? (
             <>
               {catalogo.filas && catalogo.filas.length > 0 && (
                 <button type="button" onClick={descargarBase} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Descargar la base de datos en el formato de la hoja de cálculo">
@@ -330,10 +354,10 @@ export function EspacioRemesas({
       </header>
 
       {/* ================= CLIENTES ================= */}
-      {clientes.length > 1 && <BarraClientes clientes={clientes} activo={cliente.id} cargando={cambiando} onElegir={irACliente} />}
+      {clientes.length > 1 && <BarraClientes clientes={clientes} activo={vista === 'tablero' ? '' : cliente.id} cargando={cambiando} onElegir={irACliente} nuevos={nuevosPorCliente} />}
 
       {/* ================= AVISOS (solo si los hay) ================= */}
-      {((!panel.conectado && envios.length > 0) || panel.ultimoError) && (
+      {vista !== 'tablero' && ((!panel.conectado && envios.length > 0) || panel.ultimoError) && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-2">
           {!panel.conectado && envios.length > 0 && (
             <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
@@ -350,8 +374,29 @@ export function EspacioRemesas({
         </div>
       )}
 
+      {vista === 'envios' && nuevosDeEste > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-2">
+          <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
+            <PackagePlus className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
+            {nuevosDeEste === 1 ? 'Hay 1 envío nuevo en Amazon que todavía no está en el ERP' : `Hay ${nuevosDeEste} envíos nuevos en Amazon que todavía no están en el ERP`}
+            <button type="button" onClick={() => setImportandoDe(cliente.id)} className="ml-2 font-semibold underline">
+              Importar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ================= CUERPO ================= */}
-      {vista === 'inventario' ? (
+      {vista === 'tablero' ? (
+        <div className="min-h-0 flex-1 px-5 pb-3">
+          <TableroClientes
+            nuevosPorCliente={nuevosPorCliente}
+            version={versionTablero}
+            onAbrir={(clienteId, remesaId) => irACliente(clienteId, remesaId)}
+            onImportar={(clienteId) => setImportandoDe(clienteId)}
+          />
+        </div>
+      ) : vista === 'inventario' ? (
         <div className="min-h-0 flex-1 px-5 pb-1">
           <PanelInventario key={cliente.id} clienteId={cliente.id} clienteNombre={cliente.nombre} hoy={hoy} onProponer={puedeProponerConIa ? () => setConIa(true) : undefined} puedeLeerVentas={esAdmin} />
         </div>
@@ -445,6 +490,32 @@ export function EspacioRemesas({
           }}
         />
       )}
+      {importandoDe && (
+        <ImportarPedidosDialog
+          clienteId={importandoDe}
+          clienteNombre={clientes.find((c) => c.id === importandoDe)?.nombre ?? ''}
+          conPropuestasListas={importandoDe === cliente.id && propuestas.some((p) => p.estado === 'lista')}
+          onCerrar={() => setImportandoDe(null)}
+          onManual={() => {
+            const de = importandoDe
+            setImportandoDe(null)
+            if (de === cliente.id) setTrayendo(true)
+            else irACliente(de)
+          }}
+          onImportados={(ids) => {
+            refrescarNuevos()
+            setVersionTablero((v) => v + 1)
+            // Se abre el primero importado en su cliente (si el diálogo se abrió desde el tablero de otro, se va allí)
+            if (importandoDe === cliente.id) {
+              setEnvioElegido(ids[0])
+              setVista('envios')
+              router.refresh()
+            } else {
+              irACliente(importandoDe, ids[0])
+            }
+          }}
+        />
+      )}
       {trayendo && (
         <TraerEnvioDialog
           clienteId={cliente.id}
@@ -520,7 +591,7 @@ function SinSeleccion({ icono, titulo, children }: { icono: React.ReactNode; tit
  * tiene y, en naranja, cuántas propuestas hay en marcha. Las que no tienen nada se
  * pintan apagadas: siguen siendo clicables —hay que poder crearle la primera—.
  */
-function BarraClientes({ clientes, activo, cargando, onElegir }: { clientes: Cliente[]; activo: string; cargando: string | null; onElegir: (id: string) => void }) {
+function BarraClientes({ clientes, activo, cargando, onElegir, nuevos }: { clientes: Cliente[]; activo: string; cargando: string | null; onElegir: (id: string) => void; nuevos: Record<string, number> }) {
   const fila = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -554,6 +625,11 @@ function BarraClientes({ clientes, activo, cargando, onElegir }: { clientes: Cli
             {c.propuestas > 0 && (
               <span className={INSIGNIA.contador} title={`${c.propuestas} propuesta${c.propuestas === 1 ? '' : 's'} en marcha`}>
                 {c.propuestas}
+              </span>
+            )}
+            {c.puedeEditar && (nuevos[c.id] ?? 0) > 0 && (
+              <span className="rounded-full px-[6px] text-[10.5px] font-semibold" style={{ background: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 18%, transparent)`, color: COLOR_ESTADO.ambar }} title={`${nuevos[c.id]} envío${nuevos[c.id] === 1 ? '' : 's'} nuevo${nuevos[c.id] === 1 ? '' : 's'} en Amazon sin importar`}>
+                +{nuevos[c.id]}
               </span>
             )}
           </button>

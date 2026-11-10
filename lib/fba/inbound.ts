@@ -120,6 +120,43 @@ export async function estadoDeEnvios(
 }
 
 /**
+ * TODOS LOS ENVÍOS QUE HAY EN LA CUENTA DE UN CLIENTE, en un mercado, tocados en los últimos `dias` días.
+ *
+ * Es lo que permite no teclear el número FBA a mano: se le pregunta a Amazon qué envíos tiene la cuenta y se enseñan los que el ERP todavía no conoce
+ * (lib/fba/envios-nuevos.ts). Solo los que ya han salido: un borrador (WORKING) o uno con la etiqueta puesta pero sin enviar (READY_TO_SHIP) todavía no
+ * traen unidades fiables, y entrarían en el ERP vacíos.
+ *
+ * La primera página se pide por fechas y las siguientes con el NextToken (QueryType NEXT_TOKEN: sin él Amazon contesta 400). Tope de 10 páginas, de 50.
+ */
+export const ESTADOS_DE_ENVIO_YA_SALIDO = ['SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'CHECKED_IN', 'RECEIVING', 'CLOSED']
+
+export async function listarEnviosDeCuenta(creds: AmazonCredentials, marketplaceId: string, dias = 90, ahora: Date = new Date()): Promise<EnvioInbound[]> {
+  const salida: EnvioInbound[] = []
+  let nextToken: string | undefined
+  let vueltas = 0
+  do {
+    const query: Record<string, string | string[]> = nextToken
+      ? { MarketplaceId: marketplaceId, QueryType: 'NEXT_TOKEN', NextToken: nextToken }
+      : {
+          MarketplaceId: marketplaceId,
+          QueryType: 'DATE_RANGE',
+          LastUpdatedAfter: new Date(ahora.getTime() - dias * 86_400_000).toISOString(),
+          LastUpdatedBefore: ahora.toISOString(),
+          ShipmentStatusList: ESTADOS_DE_ENVIO_YA_SALIDO,
+        }
+    const { data } = await spApiRequest<RespuestaEnvios>(creds, 'getInboundShipments', { method: 'GET', path: '/fba/inbound/v0/shipments', query })
+    for (const crudo of (data.payload?.ShipmentData ?? data.ShipmentData ?? []) as Array<Record<string, unknown>>) {
+      const id = texto(crudo.ShipmentId)
+      if (!id) continue
+      salida.push({ shipmentId: id, nombre: texto(crudo.ShipmentName), estado: texto(crudo.ShipmentStatus) ?? 'desconocido', centro: texto(crudo.DestinationFulfillmentCenterId) })
+    }
+    nextToken = data.payload?.NextToken
+    vueltas++
+  } while (nextToken && vueltas < 10)
+  return salida
+}
+
+/**
  * Cuántas unidades ha recibido Amazon de cada referencia de un envío.
  *
  * Una llamada por envío: la API no admite pedir varios a la vez. Por eso quien
