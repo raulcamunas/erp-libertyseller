@@ -61,12 +61,12 @@ export interface EstadoParaDecidir {
 }
 
 /** ¿Hay que EMPEZAR una lectura nueva? (Solo se pregunta en reposo.) */
-export function debeEmpezar(e: EstadoParaDecidir): boolean {
+export function debeEmpezar(e: EstadoParaDecidir, intervaloMs: number = INTERVALO_MS): boolean {
   if (e.forzar) return e.pedidoAt === null || e.ahora - e.pedidoAt >= ENFRIAMIENTO_DE_FORZAR_MS
   // Tras un error no se reintenta cada pasada: se espera un rato
   if (e.hayError && e.pedidoAt !== null && e.ahora - e.pedidoAt < REINTENTO_TRAS_ERROR_MS) return false
   if (e.ultimoOkAt === null) return true
-  return e.ahora - e.ultimoOkAt >= INTERVALO_MS
+  return e.ahora - e.ultimoOkAt >= intervaloMs
 }
 
 interface FilaEstado {

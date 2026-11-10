@@ -176,3 +176,65 @@ export async function archivarCampana(conexionId: string, profileId: number, cam
   })
   aislar(res, 'campaigns')
 }
+
+/* ------------------------------------------------------------------ */
+/* Keywords y negativas (el motor automático)                          */
+/* ------------------------------------------------------------------ */
+
+const T_NEGATIVA_DE_CAMPANA = 'application/vnd.spCampaignNegativeKeyword.v3+json'
+const T_KEYWORD = 'application/vnd.spKeyword.v3+json'
+
+/** Excluye un término de una campaña entera (coincidencia exacta negativa). Devuelve el id de la negativa, que hace falta para deshacerlo */
+export async function crearNegativaDeCampana(conexionId: string, profileId: number, campaignId: string, texto: string): Promise<string> {
+  const res = await llamarAds<unknown>(conexionId, '/sp/campaignNegativeKeywords', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_NEGATIVA_DE_CAMPANA),
+    cuerpo: { campaignNegativeKeywords: [{ campaignId, keywordText: texto, matchType: 'NEGATIVE_EXACT', state: 'ENABLED' }] },
+  })
+  return idDe(aislar(res, 'campaignNegativeKeywords'), 'campaignNegativeKeywordId')
+}
+
+export async function borrarNegativaDeCampana(conexionId: string, profileId: number, negativaId: string): Promise<void> {
+  const res = await llamarAds<unknown>(conexionId, '/sp/campaignNegativeKeywords/delete', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_NEGATIVA_DE_CAMPANA),
+    cuerpo: { campaignNegativeKeywordIdFilter: { include: [negativaId] } },
+  })
+  aislar(res, 'campaignNegativeKeywords')
+}
+
+export type CoincidenciaDeKeyword = 'PHRASE' | 'EXACT' | 'BROAD'
+
+/** Crea una keyword en un grupo de anuncios, activa y con su puja. Devuelve el keywordId */
+export async function crearKeyword(conexionId: string, profileId: number, k: { campaignId: string; adGroupId: string; texto: string; coincidencia: CoincidenciaDeKeyword; puja: number }): Promise<string> {
+  const res = await llamarAds<unknown>(conexionId, '/sp/keywords', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_KEYWORD),
+    cuerpo: { keywords: [{ campaignId: k.campaignId, adGroupId: k.adGroupId, keywordText: k.texto, matchType: k.coincidencia, state: 'ENABLED', bid: Math.max(0.02, Math.round(k.puja * 100) / 100) }] },
+  })
+  return idDe(aislar(res, 'keywords'), 'keywordId')
+}
+
+export async function borrarKeyword(conexionId: string, profileId: number, keywordId: string): Promise<void> {
+  const res = await llamarAds<unknown>(conexionId, '/sp/keywords/delete', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_KEYWORD),
+    cuerpo: { keywordIdFilter: { include: [keywordId] } },
+  })
+  aislar(res, 'keywords')
+}
+
+/** Los grupos de anuncios activos de una campaña, para saber dónde poner una keyword */
+export async function gruposActivosDe(conexionId: string, profileId: number, campaignId: string): Promise<Array<{ adGroupId: string; nombre: string; pujaPorDefecto: number | null }>> {
+  const res = await llamarAds<{ adGroups?: Array<{ adGroupId?: string | number; name?: string; defaultBid?: number }> }>(conexionId, '/sp/adGroups/list', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_GRUPO),
+    cuerpo: { campaignIdFilter: { include: [campaignId] }, stateFilter: { include: ['ENABLED'] }, maxResults: 50 },
+  })
+  return (res.adGroups ?? []).filter((g) => g.adGroupId != null).map((g) => ({ adGroupId: String(g.adGroupId), nombre: g.name ?? '', pujaPorDefecto: typeof g.defaultBid === 'number' ? g.defaultBid : null }))
+}

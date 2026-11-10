@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { FlaskConical, ClipboardSignature, LayoutDashboard, ListTree, Package, Rocket, ScrollText } from 'lucide-react'
+import { FlaskConical, ClipboardSignature, LayoutDashboard, ListTree, Package, Rocket, ScrollText, Sparkles } from 'lucide-react'
 import { CAMPO, PANTALLA, TEXTO, TIPO, TITULO, BOTON } from '@/lib/estilo/denso'
 import { Vacio } from '@/components/plataforma/comun'
 import { nombreDePais } from '@/lib/ads/paises'
 import { BarraDeClientes, type ClienteDeBarra } from './BarraDeClientes'
 import { PestanaResumen } from './PestanaResumen'
 import { PestanaCampanas } from './PestanaCampanas'
+import { PestanaPropuestas } from './PestanaPropuestas'
 import { PestanaFicha } from './PestanaFicha'
 import { PestanaProductos } from './PestanaProductos'
 import { PestanaCrear } from './PestanaCrear'
@@ -23,6 +24,7 @@ interface Props {
 const PESTANAS = [
   { id: 'resumen', nombre: 'Resumen', icono: LayoutDashboard },
   { id: 'campanas', nombre: 'Campañas', icono: ListTree },
+  { id: 'propuestas', nombre: 'Propuestas', icono: Sparkles },
   { id: 'ficha', nombre: 'Ficha de cuenta', icono: ClipboardSignature },
   { id: 'productos', nombre: 'Productos', icono: Package },
   { id: 'crear', nombre: 'Crear campañas', icono: Rocket },
@@ -145,6 +147,8 @@ export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana
             <PestanaResumen key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
           ) : activa === 'campanas' ? (
             <PestanaCampanas key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
+          ) : activa === 'propuestas' ? (
+            <PestanaPropuestas key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
           ) : activa === 'ficha' ? (
             <PestanaFicha key={cuenta.id} perfilId={cuenta.id} />
           ) : activa === 'productos' ? (

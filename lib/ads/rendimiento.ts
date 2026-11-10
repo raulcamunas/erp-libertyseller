@@ -75,8 +75,8 @@ export async function estadoDeInforme(conexionId: string, profileId: number, rep
   return { estado: (res.status ?? 'PENDING').toUpperCase(), url: res.url, detalle: res.failureReason }
 }
 
-/** Descarga un informe YA COMPLETADO y lo convierte en filas diarias */
-export async function descargarFilas(url: string): Promise<FilaDiaria[]> {
+/** Descarga un informe YA COMPLETADO y devuelve sus filas tal cual las manda Amazon */
+export async function descargarCrudas(url: string): Promise<Array<Record<string, unknown>>> {
   // La URL es de S3 y va firmada: mandarle nuestras cabeceras la rechaza
   const res = await fetch(url)
   if (!res.ok) throw new AdsError(`No se ha podido descargar el informe (${res.status}).`)
@@ -89,5 +89,38 @@ export async function descargarFilas(url: string): Promise<FilaDiaria[]> {
     texto = crudo.toString('utf8')
   }
   const filas = JSON.parse(texto) as unknown
-  return filasDeInforme(Array.isArray(filas) ? (filas as Array<Record<string, unknown>>) : [])
+  return Array.isArray(filas) ? (filas as Array<Record<string, unknown>>) : []
+}
+
+/** Descarga un informe de campañas YA COMPLETADO y lo convierte en filas diarias */
+export async function descargarFilas(url: string): Promise<FilaDiaria[]> {
+  return filasDeInforme(await descargarCrudas(url))
+}
+
+/** Los términos de búsqueda de un periodo, resumidos (sin desglose por día): la materia prima de las reglas del motor */
+const COLUMNAS_TERMINOS = ['campaignId', 'campaignName', 'adGroupId', 'adGroupName', 'searchTerm', 'keyword', 'matchType', 'impressions', 'clicks', 'cost', 'purchases7d', 'sales7d'] as const
+
+export async function pedirInformeDeTerminos(conexionId: string, profileId: number, p: Periodo): Promise<string> {
+  try {
+    const res = await llamarAds<{ reportId?: string }>(conexionId, '/reporting/reports', {
+      perfilId: profileId,
+      metodo: 'POST',
+      cabeceras: { Accept: TIPO_PETICION, 'Content-Type': TIPO_PETICION },
+      cuerpo: {
+        name: `marketing-test terminos ${p.desde} ${p.hasta}`,
+        startDate: p.desde,
+        endDate: p.hasta,
+        configuration: { adProduct: 'SPONSORED_PRODUCTS', groupBy: ['searchTerm'], columns: [...COLUMNAS_TERMINOS], reportTypeId: 'spSearchTerm', timeUnit: 'SUMMARY', format: 'GZIP_JSON' },
+      },
+    })
+    if (!res.reportId) throw new AdsError('Amazon ha aceptado la petición pero no ha dado id.')
+    return res.reportId
+  } catch (error) {
+    const es425 = error instanceof AdsError && (error.estado === 425 || /"425"/.test(error.cuerpo ?? ''))
+    if (es425) {
+      const ya = (error as AdsError).cuerpo?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)
+      if (ya) return ya[0]
+    }
+    throw error
+  }
 }
