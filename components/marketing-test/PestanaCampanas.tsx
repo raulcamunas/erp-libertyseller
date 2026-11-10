@@ -1,16 +1,19 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, CircleAlert, Search } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Search } from 'lucide-react'
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TEXTO, TIPO } from '@/lib/estilo/denso'
 import { porCampana, tipoDeCampana, totalesDe, type CampanaConCifras, type Totales } from '@/lib/ads/rendimiento-calculo'
+import { agruparPorProducto } from '@/lib/ads/productos-agrupar'
 import { COLOR_DE_TIPO, EtiquetaDeTipo, PuntoDeEstado, SelectorDePeriodo, textoDeEstado, type Dias } from './piezas'
+import { useProductosConocidos } from './useProductosConocidos'
 import { dinero, decimal, entero, porcentaje } from './formato'
 import { useRendimiento, type CampanaViva } from './useRendimiento'
 
 type Fila = Totales & { campaignId: string; nombre: string; estado: CampanaViva['estado'] | null; presupuesto: number | null; segmentacion: CampanaViva['segmentacion']; tipo: string }
 type Orden = 'nombre' | 'presupuesto' | 'gasto' | 'ventas' | 'acos' | 'roas' | 'pedidos' | 'clics' | 'cpc' | 'ctr'
 type Filtro = 'ENABLED' | 'PAUSED' | 'ARCHIVED' | 'TODAS'
+type Vista = 'producto' | 'lista'
 
 const COLUMNAS: Array<{ id: Orden; nombre: string; derecha: boolean }> = [
   { id: 'presupuesto', nombre: 'Presupuesto / día', derecha: true },
@@ -35,7 +38,10 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
   const [filtro, setFiltro] = useState<Filtro>('ENABLED')
   const [busqueda, setBusqueda] = useState('')
   const [orden, setOrden] = useState<{ por: Orden; desc: boolean }>({ por: 'gasto', desc: true })
+  const [vista, setVista] = useState<Vista>('producto')
+  const [abiertos, setAbiertos] = useState<ReadonlySet<string>>(new Set())
   const { campanas, informe, actualizar } = useRendimiento(perfilId, dias)
+  const conocidos = useProductosConocidos(perfilId)
 
   const filas: Fila[] = useMemo(() => {
     const vivas = campanas.fase === 'listo' ? campanas.datos : []
@@ -66,8 +72,70 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
   }, [filas, filtro, busqueda, orden])
 
   const total = useMemo(() => totalesDe(visibles), [visibles])
+
+  // Por producto: el ASIN que lleva el nombre de cada campaña. Los grupos se ordenan por la misma columna que las campañas (el «sin producto» siempre al final)
+  const grupos = useMemo(() => {
+    const nombres = new Map([...conocidos].map(([asin, p]) => [asin, p.resumen]))
+    const g = agruparPorProducto(visibles, nombres)
+    const dir = orden.desc ? -1 : 1
+    const valorGrupo = (x: (typeof g)[number]): number | string => (orden.por === 'nombre' ? x.titulo.toLowerCase() : orden.por === 'presupuesto' ? x.campanas.reduce((a, c) => a + (c.presupuesto ?? 0), 0) : ((x.totales[orden.por] as number | null) ?? -1))
+    return g.sort((a, b) => {
+      if (a.asin === null) return 1
+      if (b.asin === null) return -1
+      const x = valorGrupo(a)
+      const y = valorGrupo(b)
+      return (x < y ? -1 : x > y ? 1 : 0) * dir
+    })
+  }, [visibles, conocidos, orden])
+  const alternarGrupo = (clave: string) =>
+    setAbiertos((prev) => {
+      const n = new Set(prev)
+      if (n.has(clave)) n.delete(clave)
+      else n.add(clave)
+      return n
+    })
   const maxGasto = Math.max(...visibles.map((f) => f.gasto), 0.0001)
   const conCifras = informe.fase === 'listo'
+
+  /** Una fila de campaña. `sangria` 1 = dentro de un producto */
+  function filaDeCampana(f: Fila, sangria: 0 | 1) {
+    return (
+      <tr key={f.campaignId} className={TABLA.fila}>
+        <td className={`${TABLA.celda} h-[38px]`} style={sangria ? { paddingLeft: 30 } : undefined}>
+          <div className="flex items-center gap-2">
+            <PuntoDeEstado estado={f.estado} />
+            <div className="min-w-0">
+              <div className={`${TEXTO.t1} ${TABLA.corta} max-w-[420px]`} title={`${f.nombre} · ${textoDeEstado(f.estado)}`}>{f.nombre}</div>
+              <div className="mt-[1px] flex items-center gap-[5px]">
+                <EtiquetaDeTipo tipo={f.tipo} />
+                <span className={`${TIPO.xs} ${TEXTO.t4}`}>{f.segmentacion === 'AUTO' ? 'Automática' : f.segmentacion === 'MANUAL' ? 'Manual' : ''}</span>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>{f.presupuesto == null ? '—' : dinero(f.presupuesto, moneda)}</td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>
+          {conCifras ? (
+            <div className="ml-auto w-[110px]">
+              <div className={TEXTO.t1}>{dinero(f.gasto, moneda)}</div>
+              <div className="mt-[2px] h-[3px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
+                <div className="h-full rounded-full" style={{ width: `${(f.gasto / maxGasto) * 100}%`, background: COLOR_DE_TIPO[f.tipo] ?? COLOR_ESTADO.gris }} />
+              </div>
+            </div>
+          ) : (
+            '—'
+          )}
+        </td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? dinero(f.ventas, moneda) : '—'}</td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? porcentaje(f.acos) : '—'}</td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras && f.roas != null ? decimal(f.roas) : '—'}</td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? entero(f.pedidos) : '—'}</td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? entero(f.clics) : '—'}</td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? dinero(f.cpc, moneda) : '—'}</td>
+        <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? porcentaje(f.ctr, 2) : '—'}</td>
+      </tr>
+    )
+  }
 
   function ordenarPor(o: Orden) {
     setOrden((prev) => (prev.por === o ? { por: o, desc: !prev.desc } : { por: o, desc: o !== 'nombre' }))
@@ -76,7 +144,7 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
   return (
     <div className="flex flex-col gap-2 pb-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={informe.fase === 'cargando' || campanas.fase === 'cargando'} />
+        <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={informe.fase === 'cargando' || campanas.fase === 'cargando' || (informe.fase === 'listo' && informe.datos.sincronizando)} />
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-[7px] h-3 w-3 text-[var(--ls-t4)]" />
           <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar una campaña…" className={`${CAMPO.input} w-[240px] pl-6`} />
@@ -94,6 +162,14 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
             {nombre} <span className="tabular-nums opacity-70">{cuentas[id]}</span>
           </button>
         ))}
+        <span className="mx-1 h-4 w-px bg-[var(--ls-linea2)]" />
+        <button type="button" onClick={() => setVista('producto')} className={`${BOTON.chip} ${vista === 'producto' ? BOTON.chipEncendido : ''}`}>Por producto</button>
+        <button type="button" onClick={() => setVista('lista')} className={`${BOTON.chip} ${vista === 'lista' ? BOTON.chipEncendido : ''}`}>Lista de campañas</button>
+        {vista === 'producto' && grupos.length > 1 && (
+          <button type="button" onClick={() => setAbiertos(abiertos.size > 0 ? new Set() : new Set(grupos.map((g) => g.clave)))} className={`${BOTON.base} ${BOTON.secundario}`}>
+            {abiertos.size > 0 ? 'Contraer todo' : 'Expandir todo'}
+          </button>
+        )}
         {informe.fase === 'cargando' && <span className={`${TIPO.xs} ${TEXTO.t4}`}>{informe.nota ?? 'Cargando las cifras…'}</span>}
       </div>
 
@@ -137,47 +213,56 @@ export function PestanaCampanas({ perfilId, moneda }: { perfilId: string; moneda
                 <td className={`${TABLA.celda} ${TEXTO.t3}`} colSpan={COLUMNAS.length + 1}>No hay campañas con ese filtro.</td>
               </tr>
             )}
-            {visibles.map((f) => (
-              <tr key={f.campaignId} className={TABLA.fila}>
-                <td className={`${TABLA.celda} h-[38px]`}>
-                  <div className="flex items-center gap-2">
-                    <PuntoDeEstado estado={f.estado} />
-                    <div className="min-w-0">
-                      <div className={`${TEXTO.t1} ${TABLA.corta} max-w-[420px]`} title={`${f.nombre} · ${textoDeEstado(f.estado)}`}>{f.nombre}</div>
-                      <div className="mt-[1px] flex items-center gap-[5px]">
-                        <EtiquetaDeTipo tipo={f.tipo} />
-                        <span className={`${TIPO.xs} ${TEXTO.t4}`}>{f.segmentacion === 'AUTO' ? 'Automática' : f.segmentacion === 'MANUAL' ? 'Manual' : ''}</span>
+            {vista === 'lista' && visibles.map((f) => filaDeCampana(f, 0))}
+            {vista === 'producto' &&
+              grupos.map((g) => {
+                const abierto = abiertos.has(g.clave)
+                const conocido = g.asin ? conocidos.get(g.asin) : undefined
+                const eq = conocido?.equilibrio ?? null
+                const acos = g.totales.acos
+                const colorAcos = eq !== null && acos !== null ? (acos <= eq ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo) : undefined
+                const activas = g.campanas.filter((c) => c.estado === 'ENABLED').length
+                return [
+                  <tr key={`g-${g.clave}`} className="cursor-pointer hover:[&>td]:bg-[var(--ls-sup3)]" onClick={() => alternarGrupo(g.clave)}>
+                    <td className={`${TABLA.celda} h-[44px] bg-[var(--ls-sup2)]`}>
+                      <div className="flex items-center gap-2">
+                        {abierto ? <ChevronDown className="h-3 w-3 shrink-0 text-[var(--ls-t3)]" /> : <ChevronRight className="h-3 w-3 shrink-0 text-[var(--ls-t3)]" />}
+                        <div className="min-w-0">
+                          <div className={`${TEXTO.t1} ${TABLA.corta} max-w-[420px] font-semibold`} title={g.titulo}>{g.titulo}</div>
+                          <div className={`${TIPO.xs} ${TEXTO.t4}`}>
+                            {g.asin ?? 'Campañas sin ASIN en el nombre'} · {g.campanas.length} {g.campanas.length === 1 ? 'campaña' : 'campañas'}
+                            {activas > 0 ? ` · ${activas} ${activas === 1 ? 'activa' : 'activas'}` : ''}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                </td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>{f.presupuesto == null ? '—' : dinero(f.presupuesto, moneda)}</td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>
-                  {conCifras ? (
-                    <div className="ml-auto w-[110px]">
-                      <div className={TEXTO.t1}>{dinero(f.gasto, moneda)}</div>
-                      <div className="mt-[2px] h-[3px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
-                        <div className="h-full rounded-full" style={{ width: `${(f.gasto / maxGasto) * 100}%`, background: COLOR_DE_TIPO[f.tipo] ?? COLOR_ESTADO.gris }} />
-                      </div>
-                    </div>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? dinero(f.ventas, moneda) : '—'}</td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? porcentaje(f.acos) : '—'}</td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras && f.roas != null ? decimal(f.roas) : '—'}</td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? entero(f.pedidos) : '—'}</td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? entero(f.clics) : '—'}</td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? dinero(f.cpc, moneda) : '—'}</td>
-                <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? porcentaje(f.ctr, 2) : '—'}</td>
-              </tr>
-            ))}
+                    </td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)]`}>{dinero(g.campanas.reduce((a, c) => a + (c.presupuesto ?? 0), 0), moneda)}</td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? dinero(g.totales.gasto, moneda) : '—'}</td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? dinero(g.totales.ventas, moneda) : '—'}</td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`} title={eq !== null ? `ACoS de equilibrio de este producto: ${porcentaje(eq)}` : 'Pon el coste del producto en «Productos» para ver su ACoS de equilibrio'}>
+                      {conCifras ? (
+                        <div>
+                          <div style={colorAcos ? { color: colorAcos } : undefined}>{porcentaje(acos)}</div>
+                          {eq !== null && <div className={`${TIPO.xs} ${TEXTO.t4} font-normal`}>equilibrio {porcentaje(eq, 0)}</div>}
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras && g.totales.roas != null ? decimal(g.totales.roas) : '—'}</td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? entero(g.totales.pedidos) : '—'}</td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? entero(g.totales.clics) : '—'}</td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? dinero(g.totales.cpc, moneda) : '—'}</td>
+                    <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)] font-medium`}>{conCifras ? porcentaje(g.totales.ctr, 2) : '—'}</td>
+                  </tr>,
+                  ...(abierto ? g.campanas.map((f) => filaDeCampana(f, 1)) : []),
+                ]
+              })}
           </tbody>
           {visibles.length > 0 && conCifras && (
             <tfoot>
               <tr className="font-semibold">
-                <td className={`${TABLA.celda} bg-[var(--ls-sup2)] ${TEXTO.t1}`}>Total de las {visibles.length} campañas que se ven</td>
+                <td className={`${TABLA.celda} bg-[var(--ls-sup2)] ${TEXTO.t1}`}>Total de las {visibles.length} campañas que se ven{vista === 'producto' ? ` (${grupos.length} ${grupos.length === 1 ? 'producto' : 'productos'})` : ''}</td>
                 <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)]`}>{dinero(visibles.reduce((s, f) => s + (f.presupuesto ?? 0), 0), moneda)}</td>
                 <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)]`}>{dinero(total.gasto, moneda)}</td>
                 <td className={`${TABLA.celda} ${TABLA.numero} bg-[var(--ls-sup2)]`}>{dinero(total.ventas, moneda)}</td>

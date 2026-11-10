@@ -5,9 +5,11 @@ import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, 
 import { CircleAlert, TrendingDown } from 'lucide-react'
 import { AVISO, BOTON, COLOR_ESTADO, TARJETA, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { diasDelRango, gastanSinVender, porCampana, repartoPorTipo, serieDiaria, tipoDeCampana, totalesDe } from '@/lib/ads/rendimiento-calculo'
+import { agruparPorProducto } from '@/lib/ads/productos-agrupar'
 import { COLOR_DE_TIPO, Kpi, SelectorDePeriodo, type Dias } from './piezas'
 import { diaCorto, dinero, decimal, entero, porcentaje } from './formato'
 import { useRendimiento } from './useRendimiento'
+import { useProductosConocidos } from './useProductosConocidos'
 
 type Serie = 'gasto' | 'ventas' | 'acos'
 const SERIES: Array<{ id: Serie; nombre: string; color: string }> = [
@@ -24,6 +26,7 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
   const [dias, setDias] = useState<Dias>(14)
   const [series, setSeries] = useState<ReadonlySet<Serie>>(new Set<Serie>(['gasto', 'ventas']))
   const { campanas, informe, actualizar } = useRendimiento(perfilId, dias)
+  const conocidos = useProductosConocidos(perfilId)
   const cargando = informe.fase === 'cargando'
   const datos = informe.fase === 'listo' ? informe.datos : null
 
@@ -38,6 +41,8 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
     const camps = porCampana(datos.actual)
     return { t, a, sa, sb, camps, reparto: repartoPorTipo(camps), sinVender: gastanSinVender(camps, 5).slice(0, 5), top: camps.slice(0, 5) }
   }, [datos])
+
+  const productos = useMemo(() => (calculo ? agruparPorProducto(calculo.camps, new Map([...conocidos].map(([asin, p]) => [asin, p.resumen]))) : null), [calculo, conocidos])
 
   const viva = campanas.fase === 'listo' ? campanas.datos : null
   const activas = viva?.filter((c) => c.estado === 'ENABLED') ?? []
@@ -61,7 +66,7 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
   return (
     <div className="flex max-w-[1280px] flex-col gap-3 pb-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={cargando} />
+        <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={cargando || Boolean(datos?.sincronizando)} />
         {datos && (
           <span className={`${TIPO.xs} ${TEXTO.t4}`}>
             {diaCorto(datos.periodos.actual.desde)} – {diaCorto(datos.periodos.actual.hasta)} frente a {diaCorto(datos.periodos.anterior.desde)} – {diaCorto(datos.periodos.anterior.hasta)}
@@ -78,6 +83,15 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
         </div>
       )}
       {informe.fase === 'cargando' && informe.nota && <p className={`${TIPO.s} ${TEXTO.t3}`}>{informe.nota}</p>}
+      {datos?.sincronizando && <p className={`${TIPO.s} ${TEXTO.t3}`}>Pidiendo datos nuevos a Amazon… lo que ves es lo último guardado y se actualizará solo.</p>}
+      {datos?.aviso && (
+        <div className={`${AVISO.base} ${AVISO.conTono}`} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
+          <CircleAlert className={AVISO.icono} />
+          <span>
+            <span className={AVISO.fuerte}>La última lectura de Amazon ha fallado.</span> Se ven los datos de antes. {datos.aviso}
+          </span>
+        </div>
+      )}
 
       {/* ------- las cifras ------- */}
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -125,6 +139,62 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
                 {series.has('acos') && <Line yAxisId="r" dataKey="acos" name="ACoS" type="monotone" stroke={COLOR_ESTADO.ambar} strokeWidth={2} strokeDasharray="4 3" dot={false} connectNulls activeDot={{ r: 3 }} />}
               </ComposedChart>
             </ResponsiveContainer>
+          )}
+        </div>
+      </section>
+
+      {/* ------- por producto (agrupado por el ASIN de cada campaña) ------- */}
+      <section className={TARJETA.base}>
+        <header className={`${TARJETA.cabecera} justify-between`}>
+          <h2 className={TITULO.seccion}>Rendimiento por producto</h2>
+          <button type="button" onClick={() => irA('campanas')} className={`${BOTON.base} ${BOTON.secundario}`}>Ver las campañas de cada uno</button>
+        </header>
+        <div className="overflow-x-auto">
+          {!productos ? (
+            <div className="m-3 h-[110px] animate-pulse rounded bg-[var(--ls-sup2)]" />
+          ) : productos.length === 0 ? (
+            <p className={`${TARJETA.cuerpo} ${TIPO.s} ${TEXTO.t3}`}>No hay campañas con gasto en este periodo.</p>
+          ) : (
+            <table className="w-full min-w-[640px] border-separate border-spacing-0 text-[12.5px]">
+              <thead>
+                <tr className={`${TIPO.xs} ${TEXTO.t4}`}>
+                  <th className="px-3 py-[6px] text-left font-semibold">Producto</th>
+                  <th className="px-3 py-[6px] text-right font-semibold">Gasto</th>
+                  <th className="w-[120px] px-3 py-[6px] text-left font-semibold">Reparto</th>
+                  <th className="px-3 py-[6px] text-right font-semibold">Ventas</th>
+                  <th className="px-3 py-[6px] text-right font-semibold">ACoS</th>
+                  <th className="px-3 py-[6px] text-right font-semibold">Pedidos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productos.slice(0, 8).map((g) => {
+                  const eq = g.asin ? (conocidos.get(g.asin)?.equilibrio ?? null) : null
+                  const color = eq !== null && g.totales.acos !== null ? (g.totales.acos <= eq ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo) : undefined
+                  const totalGasto = calculo?.t.gasto || 1
+                  return (
+                    <tr key={g.clave} className="cursor-pointer hover:[&>td]:bg-[var(--ls-sup2)]" onClick={() => irA('campanas')}>
+                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px]">
+                        <div className={`${TEXTO.t1} max-w-[340px] truncate font-medium`} title={g.titulo}>{g.titulo}</div>
+                        <div className={`${TIPO.xs} ${TEXTO.t4}`}>{g.asin ?? 'Sin ASIN en el nombre'} · {g.campanas.length} {g.campanas.length === 1 ? 'campaña' : 'campañas'}</div>
+                      </td>
+                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{dinero(g.totales.gasto, moneda)}</td>
+                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px]">
+                        <div className="h-[5px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
+                          <div className="h-full rounded-full" style={{ width: `${(g.totales.gasto / totalGasto) * 100}%`, background: COLOR_ESTADO.azul }} />
+                        </div>
+                        <div className={`${TIPO.xs} ${TEXTO.t4} mt-[2px] tabular-nums`}>{porcentaje(g.totales.gasto / totalGasto, 0)}</div>
+                      </td>
+                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{dinero(g.totales.ventas, moneda)}</td>
+                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums" title={eq !== null ? `ACoS de equilibrio: ${porcentaje(eq)}` : 'Pon su coste en «Productos» para ver el equilibrio'}>
+                        <span style={color ? { color } : undefined} className={color ? undefined : TEXTO.t1}>{porcentaje(g.totales.acos)}</span>
+                        {eq !== null && <div className={`${TIPO.xs} ${TEXTO.t4}`}>equilibrio {porcentaje(eq, 0)}</div>}
+                      </td>
+                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{entero(g.totales.pedidos)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       </section>

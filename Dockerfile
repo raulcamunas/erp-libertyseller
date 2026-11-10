@@ -79,6 +79,7 @@ RUN { \
       echo "* * * * * /app/scripts/ubicacion-leads.sh"; \
       echo "* * * * * /app/scripts/ciclo-leads.sh"; \
       echo "* * * * * /app/scripts/fba-alertas.sh"; \
+      echo "* * * * * /app/scripts/ads-rendimiento.sh"; \
       echo "* * * * * /app/scripts/tareas-notion.sh"; \
       echo "* * * * * /app/scripts/tareas-reuniones.sh"; \
       echo "* * * * * /app/scripts/push-avisos.sh"; \

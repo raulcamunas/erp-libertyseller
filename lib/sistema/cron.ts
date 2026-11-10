@@ -178,6 +178,22 @@ export const TAREAS_CRON = [
       'manda el resumen semanal. Solo lee de la base del ERP.',
   },
   {
+    /**
+     * CADA 2 MINUTOS RECOGE; CADA 3 HORAS EMPIEZA UNA LECTURA NUEVA POR CUENTA.
+     *
+     * Trae de Amazon Ads el informe diario de campañas de cada cuenta de anunciante en uso y asignada y lo guarda (ads_rendimiento_diario), para que Marketing Test se abra al instante en vez de esperar
+     * uno o dos minutos a Amazon. El informe tarda en estar listo, así que la pasada NO espera: pide, apunta los identificadores y los recoge en la pasada siguiente (lib/ads/sincronizar.ts). Solo LEE
+     * de Amazon; no escribe nada en la cuenta del cliente.
+     */
+    id: 'ads-rendimiento',
+    nombre: 'Rendimiento de Amazon Ads',
+    ruta: '/api/ads/cron-rendimiento',
+    cadaMinutos: 2,
+    que:
+      'Cada 3 horas trae de Amazon Ads el gasto, las ventas y los clics por día y campaña de cada cuenta de anunciante en uso, y los guarda para que Marketing Test se abra al instante. ' +
+      'Vuelve a leer los últimos 14 días cada vez porque Amazon corrige las ventas atribuidas. Solo lee: no toca nada en la cuenta del cliente.',
+  },
+  {
     id: 'stock-verificacion',
     nombre: 'Verificación del stock subido',
     ruta: '/api/stock-sync/cron-verificacion',
@@ -445,6 +461,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'fba-remesas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 12 * 60 },
   'fba-seguimiento': { prioridad: 'normal' },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
+  'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
   'stock-verificacion': { prioridad: 'normal' },
   cumplimiento: { prioridad: 'baja', pesada: true, ayunoMaxMin: 180 },
   'rinkel-llamadas': { prioridad: 'esencial' },

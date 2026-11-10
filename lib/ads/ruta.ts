@@ -27,7 +27,7 @@ export async function abrirCuenta(perfilId: unknown): Promise<{ sesion: AmazonSe
   return { sesion, cuenta }
 }
 
-export const MENSAJE_SIN_MIGRACION = 'Falta lanzar la migración 292 en Supabase (las tablas de la ficha, los productos y el log todavía no existen).'
+export const MENSAJE_SIN_MIGRACION = 'Falta lanzar una migración en Supabase (la 292 o la 293): las tablas de Marketing Test todavía no existen.'
 
 /** De una excepción a una respuesta legible: migración sin lanzar, error de Amazon Ads (con su motivo) o genérico */
 export function errorDeRuta(error: unknown, contexto: string): NextResponse {

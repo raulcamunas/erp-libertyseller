@@ -18,35 +18,44 @@ export interface Informe {
   actual: FilaDiaria[]
   anterior: FilaDiaria[]
   periodos: { actual: { desde: string; hasta: string }; anterior: { desde: string; hasta: string } }
+  /** Hay una lectura nueva en marcha: lo que se ve es lo guardado, y se refrescará solo */
+  sincronizando: boolean
+  /** El último error de la lectura automática, si lo hubo (los datos que se ven son los de antes) */
+  aviso: string | null
+  datosHasta: string | null
 }
 
 export type Carga<T> = { fase: 'cargando'; nota?: string } | { fase: 'listo'; datos: T; en: number } | { fase: 'error'; mensaje: string }
 
-interface Pedido {
-  actual: { id: string; desde: string; hasta: string }
-  anterior: { id: string; desde: string; hasta: string }
+interface Guardado {
+  hayDatos: boolean
+  sincronizando: boolean
+  actualizadoAt: string | null
+  datosHasta: string | null
+  error: string | null
+  periodos: Informe['periodos']
+  actual: FilaDiaria[]
+  anterior: FilaDiaria[]
 }
 
-/** Lo ya cargado, por cuenta y periodo: cambiar de pestaña no vuelve a pedirlo a Amazon (cada informe tarda de segundos a minutos). Se renueva a los 15 min o con «Actualizar» */
-const CACHE_INFORMES = new Map<string, { datos: Informe; en: number }>()
+/** Las campañas en vivo, por cuenta: cambiar de pestaña no vuelve a pedirlas (15 min). El rendimiento NO se guarda aquí: viene de la base y es instantáneo */
 const CACHE_CAMPANAS = new Map<string, { datos: CampanaViva[]; en: number }>()
 const VIGENCIA_MS = 15 * 60_000
-const ESPERA_ENTRE_PREGUNTAS_MS = 4000
-const MAX_PREGUNTAS = 75 // ≈ 5 minutos
+const ESPERA_ENTRE_PREGUNTAS_MS = 6000
+const MAX_PREGUNTAS = 90 // ≈ 9 minutos: la primera lectura de una cuenta trae 60 días y Amazon puede tardar
 
 /**
- * El rendimiento de una cuenta: sus campañas (en vivo) y el informe diario de Amazon (periodo y anterior). Las dos cargas son independientes: si el informe falla, las campañas se ven igual.
+ * El rendimiento de una cuenta: sus campañas (en vivo) y las cifras diarias guardadas por el proceso automático. Las dos cargas son independientes: si las cifras fallan, las campañas se ven igual.
+ *
+ * Lo guardado se enseña AL INSTANTE. Si hay una lectura en marcha (o es la primera vez que se abre esta cuenta, y todavía no hay nada guardado), se sigue preguntando cada pocos segundos y la pantalla se
+ * actualiza sola cuando Amazon termina.
  */
 export function useRendimiento(perfilId: string, dias: 7 | 14 | 30) {
-  const clave = `${perfilId}:${dias}`
   const [campanas, setCampanas] = useState<Carga<CampanaViva[]>>(() => {
     const c = CACHE_CAMPANAS.get(perfilId)
     return c && Date.now() - c.en < VIGENCIA_MS ? { fase: 'listo', datos: c.datos, en: c.en } : { fase: 'cargando' }
   })
-  const [informe, setInforme] = useState<Carga<Informe>>(() => {
-    const c = CACHE_INFORMES.get(clave)
-    return c && Date.now() - c.en < VIGENCIA_MS ? { fase: 'listo', datos: c.datos, en: c.en } : { fase: 'cargando' }
-  })
+  const [informe, setInforme] = useState<Carga<Informe>>({ fase: 'cargando', nota: 'Leyendo los datos guardados…' })
   const generacion = useRef(0)
 
   const cargar = useCallback(
@@ -68,34 +77,34 @@ export function useRendimiento(perfilId: string, dias: 7 | 14 | 30) {
           .catch((e) => vigente() && setCampanas({ fase: 'error', mensaje: e instanceof Error ? e.message : 'No se han podido leer las campañas.' }))
       }
 
-      // ---- informe diario (asíncrono en Amazon) ----
-      const ci = CACHE_INFORMES.get(clave)
-      if (!forzar && ci && Date.now() - ci.en < VIGENCIA_MS) {
-        setInforme({ fase: 'listo', datos: ci.datos, en: ci.en })
-        return
-      }
-      setInforme({ fase: 'cargando', nota: 'Pidiendo el informe a Amazon…' })
+      // ---- cifras (guardadas en la base; las rellena el proceso automático) ----
       try {
-        const pedido = await llamar<Pedido>('/api/ads/cuenta/rendimiento', { metodo: 'POST', cuerpo: { perfilId, dias } })
+        if (forzar) await llamar('/api/ads/cuenta/rendimiento', { metodo: 'POST', cuerpo: { perfilId, accion: 'actualizar' } })
         for (let i = 0; i < MAX_PREGUNTAS; i++) {
           if (!vigente()) return
-          const r = await llamar<{ listo: boolean; actual?: FilaDiaria[]; anterior?: FilaDiaria[] }>(`/api/ads/cuenta/rendimiento?perfilId=${perfilId}&a=${pedido.actual.id}&b=${pedido.anterior.id}`)
-          if (r.listo && r.actual && r.anterior) {
-            const datos: Informe = { actual: r.actual, anterior: r.anterior, periodos: { actual: { desde: pedido.actual.desde, hasta: pedido.actual.hasta }, anterior: { desde: pedido.anterior.desde, hasta: pedido.anterior.hasta } } }
-            const en = Date.now()
-            CACHE_INFORMES.set(clave, { datos, en })
-            if (vigente()) setInforme({ fase: 'listo', datos, en })
+          const g = await llamar<Guardado>(`/api/ads/cuenta/rendimiento?perfilId=${perfilId}&dias=${dias}`)
+          if (!vigente()) return
+          if (g.hayDatos) {
+            setInforme({
+              fase: 'listo',
+              datos: { actual: g.actual, anterior: g.anterior, periodos: g.periodos, sincronizando: g.sincronizando, aviso: g.error, datosHasta: g.datosHasta },
+              en: g.actualizadoAt ? Date.parse(g.actualizadoAt) : Date.now(),
+            })
+          } else if (!g.sincronizando && g.error) {
+            setInforme({ fase: 'error', mensaje: g.error })
             return
+          } else {
+            setInforme({ fase: 'cargando', nota: i < 2 ? 'Primera lectura de esta cuenta: Amazon está preparando los últimos 60 días…' : 'Amazon sigue preparando el informe (la primera vez puede tardar unos minutos; las siguientes se abren al instante)…' })
           }
-          if (vigente()) setInforme({ fase: 'cargando', nota: i < 2 ? 'Amazon está preparando el informe…' : 'Amazon sigue preparando el informe (suele tardar menos de un minuto)…' })
+          if (!g.sincronizando && g.hayDatos) return
           await new Promise((res) => setTimeout(res, ESPERA_ENTRE_PREGUNTAS_MS))
         }
-        if (vigente()) setInforme({ fase: 'error', mensaje: 'Amazon tarda más de lo normal en preparar el informe. Pulsa «Actualizar» en un momento.' })
+        if (vigente()) setInforme((prev) => (prev.fase === 'listo' ? prev : { fase: 'error', mensaje: 'Amazon tarda más de lo normal en preparar el informe. Se seguirá leyendo en segundo plano: vuelve en unos minutos.' }))
       } catch (e) {
-        if (vigente()) setInforme({ fase: 'error', mensaje: e instanceof Error ? e.message : 'No se ha podido leer el informe.' })
+        if (vigente()) setInforme({ fase: 'error', mensaje: e instanceof Error ? e.message : 'No se ha podido leer el rendimiento.' })
       }
     },
-    [perfilId, dias, clave]
+    [perfilId, dias]
   )
 
   useEffect(() => {
