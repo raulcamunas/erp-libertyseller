@@ -16,6 +16,7 @@ import { usePresencia } from './PresenciaProvider'
 import { PresenciaDeTarea } from './PresenciaVisual'
 import { PropiedadesPropias } from './PropiedadesPropias'
 import { VersionesDelCuerpo } from './VersionesDelCuerpo'
+import { VisorDeEnlace } from './VisorDeEnlace'
 import { SelectorDePortada, estiloDePortada } from './Portada'
 import { Etiqueta, fechaCorta, SelectorDeColor, SelectorDeEmoji, SelectorDeOpcion, SelectorDePersonas } from './ui'
 
@@ -380,6 +381,7 @@ export function PanelDeTarea({ tareaId, inicial, cliente, personas, miId, esAdmi
                 </Propiedad>
                 <Propiedad icono={<Link2 className="h-3.5 w-3.5" />} nombre="Enlace">
                   <input type="url" defaultValue={tarea.url ?? ''} key={`${tarea.id}-${tarea.url}`} placeholder="https://…" aria-label="Enlace" onBlur={(e) => { const v = e.target.value.trim(); if (v !== (tarea.url ?? '')) void guardar({ url: v || null }) }} className="tc-entrada" />
+                  <VisorDeEnlace url={tarea.url} />
                 </Propiedad>
                 {tarea.propiedades !== undefined && (cliente?.notion_esquema?.extras ?? []).length > 0 && (
                   <PropiedadesPropias extras={cliente?.notion_esquema?.extras ?? []} valores={tarea.propiedades ?? {}} onCambio={(nombre, valor) => void guardar({ propiedades: { [nombre]: valor } })} />

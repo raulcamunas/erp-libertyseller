@@ -3646,6 +3646,20 @@ html.light .tc-fecha { color-scheme: light; }
 .tc-fecha:focus { border-color: var(--ls-acc-graf); outline: none; background: var(--ls-sup2); }
 .tc-fecha:disabled { opacity: 0.4; }
 .tc-entrada { height: 28px; width: 100%; text-overflow: ellipsis; border-radius: 7px; border: 1px solid transparent; background: transparent; padding: 0 8px; font-size: 12.5px; color: var(--ls-t2); outline: none; }
+.tc-enlace { margin-top: 6px; min-width: 0; overflow: hidden; border-radius: 10px; border: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-sup2) 70%, transparent); }
+.tc-enlace-cabecera { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 10px; }
+.tc-enlace-icono { display: grid; height: 28px; width: 28px; flex-shrink: 0; place-items: center; border-radius: 8px; background: var(--ls-sup3); color: var(--ls-t2); }
+.tc-enlace-icono[data-tipo='documento'] { color: #4285f4; }
+.tc-enlace-icono[data-tipo='hoja'] { color: #0f9d58; }
+.tc-enlace-icono[data-tipo='presentacion'] { color: #f4b400; }
+.tc-enlace-icono[data-tipo='formulario'] { color: #7e57c2; }
+.tc-enlace-texto { display: flex; min-width: 0; flex: 1 1 120px; flex-direction: column; line-height: 1.25; }
+.tc-enlace-texto b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--ls-t1); }
+.tc-enlace-texto i { font-size: 11px; font-style: normal; color: var(--ls-t3); }
+.tc-enlace-boton { display: inline-flex; align-items: center; gap: 5px; border-radius: 7px; border: 1px solid var(--ls-linea2); background: transparent; padding: 4px 9px; font-size: 12px; color: var(--ls-t2); text-decoration: none; cursor: pointer; }
+.tc-enlace-boton:hover { border-color: var(--ls-acc-graf); color: var(--ls-t1); }
+.tc-enlace-visor { display: block; height: 420px; width: 100%; border: 0; border-top: 1px solid var(--ls-linea); background: #fff; }
+.tc-enlace-nota { display: block; padding: 5px 10px 7px; font-size: 11px; color: var(--ls-t3); }
 .tc-entrada::placeholder { color: var(--ls-t4); }
 .tc-entrada:hover { background: var(--ls-sup3); }
 .tc-entrada:focus { border-color: var(--ls-acc-graf); background: var(--ls-sup2); }
