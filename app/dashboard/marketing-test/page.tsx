@@ -45,8 +45,8 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
 
   if (clientes.length === 0) {
     return (
-      <Vacio icono={<FlaskConical />} titulo="Ningún cliente tiene una cuenta de Amazon Ads en uso">
-        Se conectan y se marcan «en uso» en <strong>Amazon API · Publicidad</strong>. En cuanto una esté, el cliente aparece aquí.
+      <Vacio icono={<FlaskConical />} titulo="Ningún cliente tiene Amazon Ads conectado">
+        Se conectan en <strong>Amazon API · Publicidad</strong>. En cuanto uno esté, aparece aquí con todos sus países.
       </Vacio>
     )
   }
@@ -62,7 +62,7 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
         key={`${cliente.slug}:${cuenta?.id ?? 'sin'}`}
         clientes={clientes.map((c) => ({ slug: c.slug, nombre: c.nombre }))}
         cliente={{ slug: cliente.slug, nombre: cliente.nombre }}
-        cuentas={cuentas.map((c) => ({ id: c.id, pais: c.pais, moneda: c.moneda }))}
+        cuentas={cuentas.map((c) => ({ id: c.id, pais: c.pais, moneda: c.moneda, nombre: c.nombre }))}
         cuentaId={cuenta?.id ?? null}
         pestana={uno(searchParams.t) ?? 'ficha'}
       />

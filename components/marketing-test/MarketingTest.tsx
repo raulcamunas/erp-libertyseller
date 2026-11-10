@@ -12,7 +12,7 @@ import { PestanaLog } from './PestanaLog'
 interface Props {
   clientes: Array<{ slug: string; nombre: string }>
   cliente: { slug: string; nombre: string }
-  cuentas: Array<{ id: string; pais: string; moneda: string | null }>
+  cuentas: Array<{ id: string; pais: string; moneda: string | null; nombre: string | null }>
   cuentaId: string | null
   pestana: string
 }
@@ -68,6 +68,7 @@ export function MarketingTest({ clientes, cliente, cuentas, cuentaId, pestana }:
                 <option key={c.id} value={c.id}>
                   {c.pais}
                   {c.moneda ? ` · ${c.moneda}` : ''}
+                  {c.nombre ? ` · ${c.nombre}` : ''}
                 </option>
               ))}
             </select>
@@ -91,8 +92,8 @@ export function MarketingTest({ clientes, cliente, cuentas, cuentaId, pestana }:
 
       <div className="min-h-0 min-w-0 flex-1 overflow-auto">
         {!cuenta ? (
-          <Vacio icono={<FlaskConical />} titulo="Este cliente no tiene ninguna cuenta de anunciante en uso">
-            Se marcan «en uso» en <strong>Amazon API · Publicidad</strong>.
+          <Vacio icono={<FlaskConical />} titulo="Este cliente no tiene ninguna cuenta de anunciante">
+            Se conecta en <strong>Amazon API · Publicidad</strong>.
           </Vacio>
         ) : activa === 'ficha' ? (
           <PestanaFicha key={cuenta.id} perfilId={cuenta.id} />

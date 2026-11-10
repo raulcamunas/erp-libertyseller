@@ -23,7 +23,7 @@ export async function abrirCuenta(perfilId: unknown): Promise<{ sesion: AmazonSe
   if (ceoSinCasilla(sesion.role, (perfil as { puesto: string | null } | null)?.puesto, new Set(permiso?.can_access ? [APP_MARKETING_TEST] : []))) return fail(403, 'No tienes acceso a Marketing Test')
   if (typeof perfilId !== 'string' || !UUID.test(perfilId)) return fail(400, 'Falta la cuenta de anunciante.')
   const cuenta = await cuentaPorId(perfilId)
-  if (!cuenta) return fail(404, 'Esa cuenta de anunciante no existe o está apagada.')
+  if (!cuenta) return fail(404, 'Esa cuenta de anunciante no existe.')
   return { sesion, cuenta }
 }
 
