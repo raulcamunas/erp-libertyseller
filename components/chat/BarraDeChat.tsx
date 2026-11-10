@@ -86,8 +86,8 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
             <ul>
               {voces.map((c) => {
                 const conectado = enSala?.canalId === c.id
-                // Quien está dentro ahora: la presencia (al instante; si no hay, lo que dice LiveKit) y tú mismo en cuanto entras
-                const base = conectados.size > 0 ? enVoz[c.id] ?? [] : activas[c.id]?.personas ?? []
+                // Quien está dentro ahora: la presencia (al instante) más lo que ve LiveKit, y tú mismo en cuanto entras
+                const base = enVoz[c.id] ?? []
                 const dentro = [...new Set([...base.filter((id) => id !== yo.id || conectado), ...(conectado ? [yo.id] : [])])]
                 return (
                   <li key={c.id}>

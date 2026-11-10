@@ -89,7 +89,7 @@ const NO_VOLVER_POR = new Set<DisconnectReason | undefined>([DisconnectReason.CL
 const mensajeDe = (e: unknown, por: string) => (e instanceof Error && e.message ? e.message : por)
 
 export function JuntaProvider({ children }: { children: ReactNode }) {
-  const { versionDeJuntas, anunciarVoz, respuestaDePuerta } = useChat()
+  const { versionDeJuntas, anunciarVoz, ponerVozDeLiveKit, respuestaDePuerta } = useChat()
   const [disponible, setDisponible] = useState(false)
   const [activas, setActivas] = useState<Record<string, JuntaActiva>>({})
   const [actual, setActual] = useState<ContextoDeJunta['actual']>(null)
@@ -246,11 +246,23 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (versionDeJuntas > 0) void leerActivas()
   }, [versionDeJuntas, leerActivas])
+  // Lo que ve LiveKit se lo pasa al chat, que lo suma a la presencia (quién está en cada sala y quién cuenta como conectado)
+  useEffect(() => {
+    ponerVozDeLiveKit(Object.fromEntries(Object.values(activas).map((a) => [a.canalId, a.personas ?? []])))
+  }, [activas, ponerVozDeLiveKit])
+  // Al entrar o salir de una sala se avisa al servidor, que lo reparte a los del canal para que lo vean al momento
+  const canalDeLaSala = useRef<string | null>(null)
+  const avisarDeLaSala = useCallback((canalId: string) => {
+    void pedir(`${BASE}/junta/aviso`, { metodo: 'POST', cuerpo: { canalId } }).catch(() => undefined)
+  }, [])
 
   const limpiar = useCallback(() => {
     const r = room.current
     room.current = null
     conectando.current = false
+    const salida = canalDeLaSala.current
+    canalDeLaSala.current = null
+    if (salida) setTimeout(() => avisarDeLaSala(salida), 700)
     if (r) {
       r.removeAllListeners()
       void r.disconnect()
@@ -263,7 +275,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     setActual(null)
     bump()
     void leerActivas()
-  }, [anunciarVoz, bump, leerActivas])
+  }, [anunciarVoz, avisarDeLaSala, bump, leerActivas])
 
   // Salir a propósito: no se vuelve sola, y la ventana grande se cierra
   const salir = useCallback(() => {
@@ -318,6 +330,8 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
         intentosDeVuelta.current = 0
         setActual({ canalId, estado: 'conectada' })
         anunciarVoz(canalId)
+        canalDeLaSala.current = canalId
+        avisarDeLaSala(canalId)
         try {
           await nueva.localParticipant.setMicrophoneEnabled(true)
           await aplicarVozAlMicro()
@@ -350,7 +364,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
         conectando.current = false
       }
     },
-    [actual?.canalId, anunciarVoz, aplicarVozAlMicro, bump, limpiar]
+    [actual?.canalId, anunciarVoz, avisarDeLaSala, aplicarVozAlMicro, bump, limpiar]
   )
   entrarRef.current = entrar
 

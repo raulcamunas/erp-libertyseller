@@ -65,12 +65,15 @@ export async function entrarEnJunta(quien: QuienEscribe, canalId: unknown): Prom
   const c = configuracion()
   if (!c) throw noDisponible()
   const canal = await canalDe(canalId)
-  const miembros = await exigirMiembro(quien, canal)
   const sala = salaDe(canal.id)
+  // Lo de la base (que eres del canal) y lo de LiveKit (cómo está la sala) a la vez, no uno detrás de otro: son los dos viajes que hay antes de poder conectar
+  const lecturaDeSala = estadoDeSala(c, sala)
+  lecturaDeSala.catch(() => undefined)
+  const miembros = await exigirMiembro(quien, canal)
 
   let estabaVacia = true
   try {
-    const estado = await estadoDeSala(c, sala)
+    const estado = await lecturaDeSala
     estabaVacia = estado.dentro.length === 0
     // Con candado, solo entra quien ya estaba dentro o a quien han dejado entrar. Un candado que se quedó puesto en una sala vacía no cuenta: se quita
     if (!puedeEntrarASala(estado, quien.userId)) throw new ErrorDeChat(MENSAJE_DE_SALA_CON_CANDADO, 423)
@@ -151,6 +154,20 @@ export async function ponerCandado(quien: QuienEscribe, canalId: unknown, bloque
   // Es el mismo aviso de «algo ha cambiado en la junta de este canal»: la pantalla vuelve a leer quién está y si tiene candado
   void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala, estado: 'voz' })
   return { bloqueada: nuevo }
+}
+
+/**
+ * «He entrado» o «he salido» de la sala de un canal: se olvida lo que se tenía guardado de LiveKit y se avisa a todos los del canal para que vuelvan a leer quién está dentro AHORA. Sin esto, solo se enteraban
+ * de la primera entrada (la sala vacía) o por la presencia, que puede tardar o perderse: de ahí que uno viera a los dos dentro y el otro solo a uno.
+ */
+export async function avisarDeCambioEnLaSala(quien: QuienEscribe, canalId: unknown): Promise<{ ok: true }> {
+  const c = configuracion()
+  if (!c) throw noDisponible()
+  const canal = await canalDe(canalId)
+  const miembros = await exigirMiembro(quien, canal)
+  cacheActivas = null
+  void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala: salaDe(canal.id), estado: 'voz' })
+  return { ok: true }
 }
 
 /** Para no avasallar a quien está dentro: un toque por persona y sala cada 15 segundos */

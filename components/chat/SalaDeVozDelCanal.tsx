@@ -15,15 +15,15 @@ import { Cuadro, MandosDeLaJunta, teselasDe } from './PanelDeJunta'
  */
 export function SalaDeVozDelCanal({ canal }: { canal: CanalChat }) {
   const { actual, room, version, entrar, activas, disponible, bloqueada, esperandoPuerta } = useJunta()
-  const { enVoz, conectados, yo, nombreDe } = useChat()
+  const { enVoz, yo, nombreDe } = useChat()
   const [plegada, setPlegada] = useState(false)
   void version
   const dentroAqui = actual?.canalId === canal.id
   const conectada = dentroAqui && actual?.estado === 'conectada'
   const conCandado = bloqueada(canal.id)
   const { gente, teselas, hayPantalla } = teselasDe(dentroAqui ? room : null)
-  // Quién está dentro ahora: la presencia (al instante) y, si no hay, lo que dice LiveKit
-  const base = conectados.size > 0 ? enVoz[canal.id] ?? [] : activas[canal.id]?.personas ?? []
+  // Quién está dentro ahora: la presencia (al instante) más lo que ve LiveKit
+  const base = enVoz[canal.id] ?? []
   const otros = [...new Set(base)].filter((id) => dentroAqui || id !== yo.id)
   const cuenta = dentroAqui ? gente.length : otros.length
   const llamando = esperandoPuerta === canal.id

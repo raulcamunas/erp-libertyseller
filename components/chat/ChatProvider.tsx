@@ -98,6 +98,8 @@ interface ContextoDeChat {
   conectados: ReadonlySet<string>
   /** Quién está en cada canal de voz AHORA (sale de la presencia: al entrar o salir se ve al instante, sin esperar a preguntarlo) */
   enVoz: Record<string, string[]>
+  /** La junta le cuenta aquí a quién ve LiveKit dentro de cada sala: es la verdad de verdad, y se suma a la presencia (que puede tardar o perderse). Quien está en una sala cuenta como conectado */
+  ponerVozDeLiveKit: (porCanal: Record<string, string[]>) => void
   /** Avisa al resto de en qué canal de voz estás (null = en ninguno) */
   anunciarVoz: (canalId: string | null) => void
   escribiendo: (canalId: string) => string[]
@@ -174,8 +176,23 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
   const [marcas, setMarcas] = useState<Record<string, string | null>>({})
   const [hilo, setHilo] = useState<{ canalId: string; id: number } | null>(null)
   const [mensajesDelHilo, setMensajesDelHilo] = useState<MensajeChat[]>([])
-  const [conectados, setConectados] = useState<ReadonlySet<string>>(new Set())
-  const [enVoz, setEnVoz] = useState<Record<string, string[]>>({})
+  const [conectadosPresencia, setConectados] = useState<ReadonlySet<string>>(new Set())
+  const [enVozPresencia, setEnVoz] = useState<Record<string, string[]>>({})
+  const [vozDeLiveKit, setVozDeLiveKit] = useState<Record<string, string[]>>({})
+  const ponerVozDeLiveKit = useCallback((porCanal: Record<string, string[]>) => {
+    setVozDeLiveKit((previo) => (JSON.stringify(previo) === JSON.stringify(porCanal) ? previo : porCanal))
+  }, [])
+  // Lo que dice la presencia MÁS lo que ve LiveKit: si la presencia de alguien se pierde o tarda, estar en una sala lo deja a la vista igualmente
+  const enVoz = useMemo(() => {
+    const unido: Record<string, string[]> = { ...enVozPresencia }
+    for (const [canal, ids] of Object.entries(vozDeLiveKit)) unido[canal] = [...new Set([...(unido[canal] ?? []), ...ids])]
+    return unido
+  }, [enVozPresencia, vozDeLiveKit])
+  const conectados = useMemo<ReadonlySet<string>>(() => {
+    const ids = new Set(conectadosPresencia)
+    for (const lista of Object.values(vozDeLiveKit)) for (const id of lista) ids.add(id)
+    return ids
+  }, [conectadosPresencia, vozDeLiveKit])
   const vozActual = useRef<string | null>(null)
   const [escribiendoPor, setEscribiendoPor] = useState<Record<string, Record<string, number>>>({})
   const [grabandoPor, setGrabandoPor] = useState<Record<string, Record<string, number>>>({})
@@ -461,7 +478,17 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
           if (s === 'SUBSCRIBED' && presencia) void presencia.track({ id: yo.id, en: Date.now(), voz: vozActual.current })
         })
     })()
+    // La presencia se renueva sola cada poco y al volver a la pestaña: si el canal se cayó y se rehízo sin que se enterase el servidor, en unos segundos vuelve a aparecer
+    const latir = () => {
+      if (vivo && presencia && document.visibilityState === 'visible') void presencia.track({ id: yo.id, en: Date.now(), voz: vozActual.current })
+    }
+    const latido = setInterval(latir, 40_000)
+    document.addEventListener('visibilitychange', latir)
+    window.addEventListener('online', latir)
     return () => {
+      clearInterval(latido)
+      document.removeEventListener('visibilitychange', latir)
+      window.removeEventListener('online', latir)
       vivo = false
       canalDePresencia.current = null
       if (propio) void supabase.removeChannel(propio)
@@ -813,6 +840,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       cambiar,
       conectados,
       enVoz,
+      ponerVozDeLiveKit,
       anunciarVoz,
       escribiendo,
       grabando,
@@ -845,7 +873,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       abrirAsistente,
       cerrarAsistente,
     }),
-    [puertas, respuestaDePuerta, descartarPuerta, enVoz, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
+    [puertas, respuestaDePuerta, descartarPuerta, enVoz, ponerVozDeLiveKit, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>
