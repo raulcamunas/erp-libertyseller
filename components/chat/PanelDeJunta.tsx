@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Room, Track, type Participant, type TrackPublication } from 'livekit-client'
-import { HeadphoneOff, Headphones, Mic, MicOff, Minimize2, MonitorUp, MonitorX, PhoneOff, Settings2, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
+import { HeadphoneOff, Headphones, Lock, LockOpen, Mic, MicOff, Minimize2, MonitorUp, MonitorX, PhoneOff, Settings2, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible } from '@/lib/chat/canales'
 import { useChat } from './ChatProvider'
 import { useJunta } from './JuntaProvider'
+import { abrirDialogoDeVoz } from '@/lib/chat/dialogo-voz'
 import { BotonDeSonidos } from './BotonDeSonidos'
 
 /** Un vídeo (cámara o pantalla) pegado a su elemento: se desengancha solo al cambiar o irse */
@@ -24,7 +25,7 @@ function Imagen({ pub, silenciado }: { pub: TrackPublication; silenciado?: boole
   return <video ref={el} autoPlay playsInline muted={silenciado} />
 }
 
-interface Tesela {
+export interface Tesela {
   clave: string
   persona: Participant
   /** Si es la pantalla compartida de esa persona */
@@ -32,7 +33,7 @@ interface Tesela {
   pub: TrackPublication | null
 }
 
-function Cuadro({ t, foco }: { t: Tesela; foco?: boolean }) {
+export function Cuadro({ t, foco }: { t: Tesela; foco?: boolean }) {
   const { yo, nombreDe } = useChat()
   const { volumenes, ponerVolumen } = useJunta()
   const nombre = nombreDe(t.persona.identity)
@@ -91,6 +92,7 @@ export function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
   return (
     <div className="chat-audio-ajustes" ref={panel} role="dialog" aria-label="Ajustes de audio">
       <p className="chat-audio-titulo">Tu audio <i>solo cambia lo tuyo</i></p>
+      <button type="button" className="chat-boton-sonidos" onClick={abrirDialogoDeVoz}><Mic className="h-3.5 w-3.5" />Ajustes de voz y prueba de micrófono…</button>
       {interruptor('supresion', 'Supresión de ruido', 'Quita teclado, ventilador y ruido de fondo')}
       {interruptor('eco', 'Cancelar el eco', 'Evita que tu voz vuelva por los altavoces')}
       {interruptor('nivelacion', 'Nivelar mi micrófono', 'Sube o baja el volumen solo, para que se te oiga siempre igual')}
@@ -117,19 +119,8 @@ export function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
   )
 }
 
-/**
- * LA VENTANA GRANDE DE LA JUNTA: cuadros de cada persona, cámaras, quien comparte pantalla en grande, y los mandos. La junta es por defecto una cápsula pequeña junto al chat
- * (components/chat/JuntaFlotante.tsx); esta ventana se abre solo si se pide («Ver la junta») y se vuelve a la cápsula con «Minimizar». Se queda abierta aunque cambies de canal o de pantalla.
- */
-export function PanelDeJunta() {
-  const { actual, room, version, salir, alternarMicro, alternarCamara, alternarPantalla, puedePantalla, ensordecido, alternarEnsordecer, ponerVistaGrande } = useJunta()
-  const { canales, yo, persona } = useChat()
-  const [ajustes, setAjustes] = useState(false)
-  void version
-  if (!actual) return null
-  const canal = canales.find((c) => c.id === actual.canalId)
-  const nombre = canal ? nombreVisible(canal, yo.id, persona) : 'Junta'
-  const lp = room?.localParticipant
+/** Los cuadros de una sala: la pantalla compartida de cada persona (si la hay) y, después, la cara o la cámara de cada una */
+export function teselasDe(room: Room | null): { gente: Participant[]; teselas: Tesela[]; hayPantalla: boolean } {
   const gente: Participant[] = room ? [room.localParticipant, ...room.remoteParticipants.values()] : []
   const teselas: Tesela[] = []
   for (const p of gente) {
@@ -137,7 +128,72 @@ export function PanelDeJunta() {
     if (pantalla?.track) teselas.push({ clave: `${p.identity}-pantalla`, persona: p, pantalla: true, pub: pantalla })
   }
   for (const p of gente) teselas.push({ clave: p.identity, persona: p, pantalla: false, pub: p.getTrackPublication(Track.Source.Camera) ?? null })
-  const hayPantalla = teselas.some((t) => t.pantalla)
+  return { gente, teselas, hayPantalla: teselas.some((t) => t.pantalla) }
+}
+
+/** El candado de la sala en la que estás: puesto, para entrar hay que llamar a la puerta; quitado, la sala está abierta */
+export function BotonDeCandado({ canalId }: { canalId: string }) {
+  const { bloqueada, ponerCandado } = useJunta()
+  const puesto = bloqueada(canalId)
+  return (
+    <button type="button" onClick={() => void ponerCandado(canalId, !puesto)} data-activo={puesto ? 'true' : undefined} aria-pressed={puesto} aria-label={puesto ? 'Quitar el candado de la sala' : 'Poner un candado a la sala'} title={puesto ? 'Sala con candado: quien quiera entrar tiene que llamar a la puerta. Pulsa para quitarlo' : 'Poner un candado: quien quiera entrar tendrá que llamar a la puerta y tú decides'}>
+      {puesto ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+    </button>
+  )
+}
+
+/**
+ * LOS MANDOS DE LA JUNTA (micrófono, cámara, pantalla, ensordecer, candado, ajustes y salir), los mismos en la ventana grande y en la sala del canal. `ajustes`: 'dentro' pinta los ajustes de audio
+ * llenando el panel (la ventana grande), 'sobre' como una ventanita encima de los mandos (la sala del canal).
+ */
+export function MandosDeLaJunta({ canalId, ajustesEn }: { canalId: string; ajustesEn: 'dentro' | 'sobre' }) {
+  const { room, version, salir, alternarMicro, alternarCamara, alternarPantalla, puedePantalla, ensordecido, alternarEnsordecer } = useJunta()
+  const [ajustes, setAjustes] = useState(false)
+  void version
+  const lp = room?.localParticipant
+  const panel = ajustes ? <AjustesDeAudioPanel onCerrar={() => setAjustes(false)} /> : null
+  return (
+    <>
+      {ajustesEn === 'dentro' ? panel : panel && <div className="junta-ajustes">{panel}</div>}
+      <footer className="chat-junta-mandos">
+        <button type="button" onClick={() => void alternarMicro()} data-apagado={lp && !lp.isMicrophoneEnabled ? 'true' : undefined} aria-pressed={Boolean(lp?.isMicrophoneEnabled)} aria-label={lp?.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'} title={lp?.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'}>
+          {lp?.isMicrophoneEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+        </button>
+        <button type="button" onClick={() => void alternarCamara()} data-apagado={lp && !lp.isCameraEnabled ? 'true' : undefined} aria-pressed={Boolean(lp?.isCameraEnabled)} aria-label={lp?.isCameraEnabled ? 'Apagar la cámara' : 'Encender la cámara'} title={lp?.isCameraEnabled ? 'Apagar la cámara' : 'Encender la cámara'}>
+          {lp?.isCameraEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+        </button>
+        {puedePantalla && (
+          <button type="button" onClick={() => void alternarPantalla()} data-activo={lp?.isScreenShareEnabled ? 'true' : undefined} aria-pressed={Boolean(lp?.isScreenShareEnabled)} aria-label={lp?.isScreenShareEnabled ? 'Dejar de compartir la pantalla' : 'Compartir la pantalla'} title={lp?.isScreenShareEnabled ? 'Dejar de compartir la pantalla' : 'Compartir la pantalla'}>
+            {lp?.isScreenShareEnabled ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
+          </button>
+        )}
+        <button type="button" onClick={() => void alternarEnsordecer()} data-apagado={ensordecido ? 'true' : undefined} aria-pressed={ensordecido} aria-label={ensordecido ? 'Volver a oír' : 'Ensordecer: dejar de oír a todos'} title={ensordecido ? 'Volver a oír' : 'Ensordecer: dejar de oír a todos'}>
+          {ensordecido ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
+        </button>
+        <BotonDeCandado canalId={canalId} />
+        <button type="button" data-abre-ajustes-audio data-activo={ajustes ? 'true' : undefined} onClick={() => setAjustes((a) => !a)} aria-expanded={ajustes} aria-label="Ajustes de audio" title="Ajustes de audio: ruido, micrófono, altavoz">
+          <Settings2 className="h-4 w-4" />
+        </button>
+        <button type="button" className="chat-colgar" onClick={salir} aria-label="Salir de la junta" title="Salir de la junta">
+          <PhoneOff className="h-4 w-4" /> Salir
+        </button>
+      </footer>
+    </>
+  )
+}
+
+/**
+ * LA VENTANA GRANDE DE LA JUNTA: cuadros de cada persona, cámaras, quien comparte pantalla en grande, y los mandos. La junta es por defecto una cápsula pequeña junto al chat
+ * (components/chat/JuntaFlotante.tsx); esta ventana se abre solo si se pide («Ver la junta») y se vuelve a la cápsula con «Minimizar». Se queda abierta aunque cambies de canal o de pantalla.
+ */
+export function PanelDeJunta() {
+  const { actual, room, version, ponerVistaGrande } = useJunta()
+  const { canales, yo, persona } = useChat()
+  void version
+  if (!actual) return null
+  const canal = canales.find((c) => c.id === actual.canalId)
+  const nombre = canal ? nombreVisible(canal, yo.id, persona) : 'Junta'
+  const { gente, teselas, hayPantalla } = teselasDe(room)
 
   return (
     <section className="chat-junta" data-grande="true" data-con-pantalla={hayPantalla ? 'true' : undefined} role="region" aria-label={`Junta en ${nombre}`}>
@@ -155,29 +211,7 @@ export function PanelDeJunta() {
           <Cuadro key={t.clave} t={t} foco={hayPantalla && i === 0} />
         ))}
       </div>
-      {ajustes && <AjustesDeAudioPanel onCerrar={() => setAjustes(false)} />}
-      <footer className="chat-junta-mandos">
-        <button type="button" onClick={() => void alternarMicro()} data-apagado={lp && !lp.isMicrophoneEnabled ? 'true' : undefined} aria-pressed={Boolean(lp?.isMicrophoneEnabled)} aria-label={lp?.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'} title={lp?.isMicrophoneEnabled ? 'Silenciar' : 'Activar el micrófono'}>
-          {lp?.isMicrophoneEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-        </button>
-        <button type="button" onClick={() => void alternarCamara()} data-apagado={lp && !lp.isCameraEnabled ? 'true' : undefined} aria-pressed={Boolean(lp?.isCameraEnabled)} aria-label={lp?.isCameraEnabled ? 'Apagar la cámara' : 'Encender la cámara'} title={lp?.isCameraEnabled ? 'Apagar la cámara' : 'Encender la cámara'}>
-          {lp?.isCameraEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-        </button>
-        {puedePantalla && (
-          <button type="button" onClick={() => void alternarPantalla()} data-activo={lp?.isScreenShareEnabled ? 'true' : undefined} aria-pressed={Boolean(lp?.isScreenShareEnabled)} aria-label={lp?.isScreenShareEnabled ? 'Dejar de compartir la pantalla' : 'Compartir la pantalla'} title={lp?.isScreenShareEnabled ? 'Dejar de compartir' : 'Compartir la pantalla'}>
-            {lp?.isScreenShareEnabled ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
-          </button>
-        )}
-        <button type="button" onClick={() => void alternarEnsordecer()} data-apagado={ensordecido ? 'true' : undefined} aria-pressed={ensordecido} aria-label={ensordecido ? 'Volver a oír' : 'Ensordecer: dejar de oír a todos'} title={ensordecido ? 'Volver a oír' : 'Ensordecer (no oyes a nadie y tu micrófono se apaga)'}>
-          {ensordecido ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
-        </button>
-        <button type="button" data-abre-ajustes-audio data-activo={ajustes ? 'true' : undefined} onClick={() => setAjustes((a) => !a)} aria-expanded={ajustes} aria-label="Ajustes de audio" title="Ajustes de audio: ruido, micrófono, altavoz">
-          <Settings2 className="h-4 w-4" />
-        </button>
-        <button type="button" className="chat-colgar" onClick={salir} aria-label="Salir de la junta" title="Salir de la junta">
-          <PhoneOff className="h-4 w-4" /> Salir
-        </button>
-      </footer>
+      <MandosDeLaJunta canalId={actual.canalId} ajustesEn="dentro" />
     </section>
   )
 }

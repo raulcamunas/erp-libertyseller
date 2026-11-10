@@ -1,4 +1,4 @@
-import { canalDeSala, configuracionDeJunta, salaDe } from '@/lib/chat/junta'
+import { canalDeSala, configuracionDeJunta, leerMetadatosDeSala, MENSAJE_DE_SALA_CON_CANDADO, puedeEntrarASala, salaDe } from '@/lib/chat/junta'
 
 let fallos = 0
 let comprobaciones = 0
@@ -19,6 +19,17 @@ igual('configuración completa', configuracionDeJunta(ok), { url: 'wss://liberty
 igual('se acepta https y barra final', configuracionDeJunta({ ...ok, LIVEKIT_URL: 'https://liberty-abc123.livekit.cloud/' })?.url, 'wss://liberty-abc123.livekit.cloud')
 igual('sin alguna de las tres, no hay juntas', [configuracionDeJunta({ ...ok, LIVEKIT_API_SECRET: '' }), configuracionDeJunta({ ...ok, LIVEKIT_API_KEY: undefined }), configuracionDeJunta({}), configuracionDeJunta({ ...ok, LIVEKIT_URL: ' ' })], [null, null, null, null])
 igual('una dirección rara no vale', [configuracionDeJunta({ ...ok, LIVEKIT_URL: 'liberty.livekit.cloud' }), configuracionDeJunta({ ...ok, LIVEKIT_URL: 'wss://a b.cloud' }), configuracionDeJunta({ ...ok, LIVEKIT_URL: 'ftp://x.cloud' })], [null, null, null])
+
+// El candado: viaja en los metadatos de la sala de LiveKit
+igual('metadatos: con candado y a quién se dejó entrar', leerMetadatosDeSala('{"bloqueada":true,"admitidos":["a","b"]}'), { bloqueada: true, admitidos: ['a', 'b'] })
+igual('metadatos vacíos, rotos o raros: sin candado', [leerMetadatosDeSala(''), leerMetadatosDeSala(null), leerMetadatosDeSala('{no'), leerMetadatosDeSala('{"bloqueada":"si"}'), leerMetadatosDeSala('[]')], [{ bloqueada: false, admitidos: [] }, { bloqueada: false, admitidos: [] }, { bloqueada: false, admitidos: [] }, { bloqueada: false, admitidos: [] }, { bloqueada: false, admitidos: [] }])
+igual('admitidos: solo textos', leerMetadatosDeSala('{"bloqueada":true,"admitidos":["a",3,null,"b"]}').admitidos, ['a', 'b'])
+const sala = (bloqueada: boolean, admitidos: string[], dentro: string[]) => ({ bloqueada, admitidos, dentro })
+igual('sin candado entra cualquiera', puedeEntrarASala(sala(false, [], ['ana']), 'luis'), true)
+igual('con candado y nadie dentro, entra cualquiera (el candado se va con la sala)', puedeEntrarASala(sala(true, [], []), 'luis'), true)
+igual('con candado, quien está dentro puede volver y a quien han dejado entrar', [puedeEntrarASala(sala(true, [], ['ana']), 'ana'), puedeEntrarASala(sala(true, ['luis'], ['ana']), 'luis')], [true, true])
+igual('con candado y gente dentro, un desconocido no entra', puedeEntrarASala(sala(true, ['ana'], ['ana']), 'luis'), false)
+igual('el mensaje del candado es estable (la pantalla lo reconoce)', MENSAJE_DE_SALA_CON_CANDADO.startsWith('Esta sala tiene candado'), true)
 
 console.log(`\n${fallos === 0 ? 'TODO BIEN' : `HAY ${fallos} FALLOS`} (${comprobaciones} comprobaciones)`)
 process.exit(fallos === 0 ? 0 : 1)

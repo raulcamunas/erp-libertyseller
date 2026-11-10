@@ -8,6 +8,7 @@ import { nombreVisible, repartirCanales } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
 import { EmojiDeEstado, EstadoPropio } from './Paneles'
 import { useChat } from './ChatProvider'
+import { abrirDialogoDeVoz } from '@/lib/chat/dialogo-voz'
 import { AparienciaDelChat } from './AparienciaDelChat'
 import { DialogoNuevoCanal, DialogoNuevoDirecto } from './Dialogos'
 import { useJunta } from './JuntaProvider'
@@ -104,6 +105,7 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
                     >
                       <Volume2 className="h-3.5 w-3.5 shrink-0" />
                       <span className="chat-fila-nombre">{c.nombre}</span>
+                      {activas[c.id]?.bloqueada && <Lock className="h-3 w-3 shrink-0 text-[var(--ls-t3)]" aria-label="Sala con candado" />}
                       {dentro.length > 0 && <span className="chat-voz-cuenta">{dentro.length}</span>}
                     </button>
                     {dentro.length > 0 && (
@@ -196,6 +198,7 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
           <b>{yo.nombre}</b>
           <i>{miEstado ? `${miEstado.emoji} ${miEstado.texto}`.trim() : 'En línea · añade un estado'}</i>
         </button>
+        <button type="button" className="chat-icono" onClick={abrirDialogoDeVoz} aria-label="Ajustes de voz" title="Ajustes de voz: volumen del micrófono, sensibilidad y prueba en tiempo real"><Mic className="h-4 w-4" /></button>
         <button type="button" className="chat-icono" data-abre-apariencia onClick={() => setApariencia((v) => !v)} aria-label="Apariencia del chat" aria-expanded={apariencia} title="Apariencia: tema, fondo y estilo"><Palette className="h-4 w-4" /></button>
       </footer>
       {apariencia && <AparienciaDelChat onCerrar={() => setApariencia(false)} />}

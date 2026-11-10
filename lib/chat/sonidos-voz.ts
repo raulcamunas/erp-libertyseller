@@ -12,7 +12,7 @@
 
 import { iniciarBucle, ponerSalidaDeAudio, prepararAudio, reproducirInteraccion } from '@/lib/sonidos/reproductor'
 
-export type SonidoDeVoz = 'entrar' | 'salir' | 'otro-entra' | 'otro-sale' | 'mute' | 'unmute' | 'ensordecer' | 'oir'
+export type SonidoDeVoz = 'entrar' | 'salir' | 'otro-entra' | 'otro-sale' | 'mute' | 'unmute' | 'ensordecer' | 'oir' | 'puerta'
 
 /** Hasta cuándo suena el «llamando…» si el otro no entra */
 export const MAX_LLAMANDO_MS = 40_000

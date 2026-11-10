@@ -112,6 +112,8 @@ export type EventoDeChat =
   | { tipo: 'estado'; usuario: string; estado: EstadoChat | null }
   /** Alguien ha abierto una junta en este canal */
   | { tipo: 'junta'; canalId: string; de: string; sala: string; estado: 'llama' | 'voz' }
+  /** Alguien llama a la puerta de una sala de voz con candado (`toca`, le llega a quien está dentro), le dejan o no entrar (`permitida`/`denegada`, le llega a quien llamó) o ya está resuelto (`resuelta`, para que se cierre el aviso de los demás) */
+  | { tipo: 'puerta'; canalId: string; de: string; estado: 'toca' | 'permitida' | 'denegada' | 'resuelta' }
 
 /** Un mensaje en una lista aparte (menciones, guardados, fijados) con el canal al que pertenece */
 export interface ItemDeBandeja {

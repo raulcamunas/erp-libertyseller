@@ -19,6 +19,7 @@ import { DialogoDeEncuesta, HoraLocalDe, MenuDeAvisos } from './Extras'
 import { DialogoDeFijados, DialogoDeResumen, EmojiDeEstado } from './Paneles'
 import { AvisoDeSoltar, useZonaDeSoltar } from './ZonaDeSoltar'
 import { useJunta } from './JuntaProvider'
+import { SalaDeVozDelCanal } from './SalaDeVozDelCanal'
 import { MensajeVista } from './MensajeVista'
 import { Redactor } from './Redactor'
 
@@ -214,7 +215,7 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
               <Pin className="h-4 w-4" />{canal.fijados > 0 && <span className="text-[12px] font-bold">{canal.fijados}</span>}
             </button>
           )}
-          {canal.soy_miembro && juntasDisponibles && !(juntaActual?.canalId === canal.id) && (
+          {canal.soy_miembro && juntasDisponibles && !canal.voz && !(juntaActual?.canalId === canal.id) && (
             <button type="button" className="chat-icono chat-llamar" onClick={() => hacer(() => entrarEnJunta(canal.id))} aria-label={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta'} title={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta de voz y vídeo'}>
               {canal.tipo === 'directo' ? <Phone className="h-4 w-4" /> : canal.voz ? <Volume2 className="h-4 w-4" /> : <Video className="h-4 w-4" />}
               <span>{canal.tipo === 'directo' ? 'Llamar' : canal.voz ? 'Unirme a la voz' : 'Junta'}</span>
@@ -238,7 +239,10 @@ function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
         </div>
       </header>
 
-      {canal.soy_miembro && activas[canal.id] && juntaActual?.canalId !== canal.id && (
+      {/* Un canal de voz se ve como en Discord: arriba la sala (quién está dentro y los mandos) y debajo el chat del canal */}
+      {canal.voz && <SalaDeVozDelCanal canal={canal} />}
+
+      {canal.soy_miembro && !canal.voz && activas[canal.id] && juntaActual?.canalId !== canal.id && (
         <div className="chat-junta-aviso" role="status">
           <Headphones className="h-4 w-4 text-[var(--ls-e-verde)]" />
           <span>

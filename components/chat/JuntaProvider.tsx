@@ -5,9 +5,11 @@ import { DisconnectReason, Room, RoomEvent, Track, type LocalAudioTrack } from '
 import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
 import { AJUSTES_DE_AUDIO_POR_DEFECTO, CLAVE_DE_AUDIO, CLAVE_DE_VOLUMENES, leerAjustesDeAudio, leerVolumenes, limitarVolumen, limpiarAjustesDeAudio, restriccionesDeMicro, volumenEfectivo, type AjustesDeAudio, type Volumenes } from '@/lib/chat/audio'
-import type { JuntaActiva } from '@/lib/chat/junta'
+import { MENSAJE_DE_SALA_CON_CANDADO, type JuntaActiva } from '@/lib/chat/junta'
 import { ponerJuntaConectada } from '@/lib/chat/dock-estado'
 import { ponerSonidosDeVoz } from '@/lib/chat/sonidos-voz'
+import { AJUSTES_DE_VOZ_POR_DEFECTO, CLAVE_DE_VOZ, leerAjustesDeVoz, limpiarAjustesDeVoz, necesitaProcesador, type AjustesDeVoz } from '@/lib/chat/voz-ajustes'
+import { ProcesadorDeVoz } from '@/lib/chat/voz-procesador'
 import { useChat } from './ChatProvider'
 
 const BASE = '/api/chat'
@@ -38,6 +40,17 @@ interface ContextoDeJunta {
   /** No oyes a nadie (y tu micrófono se apaga) hasta que lo quites */
   ensordecido: boolean
   alternarEnsordecer: () => Promise<void>
+  /** Tu voz: volumen del micrófono y puerta de ruido (se guardan en este navegador) */
+  voz: AjustesDeVoz
+  cambiarVoz: (cambios: Partial<AjustesDeVoz>) => void
+  /** La sala de este canal tiene candado */
+  bloqueada: (canalId: string) => boolean
+  /** Poner o quitar el candado de la sala en la que estás */
+  ponerCandado: (canalId: string, bloqueada: boolean) => Promise<void>
+  /** La sala a cuya puerta has llamado y estás esperando que te dejen entrar */
+  esperandoPuerta: string | null
+  /** Dejar entrar (o no) a quien ha llamado a la puerta de tu sala */
+  responderPuerta: (canalId: string, usuarioId: string, permitir: boolean) => Promise<void>
   /** La ventana grande de la junta (cuadros, cámaras, pantalla compartida) está abierta. Por defecto la junta es una cápsula pequeña junto al chat */
   vistaGrande: boolean
   ponerVistaGrande: (v: boolean) => void
@@ -45,7 +58,7 @@ interface ContextoDeJunta {
 
 const Contexto = createContext<ContextoDeJunta | null>(null)
 
-const SIN_JUNTAS: ContextoDeJunta = { disponible: false, activas: {}, actual: null, room: null, version: 0, puedePantalla: false, entrar: async () => undefined, salir: () => undefined, alternarMicro: async () => undefined, alternarCamara: async () => undefined, alternarPantalla: async () => undefined, audio: AJUSTES_DE_AUDIO_POR_DEFECTO, cambiarAudio: async () => undefined, volumenes: {}, ponerVolumen: () => undefined, ensordecido: false, alternarEnsordecer: async () => undefined, vistaGrande: false, ponerVistaGrande: () => undefined }
+const SIN_JUNTAS: ContextoDeJunta = { disponible: false, activas: {}, actual: null, room: null, version: 0, puedePantalla: false, entrar: async () => undefined, salir: () => undefined, alternarMicro: async () => undefined, alternarCamara: async () => undefined, alternarPantalla: async () => undefined, audio: AJUSTES_DE_AUDIO_POR_DEFECTO, cambiarAudio: async () => undefined, volumenes: {}, ponerVolumen: () => undefined, ensordecido: false, alternarEnsordecer: async () => undefined, vistaGrande: false, ponerVistaGrande: () => undefined, voz: AJUSTES_DE_VOZ_POR_DEFECTO, cambiarVoz: () => undefined, bloqueada: () => false, ponerCandado: async () => undefined, esperandoPuerta: null, responderPuerta: async () => undefined }
 
 export const useJunta = (): ContextoDeJunta => useContext(Contexto) ?? SIN_JUNTAS
 /** Solo para probar las pantallas con datos inventados (la vista de pruebas) */
@@ -74,7 +87,7 @@ const NO_VOLVER_POR = new Set<DisconnectReason | undefined>([DisconnectReason.CL
 const mensajeDe = (e: unknown, por: string) => (e instanceof Error && e.message ? e.message : por)
 
 export function JuntaProvider({ children }: { children: ReactNode }) {
-  const { versionDeJuntas, anunciarVoz } = useChat()
+  const { versionDeJuntas, anunciarVoz, respuestaDePuerta } = useChat()
   const [disponible, setDisponible] = useState(false)
   const [activas, setActivas] = useState<Record<string, JuntaActiva>>({})
   const [actual, setActual] = useState<ContextoDeJunta['actual']>(null)
@@ -89,10 +102,16 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
   const [volumenes, setVolumenes] = useState<Volumenes>({})
   const [ensordecido, setEnsordecido] = useState(false)
   const [vistaGrande, setVistaGrande] = useState(false)
+  const [esperandoPuerta, setEsperandoPuerta] = useState<string | null>(null)
+  const esperandoRef = useRef<string | null>(null)
   // La junta a la que hay que volver si se corta sola, y cuántas veces se ha intentado. null = no se vuelve (se salió a propósito)
   const volverA = useRef<string | null>(null)
   const intentosDeVuelta = useRef(0)
   const entrarRef = useRef<(canalId: string) => Promise<void>>(async () => undefined)
+  const llamarALaPuertaRef = useRef<(canalId: string) => Promise<void>>(async () => undefined)
+  const [voz, setVoz] = useState<AjustesDeVoz>(AJUSTES_DE_VOZ_POR_DEFECTO)
+  const vozRef = useRef(voz)
+  const procesadorRef = useRef<ProcesadorDeVoz | null>(null)
   const audioRef = useRef(audio)
   const volumenesRef = useRef(volumenes)
   const ensordecidoRef = useRef(false)
@@ -101,6 +120,9 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     try {
       const a = leerAjustesDeAudio(window.localStorage.getItem(CLAVE_DE_AUDIO))
       const v = leerVolumenes(window.localStorage.getItem(CLAVE_DE_VOLUMENES))
+      const vz = leerAjustesDeVoz(window.localStorage.getItem(CLAVE_DE_VOZ))
+      vozRef.current = vz
+      setVoz(vz)
       audioRef.current = a
       volumenesRef.current = v
       setAudio(a)
@@ -167,6 +189,39 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     bump()
   }, [aplicarVolumenes, bump])
 
+  /** Pone (o quita) el procesador de voz en el micrófono de la llamada según lo que se haya decidido: solo si se ha tocado el volumen o se usa la puerta de ruido */
+  const aplicarVozAlMicro = useCallback(async () => {
+    const pista = room.current?.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack as LocalAudioTrack | undefined
+    if (!pista) return
+    const v = vozRef.current
+    try {
+      if (necesitaProcesador(v)) {
+        if (procesadorRef.current) procesadorRef.current.actualizar(v)
+        else {
+          const nuevo = new ProcesadorDeVoz(v)
+          procesadorRef.current = nuevo
+          await pista.setProcessor(nuevo)
+        }
+      } else if (procesadorRef.current) {
+        procesadorRef.current = null
+        await pista.stopProcessor()
+      }
+    } catch {
+      procesadorRef.current = null
+      toast.error('Ese ajuste de voz no ha podido aplicarse en este navegador.')
+    }
+  }, [])
+  const cambiarVoz = useCallback(
+    (cambios: Partial<AjustesDeVoz>) => {
+      const nueva = limpiarAjustesDeVoz({ ...vozRef.current, ...cambios })
+      vozRef.current = nueva
+      setVoz(nueva)
+      guardar(CLAVE_DE_VOZ, nueva)
+      void aplicarVozAlMicro()
+    },
+    [aplicarVozAlMicro]
+  )
+
   const leerActivas = useCallback(async () => {
     try {
       const r = await pedir<{ disponible: boolean; activas: JuntaActiva[] }>(`${BASE}/junta`)
@@ -196,6 +251,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       r.removeAllListeners()
       void r.disconnect()
     }
+    procesadorRef.current = null
     audios.current?.replaceChildren()
     ensordecidoRef.current = false
     setEnsordecido(false)
@@ -260,6 +316,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
         anunciarVoz(canalId)
         try {
           await nueva.localParticipant.setMicrophoneEnabled(true)
+          await aplicarVozAlMicro()
         } catch {
           toast.error('No se ha podido activar el micrófono: mira el permiso del navegador. Entras escuchando.')
         }
@@ -271,8 +328,11 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
           room.current = null
         }
         setActual(null)
-        // Si era una vuelta tras un corte, se sigue intentando; si era entrar por primera vez, se avisa y ya
-        if (volverA.current === canalId && intentosDeVuelta.current > 0 && intentosDeVuelta.current < INTENTOS_DE_VUELTA) {
+        // La sala tiene candado: se llama a la puerta y se espera a que alguien de dentro te deje entrar
+        if (e instanceof Error && e.message === MENSAJE_DE_SALA_CON_CANDADO) {
+          volverA.current = null
+          void llamarALaPuertaRef.current(canalId)
+        } else if (volverA.current === canalId && intentosDeVuelta.current > 0 && intentosDeVuelta.current < INTENTOS_DE_VUELTA) {
           intentosDeVuelta.current += 1
           setActual({ canalId, estado: 'conectando' })
           setTimeout(() => {
@@ -286,16 +346,70 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
         conectando.current = false
       }
     },
-    [actual?.canalId, anunciarVoz, bump, limpiar]
+    [actual?.canalId, anunciarVoz, aplicarVozAlMicro, bump, limpiar]
   )
   entrarRef.current = entrar
+
+  /** Llamar a la puerta de una sala con candado. Si en realidad ya se puede entrar (se quitó el candado), se entra; si no, se espera la respuesta (máximo un minuto y medio) */
+  const llamarALaPuerta = useCallback(async (canalId: string) => {
+    try {
+      const r = await pedir<{ puedeEntrar: boolean }>(`${BASE}/junta/puerta`, { metodo: 'POST', cuerpo: { canalId, accion: 'tocar' } })
+      if (r.puedeEntrar) return void entrarRef.current(canalId)
+      esperandoRef.current = canalId
+      setEsperandoPuerta(canalId)
+      toast.message('Esa sala tiene candado: has llamado a la puerta. Esperando a que te dejen entrar…')
+      setTimeout(() => {
+        if (esperandoRef.current !== canalId) return
+        esperandoRef.current = null
+        setEsperandoPuerta(null)
+        toast.message('Nadie ha contestado a la puerta todavía. Puedes volver a llamar.')
+      }, 90_000)
+    } catch (e) {
+      toast.error(mensajeDe(e, 'No se ha podido llamar a la puerta.'))
+    }
+  }, [])
+  llamarALaPuertaRef.current = llamarALaPuerta
+
+  // La respuesta a la puerta a la que he llamado
+  useEffect(() => {
+    if (!respuestaDePuerta || esperandoRef.current !== respuestaDePuerta.canalId) return
+    const canalId = respuestaDePuerta.canalId
+    esperandoRef.current = null
+    setEsperandoPuerta(null)
+    if (respuestaDePuerta.estado === 'permitida') void entrarRef.current(canalId)
+    else toast.error('No te han dejado entrar a la sala.')
+  }, [respuestaDePuerta])
+
+  const ponerCandado = useCallback(
+    async (canalId: string, bloqueada: boolean) => {
+      try {
+        await pedir(`${BASE}/junta/candado`, { metodo: 'POST', cuerpo: { canalId, bloqueada } })
+        // Se ve al instante, sin esperar a la siguiente lectura
+        setActivas((a) => (a[canalId] ? { ...a, [canalId]: { ...a[canalId], bloqueada } } : a))
+        toast.message(bloqueada ? 'Candado puesto: para entrar tendrán que llamar a la puerta.' : 'Candado quitado: la sala vuelve a estar abierta.')
+      } catch (e) {
+        toast.error(mensajeDe(e, 'No se ha podido cambiar el candado.'))
+      }
+    },
+    []
+  )
+  const responderPuerta = useCallback(async (canalId: string, usuarioId: string, permitir: boolean) => {
+    try {
+      await pedir(`${BASE}/junta/puerta`, { metodo: 'POST', cuerpo: { canalId, accion: permitir ? 'permitir' : 'denegar', usuarioId } })
+    } catch (e) {
+      toast.error(mensajeDe(e, 'No se ha podido contestar a la puerta.'))
+    }
+  }, [])
 
   const alternar = useCallback(
     async (que: 'micro' | 'camara' | 'pantalla') => {
       const lp = room.current?.localParticipant
       if (!lp) return
       try {
-        if (que === 'micro') await lp.setMicrophoneEnabled(!lp.isMicrophoneEnabled)
+        if (que === 'micro') {
+          await lp.setMicrophoneEnabled(!lp.isMicrophoneEnabled)
+          await aplicarVozAlMicro()
+        }
         else if (que === 'camara') await lp.setCameraEnabled(!lp.isCameraEnabled)
         else await lp.setScreenShareEnabled(!lp.isScreenShareEnabled, { audio: false })
       } catch (e) {
@@ -305,7 +419,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       }
       bump()
     },
-    [bump]
+    [aplicarVozAlMicro, bump]
   )
 
   // La junta solo se corta al cerrar la pestaña o al salir del ERP (este proveedor vive en el layout de todo el ERP): cambiar de pantalla o de pestaña no la toca
@@ -358,8 +472,14 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       alternarEnsordecer,
       vistaGrande,
       ponerVistaGrande: setVistaGrande,
+      voz,
+      cambiarVoz,
+      bloqueada: (canalId: string) => activas[canalId]?.bloqueada === true,
+      ponerCandado,
+      esperandoPuerta,
+      responderPuerta,
     }),
-    [disponible, activas, actual, version, puedePantalla, entrar, salir, alternar, audio, cambiarAudio, volumenes, ponerVolumen, ensordecido, alternarEnsordecer, vistaGrande]
+    [voz, cambiarVoz, esperandoPuerta, ponerCandado, responderPuerta, disponible, activas, actual, version, puedePantalla, entrar, salir, alternar, audio, cambiarAudio, volumenes, ponerVolumen, ensordecido, alternarEnsordecer, vistaGrande]
   )
   return (
     <Contexto.Provider value={valor}>

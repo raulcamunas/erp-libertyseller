@@ -48,7 +48,7 @@ function main() {
 
   console.log('\n=== las interacciones ===')
   {
-    ok('los ids no se repiten y hay doce', new Set(INTERACCIONES.map((i) => i.id)).size === INTERACCIONES.length && INTERACCIONES.length === 12)
+    ok('los ids no se repiten y hay trece', new Set(INTERACCIONES.map((i) => i.id)).size === INTERACCIONES.length && INTERACCIONES.length === 13)
     ok('cada una tiene de fábrica un sonido que existe y es de su familia', INTERACCIONES.every((i) => sonidoDeBiblioteca(i.defecto)?.familia === i.familia), INTERACCIONES.map((i) => i.defecto).join())
     ok('llamando y llamada son tonos; el resto, avisos', INTERACCIONES.every((i) => (i.id === 'llamando' || i.id === 'llamada') === (i.familia === 'tono')))
     ok('lo que oyes de los demás es más suave que lo tuyo', interaccionDe('otro-entra')!.volumen < interaccionDe('entrar')!.volumen && interaccionDe('otro-sale')!.volumen < interaccionDe('salir')!.volumen)

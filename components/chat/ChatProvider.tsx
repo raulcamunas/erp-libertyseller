@@ -112,6 +112,11 @@ interface ContextoDeChat {
   recargar: () => void
   /** Alguien ha abierto una junta en un canal mío (y no soy yo): suena si es un directo */
   llamadaEntrante: { canalId: string; de: string; en: number } | null
+  /** Quién llama a la puerta de una sala de voz con candado en la que estás (para dejarle entrar o no) */
+  puertas: Array<{ canalId: string; de: string; en: number }>
+  /** La respuesta a una puerta a la que has llamado tú */
+  respuestaDePuerta: { canalId: string; estado: 'permitida' | 'denegada'; en: number } | null
+  descartarPuerta: (canalId: string, de: string) => void
   descartarLlamada: () => void
   /** Sube cada vez que llega el aviso de una junta nueva: la pantalla de juntas relee las que hay abiertas */
   versionDeJuntas: number
@@ -176,6 +181,9 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
   const [grabandoPor, setGrabandoPor] = useState<Record<string, Record<string, number>>>({})
   const [enVivo, setEnVivo] = useState(false)
   const [llamadaEntrante, setLlamadaEntrante] = useState<{ canalId: string; de: string; en: number } | null>(null)
+  const [puertas, setPuertas] = useState<Array<{ canalId: string; de: string; en: number }>>([])
+  const [respuestaDePuerta, setRespuestaDePuerta] = useState<{ canalId: string; estado: 'permitida' | 'denegada'; en: number } | null>(null)
+  const descartarPuerta = useCallback((canalId: string, de: string) => setPuertas((p) => p.filter((x) => !(x.canalId === canalId && x.de === de))), [])
   const [versionDeJuntas, setVersionDeJuntas] = useState(0)
   const [vista, setVista] = useState<VistaDelChat>('canal')
   const [guardados, setGuardados] = useState<ReadonlySet<number>>(new Set())
@@ -328,6 +336,12 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
   const aplicarEvento = useCallback(
     (e: EventoDeChat) => {
       if (e.tipo === 'canales') return refrescarEnBreve()
+      if (e.tipo === 'puerta') {
+        if (e.estado === 'toca') setPuertas((p) => (p.some((x) => x.canalId === e.canalId && x.de === e.de) ? p : [...p, { canalId: e.canalId, de: e.de, en: Date.now() }]))
+        else if (e.estado === 'resuelta') setPuertas((p) => p.filter((x) => !(x.canalId === e.canalId && x.de === e.de)))
+        else setRespuestaDePuerta({ canalId: e.canalId, estado: e.estado, en: Date.now() })
+        return
+      }
       if (e.tipo === 'estado') {
         setEstadosDePersonas((previo) => {
           const nuevo = { ...previo }
@@ -807,6 +821,9 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       enVivo,
       recargar: () => void cargarInicio(),
       llamadaEntrante,
+      puertas,
+      respuestaDePuerta,
+      descartarPuerta,
       descartarLlamada: () => setLlamadaEntrante(null),
       versionDeJuntas,
       vista,
@@ -828,7 +845,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       abrirAsistente,
       cerrarAsistente,
     }),
-    [enVoz, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
+    [puertas, respuestaDePuerta, descartarPuerta, enVoz, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>

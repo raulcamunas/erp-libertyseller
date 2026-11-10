@@ -48,4 +48,25 @@ export interface JuntaActiva {
   participantes: number
   /** Los nombres de quien está dentro (ids de perfil → la pantalla pone el nombre) */
   personas: string[]
+  /** La sala tiene candado: para entrar hay que llamar a la puerta y que alguien de dentro te deje (vive en los metadatos de la sala de LiveKit, así que se va sola cuando la sala se queda vacía) */
+  bloqueada?: boolean
+}
+
+/** Lo que contesta el servidor al pedir entrar a una sala con candado sin que te hayan dejado (la pantalla lo reconoce y llama a la puerta) */
+export const MENSAJE_DE_SALA_CON_CANDADO = 'Esta sala tiene candado: hay que pedir que te dejen entrar.'
+
+/** Los metadatos de una sala: si tiene candado y a quién se ha dejado entrar. Lo que no se entiende es «sin candado» */
+export function leerMetadatosDeSala(texto: string | null | undefined): { bloqueada: boolean; admitidos: string[] } {
+  try {
+    const m = JSON.parse(texto || '{}') as { bloqueada?: unknown; admitidos?: unknown }
+    return { bloqueada: m.bloqueada === true, admitidos: Array.isArray(m.admitidos) ? m.admitidos.filter((x): x is string => typeof x === 'string').slice(0, 200) : [] }
+  } catch {
+    return { bloqueada: false, admitidos: [] }
+  }
+}
+
+/** ¿Puede entrar? Sin candado o sin nadie dentro, sí; con candado, solo quien ya está dentro o a quien han dejado entrar */
+export function puedeEntrarASala(sala: { bloqueada: boolean; admitidos: readonly string[]; dentro: readonly string[] }, userId: string): boolean {
+  if (!sala.bloqueada || sala.dentro.length === 0) return true
+  return sala.dentro.includes(userId) || sala.admitidos.includes(userId)
 }

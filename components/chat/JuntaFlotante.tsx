@@ -8,7 +8,7 @@ import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible } from '@/lib/chat/canales'
 import { useChat } from './ChatProvider'
 import { useJunta } from './JuntaProvider'
-import { AjustesDeAudioPanel, PanelDeJunta } from './PanelDeJunta'
+import { AjustesDeAudioPanel, BotonDeCandado, PanelDeJunta } from './PanelDeJunta'
 
 /** Cuántas caras caben en la cápsula; el resto va en un «+N» */
 const MAX_CARAS = 4
@@ -101,6 +101,7 @@ export function JuntaFlotante() {
         <button type="button" onClick={() => void alternarEnsordecer()} data-apagado={ensordecido ? 'true' : undefined} aria-pressed={ensordecido} aria-label={ensordecido ? 'Volver a oír' : 'Ensordecer'} title={ensordecido ? 'Volver a oír' : 'Ensordecer: dejar de oír a todos'}>
           {ensordecido ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
         </button>
+        <BotonDeCandado canalId={actual.canalId} />
         <button type="button" data-abre-ajustes-audio data-activo={ajustes ? 'true' : undefined} onClick={() => setAjustes((a) => !a)} aria-expanded={ajustes} aria-label="Ajustes de audio" title="Ajustes de audio: ruido, eco, micrófono y altavoz">
           <Settings2 className="h-4 w-4" />
         </button>

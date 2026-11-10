@@ -112,6 +112,7 @@ export type IdDeInteraccion =
   | 'unmute'
   | 'ensordecer'
   | 'oir'
+  | 'puerta'
   | 'llamando'
   | 'llamada'
 
@@ -138,6 +139,7 @@ export const INTERACCIONES: readonly Interaccion[] = [
   { id: 'unmute', nombre: 'Te desmuteas', cuando: 'Cuando enciendes tu micrófono', grupo: 'Junta de voz', familia: 'aviso', defecto: 'tup-alto', volumen: 1 },
   { id: 'ensordecer', nombre: 'Te ensordeces', cuando: 'Cuando dejas de oír a todos', grupo: 'Junta de voz', familia: 'aviso', defecto: 'descenso-3', volumen: 1 },
   { id: 'oir', nombre: 'Vuelves a oír', cuando: 'Cuando quitas el ensordecer', grupo: 'Junta de voz', familia: 'aviso', defecto: 'ascenso-3', volumen: 1 },
+  { id: 'puerta', nombre: 'Tocan la puerta', cuando: 'Cuando alguien pide entrar a tu sala de voz con candado', grupo: 'Junta de voz', familia: 'aviso', defecto: 'campanilla', volumen: 1 },
   { id: 'llamando', nombre: 'Estás llamando', cuando: 'Lo oyes tú mientras la otra persona no contesta', grupo: 'Llamadas', familia: 'tono', defecto: 'ringback-suave', volumen: 1 },
   { id: 'llamada', nombre: 'Te llaman', cuando: 'El tono cuando alguien te llama por el chat', grupo: 'Llamadas', familia: 'tono', defecto: 'clasico', volumen: 1 },
 ]
