@@ -1,9 +1,12 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { FlaskConical, ClipboardSignature, Package, Rocket, ScrollText } from 'lucide-react'
+import { useState } from 'react'
+import { FlaskConical, ClipboardSignature, LayoutDashboard, ListTree, Package, Rocket, ScrollText } from 'lucide-react'
 import { CAMPO, PANTALLA, TEXTO, TIPO, TITULO, BOTON } from '@/lib/estilo/denso'
 import { Vacio } from '@/components/plataforma/comun'
+import { PestanaResumen } from './PestanaResumen'
+import { PestanaCampanas } from './PestanaCampanas'
 import { PestanaFicha } from './PestanaFicha'
 import { PestanaProductos } from './PestanaProductos'
 import { PestanaCrear } from './PestanaCrear'
@@ -18,6 +21,8 @@ interface Props {
 }
 
 const PESTANAS = [
+  { id: 'resumen', nombre: 'Resumen', icono: LayoutDashboard },
+  { id: 'campanas', nombre: 'Campañas', icono: ListTree },
   { id: 'ficha', nombre: 'Ficha de cuenta', icono: ClipboardSignature },
   { id: 'productos', nombre: 'Productos', icono: Package },
   { id: 'crear', nombre: 'Crear campañas', icono: Rocket },
@@ -32,7 +37,15 @@ type IdPestana = (typeof PESTANAS)[number]['id']
  */
 export function MarketingTest({ clientes, cliente, cuentas, cuentaId, pestana }: Props) {
   const router = useRouter()
-  const activa: IdPestana = PESTANAS.some((p) => p.id === pestana) ? (pestana as IdPestana) : 'ficha'
+  // La pestaña se cambia SIN pasar por el servidor: la dirección se actualiza a mano y no se vuelve a pedir la página (eso era lo que hacía que todo «parpadeara» al cambiar)
+  const [activa, setActiva] = useState<IdPestana>(PESTANAS.some((p) => p.id === pestana) ? (pestana as IdPestana) : 'resumen')
+  const irAPestana = (t: string) => {
+    if (!PESTANAS.some((p) => p.id === t)) return
+    setActiva(t as IdPestana)
+    const q = new URLSearchParams(window.location.search)
+    q.set('t', t)
+    window.history.replaceState(null, '', `${window.location.pathname}?${q.toString()}`)
+  }
   const cuenta = cuentas.find((c) => c.id === cuentaId) ?? null
 
   const url = (cambios: { c?: string; p?: string | null; t?: string }) => {
@@ -82,7 +95,7 @@ export function MarketingTest({ clientes, cliente, cuentas, cuentaId, pestana }:
           const Icono = p.icono
           const encendida = p.id === activa
           return (
-            <button key={p.id} type="button" onClick={() => router.replace(url({ t: p.id }), { scroll: false })} className={`${BOTON.chip} ${encendida ? BOTON.chipEncendido : ''}`} aria-current={encendida ? 'page' : undefined}>
+            <button key={p.id} type="button" onClick={() => irAPestana(p.id)} className={`${BOTON.chip} ${encendida ? BOTON.chipEncendido : ''}`} aria-current={encendida ? 'page' : undefined}>
               <Icono className="h-[13px] w-[13px] shrink-0" />
               {p.nombre}
             </button>
@@ -95,12 +108,16 @@ export function MarketingTest({ clientes, cliente, cuentas, cuentaId, pestana }:
           <Vacio icono={<FlaskConical />} titulo="Este cliente no tiene ninguna cuenta de anunciante en uso">
             Se encienden («Se usa») en <strong>Amazon API · Publicidad</strong>.
           </Vacio>
+        ) : activa === 'resumen' ? (
+          <PestanaResumen key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
+        ) : activa === 'campanas' ? (
+          <PestanaCampanas key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} />
         ) : activa === 'ficha' ? (
           <PestanaFicha key={cuenta.id} perfilId={cuenta.id} />
         ) : activa === 'productos' ? (
           <PestanaProductos key={cuenta.id} perfilId={cuenta.id} pais={cuenta.pais} moneda={cuenta.moneda} />
         ) : activa === 'crear' ? (
-          <PestanaCrear key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={(t) => router.replace(url({ t }), { scroll: false })} />
+          <PestanaCrear key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
         ) : (
           <PestanaLog key={cuenta.id} perfilId={cuenta.id} />
         )}

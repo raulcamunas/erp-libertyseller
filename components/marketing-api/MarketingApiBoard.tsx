@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, CircleAlert, ExternalLink, Loader2, Plug, RefreshCw } from 'lucide-react'
 import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
@@ -60,7 +60,14 @@ export function MarketingApiBoard({
   aviso: string | null
 }) {
   const params = useSearchParams()
+  const router = useRouter()
   const [trabajando, setTrabajando] = useState<string | null>(null)
+  // La lista vive aquí y se corrige en el sitio al encender o asignar una cuenta, SIN recargar la página: antes cada interruptor hacía un `window.location.reload()` y todo parpadeaba, se perdía el
+  // scroll y se volvían a cerrar los desplegables. Si llegan datos nuevos del servidor (tras «refrescar las cuentas»), mandan esos.
+  const [lista, setLista] = useState<ClienteAds[]>(clientes)
+  useEffect(() => setLista(clientes), [clientes])
+  const cambiarPerfil = (id: string, cambio: Partial<PerfilAds>) =>
+    setLista((prev) => prev.map((c) => ({ ...c, conexiones: c.conexiones.map((conn) => ({ ...conn, perfiles: conn.perfiles.map((p) => (p.id === id ? { ...p, ...cambio } : p)) })) })))
 
   /**
    * El resultado de la vuelta de Amazon llega por la URL, no por estado.
@@ -99,10 +106,9 @@ export function MarketingApiBoard({
   /**
    * Encender o apagar una cuenta.
    *
-   * Se recarga la página en vez de mover el estado a mano: es una lista corta y
-   * que lo que se ve venga siempre del servidor evita el caso peor —la pantalla
-   * diciendo que una cuenta está encendida cuando el guardado falló—. Con datos
-   * que deciden qué se le pide a Amazon, eso importa más que el parpadeo.
+   * El estado se mueve DESPUÉS de que el servidor confirme: nunca se enseña una cuenta
+   * encendida si el guardado falló (son datos que deciden qué se le pide a Amazon), y
+   * tampoco hace falta recargar la página entera para verlo.
    */
   async function cambiarUso(perfil: PerfilAds) {
     const res = await postAmazon<{ ok: true }>('/api/ads/perfiles/uso', {
@@ -113,7 +119,7 @@ export function MarketingApiBoard({
       toast.error(res.error)
       return
     }
-    window.location.reload()
+    cambiarPerfil(perfil.id, { en_uso: !perfil.en_uso })
   }
 
   /**
@@ -132,7 +138,7 @@ export function MarketingApiBoard({
       toast.error(res.error)
       return
     }
-    window.location.reload()
+    cambiarPerfil(perfil.id, { cliente_id: clienteId || null })
   }
 
   async function refrescarPerfiles(cliente: ClienteAds) {
@@ -149,7 +155,8 @@ export function MarketingApiBoard({
     toast.success(
       `${res.data.perfiles.length} ${res.data.perfiles.length === 1 ? 'perfil' : 'perfiles'} de anunciante`
     )
-    window.location.reload()
+    // Las cuentas nuevas las trae el servidor: se refresca la página en su sitio (sin recarga completa)
+    router.refresh()
   }
 
   // Las cuentas apagadas se esconden detrás de un «Mostrar»: de un cliente con 10 países suelen trabajarse 1 a 5, y las otras solo estorban. Si no hay ninguna encendida se enseñan todas.
@@ -192,7 +199,7 @@ export function MarketingApiBoard({
       </details>
 
       <div className="grid grid-cols-1 items-start gap-3 2xl:grid-cols-2">
-        {clientes.map((c) => {
+        {lista.map((c) => {
           const ocupado = trabajando === c.id
           const perfiles = c.conexiones.flatMap((conn) => conn.perfiles)
           const total = perfiles.length
@@ -320,11 +327,11 @@ export function MarketingApiBoard({
           )
         })}
 
-        {clientes.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>No hay clientes dados de alta en Amazon API.</p>}
+        {lista.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>No hay clientes dados de alta en Amazon API.</p>}
       </div>
 
       {/* MARKETING V2 · el banco de pruebas. Va debajo y no en otra pestaña porque solo tiene sentido con las cuentas encendidas delante: lo primero que hay que mirar cuando algo no sale es si esa cuenta está en uso. */}
-      <Laboratorio clientes={clientes} />
+      <Laboratorio clientes={lista} />
     </div>
   )
 }

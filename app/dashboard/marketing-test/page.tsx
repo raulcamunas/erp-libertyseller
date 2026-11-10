@@ -64,7 +64,7 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
         cliente={{ slug: cliente.slug, nombre: cliente.nombre }}
         cuentas={cuentas.map((c) => ({ id: c.id, pais: c.pais, moneda: c.moneda, nombre: c.nombre }))}
         cuentaId={cuenta?.id ?? null}
-        pestana={uno(searchParams.t) ?? 'ficha'}
+        pestana={uno(searchParams.t) ?? 'resumen'}
       />
     </div>
   )
