@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, BellRing, Boxes, ClipboardList, Columns3, Database, FileDown, Package, PackagePlus, Plus, Sparkles, Upload } from 'lucide-react'
+import { AlertTriangle, BellRing, Boxes, ClipboardList, Columns3, Database, FileDown, Package, PackagePlus, Plus, Sparkles, Timer, Upload } from 'lucide-react'
 import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
 import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
 import { filasACsv } from '@/lib/fba/catalogo/exportar'
@@ -29,6 +29,7 @@ import { ListaPropuestas } from './propuestas/ListaPropuestas'
 import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
 import { PropuestaIaDialog } from './propuestas/PropuestaIaDialog'
 import { fecha } from './formato'
+import { PlazosDialog } from './PlazosDialog'
 
 /**
  * REMESAS A FBA: DOS COSAS DISTINTAS Y UNA TERCERA PARA MIRAR.
@@ -131,6 +132,7 @@ export function EspacioRemesas({
   // IMPORTAR PEDIDOS: de qué cliente (puede no ser el que está abierto: se pide desde el tablero) y cuántos envíos nuevos tiene cada uno en Amazon
   const [importandoDe, setImportandoDe] = useState<string | null>(null)
   const [versionTablero, setVersionTablero] = useState(0)
+  const [plazosAbierto, setPlazosAbierto] = useState(false)
   const hayQueImportar = clientes.some((c) => c.puedeEditar)
   const { porCliente: nuevosPorCliente, refrescar: refrescarNuevos } = useEnviosNuevosDeTodos(hayQueImportar)
   const nuevosDeEste = cliente.puedeEditar ? (nuevosPorCliente[cliente.id] ?? 0) : 0
@@ -299,6 +301,12 @@ export function EspacioRemesas({
                 </span>
               )}
             </Link>
+          )}
+          {esAdmin && vista !== 'tablero' && (
+            <button type="button" onClick={() => setPlazosAbierto(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Cuánto tarda este cliente desde que le avisamos hasta que su mercancía está a la venta en Amazon: preparación, transporte, recepción y margen. De ahí salen los avisos de reponer">
+              <Timer className="h-3 w-3" />
+              Plazos
+            </button>
           )}
           {panel.leidoHasta && <span className="hidden text-[11px] text-[var(--ls-t4)] 2xl:inline">Ventas leídas hasta el {fecha(panel.leidoHasta)}</span>}
           {cliente.puedeEditar && vista === 'envios' && (
@@ -489,6 +497,9 @@ export function EspacioRemesas({
             router.refresh()
           }}
         />
+      )}
+      {plazosAbierto && esAdmin && (
+        <PlazosDialog clienteId={cliente.id} clienteNombre={cliente.nombre} remesas={panel.remesas} hoy={hoy} onCerrar={() => setPlazosAbierto(false)} onGuardado={() => router.refresh()} />
       )}
       {importandoDe && (
         <ImportarPedidosDialog
