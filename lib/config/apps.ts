@@ -33,6 +33,7 @@ import {
   Handshake,
   KanbanSquare,
   FlaskConical,
+  SearchCheck,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -322,6 +323,18 @@ export const apps: AppConfig[] = [
     status: 'new',
     category: 'core'
   },
+  {
+    // SEO TEST — el posicionamiento de los productos con datos GRATIS de Amazon: las búsquedas de Brand Analytics (dónde aparece cada producto y qué parte de las compras se lleva) y el texto de su
+    // ficha (qué búsquedas que venden faltan en el título, los bullets o el backend). Misma forma que Marketing Test (clientes y países a la izquierda). Solo LEE de Amazon.
+    // SOLO ADMIN (datos de las cuentas de los clientes): cerrada en middleware.ts, en APPS_SOLO_ADMIN y en cada ruta de /api/seo; un CEO entra solo con la casilla.
+    id: 'seo-test',
+    name: 'SEO Test',
+    description: 'Búsquedas de Brand Analytics, posicionamiento y keywords que faltan en la ficha de cada producto',
+    icon: SearchCheck,
+    route: '/dashboard/seo-test',
+    status: 'new',
+    category: 'core'
+  },
   // 'stock-sync' YA NO ES UNA APP DEL MENÚ. No se ha borrado nada: el módulo
   // entero vive ahora dentro de Growth Partner, en /dashboard/growth?m=stock-sync,
   // porque sincronizar el stock de un cliente es TRABAJAR sobre su cuenta y ese
@@ -561,6 +574,8 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'limpieza-ofertas',
   // Escribe en las cuentas de publicidad de los clientes: se gasta su dinero.
   'marketing-test',
+  // Lee datos de las cuentas de los clientes en Amazon.
+  'seo-test',
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
   // de llevar datos de compradores —los lleva—, sino porque el trabajo del día 3
   // lo hace un empleado y con la app cerrada a admin acababa usando la sesión de
@@ -863,9 +878,9 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
   {
     id: 'herramientas-agencia',
     name: 'Herramientas Agencia',
-    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API, informes de marketing y Marketing Test',
+    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API, informes de marketing, Marketing Test y SEO Test',
     icon: Wrench,
-    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'marketing-test'],
+    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'marketing-test', 'seo-test'],
     despuesDe: 'correo',
   },
   {

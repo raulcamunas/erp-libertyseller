@@ -285,6 +285,15 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/seo-test - Solo admin: lee datos de las cuentas de Amazon de los clientes. El filtro de verdad es abrirCuentaSeo() en cada ruta de /api/seo.
+      if (pathname.startsWith('/dashboard/seo-test')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/limpieza-ofertas - Solo admin
       //
       // Desde ahí se BORRAN los límites de precio y las rebajas que un cliente
@@ -512,6 +521,8 @@ export async function middleware(request: NextRequest) {
           '/dashboard/briefing': 'briefing',
           // Marketing Test: solo administradores; un CEO (admin con puesto 'ceo') entra solo con la casilla. Va aquí para que el CEO sin ella rebote antes de cargar la pantalla.
           '/dashboard/marketing-test': 'marketing-test',
+          // SEO Test: igual que Marketing Test, un CEO solo con la casilla
+          '/dashboard/seo-test': 'seo-test',
         }
 
         const appId = routeToAppId[pathname]

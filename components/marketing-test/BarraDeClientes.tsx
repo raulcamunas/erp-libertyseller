@@ -48,7 +48,7 @@ export function AvatarDeCliente({ slug, nombre, tamano = 28 }: { slug: string; n
 }
 
 /**
- * LA COLUMNA DE LA IZQUIERDA DE MARKETING TEST: todos los clientes con Amazon Ads en uso y, bajo el elegido, sus países. Plegada, se queda en una columna de iniciales. Elegir un cliente o un país no
+ * LA COLUMNA DE LA IZQUIERDA DE MARKETING TEST Y SEO TEST: los clientes y, bajo el elegido, sus países (cuentas de Ads en uso, o cuentas de vendedor y sus mercados). Plegada, se queda en una columna de iniciales. Elegir un cliente o un país no
  * pasa por el servidor: la pantalla ya tiene la lista entera.
  */
 export function BarraDeClientes({
@@ -58,7 +58,19 @@ export function BarraDeClientes({
   colapsada,
   alternar,
   elegir,
+  titulo = 'Marketing Test',
+  icono = <FlaskConical className="h-[17px] w-[17px]" />,
+  pie = (
+    <>
+      Solo cuentas en uso. Se encienden en <span className="text-[var(--ls-t3)]">Amazon API · Publicidad</span>.
+    </>
+  ),
 }: {
+  /** El nombre de la app que va arriba (la barra la comparten Marketing Test y SEO Test) */
+  titulo?: string
+  icono?: React.ReactNode
+  /** La nota de abajo: de dónde salen las cuentas */
+  pie?: React.ReactNode
   clientes: readonly ClienteDeBarra[]
   clienteSlug: string
   cuentaId: string | null
@@ -81,11 +93,11 @@ export function BarraDeClientes({
       {/* ---- la marca ---- */}
       <div className={`flex items-center gap-[10px] px-3 pb-3 pt-[14px] ${colapsada ? 'flex-col' : ''}`}>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[var(--ls-acc-relleno)] text-[var(--ls-acc-tinta)] shadow-[0_2px_8px_color-mix(in_srgb,var(--ls-acc)_35%,transparent)]" aria-hidden>
-          <FlaskConical className="h-[17px] w-[17px]" />
+          {icono}
         </span>
         {!colapsada && (
           <span className="min-w-0 flex-1 leading-[1.2]">
-            <b className="block truncate text-[13.5px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]">Marketing Test</b>
+            <b className="block truncate text-[13.5px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]">{titulo}</b>
             <span className="text-[11px] text-[var(--ls-t4)]">
               {clientes.length} clientes · {paises} {paises === 1 ? 'país' : 'países'}
             </span>
@@ -176,7 +188,7 @@ export function BarraDeClientes({
 
       {!colapsada && (
         <div className="border-t border-[var(--ls-linea)] px-4 py-[10px] text-[11px] leading-[1.45] text-[var(--ls-t4)]">
-          Solo cuentas en uso. Se encienden en <span className="text-[var(--ls-t3)]">Amazon API · Publicidad</span>.
+          {pie}
         </div>
       )}
     </aside>

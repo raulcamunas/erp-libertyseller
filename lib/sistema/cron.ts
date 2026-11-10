@@ -194,6 +194,21 @@ export const TAREAS_CRON = [
       'Vuelve a leer los últimos 14 días cada vez porque Amazon corrige las ventas atribuidas. Solo lee: no toca nada en la cuenta del cliente.',
   },
   {
+    /**
+     * CADA 3 MINUTOS MIRA; CADA DÍA LEE LAS FICHAS Y CADA SEMANA Y CADA MES, EL INFORME DE BRAND ANALYTICS.
+     *
+     * Para los productos que se siguen en SEO Test: el texto de su ficha y las búsquedas de Amazon donde aparecen (Search Query Performance), con la parte de impresiones, clics y compras que se
+     * llevan. Pide el informe y lo recoge en la pasada siguiente (lib/seo/lectura.ts): nunca espera a Amazon. Solo LEE.
+     */
+    id: 'seo-lecturas',
+    nombre: 'SEO de los productos',
+    ruta: '/api/seo/cron',
+    cadaMinutos: 3,
+    que:
+      'Para los productos seguidos en SEO Test, lee una vez al día el texto de su ficha y, cada semana y cada mes, el informe de Brand Analytics con las búsquedas de Amazon donde aparecen y la parte de ' +
+      'impresiones, clics y compras que se llevan. Solo lee: no toca nada en la cuenta del cliente.',
+  },
+  {
     id: 'stock-verificacion',
     nombre: 'Verificación del stock subido',
     ruta: '/api/stock-sync/cron-verificacion',
@@ -462,6 +477,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'fba-seguimiento': { prioridad: 'normal' },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
+  'seo-lecturas': { prioridad: 'baja', ayunoMaxMin: 12 * 60 },
   'stock-verificacion': { prioridad: 'normal' },
   cumplimiento: { prioridad: 'baja', pesada: true, ayunoMaxMin: 180 },
   'rinkel-llamadas': { prioridad: 'esencial' },

@@ -1,0 +1,202 @@
+/**
+ * SEO TEST · LOS DATOS DE LA PANTALLA (SOLO SERVIDOR): clientes y países, productos seguidos, búsquedas de Brand Analytics y fichas.
+ *
+ * Una «cuenta» aquí es una conexión de vendedor de Amazon + un marketplace (un país). Todo cuelga de ella: no hay lecturas que mezclen clientes.
+ */
+
+import { createServiceClient } from '@/lib/supabase/service'
+import { AMAZON_MARKETPLACES, mercadosDeConexion } from '@/lib/types/amazon'
+import type { EstadoSeo } from './lectura'
+
+export interface CuentaDeSeo {
+  /** «connectionId~marketplaceId»: el identificador que viaja por la dirección y las rutas */
+  id: string
+  connectionId: string
+  marketplaceId: string
+  pais: string
+  moneda: string | null
+  nombre: string | null
+}
+
+export const idDeCuenta = (connectionId: string, marketplaceId: string) => `${connectionId}~${marketplaceId}`
+export function partirIdDeCuenta(id: string): { connectionId: string; marketplaceId: string } | null {
+  const [connectionId, marketplaceId] = id.split('~')
+  if (!connectionId || !marketplaceId || !/^[0-9a-f-]{36}$/i.test(connectionId) || !/^[A-Z0-9]{8,20}$/.test(marketplaceId)) return null
+  return { connectionId, marketplaceId }
+}
+
+/** Las cuentas (conexión × país) de varios clientes de una vez, con España primero */
+export async function cuentasSeoDeClientes(amazonClientIds: readonly string[]): Promise<Map<string, CuentaDeSeo[]>> {
+  const salida = new Map<string, CuentaDeSeo[]>(amazonClientIds.map((id) => [id, []]))
+  if (amazonClientIds.length === 0) return salida
+  const { data, error } = await createServiceClient().from('amazon_connections').select('id, client_id, name, marketplace_ids, marketplaces_activos').in('client_id', [...amazonClientIds]).eq('is_active', true).eq('status', 'activa')
+  if (error) throw error
+  for (const c of (data ?? []) as Array<{ id: string; client_id: string; name: string | null; marketplace_ids: string[]; marketplaces_activos: string[] | null }>) {
+    for (const m of mercadosDeConexion(c)) {
+      const mk = AMAZON_MARKETPLACES.find((x) => x.id === m)
+      if (!mk) continue
+      salida.get(c.client_id)?.push({ id: idDeCuenta(c.id, m), connectionId: c.id, marketplaceId: m, pais: mk.countryCode, moneda: mk.currency, nombre: c.name })
+    }
+  }
+  for (const lista of salida.values()) lista.sort((a, b) => Number(b.pais === 'ES') - Number(a.pais === 'ES') || a.pais.localeCompare(b.pais))
+  return salida
+}
+
+/** El cliente (amazon_clients) de una conexión: para comprobar que la cuenta pedida existe y está activa */
+export async function conexionActiva(connectionId: string): Promise<{ clientId: string; marketplaces: string[] } | null> {
+  const { data, error } = await createServiceClient().from('amazon_connections').select('client_id, marketplace_ids, marketplaces_activos, is_active, status').eq('id', connectionId).maybeSingle()
+  if (error) throw error
+  const c = data as { client_id: string; marketplace_ids: string[]; marketplaces_activos: string[] | null; is_active: boolean; status: string } | null
+  if (!c || !c.is_active || c.status !== 'activa') return null
+  return { clientId: c.client_id, marketplaces: mercadosDeConexion(c) }
+}
+
+/* ------------------------------------------------------------------ */
+/* Productos seguidos                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface ProductoSeguido {
+  id: string
+  asin: string
+  sku: string | null
+  nombre: string | null
+}
+
+export async function productosSeguidos(connectionId: string, marketplaceId: string): Promise<ProductoSeguido[]> {
+  const { data, error } = await createServiceClient().from('seo_productos').select('id, asin, sku, nombre').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).order('created_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as ProductoSeguido[]
+}
+
+export async function seguirProductos(connectionId: string, marketplaceId: string, productos: ReadonlyArray<{ asin: string; sku: string | null; nombre: string | null }>, userId: string): Promise<number> {
+  const filas = productos
+    .map((p) => ({ connection_id: connectionId, marketplace_id: marketplaceId, asin: p.asin.trim().toUpperCase(), sku: p.sku?.trim() || null, nombre: p.nombre?.trim().slice(0, 200) || null, created_by: userId }))
+    .filter((p) => /^[A-Z0-9]{10}$/.test(p.asin))
+  if (filas.length === 0) return 0
+  const { data, error } = await createServiceClient().from('seo_productos').upsert(filas, { onConflict: 'connection_id,marketplace_id,asin', ignoreDuplicates: true }).select('id')
+  if (error) throw error
+  return data?.length ?? 0
+}
+
+export async function dejarDeSeguir(connectionId: string, marketplaceId: string, id: string): Promise<void> {
+  const { error } = await createServiceClient().from('seo_productos').delete().eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('id', id)
+  if (error) throw error
+}
+
+/** Los productos del catálogo de la cuenta (SP-API) en ese país, para elegir cuál seguir. `q` busca en SKU, ASIN y título */
+export async function catalogoSeo(connectionId: string, marketplaceId: string, q: string): Promise<Array<{ sku: string; asin: string; titulo: string | null; seguido: boolean }>> {
+  const service = createServiceClient()
+  let consulta = service.from('amazon_listings').select('sku, asin, title, listing_status').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).not('asin', 'is', null).order('listing_status', { ascending: true }).limit(60)
+  const termino = q.trim().replace(/[%,()]/g, ' ').slice(0, 60)
+  if (termino) consulta = consulta.or(`sku.ilike.%${termino}%,asin.ilike.%${termino}%,title.ilike.%${termino}%`)
+  const [{ data, error }, ya] = await Promise.all([consulta, productosSeguidos(connectionId, marketplaceId)])
+  if (error) throw error
+  const seguidos = new Set(ya.map((p) => p.asin))
+  return ((data ?? []) as Array<{ sku: string; asin: string; title: string | null }>).map((l) => ({ sku: l.sku, asin: l.asin, titulo: l.title, seguido: seguidos.has(l.asin.toUpperCase()) }))
+}
+
+/**
+ * Los productos que ya se trabajan en Marketing Test para el mismo cliente y país (con su SKU y su resumen), para traerlos de un clic. Une por el cliente de la conexión de Ads
+ * (`ads_connections.client_id` = el cliente de esta conexión de vendedor) y por el país.
+ */
+export async function productosDeMarketingTest(clientId: string, pais: string): Promise<Array<{ asin: string; sku: string | null; nombre: string | null }>> {
+  const service = createServiceClient()
+  const { data: conexiones } = await service.from('ads_connections').select('id').eq('client_id', clientId)
+  const ids = ((conexiones ?? []) as Array<{ id: string }>).map((c) => c.id)
+  if (ids.length === 0) return []
+  const paisAds = pais === 'GB' ? 'UK' : pais
+  const { data: perfiles } = await service.from('ads_profiles').select('id').in('connection_id', ids).eq('pais', paisAds)
+  const perfilIds = ((perfiles ?? []) as Array<{ id: string }>).map((p) => p.id)
+  if (perfilIds.length === 0) return []
+  const { data, error } = await service.from('ads_productos').select('asin, sku, resumen').in('perfil_id', perfilIds)
+  if (error) return [] // sin la migración 292, simplemente no hay nada que traer
+  return ((data ?? []) as Array<{ asin: string; sku: string | null; resumen: string | null }>).map((p) => ({ asin: p.asin, sku: p.sku, nombre: p.resumen }))
+}
+
+/* ------------------------------------------------------------------ */
+/* Lo leído: búsquedas y fichas                                        */
+/* ------------------------------------------------------------------ */
+
+export interface ConsultaGuardada {
+  asin: string
+  periodo: 'WEEK' | 'MONTH'
+  desde: string
+  hasta: string
+  consulta: string
+  puntuacion: number | null
+  volumen: number | null
+  cuotaImpresiones: number | null
+  cuotaClics: number | null
+  cuotaCarritos: number | null
+  cuotaCompras: number | null
+  comprasAsin: number | null
+  comprasTotal: number | null
+  clicsAsin: number | null
+  impresionesAsin: number | null
+  precioMedianoTotal: number | null
+  precioMedianoAsin: number | null
+}
+
+const n = (v: unknown) => (v == null ? null : Number(v))
+
+/** Las búsquedas guardadas de la cuenta en el ÚLTIMO periodo leído de cada tipo (el mes y la semana más recientes) */
+export async function consultasGuardadas(connectionId: string, marketplaceId: string, periodo: 'WEEK' | 'MONTH'): Promise<ConsultaGuardada[]> {
+  const service = createServiceClient()
+  const { data: ultimo } = await service.from('seo_consultas').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).order('desde', { ascending: false }).limit(1).maybeSingle()
+  const desde = (ultimo as { desde: string } | null)?.desde
+  if (!desde) return []
+  const salida: ConsultaGuardada[] = []
+  for (let i = 0; i < 20_000; i += 1000) {
+    const { data, error } = await service
+      .from('seo_consultas')
+      .select('asin, periodo, desde, hasta, consulta, puntuacion, volumen, cuota_impresiones, cuota_clics, cuota_carritos, cuota_compras, compras_asin, compras_total, clics_asin, impresiones_asin, precio_mediano_total, precio_mediano_asin')
+      .eq('connection_id', connectionId)
+      .eq('marketplace_id', marketplaceId)
+      .eq('periodo', periodo)
+      .eq('desde', desde)
+      .order('volumen', { ascending: false, nullsFirst: false })
+      .range(i, i + 999)
+    if (error) throw error
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+      salida.push({
+        asin: String(r.asin),
+        periodo: r.periodo as 'WEEK' | 'MONTH',
+        desde: String(r.desde),
+        hasta: String(r.hasta),
+        consulta: String(r.consulta),
+        puntuacion: n(r.puntuacion),
+        volumen: n(r.volumen),
+        cuotaImpresiones: n(r.cuota_impresiones),
+        cuotaClics: n(r.cuota_clics),
+        cuotaCarritos: n(r.cuota_carritos),
+        cuotaCompras: n(r.cuota_compras),
+        comprasAsin: n(r.compras_asin),
+        comprasTotal: n(r.compras_total),
+        clicsAsin: n(r.clics_asin),
+        impresionesAsin: n(r.impresiones_asin),
+        precioMedianoTotal: n(r.precio_mediano_total),
+        precioMedianoAsin: n(r.precio_mediano_asin),
+      })
+    }
+    if (!data || data.length < 1000) break
+  }
+  return salida
+}
+
+export interface FichaGuardada {
+  asin: string
+  sku: string | null
+  titulo: string | null
+  bullets: string[]
+  descripcion: string | null
+  backend: string | null
+  leidaAt: string
+}
+
+export async function fichasGuardadas(connectionId: string, marketplaceId: string): Promise<FichaGuardada[]> {
+  const { data, error } = await createServiceClient().from('seo_fichas').select('asin, sku, titulo, bullets, descripcion, backend, leida_at').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId)
+  if (error) throw error
+  return ((data ?? []) as Array<Record<string, unknown>>).map((f) => ({ asin: String(f.asin), sku: (f.sku as string | null) ?? null, titulo: (f.titulo as string | null) ?? null, bullets: Array.isArray(f.bullets) ? (f.bullets as string[]) : [], descripcion: (f.descripcion as string | null) ?? null, backend: (f.backend as string | null) ?? null, leidaAt: String(f.leida_at) }))
+}
+
+export type { EstadoSeo }
