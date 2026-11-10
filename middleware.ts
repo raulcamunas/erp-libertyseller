@@ -272,6 +272,19 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/marketing-test - Solo admin
+      //
+      // Crea campañas en las cuentas de Amazon Ads de los CLIENTES y se gasta su dinero al activarlas.
+      // Mismo listón que Amazon API. El filtro de verdad es el requireAmazonAdmin() de cada ruta de
+      // /api/ads/cuenta (todo lo de /api/ es público en este middleware); esto evita el viaje.
+      if (pathname.startsWith('/dashboard/marketing-test')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/limpieza-ofertas - Solo admin
       //
       // Desde ahí se BORRAN los límites de precio y las rebajas que un cliente

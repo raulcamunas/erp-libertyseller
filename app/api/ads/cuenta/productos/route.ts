@@ -1,0 +1,67 @@
+import { NextResponse, type NextRequest } from 'next/server'
+import { UUID, fail } from '@/lib/amazon/api'
+import { actualizarProducto, crearProducto, estructurasDeCuenta, productosDeCuenta, quitarProducto } from '@/lib/ads/cuenta'
+import { productoDesdeCuerpo } from '@/lib/ads/validar'
+import { abrirCuenta, errorDeRuta } from '@/lib/ads/ruta'
+
+/**
+ * LOS PRODUCTOS A LOS QUE SE LES HACE MARKETING, con su coste. Solo administradores.
+ *
+ *   GET    ?perfilId=                → productos y las campañas que el ERP les ha creado
+ *   POST   {perfilId, …producto}     → añade uno (el ASIN no se repite en una cuenta)
+ *   PUT    {perfilId, id, …producto} → lo edita
+ *   DELETE {perfilId, id}            → lo quita (no si ya tiene campañas creadas desde el ERP)
+ */
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
+export async function GET(request: NextRequest) {
+  try {
+    const a = await abrirCuenta(request.nextUrl.searchParams.get('perfilId'))
+    if (a instanceof NextResponse) return a
+    const [productos, estructuras] = await Promise.all([productosDeCuenta(a.cuenta.id), estructurasDeCuenta(a.cuenta.id)])
+    return NextResponse.json({ productos, estructuras })
+  } catch (error) {
+    return errorDeRuta(error, 'Ads: leer los productos')
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+    const a = await abrirCuenta(body.perfilId)
+    if (a instanceof NextResponse) return a
+    const campos = productoDesdeCuerpo(body)
+    if (!campos.ok) return fail(400, campos.error)
+    return NextResponse.json({ producto: await crearProducto(a.cuenta.id, campos.campos, a.sesion.userId) })
+  } catch (error) {
+    return errorDeRuta(error, 'Ads: añadir un producto')
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+    const a = await abrirCuenta(body.perfilId)
+    if (a instanceof NextResponse) return a
+    if (typeof body.id !== 'string' || !UUID.test(body.id)) return fail(400, 'Falta el producto.')
+    const campos = productoDesdeCuerpo(body)
+    if (!campos.ok) return fail(400, campos.error)
+    return NextResponse.json({ producto: await actualizarProducto(a.cuenta.id, body.id, campos.campos) })
+  } catch (error) {
+    return errorDeRuta(error, 'Ads: editar un producto')
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+    const a = await abrirCuenta(body.perfilId)
+    if (a instanceof NextResponse) return a
+    if (typeof body.id !== 'string' || !UUID.test(body.id)) return fail(400, 'Falta el producto.')
+    const r = await quitarProducto(a.cuenta.id, body.id)
+    return r.ok ? NextResponse.json({ ok: true }) : fail(409, r.motivo)
+  } catch (error) {
+    return errorDeRuta(error, 'Ads: quitar un producto')
+  }
+}

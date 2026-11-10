@@ -32,6 +32,7 @@ import {
   BookOpenText,
   Handshake,
   KanbanSquare,
+  FlaskConical,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -304,6 +305,23 @@ export const apps: AppConfig[] = [
     status: 'new',
     category: 'core'
   },
+  {
+    // MARKETING TEST — la ficha de cuenta de Amazon Ads, los productos con su coste, el botón que crea
+    // la estructura de 4 campañas y el log de lo que se cambia. Funciona como un submódulo de Growth
+    // Partner (el cliente se elige arriba y todo cuelga de él) pero es una app aparte, y lo es a
+    // propósito: ESCRIBE en las cuentas de publicidad de los clientes y está en pruebas.
+    //
+    // SOLO ADMIN, como 'amazon-api': se gasta el dinero de un cliente. Cerrada en middleware.ts, en
+    // APPS_SOLO_ADMIN (abajo) y en el redirect de su página; las rutas de /api/ads/cuenta comprueban
+    // el rol por su cuenta. El id no está en user_app_permissions: no se concede a nadie suelto.
+    id: 'marketing-test',
+    name: 'Marketing Test',
+    description: 'Ficha de cuenta, productos, estructura de 4 campañas y log de cambios de Amazon Ads',
+    icon: FlaskConical,
+    route: '/dashboard/marketing-test',
+    status: 'new',
+    category: 'core'
+  },
   // 'stock-sync' YA NO ES UNA APP DEL MENÚ. No se ha borrado nada: el módulo
   // entero vive ahora dentro de Growth Partner, en /dashboard/growth?m=stock-sync,
   // porque sincronizar el stock de un cliente es TRABAJAR sobre su cuenta y ese
@@ -541,6 +559,8 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'entrais-test',
   'entrais-pccomponentes',
   'limpieza-ofertas',
+  // Escribe en las cuentas de publicidad de los clientes: se gasta su dinero.
+  'marketing-test',
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
   // de llevar datos de compradores —los lleva—, sino porque el trabajo del día 3
   // lo hace un empleado y con la app cerrada a admin acababa usando la sesión de
@@ -843,9 +863,9 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
   {
     id: 'herramientas-agencia',
     name: 'Herramientas Agencia',
-    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API e informes de marketing',
+    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API, informes de marketing y Marketing Test',
     icon: Wrench,
-    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads'],
+    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'marketing-test'],
     despuesDe: 'correo',
   },
   {
