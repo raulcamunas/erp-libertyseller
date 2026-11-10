@@ -119,7 +119,7 @@ function Dato({ etiqueta, valor, nota, color }: { etiqueta: string; valor: strin
     <div className="min-w-0 border-l border-[var(--ls-linea)] px-4 py-3 first:border-l-0">
       <div className="truncate text-[11px] text-[var(--ls-t4)]">{etiqueta}</div>
       <div className="mt-[2px] text-[18px] font-semibold tabular-nums tracking-[-0.015em]" style={{ color: color ?? 'var(--ls-t1)' }}>{valor}</div>
-      <div className="truncate text-[10.5px] text-[var(--ls-t4)]" title={nota}>{nota}</div>
+      <div className="text-[10.5px] leading-[1.35] text-[var(--ls-t4)]">{nota}</div>
     </div>
   )
 }
