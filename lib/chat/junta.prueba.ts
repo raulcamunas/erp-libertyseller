@@ -1,4 +1,4 @@
-import { canalDeSala, configuracionDeJunta, leerMetadatosDeSala, MENSAJE_DE_SALA_CON_CANDADO, puedeEntrarASala, salaDe } from '@/lib/chat/junta'
+import { canalDeSala, configuracionDeJunta, fusionarMetadatosDeSala, leerMetadatosDeSala, MENSAJE_DE_SALA_CON_CANDADO, puedeEntrarASala, salaDe } from '@/lib/chat/junta'
 
 let fallos = 0
 let comprobaciones = 0
@@ -30,6 +30,12 @@ igual('con candado y nadie dentro, entra cualquiera (el candado se va con la sal
 igual('con candado, quien está dentro puede volver y a quien han dejado entrar', [puedeEntrarASala(sala(true, [], ['ana']), 'ana'), puedeEntrarASala(sala(true, ['luis'], ['ana']), 'luis')], [true, true])
 igual('con candado y gente dentro, un desconocido no entra', puedeEntrarASala(sala(true, ['ana'], ['ana']), 'luis'), false)
 igual('el mensaje del candado es estable (la pantalla lo reconoce)', MENSAJE_DE_SALA_CON_CANDADO.startsWith('Esta sala tiene candado'), true)
+
+// Los metadatos llevan el candado Y la música: cambiar una cosa no pisa la otra
+igual('fusionar: añade sin pisar lo que había', JSON.parse(fusionarMetadatosDeSala('{"musica":{"v":3}}', { bloqueada: true })), { musica: { v: 3 }, bloqueada: true })
+igual('fusionar: lo nuevo gana sobre lo viejo de la misma clave', JSON.parse(fusionarMetadatosDeSala('{"bloqueada":false,"admitidos":["a"]}', { bloqueada: true })), { bloqueada: true, admitidos: ['a'] })
+igual('fusionar: un valor undefined quita la clave', JSON.parse(fusionarMetadatosDeSala('{"musica":1,"bloqueada":true}', { musica: undefined })), { bloqueada: true })
+igual('fusionar: texto vacío, roto o que no es un objeto se trata como vacío', [fusionarMetadatosDeSala('', { a: 1 }), fusionarMetadatosDeSala('{no', { a: 1 }), fusionarMetadatosDeSala('[1]', { a: 1 }), fusionarMetadatosDeSala(null, { a: 1 })], ['{"a":1}', '{"a":1}', '{"a":1}', '{"a":1}'])
 
 console.log(`\n${fallos === 0 ? 'TODO BIEN' : `HAY ${fallos} FALLOS`} (${comprobaciones} comprobaciones)`)
 process.exit(fallos === 0 ? 0 : 1)

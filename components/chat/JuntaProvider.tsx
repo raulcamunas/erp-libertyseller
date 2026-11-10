@@ -77,6 +77,8 @@ const EVENTOS_QUE_REPINTAN = [
   RoomEvent.LocalTrackUnpublished,
   RoomEvent.ActiveSpeakersChanged,
   RoomEvent.ConnectionStateChanged,
+  // La música de la sala viaja en los metadatos: cuando cambian, las pantallas se repintan (components/chat/MusicaProvider.tsx)
+  RoomEvent.RoomMetadataChanged,
 ] as const
 
 /** Cuántas veces se intenta volver sola a la junta si se corta sin que la persona la haya dejado (la red, el portátil que se duerme un momento) */

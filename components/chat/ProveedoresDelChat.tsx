@@ -9,7 +9,9 @@ import { DialogoDeAjustesDeVoz } from './DialogoDeAjustesDeVoz'
 import { JuntaFlotante } from './JuntaFlotante'
 import { JuntaProvider } from './JuntaProvider'
 import { LlamadaEntrante } from './LlamadaEntrante'
+import { MusicaProvider } from './MusicaProvider'
 import { PuertaLlamando } from './PuertaLlamando'
+import { ReproductorDeMusica } from './ReproductorDeMusica'
 import { SonidosDeLaJunta } from './SonidosDeLaJunta'
 
 /** Lo que el resto del ERP necesita saber del chat aunque no esté abierto: lo que hay sin leer (barra y pastilla) y que el chat está vivo (el dock deja de preguntarlo al servidor) */
@@ -38,13 +40,16 @@ export function ProveedoresDelChat({ children }: { children: ReactNode }) {
   return (
     <ChatProvider>
       <JuntaProvider>
-        <EfectosDelChat />
-        <SonidosDeLaJunta />
-        {children}
-        <JuntaFlotante />
-        <LlamadaEntrante />
-        <PuertaLlamando />
-        <DialogoDeAjustesDeVoz />
+        <MusicaProvider>
+          <EfectosDelChat />
+          <SonidosDeLaJunta />
+          {children}
+          <JuntaFlotante />
+          <LlamadaEntrante />
+          <PuertaLlamando />
+          <ReproductorDeMusica />
+          <DialogoDeAjustesDeVoz />
+        </MusicaProvider>
       </JuntaProvider>
     </ChatProvider>
   )

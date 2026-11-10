@@ -65,6 +65,23 @@ export function leerMetadatosDeSala(texto: string | null | undefined): { bloquea
   }
 }
 
+/**
+ * Los metadatos de la sala llevan varias cosas (el candado y, si suena, la música): al cambiar una NO se puede pisar la otra. Mezcla los cambios con lo que ya había (un texto que no se entiende se
+ * trata como vacío) y devuelve el texto nuevo. Un valor `undefined` en los cambios quita esa clave.
+ */
+export function fusionarMetadatosDeSala(actual: string | null | undefined, cambios: Record<string, unknown>): string {
+  let base: Record<string, unknown> = {}
+  try {
+    const m = JSON.parse(actual || '{}')
+    if (m && typeof m === 'object' && !Array.isArray(m)) base = m as Record<string, unknown>
+  } catch {
+    base = {}
+  }
+  const salida = { ...base, ...cambios }
+  for (const k of Object.keys(salida)) if (salida[k] === undefined) delete salida[k]
+  return JSON.stringify(salida)
+}
+
 /** ¿Puede entrar? Sin candado o sin nadie dentro, sí; con candado, solo quien ya está dentro o a quien han dejado entrar */
 export function puedeEntrarASala(sala: { bloqueada: boolean; admitidos: readonly string[]; dentro: readonly string[] }, userId: string): boolean {
   if (!sala.bloqueada || sala.dentro.length === 0) return true

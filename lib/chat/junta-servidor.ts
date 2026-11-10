@@ -1,7 +1,7 @@
 import { esCanalDeVoz } from './voz'
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk'
 import { createServiceClient } from '@/lib/supabase/service'
-import { canalDeSala, configuracionDeJunta, leerMetadatosDeSala, MENSAJE_DE_SALA_CON_CANDADO, PREFIJO_DE_SALA, puedeEntrarASala, salaDe, VIDA_DE_LA_LLAVE_S, type ConfiguracionDeJunta, type JuntaActiva } from './junta'
+import { canalDeSala, configuracionDeJunta, fusionarMetadatosDeSala, leerMetadatosDeSala, MENSAJE_DE_SALA_CON_CANDADO, PREFIJO_DE_SALA, puedeEntrarASala, salaDe, VIDA_DE_LA_LLAVE_S, type ConfiguracionDeJunta, type JuntaActiva } from './junta'
 import { canalDe, ErrorDeChat, exigirMiembro, type QuienEscribe } from './servidor'
 import { emitir } from './tiempo-real'
 
@@ -12,9 +12,9 @@ import { emitir } from './tiempo-real'
 
 export const configuracion = (): ConfiguracionDeJunta | null => configuracionDeJunta(process.env)
 
-const noDisponible = () => new ErrorDeChat('Las juntas todavía no están configuradas en el servidor.', 409)
+export const noDisponible = () => new ErrorDeChat('Las juntas todavía no están configuradas en el servidor.', 409)
 
-function servicio(c: ConfiguracionDeJunta) {
+export function servicio(c: ConfiguracionDeJunta) {
   return new RoomServiceClient(c.urlHttp, c.clave, c.secreto)
 }
 
@@ -74,7 +74,7 @@ export async function entrarEnJunta(quien: QuienEscribe, canalId: unknown): Prom
     estabaVacia = estado.dentro.length === 0
     // Con candado, solo entra quien ya estaba dentro o a quien han dejado entrar. Un candado que se quedó puesto en una sala vacía no cuenta: se quita
     if (!puedeEntrarASala(estado, quien.userId)) throw new ErrorDeChat(MENSAJE_DE_SALA_CON_CANDADO, 423)
-    if (estabaVacia && estado.existe && estado.bloqueada) void servicio(c).updateRoomMetadata(sala, '{}').catch(() => undefined)
+    if (estabaVacia && estado.existe && estado.metadatos && estado.metadatos !== '{}') void servicio(c).updateRoomMetadata(sala, '{}').catch(() => undefined)
   } catch (e) {
     if (e instanceof ErrorDeChat) throw e
     console.error('Chat: no se ha podido comprobar la sala:', e instanceof Error ? e.message : e)
@@ -114,8 +114,10 @@ async function avisarDeLlamada(quien: QuienEscribe, canalId: string, destinatari
 /* El candado y la puerta                                              */
 /* ------------------------------------------------------------------ */
 
-interface EstadoDeSala {
+export interface EstadoDeSala {
   existe: boolean
+  /** Los metadatos tal cual están en LiveKit (el candado y la música): para cambiar una cosa sin pisar la otra (fusionarMetadatosDeSala) */
+  metadatos: string
   bloqueada: boolean
   admitidos: string[]
   /** Quién está dentro ahora */
@@ -123,13 +125,13 @@ interface EstadoDeSala {
 }
 
 /** Lo que LiveKit dice de una sala: si existe, si tiene candado, a quién se ha dejado entrar y quién está dentro */
-async function estadoDeSala(c: ConfiguracionDeJunta, sala: string): Promise<EstadoDeSala> {
+export async function estadoDeSala(c: ConfiguracionDeJunta, sala: string): Promise<EstadoDeSala> {
   const svc = servicio(c)
   const r = (await svc.listRooms([sala]))[0]
-  if (!r) return { existe: false, bloqueada: false, admitidos: [], dentro: [] }
+  if (!r) return { existe: false, metadatos: '', bloqueada: false, admitidos: [], dentro: [] }
   const meta = leerMetadatosDeSala(r.metadata)
   const dentro = r.numParticipants > 0 ? (await svc.listParticipants(sala)).map((p) => p.identity) : []
-  return { existe: true, ...meta, dentro }
+  return { existe: true, metadatos: r.metadata ?? '', ...meta, dentro }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -144,7 +146,7 @@ export async function ponerCandado(quien: QuienEscribe, canalId: unknown, bloque
   const estado = await estadoDeSala(c, sala)
   if (!estado.dentro.includes(quien.userId)) throw new ErrorDeChat('Solo puede poner o quitar el candado quien está dentro de la sala.', 403)
   const nuevo = bloqueada === true
-  await servicio(c).updateRoomMetadata(sala, JSON.stringify({ bloqueada: nuevo, admitidos: [...new Set([...estado.dentro, ...estado.admitidos])].slice(0, 200) }))
+  await servicio(c).updateRoomMetadata(sala, fusionarMetadatosDeSala(estado.metadatos, { bloqueada: nuevo, admitidos: [...new Set([...estado.dentro, ...estado.admitidos])].slice(0, 200) }))
   cacheActivas = null
   // Es el mismo aviso de «algo ha cambiado en la junta de este canal»: la pantalla vuelve a leer quién está y si tiene candado
   void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala, estado: 'voz' })
@@ -182,7 +184,7 @@ export async function responderALaPuerta(quien: QuienEscribe, canalId: unknown, 
   const sala = salaDe(canal.id)
   const estado = await estadoDeSala(c, sala)
   if (!estado.dentro.includes(quien.userId)) throw new ErrorDeChat('Solo puede contestar quien está dentro de la sala.', 403)
-  if (permitir) await servicio(c).updateRoomMetadata(sala, JSON.stringify({ bloqueada: estado.bloqueada, admitidos: [...new Set([...estado.admitidos, usuarioId])].slice(0, 200) }))
+  if (permitir) await servicio(c).updateRoomMetadata(sala, fusionarMetadatosDeSala(estado.metadatos, { bloqueada: estado.bloqueada, admitidos: [...new Set([...estado.admitidos, usuarioId])].slice(0, 200) }))
   void emitir([usuarioId], { tipo: 'puerta', canalId: canal.id, de: quien.userId, estado: permitir ? 'permitida' : 'denegada' })
   void emitir(estado.dentro, { tipo: 'puerta', canalId: canal.id, de: usuarioId, estado: 'resuelta' })
   return { permitido: permitir }

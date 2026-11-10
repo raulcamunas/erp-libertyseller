@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Room, Track, type Participant, type TrackPublication } from 'livekit-client'
-import { HeadphoneOff, Headphones, Lock, LockOpen, Mic, MicOff, Minimize2, MonitorUp, MonitorX, PhoneOff, Settings2, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
+import { HeadphoneOff, Headphones, Lock, LockOpen, Mic, MicOff, Minimize2, Music2, MonitorUp, MonitorX, PhoneOff, Settings2, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible } from '@/lib/chat/canales'
 import { useChat } from './ChatProvider'
 import { useJunta } from './JuntaProvider'
+import { useMusica } from './MusicaProvider'
 import { abrirDialogoDeVoz } from '@/lib/chat/dialogo-voz'
 import { BotonDeSonidos } from './BotonDeSonidos'
 
@@ -131,6 +132,16 @@ export function teselasDe(room: Room | null): { gente: Participant[]; teselas: T
   return { gente, teselas, hayPantalla: teselas.some((t) => t.pantalla) }
 }
 
+/** La música compartida de la sala: abre o cierra el reproductor (cerrarlo es dejar de escucharla tú solo). Lleva un punto si está sonando algo */
+export function BotonDeMusica() {
+  const { visible, alternarPanel, estado } = useMusica()
+  return (
+    <button type="button" onClick={alternarPanel} data-activo={visible ? 'true' : undefined} data-suena={estado.reproduciendo ? 'true' : undefined} aria-pressed={visible} aria-label={visible ? 'Cerrar la música de la sala' : 'Abrir la música de la sala'} title={visible ? 'Cerrar el reproductor (dejas de escucharla tú solo)' : 'Música: pon música de YouTube a toda la sala con un enlace'}>
+      <Music2 className="h-4 w-4" />
+    </button>
+  )
+}
+
 /** El candado de la sala en la que estás: puesto, para entrar hay que llamar a la puerta; quitado, la sala está abierta */
 export function BotonDeCandado({ canalId }: { canalId: string }) {
   const { bloqueada, ponerCandado } = useJunta()
@@ -170,6 +181,7 @@ export function MandosDeLaJunta({ canalId, ajustesEn }: { canalId: string; ajust
         <button type="button" onClick={() => void alternarEnsordecer()} data-apagado={ensordecido ? 'true' : undefined} aria-pressed={ensordecido} aria-label={ensordecido ? 'Volver a oír' : 'Ensordecer: dejar de oír a todos'} title={ensordecido ? 'Volver a oír' : 'Ensordecer: dejar de oír a todos'}>
           {ensordecido ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
         </button>
+        <BotonDeMusica />
         <BotonDeCandado canalId={canalId} />
         <button type="button" data-abre-ajustes-audio data-activo={ajustes ? 'true' : undefined} onClick={() => setAjustes((a) => !a)} aria-expanded={ajustes} aria-label="Ajustes de audio" title="Ajustes de audio: ruido, micrófono, altavoz">
           <Settings2 className="h-4 w-4" />
