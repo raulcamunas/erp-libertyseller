@@ -3,7 +3,7 @@ import { FlaskConical } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { clientesGrowth } from '@/lib/growth/clientes'
-import { clientesConAds, cuentasDeCliente } from '@/lib/ads/cuenta'
+import { clientesConAds, cuentasDeClientes } from '@/lib/ads/cuenta'
 import { APP_MARKETING_TEST, ceoSinCasilla } from '@/lib/ads/acceso'
 import { Vacio } from '@/components/plataforma/comun'
 import { MarketingTest } from '@/components/marketing-test/MarketingTest'
@@ -51,21 +51,17 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
     )
   }
 
+  // Todos los clientes con sus cuentas, de una vez: la pantalla cambia de cliente y de país sin volver al servidor
+  const cuentas = await cuentasDeClientes(clientes.map((c) => c.amazonClientId as string))
+  const paraLaBarra = clientes.map((c) => ({ slug: c.slug, nombre: c.nombre, cuentas: (cuentas.get(c.amazonClientId as string) ?? []).map((x) => ({ id: x.id, pais: x.pais, moneda: x.moneda, nombre: x.nombre })) }))
+
   // El cliente de la URL, o el primero. Un enlace viejo o un slug que ya no existe cae en uno de la lista, no en pantalla en blanco
-  const cliente = clientes.find((c) => c.slug === uno(searchParams.c)) ?? clientes[0]
-  const cuentas = await cuentasDeCliente(cliente.amazonClientId as string)
-  const cuenta = cuentas.find((c) => c.id === uno(searchParams.p)) ?? cuentas[0] ?? null
+  const cliente = paraLaBarra.find((c) => c.slug === uno(searchParams.c)) ?? paraLaBarra[0]
+  const cuenta = cliente.cuentas.find((c) => c.id === uno(searchParams.p)) ?? cliente.cuentas[0] ?? null
 
   return (
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
-      <MarketingTest
-        key={`${cliente.slug}:${cuenta?.id ?? 'sin'}`}
-        clientes={clientes.map((c) => ({ slug: c.slug, nombre: c.nombre }))}
-        cliente={{ slug: cliente.slug, nombre: cliente.nombre }}
-        cuentas={cuentas.map((c) => ({ id: c.id, pais: c.pais, moneda: c.moneda, nombre: c.nombre }))}
-        cuentaId={cuenta?.id ?? null}
-        pestana={uno(searchParams.t) ?? 'resumen'}
-      />
+      <MarketingTest clientes={paraLaBarra} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'resumen'} />
     </div>
   )
 }

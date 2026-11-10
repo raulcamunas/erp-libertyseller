@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, CircleAlert, ExternalLink, Loader2, Plug, RefreshCw } from 'lucide-react'
-import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
+import { nombreDePais } from '@/lib/ads/paises'
 import { BOTON, CAMPO, COLOR_ESTADO, INSIGNIA, TABLA, TARJETA, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { postAmazon } from '@/lib/amazon/client'
 import type { ClienteMarketing, ConexionAds, PerfilAds } from '@/lib/ads/datos'
@@ -334,14 +334,6 @@ export function MarketingApiBoard({
       <Laboratorio clientes={lista} />
     </div>
   )
-}
-
-/** El nombre del país a partir del código de Ads («UK» en Ads es «GB» en SP-API) */
-function nombreDePais(codigo: string | null): string {
-  if (!codigo) return '—'
-  const c = codigo === 'UK' ? 'GB' : codigo
-  // Irlanda no está en la lista de mercados de SP-API del ERP (ahí no se vende), pero sí tiene cuenta de anunciante
-  return AMAZON_MARKETPLACES.find((m) => m.countryCode === c)?.label ?? (c === 'IE' ? 'Irlanda' : codigo)
 }
 
 /** El interruptor de «Se usa». Accesible (role=switch) y con el naranja de marca solo cuando está encendido */

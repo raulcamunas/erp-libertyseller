@@ -60,6 +60,33 @@ export async function cuentasDeCliente(amazonClientId: string): Promise<CuentaDe
   }))
 }
 
+/**
+ * Las cuentas de anunciante EN USO de varios clientes de una vez (para la barra lateral de Marketing Test), con España primero dentro de cada cliente. Una sola vuelta a la base en vez de una por cliente.
+ */
+export async function cuentasDeClientes(amazonClientIds: readonly string[]): Promise<Map<string, CuentaDeAnunciante[]>> {
+  const salida = new Map<string, CuentaDeAnunciante[]>(amazonClientIds.map((id) => [id, []]))
+  if (amazonClientIds.length === 0) return salida
+  const service = createServiceClient()
+  const { data: conexiones, error } = await service.from('ads_connections').select('id, client_id').in('client_id', [...amazonClientIds])
+  if (error) throw error
+  const clienteDeConexion = new Map(((conexiones ?? []) as Array<{ id: string; client_id: string }>).map((c) => [c.id, c.client_id]))
+  if (clienteDeConexion.size === 0) return salida
+  const { data, error: e2 } = await service
+    .from('ads_profiles')
+    .select('id, profile_id, connection_id, pais, moneda, nombre, tipo')
+    .in('connection_id', [...clienteDeConexion.keys()])
+    .eq('en_uso', true)
+    .order('pais')
+  if (e2) throw e2
+  for (const p of (data ?? []) as Array<{ id: string; profile_id: number; connection_id: string; pais: string | null; moneda: string | null; nombre: string | null; tipo: string | null }>) {
+    const cliente = clienteDeConexion.get(p.connection_id)
+    if (!cliente) continue
+    salida.get(cliente)?.push({ id: p.id, profileId: Number(p.profile_id), conexionId: p.connection_id, pais: p.pais ?? '', moneda: p.moneda, nombre: p.nombre, tipo: p.tipo })
+  }
+  for (const lista of salida.values()) lista.sort((a, b) => Number(b.pais === 'ES') - Number(a.pais === 'ES'))
+  return salida
+}
+
 /** Los clientes (ids de amazon_clients) que tienen alguna cuenta de anunciante en uso: los únicos con los que se puede trabajar en Marketing Test */
 export async function clientesConAds(): Promise<Set<string>> {
   const service = createServiceClient()
