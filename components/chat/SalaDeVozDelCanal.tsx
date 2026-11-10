@@ -70,7 +70,7 @@ export function SalaDeVozDelCanal({ canal }: { canal: CanalChat }) {
           </div>
 
           {dentroAqui ? (
-            <MandosDeLaJunta canalId={canal.id} ajustesEn="sobre" />
+            <MandosDeLaJunta canalId={canal.id} />
           ) : puedeEntrar ? (
             <div className="sala-voz-unirse">
               <button type="button" className="tc-boton-primario" onClick={() => void entrar(canal.id)} disabled={llamando || (actual?.estado === 'conectando')}>

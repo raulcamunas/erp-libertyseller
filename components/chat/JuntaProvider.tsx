@@ -5,7 +5,7 @@ import { DisconnectReason, Room, RoomEvent, Track, type LocalAudioTrack } from '
 import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
 import { AJUSTES_DE_AUDIO_POR_DEFECTO, CLAVE_DE_AUDIO, CLAVE_DE_VOLUMENES, leerAjustesDeAudio, leerVolumenes, limitarVolumen, limpiarAjustesDeAudio, restriccionesDeMicro, volumenEfectivo, type AjustesDeAudio, type Volumenes } from '@/lib/chat/audio'
-import { MENSAJE_DE_SALA_CON_CANDADO, type JuntaActiva } from '@/lib/chat/junta'
+import { leerMetadatosDeSala, MENSAJE_DE_SALA_CON_CANDADO, type JuntaActiva } from '@/lib/chat/junta'
 import { ponerJuntaConectada } from '@/lib/chat/dock-estado'
 import { ponerSonidosDeVoz } from '@/lib/chat/sonidos-voz'
 import { AJUSTES_DE_VOZ_POR_DEFECTO, CLAVE_DE_VOZ, leerAjustesDeVoz, limpiarAjustesDeVoz, necesitaProcesador, type AjustesDeVoz } from '@/lib/chat/voz-ajustes'
@@ -105,6 +105,8 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
   const [ensordecido, setEnsordecido] = useState(false)
   const [vistaGrande, setVistaGrande] = useState(false)
   const [esperandoPuerta, setEsperandoPuerta] = useState<string | null>(null)
+  // El candado que acabas de poner o quitar se ve AL INSTANTE, sin esperar al servidor; lo confirma lo que dice la sala y, si falla, se deshace
+  const [candadoAlInstante, setCandadoAlInstante] = useState<Record<string, boolean>>({})
   const esperandoRef = useRef<string | null>(null)
   // La junta a la que hay que volver si se corta sola, y cuántas veces se ha intentado. null = no se vuelve (se salió a propósito)
   const volverA = useRef<string | null>(null)
@@ -384,12 +386,21 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
 
   const ponerCandado = useCallback(
     async (canalId: string, bloqueada: boolean) => {
+      const quitarAviso = () =>
+        setCandadoAlInstante((o) => {
+          if (!(canalId in o)) return o
+          const n = { ...o }
+          delete n[canalId]
+          return n
+        })
+      setCandadoAlInstante((o) => ({ ...o, [canalId]: bloqueada }))
+      toast.message(bloqueada ? 'Candado puesto: para entrar tendrán que llamar a la puerta.' : 'Candado quitado: la sala vuelve a estar abierta.')
+      // Si por lo que sea la sala no llega a confirmarlo, el aviso local no se queda para siempre
+      setTimeout(quitarAviso, 8000)
       try {
         await pedir(`${BASE}/junta/candado`, { metodo: 'POST', cuerpo: { canalId, bloqueada } })
-        // Se ve al instante, sin esperar a la siguiente lectura
-        setActivas((a) => (a[canalId] ? { ...a, [canalId]: { ...a[canalId], bloqueada } } : a))
-        toast.message(bloqueada ? 'Candado puesto: para entrar tendrán que llamar a la puerta.' : 'Candado quitado: la sala vuelve a estar abierta.')
       } catch (e) {
+        quitarAviso()
         toast.error(mensajeDe(e, 'No se ha podido cambiar el candado.'))
       }
     },
@@ -452,6 +463,23 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     return () => ponerJuntaConectada(false)
   }, [conectada])
 
+  /** ¿Tiene candado esta sala? Si estás dentro, lo dicen los metadatos de la sala (LiveKit los reparte al momento); si no, la lista de juntas */
+  const bloqueadaDe = useCallback(
+    (canalId: string): boolean => (actual?.canalId === canalId && room.current ? leerMetadatosDeSala(room.current.metadata).bloqueada : activas[canalId]?.bloqueada === true),
+    // `version` sube con cada cambio de la sala (también los metadatos)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [actual?.canalId, activas, version]
+  )
+  // El aviso local se quita en cuanto la sala dice lo mismo
+  useEffect(() => {
+    setCandadoAlInstante((o) => {
+      const n = { ...o }
+      let cambia = false
+      for (const [canalId, v] of Object.entries(o)) if (bloqueadaDe(canalId) === v) { delete n[canalId]; cambia = true }
+      return cambia ? n : o
+    })
+  }, [bloqueadaDe])
+
   const puedePantalla = typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function'
   const valor = useMemo<ContextoDeJunta>(
     () => ({
@@ -476,12 +504,12 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       ponerVistaGrande: setVistaGrande,
       voz,
       cambiarVoz,
-      bloqueada: (canalId: string) => activas[canalId]?.bloqueada === true,
+      bloqueada: (canalId: string) => candadoAlInstante[canalId] ?? bloqueadaDe(canalId),
       ponerCandado,
       esperandoPuerta,
       responderPuerta,
     }),
-    [voz, cambiarVoz, esperandoPuerta, ponerCandado, responderPuerta, disponible, activas, actual, version, puedePantalla, entrar, salir, alternar, audio, cambiarAudio, volumenes, ponerVolumen, ensordecido, alternarEnsordecer, vistaGrande]
+    [candadoAlInstante, bloqueadaDe, voz, cambiarVoz, esperandoPuerta, ponerCandado, responderPuerta, disponible, activas, actual, version, puedePantalla, entrar, salir, alternar, audio, cambiarAudio, volumenes, ponerVolumen, ensordecido, alternarEnsordecer, vistaGrande]
   )
   return (
     <Contexto.Provider value={valor}>

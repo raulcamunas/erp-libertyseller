@@ -9,7 +9,6 @@ import { useChat } from './ChatProvider'
 import { useJunta } from './JuntaProvider'
 import { useMusica } from './MusicaProvider'
 import { abrirDialogoDeVoz } from '@/lib/chat/dialogo-voz'
-import { BotonDeSonidos } from './BotonDeSonidos'
 
 /** Un vídeo (cámara o pantalla) pegado a su elemento: se desengancha solo al cambiar o irse */
 function Imagen({ pub, silenciado }: { pub: TrackPublication; silenciado?: boolean }) {
@@ -62,64 +61,6 @@ export function Cuadro({ t, foco }: { t: Tesela; foco?: boolean }) {
   )
 }
 
-/** Los ajustes de tu audio: limpiar el micrófono, elegir micrófono y altavoz. Solo cambian lo tuyo */
-export function AjustesDeAudioPanel({ onCerrar }: { onCerrar: () => void }) {
-  const { audio, cambiarAudio } = useJunta()
-  const [micros, setMicros] = useState<MediaDeviceInfo[]>([])
-  const [altavoces, setAltavoces] = useState<MediaDeviceInfo[]>([])
-  const panel = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    let vivo = true
-    void Promise.all([Room.getLocalDevices('audioinput', false).catch(() => []), Room.getLocalDevices('audiooutput', false).catch(() => [])]).then(([m, a]) => {
-      if (!vivo) return
-      setMicros(m)
-      setAltavoces(a)
-    })
-    const fuera = (e: PointerEvent) => {
-      if (panel.current && !panel.current.contains(e.target as Node) && !(e.target as Element).closest('[data-abre-ajustes-audio]')) onCerrar()
-    }
-    document.addEventListener('pointerdown', fuera)
-    return () => {
-      vivo = false
-      document.removeEventListener('pointerdown', fuera)
-    }
-  }, [onCerrar])
-  const interruptor = (clave: 'supresion' | 'eco' | 'nivelacion' | 'sonidos', titulo: string, ayuda: string) => (
-    <label className="chat-audio-fila">
-      <span><b>{titulo}</b><small>{ayuda}</small></span>
-      <input type="checkbox" role="switch" checked={audio[clave]} onChange={(e) => void cambiarAudio({ [clave]: e.target.checked })} />
-    </label>
-  )
-  return (
-    <div className="chat-audio-ajustes" ref={panel} role="dialog" aria-label="Ajustes de audio">
-      <p className="chat-audio-titulo">Tu audio <i>solo cambia lo tuyo</i></p>
-      <button type="button" className="chat-boton-sonidos" onClick={abrirDialogoDeVoz}><Mic className="h-3.5 w-3.5" />Ajustes de voz y prueba de micrófono…</button>
-      {interruptor('supresion', 'Supresión de ruido', 'Quita teclado, ventilador y ruido de fondo')}
-      {interruptor('eco', 'Cancelar el eco', 'Evita que tu voz vuelva por los altavoces')}
-      {interruptor('nivelacion', 'Nivelar mi micrófono', 'Sube o baja el volumen solo, para que se te oiga siempre igual')}
-      {interruptor('sonidos', 'Sonidos de la junta', 'Un aviso cuando alguien entra o sale, y cuando te silencias o te ensordeces')}
-      <label className="chat-audio-campo">
-        <span>Micrófono</span>
-        <select value={audio.entrada} onChange={(e) => void cambiarAudio({ entrada: e.target.value })}>
-          <option value="">El del sistema</option>
-          {micros.filter((d) => d.deviceId && d.deviceId !== 'default').map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Micrófono'}</option>)}
-        </select>
-      </label>
-      {altavoces.length > 0 && (
-        <label className="chat-audio-campo">
-          <span>Altavoz</span>
-          <select value={audio.salida} onChange={(e) => void cambiarAudio({ salida: e.target.value })}>
-            <option value="">El del sistema</option>
-            {altavoces.filter((d) => d.deviceId && d.deviceId !== 'default').map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Altavoz'}</option>)}
-          </select>
-        </label>
-      )}
-      <BotonDeSonidos />
-      <p className="chat-audio-nota">El volumen de cada persona se ajusta desde su cuadro.</p>
-    </div>
-  )
-}
-
 /** Los cuadros de una sala: la pantalla compartida de cada persona (si la hay) y, después, la cara o la cámara de cada una */
 export function teselasDe(room: Room | null): { gente: Participant[]; teselas: Tesela[]; hayPantalla: boolean } {
   const gente: Participant[] = room ? [room.localParticipant, ...room.remoteParticipants.values()] : []
@@ -154,18 +95,15 @@ export function BotonDeCandado({ canalId }: { canalId: string }) {
 }
 
 /**
- * LOS MANDOS DE LA JUNTA (micrófono, cámara, pantalla, ensordecer, candado, ajustes y salir), los mismos en la ventana grande y en la sala del canal. `ajustes`: 'dentro' pinta los ajustes de audio
- * llenando el panel (la ventana grande), 'sobre' como una ventanita encima de los mandos (la sala del canal).
+ * LOS MANDOS DE LA JUNTA (micrófono, cámara, pantalla, ensordecer, música, candado, ajustes de voz y salir), los mismos en la ventana grande y en la sala del canal. Los ajustes se abren en una ventana
+ * en mitad de la pantalla (components/chat/DialogoDeAjustesDeVoz.tsx), no en un panelito pegado al botón: ahí se cortaba dentro del chat.
  */
-export function MandosDeLaJunta({ canalId, ajustesEn }: { canalId: string; ajustesEn: 'dentro' | 'sobre' }) {
+export function MandosDeLaJunta({ canalId }: { canalId: string }) {
   const { room, version, salir, alternarMicro, alternarCamara, alternarPantalla, puedePantalla, ensordecido, alternarEnsordecer } = useJunta()
-  const [ajustes, setAjustes] = useState(false)
   void version
   const lp = room?.localParticipant
-  const panel = ajustes ? <AjustesDeAudioPanel onCerrar={() => setAjustes(false)} /> : null
   return (
     <>
-      {ajustesEn === 'dentro' ? panel : panel && <div className="junta-ajustes">{panel}</div>}
       <footer className="chat-junta-mandos">
         <button type="button" onClick={() => void alternarMicro()} data-apagado={lp && !lp.isMicrophoneEnabled ? 'true' : undefined} aria-pressed={Boolean(lp?.isMicrophoneEnabled)} aria-label={lp?.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'} title={lp?.isMicrophoneEnabled ? 'Silenciar el micrófono' : 'Activar el micrófono'}>
           {lp?.isMicrophoneEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
@@ -183,7 +121,7 @@ export function MandosDeLaJunta({ canalId, ajustesEn }: { canalId: string; ajust
         </button>
         <BotonDeMusica />
         <BotonDeCandado canalId={canalId} />
-        <button type="button" data-abre-ajustes-audio data-activo={ajustes ? 'true' : undefined} onClick={() => setAjustes((a) => !a)} aria-expanded={ajustes} aria-label="Ajustes de audio" title="Ajustes de audio: ruido, micrófono, altavoz">
+        <button type="button" onClick={abrirDialogoDeVoz} aria-label="Ajustes de voz" title="Ajustes de voz: volumen y sensibilidad del micrófono, prueba en tiempo real, dispositivos y sonidos">
           <Settings2 className="h-4 w-4" />
         </button>
         <button type="button" className="chat-colgar" onClick={salir} aria-label="Salir de la junta" title="Salir de la junta">
@@ -223,7 +161,7 @@ export function PanelDeJunta() {
           <Cuadro key={t.clave} t={t} foco={hayPantalla && i === 0} />
         ))}
       </div>
-      <MandosDeLaJunta canalId={actual.canalId} ajustesEn="dentro" />
+      <MandosDeLaJunta canalId={actual.canalId} />
     </section>
   )
 }

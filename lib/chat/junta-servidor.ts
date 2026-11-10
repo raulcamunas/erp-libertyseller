@@ -141,9 +141,9 @@ export async function ponerCandado(quien: QuienEscribe, canalId: unknown, bloque
   const c = configuracion()
   if (!c) throw noDisponible()
   const canal = await canalDe(canalId)
-  const miembros = await exigirMiembro(quien, canal)
   const sala = salaDe(canal.id)
-  const estado = await estadoDeSala(c, sala)
+  // Lo de la base (que eres del canal) y lo de LiveKit (quién está dentro) a la vez, no uno detrás de otro
+  const [miembros, estado] = await Promise.all([exigirMiembro(quien, canal), estadoDeSala(c, sala)])
   if (!estado.dentro.includes(quien.userId)) throw new ErrorDeChat('Solo puede poner o quitar el candado quien está dentro de la sala.', 403)
   const nuevo = bloqueada === true
   await servicio(c).updateRoomMetadata(sala, fusionarMetadatosDeSala(estado.metadatos, { bloqueada: nuevo, admitidos: [...new Set([...estado.dentro, ...estado.admitidos])].slice(0, 200) }))

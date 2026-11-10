@@ -8,7 +8,8 @@ import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible } from '@/lib/chat/canales'
 import { useChat } from './ChatProvider'
 import { useJunta } from './JuntaProvider'
-import { AjustesDeAudioPanel, BotonDeCandado, BotonDeMusica, PanelDeJunta } from './PanelDeJunta'
+import { abrirDialogoDeVoz } from '@/lib/chat/dialogo-voz'
+import { BotonDeCandado, BotonDeMusica, PanelDeJunta } from './PanelDeJunta'
 
 /** Cuántas caras caben en la cápsula; el resto va en un «+N» */
 const MAX_CARAS = 4
@@ -25,7 +26,6 @@ export function JuntaFlotante() {
   const ruta = usePathname() ?? ''
   const { actual, room, version, salir, alternarMicro, ensordecido, alternarEnsordecer, vistaGrande, ponerVistaGrande, volumenes, ponerVolumen, puedePantalla } = useJunta()
   const { canales, yo, persona, nombreDe } = useChat()
-  const [ajustes, setAjustes] = useState(false)
   const [abierta, setAbierta] = useState<string | null>(null)
   void version
   if (!actual) return null
@@ -103,7 +103,7 @@ export function JuntaFlotante() {
         </button>
         <BotonDeMusica />
         <BotonDeCandado canalId={actual.canalId} />
-        <button type="button" data-abre-ajustes-audio data-activo={ajustes ? 'true' : undefined} onClick={() => setAjustes((a) => !a)} aria-expanded={ajustes} aria-label="Ajustes de audio" title="Ajustes de audio: ruido, eco, micrófono y altavoz">
+        <button type="button" onClick={abrirDialogoDeVoz} aria-label="Ajustes de voz" title="Ajustes de voz: volumen y sensibilidad del micrófono, prueba en tiempo real, dispositivos y sonidos">
           <Settings2 className="h-4 w-4" />
         </button>
         <button type="button" onClick={() => ponerVistaGrande(true)} aria-label="Ver la junta en grande" title={puedePantalla ? 'Ver la junta en grande (cámaras y pantalla compartida)' : 'Ver la junta en grande'}>
@@ -130,11 +130,6 @@ export function JuntaFlotante() {
             <input type="range" min={0} max={100} value={Math.round(volumenDe * 100)} onChange={(e) => ponerVolumen(persona_.identity, Number(e.target.value) / 100)} aria-label={`Volumen de ${nombreDe(persona_.identity)}`} />
           </span>
           <small>Solo cambia lo que oyes tú</small>
-        </div>
-      )}
-      {ajustes && (
-        <div className="junta-ajustes">
-          <AjustesDeAudioPanel onCerrar={() => setAjustes(false)} />
         </div>
       )}
     </section>

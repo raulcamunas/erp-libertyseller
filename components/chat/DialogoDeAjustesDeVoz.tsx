@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { Room, Track } from 'livekit-client'
-import { Headphones, Mic, RotateCcw, Square, X } from 'lucide-react'
+import { Headphones, Mic, RotateCcw, Square, Volume2, X } from 'lucide-react'
 import { restriccionesDeMicro } from '@/lib/chat/audio'
 import { dialogoDeVozAbierto, ponerDialogoDeVoz, suscribirDialogoDeVoz } from '@/lib/chat/dialogo-voz'
+import { abrirDialogoDeSonidos } from '@/lib/sonidos/dialogo'
 import { AJUSTES_DE_VOZ_POR_DEFECTO, dbAMedidor, umbralADb, type AjustesDeVoz } from '@/lib/chat/voz-ajustes'
 import { ProcesadorDeVoz } from '@/lib/chat/voz-procesador'
 import { useJunta } from './JuntaProvider'
@@ -197,6 +198,14 @@ function Contenido() {
         {interruptor('supresion', 'Supresión de ruido', 'Quita teclado, ventilador y ruido de fondo')}
         {interruptor('eco', 'Cancelar el eco', 'Evita que tu voz vuelva por los altavoces')}
         {interruptor('nivelacion', 'Nivelar mi micrófono', 'Sube o baja el volumen solo, para que se te oiga siempre igual')}
+      </section>
+      <section className="voz-bloque">
+        <h3>Sonidos</h3>
+        <label className="chat-audio-fila">
+          <span><b>Sonidos de la junta</b><small>Un aviso cuando alguien entra o sale, y cuando te silencias o te ensordeces</small></span>
+          <input type="checkbox" role="switch" checked={audio.sonidos} onChange={(e) => void cambiarAudio({ sonidos: e.target.checked })} />
+        </label>
+        <button type="button" className="chat-boton-sonidos" onClick={() => { ponerDialogoDeVoz(false); abrirDialogoDeSonidos() }}><Volume2 className="h-3.5 w-3.5" />Elegir qué suena en cada caso…</button>
       </section>
       <p className="voz-nota">Solo cambia lo tuyo y se guarda en este navegador. Los cambios se aplican también a la llamada en curso.</p>
     </div>
