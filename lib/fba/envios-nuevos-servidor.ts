@@ -15,7 +15,8 @@ import { diaDeCreacionDeEnvio } from './mercados'
  */
 
 const VIDA_MS = 10 * 60_000
-const DIAS_HACIA_ATRAS = 90
+/** Hasta cuándo se mira hacia atrás en la cuenta de Amazon: un año */
+const DIAS_HACIA_ATRAS = 365
 
 export interface ResultadoNuevos {
   clienteId: string

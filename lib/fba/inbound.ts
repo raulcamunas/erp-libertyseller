@@ -126,7 +126,7 @@ export async function estadoDeEnvios(
  * (lib/fba/envios-nuevos.ts). Solo los que ya han salido: un borrador (WORKING) o uno con la etiqueta puesta pero sin enviar (READY_TO_SHIP) todavía no
  * traen unidades fiables, y entrarían en el ERP vacíos.
  *
- * La primera página se pide por fechas y las siguientes con el NextToken (QueryType NEXT_TOKEN: sin él Amazon contesta 400). Tope de 10 páginas, de 50.
+ * La primera página se pide por fechas y las siguientes con el NextToken (QueryType NEXT_TOKEN: sin él Amazon contesta 400). Tope de 20 páginas, de 50 (mil envíos: de sobra para un año).
  */
 export const ESTADOS_DE_ENVIO_YA_SALIDO = ['SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'CHECKED_IN', 'RECEIVING', 'CLOSED']
 
@@ -152,7 +152,7 @@ export async function listarEnviosDeCuenta(creds: AmazonCredentials, marketplace
     }
     nextToken = data.payload?.NextToken
     vueltas++
-  } while (nextToken && vueltas < 10)
+  } while (nextToken && vueltas < 20)
   return salida
 }
 

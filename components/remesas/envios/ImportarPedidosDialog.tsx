@@ -138,7 +138,7 @@ export function ImportarPedidosDialog({
   return (
     <Dialogo
       titulo="Importar pedidos"
-      entradilla={`Envíos que Amazon tiene en la cuenta de ${clienteNombre} (últimos 90 días) y que todavía no están en el ERP. Marca los que quieras traer.`}
+      entradilla={`Envíos que Amazon tiene en la cuenta de ${clienteNombre} (del último año) y que todavía no están en el ERP. Marca los que quieras traer.`}
       onCerrar={onCerrar}
       ancho="max-w-[820px]"
       pie={
