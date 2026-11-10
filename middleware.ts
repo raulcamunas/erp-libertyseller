@@ -510,6 +510,8 @@ export async function middleware(request: NextRequest) {
           // Briefing: lo ven los administradores y quien tenga la casilla. El filtro de verdad es la comprobación de la propia página y
           // requireAppAccess('briefing') en /api/briefing/marcar (las tablas están cerradas al navegador); el id va letra por letra como en lib/config/apps.ts
           '/dashboard/briefing': 'briefing',
+          // Marketing Test: solo administradores; un CEO (admin con puesto 'ceo') entra solo con la casilla. Va aquí para que el CEO sin ella rebote antes de cargar la pantalla.
+          '/dashboard/marketing-test': 'marketing-test',
         }
 
         const appId = routeToAppId[pathname]

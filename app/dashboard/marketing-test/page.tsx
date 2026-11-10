@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { clientesGrowth } from '@/lib/growth/clientes'
 import { clientesConAds, cuentasDeCliente } from '@/lib/ads/cuenta'
+import { APP_MARKETING_TEST, ceoSinCasilla } from '@/lib/ads/acceso'
 import { Vacio } from '@/components/plataforma/comun'
 import { MarketingTest } from '@/components/marketing-test/MarketingTest'
 
@@ -31,6 +32,11 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
   const perfil = await getUserProfile()
   if (!perfil) redirect('/auth/login')
   if (perfil.role !== 'admin') redirect('/dashboard')
+  // Un CEO es un administrador cuyo acceso a cada app lo deciden las casillas
+  if (perfil.puesto === 'ceo') {
+    const { data: permiso } = await supabase.from('user_app_permissions').select('can_access').eq('user_id', user.id).eq('app_id', APP_MARKETING_TEST).maybeSingle()
+    if (ceoSinCasilla(perfil.role, perfil.puesto, new Set(permiso?.can_access ? [APP_MARKETING_TEST] : []))) redirect('/dashboard')
+  }
 
   const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
 
