@@ -5,7 +5,8 @@ import { FlaskConical, ClipboardSignature, LayoutDashboard, ListTree, Package, R
 import { CAMPO, PANTALLA, TEXTO, TIPO, TITULO, BOTON } from '@/lib/estilo/denso'
 import { Vacio } from '@/components/plataforma/comun'
 import { nombreDePais } from '@/lib/ads/paises'
-import { BarraDeClientes, type ClienteDeBarra } from './BarraDeClientes'
+import { AvatarDeCliente, BarraDeClientes, type ClienteDeBarra } from './BarraDeClientes'
+import { bandera } from './piezas'
 import { PestanaResumen } from './PestanaResumen'
 import { PestanaCampanas } from './PestanaCampanas'
 import { PestanaPropuestas } from './PestanaPropuestas'
@@ -88,57 +89,78 @@ export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana
     <div className="flex h-full min-h-0 gap-3">
       <BarraDeClientes clientes={clientes} clienteSlug={cliente.slug} cuentaId={cuenta?.id ?? null} colapsada={colapsada} alternar={alternarBarra} elegir={elegir} />
 
-      <div className={`${PANTALLA.cuerpo} h-full flex-1`}>
-        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-[6px] min-w-0 lg:pr-36">
-          <h1 className={`${TITULO.pantalla} flex shrink-0 items-center gap-[6px]`}>
-            <FlaskConical className="h-4 w-4 md:hidden" /> {cliente.nombre}
-          </h1>
-          {cuenta && (
-            <span className={`${TIPO.s} ${TEXTO.t3}`}>
-              {nombreDePais(cuenta.pais)} · {cuenta.moneda ?? ''}
-              {cuenta.nombre ? ` · ${cuenta.nombre}` : ''}
-            </span>
-          )}
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        {/* ---- la cabecera: quién y dónde ---- */}
+        <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 pb-3 lg:pr-36">
+          <div className="flex min-w-0 items-center gap-3">
+            <AvatarDeCliente slug={cliente.slug} nombre={cliente.nombre} tamano={38} />
+            <div className="min-w-0">
+              <h1 className="truncate text-[19px] font-semibold leading-[1.2] tracking-[-0.02em] text-[var(--ls-t1)]">{cliente.nombre}</h1>
+              {cuenta && (
+                <div className="mt-[2px] flex flex-wrap items-center gap-[6px] text-[12px] text-[var(--ls-t3)]">
+                  <span aria-hidden>{bandera(cuenta.pais)}</span>
+                  <span className="font-medium text-[var(--ls-t2)]">{nombreDePais(cuenta.pais)}</span>
+                  <span className="text-[var(--ls-t4)]">·</span>
+                  <span>{cuenta.moneda ?? ''}</span>
+                  {cuenta.nombre && (
+                    <>
+                      <span className="text-[var(--ls-t4)]">·</span>
+                      <span className="truncate">Cuenta {cuenta.nombre}</span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <span className="inline-flex h-[22px] items-center gap-[5px] rounded-full border border-[var(--ls-linea2)] px-[9px] text-[11px] font-medium text-[var(--ls-t3)]" title="Desde aquí se escribe en la cuenta de publicidad del cliente: solo administradores">
+            <FlaskConical className="h-3 w-3" /> En pruebas · solo administradores
+          </span>
+
           {/* En el móvil la barra no cabe: estos dos desplegables hacen su papel */}
-          <label className="flex min-w-0 items-center gap-[6px] md:hidden">
-            <span className={`${TIPO.xs} ${TEXTO.t4} shrink-0`}>Cliente</span>
-            <select value={cliente.slug} onChange={(e) => elegir(e.target.value, clientes.find((c) => c.slug === e.target.value)?.cuentas[0]?.id ?? null)} className={`${CAMPO.input} max-w-[200px]`}>
+          <div className="flex w-full flex-wrap gap-2 md:hidden">
+            <select value={cliente.slug} onChange={(e) => elegir(e.target.value, clientes.find((c) => c.slug === e.target.value)?.cuentas[0]?.id ?? null)} className={`${CAMPO.input} max-w-[200px]`} aria-label="Cliente">
               {clientes.map((c) => (
                 <option key={c.slug} value={c.slug}>
                   {c.nombre}
                 </option>
               ))}
             </select>
-          </label>
-          {cliente.cuentas.length > 1 && (
-            <label className="flex min-w-0 items-center gap-[6px] md:hidden">
-              <span className={`${TIPO.xs} ${TEXTO.t4} shrink-0`}>País</span>
-              <select value={cuenta?.id ?? ''} onChange={(e) => elegir(cliente.slug, e.target.value)} className={`${CAMPO.input} max-w-[160px]`}>
+            {cliente.cuentas.length > 1 && (
+              <select value={cuenta?.id ?? ''} onChange={(e) => elegir(cliente.slug, e.target.value)} className={`${CAMPO.input} max-w-[160px]`} aria-label="País">
                 {cliente.cuentas.map((c) => (
                   <option key={c.id} value={c.id}>
                     {nombreDePais(c.pais)}
                   </option>
                 ))}
               </select>
-            </label>
-          )}
-          <span className={`${TIPO.xs} ${TEXTO.t4}`}>Escribe en la cuenta de publicidad del cliente · solo administradores</span>
-        </div>
+            )}
+          </div>
+        </header>
 
-        <nav className="flex shrink-0 flex-wrap items-center gap-[4px] min-w-0" aria-label="Marketing Test">
+        {/* ---- las pestañas: subrayadas, como en la consola de Amazon Ads ---- */}
+        <nav className="-mx-1 flex shrink-0 items-end gap-1 overflow-x-auto border-b border-[var(--ls-linea)] px-1" aria-label="Marketing Test">
           {PESTANAS.map((p) => {
             const Icono = p.icono
             const encendida = p.id === activa
             return (
-              <button key={p.id} type="button" onClick={() => irAPestana(p.id)} className={`${BOTON.chip} ${encendida ? BOTON.chipEncendido : ''}`} aria-current={encendida ? 'page' : undefined}>
-                <Icono className="h-[13px] w-[13px] shrink-0" />
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => irAPestana(p.id)}
+                aria-current={encendida ? 'page' : undefined}
+                className={`relative inline-flex h-[38px] shrink-0 items-center gap-[7px] rounded-t-[8px] px-3 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ls-acc-graf)] ${
+                  encendida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]'
+                }`}
+              >
+                <Icono className={`h-[14px] w-[14px] shrink-0 ${encendida ? 'text-[var(--ls-acc)]' : ''}`} />
                 {p.nombre}
+                {encendida && <span aria-hidden className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-[var(--ls-acc-graf)]" />}
               </button>
             )
           })}
         </nav>
 
-        <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto pt-4">
           {!cuenta ? (
             <Vacio icono={<FlaskConical />} titulo="Este cliente no tiene ninguna cuenta de anunciante en uso">
               Se encienden («Se usa») en <strong>Amazon API · Publicidad</strong>.

@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Search } fr
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TEXTO, TIPO } from '@/lib/estilo/denso'
 import { diasDelRango, porCampana, tipoDeCampana, totalesDe, type CampanaConCifras } from '@/lib/ads/rendimiento-calculo'
 import { agruparPorProducto } from '@/lib/ads/productos-agrupar'
-import { COLOR_DE_TIPO, EtiquetaDeTipo, PuntoDeEstado, SelectorDePeriodo, textoDeEstado, type Dias } from './piezas'
+import { COLOR_DE_TIPO, EtiquetaDeTipo, PuntoDeEstado, Segmentado, SelectorDePeriodo, textoDeEstado, TiraDeCifras, type Dias } from './piezas'
 import { useProductosConocidos } from './useProductosConocidos'
 import { TarjetaDeProducto, type FilaDeCampana } from './TarjetaDeProducto'
 import { dinero, decimal, entero, porcentaje } from './formato'
@@ -149,31 +149,41 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
   }
 
   return (
-    <div className="flex flex-col gap-2 pb-8">
+    <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
+      {/* ---- fila 1: el periodo (izquierda) y la búsqueda (derecha) ---- */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={informe.fase === 'cargando' || campanas.fase === 'cargando' || (informe.fase === 'listo' && informe.datos.sincronizando)} />
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-[7px] h-3 w-3 text-[var(--ls-t4)]" />
-          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar una campaña…" className={`${CAMPO.input} w-[240px] pl-6`} />
-        </div>
+        <label className="relative">
+          <span className="sr-only">Buscar una campaña</span>
+          <Search className="pointer-events-none absolute left-[10px] top-[9px] h-[13px] w-[13px] text-[var(--ls-t4)]" />
+          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar una campaña" className="h-[30px] w-[260px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none transition-colors placeholder:text-[var(--ls-t4)] hover:border-[var(--ls-linea2)] focus:border-[var(--ls-acc-graf)] focus:bg-[var(--ls-sup)]" />
+        </label>
       </div>
 
-      <div className="flex flex-wrap items-center gap-[6px]">
-        {([
-          ['ENABLED', 'Activas'],
-          ['PAUSED', 'Pausadas'],
-          ['ARCHIVED', 'Archivadas'],
-          ['TODAS', 'Todas'],
-        ] as const).map(([id, nombre]) => (
-          <button key={id} type="button" onClick={() => setFiltro(id)} className={`${BOTON.chip} ${filtro === id ? BOTON.chipEncendido : ''}`}>
-            {nombre} <span className="tabular-nums opacity-70">{cuentas[id]}</span>
-          </button>
-        ))}
-        <span className="mx-1 h-4 w-px bg-[var(--ls-linea2)]" />
-        <button type="button" onClick={() => setVista('producto')} className={`${BOTON.chip} ${vista === 'producto' ? BOTON.chipEncendido : ''}`}>Por producto</button>
-        <button type="button" onClick={() => setVista('lista')} className={`${BOTON.chip} ${vista === 'lista' ? BOTON.chipEncendido : ''}`}>Lista de campañas</button>
+      {/* ---- fila 2: qué campañas y cómo verlas ---- */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Segmentado
+          etiqueta="Estado de las campañas"
+          opciones={[
+            { id: 'ENABLED', texto: 'Activas', cuenta: cuentas.ENABLED },
+            { id: 'PAUSED', texto: 'Pausadas', cuenta: cuentas.PAUSED },
+            { id: 'ARCHIVED', texto: 'Archivadas', cuenta: cuentas.ARCHIVED },
+            { id: 'TODAS', texto: 'Todas', cuenta: cuentas.TODAS },
+          ]}
+          valor={filtro}
+          cambiar={(v) => setFiltro(v as Filtro)}
+        />
+        <Segmentado
+          etiqueta="Vista"
+          opciones={[
+            { id: 'producto', texto: 'Por producto' },
+            { id: 'lista', texto: 'Lista' },
+          ]}
+          valor={vista}
+          cambiar={(v) => setVista(v as Vista)}
+        />
         {vista === 'producto' && grupos.length > 1 && (
-          <button type="button" onClick={() => setAbiertos(abiertos.size > 0 ? new Set() : new Set(grupos.map((g) => g.clave)))} className={`${BOTON.base} ${BOTON.secundario}`}>
+          <button type="button" onClick={() => setAbiertos(abiertos.size > 0 ? new Set() : new Set(grupos.map((g) => g.clave)))} className="ml-auto inline-flex h-[30px] items-center rounded-[9px] px-[10px] text-[12px] font-medium text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">
             {abiertos.size > 0 ? 'Contraer todo' : 'Expandir todo'}
           </button>
         )}
@@ -196,15 +206,18 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
       )}
 
       {vista === 'producto' ? (
-        <div className="flex max-w-[1180px] flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {conCifras && grupos.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-1 py-1">
-              <ResumenSuelto etiqueta="Productos" valor={entero(grupos.filter((g) => g.asin !== null).length)} />
-              <ResumenSuelto etiqueta="Gasto" valor={dinero(total.gasto, moneda)} />
-              <ResumenSuelto etiqueta="Ventas" valor={dinero(total.ventas, moneda)} />
-              <ResumenSuelto etiqueta="ACoS" valor={porcentaje(total.acos)} />
-              <ResumenSuelto etiqueta="Pedidos" valor={entero(total.pedidos)} />
-            </div>
+            <TiraDeCifras
+              cifras={[
+                { etiqueta: 'Productos', valor: entero(grupos.filter((g) => g.asin !== null).length) },
+                { etiqueta: 'Gasto', valor: dinero(total.gasto, moneda) },
+                { etiqueta: 'Ventas', valor: dinero(total.ventas, moneda) },
+                { etiqueta: 'ACoS', valor: porcentaje(total.acos) },
+                { etiqueta: 'ROAS', valor: total.roas == null ? '—' : decimal(total.roas) },
+                { etiqueta: 'Pedidos', valor: entero(total.pedidos) },
+              ]}
+            />
           )}
           {campanas.fase === 'cargando' && grupos.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>Leyendo las campañas de Amazon…</p>}
           {campanas.fase !== 'cargando' && grupos.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>No hay campañas con ese filtro.</p>}
@@ -277,11 +290,3 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
   )
 }
 
-function ResumenSuelto({ etiqueta, valor }: { etiqueta: string; valor: string }) {
-  return (
-    <div className="flex items-baseline gap-[6px]">
-      <span className={`${TIPO.s} ${TEXTO.t4}`}>{etiqueta}</span>
-      <span className="text-[15px] font-semibold tabular-nums text-[var(--ls-t1)]">{valor}</span>
-    </div>
-  )
-}

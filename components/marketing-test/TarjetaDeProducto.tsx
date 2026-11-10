@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronRight, Target } from 'lucide-react'
 import { COLOR_ESTADO, TEXTO, TIPO } from '@/lib/estilo/denso'
 import type { GrupoDeProducto } from '@/lib/ads/productos-agrupar'
 import { serieDiaria, tipoDeCampana, type FilaDiaria, type Totales } from '@/lib/ads/rendimiento-calculo'
@@ -20,25 +20,32 @@ const NOMBRE_DE_TIPO: Record<string, string> = {
   Otras: 'Sin nomenclatura',
 }
 
-/** El gasto y las ventas de cada día, en dos líneas sobre la misma escala */
-function DobleChispa({ gasto, ventas }: { gasto: readonly number[]; ventas: readonly number[] }) {
-  if (gasto.length < 2) return <div className="h-[44px]" />
+/** El gasto y las ventas de cada día, en dos líneas sobre la misma escala; las ventas con un degradado debajo */
+function DobleChispa({ id, gasto, ventas }: { id: string; gasto: readonly number[]; ventas: readonly number[] }) {
+  if (gasto.length < 2) return <div className="h-[56px]" />
   const max = Math.max(...gasto, ...ventas, 0.0001)
-  const pts = (v: readonly number[]) => v.map((x, i) => `${(i / (v.length - 1)) * 100},${42 - (x / max) * 38}`).join(' ')
+  const pts = (v: readonly number[]) => v.map((x, i) => `${(i / (v.length - 1)) * 100},${54 - (x / max) * 48}`).join(' ')
+  const grad = `grad-${id.replace(/[^a-zA-Z0-9]/g, '')}`
   return (
-    <svg viewBox="0 0 100 44" preserveAspectRatio="none" className="h-[44px] w-full" aria-hidden>
-      <polygon points={`0,44 ${pts(ventas)} 100,44`} fill={COLOR_ESTADO.verde} opacity="0.1" />
-      <polyline points={pts(ventas)} fill="none" stroke={COLOR_ESTADO.verde} strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      <polyline points={pts(gasto)} fill="none" stroke={COLOR_ESTADO.azul} strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+    <svg viewBox="0 0 100 56" preserveAspectRatio="none" className="h-[56px] w-full" aria-hidden>
+      <defs>
+        <linearGradient id={grad} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={COLOR_ESTADO.verde} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={COLOR_ESTADO.verde} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={`0,56 ${pts(ventas)} 100,56`} fill={`url(#${grad})`} />
+      <polyline points={pts(ventas)} fill="none" stroke={COLOR_ESTADO.verde} strokeWidth="1.75" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={pts(gasto)} fill="none" stroke={COLOR_ESTADO.azul} strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
     </svg>
   )
 }
 
 function Cifra({ etiqueta, valor, color, nota }: { etiqueta: string; valor: string; color?: string; nota?: string }) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-[84px] text-right">
       <div className={`${TIPO.xs} ${TEXTO.t4}`}>{etiqueta}</div>
-      <div className="text-[17px] font-semibold leading-[1.2] tracking-[-0.015em] tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
+      <div className="mt-[1px] text-[17px] font-semibold leading-[1.2] tracking-[-0.015em] tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
         {valor}
       </div>
       {nota && <div className={`${TIPO.xs} ${TEXTO.t4}`}>{nota}</div>}
@@ -97,46 +104,54 @@ export function TarjetaDeProducto({
   })()
 
   return (
-    <article className="overflow-hidden rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
-      <button type="button" onClick={alternar} className="block w-full px-4 pb-3 pt-3 text-left hover:bg-[var(--ls-sup2)] focus-visible:outline-2 focus-visible:outline-[var(--ls-acc-graf)]" aria-expanded={abierto}>
+    <article className={`overflow-hidden rounded-[14px] border bg-[var(--ls-sup)] transition-[border-color,box-shadow] duration-150 ${abierto ? 'border-[var(--ls-linea2)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)]' : 'border-[var(--ls-linea)] hover:border-[var(--ls-linea2)]'}`}>
+      <button type="button" onClick={alternar} className="group block w-full px-5 pb-4 pt-4 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ls-acc-graf)]" aria-expanded={abierto}>
         <div className="flex items-start gap-3">
-          <span className="mt-[3px] text-[var(--ls-t3)]">{abierto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</span>
+          <span className={`mt-[1px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--ls-t3)] transition-[transform,background-color] duration-200 group-hover:bg-[var(--ls-sup2)] ${abierto ? 'rotate-90 bg-[var(--ls-sup2)] text-[var(--ls-t1)]' : ''}`}>
+            <ChevronRight className="h-4 w-4" />
+          </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="min-w-0 truncate text-[14px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]" title={grupo.titulo}>
+              <h3 className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.012em] text-[var(--ls-t1)]" title={grupo.titulo}>
                 {grupo.titulo}
               </h3>
               {veredicto && (
-                <span className="inline-flex h-[19px] items-center rounded-full border px-[8px] text-[11px] font-medium" style={{ color: veredicto.color, borderColor: veredicto.color, background: 'transparent' }}>
+                <span className="inline-flex h-[20px] items-center gap-[5px] rounded-full px-[8px] text-[11px] font-semibold" style={{ color: veredicto.color, background: `color-mix(in srgb, ${veredicto.color} 14%, transparent)` }}>
+                  <span className="h-[6px] w-[6px] rounded-full" style={{ background: veredicto.color }} />
                   {veredicto.texto}
                 </span>
               )}
             </div>
-            <div className={`mt-[2px] ${TIPO.xs} ${TEXTO.t4}`}>
-              {grupo.asin ?? 'Campañas sin ASIN en el nombre'} · {grupo.campanas.length} {grupo.campanas.length === 1 ? 'campaña' : 'campañas'}
-              {activas !== grupo.campanas.length ? ` · ${activas} ${activas === 1 ? 'activa' : 'activas'}` : ''}
+            <div className="mt-[6px] flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[var(--ls-t4)]">
+              {grupo.asin ? <span className="rounded-[5px] bg-[var(--ls-sup2)] px-[6px] py-[1px] font-mono text-[11px] text-[var(--ls-t3)]">{grupo.asin}</span> : <span>Campañas sin ASIN en el nombre</span>}
+              <span>
+                {grupo.campanas.length} {grupo.campanas.length === 1 ? 'campaña' : 'campañas'}
+                {activas !== grupo.campanas.length ? ` · ${activas} ${activas === 1 ? 'activa' : 'activas'}` : ''}
+              </span>
               {grupo.asin && objetivo === null && (
-                <>
-                  {' · '}
-                  <span
-                    role="link"
-                    tabIndex={0}
-                    className="underline hover:text-[var(--ls-t1)]"
-                    onClick={(e) => {
+                <span
+                  role="link"
+                  tabIndex={0}
+                  className="inline-flex items-center gap-[4px] font-medium text-[var(--ls-acc)] hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    irAProductos()
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
                       e.stopPropagation()
                       irAProductos()
-                    }}
-                    onKeyDown={(e) => e.key === 'Enter' && irAProductos()}
-                  >
-                    fija su ACoS objetivo para valorarlo
-                  </span>
-                </>
+                    }
+                  }}
+                >
+                  <Target className="h-3 w-3" /> Fijar ACoS objetivo
+                </span>
               )}
             </div>
           </div>
 
           {conCifras && (
-            <div className="hidden shrink-0 grid-cols-5 gap-5 md:grid">
+            <div className="hidden shrink-0 grid-cols-5 gap-4 md:grid">
               <Cifra etiqueta="Gasto" valor={dinero(t.gasto, moneda)} />
               <Cifra etiqueta="Ventas" valor={dinero(t.ventas, moneda)} />
               <Cifra etiqueta="ACoS" valor={porcentaje(t.acos)} color={colorAcos} nota={objetivo !== null ? `objetivo ${porcentaje(objetivo, 0)}` : equilibrio !== null ? `equilibrio ${porcentaje(equilibrio, 0)}` : undefined} />
@@ -147,20 +162,21 @@ export function TarjetaDeProducto({
         </div>
 
         {conCifras && (
-          <div className="mt-3 grid items-end gap-4 pl-7 md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+          <div className="mt-4 grid items-end gap-6 pl-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <div>
-              <DobleChispa gasto={serie.map((p) => p.gasto)} ventas={serie.map((p) => p.ventas)} />
+              <DobleChispa id={grupo.clave} gasto={serie.map((p) => p.gasto)} ventas={serie.map((p) => p.ventas)} />
               <div className={`mt-[2px] flex gap-3 ${TIPO.xs} ${TEXTO.t4}`}>
-                <span className="inline-flex items-center gap-1"><span className="h-[6px] w-[6px] rounded-full" style={{ background: COLOR_ESTADO.azul }} /> Gasto diario</span>
-                <span className="inline-flex items-center gap-1"><span className="h-[6px] w-[6px] rounded-full" style={{ background: COLOR_ESTADO.verde }} /> Ventas diarias</span>
+                <span className="inline-flex items-center gap-1"><span className="h-[2px] w-[10px] rounded-full" style={{ background: COLOR_ESTADO.azul }} /> Gasto diario</span>
+                <span className="inline-flex items-center gap-1"><span className="h-[2px] w-[10px] rounded-full" style={{ background: COLOR_ESTADO.verde }} /> Ventas diarias</span>
               </div>
             </div>
             <div>
               {mezcla.length > 0 ? (
                 <>
-                  <div className="flex h-[8px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
+                  <div className={`mb-[6px] ${TIPO.xs} ${TEXTO.t4}`}>Reparto del gasto</div>
+                  <div className="flex h-[6px] gap-[2px]">
                     {mezcla.map((m) => (
-                      <div key={m.tipo} style={{ width: `${m.parte * 100}%`, background: COLOR_DE_TIPO[m.tipo] ?? COLOR_ESTADO.gris }} title={`${NOMBRE_DE_TIPO[m.tipo] ?? m.tipo}: ${porcentaje(m.parte, 0)}`} />
+                      <div key={m.tipo} className="h-full rounded-full first:rounded-l-full last:rounded-r-full" style={{ width: `${Math.max(m.parte * 100, 1.5)}%`, background: COLOR_DE_TIPO[m.tipo] ?? COLOR_ESTADO.gris }} title={`${NOMBRE_DE_TIPO[m.tipo] ?? m.tipo}: ${porcentaje(m.parte, 0)}`} />
                     ))}
                   </div>
                   <div className={`mt-[5px] flex flex-wrap gap-x-3 gap-y-[2px] ${TIPO.xs} ${TEXTO.t3}`}>
@@ -181,11 +197,11 @@ export function TarjetaDeProducto({
       </button>
 
       {abierto && (
-        <div className="overflow-x-auto border-t border-[var(--ls-linea)] bg-[var(--ls-bg)]">
+        <div className="overflow-x-auto border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-bg)_60%,var(--ls-sup))]">
           <table className="w-full min-w-[720px] border-separate border-spacing-0 text-[12.5px]">
             <thead>
               <tr className={`${TIPO.xs} ${TEXTO.t4}`}>
-                <th className="py-[6px] pl-11 pr-3 text-left font-semibold">Campaña</th>
+                <th className="py-[8px] pl-[60px] pr-3 text-left font-semibold">Campaña</th>
                 <th className="px-3 py-[6px] text-right font-semibold">Presupuesto / día</th>
                 <th className="px-3 py-[6px] text-right font-semibold">Gasto</th>
                 <th className="px-3 py-[6px] text-right font-semibold">Ventas</th>
@@ -200,7 +216,7 @@ export function TarjetaDeProducto({
                 const sinGastar = conCifras && f.gasto === 0
                 return (
                   <tr key={f.campaignId} className={`hover:[&>td]:bg-[var(--ls-sup)] ${sinGastar ? 'opacity-55' : ''}`}>
-                    <td className="border-t border-[var(--ls-linea)] py-[7px] pl-11 pr-3">
+                    <td className="border-t border-[var(--ls-linea)] py-[9px] pl-[60px] pr-3">
                       <div className="flex items-center gap-2">
                         <PuntoDeEstado estado={f.estado} />
                         <div className="min-w-0">

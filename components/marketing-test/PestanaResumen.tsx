@@ -3,10 +3,10 @@
 import { useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CircleAlert, TrendingDown } from 'lucide-react'
-import { AVISO, BOTON, COLOR_ESTADO, TARJETA, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
+import { AVISO, BOTON, COLOR_ESTADO, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { diasDelRango, gastanSinVender, porCampana, repartoPorTipo, serieDiaria, tipoDeCampana, totalesDe } from '@/lib/ads/rendimiento-calculo'
 import { agruparPorProducto } from '@/lib/ads/productos-agrupar'
-import { COLOR_DE_TIPO, Kpi, SelectorDePeriodo, type Dias } from './piezas'
+import { COLOR_DE_TIPO, Kpi, SelectorDePeriodo, type Dias, CAJA as TARJETA } from './piezas'
 import { diaCorto, dinero, decimal, entero, porcentaje } from './formato'
 import { useRendimiento } from './useRendimiento'
 import { useProductosConocidos } from './useProductosConocidos'
@@ -110,9 +110,11 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
                 key={s.id}
                 type="button"
                 onClick={() => setSeries((prev) => { const n = new Set(prev); if (n.has(s.id)) { if (n.size > 1) n.delete(s.id) } else n.add(s.id); return n })}
-                className={`${BOTON.chip} ${series.has(s.id) ? BOTON.chipEncendido : ''}`}
+                aria-pressed={series.has(s.id)}
+                className={`inline-flex h-[28px] items-center gap-[6px] rounded-[8px] px-[9px] text-[12px] font-medium transition-colors hover:bg-[var(--ls-sup2)] ${series.has(s.id) ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t4)]'}`}
+                title={series.has(s.id) ? `Ocultar ${s.nombre.toLowerCase()}` : `Mostrar ${s.nombre.toLowerCase()}`}
               >
-                <span className="h-[7px] w-[7px] rounded-full" style={{ background: s.color }} />
+                <span className="h-[8px] w-[8px] rounded-full border-2" style={series.has(s.id) ? { background: s.color, borderColor: s.color } : { borderColor: s.color }} />
                 {s.nombre}
               </button>
             ))}
