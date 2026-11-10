@@ -4686,6 +4686,19 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 .chat-tesela[data-habla='true'] { box-shadow: inset 0 0 0 2px var(--ls-e-verde); }
 .chat-tesela video { height: 100%; width: 100%; object-fit: cover; }
 .chat-tesela[data-pantalla='true'] video { object-fit: contain; background: #000; }
+.chat-tesela-ampliar { position: absolute; top: 8px; right: 8px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; border-radius: 9px; background: rgba(0, 0, 0, .62); padding: 6px 8px; font-size: 12px; font-weight: 600; color: #fff; opacity: 0; transition: opacity .15s ease, background-color .15s ease; }
+.chat-tesela:hover .chat-tesela-ampliar, .chat-tesela:focus-within .chat-tesela-ampliar, .chat-tesela-ampliar[data-destacado='true'] { opacity: 1; }
+.chat-tesela-ampliar:hover { background: var(--c-acc, var(--ls-acc)); }
+@media (pointer: coarse) { .chat-tesela-ampliar { opacity: 1; } }
+.visor-grande { position: fixed; inset: 0; z-index: 95; display: flex; flex-direction: column; align-items: stretch; gap: 8px; background: rgba(4, 5, 7, .92); padding: 14px 16px 12px; backdrop-filter: blur(6px); animation: junta-entra .2s ease both; }
+.visor-grande-imagen { display: flex; min-height: 0; flex: 1 1 auto; align-items: center; justify-content: center; overflow: hidden; border-radius: 12px; background: #000; }
+.visor-grande-imagen video { height: 100%; width: 100%; object-fit: cover; }
+.visor-grande-imagen[data-pantalla='true'] video { object-fit: contain; }
+.visor-grande-barra { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; color: #fff; }
+.visor-grande-barra b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.visor-grande-barra span { display: inline-flex; gap: 8px; }
+.visor-grande-barra button { display: inline-flex; align-items: center; gap: 6px; border-radius: 9px; background: rgba(255, 255, 255, .12); padding: 7px 11px; font-size: 12.5px; font-weight: 600; color: #fff; }
+.visor-grande-barra button:hover { background: rgba(255, 255, 255, .22); }
 .chat-tesela-nombre { position: absolute; left: 8px; bottom: 8px; display: inline-flex; max-width: calc(100% - 16px); align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 7px; background: rgba(0, 0, 0, .6); padding: 2px 8px; font-size: 11.5px; font-weight: 600; color: #fff; }
 .chat-junta-mandos { display: flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 8px; padding: 6px 10px 12px; }
 .chat-junta-mandos button { display: inline-flex; height: 38px; min-width: 38px; align-items: center; justify-content: center; gap: 6px; border-radius: 12px; background: var(--ls-sup3); padding: 0 12px; font-size: 13px; font-weight: 650; color: var(--ls-t1); transition: background .15s ease, transform .15s ease; }

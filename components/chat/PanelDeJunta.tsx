@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Room, Track, type Participant, type TrackPublication } from 'livekit-client'
-import { HeadphoneOff, Headphones, Lock, LockOpen, Mic, MicOff, Minimize2, Music2, MonitorUp, MonitorX, PhoneOff, Settings2, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
+import { HeadphoneOff, Headphones, Lock, LockOpen, Maximize, Maximize2, Mic, MicOff, Minimize2, Music2, MonitorUp, MonitorX, PhoneOff, Settings2, Video, VideoOff, Volume2, VolumeX } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible } from '@/lib/chat/canales'
 import { useChat } from './ChatProvider'
@@ -33,18 +34,75 @@ export interface Tesela {
   pub: TrackPublication | null
 }
 
+/**
+ * UN CUADRO A CASI TODA LA VENTANA: la pantalla compartida (o una cámara) en grande, sobre un fondo oscuro que deja ver apenas el chat de detrás. Se cierra con Esc, con la X o pulsando fuera; «Pantalla
+ * completa» la lleva además a toda la pantalla del equipo. Es el mismo vídeo de la sala enganchado a un segundo elemento, así que no pide nada más a la red.
+ */
+function VisorGrande({ t, nombre, alCerrar }: { t: Tesela; nombre: string; alCerrar: () => void }) {
+  const caja = useRef<HTMLDivElement>(null)
+  const [completa, setCompleta] = useState(false)
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => {
+      // Si está a pantalla completa, el primer Esc lo quita el navegador; el segundo cierra el visor
+      if (e.key === 'Escape' && !document.fullscreenElement) alCerrar()
+    }
+    const cambio = () => setCompleta(document.fullscreenElement === caja.current)
+    window.addEventListener('keydown', tecla)
+    document.addEventListener('fullscreenchange', cambio)
+    return () => {
+      window.removeEventListener('keydown', tecla)
+      document.removeEventListener('fullscreenchange', cambio)
+      if (document.fullscreenElement === caja.current) void document.exitFullscreen().catch(() => undefined)
+    }
+  }, [alCerrar])
+  const alternarCompleta = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+    else void caja.current?.requestFullscreen?.().catch(() => undefined)
+  }, [])
+  if (typeof document === 'undefined' || !t.pub?.track) return null
+  return createPortal(
+    <div className="visor-grande" role="dialog" aria-modal="true" aria-label={`${t.pantalla ? 'Pantalla' : 'Cámara'} de ${nombre} en grande`} ref={caja} onMouseDown={(e) => e.target === e.currentTarget && alCerrar()}>
+      <div className="visor-grande-imagen" data-pantalla={t.pantalla ? 'true' : undefined} onDoubleClick={alternarCompleta}>
+        <Imagen pub={t.pub} silenciado />
+      </div>
+      <div className="visor-grande-barra">
+        <b>{t.pantalla ? `Pantalla de ${nombre}` : nombre}</b>
+        <span>
+          <button type="button" onClick={alternarCompleta} aria-label={completa ? 'Salir de la pantalla completa' : 'Pantalla completa'} title={completa ? 'Salir de la pantalla completa' : 'Llevarla a toda la pantalla del equipo (doble clic)'}>
+            {completa ? <Minimize2 className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+          </button>
+          <button type="button" onClick={alCerrar} aria-label="Cerrar la vista grande" title="Cerrar (Esc)">
+            <Minimize2 className="h-4 w-4" /> Cerrar
+          </button>
+        </span>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 export function Cuadro({ t, foco }: { t: Tesela; foco?: boolean }) {
   const { yo, nombreDe } = useChat()
+  const [grande, setGrande] = useState(false)
+  const cerrarGrande = useCallback(() => setGrande(false), [])
   const { volumenes, ponerVolumen } = useJunta()
   const nombre = nombreDe(t.persona.identity)
   const volumen = volumenes[t.persona.identity] ?? 1
   const esOtra = t.persona.identity !== yo.id && !t.pantalla
   const habla = t.persona.isSpeaking && !t.pantalla
+  const conImagen = Boolean(t.pub?.track && !t.pub.isMuted)
   return (
-    <div className="chat-tesela" data-foco={foco ? 'true' : undefined} data-habla={habla ? 'true' : undefined} data-pantalla={t.pantalla ? 'true' : undefined}>
+    <div className="chat-tesela" onDoubleClick={conImagen ? () => setGrande(true) : undefined} data-foco={foco ? 'true' : undefined} data-habla={habla ? 'true' : undefined} data-pantalla={t.pantalla ? 'true' : undefined}>
       {t.pub?.track && !t.pub.isMuted ? <Imagen pub={t.pub} silenciado={t.persona.identity === yo.id || t.pantalla} /> : (
         <span className="chat-tesela-avatar"><Avatar id={t.persona.identity} nombre={nombre} tamano={foco ? 88 : 64} /></span>
       )}
+      {conImagen && (
+        <button type="button" className="chat-tesela-ampliar" data-destacado={t.pantalla ? 'true' : undefined} onClick={() => setGrande(true)} aria-label={`Ver ${t.pantalla ? 'la pantalla' : 'la cámara'} de ${nombre} en grande`} title={t.pantalla ? 'Ver la pantalla en grande (doble clic)' : 'Ver en grande (doble clic)'}>
+          <Maximize2 className="h-4 w-4" />
+          {t.pantalla && <span>Ampliar</span>}
+        </button>
+      )}
+      {grande && <VisorGrande t={t} nombre={nombre} alCerrar={cerrarGrande} />}
       <span className="chat-tesela-nombre">
         {!t.pantalla && !t.persona.isMicrophoneEnabled && <MicOff className="h-3 w-3" aria-label="Micrófono apagado" />}
         {t.pantalla ? `Pantalla de ${nombre}` : t.persona.identity === yo.id ? `${nombre} (tú)` : nombre}
