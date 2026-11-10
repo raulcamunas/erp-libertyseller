@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, BellRing, Boxes, ClipboardList, Database, Download, FileDown, Package, Plus, Sparkles, TrendingDown, Upload } from 'lucide-react'
+import { AlertTriangle, BellRing, Boxes, ClipboardList, Database, Download, FileDown, Package, Plus, Sparkles, Upload } from 'lucide-react'
 import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
 import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
 import { filasACsv } from '@/lib/fba/catalogo/exportar'
@@ -26,7 +26,6 @@ import { ListaPropuestas } from './propuestas/ListaPropuestas'
 import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
 import { PropuestaIaDialog } from './propuestas/PropuestaIaDialog'
 import { fecha } from './formato'
-import { VistaReferencias } from './VistaReferencias'
 
 /**
  * REMESAS A FBA: DOS COSAS DISTINTAS Y UNA TERCERA PARA MIRAR.
@@ -36,7 +35,6 @@ import { VistaReferencias } from './VistaReferencias'
  *   PROPUESTAS   lo que se está preparando con el cliente: qué mandar, que lo
  *                apruebe, que etiquete y encaje. Cuando se marca como enviada y se
  *                enlaza con su número de Amazon, pasa a Envíos.
- *   REFERENCIAS  producto a producto, la que dice cuándo hay que reponer.
  *   PANEL DEL CLIENTE   (pestaña «Panel del cliente») TODO lo que el cliente tiene en Amazon,
  *                con sus ventas, devoluciones, el tiempo que lleva parado y lo que puede
  *                costar: su inventario FBA entero, sin depender de qué envíos se hayan
@@ -67,7 +65,7 @@ interface Cliente {
   propuestas: number
 }
 
-type Vista = 'envios' | 'propuestas' | 'referencias' | 'inventario' | 'base'
+type Vista = 'envios' | 'propuestas' | 'inventario' | 'base'
 
 export function EspacioRemesas({
   clientes,
@@ -107,7 +105,7 @@ export function EspacioRemesas({
   const [vistaElegida, setVista] = useState<Vista>(() => {
     const abierta = panel.remesas.find((r) => r.id === remesaAbierta)
     if (abierta) return esPropuesta(abierta) ? 'propuestas' : 'envios'
-    return vistaInicial === 'envios' || vistaInicial === 'propuestas' || vistaInicial === 'referencias' || vistaInicial === 'inventario' ? vistaInicial : 'envios'
+    return vistaInicial === 'envios' || vistaInicial === 'propuestas' || vistaInicial === 'inventario' ? vistaInicial : 'envios'
   })
 
   // La base de datos solo existe para los clientes que la tienen. Si se estaba en ella
@@ -180,7 +178,7 @@ export function EspacioRemesas({
     const descuadre = panel.skus.reduce((s, k) => s + (k.descuadre ?? 0), 0)
     const tocan = propuestas.filter((r) => leToca(turnoDe(r.estado, r.lineas.length), verComo)).length
     const porFase = (e: string) => propuestas.filter((r) => r.estado === e).length
-    return { enviadas, vivas, enCamino, urgentes, descuadre, tocan, porFase, conDescuadre: panel.skus.filter((s) => s.descuadre !== null && s.descuadre !== 0).length }
+    return { enviadas, vivas, enCamino, urgentes, descuadre, tocan, porFase }
   }, [envios, propuestas, panel.skus, verComo])
 
   const cifrasBase = useMemo(() => {
@@ -224,9 +222,6 @@ export function EspacioRemesas({
               </span>
             )}
           </Pestana>
-          <Pestana activa={vista === 'referencias'} onClick={() => setVista('referencias')} icono={<TrendingDown className="h-[14px] w-[14px]" />} titulo="Producto a producto: cuándo hay que reponer">
-            Referencias
-          </Pestana>
           <Pestana activa={vista === 'inventario'} onClick={() => setVista('inventario')} icono={<Boxes className="h-[14px] w-[14px]" />} titulo="El panel completo de este cliente: su inventario FBA con ventas, devoluciones, tiempo parado, ritmo de venta y lo que puede costarle dejarlo en Amazon">
             Panel del cliente
           </Pestana>
@@ -255,13 +250,6 @@ export function EspacioRemesas({
             <Cifra rotulo="aprobadas" valor={cifras.porFase('aprobada')} />
             <Cifra rotulo="encajando" valor={cifras.porFase('encajando')} />
             <Cifra rotulo="listas" valor={cifras.porFase('lista')} />
-          </div>
-        )}
-        {vista === 'referencias' && (
-          <div className={CIFRAS.tira}>
-            <Cifra rotulo="referencias" valor={panel.skus.length} />
-            <Cifra rotulo="se agotan en 14 días" valor={cifras.urgentes} alerta={cifras.urgentes > 0} />
-            <Cifra rotulo="con descuadre" valor={cifras.conDescuadre} alerta={cifras.conDescuadre > 0} />
           </div>
         )}
         {vista === 'base' && catalogo.filas && catalogo.filas.length > 0 && (
@@ -370,10 +358,6 @@ export function EspacioRemesas({
       ) : vista === 'base' ? (
         <div className="min-h-0 flex-1 px-5 pb-4">
           <VistaBaseDeDatos clienteId={cliente.id} clienteNombre={cliente.nombre} onAnadir={(p) => setAnadiendo(p ?? {})} onImportar={() => setImportando(true)} />
-        </div>
-      ) : vista === 'referencias' ? (
-        <div className="min-h-0 flex-1 px-5 pb-4">
-          <VistaReferencias skus={panel.skus} />
         </div>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 px-5 pb-4 lg:grid-cols-[320px_minmax(0,1fr)]">
