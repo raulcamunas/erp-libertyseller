@@ -294,6 +294,15 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/cumplimiento - Solo admin: lee datos de las cuentas de Amazon de los clientes. El filtro de verdad está en /api/cumplimiento.
+      if (pathname.startsWith('/dashboard/cumplimiento')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/limpieza-ofertas - Solo admin
       //
       // Desde ahí se BORRAN los límites de precio y las rebajas que un cliente
@@ -523,6 +532,8 @@ export async function middleware(request: NextRequest) {
           '/dashboard/marketing-test': 'marketing-test',
           // SEO Test: igual que Marketing Test, un CEO solo con la casilla
           '/dashboard/seo-test': 'seo-test',
+          // Cumplimiento: igual, un CEO solo con la casilla
+          '/dashboard/cumplimiento': 'cumplimiento',
         }
 
         const appId = routeToAppId[pathname]

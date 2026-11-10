@@ -34,6 +34,7 @@ import {
   KanbanSquare,
   FlaskConical,
   SearchCheck,
+  ClipboardCheck,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -335,6 +336,18 @@ export const apps: AppConfig[] = [
     status: 'new',
     category: 'core'
   },
+  {
+    // CUMPLIMIENTO — antes un submódulo de Growth Partner: lo que Amazon dice de cada listing de un cliente (errores, ocultos, avisos de GPSR y RAP), con un panel por cliente y país, las
+    // incidencias agrupadas por lo que dice Amazon y la lista de listings. Solo LEE de Amazon. Ninguna vista junta ni compara clientes.
+    // SOLO ADMIN (datos de las cuentas de los clientes): cerrada en middleware.ts, en APPS_SOLO_ADMIN y en /api/cumplimiento; un CEO entra solo con la casilla.
+    id: 'cumplimiento',
+    name: 'Cumplimiento',
+    description: 'Salud de los listings ante Amazon por cliente y país: errores, ocultos, normativa (GPSR, RAP) y su evolución',
+    icon: ClipboardCheck,
+    route: '/dashboard/cumplimiento',
+    status: 'new',
+    category: 'core'
+  },
   // 'stock-sync' YA NO ES UNA APP DEL MENÚ. No se ha borrado nada: el módulo
   // entero vive ahora dentro de Growth Partner, en /dashboard/growth?m=stock-sync,
   // porque sincronizar el stock de un cliente es TRABAJAR sobre su cuenta y ese
@@ -576,6 +589,7 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'marketing-test',
   // Lee datos de las cuentas de los clientes en Amazon.
   'seo-test',
+  'cumplimiento',
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
   // de llevar datos de compradores —los lleva—, sino porque el trabajo del día 3
   // lo hace un empleado y con la app cerrada a admin acababa usando la sesión de
@@ -878,9 +892,9 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
   {
     id: 'herramientas-agencia',
     name: 'Herramientas Agencia',
-    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API, informes de marketing, Marketing Test y SEO Test',
+    description: 'Teléfonos, remesas a FBA, Growth Partner, Cumplimiento, Amazon API, informes de marketing, Marketing Test y SEO Test',
     icon: Wrench,
-    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'marketing-test', 'seo-test'],
+    apps: ['telefonos', 'remesas', 'growth', 'cumplimiento', 'amazon-api', 'marketing-ads', 'marketing-test', 'seo-test'],
     despuesDe: 'correo',
   },
   {

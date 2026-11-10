@@ -16,7 +16,7 @@ export type FuenteAutomatica = 'fba' | 'cumplimiento'
 
 export const FUENTES: ReadonlyArray<{ id: FuenteAutomatica; nombre: string; que: string; donde: string }> = [
   { id: 'fba', nombre: 'Alertas de logística FBA', que: 'Cada alerta crítica o alta (rotura de stock, envío atascado o incompleto, descuadre) abre una tarea en el cliente.', donde: 'Remesas › Alertas' },
-  { id: 'cumplimiento', nombre: 'Listings suprimidos con stock', que: 'Una tarea por semana y cliente cuando Amazon tiene suprimidos listings que tienen stock, con los primeros SKU.', donde: 'Growth › Cumplimiento' },
+  { id: 'cumplimiento', nombre: 'Listings suprimidos con stock', que: 'Una tarea por semana y cliente cuando Amazon tiene suprimidos listings que tienen stock, con los primeros SKU.', donde: 'la app Cumplimiento' },
 ]
 
 export interface PropuestaDeTarea {
@@ -88,7 +88,7 @@ export function propuestaDeCumplimiento(listings: readonly ListingSuprimido[], h
     titulo: `${listings.length} listing${listings.length === 1 ? '' : 's'} suprimido${listings.length === 1 ? '' : 's'} con stock`,
     icono: '🛑',
     departamento: 'PRODUCTO',
-    contenido: [p('Amazon ha dejado de mostrar estos listings y tienen stock en FBA: cada día sin arreglarlos es venta perdida.'), ...filas, ...(ordenados.length > filas.length ? [p(`…y ${ordenados.length - filas.length} más en Growth › Cumplimiento.`)] : []), p('Creada automáticamente desde Growth › Cumplimiento.')],
+    contenido: [p('Amazon ha dejado de mostrar estos listings y tienen stock en FBA: cada día sin arreglarlos es venta perdida.'), ...filas, ...(ordenados.length > filas.length ? [p(`…y ${ordenados.length - filas.length} más en la app Cumplimiento.`)] : []), p('Creada automáticamente desde la app Cumplimiento.')],
   }
 }
 

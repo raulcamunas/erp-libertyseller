@@ -3,6 +3,7 @@ import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { FALTA_MIGRACION_CUMPLIMIENTO, hayTablaCumplimiento } from '@/lib/cumplimiento/esquema'
 import { revisarTodos } from '@/lib/cumplimiento/revisar'
+import { fotoDelDiaSiFalta } from '@/lib/cumplimiento/panel'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 
 /**
@@ -41,6 +42,11 @@ export async function POST(request: NextRequest) {
     if (!(await hayTablaCumplimiento())) throw new Error(FALTA_MIGRACION_CUMPLIMIENTO)
 
     const r = await revisarTodos()
+    // La foto del día para la gráfica de evolución de la app Cumplimiento (solo la primera pasada del día). Si falla, la revisión sigue valiendo.
+    const foto = await fotoDelDiaSiFalta().catch((e) => {
+      console.error('[cumplimiento] foto del día:', e)
+      return 'fallida' as const
+    })
     // Solo cifras de trabajo: este registro lo ve todo el mundo que mire Sistema y
     // aquí no se mezcla nada de ningún cliente con nada de otro.
     return {
@@ -51,7 +57,8 @@ export async function POST(request: NextRequest) {
         // Si esto es casi todo lo leído, Amazon no está mandando el campo de incidencias
         // en los listings limpios (o no lo está mandando nunca): hay que mirarlo.
         (r.sinCampo ? `, ${r.sinCampo} sin el campo de incidencias` : '') +
-        (r.errores ? `, ${r.errores} cuentas con error` : ''),
+        (r.errores ? `, ${r.errores} cuentas con error` : '') +
+        (foto === 'hecha' ? ', foto del día guardada' : foto === 'fallida' ? ', la foto del día ha fallado' : ''),
     }
   })
   return NextResponse.json({ ok: true, ...salida })

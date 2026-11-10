@@ -72,9 +72,14 @@ type Ultimo = {
 interface Props {
   slug: string
   nombre: string
-  resumenInicial: RespuestaResumen
-  paginaInicial: PaginaCumplimiento
-  enCursoInicial: boolean
+  /** Sin ellos (la app Cumplimiento), la pantalla los pide al montarse */
+  resumenInicial?: RespuestaResumen
+  paginaInicial?: PaginaCumplimiento
+  enCursoInicial?: boolean
+  /** El país elegido en la barra lateral de la app: fija el filtro y esconde el desplegable */
+  mercadoFijo?: string
+  /** Filtros con los que abrir (p. ej. el código de una incidencia desde la pestaña «Incidencias») */
+  filtrosIniciales?: Partial<FiltrosCumplimiento>
 }
 
 const claveFila = (f: Pick<FilaCumplimiento, 'marketplace_id' | 'sku'>) => `${f.marketplace_id}|${f.sku}`
@@ -85,11 +90,11 @@ const GRAVEDADES: Array<{ id: FiltroGravedad; rotulo: string; ayuda: string }> =
   { id: 'todo', rotulo: 'Todo', ayuda: 'Cualquier listing con alguna incidencia' },
 ]
 
-export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicial, enCursoInicial }: Props) {
-  const [resumen, setResumen] = useState<RespuestaResumen>(resumenInicial)
-  const [filtros, setFiltros] = useState<FiltrosCumplimiento>(FILTROS_POR_DEFECTO)
-  const [filas, setFilas] = useState<FilaCumplimiento[]>(paginaInicial.filas)
-  const [hayMas, setHayMas] = useState(paginaInicial.hayMas)
+export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicial, enCursoInicial = false, mercadoFijo, filtrosIniciales }: Props) {
+  const [resumen, setResumen] = useState<RespuestaResumen | null>(resumenInicial ?? null)
+  const [filtros, setFiltros] = useState<FiltrosCumplimiento>({ ...FILTROS_POR_DEFECTO, ...filtrosIniciales, ...(mercadoFijo ? { mercado: mercadoFijo } : {}) })
+  const [filas, setFilas] = useState<FilaCumplimiento[]>(paginaInicial?.filas ?? [])
+  const [hayMas, setHayMas] = useState(paginaInicial?.hayMas ?? false)
   const [pagina, setPagina] = useState(0)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -101,7 +106,8 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
   const [nota, setNota] = useState<string | null>(null)
 
   const peticion = useRef(0)
-  const primera = useRef(true)
+  // Sin datos del servidor, la primera carga la hace el efecto de los filtros
+  const primera = useRef(!!paginaInicial)
   const lanzadaAt = useRef(0)
   const filtrosRef = useRef(filtros)
   filtrosRef.current = filtros
@@ -159,6 +165,13 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
     },
     [llamar]
   )
+
+  /* ---------------- Sin datos del servidor: se piden al montarse ---------------- */
+  useEffect(() => {
+    if (!resumenInicial) void refrescarResumen(filtrosRef.current.mercado)
+    // solo al montarse
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /* ---------------- Al cambiar los filtros ---------------- */
   useEffect(() => {
@@ -249,10 +262,18 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
     const p = new URLSearchParams({ cliente: slug, mercado: filtros.mercado, gravedad: filtros.gravedad, tema: filtros.tema })
     if (filtros.soloStock) p.set('stock', '1')
     if (filtros.busca.trim()) p.set('q', filtros.busca.trim())
+    if (filtros.codigo) p.set('codigo', filtros.codigo)
     return `/api/cumplimiento/exportar?${p.toString()}`
   }, [slug, filtros])
 
   /* ---------------- Sin tabla, o con un fallo ---------------- */
+  if (!resumen) {
+    return (
+      <div className={`flex items-center gap-2 py-6 ${TIPO.s} ${TEXTO.t3}`}>
+        <Loader2 className="h-3 w-3 animate-spin" /> Cargando los listings…
+      </div>
+    )
+  }
   if (!resumen.ok && resumen.faltaMigracion) {
     return (
       <div className={`${AVISO.base} ${AVISO.conTono}`} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
@@ -411,7 +432,7 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
 
             {/* Los `!` no son un adorno: CAMPO.input trae `w-full` y Tailwind ordena `w-[…]` de forma
                 que a veces queda ANTES y pierde. Mismo motivo que en BOTON.chipEncendido. */}
-            <select
+            {!mercadoFijo && <select
               value={filtros.mercado}
               onChange={(e) => setFiltros((f) => ({ ...f, mercado: e.target.value }))}
               className={`${CAMPO.input} !w-[176px]`}
@@ -423,7 +444,18 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
                   {m.nombre} · {cifra(m.revisados)}/{cifra(m.total)}
                 </option>
               ))}
-            </select>
+            </select>}
+
+            {filtros.codigo && (
+              <button
+                type="button"
+                className={`${BOTON.chip} ${BOTON.chipEncendido}`}
+                title="Solo los listings con esta incidencia de Amazon. Pulsa para quitar el filtro."
+                onClick={() => setFiltros((f) => ({ ...f, codigo: '' }))}
+              >
+                Incidencia {filtros.codigo} <XCircle className="h-3 w-3" />
+              </button>
+            )}
 
             <select
               value={filtros.tema}

@@ -162,6 +162,8 @@ export interface FiltrosCumplimiento {
   soloStock: boolean
   /** SKU, ASIN o parte del título */
   busca: string
+  /** Solo los listings con esta incidencia de Amazon (su código). Vacío o ausente = todas */
+  codigo?: string
 }
 
 export const FILTROS_POR_DEFECTO: FiltrosCumplimiento = {

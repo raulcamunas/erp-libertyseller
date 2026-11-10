@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
 import { filtrosValidos, paginaDeCliente, resumenDeCliente } from '@/lib/cumplimiento/consulta'
+import { panelDeCliente } from '@/lib/cumplimiento/panel'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
 import {
   hayRevisionEnCurso,
@@ -9,6 +10,7 @@ import {
   ultimoResultadoManual,
 } from '@/lib/cumplimiento/revisar'
 import { clientesGrowth } from '@/lib/growth/clientes'
+import { sinCasillaDeCumplimiento } from '@/lib/cumplimiento/acceso'
 
 /**
  * CUMPLIMIENTO DE LISTINGS · LO QUE USA LA PANTALLA.
@@ -17,6 +19,7 @@ import { clientesGrowth } from '@/lib/growth/clientes'
  *   filas     una página de la lista, con los filtros elegidos.
  *   ahora     lanza una revisión del cliente y CONTESTA EN SEGUIDA.
  *   sku       vuelve a mirar UN listing, tras arreglarlo en Seller Central.
+ *   panel     el panel de la app Cumplimiento: cifras por país, temas, incidencias agrupadas y evolución.
  *
  * EL CLIENTE LLEGA COMO SLUG Y SE TRADUCE AQUÍ. Nunca llega una conexión ni un
  * identificador de cuenta: las consultas salen de las conexiones de ese cliente, así
@@ -38,6 +41,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await requireAmazonAdmin()
     if (session instanceof NextResponse) return session
+    if (await sinCasillaDeCumplimiento(session)) return fail(403, 'No tienes acceso a Cumplimiento')
 
     const body = (await request.json().catch(() => ({}))) as {
       accion?: string
@@ -60,6 +64,11 @@ export async function POST(request: NextRequest) {
         enCurso: hayRevisionEnCurso(conexiones.map((c) => c.id)),
         ultimo,
       })
+    }
+
+    if (body.accion === 'panel') {
+      const mercado = filtrosValidos({ mercado: body.mercado }).mercado
+      return NextResponse.json({ ok: true, panel: await panelDeCliente(cliente.amazonClientId, mercado === 'todos' ? null : mercado) })
     }
 
     if (body.accion === 'filas') {

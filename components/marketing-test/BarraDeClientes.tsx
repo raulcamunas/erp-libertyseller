@@ -8,10 +8,15 @@ import { bandera } from './piezas'
 
 export interface CuentaDeBarra {
   id: string
+  /** Código del país. «*» = la entrada «todos los países» (no cuenta como país) */
   pais: string
   moneda: string | null
   nombre: string | null
+  /** El texto de la fila, si no es el nombre del país */
+  etiqueta?: string
 }
+
+const esPais = (c: CuentaDeBarra) => c.pais !== '*'
 
 export interface ClienteDeBarra {
   slug: string
@@ -83,7 +88,7 @@ export function BarraDeClientes({
     const q = busqueda.trim().toLowerCase()
     return q ? clientes.filter((c) => c.nombre.toLowerCase().includes(q)) : clientes
   }, [clientes, busqueda])
-  const paises = clientes.reduce((n, c) => n + c.cuentas.length, 0)
+  const paises = clientes.reduce((n, c) => n + c.cuentas.filter(esPais).length, 0)
 
   return (
     <aside
@@ -148,9 +153,9 @@ export function BarraDeClientes({
                     <span className={`min-w-0 flex-1 truncate text-[13px] ${activo ? 'font-semibold text-[var(--ls-t1)]' : 'font-medium text-[var(--ls-t2)] group-hover:text-[var(--ls-t1)]'}`}>{c.nombre}</span>
                     <span
                       className={`inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-[6px] text-[10.5px] font-semibold tabular-nums ${activo ? 'bg-[var(--ls-acc-graf)] text-[var(--ls-acc-tinta)]' : 'bg-[var(--ls-sup3)] text-[var(--ls-t3)]'}`}
-                      title={`${c.cuentas.length} ${c.cuentas.length === 1 ? 'país' : 'países'} en uso`}
+                      title={`${c.cuentas.filter(esPais).length} ${c.cuentas.filter(esPais).length === 1 ? 'país' : 'países'} en uso`}
                     >
-                      {c.cuentas.length}
+                      {c.cuentas.filter(esPais).length}
                     </span>
                   </>
                 )}
@@ -172,9 +177,9 @@ export function BarraDeClientes({
                         }`}
                       >
                         <span className="w-[18px] text-center text-[14px] leading-none" aria-hidden>
-                          {bandera(cu.pais)}
+                          {cu.pais === '*' ? '🌍' : bandera(cu.pais)}
                         </span>
-                        <span className="min-w-0 flex-1 truncate">{nombreDePais(cu.pais)}</span>
+                        <span className="min-w-0 flex-1 truncate">{cu.etiqueta ?? nombreDePais(cu.pais)}</span>
                         <span className="text-[10.5px] font-medium text-[var(--ls-t4)]">{cu.moneda}</span>
                       </button>
                     )

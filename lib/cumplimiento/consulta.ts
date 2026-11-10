@@ -56,6 +56,8 @@ function conFiltros(consulta: any, connIds: string[], f: FiltrosCumplimiento): a
   // normativa, y quien filtra por normativa quiere verlo.
   if (f.tema !== 'todos') q = q.contains('temas', [f.tema])
   if (f.soloStock) q = q.eq('con_stock', true)
+  // JSONB «contiene»: se pasa como texto porque postgrest-js convierte un array en un array de Postgres, no en JSON
+  if (f.codigo) q = q.contains('incidencias', JSON.stringify([{ codigo: f.codigo }]))
   const b = limpiarBusqueda(f.busca)
   // `*` y no `%`: es el comodín de los filtros de PostgREST
   if (b) q = q.or(`sku.ilike.*${b}*,asin.ilike.*${b}*,titulo.ilike.*${b}*`)
@@ -72,6 +74,7 @@ export function filtrosValidos(x: unknown): FiltrosCumplimiento {
     tema,
     soloStock: o.soloStock === true,
     busca: typeof o.busca === 'string' ? o.busca.slice(0, 120) : '',
+    codigo: typeof o.codigo === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(o.codigo) ? o.codigo : '',
   }
 }
 
