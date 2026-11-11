@@ -43,7 +43,7 @@ export interface ObjetivosParaReglas {
   gastoMaximoSinVenta: number
 }
 
-export type TipoDePropuesta = 'negativizar' | 'promover'
+export type TipoDePropuesta = 'negativizar' | 'promover' | 'puja' | 'presupuesto'
 
 export interface Propuesta {
   tipo: TipoDePropuesta

@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { FileText } from 'lucide-react'
+import { FileText, Megaphone } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { CAJA } from '@/components/marketing-test/piezas'
 import { entero, haceCuanto } from '@/components/marketing-test/formato'
@@ -10,12 +10,17 @@ import { bytesDe, coberturaDe, LIMITE_BACKEND_BYTES, LIMITE_TITULO_CARACTERES } 
 import { palabrasQueFaltanEnElTitulo } from '@/lib/seo/resumen'
 import { consultasDe, fichaDe, SelectorDeProducto } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
+import { PropuestaConIa } from './PropuestaConIa'
+import { useDelProducto } from './useDelProducto'
+import type { DatosDePublicidad } from './PestanaSeoBusquedas'
 
 /**
  * LA FICHA DE UN PRODUCTO, REVISADA CONTRA LO QUE LA GENTE BUSCA: el título, los bullets y el backend tal cual están en Amazon (con sus límites), las palabras que más pesan en sus búsquedas y no
- * están en el título, y las búsquedas que venden y no aparecen enteras en ninguna parte. Solo enseña: cambiar la ficha se hace en Seller Central (o con la propuesta de ficha de la agencia).
+ * están en el título, las búsquedas que venden y no aparecen enteras en ninguna parte, y lo que vende por publicidad (Marketing Test) y la ficha no dice. Arriba, la propuesta de ficha con IA, que
+ * solo llega a Amazon con el OK de una persona.
  */
-export function PestanaSeoFicha({ datos, asin, setAsin, irAProductos }: { datos: DatosSeo; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void }) {
+export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos }: { cuentaId: string; datos: DatosSeo; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void }) {
+  const publicidad = useDelProducto<DatosDePublicidad>(asin ? `/api/seo/publicidad?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
   const ficha = asin ? fichaDe(datos, asin) : null
   const consultas = useMemo(() => {
     if (!asin) return []
@@ -57,6 +62,8 @@ export function PestanaSeoFicha({ datos, asin, setAsin, irAProductos }: { datos:
           Se lee de Amazon una vez al día. Si acabas de añadirlo, pulsa «Actualizar» arriba. Si no aparece, comprueba que el producto tiene el SKU puesto.
         </Vacio>
       ) : (
+        <>
+        {asin && <PropuestaConIa key={asin} cuentaId={cuentaId} asin={asin} hayBusquedas={consultas.length > 0} hayFicha={!!ficha.titulo} mejoras={!!datos.lectura.mejoras} />}
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           <div className="flex min-w-0 flex-col gap-3">
             <Bloque titulo="Título" medida={`${titulo.length} / ${LIMITE_TITULO_CARACTERES} caracteres`} lleno={titulo.length / LIMITE_TITULO_CARACTERES} alerta={titulo.length > LIMITE_TITULO_CARACTERES}>
@@ -132,10 +139,44 @@ export function PestanaSeoFicha({ datos, asin, setAsin, irAProductos }: { datos:
                 )}
               </div>
             </section>
+
+            <VendePorPublicidad publicidad={publicidad.datos} />
           </div>
         </div>
+        </>
       )}
     </div>
+  )
+}
+
+/** Términos que han traído pedidos en las campañas de Marketing Test del producto y cuyas palabras no están en la ficha */
+function VendePorPublicidad({ publicidad }: { publicidad: DatosDePublicidad | null }) {
+  if (!publicidad || !publicidad.hayMarketingTest) return null
+  return (
+    <section className={CAJA.base}>
+      <header className={CAJA.cabecera}>
+        <Megaphone className="h-[14px] w-[14px] text-[var(--ls-t3)]" />
+        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Vende por publicidad y no está en la ficha</h3>
+      </header>
+      <div className={CAJA.cuerpo}>
+        {publicidad.vendePorPublicidad.length === 0 ? (
+          <p className="text-[12.5px] text-[var(--ls-t3)]">{publicidad.campanas === 0 ? 'Este producto no tiene campañas en Marketing Test (o aún no se han leído sus términos).' : 'Nada: lo que convierte en publicidad ya está en la ficha.'}</p>
+        ) : (
+          <div className="flex flex-col divide-y divide-[var(--ls-linea)]">
+            {publicidad.vendePorPublicidad.map((t) => (
+              <div key={t.termino} className="flex items-center gap-2 py-[7px]">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12.5px] font-medium text-[var(--ls-t1)]">{t.termino}</div>
+                  <div className="text-[11px] text-[var(--ls-t4)]">{entero(t.pedidos)} {t.pedidos === 1 ? 'pedido' : 'pedidos'} por publicidad · {entero(t.clics)} clics</div>
+                </div>
+                <span className="text-[11px]" style={{ color: COLOR_ESTADO.ambar }}>falta: {t.faltan.join(', ')}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-[var(--ls-t4)]">Términos de búsqueda de las campañas de Marketing Test del producto. La propuesta con IA los tiene en cuenta.</p>
+      </div>
+    </section>
   )
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Search } from 'lucide-react'
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TEXTO, TIPO } from '@/lib/estilo/denso'
 import { diasDelRango, porCampana, tipoDeCampana, totalesDe, type CampanaConCifras } from '@/lib/ads/rendimiento-calculo'
@@ -10,6 +10,8 @@ import { useProductosConocidos } from './useProductosConocidos'
 import { TarjetaDeProducto, type FilaDeCampana } from './TarjetaDeProducto'
 import { dinero, decimal, entero, porcentaje } from './formato'
 import { useRendimiento } from './useRendimiento'
+import { DetalleDeCampana } from './DetalleDeCampana'
+import { AvisosDeCuenta } from './AvisosDeCuenta'
 
 type Fila = FilaDeCampana
 type Orden = 'nombre' | 'presupuesto' | 'gasto' | 'ventas' | 'acos' | 'roas' | 'pedidos' | 'clics' | 'cpc' | 'ctr'
@@ -41,6 +43,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
   const [orden, setOrden] = useState<{ por: Orden; desc: boolean }>({ por: 'gasto', desc: true })
   const [vista, setVista] = useState<Vista>('producto')
   const [abiertos, setAbiertos] = useState<ReadonlySet<string>>(new Set())
+  const [campanaAbierta, setCampanaAbierta] = useState<string | null>(null)
   const { campanas, informe, actualizar } = useRendimiento(perfilId, dias)
   const conocidos = useProductosConocidos(perfilId)
 
@@ -104,10 +107,12 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
     return informe.datos.actual.filter((f) => conjunto.has(f.campaignId))
   }
 
-  /** Una fila de campaña. `sangria` 1 = dentro de un producto */
+  /** Una fila de campaña. `sangria` 1 = dentro de un producto. Al pulsarla se abren sus segmentaciones debajo */
   function filaDeCampana(f: Fila, sangria: 0 | 1) {
+    const abierta = campanaAbierta === f.campaignId
     return (
-      <tr key={f.campaignId} className={TABLA.fila}>
+      <Fragment key={f.campaignId}>
+      <tr className={`${TABLA.fila} cursor-pointer`} onClick={() => setCampanaAbierta(abierta ? null : f.campaignId)} title={abierta ? 'Cerrar' : 'Ver sus segmentaciones y cambiar pujas'}>
         <td className={`${TABLA.celda} h-[38px]`} style={sangria ? { paddingLeft: 30 } : undefined}>
           <div className="flex items-center gap-2">
             <PuntoDeEstado estado={f.estado} />
@@ -141,6 +146,14 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
         <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? dinero(f.cpc, moneda) : '—'}</td>
         <td className={`${TABLA.celda} ${TABLA.numero}`}>{conCifras ? porcentaje(f.ctr, 2) : '—'}</td>
       </tr>
+      {abierta && (
+        <tr>
+          <td colSpan={COLUMNAS.length + 1} className="p-0">
+            <DetalleDeCampana perfilId={perfilId} campaignId={f.campaignId} nombreCampana={f.nombre} presupuesto={f.presupuesto} dias={dias} moneda={moneda} acosObjetivo={null} />
+          </td>
+        </tr>
+      )}
+      </Fragment>
     )
   }
 
@@ -150,6 +163,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
 
   return (
     <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
+      <AvisosDeCuenta perfilId={perfilId} verCampana={(id) => { setVista('lista'); setFiltro('TODAS'); setCampanaAbierta(id) }} />
       {/* ---- fila 1: el periodo (izquierda) y la búsqueda (derecha) ---- */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={informe.fase === 'cargando' || campanas.fase === 'cargando' || (informe.fase === 'listo' && informe.datos.sincronizando)} />
@@ -234,6 +248,9 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
               abierto={abiertos.has(g.clave)}
               alternar={() => alternarGrupo(g.clave)}
               irAProductos={() => irA('productos')}
+              perfilId={perfilId}
+              diasDelPeriodo={dias}
+              ventaTotal={g.asin && informe.fase === 'listo' ? (informe.datos.ventasTotales.porAsin[g.asin] ?? null) : null}
             />
           ))}
         </div>

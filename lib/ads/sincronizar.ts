@@ -20,7 +20,8 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { AdsError } from './oauth'
-import { descargarFilas, estadoDeInforme, pedirInforme, periodosDe, type Periodo } from './rendimiento'
+import { descargarCrudas, descargarFilas, estadoDeInforme, pedirInforme, pedirInformeDeObjetivos, periodosDe, type Periodo } from './rendimiento'
+import { filasDeObjetivos, type FilaDeObjetivo } from './segmentaciones-calculo'
 import type { FilaDiaria } from './rendimiento-calculo'
 
 export const INTERVALO_MS = 3 * 3_600_000
@@ -69,9 +70,12 @@ export function debeEmpezar(e: EstadoParaDecidir, intervaloMs: number = INTERVAL
   return e.ahora - e.ultimoOkAt >= intervaloMs
 }
 
+/** Un informe pedido. Sin `tipo` = el de campañas (así estaban guardados los de antes); 'objetivos' = el de segmentaciones */
+type InformePedido = { id: string; desde: string; hasta: string; tipo?: 'objetivos' }
+
 interface FilaEstado {
   estado: 'reposo' | 'esperando'
-  informes: Array<{ id: string; desde: string; hasta: string }>
+  informes: InformePedido[]
   pedido_at: string | null
   ultimo_ok_at: string | null
   datos_desde: string | null
@@ -129,6 +133,51 @@ function filasParaGuardar(perfilId: string, filas: readonly FilaDiaria[]) {
   }))
 }
 
+/** ¿Está la tabla de segmentaciones (migración 298)? Sin ella no se piden esos informes y todo sigue como antes */
+async function hayTablaDeObjetivos(): Promise<boolean> {
+  const { error } = await createServiceClient().from('ads_objetivos_diario').select('perfil_id').limit(1)
+  if (!error) return true
+  if (isMissingSchema(error)) return false
+  throw error
+}
+
+/** Las filas de segmentaciones con las repetidas sumadas (misma cuenta, día y segmentación) */
+function objetivosParaGuardar(perfilId: string, filas: readonly FilaDeObjetivo[]) {
+  const por = new Map<string, FilaDeObjetivo>()
+  for (const f of filas) {
+    if (!f.fecha) continue
+    const clave = `${f.fecha}|${f.objetivoId}`
+    const x = por.get(clave)
+    if (!x) por.set(clave, { ...f })
+    else {
+      x.impresiones += f.impresiones
+      x.clics += f.clics
+      x.gasto += f.gasto
+      x.ventas += f.ventas
+      x.pedidos += f.pedidos
+      x.unidades += f.unidades
+    }
+  }
+  const ahora = new Date().toISOString()
+  return [...por.values()].map((f) => ({
+    perfil_id: perfilId,
+    fecha: f.fecha,
+    objetivo_id: f.objetivoId,
+    campaign_id: f.campaignId,
+    ad_group_id: f.adGroupId,
+    texto: f.texto.slice(0, 400),
+    coincidencia: f.coincidencia,
+    tipo: f.tipo,
+    impresiones: Math.round(f.impresiones),
+    clics: Math.round(f.clics),
+    gasto: Number(f.gasto.toFixed(2)),
+    ventas: Number(f.ventas.toFixed(2)),
+    pedidos: Math.round(f.pedidos),
+    unidades: Math.round(f.unidades),
+    actualizado_at: ahora,
+  }))
+}
+
 /**
  * DA UN PASO en la lectura de una cuenta. Nunca espera a Amazon. Lanza solo si falta la migración o la base falla; los errores de Amazon se apuntan en la fila y se devuelven como `error`.
  */
@@ -144,13 +193,38 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
         await guardarEstado(cuenta.id, { estado: 'reposo', informes: [], error: 'Amazon ha tardado más de 25 minutos en preparar el informe.', intentos: (estado.intentos ?? 0) + 1, pedido_at: new Date(ahora).toISOString() })
         return { accion: 'error', detalle: 'caducado' }
       }
-      const estados = await Promise.all(estado.informes.map((i) => estadoDeInforme(cuenta.conexionId, cuenta.profileId, i.id)))
+      const deCampanas = estado.informes.filter((i) => i.tipo !== 'objetivos')
+      const deObjetivos = estado.informes.filter((i) => i.tipo === 'objetivos')
+      const estados = await Promise.all(deCampanas.map((i) => estadoDeInforme(cuenta.conexionId, cuenta.profileId, i.id)))
       const fallido = estados.find((e) => e.estado === 'FAILED')
       if (fallido) {
         await guardarEstado(cuenta.id, { estado: 'reposo', informes: [], error: `Amazon no ha podido generar el informe${fallido.detalle ? `: ${fallido.detalle}` : '.'}`.slice(0, 500), intentos: (estado.intentos ?? 0) + 1, pedido_at: new Date(ahora).toISOString() })
         return { accion: 'error', detalle: fallido.detalle }
       }
       if (!estados.every((e) => e.estado === 'COMPLETED' && e.url)) return { accion: 'esperando' }
+
+      // Las segmentaciones: si fallan, se dejan (las campañas se guardan igual); si aún no están, se espera un poco más, pero nunca más allá del límite de arriba
+      const estadosObj = await Promise.all(deObjetivos.map((i) => estadoDeInforme(cuenta.conexionId, cuenta.profileId, i.id).catch(() => ({ estado: 'FAILED', detalle: 'no se ha podido consultar' }) as Awaited<ReturnType<typeof estadoDeInforme>>)))
+      const objetivosPendientes = estadosObj.some((e) => e.estado !== 'COMPLETED' && e.estado !== 'FAILED')
+      if (objetivosPendientes && ahora - pedidoAt < ESPERA_MAXIMA_MS - 5 * 60_000) return { accion: 'esperando' }
+      let filasObjetivos = 0
+      const listos = estadosObj.filter((e) => e.estado === 'COMPLETED' && e.url)
+      for (const e of estadosObj.filter((x) => x.estado === 'FAILED')) console.error(`[ads] el informe de segmentaciones de ${cuenta.id} ha fallado: ${e.detalle ?? ''}`)
+      if (listos.length > 0) {
+        try {
+          const crudas = (await Promise.all(listos.map((e) => descargarCrudas(e.url as string)))).flat()
+          const filas = objetivosParaGuardar(cuenta.id, filasDeObjetivos(crudas))
+          const service = createServiceClient()
+          for (let i = 0; i < filas.length; i += 500) {
+            const { error } = await service.from('ads_objetivos_diario').upsert(filas.slice(i, i + 500), { onConflict: 'perfil_id,fecha,objetivo_id' })
+            if (error) throw error
+          }
+          await service.from('ads_objetivos_diario').delete().eq('perfil_id', cuenta.id).lt('fecha', desplazar(hoyUTC(), -DIAS_QUE_SE_CONSERVAN))
+          filasObjetivos = filas.length
+        } catch (e) {
+          console.error(`[ads] no se han podido guardar las segmentaciones de ${cuenta.id}:`, e instanceof Error ? e.message : e)
+        }
+      }
 
       const filas = (await Promise.all(estados.map((e) => descargarFilas(e.url as string)))).flat()
       const paraGuardar = filasParaGuardar(cuenta.id, filas)
@@ -161,8 +235,8 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
       }
       // Lo que ya no entra en la ventana de conservación
       await service.from('ads_rendimiento_diario').delete().eq('perfil_id', cuenta.id).lt('fecha', desplazar(hoyUTC(), -DIAS_QUE_SE_CONSERVAN))
-      const desde = estado.informes.map((i) => i.desde).sort()[0]
-      const hasta = estado.informes.map((i) => i.hasta).sort().slice(-1)[0]
+      const desde = deCampanas.map((i) => i.desde).sort()[0]
+      const hasta = deCampanas.map((i) => i.hasta).sort().slice(-1)[0]
       await guardarEstado(cuenta.id, {
         estado: 'reposo',
         informes: [],
@@ -172,7 +246,7 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
         error: null,
         intentos: 0,
       })
-      return { accion: 'guardado', detalle: `${paraGuardar.length} filas` }
+      return { accion: 'guardado', detalle: `${paraGuardar.length} filas de campañas, ${filasObjetivos} de segmentaciones` }
     }
 
     // ---------- en reposo: ¿toca empezar? ----------
@@ -187,8 +261,22 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
 
     const primera = !estado?.ultimo_ok_at
     const periodos = periodosAPedir(hoyUTC(), primera)
-    const informes: Array<{ id: string; desde: string; hasta: string }> = []
+    const informes: InformePedido[] = []
     for (const p of periodos) informes.push({ id: await pedirInforme(cuenta.conexionId, cuenta.profileId, p), desde: p.desde, hasta: p.hasta })
+    // Las segmentaciones, con los mismos periodos. Si Amazon las rechaza, se sigue solo con las campañas
+    if (await hayTablaDeObjetivos()) {
+      // La primera vez que se leen las segmentaciones de esta cuenta, 60 días como con las campañas (aunque las campañas ya lleven tiempo leyéndose)
+      const { data: yaHay } = await createServiceClient().from('ads_objetivos_diario').select('perfil_id').eq('perfil_id', cuenta.id).limit(1)
+      const periodosObj = (yaHay ?? []).length === 0 ? periodosAPedir(hoyUTC(), true) : periodos
+      for (const p of periodosObj) {
+        try {
+          informes.push({ id: await pedirInformeDeObjetivos(cuenta.conexionId, cuenta.profileId, p), desde: p.desde, hasta: p.hasta, tipo: 'objetivos' })
+        } catch (e) {
+          console.error(`[ads] Amazon no ha aceptado el informe de segmentaciones de ${cuenta.id}:`, e instanceof Error ? e.message : e)
+          break
+        }
+      }
+    }
     await guardarEstado(cuenta.id, { estado: 'esperando', informes, pedido_at: new Date(ahora).toISOString(), error: null })
     return { accion: 'pedido', detalle: primera ? 'primera lectura (60 días)' : 'repaso de 14 días' }
   } catch (error) {

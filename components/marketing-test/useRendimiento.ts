@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FilaDiaria } from '@/lib/ads/rendimiento-calculo'
+import type { VentaDeAsin } from '@/lib/ads/ventas-totales'
 import { llamar } from './llamar'
 
 export interface CampanaViva {
@@ -23,6 +24,8 @@ export interface Informe {
   /** El último error de la lectura automática, si lo hubo (los datos que se ven son los de antes) */
   aviso: string | null
   datosHasta: string | null
+  /** Las ventas TOTALES de cada ASIN en el mismo periodo (de la cuenta de vendedor), para el TACoS. Vacío si aún no se han leído */
+  ventasTotales: { porAsin: Record<string, VentaDeAsin>; leidoAt: string | null; error: string | null }
 }
 
 export type Carga<T> = { fase: 'cargando'; nota?: string } | { fase: 'listo'; datos: T; en: number } | { fase: 'error'; mensaje: string }
@@ -36,6 +39,7 @@ interface Guardado {
   periodos: Informe['periodos']
   actual: FilaDiaria[]
   anterior: FilaDiaria[]
+  ventasTotales?: Informe['ventasTotales']
 }
 
 /** Las campañas en vivo, por cuenta: cambiar de pestaña no vuelve a pedirlas (15 min). El rendimiento NO se guarda aquí: viene de la base y es instantáneo */
@@ -87,7 +91,7 @@ export function useRendimiento(perfilId: string, dias: 7 | 14 | 30) {
           if (g.hayDatos) {
             setInforme({
               fase: 'listo',
-              datos: { actual: g.actual, anterior: g.anterior, periodos: g.periodos, sincronizando: g.sincronizando, aviso: g.error, datosHasta: g.datosHasta },
+              datos: { actual: g.actual, anterior: g.anterior, periodos: g.periodos, sincronizando: g.sincronizando, aviso: g.error, datosHasta: g.datosHasta, ventasTotales: g.ventasTotales ?? { porAsin: {}, leidoAt: null, error: null } },
               en: g.actualizadoAt ? Date.parse(g.actualizadoAt) : Date.now(),
             })
           } else if (!g.sincronizando && g.error) {

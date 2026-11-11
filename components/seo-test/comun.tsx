@@ -2,7 +2,7 @@
 
 import { Check, X } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import type { ConsultaGuardada, FichaGuardada, ProductoSeguido } from '@/lib/seo/datos'
+import type { ConsultaAnterior, ConsultaGuardada, FichaGuardada, ProductoSeguido, PuntoDeEvolucion } from '@/lib/seo/datos'
 import type { DatosSeo } from './useCuentaSeo'
 
 /** Las búsquedas de un producto en el periodo pedido (o, si no hay del mes, las de la semana) */
@@ -53,5 +53,28 @@ export function BarraDeCuota({ valor, color = COLOR_ESTADO.azul }: { valor: numb
       </div>
       <span className="w-[42px] text-right tabular-nums">{(pct * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %</span>
     </div>
+  )
+}
+
+/** La evolución de un producto en un tipo de periodo, de la más vieja a la más nueva */
+export function serieDe(datos: DatosSeo, asin: string, periodo: 'MONTH' | 'WEEK'): PuntoDeEvolucion[] {
+  return (datos.evolucion ?? []).filter((p) => p.asin === asin && p.periodo === periodo).sort((a, b) => a.desde.localeCompare(b.desde))
+}
+
+/** La misma búsqueda en el periodo anterior (por texto normalizado) */
+export function mapaAnterior(datos: DatosSeo, asin: string, periodo: 'MONTH' | 'WEEK'): Map<string, ConsultaAnterior> {
+  return new Map((datos.anteriores?.[periodo] ?? []).filter((c) => c.asin === asin).map((c) => [c.consulta.trim().toLowerCase(), c]))
+}
+
+/** Una variación en puntos porcentuales (cuotas): verde si sube, rojo si baja */
+export function DeltaPuntos({ actual, anterior }: { actual: number | null; anterior: number | null | undefined }) {
+  if (actual == null || anterior == null) return <span className="text-[var(--ls-t4)]">—</span>
+  const d = (actual - anterior) * 100
+  if (Math.abs(d) < 0.05) return <span className="text-[var(--ls-t4)]">=</span>
+  const color = d > 0 ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo
+  return (
+    <span className="tabular-nums font-medium" style={{ color }} title="Variación de la cuota de compras frente al periodo anterior, en puntos">
+      {d > 0 ? '▲' : '▼'} {Math.abs(d).toLocaleString('es-ES', { maximumFractionDigits: 1 })} pt
+    </span>
   )
 }

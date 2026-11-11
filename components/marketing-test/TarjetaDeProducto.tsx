@@ -1,6 +1,8 @@
 'use client'
 
+import { Fragment, useState } from 'react'
 import { ChevronRight, Target } from 'lucide-react'
+import { DetalleDeCampana } from './DetalleDeCampana'
 import { COLOR_ESTADO, TEXTO, TIPO } from '@/lib/estilo/denso'
 import type { GrupoDeProducto } from '@/lib/ads/productos-agrupar'
 import { serieDiaria, tipoDeCampana, type FilaDiaria, type Totales } from '@/lib/ads/rendimiento-calculo'
@@ -68,7 +70,15 @@ export function TarjetaDeProducto({
   abierto,
   alternar,
   irAProductos,
+  perfilId,
+  diasDelPeriodo,
+  ventaTotal = null,
 }: {
+  /** Las ventas TOTALES del ASIN en el periodo (orgánicas + publicidad), para el TACoS. null = aún no leídas */
+  ventaTotal?: { ventas: number; unidades: number; sesiones: number } | null
+  /** La cuenta de anunciante y el periodo (7, 14, 30): para abrir una campaña y ver sus segmentaciones */
+  perfilId: string
+  diasDelPeriodo: number
   grupo: GrupoDeProducto<FilaDeCampana>
   moneda: string | null
   equilibrio: number | null
@@ -81,6 +91,7 @@ export function TarjetaDeProducto({
   alternar: () => void
   irAProductos: () => void
 }) {
+  const [campanaAbierta, setCampanaAbierta] = useState<string | null>(null)
   const t = grupo.totales
   const activas = grupo.campanas.filter((c) => c.estado === 'ENABLED').length
   const serie = serieDiaria(filasDiarias, dias)
@@ -151,12 +162,19 @@ export function TarjetaDeProducto({
           </div>
 
           {conCifras && (
-            <div className="hidden shrink-0 grid-cols-5 gap-4 md:grid">
+            <div className={`hidden shrink-0 gap-4 md:grid ${ventaTotal ? 'grid-cols-6' : 'grid-cols-5'}`}>
               <Cifra etiqueta="Gasto" valor={dinero(t.gasto, moneda)} />
               <Cifra etiqueta="Ventas" valor={dinero(t.ventas, moneda)} />
               <Cifra etiqueta="ACoS" valor={porcentaje(t.acos)} color={colorAcos} nota={objetivo !== null ? `objetivo ${porcentaje(objetivo, 0)}` : equilibrio !== null ? `equilibrio ${porcentaje(equilibrio, 0)}` : undefined} />
               <Cifra etiqueta="ROAS" valor={t.roas == null ? '—' : decimal(t.roas)} />
               <Cifra etiqueta="Pedidos" valor={entero(t.pedidos)} />
+              {ventaTotal && (
+                <Cifra
+                  etiqueta="TACoS"
+                  valor={ventaTotal.ventas > 0 ? porcentaje(t.gasto / ventaTotal.ventas) : '—'}
+                  nota={ventaTotal.ventas > 0 ? `${porcentaje(Math.max(0, 1 - t.ventas / ventaTotal.ventas), 0)} orgánico` : 'sin ventas'}
+                />
+              )}
             </div>
           )}
         </div>
@@ -214,9 +232,16 @@ export function TarjetaDeProducto({
             <tbody>
               {grupo.campanas.map((f) => {
                 const sinGastar = conCifras && f.gasto === 0
+                const abierta = campanaAbierta === f.campaignId
                 return (
-                  <tr key={f.campaignId} className={`hover:[&>td]:bg-[var(--ls-sup)] ${sinGastar ? 'opacity-55' : ''}`}>
-                    <td className="border-t border-[var(--ls-linea)] py-[9px] pl-[60px] pr-3">
+                  <Fragment key={f.campaignId}>
+                  <tr
+                    onClick={() => setCampanaAbierta(abierta ? null : f.campaignId)}
+                    className={`cursor-pointer hover:[&>td]:bg-[var(--ls-sup)] ${abierta ? '[&>td]:bg-[var(--ls-sup)]' : ''} ${sinGastar && !abierta ? 'opacity-55' : ''}`}
+                    title={abierta ? 'Cerrar' : 'Ver sus segmentaciones y cambiar pujas'}
+                  >
+                    <td className="relative border-t border-[var(--ls-linea)] py-[9px] pl-[60px] pr-3">
+                      <ChevronRight className={`absolute left-[38px] top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--ls-t4)] transition-transform ${abierta ? 'rotate-90' : ''}`} />
                       <div className="flex items-center gap-2">
                         <PuntoDeEstado estado={f.estado} />
                         <div className="min-w-0">
@@ -237,6 +262,14 @@ export function TarjetaDeProducto({
                     <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t2)]">{conCifras ? entero(f.clics) : '—'}</td>
                     <td className="border-t border-[var(--ls-linea)] px-4 py-[7px] text-right tabular-nums text-[var(--ls-t2)]">{conCifras ? dinero(f.cpc, moneda) : '—'}</td>
                   </tr>
+                  {abierta && (
+                    <tr>
+                      <td colSpan={8} className="p-0">
+                        <DetalleDeCampana perfilId={perfilId} campaignId={f.campaignId} nombreCampana={f.nombre} presupuesto={f.presupuesto} dias={diasDelPeriodo} moneda={moneda} acosObjetivo={objetivo} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 )
               })}
             </tbody>

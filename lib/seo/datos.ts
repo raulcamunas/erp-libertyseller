@@ -5,6 +5,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { AMAZON_MARKETPLACES, mercadosDeConexion } from '@/lib/types/amazon'
 import type { EstadoSeo } from './lectura'
 
@@ -200,3 +201,100 @@ export async function fichasGuardadas(connectionId: string, marketplaceId: strin
 }
 
 export type { EstadoSeo }
+
+/* ------------------------------------------------------------------ */
+/* Migración 299: evolución, periodo anterior y competencia            */
+/* ------------------------------------------------------------------ */
+
+export interface PuntoDeEvolucion {
+  asin: string
+  periodo: 'WEEK' | 'MONTH'
+  desde: string
+  hasta: string
+  busquedas: number
+  volumen: number
+  compras: number
+  /** Compras del producto ÷ compras de todas sus búsquedas */
+  cuotaCompras: number | null
+  cuotaImpresiones: number | null
+}
+
+/** Por producto y periodo, lo sumado de todas sus búsquedas. [] si falta la migración 299 */
+export async function evolucionDeCuenta(connectionId: string, marketplaceId: string): Promise<PuntoDeEvolucion[]> {
+  const { data, error } = await createServiceClient().rpc('seo_evolucion', { p_conexion: connectionId, p_mercado: marketplaceId })
+  if (error) {
+    if (isMissingSchema(error)) return []
+    throw error
+  }
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+    const comprasTotal = Number(r.compras_total) || 0
+    const impTotal = Number(r.impresiones_total) || 0
+    return {
+      asin: String(r.asin),
+      periodo: r.periodo as 'WEEK' | 'MONTH',
+      desde: String(r.desde),
+      hasta: String(r.hasta),
+      busquedas: Number(r.busquedas) || 0,
+      volumen: Number(r.volumen) || 0,
+      compras: Number(r.compras_asin) || 0,
+      cuotaCompras: comprasTotal > 0 ? (Number(r.compras_asin) || 0) / comprasTotal : null,
+      cuotaImpresiones: impTotal > 0 ? (Number(r.impresiones_asin) || 0) / impTotal : null,
+    }
+  })
+}
+
+export interface ConsultaAnterior {
+  asin: string
+  consulta: string
+  volumen: number | null
+  cuotaCompras: number | null
+  cuotaImpresiones: number | null
+}
+
+/** Las búsquedas del periodo ANTERIOR al último leído (para el «vs anterior» de cada búsqueda) */
+export async function consultasDelAnterior(connectionId: string, marketplaceId: string, periodo: 'WEEK' | 'MONTH'): Promise<ConsultaAnterior[]> {
+  const service = createServiceClient()
+  const { data: ultimos } = await service.from('seo_consultas').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).order('desde', { ascending: false }).limit(1)
+  const ultimo = ((ultimos ?? []) as Array<{ desde: string }>)[0]?.desde
+  if (!ultimo) return []
+  const { data: previo } = await service.from('seo_consultas').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).lt('desde', ultimo).order('desde', { ascending: false }).limit(1)
+  const desde = ((previo ?? []) as Array<{ desde: string }>)[0]?.desde
+  if (!desde) return []
+  const salida: ConsultaAnterior[] = []
+  for (let i = 0; i < 20_000; i += 1000) {
+    const { data, error } = await service.from('seo_consultas').select('asin, consulta, volumen, cuota_compras, cuota_impresiones').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).eq('desde', desde).range(i, i + 999)
+    if (error) throw error
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) salida.push({ asin: String(r.asin), consulta: String(r.consulta), volumen: n(r.volumen), cuotaCompras: n(r.cuota_compras), cuotaImpresiones: n(r.cuota_impresiones) })
+    if (!data || data.length < 1000) break
+  }
+  return salida
+}
+
+export interface FilaCompetencia {
+  consulta: string
+  posicion: number
+  asin: string
+  cuotaClics: number | null
+  cuotaConversion: number | null
+}
+
+/** Los 3 ASIN que más clics se llevan en cada una de esas búsquedas, de la última semana leída. null si falta la migración 299 */
+export async function competenciaDe(connectionId: string, marketplaceId: string, consultas: readonly string[]): Promise<{ desde: string | null; filas: FilaCompetencia[] } | null> {
+  const service = createServiceClient()
+  const { data: ultimo, error } = await service.from('seo_top_terminos').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', 'WEEK').order('desde', { ascending: false }).limit(1)
+  if (error) {
+    if (isMissingSchema(error)) return null
+    throw error
+  }
+  const desde = ((ultimo ?? []) as Array<{ desde: string }>)[0]?.desde ?? null
+  if (!desde || consultas.length === 0) return { desde, filas: [] }
+  const filas: FilaCompetencia[] = []
+  // Se guardan normalizadas (minúsculas, espacios simples): se buscan igual
+  const lista = [...new Set(consultas.map((q) => q.trim().toLowerCase().replace(/\s+/g, ' ')))]
+  for (let i = 0; i < lista.length; i += 150) {
+    const { data, error: e } = await service.from('seo_top_terminos').select('consulta, posicion, asin, cuota_clics, cuota_conversion').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', 'WEEK').eq('desde', desde).in('consulta', lista.slice(i, i + 150))
+    if (e) throw e
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) filas.push({ consulta: String(r.consulta), posicion: Number(r.posicion), asin: String(r.asin), cuotaClics: n(r.cuota_clics), cuotaConversion: n(r.cuota_conversion) })
+  }
+  return { desde, filas }
+}

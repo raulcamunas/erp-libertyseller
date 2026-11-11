@@ -1,5 +1,6 @@
 'use client'
 
+import { AvisosDeCuenta } from './AvisosDeCuenta'
 import { useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CircleAlert, TrendingDown } from 'lucide-react'
@@ -65,6 +66,7 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
 
   return (
     <div className="flex max-w-[1280px] flex-col gap-3 pb-8">
+      <AvisosDeCuenta perfilId={perfilId} verCampana={() => irA('campanas')} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={cargando || Boolean(datos?.sincronizando)} />
         {datos && (

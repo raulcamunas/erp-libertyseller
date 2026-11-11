@@ -10,6 +10,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { cuentasASincronizar, debeEmpezar, type CuentaParaSincronizar } from './sincronizar'
 import { avanzarTerminos, INTERVALO_TERMINOS_MS } from './terminos'
 import { generarPropuestas, leerModo, perfilesConMotor, pilotoAutomatico } from './motor'
+import { generarPropuestasDePujaYPresupuesto } from './motor-pujas'
 
 /** Las cuentas con el motor encendido que ahora mismo tienen algo que hacer. Barato: unas pocas consultas pequeñas, sin tocar Amazon */
 export async function cuentasDelMotorConTrabajo(): Promise<CuentaParaSincronizar[]> {
@@ -47,7 +48,16 @@ export interface PasoDelMotor {
 export async function pasoDelMotor(cuenta: CuentaParaSincronizar): Promise<PasoDelMotor> {
   const t = await avanzarTerminos(cuenta)
   let nuevas = 0
-  if (t.accion === 'guardado') nuevas = (await generarPropuestas(cuenta)).nuevas
+  if (t.accion === 'guardado') {
+    nuevas = (await generarPropuestas(cuenta)).nuevas
+    // Fase 3: pujas y presupuesto, con la misma cadencia diaria. Si falla, lo de arriba ya está guardado
+    try {
+      const r = await generarPropuestasDePujaYPresupuesto(cuenta)
+      nuevas += r.pujas + r.presupuestos
+    } catch (e) {
+      console.error(`[ads] propuestas de puja y presupuesto de ${cuenta.id}:`, e instanceof Error ? e.message : e)
+    }
+  }
   let aplicadas = 0
   let fallidas = 0
   if ((await leerModo(cuenta.id)) === 'autopiloto') {

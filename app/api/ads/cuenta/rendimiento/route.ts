@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { avanzar, leerGuardado } from '@/lib/ads/sincronizar'
 import { abrirCuenta, errorDeRuta } from '@/lib/ads/ruta'
+import { ventasTotales } from '@/lib/ads/ventas-totales'
 
 /**
  * EL RENDIMIENTO DE UNA CUENTA, desde lo que el proceso automático ya ha guardado (informe diario de campañas: periodo y periodo anterior). Solo administradores. Solo LEE de Amazon.
@@ -24,7 +25,9 @@ export async function GET(request: NextRequest) {
     const dias = Number(q.get('dias'))
     if (![7, 14, 30].includes(dias)) return fail(400, 'El periodo tiene que ser de 7, 14 o 30 días.')
     await avanzar({ id: a.cuenta.id, conexionId: a.cuenta.conexionId, profileId: a.cuenta.profileId })
-    return NextResponse.json(await leerGuardado(a.cuenta.id, dias))
+    const [guardado, ventas] = await Promise.all([leerGuardado(a.cuenta.id, dias), ventasTotales(a.cuenta.id, dias).catch(() => ({ porAsin: {}, leidoAt: null, error: null }))])
+    // Las ventas TOTALES por ASIN del mismo periodo (orgánicas + publicidad), para el TACoS
+    return NextResponse.json({ ...guardado, ventasTotales: ventas })
   } catch (error) {
     return errorDeRuta(error, 'Ads: leer el rendimiento de la cuenta')
   }

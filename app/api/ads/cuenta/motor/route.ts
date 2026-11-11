@@ -1,3 +1,4 @@
+import { generarPropuestasDePujaYPresupuesto } from '@/lib/ads/motor-pujas'
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail } from '@/lib/amazon/api'
 import { leerFicha } from '@/lib/ads/cuenta'
@@ -67,7 +68,9 @@ export async function POST(request: NextRequest) {
       }
       case 'generar': {
         const r = await generarPropuestas(cuenta)
-        return NextResponse.json({ ok: true, resumen: r })
+        // Fase 3 (pujas y presupuesto) también al pulsar; si el modo está apagado no se propone nada
+        const f3 = r.omitido === 'apagado' ? { pujas: 0, presupuestos: 0 } : await generarPropuestasDePujaYPresupuesto(cuenta)
+        return NextResponse.json({ ok: true, resumen: { ...r, nuevas: r.nuevas + f3.pujas + f3.presupuestos, pujas: f3.pujas, presupuestos: f3.presupuestos } })
       }
       case 'aplicar': {
         if (!id) return fail(400, 'Falta la propuesta.')

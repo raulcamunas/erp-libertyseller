@@ -67,6 +67,7 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
   const [error, setError] = useState<string | null>(null)
   const [editor, setEditor] = useState<Form | null>(null)
   const [eligiendo, setEligiendo] = useState(false)
+  const [pegando, setPegando] = useState(false)
   const [ocupado, setOcupado] = useState(false)
 
   const cargar = useCallback(async () => {
@@ -123,10 +124,15 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
         <button type="button" onClick={() => { setEditor(vacio(pais)); setEligiendo(false) }} className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}>
           Añadir a mano
         </button>
+        <button type="button" onClick={() => { setPegando((x) => !x); setEditor(null); setEligiendo(false) }} className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`} title="Copia dos columnas de Excel (SKU y coste) y pégalas">
+          Pegar costes
+        </button>
         <span className={`${TIPO.xs} ${TEXTO.t3}`}>Elige el producto y ponle su ACoS objetivo: el precio, el IVA y las comisiones los trae el ERP de Amazon.</span>
       </div>
 
       {eligiendo && <Selector perfilId={perfilId} moneda={moneda} cerrar={() => setEligiendo(false)} elegir={(c) => { setEditor({ ...vacio(pais), asin: c.asin, sku: c.sku, titulo: c.titulo ?? '', resumen: resumenDesdeTitulo(c.titulo), precio: c.precio == null ? '' : String(c.precio) }); setEligiendo(false) }} />}
+
+      {pegando && <PegarCostes perfilId={perfilId} cerrar={() => setPegando(false)} hecho={() => { setPegando(false); void cargar() }} />}
 
       {editor && <Editor key={editor.id ?? `${editor.asin}|${editor.sku}`} perfilId={perfilId} form={editor} cambiar={setEditor} guardar={guardar} cancelar={() => setEditor(null)} ocupado={ocupado} moneda={moneda} />}
 
@@ -358,6 +364,40 @@ function Editor({ perfilId, form, cambiar, guardar, cancelar, ocupado, moneda }:
         <div className="flex items-center gap-2">
           <button type="button" disabled={ocupado || amazon?.cargando === true} onClick={guardar} className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}>{ocupado ? 'Guardando…' : 'Guardar producto'}</button>
           <button type="button" onClick={cancelar} className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}>Cancelar</button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/** Dos columnas pegadas de una hoja de cálculo (SKU y coste) → el coste de cada producto de esta cuenta con ese SKU */
+function PegarCostes({ perfilId, cerrar, hecho }: { perfilId: string; cerrar: () => void; hecho: () => void }) {
+  const [texto, setTexto] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  async function enviar() {
+    setOcupado(true)
+    try {
+      const r = await llamar<{ actualizados: number; sinProducto: string[]; leidos: number; descartadas: number }>('/api/ads/cuenta/productos', { metodo: 'POST', cuerpo: { perfilId, accion: 'pegar-costes', texto } })
+      toast.success(`Coste puesto a ${r.actualizados} ${r.actualizados === 1 ? 'producto' : 'productos'}.${r.sinProducto.length ? ` ${r.sinProducto.length} SKU no están en Marketing Test (${r.sinProducto.slice(0, 3).join(', ')}${r.sinProducto.length > 3 ? '…' : ''}).` : ''}${r.descartadas ? ` ${r.descartadas} líneas no se han entendido.` : ''}`)
+      hecho()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se han podido guardar los costes.')
+    } finally {
+      setOcupado(false)
+    }
+  }
+  return (
+    <section className={TARJETA.base}>
+      <header className={TARJETA.cabecera}>
+        <h2 className={TITULO.seccion}>Pegar costes</h2>
+        <span className={`${TIPO.xs} ${TEXTO.t3}`}>Dos columnas copiadas de Excel o Google Sheets: SKU y coste por unidad (sin IVA). La cabecera da igual.</span>
+      </header>
+      <div className={`${TARJETA.cuerpo} flex flex-col gap-2`}>
+        <textarea autoFocus value={texto} onChange={(e) => setTexto(e.target.value)} rows={7} placeholder={'650 GATO GRIS/37\t6,20\nBOTA-44\t12,50'} className={`${CAMPO.input} !h-auto font-mono text-[12px]`} />
+        <div className="flex items-center gap-2">
+          <button type="button" disabled={ocupado || !texto.trim()} onClick={() => void enviar()} className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}>{ocupado ? 'Guardando…' : 'Guardar costes'}</button>
+          <button type="button" onClick={cerrar} className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}>Cancelar</button>
+          <span className={`${TIPO.xs} ${TEXTO.t4}`}>Se guarda también como coste del SKU en el ERP, vigente desde hoy.</span>
         </div>
       </div>
     </section>

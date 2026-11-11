@@ -238,3 +238,21 @@ export async function gruposActivosDe(conexionId: string, profileId: number, cam
   })
   return (res.adGroups ?? []).filter((g) => g.adGroupId != null).map((g) => ({ adGroupId: String(g.adGroupId), nombre: g.name ?? '', pujaPorDefecto: typeof g.defaultBid === 'number' ? g.defaultBid : null }))
 }
+
+/** Pone la puja de una keyword (`objetivoTipo` 'keyword') o de una segmentación por producto o automática. El motor la usa para aplicar y deshacer; el log lo escribe quien llama */
+export async function ponerPuja(cuenta: { conexionId: string; profileId: number }, objetivoTipo: string | null, objetivoId: string, puja: number): Promise<void> {
+  const bid = Math.max(0.02, Math.round(puja * 100) / 100)
+  if (objetivoTipo === 'keyword') {
+    const res = await llamarAds<unknown>(cuenta.conexionId, '/sp/keywords', { perfilId: cuenta.profileId, metodo: 'PUT', cabeceras: cabeceras(T_KEYWORD), cuerpo: { keywords: [{ keywordId: objetivoId, bid }] } })
+    aislar(res, 'keywords')
+  } else {
+    const res = await llamarAds<unknown>(cuenta.conexionId, '/sp/targets', { perfilId: cuenta.profileId, metodo: 'PUT', cabeceras: cabeceras(T_TARGET), cuerpo: { targetingClauses: [{ targetId: objetivoId, bid }] } })
+    aislar(res, 'targetingClauses')
+  }
+}
+
+/** Pone el presupuesto diario de una campaña */
+export async function ponerPresupuesto(cuenta: { conexionId: string; profileId: number }, campaignId: string, presupuesto: number): Promise<void> {
+  const res = await llamarAds<unknown>(cuenta.conexionId, '/sp/campaigns', { perfilId: cuenta.profileId, metodo: 'PUT', cabeceras: cabeceras(T_CAMPANA), cuerpo: { campaigns: [{ campaignId, budget: { budgetType: 'DAILY', budget: Math.round(presupuesto * 100) / 100 } }] } })
+  aislar(res, 'campaigns')
+}

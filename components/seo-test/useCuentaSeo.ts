@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { llamar } from '@/components/marketing-test/llamar'
-import type { ConsultaGuardada, FichaGuardada, ProductoSeguido } from '@/lib/seo/datos'
+import type { ConsultaAnterior, ConsultaGuardada, FichaGuardada, ProductoSeguido, PuntoDeEvolucion } from '@/lib/seo/datos'
 
 export interface LecturaSeo {
   acceso: 'desconocido' | 'si' | 'no'
@@ -12,12 +12,21 @@ export interface LecturaSeo {
   fichaLeidaAt: string | null
   mesOk: string | null
   semanaOk: string | null
+  /** Migración 299 lanzada: hay evolución, competencia y propuestas */
+  mejoras?: boolean
+  competenciaOk?: string | null
+  competenciaError?: string | null
+  competenciaEnCurso?: boolean
+  periodosLeidos?: number
 }
 
 export interface DatosSeo {
   lectura: LecturaSeo
   productos: ProductoSeguido[]
   consultas: { MONTH: ConsultaGuardada[]; WEEK: ConsultaGuardada[] }
+  /** Las búsquedas del periodo anterior al último, para comparar (vacío sin la migración 299 o sin dos periodos) */
+  anteriores?: { MONTH: ConsultaAnterior[]; WEEK: ConsultaAnterior[] }
+  evolucion?: PuntoDeEvolucion[]
   fichas: FichaGuardada[]
 }
 

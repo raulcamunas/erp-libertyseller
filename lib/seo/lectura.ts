@@ -8,17 +8,28 @@
  * Nunca espera a Amazon: pide un informe, apunta su id y lo recoge en la pasada siguiente (como lib/ads/sincronizar.ts). Amazon solo deja pedir un informe por minuto por cuenta, y el proceso pasa cada
  * 3 minutos: va de sobra.
  *
+ * EL HISTÓRICO (migración 299): con el mes y la semana al día, se van pidiendo hacia atrás las 8 semanas y los 3 meses anteriores, uno por pasada, apuntando cuáles ya están (`periodos_leidos`) para
+ * no repetirlos. Lo guardado se conserva 26 semanas y 13 meses: es lo que dibuja la evolución.
+ *
+ * LA COMPETENCIA (migración 299): una vez por semana, el informe «Top Search Terms» del país (top-servidor.ts). Va en su propio carril (`top_*`): no bloquea ni lo bloquea el Search Query
+ * Performance, y si falla se apunta en `top_error` y se reintenta la semana siguiente.
+ *
+ * Sin la migración 299 todo esto se salta y la lectura funciona como antes (solo el último mes y la última semana).
+ *
  * EL ACCESO: si Amazon contesta 403 al pedir el informe, la app del ERP no tiene el rol de Brand Analytics (o el cliente no tiene Brand Registry). Se apunta `acceso = 'no'` con el motivo y no se
  * vuelve a intentar en 6 horas. El texto de las fichas se sigue leyendo igual: no depende de Brand Analytics.
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { AmazonApiError } from '@/lib/amazon/errors'
 import { spApiRequest } from '@/lib/amazon/sp-api'
 import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/informes'
 import { leerFichas } from './ficha-servidor'
-import { tandasDeAsins, ultimaSemana, ultimoMes, type PeriodoSqp, type RangoSqp } from './periodos'
+import { claveDePeriodo, mesesAnteriores, semanasAnteriores, tandasDeAsins, ultimaSemana, ultimoMes, type PeriodoSqp, type RangoSqp } from './periodos'
+import { leerTopFiltrado, pedirTop } from './top-servidor'
+import { normalizarConsulta } from './top-terminos'
 import { leerInformeSqp } from './sqp'
 
 export const TIPO_DE_INFORME = 'GET_BRAND_ANALYTICS_SEARCH_QUERY_PERFORMANCE_REPORT'
@@ -27,6 +38,15 @@ const FICHA_CADA_MS = 24 * 3_600_000
 const REINTENTO_SIN_ACCESO_MS = 6 * 3_600_000
 const REINTENTO_TRAS_ERROR_MS = 30 * 60_000
 const ESPERA_MAXIMA_MS = 60 * 60_000
+/** Cuánto se rellena hacia atrás la primera vez */
+export const HISTORICO_SEMANAS = 8
+export const HISTORICO_MESES = 3
+/** Cuánto se conserva lo leído */
+const CONSERVAR_SEMANAS = 26
+const CONSERVAR_MESES = 13
+/** El informe de búsquedas de todo el país puede tardar: se le da más margen */
+const ESPERA_MAXIMA_TOP_MS = 3 * 3_600_000
+const CONSERVAR_TOP_SEMANAS = 8
 
 export interface CuentaSeo {
   connectionId: string
@@ -48,14 +68,39 @@ export interface EstadoSeo {
   pedido_at: string | null
   error: string | null
   intentos: number
+  /** Migración 299. Si no está, `mejoras` es false y no se usan */
+  periodos_leidos?: string[]
+  top_report_id?: string | null
+  top_desde?: string | null
+  top_hasta?: string | null
+  top_pedido_at?: string | null
+  top_ok?: string | null
+  top_error?: string | null
+  /** ¿Está lanzada la migración 299? */
+  mejoras?: boolean
 }
+
+const COLUMNAS_BASE = 'estado, report_id, periodo, desde, hasta, asins, pendientes, mes_ok, semana_ok, ficha_leida_at, acceso, pedido_at, error, intentos'
+const COLUMNAS_299 = 'periodos_leidos, top_report_id, top_desde, top_hasta, top_pedido_at, top_ok, top_error'
 
 const hoyUTC = () => new Date().toISOString().slice(0, 10)
 
+/** ¿Está la migración 299? Se pregunta una vez por proceso */
+let hayMejoras: boolean | null = null
+export async function mejorasLanzadas(): Promise<boolean> {
+  if (hayMejoras === true) return true
+  const { error } = await createServiceClient().from('seo_lecturas').select('top_ok').limit(1)
+  if (error && !isMissingSchema(error)) throw error
+  hayMejoras = !error
+  return hayMejoras
+}
+
 export async function leerEstadoSeo(c: CuentaSeo): Promise<EstadoSeo | null> {
-  const { data, error } = await createServiceClient().from('seo_lecturas').select('estado, report_id, periodo, desde, hasta, asins, pendientes, mes_ok, semana_ok, ficha_leida_at, acceso, pedido_at, error, intentos').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).maybeSingle()
+  const mejoras = await mejorasLanzadas()
+  const { data, error } = await createServiceClient().from('seo_lecturas').select(mejoras ? `${COLUMNAS_BASE}, ${COLUMNAS_299}` : COLUMNAS_BASE).eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).maybeSingle()
   if (error) throw error
-  return (data as unknown as EstadoSeo | null) ?? null
+  if (!data) return null
+  return { ...(data as unknown as EstadoSeo), mejoras }
 }
 
 async function guardar(c: CuentaSeo, cambios: Record<string, unknown>): Promise<void> {
@@ -69,13 +114,28 @@ async function productosDe(c: CuentaSeo): Promise<Array<{ asin: string; sku: str
   return (data ?? []) as Array<{ asin: string; sku: string | null }>
 }
 
-/** ¿Qué periodo toca leer ahora? PURO. Primero el mes, luego la semana; si ya están los dos, nada */
-export function periodoQueToca(e: Pick<EstadoSeo, 'mes_ok' | 'semana_ok'> | null, hoy: string): RangoSqp | null {
+/**
+ * ¿Qué periodo toca leer ahora? PURO. Primero el último mes y la última semana; después, si hay histórico (migración 299: `periodos_leidos` no es undefined), las semanas y los meses anteriores que
+ * falten, del más reciente al más viejo; si ya está todo, nada.
+ */
+export function periodoQueToca(e: Pick<EstadoSeo, 'mes_ok' | 'semana_ok' | 'periodos_leidos'> | null, hoy: string): RangoSqp | null {
   const mes = ultimoMes(hoy)
   if (e?.mes_ok !== mes.desde) return mes
   const semana = ultimaSemana(hoy)
   if (e?.semana_ok !== semana.desde) return semana
+  if (!e?.periodos_leidos) return null
+  const leidos = new Set(e.periodos_leidos)
+  for (const r of [...semanasAnteriores(hoy, HISTORICO_SEMANAS), ...mesesAnteriores(hoy, HISTORICO_MESES)]) if (!leidos.has(claveDePeriodo(r))) return r
   return null
+}
+
+/** ¿Toca pedir el informe de la competencia (Top Search Terms)? PURO. Una vez por semana, solo con acceso a Brand Analytics confirmado y sin otro pedido en marcha */
+export function topQueToca(e: Pick<EstadoSeo, 'acceso' | 'top_report_id' | 'top_ok' | 'top_pedido_at' | 'mejoras'> | null, hoy: string, ahora: number): RangoSqp | null {
+  if (!e?.mejoras || e.acceso !== 'si' || e.top_report_id) return null
+  const semana = ultimaSemana(hoy)
+  if (e.top_ok === semana.desde) return null
+  if (e.top_pedido_at && ahora - Date.parse(e.top_pedido_at) < REINTENTO_TRAS_ERROR_MS) return null
+  return semana
 }
 
 async function pedirSqp(c: CuentaSeo, rango: RangoSqp, asins: string[]): Promise<string> {
@@ -95,7 +155,13 @@ async function pedirSqp(c: CuentaSeo, rango: RangoSqp, asins: string[]): Promise
 export type PasoSeo = { accion: 'nada' | 'fichas' | 'pedido' | 'esperando' | 'guardado' | 'sin-acceso' | 'error'; detalle?: string }
 
 /** Da UN paso en la lectura de una cuenta y país. Nunca espera a Amazon. Lanza solo si falta la migración o la base falla */
-export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean } = {}): Promise<PasoSeo> {
+/** Las cuentas cuyo informe de competencia se está descargando ahora en este proceso: no se descarga dos veces a la vez */
+const leyendoTop = new Set<string>()
+
+/**
+ * `pesado`: solo el proceso de fondo descarga el informe de la competencia (puede tardar minutos). Desde la pantalla se salta ese paso para no dejar la página esperando.
+ */
+export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean; pesado?: boolean } = {}): Promise<PasoSeo> {
   const ahora = Date.now()
   const productos = await productosDe(c)
   if (productos.length === 0) return { accion: 'nada', detalle: 'sin productos seguidos' }
@@ -127,8 +193,20 @@ export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean } = 
     }
   }
 
+  // ---------- 2) la competencia (Top Search Terms), en su propio carril ----------
+  if (estado?.mejoras && estado.top_report_id && opciones.pesado) {
+    const clave = `${c.connectionId}|${c.marketplaceId}`
+    if (leyendoTop.has(clave)) return { accion: 'esperando', detalle: 'competencia descargándose' }
+    leyendoTop.add(clave)
+    try {
+      return await recogerTop(c, estado, resuelta.credentials, ahora)
+    } finally {
+      leyendoTop.delete(clave)
+    }
+  }
+
   try {
-    // ---------- 2a) hay un informe pedido: ¿está? ----------
+    // ---------- 3a) hay un informe pedido: ¿está? ----------
     if (estado?.estado === 'esperando' && estado.report_id && estado.periodo && estado.desde) {
       const pedidoAt = estado.pedido_at ? Date.parse(estado.pedido_at) : ahora
       const inf = await consultarInforme(resuelta.credentials, estado.report_id)
@@ -182,18 +260,23 @@ export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean } = 
         if (error) throw error
       }
       const quedan = estado.pendientes ?? []
+      const hoy = hoyUTC()
+      const esElActual = estado.periodo === 'MONTH' ? ultimoMes(hoy).desde === estado.desde : ultimaSemana(hoy).desde === estado.desde
+      const leidos = quedan.length === 0 && estado.mejoras ? { periodos_leidos: [...new Set([...(estado.periodos_leidos ?? []), claveDePeriodo({ periodo: estado.periodo, desde: estado.desde })])].slice(-80) } : {}
       await guardar(c, {
         estado: 'reposo',
         report_id: null,
         acceso: 'si',
         error: null,
         intentos: 0,
-        ...(quedan.length === 0 ? (estado.periodo === 'MONTH' ? { mes_ok: estado.desde } : { semana_ok: estado.desde }) : {}),
+        ...(quedan.length === 0 && esElActual ? (estado.periodo === 'MONTH' ? { mes_ok: estado.desde } : { semana_ok: estado.desde }) : {}),
+        ...leidos,
       })
+      if (quedan.length === 0) await borrarLoViejo(c, hoy)
       return { accion: 'guardado', detalle: `${unicos.length} búsquedas (${estado.periodo})` }
     }
 
-    // ---------- 2b) en reposo: ¿toca pedir? ----------
+    // ---------- 3b) en reposo: ¿toca pedir? ----------
     if (!opciones.forzar && estado?.acceso === 'no' && estado.pedido_at && ahora - Date.parse(estado.pedido_at) < REINTENTO_SIN_ACCESO_MS) return { accion: 'sin-acceso' }
     if (!opciones.forzar && estado?.error && estado.pedido_at && ahora - Date.parse(estado.pedido_at) < REINTENTO_TRAS_ERROR_MS) return { accion: 'nada', detalle: 'reintento tras error' }
 
@@ -206,7 +289,11 @@ export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean } = 
       ;[tanda, ...resto] = estado.pendientes
     } else {
       rango = periodoQueToca(estado, hoyUTC())
-      if (!rango) return { accion: 'nada' }
+      if (!rango) {
+        const top = topQueToca(estado, hoyUTC(), ahora)
+        if (top && estado) return pedirLaCompetencia(c, estado, resuelta.credentials, top, ahora)
+        return { accion: 'nada' }
+      }
       ;[tanda, ...resto] = tandasDeAsins(productos.map((p) => p.asin))
     }
     const id = await pedirSqp(c, rango, tanda)
@@ -230,24 +317,122 @@ export async function cuentasSeoConTrabajo(): Promise<CuentaSeo[]> {
   if (error) throw error
   const cuentas = [...new Map(((prods ?? []) as Array<{ connection_id: string; marketplace_id: string }>).map((p) => [`${p.connection_id}|${p.marketplace_id}`, { connectionId: p.connection_id, marketplaceId: p.marketplace_id }])).values()]
   if (cuentas.length === 0) return []
-  const { data: estados } = await service.from('seo_lecturas').select('connection_id, marketplace_id, estado, mes_ok, semana_ok, ficha_leida_at, acceso, pedido_at, error, pendientes')
-  const por = new Map(((estados ?? []) as Array<EstadoSeo & { connection_id: string; marketplace_id: string }>).map((e) => [`${e.connection_id}|${e.marketplace_id}`, e]))
+  const mejoras = await mejorasLanzadas()
+  const { data: estados } = await service.from('seo_lecturas').select(`connection_id, marketplace_id, estado, mes_ok, semana_ok, ficha_leida_at, acceso, pedido_at, error, pendientes${mejoras ? ', periodos_leidos, top_report_id, top_ok, top_pedido_at' : ''}`)
+  const por = new Map(((estados ?? []) as unknown as Array<EstadoSeo & { connection_id: string; marketplace_id: string }>).map((e) => [`${e.connection_id}|${e.marketplace_id}`, { ...e, mejoras }]))
   const ahora = Date.now()
   const hoy = hoyUTC()
   return cuentas.filter((c) => {
     const e = por.get(`${c.connectionId}|${c.marketplaceId}`)
     if (!e) return true
-    if (e.estado === 'esperando') return true
+    if (e.estado === 'esperando' || e.top_report_id) return true
     if (!e.ficha_leida_at || ahora - Date.parse(e.ficha_leida_at) > FICHA_CADA_MS) return true
     if (e.acceso === 'no' && e.pedido_at && ahora - Date.parse(e.pedido_at) < REINTENTO_SIN_ACCESO_MS) return false
     if (e.error && e.pedido_at && ahora - Date.parse(e.pedido_at) < REINTENTO_TRAS_ERROR_MS) return false
-    return (e.pendientes?.length ?? 0) > 0 || periodoQueToca(e, hoy) !== null
+    return (e.pendientes?.length ?? 0) > 0 || periodoQueToca(e, hoy) !== null || topQueToca(e, hoy, ahora) !== null
   })
 }
 
 /** Al añadir o quitar productos se vuelve a leer el mes y la semana (con la lista nueva de ASIN) */
 export async function reiniciarLectura(c: CuentaSeo): Promise<void> {
-  await guardar(c, { mes_ok: null, semana_ok: null, pendientes: [], ficha_leida_at: null })
+  // Con el histórico, también se vuelven a pedir las semanas y meses pasados (para los productos nuevos)
+  await guardar(c, { mes_ok: null, semana_ok: null, pendientes: [], ficha_leida_at: null, ...((await mejorasLanzadas()) ? { periodos_leidos: [] } : {}) })
+}
+
+const restarDias = (hoy: string, dias: number) => new Date(Date.parse(`${hoy}T00:00:00Z`) - dias * DIA_MS).toISOString().slice(0, 10)
+
+/** Lo que ya no entra en la ventana de la evolución (26 semanas, 13 meses) */
+async function borrarLoViejo(c: CuentaSeo, hoy: string): Promise<void> {
+  const service = createServiceClient()
+  await service.from('seo_consultas').delete().eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).eq('periodo', 'WEEK').lt('desde', restarDias(hoy, CONSERVAR_SEMANAS * 7))
+  await service.from('seo_consultas').delete().eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).eq('periodo', 'MONTH').lt('desde', restarDias(hoy, CONSERVAR_MESES * 31))
+}
+
+/* ------------------------------------------------------------------ */
+/* La competencia: el informe «Top Search Terms» del país              */
+/* ------------------------------------------------------------------ */
+
+async function pedirLaCompetencia(c: CuentaSeo, estado: EstadoSeo, creds: Parameters<typeof pedirTop>[0], rango: RangoSqp, ahora: number): Promise<PasoSeo> {
+  try {
+    const id = await pedirTop(creds, c.marketplaceId, rango)
+    await guardar(c, { top_report_id: id, top_desde: rango.desde, top_hasta: rango.hasta, top_pedido_at: new Date(ahora).toISOString(), top_error: null })
+    return { accion: 'pedido', detalle: `competencia ${rango.desde}` }
+  } catch (e) {
+    if (!(e instanceof AmazonApiError) && !(e instanceof Error)) throw e
+    const sinPermiso = e instanceof AmazonApiError && e.kind === 'permisos'
+    // Sin permiso para este informe no se insiste en toda la semana; otro fallo, a los 30 minutos
+    await guardar(c, {
+      top_error: sinPermiso ? 'Amazon no deja leer el informe de los términos de búsqueda más buscados en esta cuenta.' : `No se ha podido pedir el informe de la competencia: ${e instanceof AmazonApiError ? (e.humanMessage ?? e.message) : e.message}`.slice(0, 500),
+      top_pedido_at: new Date(ahora).toISOString(),
+      ...(sinPermiso ? { top_ok: rango.desde } : {}),
+    })
+    if (!(e instanceof AmazonApiError)) console.error('SEO: pedir la competencia:', e)
+    return { accion: 'error', detalle: 'competencia' }
+  }
+}
+
+async function recogerTop(c: CuentaSeo, estado: EstadoSeo, creds: Parameters<typeof pedirTop>[0], ahora: number): Promise<PasoSeo> {
+  const service = createServiceClient()
+  const desde = estado.top_desde as string
+  try {
+    const inf = await consultarInforme(creds, estado.top_report_id as string)
+    if (inf.estado === 'IN_QUEUE' || inf.estado === 'IN_PROGRESS') {
+      if (estado.top_pedido_at && ahora - Date.parse(estado.top_pedido_at) > ESPERA_MAXIMA_TOP_MS) {
+        await guardar(c, { top_report_id: null, top_error: 'Amazon ha tardado más de 3 horas en preparar el informe de la competencia. Se vuelve a pedir más tarde.', top_pedido_at: new Date(ahora).toISOString() })
+        return { accion: 'error', detalle: 'competencia caducada' }
+      }
+      return { accion: 'esperando', detalle: 'competencia' }
+    }
+    if (inf.estado === 'FATAL') {
+      await guardar(c, { top_report_id: null, top_ok: desde, top_error: 'Amazon no ha podido generar el informe de los términos más buscados esta semana.' })
+      return { accion: 'error', detalle: 'competencia FATAL' }
+    }
+    if (inf.estado !== 'DONE' || !inf.documentId) {
+      // CANCELLED: Amazon no tiene datos de esa semana
+      await guardar(c, { top_report_id: null, top_ok: desde, top_error: null })
+      return { accion: 'nada', detalle: 'competencia sin datos' }
+    }
+
+    // Las búsquedas que importan: las de los productos seguidos en las últimas semanas y meses
+    const quiere = new Set<string>()
+    for (let i = 0; i < 40_000 && quiere.size < 20_000; i += 1000) {
+      const { data, error } = await service.from('seo_consultas').select('consulta').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).gte('desde', restarDias(hoyUTC(), 70)).range(i, i + 999)
+      if (error) throw error
+      for (const r of (data ?? []) as Array<{ consulta: string }>) quiere.add(normalizarConsulta(r.consulta))
+      if (!data || data.length < 1000) break
+    }
+    const { filas, vistas } = quiere.size > 0 ? await leerTopFiltrado(creds, inf.documentId, (q) => quiere.has(q)) : { filas: [], vistas: 0 }
+
+    await service.from('seo_top_terminos').delete().eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).eq('periodo', 'WEEK').eq('desde', desde)
+    const registros = filas.map((f) => ({
+      connection_id: c.connectionId,
+      marketplace_id: c.marketplaceId,
+      periodo: 'WEEK',
+      desde,
+      hasta: estado.top_hasta ?? desde,
+      consulta: normalizarConsulta(f.consulta).slice(0, 300),
+      posicion: f.posicion,
+      asin: f.asin,
+      departamento: f.departamento?.slice(0, 120) ?? null,
+      rango_frecuencia: f.rangoFrecuencia,
+      cuota_clics: f.cuotaClics,
+      cuota_conversion: f.cuotaConversion,
+    }))
+    const unicos = [...new Map(registros.map((r) => [`${normalizarConsulta(r.consulta)}|${r.posicion}`, r])).values()]
+    for (let i = 0; i < unicos.length; i += 500) {
+      const { error } = await service.from('seo_top_terminos').upsert(unicos.slice(i, i + 500), { onConflict: 'connection_id,marketplace_id,periodo,desde,consulta,posicion' })
+      if (error) throw error
+    }
+    await service.from('seo_top_terminos').delete().eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).lt('desde', restarDias(hoyUTC(), CONSERVAR_TOP_SEMANAS * 7))
+    await guardar(c, { top_report_id: null, top_ok: desde, top_error: null })
+    return { accion: 'guardado', detalle: `competencia: ${unicos.length} filas de ${vistas} leídas` }
+  } catch (e) {
+    if (isMissingSchema(e)) throw e
+    const texto = e instanceof AmazonApiError ? (e.humanMessage ?? e.message) : e instanceof Error ? e.message : 'error desconocido'
+    console.error('SEO: recoger la competencia:', texto)
+    await guardar(c, { top_report_id: null, top_error: `No se ha podido leer el informe de la competencia: ${texto}`.slice(0, 500), top_pedido_at: new Date(ahora).toISOString() })
+    return { accion: 'error', detalle: 'competencia' }
+  }
 }
 
 export { DIA_MS }

@@ -3,12 +3,14 @@ import { UUID, fail } from '@/lib/amazon/api'
 import { actualizarProducto, crearProducto, estructurasDeCuenta, productosDeCuenta, quitarProducto } from '@/lib/ads/cuenta'
 import { productoDesdeCuerpo } from '@/lib/ads/validar'
 import { abrirCuenta, errorDeRuta } from '@/lib/ads/ruta'
+import { guardarCostesPegados, leerCostesPegados } from '@/lib/ads/costes-pegados'
 
 /**
  * LOS PRODUCTOS A LOS QUE SE LES HACE MARKETING, con su coste. Solo administradores.
  *
  *   GET    ?perfilId=                → productos y las campañas que el ERP les ha creado
  *   POST   {perfilId, …producto}     → añade uno (el ASIN no se repite en una cuenta)
+ *   POST   {perfilId, accion: 'pegar-costes', texto} → pone el coste a los productos por SKU (dos columnas pegadas de una hoja de cálculo)
  *   PUT    {perfilId, id, …producto} → lo edita
  *   DELETE {perfilId, id}            → lo quita (no si ya tiene campañas creadas desde el ERP)
  */
@@ -31,6 +33,12 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
     const a = await abrirCuenta(body.perfilId)
     if (a instanceof NextResponse) return a
+    if (body.accion === 'pegar-costes') {
+      const leido = leerCostesPegados(typeof body.texto === 'string' ? body.texto.slice(0, 200_000) : '')
+      if (leido.costes.length === 0) return fail(400, 'No se ha entendido ninguna línea: pega dos columnas, SKU y coste.')
+      const r = await guardarCostesPegados(a.cuenta, leido.costes, a.sesion.userId)
+      return NextResponse.json({ ok: true, ...r, leidos: leido.costes.length, descartadas: leido.descartadas })
+    }
     const campos = productoDesdeCuerpo(body)
     if (!campos.ok) return fail(400, campos.error)
     return NextResponse.json({ producto: await crearProducto(a.cuenta.id, campos.campos, a.sesion.userId) })

@@ -124,3 +124,34 @@ export async function pedirInformeDeTerminos(conexionId: string, profileId: numb
     throw error
   }
 }
+
+/**
+ * EL RENDIMIENTO DE CADA SEGMENTACIÓN (keyword, producto o cláusula de la automática) por día: el informe «spTargeting» agrupado por segmentación. En todas, el id va en `keywordId`.
+ * Es aparte del de campañas a propósito: si Amazon rechazara alguna columna, las campañas siguen leyéndose igual (ver sincronizar.ts).
+ */
+const COLUMNAS_OBJETIVOS = ['date', 'campaignId', 'adGroupId', 'keywordId', 'keyword', 'targeting', 'matchType', 'keywordType', 'impressions', 'clicks', 'cost', 'purchases7d', 'sales7d', 'unitsSoldClicks7d'] as const
+
+export async function pedirInformeDeObjetivos(conexionId: string, profileId: number, p: Periodo): Promise<string> {
+  try {
+    const res = await llamarAds<{ reportId?: string }>(conexionId, '/reporting/reports', {
+      perfilId: profileId,
+      metodo: 'POST',
+      cabeceras: { Accept: TIPO_PETICION, 'Content-Type': TIPO_PETICION },
+      cuerpo: {
+        name: `marketing-test segmentaciones ${p.desde} ${p.hasta}`,
+        startDate: p.desde,
+        endDate: p.hasta,
+        configuration: { adProduct: 'SPONSORED_PRODUCTS', groupBy: ['targeting'], columns: [...COLUMNAS_OBJETIVOS], reportTypeId: 'spTargeting', timeUnit: 'DAILY', format: 'GZIP_JSON' },
+      },
+    })
+    if (!res.reportId) throw new AdsError('Amazon ha aceptado la petición pero no ha dado id.')
+    return res.reportId
+  } catch (error) {
+    const es425 = error instanceof AdsError && (error.estado === 425 || /"425"/.test(error.cuerpo ?? ''))
+    if (es425) {
+      const ya = (error as AdsError).cuerpo?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)
+      if (ya) return ya[0]
+    }
+    throw error
+  }
+}

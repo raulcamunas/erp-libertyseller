@@ -54,3 +54,30 @@ export function tandasDeAsins(asins: readonly string[], maxCaracteres = 200): st
   if (actual.length > 0) tandas.push(actual)
   return tandas
 }
+
+/** La clave con la que se apunta un periodo ya leído: «WEEK:2026-11-01» */
+export const claveDePeriodo = (r: Pick<RangoSqp, 'periodo' | 'desde'>) => `${r.periodo}:${r.desde}`
+
+/** Las `n` semanas completas anteriores a la última publicada (de la más reciente a la más vieja). Para rellenar el histórico */
+export function semanasAnteriores(hoy: string, n: number): RangoSqp[] {
+  const ultima = ultimaSemana(hoy)
+  const salida: RangoSqp[] = []
+  for (let i = 1; i <= n; i++) {
+    const desde = Date.parse(`${ultima.desde}T00:00:00Z`) - 7 * i * DIA
+    salida.push({ periodo: 'WEEK', desde: dia(desde), hasta: dia(desde + 6 * DIA) })
+  }
+  return salida
+}
+
+/** Los `n` meses naturales anteriores al último publicado (del más reciente al más viejo) */
+export function mesesAnteriores(hoy: string, n: number): RangoSqp[] {
+  const ultimo = ultimoMes(hoy)
+  const salida: RangoSqp[] = []
+  const base = new Date(`${ultimo.desde}T00:00:00Z`)
+  for (let i = 1; i <= n; i++) {
+    const inicio = Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - i, 1)
+    const fin = Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - i + 1, 1) - DIA
+    salida.push({ periodo: 'MONTH', desde: dia(inicio), hasta: dia(fin) })
+  }
+  return salida
+}

@@ -12,7 +12,7 @@ import { textoDeError } from '@/lib/sistema/error-texto'
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 300
 
 const PRESUPUESTO_MS = 90_000
 
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
         continue
       }
       try {
-        const r = await avanzarSeo(c)
+        const r = await avanzarSeo(c, { pesado: true })
         cuenta[r.accion] = (cuenta[r.accion] ?? 0) + 1
         if (r.accion === 'error' && r.detalle) errores.push(r.detalle.slice(0, 90))
       } catch (e) {

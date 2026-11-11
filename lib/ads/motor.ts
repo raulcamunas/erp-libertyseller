@@ -20,7 +20,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { campanasDe } from './campanas'
 import { anotarCambio, leerFicha, productosDeCuenta } from './cuenta'
-import { borrarKeyword, borrarNegativaDeCampana, crearKeyword, crearNegativaDeCampana, gruposActivosDe } from './escritura'
+import { borrarKeyword, borrarNegativaDeCampana, crearKeyword, crearNegativaDeCampana, gruposActivosDe, ponerPresupuesto, ponerPuja } from './escritura'
 import { objetivosDesdeAcos } from './margen'
 import { decidirSiSePuedeAplicar, planificarPropuestas, type DestinoDeCampana, type PropuestaNueva } from './motor-calculo'
 import { asinDeCampana } from './productos-agrupar'
@@ -58,7 +58,12 @@ export interface Propuesta {
   haciaAdGroupId: string | null
   negativizarEnOrigen: boolean
   motivo: string
-  metricas: { clics: number; gasto: number; pedidos: number; ventas: number; acosPct: number | null }
+  metricas: { clics: number; gasto: number; pedidos: number; ventas: number; acosPct: number | null; usoPct?: number }
+  /** Puja y presupuesto (migración 298): la segmentación, su tipo y el valor antes y después */
+  objetivoId: string | null
+  objetivoTipo: string | null
+  valorActual: number | null
+  valorNuevo: number | null
   estado: EstadoDePropuesta
   error: string | null
   automatica: boolean
@@ -66,7 +71,17 @@ export interface Propuesta {
   resueltaAt: string | null
 }
 
-const COLUMNAS = 'id, tipo, asin, termino, campaign_id, campaign_nombre, ad_group_id, desde_rol, hacia_rol, hacia_campaign_id, hacia_campaign_nombre, hacia_ad_group_id, negativizar_en_origen, motivo, metricas, estado, error, automatica, creada_at, resuelta_at, aplicada'
+const COLUMNAS_BASE = 'id, tipo, asin, termino, campaign_id, campaign_nombre, ad_group_id, desde_rol, hacia_rol, hacia_campaign_id, hacia_campaign_nombre, hacia_ad_group_id, negativizar_en_origen, motivo, metricas, estado, error, automatica, creada_at, resuelta_at, aplicada'
+/** Con las columnas de puja y presupuesto (migración 298). Sin ella se lee lo de antes */
+const COLUMNAS = `${COLUMNAS_BASE}, objetivo_id, objetivo_tipo, valor_actual, valor_nuevo`
+let hay298: boolean | null = null
+async function columnas(): Promise<string> {
+  if (hay298 === null) {
+    const { error } = await createServiceClient().from('ads_propuestas').select('objetivo_id').limit(1)
+    hay298 = !error
+  }
+  return hay298 ? COLUMNAS : COLUMNAS_BASE
+}
 
 function deFila(f: Record<string, unknown>): Propuesta {
   return {
@@ -85,6 +100,10 @@ function deFila(f: Record<string, unknown>): Propuesta {
     negativizarEnOrigen: Boolean(f.negativizar_en_origen),
     motivo: f.motivo as string,
     metricas: (f.metricas as Propuesta['metricas']) ?? { clics: 0, gasto: 0, pedidos: 0, ventas: 0, acosPct: null },
+    objetivoId: (f.objetivo_id as string | null) ?? null,
+    objetivoTipo: (f.objetivo_tipo as string | null) ?? null,
+    valorActual: f.valor_actual == null ? null : Number(f.valor_actual),
+    valorNuevo: f.valor_nuevo == null ? null : Number(f.valor_nuevo),
     estado: f.estado as EstadoDePropuesta,
     error: (f.error as string | null) ?? null,
     automatica: Boolean(f.automatica),
@@ -231,13 +250,13 @@ export async function listarPropuestas(perfilId: string): Promise<Propuesta[]> {
   const desde = new Date(Date.now() - 30 * DIA_MS).toISOString()
   const { data, error } = await createServiceClient()
     .from('ads_propuestas')
-    .select(COLUMNAS)
+    .select(await columnas())
     .eq('perfil_id', perfilId)
     .or(`estado.eq.pendiente,creada_at.gte.${desde}`)
     .order('creada_at', { ascending: false })
     .limit(400)
   if (error) throw error
-  return ((data ?? []) as Array<Record<string, unknown>>).map(deFila)
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map(deFila)
 }
 
 /* ------------------------------------------------------------------ */
@@ -253,10 +272,10 @@ async function aplicadasHoy(perfilId: string, automatica: boolean): Promise<numb
 }
 
 async function cargar(perfilId: string, id: string) {
-  const { data, error } = await createServiceClient().from('ads_propuestas').select(COLUMNAS).eq('perfil_id', perfilId).eq('id', id).maybeSingle()
+  const { data, error } = await createServiceClient().from('ads_propuestas').select(await columnas()).eq('perfil_id', perfilId).eq('id', id).maybeSingle()
   if (error) throw error
   if (!data) throw new Error('Esa propuesta no existe.')
-  return data as Record<string, unknown>
+  return data as unknown as Record<string, unknown>
 }
 
 /** Lo que se puede aplicar o no, y por qué. Se comprueba aquí en el servidor, nunca solo en la pantalla (los candados están en decidirSiSePuedeAplicar, que tiene sus pruebas) */
@@ -287,6 +306,22 @@ export async function aplicarPropuesta(cuenta: CuentaParaSincronizar, id: string
   const service = createServiceClient()
   const comun = { perfilId: cuenta.id, campaignId: p.campaignId, nombreCampana: p.campaignNombre, origen: (quien.automatica ? 'automatico' : 'manual') as 'automatico' | 'manual', userId: quien.userId }
   const creado: { keywordId?: string; negativaId?: string } = {}
+  // Puja y presupuesto: un solo PUT, y deshacer es volver a poner el valor de antes
+  if (p.tipo === 'puja' || p.tipo === 'presupuesto') {
+    try {
+      if (p.valorNuevo == null || (p.tipo === 'puja' && !p.objetivoId)) throw new Error('A la propuesta le faltan datos (¿falta la migración 298?).')
+      if (p.tipo === 'puja') await ponerPuja(cuenta, p.objetivoTipo, p.objetivoId as string, p.valorNuevo)
+      else await ponerPresupuesto(cuenta, p.campaignId, p.valorNuevo)
+      await anotarCambio({ ...comun, entidad: p.tipo === 'puja' ? (p.objetivoTipo === 'keyword' ? 'keyword' : 'target') : 'campaña', accion: 'cambiar', campo: p.tipo === 'puja' ? `puja de «${p.termino}»` : 'presupuesto diario', valorAnterior: p.valorActual == null ? null : p.valorActual.toFixed(2).replace('.', ','), valorNuevo: p.valorNuevo.toFixed(2).replace('.', ','), motivo: p.motivo })
+      await service.from('ads_propuestas').update({ estado: 'aplicada', aplicada: { valorAnterior: p.valorActual }, error: null, resuelta_at: new Date().toISOString(), resuelta_por: quien.userId, automatica: quien.automatica }).eq('id', id)
+    } catch (e) {
+      const detalle = e instanceof Error ? e.message : String(e)
+      await anotarCambio({ ...comun, entidad: p.tipo === 'puja' ? 'keyword' : 'campaña', accion: 'cambiar', campo: p.tipo === 'puja' ? 'puja' : 'presupuesto diario', ok: false, error: detalle, motivo: p.motivo })
+      await service.from('ads_propuestas').update({ estado: 'error', error: detalle.slice(0, 500), resuelta_at: new Date().toISOString(), resuelta_por: quien.userId }).eq('id', id)
+      throw new Error(detalle)
+    }
+    return deFila(await cargar(cuenta.id, id))
+  }
   try {
     if (p.tipo === 'promover') {
       const cpc = p.metricas.clics > 0 ? p.metricas.gasto / p.metricas.clics : 0.2
@@ -328,6 +363,14 @@ export async function deshacerPropuesta(cuenta: CuentaParaSincronizar, id: strin
   const fila = await cargar(cuenta.id, id)
   const p = deFila(fila)
   if (p.estado !== 'aplicada') throw new Error('Solo se puede deshacer una propuesta aplicada.')
+  if (p.tipo === 'puja' || p.tipo === 'presupuesto') {
+    if (p.valorActual == null) throw new Error('No se sabe el valor de antes: no se puede deshacer.')
+    if (p.tipo === 'puja') await ponerPuja(cuenta, p.objetivoTipo, p.objetivoId as string, p.valorActual)
+    else await ponerPresupuesto(cuenta, p.campaignId, p.valorActual)
+    await createServiceClient().from('ads_propuestas').update({ estado: 'deshecha', resuelta_at: new Date().toISOString(), resuelta_por: userId }).eq('id', id)
+    await anotarCambio({ perfilId: cuenta.id, campaignId: p.campaignId, nombreCampana: p.campaignNombre, entidad: p.tipo === 'puja' ? 'keyword' : 'campaña', accion: 'cambiar', campo: 'deshacer', valorAnterior: p.valorNuevo == null ? null : p.valorNuevo.toFixed(2).replace('.', ','), valorNuevo: p.valorActual.toFixed(2).replace('.', ','), motivo: `Se deshace: ${p.motivo}`, origen: 'manual', userId })
+    return
+  }
   const creado = (fila.aplicada ?? {}) as { keywordId?: string; negativaId?: string }
   if (creado.keywordId) await borrarKeyword(cuenta.conexionId, cuenta.profileId, creado.keywordId)
   if (creado.negativaId) await borrarNegativaDeCampana(cuenta.conexionId, cuenta.profileId, creado.negativaId)

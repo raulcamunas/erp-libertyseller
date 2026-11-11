@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { ArrowRight, Download, Plus, Search, Trash2 } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { CAJA } from '@/components/marketing-test/piezas'
+import { CAJA, Chispa } from '@/components/marketing-test/piezas'
 import { entero, porcentaje } from '@/components/marketing-test/formato'
 import { llamar } from '@/components/marketing-test/llamar'
 import { Vacio } from '@/components/plataforma/comun'
 import { resumenDeProducto } from '@/lib/seo/resumen'
-import { consultasDe, fichaDe, nombreDe } from './comun'
+import { consultasDe, fichaDe, nombreDe, serieDe } from './comun'
+import type { PuntoDeEvolucion } from '@/lib/seo/datos'
 import type { DatosSeo } from './useCuentaSeo'
 
 /**
@@ -90,6 +91,7 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
                   <Dato etiqueta="Cuota de impresiones" valor={porcentaje(r.cuotaImpresiones)} nota="cuánto sale cuando se busca" />
                   <Dato etiqueta="Keywords en la ficha" valor={r.cobertura == null ? '—' : porcentaje(r.cobertura, 0)} nota={r.faltanEnFicha ? `${r.faltanEnFicha} de las 20 principales no están` : ficha ? 'de las 20 principales' : 'ficha sin leer aún'} color={r.cobertura == null ? undefined : r.cobertura >= 0.8 ? COLOR_ESTADO.verde : r.cobertura >= 0.5 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo} />
                 </div>
+                <Evolucion serie={serieDe(datos, p.asin, 'WEEK')} />
                 <div className="flex items-center gap-2 border-t border-[var(--ls-linea)] px-4 py-[10px]">
                   {r.principal ? (
                     <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--ls-t3)]">
@@ -110,6 +112,27 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+/** La cuota de compras semana a semana, en pequeño, con la variación de la última semana. Sin dos semanas no se pinta */
+function Evolucion({ serie }: { serie: PuntoDeEvolucion[] }) {
+  const puntos = serie.filter((p) => p.cuotaCompras != null)
+  if (puntos.length < 2) return null
+  const ultima = puntos[puntos.length - 1]
+  const previa = puntos[puntos.length - 2]
+  const d = ((ultima.cuotaCompras ?? 0) - (previa.cuotaCompras ?? 0)) * 100
+  const color = d >= 0 ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo
+  return (
+    <div className="flex items-center gap-3 border-t border-[var(--ls-linea)] px-4 py-[8px]">
+      <span className="text-[11px] text-[var(--ls-t4)]">Cuota de compras, {puntos.length} semanas</span>
+      <div className="h-[28px] w-[120px]">
+        <Chispa valores={puntos.map((p) => (p.cuotaCompras ?? 0) * 100)} color={color} />
+      </div>
+      <span className="ml-auto text-[11.5px] font-medium tabular-nums" style={{ color }} title="Frente a la semana anterior">
+        {d >= 0 ? '▲' : '▼'} {Math.abs(d).toLocaleString('es-ES', { maximumFractionDigits: 1 })} pt
+      </span>
     </div>
   )
 }

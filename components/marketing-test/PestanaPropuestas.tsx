@@ -173,6 +173,7 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
           <ul className={`mt-2 flex list-disc flex-col gap-1 pl-5 ${TIPO.s} ${TEXTO.t2}`}>
             <li>Una vez al día lee de Amazon los términos de búsqueda de los últimos 14 días de esta cuenta.</li>
             <li>Aplica las reglas del SOP con los umbrales de la ficha y el ACoS objetivo de cada producto: <strong>negativizar</strong> lo que gasta sin vender y <strong>promover</strong> de Automática a Amplia y de Amplia a Exacta lo que compra.</li>
+            <li><strong>Pujas</strong>: sube la de lo que vende muy por debajo del objetivo, baja la de lo que vende por encima o gasta sin vender (el % de la ficha, con su cuarentena entre cambios). <strong>Presupuesto</strong>: lo sube en las campañas que cumplen el objetivo y se quedan cortas. Siempre con tu aprobación.</li>
             <li>Cada propuesta lleva su motivo. Empieza en «Solo sugiere» unos días para ver qué propondría, sin tocar nada.</li>
             <li>Necesita el <strong>ACoS objetivo de cada producto</strong> (lo fijas tú en la pestaña Productos) y su precio: de ahí sale lo que puede gastar un término sin vender. Sin él, no se le propone nada.</li>
           </ul>
@@ -217,7 +218,7 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
           ) : (
             <>
               <div className={`${TIPO.s} ${TEXTO.t3}`}>
-                {pendientes.length} {pendientes.length === 1 ? 'propuesta pendiente' : 'propuestas pendientes'} · {negativas} de negativizar · {pendientes.length - negativas} de promover
+                {pendientes.length} {pendientes.length === 1 ? 'propuesta pendiente' : 'propuestas pendientes'} · {negativas} de negativizar · {pendientes.filter((p) => p.tipo === 'promover').length} de promover · {pendientes.filter((p) => p.tipo === 'puja').length} de puja · {pendientes.filter((p) => p.tipo === 'presupuesto').length} de presupuesto
               </div>
               {grupos.map((g) => (
                 <section key={g.clave} className={TARJETA.base}>
@@ -259,7 +260,14 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
   )
 
   function confirmarYAplicar(p: Propuesta) {
-    const que = p.tipo === 'negativizar' ? `excluir «${p.termino}» (coincidencia exacta negativa) de la campaña\n${p.campaignNombre}` : `añadir «${p.termino}» a ${p.haciaCampaignNombre} y excluirlo de ${p.campaignNombre}`
+    const que =
+      p.tipo === 'negativizar'
+        ? `excluir «${p.termino}» (coincidencia exacta negativa) de la campaña\n${p.campaignNombre}`
+        : p.tipo === 'puja'
+          ? `cambiar la puja de «${p.termino}» de ${p.valorActual?.toFixed(2)} a ${p.valorNuevo?.toFixed(2)} en\n${p.campaignNombre}`
+          : p.tipo === 'presupuesto'
+            ? `subir el presupuesto diario de ${p.valorActual?.toFixed(2)} a ${p.valorNuevo?.toFixed(2)} en\n${p.campaignNombre}`
+            : `añadir «${p.termino}» a ${p.haciaCampaignNombre} y excluirlo de ${p.campaignNombre}`
     if (!window.confirm(`Se va a ${que}.\n\nSe escribe en la cuenta de Amazon Ads del cliente. Se puede deshacer desde el historial.\n\n${p.motivo}\n\n¿Aplicar?`)) return
     void accion(p.id, 'aplicar', { accion: 'aplicar', id: p.id }, 'Aplicada en Amazon.')
   }
@@ -270,6 +278,12 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
   }
 }
 
+/** El color y el nombre de cada tipo: lo que sube gasto en verde, lo que lo recorta en rojo/ámbar */
+const COLOR_DE_PROPUESTA = (p: Propuesta) =>
+  p.tipo === 'negativizar' ? COLOR_ESTADO.rojo : p.tipo === 'promover' ? COLOR_ESTADO.verde : p.tipo === 'presupuesto' ? COLOR_ESTADO.azul : (p.valorNuevo ?? 0) >= (p.valorActual ?? 0) ? COLOR_ESTADO.verde : COLOR_ESTADO.ambar
+const NOMBRE_DE_PROPUESTA = (p: Propuesta) =>
+  p.tipo === 'negativizar' ? 'Negativizar' : p.tipo === 'promover' ? 'Promover' : p.tipo === 'presupuesto' ? 'Subir presupuesto' : (p.valorNuevo ?? 0) >= (p.valorActual ?? 0) ? 'Subir puja' : 'Bajar puja'
+
 function FilaDePropuesta({ p, moneda, bloqueo, ocupado, algoOcupado, historial, aplicar, descartar, deshacer }: { p: Propuesta; moneda: string | null; bloqueo: string | null; ocupado: boolean; algoOcupado: boolean; historial?: boolean; aplicar?: () => void; descartar?: () => void; deshacer?: () => void }) {
   const m = p.metricas
   const estilo = ESTILO_ESTADO[p.estado]
@@ -277,10 +291,15 @@ function FilaDePropuesta({ p, moneda, bloqueo, ocupado, algoOcupado, historial, 
     <div className="flex flex-wrap items-start gap-x-4 gap-y-2 px-[12px] py-[10px]">
       <div className="min-w-[260px] flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-[18px] items-center rounded-[4px] px-[6px] text-[10.5px] font-semibold" style={{ background: `color-mix(in srgb, ${p.tipo === 'negativizar' ? COLOR_ESTADO.rojo : COLOR_ESTADO.verde} 18%, transparent)`, color: p.tipo === 'negativizar' ? COLOR_ESTADO.rojo : COLOR_ESTADO.verde }}>
-            {p.tipo === 'negativizar' ? 'Negativizar' : 'Promover'}
+          <span className="inline-flex h-[18px] items-center rounded-[4px] px-[6px] text-[10.5px] font-semibold" style={{ background: `color-mix(in srgb, ${COLOR_DE_PROPUESTA(p)} 18%, transparent)`, color: COLOR_DE_PROPUESTA(p) }}>
+            {NOMBRE_DE_PROPUESTA(p)}
           </span>
-          <span className="text-[13px] font-semibold text-[var(--ls-t1)]">{p.termino}</span>
+          <span className="max-w-[460px] truncate text-[13px] font-semibold text-[var(--ls-t1)]" title={p.termino}>{p.tipo === 'presupuesto' ? 'Presupuesto diario' : p.termino}</span>
+          {(p.tipo === 'puja' || p.tipo === 'presupuesto') && p.valorActual != null && p.valorNuevo != null && (
+            <span className="inline-flex items-center gap-1 text-[12.5px] tabular-nums text-[var(--ls-t2)]">
+              {dinero(p.valorActual, moneda)} <ArrowRight className="h-3 w-3" /> <strong style={{ color: COLOR_DE_PROPUESTA(p) }}>{dinero(p.valorNuevo, moneda)}</strong>
+            </span>
+          )}
           {historial && estilo && (
             <span className="inline-flex h-[17px] items-center rounded-full border px-[7px] text-[10.5px] font-medium" style={{ color: estilo.color, borderColor: estilo.color }}>
               {estilo.texto}
@@ -302,9 +321,9 @@ function FilaDePropuesta({ p, moneda, bloqueo, ocupado, algoOcupado, historial, 
         {bloqueo && !historial && <p className={`mt-1 ${TIPO.xs}`} style={{ color: COLOR_ESTADO.ambar }}>{bloqueo}</p>}
       </div>
       <div className="flex shrink-0 gap-4 text-right">
-        <Dato etiqueta="Clics" valor={entero(m.clics)} />
-        <Dato etiqueta="Gasto" valor={dinero(m.gasto, moneda)} />
-        <Dato etiqueta="Pedidos" valor={entero(m.pedidos)} />
+        {p.tipo === 'presupuesto' ? <Dato etiqueta="Uso" valor={m.usoPct == null ? '—' : `${m.usoPct} %`} /> : <Dato etiqueta="Clics" valor={entero(m.clics)} />}
+        <Dato etiqueta={p.tipo === 'presupuesto' ? 'Gasto 7 d' : 'Gasto'} valor={dinero(m.gasto, moneda)} />
+        {p.tipo === 'presupuesto' ? <Dato etiqueta="Ventas 7 d" valor={dinero(m.ventas, moneda)} /> : <Dato etiqueta="Pedidos" valor={entero(m.pedidos)} />}
         <Dato etiqueta="ACoS" valor={m.acosPct == null ? '—' : `${decimal(m.acosPct, 1)} %`} />
       </div>
       <div className="flex shrink-0 items-center gap-[6px]">
