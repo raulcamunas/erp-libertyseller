@@ -7,7 +7,8 @@
  *   · 'tono'   un sonido para repetir mientras algo espera: el «llamando…» de quien llama y el tono de cuando te llaman. Lleva `cada`: cada cuántos ms se repite.
  * Una interacción solo ofrece sonidos de su familia (un tono de llamada de 3 s no tiene sentido al mutearte).
  *
- * Dos sonidos de la biblioteca (los «de siempre») usan además el fichero que ya había en public/sonidos (correo.mp3, tarea.mp3) si existe; si no, suena su versión con notas.
+ * Los sonidos con fichero (los «de siempre» y los «del equipo», que eligió Raúl el 12 nov 2026 para que la junta suene como en Discord) tocan el fichero de public/sonidos si existe; si no,
+ * suena su versión con notas, que imita lo mismo (sube al entrar, baja al mutearte…).
  */
 
 export type FamiliaDeSonido = 'aviso' | 'tono'
@@ -43,12 +44,19 @@ export interface SonidoDeBiblioteca {
 const n = (f: number, t: number, d: number, g: number, onda: Onda = 'sine', fin?: number): Nota => (fin === undefined ? { f, t, d, g, onda } : { f, fin, t, d, g, onda })
 
 const aviso = (id: string, nombre: string, grupo: string, notas: readonly Nota[], fichero?: string): SonidoDeBiblioteca => ({ id, nombre, grupo, familia: 'aviso', notas, ...(fichero ? { fichero } : {}) })
-const tono = (id: string, nombre: string, notas: readonly Nota[], cada: number): SonidoDeBiblioteca => ({ id, nombre, grupo: 'Tonos de llamada', familia: 'tono', notas, cada })
+const tono = (id: string, nombre: string, notas: readonly Nota[], cada: number, fichero?: string): SonidoDeBiblioteca => ({ id, nombre, grupo: 'Tonos de llamada', familia: 'tono', notas, cada, ...(fichero ? { fichero } : {}) })
 
 export const BIBLIOTECA: readonly SonidoDeBiblioteca[] = [
   // Los de siempre (los que ya había en el ERP)
   aviso('din-don-correo', 'Din-don del correo', 'Los de siempre', [n(659.25, 0, 0.45, 0.09), n(523.25, 0.36, 0.75, 0.09)], '/sonidos/correo.mp3'),
   aviso('ding-tareas', 'Ding de las tareas', 'Los de siempre', [n(523.25, 0, 0.32, 0.1, 'triangle'), n(659.25, 0.11, 0.32, 0.1, 'triangle'), n(783.99, 0.22, 0.6, 0.1, 'triangle')], '/sonidos/tarea.mp3'),
+
+  // Los del equipo (estilo Discord): ficheros de public/sonidos; las notas solo suenan si falta el fichero
+  aviso('equipo-entrar', 'Entrar al canal', 'Los del equipo', [n(523.25, 0, 0.13, 0.16, 'triangle'), n(783.99, 0.11, 0.24, 0.16, 'triangle')], '/sonidos/junta-entrar.mp3'),
+  aviso('equipo-mute', 'Silenciarse', 'Los del equipo', [n(440, 0, 0.09, 0.13, 'triangle'), n(330, 0.08, 0.13, 0.13, 'triangle')], '/sonidos/junta-mute.mp3'),
+  aviso('equipo-unmute', 'Desmutearse', 'Los del equipo', [n(330, 0, 0.09, 0.13, 'triangle'), n(494, 0.08, 0.13, 0.13, 'triangle')], '/sonidos/junta-unmute.mp3'),
+  aviso('equipo-pantalla', 'Compartir pantalla', 'Los del equipo', [n(587.33, 0, 0.1, 0.12), n(880, 0.09, 0.1, 0.12), n(1174.66, 0.18, 0.22, 0.1)], '/sonidos/junta-pantalla.mp3'),
+  aviso('equipo-te-ven', 'Alguien ve tu pantalla', 'Los del equipo', [n(880, 0, 0.1, 0.1), n(1174.66, 0.09, 0.2, 0.09)], '/sonidos/junta-te-ven.mp3'),
 
   // Estilo chat
   aviso('subida', 'Subida', 'Estilo chat', [n(523.25, 0, 0.13, 0.16, 'triangle'), n(783.99, 0.11, 0.24, 0.16, 'triangle')]),
@@ -83,7 +91,8 @@ export const BIBLIOTECA: readonly SonidoDeBiblioteca[] = [
   aviso('laser', 'Láser', 'Digitales', [n(1400, 0, 0.2, 0.06, 'square', 260)]),
   aviso('moneda', 'Moneda', 'Digitales', [n(988, 0, 0.08, 0.06, 'square'), n(1319, 0.08, 0.34, 0.06, 'square')]),
 
-  // Tonos de llamada (se repiten)
+  // Tonos de llamada (se repiten). El del equipo es un fichero de 5,6 s: suena en bucle seguido, sin hueco (lib/sonidos/reproductor.ts)
+  tono('equipo-llamada', 'Te llaman (el del equipo)', [n(740, 0, 0.34, 0.14), n(587.33, 0.4, 0.34, 0.14), n(740, 0.8, 0.34, 0.14), n(880, 1.2, 0.5, 0.14)], 6000, '/sonidos/llamada-entrante.mp3'),
   tono('clasico', 'Clásico', [n(740, 0, 0.34, 0.14), n(587.33, 0.4, 0.34, 0.14), n(740, 0.8, 0.34, 0.14), n(880, 1.2, 0.5, 0.14)], 3000),
   tono('ringback-suave', 'Línea de espera (suave)', [n(440, 0, 0.8, 0.05), n(480, 0, 0.8, 0.05)], 3500),
   tono('campanas', 'Campanas', [n(1046.5, 0, 0.6, 0.1), n(1318.5, 0.35, 0.6, 0.1), n(1568, 0.7, 0.9, 0.1)], 3500),
@@ -113,6 +122,8 @@ export type IdDeInteraccion =
   | 'ensordecer'
   | 'oir'
   | 'puerta'
+  | 'pantalla'
+  | 'te-ven'
   | 'llamando'
   | 'llamada'
 
@@ -124,24 +135,26 @@ export interface Interaccion {
   familia: FamiliaDeSonido
   /** El sonido de fábrica */
   defecto: string
-  /** Cuánto suena respecto al volumen del sonido (lo que oyes de los demás, más suave que lo tuyo) */
+  /** Cuánto suena respecto al volumen del sonido (lo que oyes de los demás, más suave que lo tuyo). Mutear y desmutear van a 0,55: sus ficheros vienen ~7 dB más fuertes que el resto */
   volumen: number
 }
 
 export const INTERACCIONES: readonly Interaccion[] = [
   { id: 'avisos', nombre: 'Mensajes del chat y avisos de tareas', cuando: 'Cuando te escribe alguien, te mencionan o te asignan una tarea', grupo: 'Avisos', familia: 'aviso', defecto: 'ding-tareas', volumen: 1 },
   { id: 'correo', nombre: 'Correo nuevo', cuando: 'Cuando llega un correo a tu buzón', grupo: 'Avisos', familia: 'aviso', defecto: 'din-don-correo', volumen: 1 },
-  { id: 'entrar', nombre: 'Entras a una junta', cuando: 'Cuando entras a un canal de voz', grupo: 'Junta de voz', familia: 'aviso', defecto: 'subida', volumen: 1 },
+  { id: 'entrar', nombre: 'Entras a una junta', cuando: 'Cuando entras a un canal de voz', grupo: 'Junta de voz', familia: 'aviso', defecto: 'equipo-entrar', volumen: 1 },
   { id: 'salir', nombre: 'Sales de la junta', cuando: 'Cuando dejas el canal de voz', grupo: 'Junta de voz', familia: 'aviso', defecto: 'bajada', volumen: 1 },
-  { id: 'otro-entra', nombre: 'Alguien entra', cuando: 'Lo oyes si ya estás dentro y entra otra persona', grupo: 'Junta de voz', familia: 'aviso', defecto: 'doble-subida', volumen: 0.7 },
+  { id: 'otro-entra', nombre: 'Alguien entra', cuando: 'Lo oyes si ya estás dentro y entra otra persona', grupo: 'Junta de voz', familia: 'aviso', defecto: 'equipo-entrar', volumen: 0.7 },
   { id: 'otro-sale', nombre: 'Alguien sale', cuando: 'Lo oyes si ya estás dentro y sale otra persona', grupo: 'Junta de voz', familia: 'aviso', defecto: 'doble-bajada', volumen: 0.7 },
-  { id: 'mute', nombre: 'Te silencias', cuando: 'Cuando apagas tu micrófono', grupo: 'Junta de voz', familia: 'aviso', defecto: 'tup-bajo', volumen: 1 },
-  { id: 'unmute', nombre: 'Te desmuteas', cuando: 'Cuando enciendes tu micrófono', grupo: 'Junta de voz', familia: 'aviso', defecto: 'tup-alto', volumen: 1 },
+  { id: 'mute', nombre: 'Te silencias', cuando: 'Cuando apagas tu micrófono', grupo: 'Junta de voz', familia: 'aviso', defecto: 'equipo-mute', volumen: 0.55 },
+  { id: 'unmute', nombre: 'Te desmuteas', cuando: 'Cuando enciendes tu micrófono', grupo: 'Junta de voz', familia: 'aviso', defecto: 'equipo-unmute', volumen: 0.55 },
   { id: 'ensordecer', nombre: 'Te ensordeces', cuando: 'Cuando dejas de oír a todos', grupo: 'Junta de voz', familia: 'aviso', defecto: 'descenso-3', volumen: 1 },
   { id: 'oir', nombre: 'Vuelves a oír', cuando: 'Cuando quitas el ensordecer', grupo: 'Junta de voz', familia: 'aviso', defecto: 'ascenso-3', volumen: 1 },
   { id: 'puerta', nombre: 'Tocan la puerta', cuando: 'Cuando alguien pide entrar a tu sala de voz con candado', grupo: 'Junta de voz', familia: 'aviso', defecto: 'campanilla', volumen: 1 },
+  { id: 'pantalla', nombre: 'Compartes pantalla', cuando: 'Cuando empiezas a compartir tu pantalla en la junta', grupo: 'Junta de voz', familia: 'aviso', defecto: 'equipo-pantalla', volumen: 1 },
+  { id: 'te-ven', nombre: 'Alguien ve tu pantalla', cuando: 'Mientras compartes, cuando otra persona abre tu pantalla para verla', grupo: 'Junta de voz', familia: 'aviso', defecto: 'equipo-te-ven', volumen: 0.8 },
   { id: 'llamando', nombre: 'Estás llamando', cuando: 'Lo oyes tú mientras la otra persona no contesta', grupo: 'Llamadas', familia: 'tono', defecto: 'ringback-suave', volumen: 1 },
-  { id: 'llamada', nombre: 'Te llaman', cuando: 'El tono cuando alguien te llama por el chat', grupo: 'Llamadas', familia: 'tono', defecto: 'clasico', volumen: 1 },
+  { id: 'llamada', nombre: 'Te llaman', cuando: 'El tono cuando alguien te llama por el chat', grupo: 'Llamadas', familia: 'tono', defecto: 'equipo-llamada', volumen: 1 },
 ]
 
 export const interaccionDe = (id: string): Interaccion | undefined => INTERACCIONES.find((i) => i.id === id)

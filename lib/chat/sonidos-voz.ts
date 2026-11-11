@@ -5,6 +5,8 @@
  *   · entrar / salir          lo oyes tú al entrar a una junta o dejarla
  *   · otro-entra / otro-sale  lo oye quien ya está dentro cuando alguien entra o sale (más suave)
  *   · mute / unmute           tu micrófono
+ *   · pantalla                empiezas a compartir tu pantalla
+ *   · te-ven                  mientras compartes, otra persona abre tu pantalla (una vez por persona y por vez que compartes)
  *   · ensordecer / oir        dejar de oír a todos y volver a oír
  *   · llamando                el tono que oye quien llama mientras el otro no contesta
  *   · llamada                 el tono de cuando te llaman (iniciarTonoDeLlamada)
@@ -12,7 +14,10 @@
 
 import { iniciarBucle, ponerSalidaDeAudio, prepararAudio, reproducirInteraccion } from '@/lib/sonidos/reproductor'
 
-export type SonidoDeVoz = 'entrar' | 'salir' | 'otro-entra' | 'otro-sale' | 'mute' | 'unmute' | 'ensordecer' | 'oir' | 'puerta'
+export type SonidoDeVoz = 'entrar' | 'salir' | 'otro-entra' | 'otro-sale' | 'mute' | 'unmute' | 'ensordecer' | 'oir' | 'puerta' | 'pantalla' | 'te-ven'
+
+/** El «estoy viendo tu pantalla» que manda quien la abre a quien la comparte (mensaje de datos de LiveKit, solo a esa persona) */
+export const TEMA_VEO_TU_PANTALLA = 'veo-tu-pantalla'
 
 /** Hasta cuándo suena el «llamando…» si el otro no entra */
 export const MAX_LLAMANDO_MS = 40_000

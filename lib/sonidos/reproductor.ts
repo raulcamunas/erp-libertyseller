@@ -150,11 +150,19 @@ function tocarNotas(notas: readonly Nota[], volumen: number): ResultadoDeReprodu
   return 'sono'
 }
 
+/** Un <audio> con el fichero, por el altavoz elegido (donde el navegador lo permite) */
+function audioDe(url: string, volumen: number): HTMLAudioElement {
+  const a = new Audio(url)
+  a.volume = Math.min(1, 0.7 * volumen)
+  const conSalida = a as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }
+  if (salida && conSalida.setSinkId) void conSalida.setSinkId(salida).catch(() => undefined)
+  return a
+}
+
 async function tocarFichero(url: string, volumen: number): Promise<'sono' | 'bloqueado' | 'fallo'> {
   if (sinFichero.has(url)) return 'fallo'
   try {
-    const a = new Audio(url)
-    a.volume = Math.min(1, 0.7 * volumen)
+    const a = audioDe(url, volumen)
     await a.play()
     return 'sono'
   } catch (e) {
@@ -192,13 +200,54 @@ export function iniciarBucle(id: IdDeInteraccion, opciones: { max?: number } = {
   const elegido = sonidoElegidoPara(eleccionGuardada(), id)
   const s = elegido === SIN_SONIDO ? undefined : sonidoDeBiblioteca(elegido)
   if (!i || !s) return () => undefined
+  // Con fichero: el <audio> en bucle, sin huecos, y al parar se corta en seco (no sigue hasta acabar). Si el fichero falla, el tono con notas
+  if (s.fichero && !sinFichero.has(s.fichero)) {
+    const url = s.fichero
+    const a = audioDe(url, i.volumen)
+    a.loop = true
+    let parado = false
+    let pararNotas: (() => void) | null = null
+    // El navegador aún no deja sonar (nadie ha tocado la página): suena en cuanto se toque algo, si sigue sonando
+    const reintentar = () => {
+      quitarReintento()
+      if (!parado) void a.play().catch(() => undefined)
+    }
+    const quitarReintento = () => {
+      for (const ev of ['pointerdown', 'keydown'] as const) window.removeEventListener(ev, reintentar)
+    }
+    void a.play().catch((e: { name?: string }) => {
+      if (parado) return
+      if (e?.name === 'NotAllowedError') {
+        for (const ev of ['pointerdown', 'keydown'] as const) window.addEventListener(ev, reintentar, { passive: true })
+        return
+      }
+      sinFichero.add(url)
+      pararNotas = bucleDeNotas(s.id, i.volumen, s.cada ?? 3000, opciones.max)
+    })
+    const tope = opciones.max ? setTimeout(() => { parado = true; quitarReintento(); a.pause() }, opciones.max) : null
+    return () => {
+      parado = true
+      quitarReintento()
+      a.pause()
+      a.removeAttribute('src')
+      if (tope) clearTimeout(tope)
+      pararNotas?.()
+    }
+  }
+  return bucleDeNotas(s.id, i.volumen, s.cada ?? 3000, opciones.max)
+}
+
+function bucleDeNotas(id: string, volumen: number, cada: number, max?: number): () => void {
+  const s = sonidoDeBiblioteca(id)
+  if (!s) return () => undefined
+  const tocar = () => tocarNotas(s.notas, volumen)
   let parado = false
   const tanda = () => {
-    if (!parado) void reproducirSonido(s.id, i.volumen)
+    if (!parado) tocar()
   }
   tanda()
-  const t = setInterval(tanda, s.cada ?? 3000)
-  const tope = opciones.max ? setTimeout(() => { parado = true; clearInterval(t) }, opciones.max) : null
+  const t = setInterval(tanda, cada)
+  const tope = max ? setTimeout(() => { parado = true; clearInterval(t) }, max) : null
   return () => {
     parado = true
     clearInterval(t)

@@ -10,6 +10,7 @@ import { useChat } from './ChatProvider'
 import { useJunta } from './JuntaProvider'
 import { useMusica } from './MusicaProvider'
 import { abrirDialogoDeVoz } from '@/lib/chat/dialogo-voz'
+import { TEMA_VEO_TU_PANTALLA } from '@/lib/chat/sonidos-voz'
 
 /** Un vídeo (cámara o pantalla) pegado a su elemento: se desengancha solo al cambiar o irse */
 function Imagen({ pub, silenciado }: { pub: TrackPublication; silenciado?: boolean }) {
@@ -85,8 +86,15 @@ export function Cuadro({ t, foco }: { t: Tesela; foco?: boolean }) {
   const { yo, nombreDe } = useChat()
   const [grande, setGrande] = useState(false)
   const cerrarGrande = useCallback(() => setGrande(false), [])
-  const { volumenes, ponerVolumen } = useJunta()
+  const { volumenes, ponerVolumen, room } = useJunta()
   const nombre = nombreDe(t.persona.identity)
+  // Ves la pantalla de otra persona: se le dice a ella sola, para que le suene «alguien ve tu pantalla» (components/chat/SonidosDeLaJunta.tsx)
+  const pantallaAjena = t.pantalla && t.persona.identity !== yo.id ? t.persona.identity : null
+  const pistaDePantalla = t.pantalla ? (t.pub?.trackSid ?? null) : null
+  useEffect(() => {
+    if (!room || !pantallaAjena || !pistaDePantalla) return
+    void room.localParticipant.publishData(new TextEncoder().encode('1'), { reliable: true, destinationIdentities: [pantallaAjena], topic: TEMA_VEO_TU_PANTALLA }).catch(() => undefined)
+  }, [room, pantallaAjena, pistaDePantalla])
   const volumen = volumenes[t.persona.identity] ?? 1
   const esOtra = t.persona.identity !== yo.id && !t.pantalla
   const habla = t.persona.isSpeaking && !t.pantalla
