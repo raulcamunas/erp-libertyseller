@@ -3484,6 +3484,12 @@ body.tc-agarrando, body.tc-agarrando * { cursor: grabbing !important; }
 .tc-centro { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 .tc-vista { min-height: 0; flex: 1; overflow: auto; padding: 8px 34px 16px; scrollbar-width: thin; scrollbar-color: var(--ls-linea2) transparent; }
 .tc-vista > .tc-tablero { height: 100%; }
+/* EL TABLERO OCUPA TODO EL ANCHO: si el margen de 34 px fuera de la vista, al desplazarlo de lado las columnas se cortaban en ese margen y quedaba una franja gris (la primera columna,
+   «Recurrentes», salía partida). El margen va DENTRO del desplazamiento: las columnas llegan hasta la barra de clientes y, en reposo, siguen alineadas con la cabecera */
+.tc-vista:has(> .tc-tablero) { padding-left: 0; padding-right: 0; }
+.tc-vista > .tc-tablero { padding-left: 34px; padding-right: 0; scroll-padding-inline: 34px; }
+/* El margen del final: el padding derecho no cuenta en un contenedor flex que desborda; un hueco sí (22 + 12 de separación = 34) */
+.tc-vista > .tc-tablero::after { content: ''; flex: 0 0 22px; }
 .tc-zona > .tc-panel-capa { position: absolute; inset: 0; z-index: 30; display: flex; justify-content: flex-end; }
 .tc-panel-fondo { position: absolute; inset: 0; background: rgba(4, 6, 10, 0.36); cursor: default; }
 html.light .tc-panel-fondo { background: rgba(20, 24, 40, 0.22); }
