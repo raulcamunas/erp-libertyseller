@@ -36,8 +36,15 @@ function resumen(f: FilaRegistro): string {
   if (f.tipo === 'cobro') return d.referencia ? `Referencia ${d.referencia}` : ''
   if (f.tipo === 'gasto') return d.tipo ?? ''
   if (f.tipo === 'plantilla') return d.accion ?? ''
+  if (esCorreccion(f)) {
+    const antes = (f.detalle as { antes?: { total?: number } }).antes?.total
+    return typeof antes === 'number' && f.importe != null ? `Antes ${antes.toFixed(2)} → ahora ${Number(f.importe).toFixed(2)}` : ''
+  }
   return ''
 }
+
+/** Un «borrador editado» que en realidad era una factura enviada (corregida desde el 11 nov 2026) */
+const esCorreccion = (f: FilaRegistro) => f.tipo === 'borrador_editado' && (f.detalle as { enviada?: boolean }).enviada === true
 
 const claveDeDia = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 
@@ -139,7 +146,7 @@ export function PestanaRegistro() {
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className={`truncate text-[12.5px] ${TEXTO.t1}`}>
-                        <span className="font-medium">{ETIQUETA_REGISTRO[f.tipo]}</span>
+                        <span className="font-medium">{esCorreccion(f) ? 'Factura enviada corregida' : ETIQUETA_REGISTRO[f.tipo]}</span>
                         {f.cliente ? <span className={TEXTO.t2}> · {f.cliente}</span> : null}
                       </span>
                       {(f.numero || detalle) && (

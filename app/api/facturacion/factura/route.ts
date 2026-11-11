@@ -13,8 +13,8 @@ export const runtime = 'nodejs'
  * LA FACTURA EN ZOHO: LEERLA, CREAR EL BORRADOR, CAMBIARLO Y BORRARLO.
  *
  * Crear no manda nada al cliente: nace en borrador y se envía aparte. Solo un
- * borrador se puede cambiar o borrar desde aquí; una factura que el cliente ya
- * tiene se corrige en Zoho, a propósito y sabiendo lo que se hace.
+ * borrador se puede BORRAR desde aquí. Cambiar, también una enviada (desde el
+ * 11 nov 2026): queda enviada y el cliente no recibe nada hasta reenviarla.
  */
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/
@@ -194,14 +194,33 @@ export async function PUT(request: NextRequest) {
   try {
     const ruta = `invoices/${encodeURIComponent(cuerpo.id)}`
     const { invoice: actual } = await zoho<{ invoice: FacturaCompleta }>(ruta)
-    if (actual.status !== 'draft') {
-      return NextResponse.json({ error: 'Esta factura ya se ha enviado: se corrige en Zoho.' }, { status: 409 })
+
+    /**
+     * UNA FACTURA ENVIADA TAMBIÉN SE CORRIGE (11 nov 2026, lo pidió Raúl: «a veces hay errores»).
+     *
+     * Zoho deja editar una factura enviada y la deja enviada; el cliente no recibe nada hasta que se le vuelve a mandar desde
+     * el paso 2. Dos límites: una anulada no se toca, y el total nuevo no puede quedar por debajo de lo ya cobrado (eso
+     * sería un abono, que se hace en Zoho). En el registro queda cómo estaba antes, para saber qué se cambió.
+     */
+    if (actual.status === 'void') {
+      return NextResponse.json({ error: 'Esta factura está anulada: no se puede cambiar.' }, { status: 409 })
     }
+    const enviada = actual.status !== 'draft'
+    const cobrado = Math.round((Number(actual.total ?? 0) - Number(actual.balance ?? 0)) * 100) / 100
+    const totalNuevo = Math.round(cuerpo.lineas!.reduce((s, l) => s + Number(l.importe), 0) * 100) / 100
+    if (cobrado > 0 && totalNuevo < cobrado) {
+      return NextResponse.json(
+        { error: `Ya hay ${cobrado} ${actual.currency_code} cobrados de esta factura y el total nuevo (${totalNuevo}) es menor. Eso es un abono: se hace en Zoho.` },
+        { status: 409 }
+      )
+    }
+
     const { invoice } = await zoho<{ invoice: FacturaCompleta }>(ruta, {
       metodo: 'PUT',
       query: { ignore_auto_number_generation: 'true' },
       cuerpo: await cuerpoParaZoho(actual.customer_id, cuerpo),
     })
+    // Sin migración: el tipo es el mismo y `detalle.enviada` dice que era una factura que el cliente ya tenía
     await registrar(permiso, {
       tipo: 'borrador_editado',
       zohoId: invoice.invoice_id,
@@ -211,8 +230,35 @@ export async function PUT(request: NextRequest) {
       period: cuerpo.period,
       importe: Number(invoice.total),
       moneda: invoice.currency_code,
-      detalle: { lineas: cuerpo.lineas },
+      detalle: {
+        lineas: cuerpo.lineas,
+        ...(enviada
+          ? {
+              enviada: true,
+              estado: actual.status,
+              antes: {
+                numero: actual.invoice_number,
+                fecha: actual.date,
+                vence: actual.due_date ?? null,
+                total: Number(actual.total ?? 0),
+                lineas: (actual.line_items ?? []).map((l) => ({
+                  descripcion: l.description || l.name || '',
+                  importe: Number(l.item_total ?? (l.rate ?? 0) * (l.quantity ?? 1)),
+                })),
+              },
+            }
+          : {}),
+      },
     })
+
+    // El reflejo que frena a Comisiones y mira el tablero, con el total nuevo ya (si no, hasta que se abra el tablero)
+    if (enviada) {
+      const { error } = await createServiceClient()
+        .from('invoices')
+        .update({ invoice_number: invoice.invoice_number, total: Number(invoice.total), subtotal: Number(invoice.total), issue_date: invoice.date, due_date: invoice.due_date || invoice.date })
+        .eq('zoho_invoice_id', invoice.invoice_id)
+      if (error) console.error(`Reflejo de ${invoice.invoice_number} tras corregirla:`, error.message)
+    }
     return NextResponse.json({ ok: true, id: invoice.invoice_id, numero: invoice.invoice_number })
   } catch (error) {
     return responderError(error)

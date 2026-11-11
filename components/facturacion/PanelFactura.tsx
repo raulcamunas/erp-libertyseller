@@ -36,7 +36,9 @@ export function PanelFactura({
   onCobrar: (facturaId: string) => void
 }) {
   const [facturaId, setFacturaId] = useState<string | null>(fila.factura?.id ?? null)
-  const [paso, setPaso] = useState<'factura' | 'correo'>(fila.factura ? 'correo' : 'factura')
+  // Si la factura no cuadra con Tesorería (una comisión corregida después de enviarla), se abre en la factura para corregirla
+  const descuadrada = Boolean(fila.factura && fila.totalTesoreria > 0 && Math.abs(fila.factura.total - fila.totalTesoreria) >= 0.005)
+  const [paso, setPaso] = useState<'factura' | 'correo'>(fila.factura && !descuadrada ? 'correo' : 'factura')
   const { saliendo, cerrar } = useSalida(onCerrar)
   const urlZoho = facturaId && zohoOrgId ? `https://books.zoho.com/app/${zohoOrgId}#/invoices/${facturaId}` : null
 
@@ -186,20 +188,32 @@ function PasoFactura({
   }, [facturaId])
 
   const total = useMemo(() => lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0), [lineas])
-  const soloLectura = Boolean(detalle && detalle.estadoZoho !== 'draft')
+  // Una enviada también se corrige (11 nov 2026); solo una anulada queda para mirar
+  const soloLectura = Boolean(detalle && detalle.estadoZoho === 'void')
+  const enviada = Boolean(detalle && detalle.estadoZoho !== 'draft' && detalle.estadoZoho !== 'void')
+  const cobrado = detalle ? Math.round((detalle.total - detalle.saldo) * 100) / 100 : 0
   const difiereDeTesoreria = fila.totalTesoreria > 0 && Math.abs(total - fila.totalTesoreria) >= 0.005
+  const cifrasDeTesoreria = lineasDelMes(fila.fee, fila.comision, fila.informes)
 
   const cambiarLinea = (i: number, cambio: Partial<LineaFactura>) =>
     setLineas((actuales) => actuales.map((l, j) => (j === i ? { ...l, ...cambio } : l)))
 
   async function guardar(otraDelMes = false) {
+    if (
+      enviada &&
+      !window.confirm(
+        `«${numero}» ya la tiene el cliente. ¿Guardar la corrección en Zoho?\n\nNo se le manda nada: para que le llegue la buena, reenvíasela en el paso 2.`
+      )
+    ) {
+      return
+    }
     setGuardando(true)
     setRepetida(null)
     try {
       const cuerpo = { numero, fecha, vence, lineas, period, treasuryClientId: fila.treasuryClientId }
       if (facturaId) {
         await pedir('/api/facturacion/factura', { metodo: 'PUT', cuerpo: { ...cuerpo, id: facturaId } })
-        toast.success('Borrador guardado en Zoho')
+        toast.success(enviada ? 'Factura corregida en Zoho. Falta reenviársela al cliente.' : 'Borrador guardado en Zoho')
         onGuardada()
       } else {
         const r = await fetch('/api/facturacion/factura', {
@@ -248,7 +262,15 @@ function PasoFactura({
     <div className="mx-auto flex max-w-[720px] flex-col gap-3 p-4">
       {soloLectura && (
         <Aviso tono="azul" icono={CheckCircle2}>
-          Esta factura ya se ha enviado, así que aquí solo se puede mirar. Si hay que corregirla, se hace en Zoho.
+          Esta factura está anulada, así que aquí solo se puede mirar.
+        </Aviso>
+      )}
+
+      {enviada && (
+        <Aviso tono="ambar" icono={AlertTriangle}>
+          <span className="font-semibold">Esta factura ya se ha enviado.</span> Si tiene un error, corrígela aquí: se guarda en Zoho y
+          sigue como enviada, pero el cliente no recibe nada hasta que se la vuelvas a mandar en el paso 2.
+          {cobrado > 0 && ` Ya hay ${dinero(cobrado, detalle?.moneda)} cobrados: el total no puede bajar de ahí.`}
         </Aviso>
       )}
 
@@ -353,6 +375,13 @@ function PasoFactura({
       {difiereDeTesoreria && !soloLectura && (
         <Aviso tono="ambar" icono={AlertTriangle}>
           La factura no coincide con Tesorería. Se puede guardar igual, si es lo que quieres, pero el descuadre seguirá avisando en el tablero.
+          {cifrasDeTesoreria.length > 0 && (
+            <div className="mt-1.5">
+              <button type="button" onClick={() => setLineas(cifrasDeTesoreria)} className={`${BOTON.base} ${BOTON.secundario}`}>
+                Poner las cifras de Tesorería ({dinero(fila.totalTesoreria)})
+              </button>
+            </div>
+          )}
         </Aviso>
       )}
 
@@ -382,10 +411,10 @@ function PasoFactura({
             className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}
           >
             {guardando && <Loader2 className="h-3 w-3 animate-spin" />}
-            {facturaId ? 'Guardar y seguir al correo' : 'Crear borrador en Zoho'}
+            {enviada ? 'Guardar la corrección y seguir al correo' : facturaId ? 'Guardar y seguir al correo' : 'Crear borrador en Zoho'}
           </button>
-          <span className={`${TIPO.s} ${TEXTO.t4}`}>No se envía nada todavía.</span>
-          {facturaId && (
+          <span className={`${TIPO.s} ${TEXTO.t4}`}>{enviada ? 'El cliente no recibe nada hasta reenviarla.' : 'No se envía nada todavía.'}</span>
+          {facturaId && !enviada && (
             <button type="button" disabled={guardando} onClick={() => void borrar()} className={`${BOTON.base} ${BOTON.secundario} ml-auto`}>
               <Trash2 className="h-3 w-3" /> Borrar borrador
             </button>

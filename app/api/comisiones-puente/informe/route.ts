@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { exigirSoloAdmin } from '@/lib/comisiones-puente/acceso'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
-import { mesEnLetra } from '@/lib/comisiones-puente/tipos'
+import { mesEnLetra, periodoDe } from '@/lib/comisiones-puente/tipos'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -96,6 +96,8 @@ export async function POST(request: NextRequest) {
       anio?: number
       mes?: number
       data?: unknown
+      /** Lo manda la pantalla justo después de «Corregir la comisión facturada»: Tesorería ya tiene la cifra nueva */
+      corregir?: boolean
     } | null
     if (!cuerpo) return fail(400, 'No ha llegado ningún informe')
 
@@ -109,8 +111,38 @@ export async function POST(request: NextRequest) {
     if (JSON.stringify(cuerpo.data).length > TOPE_BYTES) return fail(413, 'El informe es demasiado grande para guardarlo')
 
     const service = createServiceClient()
-    const { data: cliente } = await service.from('clients').select('id, name').eq('id', clienteId).maybeSingle()
+    // `*`: si la 201 no está lanzada no hay `treasury_client_id`, y nombrarla haría fallar la consulta entera
+    const { data: cliente } = await service.from('clients').select('*').eq('id', clienteId).maybeSingle()
     if (!cliente) return fail(404, 'Ese cliente ya no existe')
+
+    /**
+     * UN MES CON LA FACTURA YA ENVIADA NO SE TOCA (11 nov 2026, lo pidió Raúl).
+     *
+     * El informe es la cuenta de la comisión que el cliente tiene en la factura: si se reescribe con otro cálculo, el cliente ve
+     * una cifra en el enlace y otra en el PDF (pasó con Shoplamp: el informe decía 203,50 € y la factura 300,55 €). Un borrador
+     * no frena, porque el cliente aún no tiene nada y el borrador se corrige. La única puerta es la corrección explícita
+     * (`corregir`), que la pantalla manda justo después de escribir la cifra nueva en Tesorería.
+     */
+    const treasuryClientId = (cliente as { treasury_client_id?: string | null }).treasury_client_id ?? null
+    if (treasuryClientId && cuerpo.corregir !== true) {
+      const { data: facturas, error: errorFactura } = await service
+        .from('invoices')
+        .select('invoice_number')
+        .eq('treasury_client_id', treasuryClientId)
+        .eq('period', periodoDe(anio, mes))
+        .not('status', 'in', '(cancelled,draft)')
+        .limit(1)
+      // Falla cerrado: sin saber si está facturado, no se reescribe lo que el cliente puede estar mirando
+      if (errorFactura) throw errorFactura
+      const factura = (facturas ?? [])[0] as { invoice_number: string } | undefined
+      if (factura) {
+        return fail(
+          409,
+          `${mesEnLetra(anio, mes)} ya está facturado (${factura.invoice_number}) y el cliente tiene la factura: el informe tiene ` +
+            'que decir lo mismo. Si la comisión estaba mal, usa «Corregir la comisión facturada».'
+        )
+      }
+    }
 
     const period = mesEnLetra(anio, mes)
 

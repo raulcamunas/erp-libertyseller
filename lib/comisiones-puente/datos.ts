@@ -481,7 +481,7 @@ async function leerMesDeTesoreria(
   if (mesRes.error) throw mesRes.error
   if (facturaRes.error) throw facturaRes.error
 
-  const factura = facturaRes.data as { invoice_number: string } | null
+  const factura = facturaRes.data as { invoice_number: string; status: string | null } | null
 
   return {
     period,
@@ -489,6 +489,7 @@ async function leerMesDeTesoreria(
     commission: mesRes.data?.commission != null ? Number(mesRes.data.commission) : null,
     facturado: factura != null,
     numeroFactura: factura?.invoice_number ?? null,
+    estadoFactura: factura?.status ?? null,
   }
 }
 
@@ -628,6 +629,9 @@ export type ResultadoGuardado =
  *   3. NO ESCRIBE SI EL MES YA ESTÁ FACTURADO. La factura guarda sus propios
  *      importes, así que cambiar esto después no la cambia: solo consigue que el
  *      ERP y el PDF que tiene el cliente digan cosas distintas.
+ *      La única puerta es `corregir` (11 nov 2026, la comisión de Shoplamp de
+ *      noviembre salió sin restar el envío): una corrección pedida a propósito,
+ *      con la factura aún sin cobrar, que después se arregla en Facturación.
  *
  * Y una que sí hace: exigir que el cliente tenga pareja en Tesorería. Sin ella
  * no hay ninguna fila donde escribir, y adivinarla por parecido de nombre
@@ -638,7 +642,9 @@ export async function guardarComision(
   anio: number,
   mes: number,
   importe: number,
-  confirmar: boolean
+  confirmar: boolean,
+  /** «Corregir la comisión facturada»: se escribe aunque el mes tenga factura, si aún no está cobrada */
+  corregir = false
 ): Promise<ResultadoGuardado> {
   const service = createServiceClient()
   const period = periodoDe(anio, mes)
@@ -688,7 +694,18 @@ export async function guardarComision(
 
   const mesActual = await leerMesDeTesoreria(treasuryClientId, period)
 
-  if (mesActual.facturado) {
+  if (mesActual.facturado && corregir && mesActual.estadoFactura === 'paid') {
+    return {
+      ok: false,
+      estado: 409,
+      mensaje:
+        `${mesEnLetra(anio, mes)} de «${destino.name}» ya está facturado y COBRADO` +
+        (mesActual.numeroFactura ? ` (${mesActual.numeroFactura})` : '') +
+        '. Cambiar la comisión de una factura cobrada es un abono: se hace en Zoho.',
+    }
+  }
+
+  if (mesActual.facturado && !corregir) {
     return {
       ok: false,
       estado: 409,
@@ -696,8 +713,8 @@ export async function guardarComision(
         `${mesEnLetra(anio, mes)} de «${destino.name}» ya está facturado` +
         (mesActual.numeroFactura ? ` (${mesActual.numeroFactura})` : '') +
         '. La factura guarda sus propios importes, así que cambiar esto ahora no la cambiaría: solo ' +
-        'dejaría el ERP diciendo una cifra y el PDF del cliente otra. Si hay que rehacerla, primero ' +
-        'se anula la factura en Facturación.',
+        'dejaría el ERP diciendo una cifra y el PDF del cliente otra. Si la comisión estaba mal, ' +
+        'usa «Corregir la comisión facturada» y después corrige la factura en Facturación.',
     }
   }
 

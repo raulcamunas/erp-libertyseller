@@ -273,6 +273,11 @@ export interface MesDeTesoreria {
   /** Ya hay factura viva de ese mes: el importe no se puede cambiar */
   facturado: boolean
   numeroFactura: string | null
+  /**
+   * Cómo está esa factura según el reflejo de Zoho: 'draft' (borrador, el cliente aún no la tiene), 'sent', 'overdue' o 'paid'.
+   * Una sin cobrar se puede corregir a propósito («Corregir la comisión facturada»); una cobrada, no.
+   */
+  estadoFactura: string | null
 }
 
 /** La respuesta del GET: todo lo que la pantalla necesita saber del mes */
@@ -360,6 +365,8 @@ export interface GuardadoHecho {
   fee: number | null
   /** true = la fila no existía y se ha creado */
   creada: boolean
+  /** Solo en la pantalla: tras «Corregir la comisión facturada», el número de la factura que queda por corregir en Facturación */
+  facturaPorCorregir?: string | null
 }
 
 /** El parecido por nombre, con el mismo normalizado que la migración 163 */
