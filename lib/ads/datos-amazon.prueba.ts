@@ -15,6 +15,9 @@ console.log('\n=== tarifas de Amazon → ficha del producto ===')
   ok('sin comisión desglosada → null (no un 15 % inventado); sin FBA → 0', b.comisionPct === null && b.tarifaFba === 0 && b.otrosCostes === 0, JSON.stringify(b))
   ok('precio 0 → comisión null, sin dividir entre cero', tarifasAFicha({ referral: 1, fba: 0, otras: 0 }, 0).comisionPct === null)
   ok('comisión mínima: 0,30 sobre 1,50 = 20 %', tarifasAFicha({ referral: 0.3, fba: 0, otras: 0 }, 1.5).comisionPct === 20)
+  const promo = tarifasAFicha({ referral: 0, referralBruto: 4.49, fba: 3.93, otras: 0 }, 29.9)
+  ok('comisión rebajada a 0 por una promoción → se usa la normal (15 %) y se avisa', promo.comisionPct === 15 && promo.promocion === true, JSON.stringify(promo))
+  ok('sin promoción (bruta = final) → la final, sin aviso', tarifasAFicha({ referral: 4.49, referralBruto: 4.49, fba: 0, otras: 0 }, 29.9).promocion === false)
 }
 
 console.log(fallos === 0 ? '\nTODO OK' : `\n${fallos} FALLOS`)

@@ -37,12 +37,20 @@ export interface DatosDeAmazon {
 
 const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d
 
-/** De la estimación de Amazon a los tres números de la ficha. Pura, para poder probarla */
-export function tarifasAFicha(t: Pick<TarifaSku, 'referral' | 'fba' | 'otras'>, precio: number): { comisionPct: number | null; tarifaFba: number; otrosCostes: number } {
+/**
+ * De la estimación de Amazon a los tres números de la ficha. Pura, para poder probarla.
+ *
+ * LA COMISIÓN, LA NORMAL: si Amazon tiene una rebaja temporal (la comisión final sale menor que la bruta, a veces 0), se usa la bruta. Para decidir pujas es más seguro un margen que no dependa de
+ * una promoción que se acaba; `promocion` dice que la había.
+ */
+export function tarifasAFicha(t: Pick<TarifaSku, 'referral' | 'fba' | 'otras'> & { referralBruto?: number | null }, precio: number): { comisionPct: number | null; tarifaFba: number; otrosCostes: number; promocion: boolean } {
+  const promocion = t.referralBruto != null && t.referral != null && t.referralBruto > t.referral + 0.005
+  const comision = promocion ? (t.referralBruto as number) : t.referral
   return {
-    comisionPct: t.referral != null && precio > 0 ? r((t.referral / precio) * 100, 1) : null,
+    comisionPct: comision != null && precio > 0 ? r((comision / precio) * 100, 1) : null,
     tarifaFba: r(t.fba ?? 0),
     otrosCostes: r(t.otras ?? 0),
+    promocion,
   }
 }
 
@@ -120,8 +128,10 @@ export async function datosDeAmazon(cuenta: { clienteAmazonId: string | null; pa
     const lectura = await leerTarifas(c.credentials, { marketplaceId: marketplace, peticiones: [{ sku, precio: salida.precio, moneda: salida.moneda ?? 'EUR', esFba: l.is_fba ?? true }] })
     const t = lectura.porSku.get(sku)
     if (t) {
-      Object.assign(salida, tarifasAFicha(t, salida.precio))
+      const { promocion, ...ficha } = tarifasAFicha(t, salida.precio)
+      Object.assign(salida, ficha)
       salida.fuentes.tarifas = salida.comisionPct == null ? 'falta' : 'amazon'
+      if (promocion) salida.aviso = `Ahora Amazon tiene rebajada la comisión de este producto (te cobra ${((t.referral ?? 0) / salida.precio * 100).toFixed(1).replace('.', ',')} %). Se usa la normal, ${String(salida.comisionPct).replace('.', ',')} %, para no contar con una promoción que se acaba.`
       return salida
     }
     salida.aviso = lectura.fallos[0] ? `Amazon no ha dado las comisiones: ${lectura.fallos[0].mensaje}` : 'Amazon no ha devuelto las comisiones de ese SKU.'
@@ -141,7 +151,8 @@ export async function datosDeAmazon(cuenta: { clienteAmazonId: string | null; pa
     .maybeSingle()
   const g = guardada as { precio_referencia: number; referral_fee: number | null; fba_fee: number | null; otras_fees: number | null } | null
   if (g && Math.abs(Number(g.precio_referencia) - salida.precio) <= salida.precio * 0.05) {
-    Object.assign(salida, tarifasAFicha({ referral: g.referral_fee == null ? null : Number(g.referral_fee), fba: g.fba_fee == null ? null : Number(g.fba_fee), otras: g.otras_fees == null ? null : Number(g.otras_fees) }, salida.precio))
+    const { promocion: _p, ...ficha } = tarifasAFicha({ referral: g.referral_fee == null ? null : Number(g.referral_fee), fba: g.fba_fee == null ? null : Number(g.fba_fee), otras: g.otras_fees == null ? null : Number(g.otras_fees) }, salida.precio)
+    Object.assign(salida, ficha)
     if (salida.comisionPct != null) {
       salida.fuentes.tarifas = 'guardado'
       salida.aviso = null

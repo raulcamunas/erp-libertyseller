@@ -68,13 +68,18 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
   const [editor, setEditor] = useState<Form | null>(null)
   const [eligiendo, setEligiendo] = useState(false)
   const [pegando, setPegando] = useState(false)
+  const [campanasPorAsin, setCampanasPorAsin] = useState<Record<string, { activas: number; pausadas: number }> | null>(null)
+  const [detectados, setDetectados] = useState<Array<{ asin: string; sku: string | null; titulo: string | null; precio: number | null; campanas: { activas: number; pausadas: number } }>>([])
+  const [anadiendo, setAnadiendo] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
 
   const cargar = useCallback(async () => {
     try {
-      const r = await llamar<{ productos: ProductoDeAds[]; estructuras: EstructuraCreada[] }>(`/api/ads/cuenta/productos?perfilId=${perfilId}`)
+      const r = await llamar<{ productos: ProductoDeAds[]; estructuras: EstructuraCreada[]; campanasPorAsin: Record<string, { activas: number; pausadas: number }> | null; detectados: typeof detectados }>(`/api/ads/cuenta/productos?perfilId=${perfilId}`)
       setProductos(r.productos)
       setEstructuras(r.estructuras)
+      setCampanasPorAsin(r.campanasPorAsin)
+      setDetectados(r.detectados ?? [])
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se han podido cargar los productos.')
@@ -98,6 +103,19 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
       toast.error(e instanceof Error ? e.message : 'No se ha podido guardar.')
     } finally {
       setOcupado(false)
+    }
+  }
+
+  async function anadir(asins: string[] | null) {
+    setAnadiendo(asins ? asins[0] : 'todos')
+    try {
+      const r = await llamar<{ anadidos: number; sinSku: string[] }>('/api/ads/cuenta/productos', { metodo: 'POST', cuerpo: { perfilId, accion: 'anadir-detectados', asins } })
+      toast.success(`${r.anadidos} ${r.anadidos === 1 ? 'producto añadido' : 'productos añadidos'} con su precio y comisiones de Amazon. Ponles su ACoS objetivo.${r.sinSku.length ? ` ${r.sinSku.length} sin SKU en el catálogo: añádelos a mano (${r.sinSku.join(', ')}).` : ''}`)
+      await cargar()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se han podido añadir.')
+    } finally {
+      setAnadiendo(null)
     }
   }
 
@@ -135,6 +153,31 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
       {pegando && <PegarCostes perfilId={perfilId} cerrar={() => setPegando(false)} hecho={() => { setPegando(false); void cargar() }} />}
 
       {editor && <Editor key={editor.id ?? `${editor.asin}|${editor.sku}`} perfilId={perfilId} form={editor} cambiar={setEditor} guardar={guardar} cancelar={() => setEditor(null)} ocupado={ocupado} moneda={moneda} />}
+
+      {detectados.length > 0 && (
+        <section className={TARJETA.base}>
+          <header className={TARJETA.cabecera}>
+            <h2 className={TITULO.seccion}>{detectados.length} {detectados.length === 1 ? 'producto tiene' : 'productos tienen'} campañas en la cuenta y no {detectados.length === 1 ? 'está' : 'están'} aquí</h2>
+            <button type="button" disabled={anadiendo !== null} onClick={() => void anadir(null)} className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario} ml-auto`}>
+              {anadiendo === 'todos' ? 'Añadiendo…' : detectados.length === 1 ? 'Añadirlo' : `Añadir los ${detectados.length}`}
+            </button>
+          </header>
+          <div className="flex flex-col divide-y divide-[var(--ls-linea)]">
+            {detectados.map((d) => (
+              <div key={d.asin} className="flex items-center gap-3 px-4 py-[8px]">
+                <div className="min-w-0 flex-1">
+                  <div className={`${TIPO.s} ${TEXTO.t1} truncate`}>{d.titulo ?? '(no está en el catálogo leído)'}</div>
+                  <div className={`${TIPO.xs} ${TEXTO.t3}`}>{d.asin}{d.sku ? ` · ${d.sku}` : ' · sin SKU'}{d.precio != null ? ` · ${fmt(d.precio)}` : ''}</div>
+                </div>
+                <span className={`${TIPO.xs} ${TEXTO.t2} shrink-0`}>{d.campanas.activas} activas{d.campanas.pausadas ? ` · ${d.campanas.pausadas} pausadas` : ''}</span>
+                <button type="button" disabled={anadiendo !== null || !d.sku} onClick={() => void anadir([d.asin])} title={d.sku ? undefined : 'Sin SKU en el catálogo: añádelo a mano'} className={`${BOTON.base} ${BOTON.secundario} shrink-0`}>
+                  {anadiendo === d.asin ? 'Añadiendo…' : 'Añadir'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {productos.length === 0 && !editor && !eligiendo ? (
         <Vacio icono={<Search />} titulo="Todavía no hay productos en esta cuenta">
@@ -174,7 +217,19 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
                           </span>
                         )}
                       </td>
-                      <td className={TABLA.celda}>{n === 0 ? <span className={TEXTO.t4}>ninguna</span> : `${n} creada${n === 1 ? '' : 's'}`}</td>
+                      <td className={TABLA.celda}>
+                        {(() => {
+                          const c = campanasPorAsin?.[p.asin.toUpperCase()]
+                          if (c && c.activas + c.pausadas > 0)
+                            return (
+                              <span title={n > 0 ? `${n} creadas desde el ERP` : undefined}>
+                                <span className={TEXTO.t1}>{c.activas} activas</span>
+                                {c.pausadas > 0 && <span className={TEXTO.t3}> · {c.pausadas} pausadas</span>}
+                              </span>
+                            )
+                          return n === 0 ? <span className={TEXTO.t4}>{campanasPorAsin ? 'ninguna' : '—'}</span> : `${n} creada${n === 1 ? '' : 's'}`
+                        })()}
+                      </td>
                       <td className={`${TABLA.celda} ${TABLA.derecha}`}>
                         <button type="button" className={BOTON.icono} title="Editar" onClick={() => { setEditor(deProducto(p)); setEligiendo(false) }}><Pencil className="h-3 w-3" /></button>
                         <button type="button" className={BOTON.icono} title={n > 0 ? 'Tiene campañas: márcalo como inactivo en vez de quitarlo' : 'Quitar'} onClick={() => quitar(p)}><Trash2 className="h-3 w-3" /></button>
