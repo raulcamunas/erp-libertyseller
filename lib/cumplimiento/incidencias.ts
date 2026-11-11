@@ -238,6 +238,18 @@ export function huella(i: { codigo: string; atributos: readonly string[]; mensaj
  * Dos filas con la misma huella son UNA: Amazon repite a veces la misma causa por
  * cada marketplace de la petición. Se queda la más grave y se juntan sus acciones.
  */
+/**
+ * LO QUE AMAZON DICE Y NO ES UN PROBLEMA DE LA FICHA: no entra en el ERP.
+ *
+ * 100907 sobre `compliance_media` («Es necesario actualizar tus permisos de acceso. Comprueba la configuración del navegador…»): Amazon no
+ * puede abrir el documento de cumplimiento que la ficha ya tiene, incluso cuando el enlace apunta a su propio almacén de documentos. Sale en
+ * muchas fichas que están bien y se venden, y contarlo como error escondía los de verdad (Raúl, 11 nov 2026). Lo que sí se sigue viendo es
+ * cuando FALTA la información de seguridad o la persona responsable: esas llegan con otros códigos y mensajes.
+ */
+export function esRuidoDeAmazon(i: { codigo: string; atributos: readonly string[] }): boolean {
+  return i.codigo === '100907' && i.atributos.length > 0 && i.atributos.every((a) => a === 'compliance_media')
+}
+
 export function normalizarIncidencias(crudas: unknown): IncidenciaNueva[] {
   if (!Array.isArray(crudas)) return []
 
@@ -255,6 +267,8 @@ export function normalizarIncidencias(crudas: unknown): IncidenciaNueva[] {
     const unico = texto(r.attributeName)
     if (unico && !atributos.includes(unico)) atributos.push(unico)
     atributos.sort()
+
+    if (esRuidoDeAmazon({ codigo, atributos })) continue
 
     const categorias = listaDeTextos(r.categories)
 

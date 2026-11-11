@@ -285,5 +285,20 @@ console.log('\n=== el orden ===')
   })())
 }
 
+// 100907 sobre compliance_media no entra (Raúl, 11 nov 2026); el resto de la misma ficha sí
+{
+  const crudas = [
+    { code: '100907', message: 'Es necesario actualizar tus permisos de acceso. Comprueba la configuración del navegador e inténtalo de nuevo.', severity: 'ERROR', attributeNames: ['compliance_media'], categories: ['INVALID_ATTRIBUTE', 'LISTING'], enforcements: { actions: [{ action: 'ATTRIBUTE_SUPPRESSED' }] } },
+    { code: '90147', message: "Un valor 'Edad mínima según el fabricante (MESES)' '192.' no es inferior ni igual al valor 'Edad máxima'", severity: 'ERROR', attributeNames: ['manufacturer_maximum_age', 'manufacturer_minimum_age'], categories: ['INVALID_ATTRIBUTE', 'PRODUCT'] },
+    { code: '18448', message: 'A tu envío le faltan algunos atributos clave: theme.', severity: 'WARNING', attributeNames: ['theme'] },
+    { code: '100907', message: 'Otro problema con más atributos', severity: 'ERROR', attributeNames: ['compliance_media', 'gpsr_safety_attestation'] },
+  ]
+  const n = normalizarIncidencias(crudas)
+  ok('el 100907 de compliance_media no entra', !n.some((i) => i.codigo === '100907' && i.atributos.join() === 'compliance_media'))
+  ok('el resto de la ficha sigue', n.some((i) => i.codigo === '90147') && n.some((i) => i.codigo === '18448'))
+  ok('el mismo código con otro atributo de GPSR sí entra', n.some((i) => i.codigo === '100907' && i.atributos.includes('gpsr_safety_attestation')))
+  ok('una ficha que solo tenía ese ruido queda limpia', normalizarIncidencias([crudas[0]]).length === 0)
+}
+
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
 if (fallos > 0) process.exit(1)
