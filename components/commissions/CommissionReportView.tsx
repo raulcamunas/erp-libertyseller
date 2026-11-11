@@ -536,6 +536,12 @@ export function CommissionReportView({ report }: CommissionReportViewProps) {
                 <span className="text-white/60">Base neta del mes (sin IVA)</span>
                 <span className="text-green-400 font-semibold">{formatMoney(summary.netBase, 'EUR')}</span>
               </div>
+              {summary.shippingDeducted !== undefined && (
+                <div className="flex justify-between">
+                  <span className="text-white/60">Envío del mes (Sellerboard)</span>
+                  <span className="text-white/70">− {formatMoney(summary.shippingDeducted, 'EUR')}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-white/60">Baseline acordado</span>
                 <span className="text-white/70">− {formatMoney(summary.baselineAmount ?? 0, 'EUR')}</span>

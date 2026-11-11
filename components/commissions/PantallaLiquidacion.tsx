@@ -649,6 +649,10 @@ export function PantallaLiquidacion({
                 fichero={estado.ficheroActual}
               />
 
+              {perfil?.restaEnvio && (
+                <FilaFichero rotulo="Sellerboard (envío)" fichero={estado.ficheroEnvio} />
+              )}
+
               {perfil?.dosFicheros && (
                 <>
                   <FilaFichero rotulo={`Año anterior (${mesDelInforme(anio, mes).anio - 1})`} fichero={estado.ficheroAnterior} />

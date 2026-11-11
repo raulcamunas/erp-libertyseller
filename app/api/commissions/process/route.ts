@@ -5,6 +5,7 @@ import { parseCSV, parseNum, getVal } from '@/lib/utils/csv-parser'
 import { CommissionCalculationData, CommissionRow } from '@/lib/types/commissions'
 import * as XLSX from 'xlsx'
 import { comprobarTamañoPeticion, comprobarTamañoFichero } from '@/lib/subidas-limite'
+import { envioDeSellerboard } from '@/lib/comisiones-puente/envio-sellerboard'
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,12 +35,15 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File | null
     const filePreviousYear = formData.get('filePreviousYear') as File | null
     const fileCurrentYear = formData.get('fileCurrentYear') as File | null
+    // Shoplamp: el «Tablero de productos» de Sellerboard del mismo mes, para restar el envío (ver lib/comisiones-puente/envio-sellerboard.ts)
+    const fileShipping = formData.get('fileShipping') as File | null
 
     // Segundo filtro, por si el cuerpo vino sin Content-Length (chunked).
     for (const [fichero, etiqueta] of [
       [file, 'El fichero de comisiones'],
       [filePreviousYear, 'El fichero del año anterior'],
       [fileCurrentYear, 'El fichero del año actual'],
+      [fileShipping, 'El Sellerboard del envío'],
     ] as const) {
       const grande = comprobarTamañoFichero(fichero, etiqueta)
       if (grande) return grande
@@ -561,8 +565,23 @@ export async function POST(request: NextRequest) {
     // SHOPLAMP: comisión sobre excedente respecto al baseline mensual de €3.500
     const shoplampBaseline = 3500
     let shoplampExcess: number | undefined
+    /**
+     * EL ENVÍO SE RESTA ANTES DE COMPARAR CON LOS 3.500 € (Raúl, 11 nov 2026).
+     *
+     * Excedente = base neta del tax report − envío del mes (columna «Shipping» del Sellerboard) − 3.500. Si no llega el Sellerboard, se
+     * calcula como antes y `shippingDeducted` se queda sin poner: el informe lo dice, y la liquidación (comisiones-puente) no deja
+     * calcular a Shoplamp sin él.
+     */
+    let shoplampShipping: number | undefined
+    if (isShoplamp && fileShipping && fileShipping.size > 0) {
+      try {
+        shoplampShipping = envioDeSellerboard(await fileShipping.arrayBuffer()).total
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : 'No se ha podido leer el envío del Sellerboard' }, { status: 400 })
+      }
+    }
     if (isShoplamp) {
-      shoplampExcess = Math.max(0, netBase - shoplampBaseline)
+      shoplampExcess = Math.max(0, netBase - (shoplampShipping ?? 0) - shoplampBaseline)
       totalCommission = shoplampExcess * client.base_commission_rate
       // Parchear byCurrency para que la comisión refleje el total real, no la suma por fila
       if (byCurrencyAgg.size > 0) {
@@ -614,6 +633,7 @@ export async function POST(request: NextRequest) {
         ...(isShoplamp && {
           baselineAmount: shoplampBaseline,
           excessAmount: shoplampExcess,
+          ...(shoplampShipping !== undefined && { shippingDeducted: shoplampShipping }),
         }),
       },
       // Guardamos el CSV original para poder descargarlo tal cual en el reporte

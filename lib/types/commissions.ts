@@ -104,6 +104,8 @@ export interface CommissionCalculationData {
     }
     // Para SHOPLAMP: excedente sobre baseline fijo
     baselineAmount?: number // Baseline acordado (ej: 3500)
+    /** SHOPLAMP: el envío del mes (Sellerboard, columna Shipping) restado de la base neta antes de la base. Sin poner = no se subió */
+    shippingDeducted?: number
     // Para DIRU: beneficios totales
     totalBenefits?: number // Total de beneficios de la pestaña
     /**

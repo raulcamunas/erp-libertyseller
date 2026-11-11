@@ -36,7 +36,7 @@ import {
 } from '@/lib/estilo/denso'
 import { useIsMobile } from '@/lib/use-is-mobile'
 import { Aviso, Cargando, Dialogo, Vacio, fechaHora } from '@/components/plataforma/comun'
-import type { ClienteTax, FicheroTax, VistaTaxReports } from '@/lib/tax-reports/tipos'
+import type { ClienteTax, FicheroTax, RanuraFichero, VistaTaxReports } from '@/lib/tax-reports/tipos'
 import { ClienteDialogo } from './ClienteDialogo'
 
 /**
@@ -200,7 +200,7 @@ export function PantallaTaxReports() {
    * se use uno.
    */
   const inputRef = useRef<HTMLInputElement>(null)
-  const destinoRef = useRef<{ clienteId: string; mes: number } | null>(null)
+  const destinoRef = useRef<{ clienteId: string; mes: number; ranura: RanuraFichero } | null>(null)
 
   useEffect(() => {
     const d = new Date()
@@ -238,6 +238,19 @@ export function PantallaTaxReports() {
       // devuelve más, el panel pintaría el fichero de otro año en ese mes y eso
       // se lee como «ya está subido».
       if (f.anio !== anio) continue
+      // Solo el hueco de siempre: el segundo (Shoplamp: el Sellerboard del envío) va en su propio mapa y NO cuenta para «falta»
+      if (f.ranura === 'segundo') continue
+      mapa.set(`${f.clienteId}:${f.mes}`, f)
+    }
+    return mapa
+  }, [vista, anio])
+
+  /** El segundo fichero de cada cliente y mes, para los que lo tienen (migración 300) */
+  const porCeldaSegundo = useMemo(() => {
+    const mapa = new Map<string, FicheroTax>()
+    if (!vista || anio === null) return mapa
+    for (const f of vista.ficheros) {
+      if (f.anio !== anio || f.ranura !== 'segundo') continue
       mapa.set(`${f.clienteId}:${f.mes}`, f)
     }
     return mapa
@@ -393,12 +406,12 @@ export function PantallaTaxReports() {
   /* Subir, bajar, quitar y anotar                                     */
   /* ---------------------------------------------------------------- */
 
-  function pedirFichero(delCliente: string, mes: number) {
-    destinoRef.current = { clienteId: delCliente, mes }
+  function pedirFichero(delCliente: string, mes: number, ranura: RanuraFichero = 'principal') {
+    destinoRef.current = { clienteId: delCliente, mes, ranura }
     inputRef.current?.click()
   }
 
-  async function subir(delCliente: string, mes: number, fichero: File) {
+  async function subir(delCliente: string, mes: number, fichero: File, ranura: RanuraFichero = 'principal') {
     if (anio === null) return
 
     const ext = fichero.name.slice(fichero.name.lastIndexOf('.')).toLowerCase()
@@ -415,7 +428,7 @@ export function PantallaTaxReports() {
       return
     }
 
-    const clave = `${delCliente}:${mes}`
+    const clave = ranura === 'segundo' ? `${delCliente}:${mes}:segundo` : `${delCliente}:${mes}`
     setSubiendo((antes) => new Set(antes).add(clave))
 
     const form = new FormData()
@@ -424,6 +437,7 @@ export function PantallaTaxReports() {
     form.set('clienteId', delCliente)
     form.set('anio', String(anio))
     form.set('mes', String(mes))
+    form.set('ranura', ranura)
 
     const res = await subirAmazon<VistaTaxReports>(`${RUTA}/ficheros`, form)
 
@@ -438,8 +452,13 @@ export function PantallaTaxReports() {
       return
     }
     setVista(res.data)
-    const nombre = vista?.clientes.find((c) => c.id === delCliente)?.nombre ?? 'el cliente'
-    toast.success(`${MESES[mes - 1]} de «${nombre}» subido.`)
+    const del = vista?.clientes.find((c) => c.id === delCliente)
+    const nombre = del?.nombre ?? 'el cliente'
+    toast.success(
+      ranura === 'segundo'
+        ? `${del?.segundoFichero ?? 'Segundo fichero'} de ${MESES[mes - 1]} de «${nombre}» subido.`
+        : `${MESES[mes - 1]} de «${nombre}» subido.`
+    )
   }
 
   /**
@@ -671,6 +690,7 @@ export function PantallaTaxReports() {
       anio={anio}
       anios={anios}
       porCelda={porCelda}
+      porCeldaSegundo={porCeldaSegundo}
       notaPorCelda={notaPorCelda}
       estaCerrado={estaCerrado}
       queToca={queToca}
@@ -682,8 +702,8 @@ export function PantallaTaxReports() {
       onAnio={(a) => setAnio(a)}
       onVolver={isMobile ? () => setClienteId(null) : null}
       onEditar={() => setEditando({ cliente })}
-      onAdjuntar={(mes) => pedirFichero(cliente.id, mes)}
-      onSoltar={(mes, f) => void subir(cliente.id, mes, f)}
+      onAdjuntar={(mes, ranura) => pedirFichero(cliente.id, mes, ranura)}
+      onSoltar={(mes, f, ranura) => void subir(cliente.id, mes, f, ranura)}
       onDescargar={(f) => void descargar(f)}
       onQuitar={(f) => void quitar(f)}
       onNotaMes={(mes) => setNotaMes({ mes })}
@@ -714,7 +734,7 @@ export function PantallaTaxReports() {
           e.target.value = ''
           destinoRef.current = null
           if (!fichero || !destino) return
-          void subir(destino.clienteId, destino.mes, fichero)
+          void subir(destino.clienteId, destino.mes, fichero, destino.ranura)
         }}
       />
 
@@ -853,6 +873,7 @@ function PanelCliente({
   anio,
   anios,
   porCelda,
+  porCeldaSegundo,
   notaPorCelda,
   estaCerrado,
   queToca,
@@ -876,6 +897,8 @@ function PanelCliente({
   /** Los años que se pueden mirar, de menor a mayor. Ver el porqué en `anios` */
   anios: number[]
   porCelda: Map<string, FicheroTax>
+  /** El segundo fichero de cada mes (Shoplamp: el Sellerboard del envío). Vacío en los demás */
+  porCeldaSegundo: Map<string, FicheroTax>
   notaPorCelda: Map<string, string>
   estaCerrado: (mes: number) => boolean
   queToca: { anio: number; mes: number } | null
@@ -888,9 +911,9 @@ function PanelCliente({
   /** En móvil se vuelve a la lista; en escritorio no hay a dónde volver */
   onVolver: (() => void) | null
   onEditar: () => void
-  onAdjuntar: (mes: number) => void
+  onAdjuntar: (mes: number, ranura?: RanuraFichero) => void
   /** Un fichero soltado encima de un mes. Misma subida que el botón */
-  onSoltar: (mes: number, fichero: File) => void
+  onSoltar: (mes: number, fichero: File, ranura?: RanuraFichero) => void
   onDescargar: (fichero: FicheroTax) => void
   onQuitar: (fichero: FicheroTax) => void
   onNotaMes: (mes: number) => void
@@ -1013,6 +1036,10 @@ function PanelCliente({
                   mes={mes}
                   anio={anio}
                   fichero={porCelda.get(`${cliente.id}:${mes}`) ?? null}
+                  segundo={porCeldaSegundo.get(`${cliente.id}:${mes}`) ?? null}
+                  subiendoSegundo={subiendo.has(`${cliente.id}:${mes}:segundo`)}
+                  onAdjuntarSegundo={() => onAdjuntar(mes, 'segundo')}
+                  onSoltarSegundo={(f) => onSoltar(mes, f, 'segundo')}
                   nota={notaPorCelda.get(`${cliente.id}:${mes}`) ?? null}
                   cerrado={estaCerrado(mes)}
                   esElQueToca={queToca?.anio === anio && queToca?.mes === mes}
@@ -1081,6 +1108,10 @@ function CeldaMes({
   mes,
   anio,
   fichero,
+  segundo,
+  subiendoSegundo,
+  onAdjuntarSegundo,
+  onSoltarSegundo,
   nota,
   cerrado,
   esElQueToca,
@@ -1097,6 +1128,11 @@ function CeldaMes({
   mes: number
   anio: number | null
   fichero: FicheroTax | null
+  /** El segundo fichero del mes, si el cliente lo tiene (`cliente.segundoFichero`) */
+  segundo: FicheroTax | null
+  subiendoSegundo: boolean
+  onAdjuntarSegundo: () => void
+  onSoltarSegundo: (fichero: File) => void
   /** Lo anotado de este mes, tenga fichero o no */
   nota: string | null
   cerrado: boolean
@@ -1271,6 +1307,23 @@ function CeldaMes({
 
       <p className={`${TIPO.s} mt-[3px] truncate`}>{linea}</p>
 
+      {cliente.segundoFichero && (
+        <HuecoSegundo
+          nombre={cliente.segundoFichero}
+          mes={mes}
+          fichero={segundo}
+          cerrado={cerrado}
+          esElQueToca={esElQueToca}
+          subiendo={subiendoSegundo}
+          bajando={bajando}
+          quitando={quitando}
+          onAdjuntar={onAdjuntarSegundo}
+          onSoltar={onSoltarSegundo}
+          onDescargar={onDescargar}
+          onQuitar={onQuitar}
+        />
+      )}
+
       {/* La nota se LEE en la celda del mes, no solo en el `title`: una nota que
           hay que descubrir pasando el ratón por encima de doce recuadros es una
           nota que nadie va a leer el día que importa. */}
@@ -1300,6 +1353,156 @@ function CeldaMes({
             Soltar en {MESES[mes - 1]}
             {anio === null ? '' : ` de ${anio}`}
           </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* El segundo fichero del mes                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * EL FICHERO DE AL LADO, DENTRO DE LA MISMA CELDA DEL MES (migración 300).
+ *
+ * Shoplamp cuelga cada mes, además del tax report, el «Tablero de productos» de Sellerboard: de su columna «Shipping» sale el envío
+ * que la liquidación resta de la facturación neta antes de compararla con los 3.500 €. Va en el mismo recuadro del mes para que se
+ * vea que son pareja, y es SU PROPIA zona de soltar: los eventos de arrastre no suben a la celda, así que lo que se suelta aquí va
+ * aquí y no al tax report.
+ *
+ * No cuenta para «le faltan N meses»: eso sigue siendo el tax report. Si falta el Sellerboard, la liquidación lo dice y no calcula.
+ */
+function HuecoSegundo({
+  nombre,
+  mes,
+  fichero,
+  cerrado,
+  esElQueToca,
+  subiendo,
+  bajando,
+  quitando,
+  onAdjuntar,
+  onSoltar,
+  onDescargar,
+  onQuitar,
+}: {
+  nombre: string
+  mes: number
+  fichero: FicheroTax | null
+  cerrado: boolean
+  /** Solo se avisa en ámbar en el mes que se sube ahora: los meses viejos no lo llevaban (el envío se resta desde octubre de 2026) */
+  esElQueToca: boolean
+  subiendo: boolean
+  bajando: string | null
+  quitando: string | null
+  onAdjuntar: () => void
+  onSoltar: (fichero: File) => void
+  onDescargar: (fichero: FicheroTax) => void
+  onQuitar: (fichero: FicheroTax) => void
+}) {
+  const [arrastres, setArrastres] = useState(0)
+  const encima = arrastres > 0
+
+  let estado: React.ReactNode
+  if (subiendo) estado = <span className={TEXTO.t3}>Subiendo…</span>
+  else if (fichero?.purgadoAt) estado = <span className={TEXTO.t4}>Retirado el {fechaHora(fichero.purgadoAt)}</span>
+  else if (fichero)
+    estado = (
+      <span className={TEXTO.t3} title={fichero.nombreOriginal}>
+        {fichero.nombreOriginal}
+      </span>
+    )
+  else if (cerrado && esElQueToca) estado = <span style={{ color: COLOR_ESTADO.ambar }}>Falta</span>
+  else if (cerrado) estado = <span className={TEXTO.t4}>No subido</span>
+  else estado = <span className={TEXTO.t4}>Todavía no</span>
+
+  return (
+    <div
+      onDragEnter={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setArrastres((n) => n + 1)
+      }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'copy'
+      }}
+      onDragLeave={(e) => {
+        e.stopPropagation()
+        setArrastres((n) => Math.max(0, n - 1))
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setArrastres(0)
+        if (subiendo) return
+        const ficheros = Array.from(e.dataTransfer.files)
+        if (ficheros.length === 0) return
+        if (ficheros.length > 1) toast.error(`Has soltado ${ficheros.length} ficheros y aquí va uno. Se ha cogido «${ficheros[0].name}».`)
+        onSoltar(ficheros[0])
+      }}
+      className={`relative mt-[6px] flex min-w-0 items-center gap-[6px] border border-dashed ${RADIO.r1} px-[6px] py-[4px] ${
+        encima ? 'border-[var(--ls-acc)] bg-[var(--ls-acc-suave,var(--ls-sup3))]' : LINEA.normal
+      }`}
+    >
+      <span className={`${TEXTO.t4} shrink-0`}>
+        {subiendo ? (
+          <Loader2 className="h-[12px] w-[12px] animate-spin" />
+        ) : fichero && !fichero.purgadoAt ? (
+          <Check className="h-[12px] w-[12px]" style={{ color: COLOR_ESTADO.verde }} />
+        ) : (
+          <FileSpreadsheet className="h-[12px] w-[12px]" />
+        )}
+      </span>
+      <span className={`${TIPO.s} min-w-0 flex-1 truncate`}>
+        <span className={`${TEXTO.t2} font-medium`}>{nombre}</span>
+        <span className={TEXTO.t4}> · </span>
+        {estado}
+      </span>
+      <span className="flex shrink-0 items-center gap-[2px]">
+        {fichero && !fichero.purgadoAt && (
+          <button
+            type="button"
+            onClick={() => onDescargar(fichero)}
+            disabled={bajando === fichero.id}
+            className={BOTON.icono}
+            aria-label={`Descargar ${nombre} de ${MESES[mes - 1]}`}
+            title={`Descargar ${nombre}`}
+          >
+            {bajando === fichero.id ? <Loader2 className="h-[12px] w-[12px] animate-spin" /> : <Download className="h-[12px] w-[12px]" />}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onAdjuntar}
+          disabled={subiendo}
+          className={BOTON.icono}
+          aria-label={`${fichero ? 'Sustituir' : 'Adjuntar'} ${nombre} de ${MESES[mes - 1]}`}
+          title={fichero ? `Sustituir ${nombre}` : `Adjuntar ${nombre} de este mes`}
+        >
+          <Upload className="h-[12px] w-[12px]" />
+        </button>
+        {fichero && !fichero.purgadoAt && (
+          <button
+            type="button"
+            onClick={() => onQuitar(fichero)}
+            disabled={quitando === fichero.id}
+            className={BOTON.icono}
+            aria-label={`Quitar ${nombre} de ${MESES[mes - 1]}`}
+            title={`Quitar ${nombre}`}
+          >
+            {quitando === fichero.id ? <Loader2 className="h-[12px] w-[12px] animate-spin" /> : <Trash2 className="h-[12px] w-[12px]" />}
+          </button>
+        )}
+      </span>
+      {encima && (
+        <div
+          style={{ backgroundColor: 'var(--ls-sup2)' }}
+          className={`pointer-events-none absolute inset-0 flex items-center justify-center ${RADIO.r1}`}
+        >
+          <span className={`${TIPO.s} ${TEXTO.acento} font-semibold`}>Soltar como {nombre}</span>
         </div>
       )}
     </div>

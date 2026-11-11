@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import { TIPO_FICHERO_POR_DEFECTO } from '@/lib/tax-reports/tipos'
-import type { ClienteTax, FicheroTax, TipoFichero, VistaTaxReports } from '@/lib/tax-reports/tipos'
+import type { ClienteTax, FicheroTax, RanuraFichero, TipoFichero, VistaTaxReports } from '@/lib/tax-reports/tipos'
 
 /**
  * TAX REPORTS: EL UNICO SITIO QUE TOCA LAS TABLAS Y EL BUCKET.
@@ -128,6 +128,8 @@ interface FilaCliente {
   activo: boolean
   notas: string | null
   orden: number
+  /** No viene antes de la migración 300: por eso las lecturas piden `*` */
+  segundo_fichero?: string | null
 }
 
 interface FilaFichero {
@@ -135,6 +137,8 @@ interface FilaFichero {
   cliente_id: string
   anio: number
   mes: number
+  /** No viene antes de la migración 300: entonces todo es 'principal' */
+  ranura?: string | null
   nombre_original: string
   tamano: number
   subido_at: string
@@ -166,7 +170,8 @@ export async function leerVista(anio: number): Promise<VistaTaxReports> {
 
   const { data: clientes, error: errorClientes } = await service
     .from('tax_report_clientes')
-    .select('id, nombre, tipo_fichero, activo, notas, orden')
+    // `*` y no la lista: `segundo_fichero` no existe hasta la 300, y nombrarla daría un 42703 que se leería como «falta la 200»
+    .select('*')
     .order('orden', { ascending: true })
     .order('nombre', { ascending: true })
 
@@ -179,7 +184,7 @@ export async function leerVista(anio: number): Promise<VistaTaxReports> {
 
   const { data: ficheros, error: errorFicheros } = await service
     .from('tax_report_ficheros')
-    .select('id, cliente_id, anio, mes, nombre_original, tamano, subido_at, subido_por, purgado_at')
+    .select('*')
     .eq('anio', anio)
 
   if (errorFicheros) throw errorFicheros
@@ -262,6 +267,7 @@ function aClienteTax(f: FilaCliente): ClienteTax {
     activo: f.activo,
     notas: f.notas,
     orden: f.orden,
+    segundoFichero: f.segundo_fichero?.trim() ? f.segundo_fichero.trim() : null,
   }
 }
 
@@ -271,6 +277,7 @@ function aFicheroTax(f: FilaFichero): FicheroTax {
     clienteId: f.cliente_id,
     anio: f.anio,
     mes: f.mes,
+    ranura: f.ranura === 'segundo' ? 'segundo' : 'principal',
     nombreOriginal: f.nombre_original,
     tamano: f.tamano,
     subidoAt: f.subido_at,
@@ -358,7 +365,7 @@ export async function leerCliente(id: string): Promise<ClienteTax | null> {
 
   const { data, error } = await service
     .from('tax_report_clientes')
-    .select('id, nombre, tipo_fichero, activo, notas, orden')
+    .select('*')
     .eq('id', id)
     .maybeSingle()
 
@@ -468,6 +475,8 @@ export interface SubidaInforme {
   mes: number
   fichero: File
   userId: string
+  /** El hueco de la celda: el de siempre o el segundo (migración 300). Por omisión, el de siempre */
+  ranura?: RanuraFichero
 }
 
 /**
@@ -530,17 +539,26 @@ export async function guardarInforme(datos: SubidaInforme): Promise<void> {
 
   const mm = String(datos.mes).padStart(2, '0')
   const ruta = `${datos.clienteId}/${datos.anio}/${mm}/${randomUUID()}.${ext}`
+  const ranura: RanuraFichero = datos.ranura ?? 'principal'
 
-  // Lo que hubiera en esa celda, para poder retirarlo al final.
-  const { data: anterior, error: errorAnterior } = await service
+  /**
+   * Lo que hubiera en ESE HUECO de la celda, para poder retirarlo al final.
+   *
+   * Se pide `*` y se filtra aquí por la ranura en vez de en la consulta: antes de la migración 300 la columna no existe y nombrarla
+   * daría un 42703. Sin ella, todo lo que hay es el hueco de siempre.
+   */
+  const { data: enLaCelda, error: errorAnterior } = await service
     .from('tax_report_ficheros')
-    .select('id, ruta')
+    .select('*')
     .eq('cliente_id', datos.clienteId)
     .eq('anio', datos.anio)
     .eq('mes', datos.mes)
-    .maybeSingle()
 
   if (errorAnterior) throw errorAnterior
+  const anterior =
+    ((enLaCelda ?? []) as Array<{ id: string; ruta: string | null; ranura?: string | null }>).find(
+      (f) => (f.ranura === 'segundo' ? 'segundo' : 'principal') === ranura
+    ) ?? null
 
   const { error: errorSubida } = await service.storage.from(BUCKET).upload(ruta, datos.fichero, {
     // SIEMPRE explicito: no se usa el file.type del navegador. Ver
@@ -561,22 +579,30 @@ export async function guardarInforme(datos: SubidaInforme): Promise<void> {
     )
   }
 
-  const { error: errorFila } = await service.from('tax_report_ficheros').upsert(
-    {
-      cliente_id: datos.clienteId,
-      anio: datos.anio,
-      mes: datos.mes,
-      ruta,
-      nombre_original: datos.fichero.name,
-      tamano: datos.fichero.size,
-      tipo_mime: TIPOS_POR_EXTENSION[ext],
-      subido_por: datos.userId,
-      subido_at: new Date().toISOString(),
-      // Se subio de nuevo: si esa celda estaba purgada, ya no lo esta.
-      purgado_at: null,
-    },
-    { onConflict: 'cliente_id,anio,mes' }
-  )
+  const fila = {
+    ruta,
+    nombre_original: datos.fichero.name,
+    tamano: datos.fichero.size,
+    tipo_mime: TIPOS_POR_EXTENSION[ext],
+    subido_por: datos.userId,
+    subido_at: new Date().toISOString(),
+    // Se subio de nuevo: si esa celda estaba purgada, ya no lo esta.
+    purgado_at: null,
+  }
+  /**
+   * UPDATE de la fila que había o INSERT, y no un upsert: el UNIQUE de la celda cambió en la 300 de (cliente, año, mes) a
+   * (cliente, año, mes, ranura), y un `onConflict` solo vale con uno de los dos. Así funciona antes y después de lanzarla.
+   * `ranura` solo se escribe si es el segundo hueco: el de siempre lo pone el DEFAULT, y antes de la 300 la columna no existe.
+   */
+  const { error: errorFila } = anterior
+    ? await service.from('tax_report_ficheros').update(fila).eq('id', anterior.id)
+    : await service.from('tax_report_ficheros').insert({
+        cliente_id: datos.clienteId,
+        anio: datos.anio,
+        mes: datos.mes,
+        ...(ranura === 'segundo' ? { ranura } : {}),
+        ...fila,
+      })
 
   if (errorFila) {
     // El objeto recien subido se retira: ver el orden de los tres pasos.

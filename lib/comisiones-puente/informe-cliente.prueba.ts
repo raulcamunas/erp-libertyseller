@@ -93,6 +93,14 @@ console.log('\n=== Shoplamp: excedente sobre la base acordada ===')
   ok('el pie del detalle suma la base', i.detalle!.total!.includes('4.500,00 €'), i.detalle!.total!.join(';'))
   const sin = construirInforme({ cliente: 'S', periodo: 'M', data: { ...d, summary: { ...d.summary, netBase: 3000, excessAmount: 0, totalCommission: 0 } } })
   ok('si no se llega a la base acordada se dice', (sin.calculo.nota ?? '').includes('no supera'))
+  ok('sin Sellerboard no sale ninguna línea de envío', !i.calculo.pasos.some((p) => p.texto.startsWith('Envío')))
+  const conEnvio = construirInforme({ cliente: 'SHOPLAMP', periodo: 'Octubre 2026', data: { ...d, summary: { ...d.summary, shippingDeducted: 400, excessAmount: 600, totalCommission: 30 } } })
+  ok(
+    'con el envío: 4.500 − 400 − 3.500 = 600 × 5 % = 30',
+    conEnvio.calculo.pasos.map((p) => p.valor).join('|') === '4.500,00 €|− 400,00 €|− 3.500,00 €|600,00 €|5 %|30,00 €',
+    conEnvio.calculo.pasos.map((p) => p.valor).join('|')
+  )
+  ok('y el envío sale también en las cifras', conEnvio.cifras.some((c) => c.rotulo === 'Envío del mes' && c.valor === '− 400,00 €'))
 }
 
 /* ------------------------------------------------------------------ */

@@ -184,6 +184,8 @@ interface Resumen {
   totalAds?: number
   baselineAmount?: number
   excessAmount?: number
+  /** Shoplamp: el envío del mes (Sellerboard) que se resta de la base neta antes de la base acordada */
+  shippingDeducted?: number
   previousYearNetBase?: number
   currentYearNetBase?: number
   byCurrency?: Record<string, { currency?: string; unitsGross?: number; unitsNet?: number; netBase?: number; iva?: number; totalInclusive?: number; commission?: number }>
@@ -593,6 +595,8 @@ function informeBaseline(cliente: string, periodo: string, s: Resumen, filas: Fi
   const base = num(s.netBase)
   const baseline = num(s.baselineAmount)
   const exceso = num(s.excessAmount)
+  const hayEnvio = s.shippingDeducted !== undefined
+  const envio = num(s.shippingDeducted)
   const comision = num(s.totalCommission)
   // La tasa sale de los propios números, no de un 5 % escrito a mano
   const tasa = exceso > 0 && !cuadra(exceso * num(s.averageCommissionRate), comision) ? comision / exceso : num(s.averageCommissionRate)
@@ -624,25 +628,29 @@ function informeBaseline(cliente: string, periodo: string, s: Resumen, filas: Fi
     principal: { rotulo: rotuloComision, valor: dinero(comision), detalle: `${porcentaje(tasa)} sobre el excedente de la base acordada` },
     cifras: [
       { rotulo: 'Base neta del mes (sin IVA)', valor: dinero(base) },
+      ...(hayEnvio ? [{ rotulo: 'Envío del mes', valor: menos(envio), nota: 'Coste de envío según Sellerboard' }] : []),
       { rotulo: 'Base mensual acordada', valor: dinero(baseline), nota: 'Promedio mensual pactado' },
-      { rotulo: 'Excedente', valor: dinero(exceso), nota: 'Base neta menos la base acordada' },
+      { rotulo: 'Excedente', valor: dinero(exceso), nota: hayEnvio ? 'Base neta, menos el envío y la base acordada' : 'Base neta menos la base acordada' },
       { rotulo: 'Pedidos', valor: entero(s.totalOrders ?? filas.length) },
     ],
     calculo: {
       titulo: 'Cómo se calcula',
       pasos: [
         { texto: 'Base neta del mes (sin IVA)', valor: dinero(base) },
+        ...(hayEnvio ? [{ texto: 'Envío del mes (Sellerboard)', valor: menos(envio), tipo: 'resta' as const }] : []),
         { texto: 'Base mensual acordada', valor: menos(baseline), tipo: 'resta' },
         { texto: 'Excedente', valor: dinero(exceso), tipo: 'resultado' },
         { texto: 'Tasa de comisión', valor: porcentaje(tasa) },
         { texto: 'Comisión', valor: dinero(comision), tipo: 'resultado' },
       ],
-      nota: exceso <= 0 ? 'Este mes la base neta no supera la base acordada, así que no hay comisión.' : undefined,
+      nota: exceso <= 0 ? `Este mes la base neta${hayEnvio ? ', descontado el envío,' : ''} no supera la base acordada, así que no hay comisión.` : undefined,
     },
     tablas: hayMonedas ? tablas : [],
     detalle,
     lectura: [
-      'Solo se cobra comisión por lo que el mes supera la base mensual acordada; hasta esa base no hay comisión.',
+      hayEnvio
+        ? 'Del mes se descuenta primero lo que ha costado el envío y solo se cobra comisión por lo que el resto supera la base mensual acordada; hasta esa base no hay comisión.'
+        : 'Solo se cobra comisión por lo que el mes supera la base mensual acordada; hasta esa base no hay comisión.',
       'Cada línea del detalle es una venta o una devolución de Amazon; la comisión se calcula una vez sobre el excedente, no línea a línea.',
     ],
     avisos: lineas.avisos,

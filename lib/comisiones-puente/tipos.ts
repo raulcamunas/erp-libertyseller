@@ -154,6 +154,11 @@ export interface PerfilDeCalculo {
   admiteTasaManual: boolean
   /** SAUSI: hay que elegir 15 % o 35 % del beneficio antes de calcular */
   pideTramoBeneficio: boolean
+  /**
+   * SHOPLAMP: a la facturación neta se le resta el envío del mes antes de compararla con los 3.500 € (Raúl, 11 nov 2026). El envío sale
+   * del Sellerboard que se cuelga en Tax Reports AL LADO del tax report (segundo hueco, migración 300) y va al cálculo como `fileShipping`.
+   */
+  restaEnvio: boolean
 }
 
 /**
@@ -182,6 +187,7 @@ export function perfilDeCalculo(cliente: ClienteDeComisiones): PerfilDeCalculo {
     porMarca,
     admiteTasaManual: esShoesF || excedenteAnual,
     pideTramoBeneficio: cliente.name === 'SAUSI',
+    restaEnvio: cliente.name === 'SHOPLAMP',
   }
 }
 
@@ -292,6 +298,8 @@ export interface EstadoDelMes {
   ficheroActual: FicheroDelMes | null
   /** El MISMO MES DEL INFORME UN AÑO ANTES. Solo para los que comparan dos años */
   ficheroAnterior: FicheroDelMes | null
+  /** El segundo fichero de ese mes (Shoplamp: el Sellerboard del que sale el envío). Solo si `perfil.restaEnvio` */
+  ficheroEnvio: FicheroDelMes | null
   /** Qué falta, ya escrito en español para enseñarlo tal cual */
   faltan: string[]
   /** Lo que hay que subir a mano porque Tax Reports no lo puede dar */
@@ -302,8 +310,8 @@ export interface EstadoDelMes {
   faltaMigracion: false | '200' | '201'
 }
 
-/** Los tres nombres de campo que entiende /api/commissions/process */
-export type CampoDeFichero = 'file' | 'filePreviousYear' | 'fileCurrentYear'
+/** Los nombres de campo que entiende /api/commissions/process. `fileShipping`: el Sellerboard del envío de Shoplamp */
+export type CampoDeFichero = 'file' | 'filePreviousYear' | 'fileCurrentYear' | 'fileShipping'
 
 /** Un fichero que la pantalla tiene que bajar y volver a mandar */
 export interface DescargaPlanificada {

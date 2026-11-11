@@ -69,6 +69,8 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
   const [file, setFile] = useState<File | null>(null)
   const [filePreviousYear, setFilePreviousYear] = useState<File | null>(null) // Para ShoesF
   const [fileCurrentYear, setFileCurrentYear] = useState<File | null>(null) // Para ShoesF
+  /** SHOPLAMP: el Tablero de productos de Sellerboard del mismo mes, para restar el envío antes de los 3.500 € */
+  const [fileShipping, setFileShipping] = useState<File | null>(null)
   const [processing, setProcessing] = useState(false)
   const [result, setResult] = useState<CommissionCalculationData | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -183,6 +185,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
     setFile(null)
     setFilePreviousYear(null)
     setFileCurrentYear(null)
+    setFileShipping(null)
   }, [selectedClientId, supabase])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -294,6 +297,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
         formData.append('fileCurrentYear', fileCurrentYear!)
       } else {
         formData.append('file', file!)
+        if (isShoplamp && fileShipping) formData.append('fileShipping', fileShipping)
         // Para SAUSI permitimos seleccionar la modalidad (15% o 35% sobre beneficios)
         if (isSAUSI) {
           formData.append('benefitRate', String(sausiBenefitRate))
@@ -401,7 +405,7 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                       )}
                       {isShoplamp && (
                         <div className="text-xs text-[#FF6600] mt-1">
-                          ⚠ Comisión sobre excedente mensual. Baseline acordado: €3.500 netos/mes. Se calcula el 5% sobre (base neta del mes − €3.500). Si la base neta es inferior a €3.500, la comisión es €0.
+                          ⚠ Comisión sobre excedente mensual. Baseline acordado: €3.500 netos/mes. Se calcula el 5% sobre (base neta del mes − envío del mes − €3.500). El envío sale del Sellerboard del mismo mes (columna «Shipping»). Si no llega a €3.500, la comisión es €0.
                         </div>
                       )}
                       {isSAUSI && (
@@ -655,6 +659,34 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                   </>
                 )}
               </div>
+
+              {isShoplamp && (
+                <div className="mt-3 rounded-xl border border-white/15 bg-white/[0.02] p-4 text-sm">
+                  <div className="text-white/80 mb-1">Sellerboard del mismo mes (envío)</div>
+                  <div className="text-xs text-white/50 mb-3">
+                    El «Tablero de productos» exportado en Excel. Se suma su columna «Shipping» y se resta de la base neta antes de los €3.500. Sin él, se calcula sin descontar el envío.
+                  </div>
+                  {fileShipping ? (
+                    <div className="flex items-center gap-3">
+                      <FileText className="h-4 w-4 text-[#FF6600]" />
+                      <span className="text-white">{fileShipping.name}</span>
+                      <button onClick={() => setFileShipping(null)} className="ml-2 p-1 hover:bg-white/[0.1] rounded">
+                        <X className="h-4 w-4 text-white/70" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="inline-block">
+                      <span className="btn-glass cursor-pointer">Seleccionar Sellerboard</span>
+                      <input
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        onChange={(e) => setFileShipping(e.target.files?.[0] ?? null)}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -769,7 +801,9 @@ export function CommissionsCalculator({ clients }: CommissionsCalculatorProps) {
                     €{(result.summary.excessAmount ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                   <div className="text-xs text-white/50 mt-1">
-                    Base neta − €3.500
+                    {result.summary.shippingDeducted !== undefined
+                      ? `Base neta − envío (€${result.summary.shippingDeducted.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) − €3.500`
+                      : 'Base neta − €3.500 (sin descontar envío)'}
                   </div>
                 </CardContent>
               </Card>

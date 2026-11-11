@@ -77,7 +77,15 @@ export interface ClienteTax {
   activo: boolean
   notas: string | null
   orden: number
+  /**
+   * Si el cliente cuelga un SEGUNDO fichero cada mes al lado del principal, cómo se llama; null = solo uno (migración 300).
+   * Shoplamp: «Sellerboard (envío)», el Tablero de productos del que sale el envío que se resta antes de los 3.500 €.
+   */
+  segundoFichero: string | null
 }
+
+/** En qué hueco de la celda va un fichero: el de siempre o el de al lado (`ClienteTax.segundoFichero`) */
+export type RanuraFichero = 'principal' | 'segundo'
 
 /** Una celda con fichero. Si no hay celda, es que ese mes falta por subir */
 export interface FicheroTax {
@@ -85,6 +93,8 @@ export interface FicheroTax {
   clienteId: string
   anio: number
   mes: number
+  /** 'principal' en todas las filas de antes de la migración 300 */
+  ranura: RanuraFichero
   nombreOriginal: string
   tamano: number
   subidoAt: string
