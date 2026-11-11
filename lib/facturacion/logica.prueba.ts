@@ -1,5 +1,10 @@
 import {
   agruparFilas,
+  diasLaborablesDeRetraso,
+  tocaRecordar,
+  esPlantillaDeRecordatorio,
+  PLANTILLA_RECORDATORIO,
+  DIAS_LABORABLES_PARA_RECORDAR,
   importeDeInformes,
   asuntoDeFactura,
   avisosDeFila,
@@ -192,6 +197,26 @@ igual('el mes se reparte entre los pasos', JSON.stringify(reparto), JSON.stringi
 igual('las partes suman el total del mes', reparto.porCrear + reparto.porEnviar + reparto.porCobrar + reparto.cobrado, 3500)
 
 igual('los tramos de vencimiento cortan donde dicen', [0, 1, 15, 16, 30, 31].map(tramoDeVencimiento).join(), 'en_plazo,hasta_15,hasta_15,hasta_30,hasta_30,mas_de_30')
+
+// Recordar un pago: días laborables desde el vencimiento (el 2026-11-06 es viernes; el 2026-12-08 es fiesta nacional)
+igual('sin vencer, cero', diasLaborablesDeRetraso('2026-11-20', '2026-11-11'), 0)
+igual('el día que vence, cero', diasLaborablesDeRetraso('2026-11-11', '2026-11-11'), 0)
+igual('vence el viernes, el lunes lleva 1', diasLaborablesDeRetraso('2026-11-06', '2026-11-09'), 1)
+igual('vence el viernes, el miércoles lleva 3', diasLaborablesDeRetraso('2026-11-06', '2026-11-11'), 3)
+igual('un festivo nacional no cuenta', diasLaborablesDeRetraso('2026-12-04', '2026-12-09', new Set(['2026-12-08'])), 2)
+igual('sin vencimiento, cero', diasLaborablesDeRetraso(null, '2026-11-11'), 0)
+igual('se recuerda a partir de 3', DIAS_LABORABLES_PARA_RECORDAR, 3)
+igual('con 2 días aún no toca', tocaRecordar({ diasLaborables: 2, ultimoRecordatorio: null, hoy: '2026-11-11' }), false)
+igual('con 3 y sin recordatorio, toca', tocaRecordar({ diasLaborables: 3, ultimoRecordatorio: null, hoy: '2026-11-11' }), true)
+igual('recordada ayer, no toca', tocaRecordar({ diasLaborables: 9, ultimoRecordatorio: '2026-11-10T09:00:00Z', hoy: '2026-11-11' }), false)
+igual('recordada hace 3 laborables, vuelve a tocar', tocaRecordar({ diasLaborables: 9, ultimoRecordatorio: '2026-11-06T09:00:00Z', hoy: '2026-11-11' }), true)
+igual('la plantilla de recordatorio se reconoce', esPlantillaDeRecordatorio({ nombre: PLANTILLA_RECORDATORIO.nombre }) && !esPlantillaDeRecordatorio({ nombre: 'Facturación de Servicios' }), true)
+igual(
+  'el recordatorio no se propone para facturar, aunque fuera lo último que se mandó',
+  plantillaPropuesta([{ id: 'r', nombre: 'Recordatorio de pago' }, { id: 'f', nombre: 'Facturación de Servicios' }], { cliente: 'Shoplamp', tieneComision: true, ultimaUsadaId: 'r' })?.id,
+  'f'
+)
+igual('la plantilla de recordatorio solo lleva marcadores de Zoho que existen', (PLANTILLA_RECORDATORIO.cuerpo + PLANTILLA_RECORDATORIO.asunto).match(/%[A-Za-z]+%/g)?.filter((m) => !['%OrgLogo%', '%InvoiceNumber%', '%CustomerName%', '%DueDate%', '%Balance%', '%InvoiceDate%', '%InvoiceURL%'].includes(m)).length, 0)
 
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien`)
 if (fallos > 0) process.exit(1)

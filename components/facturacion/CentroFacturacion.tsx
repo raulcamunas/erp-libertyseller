@@ -86,6 +86,15 @@ export function CentroFacturacion() {
   const [error, setError] = useState<string | null>(null)
   const [abierta, setAbierta] = useState<FilaFacturacion | null>(null)
   const [facturaACobrar, setFacturaACobrar] = useState<string | null>(null)
+  const [facturaARecordar, setFacturaARecordar] = useState<string | null>(null)
+
+  // El aviso de la campana de una factura sin pagar trae «?pestana=cobros&recordar=<factura>»: se abre Cobros con su recordatorio
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const recordar = q.get('recordar')
+    if (q.get('pestana') === 'cobros' || recordar) setPestana('cobros')
+    if (recordar) setFacturaARecordar(recordar)
+  }, [])
 
   const traer = useCallback(async () => {
     setCargando(true)
@@ -139,7 +148,7 @@ export function CentroFacturacion() {
             }}
           />
         )}
-        {pestana === 'cobros' && <PestanaCobros zohoOrgId={tablero?.zohoOrgId ?? null} facturaInicial={facturaACobrar} onCambio={() => void traer()} />}
+        {pestana === 'cobros' && <PestanaCobros zohoOrgId={tablero?.zohoOrgId ?? null} facturaInicial={facturaACobrar} recordarInicial={facturaARecordar} onCambio={() => void traer()} />}
         {pestana === 'plantillas' && <PestanaPlantillas />}
         {pestana === 'registro' && <PestanaRegistro />}
       </div>

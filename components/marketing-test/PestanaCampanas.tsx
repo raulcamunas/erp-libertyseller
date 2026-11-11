@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Search } fr
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TEXTO, TIPO } from '@/lib/estilo/denso'
 import { diasDelRango, porCampana, tipoDeCampana, totalesDe, type CampanaConCifras } from '@/lib/ads/rendimiento-calculo'
 import { agruparPorProducto } from '@/lib/ads/productos-agrupar'
+import { SIN_VENDEDOR } from '@/lib/ads/tacos'
 import { COLOR_DE_TIPO, EtiquetaDeTipo, PuntoDeEstado, Segmentado, SelectorDePeriodo, textoDeEstado, TiraDeCifras, type Dias } from './piezas'
 import { useProductosConocidos } from './useProductosConocidos'
 import { TarjetaDeProducto, type FilaDeCampana } from './TarjetaDeProducto'
@@ -251,6 +252,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
               perfilId={perfilId}
               diasDelPeriodo={dias}
               ventaTotal={g.asin && informe.fase === 'listo' ? (informe.datos.ventasTotales.porAsin[g.asin] ?? null) : null}
+              sinTacos={g.asin && informe.fase === 'listo' && informe.datos.ventasTotales.error === SIN_VENDEDOR ? SIN_VENDEDOR : null}
             />
           ))}
         </div>

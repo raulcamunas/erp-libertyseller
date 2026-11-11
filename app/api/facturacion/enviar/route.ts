@@ -20,6 +20,11 @@ export const maxDuration = 60
  *
  * Un hueco ENLACE_* sin rellenar no sale nunca: el cliente recibiría un botón
  * «Ver comisiones» que no lleva a ningún sitio.
+ *
+ * Con `recordatorio: true` es un recordatorio de pago (desde Cobros): sale por el
+ * mismo camino, con el PDF, pero solo de una factura enviada y sin cobrar, y no
+ * cambia nada de la factura. Queda en el registro como envío con
+ * `detalle.recordatorio`, que es de donde Cobros saca «recordada hace N días».
  */
 export async function POST(request: NextRequest) {
   const permiso = await exigirAdmin()
@@ -37,7 +42,12 @@ export async function POST(request: NextRequest) {
     plantillaNombre?: string
     treasuryClientId?: string | null
     period?: string | null
+    /** Es un recordatorio de pago de una factura ya enviada, no la factura */
+    recordatorio?: boolean
+    /** Los días laborables que llevaba sin pagar, para el registro */
+    diasLaborables?: number
   }
+  const recordatorio = c.recordatorio === true
 
   if (!c.id) return NextResponse.json({ error: 'Falta la factura' }, { status: 400 })
   const para = correosValidos(c.para)
@@ -55,6 +65,20 @@ export async function POST(request: NextRequest) {
   }
 
   const ruta = `invoices/${encodeURIComponent(c.id)}`
+
+  // Un recordatorio solo de lo que ya se ha enviado y sigue sin cobrar: de un borrador, el cliente recibiría la factura por primera vez con un «no nos consta el pago»
+  if (recordatorio) {
+    try {
+      const { invoice } = await zoho<{ invoice: { status: string } }>(ruta)
+      if (invoice.status === 'draft') return NextResponse.json({ error: 'Es un borrador: el cliente aún no la tiene. Envíala primero desde Facturar.' }, { status: 409 })
+      if (invoice.status === 'paid') return NextResponse.json({ error: 'Esta factura ya está cobrada en Zoho: no hay nada que recordar.' }, { status: 409 })
+      if (invoice.status === 'void') return NextResponse.json({ error: 'Esta factura está anulada.' }, { status: 409 })
+    } catch (error) {
+      const { mensaje, estado } = errorComoRespuesta(error)
+      return NextResponse.json({ error: mensaje }, { status: estado })
+    }
+  }
+
   try {
     await zoho(`${ruta}/email`, {
       metodo: 'POST',
@@ -73,20 +97,24 @@ export async function POST(request: NextRequest) {
   let total: number | null = null
   let moneda: string | null = null
   try {
-    let { invoice } = await zoho<{ invoice: { invoice_number: string; customer_name: string; total: number; currency_code: string; status: string } }>(ruta)
-    if (invoice.status === 'draft') {
-      await zoho(`${ruta}/status/sent`, { metodo: 'POST' })
-      invoice = { ...invoice, status: 'sent' }
-    }
+    let { invoice } = await zoho<{ invoice: { invoice_number: string; customer_name: string; total: number; balance: number; currency_code: string; status: string } }>(ruta)
     numero = invoice.invoice_number
     cliente = invoice.customer_name
-    total = Number(invoice.total)
+    // Lo que se le reclama es lo que queda por pagar
+    total = Number(recordatorio ? invoice.balance : invoice.total)
     moneda = invoice.currency_code
 
-    const service = createServiceClient()
-    await service.from('invoices').update({ status: estadoParaElReflejo(invoice.status), email_sent_at: ahora, report_url: Object.values(c.enlaces ?? {})[0] || null }).eq('zoho_invoice_id', c.id)
-    if (c.treasuryClientId && c.period) {
-      await service.from('treasury_client_months').update({ invoice_sent: true }).eq('client_id', c.treasuryClientId).eq('period', c.period)
+    // Un recordatorio no toca las marcas de la factura: ni su estado ni su fecha de envío
+    if (!recordatorio) {
+      if (invoice.status === 'draft') {
+        await zoho(`${ruta}/status/sent`, { metodo: 'POST' })
+        invoice = { ...invoice, status: 'sent' }
+      }
+      const service = createServiceClient()
+      await service.from('invoices').update({ status: estadoParaElReflejo(invoice.status), email_sent_at: ahora, report_url: Object.values(c.enlaces ?? {})[0] || null }).eq('zoho_invoice_id', c.id)
+      if (c.treasuryClientId && c.period) {
+        await service.from('treasury_client_months').update({ invoice_sent: true }).eq('client_id', c.treasuryClientId).eq('period', c.period)
+      }
     }
   } catch (e) {
     console.error('La factura salió, pero no se han podido dejar las marcas:', e)
@@ -110,6 +138,7 @@ export async function POST(request: NextRequest) {
       adjuntarPdf: c.adjuntarPdf !== false,
       plantillaId: c.plantillaId ?? null,
       plantillaNombre: c.plantillaNombre ?? null,
+      ...(recordatorio ? { recordatorio: true, diasLaborables: Number.isFinite(c.diasLaborables) ? c.diasLaborables : null } : {}),
     },
   })
 

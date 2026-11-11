@@ -222,6 +222,70 @@ export function tramoDeVencimiento(diasVencida: number): IdVencimiento {
   return 'mas_de_30'
 }
 
+/* ---------- Recordar un pago ---------- */
+
+/** A partir de cuántos días laborables sin pagar, contados desde el vencimiento, se avisa y se propone mandar un recordatorio */
+export const DIAS_LABORABLES_PARA_RECORDAR = 3
+
+const diaSemanaUTC = (dia: string) => new Date(`${dia}T12:00:00Z`).getUTCDay()
+
+/**
+ * CUÁNTOS DÍAS LABORABLES LLEVA UNA FACTURA SIN PAGAR.
+ *
+ * Los que van del día siguiente al vencimiento hasta hoy, los dos incluidos: vence el viernes y hoy es lunes → 1. Sin sábados, domingos ni
+ * las fiestas que se pasen (las nacionales: el cliente puede estar en cualquier comunidad). 0 si aún no ha vencido o no tiene vencimiento.
+ */
+export function diasLaborablesDeRetraso(vence: string | null, hoy: string, festivos: ReadonlySet<string> = new Set()): number {
+  if (!vence) return 0
+  let n = 0
+  for (let d = sumarDias(vence.slice(0, 10), 1), i = 0; d <= hoy.slice(0, 10) && i < 3000; d = sumarDias(d, 1), i++) {
+    const s = diaSemanaUTC(d)
+    if (s !== 0 && s !== 6 && !festivos.has(d)) n++
+  }
+  return n
+}
+
+/**
+ * ¿TOCA MANDARLE UN RECORDATORIO?
+ *
+ * Cuando lleva los días laborables de `DIAS_LABORABLES_PARA_RECORDAR` sin pagar y, si ya se le mandó uno, han pasado otros tantos desde
+ * entonces: dos recordatorios seguidos el mismo día o al siguiente molestan más de lo que ayudan.
+ */
+export function tocaRecordar(args: { diasLaborables: number; ultimoRecordatorio: string | null; hoy: string; festivos?: ReadonlySet<string> }): boolean {
+  if (args.diasLaborables < DIAS_LABORABLES_PARA_RECORDAR) return false
+  if (!args.ultimoRecordatorio) return true
+  return diasLaborablesDeRetraso(args.ultimoRecordatorio.slice(0, 10), args.hoy, args.festivos) >= DIAS_LABORABLES_PARA_RECORDAR
+}
+
+/** La plantilla de correo que es un recordatorio de pago: se reconoce por el nombre. Nunca se propone para mandar una factura nueva */
+export const esPlantillaDeRecordatorio = (p: { nombre: string }) => compacto(p.nombre).includes('recordatorio')
+
+/**
+ * LA PLANTILLA DE RECORDATORIO QUE SE CREA EN ZOHO SI AÚN NO HAY NINGUNA.
+ *
+ * Con el mismo diseño que las de factura y solo con marcadores de Zoho, para que se pueda retocar en «Plantillas» como cualquier otra. No
+ * dice cuántos días lleva: el cliente lee mejor la fecha en que venció que una cuenta.
+ */
+export const PLANTILLA_RECORDATORIO = {
+  nombre: 'Recordatorio de pago',
+  asunto: 'Recordatorio de pago | Factura %InvoiceNumber%',
+  cuerpo:
+    '<div style="background:#F7F5F2; padding:24px 0; font-family:\'Inter\', Arial, Helvetica, sans-serif;"><table style="max-width: 600px; margin: 0px auto; background: rgb(255, 255, 255); border: 1px solid rgb(229, 225, 219); border-collapse: separate; border-spacing: 0px; border-radius: 14px; overflow: hidden;" border="0" cellspacing="0" cellpadding="0" width="100%" role="presentation"><tbody>' +
+    '<tr><td style="background:#F26212; height:5px; line-height:5px; font-size:0; border-radius:14px 14px 0 0;">&nbsp;</td></tr>' +
+    '<tr><td style="background:#FFFFFF; padding:24px 32px 0;"><div style="max-width:170px; max-height:40px;">%OrgLogo%</div><div style="margin-top:18px; color:#5E5852; font-size:11px; letter-spacing:2px; text-transform:uppercase;">Recordatorio de pago</div><div style="margin-top:4px; color:#141414; font-family:\'Sora\', Arial, Helvetica, sans-serif; font-size:22px; font-weight:700;">Factura <span style="color:rgb(242, 98, 18)">%InvoiceNumber%</span></div><div style="margin-top:14px; width:44px; height:3px; background:#F26212; border-radius:2px; font-size:0; line-height:3px;">&nbsp;</div></td></tr>' +
+    '<tr><td style="padding:20px 32px 4px; color:#141414; font-size:15px; line-height:1.7;">Hola, %CustomerName%:<br><br>Te escribimos porque la factura <b>%InvoiceNumber%</b> venció el <b>%DueDate%</b> y todavía no nos consta el pago. Te la volvemos a adjuntar en PDF.<br><br>Si ya la has pagado, no hagas caso de este correo y gracias. Si hay algún problema con ella, contéstanos y lo vemos.</td></tr>' +
+    '<tr><td style="padding:20px 32px;"><table style="border-collapse:separate; border-spacing:0;" border="0" cellspacing="0" cellpadding="0" width="100%" role="presentation"><tbody><tr><td style="background:#0E0E0E; padding:22px 24px; text-align:center; border-radius:12px 12px 0 0;"><div style="color:#B8AE9F; font-size:11px; letter-spacing:2px; text-transform:uppercase;">Pendiente de pago</div><div style="margin-top:6px; color:#F26212; font-family:\'Sora\', Arial, Helvetica, sans-serif; font-size:30px; font-weight:700;">%Balance%</div></td></tr><tr><td style="background:#F7F5F2; padding:14px 24px; border-radius:0 0 12px 12px;"><table style="border-collapse:collapse; font-size:14px;" border="0" cellspacing="0" cellpadding="0" width="100%" role="presentation"><tbody>' +
+    '<tr><td style="padding:8px 0; color:#5E5852; border-bottom:1px solid #E5E1DB;">N.º de factura</td><td style="padding:8px 0; color:#141414; font-weight:600; text-align:right; border-bottom:1px solid #E5E1DB;">%InvoiceNumber%</td></tr>' +
+    '<tr><td style="padding:8px 0; color:#5E5852; border-bottom:1px solid #E5E1DB;">Fecha de emisión</td><td style="padding:8px 0; color:#141414; font-weight:600; text-align:right; border-bottom:1px solid #E5E1DB;">%InvoiceDate%</td></tr>' +
+    '<tr><td style="padding:8px 0; color:#5E5852;">Venció el</td><td style="padding:8px 0; color:#141414; font-weight:600; text-align:right;">%DueDate%</td></tr>' +
+    '</tbody></table></td></tr></tbody></table></td></tr>' +
+    '<tr><td style="padding:4px 32px 24px; text-align:center;"><a style="display:inline-block; background:#F26212; color:#FFFFFF; font-family:\'Sora\', Arial, Helvetica, sans-serif; font-size:14px; font-weight:700; letter-spacing:1px; text-decoration:none; padding:13px 34px; border-radius:10px;" href="%InvoiceURL%">VER FACTURA</a></td></tr>' +
+    '<tr><td style="padding:0 32px 24px;"><table style="border-collapse:separate; border-spacing:0;" border="0" cellspacing="0" cellpadding="0" width="100%" role="presentation"><tbody><tr><td style="width:4px; background:#F26212; font-size:0; border-radius:10px 0 0 10px;">&nbsp;</td><td style="background:#FEF3EC; padding:14px 18px; color:#141414; font-size:13px; line-height:1.6; border-radius:0 10px 10px 0;">El pago se realiza por transferencia bancaria. Los datos de la cuenta están en la factura; indica <b>%InvoiceNumber%</b> como referencia.</td></tr></tbody></table></td></tr>' +
+    '<tr><td style="padding:4px 32px 28px; color:#141414; font-size:14px; line-height:1.6;">Un saludo,<br><b><span style="font-family:Sora, Arial, Helvetica, sans-serif">Equipo Liberty Seller</span></b></td></tr>' +
+    '<tr><td style="background:#0E0E0E; padding:16px 32px; color:#B8AE9F; font-size:11px; line-height:1.6; border-radius:0 0 14px 14px;"><a style="color:#F26212; text-decoration:none;" href="https://libertyseller.com">libertyseller.com</a></td></tr>' +
+    '</tbody></table></div>',
+}
+
 export function avisosDeFila(args: {
   totalTesoreria: number
   cobradoEnTesoreria: boolean
@@ -339,6 +403,8 @@ export function plantillaPropuesta(
   plantillas: PlantillaResumen[],
   args: { cliente: string; tieneComision: boolean; ultimaUsadaId?: string | null }
 ): PlantillaResumen | null {
+  // Un recordatorio de pago no es una factura: no se propone nunca para mandar una, aunque fuera lo último que se le mandó
+  plantillas = plantillas.filter((p) => !esPlantillaDeRecordatorio(p))
   const ultima = plantillas.find((p) => p.id === args.ultimaUsadaId)
   if (ultima) return ultima
 

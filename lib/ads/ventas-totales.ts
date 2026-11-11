@@ -16,6 +16,7 @@ import { spApiRequest } from '@/lib/amazon/sp-api'
 import { AmazonApiError } from '@/lib/amazon/errors'
 import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/informes'
 import { marketplaceDePais } from './cuenta'
+import { SIN_VENDEDOR } from './tacos'
 
 export const PERIODOS_VENTAS = [7, 14, 30] as const
 const CADA_MS = 20 * 3_600_000
@@ -179,7 +180,7 @@ export async function avanzarVentas(perfilId: string): Promise<'nada' | 'pedido'
   }
 }
 
-/** Las ventas totales guardadas de un periodo, por ASIN (vacío si aún no se han leído o falta la migración) */
+/** Las ventas totales guardadas de un periodo, por ASIN (vacío si aún no se han leído o falta la migración). Si no hay nada y es porque falta la cuenta de vendedor, lo dice en `error` */
 export async function ventasTotales(perfilId: string, dias: number): Promise<{ porAsin: Record<string, VentaDeAsin>; leidoAt: string | null; error: string | null }> {
   const service = createServiceClient()
   const [{ data, error }, { data: sync }] = await Promise.all([
@@ -197,5 +198,6 @@ export async function ventasTotales(perfilId: string, dias: number): Promise<{ p
     leidoAt = leidoAt ?? (r.leido_at as string)
   }
   const s = sync as { error: string | null; ultimo_ok_at: string | null } | null
+  if (!s && Object.keys(porAsin).length === 0 && !(await vendedorDe(perfilId))) return { porAsin, leidoAt: null, error: SIN_VENDEDOR }
   return { porAsin, leidoAt: s?.ultimo_ok_at ?? leidoAt, error: s?.error ?? null }
 }

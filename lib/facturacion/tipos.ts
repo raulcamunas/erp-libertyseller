@@ -135,6 +135,8 @@ export interface CorreoPreparado {
   plantillasPdf: PlantillaResumen[]
   plantillaPdfId: string | null
   estadoFactura: string
+  /** Se ha pedido un recordatorio de pago y en Zoho no hay ninguna plantilla de recordatorio todavía */
+  faltaPlantillaRecordatorio?: boolean
 }
 
 export interface PlantillaCompleta {
@@ -150,6 +152,13 @@ export interface FacturaPendiente extends FacturaZoho {
   clienteId: string
   cliente: string
   diasVencida: number
+  /** Días laborables desde el vencimiento (sin fines de semana ni fiestas nacionales) */
+  diasLaborables: number
+  /** Cuándo se le mandó el último recordatorio de pago (ISO), o null */
+  ultimoRecordatorio: string | null
+  recordatorios: number
+  /** Lleva los días de avisar y no se le ha recordado hace poco */
+  tocaRecordar: boolean
 }
 
 export interface CuentaBancaria {

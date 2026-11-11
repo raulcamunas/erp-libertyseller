@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { exigirAdmin } from '@/lib/facturacion/acceso'
-import { asuntoDeFactura, plantillaPropuesta, quitarMarcadoresSinRellenar } from '@/lib/facturacion/logica'
+import { asuntoDeFactura, esPlantillaDeRecordatorio, plantillaPropuesta, quitarMarcadoresSinRellenar } from '@/lib/facturacion/logica'
 import type { CorreoPreparado, PlantillaResumen } from '@/lib/facturacion/tipos'
 import { createServiceClient } from '@/lib/supabase/service'
 import { errorComoRespuesta, zoho } from '@/lib/zoho/books'
@@ -22,6 +22,10 @@ type DatosCorreo = {
  * Sin plantilla pedida se propone una: la última que se usó con ese cliente o,
  * si no, la que le pega. Los huecos ENLACE_* llegan tal cual; se rellenan en
  * pantalla y al enviar.
+ *
+ * Con `recordatorio=1` es un recordatorio de pago: la plantilla cuyo nombre dice
+ * «recordatorio» y, si no hay ninguna, `faltaPlantillaRecordatorio` para que la
+ * pantalla la cree. Las de recordatorio nunca se proponen para una factura.
  */
 export async function GET(request: NextRequest) {
   const permiso = await exigirAdmin()
@@ -47,7 +51,18 @@ export async function GET(request: NextRequest) {
     let datos = primero
     let plantillaId = pedida ?? primero.emailtemplates?.find((t) => t.selected)?.email_template_id ?? ''
 
-    if (!pedida) {
+    // Un recordatorio de pago: su plantilla, o decir que falta para que la pantalla la cree
+    const recordatorio = p.get('recordatorio') === '1'
+    let faltaPlantillaRecordatorio = false
+    if (recordatorio && !pedida) {
+      const suya = plantillas.find(esPlantillaDeRecordatorio)
+      if (suya) {
+        plantillaId = suya.id
+        datos = await leer(suya.id)
+      } else faltaPlantillaRecordatorio = true
+    }
+
+    if (!pedida && !recordatorio) {
       let ultimaUsadaId: string | null = null
       const treasuryClientId = p.get('treasuryClientId')
       if (treasuryClientId) {
@@ -57,8 +72,10 @@ export async function GET(request: NextRequest) {
           .eq('treasury_client_id', treasuryClientId)
           .eq('tipo', 'envio')
           .order('creado_en', { ascending: false })
-          .limit(1)
-        ultimaUsadaId = ((data ?? [])[0]?.detalle as { plantillaId?: string } | undefined)?.plantillaId ?? null
+          .limit(10)
+        // Un recordatorio de pago también es un envío, pero no dice qué plantilla usar para la factura siguiente
+        const ultimaFactura = ((data ?? []) as Array<{ detalle: { plantillaId?: string; recordatorio?: boolean } | null }>).find((r) => r.detalle?.recordatorio !== true)
+        ultimaUsadaId = ultimaFactura?.detalle?.plantillaId ?? null
       }
       const propuesta = plantillaPropuesta(plantillas, {
         cliente: p.get('cliente') ?? '',
@@ -87,6 +104,7 @@ export async function GET(request: NextRequest) {
       plantillasPdf: (templates ?? []).map((t) => ({ id: t.template_id, nombre: t.template_name })),
       plantillaPdfId: invoice.template_id || null,
       estadoFactura: invoice.status,
+      ...(faltaPlantillaRecordatorio ? { faltaPlantillaRecordatorio: true } : {}),
     }
     return NextResponse.json({ correo })
   } catch (error) {

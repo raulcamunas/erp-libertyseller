@@ -46,6 +46,13 @@ for (const l of FIESTAS_LOCALES) {
 /** ¿Se conoce el calendario del año de este día? Si no, la app no dice nada de festivos para él */
 export const hayCalendarioPara = (dia: string): boolean => ANIOS.has(Number(dia.slice(0, 4)))
 
+/** Las fiestas de toda España (las del BOE con alcance nacional), para contar días laborables sin saber de qué comunidad es alguien: Facturación las usa para lo que lleva una factura sin pagar */
+export function festivosNacionales(): ReadonlySet<string> {
+  const dias = new Set<string>()
+  for (const cal of CALENDARIOS) for (const f of cal.fiestas) if (f.c === 'todas') dias.add(f.f)
+  return dias
+}
+
 /** Los años con calendario, para avisar en Sistema cuando falte el siguiente */
 export const aniosConCalendario = (): number[] => [...ANIOS].sort()
 

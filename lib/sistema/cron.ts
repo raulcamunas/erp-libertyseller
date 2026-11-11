@@ -439,6 +439,21 @@ export const TAREAS_CRON = [
     que: 'Avisa de los recordatorios del chat cuando llega su hora y envía los mensajes programados.',
   },
   {
+    /**
+     * UNA VEZ AL DÍA, EN HORARIO DE OFICINA DE UN DÍA LABORABLE.
+     *
+     * Lee de Zoho las facturas por cobrar y avisa en la campana de los administradores de las que llevan 3 días laborables o más vencidas
+     * sin recordatorio (una vez por factura). No manda nada al cliente: el recordatorio se manda a mano desde Facturación → Cobros.
+     */
+    id: 'facturas-impagadas',
+    nombre: 'Facturas sin pagar',
+    ruta: '/api/facturacion/cron-impagadas',
+    cadaMinutos: 1440,
+    que:
+      'Una vez al día, en horario de oficina, mira en Zoho las facturas vencidas y avisa en la campana de las que llevan 3 días laborables o más sin pagar y sin recordatorio. ' +
+      'No manda nada al cliente.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
@@ -492,6 +507,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'tareas-reuniones': { prioridad: 'normal' },
   'push-avisos': { prioridad: 'normal' },
   'chat-avisos': { prioridad: 'normal' },
+  'facturas-impagadas': { prioridad: 'normal' },
 }
 
 const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true

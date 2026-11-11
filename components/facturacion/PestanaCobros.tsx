@@ -8,6 +8,7 @@ import {
   ArrowLeftRight,
   ArrowUpRight,
   Banknote,
+  BellRing,
   CheckCircle2,
   Clock,
   ExternalLink,
@@ -22,8 +23,9 @@ import {
 } from 'lucide-react'
 import { Avatar, BarraDeCarga } from '@/components/rendimiento/ui'
 import { BOTON, CAMPO, COLOR_ESTADO, TABLA, TARJETA, TEXTO, TEXTO_ESTADO, TIPO, TITULO, type TonoEstado } from '@/lib/estilo/denso'
-import { candidatasDeCobro, diasDesde, TRAMOS_VENCIMIENTO, tramoDeVencimiento, type IdVencimiento } from '@/lib/facturacion/logica'
+import { candidatasDeCobro, DIAS_LABORABLES_PARA_RECORDAR, diasDesde, TRAMOS_VENCIMIENTO, tramoDeVencimiento, type IdVencimiento } from '@/lib/facturacion/logica'
 import type { CuentaBancaria, DatosDeCobros, FacturaPendiente, MovimientoSinCategorizar } from '@/lib/facturacion/tipos'
+import { DialogoRecordatorio } from './DialogoRecordatorio'
 import { Aviso, BarraDeReparto, CabeceraDeTarjeta, CasillaDeResumen, Cuenta, Dialogo, dinero, EsqueletoDePestana, fechaCorta, hoyISO, pedir, seguirAlRaton, tonoComoEstilo } from './comun'
 
 /**
@@ -58,15 +60,19 @@ function plazoDe(f: FacturaPendiente): string | null {
 type VentanaDeCobros =
   | { tipo: 'cobro'; factura: FacturaPendiente | null; movimiento: MovimientoSinCategorizar | null }
   | { tipo: 'gasto'; movimiento: MovimientoSinCategorizar | null }
+  | { tipo: 'recordatorio'; factura: FacturaPendiente }
   | null
 
 export function PestanaCobros({
   zohoOrgId,
   facturaInicial,
+  recordarInicial = null,
   onCambio,
 }: {
   zohoOrgId: string | null
   facturaInicial: string | null
+  /** Abrir directamente el recordatorio de esta factura (el aviso de la campana lleva aquí) */
+  recordarInicial?: string | null
   onCambio: () => void
 }) {
   const [datos, setDatos] = useState<DatosDeCobros | null>(null)
@@ -96,8 +102,10 @@ export function PestanaCobros({
     void traer().then((d) => {
       const f = d?.pendientes.find((p) => p.id === facturaInicial)
       if (f) setVentana({ tipo: 'cobro', factura: f, movimiento: null })
+      const r = d?.pendientes.find((p) => p.id === recordarInicial)
+      if (r) setVentana({ tipo: 'recordatorio', factura: r })
     })
-  }, [traer, facturaInicial])
+  }, [traer, facturaInicial, recordarInicial])
 
   // El cobro que se acaba de registrar se ilumina al aparecer en la lista
   useEffect(() => {
@@ -132,6 +140,7 @@ export function PestanaCobros({
   const monedaPrincipal = porMoneda[0]?.[0] ?? 'EUR'
   const otrasMonedas = porMoneda.slice(1)
   const vencidas = datos.pendientes.filter((f) => f.diasVencida > 0).length
+  const paraRecordar = datos.pendientes.filter((f) => f.tocaRecordar).length
   const facturasDe = (id: IdVencimiento) => datos.pendientes.filter((f) => tramoDeVencimiento(f.diasVencida) === id)
   const importeDe = (id: IdVencimiento) => facturasDe(id).reduce((suma, f) => suma + (f.moneda === monedaPrincipal ? f.saldo : 0), 0)
   const visibles = tramo ? facturasDe(tramo) : datos.pendientes
@@ -154,6 +163,11 @@ export function PestanaCobros({
           {vencidas > 0 && (
             <span className="fac-contador" style={tonoComoEstilo('rojo')}>
               {vencidas} {vencidas === 1 ? 'vencida' : 'vencidas'}
+            </span>
+          )}
+          {paraRecordar > 0 && (
+            <span className="fac-contador inline-flex items-center gap-1" style={tonoComoEstilo('ambar')} title={`Llevan ${DIAS_LABORABLES_PARA_RECORDAR} días laborables o más sin pagar y no se les ha recordado hace poco`}>
+              <BellRing className="h-3 w-3" /> {paraRecordar} para recordar
             </span>
           )}
           <button type="button" onClick={() => setVentana({ tipo: 'gasto', movimiento: null })} className={`${BOTON.base} ${BOTON.secundario} ml-auto`}>
@@ -232,8 +246,17 @@ export function PestanaCobros({
                             <span className="flex items-center gap-1.5">
                               {fechaCorta(f.vence)}
                               {plazo && (
-                                <span className="fac-contador" style={tonoComoEstilo(f.diasVencida > 0 ? tono : 'gris')}>
+                                <span
+                                  className="fac-contador"
+                                  style={tonoComoEstilo(f.diasVencida > 0 ? tono : 'gris')}
+                                  title={f.diasLaborables > 0 ? `${f.diasLaborables} ${f.diasLaborables === 1 ? 'día laborable' : 'días laborables'} sin pagar` : undefined}
+                                >
                                   {plazo}
+                                </span>
+                              )}
+                              {f.ultimoRecordatorio && (
+                                <span className={`text-[11px] ${TEXTO.t4}`} title={`${f.recordatorios} ${f.recordatorios === 1 ? 'recordatorio mandado' : 'recordatorios mandados'}`}>
+                                  recordada el {fechaCorta(f.ultimoRecordatorio)}
                                 </span>
                               )}
                             </span>
@@ -246,7 +269,19 @@ export function PestanaCobros({
                             )}
                             {dinero(f.saldo, f.moneda)}
                           </td>
-                          <td className={`${TABLA.celda} ${TABLA.derecha}`}>
+                          <td className={`${TABLA.celda} ${TABLA.derecha} whitespace-nowrap`}>
+                            {f.diasVencida > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setVentana({ tipo: 'recordatorio', factura: f })}
+                                className={`${BOTON.base} ${BOTON.secundario} mr-1.5`}
+                                style={f.tocaRecordar ? { borderColor: COLOR_ESTADO.ambar, color: COLOR_ESTADO.ambar } : undefined}
+                                title={f.tocaRecordar ? `${f.diasLaborables} días laborables sin pagar: toca recordárselo` : 'Mandarle un recordatorio de pago con la factura'}
+                              >
+                                <BellRing className="h-3 w-3" style={{ color: COLOR_ESTADO.ambar }} />
+                                {f.tocaRecordar ? 'Recordar pago' : 'Recordar'}
+                              </button>
+                            )}
                             <button type="button" onClick={() => setVentana({ tipo: 'cobro', factura: f, movimiento: null })} className={`${BOTON.base} ${BOTON.secundario}`}>
                               <Banknote className="h-3 w-3" style={{ color: COLOR_ESTADO.verde }} />
                               Registrar cobro
@@ -390,6 +425,7 @@ export function PestanaCobros({
           onHecho={alTerminar}
         />
       )}
+      {ventana?.tipo === 'recordatorio' && <DialogoRecordatorio factura={ventana.factura} onCerrar={() => setVentana(null)} onHecho={alTerminar} />}
       {ventana?.tipo === 'gasto' && (
         <DialogoGasto movimiento={ventana.movimiento} datos={datos} onCerrar={() => setVentana(null)} onHecho={alTerminar} />
       )}

@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { exigirAdmin } from '@/lib/facturacion/acceso'
-import { estadoParaElReflejo, periodoDeFactura } from '@/lib/facturacion/logica'
+import { diasLaborablesDeRetraso, estadoParaElReflejo, periodoDeFactura, tocaRecordar } from '@/lib/facturacion/logica'
+import { festivosNacionales } from '@/lib/festivos/festivos'
+import { recordatoriosDe } from '@/lib/facturacion/recordatorios'
 import { registrar } from '@/lib/facturacion/registro'
 import type { CobroReciente, CuentaBancaria, CuentaDeGasto, DatosDeCobros, FacturaPendiente, MovimientoSinCategorizar } from '@/lib/facturacion/tipos'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -38,14 +40,23 @@ export async function GET() {
 
     const hoyEs = hoy()
     const vistas = new Set<string>()
-    const pendientes: FacturaPendiente[] = [...impagadas, ...parciales]
-      .filter((f) => !vistas.has(f.invoice_id) && Boolean(vistas.add(f.invoice_id)))
-      .map((f) => ({
+    const unicas = [...impagadas, ...parciales].filter((f) => !vistas.has(f.invoice_id) && Boolean(vistas.add(f.invoice_id)))
+    const recordadas = await recordatoriosDe(unicas.map((f) => f.invoice_id))
+    const festivos = festivosNacionales()
+    const pendientes: FacturaPendiente[] = unicas.map((f) => {
+      const diasLaborables = diasLaborablesDeRetraso(f.due_date ?? null, hoyEs, festivos)
+      const r = recordadas.get(f.invoice_id)
+      return {
         ...facturaDesdeZoho(f),
         clienteId: f.customer_id,
         cliente: f.customer_name,
         diasVencida: f.due_date && f.due_date < hoyEs ? Math.round((Date.parse(hoyEs) - Date.parse(f.due_date)) / 86_400_000) : 0,
-      }))
+        diasLaborables,
+        ultimoRecordatorio: r?.ultimo ?? null,
+        recordatorios: r?.cuantos ?? 0,
+        tocaRecordar: tocaRecordar({ diasLaborables, ultimoRecordatorio: r?.ultimo ?? null, hoy: hoyEs, festivos }),
+      }
+    })
 
     const cuentas: CuentaBancaria[] = bancos
       .filter((b) => b.account_type === 'bank' && b.is_active !== false)

@@ -37,6 +37,10 @@ export function urlDeAviso(a: Pick<AvisoParaPush, 'type' | 'datos' | 'related_cl
   if (a.type === 'freno_stock' || a.type === 'fallo_stock') return '/dashboard/amazon-api'
   if (a.type === 'alarma_correo' || a.type === 'correo_nuevo' || a.type === 'respuesta_lead') return '/dashboard/correo'
   if (a.type === 'fba_alerta' || a.type === 'fba_resumen') return '/dashboard/remesas/alertas'
+  if (a.type === 'factura_impagada') {
+    const id = (d as { facturaId?: unknown } | null)?.facturaId
+    return typeof id === 'string' && /^\d+$/.test(id) ? `/dashboard/facturacion?recordar=${id}` : '/dashboard/facturacion?pestana=cobros'
+  }
   if ((d as { app?: string; canalId?: string } | null)?.app === 'chat') {
     const canalId = (d as { canalId?: string }).canalId
     return typeof canalId === 'string' && /^[0-9a-f-]{36}$/i.test(canalId) ? `/dashboard/chat?canal=${canalId}` : '/dashboard/chat'

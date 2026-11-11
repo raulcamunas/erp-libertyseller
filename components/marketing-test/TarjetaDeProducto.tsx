@@ -73,7 +73,10 @@ export function TarjetaDeProducto({
   perfilId,
   diasDelPeriodo,
   ventaTotal = null,
+  sinTacos = null,
 }: {
+  /** Por qué no hay TACoS en esta cuenta (p. ej. falta la cuenta de vendedor), para decirlo en vez de esconder la cifra */
+  sinTacos?: string | null
   /** Las ventas TOTALES del ASIN en el periodo (orgánicas + publicidad), para el TACoS. null = aún no leídas */
   ventaTotal?: { ventas: number; unidades: number; sesiones: number } | null
   /** La cuenta de anunciante y el periodo (7, 14, 30): para abrir una campaña y ver sus segmentaciones */
@@ -162,7 +165,7 @@ export function TarjetaDeProducto({
           </div>
 
           {conCifras && (
-            <div className={`hidden shrink-0 gap-4 md:grid ${ventaTotal ? 'grid-cols-6' : 'grid-cols-5'}`}>
+            <div className={`hidden shrink-0 gap-4 md:grid ${ventaTotal || sinTacos ? 'grid-cols-6' : 'grid-cols-5'}`}>
               <Cifra etiqueta="Gasto" valor={dinero(t.gasto, moneda)} />
               <Cifra etiqueta="Ventas" valor={dinero(t.ventas, moneda)} />
               <Cifra etiqueta="ACoS" valor={porcentaje(t.acos)} color={colorAcos} nota={objetivo !== null ? `objetivo ${porcentaje(objetivo, 0)}` : equilibrio !== null ? `equilibrio ${porcentaje(equilibrio, 0)}` : undefined} />
@@ -174,6 +177,11 @@ export function TarjetaDeProducto({
                   valor={ventaTotal.ventas > 0 ? porcentaje(t.gasto / ventaTotal.ventas) : '—'}
                   nota={ventaTotal.ventas > 0 ? `${porcentaje(Math.max(0, 1 - t.ventas / ventaTotal.ventas), 0)} orgánico` : 'sin ventas'}
                 />
+              )}
+              {!ventaTotal && sinTacos && (
+                <div title={sinTacos}>
+                  <Cifra etiqueta="TACoS" valor="—" nota="falta Seller Central" />
+                </div>
               )}
             </div>
           )}

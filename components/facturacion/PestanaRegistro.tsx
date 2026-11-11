@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { AlertTriangle, Banknote, FileEdit, FilePlus2, History, Link2, Mail, Receipt, Search, Send, Trash2, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Banknote, BellRing, FileEdit, FilePlus2, History, Link2, Mail, Receipt, Search, Send, Trash2, type LucideIcon } from 'lucide-react'
 import { Avatar } from '@/components/rendimiento/ui'
 import { BOTON, CAMPO, TARJETA, TEXTO, TIPO, type TonoEstado } from '@/lib/estilo/denso'
 import { ETIQUETA_REGISTRO, type FilaRegistro, type TipoRegistro } from '@/lib/facturacion/tipos'
@@ -32,6 +32,10 @@ const FILTROS: { id: string; nombre: string; tipos: TipoRegistro[]; icono: Lucid
 
 function resumen(f: FilaRegistro): string {
   const d = f.detalle as { para?: string[]; referencia?: string | null; accion?: string; tipo?: string | null; plantillaNombre?: string | null }
+  if (esRecordatorio(f)) {
+    const dias = (f.detalle as { diasLaborables?: number | null }).diasLaborables
+    return [d.para?.join(', '), typeof dias === 'number' ? `${dias} días laborables sin pagar` : null].filter(Boolean).join(' · ')
+  }
   if (f.tipo === 'envio') return [d.para?.join(', '), d.plantillaNombre].filter(Boolean).join(' · ')
   if (f.tipo === 'cobro') return d.referencia ? `Referencia ${d.referencia}` : ''
   if (f.tipo === 'gasto') return d.tipo ?? ''
@@ -42,6 +46,9 @@ function resumen(f: FilaRegistro): string {
   }
   return ''
 }
+
+/** Un envío que era un recordatorio de pago (desde Cobros), no la factura */
+const esRecordatorio = (f: FilaRegistro) => f.tipo === 'envio' && (f.detalle as { recordatorio?: boolean }).recordatorio === true
 
 /** Un «borrador editado» que en realidad era una factura enviada (corregida desde el 11 nov 2026) */
 const esCorreccion = (f: FilaRegistro) => f.tipo === 'borrador_editado' && (f.detalle as { enviada?: boolean }).enviada === true
@@ -134,7 +141,7 @@ export function PestanaRegistro() {
             </div>
             <ul>
               {delDia.map((f) => {
-                const { icono: Icono, tono } = ESTILO_TIPO[f.tipo]
+                const { icono: Icono, tono } = esRecordatorio(f) ? { icono: BellRing, tono: 'ambar' as TonoEstado } : ESTILO_TIPO[f.tipo]
                 const detalle = resumen(f)
                 return (
                   <li key={f.id} className="fac-evento flex min-h-[44px] items-center gap-2.5 border-b border-[var(--ls-linea)] py-1.5 pl-3 pr-3 last:border-b-0" style={{ ...tonoComoEstilo(tono), '--i': escalon++ } as CSSProperties}>
@@ -146,7 +153,7 @@ export function PestanaRegistro() {
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className={`truncate text-[12.5px] ${TEXTO.t1}`}>
-                        <span className="font-medium">{esCorreccion(f) ? 'Factura enviada corregida' : ETIQUETA_REGISTRO[f.tipo]}</span>
+                        <span className="font-medium">{esCorreccion(f) ? 'Factura enviada corregida' : esRecordatorio(f) ? 'Recordatorio de pago' : ETIQUETA_REGISTRO[f.tipo]}</span>
                         {f.cliente ? <span className={TEXTO.t2}> · {f.cliente}</span> : null}
                       </span>
                       {(f.numero || detalle) && (

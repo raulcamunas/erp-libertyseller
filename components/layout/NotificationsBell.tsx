@@ -58,6 +58,7 @@ const ICONOS_DE_AVISO: Record<string, { Icono: LucideIcon; tono: Tono }> = {
   job_amazon: { Icono: AlertTriangle, tono: 'ambar' },
   fba_alerta: { Icono: Boxes, tono: 'ambar' },
   fba_resumen: { Icono: Boxes, tono: 'acc' },
+  factura_impagada: { Icono: BellRing, tono: 'ambar' },
   comment: { Icono: MessageSquare, tono: 'neutro' },
   mention: { Icono: MessageSquare, tono: 'acc' },
   task_assigned: { Icono: CheckSquare, tono: 'neutro' },
@@ -280,6 +281,12 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
     // Una alerta de logística FBA (rotura de stock, envío parado…) o el resumen del lunes: al tablero de alertas
     if (notification.type === 'fba_alerta' || notification.type === 'fba_resumen') {
       return '/dashboard/remesas/alertas'
+    }
+
+    // Una factura que lleva días sin pagar: Facturación → Cobros, con su recordatorio abierto
+    if (notification.type === 'factura_impagada') {
+      const id = (notification.datos as { facturaId?: unknown } | null | undefined)?.facturaId
+      return typeof id === 'string' && /^\d+$/.test(id) ? `/dashboard/facturacion?recordar=${id}` : '/dashboard/facturacion?pestana=cobros'
     }
 
     // Un mensaje del chat: se abre en su canal
