@@ -1,7 +1,22 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { DisconnectReason, Room, RoomEvent, Track, type LocalAudioTrack } from 'livekit-client'
+import { DisconnectReason, Room, RoomEvent, ScreenSharePresets, Track, type LocalAudioTrack } from 'livekit-client'
+
+/**
+ * LA PANTALLA COMPARTIDA, NÍTIDA (11 nov 2026: «no es de alta calidad»).
+ *
+ * Lo de LiveKit por defecto era 1080p a 2,5 Mbps, pensado para movimiento: el texto de una hoja o de Seller Central salía emborronado. Ahora:
+ * hasta 1440p, `contentHint: 'detail'` (el navegador prioriza la nitidez sobre la fluidez), 15 fotogramas por segundo (para enseñar pantallas
+ * sobran) y hasta 6 Mbps; si la conexión no da, baja los fotogramas antes que la resolución. Debajo queda una capa de 720p para quien tenga
+ * la conexión floja o el recuadro pequeño.
+ */
+const CAPTURA_DE_PANTALLA = { audio: false, contentHint: 'detail' as const, resolution: { width: 2560, height: 1440, frameRate: 15 } }
+const PUBLICACION_DE_PANTALLA = {
+  screenShareEncoding: { maxBitrate: 6_000_000, maxFramerate: 15 },
+  screenShareSimulcastLayers: [ScreenSharePresets.h720fps15],
+  degradationPreference: 'maintain-resolution' as const,
+}
 import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
 import { AJUSTES_DE_AUDIO_POR_DEFECTO, CLAVE_DE_AUDIO, CLAVE_DE_VOLUMENES, leerAjustesDeAudio, leerVolumenes, limitarVolumen, limpiarAjustesDeAudio, restriccionesDeMicro, volumenEfectivo, type AjustesDeAudio, type Volumenes } from '@/lib/chat/audio'
@@ -294,7 +309,9 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       setActual({ canalId, estado: 'conectando' })
       try {
         const llave = await pedir<{ token: string; url: string }>(`${BASE}/junta`, { metodo: 'POST', cuerpo: { canalId } })
-        const nueva = new Room({ adaptiveStream: true, dynacast: true, audioCaptureDefaults: restriccionesDeMicro(audioRef.current), ...(audioRef.current.salida ? { audioOutput: { deviceId: audioRef.current.salida } } : {}) })
+        // `pixelDensity: 'screen'`: la calidad que se pide de cada vídeo va por los píxeles REALES del recuadro. Con el valor por defecto (1), en una pantalla Retina se
+        // pedía la mitad de resolución y la pantalla compartida se veía borrosa (11 nov 2026)
+        const nueva = new Room({ adaptiveStream: { pixelDensity: 'screen' }, dynacast: true, audioCaptureDefaults: restriccionesDeMicro(audioRef.current), ...(audioRef.current.salida ? { audioOutput: { deviceId: audioRef.current.salida } } : {}) })
         room.current = nueva
         for (const e of EVENTOS_QUE_REPINTAN) nueva.on(e, bump)
         // El sonido de los demás: cada pista de audio se cuelga de un <audio> oculto
@@ -438,7 +455,8 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
           await aplicarVozAlMicro()
         }
         else if (que === 'camara') await lp.setCameraEnabled(!lp.isCameraEnabled)
-        else await lp.setScreenShareEnabled(!lp.isScreenShareEnabled, { audio: false })
+        else if (lp.isScreenShareEnabled) await lp.setScreenShareEnabled(false)
+        else await lp.setScreenShareEnabled(true, CAPTURA_DE_PANTALLA, PUBLICACION_DE_PANTALLA)
       } catch (e) {
         // Cerrar el cuadro de «¿qué quieres compartir?» no es un fallo
         const cancelado = e instanceof Error && /permission|denied|dismissed|abort|cancel/i.test(`${e.name} ${e.message}`)

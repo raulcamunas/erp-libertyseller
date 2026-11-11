@@ -20,6 +20,7 @@ import { Cabecera } from './Cabecera'
 import { CompartirConElCliente } from './CompartirConElCliente'
 import { Calendario } from './Calendario'
 import { Cronograma } from './Cronograma'
+import { Casos } from './Casos'
 import { MiDia } from './MiDia'
 import { BloqueadasContexto } from './contexto'
 import { usePresencia } from './PresenciaProvider'
@@ -82,6 +83,10 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
   // Las tareas que propone la IA tras una reunión con cada cliente y están esperando que alguien las elija
   const [propuestas, setPropuestas] = useState<Record<string, number>>({})
   const [propuestasAbierto, setPropuestasAbierto] = useState(false)
+  // La pestaña «Cumplimiento» (casos con Ayuda al vendedor) de un cliente, y cuántos casos sin resolver tiene cada uno
+  const [enCasos, setEnCasos] = useState(false)
+  const [casoInicial, setCasoInicial] = useState<string | null>(null)
+  const [casosAbiertos, setCasosAbiertos] = useState<Record<string, number>>({})
   const { ponerTarea } = usePresencia()
   const pendientes = useRef(0)
 
@@ -90,6 +95,13 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
     setColapsada(leerLocal('tc-lateral-3') === '1')
     const v = leerLocal('tc-vista') as TipoDeVista | null
     if (v && VISTAS_DE_CLIENTE.includes(v)) setVistaElegida(v)
+    // El aviso de #cumplimiento-normativo enlaza con «?vista=cumplimiento&caso=…»
+    const q = new URLSearchParams(window.location.search)
+    if (q.get('vista') === 'cumplimiento') {
+      setEnCasos(true)
+      setCasoInicial(q.get('caso'))
+    }
+    pedir<{ porCliente: Record<string, number> }>(`${BASE}/casos?resumen=1`).then((r) => setCasosAbiertos(r.porCliente)).catch(() => undefined)
   }, [])
 
   /* ---- Cargar y mantener al día ---- */
@@ -618,7 +630,8 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           editable
           vistas={vistasDisponibles}
           vista={vista}
-          onVista={(v) => { setVistaElegida(v); escribirLocal('tc-vista', v) }}
+          onVista={(v) => { setEnCasos(false); setVistaElegida(v); escribirLocal('tc-vista', v) }}
+          cumplimiento={cliente ? { activo: enCasos, abiertos: casosAbiertos[cliente.id] ?? 0, onAbrir: () => setEnCasos(true) } : undefined}
           filtros={filtros}
           onFiltros={setFiltros}
           esAdmin={esAdmin}
@@ -641,6 +654,11 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           extra={releyendo ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--ls-t4)]" aria-label="Actualizando" /> : cliente?.sync_error ? <span title={cliente.sync_error} className="inline-flex items-center gap-1 text-[11.5px] text-[var(--ls-e-ambar)]"><AlertTriangle className="h-3 w-3" /> Notion con problemas</span> : null}
         />
 
+        {enCasos && cliente ? (
+          <div className="tc-vista" key={`casos-${cliente.id}`}>
+            <Casos clienteId={cliente.id} personas={personas} miId={miId} esAdmin={esAdmin} casoInicial={casoInicial} onAbiertos={(n) => setCasosAbiertos((x) => (x[cliente.id] === n ? x : { ...x, [cliente.id]: n }))} />
+          </div>
+        ) : (
         <div className="tc-vista" key={`${ambito.tipo}-${'id' in ambito ? ambito.id : ''}-${vista}`}>
           {vista === 'tablero' && cliente && <Tablero estados={estadosDelAmbito} departamentos={departamentosDe(cliente)} tareas={visibles} personas={personas} tareaAbierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} onOrdenarColumnas={(n) => void ordenarColumnas(n)} seleccion={seleccion} onSeleccionar={alternarSeleccion} onCrear={async (estado, t) => void (await crear(cliente.id, estado, t))} />}
           {vista === 'tablero' && !cliente && <TableroDeVarios clientes={datos.clientes} tareas={visibles} personas={personas} abierta={abierta} onAbrir={abrir} onMover={(id, e, d) => void mover(id, e, d)} seleccion={seleccion} onSeleccionar={alternarSeleccion} />}
@@ -648,6 +666,7 @@ export function EspacioDeTrabajo({ ambito: ambitoInicial, miId, esAdmin, tareaIn
           {vista === 'cronograma' && <Cronograma tareas={visibles} clientes={mapa} tareaAbierta={abierta} onAbrir={abrir} />}
           {vista === 'calendario' && <Calendario tareas={visibles} clientes={mapa} tareaAbierta={abierta} onAbrir={abrir} onCambiar={(id, c) => void cambiar(id, c)} />}
         </div>
+        )}
           </>
         )}
       </section>

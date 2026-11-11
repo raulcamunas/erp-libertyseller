@@ -5504,3 +5504,20 @@ html[data-junta-capsula] .pila-de-avisos { bottom: 76px; }
 @keyframes musica-barras { 0%, 100% { height: 3px; } 50% { height: 14px; } }
 @media (max-width: 640px) { .musica-card { right: 12px; left: 12px; width: auto; } }
 @media (prefers-reduced-motion: reduce) { .musica-card, .musica-ecualizador i { animation: none; } }
+
+/* Tareas de clientes → «Cumplimiento»: los casos entran escalonados y lo que se despliega baja suave. Sin movimiento si se pide */
+@keyframes tc-casos-entra { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes tc-casos-despliega { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.tc-casos-entra { animation: tc-casos-entra 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 35ms); }
+.tc-casos-despliega { animation: tc-casos-despliega 200ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { .tc-casos-entra, .tc-casos-despliega { animation: none; } }
+
+/* El menú del clic derecho (components/ui/menu-contextual.tsx): el mismo aspecto que los menús del chat */
+@keyframes menu-contextual-entra { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+.menu-contextual { position: fixed; z-index: 1000; min-width: 210px; max-width: 300px; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid var(--ls-linea2); background: var(--ls-sup); padding: 4px; box-shadow: 0 18px 40px -14px rgba(0, 0, 0, .7); outline: none; animation: menu-contextual-entra 110ms ease-out both; transform-origin: top left; }
+.menu-contextual button { display: flex; width: 100%; align-items: center; gap: 9px; border-radius: 8px; padding: 7px 10px; text-align: left; font-size: 13px; color: var(--ls-t1); }
+.menu-contextual button[data-activo='true'] { background: var(--ls-sup3); }
+.menu-contextual button[data-peligro='true'] { color: var(--ls-e-rojo); }
+.menu-contextual button:disabled { opacity: .45; cursor: default; }
+.menu-contextual-raya { height: 1px; margin: 4px 6px; background: var(--ls-linea); }
+@media (prefers-reduced-motion: reduce) { .menu-contextual { animation: none; } }

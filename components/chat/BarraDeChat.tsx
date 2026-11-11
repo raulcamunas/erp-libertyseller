@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { AtSign, Maximize2, Bookmark, CalendarClock, ChevronDown, Clock, Hash, Headphones, Lock, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Volume2 } from 'lucide-react'
+import { AtSign, Maximize2, Bell, BellOff, Bookmark, CalendarClock, ChevronDown, Clock, Copy, Hash, Headphones, LogIn, LogOut, Lock, MessageSquare, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Settings2, Volume2 } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible, repartirCanales } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
@@ -10,7 +10,8 @@ import { EmojiDeEstado, EstadoPropio } from './Paneles'
 import { useChat } from './ChatProvider'
 import { abrirDialogoDeVoz } from '@/lib/chat/dialogo-voz'
 import { AparienciaDelChat } from './AparienciaDelChat'
-import { DialogoNuevoCanal, DialogoNuevoDirecto } from './Dialogos'
+import { DialogoMiembros, DialogoNuevoCanal, DialogoNuevoDirecto } from './Dialogos'
+import { useMenuContextual, type OpcionDeMenu } from '@/components/ui/menu-contextual'
 import { useJunta } from './JuntaProvider'
 
 const BANDEJAS = [
@@ -213,14 +214,33 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
 
 function FilaDeCanal({ canal, activa, onClick, children }: { canal: CanalChat; activa: boolean; onClick: () => void; children: React.ReactNode }) {
   const { activas } = useJunta()
+  const { silenciar, salir, unirse } = useChat()
+  const menu = useMenuContextual()
+  const [ajustes, setAjustes] = useState(false)
+  const esCanal = canal.tipo === 'canal' || canal.tipo === 'privado'
+  const hecho = (p: Promise<unknown>, ok: string) => void p.then(() => toast.success(ok)).catch((e: Error) => toast.error(e.message))
+  // El clic derecho sobre un canal o un directo: abrirlo, silenciarlo, sus ajustes y miembros, copiar el nombre, entrar o salir
+  const opciones = (): OpcionDeMenu[] => {
+    const lista: OpcionDeMenu[] = [{ id: 'abrir', nombre: 'Abrir', icono: MessageSquare, accion: onClick }]
+    if (!canal.soy_miembro && esCanal) lista.push({ id: 'unirse', nombre: 'Unirme al canal', icono: LogIn, accion: () => hecho(unirse(canal.id), `Te has unido a #${canal.nombre}`) })
+    if (canal.soy_miembro) lista.push({ id: 'silenciar', nombre: canal.silenciado ? 'Volver a avisarme' : 'Silenciar', icono: canal.silenciado ? Bell : BellOff, accion: () => hecho(silenciar(canal.id, !canal.silenciado), canal.silenciado ? 'Avisos activados' : 'Silenciado') })
+    if (esCanal && canal.soy_miembro) lista.push({ id: 'ajustes', nombre: 'Ajustes y miembros…', icono: Settings2, accion: () => setAjustes(true) })
+    if (esCanal && canal.nombre) lista.push({ id: 'copiar', nombre: 'Copiar el nombre', icono: Copy, accion: () => void navigator.clipboard?.writeText(`#${canal.nombre}`).then(() => toast.success('Nombre copiado')) })
+    if (esCanal && canal.soy_miembro) lista.push({ id: 'salir', nombre: 'Salir del canal', icono: LogOut, peligro: true, separar: true, accion: () => window.confirm(`¿Salir de #${canal.nombre}? ${canal.tipo === 'privado' ? 'Para volver tendrá que añadirte alguien de dentro.' : 'Puedes volver a unirte cuando quieras.'}`) && hecho(salir(canal.id), `Has salido de #${canal.nombre}`) })
+    return lista
+  }
   const sinLeer = canal.soy_miembro && !canal.silenciado && canal.no_leidos > 0
   const mencion = canal.soy_miembro && canal.menciones > 0
   return (
-    <button type="button" className="chat-fila" data-activa={activa ? 'true' : undefined} data-sin-leer={sinLeer || mencion ? 'true' : undefined} data-silenciado={canal.silenciado ? 'true' : undefined} onClick={onClick} aria-current={activa ? 'true' : undefined}>
+    <>
+    <button type="button" className="chat-fila" data-activa={activa ? 'true' : undefined} data-sin-leer={sinLeer || mencion ? 'true' : undefined} data-silenciado={canal.silenciado ? 'true' : undefined} onClick={onClick} onContextMenu={(e) => menu.abrir(e, opciones())} aria-current={activa ? 'true' : undefined}>
       {children}
       {activas[canal.id] && <Headphones className="h-3.5 w-3.5 shrink-0 text-[var(--ls-e-verde)]" aria-label="Hay una junta en curso" />}
       {mencion ? <span key={`m${canal.menciones}`} className="chat-insignia" data-mencion="true" aria-label={`${canal.menciones} menciones`}>@{canal.menciones > 9 ? '9+' : canal.menciones}</span> : sinLeer ? <span key={`n${canal.no_leidos}`} className="chat-insignia" aria-label={`${canal.no_leidos} sin leer`}>{canal.no_leidos > 99 ? '99+' : canal.no_leidos}</span> : null}
     </button>
+    {menu.elemento}
+    {ajustes && <DialogoMiembros canal={canal} onCerrar={() => setAjustes(false)} />}
+    </>
   )
 }
 

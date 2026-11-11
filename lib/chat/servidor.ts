@@ -632,8 +632,14 @@ export async function crearCanal(quien: QuienEscribe, entrada: { tipo: unknown; 
     fallo(error, 'crear el canal')
   }
   const canalId = (data as { id: string }).id
-  const { error: errorMiembros } = await service.from('chat_miembros').insert([{ canal_id: canalId, usuario_id: quien.userId, rol: 'admin' }, ...invitados.map((u) => ({ canal_id: canalId, usuario_id: u }))])
-  if (errorMiembros) fallo(errorMiembros, 'añadir los miembros')
+  // El rol de CADA fila, también el de los invitados: en una inserción de varias filas, la columna que falta en una va como null (no como su
+  // valor por defecto) y `rol` es NOT NULL. Así fallaba todo canal creado con gente dentro y quedaba sin miembros (11 nov 2026).
+  const { error: errorMiembros } = await service.from('chat_miembros').insert([{ canal_id: canalId, usuario_id: quien.userId, rol: 'admin' }, ...invitados.map((u) => ({ canal_id: canalId, usuario_id: u, rol: 'miembro' }))])
+  if (errorMiembros) {
+    // Sin miembros nadie lo vería y su nombre quedaría ocupado: se deshace
+    await service.from('chat_canales').delete().eq('id', canalId)
+    fallo(errorMiembros, 'añadir los miembros')
+  }
   // Un canal abierto lo ve todo el equipo (en «Canales que puedes unirte»); uno privado, solo quien está dentro
   const destinatarios = entrada.tipo === 'canal' ? (await personasDelChat()).map((p) => p.id) : [quien.userId, ...invitados]
   void emitir(destinatarios, { tipo: 'canales' })

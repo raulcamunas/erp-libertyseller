@@ -129,6 +129,18 @@ async function publicar(canalId: string, aviso: Aviso): Promise<void> {
   }
 }
 
+/**
+ * Escribe un aviso del ERP en OTRO canal (p. ej. #cumplimiento-normativo, que crea una persona y tiene sus miembros). El mismo reparto: en
+ * directo, a la campana de quien lo tenga en «todo». Nunca lanza.
+ */
+export async function publicarEnCanal(canalId: string, aviso: Aviso): Promise<void> {
+  try {
+    await publicar(canalId, aviso)
+  } catch (e) {
+    console.error('Chat: no se ha podido publicar un aviso del ERP en un canal:', e instanceof Error ? e.message : e)
+  }
+}
+
 /** Escribe un aviso en #notificaciones-erp (y lo reparte en directo y a la campana). Nunca lanza */
 export async function publicarEnElChat(aviso: Aviso): Promise<void> {
   try {

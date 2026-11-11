@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { CalendarClock, CalendarDays, ChevronDown, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Settings2, Share2, Sparkles, Table2, X } from 'lucide-react'
+import { CalendarClock, CalendarDays, ChevronDown, Filter, GanttChartSquare, KanbanSquare, Palette, Plus, Search, Settings2, Share2, ShieldCheck, Sparkles, Table2, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { hayFiltros } from '@/lib/tareas-clientes/filtros'
 import { describirRecurrencia, recurrenciaValida } from '@/lib/tareas-clientes/recurrencia'
@@ -52,6 +52,8 @@ export interface PropsDeCabecera {
   total: number
   visibles: number
   extra?: ReactNode
+  /** La pestaña «Cumplimiento» (casos con Ayuda al vendedor), solo dentro de un cliente. Mientras está abierta no hay buscador, filtros ni «Nueva tarea» */
+  cumplimiento?: { activo: boolean; abiertos: number; onAbrir: () => void }
 }
 
 export function Cabecera(p: PropsDeCabecera) {
@@ -83,11 +85,19 @@ export function Cabecera(p: PropsDeCabecera) {
         <div className="tc-vistas" role="tablist" aria-label="Vistas">
           {p.vistas.map((v) => {
             const Icono = ICONO_DE_VISTA[v]
-            return <button key={v} type="button" role="tab" aria-selected={p.vista === v} onClick={() => p.onVista(v)} className="tc-vista-boton"><Icono className="h-3.5 w-3.5" /> {NOMBRE_DE_VISTA[v]}</button>
+            return <button key={v} type="button" role="tab" aria-selected={!p.cumplimiento?.activo && p.vista === v} onClick={() => p.onVista(v)} className="tc-vista-boton"><Icono className="h-3.5 w-3.5" /> {NOMBRE_DE_VISTA[v]}</button>
           })}
+          {p.cumplimiento && (
+            <button type="button" role="tab" aria-selected={p.cumplimiento.activo} onClick={p.cumplimiento.onAbrir} className="tc-vista-boton" title="Casos de cumplimiento normativo con Ayuda al vendedor">
+              <ShieldCheck className="h-3.5 w-3.5" /> Cumplimiento
+              {p.cumplimiento.abiertos > 0 && <span className="rounded-full bg-[color-mix(in_srgb,var(--tc-yellow)_18%,transparent)] px-1.5 text-[10.5px] font-semibold tabular-nums text-[var(--tc-yellow)]">{p.cumplimiento.abiertos}</span>}
+            </button>
+          )}
         </div>
         <span className="flex-1" />
         {p.extra}
+        {!p.cumplimiento?.activo && (
+          <>
         <label className="tc-buscar">
           <Search className="h-3.5 w-3.5 text-[var(--ls-t4)]" />
           <input value={p.filtros.busqueda} onChange={(e) => p.onFiltros({ ...p.filtros, busqueda: e.target.value })} placeholder="Buscar…" aria-label="Buscar tareas" className="w-full min-w-0 bg-transparent text-[12.5px] outline-none placeholder:text-[var(--ls-t4)]" />
@@ -138,6 +148,8 @@ export function Cabecera(p: PropsDeCabecera) {
             </div>
           </PopoverContent>
         </Popover>
+          </>
+        )}
 
         <SelectorDePortada valor={p.fondo} titulo="Fondo del espacio" onElegir={p.onFondo} animados>
           <button type="button" className="tc-boton-herramienta"><Palette className="h-3.5 w-3.5" /> Fondo</button>
@@ -146,6 +158,8 @@ export function Cabecera(p: PropsDeCabecera) {
         {(p.propuestasPendientes ?? 0) > 0 && p.onPropuestas && <button type="button" onClick={p.onPropuestas} className="tc-boton-primario" title="Tareas que salen de la última reunión con este cliente"><Sparkles className="h-3.5 w-3.5" /> {p.propuestasPendientes} {p.propuestasPendientes === 1 ? 'tarea propuesta' : 'tareas propuestas'}</button>}
         {p.onCompartir && <button type="button" onClick={p.onCompartir} className="tc-boton-herramienta" title="Compartir el panel con el cliente"><Share2 className="h-3.5 w-3.5" /> Compartir</button>}
 
+        {!p.cumplimiento?.activo && (
+          <>
         {activos && <span className="text-[11.5px] tabular-nums text-[var(--ls-t3)]">{p.visibles} de {p.total}</span>}
         <div className="tc-split">
           <button type="button" onClick={p.onNueva} className="tc-boton-primario tc-split-main"><Plus className="h-3.5 w-3.5" /> Nueva tarea</button>
@@ -178,6 +192,8 @@ export function Cabecera(p: PropsDeCabecera) {
             </Popover>
           )}
         </div>
+          </>
+        )}
       </div>
     </header>
   )

@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useState } from 'react'
-import { Bookmark, BookmarkCheck, Clock, CornerUpLeft, FileText, Image as ImageIcon, MessageSquareReply, MoreHorizontal, Paperclip, Pencil, Pin, PinOff, SmilePlus, Trash2, UserPlus } from 'lucide-react'
+import { Bookmark, BookmarkCheck, Clock, Copy, CornerUpLeft, FileText, Image as ImageIcon, MessageSquareReply, MoreHorizontal, Paperclip, Pencil, Pin, PinOff, SmilePlus, Trash2, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { pedir } from '@/components/tareas-clientes/api'
@@ -15,6 +15,7 @@ import { esAvisoDeUnion, separarArchivosDeSlack } from '@/lib/chat/importado'
 import { EtiquetaDeSlack, NotaDeVoz, TarjetaDeEncuesta } from './Extras'
 import { ElegirHora, EmojiDeEstado, VisorDeImagen } from './Paneles'
 import { TextoDeMensaje } from './TextoDeMensaje'
+import { useMenuContextual, type OpcionDeMenu } from '@/components/ui/menu-contextual'
 
 const RAPIDAS = ['👍', '❤️', '😂', '🎉', '👀', '🙏']
 
@@ -39,6 +40,7 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
   const [guardando, setGuardando] = useState(false)
   const [visor, setVisor] = useState<AdjuntoChat | null>(null)
   const [recordando, setRecordando] = useState(false)
+  const menu = useMenuContextual()
   const guardado = guardados.has(m.id)
   const autor = persona(m.autor_id)
   const mio = m.autor_id === yo.id
@@ -63,6 +65,21 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
   const alBorrar = () => {
     if (!window.confirm('¿Borrar este mensaje? No se puede deshacer.')) return
     void borrar(m.id).catch((e: Error) => toast.error(e.message))
+  }
+
+  // El clic derecho sobre un mensaje: lo mismo que la barra que sale al pasar el ratón, y copiar el texto
+  const opcionesDelMenu = (): OpcionDeMenu[] => {
+    if (eliminado || editando || esMensajeTemporal(m.id)) return []
+    const lista: OpcionDeMenu[] = []
+    if (alCitar) lista.push({ id: 'citar', nombre: 'Responder', icono: CornerUpLeft, accion: () => alCitar(m) })
+    if (!enHilo) lista.push({ id: 'hilo', nombre: 'Responder en un hilo', icono: MessageSquareReply, accion: () => alAbrirHilo?.(m) })
+    lista.push({ id: 'copiar', nombre: 'Copiar el texto', icono: Copy, accion: () => void navigator.clipboard?.writeText(aTextoEditable(m.cuerpo, nombreDe).texto).then(() => toast.success('Texto copiado')) })
+    if (mio) lista.push({ id: 'editar', nombre: 'Editar', icono: Pencil, separar: true, accion: () => setEditando(aTextoEditable(m.cuerpo, nombreDe)) })
+    lista.push({ id: 'guardar', nombre: guardado ? 'Quitar de guardados' : 'Guardar', icono: guardado ? BookmarkCheck : Bookmark, separar: !mio, accion: () => void marcarGuardado(m.id, !guardado).then(() => toast.success(guardado ? 'Quitado de guardados' : 'Guardado')).catch((e: Error) => toast.error(e.message)) })
+    if (alCitar) lista.push({ id: 'fijar', nombre: m.fijado_en === null ? 'Fijar en el canal' : 'Quitar de fijados', icono: m.fijado_en === null ? Pin : PinOff, accion: () => void fijar(m.id, m.fijado_en === null).then(() => toast.success(m.fijado_en === null ? 'Fijado arriba del canal' : 'Quitado de fijados')).catch((e: Error) => toast.error(e.message)) })
+    lista.push({ id: 'recordar', nombre: 'Recordármelo', icono: Clock, accion: () => setRecordando(true) })
+    if (mio || puedeBorrarAjeno) lista.push({ id: 'borrar', nombre: 'Borrar', icono: Trash2, peligro: true, separar: true, accion: alBorrar })
+    return lista
   }
 
   if (eliminado) {
@@ -95,6 +112,7 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
       data-nuevo={nuevo ? 'true' : undefined}
       data-enviando={esMensajeTemporal(m.id) ? 'true' : undefined}
       data-menciona-me={m.menciones.includes(yo.id) ? 'true' : undefined}
+      onContextMenu={(e) => menu.abrir(e, opcionesDelMenu())}
     >
       <span className="chat-mensaje-lado">
         {continuacion ? <time className="chat-hora-lado" dateTime={m.creado_en}>{horaDe(m.creado_en)}</time> : <Avatar id={m.autor_id ?? `slack-${m.autor_externo ?? 'x'}`} nombre={autor?.nombre ?? m.autor_externo ?? 'Alguien'} tamano={34} />}
@@ -229,6 +247,7 @@ export const MensajeVista = memo(function MensajeVista({ m, continuacion, enHilo
           onCerrar={() => setRecordando(false)}
         />
       )}
+      {menu.elemento}
     </div>
   )
 })

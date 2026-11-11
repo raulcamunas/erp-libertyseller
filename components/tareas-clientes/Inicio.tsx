@@ -81,6 +81,12 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
   }, [])
 
   // Los datos ya vienen con la página: se leen por detrás cada minuto (y al volver a la pestaña); solo se piden al abrir si el servidor no los trajo
+  // Los casos de cumplimiento sin resolver de cada cliente: salen en su tarjeta
+  const [casos, setCasos] = useState<Record<string, number>>({})
+  useEffect(() => {
+    pedir<{ porCliente: Record<string, number> }>(`${BASE}/casos?resumen=1`).then((r) => setCasos(r.porCliente)).catch(() => undefined)
+  }, [])
+
   useEffect(() => {
     if (!inicial) void cargar()
     const t = setInterval(() => document.visibilityState === 'visible' && void cargar(), 60_000)
@@ -208,6 +214,7 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
             clientes={lista}
             ordenable={!filtrando}
             estadisticas={datos.estadisticas}
+            casos={casos}
             personas={datos.personas}
             favoritos={prefs.favoritos}
             onAbrir={(id) => router.push(`/dashboard/tareas-clientes/${id}`)}
@@ -244,7 +251,7 @@ function Atajo({ icono, titulo, detalle, onClick, color, alerta, grande, i = 0 }
   )
 }
 
-function GrupoDeTarjetas({ viendoPorCliente, grupo, clientes, ordenable, estadisticas, personas, favoritos, onAbrir, onFavorito, onOrden, onReordenado }: { viendoPorCliente: ReadonlyMap<string, Conectado[]>; grupo: GrupoDeCliente; clientes: ClienteTC[]; ordenable: boolean; estadisticas: Record<string, EstadisticasDeCliente>; personas: DatosDeInicio['personas']; favoritos: string[]; onAbrir: (id: string) => void; onFavorito: (id: string) => void; onOrden: (ids: string[]) => void; onReordenado: (ids: string[]) => void }) {
+function GrupoDeTarjetas({ viendoPorCliente, grupo, clientes, ordenable, estadisticas, casos, personas, favoritos, onAbrir, onFavorito, onOrden, onReordenado }: { viendoPorCliente: ReadonlyMap<string, Conectado[]>; grupo: GrupoDeCliente; clientes: ClienteTC[]; ordenable: boolean; estadisticas: Record<string, EstadisticasDeCliente>; casos: Record<string, number>; personas: DatosDeInicio['personas']; favoritos: string[]; onAbrir: (id: string) => void; onFavorito: (id: string) => void; onOrden: (ids: string[]) => void; onReordenado: (ids: string[]) => void }) {
   const sensores = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const alSoltar = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return
@@ -253,7 +260,7 @@ function GrupoDeTarjetas({ viendoPorCliente, grupo, clientes, ordenable, estadis
     onReordenado(nuevo)
     onOrden(nuevo)
   }
-  const tarjetas = clientes.map((c, i) => <Tarjeta key={c.id} cliente={c} e={estadisticas[c.id]} personas={personas} viendo={viendoPorCliente.get(c.id) ?? []} favorito={favoritos.includes(c.id)} indice={i} ordenable={ordenable} onAbrir={onAbrir} onFavorito={onFavorito} />)
+  const tarjetas = clientes.map((c, i) => <Tarjeta key={c.id} cliente={c} e={estadisticas[c.id]} casos={casos[c.id] ?? 0} personas={personas} viendo={viendoPorCliente.get(c.id) ?? []} favorito={favoritos.includes(c.id)} indice={i} ordenable={ordenable} onAbrir={onAbrir} onFavorito={onFavorito} />)
   return (
     <section className="tc-ini-grupo" aria-label={ETIQUETA_DE_GRUPO[grupo]}>
       <h2 className="tc-grupo-titulo" style={{ '--tono': `var(--tc-${COLOR_DE_GRUPO[grupo]})` } as CSSProperties}><span className="tc-punto" />{ETIQUETA_DE_GRUPO[grupo]}<span className="font-normal tracking-normal text-[var(--ls-t4)]">{clientes.length}</span><span className="tc-ini-linea" /></h2>
@@ -270,7 +277,7 @@ function GrupoDeTarjetas({ viendoPorCliente, grupo, clientes, ordenable, estadis
   )
 }
 
-function Tarjeta({ viendo, cliente: c, e, personas, favorito, indice, ordenable, onAbrir, onFavorito }: { viendo: Conectado[]; cliente: ClienteTC; e: EstadisticasDeCliente | undefined; personas: DatosDeInicio['personas']; favorito: boolean; indice: number; ordenable: boolean; onAbrir: (id: string) => void; onFavorito: (id: string) => void }) {
+function Tarjeta({ viendo, cliente: c, e, casos, personas, favorito, indice, ordenable, onAbrir, onFavorito }: { viendo: Conectado[]; cliente: ClienteTC; e: EstadisticasDeCliente | undefined; casos: number; personas: DatosDeInicio['personas']; favorito: boolean; indice: number; ordenable: boolean; onAbrir: (id: string) => void; onFavorito: (id: string) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id, disabled: !ordenable })
   const total = e?.total ?? 0
   const hechas = e?.hechas ?? 0
@@ -314,6 +321,11 @@ function Tarjeta({ viendo, cliente: c, e, personas, favorito, indice, ordenable,
           <span className="tc-ini-dato"><i style={{ background: 'var(--tc-blue)' }} /><b>{e?.enCurso ?? 0}</b> en curso</span>
           <span className="tc-ini-dato"><i style={{ background: 'var(--tc-yellow)' }} /><b>{e?.pendientes ?? 0}</b> pendientes</span>
           {(e?.vencidas ?? 0) > 0 && <span className="tc-ini-vencidas"><Flame className="h-3 w-3" /> {e?.vencidas} vencidas</span>}
+          {casos > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full px-2 py-px text-[11.5px] font-semibold text-[var(--tc-yellow)]" style={{ background: 'color-mix(in srgb, var(--tc-yellow) 14%, transparent)' }} title="Casos de cumplimiento normativo sin resolver">
+              <ShieldCheck className="h-3 w-3" /> {casos} {casos === 1 ? 'caso' : 'casos'}
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-2"><span className="text-[12px] font-semibold text-[var(--ls-t2)]">{pct}%</span><PilaDeAvatares ids={e?.responsables ?? []} personas={personas} maximo={3} tamano={22} /></span>
         </div>
         {c.sync_error && <p className="mt-2 flex items-center gap-1 text-[11px] text-[var(--ls-e-ambar)]" title={c.sync_error}><AlertTriangle className="h-3 w-3" /> Con problemas de sincronización</p>}
