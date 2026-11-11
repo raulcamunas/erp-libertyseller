@@ -86,15 +86,7 @@ export function ordenarCasos<C extends Pick<CasoTC, 'estado' | 'actualizadoEn' |
   return [...casos].sort((a, b) => peso[a.estado] - peso[b.estado] || reciente(b) - reciente(a))
 }
 
-/** El texto del aviso en #cumplimiento-normativo (formato del chat: **negrita**, y el enlace se reconoce solo) */
-export function avisoDeCorreo(args: { cliente: string; casoAmazon: string; titulo: string; de: string; asunto: string; vistaPrevia: string; enlace: string }): string {
-  const vista = args.vistaPrevia.replace(/\s+/g, ' ').trim().slice(0, 280)
-  return [
-    `📨 **${args.cliente} · caso ${args.casoAmazon}**: ha llegado un correo`,
-    `**${args.asunto || '(sin asunto)'}** — ${args.de}`,
-    vista ? `> ${vista}${args.vistaPrevia.length > 280 ? '…' : ''}` : '',
-    `${args.titulo} · ${args.enlace}`,
-  ]
-    .filter(Boolean)
-    .join('\n')
+/** El aviso en #cumplimiento-normativo: una línea y nada más (Raúl, 12 nov 2026). El correo se lee en la pestaña «Cumplimiento» del cliente */
+export function avisoDeCorreo(args: { cliente: string; casoAmazon: string }): string {
+  return `📨 **${args.cliente} · caso ${args.casoAmazon}**: ha llegado un correo`
 }

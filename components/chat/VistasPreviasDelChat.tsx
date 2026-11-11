@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import { inicialDe, leerVistasPrevias, quitarVistaPrevia, suscribirVistasPrevias, type VistaPrevia } from '@/lib/chat/vista-previa'
 
@@ -40,9 +40,28 @@ function Tarjeta({ v, alAbrir }: { v: VistaPrevia; alAbrir: (v: VistaPrevia) => 
  */
 export function VistasPreviasDelChat({ alAbrir }: { alAbrir: (v: VistaPrevia) => void }) {
   const vistas = useSyncExternalStore(suscribirVistasPrevias, leerVistasPrevias, leerVistasPrevias)
-  if (vistas.length === 0) return null
+  const caja = useRef<HTMLDivElement>(null)
+  // Lo que ocupan, para que los avisos de la pila (components/avisos/PilaDeAvisos.tsx) se pongan encima y no detrás
+  const hay = vistas.length > 0
+  useEffect(() => {
+    const raiz = document.documentElement
+    const el = caja.current
+    if (!hay || !el) {
+      raiz.style.removeProperty('--vistas-alto')
+      return
+    }
+    const poner = () => raiz.style.setProperty('--vistas-alto', `${el.offsetHeight + 10}px`)
+    poner()
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(poner) : null
+    ro?.observe(el)
+    return () => {
+      ro?.disconnect()
+      raiz.style.removeProperty('--vistas-alto')
+    }
+  }, [hay])
+  if (!hay) return null
   return (
-    <div className="chat-vistas" aria-live="polite">
+    <div ref={caja} className="chat-vistas" aria-live="polite">
       {vistas.map((v) => (
         <Tarjeta key={v.clave} v={v} alAbrir={alAbrir} />
       ))}

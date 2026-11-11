@@ -37,8 +37,8 @@ const orden = ordenarCasos([
 ])
 ok('abiertos primero, con el correo más reciente arriba; resueltos al final', orden.map((c) => c.id).join() === 'a1,a2,e,r')
 
-const aviso = avisoDeCorreo({ cliente: 'Creative Toys', casoAmazon: '17123456781', titulo: 'GPSR The Voting Game', de: 'Amazon', asunto: 'Tu caso', vistaPrevia: 'Hola,\n\n hemos revisado', enlace: 'https://x/y' })
-ok('el aviso lleva cliente, caso, asunto, vista previa y enlace', aviso.includes('Creative Toys · caso 17123456781') && aviso.includes('**Tu caso**') && aviso.includes('> Hola, hemos revisado') && aviso.includes('https://x/y'))
+const aviso = avisoDeCorreo({ cliente: 'Creative Toys', casoAmazon: '17123456781' })
+ok('el aviso es una línea: cliente, caso y «ha llegado un correo»', aviso === '📨 **Creative Toys · caso 17123456781**: ha llegado un correo')
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
 if (fallos > 0) process.exit(1)

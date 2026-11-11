@@ -1,7 +1,7 @@
 'use client'
 
 import { CalendarCheck, Flame, Mail, MailWarning, MessageSquare, X, type LucideIcon } from 'lucide-react'
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { cerrarAviso, leerAvisos, suscribirAvisos, type Aviso, type TipoDeAviso } from '@/lib/avisos/pila'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 
@@ -15,6 +15,10 @@ import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
  *
  * Los publica quien lo sabe (components/avisos/AvisosEnVivo.tsx) en lib/avisos/pila.ts; esto solo los pinta. Va FUERA del recuadro animado
  * del layout, para que `fixed` sea respecto a la ventana.
+ *
+ * Se apilan ENCIMA de lo que haya en la esquina (la pastilla o la ventana del chat, las tarjetas del chat, la cápsula de la junta): lo publica el dock en `--dock-arriba` y
+ * `--avisos-derecha` (components/chat/DockDelChat.tsx) y la pila se mueve con suavidad cuando eso cambia. Cada aviso abre su hueco al entrar y lo cierra al irse, así que los de
+ * encima se deslizan en vez de saltar (globals.css, `.pila-hueco`). Si no caben, los más viejos se esconden por arriba.
  */
 
 const ICONO: Record<TipoDeAviso, { icono: LucideIcon; tono: TonoEstado }> = {
@@ -60,7 +64,7 @@ function Tarjeta({ aviso }: { aviso: Aviso }) {
   }
 
   return (
-    <li
+    <div
       role="status"
       className="rend-aviso pointer-events-auto relative w-full overflow-hidden rounded-[12px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] shadow-2xl shadow-black/40"
       onMouseEnter={() => setEncima(true)}
@@ -85,17 +89,68 @@ function Tarjeta({ aviso }: { aviso: Aviso }) {
         <X className="h-3.5 w-3.5" aria-hidden />
       </button>
       <span aria-hidden className="rend-cuenta-atras absolute inset-x-0 bottom-0 h-[2px]" style={{ background: color, '--dur': `${aviso.duracionMs}ms`, animationPlayState: pausada ? 'paused' : undefined } as CSSProperties} />
+    </div>
+  )
+}
+
+/** El hueco de un aviso en la pila: se abre al entrar y se cierra al irse (mientras se anima, recorta lo que sobresale; después deja ver la sombra) */
+function Hueco({ aviso, saliendo }: { aviso: Aviso; saliendo: boolean }) {
+  const [entrando, setEntrando] = useState(true)
+  return (
+    <li className="pila-hueco" data-entrando={entrando ? 'true' : undefined} data-saliendo={saliendo ? 'true' : undefined} onAnimationEnd={(e) => e.target === e.currentTarget && setEntrando(false)}>
+      <div className="pila-hueco-dentro">
+        <Tarjeta aviso={aviso} />
+      </div>
     </li>
   )
 }
 
+/** Lo que tarda un aviso en irse (globals.css, `pila-cierra`) */
+const SALIDA_MS = 320
+
 export function PilaDeAvisos() {
   const avisos = useSyncExternalStore(suscribirAvisos, leerAvisos, () => vacia)
-  if (avisos.length === 0) return null
+  // Los que se acaban de cerrar se quedan un momento, para irse con animación (y en su sitio de la pila)
+  const [saliendo, setSaliendo] = useState<readonly Aviso[]>(vacia)
+  const previos = useRef<readonly Aviso[]>(vacia)
+  const orden = useRef(new Map<string, number>())
+  const contador = useRef(0)
+  const relojes = useRef(new Set<ReturnType<typeof setTimeout>>())
+
+  for (const a of avisos) if (!orden.current.has(a.id)) orden.current.set(a.id, contador.current++)
+
+  useEffect(() => {
+    const vivos = new Set(avisos.map((a) => a.id))
+    const idos = previos.current.filter((a) => !vivos.has(a.id))
+    previos.current = avisos
+    if (idos.length === 0) return
+    setSaliendo((s) => [...s.filter((a) => !vivos.has(a.id)), ...idos])
+    const reloj = setTimeout(() => {
+      relojes.current.delete(reloj)
+      setSaliendo((s) => s.filter((a) => !idos.some((i) => i.id === a.id)))
+      for (const i of idos) if (!avisos.some((a) => a.id === i.id)) orden.current.delete(i.id)
+    }, SALIDA_MS)
+    relojes.current.add(reloj)
+  }, [avisos])
+
+  useEffect(() => {
+    const r = relojes.current
+    return () => {
+      for (const t of r) clearTimeout(t)
+    }
+  }, [])
+
+  const todos = useMemo(() => {
+    const vivos = new Set(avisos.map((a) => a.id))
+    const lista = [...avisos.map((a) => ({ aviso: a, saliendo: false })), ...saliendo.filter((a) => !vivos.has(a.id)).map((a) => ({ aviso: a, saliendo: true }))]
+    return lista.sort((x, y) => (orden.current.get(x.aviso.id) ?? 0) - (orden.current.get(y.aviso.id) ?? 0))
+  }, [avisos, saliendo])
+
+  if (todos.length === 0) return null
   return (
-    <ol aria-label="Avisos" className="pila-de-avisos pointer-events-none fixed inset-x-3 bottom-3 z-[70] flex flex-col items-end gap-2 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[360px]">
-      {avisos.map((a) => (
-        <Tarjeta key={a.id} aviso={a} />
+    <ol aria-label="Avisos" className="pila-de-avisos">
+      {todos.map(({ aviso, saliendo: s }) => (
+        <Hueco key={aviso.id} aviso={aviso} saliendo={s} />
       ))}
     </ol>
   )

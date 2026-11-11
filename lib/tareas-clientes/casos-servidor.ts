@@ -10,8 +10,8 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { publicarEnCanal } from '@/lib/chat/sistema-servidor'
-import { urlBaseApp } from '@/lib/url-app'
 import { avisoDeCorreo, buzonVigilado, casosDelCorreo, esEstadoDeCaso, nombraElCaso, normalizarIdDeCaso, ordenarCasos, type CasoTC, type CorreoDeCaso, type EstadoDeCaso } from './casos'
+import { asuntoLimpio, correoEsencial, nombreDelRemitente } from './correo-esencial'
 import { ErrorDeTareas } from './servidor'
 
 type Servicio = ReturnType<typeof createServiceClient>
@@ -91,14 +91,17 @@ export async function listarCasos(actor: Actor, clienteId: unknown): Promise<{ c
   if (filas.length > 0) {
     const { data: enlaces, error: e2 } = await service
       .from('tc_casos_correos')
-      .select('caso_id, correo_mensajes(id, de_nombre, de_direccion, asunto, fecha, vista_previa, adjuntos)')
+      .select('caso_id, correo_mensajes(id, de_nombre, de_direccion, asunto, fecha, texto, html, adjuntos)')
       .in('caso_id', filas.map((f) => f.id))
     revisar(e2, 'leer los correos de los casos')
-    for (const e of (enlaces ?? []) as unknown as Array<{ caso_id: string; correo_mensajes: { id: string; de_nombre: string | null; de_direccion: string | null; asunto: string | null; fecha: string; vista_previa: string | null; adjuntos: unknown } | null }>) {
+    for (const e of (enlaces ?? []) as unknown as Array<{ caso_id: string; correo_mensajes: { id: string; de_nombre: string | null; de_direccion: string | null; asunto: string | null; fecha: string; texto: string | null; html: string | null; adjuntos: unknown } | null }>) {
       const m = e.correo_mensajes
       if (!m) continue
       const lista = porCaso.get(e.caso_id) ?? []
-      lista.push({ id: m.id, de: m.de_nombre || m.de_direccion || '—', asunto: m.asunto ?? '', fecha: m.fecha, vistaPrevia: m.vista_previa ?? '', adjuntos: Array.isArray(m.adjuntos) ? m.adjuntos.length : 0 })
+      // Quién lo mandó de verdad (Amazon, no quien lo reenvió desde business@) y el principio de lo que dice, sin la cabecera del reenvío
+      const esencial = correoEsencial(m.texto, m.html)
+      const de = esencial.remitenteOriginal ? nombreDelRemitente(esencial.remitenteOriginal) : m.de_nombre || m.de_direccion || '—'
+      lista.push({ id: m.id, de, asunto: asuntoLimpio(m.asunto), fecha: m.fecha, vistaPrevia: esencial.parrafos.join(' ').replace(/\s+/g, ' ').slice(0, 220), adjuntos: Array.isArray(m.adjuntos) ? m.adjuntos.length : 0 })
       porCaso.set(e.caso_id, lista)
     }
     for (const l of porCaso.values()) l.sort((a, b) => b.fecha.localeCompare(a.fecha))
@@ -130,13 +133,18 @@ export async function correoDeCaso(actor: Actor, casoId: unknown, mensajeId: unk
   revisar(error, 'leer el correo')
   if (!data) throw new ErrorDeTareas('El correo ya no está en el buzón.', 404)
   const m = data as { de_nombre: string | null; de_direccion: string | null; para: unknown; cc: unknown; asunto: string | null; fecha: string; texto: string | null; html: string | null; adjuntos: unknown }
+  const esencial = correoEsencial(m.texto, m.html)
   const direcciones = (v: unknown) => (Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : (x as { direccion?: string; address?: string })?.direccion ?? (x as { address?: string })?.address ?? '')).filter(Boolean) : [])
   return {
     correo: {
       de: m.de_nombre ? `${m.de_nombre} <${m.de_direccion ?? ''}>` : (m.de_direccion ?? ''),
+      /** Quién lo mandó de verdad si era un reenvío (Amazon) */
+      deOriginal: esencial.remitenteOriginal,
       para: direcciones(m.para),
-      asunto: m.asunto ?? '',
+      asunto: asuntoLimpio(m.asunto),
       fecha: m.fecha,
+      /** Lo que dice, sin el diseño, la cabecera del reenvío, la encuesta, la firma ni el pie (lib/tareas-clientes/correo-esencial.ts) */
+      parrafos: esencial.parrafos,
       html: m.html,
       texto: m.texto ?? '',
       adjuntos: Array.isArray(m.adjuntos) ? (m.adjuntos as Array<{ nombre?: string; filename?: string }>).map((a) => a?.nombre ?? a?.filename ?? 'adjunto') : [],
@@ -300,15 +308,7 @@ export async function enlazarCorreosNuevos(service: Servicio, buzon: { id: strin
         await publicarEnCanal(canalId, {
           clave: `caso-correo:${caso.id}:${m.id}`,
           titulo: `${cliente} · caso ${caso.caso_amazon}`,
-          cuerpo: avisoDeCorreo({
-            cliente,
-            casoAmazon: caso.caso_amazon,
-            titulo: caso.titulo,
-            de: m.de_nombre || m.de_direccion || '—',
-            asunto: m.asunto ?? '',
-            vistaPrevia: m.vista_previa ?? '',
-            enlace: `${urlBaseApp()}/dashboard/tareas-clientes/${caso.cliente_id}?vista=cumplimiento&caso=${caso.id}`,
-          }),
+          cuerpo: avisoDeCorreo({ cliente, casoAmazon: caso.caso_amazon }),
         })
         await service.from('tc_casos_correos').update({ avisado: true }).eq('caso_id', caso.id).eq('mensaje_id', m.id)
       }

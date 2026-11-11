@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { AlertTriangle, ChevronRight, Copy, Inbox, Loader2, Mail, MailOpen, Paperclip, Plus, Settings2, ShieldCheck, Trash2, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ESTADOS_DE_CASO, normalizarIdDeCaso, type CasoTC, type EstadoDeCaso } from '@/lib/tareas-clientes/casos'
+import { nombreDelRemitente } from '@/lib/tareas-clientes/correo-esencial'
 import type { PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { Avatar } from './AvatarTC'
 import { BASE, pedir } from './api'
@@ -418,14 +419,48 @@ function SelectorDeEstado({ estado, onElegir }: { estado: EstadoDeCaso; onElegir
 
 /* ------------------------------------------------------------------ */
 
-type CorreoEntero = { de: string; para: string[]; asunto: string; fecha: string; html: string | null; texto: string; adjuntos: string[] }
+type CorreoEntero = { de: string; deOriginal: string | null; para: string[]; asunto: string; fecha: string; html: string | null; texto: string; adjuntos: string[]; parrafos: string[] }
 
-/** Un correo del caso: una línea con quién, asunto y cuándo; al desplegarlo, el correo tal cual en un marco aislado (sin scripts) */
+/** Los ASIN y los números de caso, resaltados (y se copian con un clic) dentro del texto del correo */
+const MARCAS = /\b(B0[A-Z0-9]{8}|\d{10,14})\b/g
+
+function TextoConMarcas({ texto }: { texto: string }) {
+  const trozos: Array<string | { v: string }> = []
+  let ultimo = 0
+  for (const m of texto.matchAll(MARCAS)) {
+    if (m.index! > ultimo) trozos.push(texto.slice(ultimo, m.index))
+    trozos.push({ v: m[0] })
+    ultimo = m.index! + m[0].length
+  }
+  if (ultimo < texto.length) trozos.push(texto.slice(ultimo))
+  return (
+    <>
+      {trozos.map((t, i) =>
+        typeof t === 'string' ? (
+          t
+        ) : (
+          <button
+            key={i}
+            type="button"
+            onClick={() => void navigator.clipboard?.writeText(t.v).then(() => toast.success(`${t.v} copiado`))}
+            title="Copiar"
+            className="rounded-[4px] bg-[var(--ls-sup2)] px-1 font-mono text-[12px] text-[var(--ls-t1)] transition-colors hover:bg-[var(--ls-acc-suave,rgba(255,140,40,0.14))] hover:text-[var(--ls-acc)]"
+          >
+            {t.v}
+          </button>
+        )
+      )}
+    </>
+  )
+}
+
+/** Un correo del caso: una línea con quién, asunto y cuándo; al desplegarlo, SOLO lo que dice (sin el diseño, la cabecera del reenvío, la encuesta ni la firma). El correo tal cual queda a un clic, por si hiciera falta */
 function CorreoDesplegable({ casoId, correo, inicialAbierto }: { casoId: string; correo: CasoTC['correos'][number]; inicialAbierto: boolean }) {
   const [abierto, setAbierto] = useState(inicialAbierto)
   const [entero, setEntero] = useState<CorreoEntero | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [alto, setAlto] = useState(320)
+  const [original, setOriginal] = useState(false)
   const marco = useRef<HTMLIFrameElement>(null)
 
   useEffect(() => {
@@ -463,11 +498,41 @@ function CorreoDesplegable({ casoId, correo, inicialAbierto }: { casoId: string;
             <p className="flex items-center gap-2 px-3 py-4 text-[12px] text-[var(--ls-t3)]"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Abriendo el correo…</p>
           ) : (
             <>
-              <div className="flex flex-wrap gap-x-4 gap-y-0.5 px-3 py-2 text-[11.5px] text-[var(--ls-t3)]">
-                <span><b className="font-medium text-[var(--ls-t2)]">De</b> {entero.de}</span>
-                {entero.para.length > 0 && <span><b className="font-medium text-[var(--ls-t2)]">Para</b> {entero.para.join(', ')}</span>}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 px-4 pt-3 text-[11.5px] text-[var(--ls-t3)]">
+                <span title={entero.deOriginal ?? entero.de}><b className="font-medium text-[var(--ls-t2)]">De</b> {nombreDelRemitente(entero.deOriginal ?? entero.de)}</span>
+                {entero.deOriginal && <span className="text-[var(--ls-t4)]">reenviado por {nombreDelRemitente(entero.de)}</span>}
                 {entero.adjuntos.length > 0 && <span className="inline-flex items-center gap-1"><Paperclip className="h-3 w-3" /> {entero.adjuntos.join(', ')}</span>}
+                <span className="ml-auto flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard?.writeText(entero.parrafos.join('\n\n')).then(() => toast.success('Texto copiado'))}
+                    className="inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-[var(--ls-t4)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]"
+                  >
+                    <Copy className="h-3 w-3" /> Copiar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOriginal((v) => !v)}
+                    aria-pressed={original}
+                    className="inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-[var(--ls-t4)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]"
+                  >
+                    {original ? 'Ver solo el texto' : 'Ver el original'}
+                  </button>
+                </span>
               </div>
+              {!original ? (
+                <div className="tc-casos-despliega space-y-3 px-4 pb-4 pt-2.5 text-[13px] leading-[1.65] text-[var(--ls-t2)]">
+                  {entero.parrafos.length === 0 ? (
+                    <p className="text-[var(--ls-t4)]">El correo no trae texto.</p>
+                  ) : (
+                    entero.parrafos.map((p, i) => (
+                      <p key={i} className="whitespace-pre-line break-words">
+                        <TextoConMarcas texto={p} />
+                      </p>
+                    ))
+                  )}
+                </div>
+              ) : (
               <iframe
                 ref={marco}
                 title={entero.asunto || 'Correo'}
@@ -480,6 +545,7 @@ function CorreoDesplegable({ casoId, correo, inicialAbierto }: { casoId: string;
                 className="block w-full border-0 bg-white"
                 style={{ height: alto }}
               />
+              )}
             </>
           )}
         </div>

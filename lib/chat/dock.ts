@@ -32,3 +32,40 @@ export function modoEfectivo(modo: ModoDelDock, anchoDeVentana: number): ModoDel
 
 /** Lo que el dock aparta a la página por la derecha (px): solo el lateral */
 export const anchoQueAparta = (modo: ModoDelDock, anchoDeVentana: number): number => (modoEfectivo(modo, anchoDeVentana) === 'lateral' ? ANCHO_LATERAL : 0)
+
+/* ---------- El tamaño de la ventana flotante: cada persona la hace del tamaño que quiera arrastrando el borde de la izquierda, el de arriba o la esquina (12 nov 2026) ---------- */
+
+export interface TamanoDelDock {
+  ancho: number
+  alto: number
+}
+
+export const TAMANO_POR_DEFECTO: TamanoDelDock = { ancho: 380, alto: 580 }
+export const TAMANO_MINIMO: TamanoDelDock = { ancho: 320, alto: 380 }
+export const CLAVE_DEL_TAMANO = 'chat:dock:tamano'
+/** Lo que se deja libre alrededor (el margen de 18 px a cada lado) */
+const AIRE = 36
+
+/** El tamaño dentro de lo posible: ni más pequeño que el mínimo ni más grande que la ventana (menos el margen) */
+export function limitarTamano(t: TamanoDelDock, ventana: TamanoDelDock): TamanoDelDock {
+  const recortar = (v: number, min: number, max: number) => Math.round(Math.min(Math.max(v, min), Math.max(min, max)))
+  return { ancho: recortar(t.ancho, TAMANO_MINIMO.ancho, ventana.ancho - AIRE), alto: recortar(t.alto, TAMANO_MINIMO.alto, ventana.alto - AIRE) }
+}
+
+/** Lo guardado en el navegador; lo roto vuelve al tamaño de siempre */
+export function leerTamano(texto: string | null | undefined): TamanoDelDock {
+  try {
+    const b = JSON.parse(texto ?? '') as Partial<TamanoDelDock>
+    const n = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : d)
+    return { ancho: n(b?.ancho, TAMANO_POR_DEFECTO.ancho), alto: n(b?.alto, TAMANO_POR_DEFECTO.alto) }
+  } catch {
+    return { ...TAMANO_POR_DEFECTO }
+  }
+}
+
+export type BordeDelDock = 'izquierda' | 'arriba' | 'esquina'
+
+/** El tamaño al arrastrar un borde: la ventana está pegada abajo a la derecha, así que crece hacia la izquierda y hacia arriba */
+export function tamanoAlArrastrar(inicio: TamanoDelDock, borde: BordeDelDock, dx: number, dy: number, ventana: TamanoDelDock): TamanoDelDock {
+  return limitarTamano({ ancho: borde === 'arriba' ? inicio.ancho : inicio.ancho - dx, alto: borde === 'izquierda' ? inicio.alto : inicio.alto - dy }, ventana)
+}
