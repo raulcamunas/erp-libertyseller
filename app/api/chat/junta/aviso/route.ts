@@ -5,8 +5,8 @@ import { conChat, cuerpoDe } from '@/lib/chat/rutas'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-/** «He entrado o salido de la sala de este canal»: el resto vuelve a leer quién está dentro. `{ canalId }` → `{ ok }` */
+/** «He entrado o salido de la sala de este canal»: el resto lo pinta al momento y vuelve a leer quién está dentro. `{ canalId, accion: 'entra' | 'sale' }` → `{ ok }` */
 export async function POST(request: NextRequest) {
   const c = await cuerpoDe(request)
-  return conChat((quien) => avisarDeCambioEnLaSala(quien, c.canalId))
+  return conChat((quien) => avisarDeCambioEnLaSala(quien, c.canalId, c.accion))
 }

@@ -43,6 +43,15 @@ const caducados = (e: Avisos): Avisos => {
   return cambia ? nuevo : e
 }
 
+/** Un aviso de junta tal como llega: en qué canal, quién, y si entra/sale o cambia el candado */
+export interface CambioDeJunta {
+  canalId: string
+  de: string
+  accion?: 'entra' | 'sale'
+  bloqueada?: boolean
+  en: number
+}
+
 export interface EstadoDeCanal {
   mensajes: MensajeChat[]
   hayMas: boolean
@@ -123,6 +132,8 @@ interface ContextoDeChat {
   descartarLlamada: () => void
   /** Sube cada vez que llega el aviso de una junta nueva: la pantalla de juntas relee las que hay abiertas */
   versionDeJuntas: number
+  /** El último aviso de una junta (quién entra o sale, el candado), para aplicarlo al momento */
+  cambioDeJunta: CambioDeJunta | null
   /** Qué se ve: un canal o una de las listas de la «bandeja» */
   vista: VistaDelChat
   abrirBandeja: (v: Exclude<VistaDelChat, 'canal'>) => void
@@ -203,6 +214,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
   const [respuestaDePuerta, setRespuestaDePuerta] = useState<{ canalId: string; estado: 'permitida' | 'denegada'; en: number } | null>(null)
   const descartarPuerta = useCallback((canalId: string, de: string) => setPuertas((p) => p.filter((x) => !(x.canalId === canalId && x.de === de))), [])
   const [versionDeJuntas, setVersionDeJuntas] = useState(0)
+  const [cambioDeJunta, setCambioDeJunta] = useState<CambioDeJunta | null>(null)
   const [vista, setVista] = useState<VistaDelChat>('canal')
   const [guardados, setGuardados] = useState<ReadonlySet<number>>(new Set())
   const [estadosDePersonas, setEstadosDePersonas] = useState<Record<string, EstadoChat>>({})
@@ -371,6 +383,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       }
       if (e.tipo === 'junta') {
         setVersionDeJuntas((v) => v + 1)
+        setCambioDeJunta({ canalId: e.canalId, de: e.de, accion: e.accion, bloqueada: e.bloqueada, en: Date.now() })
         if (e.estado === 'llama' && e.de !== yoRef.current) setLlamadaEntrante({ canalId: e.canalId, de: e.de, en: Date.now() })
         return
       }
@@ -857,6 +870,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       descartarPuerta,
       descartarLlamada: () => setLlamadaEntrante(null),
       versionDeJuntas,
+      cambioDeJunta,
       vista,
       abrirBandeja,
       irAMensaje,
@@ -876,7 +890,7 @@ export function ChatProvider({ canalInicial, children, sincronizarUrl = true }: 
       abrirAsistente,
       cerrarAsistente,
     }),
-    [puertas, respuestaDePuerta, descartarPuerta, enVoz, ponerVozDeLiveKit, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, quitar, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
+    [puertas, respuestaDePuerta, descartarPuerta, enVoz, ponerVozDeLiveKit, anunciarVoz, yo, personas, persona, nombreDe, canales, datos, error, actual, seleccionar, estado, marcaDeNuevos, cargarMas, grabando, avisarQuePara, hilo, mensajesDelHilo, abrirHilo, cerrarHilo, enviar, editar, borrar, reaccionar, crearCanal, abrirDirecto, unirse, salir, silenciar, anadir, quitar, cambiar, conectados, escribiendo, avisarQueEscribo, enVivo, cargarInicio, llamadaEntrante, versionDeJuntas, cambioDeJunta, vista, abrirBandeja, irAMensaje, objetivo, irAlFinal, guardados, guardar, fijar, estadoDe, ponerEstado, cambiarAvisos, votar, cerrarEncuesta, ponerZona, asistente, abrirAsistente, cerrarAsistente]
   )
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>

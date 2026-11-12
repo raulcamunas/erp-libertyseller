@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { RefreshCw, X } from 'lucide-react'
-import { hayJuntaConectada } from '@/lib/chat/dock-estado'
 import { PREGUNTAR_VERSION_CADA_MS, decidirAviso, idDeRespuesta } from '@/lib/sistema/version-cliente'
 
 const CLAVE_DESCARTADA = 'version:descartada'
@@ -12,7 +11,7 @@ const CLAVE_DESCARTADA = 'version:descartada'
  * (con ella a la vista, y al volver a ella o recuperar la red) cuál es la de ahora, y si es otra avisa: «Hay una versión nueva del ERP» con un botón para actualizar. La «x» lo quita para ESA versión; el
  * siguiente despliegue vuelve a avisar. Una vez visto que hay versión nueva no se vuelve atrás aunque, durante el reinicio, conteste un momento la antigua.
  *
- * Actualizar recarga la página; si hay una junta de voz conectada se pregunta antes, porque recargar la corta.
+ * Actualizar recarga la página. Si hay una junta de voz conectada, vuelve sola a ella al cargar (components/chat/JuntaProvider.tsx): ya no hace falta preguntar.
  */
 export function AvisoDeVersion({ idInicial }: { idInicial: string }) {
   const [nueva, setNueva] = useState<string | null>(null)
@@ -50,7 +49,6 @@ export function AvisoDeVersion({ idInicial }: { idInicial: string }) {
   if (!nueva) return null
 
   const actualizar = () => {
-    if (hayJuntaConectada() && !window.confirm('Estás en una junta de voz y al actualizar se cortará. ¿Actualizar ahora?')) return
     window.location.reload()
   }
   const descartar = () => {

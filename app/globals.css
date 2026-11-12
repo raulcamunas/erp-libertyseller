@@ -4667,9 +4667,11 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 .chat-selector { display: flex; flex-direction: column; gap: 8px; }
 .chat-selector-lista { max-height: 260px; overflow-y: auto; border-radius: 12px; border: 1px solid var(--ls-linea); }
 .chat-lista-corta { max-height: 170px; }
-.chat-selector-lista button, .chat-persona-fila { display: flex; width: 100%; align-items: center; gap: 10px; padding: 7px 12px; font-size: 13.5px; color: var(--ls-t1); }
-.chat-selector-lista button:hover:not(:disabled), .chat-selector-lista button[data-marcada='true'] { background: var(--ls-sup3); }
-.chat-selector-lista button:disabled { opacity: .55; }
+/* Solo el botón que ES la fila (li > button) ocupa todo el ancho; un botón DENTRO de una fila (la ✕ de «Quitar» en «En el canal») no: si no, se comía el sitio y el nombre desaparecía (12 nov 2026) */
+.chat-selector-lista > li > button, .chat-persona-fila { display: flex; width: 100%; align-items: center; gap: 10px; padding: 7px 12px; font-size: 13.5px; color: var(--ls-t1); }
+.chat-selector-lista > li > button:hover:not(:disabled), .chat-selector-lista > li > button[data-marcada='true'] { background: var(--ls-sup3); }
+.chat-selector-lista > li > button:disabled { opacity: .55; }
+.chat-persona-fila > .chat-hora-local, .chat-persona-fila > button { flex: none; }
 .chat-selector-lista .chat-persona-avatar[data-en-linea='true']::after { box-shadow: 0 0 0 2px var(--ls-sup); }
 .chat-fila-botones { display: flex; flex-wrap: wrap; gap: 8px; }
 .chat-boton-secundario { height: 32px; border-radius: 10px; border: 1px solid var(--ls-linea2); padding: 0 14px; font-size: 12.5px; font-weight: 600; color: var(--ls-t2); }

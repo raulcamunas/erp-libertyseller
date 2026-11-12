@@ -87,3 +87,58 @@ export function puedeEntrarASala(sala: { bloqueada: boolean; admitidos: readonly
   if (!sala.bloqueada || sala.dentro.length === 0) return true
   return sala.dentro.includes(userId) || sala.admitidos.includes(userId)
 }
+
+/* ---------- Al instante (12 nov 2026: «tiene que ir instantáneo») ---------- */
+
+/**
+ * UN CAMBIO EN UNA SALA QUE SE SABE ANTES DE QUE LIVEKIT LO CUENTE: alguien entra o sale, o se pone o quita el candado. Llega por el reparto en directo (evento `junta` con `accion` o `bloqueada`)
+ * y la pantalla lo aplica al momento; durante unos segundos se sigue aplicando ENCIMA de lo que diga el servidor, porque LiveKit tarda un poco en contarlo y una lectura a destiempo lo desharía
+ * (de ahí que a veces a uno le saliera y a otro no).
+ */
+export interface CambioDeSala {
+  canalId: string
+  /** Quién entra o sale */
+  persona?: string
+  accion?: 'entra' | 'sale'
+  bloqueada?: boolean
+  /** Cuándo se supo (ms) */
+  en: number
+}
+
+/** Cuánto manda un cambio recién sabido sobre lo que diga el servidor */
+export const VIDA_DE_UN_CAMBIO_MS = 6_000
+
+/** Las juntas con los cambios recientes aplicados encima (los viejos ya no cuentan). Una sala en la que ya no queda nadie desaparece */
+export function conCambiosRecientes(activas: Readonly<Record<string, JuntaActiva>>, cambios: readonly CambioDeSala[], ahora: number): Record<string, JuntaActiva> {
+  const salida: Record<string, JuntaActiva> = {}
+  for (const [k, v] of Object.entries(activas)) salida[k] = { ...v, personas: [...(v.personas ?? [])] }
+  for (const c of [...cambios].filter((x) => ahora - x.en < VIDA_DE_UN_CAMBIO_MS).sort((a, b) => a.en - b.en)) {
+    const sala = salida[c.canalId] ?? { canalId: c.canalId, participantes: 0, personas: [] }
+    let personas = sala.personas
+    if (c.persona && c.accion === 'entra' && !personas.includes(c.persona)) personas = [...personas, c.persona]
+    if (c.persona && c.accion === 'sale') personas = personas.filter((p) => p !== c.persona)
+    const nueva: JuntaActiva = { ...sala, personas, participantes: personas.length }
+    if (c.bloqueada !== undefined) {
+      if (c.bloqueada) nueva.bloqueada = true
+      else delete nueva.bloqueada
+    }
+    if (personas.length === 0) delete salida[c.canalId]
+    else salida[c.canalId] = nueva
+  }
+  return salida
+}
+
+/** Para volver a la junta tras una recarga (la de un despliegue al cambiar de pantalla, «Actualizar», un aviso que abre otra ruta): lo que se guarda en la pestaña al irse */
+export const CLAVE_DE_VUELTA = 'chat:junta-vuelta'
+/** Si la página tarda más que esto en volver, ya no se vuelve sola (era otra cosa: se cerró, se fue a otro sitio) */
+export const VUELTA_MAXIMA_MS = 45_000
+
+export function leerVuelta(texto: string | null | undefined, ahora: number): string | null {
+  try {
+    const v = JSON.parse(texto ?? '') as { canalId?: unknown; en?: unknown }
+    if (typeof v?.canalId !== 'string' || !v.canalId || typeof v.en !== 'number') return null
+    return ahora - v.en >= 0 && ahora - v.en <= VUELTA_MAXIMA_MS ? v.canalId : null
+  } catch {
+    return null
+  }
+}

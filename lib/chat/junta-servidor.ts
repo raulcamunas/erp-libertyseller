@@ -18,23 +18,50 @@ export function servicio(c: ConfiguracionDeJunta) {
   return new RoomServiceClient(c.urlHttp, c.clave, c.secreto)
 }
 
-/** Lo que LiveKit dice que hay ahora mismo, guardado diez segundos: todos los que tienen el chat abierto preguntan, y solo se pregunta una vez */
+/**
+ * Lo que LiveKit dice que hay ahora mismo, guardado unos segundos: todos los que tienen el chat abierto preguntan a la vez (al llegar un aviso), y solo se pregunta una vez.
+ * `generacion` sube cada vez que algo cambia (alguien entra o sale, el candado): una lectura que EMPEZÓ antes del cambio no se guarda, porque podría traer lo de antes y dejarlo
+ * guardado para todos (12 nov 2026: «a otro no le sale»). Las lecturas a la vez de la misma generación se comparten.
+ */
 let cacheActivas: { en: number; lista: Array<{ canalId: string; personas: string[]; bloqueada: boolean }> } | null = null
-const VIDA_DE_LA_CACHE_MS = 10_000
+let generacion = 0
+let enCurso: { generacion: number; promesa: Promise<Array<{ canalId: string; personas: string[]; bloqueada: boolean }>> } | null = null
+const VIDA_DE_LA_CACHE_MS = 4_000
 
-async function salasActivas(c: ConfiguracionDeJunta, forzar = false): Promise<Array<{ canalId: string; personas: string[]; bloqueada: boolean }>> {
-  if (!forzar && cacheActivas && Date.now() - cacheActivas.en < VIDA_DE_LA_CACHE_MS) return cacheActivas.lista
+function olvidarSalas() {
+  generacion += 1
+  cacheActivas = null
+  enCurso = null
+}
+
+async function salasActivas(c: ConfiguracionDeJunta): Promise<Array<{ canalId: string; personas: string[]; bloqueada: boolean }>> {
+  if (cacheActivas && Date.now() - cacheActivas.en < VIDA_DE_LA_CACHE_MS) return cacheActivas.lista
+  if (enCurso && enCurso.generacion === generacion) return enCurso.promesa
+  const gen = generacion
+  const promesa = leerSalas(c).then((lista) => {
+    if (gen === generacion) cacheActivas = { en: Date.now(), lista }
+    return lista
+  })
+  enCurso = { generacion: gen, promesa }
+  promesa.finally(() => {
+    if (enCurso?.promesa === promesa) enCurso = null
+  }).catch(() => undefined)
+  return promesa
+}
+
+async function leerSalas(c: ConfiguracionDeJunta): Promise<Array<{ canalId: string; personas: string[]; bloqueada: boolean }>> {
   const svc = servicio(c)
   const salas = (await svc.listRooms()).filter((r) => r.name.startsWith(PREFIJO_DE_SALA) && r.numParticipants > 0)
-  const lista: Array<{ canalId: string; personas: string[]; bloqueada: boolean }> = []
-  for (const r of salas) {
-    const canalId = canalDeSala(r.name)
-    if (!canalId) continue
-    const dentro = await svc.listParticipants(r.name)
-    lista.push({ canalId, personas: dentro.map((p) => p.identity), bloqueada: leerMetadatosDeSala(r.metadata).bloqueada })
-  }
-  cacheActivas = { en: Date.now(), lista }
-  return lista
+  // Las salas a la vez, no una detrás de otra
+  const lista = await Promise.all(
+    salas.map(async (r) => {
+      const canalId = canalDeSala(r.name)
+      if (!canalId) return null
+      const dentro = await svc.listParticipants(r.name)
+      return { canalId, personas: dentro.map((p) => p.identity), bloqueada: leerMetadatosDeSala(r.metadata).bloqueada }
+    })
+  )
+  return lista.filter((x): x is { canalId: string; personas: string[]; bloqueada: boolean } => x !== null)
 }
 
 /** Las juntas en curso en los canales que esta persona puede ver */
@@ -149,10 +176,16 @@ export async function ponerCandado(quien: QuienEscribe, canalId: unknown, bloque
   const [miembros, estado] = await Promise.all([exigirMiembro(quien, canal), estadoDeSala(c, sala)])
   if (!estado.dentro.includes(quien.userId)) throw new ErrorDeChat('Solo puede poner o quitar el candado quien está dentro de la sala.', 403)
   const nuevo = bloqueada === true
-  await servicio(c).updateRoomMetadata(sala, fusionarMetadatosDeSala(estado.metadatos, { bloqueada: nuevo, admitidos: [...new Set([...estado.dentro, ...estado.admitidos])].slice(0, 200) }))
-  cacheActivas = null
-  // Es el mismo aviso de «algo ha cambiado en la junta de este canal»: la pantalla vuelve a leer quién está y si tiene candado
-  void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala, estado: 'voz' })
+  // El aviso sale ANTES de tocar LiveKit, con el candado dentro: los demás lo ven al momento. Si LiveKit fallase, se avisa de nuevo con lo que hay
+  void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala, estado: 'voz', bloqueada: nuevo })
+  try {
+    await servicio(c).updateRoomMetadata(sala, fusionarMetadatosDeSala(estado.metadatos, { bloqueada: nuevo, admitidos: [...new Set([...estado.dentro, ...estado.admitidos])].slice(0, 200) }))
+  } catch (e) {
+    void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala, estado: 'voz', bloqueada: estado.bloqueada })
+    throw e
+  } finally {
+    olvidarSalas()
+  }
   return { bloqueada: nuevo }
 }
 
@@ -160,13 +193,15 @@ export async function ponerCandado(quien: QuienEscribe, canalId: unknown, bloque
  * «He entrado» o «he salido» de la sala de un canal: se olvida lo que se tenía guardado de LiveKit y se avisa a todos los del canal para que vuelvan a leer quién está dentro AHORA. Sin esto, solo se enteraban
  * de la primera entrada (la sala vacía) o por la presencia, que puede tardar o perderse: de ahí que uno viera a los dos dentro y el otro solo a uno.
  */
-export async function avisarDeCambioEnLaSala(quien: QuienEscribe, canalId: unknown): Promise<{ ok: true }> {
+export async function avisarDeCambioEnLaSala(quien: QuienEscribe, canalId: unknown, accion?: unknown): Promise<{ ok: true }> {
   const c = configuracion()
   if (!c) throw noDisponible()
   const canal = await canalDe(canalId)
   const miembros = await exigirMiembro(quien, canal)
-  cacheActivas = null
-  void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala: salaDe(canal.id), estado: 'voz' })
+  olvidarSalas()
+  // Con `accion`, los demás lo pintan al momento (quién entra o sale) sin esperar a que LiveKit lo cuente
+  const que = accion === 'entra' || accion === 'sale' ? accion : undefined
+  void emitir(miembros.map((m) => m.usuario_id), { tipo: 'junta', canalId: canal.id, de: quien.userId, sala: salaDe(canal.id), estado: 'voz', ...(que ? { accion: que } : {}) })
   return { ok: true }
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { DisconnectReason, Room, RoomEvent, ScreenSharePresets, Track, type LocalAudioTrack } from 'livekit-client'
+import { createLocalAudioTrack, DisconnectReason, Room, RoomEvent, ScreenSharePresets, Track, type LocalAudioTrack } from 'livekit-client'
 
 /**
  * LA PANTALLA COMPARTIDA, NÍTIDA (11 nov 2026: «no es de alta calidad»).
@@ -20,7 +20,7 @@ const PUBLICACION_DE_PANTALLA = {
 import { toast } from 'sonner'
 import { pedir } from '@/components/tareas-clientes/api'
 import { AJUSTES_DE_AUDIO_POR_DEFECTO, CLAVE_DE_AUDIO, CLAVE_DE_VOLUMENES, leerAjustesDeAudio, leerVolumenes, limitarVolumen, limpiarAjustesDeAudio, restriccionesDeMicro, volumenEfectivo, type AjustesDeAudio, type Volumenes } from '@/lib/chat/audio'
-import { leerMetadatosDeSala, MENSAJE_DE_SALA_CON_CANDADO, type JuntaActiva } from '@/lib/chat/junta'
+import { CLAVE_DE_VUELTA, conCambiosRecientes, leerMetadatosDeSala, leerVuelta, MENSAJE_DE_SALA_CON_CANDADO, VIDA_DE_UN_CAMBIO_MS, type CambioDeSala, type JuntaActiva } from '@/lib/chat/junta'
 import { ponerJuntaConectada } from '@/lib/chat/dock-estado'
 import { ponerSonidosDeVoz } from '@/lib/chat/sonidos-voz'
 import { AJUSTES_DE_VOZ_POR_DEFECTO, CLAVE_DE_VOZ, leerAjustesDeVoz, limpiarAjustesDeVoz, necesitaProcesador, type AjustesDeVoz } from '@/lib/chat/voz-ajustes'
@@ -103,15 +103,39 @@ const NO_VOLVER_POR = new Set<DisconnectReason | undefined>([DisconnectReason.CL
 
 const mensajeDe = (e: unknown, por: string) => (e instanceof Error && e.message ? e.message : por)
 
+/**
+ * AL INSTANTE (12 nov 2026, «tiene que ir instantáneo»):
+ *   · Al pulsar para entrar, tu presencia dice YA que estás en esa sala (los demás te ven sin esperar a la conexión), y el micrófono se pide a la vez que la llave y la conexión.
+ *   · Quien entra o sale avisa con `accion` y el candado viaja dentro del aviso: los demás lo pintan al momento y lo mantienen unos segundos encima de lo que diga el servidor
+ *     (conCambiosRecientes), porque LiveKit tarda un poco en contarlo y una lectura a destiempo lo deshacía.
+ *   · Las lecturas de las juntas que llegan tarde (empezaron antes que otra más nueva) se tiran.
+ *   · Si la página se recarga (tras un despliegue, Next recarga al cambiar de pantalla; «Actualizar»; un aviso que abre otra ruta), se vuelve sola a la misma junta.
+ */
 export function JuntaProvider({ children }: { children: ReactNode }) {
-  const { versionDeJuntas, anunciarVoz, ponerVozDeLiveKit, respuestaDePuerta } = useChat()
+  const { cambioDeJunta, anunciarVoz, ponerVozDeLiveKit, respuestaDePuerta, yo } = useChat()
   const [disponible, setDisponible] = useState(false)
-  const [activas, setActivas] = useState<Record<string, JuntaActiva>>({})
+  // Lo que dice el servidor, y los cambios recién sabidos que se aplican encima
+  const [activasDelServidor, setActivasDelServidor] = useState<Record<string, JuntaActiva>>({})
+  const [cambios, setCambios] = useState<CambioDeSala[]>([])
+  const [reloj, setReloj] = useState(0)
+  const activas = useMemo(
+    () => conCambiosRecientes(activasDelServidor, cambios, Date.now()),
+    // `reloj` sube cuando un cambio caduca: se recalcula sin él
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activasDelServidor, cambios, reloj]
+  )
+  const apuntarCambio = useCallback((c: Omit<CambioDeSala, 'en'>) => {
+    const en = Date.now()
+    setCambios((l) => [...l.filter((x) => en - x.en < VIDA_DE_UN_CAMBIO_MS), { ...c, en }])
+    setTimeout(() => setReloj((n) => n + 1), VIDA_DE_UN_CAMBIO_MS + 50)
+  }, [])
   const [actual, setActual] = useState<ContextoDeJunta['actual']>(null)
   const [version, setVersion] = useState(0)
   const room = useRef<Room | null>(null)
   const audios = useRef<HTMLDivElement>(null)
   const conectando = useRef(false)
+  const yoId = useRef(yo.id)
+  yoId.current = yo.id
   const bump = useCallback(() => setVersion((v) => v + 1), [])
 
   // Lo que decides para ti (se guarda en este navegador): el audio y cuánto oyes a cada persona
@@ -241,11 +265,15 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     [aplicarVozAlMicro]
   )
 
+  // Cada lectura lleva su número: si llega después otra que empezó antes, se tira (traería lo de antes)
+  const ultimaLectura = useRef(0)
   const leerActivas = useCallback(async () => {
+    const n = ++ultimaLectura.current
     try {
       const r = await pedir<{ disponible: boolean; activas: JuntaActiva[] }>(`${BASE}/junta`)
+      if (n !== ultimaLectura.current) return
       setDisponible(r.disponible)
-      setActivas(Object.fromEntries(r.activas.map((a) => [a.canalId, a])))
+      setActivasDelServidor(Object.fromEntries(r.activas.map((a) => [a.canalId, a])))
     } catch {
       /* sin red: se queda lo que había */
     }
@@ -258,17 +286,25 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     }, RELEER_JUNTAS_MS)
     return () => clearInterval(t)
   }, [leerActivas])
+  // Un aviso de junta: si dice quién entra o sale o cómo queda el candado, se pinta YA y se relee un poco después (cuando LiveKit ya lo cuenta); si no, se relee ahora
   useEffect(() => {
-    if (versionDeJuntas > 0) void leerActivas()
-  }, [versionDeJuntas, leerActivas])
+    if (!cambioDeJunta) return
+    const { canalId, de, accion, bloqueada } = cambioDeJunta
+    if (accion || bloqueada !== undefined) {
+      apuntarCambio({ canalId, ...(accion ? { persona: de, accion } : {}), ...(bloqueada !== undefined ? { bloqueada } : {}) })
+      const t = setTimeout(() => void leerActivas(), 1500)
+      return () => clearTimeout(t)
+    }
+    void leerActivas()
+  }, [cambioDeJunta, leerActivas, apuntarCambio])
   // Lo que ve LiveKit se lo pasa al chat, que lo suma a la presencia (quién está en cada sala y quién cuenta como conectado)
   useEffect(() => {
     ponerVozDeLiveKit(Object.fromEntries(Object.values(activas).map((a) => [a.canalId, a.personas ?? []])))
   }, [activas, ponerVozDeLiveKit])
   // Al entrar o salir de una sala se avisa al servidor, que lo reparte a los del canal para que lo vean al momento
   const canalDeLaSala = useRef<string | null>(null)
-  const avisarDeLaSala = useCallback((canalId: string) => {
-    void pedir(`${BASE}/junta/aviso`, { metodo: 'POST', cuerpo: { canalId } }).catch(() => undefined)
+  const avisarDeLaSala = useCallback((canalId: string, accion: 'entra' | 'sale') => {
+    void pedir(`${BASE}/junta/aviso`, { metodo: 'POST', cuerpo: { canalId, accion } }).catch(() => undefined)
   }, [])
 
   const limpiar = useCallback(() => {
@@ -277,11 +313,12 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     conectando.current = false
     const salida = canalDeLaSala.current
     canalDeLaSala.current = null
-    if (salida) setTimeout(() => avisarDeLaSala(salida), 700)
+    if (salida) apuntarCambio({ canalId: salida, persona: yoId.current, accion: 'sale' })
     if (r) {
       r.removeAllListeners()
-      void r.disconnect()
-    }
+      // Se avisa en cuanto LiveKit ha soltado la conexión (los demás lo pintan al momento con `accion`)
+      void r.disconnect().finally(() => salida && avisarDeLaSala(salida, 'sale'))
+    } else if (salida) avisarDeLaSala(salida, 'sale')
     procesadorRef.current = null
     audios.current?.replaceChildren()
     ensordecidoRef.current = false
@@ -289,8 +326,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
     anunciarVoz(null)
     setActual(null)
     bump()
-    void leerActivas()
-  }, [anunciarVoz, avisarDeLaSala, bump, leerActivas])
+  }, [anunciarVoz, avisarDeLaSala, apuntarCambio, bump])
 
   // Salir a propósito: no se vuelve sola, y la ventana grande se cierra
   const salir = useCallback(() => {
@@ -307,6 +343,14 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
       if (room.current) limpiar()
       conectando.current = true
       setActual({ canalId, estado: 'conectando' })
+      // Los demás te ven YA en la sala (la presencia viaja en milisegundos); si no se llega a entrar, se deshace
+      anunciarVoz(canalId)
+      // El micrófono se pide A LA VEZ que la llave y la conexión, no después: es lo que más tardaba en notarse
+      let micro: LocalAudioTrack | null = null
+      const pidiendoMicro = createLocalAudioTrack(restriccionesDeMicro(audioRef.current))
+        .then((t) => (micro = t))
+        .catch(() => null)
+      const soltarMicro = () => void pidiendoMicro.then((t) => t?.stop())
       try {
         const llave = await pedir<{ token: string; url: string }>(`${BASE}/junta`, { metodo: 'POST', cuerpo: { canalId } })
         // `pixelDensity: 'screen'`: la calidad que se pide de cada vídeo va por los píxeles REALES del recuadro. Con el valor por defecto (1), en una pantalla Retina se
@@ -341,22 +385,39 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
             if (volverA.current === canalAlQueVolver && !room.current) void entrarRef.current(canalAlQueVolver)
           }, 1500 * intentosDeVuelta.current)
         })
+        // El navegador no deja sonar hasta que se toca la página (pasa al volver solo tras una recarga): se ofrece un botón para oír a los demás
+        nueva.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+          if (nueva.canPlaybackAudio) toast.dismiss('junta-audio')
+          else toast.message('El navegador ha silenciado la junta', { id: 'junta-audio', duration: Infinity, action: { label: 'Activar el sonido', onClick: () => void nueva.startAudio() } })
+        })
         await nueva.connect(llave.url, llave.token)
-        if (room.current !== nueva) return
+        if (room.current !== nueva) {
+          soltarMicro()
+          return
+        }
         volverA.current = canalId
         intentosDeVuelta.current = 0
         setActual({ canalId, estado: 'conectada' })
         anunciarVoz(canalId)
         canalDeLaSala.current = canalId
-        avisarDeLaSala(canalId)
+        apuntarCambio({ canalId, persona: yoId.current, accion: 'entra' })
+        avisarDeLaSala(canalId, 'entra')
         try {
-          await nueva.localParticipant.setMicrophoneEnabled(true)
+          const pista = (await pidiendoMicro) ?? micro
+          if (room.current !== nueva) {
+            pista?.stop()
+            return
+          }
+          if (pista) await nueva.localParticipant.publishTrack(pista, { source: Track.Source.Microphone })
+          else await nueva.localParticipant.setMicrophoneEnabled(true)
           await aplicarVozAlMicro()
         } catch {
           toast.error('No se ha podido activar el micrófono: mira el permiso del navegador. Entras escuchando.')
         }
         bump()
       } catch (e) {
+        soltarMicro()
+        anunciarVoz(null)
         if (room.current) {
           room.current.removeAllListeners()
           void room.current.disconnect()
@@ -381,7 +442,7 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
         conectando.current = false
       }
     },
-    [actual?.canalId, anunciarVoz, avisarDeLaSala, aplicarVozAlMicro, bump, limpiar]
+    [actual?.canalId, anunciarVoz, avisarDeLaSala, apuntarCambio, aplicarVozAlMicro, bump, limpiar]
   )
   entrarRef.current = entrar
 
@@ -476,11 +537,42 @@ export function JuntaProvider({ children }: { children: ReactNode }) {
   }, [])
   useEffect(() => {
     const alCerrar = () => {
+      // Si la página se va estando en una junta (una recarga, una navegación completa), se apunta en la pestaña para volver sola al cargar. Al cerrar la pestaña, la pestaña se lleva la nota
+      const canal = room.current && volverA.current
+      try {
+        if (canal) window.sessionStorage.setItem(CLAVE_DE_VUELTA, JSON.stringify({ canalId: canal, en: Date.now() }))
+      } catch {
+        /* sin almacenamiento: no se vuelve sola */
+      }
       volverA.current = null
       void room.current?.disconnect()
     }
     window.addEventListener('pagehide', alCerrar)
     return () => window.removeEventListener('pagehide', alCerrar)
+  }, [])
+  // Al cargar: si se estaba en una junta hace nada (la página se ha recargado), se vuelve a ella
+  useEffect(() => {
+    let canal: string | null = null
+    try {
+      canal = leerVuelta(window.sessionStorage.getItem(CLAVE_DE_VUELTA), Date.now())
+    } catch {
+      canal = null
+    }
+    if (!canal) return
+    const id = canal
+    const t = setTimeout(() => {
+      // La nota se borra al usarla (no antes: en desarrollo React monta dos veces y se perdía)
+      try {
+        window.sessionStorage.removeItem(CLAVE_DE_VUELTA)
+      } catch {
+        /* nada */
+      }
+      if (!room.current) {
+        volverA.current = id
+        void entrarRef.current(id)
+      }
+    }, 300)
+    return () => clearTimeout(t)
   }, [])
 
   // Lo que cada persona ha decidido de los sonidos de la junta (si suenan y por qué altavoz)

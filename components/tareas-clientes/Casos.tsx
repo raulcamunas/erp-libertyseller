@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, ChevronRight, Copy, Inbox, Loader2, Mail, MailOpen, Paperclip, Plus, Settings2, ShieldCheck, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Inbox, Loader2, Mail, MailOpen, Paperclip, Plus, Settings2, ShieldCheck, Trash2, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ESTADOS_DE_CASO, normalizarIdDeCaso, type CasoTC, type EstadoDeCaso } from '@/lib/tareas-clientes/casos'
 import { nombreDelRemitente } from '@/lib/tareas-clientes/correo-esencial'
@@ -378,6 +378,39 @@ function FilaDeCaso({ caso, indice, personas, abierto, resaltado, onAlternar, on
                 className={`${CAMPO} h-auto resize-y py-1.5`}
               />
             </label>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ls-t4)]">Estado</span>
+              <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Estado del caso">
+                {ESTADOS_DE_CASO.map((x) => {
+                  const activo = x.id === caso.estado
+                  const t = TONO[x.tono]
+                  return (
+                    <button
+                      key={x.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={activo}
+                      onClick={() => !activo && onCambiar({ estado: x.id })}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border px-2 text-[11.5px] font-medium transition-colors"
+                      style={activo ? { color: t, borderColor: `color-mix(in srgb, ${t} 45%, transparent)`, background: `color-mix(in srgb, ${t} 14%, transparent)` } : { color: 'var(--ls-t3)', borderColor: 'var(--ls-linea)' }}
+                    >
+                      <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: t }} />
+                      <span className="whitespace-nowrap">{x.nombre}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              {caso.estado !== 'resuelto' ? (
+                <button type="button" onClick={() => onCambiar({ estado: 'resuelto' })} className="mt-1 inline-flex h-8 items-center justify-center gap-1.5 rounded-[8px] text-[12px] font-semibold transition-[filter] hover:brightness-110" style={{ color: '#fff', background: TONO.verde }}>
+                  <Check className="h-3.5 w-3.5" /> Marcar como completado
+                </button>
+              ) : (
+                <button type="button" onClick={() => onCambiar({ estado: 'abierto' })} className="mt-1 inline-flex h-8 items-center justify-center gap-1.5 rounded-[8px] border border-[var(--ls-linea2)] text-[12px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">
+                  Reabrir el caso
+                </button>
+              )}
+              <span className="text-[10.5px] leading-snug text-[var(--ls-t4)]">Cuando llega un correo nuevo de Amazon, «Esperando a Amazon» pasa sola a «Abierto».</span>
+            </div>
             <p className="text-[11px] text-[var(--ls-t4)]">Alta {haceCuanto(caso.creadoEn)} · cambiado {haceCuanto(caso.actualizadoEn)}</p>
             <button type="button" onClick={onBorrar} className="inline-flex items-center gap-1.5 self-start text-[11.5px] text-[var(--ls-t4)] hover:text-[var(--tc-red)]"><Trash2 className="h-3 w-3" /> Borrar el caso</button>
           </div>
@@ -403,7 +436,7 @@ function SelectorDeEstado({ estado, onElegir }: { estado: EstadoDeCaso; onElegir
     <Popover open={abierto} onOpenChange={setAbierto}>
       <PopoverTrigger asChild>
         <button type="button" className="inline-flex h-[24px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-semibold" style={{ color: tono, background: `color-mix(in srgb, ${tono} 14%, transparent)` }}>
-          <span className="h-[6px] w-[6px] rounded-full" style={{ background: tono }} /> {nombreDe(estado)}
+          <span className="h-[6px] w-[6px] rounded-full" style={{ background: tono }} /> {nombreDe(estado)} <ChevronDown className="h-3 w-3 opacity-70" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="!w-[210px] !rounded-[10px] !border-[var(--ls-linea2)] !bg-[var(--ls-sup)] !p-1.5 !text-[var(--ls-t1)] shadow-[0_14px_40px_rgba(0,0,0,0.35)]">

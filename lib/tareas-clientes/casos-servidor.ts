@@ -10,7 +10,7 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { publicarEnCanal } from '@/lib/chat/sistema-servidor'
-import { avisoDeCorreo, buzonVigilado, casosDelCorreo, esEstadoDeCaso, nombraElCaso, normalizarIdDeCaso, ordenarCasos, type CasoTC, type CorreoDeCaso, type EstadoDeCaso } from './casos'
+import { avisoDeCorreo, buzonVigilado, casosDelCorreo, esEstadoDeCaso, estadoTrasCorreoDeAmazon, nombraElCaso, normalizarIdDeCaso, ordenarCasos, type CasoTC, type CorreoDeCaso, type EstadoDeCaso } from './casos'
 import { asuntoLimpio, correoEsencial, nombreDelRemitente } from './correo-esencial'
 import { ErrorDeTareas } from './servidor'
 
@@ -289,9 +289,9 @@ export async function enlazarCorreosNuevos(service: Servicio, buzon: { id: strin
       .limit(200)
     const mensajes = (nuevos ?? []) as Array<{ id: string; asunto: string | null; texto: string | null; de_nombre: string | null; de_direccion: string | null; fecha: string; vista_previa: string | null }>
     if (mensajes.length === 0) return 0
-    const { data: filas, error } = await service.from('tc_casos').select('id, cliente_id, caso_amazon, titulo, tc_clientes(nombre)')
+    const { data: filas, error } = await service.from('tc_casos').select('id, cliente_id, caso_amazon, titulo, estado, tc_clientes(nombre)')
     if (error) return 0 // sin la migración 302 no hay casos que enlazar
-    const casos = ((filas ?? []) as unknown as Array<{ id: string; cliente_id: string; caso_amazon: string; titulo: string; tc_clientes: { nombre: string } | null }>).map((c) => ({ ...c, casoAmazon: c.caso_amazon }))
+    const casos = ((filas ?? []) as unknown as Array<{ id: string; cliente_id: string; caso_amazon: string; titulo: string; estado: EstadoDeCaso; tc_clientes: { nombre: string } | null }>).map((c) => ({ ...c, casoAmazon: c.caso_amazon }))
     if (casos.length === 0) return 0
 
     const canalId = await canalDeAvisos(service)
@@ -302,7 +302,10 @@ export async function enlazarCorreosNuevos(service: Servicio, buzon: { id: strin
         const { data: nueva } = await service.from('tc_casos_correos').upsert({ caso_id: caso.id, mensaje_id: m.id }, { onConflict: 'caso_id,mensaje_id', ignoreDuplicates: true }).select('caso_id')
         if (!nueva || nueva.length === 0) continue
         enlazados += 1
-        await service.from('tc_casos').update({ ultimo_correo_en: m.fecha }).eq('id', caso.id)
+        // Amazon ha contestado: si se le estaba esperando (o el caso estaba completado), pasa a «Abierto», que nos toca
+        const estado = estadoTrasCorreoDeAmazon(caso.estado)
+        await service.from('tc_casos').update({ ultimo_correo_en: m.fecha, ...(estado !== caso.estado ? { estado, actualizado_en: new Date().toISOString() } : {}) }).eq('id', caso.id)
+        caso.estado = estado
         if (!canalId) continue
         const cliente = caso.tc_clientes?.nombre ?? 'Cliente'
         await publicarEnCanal(canalId, {

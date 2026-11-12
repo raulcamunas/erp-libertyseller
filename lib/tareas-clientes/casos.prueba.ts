@@ -1,4 +1,4 @@
-import { avisoDeCorreo, buzonVigilado, casosDelCorreo, nombraElCaso, normalizarIdDeCaso, ordenarCasos } from './casos'
+import { avisoDeCorreo, buzonVigilado, casosDelCorreo, estadoTrasCorreoDeAmazon, nombraElCaso, normalizarIdDeCaso, ordenarCasos } from './casos'
 
 let fallos = 0
 const ok = (n: string, bien: boolean) => {
@@ -39,6 +39,10 @@ ok('abiertos primero, con el correo más reciente arriba; resueltos al final', o
 
 const aviso = avisoDeCorreo({ cliente: 'Creative Toys', casoAmazon: '17123456781' })
 ok('el aviso es una línea: cliente, caso y «ha llegado un correo»', aviso === '📨 **Creative Toys · caso 17123456781**: ha llegado un correo')
+
+ok('si se esperaba a Amazon y responde, pasa a abierto (nos toca)', estadoTrasCorreoDeAmazon('esperando_amazon') === 'abierto')
+ok('si estaba completado y Amazon vuelve a escribir, se reabre', estadoTrasCorreoDeAmazon('resuelto') === 'abierto')
+ok('abierto y esperando al cliente no cambian', estadoTrasCorreoDeAmazon('abierto') === 'abierto' && estadoTrasCorreoDeAmazon('esperando_cliente') === 'esperando_cliente')
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
 if (fallos > 0) process.exit(1)

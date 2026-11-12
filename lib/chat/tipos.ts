@@ -111,7 +111,7 @@ export type EventoDeChat =
   /** Alguien ha cambiado su estado (null = lo ha quitado) */
   | { tipo: 'estado'; usuario: string; estado: EstadoChat | null }
   /** Alguien ha abierto una junta en este canal */
-  | { tipo: 'junta'; canalId: string; de: string; sala: string; estado: 'llama' | 'voz' }
+  | { tipo: 'junta'; canalId: string; de: string; sala: string; estado: 'llama' | 'voz'; /** `de` acaba de entrar o salir (se aplica al momento, sin esperar a LiveKit) */ accion?: 'entra' | 'sale'; /** El candado acaba de ponerse o quitarse */ bloqueada?: boolean }
   /** Alguien llama a la puerta de una sala de voz con candado (`toca`, le llega a quien está dentro), le dejan o no entrar (`permitida`/`denegada`, le llega a quien llamó) o ya está resuelto (`resuelta`, para que se cierre el aviso de los demás) */
   | { tipo: 'puerta'; canalId: string; de: string; estado: 'toca' | 'permitida' | 'denegada' | 'resuelta' }
 

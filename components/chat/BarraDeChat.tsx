@@ -26,7 +26,7 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
   const { enVoz = {}, canales, actual, seleccionar, yo, persona, nombreDe, conectados, enVivo, vista, abrirBandeja, estadoDe } = useChat()
   const [estadoAbierto, setEstadoAbierto] = useState(false)
   const [dialogo, setDialogo] = useState<'canal' | 'directo' | 'voz' | null>(null)
-  const { disponible: hayJuntas, actual: enSala, activas, entrar, salir, alternarMicro, room, version, ponerVistaGrande } = useJunta()
+  const { disponible: hayJuntas, actual: enSala, entrar, salir, alternarMicro, room, version, ponerVistaGrande, bloqueada } = useJunta()
   void version
   const [abiertosVisibles, setAbiertosVisibles] = useState(false)
   const [apariencia, setApariencia] = useState(false)
@@ -106,7 +106,7 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
                     >
                       <Volume2 className="h-3.5 w-3.5 shrink-0" />
                       <span className="chat-fila-nombre">{c.nombre}</span>
-                      {activas[c.id]?.bloqueada && <Lock className="h-3 w-3 shrink-0 text-[var(--ls-t3)]" aria-label="Sala con candado" />}
+                      {bloqueada(c.id) && <Lock className="h-3 w-3 shrink-0 text-[var(--ls-t3)]" aria-label="Sala con candado" />}
                       {dentro.length > 0 && <span className="chat-voz-cuenta">{dentro.length}</span>}
                     </button>
                     {dentro.length > 0 && (

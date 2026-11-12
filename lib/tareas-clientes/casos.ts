@@ -12,8 +12,16 @@ export const ESTADOS_DE_CASO: ReadonlyArray<{ id: EstadoDeCaso; nombre: string; 
   { id: 'abierto', nombre: 'Abierto', tono: 'azul' },
   { id: 'esperando_amazon', nombre: 'Esperando a Amazon', tono: 'ambar' },
   { id: 'esperando_cliente', nombre: 'Esperando al cliente', tono: 'violeta' },
-  { id: 'resuelto', nombre: 'Resuelto', tono: 'verde' },
+  { id: 'resuelto', nombre: 'Completado', tono: 'verde' },
 ]
+
+/**
+ * Lo que pasa con el estado cuando llega un correo NUEVO de Amazon al caso (12 nov 2026: «ya ha respondido» y seguía en «Esperando a Amazon»): si se le estaba esperando, o el caso
+ * estaba completado y Amazon vuelve a escribir, pasa a «Abierto» (nos toca a nosotros). Si se espera al cliente, sigue igual: lo de Amazon no cambia eso.
+ */
+export function estadoTrasCorreoDeAmazon(estado: EstadoDeCaso): EstadoDeCaso {
+  return estado === 'esperando_amazon' || estado === 'resuelto' ? 'abierto' : estado
+}
 
 export const esEstadoDeCaso = (v: unknown): v is EstadoDeCaso => ESTADOS_DE_CASO.some((e) => e.id === v)
 
