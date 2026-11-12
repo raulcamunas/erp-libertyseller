@@ -3,7 +3,7 @@
 import { Loader2, MessageCircle, Sparkles, Undo2 } from 'lucide-react'
 import { BOTON } from '@/lib/estilo/denso'
 import { SUGERENCIAS_DE_CAMBIO_DE_WHATSAPP } from '@/lib/whatsapp/ia-cliente'
-import { AYUDA_DE_SITUACION, type SituacionDeWhatsapp } from '@/lib/whatsapp/mensajes'
+import { abreOtraPestana, AYUDA_DE_SITUACION, type SituacionDeWhatsapp } from '@/lib/whatsapp/mensajes'
 import type { BorradorDeWhatsapp } from './useBorradorDeWhatsapp'
 
 /**
@@ -110,7 +110,8 @@ export function RedactorDeWhatsapp({ borrador: b, situacion, enlaceDe, alEnviar 
       ) : (
         <a
           href={enlaceDe(b.listo)}
-          target="_blank"
+          // La web, en otra pestaña; la aplicación de escritorio (`whatsapp://`), en la misma: la recoge la aplicación y no deja una pestaña en blanco
+          target={abreOtraPestana(enlaceDe(b.listo)) ? '_blank' : undefined}
           rel="noopener noreferrer"
           onClick={() => alEnviar(b.listo)}
           // El clic con la rueda también abre el enlace (en otra pestaña) y también tiene que quedar apuntado

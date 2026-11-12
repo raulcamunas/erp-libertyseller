@@ -50,7 +50,7 @@ import { useBorradorDeWhatsapp } from './useBorradorDeWhatsapp'
 const CLAVE_DE_VIA = 'coldcalling.whatsapp.via'
 const esUnMovil = () => typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
-/** Cómo se abre WhatsApp en este navegador: WhatsApp Web en un ordenador (lo habitual), `wa.me` en un móvil. Se recuerda lo que se elige */
+/** Cómo se abre WhatsApp en este navegador: WhatsApp Web en un ordenador (lo habitual), la aplicación de escritorio si la tiene, `wa.me` en un móvil. Se recuerda lo que se elige */
 function useViaDeWhatsapp(): [ViaDeWhatsapp, (v: ViaDeWhatsapp) => void] {
   const [via, setViaEstado] = useState<ViaDeWhatsapp>('web')
   useEffect(() => {
@@ -304,11 +304,18 @@ export function BotonDeWhatsapp({ lead, telefonos, currentUser }: Props) {
           </div>
 
           <div className="space-y-2 border-t border-[var(--ls-linea)] p-2.5">
+            {via === 'escritorio' && (
+              <p className="text-[11px] leading-snug text-[var(--ls-t4)]">
+                Necesita la aplicación de WhatsApp para Windows (Microsoft Store) o Mac instalada y con tu cuenta. La primera vez el navegador pregunta si abrir WhatsApp: marca «Permitir
+                siempre». Si no se abre nada, vuelve a «WhatsApp Web».
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] font-semibold text-[var(--ls-t4)]">Abrir con</span>
               <div className="flex gap-0.5 rounded-[7px] bg-[var(--ls-sup2)] p-0.5" role="group" aria-label="Con qué se abre WhatsApp">
-                {segmentoDeVia('web', 'WhatsApp Web', 'Abre el chat directamente en WhatsApp Web (lo normal en un ordenador)')}
-                {segmentoDeVia('app', 'App o móvil', 'Abre el enlace de WhatsApp: lo recoge la aplicación de escritorio o el móvil')}
+                {segmentoDeVia('web', 'WhatsApp Web', 'Abre el chat en WhatsApp Web, en otra pestaña (lo de siempre en un ordenador)')}
+                {segmentoDeVia('escritorio', 'Aplicación', 'Abre el chat al momento en la aplicación de WhatsApp para Windows o Mac, sin abrir pestañas. Hay que tenerla instalada')}
+                {segmentoDeVia('app', 'Móvil', 'Abre el enlace wa.me: lo recoge WhatsApp del teléfono')}
               </div>
               <button
                 type="button"
