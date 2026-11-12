@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, BellRing, FileText, Loader2, Plus, Send } from 'lucide-react'
 import { BOTON, CAMPO, TEXTO, TIPO } from '@/lib/estilo/denso'
-import { esPlantillaDeRecordatorio, PLANTILLA_RECORDATORIO } from '@/lib/facturacion/logica'
+import { esPlantillaDeRecordatorio, PLANTILLA_RECORDATORIO, textoAntesDeVencer } from '@/lib/facturacion/logica'
 import type { CorreoPreparado, FacturaPendiente } from '@/lib/facturacion/tipos'
 import { Aviso, Dialogo, dinero, EditorCorreo, fechaCorta, pedir, type ManejoEditor } from './comun'
 
@@ -18,6 +18,11 @@ const CLASE_AREA = `${CAMPO.input} h-auto py-1`
  * aquí con un clic y después se retoca allí como cualquier otra.
  */
 export function DialogoRecordatorio({ factura, onCerrar, onHecho }: { factura: FacturaPendiente; onCerrar: () => void; onHecho: () => void }) {
+  /** Se puede recordar antes de que venza (a los 2 o 3 días de mandarla): entonces el texto no dice «venció» */
+  const vencida = factura.diasVencida > 0
+  const venceHoy = !vencida && factura.vence?.slice(0, 10) === new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })
+  /** Antes de vencer y con una plantilla retocada en Zoho que no se ha podido adaptar sola: hay que repasar el texto */
+  const [repasarTexto, setRepasarTexto] = useState(false)
   const [correo, setCorreo] = useState<CorreoPreparado | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -39,7 +44,14 @@ export function DialogoRecordatorio({ factura, onCerrar, onHecho }: { factura: F
         const q = new URLSearchParams({ id: factura.id, recordatorio: '1' })
         if (plantilla) q.set('plantilla', plantilla)
         const { correo: c } = await pedir<{ correo: CorreoPreparado }>(`/api/facturacion/correo?${q}`)
-        setCorreo(c)
+        if (vencida) {
+          setCorreo(c)
+          setRepasarTexto(false)
+        } else {
+          const adaptado = textoAntesDeVencer(c.cuerpo, venceHoy)
+          setCorreo({ ...c, cuerpo: adaptado.html })
+          setRepasarTexto(!adaptado.cambiado && /venci[oó]|no nos consta/i.test(c.cuerpo))
+        }
         setPlantillaId(c.plantillaId)
         setAsunto(c.asunto)
         setElegidos((actuales) => {
@@ -56,7 +68,7 @@ export function DialogoRecordatorio({ factura, onCerrar, onHecho }: { factura: F
         setCargando(false)
       }
     },
-    [factura.id]
+    [factura.id, vencida, venceHoy]
   )
 
   useEffect(() => {
@@ -150,13 +162,19 @@ export function DialogoRecordatorio({ factura, onCerrar, onHecho }: { factura: F
             <div className={`rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2.5 py-2 ${TIPO.s} ${TEXTO.t2}`}>
               <div className={`font-semibold ${TEXTO.t1}`}>{factura.numero}</div>
               <div>
-                {dinero(factura.saldo, factura.moneda)} sin pagar · venció el {fechaCorta(factura.vence)}
+                {dinero(factura.saldo, factura.moneda)} sin pagar · {vencida ? 'venció' : venceHoy ? 'vence hoy,' : 'vence'} el {fechaCorta(factura.vence)}
               </div>
               <div>
-                {factura.diasLaborables} {factura.diasLaborables === 1 ? 'día laborable' : 'días laborables'} de retraso
+                {vencida ? `${factura.diasLaborables} ${factura.diasLaborables === 1 ? 'día laborable' : 'días laborables'} de retraso` : 'Aún en plazo'}
                 {factura.ultimoRecordatorio ? ` · último recordatorio el ${fechaCorta(factura.ultimoRecordatorio)}` : ' · ningún recordatorio todavía'}
               </div>
             </div>
+
+            {repasarTexto && (
+              <Aviso tono="ambar" icono={AlertTriangle}>
+                Esta factura aún no ha vencido y el texto de la plantilla habla de un pago que no ha llegado. Repásalo a la derecha antes de mandarlo.
+              </Aviso>
+            )}
 
             <div className={CAMPO.contenedor}>
               <label className={CAMPO.etiqueta}>Plantilla</label>

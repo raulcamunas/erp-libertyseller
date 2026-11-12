@@ -286,6 +286,25 @@ export const PLANTILLA_RECORDATORIO = {
     '</tbody></table></div>',
 }
 
+/**
+ * EL RECORDATORIO DE UNA FACTURA QUE AÚN NO HA VENCIDO.
+ *
+ * Se puede recordar cualquier factura sin cobrar, también a los 2 o 3 días de mandarla y antes de que venza. Pero la plantilla dice «venció el
+ * … y todavía no nos consta el pago», y eso a un cliente que aún está en plazo le suena a reproche. Sobre el correo ya rellenado por Zoho se
+ * cambian esas dos frases de la plantilla de fábrica. Si la plantilla se ha retocado en Zoho y no aparecen, `cambiado` es falso y la pantalla
+ * avisa de que se repase el texto antes de mandarlo.
+ */
+export function textoAntesDeVencer(html: string, venceHoy: boolean): { html: string; cambiado: boolean } {
+  let cambiado = false
+  const salida = html
+    .replace(/venció el(\s*)<(b|strong)>([^<]*)<\/\2>\s*y todavía no nos consta el pago\./i, (_m, esp: string, tag: string, fecha: string) => {
+      cambiado = true
+      return venceHoy ? `vence hoy, <${tag}>${fecha}</${tag}>, y te la recordamos por si se te ha pasado.` : `vence el${esp}<${tag}>${fecha}</${tag}> y te la recordamos para que la tengas a mano.`
+    })
+    .replace(/>(\s*)Venció el(\s*)</, (_m, a: string, b: string) => `>${a}Vence el${b}<`)
+  return { html: salida, cambiado }
+}
+
 export function avisosDeFila(args: {
   totalTesoreria: number
   cobradoEnTesoreria: boolean

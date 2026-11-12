@@ -270,18 +270,17 @@ export function PestanaCobros({
                             {dinero(f.saldo, f.moneda)}
                           </td>
                           <td className={`${TABLA.celda} ${TABLA.derecha} whitespace-nowrap`}>
-                            {f.diasVencida > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setVentana({ tipo: 'recordatorio', factura: f })}
-                                className={`${BOTON.base} ${BOTON.secundario} mr-1.5`}
-                                style={f.tocaRecordar ? { borderColor: COLOR_ESTADO.ambar, color: COLOR_ESTADO.ambar } : undefined}
-                                title={f.tocaRecordar ? `${f.diasLaborables} días laborables sin pagar: toca recordárselo` : 'Mandarle un recordatorio de pago con la factura'}
-                              >
-                                <BellRing className="h-3 w-3" style={{ color: COLOR_ESTADO.ambar }} />
-                                {f.tocaRecordar ? 'Recordar pago' : 'Recordar'}
-                              </button>
-                            )}
+                            {/* Se puede recordar cualquier factura sin cobrar cuando se quiera, también antes de que venza; en ámbar, las que ya toca */}
+                            <button
+                              type="button"
+                              onClick={() => setVentana({ tipo: 'recordatorio', factura: f })}
+                              className={`${BOTON.base} ${BOTON.secundario} mr-1.5`}
+                              style={f.tocaRecordar ? { borderColor: COLOR_ESTADO.ambar, color: COLOR_ESTADO.ambar } : undefined}
+                              title={f.tocaRecordar ? `${f.diasLaborables} días laborables sin pagar: toca recordárselo` : f.diasVencida > 0 ? 'Mandarle un recordatorio de pago con la factura' : 'Aún no ha vencido: mandarle un recordatorio amable con la factura'}
+                            >
+                              <BellRing className="h-3 w-3" style={{ color: COLOR_ESTADO.ambar }} />
+                              {f.tocaRecordar ? 'Recordar pago' : 'Recordar'}
+                            </button>
                             <button type="button" onClick={() => setVentana({ tipo: 'cobro', factura: f, movimiento: null })} className={`${BOTON.base} ${BOTON.secundario}`}>
                               <Banknote className="h-3 w-3" style={{ color: COLOR_ESTADO.verde }} />
                               Registrar cobro

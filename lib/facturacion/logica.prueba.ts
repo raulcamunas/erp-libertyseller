@@ -2,6 +2,7 @@ import {
   agruparFilas,
   diasLaborablesDeRetraso,
   tocaRecordar,
+  textoAntesDeVencer,
   esPlantillaDeRecordatorio,
   PLANTILLA_RECORDATORIO,
   DIAS_LABORABLES_PARA_RECORDAR,
@@ -217,6 +218,21 @@ igual(
   'f'
 )
 igual('la plantilla de recordatorio solo lleva marcadores de Zoho que existen', (PLANTILLA_RECORDATORIO.cuerpo + PLANTILLA_RECORDATORIO.asunto).match(/%[A-Za-z]+%/g)?.filter((m) => !['%OrgLogo%', '%InvoiceNumber%', '%CustomerName%', '%DueDate%', '%Balance%', '%InvoiceDate%', '%InvoiceURL%'].includes(m)).length, 0)
+
+{
+  // Lo que devuelve Zoho con la plantilla de fábrica ya rellenada
+  const zoho = PLANTILLA_RECORDATORIO.cuerpo.replaceAll('%InvoiceNumber%', 'SHOP-11').replaceAll('%DueDate%', '13/11/2026')
+  const r = textoAntesDeVencer(zoho, false)
+  igual('antes de vencer: se cambia la frase', r.cambiado, true)
+  igual('antes de vencer: ya no dice «venció»', /venci[oó]/i.test(r.html), false)
+  igual('antes de vencer: dice cuándo vence', r.html.includes('vence el <b>13/11/2026</b> y te la recordamos'), true)
+  igual('antes de vencer: la fila de la tabla dice «Vence el»', r.html.includes('>Vence el<'), true)
+  igual('antes de vencer: ya no dice que no consta el pago', r.html.includes('no nos consta'), false)
+  igual('vence hoy: lo dice', textoAntesDeVencer(zoho, true).html.includes('vence hoy, <b>13/11/2026</b>'), true)
+  igual('con <strong> también', textoAntesDeVencer('la factura venció el <strong>1/12/2026</strong> y todavía no nos consta el pago.', false).html, 'la factura vence el <strong>1/12/2026</strong> y te la recordamos para que la tenga a mano.'.replace('tenga', 'tengas'))
+  const propia = textoAntesDeVencer('<p>Hola, te recordamos la factura.</p>', false)
+  igual('plantilla retocada: no se toca y se avisa', [propia.cambiado, propia.html], [false, '<p>Hola, te recordamos la factura.</p>'])
+}
 
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien`)
 if (fallos > 0) process.exit(1)
