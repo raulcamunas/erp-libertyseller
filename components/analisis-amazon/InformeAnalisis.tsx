@@ -594,7 +594,7 @@ function FilaProducto({ p, i }: { p: ProductoAnalisis; i: number }) {
 
   return (
     <Revelar retraso={Math.min(i, 8) * 60}>
-      <Fila className="grid grid-cols-[52px_1fr] items-center gap-x-4 gap-y-3 lg:grid-cols-[52px_minmax(0,2.4fr)_repeat(6,minmax(0,0.8fr))_minmax(0,1.3fr)]">
+      <Fila className="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-x-4 gap-y-3 lg:grid-cols-[52px_minmax(0,2.4fr)_repeat(6,minmax(0,0.8fr))_minmax(0,1.3fr)]">
         <div className="relative h-[52px] w-[52px] overflow-hidden rounded-lg bg-white">
           {p.imagen && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -1032,7 +1032,7 @@ export function InformeAnalisis({
         />
         <Halo className="-left-40 -top-40 h-[560px] w-[560px]" fuerza={0.16} />
         <Halo className="-right-32 top-56 h-[440px] w-[440px]" fuerza={0.1} lento />
-        <div className="relative mx-auto grid max-w-[1130px] items-center gap-12 lg:grid-cols-[1.08fr_1fr]">
+        <div className="relative mx-auto grid max-w-[1130px] grid-cols-[minmax(0,1fr)] items-center gap-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] [&>*]:min-w-0">
           <div>
             <Revelar>
               <Etiqueta>Análisis preparado para {vendedor.nombre}</Etiqueta>

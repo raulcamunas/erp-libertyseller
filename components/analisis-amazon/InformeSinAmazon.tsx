@@ -41,7 +41,9 @@ const CSS = `
 @keyframes sa-latido{0%,100%{opacity:.45;transform:scale(1)}50%{opacity:1;transform:scale(1.35)}}
 @keyframes sa-subir{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 .sa-anim{animation:sa-subir .7s cubic-bezier(.2,.7,.2,1) both}
-.sa-hero{display:grid;grid-template-columns:1.08fr 1fr;gap:48px;align-items:center}
+.sa-hero{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:48px;align-items:center}
+.sa-hero>*,.sa-dos>*,.sa-col>*,.sa-mcab>*{min-width:0}
+.sa-ven{min-width:0;max-width:100%}
 .sa-etq{display:flex;align-items:center;gap:8px;color:var(--n);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.14em}
 .sa-etq i{width:6px;height:6px;border-radius:50%;background:var(--n);box-shadow:0 0 10px var(--n);animation:sa-latido 2.4s ease-in-out infinite}
 .sa h1{font-size:58px;line-height:1.02;letter-spacing:-.045em;font-weight:800;margin:20px 0 0}
@@ -66,7 +68,7 @@ const CSS = `
 .sa-pts{display:flex;gap:6px}.sa-pts i{width:10px;height:10px;border-radius:50%;opacity:.55}
 .sa-vt{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:rgba(255,255,255,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sa-vc{padding:14px}
-.sa-clave{display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:center;border-radius:10px;padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);margin-top:8px}
+.sa-clave{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:center;border-radius:10px;padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);margin-top:8px}
 .sa-clave:first-child{margin-top:0}
 .sa-clave b{font-size:24px;font-weight:800;letter-spacing:-.03em;color:var(--n2)}
 .sa-clave strong{display:block;font-size:13.5px;font-weight:700}
@@ -76,7 +78,7 @@ const CSS = `
 .sa-dato b{display:block;font-size:21px;font-weight:800;letter-spacing:-.02em}
 .sa-dato span{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(255,255,255,.45)}
 .sa-dato.n b{color:var(--n2)}
-.sa-prod{display:grid;grid-template-columns:22px 52px 1fr auto;gap:12px;align-items:center;padding:9px 6px;border-bottom:1px solid rgba(255,255,255,.05);transition:background .2s}
+.sa-prod{display:grid;grid-template-columns:22px 52px minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 6px;border-bottom:1px solid rgba(255,255,255,.05);transition:background .2s}
 .sa-prod:hover{background:rgba(255,255,255,.04)}
 .sa-prod:last-child{border-bottom:none}
 .sa-prod .num{font-size:12px;font-weight:800;color:rgba(255,255,255,.35);text-align:center}
@@ -95,7 +97,7 @@ const CSS = `
 .sa-mcab{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:20px;flex-wrap:wrap}
 .sa-mcab .sa-datos{min-width:360px}
 .sa-mnum{font-size:12px;font-weight:800;color:var(--n);letter-spacing:.1em}
-.sa-dos{display:grid;grid-template-columns:1.25fr 1fr;gap:20px;align-items:start}
+.sa-dos{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:20px;align-items:start}
 .sa-col{display:grid;gap:20px}
 .sa-suyo small{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.45);font-weight:700}
 .sa-suyo b{display:block;margin-top:4px;font-size:14px;line-height:1.35}
@@ -112,12 +114,12 @@ const CSS = `
 .sa-nota{font-size:11px;color:rgba(255,255,255,.4);margin:8px 0 0;line-height:1.5}
 .sa-marca{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin:6px 0}
 .sa-marca b{color:rgba(255,255,255,.7);font-weight:600;white-space:nowrap}
-.sa-pasos{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:36px}
+.sa-pasos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:36px}
 .sa-paso{border-radius:16px;padding:22px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07)}
 .sa-paso i{font-style:normal;font-size:12px;font-weight:800;color:var(--n);letter-spacing:.1em}
 .sa-paso b{display:block;font-size:17px;margin:8px 0 6px}
 .sa-paso p{margin:0;font-size:14px;line-height:1.6;color:var(--t2)}
-.sa-clientes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:40px auto 0;max-width:960px}
+.sa-clientes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:40px auto 0;max-width:960px}
 .sa-cli{border-radius:20px;padding:20px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.08)}
 .sa-cli .logo{height:76px;display:flex;align-items:center;justify-content:center}
 .sa-cli img{max-height:58px;max-width:85%;object-fit:contain;opacity:.7;filter:grayscale(1);transition:all .4s}
@@ -128,15 +130,17 @@ const CSS = `
 .sa-fin{text-align:center}.sa-fin h2{margin:12px auto 0}.sa-fin .sa-par{margin:16px auto 0}.sa-fin .sa-etq,.sa-fin .sa-ctas{justify-content:center}
 .sa-pie{padding:28px 24px;text-align:center;font-size:12px;line-height:1.6;color:rgba(255,255,255,.35);border-top:1px solid rgba(255,255,255,.05)}
 @media(max-width:900px){
-  .sa-hero,.sa-dos{grid-template-columns:1fr}
-  .sa-pasos{grid-template-columns:1fr 1fr}
-  .sa-clientes{grid-template-columns:1fr 1fr}
+  .sa-hero,.sa-dos{grid-template-columns:minmax(0,1fr)}
+  .sa-pasos{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sa-clientes{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sa h1{overflow-wrap:anywhere}
+  .sa-vt{white-space:normal}
   .sa h1{font-size:40px}.sa h2{font-size:31px}
   .sa-sec{padding:64px 16px}
   .sa-cab>div{padding:0 16px}
   .sa-mcab .sa-datos{min-width:0;width:100%}
 }
-@media(max-width:560px){.sa-pasos{grid-template-columns:1fr}.sa-clave{grid-template-columns:76px 1fr}.sa-clave b{font-size:20px}}
+@media(max-width:560px){.sa-pasos{grid-template-columns:minmax(0,1fr)}.sa-clave{grid-template-columns:76px minmax(0,1fr)}.sa-clave b{font-size:20px}.sa-prod{grid-template-columns:18px 44px minmax(0,1fr) auto;gap:8px}.sa-prod img,.sa-prod .sin{width:44px;height:44px}.sa-datos{gap:6px}.sa-dato{padding:9px 8px}.sa-dato b{font-size:17px}}
 @media(prefers-reduced-motion:reduce){.sa *{animation:none!important}}
 `
 
