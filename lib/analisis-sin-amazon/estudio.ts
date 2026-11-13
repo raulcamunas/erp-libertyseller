@@ -289,5 +289,65 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
     if (buena) m.productos = m.productos.filter((p) => raizDe(p) === buena)
   }
 
-  return { fecha: hoy(), plan, marca, mercados: mercados.filter((m) => m.productos.length >= 3), gastado, propio: null }
+  const validados = await validarMercados(lead, plan, titulosDeSuWeb, mercados)
+  return { fecha: hoy(), plan, marca, mercados: validados.filter((m) => m.productos.length >= 3), gastado, propio: null }
+}
+
+/**
+ * SEGUNDA MIRADA DE LA IA (13 nov 2026): las palabras no bastan. En Amazon, «Platos» también son los comederos de perro y «vestido niña»
+ * en noviembre son disfraces de Halloween. La IA ve qué vende la tienda y los productos que ha encontrado Keepa, y deja solo los que un
+ * comprador de esa tienda compararía con lo suyo. Si falla la IA, se queda todo como estaba (no se pierde el informe por eso).
+ */
+export async function validarMercados(lead: LeadDeEstudio, plan: PlanDeEstudio, titulos: string[], mercados: MercadoCrudo[]): Promise<MercadoCrudo[]> {
+  const clave = process.env.OPENAI_API_KEY?.trim()
+  if (!clave || !mercados.length) return mercados
+  const listado = mercados
+    .map((m, i) => [`MERCADO ${i}: «${m.tipo}» (categoría de Amazon: ${m.categoria ?? '—'})`, ...m.productos.map((p, j) => `  ${j}. ${String(p?.title ?? '').slice(0, 140)}`)].join('\n'))
+    .join('\n')
+  try {
+    const ia = new OpenAI({ apiKey: clave, maxRetries: 1, timeout: 45_000 })
+    const r = await ia.chat.completions.create({
+      ...parametrosDeIa({ maxSalida: 2000, esfuerzo: 'low' }),
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'validacion',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['mercados'],
+            properties: {
+              mercados: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['mercado', 'equivalentes'],
+                  properties: { mercado: { type: 'integer' }, equivalentes: { type: 'array', items: { type: 'integer' } } },
+                },
+              },
+            },
+          },
+        },
+      },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Revisas un análisis de mercado. Para cada mercado, devuelve los números de los productos de Amazon que un comprador de esta tienda vería como alternativa a lo que ella vende (mismo tipo de producto y mismo uso; el precio o la calidad pueden ser distintos). Quita SOLO lo que es claramente otra cosa: otro tipo de producto, accesorios o recambios, productos para mascotas si la tienda no es de mascotas, disfraces si no vende disfraces. Ante la duda, déjalo.',
+        },
+        {
+          role: 'user',
+          content: [`Tienda: ${lead.nombre} (${lead.web})`, `Vende, entre otras cosas: ${titulos.slice(0, 40).join(' | ') || plan.busquedas.map((b) => b.producto).join(' | ')}`, '', listado].join('\n'),
+        },
+      ],
+    })
+    const o = JSON.parse(r.choices?.[0]?.message?.content ?? '{}') as { mercados?: { mercado: number; equivalentes: number[] }[] }
+    const porMercado = new Map((o.mercados ?? []).map((x) => [x.mercado, new Set(x.equivalentes)]))
+    return mercados.map((m, i) => ({ ...m, productos: m.productos.filter((_, j) => porMercado.get(i)?.has(j) ?? false) }))
+  } catch (e) {
+    console.warn('[analisis-sin-amazon] la IA no ha podido revisar los mercados', { codigo: (e as { status?: number })?.status ?? null })
+    return mercados
+  }
 }
