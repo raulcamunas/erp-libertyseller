@@ -28,10 +28,10 @@ import { estudiarTienda, planDeEstudio } from '@/lib/analisis-sin-amazon/estudio
 import { construirSinAmazon, SELLER_SIN_AMAZON } from '@/lib/analisis-sin-amazon/construir'
 
 export const BUCKET = 'analisis-keepa'
-/** Lo más caro medido fueron 136 tokens; con este saldo una tienda no se queda a medias */
-const TOKENS_POR_TIENDA = 150
-/** El de tiendas sin Amazon gasta más: marca, sus vendedores y hasta 3 mercados (medido 210-300) */
-const TOKENS_SIN_AMAZON = 280
+/** Con 10 productos (13 nov 2026) un informe de Amazon gasta ~100; con este saldo no se queda a medias */
+const TOKENS_POR_TIENDA = 110
+/** El de tiendas sin Amazon: marca (8 fichas), sus vendedores y hasta 3 mercados de 5 productos (~120-200) */
+const TOKENS_SIN_AMAZON = 200
 const MINUTOS_POR_PASADA = 4
 const INTENTOS_ANTES_DE_SALTAR = 3
 

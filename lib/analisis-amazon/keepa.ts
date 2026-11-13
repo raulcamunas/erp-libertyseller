@@ -5,7 +5,7 @@
  *   1. el vendedor en España con su escaparate                           ~10 tokens
  *   2. el mismo vendedor en FR, IT, DE y UK                              ~1 token por país
  *   3. sus productos por ventas (Product Finder, una variación por ficha) ~11 tokens
- *   4. los 20 mejores con stock, Buy Box y reseñas (sin históricos)       ~4 tokens cada uno
+ *   4. los 10 mejores con stock, Buy Box y reseñas (sin históricos)       ~4 tokens cada uno (eran 20 hasta el 13 nov 2026: Raúl, «20 es innecesario»)
  *   5. la competencia: los que más venden en la categoría hoja de su producto estrella, sin los suyos (~11 + 3 por rival)
  * En total, entre 90 y 140 tokens por tienda.
  *
@@ -14,7 +14,7 @@
  */
 
 const BASE = 'https://api.keepa.com/'
-const TOP = 20
+const TOP = 10
 const PAISES = { fr: 4, it: 8, de: 3, uk: 2 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

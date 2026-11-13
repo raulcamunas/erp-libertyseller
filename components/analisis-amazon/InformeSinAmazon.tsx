@@ -220,7 +220,7 @@ function Mercado({ m, i }: { m: MercadoSinAmazon; i: number }) {
           </p>
         </div>
         <div className="sa-datos">
-          {m.modo === 'ventas' ? <Dato valor={`+${ent(m.ventasMes)}`} rotulo="uds/mes · top 8" naranja /> : <Dato valor={ent(m.productos.length)} rotulo="fichas que mandan" />}
+          {m.modo === 'ventas' ? <Dato valor={`+${ent(m.ventasMes)}`} rotulo={`uds/mes · top ${m.productos.length}`} naranja /> : <Dato valor={ent(m.productos.length)} rotulo="fichas que mandan" />}
           <Dato valor={m.precioMediano ? eur0(m.precioMediano) : '—'} rotulo="precio mediano" />
           <Dato valor={m.resenasMediana !== null ? ent(m.resenasMediana) : '—'} rotulo="reseñas medianas" />
         </div>
