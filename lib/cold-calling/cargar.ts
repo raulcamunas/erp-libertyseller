@@ -51,10 +51,16 @@ export const COLUMNAS_DE_CARTERA_SIN_CICLO = `${COLUMNAS_DE_CARTERA_SIN_UBICACIO
  */
 export const COLUMNAS_DE_CICLO = ['ciclo_vuelta', 'ciclo_fase'].join(', ')
 
-export const COLUMNAS_DE_CARTERA = `${COLUMNAS_DE_CARTERA_SIN_CICLO}, ${COLUMNAS_DE_CICLO}`
+/** Con el ciclo (264) pero sin el análisis de Amazon (303): lo que se pide mientras la 303 no esté lanzada */
+export const COLUMNAS_DE_CARTERA_SIN_ANALISIS = `${COLUMNAS_DE_CARTERA_SIN_CICLO}, ${COLUMNAS_DE_CICLO}`
 
-/** De la más completa a la de antes de todo: si la base no tiene las columnas de una migración, se pide la siguiente (la de antes de la 264, la de antes de la 263 y la de antes de la 262) */
-export const NIVELES_DE_COLUMNAS = [COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_CICLO, COLUMNAS_DE_CARTERA_SIN_UBICACION, COLUMNAS_DE_CARTERA_SIN_PARTNERS] as const
+/** EL ANÁLISIS DE AMAZON (migración 303): cuándo se hizo su informe de Keepa. Basta para la casilla «Con informe» y la marca en la lista */
+export const COLUMNAS_DE_ANALISIS = 'analisis_amazon_at'
+
+export const COLUMNAS_DE_CARTERA = `${COLUMNAS_DE_CARTERA_SIN_ANALISIS}, ${COLUMNAS_DE_ANALISIS}`
+
+/** De la más completa a la de antes de todo: si la base no tiene las columnas de una migración, se pide la siguiente (la de antes de la 303, la 264, la 263 y la 262) */
+export const NIVELES_DE_COLUMNAS = [COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_ANALISIS, COLUMNAS_DE_CARTERA_SIN_CICLO, COLUMNAS_DE_CARTERA_SIN_UBICACION, COLUMNAS_DE_CARTERA_SIN_PARTNERS] as const
 
 /**
  * ¿La base no tiene esas columnas? El código se despliega ANTES de que nadie lance la migración a mano en el editor SQL de Supabase, y un `select` que nombra una columna que no existe no

@@ -100,6 +100,8 @@ export interface ColdLead {
   resenas?: number | null
   rating?: number | null
   menciona_amazon?: boolean | null
+  /** Cuándo se hizo su último análisis de Amazon con Keepa (migración 303). null = sin informe */
+  analisis_amazon_at?: string | null
   /**
    * EN QUÉ COMUNIDAD AUTÓNOMA ESTÁ EL LEAD (migración 263), para saber si ese día es festivo para él (lib/festivos/). Lo deduce el proceso automático «Ubicación de los leads»
    * (lib/ubicacion/) de lo que trae el lead; null = no se ha podido saber, y entonces no se avisa de nada. `municipio_ine` (cinco cifras) solo se usa para las islas de Canarias

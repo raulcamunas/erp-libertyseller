@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowUpDown, Check, ChevronDown, Euro, Layers, Rocket, X } from 'lucide-react'
+import { ArrowUpDown, Check, ChevronDown, Euro, FileBarChart, Layers, Rocket, X } from 'lucide-react'
 import { useState } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SIN_FILTROS, hayFiltros, ordenDeLaVista, type FiltrosDeCartera } from '@/lib/cold-calling/cartera'
@@ -98,11 +98,13 @@ interface Props {
   soloPartners: boolean
   /** Cuántos partners mencionan Amazon con los demás filtros puestos */
   mencionanAmazon: number
+  /** Cuántos tienen el análisis de Amazon hecho */
+  conInforme?: number
   /** Cuántos leads salen con lo que está puesto */
   coinciden: number
 }
 
-export function FiltrosDeLista({ filtros, onCambiar, porEstado, modoCiclo = false, total, listas, niveles, hayNiveles, prioridades, hayPartners, soloPartners, mencionanAmazon, coinciden }: Props) {
+export function FiltrosDeLista({ filtros, onCambiar, porEstado, modoCiclo = false, total, listas, niveles, hayNiveles, prioridades, hayPartners, soloPartners, mencionanAmazon, conInforme = 0, coinciden }: Props) {
   const [listaAbierta, setListaAbierta] = useState(false)
   const [rangoAbierto, setRangoAbierto] = useState(false)
   // En Fase 2, Fase 3 y «No responde» el orden es siempre «las rellamadas primero, las más atrasadas antes» (cartera.ts, ordenDeLaVista): el selector lo dice en vez de enseñar otro que no se cumple
@@ -246,6 +248,21 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, modoCiclo = fals
             <span className="tabular-nums text-[var(--ls-t4)]">{numero(mencionanAmazon)}</span>
           </button>
         </>
+      )}
+
+      {/* Solo los que ya tienen su análisis de Amazon: aparece en cuanto hay alguno (o si quedó puesta) */}
+      {(conInforme > 0 || filtros.conInforme) && (
+        <button
+          type="button"
+          onClick={() => onCambiar({ conInforme: !filtros.conInforme })}
+          aria-pressed={filtros.conInforme}
+          title={`Solo los leads con su análisis de Amazon hecho: ${numero(conInforme)}. Para llamar con el informe delante`}
+          className={`${CHIP} ${filtros.conInforme ? BOTON.chipEncendido : ''}`}
+        >
+          <FileBarChart className="h-3 w-3" aria-hidden />
+          Con informe
+          <span className="tabular-nums text-[var(--ls-t4)]">{numero(conInforme)}</span>
+        </button>
       )}
 
       {/* La facturación: solo en una lista de vendedores de Amazon. Ninguna tienda online tiene facturación observada, así que el rango

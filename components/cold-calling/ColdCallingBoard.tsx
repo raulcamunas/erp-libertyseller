@@ -213,7 +213,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   const navegacion = useMemo(() => (vista === 'rellamadas' ? [...rell.atrasadas, ...rell.delDia] : pan.visibles), [vista, rell, pan.visibles])
 
   /** Cambia cuando cambia lo que se está mirando: la lista vuelve arriba y las primeras filas vuelven a entrar */
-  const generacion = `${vista}|${ocultarFestivos ? 'sin-festivos' : ''}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.prioridad}|${filtrosEfectivos.mencionaAmazon}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
+  const generacion = `${vista}|${ocultarFestivos ? 'sin-festivos' : ''}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.prioridad}|${filtrosEfectivos.mencionaAmazon}|${filtrosEfectivos.conInforme}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
 
   const leadSeleccionado = useMemo(() => (seleccionado ? (leads.find((l) => l.id === seleccionado) ?? null) : null), [leads, seleccionado])
   const indiceSeleccionado = useMemo(() => (seleccionado ? navegacion.findIndex((l) => l.id === seleccionado) : -1), [navegacion, seleccionado])
@@ -331,7 +331,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     </label>
   )
 
-  const hayFiltrosPuestos = filtrosEfectivos.estado !== 'all' || filtrosEfectivos.lista !== 'all' || filtrosEfectivos.nivel !== 'all' || filtrosEfectivos.prioridad !== 'all' || filtrosEfectivos.mencionaAmazon || filtrosEfectivos.minRev !== '' || filtrosEfectivos.maxRev !== '' || filtrosEfectivos.busqueda.trim() !== ''
+  const hayFiltrosPuestos = filtrosEfectivos.estado !== 'all' || filtrosEfectivos.lista !== 'all' || filtrosEfectivos.nivel !== 'all' || filtrosEfectivos.prioridad !== 'all' || filtrosEfectivos.mencionaAmazon || filtrosEfectivos.conInforme || filtrosEfectivos.minRev !== '' || filtrosEfectivos.maxRev !== '' || filtrosEfectivos.busqueda.trim() !== ''
 
   const vacio =
     leads.length === 0 && !cargando ? (
@@ -403,6 +403,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
               hayPartners={hayPartners}
               soloPartners={soloPartners}
               mencionanAmazon={pan.mencionanAmazon}
+              conInforme={pan.conInforme}
               coinciden={pan.visibles.length}
             />
           </div>

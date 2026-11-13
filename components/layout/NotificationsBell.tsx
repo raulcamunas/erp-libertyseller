@@ -189,6 +189,21 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
               }
             }
           }
+          // Un lead está viendo su análisis de Amazon: suena, sale en el escritorio y asoma abajo a la derecha con «Abrir ficha». Es el momento de llamarle
+          const dAnalisis = fila?.datos as { app?: string; leadId?: string } | null | undefined
+          if (dAnalisis?.app === 'analisis' && typeof dAnalisis.leadId === 'string' && /^[0-9a-f-]{36}$/i.test(dAnalisis.leadId)) {
+            const rutaDelLead = `/dashboard/cold-calling?lead=${dAnalisis.leadId}`
+            void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
+            avisarEnEscritorio(String(fila?.title ?? 'Análisis abierto'), String(fila?.message ?? ''), rutaDelLead)
+            publicarAviso({
+              id: `analisis:${typeof fila?.clave === 'string' ? fila.clave : Date.now()}`,
+              tipo: 'tarea',
+              titulo: String(fila?.title ?? 'Un lead está viendo su análisis'),
+              detalle: `${String(fila?.message ?? '')} · Buen momento para llamar.`,
+              duracionMs: 20000,
+              accion: { etiqueta: 'Abrir ficha', alPulsar: () => router.push(rutaDelLead) },
+            })
+          }
           // Un aviso de tareas (te asignan, te mencionan, comentan, o una fecha): su propio sonido, y la notificación del escritorio si la pestaña no se está viendo
           const d = fila?.datos as { app?: string; clienteId?: string; tareaId?: string } | null | undefined
           if (d?.app === 'tareas-clientes') {
@@ -281,6 +296,12 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
     // Una alerta de logística FBA (rotura de stock, envío parado…) o el resumen del lunes: al tablero de alertas
     if (notification.type === 'fba_alerta' || notification.type === 'fba_resumen') {
       return '/dashboard/remesas/alertas'
+    }
+
+    // Un lead ha abierto su análisis de Amazon: a su ficha de Cold Calling
+    if (notification.type === 'analisis_abierto') {
+      const id = (notification.datos as { leadId?: unknown } | null | undefined)?.leadId
+      return typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id) ? `/dashboard/cold-calling?lead=${id}` : '/dashboard/cold-calling'
     }
 
     // Una factura que lleva días sin pagar: Facturación → Cobros, con su recordatorio abierto

@@ -61,21 +61,23 @@ export interface FiltrosDeCartera {
   prioridad: number | 'all'
   /** Solo los partners cuya web menciona Amazon: ya conocen el canal, y son los que mejor entienden de qué se les habla */
   mencionaAmazon: boolean
+  /** Solo los leads que ya tienen su análisis de Amazon hecho (el informe de Keepa): para llamar con él delante */
+  conInforme: boolean
   orden: ColdSort
 }
 
-export const SIN_FILTROS: FiltrosDeCartera = { busqueda: '', estado: 'all', lista: 'all', nivel: 'all', minRev: '', maxRev: '', prioridad: 'all', mencionaAmazon: false, orden: 'due_first' }
+export const SIN_FILTROS: FiltrosDeCartera = { busqueda: '', estado: 'all', lista: 'all', nivel: 'all', minRev: '', maxRev: '', prioridad: 'all', mencionaAmazon: false, conInforme: false, orden: 'due_first' }
 
 export const NOMBRE_DE_LISTA_SIN_ORIGEN = 'Sin lista'
 
 /** ¿Hay algo puesto? El orden también cuenta: cambiarlo es cambiar lo que se ve */
 export function hayFiltros(f: FiltrosDeCartera): boolean {
-  return f.busqueda !== '' || f.estado !== 'all' || f.lista !== 'all' || f.nivel !== 'all' || f.minRev !== '' || f.maxRev !== '' || f.prioridad !== 'all' || f.mencionaAmazon || f.orden !== 'due_first'
+  return f.busqueda !== '' || f.estado !== 'all' || f.lista !== 'all' || f.nivel !== 'all' || f.minRev !== '' || f.maxRev !== '' || f.prioridad !== 'all' || f.mencionaAmazon || f.conInforme || f.orden !== 'due_first'
 }
 
 /** Cuántos filtros hay puestos, sin contar la búsqueda (que tiene su propia caja a la vista) ni el orden */
 export function cuantosFiltros(f: FiltrosDeCartera): number {
-  return (f.estado !== 'all' ? 1 : 0) + (f.lista !== 'all' ? 1 : 0) + (f.nivel !== 'all' ? 1 : 0) + (f.minRev !== '' || f.maxRev !== '' ? 1 : 0) + (f.prioridad !== 'all' ? 1 : 0) + (f.mencionaAmazon ? 1 : 0)
+  return (f.estado !== 'all' ? 1 : 0) + (f.lista !== 'all' ? 1 : 0) + (f.nivel !== 'all' ? 1 : 0) + (f.minRev !== '' || f.maxRev !== '' ? 1 : 0) + (f.prioridad !== 'all' ? 1 : 0) + (f.mencionaAmazon ? 1 : 0) + (f.conInforme ? 1 : 0)
 }
 
 export const listaDe = (lead: Pick<ColdLead, 'source_list'>): string => lead.source_list || NOMBRE_DE_LISTA_SIN_ORIGEN
@@ -143,6 +145,7 @@ export function filtrar(leads: readonly ColdLead[], f: FiltrosDeCartera, modoCic
     if (f.nivel !== 'all' && l.nivel !== f.nivel) return false
     if (f.prioridad !== 'all' && !(esPartner(l) && l.prioridad === f.prioridad)) return false
     if (f.mencionaAmazon && !(esPartner(l) && l.menciona_amazon === true)) return false
+    if (f.conInforme && !l.analisis_amazon_at) return false
     if (f.estado !== 'all' && (modoCiclo ? cajaDelCiclo(l) : l.status) !== f.estado) return false
     if (f.lista !== 'all' && listaDe(l) !== f.lista) return false
     if (!dentroDelRango(l, min, max)) return false
@@ -381,6 +384,8 @@ export interface Panorama {
   prioridades: Record<1 | 2 | 3 | 4, number>
   /** Cuántos partners cuya web menciona Amazon hay con los demás filtros puestos: lo que saldría al pulsar «Menciona Amazon» */
   mencionanAmazon: number
+  /** Cuántos tienen el análisis de Amazon hecho, con el resto de filtros puestos */
+  conInforme: number
   listas: Array<[string, number]>
 }
 
@@ -410,6 +415,7 @@ export function panorama(leads: readonly ColdLead[], f: FiltrosDeCartera, modoCi
     niveles: contarNiveles(filtrar(leads, { ...f, nivel: 'all' }, modoCiclo), 'all'),
     prioridades: contarPrioridades(filtrar(leads, { ...f, prioridad: 'all' }, modoCiclo), 'all'),
     mencionanAmazon: filtrar(leads, { ...f, mencionaAmazon: false }, modoCiclo).filter((l) => esPartner(l) && l.menciona_amazon === true).length,
+    conInforme: filtrar(leads, { ...f, conInforme: false }, modoCiclo).filter((l) => Boolean(l.analisis_amazon_at)).length,
     listas: listasDisponibles(filtrarParaLasListas(leads, f, listasDeCiclo(leads))),
   }
 }
