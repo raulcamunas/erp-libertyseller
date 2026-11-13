@@ -393,7 +393,7 @@ export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAma
                 {huecoEnLaMarca && (
                   <>
                     {' '}
-                    Y de las {m.revisadas} que hemos revisado, <b>{m.sinVendedor} no tienen ahora mismo a nadie vendiéndolas</b>: quien busca ese producto en Amazon no lo puede comprar.
+                    Y de las {m.revisadas} que hemos revisado, <b>{m.sinVendedor === 1 ? 'una no tiene ahora mismo a nadie vendiéndola' : `${m.sinVendedor} no tienen ahora mismo a nadie vendiéndolas`}</b>: quien busca ese producto en Amazon no lo puede comprar.
                   </>
                 )}
               </p>

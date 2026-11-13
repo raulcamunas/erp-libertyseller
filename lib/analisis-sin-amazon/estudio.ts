@@ -172,7 +172,12 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
   const vocabulario = new Set(
     [...titulosDeSuWeb, ...plan.busquedas.flatMap((b) => [b.tipo, b.termino, b.producto])].flatMap((t) => palabras(t)).filter((w) => !deLaMarca.has(w)),
   )
-  const relevantes = vocabulario.size ? muestra.filter((p) => palabras(p?.title ?? '').some((w) => !deLaMarca.has(w) && vocabulario.has(w))) : muestra
+  const porPalabras = vocabulario.size ? muestra.filter((p) => palabras(p?.title ?? '').some((w) => !deLaMarca.has(w) && vocabulario.has(w))) : muestra
+  // Una palabra suelta puede coincidir por casualidad («profesional»): además, la misma rama de Amazon que la mayoría de las buenas
+  const ramas = new Map<number, number>()
+  for (const p of porPalabras) if (raizDe(p)) ramas.set(raizDe(p), (ramas.get(raizDe(p)) ?? 0) + 1)
+  const rama = [...ramas].sort((x, y) => y[1] - x[1])[0]?.[0]
+  const relevantes = rama && porPalabras.length >= 3 ? porPalabras.filter((p) => raizDe(p) === rama) : porPalabras
   if (muestra.length && relevantes.length < muestra.length) {
     const proporcion = relevantes.length / muestra.length
     marca.total = proporcion < 0.3 ? relevantes.length : Math.round(marca.total * proporcion)

@@ -182,7 +182,7 @@ export function construirSinAmazon(
     if (sinVendedor)
       claves.push({
         cifra: `${sinVendedor} de ${fichas.length}`,
-        titulo: 'fichas tuyas sin nadie que las venda',
+        titulo: sinVendedor === 1 ? 'ficha tuya sin nadie que la venda' : 'fichas tuyas sin nadie que las venda',
         detalle: 'Quien busca ese producto en Amazon hoy no lo puede comprar.',
       })
   } else {
@@ -206,14 +206,14 @@ export function construirSinAmazon(
 
   const resumen =
     caso === 'revendida'
-      ? `Hemos buscado ${marcaNombre} en Amazon.es: tiene ${ent(e.marca.total)} ${e.marca.total === 1 ? 'ficha' : 'fichas'} y${nombresTerceros.length ? ` la venden ${enumerar(nombresTerceros.slice(0, 3))}, no tú` : ' no las vendes tú'}.${sinVendedor ? ` De las que hemos revisado, ${sinVendedor} no tienen ahora mismo a nadie vendiéndolas.` : ''} Y al lado, lo que se vende de lo tuyo y contra quién compites.`
+      ? `Hemos buscado ${marcaNombre} en Amazon.es: tiene ${ent(e.marca.total)} ${e.marca.total === 1 ? 'ficha' : 'fichas'} y${nombresTerceros.length ? ` la venden ${enumerar(nombresTerceros.slice(0, 3))}, no tú` : ' no las vendes tú'}.${sinVendedor ? ` De las que hemos revisado, ${sinVendedor === 1 ? 'una no tiene ahora mismo a nadie vendiéndola' : `${sinVendedor} no tienen ahora mismo a nadie vendiéndolas`}.` : ''} Y al lado, lo que se vende de lo tuyo y contra quién compites.`
       : `Hemos cruzado los ${ent(lead.productosWeb)} productos de tu web con lo que se vende hoy en Amazon.es. Tu marca todavía no está, y ${ventasMes >= 300 ? `los primeros puestos de lo que tú vendes mueven allí más de ${ent(ventasMes)} unidades al mes` : `${enumerar(marcasRivales.slice(0, 3)) || 'otras marcas'} se están quedando con esas ventas`}.`
 
   const frases: string[] =
     caso === 'revendida'
       ? [
           `He estado mirando ${marcaNombre} en Amazon: tiene ${ent(e.marca.total)} fichas${nombresTerceros.length ? ` y las ${nombresTerceros.length > 1 ? 'están' : 'está'} vendiendo ${enumerar(nombresTerceros.slice(0, 2))}` : ''}. ¿Lo sabías?`,
-          sinVendedor ? `De las que he revisado, ${sinVendedor} no las vende nadie ahora mismo: quien te busca allí no te puede comprar.` : `Ellos ponen el precio y las fotos de tu marca, y se quedan la venta.`,
+          sinVendedor ? `De las que he revisado, ${sinVendedor === 1 ? 'una no la vende' : `${sinVendedor} no las vende`} nadie ahora mismo: quien te busca allí no te puede comprar.` : `Ellos ponen el precio y las fotos de tu marca, y se quedan la venta.`,
           principal ? `En ${principal.nombre.toLowerCase()} los que más venden son ${enumerar(principal.marcas.slice(0, 3).map((x) => x.marca))}.` : '',
           'Con el Registro de Marca recuperas el control de tus fichas. ¿Te lo enseño en 20 minutos?',
         ].filter(Boolean)
