@@ -22,6 +22,7 @@ import { construirAnalisis } from './construir'
 import { guardarAnalisis } from './guardar'
 import { estudiarVendedor, saldoKeepa, SinTokens } from './keepa'
 import { falta303 } from './servidor'
+import { clientesActuales, esCliente, type Clientes } from './clientes'
 import { leerCatalogo } from '@/lib/analisis-sin-amazon/catalogo'
 import { estudiarTienda, planDeEstudio } from '@/lib/analisis-sin-amazon/estudio'
 import { construirSinAmazon, SELLER_SIN_AMAZON } from '@/lib/analisis-sin-amazon/construir'
@@ -70,7 +71,8 @@ export type ResultadoDePasada = { hechos: number; tokens: number; pendientes: nu
 type Tarea = { tipo: 'amazon'; v: EnCola } | { tipo: 'sin'; v: EnColaSinAmazon }
 type Hecho = { ok: true; nombre: string } | { ok: false; saltar?: string; parar?: string }
 
-async function hacerAmazon(s: SupabaseClient, clave: string, v: EnCola): Promise<Hecho & { tokens: number }> {
+async function hacerAmazon(s: SupabaseClient, clave: string, v: EnCola, clientes: Clientes): Promise<Hecho & { tokens: number }> {
+  if (esCliente(clientes, { seller: v.seller, nombres: [v.tienda] })) return { ok: false, saltar: 'es cliente nuestro', tokens: 0 }
   const e = await estudiarVendedor(clave, v.seller)
   if (e.sinDatos) return { ok: false, saltar: 'sin datos en Keepa', tokens: e.gastado }
   const informe = construirAnalisis({ vendedorEs: e.vendedorEs, paises: e.paises, productos: e.productos, competencia: e.competencia, fecha: e.productos.fecha })
@@ -83,11 +85,12 @@ async function hacerAmazon(s: SupabaseClient, clave: string, v: EnCola): Promise
   return { ok: true, nombre: v.tienda, tokens: e.gastado }
 }
 
-async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnColaSinAmazon): Promise<Hecho & { tokens: number }> {
+async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnColaSinAmazon, clientes: Clientes): Promise<Hecho & { tokens: number }> {
   const { data: lead, error } = await s.from('cold_leads').select('id, store_name, web, cif, company, vende_en_amazon, seller_url').eq('id', v.lead).maybeSingle()
   if (error) throw error
   const l = lead as { store_name: string | null; web: string | null; cif: string | null; company: string | null; vende_en_amazon: string | null; seller_url: string | null } | null
   if (!l) return { ok: false, saltar: 'el lead ya no existe', tokens: 0 }
+  if (esCliente(clientes, { nombres: [l.store_name, l.company, v.tienda], web: l.web ?? v.web })) return { ok: false, saltar: 'es cliente nuestro', tokens: 0 }
   if (l.vende_en_amazon === 'vende' || l.seller_url) return { ok: false, saltar: 'ya vende en Amazon', tokens: 0 }
   const web = l.web ?? v.web
   const catalogo = web ? await leerCatalogo(web) : null
@@ -125,11 +128,12 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
   enMarcha = true
   try {
     const s = createServiceClient()
-    const [cola, colaSin, saltados, hechos] = await Promise.all([
+    const [cola, colaSin, saltados, hechos, clientes] = await Promise.all([
       leerJson<EnCola[]>(s, 'cola.json', []),
       leerJson<EnColaSinAmazon[]>(s, 'cola-sin-amazon.json', []),
       leerJson<Record<string, string>>(s, 'saltados.json', {}),
       yaHechos(s),
+      clientesActuales(s),
     ])
     if (!cola.length && !colaSin.length) return nada('no hay cola (cola.json en Storage)')
     const pendientes = cola.filter((v) => !hechos.has(v.lead) && !saltados[v.seller])
@@ -160,7 +164,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       if (tarea.tipo === 'amazon') ia++
       else ib++
       try {
-        const r = tarea.tipo === 'amazon' ? await hacerAmazon(s, clave, tarea.v) : await hacerSinAmazon(s, clave, tarea.v)
+        const r = tarea.tipo === 'amazon' ? await hacerAmazon(s, clave, tarea.v, clientes) : await hacerSinAmazon(s, clave, tarea.v, clientes)
         tokens += r.tokens
         if (r.ok) {
           fallos.delete(llave)
