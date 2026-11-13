@@ -76,6 +76,9 @@ export const palabras = (t: string) =>
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length >= 4 && !VACIAS.has(w))
 
+/** Palabras que salen en cualquier rama de Amazon y no dicen qué producto es */
+const GENERICAS = /^(infantil|infantiles|ni[nñ]o|ni[nñ]a|ni[nñ]os|ni[nñ]as|bebe|bebes|hombre|hombres|mujer|mujeres|adulto|adultos|unisex|ropa|moda|accesorio|accesorios|otros|varios|productos|hogar|casa|para)$/
+
 const hojaDe = (p: K) => (Array.isArray(p?.categoryTree) && p.categoryTree.length ? p.categoryTree[p.categoryTree.length - 1] : null)
 const raizDe = (p: K) => (Array.isArray(p?.categoryTree) && p.categoryTree.length ? p.categoryTree[0]?.catId ?? null : null)
 const rango = (p: K) => Number(p?.stats?.current?.[3] ?? 0)
@@ -235,8 +238,14 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
       const ps = await productos((d?.asinList ?? []).slice(0, 10))
       // La categoría tiene que ser la de su producto: con «vestido niña» en noviembre lo que más sale son disfraces de Halloween.
       // Se elige la hoja más repetida CUYA RUTA nombra el tipo (vestidos, cascos…, comparando las 5 primeras letras); si ninguna, fuera.
-      const raices = new Set(palabras(`${b.tipo} ${b.termino}`).map((w) => w.slice(0, 5)))
-      const encaja = (p: K) => palabras((p?.categoryTree ?? []).map((n: K) => n?.name ?? '').join(' ')).some((w) => raices.has(w.slice(0, 5)))
+      // Solo el nombre de la hoja y el de su padre (la ruta entera lleva «Infantil», «Mujer»… y casa con cualquier cosa), sin genéricas
+      const raices = new Set(palabras(`${b.tipo} ${b.termino}`).filter((w) => !GENERICAS.test(w)).map((w) => w.slice(0, 5)))
+      const encaja = (p: K) => {
+        const arbol: K[] = p?.categoryTree ?? []
+        return palabras(arbol.slice(-2).map((n) => n?.name ?? '').join(' '))
+          .filter((w) => !GENERICAS.test(w))
+          .some((w) => raices.has(w.slice(0, 5)))
+      }
       const cuenta = new Map<number, { n: number; nombre: string }>()
       for (const p of ps) {
         const h = hojaDe(p)
