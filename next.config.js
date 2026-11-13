@@ -18,6 +18,21 @@ const nextConfig = {
   poweredByHeader: false,
 
   /**
+   * SIN EL OPTIMIZADOR DE IMÁGENES DE NEXT.
+   *
+   * El 13 nov 2026 la pestaña del ERP se quedaba «cargando» para siempre (el
+   * círculo en vez del logo): el logo pedido por /_next/image a 384 px no
+   * contestaba nunca (medido: 20 s y nada; a 640 px, ya en caché, 50 ms), así
+   * que la página no llegaba a terminar de cargar. Tras cada despliegue la
+   * caché de imágenes empieza vacía y la conversión se colgaba en el servidor.
+   *
+   * Lo que pasa por aquí son el logo (9 KB) y los logos de clientes: no ganan
+   * nada optimizándose. Sin optimizador se sirven tal cual desde /public y no
+   * hay conversión que se pueda colgar.
+   */
+  images: { unoptimized: true },
+
+  /**
    * CABECERAS DE SEGURIDAD.
    *
    * LO QUE PASABA ANTES (medido con curl contra el servidor):
