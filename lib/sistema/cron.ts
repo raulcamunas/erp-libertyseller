@@ -454,6 +454,20 @@ export const TAREAS_CRON = [
       'No manda nada al cliente.',
   },
   {
+    /**
+     * CADA MINUTO, Y SIN SALDO EN KEEPA CONTESTA AL MOMENTO.
+     *
+     * Analiza con Keepa la siguiente tienda de la cola (bucket `analisis-keepa` de Storage) cuando hay saldo para una entera (~150 tokens; el
+     * plan da 21 por minuto, así que una cada 6-7 minutos) y deja su informe en `analisis_amazon` con el lead marcado «Con informe».
+     * Solo LEE de Keepa. lib/analisis-amazon/recogida.ts
+     */
+    id: 'analisis-keepa',
+    nombre: 'Análisis de Amazon (Keepa)',
+    ruta: '/api/analisis/cron',
+    cadaMinutos: 1,
+    que: 'Analiza con Keepa la siguiente tienda de las listas de vendedores de Amazon y deja su informe en la ficha del lead (casilla «Con informe»).',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
@@ -508,6 +522,8 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'push-avisos': { prioridad: 'normal' },
   'chat-avisos': { prioridad: 'normal' },
   'facturas-impagadas': { prioridad: 'normal' },
+  // Casi todo es esperar a Keepa; en la base, unas pocas consultas por tienda
+  'analisis-keepa': { prioridad: 'baja', ayunoMaxMin: 30 },
 }
 
 const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true
