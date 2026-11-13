@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 export function BotonDeBaja({ token }: { token: string }) {
   const [estado, setEstado] = useState<'listo' | 'enviando' | 'hecho' | 'error'>('listo')
-  if (estado === 'hecho') return <p style={{ color: '#FF8A3D', fontWeight: 700, fontSize: 15, margin: 0 }}>Hecho. No recibirá más correos nuestros.</p>
+  if (estado === 'hecho') return <p style={{ color: '#FF8A3D', fontWeight: 700, fontSize: 15, margin: 0 }}>Hecho. No recibirás más correos nuestros.</p>
   return (
     <>
       <button
@@ -19,7 +19,7 @@ export function BotonDeBaja({ token }: { token: string }) {
       >
         {estado === 'enviando' ? 'Un momento…' : 'Confirmar la baja'}
       </button>
-      {estado === 'error' && <p style={{ color: '#F87171', fontSize: 13, marginTop: 10 }}>No se ha podido guardar. Vuelva a probar en un momento.</p>}
+      {estado === 'error' && <p style={{ color: '#F87171', fontSize: 13, marginTop: 10 }}>No se ha podido guardar. Vuelve a probar en un momento.</p>}
     </>
   )
 }

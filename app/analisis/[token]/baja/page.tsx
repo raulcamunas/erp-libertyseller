@@ -15,7 +15,7 @@ export default async function Baja({ params }: { params: { token: string } }) {
         <img src="/logos/logo.png" alt="Liberty Seller" width={130} style={{ display: 'block', height: 'auto' }} />
         <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: -0.4, margin: '24px 0 8px' }}>Dejar de recibir correos</h1>
         <p style={{ color: '#A1A1AA', fontSize: 14.5, lineHeight: 1.6, margin: '0 0 20px' }}>
-          No volveremos a escribir por correo a {a.informe?.vendedor?.nombre ?? 'su empresa'}. El análisis seguirá disponible en su enlace por si lo necesita.
+          No volveremos a escribir por correo a {a.informe?.vendedor?.nombre ?? 'tu empresa'}. El análisis seguirá disponible en su enlace por si lo necesitas.
         </p>
         <BotonDeBaja token={params.token} />
       </div>

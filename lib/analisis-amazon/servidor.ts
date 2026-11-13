@@ -8,6 +8,7 @@ import { randomBytes } from 'crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { ContactoComercial } from '@/components/analisis-amazon/InformeAnalisis'
 import type { InformeAnalisis } from './construir'
+import type { InformeSinAmazon } from '@/lib/analisis-sin-amazon/construir'
 
 export type FilaDeAnalisis = {
   id: string
@@ -17,7 +18,7 @@ export type FilaDeAnalisis = {
   fecha: string
   version: number
   tipo: string | null
-  informe: InformeAnalisis
+  informe: InformeAnalisis | InformeSinAmazon
   aperturas: number
   abierto_primera_at: string | null
   abierto_ultima_at: string | null

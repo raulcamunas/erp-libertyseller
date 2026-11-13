@@ -40,7 +40,8 @@ export type EstudioKeepa = {
 
 const hoy = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date())
 
-async function pedir(clave: string, ruta: string): Promise<K> {
+/** Una llamada a Keepa (la usa también el informe de tiendas sin Amazon) */
+export async function pedir(clave: string, ruta: string): Promise<K> {
   const url = BASE + ruta + (ruta.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(clave)
   let ultimo = ''
   for (let intento = 0; intento < 3; intento++) {
@@ -68,7 +69,7 @@ export async function saldoKeepa(clave: string): Promise<Saldo> {
   return { tokens: Number(d.tokensLeft ?? 0), ritmo: Number(d.refillRate ?? 0) }
 }
 
-const finder = (seleccion: object) => 'query?domain=9&selection=' + encodeURIComponent(JSON.stringify(seleccion))
+export const finder = (seleccion: object) => 'query?domain=9&selection=' + encodeURIComponent(JSON.stringify(seleccion))
 
 export async function estudiarVendedor(clave: string, sellerId: string): Promise<EstudioKeepa> {
   let gastado = 0

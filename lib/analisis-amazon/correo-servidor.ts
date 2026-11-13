@@ -18,8 +18,7 @@ import { MAX_ENVIOS_POR_MINUTO } from '@/lib/correo/enviar'
 import { verificarAntesDeEnviar } from '@/lib/correo/verificacion/pago-servidor'
 import { createServiceClient } from '@/lib/supabase/service'
 import { urlBaseApp } from '@/lib/url-app'
-import type { InformeAnalisis } from './construir'
-import { correoAnalisisHtml, textoCorreoAnalisis, type DatosCorreoAnalisis } from './correo'
+import { correoAnalisisHtml, textoCorreoAnalisis, type DatosCorreoAnalisis, type InformeDelCorreo } from './correo'
 import { ETIQUETA_DE_SITUACION, escribirTextos, nombreDePila, situacionDelLead, type LeadParaCorreo, type NotaParaCorreo } from './correo-ia'
 import { contactoDeUsuario, ultimoAnalisisDelLead } from './servidor'
 
@@ -33,7 +32,7 @@ type Fallo = { ok: false; estado: number; error: string }
 type Contexto = {
   lead: LeadParaCorreo & { email: string | null; store_name: string | null }
   notas: NotaParaCorreo[]
-  informe: InformeAnalisis
+  informe: InformeDelCorreo
   datos: DatosCorreoAnalisis
   buzon: { id: string; direccion: string }
   enviadoAt: string | null
@@ -90,7 +89,7 @@ export type CorreoPreparado = {
   deIa: boolean
   situacion: string
   enviadoAt: string | null
-  informe: InformeAnalisis
+  informe: InformeDelCorreo
   datos: DatosCorreoAnalisis
 }
 

@@ -5,8 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { BOTON_PRIMARIO, BOTON_SECUNDARIO, CAMPO } from '@/components/correo/ui'
-import type { InformeAnalisis } from '@/lib/analisis-amazon/construir'
-import { correoAnalisisHtml, type DatosCorreoAnalisis } from '@/lib/analisis-amazon/correo'
+import { correoAnalisisHtml, type DatosCorreoAnalisis, type InformeDelCorreo } from '@/lib/analisis-amazon/correo'
 import { avisarCorreoEnviadoALead } from '@/lib/correo/peticiones'
 
 /**
@@ -24,7 +23,7 @@ type Preparado = {
   deIa: boolean
   situacion: string
   enviadoAt: string | null
-  informe: InformeAnalisis
+  informe: InformeDelCorreo
   datos: DatosCorreoAnalisis
 }
 

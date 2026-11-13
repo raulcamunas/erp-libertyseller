@@ -416,21 +416,21 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
     // Comparte sus fichas con otros vendedores (o con Amazon): vende productos de marcas ajenas
     tipo = 'revendedor'
     tipoTexto = 'Reventa de marcas ajenas'
-    tipoPorQue = `Vende productos de ${nMarcas} marcas${principal ? ` (la que más pesa, ${nombreMarca(principal)}, es solo el ${cuota} % de su catálogo)` : ''}, compite de media con ${coma(comp)} vendedores en cada ficha${bbVendedor !== null ? ` y gana la Buy Box en el ${bbVendedor} % de sus ofertas` : ''}.`
+    tipoPorQue = `Vendes productos de ${nMarcas} marcas${principal ? ` (la que más pesa, ${nombreMarca(principal)}, es solo el ${cuota} % de tu catálogo)` : ''}, compites de media con ${coma(comp)} vendedores en cada ficha${bbVendedor !== null ? ` y ganas la Buy Box en el ${bbVendedor} % de tus ofertas` : ''}.`
   } else if (principal && cuota >= 60 && comp < 2) {
     tipo = 'marca_propia'
     tipoTexto = 'Marca propia'
-    tipoPorQue = `El ${cuota} % de sus productos son de ${nombreMarca(principal)} y casi nadie más vende en sus fichas (${coma(comp)} vendedores de media por Buy Box).`
+    tipoPorQue = `El ${cuota} % de tus productos son de ${nombreMarca(principal)} y casi nadie más vende en tus fichas (${coma(comp)} vendedores de media por Buy Box).`
   } else if (comp < 1.5 && (bbVendedor ?? 0) >= 80) {
     tipo = 'distribuidor'
     tipoTexto = 'Varias marcas propias o en exclusiva'
-    tipoPorQue = `Vende ${nMarcas} marcas y casi siempre es el único vendedor de sus fichas (Buy Box en el ${bbVendedor} % de sus ofertas): son marcas suyas o que distribuye en exclusiva.`
+    tipoPorQue = `Vendes ${nMarcas} marcas y casi siempre eres el único vendedor de tus fichas (Buy Box en el ${bbVendedor} % de tus ofertas): son marcas tuyas o que distribuyes en exclusiva.`
   } else {
     tipo = 'mixto'
     tipoTexto = 'Marca principal y reventa'
     tipoPorQue = principal
-      ? `El ${cuota} % de sus productos son de ${nombreMarca(principal)} y el resto, de ${marcas.length >= 10 ? 'más de 9 marcas' : lista(marcas.length - 1, 'marca más', 'marcas más')}.`
-      : 'Keepa no tiene el desglose de marcas de este vendedor.'
+      ? `El ${cuota} % de tus productos son de ${nombreMarca(principal)} y el resto, de ${marcas.length >= 10 ? 'más de 9 marcas' : lista(marcas.length - 1, 'marca más', 'marcas más')}.`
+      : 'Keepa no tiene el desglose de marcas de tu cuenta.'
   }
 
   // Fotos y títulos solo los puede cambiar quien es dueño de la ficha
@@ -507,12 +507,12 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
     op.push({
       area: 'buybox',
       prioridad: 'alta',
-      titulo: 'Buy Box en pocas de sus ofertas',
+      titulo: 'Buy Box en pocas de tus ofertas',
       cifra: `${bbVendedor} %`,
-      detalle: `Solo gana la Buy Box en el ${bbVendedor} % de sus ofertas. En el resto, el comprador que entra a la ficha compra a otro vendedor${conAmazonTotal ? `, y en ${lista(conAmazonTotal, 'producto', 'productos')} ese otro vendedor puede ser la propia Amazon` : ''}. En reventa, la Buy Box es la venta.`,
-      umbral: 'Buy Box en menos del 60 % de sus ofertas',
+      detalle: `Solo ganas la Buy Box en el ${bbVendedor} % de tus ofertas. En el resto, el comprador que entra a la ficha compra a otro vendedor${conAmazonTotal ? `, y en ${lista(conAmazonTotal, 'producto', 'productos')} ese otro vendedor puede ser la propia Amazon` : ''}. En reventa, la Buy Box es la venta.`,
+      umbral: 'Buy Box en menos del 60 % de tus ofertas',
       asins: [],
-      impacto: `De cada 10 ofertas suyas, en ${10 - Math.round(bbVendedor / 10)} la venta se la lleva otro`,
+      impacto: `De cada 10 ofertas tuyas, en ${10 - Math.round(bbVendedor / 10)} la venta se la lleva otro`,
     })
   }
 
@@ -524,7 +524,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
       prioridad: tipo === 'marca_propia' || (peor.buyBoxPropia ?? 100) < 50 ? 'alta' : 'media',
       titulo: 'Buy Box que se escapa',
       cifra: `${pierdeBb.length} de ${n}`,
-      detalle: `En ${lista(pierdeBb.length, 'producto', 'productos')} tiene la Buy Box menos del ${UMBRALES.buyBox} % del tiempo. En ${corto(peor)} solo el ${peor.buyBoxPropia} %${peor.otrosEnBuyBox ? `, repartida con ${lista(peor.otrosEnBuyBox, 'vendedor más', 'vendedores más')}` : ''}. ${tipo === 'marca_propia' ? 'Sin la Buy Box, la venta se la lleva otro aunque la ficha sea suya.' : 'Sin la Buy Box no hay venta: el pedido se lo lleva el vendedor que la tiene.'}`,
+      detalle: `En ${lista(pierdeBb.length, 'producto', 'productos')} tienes la Buy Box menos del ${UMBRALES.buyBox} % del tiempo. En ${corto(peor)} solo el ${peor.buyBoxPropia} %${peor.otrosEnBuyBox ? `, repartida con ${lista(peor.otrosEnBuyBox, 'vendedor más', 'vendedores más')}` : ''}. ${tipo === 'marca_propia' ? 'Sin la Buy Box, la venta se la lleva otro aunque la ficha sea tuya.' : 'Sin la Buy Box no hay venta: el pedido se lo lleva el vendedor que la tiene.'}`,
       umbral: `Buy Box propia < ${UMBRALES.buyBox} % del tiempo (90 días)`,
       asins: pierdeBb.map((p) => p.asin),
     })
@@ -536,10 +536,10 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
       op.push({
         area: 'competencia',
         prioridad: 'alta',
-        titulo: 'Otros vendedores en su marca',
+        titulo: 'Otros vendedores en tu marca',
         cifra: `${conOtros.length} de ${n}`,
-        detalle: `En ${lista(conOtros.length, 'ficha', 'fichas')} de su propia marca otros vendedores han llegado a ganar la Buy Box en los últimos 90 días. En una marca propia eso suele ser reventa no autorizada y se puede proteger con el Registro de Marcas de Amazon.`,
-        umbral: 'Algún vendedor ajeno con Buy Box en una ficha de su marca',
+        detalle: `En ${lista(conOtros.length, 'ficha', 'fichas')} de tu propia marca otros vendedores han llegado a ganar la Buy Box en los últimos 90 días. En una marca propia eso suele ser reventa no autorizada y se puede proteger con el Registro de Marcas de Amazon.`,
+        umbral: 'Algún vendedor ajeno con Buy Box en una ficha de tu marca',
         asins: conOtros.map((p) => p.asin),
       })
     }
@@ -550,9 +550,9 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
     op.push({
       area: 'competencia',
       prioridad: 'media',
-      titulo: 'Amazon vende en sus productos',
+      titulo: 'Amazon vende en tus productos',
       cifra: String(conAmazon),
-      detalle: `Amazon tiene oferta propia en ${lista(conAmazon, 'producto', 'productos')} de su catálogo. Competir con Amazon por la Buy Box pide precio y logística FBA.`,
+      detalle: `Amazon tiene oferta propia en ${lista(conAmazon, 'producto', 'productos')} de tu catálogo. Competir con Amazon por la Buy Box pide precio y logística FBA.`,
       umbral: 'Oferta de Amazon en el mismo producto',
       asins: [],
     })
@@ -565,7 +565,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
       prioridad: (v12.negativas ?? 0) >= 2 * UMBRALES.negativas ? 'alta' : 'media',
       titulo: 'Valoraciones de vendedor negativas',
       cifra: `${v12.negativas} %`,
-      detalle: `El ${v12.negativas} % de sus ${v12.numero} valoraciones de vendedor de los últimos 12 meses son negativas. Amazon lo tiene en cuenta para dar la Buy Box y el comprador lo ve antes de comprar.`,
+      detalle: `El ${v12.negativas} % de tus ${v12.numero} valoraciones de vendedor de los últimos 12 meses son negativas. Amazon lo tiene en cuenta para dar la Buy Box y el comprador lo ve antes de comprar.`,
       umbral: `Negativas ≥ ${UMBRALES.negativas} % en 12 meses (con ${UMBRALES.minValoraciones} valoraciones o más)`,
       asins: [],
     })
@@ -624,7 +624,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
       prioridad: 'alta',
       titulo: 'Sin logística de Amazon (FBA)',
       cifra: '0 %',
-      detalle: 'Todos sus envíos los hace por su cuenta, así que ningún producto lleva la etiqueta Prime. Con FBA el producto entra en Prime y gana peso en la Buy Box.',
+      detalle: 'Todos tus envíos los haces por tu cuenta, así que ningún producto lleva la etiqueta Prime. Con FBA el producto entra en Prime y gana peso en la Buy Box.',
       umbral: 'Ningún producto en FBA',
       asins: [],
     })
@@ -648,7 +648,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
       prioridad: 'media',
       titulo: 'Mercados europeos sin abrir',
       cifra: `${mercadosActivos} de 5`,
-      detalle: `Vende en ${enumerar(paises.filter((p) => p.presente === true).map((p) => p.nombre)) || 'ningún mercado'}. En ${enumerar(sinAbrir.map((p) => p.nombre))} no tiene ventas registradas. Abrir cada país pide traducir las fichas y cumplir su normativa (por ejemplo, EPR en Alemania y Francia).`,
+      detalle: `Vendes en ${enumerar(paises.filter((p) => p.presente === true).map((p) => p.nombre)) || 'ningún mercado'}. En ${enumerar(sinAbrir.map((p) => p.nombre))} no tienes ventas registradas. Abrir cada país pide traducir las fichas y cumplir su normativa (por ejemplo, EPR en Alemania y Francia).`,
       umbral: 'Sin valoraciones de vendedor en el país',
       asins: [],
     })
@@ -664,14 +664,14 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
     switch (o.area) {
       case 'stock': {
         const peor = afectados[0]
-        if (peor?.sinStock90) o.impacto = `≈ ${Math.round((peor.sinStock90 / 100) * 90)} días sin poder vender su producto más afectado en los últimos 90`
+        if (peor?.sinStock90) o.impacto = `≈ ${Math.round((peor.sinStock90 / 100) * 90)} días sin poder vender tu producto más afectado en los últimos 90`
         o.accion = 'Plan de reposición a FBA con la rotación de cada producto, para mandar antes de que se agote.'
         break
       }
       case 'buybox': {
         const peor = afectados[0]
         if (peor?.buyBoxPropia !== null && peor?.buyBoxPropia !== undefined)
-          o.impacto = `En su peor ficha, ${100 - peor.buyBoxPropia} de cada 100 visitas compran a otro vendedor`
+          o.impacto = `En tu peor ficha, ${100 - peor.buyBoxPropia} de cada 100 visitas compran a otro vendedor`
         o.accion = 'Revisar precio, envío y vendedores de esas fichas para recuperar la Buy Box.'
         break
       }
@@ -682,7 +682,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
         break
       case 'reputacion': {
         const n = Number.parseInt(o.cifra, 10)
-        if (n) o.impacto = `${Math.round(n / 10)} de cada 10 compradores que le valoran le ponen nota negativa`
+        if (n) o.impacto = `${Math.round(n / 10)} de cada 10 compradores que te valoran te ponen nota negativa`
         o.accion = 'Revisar los pedidos con nota negativa, pedir la retirada de las que no proceden y atajar la causa.'
         break
       }
@@ -707,7 +707,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
   /* --- lo que ya hace bien ----------------------------------------- */
   const fortalezas: Fortaleza[] = []
   if (cifras_buyBox(s) !== null && (cifras_buyBox(s) as number) >= 90)
-    fortalezas.push({ cifra: `${cifras_buyBox(s)} %`, titulo: 'Buy Box en sus ofertas', detalle: 'Casi siempre es su oferta la que sale en el botón de compra.' })
+    fortalezas.push({ cifra: `${cifras_buyBox(s)} %`, titulo: 'Buy Box en tus ofertas', detalle: 'Casi siempre es tu oferta la que sale en el botón de compra.' })
   const buenas = productos.filter((p) => (p.estrellas ?? 0) >= 4.3 && (p.resenas ?? 0) >= 20)
   if (buenas.length)
     fortalezas.push({
@@ -716,24 +716,24 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
       detalle: `Con 4,3 estrellas o más y reseñas suficientes para que el comprador se fíe.`,
     })
   if (tipo === 'marca_propia')
-    fortalezas.push({ cifra: `${cuota} %`, titulo: 'Marca propia', detalle: 'La ficha y el margen son suyos: lo que se mejora en la ficha se queda en casa.' })
+    fortalezas.push({ cifra: `${cuota} %`, titulo: 'Marca propia', detalle: 'La ficha y el margen son tuyos: lo que se mejora en la ficha se queda en casa.' })
   const activos = paises.filter((p) => p.presente === true).length
-  if (activos >= 2) fortalezas.push({ cifra: `${activos} países`, titulo: 'Ya vende fuera de España', detalle: `Tiene ventas en ${enumerar(paises.filter((p) => p.presente === true).map((p) => p.nombre))}.` })
+  if (activos >= 2) fortalezas.push({ cifra: `${activos} países`, titulo: 'Ya vendes fuera de España', detalle: `Tienes ventas en ${enumerar(paises.filter((p) => p.presente === true).map((p) => p.nombre))}.` })
   const mejor = productos.find((p) => p.ranking !== null)
   if (mejor?.ranking && mejor.ranking <= 20000)
-    fortalezas.push({ cifra: `#${String(mejor.ranking).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`, titulo: 'Su mejor producto', detalle: `En ${mejor.categoria ?? 'su categoría'}: hay demanda y Amazon ya le da visibilidad.` })
+    fortalezas.push({ cifra: `#${String(mejor.ranking).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`, titulo: 'Tu mejor producto', detalle: `En ${mejor.categoria ?? 'tu categoría'}: hay demanda y Amazon ya te da visibilidad.` })
   const catalogo = s.asinList?.length ?? 0
   if (catalogo >= 300)
     fortalezas.push({
       cifra: String(catalogo).replace(/\B(?=(\d{3})+(?!\d))/g, '.'),
-      titulo: 'Productos en su catálogo',
+      titulo: 'Productos en tu catálogo',
       detalle: 'Un catálogo grande es la mejor base para crecer: cada mejora se multiplica por muchas fichas.',
     })
   const conVentasBuenas = productos.filter((p) => (p.ventasMes ?? 0) >= 500)
   if (conVentasBuenas.length)
     fortalezas.push({
       cifra: `+${String(Math.max(...conVentasBuenas.map((p) => p.ventasMes ?? 0))).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`,
-      titulo: 'Compras al mes en su producto más vendido',
+      titulo: 'Compras al mes en tu producto más vendido',
       detalle: 'Dato que Amazon enseña en la propia ficha: hay demanda y la ficha ya convierte.',
     })
   const anios = s.trackedSince ? (Date.parse(e.fecha) - Date.parse(fechaKeepa(s.trackedSince) ?? e.fecha)) / (365.25 * 864e5) : 0
@@ -755,12 +755,12 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
   // «Roturas de stock» → «roturas de stock», pero «Buy Box…» se queda como está
   const claves = op.slice(0, 3).map((o) => (/^Buy Box/.test(o.titulo) ? o.titulo : o.titulo.charAt(0).toLowerCase() + o.titulo.slice(1)))
   const queVende: Record<TipoVendedor, string> = {
-    marca_propia: 'su propia marca',
+    marca_propia: 'tu propia marca',
     revendedor: 'productos de marcas ajenas',
     distribuidor: 'varias marcas propias o en exclusiva',
     mixto: 'una marca principal junto a productos de otras marcas',
   }
-  const resumen = `${s.sellerName} vende en Amazon ${queVende[tipo]} con ${String(s.asinList?.length ?? 0).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} ${(s.asinList?.length ?? 0) === 1 ? 'producto' : 'productos'} en España${mercadosActivos > 1 ? ` y presencia en ${mercadosActivos - 1} ${mercadosActivos - 1 === 1 ? 'país más' : 'países más'}` : ''}.${claves.length ? ` Lo que más pesa ahora: ${enumerar(claves)}.` : ''}`
+  const resumen = `Vendes en Amazon ${queVende[tipo]} con ${String(s.asinList?.length ?? 0).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} ${(s.asinList?.length ?? 0) === 1 ? 'producto' : 'productos'} en España${mercadosActivos > 1 ? ` y presencia en ${mercadosActivos - 1} ${mercadosActivos - 1 === 1 ? 'país más' : 'países más'}` : ''}.${claves.length ? ` Lo que más pesa ahora: ${enumerar(claves)}.` : ''}`
 
   /* --- competencia ------------------------------------------------ */
   let competencia: CompetenciaAnalisis | null = null
@@ -787,21 +787,21 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
   const pm = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
   frases.push(
     tipo === 'marca_propia'
-      ? `Marca propia: ${principal ? nombreMarca(principal) : 'su marca'} es el ${cuota} % de sus ${pm(s.asinList?.length ?? 0)} productos. La ficha es suya.`
+      ? `Marca propia: ${principal ? nombreMarca(principal) : 'tu marca'} es el ${cuota} % de tus ${pm(s.asinList?.length ?? 0)} productos. La ficha es tuya.`
       : tipo === 'revendedor'
-        ? `Revende marcas ajenas (${principal ? `${nombreMarca(principal)} ${cuota} %` : 'varias'}) en ${pm(s.asinList?.length ?? 0)} productos. Su venta depende de ganar la Buy Box.`
+        ? `Revendes marcas ajenas (${principal ? `${nombreMarca(principal)} ${cuota} %` : 'varias'}) en ${pm(s.asinList?.length ?? 0)} productos. Tu venta depende de ganar la Buy Box.`
         : `${tipoTexto}: ${pm(s.asinList?.length ?? 0)} productos.`,
   )
   const masVendido = [...productos].filter((p) => p.ventasMes).sort((a, b) => (b.ventasMes ?? 0) - (a.ventasMes ?? 0))[0]
-  if (masVendido) frases.push(`Su producto que más vende: «${recortar(masVendido.titulo, 45)}» (+${pm(masVendido.ventasMes ?? 0)} compras/mes).`)
+  if (masVendido) frases.push(`Tu producto que más vende: «${recortar(masVendido.titulo, 45)}» (+${pm(masVendido.ventasMes ?? 0)} compras/mes).`)
   for (const o of op.slice(0, 3)) frases.push(`${o.titulo}: ${o.cifra}${o.impacto ? ` (${o.impacto.charAt(0).toLowerCase()}${o.impacto.slice(1)})` : ''}.`)
   if (competencia?.rivales[0] && competencia.estrella) {
     const l = competencia.rivales[0]
-    frases.push(`En ${competencia.categoria ?? 'su categoría'} lidera ${l.marca ?? 'otro'} con ${pm(l.resenas ?? 0)} reseñas (él tiene ${pm(competencia.estrella.resenas ?? 0)}).`)
+    frases.push(`En ${competencia.categoria ?? 'tu categoría'} lidera ${l.marca ?? 'otro'} con ${pm(l.resenas ?? 0)} reseñas (tú tienes ${pm(competencia.estrella.resenas ?? 0)}).`)
   }
   const codigosActivos = paises.filter((p) => p.presente === true).map((p) => p.codigo.toUpperCase())
   const porAbrir = paises.filter((p) => p.presente === false).map((p) => p.codigo.toUpperCase())
-  if (porAbrir.length) frases.push(`Vende en ${codigosActivos.join(', ') || 'ES'}; no en ${porAbrir.join(', ')}.`)
+  if (porAbrir.length) frases.push(`Vendes en ${codigosActivos.join(', ') || 'ES'}; no en ${porAbrir.join(', ')}.`)
   const guion = { tipo: tipoTexto, frases: frases.slice(0, 6) }
 
   return {

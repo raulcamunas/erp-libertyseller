@@ -6,12 +6,13 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { InformeAnalisis } from './construir'
+import type { InformeSinAmazon } from '@/lib/analisis-sin-amazon/construir'
 import { nuevoToken } from './servidor'
 
 export async function guardarAnalisis(
   s: SupabaseClient,
   v: { lead: string; seller: string },
-  informe: InformeAnalisis,
+  informe: InformeAnalisis | InformeSinAmazon,
   fecha: string,
 ): Promise<{ ok: true } | { ok: false; error: { code?: string; message: string } }> {
   const { data: previo, error: e1 } = await s.from('analisis_amazon').select('id, fecha').eq('lead_id', v.lead).order('fecha', { ascending: false })

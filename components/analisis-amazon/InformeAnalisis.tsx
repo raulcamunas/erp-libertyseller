@@ -432,7 +432,7 @@ function avisosDe(p: ProductoAnalisis): { t: string; tono: Tono }[] {
 /** Lo que ve el comprador ahora mismo: quién tiene la Buy Box y si hay stock. */
 function EstadoAhora({ p }: { p: ProductoAnalisis }) {
   const bb: Record<NonNullable<ProductoAnalisis['buyBoxAhora']>, { t: string; tono: Tono }> = {
-    suya: { t: 'Buy Box: suya', tono: 'bien' },
+    suya: { t: 'Buy Box: tuya', tono: 'bien' },
     otro: { t: 'Buy Box: otro vendedor', tono: 'mal' },
     amazon: { t: 'Buy Box: Amazon', tono: 'mal' },
     nadie: { t: 'Sin Buy Box', tono: 'aviso' },
@@ -477,7 +477,7 @@ function TarjetaProducto({ p, i }: { p: ProductoAnalisis; i: number }) {
           {p.titulo}
         </a>
         <div className="mt-1 truncate text-[11px]" style={{ color: 'rgba(255,255,255,0.45)' }}>
-          {p.ranking !== null ? `#${entero(p.ranking)} en ${p.categoria ?? 'su categoría'}` : <span style={{ fontFamily: MONO }}>{p.asin}</span>}
+          {p.ranking !== null ? `#${entero(p.ranking)} en ${p.categoria ?? 'tu categoría'}` : <span style={{ fontFamily: MONO }}>{p.asin}</span>}
         </div>
         <div className="mt-3">
           <EstadoAhora p={p} />
@@ -486,7 +486,7 @@ function TarjetaProducto({ p, i }: { p: ProductoAnalisis; i: number }) {
           {dato(eur(p.precio), 'precio')}
           {dato(p.estrellas === null ? '—' : `${decimal(p.estrellas)} ★`, `${entero(p.resenas)} reseñas`, p.alertas.estrellas)}
           {dato(p.sinStock90 === null ? '—' : `${p.sinStock90} %`, 'agotado 90 d', p.alertas.stock)}
-          {dato(p.buyBoxPropia === null ? '—' : `${p.buyBoxPropia} %`, 'su Buy Box', p.alertas.buybox)}
+          {dato(p.buyBoxPropia === null ? '—' : `${p.buyBoxPropia} %`, 'tu Buy Box', p.alertas.buybox)}
           {dato(comprasMes(p.ventasMes), 'compras')}
           {dato(p.fba === null ? '—' : p.fba ? 'FBA' : 'Envío propio', 'logística')}
         </div>
@@ -610,7 +610,7 @@ function FilaProducto({ p, i }: { p: ProductoAnalisis; i: number }) {
           </a>
           <div className="mt-1 truncate text-[11.5px]" style={{ color: 'rgba(255,255,255,0.45)' }}>
             <span style={{ fontFamily: MONO }}>{p.asin}</span>
-            {p.ranking !== null && <> · #{entero(p.ranking)} en {p.categoria ?? 'su categoría'}</>}
+            {p.ranking !== null && <> · #{entero(p.ranking)} en {p.categoria ?? 'tu categoría'}</>}
           </div>
           <div className="mt-2">
             <EstadoAhora p={p} />
@@ -654,7 +654,7 @@ function SeccionSeo({ seo }: { seo: Informe['seo'] }) {
         <Etiqueta centro>Un regalo de nuestra parte</Etiqueta>
         <H2 centro>Amazon cambió las reglas del SEO en julio de 2026</H2>
         <Parrafo centro>
-          Afecta a todos los vendedores y muchas fichas siguen con la estructura antigua. Se lo dejamos aquí, trabaje o no con nosotros: es lo primero que conviene
+          Afecta a todos los vendedores y muchas fichas siguen con la estructura antigua. Te lo dejamos aquí, trabajes o no con nosotros: es lo primero que conviene
           revisar en cualquier catálogo.
         </Parrafo>
       </Revelar>
@@ -682,7 +682,7 @@ function SeccionSeo({ seo }: { seo: Informe['seo'] }) {
 
       <div className="mt-16 grid items-center gap-14 lg:grid-cols-2">
         <Revelar>
-          <Etiqueta>Cómo están sus títulos</Etiqueta>
+          <Etiqueta>Cómo están tus títulos</Etiqueta>
           {seo.revisados > 0 && (
             <H2>
               {seo.fueraDeNorma > 0 ? (
@@ -692,20 +692,20 @@ function SeccionSeo({ seo }: { seo: Informe['seo'] }) {
                   pasan de {UMBRALES.titulo} caracteres
                 </>
               ) : (
-                <>Sus títulos ya cumplen la norma</>
+                <>Tus títulos ya cumplen la norma</>
               )}
             </H2>
           )}
           <Parrafo>
             {seo.fueraDeNorma > 0
               ? 'Un título fuera de norma lo reescribe la IA de Amazon a su manera, y se pierde el control de las palabras por las que se posiciona.'
-              : `Sus títulos tienen de media ${seo.largoMedio ?? '—'} caracteres. El siguiente paso es aprovechar Item Highlights, que se indexa igual que el título.`}
+              : `Tus títulos tienen de media ${seo.largoMedio ?? '—'} caracteres. El siguiente paso es aprovechar Item Highlights, que se indexa igual que el título.`}
           </Parrafo>
           <ul className="mt-7 space-y-3">
             <Vineta fuerte="Estructura:">marca + tipo de producto + atributo principal + variante.</Vineta>
-            <Vineta fuerte="Sin repetir:">ninguna palabra más de dos veces.{seo.conRepeticiones ? ` ${seo.conRepeticiones === 1 ? 'Uno de sus títulos lo hace.' : `${seo.conRepeticiones} de sus títulos lo hacen.`}` : ''}</Vineta>
+            <Vineta fuerte="Sin repetir:">ninguna palabra más de dos veces.{seo.conRepeticiones ? ` ${seo.conRepeticiones === 1 ? 'Uno de tus títulos lo hace.' : `${seo.conRepeticiones} de tus títulos lo hacen.`}` : ''}</Vineta>
             <Vineta fuerte="Sin símbolos ni promociones:">
-              nada de ! $ ? _ {'{ }'} ^, precios ni «oferta».{seo.conSimbolos ? ` ${seo.conSimbolos === 1 ? 'Uno de sus títulos lleva alguno.' : `${seo.conSimbolos} de sus títulos llevan alguno.`}` : ''}
+              nada de ! $ ? _ {'{ }'} ^, precios ni «oferta».{seo.conSimbolos ? ` ${seo.conSimbolos === 1 ? 'Uno de tus títulos lleva alguno.' : `${seo.conSimbolos} de tus títulos llevan alguno.`}` : ''}
             </Vineta>
             <Vineta fuerte="Lo que no cabe no se pierde:">va a Item Highlights, las viñetas y el backend, sin repetir palabras entre ellos.</Vineta>
           </ul>
@@ -713,7 +713,7 @@ function SeccionSeo({ seo }: { seo: Informe['seo'] }) {
 
         <Revelar retraso={150}>
           {ej ? (
-            <Ventana titulo={`Su título más largo · ${ej.largo} caracteres`}>
+            <Ventana titulo={`Tu título más largo · ${ej.largo} caracteres`}>
               <div className="rounded-[10px] p-4 text-[14.5px] leading-[1.7]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <span className="text-white">{dentro}</span>
                 <span className="mx-0.5 inline-block h-[1.1em] w-[2px] translate-y-[3px] rounded" style={{ background: N, boxShadow: `0 0 10px ${N}` }} />
@@ -739,7 +739,7 @@ function SeccionSeo({ seo }: { seo: Informe['seo'] }) {
               </div>
             </Ventana>
           ) : (
-            <Ventana titulo="Sus títulos · norma de julio de 2026">
+            <Ventana titulo="Tus títulos · norma de julio de 2026">
               <Fila className="flex items-center justify-between">
                 <span>Títulos revisados</span>
                 <Pastilla tono="bien">{seo.revisados} dentro de norma</Pastilla>
@@ -764,11 +764,11 @@ function SeccionCompetencia({ c }: { c: NonNullable<Informe['competencia']> }) {
       <Halo className="-left-40 top-1/3 h-[420px] w-[420px]" fuerza={0.1} lento />
       <Revelar>
         <Etiqueta centro>Competencia</Etiqueta>
-        <H2 centro>Contra quién compite{c.categoria ? ` en ${c.categoria}` : ''}</H2>
+        <H2 centro>Contra quién compites{c.categoria ? ` en ${c.categoria}` : ''}</H2>
         <Parrafo centro>
-          Los productos que más venden en la categoría de su producto estrella, y el suyo al lado.
+          Los productos que más venden en la categoría de tu producto estrella, y el tuyo al lado.
           {lider && c.estrella && lider.resenas && c.estrella.resenas && lider.resenas > c.estrella.resenas * 1.5
-            ? ` El que lidera tiene ${Math.round(lider.resenas / Math.max(c.estrella.resenas, 1))} veces más reseñas que el suyo.`
+            ? ` El que lidera tiene ${Math.round(lider.resenas / Math.max(c.estrella.resenas, 1))} veces más reseñas que el tuyo.`
             : ''}
         </Parrafo>
       </Revelar>
@@ -792,7 +792,7 @@ function SeccionCompetencia({ c }: { c: NonNullable<Informe['competencia']> }) {
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      {suyo ? <Pastilla tono="naranja">Su producto</Pastilla> : <Pastilla tono="gris">{p.marca ?? 'Competidor'}</Pastilla>}
+                      {suyo ? <Pastilla tono="naranja">Tu producto</Pastilla> : <Pastilla tono="gris">{p.marca ?? 'Competidor'}</Pastilla>}
                     </div>
                     <a href={p.url} target="_blank" rel="noopener noreferrer" className="mt-1 line-clamp-1 font-semibold text-white hover:underline">
                       {p.titulo}
@@ -828,7 +828,7 @@ function SeccionCompetencia({ c }: { c: NonNullable<Informe['competencia']> }) {
 /* Clientes (los mismos nueve de libertyseller.com)                     */
 /* ------------------------------------------------------------------ */
 
-const CLIENTES: { nombre: string; logo?: string; tag: string; cifra: string }[] = [
+export const CLIENTES: { nombre: string; logo?: string; tag: string; cifra: string }[] = [
   { nombre: 'Creative Toys', logo: '/logos/clientes/partner-creativetoys.png', tag: 'Creación de cuenta', cifra: 'Marca TOP en juegos de mesa' },
   { nombre: 'BSC Shoes & Fashion', logo: '/logos/clientes/partner-bsc.png', tag: 'Buy Box · Gestión 360º', cifra: 'Buy Box del 3 % al 25 %' },
   { nombre: 'Lenobotics', logo: '/logos/clientes/partner-lenobotics.png', tag: 'Buy Box · Catálogo', cifra: '+5 % de Buy Box en electrónica' },
@@ -975,8 +975,8 @@ export function InformeAnalisis({
 
   const titularDos =
     altas > 0
-      ? `${altas === 1 ? 'Un punto le está' : `${altas} puntos le están`} costando ventas.`
-      : 'Y tiene recorrido para vender más.'
+      ? `${altas === 1 ? 'Un punto te está' : `${altas} puntos te están`} costando ventas.`
+      : 'Y tienes recorrido para vender más.'
 
   return (
     <div className="min-h-screen overflow-x-hidden text-white antialiased" style={{ background: FONDO, fontFamily: 'var(--font-inter), Inter, system-ui, sans-serif' }}>
@@ -1039,7 +1039,7 @@ export function InformeAnalisis({
             </Revelar>
             <Revelar retraso={100}>
               <h1 className="mt-5 text-[40px] font-extrabold leading-[1.02] tracking-[-0.045em] sm:text-[60px]">
-                Hemos revisado su cuenta de Amazon.
+                Hemos revisado tu cuenta de Amazon.
                 <span className="ls-texto-degradado mt-1 block">{titularDos}</span>
               </h1>
             </Revelar>
@@ -1085,7 +1085,7 @@ export function InformeAnalisis({
             <Ventana brillo titulo={`Resumen · datos del ${fechaCorta(informe.fecha)}`}>
               <div className="grid grid-cols-2 gap-2.5">
                 <Dato valor={entero(cifras.productos)} rotulo="productos en España" />
-                <Dato valor={cifras.buyBox === null ? '—' : `${cifras.buyBox} %`} rotulo="Buy Box en sus ofertas" />
+                <Dato valor={cifras.buyBox === null ? '—' : `${cifras.buyBox} %`} rotulo="Buy Box en tus ofertas" />
                 <Dato
                   valor={v12.positivas === null ? '—' : `${v12.positivas} %`}
                   rotulo={`positivas · 12 meses (${entero(v12.numero)})`}
@@ -1139,7 +1139,7 @@ export function InformeAnalisis({
           <Revelar>
             <Etiqueta centro>Lo que ya funciona</Etiqueta>
             <H2 centro>Hay una buena base</H2>
-            <Parrafo centro>Antes de hablar de lo que se puede mejorar, esto es lo que su cuenta ya hace bien. Es sobre lo que se construye.</Parrafo>
+            <Parrafo centro>Antes de hablar de lo que se puede mejorar, esto es lo que tu cuenta ya hace bien. Es sobre lo que se construye.</Parrafo>
           </Revelar>
           <div className={`mt-14 grid gap-3 sm:grid-cols-2 ${informe.fortalezas.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
             {informe.fortalezas.map((f, i) => (
@@ -1166,7 +1166,7 @@ export function InformeAnalisis({
           <Halo className="left-1/2 top-24 h-[380px] w-[680px] -translate-x-1/2" fuerza={0.09} />
           <Revelar>
             <Etiqueta centro>Lo que cuesta ventas</Etiqueta>
-            <H2 centro>Dónde se le está escapando la venta</H2>
+            <H2 centro>Dónde se te está escapando la venta</H2>
             <Parrafo centro>Ordenado por lo que más venta puede estar costando hoy. Cada punto, con la cifra que lo sostiene.</Parrafo>
           </Revelar>
           <div className="mt-14 grid gap-3 md:grid-cols-3">
@@ -1207,7 +1207,7 @@ export function InformeAnalisis({
               className="inline-flex items-center gap-2 text-[14px] font-semibold transition-colors hover:text-white"
               style={{ color: N }}
             >
-              Pregúntele a {nombreComercial} cómo lo resolveríamos <ArrowRight className="h-4 w-4" />
+              Pregúntale a {nombreComercial} cómo lo resolveríamos <ArrowRight className="h-4 w-4" />
             </a>
           </Revelar>
         </Seccion>
@@ -1223,23 +1223,23 @@ export function InformeAnalisis({
             <Parrafo>{informe.tipoPorQue}</Parrafo>
             <ul className="mt-7 space-y-3">
               {principal && (
-                <Vineta fuerte={`${principal.cuota} % de su catálogo`}>
+                <Vineta fuerte={`${principal.cuota} % de tu catálogo`}>
                   es de <span className="capitalize">{principal.marca.toLowerCase()}</span>
-                  {informe.tipo === 'marca_propia' ? ', su marca.' : ', la marca que más pesa.'}
+                  {informe.tipo === 'marca_propia' ? ', tu marca.' : ', la marca que más pesa.'}
                 </Vineta>
               )}
               {cifras.competidoresBuyBox !== null && (
-                <Vineta fuerte={`${decimal(cifras.competidoresBuyBox)} vendedores`}>compiten de media en cada una de sus fichas.</Vineta>
+                <Vineta fuerte={`${decimal(cifras.competidoresBuyBox)} vendedores`}>compiten de media en cada una de tus fichas.</Vineta>
               )}
               <Vineta fuerte="Por qué importa:">
                 {informe.tipo === 'marca_propia'
-                  ? 'con marca propia la ficha es suya; el trabajo está en que nadie le quite la Buy Box, en no quedarse sin stock y en que la ficha convierta.'
+                  ? 'con marca propia la ficha es tuya; el trabajo está en que nadie te quite la Buy Box, en no quedarte sin stock y en que la ficha convierta.'
                   : 'vendiendo marcas de otros, la venta depende de ganar la Buy Box frente al resto de vendedores: precio, logística y reputación pesan más que la ficha.'}
               </Vineta>
             </ul>
           </Revelar>
           <Revelar retraso={150}>
-            <Ventana titulo={`Marcas en su catálogo · ${informe.marcas.length} ${informe.marcas.length === 1 ? 'marca' : 'marcas'}`}>
+            <Ventana titulo={`Marcas en tu catálogo · ${informe.marcas.length} ${informe.marcas.length === 1 ? 'marca' : 'marcas'}`}>
               <div className="space-y-3.5 px-1 py-1">
                 {marcasVisibles.map((m) => (
                   <div key={m.marca}>
@@ -1265,7 +1265,7 @@ export function InformeAnalisis({
                   )}
                   {informe.marcas.some((m) => m.conAmazon) && (
                     <>
-                      Amazon vende en <b style={{ color: N }}>{informe.marcas.reduce((t, m) => t + m.conAmazon, 0)}</b> de sus productos.
+                      Amazon vende en <b style={{ color: N }}>{informe.marcas.reduce((t, m) => t + m.conAmazon, 0)}</b> de tus productos.
                     </>
                   )}
                 </div>
@@ -1314,7 +1314,7 @@ export function InformeAnalisis({
               europeos con ventas
             </H2>
             <Parrafo>
-              Los mismos productos, con las mismas fichas traducidas, pueden venderse en los cinco grandes mercados europeos de Amazon. Un país cuenta como activo cuando tiene
+              Los mismos productos, con las mismas fichas traducidas, pueden venderse en los cinco grandes mercados europeos de Amazon. Un país cuenta como activo cuando tienes
               valoraciones de vendedor en él.
             </Parrafo>
             <ul className="mt-7 space-y-3">
@@ -1340,7 +1340,7 @@ export function InformeAnalisis({
         <Halo className="left-1/2 top-0 h-[320px] w-[620px] -translate-x-1/2" fuerza={0.07} />
         <Revelar>
           <Etiqueta centro>Catálogo</Etiqueta>
-          <H2 centro>Sus productos, uno a uno</H2>
+          <H2 centro>Tus productos, uno a uno</H2>
           <Parrafo centro>
             Los {informe.productos.length} mejor posicionados en Amazon.es, por ranking de ventas. En rojo, lo que no llega al umbral: agotado ≥ {UMBRALES.sinStock} % del tiempo,
             Buy Box &lt; {UMBRALES.buyBox} % o menos de {decimal(UMBRALES.estrellas)} ★
@@ -1486,7 +1486,7 @@ export function InformeAnalisis({
             <Etiqueta centro>Por dónde empezaríamos</Etiqueta>
             <H2 centro>Primero lo que corta ventas, después crecer</H2>
             <Parrafo centro>
-              El orden en que trabajaríamos esta cuenta con lo que vemos desde fuera. Con acceso a Seller Central se ajusta a sus ventas y márgenes reales.
+              El orden en que trabajaríamos esta cuenta con lo que vemos desde fuera. Con acceso a Seller Central se ajusta a tus ventas y márgenes reales.
             </Parrafo>
           </Revelar>
           <div className="relative mt-16 grid gap-4 lg:grid-cols-3">
@@ -1528,8 +1528,8 @@ export function InformeAnalisis({
         <Halo className="left-1/2 top-1/3 h-[420px] w-[720px] -translate-x-1/2" fuerza={0.1} lento />
         <Revelar>
           <Etiqueta centro>Growth partner</Etiqueta>
-          <H2 centro>Quién le ha preparado esto</H2>
-          <Parrafo centro>Liberty Seller es una agencia que solo trabaja Amazon. Gestionamos cuentas como la suya, de punta a punta.</Parrafo>
+          <H2 centro>Quién te ha preparado esto</H2>
+          <Parrafo centro>Liberty Seller es una agencia que solo trabaja Amazon. Gestionamos cuentas como la tuya, de punta a punta.</Parrafo>
           <div className="mt-8 flex flex-wrap justify-center gap-2.5">
             <Chip icono={<LineChart className="h-4 w-4" />}>7,8 M€+ facturados</Chip>
             <Chip icono={<Users className="h-4 w-4" />}>+20 marcas activas</Chip>
@@ -1546,7 +1546,7 @@ export function InformeAnalisis({
               [ShieldCheck, 'Protección de marca', 'Registro de Marcas y control de vendedores no autorizados.'],
               [Globe2, 'Expansión europea', 'Francia, Italia, Alemania y Reino Unido con fichas traducidas y su normativa.'],
               [Sparkles, 'Buy Box', 'Precio, logística y reputación para que la venta no se la lleve otro.'],
-              [CalendarDays, 'Informes', 'Cada semana sabe qué hemos tocado en la cuenta y por qué.'],
+              [CalendarDays, 'Informes', 'Cada semana sabes qué hemos tocado en tu cuenta y por qué.'],
             ] as const
           ).map(([I, t, d], i) => (
             <Revelar key={t} retraso={(i % 4) * 90}>
@@ -1584,8 +1584,8 @@ export function InformeAnalisis({
                 <span className="ls-texto-degradado block">Lo de dentro, en una llamada.</span>
               </h2>
               <p className="mx-auto mt-5 max-w-[560px] text-[15.5px] leading-relaxed" style={{ color: TEXTO2 }}>
-                Escriba o llame a {nombreComercial} y lo vemos juntos: con un acceso de solo lectura a Seller Central completamos el diagnóstico con lo que este análisis no
-                puede ver. Sin compromiso: si no hay recorrido, se lo diremos.
+                Escribe o llama a {nombreComercial} y lo vemos juntos: con un acceso de solo lectura a Seller Central completamos el diagnóstico con lo que este análisis no
+                puede ver. Sin compromiso: si no hay recorrido, te lo diremos.
               </p>
             </div>
             <div className="mx-auto mt-9 grid max-w-[620px] gap-2.5 sm:grid-cols-2">
@@ -1613,7 +1613,7 @@ export function InformeAnalisis({
                   <span className="text-left">
                     <span className="block text-[14px] font-semibold text-white">{contacto.nombre}</span>
                     <span className="block text-[12px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                      Su contacto en Liberty Seller{telefono ? ` · ${telefono}` : ''}
+                      Tu contacto en Liberty Seller{telefono ? ` · ${telefono}` : ''}
                     </span>
                   </span>
                 </div>
@@ -1640,7 +1640,7 @@ export function InformeAnalisis({
                 )}
                 {!urlWhatsapp && !urlLlamar && (
                   <span className="text-[14px]" style={{ color: TEXTO2 }}>
-                    Responda al correo con el que le llegó este análisis y le llamamos.
+                    Responde al correo con el que te llegó este análisis y te llamamos.
                   </span>
                 )}
               </div>
@@ -1660,11 +1660,11 @@ export function InformeAnalisis({
           <div>
             <div className="mb-1.5 font-semibold text-white">Cómo se ha hecho este análisis</div>
             <p>
-              Con datos públicos de Amazon recogidos el {fechaLarga(informe.fecha)}: el perfil de vendedor, su escaparate y las fichas de sus productos en Amazon.es, y su
+              Con datos públicos de Amazon recogidos el {fechaLarga(informe.fecha)}: el perfil de vendedor, tu escaparate y las fichas de tus productos en Amazon.es, y tu
               perfil en Amazon.fr, .it, .de y .co.uk. La Buy Box, las roturas de stock y el ranking son de los últimos 90 días; los días sin stock y las visitas que compran a
-              otro vendedor se calculan a partir de esos porcentajes. No tenemos acceso a su Seller Central, así que no vemos ventas reales, márgenes ni publicidad.{' '}
+              otro vendedor se calculan a partir de esos porcentajes. No tenemos acceso a tu Seller Central, así que no vemos ventas reales, márgenes ni publicidad.{' '}
               <a href={vendedor.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
-                Ver su perfil en Amazon
+                Ver tu perfil en Amazon
               </a>
               .
             </p>

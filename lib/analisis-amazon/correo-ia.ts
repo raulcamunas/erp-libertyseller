@@ -9,11 +9,13 @@
  *   no_interesa      dijo que no: se respeta, sin insistir; el análisis es un regalo sin compromiso
  * Y del análisis, lo que más pese de SU cuenta (no una lista genérica).
  *
- * Reglas fijas (si la IA se las salta, va el texto fijo): de usted, nada de dinero ni promesas de resultados, nada inventado, corto.
+ * Reglas fijas (si la IA se las salta, va el texto fijo): de TÚ (son españoles; desde el 13 nov 2026), nada de dinero ni promesas de
+ * resultados, nada inventado, corto. Vale para los dos informes: el de una cuenta de Amazon y el de una tienda que no vende allí.
  */
 import OpenAI from 'openai'
 import { parametrosDeIa } from '@/lib/ia/modelo'
-import type { InformeAnalisis } from './construir'
+import { esSinAmazon } from '@/lib/analisis-sin-amazon/construir'
+import { asuntoCorreoAnalisis, type InformeDelCorreo } from './correo'
 
 export type Situacion = 'primer_contacto' | 'sin_respuesta' | 'hablado' | 'no_interesa'
 
@@ -64,11 +66,25 @@ const ESQUEMA = {
 } as const
 
 const DINERO = /€|\$|\beur(?:o|os)?\b|\bfactura(?:r|ción)\b.*\d|\d+\s*%\s*m[aá]s\s+de\s+ventas/i
-// Con lookarounds de letra Unicode: con \b, «años» o «dueños» darían «os» suelto (la ñ no cuenta como letra para \b)
-const TUTEO = /(?<!\p{L})(vuestr[oa]s?|vosotros|os|tu|tus|te|contigo)(?!\p{L})/iu
+// De tú: lo que no vale es el usted ni el vosotros. Con lookarounds de letra Unicode: con \b, «años» o «dueños» darían «os» suelto
+const USTED = /(?<!\p{L})(usted|ustedes|vuestr[oa]s?|vosotros|os)(?!\p{L})/iu
 const PROMESA = /(?:le |te )?(?:garantiz|aseguramos|duplicar|triplicar|multiplicar)/i
 
-function resumenDelInforme(inf: InformeAnalisis): string {
+function resumenDelInforme(inf: InformeDelCorreo): string {
+  if (esSinAmazon(inf)) {
+    const m = inf.marca
+    return [
+      `Tienda online: ${inf.vendedor.nombre} (${inf.vendedor.web}). NO vende en Amazon.`,
+      inf.caso === 'revendida'
+        ? `Su marca ${m.nombre} ya tiene ${m.modelos} fichas en Amazon y la venden otras tiendas (${m.vendedores.map((v) => v.nombre).slice(0, 3).join(', ') || 'terceros'}), no él.${m.sinVendedor ? ` ${m.sinVendedor} de ${m.revisadas} fichas revisadas no tienen a nadie vendiéndolas: quien las busca no puede comprar.` : ''}`
+        : `Su marca ${m.nombre} no está en Amazon: quien la busca allí compra otra.`,
+      ...inf.mercados.map(
+        (x) =>
+          `- ${x.nombre}: ${x.modo === 'ventas' ? `los primeros venden ${x.ventasMes} uds/mes` : 'nicho, pocas ventas publicadas'}, precio mediano ${x.precioMediano ?? '?'} €, reseñas medianas ${x.resenasMediana ?? '?'}; marcas que mandan: ${x.marcas.map((y) => y.marca).slice(0, 3).join(', ') || '—'}`,
+      ),
+      `Lo que más pesa: ${inf.claves.map((c) => `${c.cifra} ${c.titulo}`).join('; ')}`,
+    ].join('\n')
+  }
   const lineas = [
     `Tienda: ${inf.vendedor.nombre}`,
     `Tipo de vendedor: ${inf.tipoTexto}`,
@@ -83,23 +99,22 @@ function resumenDelInforme(inf: InformeAnalisis): string {
 
 const INSTRUCCIONES: Record<Situacion, string> = {
   primer_contacto:
-    'Nunca hemos hablado con esta empresa. Preséntate en media frase como Liberty Seller, agencia que trabaja cuentas de Amazon, y di que hemos revisado su cuenta con datos públicos. Menciona UNO de los puntos que más pesan, en concreto.',
+    'Nunca hemos hablado con esta empresa. Preséntate en media frase como Liberty Seller, agencia que trabaja cuentas de Amazon, y di que hemos mirado con datos públicos lo que cuenta el análisis. Menciona UNO de los puntos que más pesan, en concreto.',
   sin_respuesta:
-    'Le hemos llamado alguna vez y no hemos coincidido. Dilo con naturalidad y sin reproche ("no hemos coincidido por teléfono") y que, para no hacerle perder tiempo, le dejamos el análisis por escrito. Menciona UNO de los puntos que más pesan.',
+    'Le hemos llamado alguna vez y no hemos coincidido. Dilo con naturalidad y sin reproche ("no hemos coincidido por teléfono") y que, para no hacerle perder tiempo, le dejamos el análisis por escrito (en el correo, de tú: "te lo dejo por escrito"). Menciona UNO de los puntos que más pesan.',
   hablado:
-    'Ya hemos hablado con esta empresa (mira el historial). Retoma la conversación con una referencia breve y verdadera a lo que se habló, si el historial lo dice; si no lo dice, solo "como le comentamos". El análisis es el paso siguiente. Menciona UNO de los puntos que más pesan.',
+    'Ya hemos hablado con esta empresa (mira el historial). Retoma la conversación con una referencia breve y verdadera a lo que se habló, si el historial lo dice; si no lo dice, solo "como te comentamos". El análisis es el paso siguiente. Menciona UNO de los puntos que más pesan.',
   no_interesa:
     'Nos dijo que ahora no le interesaba. Respétalo de verdad: reconócelo en una frase, sin insistir ni pedir una llamada, y di que aun así le dejamos el análisis por si le es útil, sin compromiso. Menciona UNO de los puntos que más pesan.',
 }
 
 export async function escribirTextos(
-  inf: InformeAnalisis,
+  inf: InformeDelCorreo,
   datos: { situacion: Situacion; nombre: string | null; comercial: string; notas: NotaParaCorreo[] },
 ): Promise<TextosDelCorreo & { tokens?: { entrada: number; salida: number } }> {
   const saludo = datos.nombre ? `Hola, ${datos.nombre}:` : `Hola, equipo de ${inf.vendedor.nombre}:`
-  const altas = inf.oportunidades.filter((o) => o.prioridad === 'alta').length
   const fijo: TextosDelCorreo = {
-    asunto: altas > 0 ? `${inf.vendedor.nombre}: lo que hemos visto en su cuenta de Amazon` : `${inf.vendedor.nombre}: hemos revisado su cuenta de Amazon`,
+    asunto: asuntoCorreoAnalisis(inf),
     saludo,
     entradilla: '',
     deIa: false,
@@ -113,9 +128,11 @@ export async function escribirTextos(
     .join('\n')
 
   const system = [
-    `Eres ${datos.comercial}, del equipo comercial de Liberty Seller (agencia que gestiona cuentas de vendedores en Amazon). Escribes el principio de un correo que acompaña a un análisis de la cuenta de Amazon del destinatario.`,
+    esSinAmazon(inf)
+      ? `Eres ${datos.comercial}, del equipo comercial de Liberty Seller (agencia que gestiona cuentas de vendedores en Amazon). Escribes el principio de un correo que acompaña a un análisis de la oportunidad en Amazon de su tienda online, que hoy no vende en Amazon.`
+      : `Eres ${datos.comercial}, del equipo comercial de Liberty Seller (agencia que gestiona cuentas de vendedores en Amazon). Escribes el principio de un correo que acompaña a un análisis de la cuenta de Amazon del destinatario.`,
     'Debajo de tu texto el correo ya enseña las cifras, los tres puntos clave y un botón para ver el análisis: NO los repitas todos ni pongas enlaces.',
-    'Reglas: trato de usted. Español de España, natural, directo, sin frases de agencia ("potenciar", "llevar al siguiente nivel", "sinergias"). Sin exclamaciones. Sin emojis.',
+    'Reglas: trato de TÚ (tu, tus, te, tienes, vendes), nunca de usted ni de vosotros. Español de España, natural, directo, sin frases de agencia ("potenciar", "llevar al siguiente nivel", "sinergias"). Sin exclamaciones. Sin emojis.',
     'Nunca hables de dinero, precios ni de cuánto ganaría. Nunca prometas resultados. No inventes nada que no esté en los datos o en el historial.',
     'No firmes ni te despidas (la firma va aparte). No empieces con el saludo (va aparte).',
     'El asunto: concreto, con el nombre de la tienda, sin mayúsculas de reclamo, sin "Re:" ni "Fwd:", máximo 70 caracteres.',
@@ -136,7 +153,7 @@ export async function escribirTextos(
       { role: 'user', content: usuario },
     ]
     const gasto = { entrada: 0, salida: 0 }
-    // Dos vueltas como mucho: la segunda solo si en la primera se le escapa el tuteo o el «vosotros»
+    // Dos vueltas como mucho: la segunda solo si en la primera se le escapa el usted o el «vosotros»
     for (let vuelta = 0; vuelta < 2; vuelta++) {
       const r = await cliente.chat.completions.create({
         ...parametrosDeIa({ maxSalida: 4000, esfuerzo: 'low' }),
@@ -151,10 +168,10 @@ export async function escribirTextos(
       const entradilla = (o.entradilla ?? '').replace(/\r\n?/g, '\n').trim()
       const mal = !asunto || !entradilla || asunto.length > 90 || entradilla.split(/\s+/).length > 110 || DINERO.test(entradilla + asunto) || PROMESA.test(entradilla)
       if (mal) return { ...fijo, tokens: gasto }
-      if (!TUTEO.test(entradilla + ' ' + asunto)) return { asunto, saludo, entradilla, deIa: true, tokens: gasto }
+      if (!USTED.test(entradilla + ' ' + asunto)) return { asunto, saludo, entradilla, deIa: true, tokens: gasto }
       conversacion.push(
         { role: 'assistant', content: contenido },
-        { role: 'user', content: 'Has usado «vuestro», «vosotros», «os» o el tú. Reescríbelo entero de usted (su, le, usted), sin cambiar nada más.' },
+        { role: 'user', content: 'Has usado «usted», «vuestro», «vosotros» u «os». Reescríbelo entero tuteando a una persona (tú, tu, te), sin cambiar nada más.' },
       )
     }
     return { ...fijo, tokens: gasto }
