@@ -76,6 +76,10 @@ export const palabras = (t: string) =>
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length >= 4 && !VACIAS.has(w))
 
+/** Hasta 2 mercados de 6 productos (13 nov 2026; eran 3 de 8) */
+const MERCADOS = 2
+const PRODUCTOS_POR_MERCADO = 6
+
 /** Palabras que salen en cualquier rama de Amazon y no dicen qué producto es */
 const GENERICAS = /^(infantil|infantiles|ni[nñ]o|ni[nñ]a|ni[nñ]os|ni[nñ]as|bebe|bebes|hombre|hombres|mujer|mujeres|adulto|adultos|unisex|ropa|moda|accesorio|accesorios|otros|varios|productos|hogar|casa|para)$/
 
@@ -215,10 +219,11 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
       cuenta.set(h.catId, c)
     }
     // Solo las categorías con al menos 2 fichas suyas (la primera siempre): una herramienta suelta no es su mercado
-    const hojas = [...cuenta].sort((x, y) => y[1].n - x[1].n).filter(([, c], i) => i === 0 || c.n >= 2).slice(0, 3)
+    // Dos mercados como mucho (13 nov 2026): el tercero casi nunca aportaba y era otro sitio donde equivocarse
+    const hojas = [...cuenta].sort((x, y) => y[1].n - x[1].n).filter(([, c], i) => i === 0 || c.n >= 2).slice(0, MERCADOS)
     for (const [catId, c] of hojas) {
       const d = await k(finder({ categories_include: [catId], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
-      const ps = (await productos((d?.asinList ?? []).slice(0, 10))).filter((p) => !esSuya(p)).slice(0, 8)
+      const ps = (await productos((d?.asinList ?? []).slice(0, PRODUCTOS_POR_MERCADO + 2))).filter((p) => !esSuya(p)).slice(0, PRODUCTOS_POR_MERCADO)
       const suyo = c.suyos.filter((p) => rango(p) > 0).sort((a, b) => rango(a) - rango(b))[0] ?? c.suyos[0]
       mercados.push({
         origen: 'marca',
@@ -233,6 +238,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
     }
   } else {
     for (const b of plan.busquedas) {
+      if (mercados.length >= MERCADOS) break
       let d = await k(finder({ title: b.termino, monthlySold_gte: 50, singleVariation: true, sort: [['monthlySold', 'desc']], perPage: 50, page: 0 }))
       if ((d?.asinList ?? []).length < 5) d = await k(finder({ title: b.termino, current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
       const ps = await productos((d?.asinList ?? []).slice(0, 10))
@@ -259,7 +265,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
         // Pocas en la muestra: lo más vendido de esa categoría, directamente
         let dc = await k(finder({ categories_include: [hoja[0]], monthlySold_gte: 50, singleVariation: true, sort: [['monthlySold', 'desc']], perPage: 50, page: 0 }))
         if ((dc?.asinList ?? []).length < 5) dc = await k(finder({ categories_include: [hoja[0]], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
-        buenos = await productos((dc?.asinList ?? []).slice(0, 8))
+        buenos = await productos((dc?.asinList ?? []).slice(0, PRODUCTOS_POR_MERCADO))
       }
       if (buenos.length < 3) continue
       mercados.push({
@@ -270,7 +276,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
         producto: b.producto || null,
         precio: b.precio > 0 ? b.precio : null,
         precioDeAmazon: false,
-        productos: buenos.slice(0, 8),
+        productos: buenos.slice(0, PRODUCTOS_POR_MERCADO),
       })
     }
   }

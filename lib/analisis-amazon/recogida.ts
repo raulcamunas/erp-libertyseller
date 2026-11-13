@@ -30,7 +30,7 @@ import { construirSinAmazon, SELLER_SIN_AMAZON } from '@/lib/analisis-sin-amazon
 export const BUCKET = 'analisis-keepa'
 /** Con 10 productos (13 nov 2026) un informe de Amazon gasta ~100; con este saldo no se queda a medias */
 const TOKENS_POR_TIENDA = 110
-/** El de tiendas sin Amazon gasta más: marca, sus vendedores y hasta 3 mercados (medido 210-300) */
+/** El de tiendas sin Amazon gasta más: marca, sus vendedores y hasta 2 mercados de 6 (~150-200; el umbral cubre el peor caso) */
 const TOKENS_SIN_AMAZON = 280
 const MINUTOS_POR_PASADA = 4
 const INTENTOS_ANTES_DE_SALTAR = 3
