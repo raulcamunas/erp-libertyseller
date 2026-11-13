@@ -168,7 +168,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
     marca.total += Number(d?.totalResults ?? (d?.asinList ?? []).length)
     for (const a of d?.asinList ?? []) if (!asins.includes(a)) asins.push(a)
   }
-  const muestra = await productos(asins.slice(0, 8))
+  const muestra = await productos(asins.slice(0, 10))
   // La misma marca puede ser de otra empresa (Blizzard: videojuegos… y alicates de uñas). Solo cuentan las fichas que comparten
   // palabras con su web; si la muestra sale mezclada, el total se ajusta en la misma proporción.
   const deLaMarca = new Set(plan.marcas.flatMap((m) => palabras(m)))
@@ -218,7 +218,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
     const hojas = [...cuenta].sort((x, y) => y[1].n - x[1].n).filter(([, c], i) => i === 0 || c.n >= 2).slice(0, 3)
     for (const [catId, c] of hojas) {
       const d = await k(finder({ categories_include: [catId], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
-      const ps = (await productos((d?.asinList ?? []).slice(0, 6))).filter((p) => !esSuya(p)).slice(0, 5)
+      const ps = (await productos((d?.asinList ?? []).slice(0, 10))).filter((p) => !esSuya(p)).slice(0, 8)
       const suyo = c.suyos.filter((p) => rango(p) > 0).sort((a, b) => rango(a) - rango(b))[0] ?? c.suyos[0]
       mercados.push({
         origen: 'marca',
@@ -235,7 +235,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
     for (const b of plan.busquedas) {
       let d = await k(finder({ title: b.termino, monthlySold_gte: 50, singleVariation: true, sort: [['monthlySold', 'desc']], perPage: 50, page: 0 }))
       if ((d?.asinList ?? []).length < 5) d = await k(finder({ title: b.termino, current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
-      const ps = await productos((d?.asinList ?? []).slice(0, 8))
+      const ps = await productos((d?.asinList ?? []).slice(0, 10))
       // La categoría tiene que ser la de su producto: con «vestido niña» en noviembre lo que más sale son disfraces de Halloween.
       // Se elige la hoja más repetida CUYA RUTA nombra el tipo (vestidos, cascos…, comparando las 5 primeras letras); si ninguna, fuera.
       // Solo el nombre de la hoja y el de su padre (la ruta entera lleva «Infantil», «Mujer»… y casa con cualquier cosa), sin genéricas
@@ -255,11 +255,11 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
       if (!hoja) continue
       if (mercados.some((m) => m.categoria === hoja[1].nombre)) continue
       let buenos = ps.filter((p) => hojaDe(p)?.catId === hoja[0])
-      if (buenos.length < 4) {
+      if (buenos.length < 5) {
         // Pocas en la muestra: lo más vendido de esa categoría, directamente
         let dc = await k(finder({ categories_include: [hoja[0]], monthlySold_gte: 50, singleVariation: true, sort: [['monthlySold', 'desc']], perPage: 50, page: 0 }))
         if ((dc?.asinList ?? []).length < 5) dc = await k(finder({ categories_include: [hoja[0]], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
-        buenos = await productos((dc?.asinList ?? []).slice(0, 5))
+        buenos = await productos((dc?.asinList ?? []).slice(0, 8))
       }
       if (buenos.length < 3) continue
       mercados.push({
@@ -270,7 +270,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
         producto: b.producto || null,
         precio: b.precio > 0 ? b.precio : null,
         precioDeAmazon: false,
-        productos: buenos.slice(0, 5),
+        productos: buenos.slice(0, 8),
       })
     }
   }
