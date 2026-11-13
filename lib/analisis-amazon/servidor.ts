@@ -62,10 +62,14 @@ export async function ultimoAnalisisDelLead(leadId: string): Promise<FilaDeAnali
 
 /** El comercial del lead: su nombre, su WhatsApp (perfil) y su línea de Rinkel para «Llamar» */
 export async function contactoDelLead(leadId: string): Promise<(ContactoComercial & { id: string }) | null> {
-  const s = createServiceClient()
-  const { data: lead } = await s.from('cold_leads').select('assigned_to').eq('id', leadId).maybeSingle()
+  const { data: lead } = await createServiceClient().from('cold_leads').select('assigned_to').eq('id', leadId).maybeSingle()
   const uid = (lead as { assigned_to?: string | null } | null)?.assigned_to
-  if (!uid) return null
+  return uid ? contactoDeUsuario(uid) : null
+}
+
+/** Una persona del equipo como contacto: nombre de pila, WhatsApp y línea de Rinkel */
+export async function contactoDeUsuario(uid: string): Promise<(ContactoComercial & { id: string }) | null> {
+  const s = createServiceClient()
   const [{ data: perfil }, { data: rinkel }] = await Promise.all([
     s.from('profiles').select('*').eq('id', uid).maybeSingle(),
     s.from('rinkel_vinculos').select('rinkel_numero').eq('user_id', uid).maybeSingle(),

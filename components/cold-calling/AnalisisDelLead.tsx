@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Copy, Eye, FileBarChart, ExternalLink } from 'lucide-react'
+import { Copy, Eye, FileBarChart, ExternalLink, Mail } from 'lucide-react'
 import { toast } from 'sonner'
+import { EnviarAnalisisPorCorreo } from './EnviarAnalisisPorCorreo'
 
 /**
  * EL ANÁLISIS DE AMAZON EN LA FICHA DEL LEAD.
@@ -18,6 +19,8 @@ type Analisis = {
   aperturas: number
   abiertoPrimera: string | null
   abiertoUltima: string | null
+  correoEnviadoAt?: string | null
+  baja?: boolean
 }
 
 const cuando = (iso: string) =>
@@ -25,10 +28,12 @@ const cuando = (iso: string) =>
 
 export function AnalisisDelLead({ leadId }: { leadId: string }) {
   const [a, setA] = useState<Analisis | null | undefined>(undefined)
+  const [correo, setCorreo] = useState(false)
+  const [vuelta, setVuelta] = useState(0)
 
   useEffect(() => {
     let vivo = true
-    setA(undefined)
+    if (vuelta === 0) setA(undefined)
     fetch(`/api/cold-calling/analisis?lead=${leadId}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { analisis: null }))
       .then((d: { analisis: Analisis | null }) => vivo && setA(d.analisis))
@@ -36,7 +41,7 @@ export function AnalisisDelLead({ leadId }: { leadId: string }) {
     return () => {
       vivo = false
     }
-  }, [leadId])
+  }, [leadId, vuelta])
 
   if (!a) return null
   const url = `${window.location.origin}/analisis/${a.token}`
@@ -88,6 +93,19 @@ export function AnalisisDelLead({ leadId }: { leadId: string }) {
           <Copy className="h-3.5 w-3.5" aria-hidden /> Copiar
         </button>
       </div>
+
+      {a.baja ? (
+        <p className="mt-2 text-[11px] text-[var(--ls-t4)]">Pidió no recibir más correos: no se le puede mandar.</p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setCorreo(true)}
+          className="mt-1.5 inline-flex w-full items-center justify-center gap-1.5 rounded-[6px] border border-[#FF6600]/40 px-2.5 py-1.5 text-[12px] font-semibold text-[#FF6600] hover:bg-[#FF6600]/10"
+        >
+          <Mail className="h-3.5 w-3.5" aria-hidden /> {a.correoEnviadoAt ? `Enviado el ${cuando(a.correoEnviadoAt)} · reenviar` : 'Enviar por correo'}
+        </button>
+      )}
+      {correo && <EnviarAnalisisPorCorreo leadId={leadId} alCerrar={() => setCorreo(false)} alEnviar={() => setVuelta((v) => v + 1)} />}
 
       <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--ls-t4)]">
         <Eye className="h-3 w-3" aria-hidden />

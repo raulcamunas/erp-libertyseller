@@ -20,6 +20,8 @@ export type DatosCorreoAnalisis = {
   comercial: { nombre: string; whatsapp?: string | null; telefono?: string | null }
   /** 2-3 frases de apertura; si falta, va una fija */
   entradilla?: string | null
+  /** «Hola, Marta:»; si falta, «Hola, equipo de <tienda>:» */
+  saludo?: string | null
   /** base de las imágenes (el logo) */
   base?: string
 }
@@ -39,6 +41,33 @@ const fecha = (iso: string) => {
   return `${d} de ${MESES[m - 1]} de ${a}`
 }
 
+const saludoDe = (inf: InformeAnalisis, d: Pick<DatosCorreoAnalisis, 'saludo'>) => d.saludo?.trim() || `Hola, equipo de ${inf.vendedor.nombre}:`
+
+const entradillaFija = (inf: InformeAnalisis) => {
+  const altas = inf.oportunidades.filter((o) => o.prioridad === 'alta').length
+  return `Hemos revisado con datos públicos de Amazon la cuenta de ${inf.vendedor.nombre}: catálogo, Buy Box, stock, reputación y competencia. ${
+    altas > 0 ? 'Hay varios puntos que le están costando ventas ahora mismo, y se los hemos dejado ordenados.' : 'Tiene una buena base y recorrido para vender más.'
+  }`
+}
+
+/** La parte de texto del correo (para quien no ve HTML) y lo que queda en el historial del lead */
+export function textoCorreoAnalisis(inf: InformeAnalisis, d: DatosCorreoAnalisis): string {
+  const tel = d.comercial.telefono ? (/\+?\d[\d\s]{7,}/.exec(d.comercial.telefono)?.[0] ?? '').trim() : ''
+  return [
+    saludoDe(inf, d),
+    '',
+    d.entradilla?.trim() || entradillaFija(inf),
+    '',
+    ...inf.oportunidades.slice(0, 3).map((o) => `· ${o.cifra} ${o.titulo}`),
+    '',
+    `Ver el análisis completo: ${d.url}`,
+    '',
+    `${d.comercial.nombre} · Liberty Seller${tel ? ` · ${tel}` : ''}`,
+    '',
+    `Si no quiere recibir más correos nuestros: ${d.urlBaja}`,
+  ].join('\n')
+}
+
 export function asuntoCorreoAnalisis(inf: InformeAnalisis): string {
   const altas = inf.oportunidades.filter((o) => o.prioridad === 'alta').length
   return altas > 0
@@ -56,11 +85,7 @@ export function correoAnalisisHtml(inf: InformeAnalisis, d: DatosCorreoAnalisis)
   const wa = d.comercial.whatsapp
     ? `https://wa.me/${d.comercial.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${d.comercial.nombre}, he visto el análisis de la cuenta de ${inf.vendedor.nombre} en Amazon y me gustaría saber más.`)}`
     : null
-  const entradilla =
-    d.entradilla?.trim() ||
-    `Hemos revisado con datos públicos de Amazon la cuenta de ${inf.vendedor.nombre}: catálogo, Buy Box, stock, reputación y competencia. ${
-      altas > 0 ? 'Hay varios puntos que le están costando ventas ahora mismo, y se los hemos dejado ordenados.' : 'Tiene una buena base y recorrido para vender más.'
-    }`
+  const entradilla = d.entradilla?.trim() || entradillaFija(inf)
   const preheader = `${altas > 0 ? `${altas} puntos que le están costando ventas` : 'Lo que hemos visto en su cuenta'} · ${top.map((o) => `${o.cifra} ${o.titulo.toLowerCase()}`).join(' · ')}`
 
   const kpi = (valor: string, rotulo: string, rojo = false) => `
@@ -117,8 +142,11 @@ export function correoAnalisisHtml(inf: InformeAnalisis, d: DatosCorreoAnalisis)
 
   <!-- entradilla -->
   <tr><td style="padding:28px 32px 6px;font:400 15.5px/1.65 Inter,Arial,sans-serif;color:#2A2622;">
-    <p style="margin:0 0 14px;">Hola, equipo de ${nombre}:</p>
-    <p style="margin:0;">${esc(entradilla)}</p>
+    <p style="margin:0 0 14px;">${esc(saludoDe(inf, d))}</p>
+    ${entradilla
+      .split(/\n\s*\n/)
+      .map((p) => `<p style="margin:0 0 12px;">${esc(p.trim())}</p>`)
+      .join('')}
   </td></tr>
 
   <!-- adelanto del informe -->
