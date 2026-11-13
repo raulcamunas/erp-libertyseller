@@ -207,7 +207,7 @@ export function construirSinAmazon(
   const resumen =
     caso === 'revendida'
       ? `Hemos buscado ${marcaNombre} en Amazon.es: tiene ${ent(e.marca.total)} ${e.marca.total === 1 ? 'ficha' : 'fichas'} y${nombresTerceros.length ? ` la venden ${enumerar(nombresTerceros.slice(0, 3))}, no tú` : ' no las vendes tú'}.${sinVendedor ? ` De las que hemos revisado, ${sinVendedor === 1 ? 'una no tiene ahora mismo a nadie vendiéndola' : `${sinVendedor} no tienen ahora mismo a nadie vendiéndolas`}.` : ''} Y al lado, lo que se vende de lo tuyo y contra quién compites.`
-      : `Hemos cruzado los ${ent(lead.productosWeb)} productos de tu web con lo que se vende hoy en Amazon.es. Tu marca todavía no está, y ${ventasMes >= 300 ? `los primeros puestos de lo que tú vendes mueven allí más de ${ent(ventasMes)} unidades al mes` : `${enumerar(marcasRivales.slice(0, 3)) || 'otras marcas'} se están quedando con esas ventas`}.`
+      : `${lead.productosWeb > 0 ? `Hemos cruzado los ${ent(lead.productosWeb)} productos de tu web` : 'Hemos mirado tu web'} con lo que se vende hoy en Amazon.es. Tu marca todavía no está, y ${ventasMes >= 300 ? `los primeros puestos de lo que tú vendes mueven allí más de ${ent(ventasMes)} unidades al mes` : `${enumerar(marcasRivales.slice(0, 3)) || 'otras marcas'} se están quedando con esas ventas`}.`
 
   const frases: string[] =
     caso === 'revendida'

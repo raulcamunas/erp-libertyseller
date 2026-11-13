@@ -233,20 +233,31 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
       let d = await k(finder({ title: b.termino, monthlySold_gte: 50, singleVariation: true, sort: [['monthlySold', 'desc']], perPage: 50, page: 0 }))
       if ((d?.asinList ?? []).length < 5) d = await k(finder({ title: b.termino, current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
       const ps = await productos((d?.asinList ?? []).slice(0, 10))
+      // La categoría tiene que ser la de su producto: con «vestido niña» en noviembre lo que más sale son disfraces de Halloween.
+      // Se elige la hoja más repetida CUYA RUTA nombra el tipo (vestidos, cascos…, comparando las 5 primeras letras); si ninguna, fuera.
+      const raices = new Set(palabras(`${b.tipo} ${b.termino}`).map((w) => w.slice(0, 5)))
+      const encaja = (p: K) => palabras((p?.categoryTree ?? []).map((n: K) => n?.name ?? '').join(' ')).some((w) => raices.has(w.slice(0, 5)))
       const cuenta = new Map<number, { n: number; nombre: string }>()
       for (const p of ps) {
         const h = hojaDe(p)
-        if (h) cuenta.set(h.catId, { n: (cuenta.get(h.catId)?.n ?? 0) + 1, nombre: h.name })
+        if (h && encaja(p)) cuenta.set(h.catId, { n: (cuenta.get(h.catId)?.n ?? 0) + 1, nombre: h.name })
       }
       const hoja = [...cuenta].sort((x, y) => y[1].n - x[1].n)[0]
-      const buenos = hoja ? ps.filter((p) => hojaDe(p)?.catId === hoja[0]) : []
+      if (!hoja) continue
+      if (mercados.some((m) => m.categoria === hoja[1].nombre)) continue
+      let buenos = ps.filter((p) => hojaDe(p)?.catId === hoja[0])
+      if (buenos.length < 5) {
+        // Pocas en la muestra: lo más vendido de esa categoría, directamente
+        let dc = await k(finder({ categories_include: [hoja[0]], monthlySold_gte: 50, singleVariation: true, sort: [['monthlySold', 'desc']], perPage: 50, page: 0 }))
+        if ((dc?.asinList ?? []).length < 5) dc = await k(finder({ categories_include: [hoja[0]], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
+        buenos = await productos((dc?.asinList ?? []).slice(0, 8))
+      }
       if (buenos.length < 3) continue
-      if (mercados.some((m) => m.categoria === hoja![1].nombre)) continue
       mercados.push({
         origen: 'texto',
         tipo: b.tipo,
         termino: b.termino,
-        categoria: hoja![1].nombre,
+        categoria: hoja[1].nombre,
         producto: b.producto || null,
         precio: b.precio > 0 ? b.precio : null,
         precioDeAmazon: false,

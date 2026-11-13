@@ -80,7 +80,11 @@ function piezasDe(inf: InformeDelCorreo): Piezas {
       kpis: [
         [miles(inf.marca.modelos), 'fichas de tu marca en Amazon', false],
         inf.caso === 'revendida' ? [miles(inf.marca.vendedores.length), 'tiendas la venden', false] : [m?.precioMediano ? `${miles(m.precioMediano)} €` : '—', 'precio mediano en Amazon', false],
-        inf.marca.sinVendedor ? [`${inf.marca.sinVendedor} de ${inf.marca.revisadas}`, 'sin nadie que las venda', true] : [miles(inf.catalogo.productos), 'productos en tu web', false],
+        inf.marca.sinVendedor
+          ? [`${inf.marca.sinVendedor} de ${inf.marca.revisadas}`, 'sin nadie que las venda', true]
+          : inf.catalogo.productos > 0
+            ? [miles(inf.catalogo.productos), 'productos en tu web', false]
+            : [m?.resenasMediana ? miles(m.resenasMediana) : '—', 'reseñas de mediana de los que más venden', false],
         [m ? (m.modo === 'ventas' ? `+${miles(m.ventasMes)}` : miles(m.resenasMediana ?? 0)) : '—', m ? (m.modo === 'ventas' ? 'uds/mes en tu categoría' : 'reseñas de mediana de los que más venden') : 'en tu categoría', false],
       ],
       // Arriba van las cifras de su marca; abajo, dónde compite en Amazon (sin repetir lo de arriba)
