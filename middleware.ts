@@ -105,6 +105,8 @@ export async function middleware(request: NextRequest) {
                        pathname.startsWith('/analisis/') ||
                        // El panel del cliente (qué tareas se le enseñan): igual, el token de la dirección es la credencial y solo sirve para ESE cliente. Solo esta carpeta
                        pathname.startsWith('/tareas-cliente/') ||
+                       // El informe de una cuenta para su CLIENTE (migración 307): el token de la dirección es la credencial y solo abre ESE informe
+                       pathname.startsWith('/informe/') ||
                        // OAuth de Amazon. Quien llega a estas dos direcciones es
                        // el CLIENTE desde su Seller Central, sin sesión en el
                        // ERP: mandarle al login rompe el flujo a mitad y él no

@@ -13,6 +13,8 @@ export interface GestionDeCuenta {
   responsableId: string | null
   cicloInicio: string | null
   notas: string | null
+  /** A quién se manda el informe (se recuerda la última dirección usada) */
+  correoInformes: string | null
 }
 
 export interface Persona {
@@ -24,23 +26,24 @@ export const FALTA_307 = 'Falta lanzar la migración 307 en Supabase: sin ella n
 
 /** Lo guardado de todos los clientes. `falta307` = la tabla no existe todavía */
 export async function leerGestion(): Promise<{ porCliente: Map<string, GestionDeCuenta>; falta307: boolean }> {
-  const { data, error } = await createServiceClient().from('cuentas_gestion').select('amazon_client_id, responsable_id, ciclo_inicio, notas')
+  const { data, error } = await createServiceClient().from('cuentas_gestion').select('amazon_client_id, responsable_id, ciclo_inicio, notas, correo_informes')
   if (error) {
     if (isMissingSchema(error)) return { porCliente: new Map(), falta307: true }
     throw error
   }
   const porCliente = new Map<string, GestionDeCuenta>()
-  for (const r of (data ?? []) as Array<{ amazon_client_id: string; responsable_id: string | null; ciclo_inicio: string | null; notas: string | null }>) {
-    porCliente.set(r.amazon_client_id, { amazonClientId: r.amazon_client_id, responsableId: r.responsable_id, cicloInicio: r.ciclo_inicio, notas: r.notas })
+  for (const r of (data ?? []) as Array<{ amazon_client_id: string; responsable_id: string | null; ciclo_inicio: string | null; notas: string | null; correo_informes: string | null }>) {
+    porCliente.set(r.amazon_client_id, { amazonClientId: r.amazon_client_id, responsableId: r.responsable_id, cicloInicio: r.ciclo_inicio, notas: r.notas, correoInformes: r.correo_informes })
   }
   return { porCliente, falta307: false }
 }
 
-export async function guardarGestion(amazonClientId: string, cambios: Partial<Pick<GestionDeCuenta, 'responsableId' | 'cicloInicio' | 'notas'>>, userId: string): Promise<void> {
+export async function guardarGestion(amazonClientId: string, cambios: Partial<Pick<GestionDeCuenta, 'responsableId' | 'cicloInicio' | 'notas' | 'correoInformes'>>, userId: string): Promise<void> {
   const fila: Record<string, unknown> = { amazon_client_id: amazonClientId, updated_at: new Date().toISOString(), updated_by: userId }
   if ('responsableId' in cambios) fila.responsable_id = cambios.responsableId
   if ('cicloInicio' in cambios) fila.ciclo_inicio = cambios.cicloInicio
   if ('notas' in cambios) fila.notas = cambios.notas
+  if ('correoInformes' in cambios) fila.correo_informes = cambios.correoInformes
   const { error } = await createServiceClient().from('cuentas_gestion').upsert(fila, { onConflict: 'amazon_client_id' })
   if (error) throw error
 }

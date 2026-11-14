@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ArrowUpRight, Check, CircleAlert, Info, Megaphone, RefreshCw, SearchCheck, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Check, CircleAlert, FileText, Info, Megaphone, RefreshCw, SearchCheck, ShieldCheck, TriangleAlert } from 'lucide-react'
+import type { TipoDeInforme } from '@/lib/cuentas/informe'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { inicioParaHoy, NOMBRE_SEMANA, VENTANA_DIAS, type PasoDelCiclo } from '@/lib/cuentas/ciclo'
 import { ACCIONES } from '@/lib/cumplimiento/acciones'
@@ -39,6 +40,7 @@ export function DetalleDeCuenta({ slug, volver, personas: personasIniciales }: {
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(false)
   const [guardando, setGuardando] = useState<string | null>(null)
+  const [informes, setInformes] = useState<InformeEnLista[]>([])
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -58,6 +60,29 @@ export function DetalleDeCuenta({ slug, volver, personas: personasIniciales }: {
   useEffect(() => {
     cargar()
   }, [cargar])
+
+  const cargarInformes = useCallback(async () => {
+    const r = await fetch(`/api/cuentas/informe?cliente=${encodeURIComponent(slug)}`, { cache: 'no-store' }).catch(() => null)
+    if (r?.ok) setInformes(((await r.json()) as { informes: InformeEnLista[] }).informes ?? [])
+  }, [slug])
+
+  useEffect(() => {
+    cargarInformes()
+  }, [cargarInformes])
+
+  const prepararInforme = async (tipo?: TipoDeInforme) => {
+    setGuardando('informe')
+    setError(null)
+    try {
+      const r = await fetch('/api/cuentas/informe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente: slug, accion: 'crear', tipo }) })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j.error ?? 'No se ha podido preparar el informe.')
+      window.location.href = `/dashboard/cuentas/informe/${j.id}`
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se ha podido preparar el informe.')
+      setGuardando(null)
+    }
+  }
 
   const guardar = async (cuerpo: Record<string, unknown>, clave: string) => {
     setGuardando(clave)
@@ -178,7 +203,7 @@ export function DetalleDeCuenta({ slug, volver, personas: personasIniciales }: {
                         <p className="mt-[2px] text-[12.5px] leading-[1.5] text-[var(--ls-t3)]">{p.detalle}</p>
                       </div>
                       {p.herramienta === 'informe' ? (
-                        <span className="shrink-0 self-center text-[11.5px] text-[var(--ls-t4)]">El borrador sale aquí muy pronto</span>
+                        <BotonDeInforme paso={p.id} informes={informes} lunes={c.semana?.lunes ?? null} preparar={prepararInforme} ocupado={guardando === 'informe'} desactivado={datos.falta307} />
                       ) : (
                         <Link href={enlaceDe(p.herramienta, c)} className="inline-flex h-[28px] shrink-0 items-center gap-[5px] self-center rounded-[8px] border border-[var(--ls-linea)] px-[10px] text-[12px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">
                           Abrir <ArrowUpRight className="h-3 w-3" />
@@ -271,7 +296,37 @@ export function DetalleDeCuenta({ slug, volver, personas: personasIniciales }: {
             </section>
           </div>
 
-          {/* 5 · notas */}
+          {/* 5 · informes */}
+          <section className={CAJA.base}>
+            <div className={CAJA.cabecera}>
+              <FileText className="h-4 w-4 text-[var(--ls-t3)]" />
+              <span className="flex-1 text-[13.5px] font-semibold text-[var(--ls-t1)]">Informes al cliente</span>
+              <span className="flex gap-1">
+                {(['semanal', 'quincenal', 'mensual'] as const).map((t) => (
+                  <button key={t} type="button" disabled={datos.falta307 || guardando === 'informe'} onClick={() => prepararInforme(t)} className="inline-flex h-[26px] items-center rounded-[7px] border border-[var(--ls-linea)] px-2 text-[11.5px] text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)] disabled:opacity-45">
+                    + {t}
+                  </button>
+                ))}
+              </span>
+            </div>
+            <div className={`${CAJA.cuerpo} flex flex-col gap-1`}>
+              {informes.length === 0 ? (
+                <p className="text-[12.5px] text-[var(--ls-t3)]">Todavía no hay informes. El de esta semana se prepara desde su paso de arriba; también puedes preparar uno suelto con los botones.</p>
+              ) : (
+                informes.map((i) => (
+                  <Link key={i.id} href={`/dashboard/cuentas/informe/${i.id}`} className="flex items-center gap-3 rounded-[8px] px-2 py-[6px] text-[12.5px] hover:bg-[var(--ls-sup2)]">
+                    <span className="w-[80px] shrink-0 font-semibold capitalize text-[var(--ls-t1)]">{i.tipo}</span>
+                    <span className="min-w-0 flex-1 truncate text-[var(--ls-t3)]">
+                      {i.desde} → {i.hasta}
+                    </span>
+                    <Chip tono={i.estado === 'enviado' ? 'verde' : 'ambar'}>{i.estado === 'enviado' ? 'Enviado' : 'Borrador'}</Chip>
+                  </Link>
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* 6 · notas */}
           <Notas c={c} desactivado={datos.falta307} guardar={(notas) => guardar({ accion: 'notas', notas }, 'notas')} />
         </>
       )}
@@ -415,5 +470,35 @@ function Cifras({ cifras }: { cifras: ReadonlyArray<{ etiqueta: string; valor: s
         </div>
       ))}
     </div>
+  )
+}
+
+interface InformeEnLista {
+  id: string
+  tipo: TipoDeInforme
+  desde: string
+  hasta: string
+  estado: 'borrador' | 'enviado'
+  enviadoAt: string | null
+  creadoAt: string
+}
+
+/** El botón del paso «Informe al cliente»: prepara el borrador o abre el que ya hay de esta semana */
+function BotonDeInforme({ paso, informes, lunes, preparar, ocupado, desactivado }: { paso: string; informes: InformeEnLista[]; lunes: string | null; preparar: (t?: TipoDeInforme) => void; ocupado: boolean; desactivado: boolean }) {
+  const tipo = paso.replace('informe-', '') as TipoDeInforme
+  // El de esta semana: el último de ese tipo creado desde su lunes
+  const deEstaSemana = lunes ? informes.find((i) => i.tipo === tipo && i.creadoAt.slice(0, 10) >= lunes) : undefined
+  const clase = 'inline-flex h-[28px] shrink-0 items-center gap-[5px] self-center rounded-[8px] border px-[10px] text-[12px] font-medium disabled:opacity-45'
+  if (deEstaSemana) {
+    return (
+      <Link href={`/dashboard/cuentas/informe/${deEstaSemana.id}`} className={`${clase} border-[var(--ls-linea)] text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]`}>
+        {deEstaSemana.estado === 'enviado' ? 'Ver enviado' : 'Abrir borrador'} <ArrowUpRight className="h-3 w-3" />
+      </Link>
+    )
+  }
+  return (
+    <button type="button" disabled={ocupado || desactivado} onClick={() => preparar(tipo)} className={`${clase} border-[var(--ls-acc-borde)] bg-[var(--ls-acc-relleno)] text-[var(--ls-acc-tinta)]`}>
+      {ocupado ? 'Preparando…' : 'Preparar borrador'}
+    </button>
   )
 }
