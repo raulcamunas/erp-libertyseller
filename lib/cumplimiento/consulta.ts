@@ -50,6 +50,10 @@ function conFiltros(consulta: any, connIds: string[], f: FiltrosCumplimiento): a
   if (f.mercado !== 'todos') q = q.eq('marketplace_id', f.mercado)
   if (f.gravedad === 'atencion') q = q.or('errores.gt.0,suprimido.eq.true')
   else if (f.gravedad === 'avisos') q = q.gt('avisos', 0).eq('errores', 0).eq('suprimido', false)
+  // SOLO avisos menores: algo en el JSON, pero nada que cuente (ver MENORES en incidencias.ts)
+  else if (f.gravedad === 'menores') q = q.eq('errores', 0).eq('avisos', 0).eq('suprimido', false).neq('incidencias', '[]')
+  // Cualquier incidencia, menores incluidas: lo que se pide al llegar desde un código o una tarea de «Hoy»
+  else if (f.gravedad === 'cualquiera') q = q.neq('incidencias', '[]')
   else q = q.or('errores.gt.0,avisos.gt.0,suprimido.eq.true')
   // `temas` (todos los del listing) y no `tema` (solo el de su incidencia más grave):
   // un listing con un error de precio y un aviso de normativa TIENE un problema de
@@ -57,7 +61,11 @@ function conFiltros(consulta: any, connIds: string[], f: FiltrosCumplimiento): a
   if (f.tema !== 'todos') q = q.contains('temas', [f.tema])
   if (f.soloStock) q = q.eq('con_stock', true)
   // JSONB «contiene»: se pasa como texto porque postgrest-js convierte un array en un array de Postgres, no en JSON
-  if (f.codigo) q = q.contains('incidencias', JSON.stringify([{ codigo: f.codigo }]))
+  // Varios códigos (una tarea de «Hoy» junta varios): un OR de «contiene». Los códigos ya vienen validados
+  // (letras, números y `_.:-`), así que no pueden romper la sintaxis del OR de PostgREST.
+  const codigos = f.codigos && f.codigos.length > 0 ? f.codigos : f.codigo ? [f.codigo] : []
+  if (codigos.length === 1) q = q.contains('incidencias', JSON.stringify([{ codigo: codigos[0] }]))
+  else if (codigos.length > 1) q = q.or(codigos.map((c) => `incidencias.cs.${JSON.stringify([{ codigo: c }])}`).join(','))
   const b = limpiarBusqueda(f.busca)
   // `*` y no `%`: es el comodín de los filtros de PostgREST
   if (b) q = q.or(`sku.ilike.*${b}*,asin.ilike.*${b}*,titulo.ilike.*${b}*`)
@@ -66,7 +74,9 @@ function conFiltros(consulta: any, connIds: string[], f: FiltrosCumplimiento): a
 
 export function filtrosValidos(x: unknown): FiltrosCumplimiento {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
-  const gravedad = o.gravedad === 'avisos' || o.gravedad === 'todo' ? o.gravedad : 'atencion'
+  const gravedad: FiltrosCumplimiento['gravedad'] =
+    o.gravedad === 'avisos' || o.gravedad === 'todo' || o.gravedad === 'menores' || o.gravedad === 'cualquiera' ? o.gravedad : 'atencion'
+  const codigoValido = (c: unknown): c is string => typeof c === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(c)
   const tema = typeof o.tema === 'string' && (TEMAS as readonly string[]).includes(o.tema) ? (o.tema as Tema) : 'todos'
   return {
     mercado: typeof o.mercado === 'string' && /^[A-Z0-9]{8,16}$/.test(o.mercado) ? o.mercado : 'todos',
@@ -74,7 +84,9 @@ export function filtrosValidos(x: unknown): FiltrosCumplimiento {
     tema,
     soloStock: o.soloStock === true,
     busca: typeof o.busca === 'string' ? o.busca.slice(0, 120) : '',
-    codigo: typeof o.codigo === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(o.codigo) ? o.codigo : '',
+    codigo: codigoValido(o.codigo) ? o.codigo : '',
+    // Hasta 30: una tarea junta como mucho una decena. Uno que no sea válido se descarta, no tumba el filtro
+    codigos: Array.isArray(o.codigos) ? [...new Set(o.codigos.filter(codigoValido))].slice(0, 30) : [],
   }
 }
 
@@ -82,7 +94,68 @@ export function filtrosValidos(x: unknown): FiltrosCumplimiento {
 /* Las cifras                                                          */
 /* ------------------------------------------------------------------ */
 
-export async function resumenDeCliente(
+/**
+ * Las cifras de arriba de la lista. Primero con las funciones de la migración 297, que leen la tabla UNA vez agrupando
+ * por país (3 consultas). Antes eran unos 35 recuentos por petición —dos por cada tema— y la pantalla los repetía cada
+ * dos minutos mientras estaba abierta: con la base en Nano, eso se nota. Sin la 297, los recuentos de siempre.
+ */
+export async function resumenDeCliente(amazonClientId: string, mercadoElegido = 'todos'): Promise<RespuestaResumen> {
+  try {
+    const conexiones = await conexionesDeCliente(amazonClientId)
+    if (conexiones.length === 0) return { ok: false, error: 'Este cliente no tiene ninguna cuenta de Amazon activa.' }
+    const ids = conexiones.map((c) => c.id)
+    const service = createServiceClient()
+    const n = (v: unknown) => Number(v ?? 0) || 0
+
+    const [cif, cat] = await Promise.all([
+      service.rpc('cumplimiento_cifras', { p_conexiones: ids }),
+      service.rpc('cumplimiento_catalogo', { p_conexiones: ids }),
+    ])
+    if (cif.error || cat.error) return await resumenPorRecuentos(amazonClientId, mercadoElegido)
+
+    const porPais = new Map(((cif.data ?? []) as Array<Record<string, unknown>>).map((f) => [String(f.marketplace_id), f]))
+    const mercados = ((cat.data ?? []) as Array<{ marketplace_id: string; total: number }>)
+      .map((t) => {
+        const id = t.marketplace_id
+        const revisados = n(porPais.get(id)?.revisados)
+        return { id, nombre: marketplaceLabel(id), total: Math.max(n(t.total), revisados), revisados }
+      })
+      .filter((m) => m.total > 0)
+      .sort((a, b) => b.total - a.total)
+    const mercado = mercados.some((m) => m.id === mercadoElegido) ? mercadoElegido : 'todos'
+    const elegidos = [...porPais.entries()].filter(([id]) => mercado === 'todos' || id === mercado).map(([, f]) => f)
+    const suma = (campo: string) => elegidos.reduce((t, f) => t + n(f[campo]), 0)
+    const ultima = elegidos.map((f) => (f.ultima_revision as string | null) ?? '').sort().pop() || null
+
+    const tem = await service.rpc('cumplimiento_temas', { p_conexiones: ids, p_mercado: mercado === 'todos' ? null : mercado })
+    if (tem.error) return await resumenPorRecuentos(amazonClientId, mercadoElegido)
+    const temas = ((tem.data ?? []) as Array<Record<string, unknown>>).filter((t) => (TEMAS as readonly string[]).includes(String(t.tema)))
+    const serie = (campo: 'atencion' | 'todos') =>
+      TEMAS.map((t) => ({ tema: t, n: n(temas.find((x) => x.tema === t)?.[campo]) })).filter((t) => t.n > 0)
+
+    const enLoElegido = mercado === 'todos' ? mercados : mercados.filter((m) => m.id === mercado)
+    return {
+      ok: true,
+      mercados,
+      total: enLoElegido.reduce((t, m) => t + m.total, 0),
+      revisados: suma('revisados'),
+      ultimaRevision: ultima,
+      atencion: suma('atencion'),
+      conErrores: suma('con_errores'),
+      suprimidos: suma('ocultos'),
+      soloAvisos: suma('solo_avisos'),
+      atencionConStock: suma('atencion_con_stock'),
+      porTema: serie('atencion'),
+      porTemaTodos: serie('todos'),
+    }
+  } catch (e) {
+    console.error('[cumplimiento] no se ha podido leer el resumen:', e)
+    return { ok: false, error: 'No se han podido leer las revisiones.' }
+  }
+}
+
+/** El resumen a base de recuentos, como antes de la 297. Solo si faltan sus funciones */
+async function resumenPorRecuentos(
   amazonClientId: string,
   mercadoElegido = 'todos'
 ): Promise<RespuestaResumen> {

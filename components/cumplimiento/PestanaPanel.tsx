@@ -1,12 +1,15 @@
 'use client'
 
+import { useMemo } from 'react'
 import { ArrowRight, EyeOff, PackageX, ShieldAlert, Sparkles, TriangleAlert, XCircle } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { CAJA, bandera } from '@/components/marketing-test/piezas'
 import { ROTULO_TEMA } from '@/lib/cumplimiento/tipos'
 import { saludDe, tonoDeSalud, type CifrasDePais, type PanelDeCumplimiento } from '@/lib/cumplimiento/panel-calculo'
-import { ColorDeGravedad, haceTiempo } from './comun'
+import { ACCIONES, accionDe } from '@/lib/cumplimiento/acciones'
+import { COLOR_NIVEL, haceTiempo } from './comun'
+import { nivelDeCodigo } from './PestanaIncidencias'
 
 type PanelOk = Extract<PanelDeCumplimiento, { ok: true }>
 
@@ -18,8 +21,20 @@ const colorDeTono = (t: ReturnType<typeof tonoDeSalud>) => (t === 'gris' ? 'var(
  * EL PANEL DE UN CLIENTE: cómo está su catálogo ante Amazon. Arriba la salud y lo que cuesta dinero hoy (con stock y con problema, ocultos); después cómo evoluciona, cuánto llevan abiertos los
  * problemas, de qué tema son y qué incidencias de Amazon se repiten más. Con «todos los países», una tabla por país del mismo cliente.
  */
-export function PestanaPanel({ panel, todos, verPais, verIncidencias, verCodigo, verListings }: { panel: PanelOk; todos: boolean; verPais: (id: string) => void; verIncidencias: () => void; verCodigo: (codigo: string) => void; verListings: () => void }) {
+export function PestanaPanel({ panel, todos, verPais, verIncidencias, verCodigo, verHoy }: { panel: PanelOk; todos: boolean; verPais: (id: string) => void; verIncidencias: () => void; verCodigo: (codigo: string) => void; verHoy: () => void }) {
   const c = panel.cifras
+  // «Lo que más repite Amazon» sin los avisos menores: el 18448 («faltan atributos clave… no impide que aparezca») era
+  // casi siempre el primero, y no hay nada que hacer con él
+  const repetidas = useMemo(() => {
+    const ahora = new Date()
+    return panel.codigos
+      .map((k) => {
+        const nivel = nivelDeCodigo(k, ahora)
+        return { ...k, nivel, accion: accionDe(k, nivel) }
+      })
+      .filter((k) => k.nivel !== 'menor')
+      .slice(0, 6)
+  }, [panel.codigos])
   if (c.revisados === 0)
     return (
       <div className={`${CAJA.base} max-w-[760px]`}>
@@ -53,10 +68,10 @@ export function PestanaPanel({ panel, todos, verPais, verIncidencias, verCodigo,
         </section>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <Tarjeta icono={<PackageX />} titulo="Con stock y con problema" valor={c.atencionConStock} color={c.atencionConStock > 0 ? COLOR_ESTADO.rojo : COLOR_ESTADO.verde} nota="Lo que se está dejando de vender hoy" alPulsar={c.atencionConStock > 0 ? verListings : undefined} destacada={c.atencionConStock > 0} />
+          <Tarjeta icono={<PackageX />} titulo="Con stock y con problema" valor={c.atencionConStock} color={c.atencionConStock > 0 ? COLOR_ESTADO.rojo : COLOR_ESTADO.verde} nota="Lo que se está dejando de vender hoy: ver qué hacer" alPulsar={c.atencionConStock > 0 ? verHoy : undefined} destacada={c.atencionConStock > 0} />
           <Tarjeta icono={<EyeOff />} titulo="Ocultos" valor={c.ocultos} color={c.ocultos > 0 ? COLOR_ESTADO.rojo : undefined} nota="Fuera de las búsquedas o de la venta" />
           <Tarjeta icono={<XCircle />} titulo="Con errores" valor={c.conErrores} color={c.conErrores > 0 ? COLOR_ESTADO.naranja : undefined} nota="Falta algo obligatorio o está mal" />
-          <Tarjeta icono={<TriangleAlert />} titulo="Solo avisos" valor={c.soloAvisos} color={c.soloAvisos > 0 ? COLOR_ESTADO.ambar : undefined} nota="Recomendaciones: aún no bloquean" />
+          <Tarjeta icono={<TriangleAlert />} titulo="Solo avisos" valor={c.soloAvisos} color={c.soloAvisos > 0 ? COLOR_ESTADO.ambar : undefined} nota="Aún no bloquean: casi todo es normativa con plazo" />
           <Tarjeta icono={<ShieldAlert />} titulo="Con algo de normativa" valor={c.normativa} color={c.normativa > 0 ? COLOR_ESTADO.violeta : undefined} nota="GPSR, RAP, certificados, etiquetado" />
           <Tarjeta icono={<Sparkles />} titulo="Problemas nuevos" valor={c.antiguedad.d7} color={c.antiguedad.d7 > 0 ? COLOR_ESTADO.cian : undefined} nota="Abiertos en los últimos 7 días" />
         </div>
@@ -155,14 +170,15 @@ export function PestanaPanel({ panel, todos, verPais, verIncidencias, verCodigo,
             </button>
           </header>
           <div className="flex flex-col divide-y divide-[var(--ls-linea)]">
-            {panel.codigos.length === 0 ? (
-              <p className={`${CAJA.cuerpo} text-[12.5px] text-[var(--ls-t3)]`}>Sin incidencias.</p>
+            {repetidas.length === 0 ? (
+              <p className={`${CAJA.cuerpo} text-[12.5px] text-[var(--ls-t3)]`}>Sin incidencias que importen.</p>
             ) : (
-              panel.codigos.slice(0, 6).map((k) => (
-                <button key={k.codigo} type="button" onClick={() => verCodigo(k.codigo)} className="flex items-start gap-3 px-4 py-[10px] text-left transition-colors hover:bg-[var(--ls-sup2)]" title="Ver los listings con esta incidencia">
-                  <ColorDeGravedad gravedad={k.gravedad} />
+              repetidas.map((k) => (
+                <button key={k.codigo} type="button" onClick={() => verCodigo(k.codigo)} className="flex items-start gap-3 px-4 py-[10px] text-left transition-colors hover:bg-[var(--ls-sup2)]" title={`Ver los listings con esta incidencia. Amazon dice: ${k.mensaje}`}>
+                  <span aria-hidden className="mt-[6px] h-[8px] w-[8px] shrink-0 rounded-full" style={{ background: COLOR_NIVEL[k.nivel], boxShadow: `0 0 0 3px color-mix(in srgb, ${COLOR_NIVEL[k.nivel]} 18%, transparent)` }} />
                   <span className="min-w-0 flex-1">
-                    <span className="line-clamp-2 text-[12.5px] leading-[1.45] text-[var(--ls-t1)]">{k.mensaje || `Incidencia ${k.codigo}`}</span>
+                    <span className="block text-[12.5px] font-medium leading-[1.4] text-[var(--ls-t1)]">{ACCIONES[k.accion].titulo}</span>
+                    <span className="line-clamp-1 text-[11.5px] leading-[1.45] text-[var(--ls-t3)]">{k.mensaje || `Incidencia ${k.codigo}`}</span>
                     <span className="mt-[2px] block text-[11px] text-[var(--ls-t4)]">
                       {ROTULO_TEMA[k.tema].corto} · código {k.codigo}
                       {k.ocultan > 0 && <span style={{ color: COLOR_ESTADO.rojo }}> · oculta {cifra(k.ocultan)}</span>}

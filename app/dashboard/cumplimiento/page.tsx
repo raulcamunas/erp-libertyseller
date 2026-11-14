@@ -56,7 +56,7 @@ export default async function CumplimientoPage({ searchParams }: { searchParams:
 
   return (
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
-      <CumplimientoApp clientes={clientes} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'panel'} />
+      <CumplimientoApp clientes={clientes} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'hoy'} />
     </div>
   )
 }

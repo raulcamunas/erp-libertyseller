@@ -1,4 +1,5 @@
 import type { Gravedad, Tema } from './tipos'
+import type { TareaDeHoy } from './acciones'
 
 /**
  * EL PANEL DE CUMPLIMIENTO · LOS TIPOS Y LAS CUENTAS PURAS. Sin base de datos: lo importan igual el servidor (lib/cumplimiento/panel.ts) que la pantalla.
@@ -40,6 +41,8 @@ export interface CodigoDelPanel {
   listings: number
   conStock: number
   ocultan: number
+  /** De los que oculta, cuántos tienen stock. null sin la migración 306 */
+  ocultanConStock: number | null
   desde: string | null
 }
 
@@ -63,6 +66,13 @@ export type PanelDeCumplimiento =
       temas: TemaDelPanel[]
       codigos: CodigoDelPanel[]
       diario: PuntoDiario[]
+      /** La pestaña «Hoy»: las incidencias agrupadas por lo que hay que hacer, de más a menos importante */
+      tareas: TareaDeHoy[]
+      /**
+       * false = sin la migración 306: las tareas suman por código (un listing con dos códigos de la misma tarea cuenta dos
+       * veces) y los listings que solo tienen avisos menores no entran en los recuentos.
+       */
+      exacto: boolean
     }
   | { ok: false; faltaMigracion: true }
   | { ok: false; faltaMigracion?: false; error: string }

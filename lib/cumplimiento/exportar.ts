@@ -1,4 +1,5 @@
-import { ACCION_ES, ROTULO_TEMA, estadoDeFicha, type FilaCumplimiento } from './tipos'
+import { ACCION_ES, ROTULO_NIVEL, ROTULO_TEMA, estadoDeFicha, type FilaCumplimiento } from './tipos'
+import { ACCIONES, clasificar } from './acciones'
 
 /**
  * EL CSV DE CUMPLIMIENTO, PARA MANDÁRSELO AL CLIENTE.
@@ -29,6 +30,9 @@ const CABECERA = [
   'Plazo de gracia hasta',
   'Abierta desde',
   'Revisado',
+  // Al final, para no mover las columnas de siempre: quien ya filtra el Excel por posición no se entera
+  'Importancia',
+  'Qué hacer',
 ]
 
 const ESTADO_ES = { comprable: 'Comprable', visible: 'Visible, no comprable', oculto: 'Oculto' } as const
@@ -51,11 +55,12 @@ export function celda(v: string | number | boolean | null | undefined): string {
 
 const dia = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : '')
 
-export function aCsv(filas: readonly FilaCumplimiento[], nombrePais: (id: string) => string): string {
+export function aCsv(filas: readonly FilaCumplimiento[], nombrePais: (id: string) => string, ahora: Date = new Date()): string {
   const lineas: string[] = [CABECERA.join(';')]
 
   for (const f of filas) {
     for (const i of f.incidencias) {
+      const { nivel, accion } = clasificar(i, ahora)
       lineas.push(
         [
           f.sku,
@@ -73,6 +78,8 @@ export function aCsv(filas: readonly FilaCumplimiento[], nombrePais: (id: string
           i.exencion?.estado === 'EXEMPT_UNTIL_EXPIRY_DATE' ? dia(i.exencion.caduca) : '',
           dia(i.desde),
           dia(f.revisado_at),
+          ROTULO_NIVEL[nivel].corto,
+          ACCIONES[accion].titulo,
         ]
           .map(celda)
           .join(';')

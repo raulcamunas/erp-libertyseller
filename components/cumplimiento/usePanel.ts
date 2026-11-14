@@ -35,9 +35,24 @@ export function usePanel(slug: string, mercado: string) {
   useEffect(() => {
     setPanel(null)
     void cargar()
-    const t = setInterval(() => void cargar(), CADA_MS)
+    // Con la pestaña del navegador escondida no se pide nada: el panel lee la tabla entera del cliente, y una pantalla
+    // olvidada abierta toda la noche eran 30 lecturas por hora a la base para nadie. Al volver, se pide en seguida.
+    let ultima = Date.now()
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      ultima = Date.now()
+      void cargar()
+    }, CADA_MS)
+    const alVolver = () => {
+      if (document.visibilityState === 'visible' && Date.now() - ultima > CADA_MS) {
+        ultima = Date.now()
+        void cargar()
+      }
+    }
+    document.addEventListener('visibilitychange', alVolver)
     return () => {
       clearInterval(t)
+      document.removeEventListener('visibilitychange', alVolver)
       peticion.current++
     }
   }, [cargar])

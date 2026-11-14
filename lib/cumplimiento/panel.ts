@@ -3,7 +3,8 @@ import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { AMAZON_MARKETPLACES, marketplaceLabel } from '@/lib/types/amazon'
 import { conexionesDeCliente } from './conexiones'
 import { TEMAS, type Gravedad, type Tema } from './tipos'
-import { CIFRAS_VACIAS, sumarCifras, sumarPorDia, type CifrasDePais, type PanelDeCumplimiento } from './panel-calculo'
+import { CIFRAS_VACIAS, sumarCifras, sumarPorDia, type CifrasDePais, type CodigoDelPanel, type PanelDeCumplimiento } from './panel-calculo'
+import { agruparEnTareas, mapaDeTareas, tareasConRecuentos } from './acciones'
 
 export * from './panel-calculo'
 
@@ -27,6 +28,13 @@ export async function paisesDeCliente(amazonClientId: string): Promise<Array<{ i
     .sort((a, b) => (a.pais === 'ES' ? -1 : b.pais === 'ES' ? 1 : a.nombre.localeCompare(b.nombre, 'es')))
 }
 
+/** ¿El error es que la función no existe (migración sin lanzar)? */
+const faltaFuncion = (e: { message?: string } & Parameters<typeof isMissingSchema>[0]) =>
+  isMissingSchema(e) || /function .* does not exist|Could not find the function/i.test(e.message ?? '')
+
+/** Hasta cuántos códigos distintos se leen. Con 60 se perdían: el 14 nov 2026 cuatro clientes tenían entre 64 y 81 */
+const LIMITE_CODIGOS = 200
+
 export async function panelDeCliente(amazonClientId: string, mercado: string | null): Promise<PanelDeCumplimiento> {
   try {
     const conexiones = await conexionesDeCliente(amazonClientId)
@@ -38,7 +46,8 @@ export async function panelDeCliente(amazonClientId: string, mercado: string | n
       service.rpc('cumplimiento_cifras', { p_conexiones: ids }),
       service.rpc('cumplimiento_catalogo', { p_conexiones: ids }),
       service.rpc('cumplimiento_temas', { p_conexiones: ids, p_mercado: mercado }),
-      service.rpc('cumplimiento_codigos', { p_conexiones: ids, p_mercado: mercado, p_limite: 60 }),
+      // La de la 306 (todas las filas con incidencias, y los ocultos con stock); si no está, la de la 297 (ver más abajo)
+      service.rpc('cumplimiento_codigos_todos', { p_conexiones: ids, p_mercado: mercado, p_limite: LIMITE_CODIGOS }),
       (() => {
         let q = service
           .from('cumplimiento_diario')
@@ -51,11 +60,24 @@ export async function panelDeCliente(amazonClientId: string, mercado: string | n
         return q
       })(),
     ])
-    for (const r of [cif, cat, tem, cod, dia]) {
+    for (const r of [cif, cat, tem, dia]) {
       if (r.error) {
-        if (isMissingSchema(r.error) || /function .* does not exist|Could not find the function/i.test(r.error.message ?? '')) return { ok: false, faltaMigracion: true }
+        if (faltaFuncion(r.error)) return { ok: false, faltaMigracion: true }
         throw r.error
       }
+    }
+    // Sin la 306, la función de la 297: no ve los listings que solo tienen avisos menores y no sabe cuántos ocultos tienen stock
+    let exacto = true
+    let filasCodigos = cod.data as unknown
+    if (cod.error) {
+      if (!faltaFuncion(cod.error)) throw cod.error
+      exacto = false
+      const v1 = await service.rpc('cumplimiento_codigos', { p_conexiones: ids, p_mercado: mercado, p_limite: LIMITE_CODIGOS })
+      if (v1.error) {
+        if (faltaFuncion(v1.error)) return { ok: false, faltaMigracion: true }
+        throw v1.error
+      }
+      filasCodigos = v1.data
     }
 
     const totales = new Map(((cat.data ?? []) as Array<{ marketplace_id: string; total: number }>).map((t) => [t.marketplace_id, n(t.total)]))
@@ -89,7 +111,7 @@ export async function panelDeCliente(amazonClientId: string, mercado: string | n
       .filter((t) => (TEMAS as readonly string[]).includes(String(t.tema)))
       .map((t) => ({ tema: t.tema as Tema, atencion: n(t.atencion), todos: n(t.todos), atencionConStock: n(t.atencion_con_stock) }))
       .sort((a, b) => b.atencion - a.atencion || b.todos - a.todos)
-    const codigos = ((cod.data ?? []) as Array<Record<string, unknown>>).map((c) => ({
+    const codigos: CodigoDelPanel[] = ((filasCodigos ?? []) as Array<Record<string, unknown>>).map((c) => ({
       codigo: String(c.codigo),
       gravedad: (['error', 'aviso', 'info'].includes(String(c.gravedad)) ? c.gravedad : 'info') as Gravedad,
       tema: ((TEMAS as readonly string[]).includes(String(c.tema)) ? c.tema : 'otros') as Tema,
@@ -97,8 +119,27 @@ export async function panelDeCliente(amazonClientId: string, mercado: string | n
       listings: n(c.listings),
       conStock: n(c.con_stock),
       ocultan: n(c.ocultan),
+      ocultanConStock: c.ocultan_con_stock == null ? null : n(c.ocultan_con_stock),
       desde: (c.desde as string | null) ?? null,
     }))
+
+    // ---- la pestaña «Hoy»: lo mismo, agrupado por lo que hay que hacer ----
+    const ahora = new Date()
+    let tareas = agruparEnTareas(codigos, ahora)
+    if (exacto && codigos.length > 0) {
+      const r = await service.rpc('cumplimiento_tareas', { p_conexiones: ids, p_mercado: mercado, p_mapa: mapaDeTareas(codigos, ahora) })
+      if (r.error) {
+        // No tumba el panel: se queda la suma por código y se dice que es aproximada
+        console.error('[cumplimiento] tareas exactas:', r.error.message)
+        exacto = false
+      } else {
+        tareas = tareasConRecuentos(
+          codigos,
+          ((r.data ?? []) as Array<Record<string, unknown>>).map((f) => ({ tarea: String(f.tarea), listings: n(f.listings), conStock: n(f.con_stock) })),
+          ahora
+        )
+      }
+    }
 
     return {
       ok: true,
@@ -106,6 +147,8 @@ export async function panelDeCliente(amazonClientId: string, mercado: string | n
       cifras: sumarCifras(elegidos),
       temas,
       codigos,
+      tareas,
+      exacto,
       diario: sumarPorDia((dia.data ?? []) as Array<{ dia: string; revisados: number; limpios: number; atencion: number; ocultos: number; solo_avisos: number; atencion_con_stock: number }>),
     }
   } catch (e) {

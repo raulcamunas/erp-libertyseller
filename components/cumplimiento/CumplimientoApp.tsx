@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ClipboardCheck, LayoutDashboard, ListChecks, RefreshCw, TriangleAlert } from 'lucide-react'
+import { ClipboardCheck, LayoutDashboard, ListChecks, ListTodo, RefreshCw, TriangleAlert } from 'lucide-react'
 import { AvatarDeCliente, BarraDeClientes, type ClienteDeBarra } from '@/components/marketing-test/BarraDeClientes'
 import { bandera } from '@/components/marketing-test/piezas'
 import { Vacio } from '@/components/plataforma/comun'
@@ -9,11 +9,17 @@ import { TableroCumplimiento } from '@/components/growth/cumplimiento/TableroCum
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { nombreDePais } from '@/lib/ads/paises'
 import { saludDe, tonoDeSalud } from '@/lib/cumplimiento/panel-calculo'
+import type { FiltrosCumplimiento } from '@/lib/cumplimiento/tipos'
+import type { TareaDeHoy } from '@/lib/cumplimiento/acciones'
+import { ACCIONES } from '@/lib/cumplimiento/acciones'
 import { usePanel } from './usePanel'
 import { PestanaPanel } from './PestanaPanel'
 import { PestanaIncidencias } from './PestanaIncidencias'
+import { PestanaHoy, tareasPendientes } from './PestanaHoy'
 
 const PESTANAS = [
+  // La primera y la de por defecto: lo que hay que hacer hoy. El panel es para ver cómo va; esta, para trabajar
+  { id: 'hoy', nombre: 'Hoy', icono: ListTodo },
   { id: 'panel', nombre: 'Panel', icono: LayoutDashboard },
   { id: 'incidencias', nombre: 'Incidencias', icono: TriangleAlert },
   { id: 'listings', nombre: 'Listings', icono: ListChecks },
@@ -30,8 +36,9 @@ export const TODOS = 'todos'
 export function CumplimientoApp({ clientes, clienteInicial, cuentaInicial, pestana }: { clientes: ClienteDeBarra[]; clienteInicial: string; cuentaInicial: string | null; pestana: string }) {
   const [clienteSlug, setClienteSlug] = useState(clienteInicial)
   const [cuentaId, setCuentaId] = useState<string | null>(cuentaInicial)
-  const [activa, setActiva] = useState<IdPestana>(PESTANAS.some((p) => p.id === pestana) ? (pestana as IdPestana) : 'panel')
-  const [codigo, setCodigo] = useState<string>('')
+  const [activa, setActiva] = useState<IdPestana>(PESTANAS.some((p) => p.id === pestana) ? (pestana as IdPestana) : 'hoy')
+  // Con qué filtros se abre la lista al llegar desde una tarea de «Hoy» o un código de «Incidencias» (null = los de siempre)
+  const [filtroListings, setFiltroListings] = useState<Partial<FiltrosCumplimiento> | null>(null)
   const [colapsada, setColapsada] = useState(false)
 
   useEffect(() => {
@@ -56,12 +63,12 @@ export function CumplimientoApp({ clientes, clienteInicial, cuentaInicial, pesta
   const elegir = (slug: string, id: string | null) => {
     setClienteSlug(slug)
     setCuentaId(id)
-    setCodigo('')
+    setFiltroListings(null)
     escribirUrl(slug, id, activa)
   }
-  const irA = (t: IdPestana, conCodigo?: string) => {
+  const irA = (t: IdPestana, filtro?: Partial<FiltrosCumplimiento>) => {
     setActiva(t)
-    setCodigo(conCodigo ?? '')
+    setFiltroListings(filtro ?? null)
     escribirUrl(cliente.slug, cuenta?.id ?? null, t)
   }
   const elegirPais = (id: string) => {
@@ -102,7 +109,7 @@ export function CumplimientoApp({ clientes, clienteInicial, cuentaInicial, pesta
           </select>
         </div>
         {cuenta ? (
-          <Cuerpo key={`${cliente.slug}|${cuenta.id}`} cliente={cliente} cuenta={cuenta} activa={activa} irA={irA} codigo={codigo} elegirPais={elegirPais} />
+          <Cuerpo key={`${cliente.slug}|${cuenta.id}`} cliente={cliente} cuenta={cuenta} activa={activa} irA={irA} filtroListings={filtroListings} elegirPais={elegirPais} />
         ) : (
           <Vacio icono={<ClipboardCheck />} titulo="Este cliente no tiene ninguna cuenta de vendedor activa">
             Se conecta en <strong>Amazon API · Cuentas</strong>.
@@ -118,14 +125,14 @@ function Cuerpo({
   cuenta,
   activa,
   irA,
-  codigo,
+  filtroListings,
   elegirPais,
 }: {
   cliente: ClienteDeBarra
   cuenta: ClienteDeBarra['cuentas'][number]
   activa: IdPestana
-  irA: (t: IdPestana, codigo?: string) => void
-  codigo: string
+  irA: (t: IdPestana, filtro?: Partial<FiltrosCumplimiento>) => void
+  filtroListings: Partial<FiltrosCumplimiento> | null
   elegirPais: (id: string) => void
 }) {
   const mercado = cuenta.id
@@ -161,7 +168,7 @@ function Cuerpo({
         {PESTANAS.map((p) => {
           const Icono = p.icono
           const encendida = p.id === activa
-          const n = p.id === 'incidencias' && panel?.ok ? panel.codigos.length : p.id === 'listings' && panel?.ok ? panel.cifras.atencion : null
+          const n = !panel?.ok ? null : p.id === 'hoy' ? tareasPendientes(panel.tareas) : p.id === 'listings' ? panel.cifras.atencion : null
           return (
             <button key={p.id} type="button" onClick={() => irA(p.id)} aria-current={encendida ? 'page' : undefined} className={`relative inline-flex h-[38px] shrink-0 items-center gap-[7px] rounded-t-[8px] px-3 text-[13px] font-medium transition-colors ${encendida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]'}`}>
               <Icono className={`h-[14px] w-[14px] shrink-0 ${encendida ? 'text-[var(--ls-acc)]' : ''}`} />
@@ -177,11 +184,11 @@ function Cuerpo({
         {activa === 'listings' ? (
           <div className="flex h-full min-h-[520px] flex-col">
             <TableroCumplimiento
-              key={`${cliente.slug}|${mercado}|${codigo}`}
+              key={`${cliente.slug}|${mercado}|${JSON.stringify(filtroListings)}`}
               slug={cliente.slug}
               nombre={cliente.nombre}
               mercadoFijo={mercado === TODOS ? undefined : mercado}
-              filtrosIniciales={codigo ? { codigo, gravedad: 'todo' } : undefined}
+              filtrosIniciales={filtroListings ?? undefined}
             />
           </div>
         ) : !panel ? (
@@ -190,10 +197,12 @@ function Cuerpo({
           <p className="rounded-[12px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-4 py-3 text-[12.5px]" style={{ color: panel.faltaMigracion ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo }}>
             {panel.faltaMigracion ? 'Falta lanzar la migración 297 en Supabase: sin ella no se pueden sacar las cifras del panel. La pestaña «Listings» sí funciona.' : panel.error}
           </p>
+        ) : activa === 'hoy' ? (
+          <PestanaHoy panel={panel} mercado={mercado} nombreCliente={cliente.nombre} nombrePais={cuenta.etiqueta ?? nombreDePais(cuenta.pais)} verTarea={(t, soloStock) => irA('listings', filtroDeTarea(t, soloStock))} />
         ) : activa === 'panel' ? (
-          <PestanaPanel panel={panel} todos={mercado === TODOS} verPais={elegirPais} verIncidencias={() => irA('incidencias')} verCodigo={(c) => irA('listings', c)} verListings={() => irA('listings')} />
+          <PestanaPanel panel={panel} todos={mercado === TODOS} verPais={elegirPais} verIncidencias={() => irA('incidencias')} verCodigo={(c) => irA('listings', { codigo: c, gravedad: 'cualquiera' })} verHoy={() => irA('hoy')} />
         ) : (
-          <PestanaIncidencias panel={panel} verCodigo={(c) => irA('listings', c)} />
+          <PestanaIncidencias panel={panel} verCodigo={(c) => irA('listings', { codigo: c, gravedad: 'cualquiera' })} />
         )}
       </div>
     </>
@@ -211,3 +220,9 @@ function EsqueletoDelPanel() {
     </div>
   )
 }
+
+/** Los filtros de la lista para ver los listings de una tarea de «Hoy»: sus códigos, con cualquier gravedad */
+function filtroDeTarea(t: TareaDeHoy, soloStock: boolean): Partial<FiltrosCumplimiento> {
+  return { codigos: t.codigos, rotuloCodigos: ACCIONES[t.accion].titulo, gravedad: 'cualquiera', soloStock }
+}
+

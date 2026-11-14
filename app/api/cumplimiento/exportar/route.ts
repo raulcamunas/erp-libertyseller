@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
       soloStock: p.get('stock') === '1',
       busca: p.get('q') ?? '',
       codigo: p.get('codigo') ?? '',
+      // Los de una tarea de «Hoy», separados por comas (filtrosValidos descarta los que no sean un código)
+      codigos: (p.get('codigos') ?? '').split(',').filter(Boolean),
     })
 
     const r = await todasLasFilas(cliente.amazonClientId, filtros)

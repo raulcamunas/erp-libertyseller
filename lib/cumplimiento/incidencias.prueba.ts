@@ -1,9 +1,12 @@
 import {
   clasificarTema,
   conservarDesde,
+  esMenor,
+  esRuidoDeAmazon,
   estaExenta,
   huella,
   necesitaAtencion,
+  nivelDe,
   normalizarIncidencias,
   ocultaAhora,
   ordenarIncidencias,
@@ -298,6 +301,65 @@ console.log('\n=== el orden ===')
   ok('el resto de la ficha sigue', n.some((i) => i.codigo === '90147') && n.some((i) => i.codigo === '18448'))
   ok('el mismo código con otro atributo de GPSR sí entra', n.some((i) => i.codigo === '100907' && i.atributos.includes('gpsr_safety_attestation')))
   ok('una ficha que solo tenía ese ruido queda limpia', normalizarIncidencias([crudas[0]]).length === 0)
+}
+
+
+console.log('\n=== avisos menores e importancia, con mensajes REALES (14 nov 2026, recortados) ===')
+{
+  const AHORA_REAL = new Date('2026-11-14T10:00:00Z')
+  const NOT_EXEMPT = { status: 'NOT_EXEMPT' }
+  const r18448 = { code: '18448', severity: 'WARNING', message: 'A tu envío le faltan algunos atributos clave: special_feature. La falta de estos atributos no impide que tu producto aparezca en Amazon. Sin embargo, afecta a la calidad general de tu listing.', attributeNames: ['special_feature'], categories: ['MISSING_ATTRIBUTE', 'PRODUCT'] }
+  const r101265 = { code: '101265', severity: 'WARNING', message: 'Previsión de ventas de 131.0EUR en la conversión de FBA para esta oferta en los próximos 90 días. Pasar de NMF a FBA para la gestión logística puede aumentar las ventas en este importe estimado.', categories: ['MISSING_ATTRIBUTE', 'LISTING'] }
+  const r8541 = { code: '8541', severity: 'ERROR', message: 'Los datos proporcionados del listing son diferentes de los que ya están en el catálogo de Amazon. La identificadores de productos estándar (como códigos UPC, ISBN, EAN o JAN) proporcionada coincide con el ASIN B0B4LLL91M, pero algunos de los datos del listing contradicen los que ya están en el catálogo de Amazon. Los siguientes valores de atributos del listing entran en conflicto con los valores del catálogo de Amazon: “brand” (Vendedor [] / Amazon [es_ES: "PITILLOS"]).', categories: ['INVALID_ATTRIBUTE', 'LISTING'] }
+  const r100530 = { code: '100530', severity: 'WARNING', message: 'Para vender este producto en las tiendas de Amazon, debes obtener la información de una RER para cumplir la normativa de responsabilidad ampliada del productor (RAP). Si no se facilitas esta información antes del 2026-08-12T00:00:00.000Z, podría retirarse esta oferta de las tiendas de Amazon.', categories: ['LISTING'] }
+  const r18299 = { code: '18299', severity: 'ERROR', message: 'Necesitas autorización para publicar productos de esta marca.', categories: ['QUALIFICATION_REQUIRED', 'LISTING'], enforcements: { actions: [{ action: 'LISTING_SUPPRESSED' }], exemption: NOT_EXEMPT } }
+  const r100560 = { code: '100560', severity: 'ERROR', message: 'La imagen MAIN que has enviado para US/Global no representa con precisión el producto para B0CFXNQRC6 o el identificador del producto que has enviado es incorrecto en la tienda FR. Como resultado, tus imágenes no se mostrarán a los clientes.', attributeNames: ['media_locator'], categories: ['INVALID_ATTRIBUTE', 'INVALID_IMAGE', 'LISTING'], enforcements: { actions: [{ action: 'ATTRIBUTE_SUPPRESSED' }], exemption: NOT_EXEMPT } }
+  const r100326 = { code: '100326', severity: 'ERROR', message: 'La traducción automática falló de DE a[PL]. Hemos detectado que es posible que este producto no cumpla con las normas de cumplimiento transfronterizo para su traducción a[PL].', categories: ['PRODUCT'] }
+  const r500211 = { code: '500211', severity: 'ERROR', message: 'Se ha producido un error interno. Vuelve a enviar este feed. Para obtener más información, consulta http://sellercentral.amazon.com/gp/help/23011', categories: ['LISTING'] }
+  const n = (x: unknown) => normalizarIncidencias([x])[0]
+
+  ok('18448 «no impide que aparezca» es menor', esMenor(n(r18448), AHORA_REAL))
+  ok('la previsión de ventas de FBA es menor', esMenor(n(r101265), AHORA_REAL))
+  ok('8541 (datos distintos del catálogo, sin ocultar) es menor', esMenor(n(r8541), AHORA_REAL))
+  ok('pero 8541 que OCULTA no es menor: lo que oculta se ve siempre', !esMenor(n({ ...r8541, enforcements: { actions: [{ action: 'SEARCH_SUPPRESSED' }] } }), AHORA_REAL))
+  ok('el error interno de Amazon es menor', esMenor(n(r500211), AHORA_REAL))
+  ok('la traducción fallida es menor', esMenor(n(r100326), AHORA_REAL))
+  ok('la RAP NO es menor', !esMenor(n(r100530), AHORA_REAL))
+  ok('una sugerencia (INFO) es menor', esMenor(n({ code: 'x', severity: 'INFO', message: 'Puedes mejorar…' }), AHORA_REAL))
+  ok('un código nuevo con «no impide que tu producto aparezca» también', esMenor(n({ code: '999999', severity: 'WARNING', message: 'Faltan cosas. Esto no impide que tu producto aparezca en Amazon.' }), AHORA_REAL))
+
+  ok('importancia: la aprobación de marca bloquea', nivelDe(n(r18299), AHORA_REAL) === 'bloquea')
+  ok('importancia: la RAP con plazo es normativa', nivelDe(n(r100530), AHORA_REAL) === 'normativa')
+  ok('importancia: la imagen que no se enseña afecta (se vende, pero peor)', nivelDe(n(r100560), AHORA_REAL) === 'afecta')
+  ok('importancia: 18448 es menor', nivelDe(n(r18448), AHORA_REAL) === 'menor')
+
+  const mezcla = resumir(normalizarIncidencias([r18448, r8541, r100530, r101265]), AHORA_REAL)
+  ok('los menores no cuentan como errores ni avisos', mezcla.errores === 0 && mezcla.avisos === 1, `${mezcla.errores}/${mezcla.avisos}`)
+  ok('ni dan tema: solo la normativa', mezcla.temas.join() === 'normativa', mezcla.temas.join())
+  ok('no necesita atención (solo un aviso de normativa)', !necesitaAtencion(mezcla))
+  const soloMenores = resumir(normalizarIncidencias([r18448, r8541]), AHORA_REAL)
+  ok('una ficha con solo avisos menores cuenta como limpia', soloMenores.errores === 0 && soloMenores.avisos === 0 && !soloMenores.suprimido && soloMenores.tema === null)
+  ok('los menores se ordenan al final', ordenarIncidencias(normalizarIncidencias([r8541, r100530, r18299]), AHORA_REAL).map((i) => i.codigo).join() === '18299,100530,8541')
+
+  const conFechas: Incidencia[] = [
+    { ...n(r18448), desde: '2026-01-01T00:00:00.000Z' },
+    { ...n(r100530), desde: '2026-09-01T00:00:00.000Z' },
+  ]
+  ok('«desde» no cuenta los menores (con la hora)', problemaMasAntiguo(conFechas, AHORA_REAL) === '2026-09-01T00:00:00.000Z')
+  ok('sin la hora, como antes', problemaMasAntiguo(conFechas) === '2026-01-01T00:00:00.000Z')
+
+  ok('300403 en el almacén de documentos de Amazon es ruido (no entra)', normalizarIncidencias([{ code: '300403', severity: 'ERROR', message: 'No podemos acceder a tu archivo multimedia en https://dew-document-storage-prod.s3.amazonaws.com/A1RKKUPIHCS9HS/SELLER/A3QPD30BOUUII1/185021/UMP/contribution/compliance_media/2024/10/25/x hemos recibido el código de estado HTTP 403.' }]).length === 0)
+  ok('300403 con un enlace del vendedor sí entra', normalizarIncidencias([{ code: '300403', severity: 'ERROR', message: 'No podemos acceder a tu archivo multimedia en https://www.mitienda.es/manual.pdf hemos recibido el código de estado HTTP 403.' }]).length === 1)
+  ok('esRuidoDeAmazon sin mensaje sigue funcionando', esRuidoDeAmazon({ codigo: '100907', atributos: ['compliance_media'] }) && !esRuidoDeAmazon({ codigo: '300403', atributos: [] }))
+
+  // Temas que cambian (antes salían como «datos» u «otros», o como normativa sin serlo)
+  const temaReal = (m: string, categorias: string[] = []) => tema({ mensaje: m, categorias })
+  ok('Directiva de equipos radioeléctricos (100525) es normativa', temaReal('Para vender este producto en el sitio web de Amazon, tienes que proporcionar los atributos de la Directiva de equipos de radioeléctricos relacionados con RED_SKU_ES.', ['LISTING']) === 'normativa')
+  ok('…también el 100791 (con MISSING_ATTRIBUTE)', temaReal('Para seguir vendiendo con el programa Factura de Amazon, indica los atributos de la Directiva de equipos radioeléctricos: includes_wall_charger_plug, device_charging_capabilities y chargerless_item_identifier.', ['MISSING_ATTRIBUTE', 'LISTING']) === 'normativa')
+  ok('información alimentaria FIC (100793) es normativa', temaReal('Debes proporcionar los atributos relacionados con los requisitos de «Información alimentaria al consumidor» (FIC) (nombre de la política:IT_food_information_to_consumers_ingredients).', ['LISTING']) === 'normativa')
+  ok('documentación de seguridad (100390) es normativa', temaReal('Para vender este producto en el sitio web de Amazon, debes facilitar documentación relativa a la cuestión de ps_path_SafetyShoes_es. De no presentar estos documentos como máximo el 2026-05-30T19:56:22.342Z, es posible que este ASIN se elimine.', ['PRODUCT']) === 'normativa')
+  ok('documento de cumplimiento rechazado (100540) es normativa', temaReal('Se ha rechazado el documento que enviaste anteriormente. Sube un documento nuevo para resolver este problema.', ['INVALID_ATTRIBUTE', 'LISTING']) === 'normativa')
+  ok('la traducción automática fallida NO es normativa', temaReal(r100326.message, ['PRODUCT']) === 'otros')
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

@@ -70,7 +70,7 @@ export function construirFilas(args: {
       suprimido: r.suprimido,
       tema: r.tema,
       temas: r.temas,
-      desde: problemaMasAntiguo(incidencias),
+      desde: problemaMasAntiguo(incidencias, ahora),
       incidencias,
       revisado_at: ahoraIso,
     })

@@ -17,6 +17,21 @@
 export type Gravedad = 'error' | 'aviso' | 'info'
 
 /**
+ * LA IMPORTANCIA de una incidencia (ver nivelDe en incidencias.ts), de más a menos. Es lo que ordena la pestaña «Hoy»:
+ * primero lo que Amazon tiene oculto, luego la normativa con plazo, luego lo que se vende pero peor. Lo `menor` no
+ * cambia nada en la venta y solo se ve con «ver también avisos menores».
+ */
+export const NIVELES = ['bloquea', 'normativa', 'afecta', 'menor'] as const
+export type Nivel = (typeof NIVELES)[number]
+
+export const ROTULO_NIVEL: Record<Nivel, { corto: string; largo: string }> = {
+  bloquea: { corto: 'Bloquea la venta', largo: 'Amazon lo tiene oculto o fuera de la venta ahora mismo' },
+  normativa: { corto: 'Normativa obligatoria', largo: 'Obligación legal (GPSR, RAP, etiqueta energética…): aún se vende, pero Amazon avisa de que lo retirará' },
+  afecta: { corto: 'Se vende, pero peor', largo: 'Sigue a la venta, pero el comprador ve algo peor: imágenes que no salen, tallas fuera de su familia, textos retirados…' },
+  menor: { corto: 'Avisos menores', largo: 'No cambia nada en la venta: recomendaciones de Amazon, envíos rechazados que dejan la ficha como estaba, errores internos' },
+}
+
+/**
  * Los temas, en ORDEN DE PRIORIDAD: ante dos incidencias igual de graves, la que
  * esté antes en esta lista es la que da nombre al listing en la tabla.
  */
@@ -103,7 +118,13 @@ export interface Incidencia {
 /** Lo mismo, antes de saber desde cuándo está abierta */
 export type IncidenciaNueva = Omit<Incidencia, 'desde'>
 
-/** Lo que cuelga de un listing para pintar la lista sin abrir cada incidencia */
+/**
+ * Lo que cuelga de un listing para pintar la lista sin abrir cada incidencia.
+ *
+ * DESDE EL 14 NOV 2026 los avisos menores (nivel `menor`) NO cuentan en `errores`, `avisos` ni `temas`: siguen en el JSON
+ * de `incidencias`, pero un listing que solo tiene eso cuenta como limpio. Las filas guardadas antes se ponen al día solas
+ * en la siguiente revisión de cada listing (de 6 h a 3 días).
+ */
 export interface ResumenCumplimiento {
   errores: number
   avisos: number
@@ -150,8 +171,11 @@ export function estadoDeFicha(estado: readonly string[]): 'comprable' | 'visible
 /* Lo que se pide y se devuelve a la pantalla                          */
 /* ------------------------------------------------------------------ */
 
-/** Qué listings se enseñan: los que necesitan atención, solo los avisos, o todos los que tienen algo */
-export type FiltroGravedad = 'atencion' | 'avisos' | 'todo'
+/**
+ * Qué listings se enseñan: los que necesitan atención, solo los avisos, todos los que tienen algo que importe, o los
+ * que SOLO tienen avisos menores. Con un código elegido se miran todos los que lo tengan (`cualquiera`).
+ */
+export type FiltroGravedad = 'atencion' | 'avisos' | 'todo' | 'menores' | 'cualquiera'
 
 export interface FiltrosCumplimiento {
   /** Un marketplace, o 'todos' */
@@ -164,6 +188,10 @@ export interface FiltrosCumplimiento {
   busca: string
   /** Solo los listings con esta incidencia de Amazon (su código). Vacío o ausente = todas */
   codigo?: string
+  /** Solo los listings con ALGUNO de estos códigos (una acción de la pestaña «Hoy» junta varios). Gana a `codigo` */
+  codigos?: string[]
+  /** Nombre de lo que se está filtrando por códigos, para el chip de la pantalla (no viaja al servidor) */
+  rotuloCodigos?: string
 }
 
 export const FILTROS_POR_DEFECTO: FiltrosCumplimiento = {
