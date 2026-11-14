@@ -303,7 +303,7 @@ export function HoursTracker({ initialHours, initialRates, qualifiedAppointments
 
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
                 <Tarjeta
-                  titulo="Calendario del ciclo"
+                  titulo="Calendario"
                   subtitulo={soloMirando ? 'Solo de lectura' : 'Pulsa un día para apuntar o corregir'}
                   icono={CalendarDays}
                   acento="marca"

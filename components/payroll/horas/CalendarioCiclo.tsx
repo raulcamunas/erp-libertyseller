@@ -18,7 +18,7 @@ export function tramoDeHoras(h: number): 0 | 1 | 2 | 3 {
   if (h <= 6) return 2
   return 3
 }
-const OPACIDAD_TRAMO = [0, 22, 34, 48]
+const OPACIDAD_TRAMO = [0, 16, 26, 38]
 
 export function etiquetaDeDia(clave: string, horas: number, futuro: boolean) {
   const base = `${DIAS_LARGOS[diaDeLaSemana(clave)]} ${diaYMesLargo(clave)}`
