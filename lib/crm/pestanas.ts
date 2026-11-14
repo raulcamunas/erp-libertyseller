@@ -133,12 +133,13 @@ export function avisoDeAccion(accion: AccionDeFase, destino: CrmStage, etiquetaD
 /* CITA AGENDADA: cómo salió la cita                                   */
 /* ------------------------------------------------------------------ */
 
-export type SituacionDeLaCita = 'por_celebrar' | 'sin_resultado' | 'cualificada' | 'no_cualificada' | 'no_asistio' | 'cancelada' | 'sin_cita'
+export type SituacionDeLaCita = 'por_celebrar' | 'sin_resultado' | 'cualificada' | 'semi_cualificada' | 'no_cualificada' | 'no_asistio' | 'cancelada' | 'sin_cita'
 
 export const ETIQUETA_DE_SITUACION: Record<SituacionDeLaCita, string> = {
   por_celebrar: 'Por celebrar',
   sin_resultado: 'Sin resultado',
   cualificada: 'Cualificada',
+  semi_cualificada: 'Semi-cualificada',
   no_cualificada: 'No cualificada',
   no_asistio: 'No asistió',
   cancelada: 'Cancelada',
@@ -154,6 +155,8 @@ export function situacionDeLaCita(c: Pick<CrmClientWithDetails, 'appointment'>, 
   switch (a.status) {
     case 'qualified':
       return 'cualificada'
+    case 'semi_qualified':
+      return 'semi_cualificada'
     case 'not_qualified':
       return 'no_cualificada'
     case 'no_show':
@@ -183,13 +186,14 @@ export const FILTROS_DE_CITA: ReadonlyArray<{ id: FiltroDeCita | 'otras'; nombre
   { id: 'por_celebrar', nombre: 'Por celebrar' },
   { id: 'sin_resultado', nombre: 'Sin resultado' },
   { id: 'cualificada', nombre: 'Cualificadas' },
+  { id: 'semi_cualificada', nombre: 'Semi-cualificadas' },
   { id: 'no_cualificada', nombre: 'No cualificadas' },
   { id: 'no_asistio', nombre: 'No asistieron' },
   { id: 'otras', nombre: 'Otras' },
 ]
 
 export function cuentaDeCitas(clientes: readonly CrmClientWithDetails[], ahora: number): Record<FiltroDeCita | 'otras', number> {
-  const n: Record<FiltroDeCita | 'otras', number> = { todas: 0, por_celebrar: 0, sin_resultado: 0, cualificada: 0, no_cualificada: 0, no_asistio: 0, cancelada: 0, sin_cita: 0, otras: 0 }
+  const n: Record<FiltroDeCita | 'otras', number> = { todas: 0, por_celebrar: 0, sin_resultado: 0, cualificada: 0, semi_cualificada: 0, no_cualificada: 0, no_asistio: 0, cancelada: 0, sin_cita: 0, otras: 0 }
   for (const c of clientes) {
     if (c.stage !== 'nuevo') continue
     const s = situacionDeLaCita(c, ahora)

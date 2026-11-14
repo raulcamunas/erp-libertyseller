@@ -118,12 +118,13 @@ export const coldNotas: Herramienta<ContextoMcp> = {
 /* ------------------------------------------------------------------ */
 
 /** Los estados de una cita en la Agenda (el tipo `appointment_status` de la base, tras las migraciones 076 y 093) con el nombre con que se piden */
-const ESTADOS_DE_CITA = ['agendada', 'confirmada', 're_agendada', 'cualificada', 'no_cualificada', 'no_asistio', 'cancelada'] as const
+const ESTADOS_DE_CITA = ['agendada', 'confirmada', 're_agendada', 'cualificada', 'semi_cualificada', 'no_cualificada', 'no_asistio', 'cancelada'] as const
 const ESTADO_EN_LA_BASE: Record<(typeof ESTADOS_DE_CITA)[number], AppointmentStatus> = {
   agendada: 'scheduled',
   confirmada: 'confirmed',
   re_agendada: 'rescheduled',
   cualificada: 'qualified',
+  semi_cualificada: 'semi_qualified',
   no_cualificada: 'not_qualified',
   no_asistio: 'no_show',
   cancelada: 'cancelled',
@@ -188,7 +189,7 @@ export const agendaCitas: Herramienta<ContextoMcp> = {
     properties: {
       comercial: { type: 'string', description: 'Quién agendó la cita: nombre (o parte), correo o id.' },
       atiende: { type: 'string', description: 'Quién atiende la reunión (el closer): nombre (o parte), correo o id.' },
-      estado: { type: 'string', enum: [...ESTADOS_DE_CITA], description: 'agendada · confirmada · re_agendada · cualificada (cita cualificada) · no_cualificada · no_asistio · cancelada.' },
+      estado: { type: 'string', enum: [...ESTADOS_DE_CITA], description: 'agendada · confirmada · re_agendada · cualificada (cita cualificada) · semi_cualificada · no_cualificada · no_asistio · cancelada.' },
       por: { type: 'string', enum: ['reunion', 'agendada'], description: 'Qué día miran desde/hasta: el de la reunión (por defecto) o el día en que se agendó.' },
       desde: { type: 'string', description: 'Primer día (AAAA-MM-DD, «hoy» o «ayer»).' },
       hasta: { type: 'string', description: 'Último día, incluido. Máximo 92 días de rango.' },

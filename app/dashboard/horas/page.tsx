@@ -3,7 +3,7 @@ import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { fetchAllTolerante } from '@/lib/supabase/paginacion'
 import { redirect } from 'next/navigation'
 import { HoursTracker, QualifiedAppointment } from '@/components/payroll/HoursTracker'
-import { WorkHourEntry, PayrollRate, ManualAppointment } from '@/lib/types/payroll'
+import { ESTADOS_QUE_COBRAN, WorkHourEntry, PayrollRate, ManualAppointment } from '@/lib/types/payroll'
 import { CalendarPerson } from '@/lib/types/appointments'
 import { puedeVerEquipoComercial } from '@/lib/equipo-comercial/acceso'
 
@@ -89,8 +89,8 @@ export default async function HoursPage() {
     fetchAllTolerante<QualifiedAppointment>('appointments cualificadas', (desde, hasta) => {
       const q = supabase
         .from('appointments')
-        .select('id, comercial_id, start_time, lead_name, lead_company')
-        .eq('status', 'qualified')
+        .select('id, comercial_id, status, start_time, lead_name, lead_company')
+        .in('status', [...ESTADOS_QUE_COBRAN])
         .eq('is_external', false)
       return (isAdmin ? q : q.eq('comercial_id', user.id))
         .order('id', { ascending: true })

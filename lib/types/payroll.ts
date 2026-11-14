@@ -3,6 +3,11 @@ import { toMadrid, fromMadrid } from '@/lib/timezone'
 /** Valores por defecto si un periodo no tiene tarifa guardada */
 export const DEFAULT_HOURLY_RATE = 3.5
 export const DEFAULT_COMMISSION = 15
+/** Sin precio puesto, una semi-cualificada no cobra: no se paga dinero que nadie ha decidido */
+export const DEFAULT_SEMI_COMMISSION = 0
+
+/** Los resultados de una cita que generan comisión: son los que hay que leer para calcularla */
+export const ESTADOS_QUE_COBRAN = ['qualified', 'semi_qualified'] as const
 
 export interface WorkHourEntry {
   id: string
@@ -23,6 +28,8 @@ export interface PayrollRate {
   user_id: string | null
   hourly_rate: number
   commission_per_appointment: number
+  /** Lo que cobra una cita semi-cualificada ese mes. null = nadie lo ha decidido, y no cobra nada */
+  commission_per_semi_qualified: number | null
   created_at: string
   updated_at: string
 }
@@ -149,7 +156,7 @@ export function resolveRate(
   rates: PayrollRate[],
   /** Un día 'yyyy-MM-dd', o una clave de mes, que también lo es */
   day: string
-): { hourly: number; commission: number; source: 'mes' | 'defecto' } {
+): { hourly: number; commission: number; commissionSemi: number; source: 'mes' | 'defecto' } {
   const mes = monthKeyForDate(day)
   const propia = rates.find((r) => r.user_id === null && monthKeyForDate(r.period_start) === mes)
 
@@ -157,10 +164,17 @@ export function resolveRate(
     return {
       hourly: Number(propia.hourly_rate),
       commission: Number(propia.commission_per_appointment),
+      commissionSemi: Number(propia.commission_per_semi_qualified ?? DEFAULT_SEMI_COMMISSION),
       source: 'mes',
     }
   }
-  return { hourly: DEFAULT_HOURLY_RATE, commission: DEFAULT_COMMISSION, source: 'defecto' }
+  return { hourly: DEFAULT_HOURLY_RATE, commission: DEFAULT_COMMISSION, commissionSemi: DEFAULT_SEMI_COMMISSION, source: 'defecto' }
+}
+
+/** Lo que cobra una cita de la Agenda según cómo salió, a la tarifa del mes de ese día */
+export function comisionDeCita(status: string, rates: PayrollRate[], day: string): number {
+  const tarifa = resolveRate(rates, day)
+  return status === 'semi_qualified' ? tarifa.commissionSemi : tarifa.commission
 }
 
 /** El día 1 del mes de una fecha: la clave de una tarifa mensual */

@@ -6,7 +6,7 @@ import { es } from 'date-fns/locale'
 import { ArrowRight, CalendarClock, Check, MessagesSquare, Phone, RotateCcw, UserRound, X } from 'lucide-react'
 import { BOTON, COLOR_ESTADO, INSIGNIA, type TonoEstado } from '@/lib/estilo/denso'
 import { toMadrid } from '@/lib/timezone'
-import { colorForAgent, type CalendarPerson } from '@/lib/types/appointments'
+import { colorForAgent, type CalendarPerson, type ResultadoDeCita } from '@/lib/types/appointments'
 import { CRM_STAGE_DOTS, CRM_STAGE_LABELS, type CrmClientWithDetails, type CrmStage } from '@/lib/types/crm'
 import type { AlcanceDelCrm } from '@/lib/crm/acceso'
 import { ETIQUETA_CORTA, type ResumenDeFila } from '@/lib/crm/lista'
@@ -34,6 +34,7 @@ const TONO_DE_SITUACION: Record<SituacionDeLaCita, TonoEstado> = {
   por_celebrar: 'azul',
   sin_resultado: 'ambar',
   cualificada: 'verde',
+  semi_cualificada: 'violeta',
   no_cualificada: 'rojo',
   no_asistio: 'naranja',
   cancelada: 'gris',
@@ -211,8 +212,9 @@ export interface PropsDeFila {
   onAccion: (c: CrmClientWithDetails, accion: AccionDeFase, descarte?: { motivo: string | null; detalle?: string | null }) => void
 }
 
-const RESULTADOS_DE_CITA: ReadonlyArray<{ valor: 'qualified' | 'not_qualified' | 'no_show'; texto: string; titulo: string }> = [
+const RESULTADOS_DE_CITA: ReadonlyArray<{ valor: ResultadoDeCita; texto: string; titulo: string }> = [
   { valor: 'qualified', texto: 'Cualif.', titulo: 'Cita cualificada: genera la comisión del comercial que la agendó' },
+  { valor: 'semi_qualified', texto: 'Semi', titulo: 'Cita semi-cualificada: genera la comisión de semi-cualificada del comercial que la agendó' },
   { valor: 'not_qualified', texto: 'No cualif.', titulo: 'Cita no cualificada' },
   { valor: 'no_show', texto: 'No asistió', titulo: 'El lead no se presentó' },
 ]
@@ -228,7 +230,7 @@ export const FilaDeCita = memo(function FilaDeCita({
   onAccion,
   situacion,
   onResultadoDeCita,
-}: PropsDeFila & { situacion: SituacionDeLaCita; onResultadoDeCita: (c: CrmClientWithDetails, estado: 'qualified' | 'not_qualified' | 'no_show') => void }) {
+}: PropsDeFila & { situacion: SituacionDeLaCita; onResultadoDeCita: (c: CrmClientWithDetails, estado: ResultadoDeCita) => void }) {
   const [descartando, setDescartando] = useState(false)
   const sugerencia = sugerenciaDeLaCita(situacion)
   const inicio = c.appointment?.start_time
