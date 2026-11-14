@@ -46,6 +46,7 @@ interface Guardado {
 const CACHE_CAMPANAS = new Map<string, { datos: CampanaViva[]; en: number }>()
 const VIGENCIA_MS = 15 * 60_000
 const ESPERA_ENTRE_PREGUNTAS_MS = 6000
+const ESPERA_CON_DATOS_MS = 30_000
 const MAX_PREGUNTAS = 90 // ≈ 9 minutos: la primera lectura de una cuenta trae 60 días y Amazon puede tardar
 
 /**
@@ -101,7 +102,8 @@ export function useRendimiento(perfilId: string, dias: 7 | 14 | 30) {
             setInforme({ fase: 'cargando', nota: i < 2 ? 'Primera lectura de esta cuenta: Amazon está preparando los últimos 60 días…' : 'Amazon sigue preparando el informe (la primera vez puede tardar unos minutos; las siguientes se abren al instante)…' })
           }
           if (!g.sincronizando && g.hayDatos) return
-          await new Promise((res) => setTimeout(res, ESPERA_ENTRE_PREGUNTAS_MS))
+          // Con cifras ya en pantalla no hay prisa: se mira cada 30 s (antes, cada 6 s durante 9 minutos); solo la primera lectura de una cuenta pregunta a menudo
+          await new Promise((res) => setTimeout(res, g.hayDatos ? ESPERA_CON_DATOS_MS : ESPERA_ENTRE_PREGUNTAS_MS))
         }
         if (vigente()) setInforme((prev) => (prev.fase === 'listo' ? prev : { fase: 'error', mensaje: 'Amazon tarda más de lo normal en preparar el informe. Se seguirá leyendo en segundo plano: vuelve en unos minutos.' }))
       } catch (e) {
