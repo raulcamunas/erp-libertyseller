@@ -394,8 +394,9 @@ export async function verificarEdiciones(c: Cuenta, creds: AmazonCredentials): P
           bullets: f.bullets,
           descripcion: f.descripcion ?? '',
           backend: f.backend ?? '',
-          // Los highlights se leen con el MISMO atributo con el que se mandaron
-          highlights: (r.atributo_highlights ? highlightsDeAtributos(f.atributos, c.marketplaceId, String(r.atributo_highlights)) : f.highlights) ?? undefined,
+          // Los highlights se leen con el MISMO atributo con el que se mandaron. Si se mandaron con un atributo conocido y la ficha no los trae,
+          // es que NO están (vacío → «distinto»), no que no se puedan leer: si no, una edición solo de highlights se daba por aplicada a las 24 h
+          highlights: r.atributo_highlights ? (highlightsDeAtributos(f.atributos, c.marketplaceId, String(r.atributo_highlights)) ?? '') : (f.highlights ?? undefined),
         }
       : {}
     const v = verificarEdicion(r.despues as TextosFicha, leido, campos.filter((x) => CAMPOS_FICHA.includes(x)), horas)

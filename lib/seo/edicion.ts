@@ -221,7 +221,8 @@ export function verificarEdicion(enviado: TextosFicha, leido: Partial<TextosFich
   const juzgados = Object.values(res).filter((x) => x !== 'sin_leer')
   const iguales = juzgados.filter((x) => x === 'igual').length
   const plazo = horasDesdeEnvio >= HORAS_PARA_DAR_POR_NO_APLICADA
-  if (juzgados.length === 0) return { estado: plazo ? 'aplicada' : 'pendiente', campos: res }
+  // Nada se ha podido leer (Amazon no devuelve el SKU): no se puede decir que haya quedado. Pasado el plazo, no aplicada (antes salía «aplicada»)
+  if (juzgados.length === 0) return { estado: plazo ? 'no_aplicada' : 'pendiente', campos: res }
   if (iguales === juzgados.length) return { estado: 'aplicada', campos: res }
   if (!plazo) return { estado: 'pendiente', campos: res }
   return { estado: iguales > 0 ? 'parcial' : 'no_aplicada', campos: res }
@@ -231,5 +232,6 @@ export function verificarEdicion(enviado: TextosFicha, leido: Partial<TextosFich
 export function explicacionDeNoAplicada(estado: EstadoVerificado, campos: Partial<Record<CampoFicha, ComparacionDeCampo>>): string | null {
   if (estado !== 'no_aplicada' && estado !== 'parcial') return null
   const distintos = (Object.entries(campos) as Array<[CampoFicha, ComparacionDeCampo]>).filter(([, v]) => v === 'distinto').map(([k]) => NOMBRE_DE_CAMPO[k].toLowerCase())
+  if (distintos.length === 0) return 'En 24 horas no se ha podido releer la ficha (Amazon no devuelve el SKU en esta cuenta y país): no se puede confirmar que el cambio haya quedado. Revísalo en Seller Central.'
   return `Amazon aceptó el envío pero en la ficha no está ${distintos.join(', ')}: suele ser porque otro contribuidor (o el fabricante) tiene prioridad sobre ese campo, o porque Amazon lo ha reescrito. Revísalo en Seller Central (Gestionar inventario → Editar → «Ver contribución»).`
 }

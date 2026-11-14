@@ -75,6 +75,11 @@ console.log('\n=== verificar después de aplicar ===')
   ok('y se explica (otro contribuidor / Amazon)', (explicacionDeNoAplicada(no.estado, no.campos) ?? '').includes('contribuidor'))
   const sinLeer = verificarEdicion(enviado, { titulo: 'Nuevo' }, ['titulo', 'highlights'], 2)
   ok('highlights que no se pueden leer no cuentan', sinLeer.estado === 'aplicada' && sinLeer.campos.highlights === 'sin_leer')
+  const nadaLeido = verificarEdicion(enviado, {}, ['titulo', 'bullets'], 30)
+  ok('sin poder releer la ficha en 24 h → no aplicada (no «aplicada»)', nadaLeido.estado === 'no_aplicada')
+  ok('y se explica que no se pudo releer', (explicacionDeNoAplicada(nadaLeido.estado, nadaLeido.campos) ?? '').includes('releer'))
+  const sinHighlights = verificarEdicion(enviado, { highlights: '' }, ['highlights'], 30)
+  ok('highlights mandados que la ficha no trae → no aplicada', sinHighlights.estado === 'no_aplicada' && sinHighlights.campos.highlights === 'distinto')
 }
 
 console.log('\n=== lectura del listing: highlights, tipo e incidencias ===')
