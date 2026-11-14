@@ -274,3 +274,18 @@ export async function personasDelLog(perfilId: string): Promise<Array<{ id: stri
   const nombres = await nombresDe(ids)
   return ids.map((id) => ({ id, nombre: nombres.get(id) ?? 'Sin nombre' })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
 }
+
+/** UNA entrada con su detalle (la petición y la respuesta de Amazon), para abrirla en la pantalla */
+export async function leerEntrada(perfilId: string, id: string): Promise<EntradaDeLog | null> {
+  const consultar = (columnas: string) => createServiceClient().from('ads_cambios_log').select(columnas).eq('perfil_id', perfilId).eq('id', id).maybeSingle()
+  let r = await consultar(hay311 === false ? COLUMNAS_BASE : COLUMNAS_311)
+  if (r.error && faltaColumna(r.error)) {
+    hay311 = false
+    r = await consultar(COLUMNAS_BASE)
+  }
+  if (r.error) throw r.error
+  if (!r.data) return null
+  const f = r.data as unknown as Record<string, unknown>
+  const nombres = await nombresDe(f.usuario_id ? [f.usuario_id as string] : [])
+  return deFila(f, nombres, true)
+}

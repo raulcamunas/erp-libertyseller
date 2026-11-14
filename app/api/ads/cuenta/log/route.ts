@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { leerLogPaginado, personasDelLog } from '@/lib/ads/log'
+import { leerEntrada, leerLogPaginado, personasDelLog } from '@/lib/ads/log'
+import { UUID } from '@/lib/amazon/api'
 import { cursorDeTexto, filtrosDeParametros, logACsv } from '@/lib/ads/log-calculo'
 import { abrirCuenta, errorDeRuta } from '@/lib/ads/ruta'
 
@@ -12,6 +13,7 @@ import { abrirCuenta, errorDeRuta } from '@/lib/ads/ruta'
  *   … &formato=todo                 → todas las entradas filtradas (hasta 5.000) en JSON: «Copiar para el Log del cliente» del rango entero, no solo lo cargado
  *   … &detalle=1                    → con la petición y la respuesta de Amazon de cada entrada (pesan; solo para abrir el detalle)
  *   GET ?perfilId=&personas=1        → las personas que aparecen en el log (filtro «Persona»)
+ *   GET ?perfilId=&entrada=<id>      → una entrada con su petición y su respuesta de Amazon
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -22,6 +24,8 @@ export async function GET(request: NextRequest) {
     const a = await abrirCuenta(p.get('perfilId'))
     if (a instanceof NextResponse) return a
     if (p.get('personas') === '1') return NextResponse.json({ personas: await personasDelLog(a.cuenta.id) })
+    const entrada = p.get('entrada')
+    if (entrada && UUID.test(entrada)) return NextResponse.json({ entrada: await leerEntrada(a.cuenta.id, entrada) })
 
     const filtros = filtrosDeParametros(p)
     const formato = p.get('formato')
