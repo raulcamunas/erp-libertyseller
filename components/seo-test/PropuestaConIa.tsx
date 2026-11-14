@@ -28,8 +28,8 @@ const fecha = (iso: string) => new Date(iso).toLocaleString('es-ES', { day: 'num
  * bytes), la cobertura de búsquedas antes y después, lo descartado y por qué. Cada campo se copia para pegarlo en Seller Central.
  *
  * Antes de pedirla, la puerta de salida del SOP: si el embudo dice que se pierde en clics, carrito o compra, se avisa (se puede pedir igual, pero sabiendo que no es lo primero). A Amazon solo
- * llega si una persona pulsa «Aplicar en Amazon» y lo confirma (dos clics a propósito: cambia la ficha del cliente); y no si la ficha se cambió hace menos de 30 días. Los Item Highlights no se
- * mandan con «Aplicar»: se pegan a mano.
+ * llega si una persona pulsa «Aplicar en Amazon» y lo confirma (dos clics a propósito: cambia la ficha del cliente); y no si la ficha se cambió hace menos de 30 días. Los Item Highlights se
+ * mandan con el atributo del tipo de producto (si no lo tiene, se avisa). Después se comprueba al releer la ficha si de verdad ha quedado.
  */
 export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras, diagnostico, ventana }: { cuentaId: string; asin: string; hayBusquedas: boolean; hayFicha: boolean; mejoras: boolean; diagnostico: DiagnosticoDeProducto | null; ventana: ReturnType<typeof ventanaDeCambio> }) {
   const { datos, recargar } = useDelProducto<{ propuestas: PropuestaGuardada[]; sinMigracion?: boolean }>(mejoras ? `/api/seo/propuestas?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
@@ -174,6 +174,8 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
               </div>
             )}
             {actual.estado === 'aplicada' && actual.resultado?.mensaje && <p className="text-[11.5px] text-[var(--ls-t4)]">Avisos de Amazon al aplicar: {actual.resultado.mensaje}</p>}
+            {/* Solo las aplicadas con registro (migración 312) se verifican: las de antes, o sin la 312, se quedaban con «Comprobando…» para siempre */}
+            {actual.estado === 'aplicada' && (actual.resultado?.edicionId || actual.resultado?.verificacion) && <Verificacion v={actual.resultado?.verificacion ?? null} />}
 
             {actual.estado === 'pendiente' && (
               <div className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] pt-3">
@@ -193,7 +195,7 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
                   </>
                 ) : (
                   <>
-                    <span className="text-[12.5px] text-[var(--ls-t1)]">Esto cambia el título, las viñetas y el backend de la ficha del cliente en Amazon (los Item Highlights se pegan a mano). SOP: en la semana sin pujas (S3) y guardando el texto anterior. ¿Seguro?</span>
+                    <span className="text-[12.5px] text-[var(--ls-t1)]">Esto cambia el título, los Item Highlights, las viñetas y el backend de la ficha del cliente en Amazon. SOP: en la semana sin pujas (S3) y guardando el texto anterior. ¿Seguro?</span>
                     <button type="button" disabled={aplicando} onClick={() => aplicar(actual.id)} className="inline-flex h-[32px] items-center gap-[6px] rounded-[9px] px-3 text-[12.5px] font-semibold text-white disabled:opacity-60" style={{ background: COLOR_ESTADO.rojo }}>
                       {aplicando ? <Loader2 className="h-[13px] w-[13px] animate-spin" /> : <Check className="h-[13px] w-[13px]" />} {aplicando ? 'Validando y enviando…' : 'Sí, cambiar la ficha en Amazon'}
                     </button>
@@ -248,8 +250,8 @@ function Comparacion({ antes, despues }: { antes: TextosPropuestos; despues: Tex
         <div className={`${columna} text-[12.5px] leading-[1.5] text-[var(--ls-t3)]`}>{antes.titulo || '—'}</div>
         <div className={`${columna} text-[12.5px] leading-[1.5] text-[var(--ls-t2)]`} style={borde}>{resaltado(antes.titulo, despues.titulo)}</div>
       </Fila>
-      <Fila etiqueta="Item Highlights" medidaAntes={{ texto: 'no se lee de Amazon', pasa: false }} medidaDespues={medida(caracteresDe(despues.highlights), LIMITE_HIGHLIGHTS_CARACTERES, 'car.')} copiar={despues.highlights ?? ''}>
-        <div className={`${columna} text-[12px] leading-[1.5] text-[var(--ls-t4)]`}>Revísalos en Seller Central: la API no los devuelve.</div>
+      <Fila etiqueta="Item Highlights" medidaAntes={antes.highlights ? medida(caracteresDe(antes.highlights), LIMITE_HIGHLIGHTS_CARACTERES, 'car.') : { texto: 'no se lee de Amazon', pasa: false }} medidaDespues={medida(caracteresDe(despues.highlights), LIMITE_HIGHLIGHTS_CARACTERES, 'car.')} copiar={despues.highlights ?? ''}>
+        {antes.highlights ? <div className={`${columna} text-[12.5px] leading-[1.5] text-[var(--ls-t3)]`}>{antes.highlights}</div> : <div className={`${columna} text-[12px] leading-[1.5] text-[var(--ls-t4)]`}>Sin leer de Amazon (el listing no los trae o el tipo de producto no los tiene).</div>}
         <div className={`${columna} text-[12.5px] leading-[1.5] text-[var(--ls-t2)]`} style={borde}>{despues.highlights ? resaltado(`${antes.titulo} ${antes.bullets.join(' ')} ${antes.backend}`, despues.highlights) : <span className="text-[var(--ls-t4)]">Esta propuesta es de antes de 2026 y no los trae: pide otra.</span>}</div>
       </Fila>
       <Fila etiqueta="Viñetas" medidaAntes={medida(bytesBullets(antes.bullets), LIMITE_BULLETS_BYTES, 'bytes')} medidaDespues={medida(bytesBullets(despues.bullets), LIMITE_BULLETS_BYTES, 'bytes')} copiar={despues.bullets.join('\n')}>
@@ -334,5 +336,17 @@ function Fila({ etiqueta, medidaAntes, medidaDespues, copiar, children }: { etiq
       </div>
       <div className="grid gap-3 md:grid-cols-2">{children}</div>
     </div>
+  )
+}
+
+/** ¿Ha quedado de verdad en la ficha? Lo comprueba el ERP al releerla (migración 312) */
+function Verificacion({ v }: { v: NonNullable<PropuestaGuardada['resultado']>['verificacion'] | null }) {
+  if (!v) return <p className="flex items-center gap-2 text-[11.5px] text-[var(--ls-t4)]"><Loader2 className="h-3 w-3 animate-spin" /> Comprobando en la ficha que ha quedado (se relee sola cada 20 minutos).</p>
+  const color = v.estado === 'aplicada' ? COLOR_ESTADO.verde : v.estado === 'parcial' ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo
+  const texto = v.estado === 'aplicada' ? 'Comprobado: está en la ficha.' : v.estado === 'parcial' ? 'Solo una parte ha quedado en la ficha.' : 'No ha quedado en la ficha.'
+  return (
+    <p className="text-[12px] leading-[1.5]" style={{ color }}>
+      <strong>{texto}</strong> {v.explicacion ? <span className="text-[var(--ls-t3)]">{v.explicacion}</span> : null}
+    </p>
   )
 }

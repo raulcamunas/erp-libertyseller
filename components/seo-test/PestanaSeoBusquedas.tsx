@@ -99,7 +99,7 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
         <label className="relative">
           <span className="sr-only">Filtrar búsquedas</span>
           <Search className="pointer-events-none absolute left-[10px] top-[9px] h-[13px] w-[13px] text-[var(--ls-t4)]" />
-          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Filtrar búsquedas" className="h-[30px] w-[220px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)]" />
+          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Filtrar búsquedas" className="h-[30px] w-full rounded-[9px] sm:w-[220px] [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:text-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)]" />
         </label>
       </div>
 
@@ -140,7 +140,8 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
             cambiar={(v) => setFiltro(v as Filtro)}
           />
 
-          <div className={`${CAJA.base} overflow-x-auto`}>
+          <TarjetasDeBusquedas filas={filas} />
+          <div className={`${CAJA.base} hidden overflow-x-auto md:block`}>
             <table className={`w-full ${conCompetencia ? 'min-w-[1380px]' : 'min-w-[1140px]'} border-separate border-spacing-0 whitespace-nowrap text-[12.5px]`}>
               <thead>
                 <tr className="text-[11px] text-[var(--ls-t4)]">
@@ -346,5 +347,44 @@ function SinExacta({ publicidad }: { publicidad: DatosDePublicidad | null }) {
         </div>
       )}
     </section>
+  )
+}
+
+/** En el móvil la tabla de 1.100 px no cabe: una tarjeta por búsqueda con lo esencial, de 30 en 30 (no se pintan 400 de golpe) */
+function TarjetasDeBusquedas({ filas }: { filas: FilaDeTabla[] }) {
+  const [cuantas, setCuantas] = useState(30)
+  return (
+    <div className="flex flex-col gap-2 md:hidden">
+      {filas.slice(0, cuantas).map((c) => (
+        <div key={c.consulta} className={`${CAJA.base} flex flex-col gap-2 p-3`}>
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1 text-[14px] font-medium leading-[1.35] text-[var(--ls-t1)]">{c.consulta}</div>
+            <span className="shrink-0 text-[13px] tabular-nums text-[var(--ls-t2)]">{entero(c.volumen)}</span>
+          </div>
+          {c.comprasAsin != null && c.comprasTotal != null && (
+            <div className="text-[12px] text-[var(--ls-t4)]">
+              {entero(c.comprasAsin)} de {entero(c.comprasTotal)} compras{c.impacto > 0 ? ` · ${entero(c.impacto)} en juego` : ''}
+            </div>
+          )}
+          <EmbudoMini fila={c} v={c.v} />
+          <div className="flex flex-wrap items-center gap-[4px]">
+            <EtiquetaDeVeredicto v={c.v} />
+            {c.cobertura && (
+              <>
+                <Marca si={c.cobertura.titulo} texto="Título" />
+                <Marca si={c.cobertura.bullets} texto="Bullets" />
+                <Marca si={c.cobertura.backend} texto="Backend" />
+              </>
+            )}
+          </div>
+          {c.cobertura && c.cobertura.faltan.length > 0 && <div className="text-[12px]" style={{ color: COLOR_ESTADO.ambar }}>falta: {c.cobertura.faltan.join(', ')}</div>}
+        </div>
+      ))}
+      {filas.length > cuantas && (
+        <button type="button" onClick={() => setCuantas((n) => n + 30)} className="h-11 rounded-[10px] border border-[var(--ls-linea)] text-[13px] font-medium text-[var(--ls-t2)]">
+          Ver 30 más ({filas.length - cuantas} quedan)
+        </button>
+      )}
+    </div>
   )
 }

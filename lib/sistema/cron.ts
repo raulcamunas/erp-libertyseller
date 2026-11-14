@@ -209,6 +209,15 @@ export const TAREAS_CRON = [
       'impresiones, clics y compras que se llevan. Solo lee: no toca nada en la cuenta del cliente.',
   },
   {
+    id: 'seo-competencia',
+    nombre: 'Competencia de SEO (foto diaria)',
+    ruta: '/api/seo/competencia-diaria',
+    cadaMinutos: 60,
+    que:
+      'Una vez al día, la foto de cada ASIN de la competencia que se sigue en SEO Test (título, viñetas, imágenes, BSR y, con presupuesto, el precio y la Buy Box) y los cambios frente a la foto ' +
+      'anterior. Solo lee: no toca nada en la cuenta del cliente.',
+  },
+  {
     id: 'stock-verificacion',
     nombre: 'Verificación del stock subido',
     ruta: '/api/stock-sync/cron-verificacion',
@@ -520,6 +529,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
   'seo-lecturas': { prioridad: 'baja', ayunoMaxMin: 12 * 60 },
+  'seo-competencia': { prioridad: 'baja', ayunoMaxMin: 24 * 60 },
   'stock-verificacion': { prioridad: 'normal' },
   cumplimiento: { prioridad: 'baja', pesada: true, ayunoMaxMin: 180 },
   'rinkel-llamadas': { prioridad: 'esencial' },

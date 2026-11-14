@@ -26,7 +26,8 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { AmazonApiError } from '@/lib/amazon/errors'
 import { spApiRequest } from '@/lib/amazon/sp-api'
 import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/informes'
-import { skusDelCatalogo, vigiaLanzado } from './datos'
+import { migracion312Lanzada, skusDelCatalogo, vigiaLanzado } from './datos'
+import { cuentasConEdicionesPorVerificar, hayEdicionesPorVerificar, verificarEdiciones } from './edicion-servidor'
 import { leerFichas } from './ficha-servidor'
 import { claveDePeriodo, mesesAnteriores, semanasAnteriores, tandasDeAsins, ultimaSemana, ultimoMes, type PeriodoSqp, type RangoSqp } from './periodos'
 import { leerTopFiltrado, pedirTop } from './top-servidor'
@@ -186,6 +187,18 @@ export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean; pes
   const resuelta = await connectionCredentials(c.connectionId)
   if (!resuelta) return { accion: 'error', detalle: 'la conexión ya no existe' }
   const service = createServiceClient()
+  const m312 = await migracion312Lanzada().catch(() => false)
+
+  // ---------- 0) las ediciones mandadas a Amazon: ¿han quedado de verdad en la ficha? (migración 312) ----------
+  if (m312 && estado?.estado !== 'esperando' && (await hayEdicionesPorVerificar(c))) {
+    try {
+      const cerradas = await verificarEdiciones(c, resuelta.credentials)
+      return { accion: 'fichas', detalle: `verificación de ediciones: ${cerradas} cerradas` }
+    } catch (e) {
+      if (!(e instanceof AmazonApiError)) throw e
+      console.error('SEO: verificar ediciones:', e.humanMessage ?? e.message)
+    }
+  }
 
   // ---------- 1) las fichas, una vez al día (no dependen de Brand Analytics) ----------
   const fichaVieja = !estado?.ficha_leida_at || ahora - Date.parse(estado.ficha_leida_at) > FICHA_CADA_MS
@@ -195,7 +208,7 @@ export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean; pes
       try {
         const fichas = await leerFichas(resuelta.credentials, c.marketplaceId, skus)
         const porSku = new Map(productos.map((p) => [p.sku, p.asin]))
-        const filas: Array<Record<string, unknown> & { asin: string }> = fichas.map((f) => ({ connection_id: c.connectionId, marketplace_id: c.marketplaceId, asin: (f.asin ?? porSku.get(f.sku) ?? '').toUpperCase(), sku: f.sku, titulo: f.titulo, bullets: f.bullets, descripcion: f.descripcion, backend: f.backend, leida_at: new Date().toISOString() })).filter((f) => f.asin)
+        const filas: Array<Record<string, unknown> & { asin: string }> = fichas.map((f) => ({ connection_id: c.connectionId, marketplace_id: c.marketplaceId, asin: (f.asin ?? porSku.get(f.sku) ?? '').toUpperCase(), sku: f.sku, titulo: f.titulo, bullets: f.bullets, descripcion: f.descripcion, backend: f.backend, leida_at: new Date().toISOString(), ...(m312 ? { highlights: f.highlights, product_type: f.productType, issues: f.issues } : {}) })).filter((f) => f.asin)
         // EL VIGÍA DE TÍTULOS (migración 304): si el título que llega no es el que había, se guarda el de antes y cuándo cambió. Amazon reescribe con IA los títulos fuera de norma y da 14 días
         // para revisarlo; «Qué hacer hoy» lo avisa si el cambio no es nuestro
         if (filas.length > 0 && (await vigiaLanzado().catch(() => false))) {
@@ -345,6 +358,8 @@ export async function cuentasSeoConTrabajo(): Promise<CuentaSeo[]> {
   const { data: prods, error } = await service.from('seo_productos').select('connection_id, marketplace_id')
   if (error) throw error
   const cuentas = [...new Map(((prods ?? []) as Array<{ connection_id: string; marketplace_id: string }>).map((p) => [`${p.connection_id}|${p.marketplace_id}`, { connectionId: p.connection_id, marketplaceId: p.marketplace_id }])).values()]
+  // Las que tienen ediciones mandadas esperando a verificarse pasan aunque no tengan otra cosa que hacer (migración 312; sin ella, ninguna)
+  const porVerificar = new Set((await cuentasConEdicionesPorVerificar().catch(() => [])).map((c) => `${c.connectionId}|${c.marketplaceId}`))
   if (cuentas.length === 0) return []
   const mejoras = await mejorasLanzadas()
   const { data: estados } = await service.from('seo_lecturas').select(`connection_id, marketplace_id, estado, mes_ok, semana_ok, ficha_leida_at, acceso, pedido_at, error, pendientes${mejoras ? ', periodos_leidos, top_report_id, top_ok, top_pedido_at' : ''}`)
@@ -354,6 +369,7 @@ export async function cuentasSeoConTrabajo(): Promise<CuentaSeo[]> {
   return cuentas.filter((c) => {
     const e = por.get(`${c.connectionId}|${c.marketplaceId}`)
     if (!e) return true
+    if (porVerificar.has(`${c.connectionId}|${c.marketplaceId}`)) return true
     if (e.estado === 'esperando' || e.top_report_id) return true
     if (!e.ficha_leida_at || ahora - Date.parse(e.ficha_leida_at) > FICHA_CADA_MS) return true
     if (e.acceso === 'no' && e.pedido_at && ahora - Date.parse(e.pedido_at) < REINTENTO_SIN_ACCESO_MS) return false

@@ -9,10 +9,11 @@ import { Vacio } from '@/components/plataforma/comun'
 import { SeoTest } from '@/components/seo-test/SeoTest'
 
 /**
- * /dashboard/seo-test — SEO TEST. SOLO ADMIN (un CEO, solo con la casilla).
+ * /dashboard/seo-test — SEO TEST. Administradores y quien tenga la casilla de la app (lib/cuentas/acceso.ts). Pueden validar y aplicar cambios de ficha
+ * en Amazon, siempre con validación previa (VALIDATION_PREVIEW), confirmación y registro de quién lo hizo (decisión de Raúl, 14 nov 2026).
  *
  * El posicionamiento de los productos con datos gratis de Amazon: las búsquedas de Brand Analytics donde aparece cada producto (y qué parte de las compras se lleva) y su ficha revisada contra esas
- * búsquedas. Clientes y países a la izquierda, como Marketing Test. Solo LEE de Amazon.
+ * búsquedas. Clientes y países a la izquierda, como Marketing Test. Solo escribe en Amazon desde el editor de ficha y la propuesta con IA, con confirmación.
  */
 export const dynamic = 'force-dynamic'
 
@@ -46,7 +47,7 @@ export default async function SeoTestPage({ searchParams }: { searchParams: Reco
   const cuenta = cliente.cuentas.find((c) => c.id === uno(searchParams.p)) ?? cliente.cuentas[0] ?? null
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
+    <div className="flex min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
       <SeoTest clientes={clientes} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'hoy'} />
     </div>
   )

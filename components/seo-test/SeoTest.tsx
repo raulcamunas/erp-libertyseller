@@ -1,30 +1,37 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { BadgeCheck, CircleAlert, FileText, ListChecks, Loader2, Package, RefreshCw, Search, SearchCheck } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { BadgeCheck, CircleAlert, FileText, KeyRound, ListChecks, Loader2, Package, Radar, RefreshCw, Search, SearchCheck, ShoppingCart, Target } from 'lucide-react'
 import { AvatarDeCliente, BarraDeClientes, type ClienteDeBarra } from '@/components/marketing-test/BarraDeClientes'
 import { bandera } from '@/components/marketing-test/piezas'
 import { haceCuanto } from '@/components/marketing-test/formato'
-import { Vacio } from '@/components/plataforma/comun'
+import { Boton, CabeceraDeModulo, EsqueletoTarjeta, EstadoVacio, FilaDeKpis, Insignia, Kpi, PanelDePestana, Pestanas, formatoPorcentaje, mezcla, type Opcion } from '@/components/ui-ls'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { nombreDePais } from '@/lib/ads/paises'
-import { useCuentaSeo, type LecturaSeo } from './useCuentaSeo'
+import { useCuentaSeo, type DatosSeo, type LecturaSeo } from './useCuentaSeo'
 import { PestanaSeoHoy } from './PestanaSeoHoy'
 import { PestanaSeoProductos } from './PestanaSeoProductos'
 import { PestanaSeoBusquedas } from './PestanaSeoBusquedas'
 import { PestanaSeoFicha } from './PestanaSeoFicha'
+import { PestanaSeoHelium } from './PestanaSeoHelium'
+import { PestanaSeoCompetencia } from './PestanaSeoCompetencia'
 
 const PESTANAS = [
-  { id: 'hoy', nombre: 'Qué hacer hoy', icono: ListChecks },
-  { id: 'productos', nombre: 'Productos', icono: Package },
-  { id: 'busquedas', nombre: 'Búsquedas', icono: Search },
-  { id: 'ficha', nombre: 'Ficha', icono: FileText },
-] as const
+  { id: 'hoy', texto: 'Qué hacer hoy', icono: ListChecks },
+  { id: 'productos', texto: 'Productos', icono: Package },
+  { id: 'busquedas', texto: 'Búsquedas', icono: Search },
+  { id: 'ficha', texto: 'Ficha', icono: FileText },
+  { id: 'competencia', texto: 'Competencia', icono: Radar },
+  { id: 'helium', texto: 'Helium 10', icono: KeyRound },
+] as const satisfies ReadonlyArray<Opcion<string>>
 type IdPestana = (typeof PESTANAS)[number]['id']
 
 /**
- * SEO TEST — el armazón: los clientes y sus países a la izquierda (la misma barra que Marketing Test), la cabecera con el cliente y el estado de Brand Analytics, y las pestañas. La primera es «Qué
- * hacer hoy» (las tareas del día, ordenadas por impacto); las demás son para profundizar en un producto. Cambiar de cliente, país, pestaña o producto no pasa por el servidor.
+ * SEO TEST — el armazón con el kit visual (components/ui-ls): los clientes y sus países a la izquierda en el ordenador (la misma barra que Marketing Test) y
+ * un selector arriba en el móvil; la cabecera del módulo con el acento azul de SEO, el estado de Brand Analytics y las pestañas con indicador. «Qué hacer
+ * hoy» es la primera; las demás son para profundizar en un producto. Cambiar de cliente, país, pestaña o producto no pasa por el servidor.
+ *
+ * En el móvil la página se desplaza entera (sin barras anidadas); en el ordenador, la barra de clientes queda fija y el contenido se desplaza a su lado.
  */
 export function SeoTest({ clientes, clienteInicial, cuentaInicial, pestana }: { clientes: ClienteDeBarra[]; clienteInicial: string; cuentaInicial: string | null; pestana: string }) {
   const [clienteSlug, setClienteSlug] = useState(clienteInicial)
@@ -65,7 +72,7 @@ export function SeoTest({ clientes, clienteInicial, cuentaInicial, pestana }: { 
   }
 
   return (
-    <div className="flex h-full min-h-0 gap-3">
+    <div className="flex min-w-0 gap-3 lg:h-full lg:min-h-0">
       <BarraDeClientes
         titulo="SEO de fichas"
         icono={<SearchCheck className="h-[17px] w-[17px]" />}
@@ -86,13 +93,39 @@ export function SeoTest({ clientes, clienteInicial, cuentaInicial, pestana }: { 
         }
         elegir={elegir}
       />
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        {cuenta ? <CuerpoDeCuenta key={cuenta.id} cuentaId={cuenta.id} cliente={cliente} cuenta={cuenta} activa={activa} irA={irA} asin={asin} setAsin={setAsin} /> : (
-          <Vacio icono={<SearchCheck />} titulo="Este cliente no tiene ninguna cuenta de vendedor activa">
-            Se conecta en <strong>Amazon API · Cuentas</strong>.
-          </Vacio>
+      <div className="flex min-w-0 flex-1 flex-col lg:h-full lg:min-h-0">
+        <SelectorMovil clientes={clientes} cliente={cliente} cuentaId={cuenta?.id ?? null} elegir={elegir} />
+        {cuenta ? (
+          <CuerpoDeCuenta key={cuenta.id} cuentaId={cuenta.id} cliente={cliente} cuenta={cuenta} activa={activa} irA={irA} asin={asin} setAsin={setAsin} />
+        ) : (
+          <EstadoVacio icono={SearchCheck} titulo="Este cliente no tiene ninguna cuenta de vendedor activa" descripcion="Se conecta en Amazon API · Cuentas." acento="seo" />
         )}
       </div>
+    </div>
+  )
+}
+
+/** En el móvil la barra de clientes no cabe: un selector de cliente y país arriba (44 px, al dedo) */
+function SelectorMovil({ clientes, cliente, cuentaId, elegir }: { clientes: ClienteDeBarra[]; cliente: ClienteDeBarra; cuentaId: string | null; elegir: (slug: string, id: string | null) => void }) {
+  const clase = 'h-11 min-w-0 flex-1 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[16px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc-graf)]'
+  return (
+    <div className="mb-3 flex gap-2 md:hidden">
+      <select aria-label="Cliente" value={cliente.slug} onChange={(e) => elegir(e.target.value, clientes.find((c) => c.slug === e.target.value)?.cuentas[0]?.id ?? null)} className={clase}>
+        {clientes.map((c) => (
+          <option key={c.slug} value={c.slug}>
+            {c.nombre}
+          </option>
+        ))}
+      </select>
+      {cliente.cuentas.length > 1 && (
+        <select aria-label="País" value={cuentaId ?? ''} onChange={(e) => elegir(cliente.slug, e.target.value)} className={`${clase} max-w-[40%]`}>
+          {cliente.cuentas.map((c) => (
+            <option key={c.id} value={c.id}>
+              {bandera(c.pais)} {nombreDePais(c.pais)}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   )
 }
@@ -103,93 +136,137 @@ function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin 
   const asinElegido = asin && productos.some((p) => p.asin === asin) ? asin : (productos[0]?.asin ?? null)
 
   return (
-    <>
-      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 pb-3 lg:pr-36">
-        <div className="flex min-w-0 items-center gap-3">
-          <AvatarDeCliente slug={cliente.slug} nombre={cliente.nombre} tamano={38} />
-          <div className="min-w-0">
-            <h1 className="truncate text-[19px] font-semibold leading-[1.2] tracking-[-0.02em] text-[var(--ls-t1)]">{cliente.nombre}</h1>
-            <div className="mt-[2px] flex flex-wrap items-center gap-[6px] text-[12px] text-[var(--ls-t3)]">
-              <span aria-hidden>{bandera(cuenta.pais)}</span>
-              <span className="font-medium text-[var(--ls-t2)]">{nombreDePais(cuenta.pais)}</span>
-              {cuenta.nombre && (
-                <>
-                  <span className="text-[var(--ls-t4)]">·</span>
-                  <span className="truncate">Cuenta {cuenta.nombre}</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-        {datos && <EstadoDeBrandAnalytics lectura={datos.lectura} hayProductos={productos.length > 0} />}
-        <button type="button" onClick={actualizar} className="ml-auto inline-flex h-[30px] items-center gap-[6px] rounded-[9px] px-[10px] text-[12px] font-medium text-[var(--ls-t2)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]" title="Volver a leer la ficha y pedir el informe a Amazon">
-          <RefreshCw className={`h-[13px] w-[13px] ${datos?.lectura.sincronizando ? 'animate-spin' : ''}`} /> Actualizar
-        </button>
-      </header>
+    <div className="min-w-0 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+      <CabeceraDeModulo
+        icono={SearchCheck}
+        acento="seo"
+        titulo={
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="hidden sm:inline-flex">
+              <AvatarDeCliente slug={cliente.slug} nombre={cliente.nombre} tamano={28} />
+            </span>
+            <span className="truncate">{cliente.nombre}</span>
+          </span>
+        }
+        subtitulo={
+          <span className="inline-flex flex-wrap items-center gap-[6px]">
+            <span aria-hidden>{bandera(cuenta.pais)}</span>
+            {nombreDePais(cuenta.pais)}
+            {cuenta.nombre ? <span className="text-[var(--ls-t4)]">· Cuenta {cuenta.nombre}</span> : null}
+            <span className="text-[var(--ls-t4)]">· SEO de fichas con Brand Analytics</span>
+          </span>
+        }
+        acciones={
+          <>
+            {datos && <EstadoDeBrandAnalytics lectura={datos.lectura} hayProductos={productos.length > 0} />}
+            <Boton variante="secundario" icono={RefreshCw} cargando={datos?.lectura.sincronizando} onClick={actualizar} title="Volver a leer la ficha y pedir el informe a Amazon">
+              Actualizar
+            </Boton>
+          </>
+        }
+        debajo={<Pestanas etiqueta="Secciones de SEO" acento="seo" opciones={PESTANAS} valor={activa} onCambio={(t) => irA(t)} idPanel="panel-seo" />}
+      />
 
-      <nav className="-mx-1 flex shrink-0 items-end gap-1 overflow-x-auto border-b border-[var(--ls-linea)] px-1" aria-label="SEO de fichas">
-        {PESTANAS.map((p) => {
-          const Icono = p.icono
-          const encendida = p.id === activa
-          return (
-            <button key={p.id} type="button" onClick={() => irA(p.id)} aria-current={encendida ? 'page' : undefined} className={`relative inline-flex h-[38px] shrink-0 items-center gap-[7px] rounded-t-[8px] px-3 text-[13px] font-medium transition-colors ${encendida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]'}`}>
-              <Icono className={`h-[14px] w-[14px] shrink-0 ${encendida ? 'text-[var(--ls-acc)]' : ''}`} />
-              {p.nombre}
-              {encendida && <span aria-hidden className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-[var(--ls-acc-graf)]" />}
-            </button>
-          )
-        })}
-      </nav>
+      {datos?.lectura.error && datos.lectura.acceso !== 'no' && !datos.lectura.sincronizando && (
+        <p className="mb-4 flex items-start gap-2 rounded-[14px] px-4 py-3 text-[13px] leading-[1.45]" style={{ color: COLOR_ESTADO.ambar, background: mezcla(COLOR_ESTADO.ambar, 10) }}>
+          <CircleAlert className="mt-[2px] h-[14px] w-[14px] shrink-0" /> {datos.lectura.error} Se reintenta solo en unos 30 minutos.
+        </p>
+      )}
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-auto pt-4">
+      <PanelDePestana id="panel-seo" key={activa} className="pb-8">
         {error ? (
-          <p className="rounded-[12px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-4 py-3 text-[12.5px]" style={{ color: COLOR_ESTADO.rojo }}>{error}</p>
+          <EstadoVacio icono={CircleAlert} titulo="No se ha podido cargar la cuenta" descripcion={error} accion={{ texto: 'Reintentar', onClick: () => void recargar() }} acento="seo" />
         ) : !datos ? (
-          <div className="flex items-center gap-2 text-[12.5px] text-[var(--ls-t3)]"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
-        ) : activa === 'hoy' ? (
-          <PestanaSeoHoy cuentaId={cuentaId} datos={datos} irA={(t, a) => irA(t, a)} />
-        ) : activa === 'productos' ? (
-          <PestanaSeoProductos cuentaId={cuentaId} datos={datos} recargar={recargar} verBusquedas={(a) => irA('busquedas', a)} verFicha={(a) => irA('ficha', a)} />
-        ) : activa === 'busquedas' ? (
-          <PestanaSeoBusquedas cuentaId={cuentaId} datos={datos} moneda={cuenta.moneda} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <EsqueletoTarjeta key={i} />
+            ))}
+          </div>
         ) : (
-          <PestanaSeoFicha cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
+          <>
+            {(activa === 'hoy' || activa === 'productos') && productos.length > 0 && <KpisDeCuenta datos={datos} />}
+            {activa === 'hoy' ? (
+              <PestanaSeoHoy cuentaId={cuentaId} datos={datos} irA={(t, a) => irA(t, a)} />
+            ) : activa === 'productos' ? (
+              <PestanaSeoProductos cuentaId={cuentaId} datos={datos} recargar={recargar} verBusquedas={(a) => irA('busquedas', a)} verFicha={(a) => irA('ficha', a)} />
+            ) : activa === 'busquedas' ? (
+              <PestanaSeoBusquedas cuentaId={cuentaId} datos={datos} moneda={cuenta.moneda} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
+            ) : activa === 'competencia' ? (
+              <PestanaSeoCompetencia cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
+            ) : activa === 'helium' ? (
+              <PestanaSeoHelium cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
+            ) : (
+              <PestanaSeoFicha cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
+            )}
+          </>
         )}
-      </div>
-    </>
+      </PanelDePestana>
+    </div>
+  )
+}
+
+/**
+ * LAS CIFRAS DE LA CUENTA de un vistazo, del último mes leído de Brand Analytics: compras propias, cuota de compras en sus búsquedas, búsquedas donde sale
+ * y productos seguidos, con la línea de los meses anteriores (la evolución de la 299).
+ */
+function KpisDeCuenta({ datos }: { datos: DatosSeo }) {
+  const k = useMemo(() => {
+    const mes = datos.consultas.MONTH
+    const compras = mes.reduce((s, c) => s + (c.comprasAsin ?? 0), 0)
+    const total = mes.reduce((s, c) => s + (c.comprasTotal ?? 0), 0)
+    // La evolución por mes de toda la cuenta: se suman los productos
+    const porMes = new Map<string, { compras: number; total: number; busquedas: number }>()
+    for (const p of datos.evolucion ?? []) {
+      if (p.periodo !== 'MONTH') continue
+      const x = porMes.get(p.desde) ?? { compras: 0, total: 0, busquedas: 0 }
+      x.compras += p.compras
+      x.total += p.cuotaCompras && p.cuotaCompras > 0 ? p.compras / p.cuotaCompras : 0
+      x.busquedas += p.busquedas
+      porMes.set(p.desde, x)
+    }
+    const serie = [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, v]) => v)
+    return {
+      compras,
+      comprasAntes: serie.length > 1 ? serie[serie.length - 2].compras : null,
+      cuota: total > 0 ? compras / total : null,
+      cuotaAntes: serie.length > 1 && serie[serie.length - 2].total > 0 ? serie[serie.length - 2].compras / serie[serie.length - 2].total : null,
+      busquedas: new Set(mes.map((c) => c.consulta.toLowerCase())).size,
+      serieCompras: serie.map((s) => s.compras),
+      serieCuota: serie.map((s) => (s.total > 0 ? s.compras / s.total : 0)),
+      serieBusquedas: serie.map((s) => s.busquedas),
+    }
+  }, [datos])
+  const mes = datos.lectura.mesOk ? new Date(`${datos.lectura.mesOk}T00:00:00Z`).toLocaleDateString('es-ES', { month: 'long', timeZone: 'UTC' }) : null
+  return (
+    <FilaDeKpis className="mb-5">
+      <Kpi indice={0} etiqueta="Compras propias" valor={datos.lectura.mesOk ? k.compras : null} anterior={k.comprasAntes} serie={k.serieCompras} icono={ShoppingCart} acento="seo" nota={mes ? `en sus búsquedas · ${mes}` : 'llega con Brand Analytics'} />
+      <Kpi indice={1} etiqueta="Cuota de compras" valor={k.cuota} formato={(n) => formatoPorcentaje(n)} anterior={k.cuotaAntes} serie={k.serieCuota} icono={Target} acento="seo" nota="de las compras de esas búsquedas" />
+      <Kpi indice={2} etiqueta="Búsquedas donde sale" valor={datos.lectura.mesOk ? k.busquedas : null} serie={k.serieBusquedas} icono={Search} acento="seo" />
+      <Kpi indice={3} etiqueta="Productos seguidos" valor={datos.productos.length} icono={Package} acento="seo" nota={`${datos.fichas.length} fichas leídas`} />
+    </FilaDeKpis>
   )
 }
 
 /** Si hay acceso a Brand Analytics, y de cuándo son los datos. Si no lo hay, por qué y qué hacer */
 function EstadoDeBrandAnalytics({ lectura, hayProductos }: { lectura: LecturaSeo; hayProductos: boolean }) {
-  const mes = lectura.mesOk ? new Date(`${lectura.mesOk}T00:00:00Z`).toLocaleDateString('es-ES', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : null
+  const mes = lectura.mesOk ? new Date(`${lectura.mesOk}T00:00:00Z`).toLocaleDateString('es-ES', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : null
   if (lectura.acceso === 'no')
     return (
-      <span className="inline-flex max-w-[520px] items-start gap-[6px] rounded-[10px] px-[10px] py-[5px] text-[11.5px] leading-[1.4]" style={{ color: COLOR_ESTADO.ambar, background: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 12%, transparent)` }} title={lectura.error ?? undefined}>
-        <CircleAlert className="mt-[2px] h-3 w-3 shrink-0" /> Sin acceso a Brand Analytics: falta el rol en la app de Amazon del ERP o el cliente no tiene Brand Registry. Las fichas sí se leen.
-      </span>
+      <Insignia tono="ambar" icono={CircleAlert} title={lectura.error ?? 'Falta el rol de Brand Analytics en la app de Amazon del ERP o el cliente no tiene Brand Registry. Las fichas sí se leen.'}>
+        Sin Brand Analytics
+      </Insignia>
     )
-  // Un error de la última lectura (informe que falla, fichas que no se leen…) se enseña aunque haya acceso: antes se quedaba escondido y la pantalla parecía al día
-  const aviso = lectura.error && !lectura.sincronizando ? (
-    <span className="inline-flex max-w-[520px] items-start gap-[6px] rounded-[10px] px-[10px] py-[5px] text-[11.5px] leading-[1.4]" style={{ color: COLOR_ESTADO.ambar, background: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 12%, transparent)` }}>
-      <CircleAlert className="mt-[2px] h-3 w-3 shrink-0" /> {lectura.error} Se reintenta solo en unos 30 minutos.
-    </span>
-  ) : null
   if (lectura.acceso === 'si')
     return (
-      <>
-      {aviso}
-      <span className="inline-flex h-[24px] items-center gap-[6px] rounded-full px-[10px] text-[11.5px] font-medium" style={{ color: COLOR_ESTADO.verde, background: `color-mix(in srgb, ${COLOR_ESTADO.verde} 12%, transparent)` }}>
-        <BadgeCheck className="h-[13px] w-[13px]" /> Brand Analytics conectado{mes ? ` · datos de ${mes}` : ''}
-        {lectura.sincronizando ? ' · actualizando…' : ''}
-      </span>
-      </>
+      <Insignia tono="verde" icono={BadgeCheck} vivo={lectura.sincronizando} title={lectura.fichaLeidaAt ? `Fichas leídas ${haceCuanto(Date.parse(lectura.fichaLeidaAt))}` : undefined}>
+        Brand Analytics{mes ? ` · ${mes}` : ''}
+        {lectura.sincronizando ? ' · actualizando' : ''}
+      </Insignia>
     )
-  if (aviso) return aviso
-  if (!hayProductos) return <span className="text-[11.5px] text-[var(--ls-t4)]">Añade productos para empezar a leer</span>
+  if (!hayProductos) return <Insignia tono="gris">Añade productos</Insignia>
   return (
-    <span className="inline-flex h-[24px] items-center gap-[6px] rounded-full bg-[var(--ls-sup2)] px-[10px] text-[11.5px] font-medium text-[var(--ls-t3)]">
-      <Loader2 className="h-3 w-3 animate-spin" /> Comprobando el acceso a Brand Analytics…{lectura.fichaLeidaAt ? ` · fichas leídas ${haceCuanto(Date.parse(lectura.fichaLeidaAt))}` : ''}
-    </span>
+    <Insignia tono="gris" icono={Loader2} vivo>
+      Comprobando el acceso
+    </Insignia>
   )
 }
