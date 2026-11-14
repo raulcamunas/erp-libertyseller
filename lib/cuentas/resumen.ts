@@ -57,6 +57,8 @@ export interface ResumenPpc {
   recuperable: number
   /** Día más reciente con datos guardados */
   datosHasta: string | null
+  /** Los 14 días (del más viejo a ayer), con ceros donde no hay datos: para las chispas y el gráfico del panel */
+  serie: Array<{ fecha: string; gasto: number; ventas: number }>
 }
 
 const VACIA: Ventana = { gasto: 0, ventas: 0, pedidos: 0, clics: 0 }
@@ -76,6 +78,8 @@ async function ppcDeCuenta(c: { id: string; pais: string; moneda: string | null;
   const ultimos = { ...VACIA }
   const anteriores = { ...VACIA }
   let datosHasta: string | null = null
+  const porDia = new Map<string, { gasto: number; ventas: number }>()
+  for (let t = hoy - 14 * DIA; t <= hoy - DIA; t += DIA) porDia.set(fecha(t), { gasto: 0, ventas: 0 })
   for (const r of (diario.data ?? []) as Array<{ fecha: string; gasto: unknown; ventas: unknown; pedidos: unknown; clics: unknown }>) {
     const v = r.fecha >= corte ? ultimos : anteriores
     v.gasto += n(r.gasto)
@@ -83,7 +87,13 @@ async function ppcDeCuenta(c: { id: string; pais: string; moneda: string | null;
     v.pedidos += n(r.pedidos)
     v.clics += n(r.clics)
     if (!datosHasta || r.fecha > datosHasta) datosHasta = r.fecha
+    const d = porDia.get(r.fecha)
+    if (d) {
+      d.gasto += n(r.gasto)
+      d.ventas += n(r.ventas)
+    }
   }
+  const serie = [...porDia.entries()].map(([f, v]) => ({ fecha: f, gasto: Math.round(v.gasto * 100) / 100, ventas: Math.round(v.ventas * 100) / 100 }))
   const pendientes = propuestas.filter((p) => p.estado === 'pendiente' || p.estado === 'error')
   const porTipo: ResumenPpc['porTipo'] = {}
   let recuperable = 0
@@ -97,7 +107,7 @@ async function ppcDeCuenta(c: { id: string; pais: string; moneda: string | null;
     const suma = Object.values(totales.porAsin).reduce((a, x) => a + n(x.ventas), 0)
     ventasTotales7 = suma > 0 ? suma : null
   }
-  return { perfilId: c.id, pais: c.pais, moneda: c.moneda, nombre: c.nombre, modo, ultimos, anteriores, ventasTotales7, pendientes: pendientes.length, porTipo, recuperable, datosHasta }
+  return { perfilId: c.id, pais: c.pais, moneda: c.moneda, nombre: c.nombre, modo, ultimos, anteriores, ventasTotales7, pendientes: pendientes.length, porTipo, recuperable, datosHasta, serie }
 }
 
 export async function ppcDeCliente(amazonClientId: string, hoy = Date.now()): Promise<{ cuentas: ResumenPpc[]; error: string | null }> {
@@ -171,6 +181,18 @@ export interface ResumenSeo {
   acceso: 'desconocido' | 'si' | 'no'
   productos: number
   tareas: TareaSeo[]
+  /** Fichas guardadas (las que el ERP ya ha leído de Amazon) */
+  fichas: number
+  /** Propuestas de ficha con IA preparadas y sin aplicar ni descartar */
+  propuestasPendientes: number
+  /** El vigía de títulos (migración 304): títulos que han cambiado en los últimos 14 días. null = sin la 304 */
+  titulosCambiados: Array<{ asin: string; titulo: string | null; anterior: string | null; cambiadoAt: string }> | null
+}
+
+/** Cuántas propuestas de ficha esperan a que alguien las mire. Sin la tabla, 0 (la pestaña no se rompe por eso) */
+async function propuestasSeoPendientes(connectionId: string, marketplaceId: string): Promise<number> {
+  const { count, error } = await createServiceClient().from('seo_propuestas').select('id', { count: 'exact', head: true }).eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('estado', 'pendiente')
+  return error ? 0 : count ?? 0
 }
 
 export async function seoDeCliente(amazonClientId: string, hoy = Date.now()): Promise<{ cuentas: ResumenSeo[]; error: string | null }> {
@@ -181,10 +203,10 @@ export async function seoDeCliente(amazonClientId: string, hoy = Date.now()): Pr
       const { connectionId, marketplaceId } = c
       const productos = await productosSeguidos(connectionId, marketplaceId)
       if (productos.length === 0) {
-        salida.push({ cuentaId: c.id, pais: c.pais, nombre: c.nombre, acceso: 'desconocido', productos: 0, tareas: [] })
+        salida.push({ cuentaId: c.id, pais: c.pais, nombre: c.nombre, acceso: 'desconocido', productos: 0, tareas: [], fichas: 0, propuestasPendientes: 0, titulosCambiados: null })
         continue
       }
-      const [estado, fichas, mes, semana, evolucion, precios, cambios] = await Promise.all([
+      const [estado, fichas, mes, semana, evolucion, precios, cambios, propuestasPendientes] = await Promise.all([
         leerEstadoSeo({ connectionId, marketplaceId }),
         fichasGuardadas(connectionId, marketplaceId),
         consultasGuardadas(connectionId, marketplaceId, 'MONTH'),
@@ -192,10 +214,21 @@ export async function seoDeCliente(amazonClientId: string, hoy = Date.now()): Pr
         evolucionDeCuenta(connectionId, marketplaceId).catch(() => []),
         preciosDeListings(connectionId, marketplaceId, productos.map((p) => p.asin)).catch(() => ({})),
         cambiosAplicados(connectionId, marketplaceId).catch(() => []),
+        propuestasSeoPendientes(connectionId, marketplaceId).catch(() => 0),
       ])
       const lectura = { acceso: estado?.acceso ?? 'desconocido', mesOk: estado?.mes_ok ?? null, semanaOk: estado?.semana_ok ?? null, fichaLeidaAt: estado?.ficha_leida_at ?? null } as const
       const tareas = tareasDeLaCuenta({ hoy: fecha(hoy), lectura, productos, fichas, consultas: { MONTH: mes, WEEK: semana }, evolucion, precios, cambios })
-      salida.push({ cuentaId: c.id, pais: c.pais, nombre: c.nombre, acceso: lectura.acceso, productos: productos.length, tareas })
+      // El vigía: solo existe si la 304 está lanzada (las fichas traen entonces la clave tituloCambiadoAt, aunque sea null)
+      const conVigia = fichas.some((f) => 'tituloCambiadoAt' in f)
+      const corteVigia = hoy - 14 * DIA
+      const titulosCambiados = conVigia
+        ? fichas
+            .filter((f) => f.tituloCambiadoAt && Date.parse(f.tituloCambiadoAt) >= corteVigia)
+            .sort((a, b) => String(b.tituloCambiadoAt).localeCompare(String(a.tituloCambiadoAt)))
+            .slice(0, 8)
+            .map((f) => ({ asin: f.asin, titulo: f.titulo, anterior: f.tituloAnterior ?? null, cambiadoAt: String(f.tituloCambiadoAt) }))
+        : null
+      salida.push({ cuentaId: c.id, pais: c.pais, nombre: c.nombre, acceso: lectura.acceso, productos: productos.length, tareas, fichas: fichas.length, propuestasPendientes, titulosCambiados })
     }
     return { cuentas: salida, error: null }
   } catch (e) {

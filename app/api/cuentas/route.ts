@@ -6,12 +6,15 @@ import { FALTA_307, guardarGestion, leerGestion, leerHechos, marcarPaso, persona
 import { lunesDe, pasosDeSemana, semanaDelCiclo, type SemanaDelCiclo } from '@/lib/cuentas/ciclo'
 import { cifrasDeCumplimiento, ppcDeCliente, seoDeCliente, tareasDeCumplimiento } from '@/lib/cuentas/resumen'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
+import { clientesDeRemesasPermitidos, remesasDeCliente, remesasDeLista, SIN_ACCESO, type ResumenRemesas } from '@/lib/cuentas/remesas'
 
 /**
  * CUENTAS DE CLIENTES. Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts).
  *
- *   GET                  → todos los clientes con cuenta de Amazon: responsable, semana del ciclo con lo hecho, cifras de PPC y de cumplimiento
- *   GET ?cliente=slug    → uno, con además las tareas de SEO y de cumplimiento
+ *   GET                  → todos los clientes con cuenta de Amazon: responsable, semana del ciclo con lo hecho, cifras de PPC y de cumplimiento,
+ *                          y lo ligero de Remesas (envíos abiertos por fase y alertas FBA abiertas, dos consultas para todos)
+ *   GET ?cliente=slug    → uno, con además las tareas de SEO y de cumplimiento, y sus envíos, alertas y stock de FBA
+ *                          (Remesas respeta su propio permiso: sin fba_accesos de ese cliente, «sin acceso»)
  *   POST {cliente, accion: 'responsable', responsableId}     → quién lleva el cliente (null = nadie)
  *   POST {cliente, accion: 'ciclo', inicio: 'AAAA-MM-DD'}    → el lunes en que empezó su S1 (null = sin ciclo)
  *   POST {cliente, accion: 'paso', paso, hecho}              → marca o desmarca un paso de la semana de hoy
@@ -50,19 +53,28 @@ export async function GET(request: NextRequest) {
           return s ? [{ amazonClientId: c.amazonClientId as string, lunes: s.lunes }] : []
         }))
     const nombreDe = new Map(personas.map((p) => [p.id, p.nombre]))
+    const permitidosRemesas = await clientesDeRemesasPermitidos(sesion.userId, sesion.role).catch(() => new Set<string>())
+    const remesasLigeras: Map<string, ResumenRemesas> = slug
+      ? new Map()
+      : await remesasDeLista(clientes.map((c) => c.amazonClientId as string), permitidosRemesas).catch((e) => {
+          console.error('Cuentas: remesas de la lista:', e)
+          return new Map<string, ResumenRemesas>()
+        })
 
     const filas = await enTandas(clientes, 3, async (c) => {
       const id = c.amazonClientId as string
       const g = porCliente.get(id)
       const semana = semanas.get(id) ?? null
-      const [ppc, cumplimiento, detalle] = await Promise.all([
+      const [ppc, cumplimiento, detalle, remesasDetalle] = await Promise.all([
         ppcDeCliente(id),
         cifrasDeCumplimiento(id),
         slug ? Promise.all([seoDeCliente(id), tareasDeCumplimiento(id)]) : Promise.resolve(null),
+        slug ? remesasDeCliente(id, permitidosRemesas) : Promise.resolve(null),
       ])
       return {
         slug: c.slug,
         nombre: c.nombre,
+        amazonClientId: id,
         responsable: g?.responsableId ? { id: g.responsableId, nombre: nombreDe.get(g.responsableId) ?? 'Sin nombre' } : null,
         cicloInicio: g?.cicloInicio ?? null,
         notas: g?.notas ?? null,
@@ -71,6 +83,10 @@ export async function GET(request: NextRequest) {
         hechos: [...(hechos.get(id) ?? [])],
         ppc,
         cumplimiento,
+        remesas:
+          remesasDetalle ??
+          remesasLigeras.get(id) ??
+          (permitidosRemesas && !permitidosRemesas.has(id) ? SIN_ACCESO : { ...SIN_ACCESO, acceso: true, error: 'No se han podido leer los datos de Remesas.' }),
         ...(detalle ? { seo: detalle[0], tareasCumplimiento: detalle[1] } : {}),
       }
     })

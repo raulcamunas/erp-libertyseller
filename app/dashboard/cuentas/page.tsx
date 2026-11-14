@@ -7,8 +7,8 @@ import { CuentasApp } from '@/components/cuentas/CuentasApp'
 /**
  * /dashboard/cuentas — CUENTAS DE CLIENTES. Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts).
  *
- * El sitio desde el que un administrativo lleva una cuenta entera: qué toca esta semana del ciclo S1–S4, las cifras de publicidad, las tareas de SEO y
- * de cumplimiento, y un botón a cada herramienta. Los datos los pide la pantalla a /api/cuentas.
+ * El centro de control desde el que un administrativo lleva una cuenta entera: la salud por área, qué toca esta semana del ciclo S1–S4, y una pestaña
+ * de solo lectura por área (Marketing, SEO, Cumplimiento, Remesas) con un botón a cada herramienta. Los datos los pide la pantalla a /api/cuentas.
  */
 export const dynamic = 'force-dynamic'
 
@@ -21,6 +21,7 @@ export default async function CuentasPage({ searchParams }: { searchParams: Reco
   const perfil = await getUserProfile()
   if (!perfil) redirect('/auth/login')
   if (!(await entraEnApp(supabase, user.id, perfil.role, perfil.puesto, 'cuentas'))) redirect('/dashboard')
-  const c = searchParams.c
-  return <CuentasApp clienteInicial={Array.isArray(c) ? c[0] ?? null : c ?? null} />
+  const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] ?? null : v ?? null)
+  // ?c=slug abre el panel de ese cliente y ?t= la pestaña (resumen, marketing, seo, cumplimiento o remesas)
+  return <CuentasApp clienteInicial={uno(searchParams.c)} pestanaInicial={uno(searchParams.t)} />
 }

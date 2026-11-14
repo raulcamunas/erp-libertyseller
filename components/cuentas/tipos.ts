@@ -3,10 +3,14 @@ import type { PasoDelCiclo, SemanaDelCiclo } from '@/lib/cuentas/ciclo'
 import type { CifrasCumplimiento, ResumenPpc, ResumenSeo } from '@/lib/cuentas/resumen'
 import type { Persona } from '@/lib/cuentas/datos'
 import type { TareaDeHoy as TareaCumplimiento } from '@/lib/cumplimiento/acciones'
+import type { ResumenRemesas } from '@/lib/cuentas/remesas-tipos'
+import type { EntradaDeSalud } from '@/lib/cuentas/salud'
 
 export interface CuentaEnLista {
   slug: string
   nombre: string
+  /** El id de amazon_clients (Remesas enlaza por él, no por el slug) */
+  amazonClientId: string
   responsable: Persona | null
   cicloInicio: string | null
   notas: string | null
@@ -15,6 +19,7 @@ export interface CuentaEnLista {
   hechos: string[]
   ppc: { cuentas: ResumenPpc[]; error: string | null }
   cumplimiento: CifrasCumplimiento | null
+  remesas: ResumenRemesas
   seo?: { cuentas: ResumenSeo[]; error: string | null }
   tareasCumplimiento?: { tareas: TareaCumplimiento[]; error: string | null }
 }
@@ -49,6 +54,57 @@ export function enlaceDe(herramienta: PasoDelCiclo['herramienta'], c: Pick<Cuent
       return `/dashboard/cuentas?c=${encodeURIComponent(c.slug)}#informe`
     case 'tareas':
       return '/dashboard/tareas-clientes'
+  }
+}
+
+/** Remesas abre por el id del cliente (?cliente=) y una vista concreta */
+export const enlaceRemesas = (c: Pick<CuentaEnLista, 'amazonClientId'>, vista: 'envios' | 'propuestas' | 'inventario' = 'envios') =>
+  `/dashboard/remesas?cliente=${encodeURIComponent(c.amazonClientId)}&vista=${vista}`
+export const ENLACE_ALERTAS_FBA = '/dashboard/remesas/alertas'
+
+/** Las cifras de la cuenta tal como las quiere la salud (lib/cuentas/salud.ts). En la lista no hay SEO: sale gris y se mira al abrir */
+export function entradaDeSalud(c: CuentaEnLista, hoy: string): EntradaDeSalud {
+  const s = sumaPpc(c.ppc.cuentas)
+  const hechos = c.pasos.filter((p) => c.hechos.includes(p.id)).length
+  const seo = c.seo
+  const tareasSeo = seo?.cuentas.flatMap((x) => x.tareas) ?? []
+  return {
+    hoy,
+    ciclo: c.semana ? { total: c.pasos.length, hechos, siguiente: c.pasos.find((p) => !c.hechos.includes(p.id))?.titulo ?? null } : null,
+    ppc: {
+      conectado: c.ppc.cuentas.length > 0,
+      error: Boolean(c.ppc.error),
+      gasto: s.gasto,
+      ventas: s.ventas,
+      gastoAnt: s.gastoAnt,
+      ventasAnt: s.ventasAnt,
+      pendientes: s.pendientes,
+      recuperable: s.recuperable,
+      motorApagado: c.ppc.cuentas.length > 0 && c.ppc.cuentas.every((x) => x.modo === 'apagado'),
+      moneda: c.ppc.cuentas[0]?.moneda ?? 'EUR',
+    },
+    seo: seo
+      ? {
+          error: Boolean(seo.error),
+          cuentas: seo.cuentas.length,
+          productos: seo.cuentas.reduce((a, x) => a + x.productos, 0),
+          graves: tareasSeo.filter((t) => t.gravedad === 'grave').length,
+          atencion: tareasSeo.filter((t) => t.gravedad === 'atencion').length,
+          sinBrandAnalytics: seo.cuentas.some((x) => x.acceso === 'no'),
+          titulosCambiados: seo.cuentas.reduce((a, x) => a + (x.titulosCambiados?.length ?? 0), 0),
+          propuestasPendientes: seo.cuentas.reduce((a, x) => a + (x.propuestasPendientes ?? 0), 0),
+        }
+      : null,
+    cumplimiento: c.cumplimiento,
+    remesas: {
+      acceso: c.remesas.acceso,
+      error: Boolean(c.remesas.error),
+      abiertas: c.remesas.abiertas,
+      criticas: c.remesas.alertas.critica,
+      altas: c.remesas.alertas.alta,
+      faltaAlertas: c.remesas.faltaAlertas,
+      totalRemesas: c.remesas.totalRemesas,
+    },
   }
 }
 
