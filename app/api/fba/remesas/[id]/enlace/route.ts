@@ -79,6 +79,11 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     if (r.remesa!.estado === 'cerrada') {
       return fail(409, 'Este envío ya está cerrado: el cliente no tiene nada que hacer en él.')
     }
+    // En borrador, copiar el enlace MANDA la propuesta (toma la foto): eso lo hace la agencia, como en
+    // /propuesta. Un usuario con rol cliente no se manda la propuesta a sí mismo
+    if (r.remesa!.estado === 'borrador' && r.sesion!.actor !== 'agencia') {
+      return fail(403, 'La propuesta la manda Liberty Seller.')
+    }
     try {
       const habia = await enlaceActivoDe(params.id)
       const e = await enlaceParaCopiar(params.id, r.sesion!.userId)
