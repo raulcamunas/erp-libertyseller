@@ -8,6 +8,8 @@ import {
   requireAdmin,
 } from '@/lib/vacations/api'
 import type { VacationRequest } from '@/lib/types/vacations'
+import { avisoDeResolucion, claveDeAviso } from '@/lib/vacations/calendario'
+import { avisarEnLaCampana } from '@/lib/vacations/servidor'
 
 /**
  * RECHAZAR UNAS VACACIONES. SOLO ADMIN.
@@ -64,9 +66,17 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return fail(409, 'Otra persona ha resuelto esa petición hace un momento. Recarga la pantalla.')
     }
 
+    // Quien la pidió se entera en su campana, con el motivo
+    if (employee.user_id && employee.user_id !== session.userId) {
+      const texto = avisoDeResolucion({ evento: 'rechazada', start_date: vacation.start_date, end_date: vacation.end_date, motivo: reason })
+      await avisarEnLaCampana(session.service, [
+        { userId: employee.user_id, tipo: 'vacaciones_resuelta', titulo: texto.titulo, mensaje: texto.mensaje, clave: claveDeAviso(vacation.id, 'rechazada'), requestId: vacation.id },
+      ])
+    }
+
     return NextResponse.json({
       request: data[0] as VacationRequest,
-      message: `Petición de ${employee.name} rechazada`,
+      message: `Petición de ${employee.name} denegada`,
       ...(await currentView(session)),
     })
   } catch (error) {

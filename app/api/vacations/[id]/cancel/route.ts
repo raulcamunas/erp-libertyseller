@@ -8,6 +8,8 @@ import {
   requireSession,
 } from '@/lib/vacations/api'
 import type { VacationRequest } from '@/lib/types/vacations'
+import { avisoDeResolucion, claveDeAviso } from '@/lib/vacations/calendario'
+import { avisarEnLaCampana, faltaEsquema } from '@/lib/vacations/servidor'
 
 /**
  * RETIRAR UNA PETICIÓN.
@@ -65,33 +67,44 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const note = readText(body?.reason)
 
     const previous = vacation.status
-    const { data, error } = await session.service
-      .from('vacation_requests')
-      .update({
-        status: 'cancelada',
-        // Quién y cuándo la retiró, EN SUS PROPIAS COLUMNAS.
-        //
-        // Antes esto escribía en resolved_by/resolved_at, y eso borraba la
-        // firma de la aprobación: si Mario concedía unas vacaciones el 10 de
-        // agosto y Raúl las anulaba el 2 de septiembre, a partir de ahí no
-        // quedaba en ninguna parte que las hubiera concedido Mario ni cuándo.
-        // Es justo el «quede constancia» por el que existe el módulo.
-        //
-        // El CHECK vacation_requests_resuelta_ok de la 116 acepta cualquiera
-        // de las dos fechas, así que una petición retirada estando pendiente
-        // —que no la resolvió nadie— también lo cumple.
-        cancelled_by: session.userId,
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq('id', vacation.id)
-      // Solo desde el estado en que estaba: si otro admin la ha resuelto
-      // mientras tanto, este UPDATE no toca nada y se avisa.
-      .eq('status', previous)
-      .select('*')
+    const cambios: Record<string, unknown> = {
+      status: 'cancelada',
+      // Quién y cuándo la retiró, EN SUS PROPIAS COLUMNAS (no en resolved_*), para no borrar la firma de quien
+      // las aprobó. El CHECK vacation_requests_resuelta_ok de la 116 acepta cualquiera de las dos fechas.
+      cancelled_by: session.userId,
+      cancelled_at: new Date().toISOString(),
+    }
+    // El motivo se GUARDA (308). Antes se leía y se perdía.
+    if (note) cambios.cancel_reason = note
+
+    const anular = (c: Record<string, unknown>) =>
+      session.service
+        .from('vacation_requests')
+        .update(c)
+        .eq('id', vacation.id)
+        // Solo desde el estado en que estaba: si otro admin la ha resuelto
+        // mientras tanto, este UPDATE no toca nada y se avisa.
+        .eq('status', previous)
+        .select('*')
+
+    let { data, error } = await anular(cambios)
+    // Sin la 308 lanzada no hay dónde guardar el motivo: se anula igual, como siempre
+    if (error && faltaEsquema(error) && 'cancel_reason' in cambios) {
+      delete cambios.cancel_reason
+      ;({ data, error } = await anular(cambios))
+    }
 
     if (error) throw error
     if (!data || data.length === 0) {
       return fail(409, 'Esa petición ha cambiado hace un momento. Recarga la pantalla.')
+    }
+
+    // Si no la ha retirado la propia persona (la ha anulado un admin), se entera en su campana
+    if (employee.user_id && employee.user_id !== session.userId) {
+      const texto = avisoDeResolucion({ evento: 'cancelada', start_date: vacation.start_date, end_date: vacation.end_date, motivo: note })
+      await avisarEnLaCampana(session.service, [
+        { userId: employee.user_id, tipo: 'vacaciones_resuelta', titulo: texto.titulo, mensaje: texto.mensaje, clave: claveDeAviso(vacation.id, 'cancelada'), requestId: vacation.id },
+      ])
     }
 
     return NextResponse.json({

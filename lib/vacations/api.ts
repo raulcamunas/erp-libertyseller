@@ -294,7 +294,7 @@ export async function currentView(session: VacationSession): Promise<VacationsSe
     // `today` con su valor de verdad aunque no haya nada que enseñar: una
     // cadena vacía aquí se propagaría al cálculo del saldo de quien consuma
     // esto y compararía fechas contra ''.
-    return { employees: [], requests: [], people: {}, missingTables: false, today: todayKey() }
+    return { employees: [], requests: [], people: {}, missingTables: false, today: todayKey(), fichas: {}, maxALaVez: 1, migracion308: true }
   }
   return loadVacationsData(employeeId)
 }
