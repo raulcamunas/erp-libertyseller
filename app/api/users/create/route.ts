@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/lib/auth/api'
+import { CASILLAS_GESTIONADAS } from '@/lib/usuarios/casillas'
+import { casillasMarcadasDeLaPeticion, planDeCasillas } from '@/lib/usuarios/gestion'
+import { requireGestorDeUsuarios } from '@/lib/usuarios/gestion-servidor'
 import { cambioDePuestoDeLaPeticion } from '@/lib/usuarios/puestos'
 import { crearSuListaSiLlama, guardarPuesto } from '@/lib/usuarios/puestos-servidor'
 
@@ -10,7 +12,7 @@ const ROLES_VALIDOS = new Set(['admin', 'employee', 'partner', 'cliente'])
 /**
  * CREAR UN USUARIO DEL ERP. SOLO ADMIN.
  *
- * QUÉ IMPIDE EL requireAdmin() DE ABAJO
+ * QUÉ IMPIDE LA PUERTA DE ABAJO
  * -------------------------------------
  * No comprobaba nada, y middleware.ts (línea 41) declara pública toda /api/.
  * Reproducido sin cookie contra el código real:
@@ -30,16 +32,14 @@ const ROLES_VALIDOS = new Set(['admin', 'employee', 'partner', 'cliente'])
  * Y encima acepta `permissions`, así que la cuenta nacía ya con los módulos
  * puestos.
  *
- * POR QUÉ NO CAMBIA NADA PARA QUIEN LA USA: el único llamante es
- * components/users/UsersManagement.tsx (/dashboard/users), pantalla que
- * middleware.ts ya cierra a un admin con un correo concreto.
+ * DESDE EL 14 NOV 2026 la puerta es requireGestorDeUsuarios() (lib/usuarios/gestion.ts), el mismo criterio que la pantalla: administrador pleno, NO
+ * CEO, con el correo del dueño. Con requireAdmin() bastaba ser cualquier administrador, CEO incluido, para crear cuentas de administrador con un `fetch`.
+ * Las casillas que llegan se filtran a las que ofrece la pantalla (CASILLAS_GESTIONADAS), y si no se pueden guardar se avisa (antes se tragaba el error).
  */
 
 export async function POST(request: NextRequest) {
   try {
-    const sesion = await requireAdmin(
-      'Solo un administrador puede crear usuarios del ERP'
-    )
+    const sesion = await requireGestorDeUsuarios('Solo el administrador del ERP puede crear usuarios')
     if (sesion instanceof NextResponse) return sesion
 
     console.log('[CREATE USER] Starting user creation process...')
@@ -56,11 +56,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: puesto.error }, { status: 400 })
     }
 
-    console.log('[CREATE USER] Received data:', { email, full_name, permissionsCount: permissions?.length || 0 })
 
     // Validar campos requeridos
     if (!email || !password || !full_name) {
-      console.error('[CREATE USER] Missing required fields:', { email: !!email, password: !!password, full_name: !!full_name })
       return NextResponse.json(
         { error: 'Email, contraseña y nombre completo son requeridos' },
         { status: 400 }
@@ -288,13 +286,12 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const permissionsToCreate = permissions
-        .filter((p: any) => p.can_access)
-        .map((p: any) => ({
-          user_id: authData.user.id, // El ID es el mismo para auth.users y profiles
-          app_id: p.app_id,
-          can_access: true,
-        }))
+      // Solo las casillas que ofrece la pantalla: desde aquí no se concede un permiso que no se ve
+      const permissionsToCreate = planDeCasillas(casillasMarcadasDeLaPeticion(permissions), CASILLAS_GESTIONADAS).poner.map((app_id) => ({
+        user_id: authData.user.id, // El ID es el mismo para auth.users y profiles
+        app_id,
+        can_access: true,
+      }))
 
       if (permissionsToCreate.length > 0) {
         const { error: permissionsError } = await supabaseAdmin
@@ -309,9 +306,8 @@ export async function POST(request: NextRequest) {
             hint: permissionsError.hint,
             error: JSON.stringify(permissionsError, null, 2)
           })
-          // No fallamos aquí, el usuario ya está creado
-          // Los permisos se pueden añadir manualmente después
-          console.warn('[CREATE USER] User created but permissions could not be added:', permissionsError.message)
+          // No fallamos aquí, el usuario ya está creado; se avisa para que se vuelvan a guardar desde su ficha
+          avisos.push('La persona está creada, pero sus accesos no se han guardado: ábrela y vuelve a guardarlos.')
         }
       }
     }

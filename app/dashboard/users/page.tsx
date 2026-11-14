@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { UsersManagement } from '@/components/users/UsersManagement'
+import { puedeGestionarUsuarios } from '@/lib/usuarios/gestion'
 
 export default async function UsersPage() {
   const supabase = await createClient()
@@ -13,25 +14,10 @@ export default async function UsersPage() {
 
   const profile = await getUserProfile()
 
-  // Solo el admin puede acceder (raulcamunas369@gmail.com)
-  if (!profile || profile.role !== 'admin' || profile.email !== 'raulcamunas369@gmail.com') {
+  // El mismo criterio que middleware.ts y las rutas de /api/users: administrador pleno (no CEO) con el correo del dueño
+  if (!puedeGestionarUsuarios(profile)) {
     redirect('/dashboard')
   }
 
-  return (
-    <div>
-      <div className="mb-8">
-        <h1 className="heading-medium text-white mb-2">
-          Gestión de Usuarios
-        </h1>
-        <p className="text-white/50">
-          Crea y gestiona usuarios del sistema con permisos específicos
-        </p>
-      </div>
-
-      <UsersManagement />
-    </div>
-  )
+  return <UsersManagement actorId={user.id} />
 }
-
-

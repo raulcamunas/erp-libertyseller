@@ -850,6 +850,14 @@ export const PERMISOS_SUELTOS: ReadonlyArray<{ id: string; name: string; descrip
       'versiones. Lo que cambia ahí lo usa TODO el equipo comercial al redactar con IA. No lee ' +
       'ningún buzón ni envía correos ni mensajes. Hace falta además la casilla de Mi rendimiento.',
   },
+  {
+    // El id va LETRA POR LETRA como APP_BRIEFING (lib/briefing/tipos.ts), el mapa de middleware.ts y requireAppAccess('briefing') de /api/briefing/marcar
+    id: 'briefing',
+    name: 'Briefing diario',
+    description:
+      'Abre la pantalla del briefing diario (/dashboard/briefing): lo que pasó ayer y lo pendiente de hoy en el equipo comercial, las cuentas, ' +
+      'las tareas de clientes y el correo, y deja marcar cada punto como resuelto. Un administrador lo ve siempre.',
+  },
 ]
 
 /**

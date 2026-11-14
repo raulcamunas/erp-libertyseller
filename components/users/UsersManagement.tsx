@@ -1,709 +1,370 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ManagedUser, CreateUserData } from '@/lib/types/users'
-import { APPS_SIN_EFECTO, PERMISOS_SUELTOS, apps } from '@/lib/config/apps'
-import { aplicarPuesto, esComercialDelPuesto, etiquetaDeRol, llevaListaPropia, opcionDeRol, rolYPuestoDe, type OpcionDeRol } from '@/lib/usuarios/puestos'
-
-/**
- * LAS CASILLAS QUE SE OFRECEN, que NO son lo mismo que las apps del menú.
- *
- * `apps` es lo que se pinta como tarjeta; hay permisos que abren puertas sin ser
- * una app —'stock-sync' es el caso— y sin esto se quedan sin casilla, o sea
- * imposibles de conceder desde aquí. Pasó exactamente eso y costó de ver, porque
- * el síntoma es que marcas la casilla que sí está y no ocurre nada.
- *
- * Solo se usan `id` y `name`, así que las dos listas se aplanan a eso.
- */
-const COLUMNAS_PERMISO: ReadonlyArray<{ id: string; name: string }> = [
-  ...apps.map(a => ({ id: a.id, name: a.name })),
-  ...PERMISOS_SUELTOS.map(p => ({ id: p.id, name: p.name })),
-]
-import { createClient } from '@/lib/supabase/client'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Plus, Trash2, Save, X, Edit } from 'lucide-react'
-import { AccesosRemesas } from './AccesosRemesas'
-import { SelectorDeRol } from './SelectorDeRol'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Building2, ChevronRight, Crown, PhoneCall, RefreshCw, Search, Store, UserPlus, UserRoundX, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Checkbox } from '@/components/ui/checkbox'
+  Avatar,
+  Boton,
+  CabeceraDeModulo,
+  Confirmacion,
+  FilaDeKpis,
+  Insignia,
+  Kpi,
+  Segmentado,
+  TablaAdaptable,
+  haceCuanto,
+  type Columna,
+} from '@/components/ui-ls'
+import { CASILLA_POR_ID, CASILLAS_GESTIONADAS } from '@/lib/usuarios/casillas'
+import { ETIQUETA_DE_CATEGORIA, filtrarUsuarios, resumir, type Filtro } from '@/lib/usuarios/filtros'
+import { esAdminPleno } from '@/lib/usuarios/gestion'
+import { FichaDeUsuario, type UsuarioGestionado } from './FichaDeUsuario'
+import { CAMPO, InsigniaDeRol } from './piezas'
 
-/** Un formulario en blanco: empleado sin puesto, sin casillas marcadas */
-const formularioVacio = (): CreateUserData => ({
-  email: '',
-  password: '',
-  full_name: '',
-  role: 'employee',
-  puesto: null,
-  is_comercial: false,
-  crear_lista: false,
-  permissions: COLUMNAS_PERMISO.map(app => ({ app_id: app.id, can_access: false })),
-})
+/**
+ * GESTIÓN DE USUARIOS (/dashboard/users). Solo la abre el dueño del ERP (lib/usuarios/gestion.ts), y sus rutas exigen lo mismo.
+ *
+ * Arriba, el resumen (personas activas con su curva de altas, dirección, comercial, administración y clientes). Debajo, buscador y filtros por rol o puesto, y la lista: cada
+ * persona con su avatar, su rol y los iconos de las apps que tiene (en el móvil, una tarjeta por persona). Al pulsar a alguien se abre su ficha en un panel lateral
+ * (FichaDeUsuario: Perfil · Rol · Accesos · Cuentas FBA), que es también el formulario de alta.
+ *
+ * Antes era una tabla de 49 columnas (una casilla por app) que escribía en user_app_permissions desde el navegador a cada clic. Ahora todo pasa por /api/users, que comprueba
+ * quién llama y lo que no se puede hacer nunca. Lo normal para dar de baja es DESACTIVAR (se conserva el historial); borrar queda escondido en la ficha y pide escribir BORRAR.
+ */
 
-/** El color de la insignia de cada rol o puesto en la tabla */
-const COLOR_DE_OPCION: Record<OpcionDeRol, string> = {
-  admin: 'bg-[#FF6600]/20 text-[#FF6600] border border-[#FF6600]/30',
-  ceo: 'bg-rose-500/15 text-rose-300 border border-rose-500/30',
-  partner: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
-  comercial: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
-  manager_comercial: 'bg-violet-500/15 text-violet-300 border border-violet-500/30',
-  comercial_autonomo: 'bg-sky-500/15 text-sky-300 border border-sky-500/30',
-  gestion_administrativa: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
-  employee: 'bg-white/10 text-white/70 border border-white/20',
-  cliente: 'bg-white/10 text-white/70 border border-white/20',
+interface RespuestaLista {
+  usuarios?: Array<Omit<UsuarioGestionado, 'accesos'> & { permissions: Array<{ app_id: string; can_access: boolean }> }>
+  sinEstado?: boolean
+  error?: string
 }
 
-export function UsersManagement() {
-  const [users, setUsers] = useState<ManagedUser[]>([])
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [editingUser, setEditingUser] = useState<ManagedUser | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState(false)
-  const [updating, setUpdating] = useState(false)
-  const supabase = createClient()
+const OPCIONES_FILTRO: ReadonlyArray<{ id: Filtro; texto: string }> = [
+  { id: 'todos', texto: 'Todos' },
+  { id: 'direccion', texto: ETIQUETA_DE_CATEGORIA.direccion },
+  { id: 'comercial', texto: ETIQUETA_DE_CATEGORIA.comercial },
+  { id: 'administracion', texto: ETIQUETA_DE_CATEGORIA.administracion },
+  { id: 'empleado', texto: 'Sin puesto' },
+  { id: 'cliente', texto: ETIQUETA_DE_CATEGORIA.cliente },
+  { id: 'desactivados', texto: 'Desactivados' },
+]
 
-  // Form state
-  const [formData, setFormData] = useState<CreateUserData>(formularioVacio())
+/** Cuántos iconos de apps se enseñan en la fila antes del «+N» */
+const ICONOS_EN_FILA = 6
 
-  /**
-   * Cambiar el rol o el puesto en el formulario. Un puesto se guarda como empleado + puesto y pre-marca sus casillas: al CREAR se sustituyen las que hubiera (no hay nada que
-   * conservar), al EDITAR se suman a las que ya tenía la persona (cambiar de puesto no le quita lo que ya se le dio).
-   */
-  const cambiarOpcion = (opcion: OpcionDeRol, modo: 'sustituir' | 'sumar') => {
-    const { role, puesto } = rolYPuestoDe(opcion)
-    setFormData(previo => {
-      const llama = esComercialDelPuesto(puesto, previo.is_comercial) ?? previo.is_comercial ?? false
-      return {
-        ...previo,
-        role,
-        puesto,
-        is_comercial: llama,
-        crear_lista: modo === 'sustituir' && llevaListaPropia(puesto, llama),
-        permissions: aplicarPuesto(previo.permissions, puesto, modo),
-      }
-    })
-  }
+export function UsersManagement({ actorId }: { actorId: string }) {
+  const [usuarios, setUsuarios] = useState<UsuarioGestionado[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [sinEstado, setSinEstado] = useState(false)
+  const [filtro, setFiltro] = useState<Filtro>('todos')
+  const [busqueda, setBusqueda] = useState('')
+  const [fichaAbierta, setFichaAbierta] = useState(false)
+  const [seleccionado, setSeleccionado] = useState<UsuarioGestionado | null>(null)
+  const [aBorrar, setABorrar] = useState<UsuarioGestionado | null>(null)
 
-  /** Lo que se manda de `is_comercial`: lo fija el puesto; sin puesto no se manda (no se toca lo que la persona ya tenía) */
-  const llamaParaEnviar = (): boolean | undefined => (formData.puesto ? esComercialDelPuesto(formData.puesto, formData.is_comercial ?? false) : undefined)
-
-  useEffect(() => {
-    loadUsers()
+  const cargar = useCallback(async () => {
+    setCargando(true)
+    try {
+      const res = await fetch('/api/users/lista', { cache: 'no-store' })
+      const datos = (await res.json().catch(() => null)) as RespuestaLista | null
+      if (!res.ok || !datos?.usuarios) throw new Error(datos?.error || 'No se han podido cargar los usuarios')
+      const lista: UsuarioGestionado[] = datos.usuarios.map(({ permissions, ...u }) => ({
+        ...u,
+        is_comercial: u.is_comercial === true,
+        accesos: permissions.filter((p) => p.can_access).map((p) => p.app_id),
+      }))
+      setUsuarios(lista)
+      setSinEstado(datos.sinEstado === true)
+      // Si la ficha de alguien está abierta, se refresca con lo nuevo
+      setSeleccionado((s) => (s ? (lista.find((u) => u.id === s.id) ?? null) : s))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se han podido cargar los usuarios')
+    } finally {
+      setCargando(false)
+    }
   }, [])
 
-  const loadUsers = async () => {
-    try {
-      setLoading(true)
-      
-      // Obtener todos los perfiles (solo admin puede hacer esto)
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false })
+  useEffect(() => {
+    void cargar()
+  }, [cargar])
 
-      if (profilesError) throw profilesError
+  const resumen = useMemo(() => resumir(usuarios), [usuarios])
+  const visibles = useMemo(() => filtrarUsuarios(usuarios, filtro, busqueda), [usuarios, filtro, busqueda])
+  const cuentaDe = (f: Filtro) => (f === 'todos' ? resumen.activos : f === 'desactivados' ? resumen.desactivados : resumen.porCategoria[f])
+  const adminsPlenos = useMemo(() => usuarios.filter((u) => !u.desactivado && esAdminPleno(u.role, u.puesto ?? null)).length, [usuarios])
 
-      // Obtener permisos de todos los usuarios
-      const { data: permissions, error: permissionsError } = await supabase
-        .from('user_app_permissions')
-        .select('*')
-
-      if (permissionsError) throw permissionsError
-
-      // Combinar perfiles con permisos
-      const usersWithPermissions: ManagedUser[] = (profiles || []).map(profile => ({
-        id: profile.id,
-        email: profile.email || '',
-        full_name: profile.full_name,
-        role: profile.role,
-        puesto: profile.puesto ?? null,
-        is_comercial: profile.is_comercial === true,
-        created_at: profile.created_at,
-        permissions: (permissions || []).filter(p => p.user_id === profile.id),
-      }))
-
-      setUsers(usersWithPermissions)
-    } catch (error) {
-      console.error('Error loading users:', error)
-      toast.error('Error al cargar usuarios')
-    } finally {
-      setLoading(false)
-    }
+  const abrir = (u: UsuarioGestionado | null) => {
+    setSeleccionado(u)
+    setFichaAbierta(true)
   }
 
-  const handleCreateUser = async () => {
-    if (!formData.email || !formData.password || !formData.full_name) {
-      toast.error('Por favor completa todos los campos')
+  const cambiarEstado = async (u: UsuarioGestionado, activo: boolean) => {
+    const res = await fetch('/api/users/estado', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: u.id, activo }) })
+    const datos = (await res.json().catch(() => null)) as { error?: string } | null
+    if (!res.ok) {
+      toast.error(datos?.error || 'No se ha podido cambiar el estado')
       return
     }
+    toast.success(activo ? `${u.full_name || u.email} vuelve a poder entrar` : `${u.full_name || u.email} ya no puede entrar. Su historial se conserva.`)
+    await cargar()
+  }
 
-    setCreating(true)
-    try {
-      console.log('[FRONTEND] Creating user with data:', {
-        email: formData.email,
-        full_name: formData.full_name,
-        permissionsCount: formData.permissions.filter(p => p.can_access).length
-      })
-
-      // Llamar a la API para crear el usuario
-      const response = await fetch('/api/users/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-          full_name: formData.full_name,
-          role: formData.role || 'employee',
-          puesto: formData.puesto ?? null,
-          is_comercial: llamaParaEnviar(),
-          crear_lista: formData.crear_lista === true && llevaListaPropia(formData.puesto ?? null, formData.is_comercial === true),
-          permissions: formData.permissions,
-        }),
-      })
-
-      console.log('[FRONTEND] Response status:', response.status, response.statusText)
-
-      let data
-      try {
-        data = await response.json()
-        console.log('[FRONTEND] Response data:', data)
-      } catch (parseError) {
-        console.error('[FRONTEND] Error parsing response:', parseError)
-        const text = await response.text()
-        console.error('[FRONTEND] Response text:', text)
-        throw new Error(`Error al procesar la respuesta del servidor: ${response.status} ${response.statusText}`)
-      }
-
-      if (!response.ok) {
-        const errorMessage = data?.error || `Error ${response.status}: ${response.statusText}`
-        console.error('[FRONTEND] Error response:', { status: response.status, error: errorMessage, data })
-        throw new Error(errorMessage)
-      }
-
-      toast.success(data?.lista ? `Usuario creado. Su lista «${data.lista}» está creada y asignada.` : 'Usuario creado correctamente')
-      for (const aviso of (data?.avisos ?? []) as string[]) toast.warning(aviso)
-      setIsCreateModalOpen(false)
-      setFormData(formularioVacio())
-      loadUsers()
-    } catch (error: any) {
-      console.error('[FRONTEND] Error creating user:', {
-        message: error.message,
-        name: error.name,
-        stack: error.stack,
-        error
-      })
-      toast.error(error.message || 'Error al crear usuario. Revisa la consola para más detalles.')
-    } finally {
-      setCreating(false)
+  const borrar = async () => {
+    if (!aBorrar) return
+    const res = await fetch('/api/users/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: aBorrar.id }) })
+    const datos = (await res.json().catch(() => null)) as { error?: string } | null
+    if (!res.ok) {
+      toast.error(datos?.error || 'No se ha podido borrar')
+      throw new Error(datos?.error || 'No se ha podido borrar')
     }
+    toast.success('Usuario borrado')
+    setABorrar(null)
+    setFichaAbierta(false)
+    setSeleccionado(null)
+    await cargar()
   }
 
-  const handleTogglePermission = async (userId: string, appId: string, currentValue: boolean) => {
-    try {
-      if (currentValue) {
-        // Eliminar permiso
-        const { error } = await supabase
-          .from('user_app_permissions')
-          .delete()
-          .eq('user_id', userId)
-          .eq('app_id', appId)
-
-        if (error) throw error
-      } else {
-        // Crear permiso
-        const { error } = await supabase
-          .from('user_app_permissions')
-          .insert({
-            user_id: userId,
-            app_id: appId,
-            can_access: true,
-          })
-
-        if (error) throw error
-      }
-
-      toast.success('Permiso actualizado')
-      loadUsers()
-    } catch (error) {
-      console.error('Error updating permission:', error)
-      toast.error('Error al actualizar permiso')
-    }
-  }
-
-  const handleEditUser = (user: ManagedUser) => {
-    setEditingUser(user)
-    setFormData({
-      email: user.email,
-      password: '', // No prellenar contraseña por seguridad
-      full_name: user.full_name || '',
-      role: user.role,
-      puesto: user.puesto ?? null,
-      is_comercial: user.is_comercial === true,
-      crear_lista: false,
-      permissions: COLUMNAS_PERMISO.map(app => ({
-        app_id: app.id,
-        can_access: hasPermission(user, app.id),
-      })),
-    })
-    setIsEditModalOpen(true)
-  }
-
-  const handleUpdateUser = async () => {
-    if (!editingUser || !formData.full_name) {
-      toast.error('Por favor completa todos los campos requeridos')
-      return
-    }
-
-    setUpdating(true)
-    try {
-      const response = await fetch('/api/users/update', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: editingUser.id,
-          email: formData.email,
-          full_name: formData.full_name,
-          password: formData.password || undefined, // Solo enviar si se proporciona
-          role: formData.role || 'employee',
-          puesto: formData.puesto ?? null,
-          is_comercial: llamaParaEnviar(),
-          permissions: formData.permissions,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        const errorMessage = data.error || 'Error al actualizar usuario'
-        console.error('Error updating user:', errorMessage)
-        throw new Error(errorMessage)
-      }
-
-      toast.success('Usuario actualizado correctamente')
-      for (const aviso of (data?.avisos ?? []) as string[]) toast.warning(aviso)
-      setIsEditModalOpen(false)
-      setEditingUser(null)
-      setFormData(formularioVacio())
-      loadUsers()
-    } catch (error: any) {
-      console.error('Error updating user:', error)
-      toast.error(error.message || 'Error al actualizar usuario')
-    } finally {
-      setUpdating(false)
-    }
-  }
-
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm('¿Estás seguro de que quieres eliminar este usuario?')) {
-      return
-    }
-
-    try {
-      // Llamar a la API para eliminar el usuario
-      const response = await fetch('/api/users/delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userId }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Error al eliminar usuario')
-      }
-
-      toast.success('Usuario eliminado')
-      loadUsers()
-    } catch (error: any) {
-      console.error('Error deleting user:', error)
-      toast.error(error.message || 'Error al eliminar usuario')
-    }
-  }
-
-  const getAppName = (appId: string) => {
-    const app = COLUMNAS_PERMISO.find(a => a.id === appId)
-    return app?.name || appId
-  }
-
-  const hasPermission = (user: ManagedUser, appId: string) => {
-    return user.permissions.some(p => p.app_id === appId && p.can_access)
-  }
-
-  if (loading) {
-    return (
-      <div className="glass-card p-12 text-center">
-        <p className="text-white/60">Cargando usuarios...</p>
-      </div>
-    )
-  }
+  const columnas: Columna<UsuarioGestionado>[] = [
+    {
+      id: 'persona',
+      cabecera: 'Persona',
+      movil: 'titulo',
+      ordenar: (u) => (u.full_name || u.email).toLowerCase(),
+      celda: (u) => (
+        <span className="flex min-w-0 items-center gap-3">
+          <Avatar nombre={u.full_name || u.email} tamano={34} estado={u.desactivado ? 'rojo' : undefined} />
+          <span className="min-w-0">
+            <span className={`block truncate text-[13.5px] font-semibold ${u.desactivado ? 'text-[var(--ls-t3)] line-through decoration-[var(--ls-t4)]' : 'text-[var(--ls-t1)]'}`}>
+              {u.full_name || 'Sin nombre'}
+              {u.id === actorId && <span className="ml-2 text-[11px] font-medium text-[var(--ls-t4)]">(tú)</span>}
+            </span>
+            <span className="block truncate text-[12px] text-[var(--ls-t4)]">{u.email}</span>
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: 'rol',
+      cabecera: 'Rol',
+      movil: 'insignia',
+      ordenar: (u) => `${u.role}-${u.puesto ?? ''}`,
+      celda: (u) => (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <InsigniaDeRol role={u.role} puesto={u.puesto} llama={u.is_comercial} />
+          {u.desactivado && (
+            <Insignia tono="rojo" tamano="sm">
+              Desactivado
+            </Insignia>
+          )}
+        </span>
+      ),
+    },
+    {
+      id: 'accesos',
+      cabecera: 'Accesos',
+      rotuloMovil: 'Accesos',
+      ordenar: (u) => u.accesos.filter((id) => CASILLAS_GESTIONADAS.has(id)).length,
+      celda: (u) => <IconosDeAccesos usuario={u} />,
+    },
+    {
+      id: 'acceso',
+      cabecera: 'Último acceso',
+      rotuloMovil: 'Último acceso',
+      alinear: 'derecha',
+      ordenar: (u) => (u.ultimo_acceso ? Date.parse(u.ultimo_acceso) : 0),
+      celda: (u) => <span className="text-[12.5px] text-[var(--ls-t3)]">{u.ultimo_acceso ? haceCuanto(u.ultimo_acceso) : sinEstado ? '—' : 'Nunca'}</span>,
+    },
+    {
+      id: 'alta',
+      cabecera: 'Alta',
+      movil: 'oculto',
+      alinear: 'derecha',
+      ordenar: (u) => Date.parse(u.created_at),
+      celda: (u) => <span className="text-[12.5px] tabular-nums text-[var(--ls-t3)]">{new Date(u.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: '2-digit' })}</span>,
+    },
+  ]
 
   return (
-    <div className="space-y-6">
-      {/* Botón Crear Usuario */}
-      <div className="flex justify-end">
-        <Button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="bg-[#FF6600] text-white hover:bg-[#FF6600]/90"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Crear Usuario
-        </Button>
-      </div>
+    <div className="mx-auto w-full max-w-[1280px]">
+      <CabeceraDeModulo
+        icono={UsersRound}
+        acento="personas"
+        titulo="Gestión de Usuarios"
+        subtitulo="Quién entra al ERP, con qué rol y a qué aplicaciones."
+        acciones={
+          <>
+            <Boton variante="secundario" icono={RefreshCw} soloIcono aria-label="Recargar la lista" onClick={() => void cargar()} cargando={cargando} />
+            <Boton variante="primario" icono={UserPlus} onClick={() => abrir(null)}>
+              Nuevo usuario
+            </Boton>
+          </>
+        }
+      />
 
-      {/* Tabla de Usuarios */}
-      <div className="glass-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-white/10">
-                <TableHead className="text-white">Email</TableHead>
-                <TableHead className="text-white">Nombre</TableHead>
-                <TableHead className="text-white">Rol</TableHead>
-                {COLUMNAS_PERMISO.map(app => (
-                  <TableHead key={app.id} className="text-white text-center">
-                    {app.name}
-                  </TableHead>
-                ))}
-                <TableHead className="text-white text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={COLUMNAS_PERMISO.length + 4} className="text-center text-white/60 py-8">
-                    No hay usuarios registrados
-                  </TableCell>
-                </TableRow>
-              ) : (
-                users.map(user => (
-                  <TableRow key={user.id} className="border-white/10">
-                    <TableCell className="text-white">{user.email}</TableCell>
-                    <TableCell className="text-white">{user.full_name || '-'}</TableCell>
-                    <TableCell>
-                      <span
-                        title={user.puesto === 'manager_comercial' && user.is_comercial ? 'También llama: sale en el equipo de Cold Calling y en la Agenda' : undefined}
-                        className={cn("px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap", COLOR_DE_OPCION[opcionDeRol(user.role, user.puesto)])}
-                      >
-                        {etiquetaDeRol(user.role, user.puesto)}
-                      </span>
-                    </TableCell>
-                    {COLUMNAS_PERMISO.map(app => (
-                      <TableCell key={app.id} className="text-center">
-                        <Checkbox
-                          checked={hasPermission(user, app.id)}
-                          disabled={APPS_SIN_EFECTO.has(app.id)}
-                          title={APPS_SIN_EFECTO.get(app.id)}
-                          onCheckedChange={(checked) =>
-                            handleTogglePermission(user.id, app.id, !checked)
-                          }
-                          className="border-white/30 data-[state=checked]:bg-[#FF6600] data-[state=checked]:border-[#FF6600] disabled:opacity-30 disabled:cursor-not-allowed"
-                        />
-                      </TableCell>
-                    ))}
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditUser(user)}
-                          className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteUser(user.id)}
-                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+      <FilaDeKpis className="mt-1">
+        <Kpi
+          indice={0}
+          etiqueta="Personas activas"
+          icono={UsersRound}
+          acento="personas"
+          valor={cargando && usuarios.length === 0 ? null : resumen.activos}
+          serie={resumen.altasAcumuladas}
+          nota={resumen.altasRecientes > 0 ? `${resumen.altasRecientes} ${resumen.altasRecientes === 1 ? 'alta' : 'altas'} en 30 días` : `${resumen.desactivados} desactivadas`}
+          cargando={cargando && usuarios.length === 0}
+          onClick={() => setFiltro('todos')}
+        />
+        <Kpi
+          indice={1}
+          etiqueta="Dirección"
+          icono={Crown}
+          acento="personas"
+          valor={resumen.porCategoria.direccion}
+          nota={resumen.ceos > 0 ? `Incluye ${resumen.ceos} CEO` : 'Admins y partners'}
+          cargando={cargando && usuarios.length === 0}
+          onClick={() => setFiltro('direccion')}
+        />
+        <Kpi
+          indice={2}
+          etiqueta="Equipo comercial"
+          icono={PhoneCall}
+          acento="personas"
+          valor={resumen.porCategoria.comercial}
+          nota="Comerciales y managers"
+          cargando={cargando && usuarios.length === 0}
+          onClick={() => setFiltro('comercial')}
+        />
+        <Kpi
+          indice={3}
+          etiqueta="Administración"
+          icono={Building2}
+          acento="personas"
+          valor={resumen.porCategoria.administracion}
+          nota={`${resumen.porCategoria.empleado} sin puesto`}
+          cargando={cargando && usuarios.length === 0}
+          onClick={() => setFiltro('administracion')}
+        />
+        <Kpi
+          indice={4}
+          etiqueta="Clientes"
+          icono={Store}
+          acento="personas"
+          valor={resumen.porCategoria.cliente}
+          nota="Solo Remesas a FBA"
+          cargando={cargando && usuarios.length === 0}
+          onClick={() => setFiltro('cliente')}
+        />
+      </FilaDeKpis>
+
+      <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="relative lg:w-[320px]">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ls-t4)]" aria-hidden />
+          <input
+            type="search"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por nombre o correo…"
+            aria-label="Buscar por nombre o correo"
+            className={`${CAMPO} pl-9`}
+          />
         </div>
+        <Segmentado
+          etiqueta="Filtrar por rol o puesto"
+          tamano="sm"
+          valor={filtro}
+          onCambio={setFiltro}
+          opciones={OPCIONES_FILTRO.map((o) => ({ ...o, cuenta: cuentaDe(o.id) }))}
+        />
       </div>
 
-      {/* Modal Editar Usuario */}
-      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="bg-[#080808] border-white/10 max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-white">
-              Editar Usuario
-            </DialogTitle>
-          </DialogHeader>
+      {sinEstado && (
+        <p className="mt-3 text-[12px] text-[var(--ls-e-ambar)]">No se ha podido leer el sistema de acceso: no se ve quién está desactivado ni el último acceso.</p>
+      )}
 
-          <div className="space-y-6 mt-4">
-            {/* Campos básicos */}
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="edit-email" className="text-sm font-semibold text-white mb-2 block">
-                  Email
-                </Label>
-                <Input
-                  id="edit-email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="usuario@empresa.com"
-                  className="input-glass"
-                />
-              </div>
+      <TablaAdaptable
+        className="mt-4"
+        etiqueta="Usuarios del ERP"
+        columnas={columnas}
+        filas={visibles}
+        claveDe={(u) => u.id}
+        alPulsarFila={abrir}
+        filaActiva={fichaAbierta ? (seleccionado?.id ?? null) : null}
+        ordenInicial={{ id: 'persona', sentido: 'asc' }}
+        porPagina={25}
+        cargando={cargando}
+        acciones={(u) => (
+          <Boton variante="fantasma" tamano="sm" soloIcono icono={ChevronRight} aria-label={`Abrir la ficha de ${u.full_name || u.email}`} onClick={() => abrir(u)} />
+        )}
+        vacio={
+          usuarios.length === 0
+            ? { icono: UsersRound, titulo: 'Todavía no hay usuarios', descripcion: 'Da de alta a la primera persona del equipo.', acento: 'personas', accion: { texto: 'Nuevo usuario', icono: UserPlus, onClick: () => abrir(null) } }
+            : {
+                icono: UserRoundX,
+                titulo: 'Nadie coincide',
+                descripcion: busqueda ? `Nadie se llama «${busqueda}» con este filtro.` : 'No hay nadie en este grupo.',
+                acento: 'personas',
+                accion: {
+                  texto: 'Quitar filtros',
+                  onClick: () => {
+                    setBusqueda('')
+                    setFiltro('todos')
+                  },
+                },
+              }
+        }
+      />
 
-              <div>
-                <Label htmlFor="edit-password" className="text-sm font-semibold text-white mb-2 block">
-                  Nueva Contraseña (opcional)
-                </Label>
-                <Input
-                  id="edit-password"
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="Dejar vacío para no cambiar"
-                  className="input-glass"
-                />
-              </div>
+      <FichaDeUsuario
+        abierto={fichaAbierta}
+        usuario={seleccionado}
+        actorId={actorId}
+        onCerrar={() => setFichaAbierta(false)}
+        onGuardado={() => void cargar()}
+        onCambiarEstado={cambiarEstado}
+        onBorrar={setABorrar}
+      />
 
-              <div>
-                <Label htmlFor="edit-full_name" className="text-sm font-semibold text-white mb-2 block">
-                  Nombre Completo
-                </Label>
-                <Input
-                  id="edit-full_name"
-                  value={formData.full_name}
-                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                  placeholder="Juan Pérez"
-                  className="input-glass"
-                />
-              </div>
-
-              <SelectorDeRol
-                idBase="edit-role"
-                opcion={opcionDeRol(formData.role, formData.puesto)}
-                onCambiar={(o) => cambiarOpcion(o, 'sumar')}
-                llama={formData.is_comercial === true}
-                onLlama={(v) => setFormData({ ...formData, is_comercial: v })}
-              />
-            </div>
-
-            {/* Un cliente no tiene apps del ERP: tiene CUENTAS de Amazon a las que
-                entrar en Remesas a FBA. Se le enseña eso y no la rejilla de
-                permisos, que no le aplica y solo confundiría. */}
-            {formData.role === 'cliente' && editingUser ? (
-              <div>
-                <Label className="text-sm font-semibold text-white mb-3 block">
-                  Cuentas a las que puede entrar
-                </Label>
-                <AccesosRemesas usuarioId={editingUser.id} />
-              </div>
-            ) : (
-            <div>
-              <Label className="text-sm font-semibold text-white mb-3 block">
-                Permisos de Aplicaciones
-              </Label>
-              <div className="space-y-2">
-                {COLUMNAS_PERMISO.map(app => (
-                  <div
-                    key={app.id}
-                    className="flex items-center justify-between glass-card p-3"
-                    title={APPS_SIN_EFECTO.get(app.id)}
-                  >
-                    <span className={APPS_SIN_EFECTO.has(app.id) ? 'text-white/40' : 'text-white'}>
-                      {app.name}
-                    </span>
-                    <Checkbox
-                      disabled={APPS_SIN_EFECTO.has(app.id)}
-                      checked={formData.permissions.find(p => p.app_id === app.id)?.can_access || false}
-                      onCheckedChange={(checked) => {
-                        setFormData({
-                          ...formData,
-                          permissions: formData.permissions.map(p =>
-                            p.app_id === app.id
-                              ? { ...p, can_access: checked as boolean }
-                              : p
-                          ),
-                        })
-                      }}
-                      className="border-white/30 data-[state=checked]:bg-[#FF6600] data-[state=checked]:border-[#FF6600]"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-            )}
-
-            {/* Botones */}
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsEditModalOpen(false)
-                  setEditingUser(null)
-                }}
-                className="flex-1 border-white/20 hover:border-white/40"
-              >
-                <X className="h-4 w-4 mr-2" />
-                Cancelar
-              </Button>
-              <Button
-                onClick={handleUpdateUser}
-                disabled={updating}
-                className="flex-1 bg-[#FF6600] text-white hover:bg-[#FF6600]/90"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                {updating ? 'Guardando...' : 'Guardar Cambios'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Crear Usuario */}
-      <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <DialogContent className="bg-[#080808] border-white/10 max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-white">
-              Crear Nuevo Usuario
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-6 mt-4">
-            {/* Campos básicos */}
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="email" className="text-sm font-semibold text-white mb-2 block">
-                  Email
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="usuario@empresa.com"
-                  className="input-glass"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="password" className="text-sm font-semibold text-white mb-2 block">
-                  Contraseña
-                </Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="Mínimo 6 caracteres"
-                  className="input-glass"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="full_name" className="text-sm font-semibold text-white mb-2 block">
-                  Nombre Completo
-                </Label>
-                <Input
-                  id="full_name"
-                  value={formData.full_name}
-                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                  placeholder="Juan Pérez"
-                  className="input-glass"
-                />
-              </div>
-
-              <SelectorDeRol
-                idBase="role"
-                opcion={opcionDeRol(formData.role, formData.puesto)}
-                onCambiar={(o) => cambiarOpcion(o, 'sustituir')}
-                llama={formData.is_comercial === true}
-                onLlama={(v) => setFormData({ ...formData, is_comercial: v, crear_lista: v })}
-                crearLista={formData.crear_lista === true}
-                onCrearLista={(v) => setFormData({ ...formData, crear_lista: v })}
-              />
-            </div>
-
-            {/* Permisos por aplicación */}
-            <div>
-              <Label className="text-sm font-semibold text-white mb-3 block">
-                Permisos de Aplicaciones
-              </Label>
-              <div className="space-y-2">
-                {COLUMNAS_PERMISO.map(app => (
-                  <div
-                    key={app.id}
-                    className="flex items-center justify-between glass-card p-3"
-                    title={APPS_SIN_EFECTO.get(app.id)}
-                  >
-                    <span className={APPS_SIN_EFECTO.has(app.id) ? 'text-white/40' : 'text-white'}>
-                      {app.name}
-                    </span>
-                    <Checkbox
-                      disabled={APPS_SIN_EFECTO.has(app.id)}
-                      checked={formData.permissions.find(p => p.app_id === app.id)?.can_access || false}
-                      onCheckedChange={(checked) => {
-                        setFormData({
-                          ...formData,
-                          permissions: formData.permissions.map(p =>
-                            p.app_id === app.id
-                              ? { ...p, can_access: checked as boolean }
-                              : p
-                          ),
-                        })
-                      }}
-                      className="border-white/30 data-[state=checked]:bg-[#FF6600] data-[state=checked]:border-[#FF6600]"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Botones */}
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setIsCreateModalOpen(false)}
-                className="flex-1 border-white/20 hover:border-white/40"
-              >
-                <X className="h-4 w-4 mr-2" />
-                Cancelar
-              </Button>
-              <Button
-                onClick={handleCreateUser}
-                disabled={creating}
-                className="flex-1 bg-[#FF6600] text-white hover:bg-[#FF6600]/90"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                {creating ? 'Creando...' : 'Crear Usuario'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <Confirmacion
+        abierto={aBorrar != null}
+        onCambio={(a) => !a && setABorrar(null)}
+        titulo={`¿Borrar a ${aBorrar?.full_name || aBorrar?.email || 'esta persona'} para siempre?`}
+        descripcion={
+          adminsPlenos <= 1 && aBorrar && esAdminPleno(aBorrar.role, aBorrar.puesto ?? null)
+            ? 'Es el último administrador: el servidor no lo dejará borrar.'
+            : 'Se borra su cuenta y, en cascada, lo que cuelga de su perfil. No se puede deshacer. Si solo quieres que no entre, desactívala.'
+        }
+        palabra="BORRAR"
+        textoConfirmar="Borrar para siempre"
+        onConfirmar={borrar}
+      />
     </div>
   )
 }
 
-function cn(...classes: (string | undefined)[]): string {
-  return classes.filter(Boolean).join(' ')
+/** Los iconos de las apps que tiene (las primeras seis y «+N»), con el nombre al pasar el ratón */
+function IconosDeAccesos({ usuario }: { usuario: UsuarioGestionado }) {
+  if (usuario.role === 'cliente') return <span className="text-[12px] text-[var(--ls-t4)]">Cuentas de Remesas</span>
+  if (esAdminPleno(usuario.role, usuario.puesto ?? null)) return <span className="text-[12px] text-[var(--ls-t3)]">Todo (administrador)</span>
+  const ids = usuario.accesos.filter((id) => CASILLAS_GESTIONADAS.has(id))
+  if (ids.length === 0) return <span className="text-[12px] text-[var(--ls-t4)]">{usuario.role === 'partner' ? 'Casi todo (socio)' : 'Sin accesos'}</span>
+  const vistos = ids.slice(0, ICONOS_EN_FILA)
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" aria-label={`${ids.length} accesos: ${ids.map((id) => CASILLA_POR_ID.get(id)?.nombre ?? id).join(', ')}`}>
+      {vistos.map((id) => {
+        const c = CASILLA_POR_ID.get(id)
+        if (!c) return null
+        const Icono = c.icono
+        return (
+          <span
+            key={id}
+            title={c.nombre}
+            className="flex h-6 w-6 items-center justify-center rounded-[7px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] text-[var(--ls-mod-personas)]"
+            aria-hidden
+          >
+            <Icono className="h-[13px] w-[13px]" />
+          </span>
+        )
+      })}
+      {ids.length > ICONOS_EN_FILA && <span className="ml-1 text-[11.5px] font-medium tabular-nums text-[var(--ls-t3)]">+{ids.length - ICONOS_EN_FILA}</span>}
+    </span>
+  )
 }
-
-
