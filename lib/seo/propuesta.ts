@@ -186,6 +186,8 @@ export interface DatosParaProponer {
   descartadas: Array<{ consulta: string; porQue: string }>
   palabrasQueFaltan: Array<{ palabra: string; peso: number }>
   terminosDeAds: Array<{ termino: string; pedidos: number }>
+  /** Helium 10 (migración 312): palabras con volumen donde el producto NO sale en Brand Analytics (oportunidades), con su rango orgánico si se sabe */
+  palabrasDeHelium10?: Array<{ keyword: string; volumen: number | null; rangoOrganico: number | null; enLaFicha: boolean }>
 }
 
 /** El mensaje de sistema: las reglas del SOP, que no cambian */
@@ -205,6 +207,7 @@ export function instruccionesDeSistema(idioma: string): string {
     '7. Usa solo las búsquedas de «busquedasDelProducto». Las de «descartadas» NO entran en ningún campo: son ruido, falsos amigos (otra categoría con palabras parecidas) o compran a menos de la mitad de nuestro precio. Fuera también las marcas de otros y los ASIN.',
     '8. Elige por demanda: primero las búsquedas que más COMPRAS mueven en Amazon, después el volumen. No priorices un hueco de poca competencia por encima de la búsqueda de cabecera.',
     `9. Todo en el idioma del marketplace: ${idioma}.`,
+    '10. «oportunidadesDeHelium10» son palabras con volumen (estimado por Helium 10) donde el producto todavía NO aparece en Brand Analytics. Úsalas solo si describen literalmente el producto (nunca marcas de otros), preferiblemente en Item Highlights, viñetas o backend; no desplaces del título la búsqueda de cabecera por ellas.',
     '',
     'Devuelves SOLO un JSON con esta forma:',
     '{"titulo": "...", "highlights": "...", "bullets": ["...", "...", "...", "...", "..."], "backend": "...", "razonamiento": {"resumen": "2-4 frases en español: la estrategia y qué búsqueda abre el título", "cambios": [{"campo": "titulo|highlights|bullets|backend", "que": "qué has cambiado", "porQue": "por qué, con las cifras de las búsquedas"}], "palabrasNuevas": ["..."], "descartado": [{"termino": "...", "porQue": "marca ajena / falso amigo / otro precio / no describe el producto"}]}}',
@@ -225,6 +228,7 @@ export function mensajeDeDatos(d: DatosParaProponer): string {
       descartadas: d.descartadas.slice(0, 25),
       palabrasQuePesanYNoEstanEnElTitulo: d.palabrasQueFaltan.slice(0, 20),
       terminosQueTraenPedidosPorPublicidad: d.terminosDeAds.slice(0, 20),
+      ...(d.palabrasDeHelium10 && d.palabrasDeHelium10.length > 0 ? { oportunidadesDeHelium10: d.palabrasDeHelium10.slice(0, 25) } : {}),
     },
     null,
     1

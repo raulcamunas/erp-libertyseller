@@ -22,6 +22,8 @@ import { terminosQueFaltanEnLaFicha } from './publicidad-calculo'
 import { palabrasQueFaltanEnElTitulo } from './resumen'
 import { DIAS_ENTRE_CAMBIOS, ventanaDeCambio } from './tareas'
 import { validarYAplicar } from './edicion-servidor'
+import { heliumDe } from './helium-servidor'
+import { oportunidadesParaLaIa } from './helium'
 
 export interface PropuestaGuardada {
   id: string
@@ -107,6 +109,8 @@ export async function proponerFicha(c: { connectionId: string; marketplaceId: st
       .map((d) => ({ consulta: d.fila.consulta, porQue: d.veredicto.motivo })),
     palabrasQueFaltan: palabrasQueFaltanEnElTitulo(relevantes.map((d) => d.fila), ficha, 40, 20).map((p) => ({ palabra: p.palabra, peso: p.peso })),
     terminosDeAds: ads.map((t) => ({ termino: t.termino, pedidos: t.pedidos })),
+    // Helium 10 (migración 312): lo que tiene volumen y aún no sale en Brand Analytics. Sin CSV subido o sin la migración, nada
+    palabrasDeHelium10: oportunidadesParaLaIa((await heliumDe(c, asin).catch(() => null))?.palabras ?? [], 25),
   }
 
   const params = parametrosDeIa({ maxSalida: 16000, esfuerzo: 'medium' })

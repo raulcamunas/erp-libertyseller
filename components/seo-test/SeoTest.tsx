@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BadgeCheck, CircleAlert, FileText, ListChecks, Loader2, Package, RefreshCw, Search, SearchCheck } from 'lucide-react'
+import { KeyRound, BadgeCheck, CircleAlert, FileText, ListChecks, Loader2, Package, RefreshCw, Search, SearchCheck } from 'lucide-react'
 import { AvatarDeCliente, BarraDeClientes, type ClienteDeBarra } from '@/components/marketing-test/BarraDeClientes'
 import { bandera } from '@/components/marketing-test/piezas'
 import { haceCuanto } from '@/components/marketing-test/formato'
@@ -13,12 +13,14 @@ import { PestanaSeoHoy } from './PestanaSeoHoy'
 import { PestanaSeoProductos } from './PestanaSeoProductos'
 import { PestanaSeoBusquedas } from './PestanaSeoBusquedas'
 import { PestanaSeoFicha } from './PestanaSeoFicha'
+import { PestanaSeoHelium } from './PestanaSeoHelium'
 
 const PESTANAS = [
   { id: 'hoy', nombre: 'Qué hacer hoy', icono: ListChecks },
   { id: 'productos', nombre: 'Productos', icono: Package },
   { id: 'busquedas', nombre: 'Búsquedas', icono: Search },
   { id: 'ficha', nombre: 'Ficha', icono: FileText },
+  { id: 'helium', nombre: 'Helium 10', icono: KeyRound },
 ] as const
 type IdPestana = (typeof PESTANAS)[number]['id']
 
@@ -152,6 +154,8 @@ function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin 
           <PestanaSeoProductos cuentaId={cuentaId} datos={datos} recargar={recargar} verBusquedas={(a) => irA('busquedas', a)} verFicha={(a) => irA('ficha', a)} />
         ) : activa === 'busquedas' ? (
           <PestanaSeoBusquedas cuentaId={cuentaId} datos={datos} moneda={cuenta.moneda} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
+        ) : activa === 'helium' ? (
+          <PestanaSeoHelium cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
         ) : (
           <PestanaSeoFicha cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
         )}
