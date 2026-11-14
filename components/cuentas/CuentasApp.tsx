@@ -48,6 +48,8 @@ export function CuentasApp({ clienteInicial, pestanaInicial }: { clienteInicial:
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(false)
   const [abierto, setAbierto] = useState<string | null>(clienteInicial)
+  // La pestaña del enlace (?t=) vale solo para el cliente con el que se entró: al volver a la lista y abrir otro, se empieza por el Resumen
+  const [pestanaDeEntrada, setPestanaDeEntrada] = useState<string | null>(pestanaInicial ?? null)
   const [filtro, setFiltro] = useState<Filtro>('mias')
   const [foco, setFoco] = useState<Foco>('todo')
   const [busqueda, setBusqueda] = useState('')
@@ -113,9 +115,10 @@ export function CuentasApp({ clienteInicial, pestanaInicial }: { clienteInicial:
     return (
       <DetalleDeCuenta
         slug={abierto}
-        pestanaInicial={(pestanaInicial as PestanaDeCuenta | null) ?? null}
+        pestanaInicial={(pestanaDeEntrada as PestanaDeCuenta | null) ?? null}
         volver={() => {
           setAbierto(null)
+          setPestanaDeEntrada(null)
           // Al volver se refresca la lista (puede haber cambiado el responsable o lo hecho); si nunca se pidió, la pide el efecto
           if (datos) cargar()
         }}
