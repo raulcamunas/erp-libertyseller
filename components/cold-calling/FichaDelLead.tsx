@@ -241,22 +241,24 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
   const intentos = lead.call_attempts ?? 0
 
   return (
-    <div ref={contenedor} className="flex h-full min-h-0 flex-col">
+    <div ref={contenedor} className="flex h-full min-h-0 flex-col max-lg:overflow-y-auto max-lg:overscroll-contain">
+      {/* En el móvil scrollea la ficha ENTERA (cabecera incluida): la cabecera con teléfono, correo, «¿vende en Amazon?» y estados ya es más alta que la pantalla,
+          y con ella fija no se podía bajar al historial. En escritorio, como siempre: cabecera quieta y el cuerpo con su scroll */}
       <header className="shrink-0 border-b border-[var(--ls-linea)] bg-[var(--ls-sup)]">
         {/* Si hoy es festivo en la comunidad del lead, o lo es el día de su rellamada: casi seguro no contestan. Con el botón de pasarla al primer día que sí se puede llamar
             (lib/festivos/). Un lead sin comunidad conocida no recibe ningún aviso */}
         <AvisoDeFestivoDeLaFicha lead={lead} hoy={hoy} canEdit={canEdit} onRellamar={ponerRellamada} />
 
         {/* Nombre y navegación */}
-        <div className="flex items-start gap-3 px-4 pt-3">
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 pt-3 max-sm:px-3">
           {onVolver && (
             <button type="button" onClick={onVolver} className={`${BOTON.icono} mt-0.5 !h-6 !w-6`} aria-label="Volver a la lista">
               <ChevronLeft className="h-4 w-4" />
             </button>
           )}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 max-sm:basis-[calc(100%-2.25rem)]">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h2 className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.012em] text-[var(--ls-t1)]">{lead.store_name}</h2>
+              <h2 className="min-w-0 truncate text-[15px] max-sm:whitespace-normal max-sm:[overflow-wrap:anywhere] max-sm:text-[17px] font-semibold tracking-[-0.012em] text-[var(--ls-t1)]">{lead.store_name}</h2>
               {lead.source_list && <InsigniaDeLista nombre={lead.source_list} />}
               {lead.nivel != null && <InsigniaDeNivel nivel={lead.nivel} />}
               {esSocio && <InsigniaDePrioridad prioridad={lead.prioridad} />}
@@ -282,9 +284,9 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               {intentos > 0 && intentos < 3 ? <span className="text-[var(--ls-t4)]"> · las citas suelen caer a partir del tercero</span> : null}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1 max-sm:w-full max-sm:justify-between">
             {posicion && (
-              <span className="mr-1 hidden text-[11px] tabular-nums text-[var(--ls-t4)] sm:inline">
+              <span className="mr-1 text-[11px] tabular-nums text-[var(--ls-t4)] max-sm:mr-auto">
                 {(posicion.indice + 1).toLocaleString('es-ES')} / {posicion.total.toLocaleString('es-ES')}
               </span>
             )}
@@ -298,7 +300,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
         </div>
 
         {/* Contacto: el teléfono es lo primero que se toca, así que es lo más grande */}
-        <div className="flex flex-wrap items-center gap-1.5 px-4 pt-2.5">
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pt-2.5 max-sm:px-3">
           {telefonos.length === 0 && (
             <span className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-dashed border-[var(--ls-linea2)] px-2.5 text-[12.5px] text-[var(--ls-t4)]">
               <Phone className="h-3.5 w-3.5" aria-hidden /> Sin teléfono
@@ -523,8 +525,8 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className={`grid gap-x-5 gap-y-4 p-4 ${dosColumnas ? 'grid-cols-[minmax(0,1fr)_minmax(250px,320px)]' : 'grid-cols-1'}`}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain max-lg:flex-none max-lg:overflow-visible">
+        <div className={`grid gap-x-5 gap-y-4 p-4 max-sm:px-3 ${dosColumnas ? 'grid-cols-[minmax(0,1fr)_minmax(250px,320px)]' : 'grid-cols-1'}`}>
           <section aria-label="Historial" className="min-w-0">
             <h3 className="mb-1.5 text-[11px] font-semibold text-[var(--ls-t3)]">Historial</h3>
             <HistorialDelLead key={lead.id} leadId={lead.id} currentUser={currentUser} nombres={nombres} version={version + versionDeNotas} onLogged={alApuntar} />

@@ -353,9 +353,13 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     )
 
   const puedeEditar = (l: ColdLead) => puedeVerTodos || l.assigned_to === currentUser.id
+  // EN EL MÓVIL, CON UN LEAD ABIERTO, LA FICHA OCUPA TODA LA PANTALLA: las cifras de la cartera, las vistas y los filtros se comían más de media pantalla y la ficha
+  // quedaba en una tira de abajo sin poder bajar. Vuelven al pulsar «‹» (volver a la lista)
+  const fichaAPantallaCompleta = esMovil && Boolean(seleccionado) && vista !== 'tabla' && vista !== 'listas'
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2.5">
+      {!fichaAPantallaCompleta && (
       <BarraDeCartera
         resumen={resumen}
         vista={vista}
@@ -368,6 +372,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         onTelefonos={() => setComprobando(true)}
         puedeGestionarListas={puedeGestionarListas}
       />
+      )}
 
       {incompleta && !cargando && vista !== 'listas' && (
         <div className={`${AVISO.base} ${AVISO.conTono} items-center`} style={{ borderLeftColor: COLOR_ESTADO.ambar }} role="alert">
@@ -382,9 +387,9 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
       )}
 
       {/* Hoy es festivo en la comunidad de algunos leads de esta cartera (o lo será en los próximos días): se dice arriba, con los que afecta y el botón de ocultarlos por hoy */}
-      {vista !== 'listas' && vista !== 'rellamadas' && <BandaDeFestivos leads={leads} hoy={hoy} ocultando={ocultarFestivos} onOcultar={(ocultar) => setOcultarFestivosEn(ocultar ? hoy : null)} />}
+      {!fichaAPantallaCompleta && vista !== 'listas' && vista !== 'rellamadas' && <BandaDeFestivos leads={leads} hoy={hoy} ocultando={ocultarFestivos} onOcultar={(ocultar) => setOcultarFestivosEn(ocultar ? hoy : null)} />}
 
-      {vista === 'listas' ? null : vista === 'rellamadas' ? (
+      {vista === 'listas' || fichaAPantallaCompleta ? null : vista === 'rellamadas' ? (
         <NavegadorDeDias dia={diaRellamadas} hoy={hoy} onDia={(d) => setDiaElegido(d === hoy ? null : d)} delDia={rell.delDia.length} atrasadas={rell.atrasadas.length} />
       ) : (
         <div className="flex flex-wrap items-center gap-2">
