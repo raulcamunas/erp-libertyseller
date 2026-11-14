@@ -75,6 +75,11 @@ export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, diaFesti
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className={`min-w-0 flex-1 truncate text-[12.5px] font-semibold ${cerrado ? 'text-[var(--ls-t3)]' : 'text-[var(--ls-t1)]'}`}>{lead.store_name}</span>
+          {lead.analisis_amazon_at && (
+            <span title="Tiene su análisis de Amazon hecho" className="shrink-0 rounded-[4px] bg-[#FF6600]/12 px-1 text-[9.5px] font-bold uppercase tracking-wide text-[#FF6600]">
+              Informe
+            </span>
+          )}
           {/* Un día festivo en su comunidad: casi seguro no contestan. Solo si el festivo es de una comunidad o una zona (uno de toda España sería igual en todas las filas) */}
           <MarcaDeFestivo lead={lead} dia={diaFestivos ?? hoy} hoy={hoy} />
           <CifraDeLista lead={lead} />

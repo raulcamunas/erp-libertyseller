@@ -63,7 +63,7 @@ function combine(dateStr: string, timeStr: string): Date {
   return fromMadrid(`${dateStr}T${timeStr}:00`)
 }
 
-const STATUS_OPTIONS: AppointmentStatus[] = ['scheduled', 'confirmed', 'rescheduled', 'no_show', 'qualified', 'not_qualified', 'cancelled']
+const STATUS_OPTIONS: AppointmentStatus[] = ['scheduled', 'confirmed', 'rescheduled', 'no_show', 'qualified', 'semi_qualified', 'not_qualified', 'cancelled']
 
 const ID_BUSCADOR = 'cita-buscador-de-clientes'
 

@@ -5,12 +5,7 @@ import {
   type CostAppointment,
   type PersonCost,
 } from '@/lib/payroll/cost'
-import {
-  cycleKeyPaidInMonth,
-  type WorkHourEntry,
-  type PayrollRate,
-  type ManualAppointment,
-} from '@/lib/types/payroll'
+import { cycleKeyPaidInMonth, type WorkHourEntry, type PayrollRate, type ManualAppointment, ESTADOS_QUE_COBRAN } from '@/lib/types/payroll'
 import {
   employeeMonth,
   employeesMonthTotal,
@@ -233,8 +228,8 @@ async function loadFromTables(
       fetchAll<CostAppointment>((a, b) =>
         service
           .from('appointments')
-          .select('comercial_id, start_time')
-          .eq('status', 'qualified')
+          .select('comercial_id, status, start_time')
+          .in('status', [...ESTADOS_QUE_COBRAN])
           .eq('is_external', false)
           .order('id')
           .range(a, b)

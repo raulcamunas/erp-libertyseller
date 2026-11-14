@@ -62,6 +62,8 @@ export interface TarifaSku {
   moneda: string
   /** Comisión de referencia. null = Amazon no la ha desglosado */
   referral: number | null
+  /** La misma comisión SIN la promoción (FeeAmount). Si Amazon tiene una rebaja temporal, `referral` puede salir 0 y esta no. null = no la ha dado */
+  referralBruto?: number | null
   /** Tarifa de gestión logística. null en un SKU que no es de FBA */
   fba: number | null
   /** Todo lo demás que venga desglosado. Ver la nota 4 */
@@ -270,6 +272,7 @@ export function interpretar(
     }
 
     let referral: number | null = null
+    let referralBruto: number | null = null
     let fba: number | null = null
     let otras: number | null = null
 
@@ -282,7 +285,11 @@ export function interpretar(
       if (importe === null) continue
       const tipo = texto(detalle.FeeType) ?? ''
 
-      if (ES_REFERRAL.has(tipo)) referral = (referral ?? 0) + importe
+      if (ES_REFERRAL.has(tipo)) {
+        referral = (referral ?? 0) + importe
+        const bruto = numero(detalle.FeeAmount?.Amount)
+        if (bruto !== null) referralBruto = (referralBruto ?? 0) + bruto
+      }
       else if (ES_FBA.has(tipo)) fba = (fba ?? 0) + importe
       else {
         otras = (otras ?? 0) + importe
@@ -295,6 +302,7 @@ export function interpretar(
       precioReferencia: precio,
       moneda,
       referral,
+      referralBruto,
       fba,
       otras,
       total: numero(resultado.FeesEstimate?.TotalFeesEstimate?.Amount),

@@ -10,6 +10,8 @@ import { CreateAppointmentPayload } from '@/lib/types/appointments'
 import { finQueSeGuarda } from '@/lib/agenda/duracion'
 import { cuerpoDeHuecoOcupado, puedeForzarHueco } from '@/lib/agenda/ocupado'
 import { choquesEnLaBase } from '@/lib/agenda/ocupado-servidor'
+import { textoDeCita } from '@/lib/chat/sistema'
+import { publicarEnElChat } from '@/lib/chat/sistema-servidor'
 
 const SELECT_WITH_PEOPLE = `
   *,
@@ -94,6 +96,18 @@ export async function POST(request: NextRequest) {
   if (error) {
     console.error('Error insertando cita:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Aviso al chat del equipo (#notificaciones-erp): un comercial ha agendado una cita
+  if ((inserted.status ?? 'scheduled') === 'scheduled') {
+    const base = (process.env.ERP_PUBLIC_URL ?? '').trim().replace(/\/$/, '')
+    const quien = (inserted as { comercial?: { full_name?: string | null; email?: string | null } | null }).comercial
+    const closer = (inserted as { assigned_closer?: { full_name?: string | null } | null }).assigned_closer
+    void publicarEnElChat({
+      clave: `cita:${inserted.id}`,
+      titulo: 'Nueva cita agendada',
+      cuerpo: textoDeCita({ comercial: quien?.full_name?.trim() || quien?.email || 'Un comercial', lead: inserted.lead_name, empresa: inserted.lead_company, inicioIso: inserted.start_time, closer: closer?.full_name ?? null, enlace: base ? `${base}/dashboard/agenda` : null }),
+    })
   }
 
   // 2) Empujar a Google Calendar (si está configurado)

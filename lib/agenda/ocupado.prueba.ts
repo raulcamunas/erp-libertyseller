@@ -49,7 +49,7 @@ console.log('\n=== choques con otras citas del ERP ===')
   ok('sin citas no choca con nada', choquesCon(viernes('10:00'), viernes('11:00'), []).length === 0)
 
   // Los estados: solo las canceladas dejan libre el hueco
-  for (const estado of ['scheduled', 'confirmed', 'rescheduled', 'no_show', 'qualified', 'not_qualified']) {
+  for (const estado of ['scheduled', 'confirmed', 'rescheduled', 'no_show', 'qualified', 'semi_qualified', 'not_qualified']) {
     ok(`una cita ${estado} ocupa su hueco`, choquesCon(viernes('10:00'), viernes('11:00'), [cita('e', '10:00', '11:00', { status: estado })]).length === 1)
   }
   ok('una CANCELADA no lo ocupa (se puede volver a agendar ahí)', choquesCon(viernes('10:00'), viernes('11:00'), [cita('c', '10:00', '11:00', { status: 'cancelled' })]).length === 0)

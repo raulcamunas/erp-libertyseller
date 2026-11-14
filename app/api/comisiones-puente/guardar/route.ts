@@ -55,6 +55,8 @@ export async function POST(request: NextRequest) {
       importe?: number
       /** true = «sí, pisa lo que había». Lo manda la pantalla tras preguntar */
       confirmar?: boolean
+      /** true = «Corregir la comisión facturada»: el mes tiene factura sin cobrar y se corrige a propósito */
+      corregir?: boolean
     } | null
 
     if (!cuerpo) return fail(400, 'No ha llegado nada que guardar')
@@ -87,7 +89,8 @@ export async function POST(request: NextRequest) {
       anio,
       mes,
       redondeado,
-      cuerpo.confirmar === true
+      cuerpo.confirmar === true,
+      cuerpo.corregir === true
     )
 
     if (!resultado.ok) {

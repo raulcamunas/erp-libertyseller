@@ -8,7 +8,7 @@ import { fetchAll } from '@/lib/supabase/paginacion'
 import { BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TITULO } from '@/lib/estilo/denso'
 import { toMadrid } from '@/lib/timezone'
 import { crmContact, type CrmClientWithDetails, type CrmStage } from '@/lib/types/crm'
-import type { WorkHourEntry, PayrollRate } from '@/lib/types/payroll'
+import { type WorkHourEntry, type PayrollRate, ESTADOS_QUE_COBRAN } from '@/lib/types/payroll'
 import { monthCostTotal } from '@/lib/payroll/cost'
 import type { CalendarPerson } from '@/lib/types/appointments'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -61,10 +61,11 @@ import { useAccionesDeFase } from './useAccionesDeFase'
  * lo que ve cada rol— y le añade el historial de fases, las notas de reunión y el plan de propuesta (migración 258). Sin esa migración funciona igual, sin esas tres cosas.
  */
 
-/** Cita cualificada, con lo justo para calcular comisiones */
+/** Cita que cobra (cualificada o semi-cualificada), con lo justo para calcular comisiones */
 export interface CrmQualifiedAppointment {
   id: string
   comercial_id: string | null
+  status: string
   start_time: string
 }
 
@@ -232,7 +233,7 @@ export function HubCrm({
           // cita cualificada que cayera fuera del corte dejaría de contar sin que apareciera ningún aviso.
           try {
             const filas = await fetchAll<CrmQualifiedAppointment>((desde, hasta) =>
-              supabase.from('appointments').select('id, comercial_id, start_time').eq('status', 'qualified').eq('is_external', false).order('id', { ascending: true }).range(desde, hasta)
+              supabase.from('appointments').select('id, comercial_id, status, start_time').in('status', [...ESTADOS_QUE_COBRAN]).eq('is_external', false).order('id', { ascending: true }).range(desde, hasta)
             )
             setQualified(filas)
           } catch (error) {

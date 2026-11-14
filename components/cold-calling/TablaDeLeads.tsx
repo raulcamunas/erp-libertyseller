@@ -202,6 +202,11 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
                       <span className="max-w-[150px] truncate" title={l.store_name}>
                         {l.store_name}
                       </span>
+                      {l.analisis_amazon_at && (
+                        <span title="Tiene su análisis de Amazon hecho" className="shrink-0 rounded-[4px] bg-[#FF6600]/12 px-1 text-[9.5px] font-bold uppercase tracking-wide text-[#FF6600]">
+                          Informe
+                        </span>
+                      )}
                       <MarcaDeFestivo lead={l} dia={hoy} hoy={hoy} />
                     </span>
                   </td>
