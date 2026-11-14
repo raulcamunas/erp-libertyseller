@@ -136,6 +136,7 @@ export async function escribirTextos(
     'Debajo de tu texto el correo ya enseña las cifras, los tres puntos clave y un botón para ver el análisis: NO los repitas todos ni pongas enlaces.',
     'Reglas: trato de TÚ (tu, tus, te, tienes, vendes), nunca de usted ni de vosotros. Español de España, natural, directo, sin frases de agencia ("potenciar", "llevar al siguiente nivel", "sinergias"). Sin exclamaciones. Sin emojis.',
     'Nunca hables de dinero, precios ni de cuánto ganaría. Nunca prometas resultados. No inventes nada que no esté en los datos o en el historial.',
+    'Tú no explicas ni resuelves los puntos del análisis, ni propones hacerlo por teléfono: si ofreces seguir, es poner a la persona en contacto con nuestro equipo de estrategia, que se lo explica todo.',
     'No firmes ni te despidas (la firma va aparte). No empieces con el saludo (va aparte).',
     'El asunto: concreto, con el nombre de la tienda, sin mayúsculas de reclamo, sin "Re:" ni "Fwd:", máximo 70 caracteres.',
   ].join('\n')

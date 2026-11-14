@@ -264,7 +264,7 @@ export function correoAnalisisHtml(inf: InformeDelCorreo, d: DatosCorreoAnalisis
             <div style="font:400 13px/1.4 Inter,Arial,sans-serif;color:${GRIS};">Tu contacto en Liberty Seller${tel ? ` · ${esc(tel)}` : ''}</div>
           </td>
         </tr></table>
-        <div style="font:400 14px/1.6 Inter,Arial,sans-serif;color:#2A2622;padding:14px 0 16px;">¿Lo vemos juntos? Escríbeme o llámame y te cuento cómo lo trabajaríamos. Sin compromiso: si no hay recorrido, te lo diré.</div>
+        <div style="font:400 14px/1.6 Inter,Arial,sans-serif;color:#2A2622;padding:14px 0 16px;">Si quieres saber más, escríbeme o llámame y te pongo en contacto con nuestro equipo de estrategia, que te lo explica todo. Sin compromiso: si no hay recorrido, te lo diremos.</div>
         <table role="presentation" cellpadding="0" cellspacing="0"><tr>
           ${wa ? `<td style="padding-right:8px;"><a href="${esc(wa)}" target="_blank" style="display:inline-block;padding:12px 18px;background:#141414;border-radius:9px;font:800 12.5px/1 Inter,Arial,sans-serif;color:#FFFFFF;text-decoration:none;text-transform:uppercase;letter-spacing:0.6px;">WhatsApp</a></td>` : ''}
           ${tel ? `<td><a href="tel:${esc(tel.replace(/[^\d+]/g, ''))}" style="display:inline-block;padding:11px 18px;background:#FFFFFF;border:1px solid #141414;border-radius:9px;font:800 12.5px/1 Inter,Arial,sans-serif;color:#141414;text-decoration:none;text-transform:uppercase;letter-spacing:0.6px;">Llamar</a></td>` : ''}

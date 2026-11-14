@@ -1066,7 +1066,7 @@ export function InformeAnalisis({
                     className="inline-flex items-center gap-2 rounded-xl px-6 py-3.5 text-[13px] font-bold uppercase tracking-[0.06em] text-white transition-colors hover:bg-white/10"
                     style={{ border: '1px solid rgba(255,255,255,0.16)' }}
                   >
-                    <IconoWhatsapp className="h-4 w-4" /> Preguntar a {nombreComercial}
+                    <IconoWhatsapp className="h-4 w-4" /> Pedir más información
                   </a>
                 )}
               </div>
@@ -1205,7 +1205,7 @@ export function InformeAnalisis({
               className="inline-flex items-center gap-2 text-[14px] font-semibold transition-colors hover:text-white"
               style={{ color: N }}
             >
-              Pregúntale a {nombreComercial} cómo lo resolveríamos <ArrowRight className="h-4 w-4" />
+              Pide más información sobre cómo lo resolveríamos <ArrowRight className="h-4 w-4" />
             </a>
           </Revelar>
         </Seccion>
@@ -1570,8 +1570,8 @@ export function InformeAnalisis({
                 <span className="ls-texto-degradado block">Lo de dentro, en una llamada.</span>
               </h2>
               <p className="mx-auto mt-5 max-w-[560px] text-[15.5px] leading-relaxed" style={{ color: TEXTO2 }}>
-                Escribe o llama a {nombreComercial} y lo vemos juntos: con un acceso de solo lectura a Seller Central completamos el diagnóstico con lo que este análisis no
-                puede ver. Sin compromiso: si no hay recorrido, te lo diremos.
+                Escribe o llama a {nombreComercial} y te pone en contacto con nuestro equipo de estrategia, que te lo explica todo: con un acceso de solo lectura a Seller Central
+                completamos el diagnóstico con lo que este análisis no puede ver. Sin compromiso: si no hay recorrido, te lo diremos.
               </p>
             </div>
             <div className="mx-auto mt-9 grid max-w-[620px] gap-2.5 sm:grid-cols-2">

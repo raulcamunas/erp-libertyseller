@@ -167,7 +167,6 @@ export function depurar(inf: InformeSinAmazon): InformeSinAmazon & { calidad: Ca
   const nivel: Calidad['nivel'] = !utiles.length && inf.caso === 'ausente' ? 'flojo' : ocultos.length || aMirar || grande || !utiles.length ? 'revisar' : 'bueno'
 
   const calidad: Calidad = { nivel, motivos, ocultos, mercadosBuenos: utiles.length }
-  if (utiles.length === inf.mercados.length) return { ...inf, calidad }
   const textos = textosDelInforme({
     caso: inf.caso,
     marcaNombre: inf.marca.nombre,
@@ -178,5 +177,8 @@ export function depurar(inf: InformeSinAmazon): InformeSinAmazon & { calidad: Ca
     productosWeb: inf.catalogo.productos,
     mercados: utiles,
   })
+  // Sin nada oculto se respetan los textos guardados, salvo la chuleta del comercial: se rehace siempre para que los informes ya hechos
+  // lleven también las frases de hoy (el comercial pasa al lead a nuestro equipo de estrategia, no se lo explica él)
+  if (utiles.length === inf.mercados.length) return { ...inf, guion: textos.guion, calidad }
   return { ...inf, mercados: utiles, ...textos, calidad }
 }

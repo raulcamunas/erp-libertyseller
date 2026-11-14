@@ -178,7 +178,7 @@ export function textosDelInforme(d: CifrasDelTexto): Pick<InformeSinAmazon, 'tit
           `He estado mirando ${marcaNombre} en Amazon: tiene ${ent(modelos)} fichas${nombresTerceros.length ? ` y las ${nombresTerceros.length > 1 ? 'están' : 'está'} vendiendo ${enumerar(nombresTerceros.slice(0, 2))}` : ''}. ¿Lo sabías?`,
           sinVendedor ? `De las que he revisado, ${sinVendedor === 1 ? 'una no la vende' : `${sinVendedor} no las vende`} nadie ahora mismo: quien te busca allí no te puede comprar.` : `Ellos ponen el precio y las fotos de tu marca, y se quedan la venta.`,
           principal ? `En ${principal.nombre.toLowerCase()} los que más venden son ${enumerar(principal.marcas.slice(0, 3).map((x) => x.marca))}.` : '',
-          'Con el Registro de Marca recuperas el control de tus fichas. ¿Te lo enseño en 20 minutos?',
+          'Con el Registro de Marca recuperas el control de tus fichas. ¿Te paso con nuestro equipo de estrategia para que te lo expliquen en 20 minutos?',
         ].filter(Boolean)
       : [
           `He mirado ${marcaNombre} en Amazon y no estás: quien te busca allí acaba comprando otra marca.`,
@@ -186,7 +186,7 @@ export function textosDelInforme(d: CifrasDelTexto): Pick<InformeSinAmazon, 'tit
             ? `En ${principal.nombre.toLowerCase()} ${principal.modo === 'ventas' ? `los primeros venden más de ${ent(principal.ventasMes)} unidades al mes` : `los que mandan tienen unas ${ent(principal.resenasMediana ?? 0)} reseñas`}, a ${principal.precioMediano ? eur(principal.precioMediano) : 'precios'} de mediana.`
             : '',
           marcasRivales.length ? `Se lo están llevando ${enumerar(marcasRivales.slice(0, 3))}.` : '',
-          'No hace falta subir todo: empezaríamos por lo que más se vende. ¿Lo vemos en 20 minutos?',
+          'No hace falta subir todo: empezaríamos por lo que más se vende. ¿Te paso con nuestro equipo de estrategia para verlo en 20 minutos?',
         ].filter(Boolean)
 
 

@@ -379,7 +379,7 @@ export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAma
                 Ver lo que hemos encontrado ↓
               </a>
               <a className="sa-cta sec" href={cta} target={wa ? '_blank' : undefined} rel="noopener noreferrer">
-                Hablar con {nombreComercial}
+                Pedir más información
               </a>
             </div>
           </div>
@@ -540,9 +540,9 @@ export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAma
         <div className="sa-halo" style={{ left: '30%', top: -120, width: 500, height: 400 }} />
         <div className="sa-in">
           <Etiqueta>Siguiente paso</Etiqueta>
-          <h2>¿Lo vemos juntos en 20 minutos?</h2>
+          <h2>¿Quieres verlo con tu catálogo delante?</h2>
           <p className="sa-par">
-            {nombreComercial}, de Liberty Seller, te explica estos datos con tu catálogo delante. Sin compromiso: si no vemos recorrido, te lo diremos.
+            {nombreComercial}, de Liberty Seller, te pone en contacto con nuestro equipo de estrategia: ellos te explican todo con tu catálogo delante. Sin compromiso: si no vemos recorrido, te lo diremos.
           </p>
           <div className="sa-ctas">
             {wa && (
