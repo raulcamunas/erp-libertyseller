@@ -13,6 +13,7 @@ import { palabrasQuePesan, ventanaDeCambio } from '@/lib/seo/tareas'
 import { BotonCopiar, diagnosticoDe, fichaDe, SelectorDeProducto } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
 import { PropuestaConIa } from './PropuestaConIa'
+import { EditorDeFicha } from './EditorDeFicha'
 import { useDelProducto } from './useDelProducto'
 import type { DatosDePublicidad } from './PestanaSeoBusquedas'
 
@@ -73,7 +74,9 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos }
         <>
           <PuertaDeSalida d={diagnostico} hayBusquedas={hayBusquedas} ventana={ventana} />
           {revision && <RevisionDeNorma incidencias={revision.incidencias} />}
+          {(ficha.issues?.length ?? 0) > 0 && <IncidenciasDeAmazon issues={ficha.issues ?? []} />}
           {asin && <PropuestaConIa key={asin} cuentaId={cuentaId} asin={asin} hayBusquedas={hayBusquedas} hayFicha={!!ficha.titulo} mejoras={!!datos.lectura.mejoras} diagnostico={diagnostico} ventana={ventana} />}
+          {asin && ficha.sku && <EditorDeFicha key={`editor-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} ventana={ventana} />}
 
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
             <div className="flex min-w-0 flex-col gap-3">
@@ -94,10 +97,10 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos }
                   )}
                 </p>
               </Bloque>
-              <Bloque titulo="Item Highlights" medida={`— / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres`} lleno={0} alerta={false}>
-                <p className="flex items-start gap-2 text-[12px] leading-[1.5] text-[var(--ls-t3)]">
+              <Bloque titulo="Item Highlights" medida={ficha.highlights ? `${[...ficha.highlights].length} / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres` : `— / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres`} lleno={ficha.highlights ? [...ficha.highlights].length / LIMITE_HIGHLIGHTS_CARACTERES : 0} alerta={[...(ficha.highlights ?? '')].length > LIMITE_HIGHLIGHTS_CARACTERES} copiar={ficha.highlights ?? undefined}>
+                {ficha.highlights ? <p className="text-[13px] leading-[1.5] text-[var(--ls-t1)]">{ficha.highlights}</p> : <p className="flex items-start gap-2 text-[12px] leading-[1.5] text-[var(--ls-t3)]">
                   <Info className="mt-[3px] h-3 w-3 shrink-0" /> La API de Amazon no los devuelve en lo que lee el ERP: revísalos en Seller Central. Se indexan igual que el título; ahí va lo que no cabe en los 75 caracteres (formato, cantidad, duración). La propuesta con IA los escribe.
-                </p>
+                </p>}
               </Bloque>
               <Bloque titulo="Viñetas (bullets)" medida={`${ficha.bullets.length} de 5 · ${entero(m?.bulletsBytes ?? 0)} / ${entero(LIMITE_BULLETS_BYTES)} bytes`} lleno={(m?.bulletsBytes ?? 0) / LIMITE_BULLETS_BYTES} alerta={ficha.bullets.length < 5 || (m?.bulletsBytes ?? 0) > LIMITE_BULLETS_BYTES} copiar={ficha.bullets.join('\n')}>
                 {ficha.bullets.length === 0 ? (
@@ -323,6 +326,31 @@ function Bloque({ titulo, medida, lleno, alerta, copiar, children }: { titulo: s
         </div>
       </header>
       <div className={CAJA.cuerpo}>{children}</div>
+    </section>
+  )
+}
+
+/** Lo que Amazon dice que le pasa al listing (includedData=issues, migración 312): suprimido, falta un atributo, imagen rechazada… */
+function IncidenciasDeAmazon({ issues }: { issues: NonNullable<ReturnType<typeof fichaDe>>['issues'] & object }) {
+  const graves = issues.filter((i) => (i.severity ?? '').toUpperCase() === 'ERROR').length
+  return (
+    <section className={CAJA.base}>
+      <header className={CAJA.cabecera}>
+        <TriangleAlert className="h-[14px] w-[14px]" style={{ color: graves > 0 ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }} />
+        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Lo que dice Amazon de este listing</h3>
+        <span className="ml-auto text-[11.5px] text-[var(--ls-t4)]">{issues.length} {issues.length === 1 ? 'aviso' : 'avisos'}{graves > 0 ? ` · ${graves} ${graves === 1 ? 'error' : 'errores'}` : ''}</span>
+      </header>
+      <ul className="flex flex-col divide-y divide-[var(--ls-linea)]">
+        {issues.slice(0, 10).map((i, k) => (
+          <li key={k} className="flex items-start gap-3 px-4 py-[9px] text-[12.5px] leading-[1.5]">
+            <span className="mt-[6px] h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: (i.severity ?? '').toUpperCase() === 'ERROR' ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }} />
+            <div className="min-w-0">
+              <div className="text-[var(--ls-t1)]">{i.message}</div>
+              {i.atributos.length > 0 && <div className="text-[var(--ls-t4)]">{i.atributos.join(', ')}{i.code ? ` · código ${i.code}` : ''}</div>}
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

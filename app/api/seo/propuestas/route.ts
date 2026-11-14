@@ -5,7 +5,7 @@ import { aplicarPropuesta, descartarPropuesta, proponerFicha, propuestasDe } fro
 import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
 
 /**
- * SEO TEST · LAS PROPUESTAS DE FICHA CON IA DE UN PRODUCTO. Solo administradores.
+ * SEO TEST · LAS PROPUESTAS DE FICHA CON IA DE UN PRODUCTO. Administradores y quien tenga la casilla de SEO Test.
  *
  *   GET  ?cuenta=&asin=                          → las últimas propuestas
  *   POST {cuenta, asin, accion: 'proponer'}      → la IA escribe una propuesta y se guarda PENDIENTE. No toca Amazon
