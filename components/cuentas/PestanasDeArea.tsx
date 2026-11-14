@@ -149,7 +149,7 @@ export function PestanaMarketing({ c }: { c: CuentaEnLista }) {
       </FilaDeKpis>
 
       {serie.some((d) => d.gasto > 0 || d.ventas > 0) && (
-        <Tarjeta titulo="Gasto y ventas de publicidad · 14 días" subtitulo="Por día, todas sus cuentas juntas" icono={Megaphone} acento="marketing" indice={5}>
+        <Tarjeta titulo="Gasto y ventas de publicidad · 14 días" subtitulo="Por día, todas sus cuentas juntas" icono={Megaphone} acento="marketing" indice={5} acciones={<Leyenda />}>
           <GraficoGastoVentas serie={serie} moneda={moneda} />
         </Tarjeta>
       )}
@@ -160,6 +160,19 @@ export function PestanaMarketing({ c }: { c: CuentaEnLista }) {
         ))}
       </div>
     </div>
+  )
+}
+
+function Leyenda() {
+  return (
+    <span className="flex items-center gap-3 text-[12px] text-[var(--ls-t3)]">
+      <span className="flex items-center gap-[6px]">
+        <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: VIZ[0] }} /> Ventas
+      </span>
+      <span className="flex items-center gap-[6px]">
+        <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: VIZ[1] }} /> Gasto
+      </span>
+    </span>
   )
 }
 
@@ -589,7 +602,7 @@ export function PestanaRemesas({ c }: { c: CuentaEnLista }) {
             const n = r.porFase[f]
             const color = colorDeAcento('remesas')
             return (
-              <li key={f} className="relative flex min-w-0 flex-col items-center gap-1 rounded-[12px] border px-1 py-3 text-center" style={{ borderColor: n > 0 ? mezcla(color, 40) : 'var(--ls-linea)', background: n > 0 ? mezcla(color, 10) : 'transparent' }}>
+              <li key={f} title={`${FASE[f].texto}: ${n}`} className="relative flex min-w-0 flex-col items-center gap-1 rounded-[12px] border px-1 py-3 text-center" style={{ borderColor: n > 0 ? mezcla(color, 40) : 'var(--ls-linea)', background: n > 0 ? mezcla(color, 10) : 'transparent' }}>
                 <span className={cn('text-[22px] font-semibold tabular-nums leading-none', n > 0 ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t4)]')}>{n}</span>
                 <span className="w-full truncate text-[11.5px] font-medium text-[var(--ls-t2)]">{FASE[f].texto}</span>
                 <span className="hidden w-full truncate text-[10.5px] text-[var(--ls-t4)] sm:block">{FASE[f].ayuda}</span>

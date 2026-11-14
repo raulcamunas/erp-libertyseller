@@ -286,7 +286,7 @@ function KpisDeCartera({ cuentas }: { cuentas: CuentaEnLista[] }) {
     <FilaDeKpis minimo={180}>
       <Kpi
         indice={0}
-        etiqueta="Gasto en Ads · 7 días"
+        etiqueta="Gasto Ads · 7 d"
         icono={Wallet}
         acento="marketing"
         valor={k.gasto}

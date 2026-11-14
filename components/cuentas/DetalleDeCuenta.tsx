@@ -273,6 +273,9 @@ function Resumen({
   prepararInforme: (t?: TipoDeInforme) => void
 }) {
   const hoy = useMemo(() => queHacerHoy(entradaDeSalud(c, datos.hoy)), [c, datos.hoy])
+  // Seis a la vista; el resto, al pulsar «Ver todo» (la lista no debe empujar el ciclo fuera de la pantalla)
+  const [todo, setTodo] = useState(false)
+  const vistos = todo ? hoy : hoy.slice(0, 6)
   const irAlCiclo = () => document.getElementById('semana-del-ciclo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   return (
@@ -287,7 +290,7 @@ function Resumen({
             <EstadoVacio compacto icono={PartyPopper} acento="cuentas" titulo="Nada urgente en esta cuenta" descripcion="Todo en verde. Si no tiene ciclo todavía, ponle uno a la derecha para que cada semana sepas qué toca." />
           ) : (
             <ol className="divide-y divide-[var(--ls-linea)]">
-              {hoy.map((x) => {
+              {vistos.map((x) => {
                 const { icono: Icono, acento } = AREA_UI[x.area]
                 const color = colorDeAcento(acento)
                 const urgente = x.prioridad === 0
@@ -313,6 +316,13 @@ function Resumen({
                   </li>
                 )
               })}
+              {hoy.length > 6 && (
+                <li className="px-4 py-2">
+                  <Boton variante="fantasma" tamano="sm" onClick={() => setTodo((v) => !v)}>
+                    {todo ? 'Ver menos' : `Ver las ${hoy.length} cosas`}
+                  </Boton>
+                </li>
+              )}
             </ol>
           )}
         </Tarjeta>

@@ -81,6 +81,7 @@ export function entradaDeSalud(c: CuentaEnLista, hoy: string): EntradaDeSalud {
       pendientes: s.pendientes,
       recuperable: s.recuperable,
       motorApagado: c.ppc.cuentas.length > 0 && c.ppc.cuentas.every((x) => x.modo === 'apagado'),
+      moneda: c.ppc.cuentas[0]?.moneda ?? 'EUR',
     },
     seo: seo
       ? {

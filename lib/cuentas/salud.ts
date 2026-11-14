@@ -34,6 +34,8 @@ export interface EntradaDeSalud {
     recuperable: number
     /** Todas sus cuentas con el motor apagado */
     motorApagado: boolean
+    /** Moneda de sus cuentas (ISO), para escribir el dinero recuperable. Por defecto EUR */
+    moneda?: string | null
   }
   /** null = no se ha mirado (en la lista el SEO no se calcula: es caro) */
   seo: null | { error: boolean; cuentas: number; productos: number; graves: number; atencion: number; sinBrandAnalytics: boolean; titulosCambiados: number; propuestasPendientes: number }
@@ -51,6 +53,8 @@ export const NOMBRE_AREA: Record<AreaDeSalud, string> = {
   remesas: 'Remesas',
 }
 
+/** «34 €», «120 USD»: sin decimales y con el símbolo solo para el euro */
+const dineroCorto = (n: number, moneda?: string | null) => `${Math.round(n).toLocaleString('es-ES')} ${!moneda || moneda === 'EUR' ? '€' : moneda}`
 const pct = (p: number) => `${p > 0 ? '+' : ''}${Math.round(p * 100)} %`
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`
 
@@ -79,7 +83,7 @@ export function semaforoMarketing(e: EntradaDeSalud): Semaforo {
   const subida = acos != null && acosAnt != null && acosAnt > 0 ? (acos - acosAnt) / acosAnt : null
   if (subida != null && subida >= 0.5) return { area: 'marketing', tono: 'rojo', texto: `ACoS ${pct(subida)}` }
   if (subida != null && subida >= 0.2) return { area: 'marketing', tono: 'ambar', texto: `ACoS ${pct(subida)}` }
-  if (p.recuperable >= 20) return { area: 'marketing', tono: 'ambar', texto: 'Negativas por aprobar' }
+  if (p.recuperable >= 20) return { area: 'marketing', tono: 'ambar', texto: 'Negativas' }
   if (p.pendientes > 0) return { area: 'marketing', tono: 'ambar', texto: plural(p.pendientes, 'propuesta', 'propuestas') }
   if (p.motorApagado) return { area: 'marketing', tono: 'ambar', texto: 'Motor apagado' }
   return { area: 'marketing', tono: 'verde', texto: subida != null && subida < -0.05 ? `ACoS ${pct(subida)}` : 'Al día' }
@@ -165,7 +169,7 @@ export function queHacerHoy(e: EntradaDeSalud): CosaDeHoy[] {
       area: 'marketing',
       prioridad: p.recuperable >= 20 ? 1 : 2,
       titulo: `Revisar ${plural(p.pendientes, 'propuesta', 'propuestas')} del motor`,
-      detalle: p.recuperable >= 5 ? `Aprobando negativas y pausas se deja de gastar ${Math.round(p.recuperable)} sin ventas.` : 'Negativas, cosecha a exacta y pujas que el motor ha preparado.',
+      detalle: p.recuperable >= 5 ? `Aprobando negativas y pausas se dejan de gastar ${dineroCorto(p.recuperable, p.moneda)} que no venden.` : 'Negativas, cosecha a exacta y pujas que el motor ha preparado.',
     })
   const s = e.seo
   if (s && s.graves > 0) xs.push({ id: 'seo-graves', area: 'seo', prioridad: 1, titulo: `${plural(s.graves, 'tarea urgente', 'tareas urgentes')} de SEO`, detalle: 'Lo más grave de «Qué hacer hoy» de SEO: fichas que pierden visibilidad o búsquedas que se caen.' })
