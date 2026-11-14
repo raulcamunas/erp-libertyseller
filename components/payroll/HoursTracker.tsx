@@ -1,59 +1,32 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { createClient } from '@/lib/supabase/client'
-import { fetchAll } from '@/lib/supabase/paginacion'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion'
 import { toast } from 'sonner'
-import {
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Settings2,
-  TrendingUp,
-  CheckCircle2,
-  CalendarDays,
-  Minus,
-  Plus,
-  Trash2,
-  Zap,
-} from 'lucide-react'
-import {
-  WorkHourEntry,
-  comisionDeCita,
-  ESTADOS_QUE_COBRAN,
-  PayrollRate,
-  ManualAppointment,
-  payrollPeriod,
-  periodDays,
-  periodLabel,
-  resolveRate,
-  formatDollars,
-} from '@/lib/types/payroll'
-import { CalendarPerson, colorForAgent } from '@/lib/types/appointments'
-import { UserProfile } from '@/lib/supabase/get-user-profile'
-import { toMadrid } from '@/lib/timezone'
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, Eye, LayoutGrid, List, Pencil, Settings2, Users } from 'lucide-react'
+import { Boton, CabeceraDeModulo, Confirmacion, PanelDePestana, PanelLateral, Pestanas, Segmentado, TACTIL_CUADRADO, Tarjeta } from '@/components/ui-ls'
+import { cn } from '@/lib/utils'
+import { periodLabel, type ManualAppointment, type PayrollRate, type WorkHourEntry } from '@/lib/types/payroll'
+import { diaDeLaSemana, formatoHoras } from '@/lib/payroll/horas'
+import type { CalendarPerson } from '@/lib/types/appointments'
+import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import { RateSettings } from './RateSettings'
+import type { QualifiedAppointment } from './horas/tipos'
+import { useDatosDeHoras } from './horas/useDatosDeHoras'
+import { useNominaCiclo } from './horas/useNominaCiclo'
+import { HeroCiclo } from './horas/HeroCiclo'
+import { KpisCiclo } from './horas/KpisCiclo'
+import { CalendarioCiclo } from './horas/CalendarioCiclo'
+import { ListaSemana } from './horas/ListaSemana'
+import { EditorDia } from './horas/EditorDia'
+import { PopoverDelDia, useEsEscritorio } from './horas/PopoverDelDia'
+import { ApuntarHoyPegajoso, ApuntarHoyTarjeta } from './horas/ApuntarHoy'
+import { ResumenCiclo } from './horas/ResumenCiclo'
+import { CitasDelCiclo } from './horas/CitasDelCiclo'
+import { VistaEquipo } from './horas/VistaEquipo'
+import { DIAS_LARGOS, claveDeHoy, diaYMesLargo } from './horas/fechas'
 
-const MESES_CORTOS = [
-  'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-  'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
-]
-
-/** 'ago' a partir de '2026-08' */
-function nombreCortoDeMes(mes: string): string {
-  return MESES_CORTOS[Number(mes.slice(5, 7)) - 1] ?? mes
-}
-
-/** Cita que cobra (cualificada o semi-cualificada), con lo mínimo para contarla y listarla */
-export interface QualifiedAppointment {
-  id: string
-  comercial_id: string | null
-  status: string
-  start_time: string
-  lead_name: string
-  lead_company: string | null
-}
+export type { QualifiedAppointment } from './horas/tipos'
 
 interface HoursTrackerProps {
   initialHours: WorkHourEntry[]
@@ -76,1162 +49,345 @@ interface HoursTrackerProps {
    * supervisión abriría de paso las tarifas hora y las comisiones, que es
    * justamente lo que se ha decidido NO darle.
    *
-   * Solo abre el selector de persona. Ni edita, ni enseña dinero de nadie: eso lo
-   * decide `soloMirando`, más abajo.
+   * Abre el selector de persona y la pestaña «Equipo» (solo horas). Ni edita, ni
+   * enseña dinero de nadie: eso lo decide `soloMirando`, más abajo.
    */
   puedeVerHorasDelEquipo: boolean
 }
 
-const WEEKDAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
-const MONTHS_LONG = [
-  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-]
-const WEEKDAYS_LONG = [
-  'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo',
-]
+type Vista = 'calendario' | 'semana'
+type Seccion = 'ciclo' | 'equipo'
+const CLAVE_VISTA = 'mis-horas:vista'
 
-function pad(n: number) {
-  return String(n).padStart(2, '0')
-}
+/**
+ * MIS HORAS. Antes era un solo componente de 1.237 líneas; ahora orquesta piezas de `./horas/`:
+ *
+ *   useDatosDeHoras   estado, tiempo real y escrituras (guardar un día, citas manuales)
+ *   useNominaCiclo    el dinero del ciclo, con los MISMOS cálculos de antes, más progreso, series y comparativa
+ *   HeroCiclo · KpisCiclo · CalendarioCiclo / ListaSemana · EditorDia (popover en PC, hoja en móvil)
+ *   ApuntarHoy (franja en PC, pegajoso abajo en móvil) · ResumenCiclo · CitasDelCiclo · VistaEquipo
+ */
+export function HoursTracker({ initialHours, initialRates, qualifiedAppointments, initialManual, team, currentUser, isAdmin, puedeVerHorasDelEquipo }: HoursTrackerProps) {
+  const datos = useDatosDeHoras({ initialHours, initialRates, qualifiedAppointments, initialManual, currentUserId: currentUser.id, isAdmin })
+  const { hours, rates, appointments, manual, saving, saveDay } = datos
 
-/** 'yyyy-MM-dd' del día de hoy en hora de España */
-function todayKey() {
-  const d = toMadrid(new Date())
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-/** Lunes = 0 ... Domingo = 6, leyendo la clave como fecha civil pura */
-function weekdayIndex(key: string) {
-  const [y, m, d] = key.split('-').map(Number)
-  return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7
-}
-
-function dayNumber(key: string) {
-  return Number(key.split('-')[2])
-}
-
-/** Sube el número poco a poco: el dinero entra mejor por los ojos así */
-function useCountUp(value: number, duration = 420) {
-  const [display, setDisplay] = useState(value)
-  const fromRef = useRef(value)
-  const rafRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    const from = fromRef.current
-    if (from === value) return
-    const startedAt = performance.now()
-
-    function tick(now: number) {
-      const t = Math.min(1, (now - startedAt) / duration)
-      // easeOutCubic
-      const eased = 1 - Math.pow(1 - t, 3)
-      setDisplay(from + (value - from) * eased)
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(tick)
-      } else {
-        fromRef.current = value
-      }
-    }
-
-    rafRef.current = requestAnimationFrame(tick)
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      fromRef.current = value
-    }
-  }, [value, duration])
-
-  return display
-}
-
-/** El día 14 del mes siguiente: el último del ciclo que abre esa clave */
-function finDelCiclo(periodKey: string): string {
-  const [y, m] = periodKey.split('-').map(Number)
-  const d = new Date(Date.UTC(y, m, 14))
-  return d.toISOString().slice(0, 10)
-}
-
-export function HoursTracker({
-  initialHours,
-  initialRates,
-  qualifiedAppointments,
-  initialManual,
-  team,
-  currentUser,
-  isAdmin,
-  puedeVerHorasDelEquipo,
-}: HoursTrackerProps) {
-  const supabase = createClient()
-  const [hours, setHours] = useState<WorkHourEntry[]>(initialHours)
-  const [rates, setRates] = useState<PayrollRate[]>(initialRates)
-  const [appointments, setAppointments] = useState(qualifiedAppointments)
-  const [manual, setManual] = useState<ManualAppointment[]>(initialManual)
-  const [addingManual, setAddingManual] = useState(false)
-  const [manualName, setManualName] = useState('')
-  const [manualDate, setManualDate] = useState('')
-  const [manualCommission, setManualCommission] = useState('')
   const [offset, setOffset] = useState(0)
   const [selectedUserId, setSelectedUserId] = useState(currentUser.id)
-  const [selectedDay, setSelectedDay] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [seccion, setSeccion] = useState<Seccion>('ciclo')
+  const [vista, setVista] = useState<Vista>('calendario')
+  const [diaAbierto, setDiaAbierto] = useState<string | null>(null)
+  /** El editor en hoja también en el PC: cuando se abre desde «Otra» de «Apuntar hoy» (puede no haber casilla de hoy a la vista) */
+  const [enHoja, setEnHoja] = useState(false)
+  const [futuroPorConfirmar, setFuturoPorConfirmar] = useState<string | null>(null)
   const [showRates, setShowRates] = useState(false)
+  const escritorio = useEsEscritorio()
+  const today = claveDeHoy()
 
-  const period = useMemo(() => payrollPeriod(offset), [offset])
-  const days = useMemo(() => periodDays(period), [period])
-  const today = todayKey()
+  // La vista (calendario o semana) se recuerda en este navegador. Si el almacenamiento falla, se queda la de por defecto.
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem(CLAVE_VISTA)
+      if (v === 'calendario' || v === 'semana') setVista(v)
+    } catch {
+      /* sin almacenamiento: calendario */
+    }
+  }, [])
+  const cambiarVista = (v: Vista) => {
+    setVista(v)
+    try {
+      window.localStorage.setItem(CLAVE_VISTA, v)
+    } catch {
+      /* da igual */
+    }
+  }
 
-  // Los admins pueden mirar (y corregir) las horas de cualquiera; el
-  // resto solo se ve a sí mismo.
+  const nomina = useNominaCiclo({ hours, rates, appointments, manual, selectedUserId, offset, today })
+  const { period, days, hoursByDay } = nomina
+
+  // Los admins pueden mirar (y corregir) las horas de cualquiera; el resto solo se ve a sí mismo.
   const viewingSelf = selectedUserId === currentUser.id
 
   /**
-   * EL SUPERVISOR MIRA, NO TOCA NI VE SUELDOS. La línea que separa «horas
-   * fichadas del equipo: SÍ» de «costes de empleados: NO», que en esta pantalla
-   * caen a dos centímetros la una de la otra.
+   * EL SUPERVISOR MIRA, NO TOCA NI VE SUELDOS. Es true cuando alguien que NO es admin está viendo a otra persona:
    *
-   * Es true cuando alguien que NO es admin está viendo a otra persona. Entonces:
-   *
-   *   · El panel de «Llevas ganado» se cambia por un recuento de horas peladas.
-   *     Si se dejara, el salario se recalcularía para la persona seleccionada con
-   *     payroll_rates —que es legible por todo el equipo desde la 083— y el
-   *     supervisor acabaría viendo lo que cobra cada comercial sin que nadie lo
-   *     hubiera decidido.
-   *   · El calendario pasa a solo lectura. No es cosmética: la RLS de la 212 le da
-   *     SELECT de work_hours y NADA MÁS, así que un clic en un día ajeno acabaría
-   *     en un error de guardado sin explicación.
-   *   · Desaparecen las comisiones y la tarifa aplicada, por lo mismo que el
-   *     panel de dinero. Además las citas cualificadas que llegan del servidor son
-   *     solo las suyas (la consulta se filtra con `isAdmin`), así que ahí saldría
-   *     un cero que no es cero.
+   *   · El dinero (hero, KPIs, comisiones, tarifa) se cambia por horas peladas. Si se dejara, el salario se recalcularía
+   *     con payroll_rates —legible por todo el equipo desde la 083— y el supervisor vería lo que cobra cada comercial.
+   *   · El calendario pasa a solo lectura: la RLS de la 212 le da SELECT de work_hours y NADA MÁS, así que un clic en
+   *     un día ajeno acabaría en un error de guardado sin explicación.
+   *   · Desaparecen las citas: las que llegan del servidor son solo las suyas (la consulta se filtra con `isAdmin`), así
+   *     que ahí saldría un cero que no es cero.
    */
   const soloMirando = !viewingSelf && !isAdmin
-  const viewedPerson =
-    team.find((p) => p.id === selectedUserId) ??
-    ({ id: currentUser.id, full_name: currentUser.full_name, email: currentUser.email } as CalendarPerson)
+  const viewedPerson = team.find((p) => p.id === selectedUserId) ?? ({ id: currentUser.id, full_name: currentUser.full_name, email: currentUser.email } as CalendarPerson)
+  const nombreVisto = viewedPerson.full_name || viewedPerson.email || 'esta persona'
 
-  // Realtime: si un admin marca una cita como cualificada o cambia la
-  // comisión, el comercial ve su total moverse sin recargar.
-  useEffect(() => {
-    const channel = supabase
-      .channel(`payroll_${currentUser.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'work_hours' },
-        (payload) => {
-          if (payload.eventType === 'DELETE') {
-            const old = payload.old as { id: string }
-            setHours((prev) => prev.filter((h) => h.id !== old.id))
-            return
-          }
-          const row = payload.new as WorkHourEntry
-          setHours((prev) => {
-            const exists = prev.some((h) => h.id === row.id)
-            return exists ? prev.map((h) => (h.id === row.id ? row : h)) : [...prev, row]
-          })
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'payroll_rates' },
-        (payload) => {
-          if (payload.eventType === 'DELETE') {
-            const old = payload.old as { id: string }
-            setRates((prev) => prev.filter((r) => r.id !== old.id))
-            return
-          }
-          const row = payload.new as PayrollRate
-          setRates((prev) => {
-            const exists = prev.some((r) => r.id === row.id)
-            return exists ? prev.map((r) => (r.id === row.id ? row : r)) : [...prev, row]
-          })
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'appointments' },
-        async () => {
-          // Cualquier cambio de cita puede alterar el recuento de
-          // cualificadas: se relee la lista.
-          //
-          // PAGINADA, igual que la carga inicial de app/dashboard/horas/page.tsx.
-          // Sin esto, la página entraba con la lista COMPLETA y en cuanto
-          // llegaba el primer cambio por realtime la sustituía por una recortada
-          // a las 1000 primeras filas, porque PostgREST corta ahí y NO da error.
-          // Hoy el filtro deja 3 citas y `appointments` tiene 5853 filas, así
-          // que devuelve exactamente lo mismo que antes; pero cada cita
-          // cualificada es una comisión que se paga, y las que cayeran fuera del
-          // corte dejarían de contarse sin que nadie viera nada raro.
-          try {
-            const filas = await fetchAll<QualifiedAppointment>((desde, hasta) =>
-              supabase
-                .from('appointments')
-                .select('id, comercial_id, status, start_time, lead_name, lead_company')
-                .in('status', [...ESTADOS_QUE_COBRAN])
-                .eq('is_external', false)
-                // Orden por columna única: paginar sin él repite unas filas y se
-                // salta otras. No cambia nada de lo que se pinta, porque esta
-                // lista se agrupa y se ordena después en la propia pantalla.
-                .order('id', { ascending: true })
-                .range(desde, hasta)
-            )
-            setAppointments(filas)
-          } catch (error) {
-            // Se traga igual que antes: el `{ data }` de supabase-js tampoco
-            // lanzaba y, si venía vacío, la lista se quedaba como estaba. Un
-            // rechazo sin capturar aquí dejaría una promesa colgando dentro del
-            // canal de realtime.
-            console.error('No se pudieron releer las citas cualificadas:', error)
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [supabase, currentUser.id])
-
-  const hoursByDay = useMemo(() => {
-    const map = new Map<string, WorkHourEntry>()
-    for (const h of hours) {
-      if (h.user_id === selectedUserId) map.set(h.work_date, h)
-    }
-    return map
-  }, [hours, selectedUserId])
-
-  const totalHours = useMemo(
-    () => days.reduce((sum, d) => sum + Number(hoursByDay.get(d)?.hours ?? 0), 0),
-    [days, hoursByDay]
-  )
-
-  const workedDays = useMemo(
-    () => days.filter((d) => Number(hoursByDay.get(d)?.hours ?? 0) > 0).length,
-    [days, hoursByDay]
-  )
-
-  /**
-   * LA TARIFA DEL ÚLTIMO DÍA DEL CICLO, Y SOLO COMO RÓTULO.
-   *
-   * NO se usa para calcular nada. Un ciclo va del 15 al 14, así que cruza dos
-   * meses y con tarifas mensuales tiene DOS tarifas: una cita del 28 de agosto
-   * se paga a la de agosto y una del 2 de septiembre a la de septiembre.
-   *
-   * Hasta ahora esta pantalla aplicaba esta única tarifa a TODO el ciclo, y por
-   * eso no cuadraba con la nómina: el motor (cycleCostForUser) siempre ha
-   * calculado día a día. Con 25 $ en septiembre y 15 en agosto, una cita del 28
-   * de agosto se enseñaba a 25 y se pagaba a 15.
-   */
-  const rate = resolveRate(rates, finDelCiclo(period.key))
-
-  /** El día de una fecha en hora de España, que es con lo que se decide el mes */
-  const diaEnEspana = (iso: string | Date) => {
-    const d = toMadrid(iso instanceof Date ? iso.toISOString() : iso)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-      d.getDate()
-    ).padStart(2, '0')}`
-  }
-
-  /**
-   * EL SUELDO, DÍA A DÍA.
-   *
-   * Antes era `totalHours * rate.hourly`: todas las horas del ciclo al precio
-   * del último día. Mismo fallo que las comisiones, y se vería en cuanto el
-   * precio/hora cambiara de un mes a otro.
-   */
-  const salaryPorDia = useMemo(
-    () =>
-      days.reduce((suma, d) => {
-        const h = Number(hoursByDay.get(d)?.hours ?? 0)
-        if (h === 0) return suma
-        return suma + h * resolveRate(rates, d).hourly
-      }, 0),
-    [days, hoursByDay, rates]
-  )
-
-  /**
-   * Las citas del periodo, vengan de la agenda o añadidas a mano por un
-   * admin. Se muestran juntas porque para el comercial son lo mismo: dos
-   * comisiones que cobra. La marca `manual` solo sirve para poder quitarla.
-   */
-  const periodQualified = useMemo(() => {
-    const fromAgenda = appointments
-      .filter((a) => a.comercial_id === selectedUserId)
-      .filter((a) => {
-        const t = new Date(a.start_time).getTime()
-        return t >= period.start.getTime() && t < period.end.getTime()
-      })
-      .map((a) => ({
-        id: a.id,
-        name: a.lead_name,
-        company: a.lead_company,
-        at: new Date(a.start_time),
-        // La de SU día, no la del final del ciclo. Ver la nota de `rate`.
-        commission: comisionDeCita(a.status, rates, diaEnEspana(a.start_time)),
-        semi: a.status === 'semi_qualified',
-        fijo: false,
-        manual: false,
-      }))
-
-    const fromManual = manual
-      .filter((m) => m.user_id === selectedUserId)
-      .map((m) => ({
-        id: m.id,
-        name: m.lead_name,
-        company: m.notes,
-        // Mediodía UTC: así el día no se desplaza al comparar con los
-        // límites del ciclo, que son medianoche en España.
-        at: new Date(`${m.appointment_date}T12:00:00Z`),
-        /**
-         * Una cita a mano puede llevar su importe escrito, y entonces manda ese.
-         * Si se dejó en blanco, la del mes de su fecha — no la del final del
-         * ciclo, que es de lo que se quejaba la pantalla.
-         */
-        commission:
-          m.commission != null
-            ? Number(m.commission)
-            : resolveRate(rates, m.appointment_date).commission,
-        semi: false,
-        fijo: m.commission != null,
-        manual: true,
-      }))
-      .filter(
-        (m) =>
-          m.at.getTime() >= period.start.getTime() && m.at.getTime() < period.end.getTime()
-      )
-
-    return [...fromAgenda, ...fromManual].sort((a, b) => a.at.getTime() - b.at.getTime())
-  }, [appointments, manual, selectedUserId, period, rates])
-
-  const salary = salaryPorDia
-
-  /**
-   * «3 × 15 $ · 2 × 25 $» en vez de «5 citas × 25 $».
-   *
-   * El rótulo de antes multiplicaba TODAS las citas por una sola tarifa y no
-   * cuadraba con el importe de al lado: con tres a 25 y dos a 20 ponía «5 citas
-   * × 25 $» —125— encima de un total de 115. Agrupar por importe dice la verdad
-   * y además enseña de un vistazo que el ciclo cruza dos meses.
-   */
-  /**
-   * LAS TARIFAS DEL CICLO, QUE PUEDEN SER DOS.
-   *
-   * Un ciclo va del 15 al 14 y cruza dos meses, así que puede tener dos
-   * tarifas. Enseñar solo una —la del último día— es lo que hacía que el
-   * comercial leyera «25 $/cita» y cobrara 15 por las de agosto.
-   */
-  const tarifasDelCiclo = useMemo(() => {
-    const meses = [...new Set(days.map((d) => d.slice(0, 7)))].sort()
-    const vistas = meses.map((mes) => {
-      const r = resolveRate(rates, `${mes}-01`)
-      const semi = r.commissionSemi > 0 ? ` · ${formatDollars(r.commissionSemi)}/semi` : ''
-      return { mes, texto: `${formatDollars(r.hourly)}/h · ${formatDollars(r.commission)}/cita${semi}` }
-    })
-    // Si las dos mitades del ciclo cobran lo mismo, una línea basta.
-    if (vistas.length > 1 && vistas.every((v) => v.texto === vistas[0].texto)) {
-      return vistas[0].texto
-    }
-    return vistas.map((v) => `${nombreCortoDeMes(v.mes)} ${v.texto}`).join('  ·  ')
-  }, [days, rates])
-
-  /**
-   * «20 h × 15 $ · 20 h × 25 $» en vez de «40 h × 25 $».
-   *
-   * El importe de arriba ya salía bien —lo calcula salaryPorDia, día a día—
-   * pero el rótulo de debajo multiplicaba TODAS las horas por la tarifa del
-   * último día. Exactamente la misma contradicción que se acaba de quitar de
-   * las comisiones, en la caja de al lado.
-   */
-  const desgloseHoras = useMemo(() => {
-    const porTarifa = new Map<number, number>()
-    for (const d of days) {
-      const h = Number(hoursByDay.get(d)?.hours ?? 0)
-      if (h === 0) continue
-      const t = resolveRate(rates, d).hourly
-      porTarifa.set(t, (porTarifa.get(t) ?? 0) + h)
-    }
-    return [...porTarifa]
-      .sort((a, b) => a[0] - b[0])
-      .map(([tarifa, horas]) => `${horas.toLocaleString('es-ES')} h × ${formatDollars(tarifa)}`)
-      .join(' · ')
-  }, [days, hoursByDay, rates])
-
-  /**
-   * LOS MESES DEL CICLO QUE NO TIENEN TARIFA PUESTA.
-   *
-   * Antes se miraba solo el último día, así que con agosto sin configurar y
-   * septiembre sí, el aviso no salía — y la mitad del ciclo se estaba pagando
-   * a la de por defecto sin que nadie lo supiera.
-   */
-  const mesesSinTarifa = useMemo(
-    () =>
-      [...new Set(days.map((d) => d.slice(0, 7)))]
-        .sort()
-        .filter((m) => resolveRate(rates, `${m}-01`).source === 'defecto'),
-    [days, rates]
-  )
-
-  const desgloseComisiones = useMemo(() => {
-    const porImporte = new Map<number, number>()
-    for (const a of periodQualified) {
-      porImporte.set(a.commission, (porImporte.get(a.commission) ?? 0) + 1)
-    }
-    return [...porImporte]
-      .sort((a, b) => a[0] - b[0])
-      .map(([importe, cuantas]) => `${cuantas} × ${formatDollars(importe)}`)
-      .join(' · ')
-  }, [periodQualified])
-  const commissions = periodQualified.reduce((sum, a) => sum + a.commission, 0)
-  const semiDelPeriodo = periodQualified.filter((a) => a.semi).length
-  const total = salary + commissions
-
-  const animatedTotal = useCountUp(total)
-  const animatedSalary = useCountUp(salary)
-  const animatedCommissions = useCountUp(commissions)
-
-  /** Suma una cita que no pasó por la agenda al comercial que se está viendo */
-  async function addManualAppointment() {
-    const name = manualName.trim()
-    if (!name || !manualDate) return
-    setSaving(true)
-    try {
-      const parsed = manualCommission.trim() === '' ? null : Number(manualCommission)
-      const { data, error } = await supabase
-        .from('payroll_manual_appointments')
-        .insert({
-          user_id: selectedUserId,
-          lead_name: name,
-          appointment_date: manualDate,
-          commission: parsed !== null && !Number.isNaN(parsed) ? parsed : null,
-          created_by: currentUser.id,
-        })
-        .select('*')
-        .single()
-      if (error) throw error
-      setManual((prev) => [...prev, data as ManualAppointment])
-      setAddingManual(false)
-      toast.success('Cita añadida')
-    } catch (err) {
-      console.error('Error añadiendo cita manual:', err)
-      toast.error('No se pudo añadir la cita')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  /**
-   * Le quita a una cita manual su importe escrito a mano para que pase a cobrar
-   * la tarifa del mes de su fecha. Poner `commission` a null es lo que hace que
-   * el motor la resuelva por fecha (ver cost.ts).
-   */
-  async function soltarImporteFijo(id: string) {
-    try {
-      const { data, error } = await supabase
-        .from('payroll_manual_appointments')
-        .update({ commission: null })
-        .eq('id', id)
-        .select('*')
-        .single()
-      if (error) throw error
-      setManual((prev) => prev.map((m) => (m.id === id ? (data as ManualAppointment) : m)))
-      toast.success('Ahora cobra la tarifa de su mes')
-    } catch (err) {
-      console.error('Error soltando el importe fijo:', err)
-      toast.error('No se ha podido cambiar')
-    }
-  }
-
-  async function removeManualAppointment(id: string) {
-    try {
-      const { error } = await supabase
-        .from('payroll_manual_appointments')
-        .delete()
-        .eq('id', id)
-      if (error) throw error
-      setManual((prev) => prev.filter((m) => m.id !== id))
-    } catch (err) {
-      console.error('Error quitando cita manual:', err)
-      toast.error('No se pudo quitar')
-    }
-  }
-
-  function openDay(key: string) {
-    // El supervisor del equipo comercial solo tiene SELECT de work_hours: abrirle
-    // el editor sería prometerle un guardado que la base va a rechazar.
-    if (soloMirando) return
-    setSelectedDay(key)
-    const current = hoursByDay.get(key)
-    setDraft(current ? String(Number(current.hours)) : '')
-  }
-
-  async function saveDay(key: string, value: number | null) {
-    setSaving(true)
-    try {
-      const existing = hoursByDay.get(key)
-
-      // Cero horas es lo mismo que no haber apuntado nada: se borra la
-      // fila en vez de dejar un 0 suelto ensuciando el calendario.
-      if (value === null || value === 0) {
-        if (existing) {
-          const { error } = await supabase.from('work_hours').delete().eq('id', existing.id)
-          if (error) throw error
-          setHours((prev) => prev.filter((h) => h.id !== existing.id))
-        }
-        setSelectedDay(null)
-        return
-      }
-
-      const { data, error } = await supabase
-        .from('work_hours')
-        .upsert(
-          { user_id: selectedUserId, work_date: key, hours: value },
-          { onConflict: 'user_id,work_date' }
-        )
-        .select('*')
-        .single()
-      if (error) throw error
-
-      const row = data as WorkHourEntry
-      setHours((prev) => {
-        const exists = prev.some((h) => h.id === row.id)
-        return exists ? prev.map((h) => (h.id === row.id ? row : h)) : [...prev, row]
-      })
-      setSelectedDay(null)
-    } catch (err) {
-      console.error('Error guardando horas:', err)
-      toast.error('No se pudieron guardar las horas')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const leadingBlanks = days.length ? weekdayIndex(days[0]) : 0
   const todayHours = Number(hoursByDay.get(today)?.hours ?? 0)
   const todayInPeriod = days.includes(today)
 
-  return (
-    // Ocupa toda la altura disponible: el calendario del ciclo se estira
-    // para que cada día sea una casilla grande y cómoda de pulsar.
-    <div className="flex flex-col h-full gap-3 min-h-0">
-      {/* Barra de control */}
-      <div className="flex flex-wrap items-center justify-between gap-2 flex-shrink-0">
-        <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-1">
-          <button
-            onClick={() => setOffset((o) => o - 1)}
-            className="h-7 w-7 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <AnimatePresence mode="wait">
-            <motion.span
-              key={period.key}
-              initial={{ opacity: 0, y: -3 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 3 }}
-              transition={{ duration: 0.15 }}
-              className="text-[13px] font-semibold text-white px-1.5 flex items-center gap-1.5 whitespace-nowrap"
-            >
-              <CalendarDays className="h-3.5 w-3.5 text-[#FF6600]" />
-              {periodLabel(period)}
-            </motion.span>
-          </AnimatePresence>
-          <button
-            onClick={() => setOffset((o) => o + 1)}
-            className="h-7 w-7 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          {offset !== 0 && (
-            <button
-              onClick={() => setOffset(0)}
-              className="text-[11px] text-white/40 hover:text-white px-2 transition-colors"
-            >
-              Hoy
-            </button>
-          )}
-        </div>
+  /** Pulsar un día: los futuros piden confirmación (se puede, pero no por despiste). */
+  function pulsarDia(key: string) {
+    if (soloMirando) return
+    setEnHoja(false)
+    if (key > today) setFuturoPorConfirmar(key)
+    else setDiaAbierto(key)
+  }
 
-        <div className="flex items-center gap-2">
-          {puedeVerHorasDelEquipo && team.length > 0 && (
-            <select
-              value={selectedUserId}
-              onChange={(e) => {
-                setSelectedUserId(e.target.value)
-                setSelectedDay(null)
-              }}
-              className="h-9 rounded-full border border-white/10 bg-white/[0.03] px-3 text-[13px] text-white/80 outline-none focus:border-[#FF6600] transition-colors cursor-pointer"
-            >
-              <option value={currentUser.id} className="bg-[#1a1a1a]">
-                {currentUser.full_name || 'Yo'}
-              </option>
-              {team
-                .filter((p) => p.id !== currentUser.id)
-                .map((p) => (
-                  <option key={p.id} value={p.id} className="bg-[#1a1a1a]">
-                    {p.full_name || p.email}
-                  </option>
-                ))}
-            </select>
-          )}
-          {isAdmin && (
-            <button
-              onClick={() => setShowRates(true)}
-              className="h-9 px-4 rounded-full border border-white/10 bg-white/[0.03] text-white/80 text-[13px] font-medium flex items-center gap-2 hover:bg-white/[0.06] hover:border-white/20 transition-colors"
-            >
-              <Settings2 className="h-4 w-4" /> Tarifas
-            </button>
-          )}
-        </div>
-      </div>
+  function abrirHoyEnHoja() {
+    setEnHoja(true)
+    setDiaAbierto(today)
+  }
 
-      {!viewingSelf && (
-        <div className="rounded-xl border border-[#FF6600]/25 bg-[#FF6600]/[0.06] px-3 py-2 text-[12px] text-white/70">
-          {soloMirando ? 'Estás viendo las horas de' : 'Estás viendo y editando las horas de'}{' '}
-          <span className="font-semibold text-white">
-            {viewedPerson.full_name || viewedPerson.email}
-          </span>
-          .{' '}
-          {soloMirando
-            ? 'Solo de lectura: puedes ver lo que ficha, no corregirlo ni ver lo que cobra.'
-            : 'Cualquier cambio se le guarda a esa persona.'}
-        </div>
-      )}
+  async function apuntarHoy(h: number) {
+    if (await saveDay(currentUser.id, today, h)) toast.success(`Apuntadas ${formatoHoras(h)} h hoy`)
+  }
 
-      {/* Lo que lleva ganado. SOLO SUYO, o de cualquiera si eres admin: el
-          supervisor del equipo ve horas, no sueldos (ver `soloMirando`). */}
-      {soloMirando ? (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex-shrink-0">
-          <p className="text-[10px] uppercase tracking-[0.14em] text-white/40 flex items-center gap-1.5">
-            <Clock className="h-3 w-3" /> Horas fichadas en este periodo
-          </p>
-          <p className="text-white font-bold text-[34px] sm:text-[44px] leading-none mt-1.5 tabular-nums">
-            {totalHours.toLocaleString('es-ES')}
-            <span className="text-[16px] font-medium text-white/45 ml-1">h</span>
-          </p>
-          <p className="text-[11px] text-white/35 mt-1">
-            {desgloseHoras || `${workedDays} días trabajados`}
-          </p>
-        </div>
-      ) : (
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25 }}
-        className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#FF6600]/[0.13] via-white/[0.03] to-transparent p-4 flex-shrink-0"
-      >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-24 -right-16 h-56 w-56 rounded-full bg-[#FF6600]/20 blur-3xl"
-        />
-        <div className="relative flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/40 flex items-center gap-1.5">
-              <TrendingUp className="h-3 w-3" /> Llevas ganado este periodo
-            </p>
-            <p className="text-white font-bold text-[34px] sm:text-[44px] leading-none mt-1.5 tabular-nums">
-              {formatDollars(animatedTotal)}
-            </p>
-          </div>
+  function cambiarPersona(id: string) {
+    setSelectedUserId(id)
+    setDiaAbierto(null)
+  }
 
-          <div className="flex gap-2 flex-wrap">
-            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 min-w-[132px]">
-              <p className="text-[10px] uppercase tracking-wider text-white/35 flex items-center gap-1.5">
-                <Clock className="h-3 w-3" /> Salario
-              </p>
-              <p className="text-white font-semibold text-[18px] tabular-nums">
-                {formatDollars(animatedSalary)}
-              </p>
-              <p className="text-[10px] text-white/35 mt-0.5">
-                {desgloseHoras || `${totalHours.toLocaleString('es-ES')} h`}
-              </p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 min-w-[132px]">
-              <p className="text-[10px] uppercase tracking-wider text-white/35 flex items-center gap-1.5">
-                <CheckCircle2 className="h-3 w-3" /> Comisiones
-              </p>
-              <p className="text-white font-semibold text-[18px] tabular-nums">
-                {formatDollars(animatedCommissions)}
-              </p>
-              <p className="mt-0.5 text-[10px] text-white/35">
-                {periodQualified.length === 0
-                  ? 'Ninguna cita este periodo'
-                  : desgloseComisiones}
-              </p>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-      )}
+  const cerrarEditor = () => setDiaAbierto(null)
+  const tituloDia = (key: string) => `${DIAS_LARGOS[diaDeLaSemana(key)]} ${diaYMesLargo(key)}`
+  const editor = (key: string) => {
+    const fila = hoursByDay.get(key)
+    return (
+      <EditorDia
+        key={`${selectedUserId}-${key}`}
+        valorGuardado={Number(fila?.hours ?? 0)}
+        notaGuardada={fila?.note ?? null}
+        hayFila={Boolean(fila)}
+        guardando={saving}
+        onGuardar={(h, nota) => saveDay(selectedUserId, key, h, nota)}
+        onCerrar={cerrarEditor}
+      />
+    )
+  }
+  const subtituloEditor = viewingSelf ? 'Tus horas de ese día' : `Horas de ${nombreVisto}`
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-3 flex-1 min-h-0">
-        {/* Calendario del periodo */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 flex flex-col min-h-0">
-          {/* Apuntar hoy, a un toque */}
-          {todayInPeriod && viewingSelf && (
-            <div
-              className={`rounded-xl border px-3 py-2 mb-3 flex flex-wrap items-center gap-2 flex-shrink-0 ${
-                todayHours > 0
-                  ? 'border-green-500/25 bg-green-500/[0.06]'
-                  : 'border-[#FF6600]/30 bg-[#FF6600]/[0.07]'
-              }`}
-            >
-              <Zap
-                className={`h-3.5 w-3.5 flex-shrink-0 ${
-                  todayHours > 0 ? 'text-green-400' : 'text-[#FF6600]'
-                }`}
-              />
-              <span className="text-[12px] text-white/75 flex-1 min-w-[140px]">
-                {todayHours > 0
-                  ? `Hoy tienes apuntadas ${todayHours} h`
-                  : 'Todavía no has apuntado las horas de hoy'}
-              </span>
-              {[3, 4, 5, 6, 7, 8].map((h) => (
-                <button
-                  key={h}
-                  onClick={() => saveDay(today, h)}
-                  disabled={saving}
-                  className={`h-6 min-w-[30px] px-1.5 rounded-md text-[11px] font-semibold transition-colors ${
-                    todayHours === h
-                      ? 'bg-[#FF6600] text-white'
-                      : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.12] hover:text-white'
-                  }`}
-                >
-                  {h}h
-                </button>
-              ))}
-            </div>
-          )}
+  // En el PC el editor sale en un popover anclado a la casilla (la rejilla ya no salta); en el móvil, en una hoja inferior.
+  const envolver = escritorio
+    ? (key: string, el: ReactNode) => {
+        const abierto = diaAbierto === key && !enHoja
+        return (
+          <PopoverDelDia abierto={abierto} onCerrar={cerrarEditor} titulo={tituloDia(key)} subtitulo={subtituloEditor} ancla={el}>
+            {abierto && editor(key)}
+          </PopoverDelDia>
+        )
+      }
+    : undefined
 
-          {/* Editor del día seleccionado. `!soloMirando` es el cinturón además
-              del tirante: openDay ya no abre nada cuando solo se mira. */}
-          <AnimatePresence>
-            {selectedDay && !soloMirando && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden flex-shrink-0"
-              >
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-3 mb-3">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <p className="text-[13px] font-semibold text-white">
-                      {WEEKDAYS_LONG[weekdayIndex(selectedDay)]} {dayNumber(selectedDay)} de{' '}
-                      {MONTHS_LONG[Number(selectedDay.split('-')[1]) - 1]}
-                    </p>
-                    <button
-                      onClick={() => setSelectedDay(null)}
-                      className="text-[11px] text-white/40 hover:text-white transition-colors"
-                    >
-                      Cerrar
-                    </button>
-                  </div>
+  /** Para el número de la pestaña «Equipo»: quién no ha apuntado hoy (solo en un laborable del ciclo en curso). */
+  const sinApuntarHoy = useMemo(() => {
+    if (!puedeVerHorasDelEquipo || !todayInPeriod || diaDeLaSemana(today) >= 5) return 0
+    const con = new Set(hours.filter((h) => h.work_date === today && Number(h.hours) > 0).map((h) => h.user_id))
+    return team.filter((p) => !con.has(p.id)).length
+  }, [puedeVerHorasDelEquipo, todayInPeriod, today, hours, team])
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/25 p-1">
-                      <button
-                        onClick={() =>
-                          setDraft((d) => String(Math.max(0, (Number(d) || 0) - 0.5)))
-                        }
-                        className="h-7 w-7 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
-                      >
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <input
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveDay(selectedDay, Number(draft) || 0)
-                          if (e.key === 'Escape') setSelectedDay(null)
-                        }}
-                        autoFocus
-                        inputMode="decimal"
-                        placeholder="0"
-                        className="w-14 bg-transparent text-center text-[18px] font-bold text-white outline-none tabular-nums"
-                      />
-                      <button
-                        onClick={() =>
-                          setDraft((d) => String(Math.min(24, (Number(d) || 0) + 0.5)))
-                        }
-                        className="h-7 w-7 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
-                    {[2, 3, 4, 5, 6, 7, 8].map((h) => (
-                      <button
-                        key={h}
-                        onClick={() => setDraft(String(h))}
-                        className={`h-7 min-w-[32px] px-2 rounded-md text-[11px] font-semibold transition-colors ${
-                          Number(draft) === h
-                            ? 'bg-[#FF6600] text-white'
-                            : 'bg-white/[0.06] text-white/55 hover:bg-white/[0.12] hover:text-white'
-                        }`}
-                      >
-                        {h}h
-                      </button>
-                    ))}
-
-                    <div className="flex-1" />
-
-                    {hoursByDay.has(selectedDay) && (
-                      <button
-                        onClick={() => saveDay(selectedDay, null)}
-                        disabled={saving}
-                        className="h-8 w-8 rounded-lg border border-white/10 flex items-center justify-center text-white/40 hover:text-red-400 hover:border-red-400/30 transition-colors"
-                        title="Borrar las horas de este día"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => saveDay(selectedDay, Number(draft) || 0)}
-                      disabled={saving}
-                      className="h-8 px-4 rounded-lg bg-[#FF6600] text-[12px] font-semibold text-white disabled:opacity-40 transition-opacity"
-                    >
-                      Guardar
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Rejilla de días: se reparte toda la altura que sobra, así que
-              cada casilla es lo más grande que quepa en la pantalla. */}
-          <div className="flex flex-col flex-1 min-h-0">
-            <div className="grid grid-cols-7 gap-1.5 mb-1.5 flex-shrink-0">
-              {WEEKDAYS.map((d, i) => (
-                <div
-                  key={`${d}-${i}`}
-                  className="text-center text-[11px] font-semibold text-white/25 uppercase tracking-wider"
-                >
-                  {d}
-                </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 auto-rows-fr gap-1.5 flex-1 min-h-0">
-            {Array.from({ length: leadingBlanks }).map((_, i) => (
-              <div key={`blank-${i}`} />
-            ))}
-            {days.map((key) => {
-              const entry = hoursByDay.get(key)
-              const value = Number(entry?.hours ?? 0)
-              const isToday = key === today
-              const isSelected = key === selectedDay
-              const weekend = weekdayIndex(key) >= 5
-              const isFuture = key > today
-
-              return (
-                <motion.button
-                  key={key}
-                  whileTap={soloMirando ? undefined : { scale: 0.95 }}
-                  // Solo lectura: la RLS de la 212 le da SELECT de work_hours y
-                  // nada más, así que un clic acabaría en un error de guardado.
-                  onClick={soloMirando ? undefined : () => openDay(key)}
-                  disabled={soloMirando}
-                  className={`group relative min-h-[52px] rounded-xl border flex flex-col items-start justify-between p-2 transition-colors ${
-                    isSelected
-                      ? 'border-[#FF6600] bg-[#FF6600]/15'
-                      : value > 0
-                        ? 'border-[#FF6600]/25 bg-[#FF6600]/[0.09] hover:border-[#FF6600]/50'
-                        : `border-white/[0.07] hover:border-white/20 hover:bg-white/[0.04] ${
-                            weekend ? 'bg-white/[0.01]' : ''
-                          }`
-                  } ${isFuture ? 'opacity-40' : ''}`}
-                >
-                  <span
-                    className={`text-[13px] leading-none ${
-                      isToday ? 'text-[#FF6600] font-bold' : 'text-white/45'
-                    }`}
-                  >
-                    {dayNumber(key)}
-                  </span>
-
-                  {value > 0 ? (
-                    <span className="self-end text-[22px] font-bold text-white leading-none tabular-nums">
-                      {value}
-                      <span className="text-[12px] font-medium text-white/45 ml-0.5">h</span>
-                    </span>
-                  ) : (
-                    !isFuture && (
-                      <span className="self-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Plus className="h-4 w-4 text-white/30" />
-                      </span>
-                    )
-                  )}
-
-                  {isToday && (
-                    <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-[#FF6600]" />
-                  )}
-                </motion.button>
-              )
-            })}
-            </div>
-          </div>
-        </div>
-
-        {/* Resumen lateral */}
-        <div className="space-y-3 overflow-y-auto min-h-0">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
-            <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider mb-2">
-              Resumen del periodo
-            </h3>
-            <div className="space-y-1.5">
-              {[
-                { label: 'Horas totales', value: `${totalHours.toLocaleString('es-ES')} h` },
-                { label: 'Días trabajados', value: String(workedDays) },
-                {
-                  label: 'Media por día',
-                  value: workedDays
-                    ? `${(totalHours / workedDays).toFixed(1).replace('.', ',')} h`
-                    : '—',
-                },
-                // Las dos siguientes son dinero: cuántas comisiones lleva y a
-                // cuánto se le paga la hora. Fuera cuando solo se supervisa.
-                ...(soloMirando
-                  ? []
-                  : [
-                      {
-                        label: 'Citas cualificadas',
-                        value: semiDelPeriodo > 0 ? `${periodQualified.length - semiDelPeriodo} + ${semiDelPeriodo} semi` : String(periodQualified.length),
-                      },
-                      { label: 'Tarifa aplicada', value: tarifasDelCiclo },
-                    ]),
-              ].map((r) => (
-                <div key={r.label} className="flex items-baseline justify-between gap-2">
-                  <span className="text-[12px] text-white/40">{r.label}</span>
-                  <span className="text-[12px] font-semibold text-white text-right">
-                    {r.value}
-                  </span>
-                </div>
-              ))}
-            </div>
-            {/* Ya no hay tarifas por persona: todos van a la del mes. Lo que sí
-                merece decirse es cuándo NO hay tarifa puesta para ese mes, porque
-                entonces se está cobrando con los valores por defecto. */}
-            {mesesSinTarifa.length > 0 && !soloMirando && (
-              <p className="mt-2 text-[10px] text-yellow-300/80">
-                Sin tarifa puesta en {mesesSinTarifa.map(nombreCortoDeMes).join(' y ')}: esa parte
-                del ciclo se está pagando a la de por defecto.
-              </p>
-            )}
-          </div>
-
-          {/* Comisiones. Fuera cuando solo se supervisa: es dinero, y además las
-              citas que llegan del servidor son solo las propias, así que aquí
-              saldría un cero que no es cero. */}
-          {!soloMirando && (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="h-3 w-3" /> Citas cualificadas
-              </h3>
-              {isAdmin && !addingManual && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddingManual(true)
-                    setManualName('')
-                    setManualDate(today)
-                    /**
-                     * VACÍO, Y ESTE ERA EL FALLO GORDO.
-                     *
-                     * Aquí se precargaba `rate.commission`, o sea la tarifa del
-                     * ÚLTIMO día del ciclo. Y un importe escrito en esa casilla
-                     * se guarda FIJO: manda sobre la tarifa del mes para
-                     * siempre.
-                     *
-                     * O sea que toda cita añadida a mano se grababa con la
-                     * tarifa del segundo mes del ciclo, fuera cual fuera su
-                     * fecha. Las once que hay en la base llevan todas un 20
-                     * escrito por esto, no porque nadie lo tecleara.
-                     *
-                     * Vacío = la tarifa del mes de su fecha, que es lo que hay
-                     * que hacer. La casilla queda para las excepciones de
-                     * verdad, y el placeholder enseña lo que va a cobrar.
-                     */
-                    setManualCommission('')
-                  }}
-                  className="text-[10px] text-white/40 hover:text-white transition-colors flex items-center gap-1"
-                  title="Sumar una cita que no está en la agenda"
-                >
-                  <Plus className="h-3 w-3" /> Añadir
-                </button>
-              )}
-            </div>
-
-            {/* Alta manual: para citas que no pasaron por la agenda */}
-            <AnimatePresence>
-              {addingManual && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="rounded-lg border border-white/12 bg-white/[0.04] p-2.5 mb-2 space-y-2">
-                    <input
-                      value={manualName}
-                      onChange={(e) => setManualName(e.target.value)}
-                      autoFocus
-                      placeholder="Nombre del lead"
-                      className="w-full bg-white/[0.05] border border-white/10 rounded-lg px-2 py-1.5 text-[12px] text-white outline-none focus:border-[#FF6600] transition-colors placeholder:text-white/25"
-                    />
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="date"
-                        value={manualDate}
-                        onChange={(e) => setManualDate(e.target.value)}
-                        title="Día de la cita: decide a qué periodo cuenta"
-                        className="flex-1 min-w-0 bg-white/[0.05] border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-white outline-none focus:border-[#FF6600] transition-colors [color-scheme:dark]"
-                      />
-                      <div className="relative w-[86px] flex-shrink-0">
-                        <input
-                          value={manualCommission}
-                          onChange={(e) => setManualCommission(e.target.value)}
-                          inputMode="decimal"
-                          placeholder={String(resolveRate(rates, manualDate || period.key).commission)}
-                          title="Déjalo vacío para que cobre la tarifa del mes de su fecha. Solo escribe un importe si esta cita es una excepción."
-                          aria-label="Importe de la cita; vacío = la tarifa del mes"
-                          className="w-full bg-white/[0.05] border border-white/10 rounded-lg pl-2 pr-6 py-1.5 text-[11px] text-white outline-none focus:border-[#FF6600] transition-colors tabular-nums"
-                        />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-white/35 pointer-events-none">
-                          $
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-white/25 flex-1">
-                        Cuenta para {viewedPerson.full_name || 'esta persona'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setAddingManual(false)}
-                        className="text-[11px] text-white/45 hover:text-white transition-colors"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={addManualAppointment}
-                        disabled={saving || !manualName.trim() || !manualDate}
-                        className="px-2.5 py-1 rounded-lg bg-[#FF6600] text-[11px] font-semibold text-white disabled:opacity-40 transition-opacity"
-                      >
-                        Añadir
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {periodQualified.length === 0 ? (
-              <p className="text-[11px] text-white/25">
-                Ninguna todavía en este periodo. En cuanto se marque una cita como
-                cualificada, aparecerá aquí y sumará a tus comisiones.
-              </p>
-            ) : (
-              <div className="space-y-1.5 pr-1">
-                {periodQualified.map((a) => (
-                  <div
-                    key={a.id}
-                    className="group flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.02] px-2 py-1.5"
-                  >
-                    <span
-                      className="h-1.5 w-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: colorForAgent(selectedUserId) }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[12px] text-white truncate flex items-center gap-1.5">
-                        {a.name}
-                        {a.manual && (
-                          <span className="flex-shrink-0 rounded border border-white/15 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-white/30">
-                            manual
-                          </span>
-                        )}
-                        {a.semi && (
-                          <span className="flex-shrink-0 rounded border border-violet-400/25 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-violet-300/80">
-                            semi
-                          </span>
-                        )}
-                        {a.semi && a.commission === 0 && (
-                          <span
-                            className="flex-shrink-0 rounded border border-yellow-400/25 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-yellow-300/70"
-                            title="Ese mes no tiene precio de semi-cualificada: se pone en las tarifas del año."
-                          >
-                            sin precio
-                          </span>
-                        )}
-                        {/* POR QUÉ ESTA COBRA OTRA COSA.
-                            Una cita a mano puede llevar el importe escrito, y
-                            entonces manda ese y NO la tarifa del mes. Sin
-                            decirlo, un «+20» junto a otras de 25 no se explica:
-                            es exactamente la pregunta que hizo Raúl. */}
-                        {a.fijo && (
-                          <span
-                            className="flex-shrink-0 rounded border border-yellow-400/25 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-yellow-300/70"
-                            title="Esta cita lleva el importe escrito a mano, así que no usa la tarifa del mes. Púlsalo para que la use."
-                          >
-                            importe fijo
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-[10px] text-white/30 truncate">
-                        {a.company || 'Sin empresa'} · {a.at.getDate()}{' '}
-                        {MONTHS_LONG[a.at.getMonth()].slice(0, 3)}
-                      </p>
-                    </div>
-                    <span className="text-[11px] font-semibold text-green-300 flex-shrink-0">
-                      +{formatDollars(a.commission)}
-                    </span>
-                    {isAdmin && a.fijo && (
-                      <button
-                        type="button"
-                        onClick={() => soltarImporteFijo(a.id)}
-                        className="flex-shrink-0 text-[9px] text-white/25 opacity-0 transition-all hover:text-[#FF6600] group-hover:opacity-100"
-                        title="Quitarle el importe fijo para que cobre la tarifa del mes"
-                      >
-                        usar la del mes
-                      </button>
-                    )}
-                    {isAdmin && a.manual && (
-                      <button
-                        type="button"
-                        onClick={() => removeManualAppointment(a.id)}
-                        className="text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                        title="Quitar esta cita"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          )}
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {showRates && (
-          <RateSettings
-            period={period}
-            rates={rates}
-            onClose={() => setShowRates(false)}
-            onSaved={(r) =>
-              setRates((prev) =>
-                prev.some((x) => x.id === r.id)
-                  ? prev.map((x) => (x.id === r.id ? r : x))
-                  : [...prev, r]
-              )
-            }
-            onRemoved={(id) => setRates((prev) => prev.filter((r) => r.id !== id))}
-          />
-        )}
+  const botonFlecha = cn('flex h-8 w-8 items-center justify-center rounded-[8px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]', TACTIL_CUADRADO)
+  const navegadorDeCiclo = (
+    <div className="flex shrink-0 items-center gap-0.5 rounded-[11px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]">
+      <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Ciclo anterior" className={botonFlecha}>
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={period.key}
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 4 }}
+          transition={{ duration: 0.15 }}
+          className="flex items-center gap-1.5 whitespace-nowrap px-1.5 text-[13px] font-semibold text-[var(--ls-t1)]"
+          aria-live="polite"
+        >
+          <CalendarDays className="h-3.5 w-3.5 text-[var(--ls-acc-graf)]" />
+          {periodLabel(period)}
+        </motion.span>
       </AnimatePresence>
+      <button type="button" onClick={() => setOffset((o) => o + 1)} aria-label="Ciclo siguiente" className={botonFlecha}>
+        <ChevronRight className="h-4 w-4" />
+      </button>
+      {offset !== 0 && (
+        <button type="button" onClick={() => setOffset(0)} className="h-8 rounded-[8px] px-2 text-[12px] font-medium text-[var(--ls-acc-graf)] transition-colors hover:bg-[var(--ls-sup3)] [@media(pointer:coarse)]:min-h-[44px]">
+          Hoy
+        </button>
+      )}
     </div>
+  )
+
+  return (
+    <MotionConfig reducedMotion="user">
+      <div className="mx-auto w-full max-w-[1280px]">
+        <CabeceraDeModulo
+          icono={Clock}
+          acento="marca"
+          titulo="Mis Horas"
+          subtitulo="Apunta cada día lo que trabajas y mira en vivo lo que llevas ganado en el ciclo del 15 al 14."
+          acciones={
+            <>
+              {navegadorDeCiclo}
+              {puedeVerHorasDelEquipo && team.length > 0 && (
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => cambiarPersona(e.target.value)}
+                  aria-label="Persona"
+                  className="h-9 max-w-[200px] shrink-0 cursor-pointer rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none transition-colors focus:border-[var(--ls-acc-graf)] [@media(pointer:coarse)]:min-h-[44px]"
+                >
+                  <option value={currentUser.id}>{currentUser.full_name || 'Yo'}</option>
+                  {team
+                    .filter((p) => p.id !== currentUser.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name || p.email}
+                      </option>
+                    ))}
+                </select>
+              )}
+              {isAdmin && (
+                <Boton icono={Settings2} onClick={() => setShowRates(true)}>
+                  Tarifas
+                </Boton>
+              )}
+            </>
+          }
+          debajo={
+            puedeVerHorasDelEquipo ? (
+              <Pestanas<Seccion>
+                etiqueta="Secciones de Mis Horas"
+                acento="marca"
+                idPanel="mis-horas-panel"
+                valor={seccion}
+                onCambio={setSeccion}
+                opciones={[
+                  { id: 'ciclo', texto: viewingSelf ? 'Mi ciclo' : `Ciclo de ${nombreVisto.split(' ')[0]}`, icono: CalendarDays },
+                  { id: 'equipo', texto: 'Equipo', icono: Users, cuenta: sinApuntarHoy || undefined },
+                ]}
+              />
+            ) : undefined
+          }
+        />
+
+        <PanelDePestana id="mis-horas-panel" key={seccion}>
+          {seccion === 'equipo' && puedeVerHorasDelEquipo ? (
+            <VistaEquipo
+              equipo={team}
+              hours={hours}
+              rates={rates}
+              appointments={appointments}
+              manual={manual}
+              claveCiclo={period.key}
+              dias={days}
+              hoy={today}
+              esAdmin={isAdmin}
+              onAbrirPersona={(id) => {
+                cambiarPersona(id)
+                setSeccion('ciclo')
+              }}
+            />
+          ) : (
+            <>
+              {!viewingSelf && (
+                <div className="mb-4 flex flex-wrap items-start gap-2.5 rounded-[12px] border border-[color-mix(in_srgb,var(--ls-acc-graf)_30%,var(--ls-linea))] bg-[color-mix(in_srgb,var(--ls-acc-graf)_7%,transparent)] px-3.5 py-2.5 text-[13px] text-[var(--ls-t2)]">
+                  {soloMirando ? <Eye className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ls-acc-graf)]" /> : <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ls-acc-graf)]" />}
+                  <p className="min-w-0 flex-1">
+                    {soloMirando ? 'Estás viendo las horas de' : 'Estás viendo y editando las horas de'} <span className="font-semibold text-[var(--ls-t1)]">{nombreVisto}</span>.{' '}
+                    {soloMirando ? 'Solo de lectura: puedes ver lo que ficha, no corregirlo ni ver lo que cobra.' : 'Cualquier cambio se le guarda a esa persona.'}
+                  </p>
+                  <button type="button" onClick={() => cambiarPersona(currentUser.id)} className="shrink-0 text-[12.5px] font-medium text-[var(--ls-acc-graf)] hover:underline [@media(pointer:coarse)]:min-h-[44px]">
+                    Volver a lo mío
+                  </button>
+                </div>
+              )}
+
+              <HeroCiclo nomina={nomina} soloMirando={soloMirando} enCurso={todayInPeriod} />
+              <KpisCiclo nomina={nomina} soloMirando={soloMirando} />
+
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+                <Tarjeta
+                  titulo="Calendario"
+                  subtitulo={soloMirando ? 'Solo de lectura' : 'Pulsa un día para apuntar o corregir'}
+                  icono={CalendarDays}
+                  acento="marca"
+                  indice={0}
+                  cuerpoClassName="p-3 sm:p-4"
+                  acciones={
+                    <Segmentado<Vista>
+                      etiqueta="Vista"
+                      tamano="sm"
+                      valor={vista}
+                      onCambio={cambiarVista}
+                      opciones={[
+                        { id: 'calendario', texto: 'Mes', icono: LayoutGrid },
+                        { id: 'semana', texto: 'Semana', icono: List },
+                      ]}
+                    />
+                  }
+                >
+                  {todayInPeriod && viewingSelf && <ApuntarHoyTarjeta horasHoy={todayHours} guardando={saving} onApuntar={apuntarHoy} onOtra={abrirHoyEnHoja} />}
+                  {vista === 'calendario' ? (
+                    <CalendarioCiclo claveCiclo={period.key} dias={days} hoy={today} horasPorDia={hoursByDay} diaAbierto={diaAbierto} soloMirando={soloMirando} onPulsarDia={pulsarDia} envolver={envolver} />
+                  ) : (
+                    <ListaSemana dias={days} hoy={today} horasPorDia={hoursByDay} diaAbierto={diaAbierto} soloMirando={soloMirando} onPulsarDia={pulsarDia} envolver={envolver} />
+                  )}
+                </Tarjeta>
+
+                <div className="space-y-4">
+                  <ResumenCiclo nomina={nomina} soloMirando={soloMirando} />
+                  {/* Comisiones. Fuera cuando solo se supervisa: es dinero, y además las citas que llegan del servidor
+                      son solo las propias, así que aquí saldría un cero que no es cero. */}
+                  {!soloMirando && (
+                    <CitasDelCiclo
+                      citas={nomina.periodQualified}
+                      esAdmin={isAdmin}
+                      rates={rates}
+                      hoy={today}
+                      claveCiclo={period.key}
+                      nombrePersona={nombreVisto}
+                      guardando={saving}
+                      onAnadir={(d) => datos.addManual({ userId: selectedUserId, nombre: d.nombre, fecha: d.fecha, importe: d.importe })}
+                      onSoltarFijo={datos.soltarImporteFijo}
+                      onQuitar={datos.removeManual}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {todayInPeriod && viewingSelf && <ApuntarHoyPegajoso horasHoy={todayHours} guardando={saving} onApuntar={apuntarHoy} onOtra={abrirHoyEnHoja} />}
+            </>
+          )}
+        </PanelDePestana>
+
+        {/* El editor del día en el MÓVIL (y en el PC cuando se abre desde «Otra»): hoja inferior con objetivos de 44 px */}
+        <PanelLateral
+          abierto={diaAbierto !== null && !soloMirando && (!escritorio || enHoja)}
+          onCambio={(a) => !a && cerrarEditor()}
+          titulo={diaAbierto ? tituloDia(diaAbierto) : ''}
+          descripcion={subtituloEditor}
+          icono={Clock}
+          acento="marca"
+          ancho={400}
+        >
+          {diaAbierto && (!escritorio || enHoja) && editor(diaAbierto)}
+        </PanelLateral>
+
+        <Confirmacion
+          abierto={futuroPorConfirmar !== null}
+          onCambio={(a) => !a && setFuturoPorConfirmar(null)}
+          titulo="Ese día todavía no ha llegado"
+          descripcion={futuroPorConfirmar ? `¿Seguro que quieres apuntar horas del ${tituloDia(futuroPorConfirmar).toLowerCase()}? Normalmente se apuntan el mismo día.` : undefined}
+          palabra={null}
+          tono="normal"
+          textoConfirmar="Sí, apuntar"
+          onConfirmar={() => {
+            const d = futuroPorConfirmar
+            // Después de que el diálogo devuelva el foco: si no, el popover recién abierto se cerraría con ese foco
+            if (d) setTimeout(() => setDiaAbierto(d), 60)
+          }}
+        />
+
+        <AnimatePresence>
+          {showRates && <RateSettings period={period} rates={rates} onClose={() => setShowRates(false)} onSaved={datos.tarifaGuardada} onRemoved={datos.tarifaQuitada} />}
+        </AnimatePresence>
+      </div>
+    </MotionConfig>
   )
 }

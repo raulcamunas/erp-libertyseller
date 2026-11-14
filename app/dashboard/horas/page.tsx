@@ -104,16 +104,10 @@ export default async function HoursPage() {
     supabase.from('payroll_manual_appointments').select('*'),
   ])
 
+  // SCROLL NATURAL: antes iba en un contenedor de alto fijo (calc(100dvh-8rem)) que en el móvil comprimía el calendario
+  // o desbordaba el resumen. La cabecera del módulo y el título los pinta ahora HoursTracker.
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)]">
-      <div className="mb-3 flex-shrink-0">
-        <h1 className="heading-medium text-white mb-1">Mis Horas</h1>
-        <p className="text-white/50 text-sm">
-          Apunta cada día lo que trabajas y mira en vivo lo que llevas ganado en
-          este periodo.
-        </p>
-      </div>
-
+    <div className="pb-6">
       <HoursTracker
         initialHours={hours}
         initialRates={(rates.data as PayrollRate[]) || []}
