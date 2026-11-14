@@ -295,7 +295,7 @@ export function PantallaVacaciones({ inicial }: { inicial: DatosDePantalla }) {
                 acento="personas"
                 className="min-w-0"
                 titulo={vista === 'mes' ? 'Quién está fuera' : 'El año de un vistazo'}
-                subtitulo={puedeElegir ? 'Arrastra sobre los días (o pulsa el primero y el último) para pedirlos' : 'Toca un día para ver quién está fuera'}
+                subtitulo={puedeElegir ? <><span className="sm:hidden">Toca el primer día y el último para pedirlos</span><span className="hidden sm:inline">Arrastra sobre los días (o pulsa el primero y el último) para pedirlos</span></> : 'Toca un día para ver quién está fuera'}
                 acciones={<Segmentado etiqueta="Vista" tamano="sm" valor={vista} onCambio={setVista} opciones={[{ id: 'mes', texto: 'Mes' }, { id: 'anio', texto: 'Año' }]} />}
               >
                 {vista === 'mes' ? (
