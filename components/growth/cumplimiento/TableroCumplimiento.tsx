@@ -15,6 +15,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  Wrench,
   XCircle,
 } from 'lucide-react'
 import {
@@ -33,6 +34,7 @@ import {
 } from '@/lib/estilo/denso'
 import { Barra, Vacio, cifra, hace, nombreMarketplace } from '@/components/plataforma/comun'
 import { clasificarTema, estaExenta, ocultaAhora } from '@/lib/cumplimiento/incidencias'
+import { corregibleDesdeErp } from '@/lib/cumplimiento/correccion'
 import { ACCIONES, ayudaDe, clasificar } from '@/lib/cumplimiento/acciones'
 import { urlInventario, urlProducto } from '@/lib/cumplimiento/enlaces'
 import {
@@ -81,6 +83,8 @@ interface Props {
   mercadoFijo?: string
   /** Filtros con los que abrir (p. ej. el código de una incidencia desde la pestaña «Incidencias») */
   filtrosIniciales?: Partial<FiltrosCumplimiento>
+  /** La app Cumplimiento abre aquí el panel «Corregir» de una incidencia que se arregla desde el ERP. Sin él (Growth), no hay botón */
+  alCorregir?: (f: FilaCumplimiento, i: Incidencia) => void
 }
 
 const claveFila = (f: Pick<FilaCumplimiento, 'marketplace_id' | 'sku'>) => `${f.marketplace_id}|${f.sku}`
@@ -96,7 +100,7 @@ const GRAVEDADES: Array<{ id: FiltroGravedad; rotulo: string; ayuda: string }> =
   },
 ]
 
-export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicial, enCursoInicial = false, mercadoFijo, filtrosIniciales }: Props) {
+export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicial, enCursoInicial = false, mercadoFijo, filtrosIniciales, alCorregir }: Props) {
   const [resumen, setResumen] = useState<RespuestaResumen | null>(resumenInicial ?? null)
   const [filtros, setFiltros] = useState<FiltrosCumplimiento>({ ...FILTROS_POR_DEFECTO, ...filtrosIniciales, ...(mercadoFijo ? { mercado: mercadoFijo } : {}) })
   const [filas, setFilas] = useState<FilaCumplimiento[]>(paginaInicial?.filas ?? [])
@@ -569,6 +573,7 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
                       revisando={revisando === k}
                       alAbrir={() => alternar(k)}
                       alRevisar={() => void revisarUno(f)}
+                      alCorregir={alCorregir ? (i) => alCorregir(f, i) : undefined}
                     />
                   )
                 })}
@@ -611,6 +616,7 @@ function FilaLista({
   revisando,
   alAbrir,
   alRevisar,
+  alCorregir,
 }: {
   f: FilaCumplimiento
   abierta: boolean
@@ -618,6 +624,7 @@ function FilaLista({
   revisando: boolean
   alAbrir: () => void
   alRevisar: () => void
+  alCorregir?: (i: Incidencia) => void
 }) {
   const ficha = estadoDeFicha(f.estado)
   const fichaTono: TonoEstado = ficha === 'comprable' ? 'verde' : ficha === 'visible' ? 'gris' : 'rojo'
@@ -733,7 +740,7 @@ function FilaLista({
                 {importantes.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>Solo tiene avisos menores: nada que cambie la venta.</p>}
                 <ul className="flex max-w-[900px] flex-col gap-[9px]">
                   {importantes.map(({ i, accion }, n) => (
-                    <LineaIncidencia key={`${i.codigo}-${n}`} i={i} ahora={ahora} accion={accion} />
+                    <LineaIncidencia key={`${i.codigo}-${n}`} i={i} ahora={ahora} accion={accion} alCorregir={alCorregir && corregibleDesdeErp(i, accion) ? () => alCorregir(i) : undefined} />
                   ))}
                 </ul>
                 {menores.length > 0 && (
@@ -764,7 +771,7 @@ function FilaLista({
   )
 }
 
-function LineaIncidencia({ i, ahora, accion, menor = false }: { i: Incidencia; ahora: Date; accion: keyof typeof ACCIONES; menor?: boolean }) {
+function LineaIncidencia({ i, ahora, accion, menor = false, alCorregir }: { i: Incidencia; ahora: Date; accion: keyof typeof ACCIONES; menor?: boolean; alCorregir?: () => void }) {
   const oculta = ocultaAhora(i, ahora)
   const ayuda = ayudaDe(i.mensaje)
   const gracia = i.exencion !== null && estaExenta(i.exencion, ahora)
@@ -809,6 +816,16 @@ function LineaIncidencia({ i, ahora, accion, menor = false }: { i: Incidencia; a
               <span className={TEXTO.t4}> · el plazo de gracia ya ha caducado</span>
             )}
           </p>
+        )}
+        {alCorregir && (
+          <button
+            type="button"
+            onClick={alCorregir}
+            className="mt-[6px] inline-flex min-h-[30px] items-center gap-[6px] rounded-[8px] border border-[var(--ls-acc-borde)] bg-[color-mix(in_srgb,var(--ls-acc-graf)_12%,transparent)] px-[10px] text-[12px] font-semibold text-[var(--ls-t1)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-acc-graf)_20%,transparent)] [@media(pointer:coarse)]:min-h-[44px]"
+            title="Corregir el dato desde el ERP: se valida con Amazon antes de enviarlo"
+          >
+            <Wrench className="h-3 w-3" /> Corregir desde aquí
+          </button>
         )}
       </div>
     </li>

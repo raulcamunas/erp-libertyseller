@@ -242,7 +242,7 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   createMarketplaceItemLabels: { rate: 2, burst: 30 },
 
   /* ---------- SEO Test ---------- */
-  // La definición del tipo de producto (qué atributos admite: el de los Item Highlights). 5 por segundo con ráfaga de 10; se guarda en memoria un día.
+  // La definición del tipo de producto (qué atributos admite): la piden el editor de SEO (Item Highlights) y «Corregir» de Cumplimiento. 5 por segundo con ráfaga de 10; se guarda en memoria un día.
   getDefinitionsProductType: { rate: 5, burst: 10 },
   // Ofertas de un ASIN AJENO (la competencia). 0,1 por segundo: UNA CADA DIEZ SEGUNDOS, 20 ASIN por llamada. Por eso el seguimiento diario va con
   // presupuesto (lib/seo/rivales-servidor.ts) y no pasa de unas pocas llamadas por pasada.

@@ -1,14 +1,15 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Check, ChevronDown, ChevronRight, ClipboardCopy, ExternalLink, Layers, UserRound } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, ClipboardCopy, EyeOff, ExternalLink, Gauge, History, Layers, ListTodo, MessageSquareShare, PartyPopper, Send, Store, UserRound, Wrench } from 'lucide-react'
+import { Boton, CifraAnimada, FilaDeKpis, Insignia, Kpi, LineaDeTiempo, Tarjeta, TACTIL, BarraDeProgreso, type Hito } from '@/components/ui-ls'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { CAJA } from '@/components/marketing-test/piezas'
 import { ACCIONES, RUTA_SELLER_CENTRAL, type TareaDeHoy } from '@/lib/cumplimiento/acciones'
+import { RESOLUCION, ROTULO_RESOLUCION, type CorreccionRegistrada, type Resolucion } from '@/lib/cumplimiento/correccion'
 import { urlSellerCentral } from '@/lib/cumplimiento/enlaces'
-import { NIVELES, ROTULO_NIVEL } from '@/lib/cumplimiento/tipos'
+import { NIVELES, ROTULO_NIVEL, type Nivel } from '@/lib/cumplimiento/tipos'
 import type { PanelDeCumplimiento } from '@/lib/cumplimiento/panel-calculo'
-import { COLOR_NIVEL, haceTiempo, textoPlazo } from './comun'
+import { COLOR_NIVEL, cuentaAtras, haceTiempo, textoPlazo } from './comun'
 
 type PanelOk = Extract<PanelDeCumplimiento, { ok: true }>
 const cifra = (v: number) => v.toLocaleString('es-ES')
@@ -16,34 +17,46 @@ const cifra = (v: number) => v.toLocaleString('es-ES')
 /** Las preferencias de esta pestaña se recuerdan en el navegador: cada persona tiene su forma de trabajar */
 const CLAVE_PREFS = 'cumplimiento-hoy'
 
+const ICONO_RESOLUCION: Record<Resolucion, typeof Wrench> = { erp: Wrench, 'seller-central': Store, cliente: UserRound }
+const TONO_RESOLUCION: Record<Resolucion, 'verde' | 'azul' | 'violeta'> = { erp: 'verde', 'seller-central': 'azul', cliente: 'violeta' }
+
 /**
  * «HOY»: QUÉ HAY QUE REVISAR, AGRUPADO POR LO QUE HAY QUE HACER.
  *
- * Es la pestaña de trabajo del día a día. En vez de 80 códigos de Amazon, una lista de tareas («Pedir la aprobación de
- * la marca», «Registrar la RAP», «Cambiar la imagen principal») con los pasos en Seller Central, ordenadas por lo que
- * cuesta dinero: primero lo que Amazon tiene oculto, luego la normativa con plazo, luego lo que se vende pero peor. Y
- * dentro de cada grupo, lo que tiene stock delante (lo que se está dejando de vender hoy).
+ * Es la pestaña de trabajo del día a día. En vez de 80 códigos de Amazon, una tarjeta por tarea («Pedir la aprobación de
+ * la marca», «Registrar la RAP», «Rellenar el dato que falta») con su cifra grande, el plazo con cuenta atrás y el botón
+ * que toca según quién lo arregla: «Corregir» si se hace desde el ERP, «Abrir Seller Central» si solo se puede allí, o
+ * «Pedir al cliente» si hace falta algo suyo. Ordenadas por lo que cuesta dinero: primero lo oculto, luego la normativa
+ * con plazo, luego lo que se vende pero peor; y dentro, lo que tiene stock delante.
  *
  * Por defecto solo se ve lo que tiene stock y nada de los avisos menores: lo demás está a un clic, pero no estorba.
  */
 export function PestanaHoy({
   panel,
+  cliente,
   mercado,
   nombreCliente,
   nombrePais,
   verTarea,
+  corregirTarea,
+  vuelta,
 }: {
   panel: PanelOk
+  cliente: string
   /** El país elegido, o 'todos' */
   mercado: string
   nombreCliente: string
   nombrePais: string
   verTarea: (t: TareaDeHoy, soloStock: boolean) => void
+  corregirTarea: (t: TareaDeHoy) => void
+  /** Sube al corregir algo: se vuelven a pedir las últimas correcciones */
+  vuelta: number
 }) {
   const [soloStock, setSoloStock] = useState(true)
   const [menores, setMenores] = useState(false)
-  const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set())
+  const [verSinStock, setVerSinStock] = useState<ReadonlySet<Nivel>>(new Set())
   const [copiado, setCopiado] = useState(false)
+  const correcciones = useCorrecciones(cliente, mercado, vuelta)
 
   useEffect(() => {
     try {
@@ -62,7 +75,7 @@ export function PestanaHoy({
     }
   }
 
-  // El dominio de Seller Central de los enlaces: el del país elegido o, con «todos», el del país con más listings
+  // El dominio de Seller Central de los enlaces: el del país elegido o, con «todos», el de España o el primero
   const mercadoEnlaces = mercado !== 'todos' ? mercado : (panel.paises.find((p) => p.pais === 'ES') ?? panel.paises[0])?.id ?? ''
   const c = panel.cifras
 
@@ -70,22 +83,20 @@ export function PestanaHoy({
     const niveles = NIVELES.filter((n) => menores || n !== 'menor')
     return niveles.map((nivel) => {
       const todas = panel.tareas.filter((t) => t.nivel === nivel)
-      const conStock = todas.filter((t) => t.conStock > 0)
-      return { nivel, todas, conStock, sinStock: todas.filter((t) => t.conStock === 0) }
+      return { nivel, todas, conStock: todas.filter((t) => t.conStock > 0), sinStock: todas.filter((t) => t.conStock === 0) }
     })
   }, [panel.tareas, menores])
 
   const nMenores = panel.tareas.filter((t) => t.nivel === 'menor').reduce((s, t) => s + t.listings, 0)
   const importantes = panel.tareas.filter((t) => t.nivel !== 'menor')
-  const visiblesPorDefecto = importantes.filter((t) => t.conStock > 0)
+  const pendientes = importantes.filter((t) => t.conStock > 0)
+  const corregibles = pendientes.filter((t) => RESOLUCION[t.accion] === 'erp').length
 
-  const alternar = (k: string) =>
-    setAbiertas((prev) => {
-      const s = new Set(prev)
-      if (s.has(k)) s.delete(k)
-      else s.add(k)
-      return s
-    })
+  // La serie de la foto diaria (los 30 últimos días) y el punto de hace una semana, para las variaciones
+  const diario = panel.diario.slice(-30)
+  const haceUnaSemana = diario.length > 7 ? diario[diario.length - 8] : diario[0]
+  const salud = c.revisados > 0 ? (c.revisados - c.atencion) / c.revisados : null
+  const enviadasSemana = correcciones?.faltaMigracion ? null : correcciones?.lista.filter((x) => x.estado === 'aceptado' && Date.now() - Date.parse(x.creadoAt) < 7 * 86_400_000).length ?? null
 
   /** Un resumen en texto, para pegarlo en el chat del equipo o en una tarea del cliente */
   const copiar = async () => {
@@ -96,7 +107,7 @@ export function PestanaHoy({
       lineas.push('', `${ROTULO_NIVEL[s.nivel].corto}:`)
       for (const t of lista) {
         const plazo = t.plazo ? ` · ${textoPlazo(t.plazo).texto.toLowerCase()}` : ''
-        lineas.push(`• ${ACCIONES[t.accion].titulo}: ${cifra(t.conStock)} con stock (${cifra(t.listings)} listings)${plazo}`)
+        lineas.push(`• ${ACCIONES[t.accion].titulo}: ${cifra(t.conStock)} con stock (${cifra(t.listings)} listings) · ${ROTULO_RESOLUCION[RESOLUCION[t.accion]].corto.toLowerCase()}${plazo}`)
       }
     }
     try {
@@ -110,103 +121,154 @@ export function PestanaHoy({
 
   if (c.revisados === 0)
     return (
-      <div className={`${CAJA.base} max-w-[760px]`}>
-        <div className={CAJA.cuerpo}>
-          <p className="text-[13px] font-semibold text-[var(--ls-t1)]">Todavía no se ha revisado ningún listing aquí</p>
-          <p className="mt-1 text-[12.5px] text-[var(--ls-t3)]">La revisión pasa sola cada hora, empezando por lo que tiene stock. También se puede lanzar ahora desde la pestaña «Listings».</p>
-        </div>
-      </div>
+      <Tarjeta acento="cumplimiento" icono={ListTodo} titulo="Todavía no se ha revisado ningún listing aquí" className="max-w-[760px]">
+        <p className="text-[13px] text-[var(--ls-t3)]">La revisión pasa sola cada hora, empezando por lo que tiene stock. También se puede lanzar ahora desde la pestaña «Listings».</p>
+      </Tarjeta>
     )
 
+  let indice = 0
   return (
-    <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
-      {/* ---- la cabecera: lo que hay, y cómo se mira ---- */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]">Qué revisar hoy</h2>
-          <p className="mt-[2px] text-[12px] text-[var(--ls-t3)]">
-            {visiblesPorDefecto.length === 0 ? (
-              'Nada con stock que esté bloqueado o pendiente de normativa'
-            ) : (
-              <>
-                <strong className="text-[var(--ls-t1)]">{visiblesPorDefecto.length}</strong> {visiblesPorDefecto.length === 1 ? 'tarea' : 'tareas'} con stock afectado ·{' '}
-                <strong style={{ color: c.atencionConStock > 0 ? COLOR_ESTADO.rojo : undefined }}>{cifra(c.atencionConStock)}</strong> listings con stock ocultos o con error
-              </>
-            )}
-            {c.total > c.revisados && <> · revisado el {Math.floor((c.revisados / c.total) * 100)} % del catálogo</>}
-            {c.ultimaRevision && <> · última revisión {haceTiempo(c.ultimaRevision)}</>}
-          </p>
+    <div className="flex max-w-[1240px] flex-col gap-5 pb-10">
+      {/* ---- las cifras de arriba ---- */}
+      <FilaDeKpis minimo={200}>
+        <Kpi
+          indice={0}
+          etiqueta="Bloqueados con stock"
+          valor={c.atencionConStock}
+          icono={EyeOff}
+          acento={c.atencionConStock > 0 ? COLOR_ESTADO.rojo : COLOR_ESTADO.verde}
+          anterior={haceUnaSemana?.atencionConStock ?? null}
+          mejor="baja"
+          serie={diario.map((d) => d.atencionConStock)}
+          nota="Listings con stock ocultos o con error: lo que se deja de vender hoy"
+        />
+        <Kpi indice={1} etiqueta="Tareas para hoy" valor={pendientes.length} icono={ListTodo} acento="cumplimiento" nota={corregibles > 0 ? `${corregibles} se ${corregibles === 1 ? 'corrige' : 'corrigen'} desde el ERP` : 'Con stock afectado'} />
+        <Kpi
+          indice={2}
+          etiqueta="Salud del catálogo"
+          valor={salud}
+          formato={(v) => `${(Math.floor(v * 1000) / 10).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`}
+          icono={Gauge}
+          acento={salud == null ? 'neutro' : salud >= 0.95 ? COLOR_ESTADO.verde : salud >= 0.85 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo}
+          anterior={haceUnaSemana && haceUnaSemana.revisados > 0 ? (haceUnaSemana.revisados - haceUnaSemana.atencion) / haceUnaSemana.revisados : null}
+          mejor="sube"
+          serie={diario.map((d) => (d.revisados > 0 ? (d.revisados - d.atencion) / d.revisados : 0))}
+          nota="Revisados sin errores ni ocultos"
+        />
+        <Kpi
+          indice={3}
+          etiqueta="Corregido esta semana"
+          valor={enviadasSemana}
+          icono={Send}
+          acento={COLOR_ESTADO.verde}
+          cargando={correcciones === null}
+          nota={correcciones?.faltaMigracion ? 'Falta lanzar la migración 313' : 'Envíos desde el ERP aceptados por Amazon'}
+        />
+      </FilaDeKpis>
+
+      {/* ---- el progreso y cómo se mira ---- */}
+      <Tarjeta acento="cumplimiento" indice={4}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+          <div className="min-w-0 flex-1">
+            <BarraDeProgreso
+              valor={c.revisados - c.atencion}
+              maximo={Math.max(1, c.revisados)}
+              tono={salud == null ? 'gris' : salud >= 0.95 ? 'verde' : salud >= 0.85 ? 'ambar' : 'rojo'}
+              etiqueta="Listings revisados sin problemas"
+              detalle={`${cifra(c.revisados - c.atencion)} de ${cifra(c.revisados)}`}
+            />
+            <p className="mt-2 text-[12px] text-[var(--ls-t4)]">
+              {haceUnaSemana && haceUnaSemana.atencion !== c.atencion ? (
+                haceUnaSemana.atencion > c.atencion ? (
+                  <span style={{ color: COLOR_ESTADO.verde }}>{cifra(haceUnaSemana.atencion - c.atencion)} resueltos desde hace una semana</span>
+                ) : (
+                  <span style={{ color: COLOR_ESTADO.ambar }}>{cifra(c.atencion - haceUnaSemana.atencion)} más con atención que hace una semana</span>
+                )
+              ) : (
+                'Igual que hace una semana'
+              )}
+              {c.total > c.revisados && <> · revisado el {Math.floor((c.revisados / c.total) * 100)} % del catálogo</>}
+              {c.ultimaRevision && <> · última revisión {haceTiempo(c.ultimaRevision)}</>}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Interruptor
+              encendido={soloStock}
+              alPulsar={() => {
+                setSoloStock(!soloStock)
+                guardar({ soloStock: !soloStock, menores })
+              }}
+              texto="Solo con stock"
+              ayuda="Lo que no tiene stock puede esperar: no se está dejando de vender nada"
+            />
+            <Interruptor
+              encendido={menores}
+              alPulsar={() => {
+                setMenores(!menores)
+                guardar({ soloStock, menores: !menores })
+              }}
+              texto="Avisos menores"
+              cuenta={nMenores}
+              ayuda="Recomendaciones de Amazon, cambios rechazados que dejan la ficha como estaba y errores internos: no cambian nada en la venta"
+            />
+            <Boton variante="secundario" tamano="sm" icono={copiado ? Check : ClipboardCopy} onClick={() => void copiar()} title="Copiar la lista de tareas en texto, para pegarla en el chat o en una tarea del cliente">
+              {copiado ? 'Copiado' : 'Copiar resumen'}
+            </Boton>
+          </div>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Interruptor
-            encendido={soloStock}
-            alPulsar={() => {
-              setSoloStock(!soloStock)
-              guardar({ soloStock: !soloStock, menores })
-            }}
-            texto="Solo con stock"
-            ayuda="Lo que no tiene stock puede esperar: no se está dejando de vender nada"
-          />
-          <Interruptor
-            encendido={menores}
-            alPulsar={() => {
-              setMenores(!menores)
-              guardar({ soloStock, menores: !menores })
-            }}
-            texto="Ver también avisos menores"
-            cuenta={nMenores}
-            ayuda="Recomendaciones de Amazon, cambios rechazados que dejan la ficha como estaba y errores internos: no cambian nada en la venta"
-          />
-          <button type="button" onClick={() => void copiar()} className="inline-flex h-[30px] items-center gap-[6px] rounded-[9px] border border-[var(--ls-linea)] px-[10px] text-[12px] font-medium text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]" title="Copiar la lista de tareas en texto, para pegarla en el chat o en una tarea del cliente">
-            {copiado ? <Check className="h-[13px] w-[13px]" style={{ color: COLOR_ESTADO.verde }} /> : <ClipboardCopy className="h-[13px] w-[13px]" />}
-            {copiado ? 'Copiado' : 'Copiar resumen'}
-          </button>
-        </div>
-      </div>
+      </Tarjeta>
 
       {importantes.length === 0 && (
-        <div className={`${CAJA.base} ${CAJA.cuerpo}`}>
-          <p className="text-[13px] font-semibold" style={{ color: COLOR_ESTADO.verde }}>Todo en orden</p>
-          <p className="mt-1 text-[12.5px] text-[var(--ls-t3)]">
+        <Tarjeta variante="destacada" acento={COLOR_ESTADO.verde} icono={PartyPopper} titulo="Todo en orden">
+          <p className="text-[13px] text-[var(--ls-t3)]">
             Amazon no tiene nada oculto, ni normativa pendiente, ni nada que afecte a la venta en los listings revisados.
-            {nMenores > 0 && !menores && <> Hay avisos menores (no cambian nada en la venta): están en «Ver también avisos menores».</>}
+            {nMenores > 0 && !menores && <> Hay avisos menores (no cambian nada en la venta): enciende «Avisos menores» para verlos.</>}
           </p>
-        </div>
+        </Tarjeta>
       )}
 
-      {/* ---- una sección por importancia ---- */}
+      {/* ---- una sección por importancia, con una tarjeta por tarea ---- */}
       {secciones.map((s) => {
-        const lista = soloStock ? s.conStock : s.todas
         if (s.todas.length === 0) return null
-        const claveSin = `sin|${s.nivel}`
-        const verSin = abiertas.has(claveSin)
+        const lista = soloStock ? s.conStock : s.todas
+        const abiertaSin = verSinStock.has(s.nivel)
+        const color = COLOR_NIVEL[s.nivel]
         return (
-          <section key={s.nivel} className={CAJA.base} aria-label={ROTULO_NIVEL[s.nivel].corto}>
-            <header className={CAJA.cabecera}>
-              <span aria-hidden className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: COLOR_NIVEL[s.nivel], boxShadow: `0 0 0 3px color-mix(in srgb, ${COLOR_NIVEL[s.nivel]} 18%, transparent)` }} />
-              <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">{ROTULO_NIVEL[s.nivel].corto}</h3>
-              <span className="hidden min-w-0 truncate text-[11.5px] text-[var(--ls-t4)] md:inline">{ROTULO_NIVEL[s.nivel].largo}</span>
-              <span className="ml-auto shrink-0 rounded-full bg-[var(--ls-sup3)] px-[7px] text-[11px] font-semibold tabular-nums text-[var(--ls-t3)]">{lista.length}</span>
+          <section key={s.nivel} aria-label={ROTULO_NIVEL[s.nivel].corto} className="flex flex-col gap-3">
+            <header className="flex items-center gap-3">
+              <span aria-hidden className="h-[10px] w-[10px] shrink-0 rounded-full" style={{ background: color, boxShadow: `0 0 0 4px color-mix(in srgb, ${color} 18%, transparent), 0 0 14px color-mix(in srgb, ${color} 55%, transparent)` }} />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]">{ROTULO_NIVEL[s.nivel].corto}</h2>
+                <p className="hidden truncate text-[12px] text-[var(--ls-t4)] sm:block">{ROTULO_NIVEL[s.nivel].largo}</p>
+              </div>
+              <Insignia tono="gris" tamano="sm">
+                {lista.length} {lista.length === 1 ? 'tarea' : 'tareas'}
+              </Insignia>
             </header>
             {lista.length === 0 ? (
-              <p className={`${CAJA.cuerpo} text-[12.5px] text-[var(--ls-t3)]`}>Nada con stock. {s.sinStock.length > 0 && 'Lo que hay es de listings sin stock (abajo).'}</p>
+              <p className="rounded-[12px] border border-dashed border-[var(--ls-linea2)] px-4 py-3 text-[12.5px] text-[var(--ls-t3)]">Nada con stock. {s.sinStock.length > 0 && 'Lo que hay es de listings sin stock (abajo).'}</p>
             ) : (
-              <div className="flex flex-col divide-y divide-[var(--ls-linea)]">
+              <div className="grid gap-3 xl:grid-cols-2">
                 {lista.map((t) => (
-                  <Tarea key={`${t.nivel}|${t.accion}`} t={t} abierta={abiertas.has(`${t.nivel}|${t.accion}`)} alternar={() => alternar(`${t.nivel}|${t.accion}`)} mercado={mercadoEnlaces} ver={() => verTarea(t, soloStock && t.conStock > 0)} />
+                  <TarjetaDeTarea key={`${t.nivel}|${t.accion}`} t={t} indice={Math.min(12, ++indice)} mercado={mercadoEnlaces} nombreCliente={nombreCliente} nombrePais={nombrePais} ver={() => verTarea(t, soloStock && t.conStock > 0)} corregir={() => corregirTarea(t)} />
                 ))}
               </div>
             )}
             {soloStock && s.sinStock.length > 0 && (
-              <div className="border-t border-[var(--ls-linea)]">
-                <button type="button" onClick={() => alternar(claveSin)} aria-expanded={verSin} className="flex w-full items-center gap-[6px] px-4 py-[9px] text-left text-[12px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">
-                  {verSin ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setVerSinStock((prev) => { const n = new Set(prev); if (n.has(s.nivel)) n.delete(s.nivel); else n.add(s.nivel); return n })}
+                  aria-expanded={abiertaSin}
+                  className={`inline-flex items-center gap-[6px] rounded-[8px] px-2 text-left text-[12.5px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)] ${TACTIL}`}
+                >
+                  <ChevronDown className={`h-3 w-3 transition-transform ${abiertaSin ? '' : '-rotate-90'}`} />
                   {s.sinStock.length} {s.sinStock.length === 1 ? 'tarea' : 'tareas'} solo en listings sin stock ({cifra(s.sinStock.reduce((n, t) => n + t.listings, 0))} listings): pueden esperar
                 </button>
-                {verSin && (
-                  <div className="flex flex-col divide-y divide-[var(--ls-linea)] border-t border-[var(--ls-linea)] opacity-80">
+                {abiertaSin && (
+                  <div className="mt-3 grid gap-3 opacity-85 xl:grid-cols-2">
                     {s.sinStock.map((t) => (
-                      <Tarea key={`${t.nivel}|${t.accion}`} t={t} abierta={abiertas.has(`${t.nivel}|${t.accion}`)} alternar={() => alternar(`${t.nivel}|${t.accion}`)} mercado={mercadoEnlaces} ver={() => verTarea(t, false)} />
+                      <TarjetaDeTarea key={`${t.nivel}|${t.accion}`} t={t} mercado={mercadoEnlaces} nombreCliente={nombreCliente} nombrePais={nombrePais} ver={() => verTarea(t, false)} corregir={() => corregirTarea(t)} />
                     ))}
                   </div>
                 )}
@@ -216,7 +278,9 @@ export function PestanaHoy({
         )
       })}
 
-      <p className="text-[11px] leading-[1.45] text-[var(--ls-t4)]">
+      {correcciones && correcciones.lista.length > 0 && <UltimasCorrecciones lista={correcciones.lista} />}
+
+      <p className="text-[11.5px] leading-[1.5] text-[var(--ls-t4)]">
         Cada tarea junta las incidencias de Amazon que se arreglan igual. Las cifras son de lo revisado: un listing con dos problemas distintos sale en las dos tareas.
         {!panel.exacto && <> Cifras aproximadas hasta lanzar la migración 306: un listing con dos incidencias de la misma tarea cuenta dos veces y los avisos menores salen incompletos.</>}
       </p>
@@ -224,56 +288,105 @@ export function PestanaHoy({
   )
 }
 
-function Tarea({ t, abierta, alternar, mercado, ver }: { t: TareaDeHoy; abierta: boolean; alternar: () => void; mercado: string; ver: () => void }) {
+/* ------------------------------------------------------------------ */
+/* Una tarea                                                           */
+/* ------------------------------------------------------------------ */
+
+function TarjetaDeTarea({ t, indice, mercado, nombreCliente, nombrePais, ver, corregir }: { t: TareaDeHoy; indice?: number; mercado: string; nombreCliente: string; nombrePais: string; ver: () => void; corregir: () => void }) {
   const a = ACCIONES[t.accion]
-  const plazo = t.plazo ? textoPlazo(t.plazo) : null
+  const resolucion = RESOLUCION[t.accion]
+  const Icono = ICONO_RESOLUCION[resolucion]
+  const plazo = t.plazo ? cuentaAtras(t.plazo) : null
   const donde = a.donde ? RUTA_SELLER_CENTRAL[a.donde] : null
   const urlDonde = donde ? urlSellerCentral(mercado, donde.ruta) : null
-  const [mensajeEntero, setMensajeEntero] = useState(false)
+  const [abierta, setAbierta] = useState(false)
+  const [copiado, setCopiado] = useState(false)
+  const bloquea = t.nivel === 'bloquea' && t.conStock > 0
+  const color = COLOR_NIVEL[t.nivel]
+
+  const pedirAlCliente = async () => {
+    const texto = [
+      `Hola, ${nombreCliente}:`,
+      '',
+      `En Amazon ${nombrePais} tenemos pendiente «${a.titulo.toLowerCase()}», que afecta a ${cifra(t.listings)} ${t.listings === 1 ? 'producto' : 'productos'}${t.conStock > 0 ? ` (${cifra(t.conStock)} con stock)` : ''}.`,
+      a.porque,
+      t.plazo ? `Amazon da como plazo el ${textoPlazo(t.plazo).texto.replace(/^Plazo(?: de Amazon vencido el|:)\s*/, '')}.` : '',
+      '',
+      'Para resolverlo necesitamos que nos enviéis lo que pide Amazon. ¿Nos lo podéis mandar?',
+    ]
+      .filter((l, i, arr) => l !== '' || arr[i - 1] !== '')
+      .join('\n')
+    try {
+      await navigator.clipboard.writeText(texto)
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 1800)
+    } catch {
+      /* sin portapapeles */
+    }
+  }
+
+  const principal =
+    resolucion === 'erp' ? (
+      <Boton variante="primario" tamano="sm" icono={Wrench} onClick={corregir} title="Corregir el dato desde el ERP: se valida con Amazon antes de enviarlo">
+        Corregir
+      </Boton>
+    ) : resolucion === 'seller-central' && urlDonde ? (
+      <Boton variante="primario" tamano="sm" icono={ExternalLink} asChild>
+        <a href={urlDonde} target="_blank" rel="noreferrer" title="Hay que tener abierta la sesión con la cuenta del cliente">
+          Abrir Seller Central
+        </a>
+      </Boton>
+    ) : resolucion === 'cliente' ? (
+      <Boton variante="primario" tamano="sm" icono={copiado ? Check : MessageSquareShare} onClick={() => void pedirAlCliente()} title="Copia un mensaje para el cliente con lo que pide Amazon">
+        {copiado ? 'Mensaje copiado' : 'Pedir al cliente'}
+      </Boton>
+    ) : null
 
   return (
-    <div className="px-4 py-[11px]">
-      <div className="grid grid-cols-1 gap-x-4 gap-y-2 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-start">
-        <div className="min-w-0">
-          <button type="button" onClick={alternar} aria-expanded={abierta} className="group flex max-w-full items-start gap-[6px] text-left">
-            {abierta ? <ChevronDown className="mt-[3px] h-3 w-3 shrink-0 text-[var(--ls-t4)]" /> : <ChevronRight className="mt-[3px] h-3 w-3 shrink-0 text-[var(--ls-t4)] group-hover:text-[var(--ls-t2)]" />}
-            <span className="min-w-0">
-              <span className="block text-[13px] font-semibold leading-[1.35] text-[var(--ls-t1)]">{a.titulo}</span>
-              <span className="mt-[2px] block text-[12px] leading-[1.45] text-[var(--ls-t3)]">{a.porque}</span>
-            </span>
-          </button>
-          <div className="mt-[6px] flex flex-wrap items-center gap-[6px] pl-[18px]">
-            {a.quien === 'cliente' && (
-              <Etiqueta icono={<UserRound className="h-[11px] w-[11px]" />} color={COLOR_ESTADO.azul} titulo="Hace falta algo del cliente: documentos, un registro o un permiso">
-                Necesita al cliente
-              </Etiqueta>
-            )}
-            {a.deGolpe && (
-              <Etiqueta icono={<Layers className="h-[11px] w-[11px]" />} color={COLOR_ESTADO.verde} titulo="Se arregla una vez y vale para todos los listings afectados">
-                Se arregla de una vez
-              </Etiqueta>
-            )}
-            {plazo && <Etiqueta color={plazo.color}>{plazo.texto}</Etiqueta>}
-            {t.desde && <span className="text-[11px] text-[var(--ls-t4)]">la primera, {haceTiempo(t.desde)}</span>}
-          </div>
+    <Tarjeta
+      variante={bloquea ? 'destacada' : 'normal'}
+      acento={color}
+      indice={indice}
+      className="ls-elevar"
+      sinRelleno
+      aria-label={a.titulo}
+    >
+      <div className="flex gap-4 px-4 pb-3 pt-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]" style={{ background: `linear-gradient(140deg, color-mix(in srgb, ${color} 26%, transparent), color-mix(in srgb, ${color} 8%, transparent))`, color, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${color} 30%, transparent)` }}>
+          <Icono className="h-[18px] w-[18px]" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[14px] font-semibold leading-[1.35] tracking-[-0.01em] text-[var(--ls-t1)]">{a.titulo}</h3>
+          <p className="mt-[3px] line-clamp-2 text-[12.5px] leading-[1.45] text-[var(--ls-t3)]">{a.porque}</p>
         </div>
-
-        <div className="flex items-baseline gap-2 pl-[18px] md:block md:pl-0 md:text-right">
-          <span className="block text-[18px] font-semibold leading-none tabular-nums" style={{ color: t.conStock > 0 && t.nivel === 'bloquea' ? COLOR_ESTADO.rojo : 'var(--ls-t1)' }}>
-            {cifra(t.conStock)}
-          </span>
-          <span className="mt-[3px] block text-[11px] text-[var(--ls-t4)]">con stock · de {cifra(t.listings)}</span>
+        <div className="shrink-0 text-right">
+          <CifraAnimada valor={t.conStock} formato={(v) => cifra(Math.round(v))} className="block text-[26px] font-semibold leading-none tabular-nums tracking-[-0.03em]" />
+          <span className="mt-1 block text-[11px] text-[var(--ls-t4)]">con stock</span>
+          <span className="block text-[11px] text-[var(--ls-t4)]">de {cifra(t.listings)}</span>
         </div>
+      </div>
 
-        <button type="button" onClick={ver} className="ml-[18px] inline-flex h-[28px] items-center justify-center gap-1 justify-self-start rounded-[8px] border border-[var(--ls-linea)] px-[10px] text-[12px] font-medium text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-linea2)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)] md:ml-0 md:justify-self-end" title="Ver la lista de estos listings, con stock primero">
-          Ver listings <ArrowRight className="h-3 w-3" />
-        </button>
+      <div className="flex flex-wrap items-center gap-[6px] px-4 pb-3">
+        <Insignia tamano="sm" tono={TONO_RESOLUCION[resolucion]} icono={Icono} title={ROTULO_RESOLUCION[resolucion].largo}>
+          {ROTULO_RESOLUCION[resolucion].corto}
+        </Insignia>
+        {plazo && (
+          <Insignia tamano="sm" tono={plazo.tono} vivo={plazo.dias <= 7} title={textoPlazo(t.plazo as string).texto}>
+            {plazo.texto}
+          </Insignia>
+        )}
+        {a.deGolpe && (
+          <Insignia tamano="sm" tono="cian" icono={Layers} title="Se arregla una vez y vale para todos los listings afectados">
+            De una vez
+          </Insignia>
+        )}
+        {t.desde && <span className="text-[11px] text-[var(--ls-t4)]">la primera, {haceTiempo(t.desde)}</span>}
       </div>
 
       {abierta && (
-        <div className="mt-[10px] ml-[18px] flex flex-col gap-[10px] rounded-[10px] bg-[var(--ls-sup2)] px-[14px] py-[11px]">
+        <div className="mx-4 mb-3 flex flex-col gap-[10px] rounded-[12px] bg-[var(--ls-sup2)] px-[14px] py-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[var(--ls-t4)]">Cómo se arregla</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--ls-t4)]">Cómo se arregla</p>
             <ol className="mt-[5px] flex list-decimal flex-col gap-[4px] pl-[18px] text-[12.5px] leading-[1.5] text-[var(--ls-t2)]">
               {a.pasos.map((p) => (
                 <li key={p}>{p}</li>
@@ -282,10 +395,8 @@ function Tarea({ t, abierta, alternar, mercado, ver }: { t: TareaDeHoy; abierta:
           </div>
           {t.mensaje && (
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[var(--ls-t4)]">Lo que dice Amazon</p>
-              <button type="button" onClick={() => setMensajeEntero((v) => !v)} className={`mt-[4px] text-left text-[12px] leading-[1.5] text-[var(--ls-t3)] ${mensajeEntero ? '' : 'line-clamp-2'}`} title={mensajeEntero ? 'Ver menos' : 'Ver el mensaje entero'}>
-                «{t.mensaje}»
-              </button>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--ls-t4)]">Lo que dice Amazon</p>
+              <p className="mt-[4px] line-clamp-6 text-[12px] leading-[1.5] text-[var(--ls-t3)]">«{t.mensaje}»</p>
             </div>
           )}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[var(--ls-t4)]">
@@ -303,24 +414,75 @@ function Tarea({ t, abierta, alternar, mercado, ver }: { t: TareaDeHoy; abierta:
           </div>
         </div>
       )}
-    </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] px-4 py-[10px]">
+        {principal}
+        <Boton variante="secundario" tamano="sm" iconoDerecha={ArrowRight} onClick={ver} title="Ver la lista de estos listings, con stock primero">
+          Ver listings
+        </Boton>
+        <Boton variante="fantasma" tamano="sm" className="ml-auto" onClick={() => setAbierta((v) => !v)} aria-expanded={abierta}>
+          {abierta ? 'Menos' : 'Cómo se arregla'}
+          <ChevronDown className={`h-3 w-3 transition-transform ${abierta ? 'rotate-180' : ''}`} aria-hidden />
+        </Boton>
+      </div>
+    </Tarjeta>
   )
 }
 
-function Etiqueta({ children, color, icono, titulo }: { children: React.ReactNode; color: string; icono?: React.ReactNode; titulo?: string }) {
+/* ------------------------------------------------------------------ */
+/* Las últimas correcciones                                            */
+/* ------------------------------------------------------------------ */
+
+function useCorrecciones(cliente: string, mercado: string, vuelta: number): { lista: CorreccionRegistrada[]; faltaMigracion: boolean } | null {
+  const [datos, setDatos] = useState<{ lista: CorreccionRegistrada[]; faltaMigracion: boolean } | null>(null)
+  useEffect(() => {
+    let vivo = true
+    void fetch('/api/cumplimiento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'correcciones', cliente, mercado }) })
+      .then((r) => r.json())
+      .then((j: { correcciones?: CorreccionRegistrada[] | null; faltaMigracion?: boolean }) => {
+        if (vivo) setDatos({ lista: j.correcciones ?? [], faltaMigracion: Boolean(j.faltaMigracion) })
+      })
+      .catch(() => vivo && setDatos({ lista: [], faltaMigracion: false }))
+    return () => {
+      vivo = false
+    }
+  }, [cliente, mercado, vuelta])
+  return datos
+}
+
+function UltimasCorrecciones({ lista }: { lista: CorreccionRegistrada[] }) {
+  const hitos: Hito[] = lista.map((h) => ({
+    id: h.id,
+    titulo: (
+      <>
+        {h.sku} <span className="font-normal text-[var(--ls-t3)]">· {h.atributos.join(', ') || 'atributos'}</span>
+      </>
+    ),
+    descripcion: h.estado === 'aceptado' ? 'Enviado y aceptado por Amazon' : (h.mensaje ?? 'Amazon lo rechazó'),
+    cuando: h.creadoAt,
+    tono: h.estado === 'aceptado' ? 'verde' : 'rojo',
+    icono: Send,
+    autor: h.creadoPor ?? undefined,
+  }))
   return (
-    <span title={titulo} className="inline-flex h-[20px] items-center gap-[4px] rounded-[6px] px-[7px] text-[11px] font-medium" style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}>
-      {icono}
-      {children}
-    </span>
+    <Tarjeta icono={History} acento="cumplimiento" titulo="Últimas correcciones desde el ERP" subtitulo="Cada envío queda registrado con lo que había antes">
+      <LineaDeTiempo eventos={hitos} maximo={8} />
+    </Tarjeta>
   )
 }
 
 function Interruptor({ encendido, alPulsar, texto, ayuda, cuenta }: { encendido: boolean; alPulsar: () => void; texto: string; ayuda: string; cuenta?: number }) {
   return (
-    <button type="button" role="switch" aria-checked={encendido} onClick={alPulsar} title={ayuda} className="inline-flex h-[30px] items-center gap-[7px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-[10px] text-[12px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)]">
-      <span aria-hidden className={`relative h-[14px] w-[24px] rounded-full transition-colors ${encendido ? 'bg-[var(--ls-acc-graf)]' : 'bg-[var(--ls-sup3)]'}`}>
-        <span className={`absolute top-[2px] h-[10px] w-[10px] rounded-full bg-white transition-all ${encendido ? 'left-[12px]' : 'left-[2px]'}`} />
+    <button
+      type="button"
+      role="switch"
+      aria-checked={encendido}
+      onClick={alPulsar}
+      title={ayuda}
+      className={`inline-flex h-8 items-center gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)] ${TACTIL}`}
+    >
+      <span aria-hidden className={`relative h-[16px] w-[28px] rounded-full transition-colors ${encendido ? 'bg-[var(--ls-acc-graf)]' : 'bg-[var(--ls-sup3)]'}`}>
+        <span className={`absolute top-[2px] h-[12px] w-[12px] rounded-full bg-white shadow transition-all ${encendido ? 'left-[14px]' : 'left-[2px]'}`} />
       </span>
       {texto}
       {cuenta != null && cuenta > 0 && <span className="tabular-nums text-[11px] text-[var(--ls-t4)]">{cifra(cuenta)}</span>}
@@ -332,4 +494,3 @@ function Interruptor({ encendido, alPulsar, texto, ayuda, cuenta }: { encendido:
 export function tareasPendientes(tareas: readonly TareaDeHoy[]): number {
   return tareas.filter((t) => t.nivel !== 'menor' && t.conStock > 0).length
 }
-

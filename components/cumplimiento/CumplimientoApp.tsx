@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from 'react'
 import { ClipboardCheck, LayoutDashboard, ListChecks, ListTodo, RefreshCw, TriangleAlert } from 'lucide-react'
-import { AvatarDeCliente, BarraDeClientes, type ClienteDeBarra } from '@/components/marketing-test/BarraDeClientes'
+import { BarraDeClientes, type ClienteDeBarra } from '@/components/marketing-test/BarraDeClientes'
 import { bandera } from '@/components/marketing-test/piezas'
-import { Vacio } from '@/components/plataforma/comun'
 import { TableroCumplimiento } from '@/components/growth/cumplimiento/TableroCumplimiento'
-import { COLOR_ESTADO } from '@/lib/estilo/denso'
+import { Boton, CabeceraDeModulo, EsqueletoTarjeta, EstadoVacio, FilaDeKpis, Insignia, PanelDePestana, Pestanas, TACTIL } from '@/components/ui-ls'
 import { nombreDePais } from '@/lib/ads/paises'
 import { saludDe, tonoDeSalud } from '@/lib/cumplimiento/panel-calculo'
 import type { FiltrosCumplimiento } from '@/lib/cumplimiento/tipos'
 import type { TareaDeHoy } from '@/lib/cumplimiento/acciones'
 import { ACCIONES } from '@/lib/cumplimiento/acciones'
 import { usePanel } from './usePanel'
+import { PanelCorregir, type ObjetivoDeCorreccion, type TareaACorregir } from './PanelCorregir'
 import { PestanaPanel } from './PestanaPanel'
 import { PestanaIncidencias } from './PestanaIncidencias'
 import { PestanaHoy, tareasPendientes } from './PestanaHoy'
@@ -101,19 +101,17 @@ export function CumplimientoApp({ clientes, clienteInicial, cuentaInicial, pesta
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         {/* En el móvil la barra lateral no cabe: cliente y país en dos desplegables */}
         <div className="mb-3 grid shrink-0 grid-cols-2 gap-2 md:hidden">
-          <select aria-label="Cliente" value={cliente.slug} onChange={(e) => { const c = clientes.find((x) => x.slug === e.target.value); if (c) elegir(c.slug, c.cuentas[0]?.id ?? null) }} className="h-[34px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-[13px] text-[var(--ls-t1)]">
+          <select aria-label="Cliente" value={cliente.slug} onChange={(e) => { const c = clientes.find((x) => x.slug === e.target.value); if (c) elegir(c.slug, c.cuentas[0]?.id ?? null) }} className={`h-[40px] min-w-0 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 text-[13px] font-medium text-[var(--ls-t1)] ${TACTIL}`}>
             {clientes.map((c) => <option key={c.slug} value={c.slug}>{c.nombre}</option>)}
           </select>
-          <select aria-label="País" value={cuenta?.id ?? ''} onChange={(e) => elegir(cliente.slug, e.target.value)} className="h-[34px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-[13px] text-[var(--ls-t1)]">
+          <select aria-label="País" value={cuenta?.id ?? ''} onChange={(e) => elegir(cliente.slug, e.target.value)} className={`h-[40px] min-w-0 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 text-[13px] font-medium text-[var(--ls-t1)] ${TACTIL}`}>
             {cliente.cuentas.map((c) => <option key={c.id} value={c.id}>{c.etiqueta ?? nombreDePais(c.pais)}</option>)}
           </select>
         </div>
         {cuenta ? (
           <Cuerpo key={`${cliente.slug}|${cuenta.id}`} cliente={cliente} cuenta={cuenta} activa={activa} irA={irA} filtroListings={filtroListings} elegirPais={elegirPais} />
         ) : (
-          <Vacio icono={<ClipboardCheck />} titulo="Este cliente no tiene ninguna cuenta de vendedor activa">
-            Se conecta en <strong>Amazon API · Cuentas</strong>.
-          </Vacio>
+          <EstadoVacio icono={ClipboardCheck} acento="cumplimiento" titulo="Este cliente no tiene ninguna cuenta de vendedor activa" descripcion="Se conecta en Amazon API · Cuentas." accion={{ texto: 'Ir a Amazon API', href: '/dashboard/amazon-api' }} />
         )}
       </div>
     </div>
@@ -139,84 +137,117 @@ function Cuerpo({
   const { panel, cargando, recargar } = usePanel(cliente.slug, mercado)
   const salud = panel?.ok ? saludDe(panel.cifras) : null
   const tono = tonoDeSalud(salud)
-  const color = tono === 'gris' ? 'var(--ls-t3)' : COLOR_ESTADO[tono]
+  const nombrePais = cuenta.etiqueta ?? nombreDePais(cuenta.pais)
+  // El panel «Corregir»: de una incidencia (desde la lista) o de una tarea de «Hoy» (primero se elige el listing)
+  const [corregir, setCorregir] = useState<{ objetivo?: ObjetivoDeCorreccion; tarea?: TareaACorregir } | null>(null)
+  // Al corregir, la lista se vuelve a montar para leer lo nuevo
+  const [vuelta, setVuelta] = useState(0)
+
+  const opciones = PESTANAS.map((p) => ({
+    id: p.id,
+    texto: p.nombre,
+    icono: p.icono,
+    cuenta: !panel?.ok ? undefined : p.id === 'hoy' ? tareasPendientes(panel.tareas) || undefined : p.id === 'listings' ? panel.cifras.atencion || undefined : undefined,
+  }))
 
   return (
     <>
-      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 pb-3 lg:pr-36">
-        <div className="flex min-w-0 items-center gap-3">
-          <AvatarDeCliente slug={cliente.slug} nombre={cliente.nombre} tamano={38} />
-          <div className="min-w-0">
-            <h1 className="truncate text-[19px] font-semibold leading-[1.2] tracking-[-0.02em] text-[var(--ls-t1)]">{cliente.nombre}</h1>
-            <div className="mt-[2px] flex flex-wrap items-center gap-[6px] text-[12px] text-[var(--ls-t3)]">
-              <span aria-hidden>{cuenta.pais === '*' ? '🌍' : bandera(cuenta.pais)}</span>
-              <span className="font-medium text-[var(--ls-t2)]">{cuenta.etiqueta ?? nombreDePais(cuenta.pais)}</span>
+      <CabeceraDeModulo
+        pegajosa={false}
+        className="!mb-3 shrink-0 lg:pr-36"
+        icono={ClipboardCheck}
+        acento="cumplimiento"
+        titulo={cliente.nombre}
+        subtitulo={
+          <>
+            <span aria-hidden>{cuenta.pais === '*' ? '🌍' : bandera(cuenta.pais)}</span> {nombrePais} · cumplimiento ante Amazon
+          </>
+        }
+        junto={
+          salud != null ? (
+            <Insignia tono={tono === 'gris' ? 'gris' : tono} title="Parte de los listings revisados sin errores ni ocultos">
+              Salud {(Math.floor(salud * 1000) / 10).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %
+            </Insignia>
+          ) : undefined
+        }
+        acciones={
+          <Boton variante="fantasma" tamano="sm" icono={RefreshCw} cargando={cargando} onClick={() => void recargar()} title="Volver a leer las cifras (las revisiones de Amazon llegan solas cada hora)">
+            Actualizar
+          </Boton>
+        }
+        debajo={<Pestanas etiqueta="Cumplimiento" acento="cumplimiento" opciones={opciones} valor={activa} onCambio={(t) => irA(t)} idPanel="cumplimiento-panel" />}
+      />
+
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto pt-1">
+        <PanelDePestana id="cumplimiento-panel" key={activa}>
+          {activa === 'listings' ? (
+            <div className="flex h-full min-h-[520px] flex-col">
+              <TableroCumplimiento
+                key={`${cliente.slug}|${mercado}|${JSON.stringify(filtroListings)}|${vuelta}`}
+                slug={cliente.slug}
+                nombre={cliente.nombre}
+                mercadoFijo={mercado === TODOS ? undefined : mercado}
+                filtrosIniciales={filtroListings ?? undefined}
+                alCorregir={(f, i) => setCorregir({ objetivo: { mercado: f.marketplace_id, sku: f.sku, codigo: i.codigo, atributos: i.atributos, mensaje: i.mensaje, titulo: f.titulo } })}
+              />
             </div>
-          </div>
-        </div>
-        {salud != null && (
-          <span className="inline-flex h-[24px] items-center gap-[6px] rounded-full px-[10px] text-[11.5px] font-semibold tabular-nums" style={{ color, background: `color-mix(in srgb, ${color} 13%, transparent)` }} title="Parte de los listings revisados sin errores ni ocultos">
-            Salud {(Math.floor(salud * 1000) / 10).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %
-          </span>
-        )}
-        <button type="button" onClick={() => void recargar()} className="ml-auto inline-flex h-[30px] items-center gap-[6px] rounded-[9px] px-[10px] text-[12px] font-medium text-[var(--ls-t2)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]" title="Volver a leer las cifras (las revisiones de Amazon llegan solas cada hora)">
-          <RefreshCw className={`h-[13px] w-[13px] ${cargando ? 'animate-spin' : ''}`} /> Actualizar
-        </button>
-      </header>
-
-      <nav className="-mx-1 flex shrink-0 items-end gap-1 overflow-x-auto border-b border-[var(--ls-linea)] px-1" aria-label="Cumplimiento">
-        {PESTANAS.map((p) => {
-          const Icono = p.icono
-          const encendida = p.id === activa
-          const n = !panel?.ok ? null : p.id === 'hoy' ? tareasPendientes(panel.tareas) : p.id === 'listings' ? panel.cifras.atencion : null
-          return (
-            <button key={p.id} type="button" onClick={() => irA(p.id)} aria-current={encendida ? 'page' : undefined} className={`relative inline-flex h-[38px] shrink-0 items-center gap-[7px] rounded-t-[8px] px-3 text-[13px] font-medium transition-colors ${encendida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]'}`}>
-              <Icono className={`h-[14px] w-[14px] shrink-0 ${encendida ? 'text-[var(--ls-acc)]' : ''}`} />
-              {p.nombre}
-              {n != null && n > 0 && <span className="rounded-full bg-[var(--ls-sup3)] px-[6px] text-[10.5px] font-semibold tabular-nums text-[var(--ls-t3)]">{n.toLocaleString('es-ES')}</span>}
-              {encendida && <span aria-hidden className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-[var(--ls-acc-graf)]" />}
-            </button>
-          )
-        })}
-      </nav>
-
-      <div className="min-h-0 min-w-0 flex-1 overflow-auto pt-4">
-        {activa === 'listings' ? (
-          <div className="flex h-full min-h-[520px] flex-col">
-            <TableroCumplimiento
-              key={`${cliente.slug}|${mercado}|${JSON.stringify(filtroListings)}`}
-              slug={cliente.slug}
-              nombre={cliente.nombre}
-              mercadoFijo={mercado === TODOS ? undefined : mercado}
-              filtrosIniciales={filtroListings ?? undefined}
+          ) : !panel ? (
+            <EsqueletoDelPanel />
+          ) : !panel.ok ? (
+            <EstadoVacio
+              icono={TriangleAlert}
+              acento="cumplimiento"
+              titulo={panel.faltaMigracion ? 'Falta lanzar la migración 297' : 'No se ha podido leer el panel'}
+              descripcion={panel.faltaMigracion ? 'Sin ella no se pueden sacar las cifras del panel. La pestaña «Listings» sí funciona.' : panel.error}
+              accion={panel.faltaMigracion ? { texto: 'Ir a Listings', onClick: () => irA('listings') } : { texto: 'Volver a intentarlo', icono: RefreshCw, onClick: () => void recargar() }}
             />
-          </div>
-        ) : !panel ? (
-          <EsqueletoDelPanel />
-        ) : !panel.ok ? (
-          <p className="rounded-[12px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-4 py-3 text-[12.5px]" style={{ color: panel.faltaMigracion ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo }}>
-            {panel.faltaMigracion ? 'Falta lanzar la migración 297 en Supabase: sin ella no se pueden sacar las cifras del panel. La pestaña «Listings» sí funciona.' : panel.error}
-          </p>
-        ) : activa === 'hoy' ? (
-          <PestanaHoy panel={panel} mercado={mercado} nombreCliente={cliente.nombre} nombrePais={cuenta.etiqueta ?? nombreDePais(cuenta.pais)} verTarea={(t, soloStock) => irA('listings', filtroDeTarea(t, soloStock))} />
-        ) : activa === 'panel' ? (
-          <PestanaPanel panel={panel} todos={mercado === TODOS} verPais={elegirPais} verIncidencias={() => irA('incidencias')} verCodigo={(c) => irA('listings', { codigo: c, gravedad: 'cualquiera' })} verHoy={() => irA('hoy')} />
-        ) : (
-          <PestanaIncidencias panel={panel} verCodigo={(c) => irA('listings', { codigo: c, gravedad: 'cualquiera' })} />
-        )}
+          ) : activa === 'hoy' ? (
+            <PestanaHoy
+              panel={panel}
+              cliente={cliente.slug}
+              mercado={mercado}
+              nombreCliente={cliente.nombre}
+              nombrePais={nombrePais}
+              verTarea={(t, soloStock) => irA('listings', filtroDeTarea(t, soloStock))}
+              corregirTarea={(t) => setCorregir({ tarea: { titulo: ACCIONES[t.accion].titulo, codigos: t.codigos, mercado } })}
+              vuelta={vuelta}
+            />
+          ) : activa === 'panel' ? (
+            <PestanaPanel panel={panel} todos={mercado === TODOS} verPais={elegirPais} verIncidencias={() => irA('incidencias')} verCodigo={(c) => irA('listings', { codigo: c, gravedad: 'cualquiera' })} verHoy={() => irA('hoy')} />
+          ) : (
+            <PestanaIncidencias panel={panel} verCodigo={(c) => irA('listings', { codigo: c, gravedad: 'cualquiera' })} />
+          )}
+        </PanelDePestana>
       </div>
+
+      <PanelCorregir
+        abierto={corregir !== null}
+        onCambio={(a) => !a && setCorregir(null)}
+        cliente={cliente.slug}
+        objetivo={corregir?.objetivo ?? null}
+        tarea={corregir?.tarea ?? null}
+        alTerminar={() => {
+          setVuelta((v) => v + 1)
+          void recargar()
+        }}
+      />
     </>
   )
 }
 
 function EsqueletoDelPanel() {
   return (
-    <div className="grid max-w-[1240px] gap-3" aria-busy="true" aria-label="Cargando el panel">
-      <div className="grid gap-3 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <div className="h-[196px] animate-pulse rounded-[14px] bg-[var(--ls-sup)]" />
-        <div className="h-[196px] animate-pulse rounded-[14px] bg-[var(--ls-sup)]" />
+    <div className="grid max-w-[1240px] gap-4" aria-busy="true" aria-label="Cargando el panel">
+      <FilaDeKpis>
+        {Array.from({ length: 4 }, (_, i) => (
+          <EsqueletoTarjeta key={i} alto={124} />
+        ))}
+      </FilaDeKpis>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <EsqueletoTarjeta alto={190} />
+        <EsqueletoTarjeta alto={190} />
       </div>
-      <div className="h-[260px] animate-pulse rounded-[14px] bg-[var(--ls-sup)]" />
+      <EsqueletoTarjeta alto={220} />
     </div>
   )
 }
