@@ -244,8 +244,9 @@ async function cambiosAManoRecientes(perfilId: string, desde: string): Promise<A
   const service = createServiceClient()
   const pedir = (columnas: string) =>
     todasLasFilas((a, b) => service.from('ads_cambios_log').select(columnas).eq('perfil_id', perfilId).eq('ok', true).in('origen', ['manual', 'automatico']).in('accion', ['cambiar', 'pausar', 'activar']).gte('creado_at', desde).order('creado_at').order('id').range(a, b) as unknown as PromiseLike<{ data: Array<Record<string, unknown>> | null; error: { code?: string; message?: string } | null }>, 10_000)
-  let r = await pedir('campaign_id, entidad_id, campo, creado_at')
-  if (r.error) r = await pedir('campaign_id, campo, creado_at')
+  let r = await pedir('campaign_id, entidad_id, campo, motivo, creado_at')
+  if (r.error) r = await pedir('campaign_id, campo, motivo, creado_at')
   if (r.error) return []
-  return r.data.map((x) => ({ campaign_id: (x.campaign_id as string | null) ?? null, entidad_id: (x.entidad_id as string | null) ?? null, campo: (x.campo as string | null) ?? null, creado_at: String(x.creado_at) }))
+  // Sin la 311 un ensayo se apunta como «manual» con «[ENSAYO]» delante del motivo: no ha tocado Amazon, así que no pone en cuarentena
+  return r.data.filter((x) => !/^\[ENSAYO\]/.test(String(x.motivo ?? ''))).map((x) => ({ campaign_id: (x.campaign_id as string | null) ?? null, entidad_id: (x.entidad_id as string | null) ?? null, campo: (x.campo as string | null) ?? null, creado_at: String(x.creado_at) }))
 }
