@@ -8,8 +8,8 @@
 --   · cuentas_ciclo_hechos  lo que se ha marcado como hecho de cada semana del ciclo (revisar propuestas, informe semanal…).
 --   · cuentas_informes      los informes al cliente (borrador → enviado), y a quién se mandan (cuentas_gestion.correo_informes).
 --   · La campana admite el aviso 'cuenta_aviso' (lo que le pasa a una cuenta, al responsable).
---   · Los administrativos que ya existen (puesto «Gestión Administrativa», salvo usuarios de prueba) reciben las casillas de las cuatro apps:
---     Cuentas de clientes, PPC (marketing-test), SEO (seo-test) y Cumplimiento. Se pueden quitar a mano en Gestión de Usuarios.
+--   · NO da acceso a nadie: está en pruebas (Raúl, 14 nov 2026). Las cuatro apps (Cuentas de clientes, PPC, SEO y Cumplimiento) las sigue abriendo
+--     solo un administrador; a un empleado habría que marcarle la casilla a mano en Gestión de Usuarios.
 --
 -- Las tablas están cerradas al navegador (RLS sin políticas): todo pasa por /api/cuentas con el cliente de servicio, que comprueba el acceso
 -- (lib/cuentas/acceso.ts). Se puede lanzar dos veces.
@@ -109,18 +109,8 @@ BEGIN
     ));
 END $$;
 
--- Las casillas de los administrativos que ya existen (los nuevos las reciben al elegir el puesto: lib/usuarios/puestos.ts)
-INSERT INTO public.user_app_permissions (user_id, app_id, can_access)
-SELECT p.id, a.app_id, true
-FROM public.profiles p
-CROSS JOIN (VALUES ('cuentas'), ('marketing-test'), ('seo-test'), ('cumplimiento')) AS a(app_id)
-WHERE p.puesto = 'gestion_administrativa'
-  AND p.role = 'employee'
-  AND COALESCE(p.full_name, '') NOT ILIKE 'prueba%'
-ON CONFLICT (user_id, app_id) DO UPDATE SET can_access = true, updated_at = NOW();
-
 -- ============================================================================
--- COMPROBACIÓN · las tres primeras columnas tienen que decir «true»; la cuarta, quién ha recibido las casillas
+-- COMPROBACIÓN · las tres primeras columnas tienen que decir «true»; la cuarta, quién tiene la casilla de Cuentas (tiene que salir vacía)
 -- ============================================================================
 SELECT
   to_regclass('public.cuentas_gestion') IS NOT NULL AND to_regclass('public.cuentas_ciclo_hechos') IS NOT NULL AND to_regclass('public.cuentas_informes') IS NOT NULL AS tablas_creadas,

@@ -11,6 +11,7 @@ import type { CampanaPlan } from '@/lib/ads/estructura'
 import type { ResultadoDeCampana } from '@/lib/ads/crear-estructura'
 import { margenDeProducto, objetivosDesdeAcos, pujaBaseSugerida } from '@/lib/ads/margen'
 import { fmt, llamar } from './llamar'
+import { PanelDeSemillas } from './PanelDeSemillas'
 
 type Fila = CampanaPlan & { yaExiste: boolean }
 interface Vista {
@@ -242,8 +243,8 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
               </table>
             </div>
             <p className={`${TIPO.xs} ${TEXTO.t3}`}>
-              Puja dinámica «solo reducir» en todas. Cada campaña lleva su grupo de anuncios con el producto; la automática, además, sus grupos de segmentación configurados. Las keywords y los ASIN rivales NO se cargan:
-              van después de la investigación, y las negativas antes de activar nada (SOP, sección «Montaje»).
+              Puja dinámica «solo reducir» en todas. Cada campaña lleva su grupo de anuncios con el producto; la automática, además, sus grupos de segmentación configurados. Las keywords, los ASIN rivales y las
+              negativas se cargan después, en el paso 3 de abajo, antes de activar nada.
             </p>
             <div>
               <button type="button" disabled={ocupado !== null || vista.listaTruncada || vista.campanas.every((c) => c.yaExiste)} onClick={crear} className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}>
@@ -253,6 +254,9 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
           </div>
         </section>
       )}
+
+      {/* Con qué arrancan: palabras, ASIN y negativas. Para un producto que ya tiene sus campañas (creadas desde el ERP o con la nomenclatura) */}
+      {producto && num(puja) > 0 && <PanelDeSemillas key={producto.id} perfilId={perfilId} productoId={producto.id} pujaBase={num(puja)} moneda={moneda} />}
 
       {resultados && (
         <section className={TARJETA.base}>
