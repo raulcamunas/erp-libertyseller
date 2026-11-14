@@ -274,31 +274,18 @@ export async function middleware(request: NextRequest) {
         }
       }
 
-      // Ruta /dashboard/marketing-test - Solo admin
+      // Las apps de llevar cuentas de clientes: Cuentas, Marketing Test, SEO Test y Cumplimiento (lib/cuentas/acceso.ts).
       //
-      // Crea campañas en las cuentas de Amazon Ads de los CLIENTES y se gasta su dinero al activarlas.
-      // Mismo listón que Amazon API. El filtro de verdad es el requireAmazonAdmin() de cada ruta de
-      // /api/ads/cuenta (todo lo de /api/ es público en este middleware); esto evita el viaje.
-      if (pathname.startsWith('/dashboard/marketing-test')) {
-        if (userRole !== 'admin') {
-          const url = request.nextUrl.clone()
-          url.pathname = '/dashboard'
-          return NextResponse.redirect(url)
-        }
-      }
-
-      // Ruta /dashboard/seo-test - Solo admin: lee datos de las cuentas de Amazon de los clientes. El filtro de verdad es abrirCuentaSeo() en cada ruta de /api/seo.
-      if (pathname.startsWith('/dashboard/seo-test')) {
-        if (userRole !== 'admin') {
-          const url = request.nextUrl.clone()
-          url.pathname = '/dashboard'
-          return NextResponse.redirect(url)
-        }
-      }
-
-      // Ruta /dashboard/cumplimiento - Solo admin: lee datos de las cuentas de Amazon de los clientes. El filtro de verdad está en /api/cumplimiento.
-      if (pathname.startsWith('/dashboard/cumplimiento')) {
-        if (userRole !== 'admin') {
+      // Hasta el 14 nov 2026 eran solo admin. Desde ese día las llevan también los administrativos, persona a persona con la casilla de cada app
+      // (como Tax Reports): un empleado pasa a la comprobación de casillas de más abajo (routeToAppId). Un partner o un cliente NO entra nunca, ni con
+      // casilla, porque vería las cuentas de los demás clientes. El filtro de verdad es requireAppDeCuentas() en cada ruta de /api.
+      if (
+        pathname.startsWith('/dashboard/cuentas') ||
+        pathname.startsWith('/dashboard/marketing-test') ||
+        pathname.startsWith('/dashboard/seo-test') ||
+        pathname.startsWith('/dashboard/cumplimiento')
+      ) {
+        if (userRole !== 'admin' && userRole !== 'employee') {
           const url = request.nextUrl.clone()
           url.pathname = '/dashboard'
           return NextResponse.redirect(url)
@@ -530,11 +517,10 @@ export async function middleware(request: NextRequest) {
           // Briefing: lo ven los administradores y quien tenga la casilla. El filtro de verdad es la comprobación de la propia página y
           // requireAppAccess('briefing') en /api/briefing/marcar (las tablas están cerradas al navegador); el id va letra por letra como en lib/config/apps.ts
           '/dashboard/briefing': 'briefing',
-          // Marketing Test: solo administradores; un CEO (admin con puesto 'ceo') entra solo con la casilla. Va aquí para que el CEO sin ella rebote antes de cargar la pantalla.
+          // Las apps de llevar cuentas (lib/cuentas/acceso.ts): un empleado o un CEO, solo con la casilla. El id va letra por letra como en lib/config/apps.ts
+          '/dashboard/cuentas': 'cuentas',
           '/dashboard/marketing-test': 'marketing-test',
-          // SEO Test: igual que Marketing Test, un CEO solo con la casilla
           '/dashboard/seo-test': 'seo-test',
-          // Cumplimiento: igual, un CEO solo con la casilla
           '/dashboard/cumplimiento': 'cumplimiento',
         }
 

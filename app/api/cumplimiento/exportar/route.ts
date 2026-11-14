@@ -1,6 +1,6 @@
-import { sinCasillaDeCumplimiento } from '@/lib/cumplimiento/acceso'
+import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
 import { NextResponse, type NextRequest } from 'next/server'
-import { errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
+import { errorResponse, fail } from '@/lib/amazon/api'
 import { MAX_FILAS_EXPORTAR, filtrosValidos, todasLasFilas } from '@/lib/cumplimiento/consulta'
 import { aCsv } from '@/lib/cumplimiento/exportar'
 import { clientesGrowth } from '@/lib/growth/clientes'
@@ -21,9 +21,8 @@ export const maxDuration = 60
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireAmazonAdmin()
+    const session = await requireAppDeCuentas('cumplimiento')
     if (session instanceof NextResponse) return session
-    if (await sinCasillaDeCumplimiento(session)) return fail(403, 'No tienes acceso a Cumplimiento')
 
     const p = request.nextUrl.searchParams
     const slug = p.get('cliente') ?? ''

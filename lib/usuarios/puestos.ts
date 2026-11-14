@@ -66,7 +66,7 @@ export const OPCIONES_DE_ROL: readonly OpcionDelDesplegable[] = [
     grupo: 'puesto',
     ayuda: 'Vende por su cuenta: en el CRM de clientes ve SOLO los suyos (los que lleva él) y puede darlos de alta, pasarlos de fase, descartarlos y cerrarlos. No ve los de nadie más, ni importes, ni costes del equipo.',
   },
-  { valor: 'gestion_administrativa', etiqueta: 'Gestión Administrativa', grupo: 'puesto', ayuda: 'Administración: correo y vacaciones. No llama ni entra en Cold Calling.' },
+  { valor: 'gestion_administrativa', etiqueta: 'Gestión Administrativa', grupo: 'puesto', ayuda: 'Administración y cuentas de clientes: correo, vacaciones, tareas, PPC, SEO y cumplimiento. No llama ni entra en Cold Calling.' },
   { valor: 'admin', etiqueta: 'Admin', grupo: 'direccion', ayuda: 'Dirección: accede a todo.' },
   {
     valor: PUESTO_CEO,
@@ -116,7 +116,8 @@ export const PERMISOS_DEL_PUESTO: Readonly<Record<Puesto, readonly string[]>> = 
   manager_comercial: [...BASE_COMERCIAL, 'equipo-comercial', 'correo-supervision', 'gestion-listas'],
   // Solo lo suyo: el CRM de sus clientes. El resto (agenda, correo…) se le marca a mano si lo necesita
   comercial_autonomo: ['crm-propios'],
-  gestion_administrativa: ['correo', 'vacaciones', 'tareas-clientes'],
+  // Desde el 14 nov 2026 llevan las cuentas de los clientes de principio a fin (lib/cuentas/acceso.ts)
+  gestion_administrativa: ['correo', 'vacaciones', 'tareas-clientes', 'cuentas', 'marketing-test', 'seo-test', 'cumplimiento'],
 }
 
 export interface Casilla {

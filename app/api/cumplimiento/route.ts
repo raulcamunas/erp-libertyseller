@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
+import { errorResponse, fail } from '@/lib/amazon/api'
 import { filtrosValidos, paginaDeCliente, resumenDeCliente } from '@/lib/cumplimiento/consulta'
 import { panelDeCliente } from '@/lib/cumplimiento/panel'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
@@ -10,7 +10,7 @@ import {
   ultimoResultadoManual,
 } from '@/lib/cumplimiento/revisar'
 import { clientesGrowth } from '@/lib/growth/clientes'
-import { sinCasillaDeCumplimiento } from '@/lib/cumplimiento/acceso'
+import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
 
 /**
  * CUMPLIMIENTO DE LISTINGS · LO QUE USA LA PANTALLA.
@@ -39,9 +39,8 @@ async function clienteDe(slug: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireAmazonAdmin()
+    const session = await requireAppDeCuentas('cumplimiento')
     if (session instanceof NextResponse) return session
-    if (await sinCasillaDeCumplimiento(session)) return fail(403, 'No tienes acceso a Cumplimiento')
 
     const body = (await request.json().catch(() => ({}))) as {
       accion?: string

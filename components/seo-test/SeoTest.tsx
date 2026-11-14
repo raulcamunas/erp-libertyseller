@@ -67,7 +67,7 @@ export function SeoTest({ clientes, clienteInicial, cuentaInicial, pestana }: { 
   return (
     <div className="flex h-full min-h-0 gap-3">
       <BarraDeClientes
-        titulo="SEO Test"
+        titulo="SEO de fichas"
         icono={<SearchCheck className="h-[17px] w-[17px]" />}
         pie={<>Cuentas de vendedor conectadas y sus países. Se conectan en <span className="text-[var(--ls-t3)]">Amazon API · Cuentas</span>.</>}
         clientes={clientes}
@@ -127,7 +127,7 @@ function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin 
         </button>
       </header>
 
-      <nav className="-mx-1 flex shrink-0 items-end gap-1 overflow-x-auto border-b border-[var(--ls-linea)] px-1" aria-label="SEO Test">
+      <nav className="-mx-1 flex shrink-0 items-end gap-1 overflow-x-auto border-b border-[var(--ls-linea)] px-1" aria-label="SEO de fichas">
         {PESTANAS.map((p) => {
           const Icono = p.icono
           const encendida = p.id === activa

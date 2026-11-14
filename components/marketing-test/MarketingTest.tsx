@@ -138,7 +138,7 @@ export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana
         </header>
 
         {/* ---- las pestañas: subrayadas, como en la consola de Amazon Ads ---- */}
-        <nav className="-mx-1 flex shrink-0 items-end gap-1 overflow-x-auto border-b border-[var(--ls-linea)] px-1" aria-label="Marketing Test">
+        <nav className="-mx-1 flex shrink-0 items-end gap-1 overflow-x-auto border-b border-[var(--ls-linea)] px-1" aria-label="PPC · Amazon Ads">
           {PESTANAS.map((p) => {
             const Icono = p.icono
             const encendida = p.id === activa

@@ -4,12 +4,12 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { clientesGrowth } from '@/lib/growth/clientes'
 import { clientesConAds, cuentasDeClientes } from '@/lib/ads/cuenta'
-import { APP_MARKETING_TEST, ceoSinCasilla } from '@/lib/ads/acceso'
+import { entraEnApp } from '@/lib/cuentas/acceso'
 import { Vacio } from '@/components/plataforma/comun'
 import { MarketingTest } from '@/components/marketing-test/MarketingTest'
 
 /**
- * /dashboard/marketing-test — MARKETING TEST. SOLO ADMIN.
+ * /dashboard/marketing-test — MARKETING TEST. Administradores y quien lleve cuentas.
  *
  * La gestión de Amazon Ads de UN cliente, con la forma de un submódulo de Growth Partner (el cliente se elige arriba, y todo cuelga de él) pero como app aparte:
  *
@@ -18,7 +18,7 @@ import { MarketingTest } from '@/components/marketing-test/MarketingTest'
  *   · Crear campañas    a un clic, la estructura de 4 campañas con la nomenclatura del SOP (nacen PAUSADAS).
  *   · Log de cambios    todo lo que se crea o se cambia en la cuenta, con valor anterior, valor nuevo y motivo.
  *
- * ESCRIBE en las cuentas de publicidad de los clientes: solo administradores, cerrado en middleware.ts, en APPS_SOLO_ADMIN, aquí (que corre en el servidor) y en cada ruta de /api/ads/cuenta.
+ * ESCRIBE en las cuentas de publicidad de los clientes. Desde el 14 nov 2026 la usan también los administrativos que llevan cuentas, con su casilla (lib/cuentas/acceso.ts): aquí, en middleware.ts y en cada ruta de /api/ads/cuenta.
  * Todo cuelga de UN cliente y de UNA cuenta de anunciante (un país): no hay ninguna vista que mezcle varios.
  */
 export const dynamic = 'force-dynamic'
@@ -31,12 +31,8 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
   if (!user) redirect('/auth/login')
   const perfil = await getUserProfile()
   if (!perfil) redirect('/auth/login')
-  if (perfil.role !== 'admin') redirect('/dashboard')
-  // Un CEO es un administrador cuyo acceso a cada app lo deciden las casillas
-  if (perfil.puesto === 'ceo') {
-    const { data: permiso } = await supabase.from('user_app_permissions').select('can_access').eq('user_id', user.id).eq('app_id', APP_MARKETING_TEST).maybeSingle()
-    if (ceoSinCasilla(perfil.role, perfil.puesto, new Set(permiso?.can_access ? [APP_MARKETING_TEST] : []))) redirect('/dashboard')
-  }
+  // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); un partner o un cliente, nunca
+  if (!(await entraEnApp(supabase, user.id, perfil.role, perfil.puesto, 'marketing-test'))) redirect('/dashboard')
 
   const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
 

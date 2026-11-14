@@ -4,8 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { clientesGrowth } from '@/lib/growth/clientes'
 import { cuentasSeoDeClientes } from '@/lib/seo/datos'
-import { APP_SEO_TEST } from '@/lib/seo/ruta'
-import { esCeo } from '@/lib/usuarios/ceo'
+import { entraEnApp } from '@/lib/cuentas/acceso'
 import { Vacio } from '@/components/plataforma/comun'
 import { SeoTest } from '@/components/seo-test/SeoTest'
 
@@ -25,11 +24,8 @@ export default async function SeoTestPage({ searchParams }: { searchParams: Reco
   if (!user) redirect('/auth/login')
   const perfil = await getUserProfile()
   if (!perfil) redirect('/auth/login')
-  if (perfil.role !== 'admin') redirect('/dashboard')
-  if (esCeo(perfil.role, perfil.puesto)) {
-    const { data: permiso } = await supabase.from('user_app_permissions').select('can_access').eq('user_id', user.id).eq('app_id', APP_SEO_TEST).maybeSingle()
-    if (!permiso?.can_access) redirect('/dashboard')
-  }
+  // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); un partner o un cliente, nunca
+  if (!(await entraEnApp(supabase, user.id, perfil.role, perfil.puesto, 'seo-test'))) redirect('/dashboard')
 
   const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
   const todos = (await clientesGrowth()).filter((c) => c.amazonClientId)

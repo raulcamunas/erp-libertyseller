@@ -468,6 +468,19 @@ export const TAREAS_CRON = [
     que: 'Analiza con Keepa la siguiente tienda de las listas de vendedores de Amazon y deja su informe en la ficha del lead (casilla «Con informe»).',
   },
   {
+    /**
+     * UNA VEZ AL DÍA, LOS LUNES Y LOS JUEVES EN HORARIO DE OFICINA.
+     *
+     * Avisa en la campana al responsable de cada cuenta de cliente: el lunes, qué toca esa semana del ciclo S1–S4 y lo que ya espera (propuestas
+     * de PPC, fichas con stock con problemas); el jueves, solo lo que le falta. Solo escribe en la campana. lib/cuentas/avisos.ts
+     */
+    id: 'cuentas-avisos',
+    nombre: 'Avisos de las cuentas de clientes',
+    ruta: '/api/cuentas/cron',
+    cadaMinutos: 1440,
+    que: 'Los lunes y los jueves avisa al responsable de cada cuenta de cliente de qué toca esa semana y de lo que le falta. Solo escribe en la campana.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
@@ -522,6 +535,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'push-avisos': { prioridad: 'normal' },
   'chat-avisos': { prioridad: 'normal' },
   'facturas-impagadas': { prioridad: 'normal' },
+  'cuentas-avisos': { prioridad: 'normal' },
   // Casi todo es esperar a Keepa; en la base, unas pocas consultas por tienda
   'analisis-keepa': { prioridad: 'baja', ayunoMaxMin: 30 },
 }

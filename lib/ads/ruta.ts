@@ -2,25 +2,19 @@
  * AMAZON ADS · LO COMÚN DE LAS RUTAS DE «MARKETING TEST».
  * SOLO SERVIDOR.
  *
- * Todas las rutas de /api/ads/cuenta/* abren igual: sesión de ADMINISTRADOR (se escribe en la cuenta de publicidad de un cliente y se gasta su dinero) y una cuenta de anunciante que exista y esté
+ * Todas las rutas de /api/ads/cuenta/* abren igual: sesión de quien lleva cuentas (administrador, o empleado con la casilla de Marketing Test: lib/cuentas/acceso.ts) y una cuenta de anunciante que exista y esté
  * en uso. En middleware.ts todo lo de /api/ es público, así que ESTA comprobación es la que manda.
  */
 
 import { NextResponse } from 'next/server'
-import { UUID, fail, requireAmazonAdmin, type AmazonSession } from '@/lib/amazon/api'
+import { UUID, fail, type AmazonSession } from '@/lib/amazon/api'
+import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
 import { AdsError } from './oauth'
 import { cuentaPorId, esSinMigracion } from './cuenta'
-import { APP_MARKETING_TEST, ceoSinCasilla } from './acceso'
 
 export async function abrirCuenta(perfilId: unknown): Promise<{ sesion: AmazonSession; cuenta: NonNullable<Awaited<ReturnType<typeof cuentaPorId>>> } | NextResponse> {
-  const sesion = await requireAmazonAdmin()
+  const sesion = await requireAppDeCuentas('marketing-test')
   if (sesion instanceof NextResponse) return sesion
-  // Un CEO es un administrador cuyo acceso a cada app lo deciden las casillas: sin la de Marketing Test, no entra ni por la API
-  const [{ data: perfil }, { data: permiso }] = await Promise.all([
-    sesion.supabase.from('profiles').select('puesto').eq('id', sesion.userId).maybeSingle(),
-    sesion.supabase.from('user_app_permissions').select('can_access').eq('user_id', sesion.userId).eq('app_id', APP_MARKETING_TEST).maybeSingle(),
-  ])
-  if (ceoSinCasilla(sesion.role, (perfil as { puesto: string | null } | null)?.puesto, new Set(permiso?.can_access ? [APP_MARKETING_TEST] : []))) return fail(403, 'No tienes acceso a Marketing Test')
   if (typeof perfilId !== 'string' || !UUID.test(perfilId)) return fail(400, 'Falta la cuenta de anunciante.')
   const cuenta = await cuentaPorId(perfilId)
   if (!cuenta) return fail(404, 'Esa cuenta de anunciante no existe o está apagada.')

@@ -310,6 +310,12 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
       return typeof id === 'string' && /^\d+$/.test(id) ? `/dashboard/facturacion?recordar=${id}` : '/dashboard/facturacion?pestana=cobros'
     }
 
+    // Lo que toca en una cuenta de cliente: se abre su panel en Cuentas de clientes
+    if (notification.type === 'cuenta_aviso') {
+      const slug = (notification.datos as { slug?: unknown } | null | undefined)?.slug
+      return typeof slug === 'string' && /^[a-z0-9-]{1,80}$/.test(slug) ? `/dashboard/cuentas?c=${slug}` : '/dashboard/cuentas'
+    }
+
     // Un mensaje del chat: se abre en su canal
     const datosChat = notification.datos as { app?: string; canalId?: string | null } | null | undefined
     if (datosChat?.app === 'chat') {

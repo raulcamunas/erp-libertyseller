@@ -87,6 +87,7 @@ RUN { \
       echo "* * * * * /app/scripts/chat-avisos.sh"; \
       echo "* * * * * /app/scripts/facturas-impagadas.sh"; \
       echo "* * * * * /app/scripts/analisis-keepa.sh"; \
+      echo "* * * * * /app/scripts/cuentas-avisos.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto

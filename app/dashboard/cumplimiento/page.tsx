@@ -4,8 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { clientesGrowth } from '@/lib/growth/clientes'
 import { paisesDeCliente } from '@/lib/cumplimiento/panel'
-import { APP_CUMPLIMIENTO } from '@/lib/cumplimiento/acceso'
-import { esCeo } from '@/lib/usuarios/ceo'
+import { entraEnApp } from '@/lib/cuentas/acceso'
 import { Vacio } from '@/components/plataforma/comun'
 import { CumplimientoApp, TODOS } from '@/components/cumplimiento/CumplimientoApp'
 
@@ -24,11 +23,8 @@ export default async function CumplimientoPage({ searchParams }: { searchParams:
   if (!user) redirect('/auth/login')
   const perfil = await getUserProfile()
   if (!perfil) redirect('/auth/login')
-  if (perfil.role !== 'admin') redirect('/dashboard')
-  if (esCeo(perfil.role, perfil.puesto)) {
-    const { data: permiso } = await supabase.from('user_app_permissions').select('can_access').eq('user_id', user.id).eq('app_id', APP_CUMPLIMIENTO).maybeSingle()
-    if (!permiso?.can_access) redirect('/dashboard')
-  }
+  // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); un partner o un cliente, nunca
+  if (!(await entraEnApp(supabase, user.id, perfil.role, perfil.puesto, 'cumplimiento'))) redirect('/dashboard')
 
   const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
   const conCuenta = (await clientesGrowth()).filter((c) => c.amazonClientId)

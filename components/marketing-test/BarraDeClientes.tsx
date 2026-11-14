@@ -63,7 +63,7 @@ export function BarraDeClientes({
   colapsada,
   alternar,
   elegir,
-  titulo = 'Marketing Test',
+  titulo = 'PPC · Amazon Ads',
   icono = <FlaskConical className="h-[17px] w-[17px]" />,
   pie = (
     <>

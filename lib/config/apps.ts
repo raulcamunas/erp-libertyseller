@@ -35,6 +35,7 @@ import {
   FlaskConical,
   SearchCheck,
   ClipboardCheck,
+  BriefcaseBusiness,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -308,17 +309,30 @@ export const apps: AppConfig[] = [
     category: 'core'
   },
   {
+    // CUENTAS DE CLIENTES — el panel desde el que un administrativo lleva una cuenta entera (14 nov 2026: Raúl quita a la persona de marketing y las
+    // cuentas pasan a los administrativos). Por cliente: su responsable, la semana del ciclo S1–S4 y lo que toca, las cifras de PPC, las tareas de SEO
+    // y de cumplimiento y los avisos, con un botón a cada herramienta. Se concede persona a persona con la casilla; un partner o un cliente no entran
+    // nunca (lib/cuentas/acceso.ts). El id va letra por letra igual que en middleware.ts y en APP_CUENTAS.
+    id: 'cuentas',
+    name: 'Cuentas de clientes',
+    description: 'Cada cliente que llevas: qué toca esta semana, sus cifras, sus tareas y sus avisos',
+    icon: BriefcaseBusiness,
+    route: '/dashboard/cuentas',
+    status: 'new',
+    category: 'core'
+  },
+  {
     // MARKETING TEST — la ficha de cuenta de Amazon Ads, los productos con su coste, el botón que crea
     // la estructura de 4 campañas y el log de lo que se cambia. Funciona como un submódulo de Growth
     // Partner (el cliente se elige arriba y todo cuelga de él) pero es una app aparte, y lo es a
     // propósito: ESCRIBE en las cuentas de publicidad de los clientes y está en pruebas.
     //
-    // SOLO ADMIN, como 'amazon-api': se gasta el dinero de un cliente. Cerrada en middleware.ts, en
-    // APPS_SOLO_ADMIN (abajo) y en el redirect de su página; las rutas de /api/ads/cuenta comprueban
-    // el rol por su cuenta. El id no está en user_app_permissions: no se concede a nadie suelto.
+    // Se gasta el dinero de un cliente. Fue SOLO ADMIN hasta el 14 nov 2026; desde entonces la usan también
+    // los administrativos que llevan cuentas, con su casilla y con libertad total (decisión de Raúl). Cerrada a
+    // partners y clientes en lib/cuentas/acceso.ts, middleware.ts y cada ruta de /api/ads/cuenta.
     id: 'marketing-test',
-    name: 'Marketing Test',
-    description: 'Ficha de cuenta, productos, estructura de 4 campañas y log de cambios de Amazon Ads',
+    name: 'PPC · Amazon Ads',
+    description: 'Propuestas del motor, campañas, ficha de cuenta, productos, crear campañas y log de cambios',
     icon: FlaskConical,
     route: '/dashboard/marketing-test',
     status: 'new',
@@ -327,9 +341,9 @@ export const apps: AppConfig[] = [
   {
     // SEO TEST — el posicionamiento de los productos con datos GRATIS de Amazon: las búsquedas de Brand Analytics (dónde aparece cada producto y qué parte de las compras se lleva) y el texto de su
     // ficha (qué búsquedas que venden faltan en el título, los bullets o el backend). Misma forma que Marketing Test (clientes y países a la izquierda). Solo LEE de Amazon.
-    // SOLO ADMIN (datos de las cuentas de los clientes): cerrada en middleware.ts, en APPS_SOLO_ADMIN y en cada ruta de /api/seo; un CEO entra solo con la casilla.
+    // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); nunca un partner o un cliente. Fue SOLO ADMIN hasta el 14 nov 2026.
     id: 'seo-test',
-    name: 'SEO Test',
+    name: 'SEO de fichas',
     description: 'Búsquedas de Brand Analytics, posicionamiento y keywords que faltan en la ficha de cada producto',
     icon: SearchCheck,
     route: '/dashboard/seo-test',
@@ -339,7 +353,7 @@ export const apps: AppConfig[] = [
   {
     // CUMPLIMIENTO — antes un submódulo de Growth Partner: lo que Amazon dice de cada listing de un cliente (errores, ocultos, avisos de GPSR y RAP), con un panel por cliente y país, las
     // incidencias agrupadas por lo que dice Amazon y la lista de listings. Solo LEE de Amazon. Ninguna vista junta ni compara clientes.
-    // SOLO ADMIN (datos de las cuentas de los clientes): cerrada en middleware.ts, en APPS_SOLO_ADMIN y en /api/cumplimiento; un CEO entra solo con la casilla.
+    // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); nunca un partner o un cliente. Fue SOLO ADMIN hasta el 14 nov 2026.
     id: 'cumplimiento',
     name: 'Cumplimiento',
     description: 'Salud de los listings ante Amazon por cliente y país: errores, ocultos, normativa (GPSR, RAP) y su evolución',
@@ -585,11 +599,8 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'entrais-test',
   'entrais-pccomponentes',
   'limpieza-ofertas',
-  // Escribe en las cuentas de publicidad de los clientes: se gasta su dinero.
-  'marketing-test',
-  // Lee datos de las cuentas de los clientes en Amazon.
-  'seo-test',
-  'cumplimiento',
+  // 'marketing-test', 'seo-test' y 'cumplimiento' ESTUVIERON AQUÍ hasta el 14 nov 2026: desde ese día las cuentas
+  // de los clientes las llevan los administrativos, persona a persona con la casilla (lib/cuentas/acceso.ts).
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
   // de llevar datos de compradores —los lleva—, sino porque el trabajo del día 3
   // lo hace un empleado y con la app cerrada a admin acababa usando la sesión de
@@ -892,9 +903,18 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
   {
     id: 'herramientas-agencia',
     name: 'Herramientas Agencia',
-    description: 'Teléfonos, remesas a FBA, Growth Partner, Cumplimiento, Amazon API, informes de marketing, Marketing Test y SEO Test',
+    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API e informes de marketing',
     icon: Wrench,
-    apps: ['telefonos', 'remesas', 'growth', 'cumplimiento', 'amazon-api', 'marketing-ads', 'marketing-test', 'seo-test'],
+    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads'],
+    despuesDe: 'correo',
+  },
+  {
+    // Lo que usa quien lleva las cuentas de los clientes (lib/cuentas/acceso.ts). Va antes que el resto de herramientas: es su trabajo diario
+    id: 'gestion-de-cuentas',
+    name: 'Gestión de cuentas',
+    description: 'Cuentas de clientes, PPC, SEO de fichas y Cumplimiento',
+    icon: BriefcaseBusiness,
+    apps: ['cuentas', 'marketing-test', 'seo-test', 'cumplimiento'],
     despuesDe: 'correo',
   },
   {
