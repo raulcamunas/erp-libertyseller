@@ -25,6 +25,19 @@ import { FasePropuesta } from './FasePropuesta'
 export function PortalCliente({ token, inicial, encaje }: { token: string; inicial: DatosDelPortal; encaje: DatosDeEncaje | null }) {
   const [datos, setDatos] = useState(inicial)
   const [vista, setVista] = useState<FaseDelPortal>(inicial.fase)
+  /**
+   * EL ENCAJE SE MONTA UNA VEZ Y SE QUEDA MONTADO (oculto) AL CAMBIAR DE FASE.
+   *
+   * Si se desmontaba al ir a «Envío» o «Etiquetas» y se volvía a montar al volver, arrancaba otra vez con las
+   * cajas y la versión que trajo la página al abrirse: enseñaba cajas viejas y el siguiente guardado chocaba
+   * con su propio guardado anterior (409 «alguien ha cambiado las cajas»), o, sin la 309, pisaba lo guardado
+   * con lo viejo. Montado y oculto conserva lo que lleva hecho y su versión.
+   */
+  const [encajeMontado, setEncajeMontado] = useState(inicial.fase === 'cajas')
+  const verFase = (f: FaseDelPortal) => {
+    if (f === 'cajas') setEncajeMontado(true)
+    setVista(f)
+  }
 
   async function recargar() {
     try {
@@ -35,24 +48,22 @@ export function PortalCliente({ token, inicial, encaje }: { token: string; inici
     }
   }
 
-  const barra = <BarraDeFases actual={datos.fase} vista={vista} onVer={setVista} pegada={vista !== 'cajas'} />
-
-  if (vista === 'cajas' && encaje) {
-    return (
-      <MotionConfig reducedMotion="user">
-        <EncajeCliente token={token} inicial={encaje} encima={barra} etiquetaCabecera="Tu envío" />
-      </MotionConfig>
-    )
-  }
+  const barra = <BarraDeFases actual={datos.fase} vista={vista} onVer={verFase} pegada={vista !== 'cajas'} />
+  const enCajas = vista === 'cajas' && encaje !== null
 
   const unidades = datos.lineas.reduce((s, l) => s + l.unidades, 0)
   const pista = FASES_DEL_PORTAL.find((f) => f.id === vista)?.pista
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="min-h-screen bg-[#F7F5F2] text-[#141414]" style={{ fontFamily: FUENTE_CUERPO }}>
+      {encaje && encajeMontado && (
+        <div hidden={!enCajas}>
+          <EncajeCliente token={token} inicial={encaje} encima={enCajas ? barra : null} etiquetaCabecera="Tu envío" />
+        </div>
+      )}
+      <div hidden={enCajas} className="min-h-screen bg-[#F7F5F2] text-[#141414]" style={{ fontFamily: FUENTE_CUERPO }}>
         <Cabecera titulo={datos.titulo} cliente={datos.cliente} referencias={datos.lineas.filter((l) => l.unidades > 0).length} unidades={unidades} fechaEnvio={datos.fechaEnvio} etiqueta="Tu envío" />
-        {barra}
+        {!enCajas && barra}
         <main className="mx-auto max-w-[1180px] px-4 pb-28 pt-6 sm:px-8">
           {pista && <p className="mb-5 text-[14px] text-[#5E5852]">{pista}</p>}
           {datos.sinMigrar && vista === 'propuesta' ? (
