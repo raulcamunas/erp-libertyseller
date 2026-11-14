@@ -19,7 +19,6 @@ import {
   ArrowRight,
   BadgeCheck,
   Boxes,
-  CalendarDays,
   ChartLine,
   ChevronDown,
   Check,
@@ -29,10 +28,7 @@ import {
   Lock,
   PackageCheck,
   Phone,
-  Search,
   ShieldCheck,
-  Sparkles,
-  Store,
   Users,
 } from 'lucide-react'
 import type {
@@ -43,6 +39,7 @@ import type {
   ProductoAnalisis,
 } from '@/lib/analisis-amazon/construir'
 import { UMBRALES } from '@/lib/analisis-amazon/construir'
+import { ProgramaSemanal } from './ProgramaSemanal'
 
 /* ------------------------------------------------------------------ */
 /* Paleta de libertyseller.com                                          */
@@ -1537,30 +1534,18 @@ export function InformeAnalisis({
             <Chip icono={<BadgeCheck className="h-4 w-4" />}>Amazon Growth Partner</Chip>
           </div>
         </Revelar>
-        <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-4" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.10)' }}>
-          {(
-            [
-              [ChartLine, 'Reducción de ACOS', 'Campañas que dejan de gastar en búsquedas sin venta y empujan las que sí venden.'],
-              [Search, 'SEO y posicionamiento', 'Títulos, viñetas y palabras clave a partir de lo que de verdad busca el comprador.'],
-              [Store, 'Contenido A+ y tienda', 'Fichas y tienda de marca que suben la conversión.'],
-              [PackageCheck, 'Logística FBA', 'Envíos planificados para no quedarse sin stock ni pagar almacenaje de más.'],
-              [ShieldCheck, 'Protección de marca', 'Registro de Marcas y control de vendedores no autorizados.'],
-              [Globe2, 'Expansión europea', 'Francia, Italia, Alemania y Reino Unido con fichas traducidas y su normativa.'],
-              [Sparkles, 'Buy Box', 'Precio, logística y reputación para que la venta no se la lleve otro.'],
-              [CalendarDays, 'Informes', 'Cada semana sabes qué hemos tocado en tu cuenta y por qué.'],
-            ] as const
-          ).map(([I, t, d], i) => (
-            <Revelar key={t} retraso={(i % 4) * 90}>
-              <div className="group h-full px-[30px] py-10 transition-colors hover:bg-white/[0.025]" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
-                <I className="h-6 w-6 transition-transform duration-300 group-hover:scale-110" style={{ color: N }} strokeWidth={2.2} />
-                <div className="mt-5 text-[18px] font-semibold leading-snug">{t}</div>
-                <p className="mt-2 text-[13.5px] leading-relaxed" style={{ color: TEXTO2 }}>
-                  {d}
-                </p>
-              </div>
-            </Revelar>
-          ))}
-        </div>
+        <ProgramaSemanal
+          contexto="amazon"
+          datos={{
+            buyBox: informe.cifras.buyBox,
+            productos: informe.cifras.productos,
+            seo: informe.seo.revisados > 0 ? { revisados: informe.seo.revisados, fuera: informe.seo.fueraDeNorma } : null,
+            bsr: (() => {
+              const p = [...informe.productos].filter((x) => x.ranking).sort((a, b) => (a.ranking ?? Infinity) - (b.ranking ?? Infinity))[0]
+              return p?.ranking ? { ranking: p.ranking, categoria: p.categoria } : null
+            })(),
+          }}
+        />
       </Seccion>
 
       {/* ---------- llamada ---------- */}

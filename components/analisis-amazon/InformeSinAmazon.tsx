@@ -12,6 +12,7 @@ import type { ReactNode } from 'react'
 import type { InformeSinAmazon, MercadoSinAmazon, ProductoMini } from '@/lib/analisis-sin-amazon/construir'
 import { cuentaDeMercado, depurar } from '@/lib/analisis-sin-amazon/calidad'
 import { CLIENTES, type ContactoComercial } from './InformeAnalisis'
+import { ProgramaSemanal } from './ProgramaSemanal'
 
 const N = '#FF6600'
 
@@ -26,7 +27,7 @@ const fecha = (iso: string) => {
 const enumerar = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}`)
 
 const CSS = `
-.sa{--n:#FF6600;--n2:#FF8A3D;--t2:rgba(255,255,255,.66);background:#080808;color:#fff;font-family:var(--font-inter),Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;overflow-x:hidden}
+.sa{--n:#FF6600;--n2:#FF8A3D;--t2:rgba(255,255,255,.66);background:#080808;color:#fff;font-family:var(--font-inter),Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;overflow-x:clip}
 .sa a{color:inherit;text-decoration:none}
 .sa-cab{position:sticky;top:0;z-index:20;background:rgba(8,8,8,.72);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-bottom:1px solid rgba(255,255,255,.06)}
 .sa-cab>div{max-width:1130px;margin:auto;height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 24px}
@@ -501,28 +502,13 @@ export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAma
               ? 'Lo primero es recuperar lo que ya es tuyo: tus fichas. Después, ponerlas a vender con tu precio y tu stock, y crecer desde ahí.'
               : 'Pocas fichas, bien hechas, en lo que más se vende. Tu web sigue siendo tuya: Amazon es un canal más, con millones de compradores que ya están buscando lo que vendes.'}
           </p>
-          <div className="sa-pasos">
-            <div className="sa-paso">
-              <i>01</i>
-              <b>Registro de Marca</b>
-              <p>{revendida ? `Con ${m.nombre} registrada en Amazon, las fichas pasan a ser tuyas: tus fotos, tus textos y nadie te los cambia.` : `Protegemos ${m.nombre} en Amazon antes de que lo haga otro, y sus fichas son solo tuyas.`}</p>
-            </div>
-            <div className="sa-paso">
-              <i>02</i>
-              <b>Fichas que venden</b>
-              <p>Título, fotos y contenido como Amazon los premia en 2026, empezando por los productos con más demanda.</p>
-            </div>
-            <div className="sa-paso">
-              <i>03</i>
-              <b>Prime con FBA</b>
-              <p>Amazon almacena y envía en 24 h con Prime. Tú solo mandas las cajas a su almacén.</p>
-            </div>
-            <div className="sa-paso">
-              <i>04</i>
-              <b>Publicidad desde el día 1</b>
-              <p>Campañas para que te encuentren quienes ya buscan lo tuyo, y un informe cada semana de lo que hemos tocado.</p>
-            </div>
-          </div>
+          <ProgramaSemanal
+            contexto="sin-amazon"
+            datos={{
+              catalogo: inf.catalogo.productos ? { web: inf.catalogo.productos, vendiendo: 0 } : null,
+              precioMercado: principal?.precioMediano ?? null,
+            }}
+          />
         </div>
       </section>
 
