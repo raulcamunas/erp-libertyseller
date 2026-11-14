@@ -11,6 +11,7 @@ import { TabResumen } from './TabResumen'
 import { TabRotacion } from './TabRotacion'
 import { TabSeguimiento } from './TabSeguimiento'
 import { TabVentas } from './TabVentas'
+import { HistorialRemesa } from '../propuestas/HistorialRemesa'
 
 /**
  * EL DESGLOSE DE UN ENVÍO, EN PESTAÑAS.
@@ -27,7 +28,7 @@ import { TabVentas } from './TabVentas'
  * marca de color en la pestaña avisa de lo que hay que mirar sin abrirla.
  */
 
-export type IdPestana = 'resumen' | 'ventas' | 'almacen' | 'rotacion' | 'seguimiento' | 'referencias'
+export type IdPestana = 'resumen' | 'ventas' | 'almacen' | 'rotacion' | 'seguimiento' | 'referencias' | 'historial'
 
 export function PestanasEnvio({ remesa, skus, hoy, conectado }: { remesa: RemesaDePanel; skus: SkuDePanel[]; hoy: string; conectado: boolean }) {
   const [pestana, setPestana] = useState<IdPestana>('resumen')
@@ -47,6 +48,7 @@ export function PestanasEnvio({ remesa, skus, hoy, conectado }: { remesa: Remesa
     { id: 'rotacion', texto: 'Rotación', marca: ritmo.encaminoDeAgotarse > 0 ? COLOR_ESTADO.rojo : undefined, titulo: ritmo.encaminoDeAgotarse > 0 ? 'Hay referencias que se agotan en menos de una semana' : undefined },
     { id: 'seguimiento', texto: 'Seguimiento', marca: remesa.unidadesQueNoLlegaron > 0 ? COLOR_ESTADO.ambar : undefined, titulo: remesa.unidadesQueNoLlegaron > 0 ? 'Hay unidades que no han llegado' : undefined },
     { id: 'referencias', texto: 'Referencias' },
+    { id: 'historial', texto: 'Historial', titulo: 'Quién hizo qué en esta remesa, de la propuesta al envío' },
   ]
 
   return (
@@ -83,6 +85,7 @@ export function PestanasEnvio({ remesa, skus, hoy, conectado }: { remesa: Remesa
         {pestana === 'rotacion' && <TabRotacion filas={filas} ritmo={ritmo} nombreArchivo={nombreArchivo} />}
         {pestana === 'seguimiento' && <TabSeguimiento remesa={remesa} />}
         {pestana === 'referencias' && <TablaReferencias filas={filas} conectado={conectado} nombreArchivo={nombreArchivo} />}
+        {pestana === 'historial' && <HistorialRemesa key={remesa.id} remesaId={remesa.id} abierto />}
       </div>
     </div>
   )
