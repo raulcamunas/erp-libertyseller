@@ -12,6 +12,7 @@ import { TabRotacion } from './TabRotacion'
 import { TabSeguimiento } from './TabSeguimiento'
 import { TabVentas } from './TabVentas'
 import { HistorialRemesa } from '../propuestas/HistorialRemesa'
+import { EnviarAAmazon } from '../amazon/EnviarAAmazon'
 
 /**
  * EL DESGLOSE DE UN ENVÍO, EN PESTAÑAS.
@@ -28,9 +29,9 @@ import { HistorialRemesa } from '../propuestas/HistorialRemesa'
  * marca de color en la pestaña avisa de lo que hay que mirar sin abrirla.
  */
 
-export type IdPestana = 'resumen' | 'ventas' | 'almacen' | 'rotacion' | 'seguimiento' | 'referencias' | 'historial'
+export type IdPestana = 'resumen' | 'ventas' | 'almacen' | 'rotacion' | 'seguimiento' | 'referencias' | 'historial' | 'amazon'
 
-export function PestanasEnvio({ remesa, skus, hoy, conectado }: { remesa: RemesaDePanel; skus: SkuDePanel[]; hoy: string; conectado: boolean }) {
+export function PestanasEnvio({ remesa, skus, hoy, conectado, esAdmin = false }: { remesa: RemesaDePanel; skus: SkuDePanel[]; hoy: string; conectado: boolean; esAdmin?: boolean }) {
   const [pestana, setPestana] = useState<IdPestana>('resumen')
 
   const globales = useMemo(() => new Map(skus.map((s) => [s.sku, s])), [skus])
@@ -49,6 +50,8 @@ export function PestanasEnvio({ remesa, skus, hoy, conectado }: { remesa: Remesa
     { id: 'seguimiento', texto: 'Seguimiento', marca: remesa.unidadesQueNoLlegaron > 0 ? COLOR_ESTADO.ambar : undefined, titulo: remesa.unidadesQueNoLlegaron > 0 ? 'Hay unidades que no han llegado' : undefined },
     { id: 'referencias', texto: 'Referencias' },
     { id: 'historial', texto: 'Historial', titulo: 'Quién hizo qué en esta remesa, de la propuesta al envío' },
+    // El envío por API (seguimiento y anulación dentro de plazo). Solo administradores
+    ...(esAdmin && remesa.estado === 'enviada' ? [{ id: 'amazon' as const, texto: 'Amazon (API)', titulo: 'El plan creado desde el ERP: estado, etiquetas y anulación' }] : []),
   ]
 
   return (
@@ -86,6 +89,7 @@ export function PestanasEnvio({ remesa, skus, hoy, conectado }: { remesa: Remesa
         {pestana === 'seguimiento' && <TabSeguimiento remesa={remesa} />}
         {pestana === 'referencias' && <TablaReferencias filas={filas} conectado={conectado} nombreArchivo={nombreArchivo} />}
         {pestana === 'historial' && <HistorialRemesa key={remesa.id} remesaId={remesa.id} abierto />}
+        {pestana === 'amazon' && <EnviarAAmazon key={`a-${remesa.id}`} remesaId={remesa.id} soloSeguimiento />}
       </div>
     </div>
   )

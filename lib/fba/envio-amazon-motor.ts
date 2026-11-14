@@ -816,6 +816,7 @@ export async function cambiarModo(remesaId: string, modo: ModoEnvio, userId: str
   if (r.sinMigrar) throw new FalloDelEnvio('Falta lanzar la migración 310 para enviar desde el ERP', 503)
   const paso = pasoDe(r.fila)
   if (!['sin_empezar', 'cancelado'].includes(paso)) throw new FalloDelEnvio('Con un plan en marcha en Amazon no se cambia el modo: cancélalo antes')
+  if (!['aprobada', 'encajando', 'lista'].includes(r.fila.estado)) throw new FalloDelEnvio('El modo se elige antes de enviar: esta remesa ya no está en preparación')
   if (modo === 'api' && !r.fila.connection_id) throw new FalloDelEnvio('Este cliente no tiene la cuenta de Amazon conectada: solo puede ir en modo manual')
   const { error } = await service.from('fba_remesas').update({ envio_modo: modo, envio_actualizado_at: new Date().toISOString() }).eq('id', remesaId)
   if (error) throw error
