@@ -1,5 +1,6 @@
+import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
 import { NextResponse, type NextRequest } from 'next/server'
-import { errorResponse, fail, requireAmazonAdmin } from '@/lib/amazon/api'
+import { errorResponse, fail } from '@/lib/amazon/api'
 import { MAX_FILAS_EXPORTAR, filtrosValidos, todasLasFilas } from '@/lib/cumplimiento/consulta'
 import { aCsv } from '@/lib/cumplimiento/exportar'
 import { clientesGrowth } from '@/lib/growth/clientes'
@@ -20,7 +21,7 @@ export const maxDuration = 60
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireAmazonAdmin()
+    const session = await requireAppDeCuentas('cumplimiento')
     if (session instanceof NextResponse) return session
 
     const p = request.nextUrl.searchParams
@@ -36,6 +37,9 @@ export async function GET(request: NextRequest) {
       tema: p.get('tema') ?? 'todos',
       soloStock: p.get('stock') === '1',
       busca: p.get('q') ?? '',
+      codigo: p.get('codigo') ?? '',
+      // Los de una tarea de «Hoy», separados por comas (filtrosValidos descarta los que no sean un código)
+      codigos: (p.get('codigos') ?? '').split(',').filter(Boolean),
     })
 
     const r = await todasLasFilas(cliente.amazonClientId, filtros)

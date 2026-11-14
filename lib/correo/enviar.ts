@@ -56,6 +56,10 @@ export interface EntradaDeEnvio {
   texto: string
   respuesta?: ContextoDeRespuesta | null
   adjuntos?: AdjuntoParaEnviar[]
+  /** Un HTML ya maquetado (el correo del análisis de Amazon). Sin él, el HTML se hace del texto como siempre; con él, `texto` es la versión sin formato */
+  html?: string
+  /** Enlace de baja: va en la cabecera List-Unsubscribe, que Gmail y Outlook enseñan como «Cancelar suscripción» */
+  bajaUrl?: string
 }
 
 export type ProblemaDeEntrada =
@@ -114,12 +118,13 @@ export async function componerCorreo(
     cc: entrada.cc.map((p) => ({ name: limpiarNombre(p.nombre), address: p.direccion })),
     subject: entrada.asunto.replace(/[\r\n]+/g, ' ').trim(),
     text: textoDeRespuesta(entrada.texto, cita),
-    html: htmlDeRespuesta(entrada.texto, cita),
+    html: entrada.html ?? htmlDeRespuesta(entrada.texto, cita),
     messageId: `<${messageId}>`,
     date: fecha,
     inReplyTo: entrada.respuesta?.messageId ? `<${entrada.respuesta.messageId}>` : undefined,
     references: entrada.respuesta?.messageId ? [...entrada.respuesta.referencias, entrada.respuesta.messageId].filter((v, i, a) => a.indexOf(v) === i).slice(-30).map((r) => `<${r}>`) : undefined,
-    headers: { 'X-Mailer': 'Liberty Seller Hub' },
+    // `list` de nodemailer solo lo aplica su transporte, no MailComposer: la cabecera de baja se pone a mano
+    headers: { 'X-Mailer': 'Liberty Seller Hub', ...(entrada.bajaUrl ? { 'List-Unsubscribe': `<${entrada.bajaUrl.replace(/[\r\n<>]/g, '')}>` } : {}) },
     attachments: (entrada.adjuntos ?? []).map((a) => ({ filename: nombreDeFichero(a.nombre), content: a.contenido, contentType: a.tipo || 'application/octet-stream' })),
     disableFileAccess: true,
     disableUrlAccess: true,

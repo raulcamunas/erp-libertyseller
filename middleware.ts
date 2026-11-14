@@ -101,6 +101,12 @@ export async function middleware(request: NextRequest) {
                        // token de la dirección (lib/fba/encaje-enlace.ts): da paso a UN envío y se comprueba
                        // en el servidor en cada petición. Solo esta carpeta: nada más del ERP se abre así
                        pathname.startsWith('/encajar/') ||
+                       // El análisis de Amazon de un lead (migración 303): el token de la dirección es la credencial y solo abre ESE informe
+                       pathname.startsWith('/analisis/') ||
+                       // El panel del cliente (qué tareas se le enseñan): igual, el token de la dirección es la credencial y solo sirve para ESE cliente. Solo esta carpeta
+                       pathname.startsWith('/tareas-cliente/') ||
+                       // El informe de una cuenta para su CLIENTE (migración 307): el token de la dirección es la credencial y solo abre ESE informe
+                       pathname.startsWith('/informe/') ||
                        // OAuth de Amazon. Quien llega a estas dos direcciones es
                        // el CLIENTE desde su Seller Central, sin sesión en el
                        // ERP: mandarle al login rompe el flujo a mitad y él no
@@ -108,7 +114,11 @@ export async function middleware(request: NextRequest) {
                        // registradas en el portal de desarrollador de Amazon y
                        // no se pueden cambiar sin volver a pasar por allí.
                        pathname === '/connect' ||
-                       pathname === '/callback'
+                       pathname === '/callback' ||
+                       // El manifiesto de la aplicación instalable: el navegador lo pide sin sesión y no lleva nada privado
+                       pathname === '/manifest.webmanifest' ||
+                       // El service worker de los avisos push: el navegador lo pide al registrarlo y al comprobar si hay versión nueva, y no lleva nada privado
+                       pathname === '/sw.js'
 
   // Si no hay usuario y no es ruta pública, redirigir a login
   if (!user && !isPublicRoute) {
@@ -142,7 +152,7 @@ export async function middleware(request: NextRequest) {
     // 'employee' y no quedaba rastro de por qué.
     const { data: profile, error: errorPerfil } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, puesto')
       .eq('id', user.id)
       .single()
 
@@ -158,6 +168,8 @@ export async function middleware(request: NextRequest) {
     }
 
     const userRole = profile?.role || 'employee'
+    // Un CEO (administrador con puesto 'ceo', lib/usuarios/ceo.ts) entra solo a las pantallas con casilla que tenga marcada, como un empleado. Inline: el middleware no importa la configuración de apps
+    const esCeoUsuario = profile?.role === 'admin' && profile?.puesto === 'ceo'
 
     // Ruta /admin/* - Solo admins
     if (pathname.startsWith('/admin')) {
@@ -258,6 +270,24 @@ export async function middleware(request: NextRequest) {
       // migración 118.
       if (pathname.startsWith('/dashboard/amazon-api')) {
         if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
+      // Las apps de llevar cuentas de clientes: Cuentas, Marketing Test, SEO Test y Cumplimiento (lib/cuentas/acceso.ts).
+      //
+      // Hasta el 14 nov 2026 eran solo admin. Desde ese día las llevan también los administrativos, persona a persona con la casilla de cada app
+      // (como Tax Reports): un empleado pasa a la comprobación de casillas de más abajo (routeToAppId). Un partner o un cliente NO entra nunca, ni con
+      // casilla, porque vería las cuentas de los demás clientes. El filtro de verdad es requireAppDeCuentas() en cada ruta de /api.
+      if (
+        pathname.startsWith('/dashboard/cuentas') ||
+        pathname.startsWith('/dashboard/marketing-test') ||
+        pathname.startsWith('/dashboard/seo-test') ||
+        pathname.startsWith('/dashboard/cumplimiento')
+      ) {
+        if (userRole !== 'admin' && userRole !== 'employee') {
           const url = request.nextUrl.clone()
           url.pathname = '/dashboard'
           return NextResponse.redirect(url)
@@ -429,7 +459,7 @@ export async function middleware(request: NextRequest) {
       }
 
       // Verificar permisos por aplicación (excepto para admins, partners y rutas especiales)
-      if (userRole === 'employee' && pathname !== '/dashboard' && pathname !== '/dashboard/users') {
+      if ((userRole === 'employee' || esCeoUsuario) && pathname !== '/dashboard' && pathname !== '/dashboard/users') {
         // Mapear rutas a app_ids
         const routeToAppId: Record<string, string> = {
           '/dashboard/leads': 'leads',
@@ -489,6 +519,11 @@ export async function middleware(request: NextRequest) {
           // Briefing: lo ven los administradores y quien tenga la casilla. El filtro de verdad es la comprobación de la propia página y
           // requireAppAccess('briefing') en /api/briefing/marcar (las tablas están cerradas al navegador); el id va letra por letra como en lib/config/apps.ts
           '/dashboard/briefing': 'briefing',
+          // Las apps de llevar cuentas (lib/cuentas/acceso.ts): un empleado o un CEO, solo con la casilla. El id va letra por letra como en lib/config/apps.ts
+          '/dashboard/cuentas': 'cuentas',
+          '/dashboard/marketing-test': 'marketing-test',
+          '/dashboard/seo-test': 'seo-test',
+          '/dashboard/cumplimiento': 'cumplimiento',
         }
 
         const appId = routeToAppId[pathname]

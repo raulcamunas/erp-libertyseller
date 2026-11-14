@@ -67,6 +67,11 @@ export interface OpcionesDeSincronizacion {
   solapeDias?: number
   /** Tope de páginas por pasada, por si algo hace que no se acabe nunca */
   maxPaginas?: number
+  /**
+   * «Esta cuenta empieza aquí»: ni se pide a Rinkel ni se guarda ninguna llamada anterior a este instante (ISO). Para una cuenta que cambia de manos (la línea de María Fernanda pasó a
+   * Sharon el 9 nov 2026): sin esto, el solape de tres días volvería a leer las llamadas de la persona anterior y se las atribuiría a la nueva. null/ausente = sin corte, como siempre.
+   */
+  soloDesde?: string | null
 }
 
 export interface ResultadoDeSincronizacion {
@@ -99,6 +104,8 @@ export async function sincronizarCuenta(
   const inicio = deps.ahora()
   const solapeMs = (op.solapeDias ?? 3) * DIA_MS
   const maxPaginas = op.maxPaginas ?? 400
+  const corteMs = op.soloDesde ? Date.parse(op.soloDesde) : NaN
+  const hayCorte = Number.isFinite(corteMs)
 
   let leidas = 0
   let paginas = 0
@@ -113,7 +120,7 @@ export async function sincronizarCuenta(
   let leads: Map<string, string> | null = null
   const procesar = async (pagina: PaginaDeLlamadas) => {
     leads ??= await deps.leadsPorTelefono()
-    const filas: FilaParaGuardar[] = pagina.filas.map((f) => {
+    const filas: FilaParaGuardar[] = pagina.filas.filter((f) => !hayCorte || Date.parse(f.fecha) >= corteMs).map((f) => {
       const clave = f.numero ? claveDeTelefono(f.numero) : null
       return { ...f, user_id: op.usuario, lead_id: clave ? (leads!.get(clave) ?? null) : null }
     })
@@ -125,7 +132,8 @@ export async function sincronizarCuenta(
   try {
     /* ---------- 1) lo reciente ---------- */
     if (estado.ultimo_sync_at) {
-      const desdeSeg = Math.floor((Date.parse(estado.ultimo_sync_at) - solapeMs) / 1000)
+      const desdeSolape = Date.parse(estado.ultimo_sync_at) - solapeMs
+      const desdeSeg = Math.floor((hayCorte ? Math.max(desdeSolape, corteMs) : desdeSolape) / 1000)
       let completoReciente = false
       for (let pagina = 1; hayTiempo(); pagina += 1) {
         const leida = await deps.leerPagina({ pagina, desdeSeg })

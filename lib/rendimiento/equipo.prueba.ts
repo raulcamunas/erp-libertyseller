@@ -21,6 +21,7 @@ const PERFILES: Perfil[] = [
   { id: 'jhanna', full_name: 'Jhanna', email: 'jhanna@x', is_comercial: false, puesto: 'manager_comercial' },
   { id: 'alejandro', full_name: 'Alejandro', email: 'alejandro@x', is_comercial: true, puesto: null },
   { id: 'gestor', full_name: 'Gestión', email: 'gestion@x', is_comercial: false, puesto: 'gestion_administrativa' },
+  { id: 'naomi', full_name: 'Naomi', email: 'naomi@x', is_comercial: false, puesto: 'comercial_autonomo' },
 ]
 
 /** Un cliente de mentira que habla como PostgREST: entiende `.or('a.eq.x,b.eq.y')`, `.eq` y `.order`, y puede no tener la columna `puesto` */
@@ -64,16 +65,17 @@ async function main() {
     ok('un comercial sí', esDelEquipoMedido({ is_comercial: true, puesto: 'comercial' }) && esDelEquipoMedido({ is_comercial: true }))
     ok('un manager comercial sí, aunque no sea `is_comercial` (Jhanna)', esDelEquipoMedido({ is_comercial: false, puesto: 'manager_comercial' }) && esDelEquipoMedido({ puesto: 'manager_comercial' }))
     ok('un administrador que no llama, no', !esDelEquipoMedido({ is_comercial: false, puesto: null }) && !esDelEquipoMedido({ is_comercial: false }))
+    ok('un comercial autónomo sí, aunque no sea `is_comercial` (Naomi, Yarima)', esDelEquipoMedido({ is_comercial: false, puesto: 'comercial_autonomo' }) && esDelEquipoMedido({ puesto: 'comercial_autonomo' }))
     ok('gestión administrativa, no', !esDelEquipoMedido({ is_comercial: false, puesto: 'gestion_administrativa' }))
     ok('nada o un perfil que no existe, no', !esDelEquipoMedido(null) && !esDelEquipoMedido(undefined) && !esDelEquipoMedido({}))
-    ok('el filtro de la base dice las dos cosas', FILTRO_DEL_EQUIPO_MEDIDO === 'is_comercial.eq.true,puesto.eq.manager_comercial')
+    ok('el filtro de la base dice las dos cosas', FILTRO_DEL_EQUIPO_MEDIDO === 'is_comercial.eq.true,puesto.eq.manager_comercial,puesto.eq.comercial_autonomo')
   }
 
   console.log('\n=== leer el equipo ===')
   {
     const { cliente, llamadas } = base()
     const r = await leerEquipoMedido(cliente)
-    ok('salen los dos comerciales y la manager, por nombre, y no el administrador ni gestión', r.error === null && r.data?.map((p) => p.id).join() === 'alejandro,jhanna,maoli', r.data?.map((p) => p.id).join())
+    ok('salen los dos comerciales, la manager y la autónoma, por nombre, y no el administrador ni gestión', r.error === null && r.data?.map((p) => p.id).join() === 'alejandro,jhanna,maoli,naomi', r.data?.map((p) => p.id).join())
     ok('con una sola lectura', llamadas.length === 1 && llamadas[0] === `or ${FILTRO_DEL_EQUIPO_MEDIDO}`, llamadas.join(' | '))
   }
 

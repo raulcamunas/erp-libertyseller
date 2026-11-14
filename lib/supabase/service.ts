@@ -12,5 +12,8 @@ export function createServiceClient() {
   }
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    // Next 14 guarda estas lecturas en su caché aunque la página sea `force-dynamic`: el informe público de un cliente
+    // seguía enseñando las cifras viejas después de actualizarlo, hasta el siguiente despliegue.
+    global: { fetch: (entrada, opciones) => fetch(entrada, { ...opciones, cache: 'no-store' }) },
   })
 }

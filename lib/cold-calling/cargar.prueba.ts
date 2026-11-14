@@ -1,4 +1,4 @@
-import { COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_CICLO, COLUMNAS_DE_CARTERA_SIN_PARTNERS, COLUMNAS_DE_CARTERA_SIN_UBICACION, COLUMNAS_DE_CICLO, COLUMNAS_DE_PARTNERS, COLUMNAS_DE_UBICACION, FILAS_POR_TRAMO, TRAMOS_A_LA_VEZ, cargarCartera, faltanLasColumnasDePartners, type ClienteDeLectura } from '@/lib/cold-calling/cargar'
+import { COLUMNAS_DE_CARTERA, COLUMNAS_DE_CARTERA_SIN_ANALISIS, COLUMNAS_DE_CARTERA_SIN_CICLO, COLUMNAS_DE_CARTERA_SIN_PARTNERS, COLUMNAS_DE_CARTERA_SIN_UBICACION, COLUMNAS_DE_CICLO, COLUMNAS_DE_PARTNERS, COLUMNAS_DE_UBICACION, FILAS_POR_TRAMO, TRAMOS_A_LA_VEZ, cargarCartera, faltanLasColumnasDePartners, type ClienteDeLectura } from '@/lib/cold-calling/cargar'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -146,7 +146,7 @@ async function main() {
       sin.sinLa262 = codigo
       const r = await cargarCartera(cliente(sin))
       ok(`(${codigo}) la cartera llega ENTERA, como antes de la 262, y no vacía`, r.leads.length === 2500 && r.total === 2500 && !r.incompleta, `${r.leads.length}/${r.total} incompleta=${r.incompleta}`)
-      ok(`(${codigo}) tras los errores repite el primer tramo hasta dar con lo que la base tiene (sin ciclo, sin ubicación y luego sin partners), y los demás ya van así`, sin.peticiones.length === 6 && sin.peticiones[1].columnas === COLUMNAS_DE_CARTERA_SIN_CICLO && sin.peticiones[2].columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION && sin.peticiones.slice(3).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_PARTNERS), JSON.stringify(sin.peticiones.map((p) => p.columnas === COLUMNAS_DE_CARTERA ? 'con' : p.columnas === COLUMNAS_DE_CARTERA_SIN_CICLO ? 'sin264' : p.columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION ? 'sin263' : 'sin262')))
+      ok(`(${codigo}) tras los errores repite el primer tramo hasta dar con lo que la base tiene (sin análisis, sin ciclo, sin ubicación y luego sin partners), y los demás ya van así`, sin.peticiones.length === 7 && sin.peticiones[1].columnas === COLUMNAS_DE_CARTERA_SIN_ANALISIS && sin.peticiones[2].columnas === COLUMNAS_DE_CARTERA_SIN_CICLO && sin.peticiones[3].columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION && sin.peticiones.slice(4).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_PARTNERS), JSON.stringify(sin.peticiones.map((p) => p.columnas === COLUMNAS_DE_CARTERA ? 'con' : p.columnas === COLUMNAS_DE_CARTERA_SIN_ANALISIS ? 'sin303' : p.columnas === COLUMNAS_DE_CARTERA_SIN_CICLO ? 'sin264' : p.columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION ? 'sin263' : 'sin262')))
     }
 
     const con = base(2500)
@@ -169,12 +169,13 @@ async function main() {
       sin.sinLa263 = codigo
       const r = await cargarCartera(cliente(sin))
       ok(`(${codigo}) la cartera llega ENTERA, con los partners, y no vacía`, r.leads.length === 2500 && r.total === 2500 && !r.incompleta, `${r.leads.length}/${r.total}`)
-      ok(`(${codigo}) dos peticiones de más (sin el ciclo, y luego sin la ubicación), y los demás tramos ya van sin la ubicación`, sin.peticiones.length === 5 && sin.peticiones[0].columnas === COLUMNAS_DE_CARTERA && sin.peticiones[1].columnas === COLUMNAS_DE_CARTERA_SIN_CICLO && sin.peticiones.slice(2).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION), JSON.stringify(sin.peticiones.map((p) => p.columnas.length)))
+      ok(`(${codigo}) tres peticiones de más (sin el análisis, sin el ciclo y luego sin la ubicación), y los demás tramos ya van sin la ubicación`, sin.peticiones.length === 6 && sin.peticiones[0].columnas === COLUMNAS_DE_CARTERA && sin.peticiones[1].columnas === COLUMNAS_DE_CARTERA_SIN_ANALISIS && sin.peticiones[2].columnas === COLUMNAS_DE_CARTERA_SIN_CICLO && sin.peticiones.slice(3).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_UBICACION), JSON.stringify(sin.peticiones.map((p) => p.columnas.length)))
     }
   }
 
   console.log('\n=== una base con la 262 y la 263 pero sin la 264 (las columnas del ciclo comercial) ===')
   {
+    ok('la marca del análisis de Amazon (303) se pide además de las del ciclo, y sin ella la lista es la de antes', COLUMNAS_DE_CARTERA.endsWith('analisis_amazon_at') && COLUMNAS_DE_CARTERA_SIN_ANALISIS.includes('ciclo_fase') && !COLUMNAS_DE_CARTERA_SIN_ANALISIS.includes('analisis_'))
     ok('las columnas del ciclo se piden además de las de la ubicación', COLUMNAS_DE_CICLO.split(', ').join() === 'ciclo_vuelta,ciclo_fase' && COLUMNAS_DE_CARTERA.startsWith(COLUMNAS_DE_CARTERA_SIN_CICLO) && COLUMNAS_DE_CARTERA.includes('ciclo_vuelta') && COLUMNAS_DE_CARTERA.includes('ciclo_fase'))
     ok('y sin ellas la lista es la de antes de la 264, con los partners y la ubicación (que no se pierden los avisos de festivos por una migración que falta)', COLUMNAS_DE_CARTERA_SIN_CICLO.includes('prioridad') && COLUMNAS_DE_CARTERA_SIN_CICLO.includes('ccaa') && !/ciclo_/.test(COLUMNAS_DE_CARTERA_SIN_CICLO))
     for (const codigo of ['42703', 'PGRST204']) {
@@ -182,7 +183,7 @@ async function main() {
       sin.sinLa264 = codigo
       const r = await cargarCartera(cliente(sin))
       ok(`(${codigo}) la cartera llega ENTERA, con los partners y la ubicación, y no vacía`, r.leads.length === 2500 && r.total === 2500 && !r.incompleta, `${r.leads.length}/${r.total}`)
-      ok(`(${codigo}) una sola petición de más, y los demás tramos ya van sin el ciclo`, sin.peticiones.length === 4 && sin.peticiones[0].columnas === COLUMNAS_DE_CARTERA && sin.peticiones.slice(1).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_CICLO), JSON.stringify(sin.peticiones.map((p) => p.columnas.length)))
+      ok(`(${codigo}) dos peticiones de más (sin el análisis y sin el ciclo), y los demás tramos ya van sin el ciclo`, sin.peticiones.length === 5 && sin.peticiones[0].columnas === COLUMNAS_DE_CARTERA && sin.peticiones[1].columnas === COLUMNAS_DE_CARTERA_SIN_ANALISIS && sin.peticiones.slice(2).every((p) => p.columnas === COLUMNAS_DE_CARTERA_SIN_CICLO), JSON.stringify(sin.peticiones.map((p) => p.columnas.length)))
     }
   }
 

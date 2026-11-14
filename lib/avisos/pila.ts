@@ -8,7 +8,7 @@
  * Es un módulo del navegador, sin React: así lo puede publicar cualquier parte del ERP y se comprueba con pila.prueba.ts.
  */
 
-export type TipoDeAviso = 'correo' | 'rebote' | 'hito' | 'cita'
+export type TipoDeAviso = 'correo' | 'rebote' | 'hito' | 'cita' | 'tarea'
 
 export interface Aviso {
   /** Estable por lo que avisa (el id del correo, el del aviso del equipo): publicar dos veces lo mismo no lo enseña dos veces */

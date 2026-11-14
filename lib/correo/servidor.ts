@@ -279,6 +279,14 @@ export async function sincronizarBuzonPorId(service: Servicio, buzonId: string, 
         } catch (e) {
           console.error('Correo · campana: no se ha podido avisar del correo nuevo', { mensaje: e instanceof Error ? e.message : 'sin mensaje' })
         }
+        // Los correos de Amazon que nombran un caso de cumplimiento dado de alta se cuelgan de él y avisan en #cumplimiento-normativo (solo en los
+        // buzones vigilados; nunca lanza). Import dinámico: la lectura del correo no carga Tareas de clientes si no hace falta
+        try {
+          const { enlazarCorreosNuevos } = await import('@/lib/tareas-clientes/casos-servidor')
+          await enlazarCorreosNuevos(service, buzon, inicioDeLaLectura)
+        } catch (e) {
+          console.error('Correo · casos: no se han podido enlazar los correos nuevos', { mensaje: e instanceof Error ? e.message : 'sin mensaje' })
+        }
       }
       return { tipo: 'hecha', importados: resultado.importados, quedan: resultado.quedan, completo: resultado.completo, ultimoSyncAt: ahora }
     } catch (error) {

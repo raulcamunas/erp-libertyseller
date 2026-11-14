@@ -55,3 +55,13 @@ export function urlInventario(mercado: string, sku: string): string | null {
     `&searchField=all&searchTerm=${encodeURIComponent(sku)}&status=all`
   )
 }
+
+/**
+ * Una página de Seller Central del país (la ruta, de las fijas de acciones.ts). Igual que urlInventario: hay que tener la
+ * sesión abierta con la cuenta del cliente. Solo rutas que empiezan por «/» y sin esquema: nada que llegue de fuera.
+ */
+export function urlSellerCentral(mercado: string, ruta: string): string | null {
+  const d = dominio(mercado)
+  if (!d || !/^\/[a-z0-9/_-]*$/i.test(ruta)) return null
+  return `https://sellercentral.amazon.${d}${ruta}`
+}
