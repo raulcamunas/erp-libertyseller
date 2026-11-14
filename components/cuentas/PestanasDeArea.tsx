@@ -29,7 +29,7 @@ import { ACCIONES } from '@/lib/cumplimiento/acciones'
 import { ROTULO_NIVEL } from '@/lib/cumplimiento/tipos'
 import type { Tarea as TareaSeo } from '@/lib/seo/tareas'
 import type { ResumenPpc } from '@/lib/cuentas/resumen'
-import { FASES_ABIERTAS, type FaseAbierta, type RemesaAbierta, type SeveridadFba } from '@/lib/cuentas/remesas'
+import { FASES_ABIERTAS, type FaseAbierta, type RemesaAbierta, type SeveridadFba } from '@/lib/cuentas/remesas-tipos'
 import {
   BarraDeProgreso,
   Boton,

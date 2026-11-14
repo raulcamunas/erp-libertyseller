@@ -3,7 +3,7 @@ import type { PasoDelCiclo, SemanaDelCiclo } from '@/lib/cuentas/ciclo'
 import type { CifrasCumplimiento, ResumenPpc, ResumenSeo } from '@/lib/cuentas/resumen'
 import type { Persona } from '@/lib/cuentas/datos'
 import type { TareaDeHoy as TareaCumplimiento } from '@/lib/cumplimiento/acciones'
-import type { ResumenRemesas } from '@/lib/cuentas/remesas'
+import type { ResumenRemesas } from '@/lib/cuentas/remesas-tipos'
 import type { EntradaDeSalud } from '@/lib/cuentas/salud'
 
 export interface CuentaEnLista {
