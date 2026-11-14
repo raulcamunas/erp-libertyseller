@@ -34,8 +34,9 @@ export interface DatosSeo {
   cambios?: Array<{ asin: string; aplicadaAt: string }>
 }
 
-const ESPERA_MS = 8000
-const MAX_PREGUNTAS = 80
+// Cada 15 s (antes 8): cada pregunta da un paso de lectura en el servidor y la base va justa
+const ESPERA_MS = 15_000
+const MAX_PREGUNTAS = 40
 
 /**
  * Todo lo de una cuenta y país de SEO Test. Lo guardado se enseña al instante; si hay una lectura en marcha (o falta el primer informe), se vuelve a preguntar cada pocos segundos y la pantalla se
