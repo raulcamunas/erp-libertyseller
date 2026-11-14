@@ -137,7 +137,17 @@ export async function bajaRival(c: Cuenta, id: string): Promise<void> {
 
 /** Llamadas de ofertas por pasada (cada una espera 10 s por el cupo de Amazon): 3 → 60 ASIN con precio por pasada, ~30 s */
 export const MAX_LLAMADAS_OFERTAS = 3
-const sinRolDePrecios = new Set<string>()
+/**
+ * Cuentas sin el rol de precios (403) y desde cuándo. El servidor de Next vive días: un Set para siempre dejaba la cuenta sin precio hasta el siguiente
+ * despliegue aunque se le diera el rol. Se vuelve a probar a las 24 h.
+ */
+const sinRolDePrecios = new Map<string, number>()
+const sinRol = (connectionId: string) => {
+  const desde = sinRolDePrecios.get(connectionId)
+  if (desde && Date.now() - desde < 86_400_000) return true
+  sinRolDePrecios.delete(connectionId)
+  return false
+}
 
 async function leerCatalogo(creds: AmazonCredentials, marketplaceId: string, asins: string[]): Promise<Map<string, ReturnType<typeof fotoDeItemCatalogo>>> {
   const { data } = await spApiRequest<{ items?: Array<Record<string, unknown>> }>(creds, 'searchCatalogItems', {
@@ -203,16 +213,19 @@ export async function fotografiarCompetencia(presupuestoMs: number, soloCuenta?:
       try {
         const catalogo = await leerCatalogo(creds, marketplaceId, asins)
         let ofertas = new Map<string, ReturnType<typeof ofertasDeRespuesta>>()
-        const conOfertas = llamadasOfertas < MAX_LLAMADAS_OFERTAS && !sinRolDePrecios.has(connectionId)
+        const conOfertas = llamadasOfertas < MAX_LLAMADAS_OFERTAS && !sinRol(connectionId)
         if (conOfertas) {
           llamadasOfertas++
           ofertas = await leerOfertas(creds, marketplaceId, asins).catch((e) => {
-            if (e instanceof AmazonApiError && e.kind === 'permisos') sinRolDePrecios.add(connectionId)
+            if (e instanceof AmazonApiError && e.kind === 'permisos') sinRolDePrecios.set(connectionId, Date.now())
             else console.error('SEO competencia: ofertas:', e instanceof Error ? e.message : e)
             return new Map()
           })
         }
-        const r = await guardarFotos(tanda, catalogo, ofertas, conOfertas && ofertas.size > 0)
+        // Los que se quedan sin precio en esta pasada (sin presupuesto de ofertas) se marcan al principio del día: mañana van los PRIMEROS de la cola y
+        // les toca el precio. Antes la cola salía cada día en el mismo orden y solo los ~60 primeros rivales llegaban a tener precio
+        const conPrecio = conOfertas && ofertas.size > 0
+        const r = await guardarFotos(tanda, catalogo, ofertas, conPrecio, conPrecio || sinRol(connectionId) ? null : `${hoy()}T00:00:00.001Z`)
         fotos += r.fotos
         cambios += r.cambios
       } catch (e) {
@@ -227,7 +240,7 @@ export async function fotografiarCompetencia(presupuestoMs: number, soloCuenta?:
   return { fotos, cambios, cuentas: grupos.size, pendientes: Math.max(0, pendientes.length - fotos), errores }
 }
 
-async function guardarFotos(tanda: Array<{ id: string; asin_rival: string }>, catalogo: Map<string, ReturnType<typeof fotoDeItemCatalogo>>, ofertas: Map<string, ReturnType<typeof ofertasDeRespuesta>>, conOfertas: boolean): Promise<{ fotos: number; cambios: number }> {
+async function guardarFotos(tanda: Array<{ id: string; asin_rival: string }>, catalogo: Map<string, ReturnType<typeof fotoDeItemCatalogo>>, ofertas: Map<string, ReturnType<typeof ofertasDeRespuesta>>, conOfertas: boolean, fotoAtSinPrecio: string | null = null): Promise<{ fotos: number; cambios: number }> {
   const service = createServiceClient()
   const fecha = hoy()
   const ids = tanda.map((t) => t.id)
@@ -257,7 +270,7 @@ async function guardarFotos(tanda: Array<{ id: string; asin_rival: string }>, ca
       if (e2) throw e2
       cambios += lista.length
     }
-    await service.from('seo_competidores').update({ foto_at: ahora, error: null, ...(foto.titulo ? { nombre: foto.titulo.slice(0, 200) } : {}) }).eq('id', t.id)
+    await service.from('seo_competidores').update({ foto_at: conOfertas && of ? ahora : (fotoAtSinPrecio ?? ahora), error: null, ...(foto.titulo ? { nombre: foto.titulo.slice(0, 200) } : {}) }).eq('id', t.id)
   }
   // Lo de más de 120 días no hace falta: las fotos son para comparar y para la línea de 30 días
   await service.from('seo_competidores_fotos').delete().in('competidor_id', ids).lt('fecha', new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10))
