@@ -8,6 +8,7 @@
  * informes todavía — eso viene cuando esté decidida la estructura.
  */
 
+import { apuntarLlamada, enEnsayo, esEscritura, recortarParaLog, respuestaSimulada } from './rastro'
 import { createServiceClient } from '@/lib/supabase/service'
 import { decryptToken, encryptToken, hasTokenKey } from '@/lib/amazon/crypto'
 import { ENDPOINTS, credenciales, type RegionAds } from './config'
@@ -231,13 +232,33 @@ export async function llamarAds<T>(
     cabeceras['Amazon-Advertising-API-Scope'] = String(opciones.perfilId)
   }
 
+  // EL RASTRO (lib/ads/rastro.ts): dentro de un aplicar del motor o de un cambio a mano se apunta cada llamada para el log. En ENSAYO, lo que escribe no sale
+  const metodo = opciones.metodo ?? 'GET'
+  if (enEnsayo() && esEscritura(metodo, ruta)) {
+    const simulada = respuestaSimulada(opciones.cuerpo)
+    apuntarLlamada({ metodo, ruta, cuerpo: opciones.cuerpo ?? null, status: null, requestId: null, respuesta: simulada, simulada: true, ms: 0 })
+    return simulada as T
+  }
+  const inicio = Date.now()
   const res = await fetch(`${ENDPOINTS[region].api}${ruta}`, {
-    method: opciones.metodo ?? 'GET',
+    method: metodo,
     headers: cabeceras,
     body: opciones.cuerpo === undefined ? undefined : JSON.stringify(opciones.cuerpo),
   })
 
   const texto = await res.text()
+  if (esEscritura(metodo, ruta)) {
+    apuntarLlamada({
+      metodo,
+      ruta,
+      cuerpo: opciones.cuerpo ?? null,
+      status: res.status,
+      requestId: res.headers.get('x-amz-request-id') ?? res.headers.get('x-amzn-requestid') ?? res.headers.get('x-amzn-request-id'),
+      respuesta: recortarParaLog(texto),
+      simulada: false,
+      ms: Date.now() - inicio,
+    })
+  }
 
   if (!res.ok) {
     // El 401 se marca en la conexión: es la diferencia entre «Amazon está

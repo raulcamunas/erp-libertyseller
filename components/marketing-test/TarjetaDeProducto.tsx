@@ -224,17 +224,17 @@ export function TarjetaDeProducto({
 
       {abierto && (
         <div className="overflow-x-auto border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-bg)_60%,var(--ls-sup))]">
-          <table className="w-full min-w-[720px] border-separate border-spacing-0 text-[12.5px]">
+          <table className="w-full border-separate border-spacing-0 text-[12.5px]">
             <thead>
               <tr className={`${TIPO.xs} ${TEXTO.t4}`}>
-                <th className="py-[8px] pl-[60px] pr-3 text-left font-semibold">Campaña</th>
-                <th className="px-3 py-[6px] text-right font-semibold">Presupuesto / día</th>
+                <th className="py-[8px] pl-4 pr-3 text-left font-semibold md:pl-[60px]">Campaña</th>
+                <th className="hidden px-3 py-[6px] text-right font-semibold md:table-cell">Presupuesto / día</th>
                 <th className="px-3 py-[6px] text-right font-semibold">Gasto</th>
                 <th className="px-3 py-[6px] text-right font-semibold">Ventas</th>
                 <th className="px-3 py-[6px] text-right font-semibold">ACoS</th>
-                <th className="px-3 py-[6px] text-right font-semibold">Pedidos</th>
-                <th className="px-3 py-[6px] text-right font-semibold">Clics</th>
-                <th className="px-4 py-[6px] text-right font-semibold">CPC</th>
+                <th className="hidden px-3 py-[6px] text-right font-semibold sm:table-cell">Pedidos</th>
+                <th className="hidden px-3 py-[6px] text-right font-semibold lg:table-cell">Clics</th>
+                <th className="hidden px-4 py-[6px] text-right font-semibold lg:table-cell">CPC</th>
               </tr>
             </thead>
             <tbody>
@@ -248,8 +248,8 @@ export function TarjetaDeProducto({
                     className={`cursor-pointer hover:[&>td]:bg-[var(--ls-sup)] ${abierta ? '[&>td]:bg-[var(--ls-sup)]' : ''} ${sinGastar && !abierta ? 'opacity-55' : ''}`}
                     title={abierta ? 'Cerrar' : 'Ver sus segmentaciones y cambiar pujas'}
                   >
-                    <td className="relative border-t border-[var(--ls-linea)] py-[9px] pl-[60px] pr-3">
-                      <ChevronRight className={`absolute left-[38px] top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--ls-t4)] transition-transform ${abierta ? 'rotate-90' : ''}`} />
+                    <td className="relative border-t border-[var(--ls-linea)] py-[9px] pl-4 pr-3 md:pl-[60px]">
+                      <ChevronRight className={`absolute left-[38px] hidden md:block top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--ls-t4)] transition-transform ${abierta ? 'rotate-90' : ''}`} />
                       <div className="flex items-center gap-2">
                         <PuntoDeEstado estado={f.estado} />
                         <div className="min-w-0">
@@ -258,17 +258,17 @@ export function TarjetaDeProducto({
                             <span className={`${TEXTO.t1} font-medium`}>{f.nombre.startsWith('[ProductAI]') ? 'ProductAI (la crea Amazon)' : (NOMBRE_DE_TIPO[f.tipo] ?? f.tipo)}</span>
                             {f.estado !== 'ENABLED' && <span className={`${TIPO.xs} ${TEXTO.t4}`}>· {textoDeEstado(f.estado).toLowerCase()}</span>}
                           </div>
-                          <div className={`max-w-[460px] truncate ${TIPO.xs} ${TEXTO.t4}`} title={f.nombre}>{f.nombre}</div>
+                          <div className={`max-w-[150px] truncate sm:max-w-[460px] ${TIPO.xs} ${TEXTO.t4}`} title={f.nombre}>{f.nombre}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t2)]">{f.presupuesto == null ? '—' : dinero(f.presupuesto, moneda)}</td>
+                    <td className="hidden border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t2)] md:table-cell">{f.presupuesto == null ? '—' : dinero(f.presupuesto, moneda)}</td>
                     <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{conCifras ? dinero(f.gasto, moneda) : '—'}</td>
                     <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{conCifras ? dinero(f.ventas, moneda) : '—'}</td>
                     <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{conCifras ? porcentaje(f.acos) : '—'}</td>
-                    <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{conCifras ? entero(f.pedidos) : '—'}</td>
-                    <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t2)]">{conCifras ? entero(f.clics) : '—'}</td>
-                    <td className="border-t border-[var(--ls-linea)] px-4 py-[7px] text-right tabular-nums text-[var(--ls-t2)]">{conCifras ? dinero(f.cpc, moneda) : '—'}</td>
+                    <td className="hidden border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)] sm:table-cell">{conCifras ? entero(f.pedidos) : '—'}</td>
+                    <td className="hidden border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t2)] lg:table-cell">{conCifras ? entero(f.clics) : '—'}</td>
+                    <td className="hidden border-t border-[var(--ls-linea)] px-4 py-[7px] text-right tabular-nums text-[var(--ls-t2)] lg:table-cell">{conCifras ? dinero(f.cpc, moneda) : '—'}</td>
                   </tr>
                   {abierta && (
                     <tr>

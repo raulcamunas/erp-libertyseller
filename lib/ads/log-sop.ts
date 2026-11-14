@@ -56,8 +56,11 @@ const entreComillas = (t: string | null): string | null => (t ? (/«([^»]+)»/.
 
 export type ResultadoLogSop = { fila: FilaDelLogSop } | { fuera: string }
 
-export function aLogSop(e: Pick<EntradaDeLog, 'creadoAt' | 'entidad' | 'accion' | 'campo' | 'valorAnterior' | 'valorNuevo' | 'motivo' | 'nombreCampana' | 'ok'>): ResultadoLogSop {
+export function aLogSop(e: Pick<EntradaDeLog, 'creadoAt' | 'entidad' | 'accion' | 'campo' | 'valorAnterior' | 'valorNuevo' | 'motivo' | 'nombreCampana' | 'ok'> & { origen?: string }): ResultadoLogSop {
   if (!e.ok) return { fuera: 'Amazon lo rechazó: no se pega en el Log' }
+  // Un ensayo no ha tocado Amazon (y sin la 311 se apunta como «manual» con «[ENSAYO]» delante del motivo)
+  if (e.origen === 'ensayo' || /^\[ENSAYO\]/.test(e.motivo ?? '')) return { fuera: 'Es un ensayo: no se ha cambiado nada en Amazon' }
+  if (e.entidad === 'propuesta' || e.entidad === 'ficha' || e.entidad === 'motor') return { fuera: 'Es un movimiento del ERP (propuesta, ficha o motor), no un cambio en Amazon' }
   const fecha = fechaSop(e.creadoAt)
   const tipoCampana = tipoDeCampanaSop(e.nombreCampana)
   const campo = e.campo ?? ''

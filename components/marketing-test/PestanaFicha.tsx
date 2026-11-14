@@ -55,11 +55,14 @@ export function PestanaFicha({ perfilId }: { perfilId: string }) {
   const [campos, setCampos] = useState<Campos | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
+  // Guardar, firmar y quitar la firma: solo un administrador (el servidor también lo comprueba)
+  const [esAdmin, setEsAdmin] = useState(true)
 
   const cargar = useCallback(async () => {
     try {
-      const r = await llamar<{ ficha: FichaDeCuenta }>(`/api/ads/cuenta/ficha?perfilId=${perfilId}`)
+      const r = await llamar<{ ficha: FichaDeCuenta; esAdmin?: boolean }>(`/api/ads/cuenta/ficha?perfilId=${perfilId}`)
       setFicha(r.ficha)
+      setEsAdmin(r.esAdmin !== false)
       setCampos(aCampos(r.ficha))
       setError(null)
     } catch (e) {
@@ -167,7 +170,8 @@ export function PestanaFicha({ perfilId }: { perfilId: string }) {
         </div>
       </section>
 
-      <div className="flex flex-wrap items-center gap-2">
+      {!esAdmin && <p className={`${TIPO.s} ${TEXTO.t3}`}>La ficha (los umbrales del motor) la cambia y la firma solo un administrador. Aquí la ves para saber con qué reglas trabaja el motor.</p>}
+      <div className={`flex flex-wrap items-center gap-2 ${esAdmin ? '' : 'hidden'}`}>
         <button type="button" disabled={ocupado || !sucia} onClick={guardar} className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}>
           {ocupado ? 'Guardando…' : 'Guardar ficha'}
         </button>

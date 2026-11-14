@@ -9,6 +9,7 @@
  * campaña. Cada cambio deja su línea en el log de cambios (con el antes y el después y quién lo hizo), salga bien o mal.
  */
 
+import { enRastro } from './rastro'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { llamarAds } from './datos'
@@ -180,6 +181,7 @@ const fmt = (n: number | null | undefined) => (n == null ? null : n.toFixed(2).r
 
 /** Cambia la puja de una keyword, de una segmentación (producto o automática) o la puja por defecto de un grupo */
 export async function cambiarPuja(ctx: ContextoDeCambio, o: { tipo: TipoDeObjetivo | 'grupo'; id: string; texto: string; pujaAnterior: number | null; pujaNueva: unknown }): Promise<number> {
+  return enRastro(async () => {
   const puja = pujaValida(o.pujaNueva)
   if (puja == null) throw new AdsError('La puja tiene que ser un número mayor que cero.')
   const entidad = o.tipo === 'keyword' ? 'keyword' : o.tipo === 'grupo' ? 'grupo' : 'target'
@@ -187,16 +189,18 @@ export async function cambiarPuja(ctx: ContextoDeCambio, o: { tipo: TipoDeObjeti
     if (o.tipo === 'keyword') comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/keywords', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_KEYWORD), cuerpo: { keywords: [{ keywordId: o.id, bid: puja }] } }), 'keywords')
     else if (o.tipo === 'grupo') comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/adGroups', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_GRUPO), cuerpo: { adGroups: [{ adGroupId: o.id, defaultBid: puja }] } }), 'adGroups')
     else comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/targets', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_TARGET), cuerpo: { targetingClauses: [{ targetId: o.id, bid: puja }] } }), 'targetingClauses')
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: 'cambiar', campo: o.tipo === 'grupo' ? 'puja por defecto' : 'puja', valorAnterior: fmt(o.pujaAnterior), valorNuevo: fmt(puja), motivo: `Cambio a mano en «${o.texto.slice(0, 120)}»`, origen: 'manual', userId: ctx.userId })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: 'cambiar', campo: o.tipo === 'grupo' ? 'puja por defecto' : 'puja', valorAnterior: fmt(o.pujaAnterior), valorNuevo: fmt(puja), motivo: `Cambio a mano en «${o.texto.slice(0, 120)}»`, origen: 'manual', userId: ctx.userId, entidadId: o.id })
     return puja
   } catch (e) {
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: 'cambiar', campo: 'puja', valorAnterior: fmt(o.pujaAnterior), valorNuevo: fmt(puja), motivo: `Cambio a mano en «${o.texto.slice(0, 120)}»`, origen: 'manual', ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: 'cambiar', campo: 'puja', valorAnterior: fmt(o.pujaAnterior), valorNuevo: fmt(puja), motivo: `Cambio a mano en «${o.texto.slice(0, 120)}»`, origen: 'manual', ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId, entidadId: o.id })
     throw e
   }
+  })
 }
 
 /** Pausa o activa una keyword o una segmentación */
 export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObjetivo; id: string; texto: string; activar: boolean; motivo?: string; origen?: 'manual' | 'automatico' }): Promise<void> {
+  return enRastro(async () => {
   const state = o.activar ? 'ENABLED' : 'PAUSED'
   const entidad = o.tipo === 'keyword' ? 'keyword' : 'target'
   // El motor la usa al aplicar una propuesta de pausa: entonces el log lleva SU motivo (el dato que la justifica), no «cambio a mano»
@@ -205,24 +209,27 @@ export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObje
   try {
     if (o.tipo === 'keyword') comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/keywords', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_KEYWORD), cuerpo: { keywords: [{ keywordId: o.id, state }] } }), 'keywords')
     else comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/targets', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_TARGET), cuerpo: { targetingClauses: [{ targetId: o.id, state }] } }), 'targetingClauses')
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, valorAnterior: o.activar ? 'pausada' : 'activa', valorNuevo: o.activar ? 'activa' : 'pausada', motivo, origen, userId: ctx.userId })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, valorAnterior: o.activar ? 'pausada' : 'activa', valorNuevo: o.activar ? 'activa' : 'pausada', motivo, origen, userId: ctx.userId, entidadId: o.id })
   } catch (e) {
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, motivo, origen, ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, motivo, origen, ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId, entidadId: o.id })
     throw e
   }
+  })
 }
 
 /** Cambia el presupuesto diario de una campaña */
 export async function cambiarPresupuesto(ctx: ContextoDeCambio, o: { anterior: number | null; nuevo: unknown }): Promise<number> {
+  return enRastro(async () => {
   const n = typeof o.nuevo === 'string' ? Number(o.nuevo.replace(',', '.')) : Number(o.nuevo)
   if (!Number.isFinite(n) || n < 1) throw new AdsError('El presupuesto diario tiene que ser al menos 1.')
   const presupuesto = Math.round(n * 100) / 100
   try {
     comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/campaigns', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_CAMPANA), cuerpo: { campaigns: [{ campaignId: ctx.campaignId, budget: { budgetType: 'DAILY', budget: presupuesto } }] } }), 'campaigns')
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad: 'campaña', accion: 'cambiar', campo: 'presupuesto diario', valorAnterior: fmt(o.anterior), valorNuevo: fmt(presupuesto), motivo: 'Cambio a mano', origen: 'manual', userId: ctx.userId })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad: 'campaña', accion: 'cambiar', campo: 'presupuesto diario', valorAnterior: fmt(o.anterior), valorNuevo: fmt(presupuesto), motivo: 'Cambio a mano', origen: 'manual', userId: ctx.userId, entidadId: ctx.campaignId })
     return presupuesto
   } catch (e) {
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad: 'campaña', accion: 'cambiar', campo: 'presupuesto diario', valorAnterior: fmt(o.anterior), valorNuevo: fmt(presupuesto), motivo: 'Cambio a mano', origen: 'manual', ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad: 'campaña', accion: 'cambiar', campo: 'presupuesto diario', valorAnterior: fmt(o.anterior), valorNuevo: fmt(presupuesto), motivo: 'Cambio a mano', origen: 'manual', ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId, entidadId: ctx.campaignId })
     throw e
   }
+  })
 }

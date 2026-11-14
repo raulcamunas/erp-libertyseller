@@ -10,6 +10,8 @@ import {
   descartarPropuesta,
   descartarVarias,
   deshacerPropuesta,
+  ensayarPropuesta,
+  MINUTOS_RESERVA_COLGADA,
   generarPropuestas,
   guardarModo,
   guardarUmbrales,
@@ -24,17 +26,21 @@ import {
 } from '@/lib/ads/motor'
 import { resumenDeHoy } from '@/lib/ads/hoy'
 import { avanzarTerminos, estadoDeTerminos } from '@/lib/ads/terminos'
-import { abrirCuenta, errorDeRuta } from '@/lib/ads/ruta'
+import { abrirCuenta, errorDeRuta, esAdministrador, soloAdministradores } from '@/lib/ads/ruta'
+import { estadoDelMotor } from '@/lib/ads/motor-estado'
+import { marcarGenerado } from '@/lib/ads/motor-cron'
 
 /**
- * EL MOTOR DE OPTIMIZACIÓN DE UNA CUENTA. Solo administradores. APLICAR escribe en la cuenta del cliente.
+ * EL MOTOR DE OPTIMIZACIÓN DE UNA CUENTA. Quien lleva cuentas (administrador o con la casilla de PPC). APLICAR escribe en la cuenta del cliente.
  *
- *   GET  ?perfilId=                       → modo, ficha firmada, términos, propuestas (pendientes y lo de los últimos 30 días), qué se puede aplicar, «qué hacer hoy» y los umbrales
- *   PUT  {perfilId, modo}                 → cambia el modo (aprueba y autopiloto exigen la ficha firmada)
- *   PUT  {perfilId, umbrales}             → guarda los umbrales estimados de la cuenta (migración 305)
- *   POST {perfilId, accion, id?, ids?}    → 'generar' · 'actualizar-terminos' · 'aplicar' · 'aplicar-varias' · 'descartar' · 'descartar-varias' · 'deshacer'
+ *   GET  ?perfilId=                       → modo, ficha firmada, términos, propuestas (pendientes y lo de los últimos 30 días), qué se puede aplicar, «qué hacer hoy», los umbrales y
+ *                                           el estado del motor (última generación, próximo paso, salud del proceso de fondo)
+ *   PUT  {perfilId, modo}                 → cambia el modo (aprueba y autopiloto exigen la ficha firmada)            · SOLO ADMINISTRADORES
+ *   PUT  {perfilId, umbrales}             → guarda los umbrales estimados de la cuenta (migración 305)                · SOLO ADMINISTRADORES
+ *   POST {perfilId, accion, id?, ids?}    → 'generar' · 'actualizar-terminos' · 'aplicar' · 'aplicar-varias' · 'ensayar' · 'descartar' · 'descartar-varias' · 'deshacer'
  *
- * Cada GET también da UN paso de la lectura de términos si el motor está encendido y toca (como en el rendimiento): así la pantalla no depende de que el proceso de fondo haya pasado ahora mismo.
+ * El GET YA NO HABLA CON AMAZON (antes daba un paso de la lectura de términos en cada carga y la pantalla lo repetía cada 8 s): recoger el informe es cosa del proceso
+ * de fondo, y las propuestas se generan cuando el informe es más nuevo que la última generación (lib/ads/motor-cron.ts). «Actualizar términos» solo PIDE el informe.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -49,10 +55,8 @@ export async function GET(request: NextRequest) {
     const a = await abrirCuenta(request.nextUrl.searchParams.get('perfilId'))
     if (a instanceof NextResponse) return a
     const cuenta = { id: a.cuenta.id, conexionId: a.cuenta.conexionId, profileId: a.cuenta.profileId }
-    const modo = await leerModo(cuenta.id)
-    if (modo !== 'apagado') await avanzarTerminos(cuenta)
-    const ficha = await leerFicha(cuenta.id)
-    const [terminos, propuestas, contexto, objetivos, umbrales] = await Promise.all([estadoDeTerminos(cuenta.id), listarPropuestas(cuenta.id), contextoDeAplicar(cuenta.id, false), objetivosDeCuenta(cuenta.id, ficha), leerUmbrales(cuenta.id)])
+    const [modo, ficha] = await Promise.all([leerModo(cuenta.id), leerFicha(cuenta.id)])
+    const [terminos, propuestas, contexto, objetivos, umbrales, motor] = await Promise.all([estadoDeTerminos(cuenta.id), listarPropuestas(cuenta.id), contextoDeAplicar(cuenta.id, false), objetivosDeCuenta(cuenta.id, ficha), leerUmbrales(cuenta.id), estadoDelMotor(cuenta.id, modo)])
     // Qué se puede aplicar ahora mismo y, si no, por qué (para la pantalla; el servidor lo vuelve a comprobar al aplicar). El contexto se lee UNA vez, no por fila
     const aplicables: Record<string, string | null> = {}
     for (const p of propuestas.filter((x) => x.estado === 'pendiente' || x.estado === 'error')) {
@@ -62,6 +66,9 @@ export async function GET(request: NextRequest) {
     const hoy = resumenDeHoy(propuestas, { modo, firmada: Boolean(ficha.firmadaAt), terminos, sinAcos: objetivos.sinAcos, sinPrecio: objetivos.sinPrecio, conPrecioEstimado: objetivos.conPrecioEstimado, sinFicha: objetivos.sinFicha, faltaMigracionPausas: !umbrales.guardables }, Date.now())
     return NextResponse.json({
       modo,
+      esAdmin: esAdministrador(a.sesion),
+      motor,
+      minutosReservaColgada: MINUTOS_RESERVA_COLGADA,
       firmada: Boolean(ficha.firmadaAt),
       terminos,
       propuestas,
@@ -85,6 +92,9 @@ export async function PUT(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as { perfilId?: unknown; modo?: unknown; umbrales?: unknown }
     const a = await abrirCuenta(body.perfilId)
     if (a instanceof NextResponse) return a
+    // Cambiar el modo (incluido el autopiloto) y los umbrales: solo administradores
+    const prohibido = soloAdministradores(a.sesion, 'Cambiar el modo del motor y los umbrales')
+    if (prohibido) return prohibido
     if (body.umbrales !== undefined) {
       const umbrales = await guardarUmbrales(a.cuenta.id, body.umbrales, a.sesion.userId)
       return NextResponse.json({ ok: true, umbrales })
@@ -108,13 +118,15 @@ export async function POST(request: NextRequest) {
     switch (body.accion) {
       case 'actualizar-terminos': {
         if ((await leerModo(cuenta.id)) === 'apagado') return fail(400, 'El motor está apagado en esta cuenta.')
-        const r = await avanzarTerminos(cuenta, { forzar: true })
+        // Solo PIDE el informe: lo recoge el proceso de fondo, que también genera las propuestas cuando llega
+        const r = await avanzarTerminos(cuenta, { forzar: true, soloPedir: true })
         return NextResponse.json({ ok: true, accion: r.accion, detalle: r.detalle ?? null })
       }
       case 'generar': {
         const r = await generarPropuestas(cuenta)
         // Fase 3 (pujas, pausas y presupuesto) también al pulsar; si el modo está apagado no se propone nada
         const f3 = r.omitido === 'apagado' ? { pujas: 0, presupuestos: 0, pausas: 0 } : await generarPropuestasDePujaYPresupuesto(cuenta)
+        if (r.omitido !== 'apagado') await marcarGenerado(cuenta.id)
         return NextResponse.json({ ok: true, resumen: { ...r, ...f3, nuevas: r.nuevas + f3.pujas + f3.presupuestos + f3.pausas } })
       }
       case 'aplicar': {
@@ -127,6 +139,11 @@ export async function POST(request: NextRequest) {
         if (ids.length === 0) return fail(400, 'No hay ninguna propuesta marcada.')
         const resultados = await aplicarVarias(cuenta, ids, a.sesion.userId)
         return NextResponse.json({ ok: true, resultados, aplicadas: resultados.filter((r) => r.ok).length, fallidas: resultados.filter((r) => !r.ok).length })
+      }
+      case 'ensayar': {
+        // El camino de aplicar sin escribir en Amazon: lo que se haría queda en el log con origen «ensayo»
+        if (!id) return fail(400, 'Falta la propuesta.')
+        return NextResponse.json({ ok: true, ensayo: await ensayarPropuesta(cuenta, id, a.sesion.userId) })
       }
       case 'descartar': {
         if (!id) return fail(400, 'Falta la propuesta.')

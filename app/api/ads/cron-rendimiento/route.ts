@@ -5,6 +5,35 @@ import { avanzarVentas, ventasConTrabajo } from '@/lib/ads/ventas-totales'
 import { esSinMigracion } from '@/lib/ads/cuenta'
 import { textoDeError } from '@/lib/sistema/error-texto'
 import { cuentasDelMotorConTrabajo, pasoDelMotor } from '@/lib/ads/motor-cron'
+import { pasoHizoAlgo } from '@/lib/ads/motor-calculo'
+import type { CuentaParaSincronizar } from '@/lib/ads/sincronizar'
+
+/** Un paso del motor en cada cuenta con trabajo, dentro del presupuesto de tiempo. `hizoAlgo` = algo que merezca una fila en el registro */
+async function correrMotor(delMotor: CuentaParaSincronizar[], arranque: number) {
+  const motor = { cuentas: 0, nuevas: 0, aplicadas: 0, fallidas: 0 }
+  const errores: string[] = []
+  let sinTiempo = 0
+  let hizoAlgo = false
+  for (const c of delMotor) {
+    if (Date.now() - arranque > PRESUPUESTO_MS) {
+      sinTiempo += 1
+      continue
+    }
+    try {
+      const r = await pasoDelMotor(c)
+      motor.cuentas += 1
+      motor.nuevas += r.nuevas
+      motor.aplicadas += r.aplicadas
+      motor.fallidas += r.fallidas
+      for (const e of r.errores) errores.push(`motor: ${e}`)
+      if (pasoHizoAlgo(r)) hizoAlgo = true
+    } catch (e) {
+      errores.push(`motor: ${textoDeError(e, 90)}`)
+      hizoAlgo = true
+    }
+  }
+  return { motor, errores, sinTiempo, hizoAlgo }
+}
 
 /**
  * LA LECTURA AUTOMÁTICA DEL RENDIMIENTO DE AMAZON ADS (proceso `ads-rendimiento`).
@@ -57,6 +86,18 @@ export async function POST(request: NextRequest) {
   }
   if (pendientes.length === 0 && delMotor.length === 0 && conVentas.length === 0) return NextResponse.json({ ok: true, saltado: 'nada que recoger ni que pedir' })
 
+  // Solo el motor (lo normal mientras Amazon prepara el informe de términos): se da el paso SIN abrir fila y solo se registra si ha hecho algo
+  if (pendientes.length === 0 && conVentas.length === 0) {
+    const r = await correrMotor(delMotor, Date.now())
+    if (!r.hizoAlgo) return NextResponse.json({ ok: true, saltado: 'motor: esperando a Amazon, nada nuevo' })
+    const salida = await conRegistro('ads-rendimiento', lanzadoPorDe(request.headers), async () => ({
+      motor: r.motor,
+      error: r.errores.length,
+      resumen: `motor: ${r.motor.cuentas} cuentas, ${r.motor.nuevas} propuestas nuevas, ${r.motor.aplicadas} aplicadas${r.motor.fallidas > 0 ? `, ${r.motor.fallidas} fallidas` : ''}` + (r.errores.length > 0 ? ` (${r.errores.slice(0, 2).join(' · ')})` : '') + (r.sinTiempo > 0 ? `; ${r.sinTiempo} sin tiempo` : ''),
+    }))
+    return NextResponse.json({ ok: true, ...salida })
+  }
+
   const salida = await conRegistro('ads-rendimiento', lanzadoPorDe(request.headers), async () => {
     const arranque = Date.now()
     const cuenta = { pedido: 0, esperando: 0, guardado: 0, error: 0, sinTiempo: 0 }
@@ -82,23 +123,11 @@ export async function POST(request: NextRequest) {
       }
     }
     // ---- el motor de optimización ----
-    const motor = { cuentas: 0, nuevas: 0, aplicadas: 0, fallidas: 0 }
-    for (const c of delMotor) {
-      if (Date.now() - arranque > PRESUPUESTO_MS) {
-        cuenta.sinTiempo += 1
-        continue
-      }
-      try {
-        const r = await pasoDelMotor(c)
-        motor.cuentas += 1
-        motor.nuevas += r.nuevas
-        motor.aplicadas += r.aplicadas
-        motor.fallidas += r.fallidas
-      } catch (e) {
-        cuenta.error += 1
-        errores.push(`motor: ${textoDeError(e, 90)}`)
-      }
-    }
+    const rm = await correrMotor(delMotor, arranque)
+    const motor = rm.motor
+    cuenta.sinTiempo += rm.sinTiempo
+    cuenta.error += rm.errores.length
+    errores.push(...rm.errores)
     // ---- las ventas totales (TACoS) ----
     const ventas = { pedido: 0, guardado: 0, error: 0 }
     for (const id of conVentas) {

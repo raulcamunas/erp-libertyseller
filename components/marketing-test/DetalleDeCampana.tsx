@@ -35,6 +35,8 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
   const [cargando, setCargando] = useState(false)
   const [orden, setOrden] = useState<{ por: Orden; desc: boolean }>({ por: 'gasto', desc: true })
   const [verPausadas, setVerPausadas] = useState(true)
+  // En el móvil se pintan 30 tarjetas por grupo y el resto a petición (un grupo automático puede tener cientos)
+  const [verTodas, setVerTodas] = useState<Record<string, boolean>>({})
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -135,8 +137,39 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
               {g.segmentaciones.length === 0 ? (
                 <p className="px-3 py-2 text-[12px] text-[var(--ls-t4)]">Sin segmentaciones activas ni pausadas.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1080px] border-separate border-spacing-0 text-[12.5px]">
+                <>
+                {/* MÓVIL Y TABLETA: una tarjeta por segmentación (nada de desplazarse en horizontal) */}
+                <ul className="flex flex-col gap-2 p-2 lg:hidden">
+                  {ordenar(g.segmentaciones).slice(0, verTodas[g.adGroupId] ? undefined : 30).map((s) => (
+                    <TarjetaDeSegmentacion
+                      key={s.id}
+                      s={s}
+                      pujaDelGrupo={g.pujaPorDefecto}
+                      moneda={moneda}
+                      acosObjetivo={acosObjetivo}
+                      cambiarPuja={async (n) => {
+                        const r = await enviar({ accion: 'puja', tipo: s.tipo, id: s.id, texto: s.texto, pujaAnterior: s.puja ?? g.pujaPorDefecto, puja: n })
+                        actualizarLocal(s.id, { puja: r.puja ?? n })
+                        toast.success(`Puja de «${s.texto.slice(0, 40)}» cambiada en Amazon.`)
+                        return r.puja ?? n
+                      }}
+                      cambiarEstado={async (activar) => {
+                        await enviar({ accion: 'estado', tipo: s.tipo, id: s.id, texto: s.texto, activar })
+                        actualizarLocal(s.id, { estado: activar ? 'ENABLED' : 'PAUSED' })
+                        toast.success(activar ? 'Activada en Amazon.' : 'Pausada en Amazon.')
+                      }}
+                    />
+                  ))}
+                  {g.segmentaciones.length > 30 && !verTodas[g.adGroupId] && (
+                    <li>
+                      <button type="button" onClick={() => setVerTodas((v) => ({ ...v, [g.adGroupId]: true }))} className="min-h-[44px] w-full rounded-[10px] border border-[var(--ls-linea)] text-[13px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">
+                        Ver las {g.segmentaciones.length - 30} restantes
+                      </button>
+                    </li>
+                  )}
+                </ul>
+                <div className="hidden overflow-x-auto lg:block">
+                  <table className="w-full border-separate border-spacing-0 text-[12.5px]">
                     <thead>
                       <tr className="text-[11px] text-[var(--ls-t4)]">
                         {cabecera('texto', 'Segmentación', undefined, 'text-left pl-3')}
@@ -169,6 +202,7 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           ))}
@@ -191,11 +225,89 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
   )
 }
 
-function FilaDeSegmentacion({ s, pujaDelGrupo, moneda, acosObjetivo, cambiarPuja, cambiarEstado }: { s: Segmentacion; pujaDelGrupo: number | null; moneda: string | null; acosObjetivo: number | null; cambiarPuja: (n: number) => Promise<number>; cambiarEstado: (activar: boolean) => Promise<void> }) {
+type PropsDeSegmentacion = { s: Segmentacion; pujaDelGrupo: number | null; moneda: string | null; acosObjetivo: number | null; cambiarPuja: (n: number) => Promise<number>; cambiarEstado: (activar: boolean) => Promise<void> }
+
+/** El color del ACoS contra el objetivo del producto: verde dentro, ámbar hasta un 30 % por encima, rojo más */
+const colorDeAcos = (acos: number | null, objetivo: number | null) => (acos == null || objetivo == null ? undefined : acos <= objetivo ? COLOR_ESTADO.verde : acos <= objetivo * 1.3 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo)
+
+/** Pausar o activar en Amazon. En el móvil, con 44 px de zona táctil */
+function InterruptorDeEstado({ s, cambiarEstado }: { s: Segmentacion; cambiarEstado: (activar: boolean) => Promise<void> }) {
   const [ocupado, setOcupado] = useState(false)
+  const activa = s.estado === 'ENABLED'
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={activa}
+      aria-label={activa ? `Pausar «${s.texto}» en Amazon` : `Activar «${s.texto}» en Amazon`}
+      disabled={ocupado || (s.estado !== 'ENABLED' && s.estado !== 'PAUSED')}
+      onClick={async () => {
+        setOcupado(true)
+        try {
+          await cambiarEstado(!activa)
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : 'No se ha podido cambiar.')
+        } finally {
+          setOcupado(false)
+        }
+      }}
+      title={activa ? 'Pausar en Amazon' : 'Activar en Amazon'}
+      className="relative inline-flex shrink-0 items-center justify-center disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
+    >
+      <span className="relative inline-flex h-[18px] w-[32px] items-center rounded-full transition-colors" style={{ background: activa ? COLOR_ESTADO.verde : 'var(--ls-sup3)' }}>
+        <span className="absolute h-[14px] w-[14px] rounded-full bg-white shadow transition-transform motion-reduce:transition-none" style={{ transform: `translateX(${activa ? 16 : 2}px)` }} />
+      </span>
+    </button>
+  )
+}
+
+/** Una segmentación en tarjeta (móvil y tableta): nombre, estado, puja editable y las cifras clave */
+function TarjetaDeSegmentacion({ s, pujaDelGrupo, moneda, acosObjetivo, cambiarPuja, cambiarEstado }: PropsDeSegmentacion) {
   const m = s.metricas
   const activa = s.estado === 'ENABLED'
-  const colorAcos = m.acos == null || acosObjetivo == null ? undefined : m.acos <= acosObjetivo ? COLOR_ESTADO.verde : m.acos <= acosObjetivo * 1.3 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo
+  const colorAcos = colorDeAcos(m.acos, acosObjetivo)
+  return (
+    <li className={`rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3 ${activa ? '' : 'opacity-60'}`}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-semibold text-[var(--ls-t1)]" title={s.texto}>{s.texto}</div>
+          <div className="mt-[1px] text-[12px] text-[var(--ls-t4)]">
+            {TIPO_ES[s.tipo]}
+            {s.coincidencia && ` · ${COINCIDENCIA_ES[s.coincidencia] ?? s.coincidencia}`}
+          </div>
+        </div>
+        <InterruptorDeEstado s={s} cambiarEstado={cambiarEstado} />
+      </div>
+      <div className="mt-2">
+        <EditorDeNumero etiqueta="Puja" valor={s.puja} reserva={pujaDelGrupo} moneda={moneda} paso={10} guardar={cambiarPuja} />
+      </div>
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-[12.5px]">
+        {[
+          ['Clics', entero(m.clics)],
+          ['Gasto', dinero(m.gasto, moneda)],
+          ['Pedidos', entero(m.pedidos)],
+          ['Ventas', dinero(m.ventas, moneda)],
+          ['CPC', m.cpc == null ? '—' : dinero(m.cpc, moneda)],
+          ['CVR', porcentaje(m.cvr)],
+        ].map(([k, v]) => (
+          <div key={k} className="min-w-0 rounded-[8px] bg-[var(--ls-sup2)] px-2 py-[5px]">
+            <dt className="text-[10.5px] uppercase tracking-[0.04em] text-[var(--ls-t4)]">{k}</dt>
+            <dd className="truncate font-semibold tabular-nums text-[var(--ls-t1)]">{v}</dd>
+          </div>
+        ))}
+        <div className="col-span-3 flex items-center justify-between rounded-[8px] bg-[var(--ls-sup2)] px-2 py-[5px]">
+          <dt className="text-[10.5px] uppercase tracking-[0.04em] text-[var(--ls-t4)]">ACoS</dt>
+          <dd className="font-semibold tabular-nums" style={{ color: colorAcos ?? 'var(--ls-t1)' }}>{m.acos == null ? (m.gasto > 0 ? <span style={{ color: COLOR_ESTADO.rojo }}>sin venta</span> : '—') : porcentaje(m.acos)}</dd>
+        </div>
+      </dl>
+    </li>
+  )
+}
+
+function FilaDeSegmentacion({ s, pujaDelGrupo, moneda, acosObjetivo, cambiarPuja, cambiarEstado }: PropsDeSegmentacion) {
+  const m = s.metricas
+  const activa = s.estado === 'ENABLED'
+  const colorAcos = colorDeAcos(m.acos, acosObjetivo)
   const celda = 'border-t border-[var(--ls-linea)] px-2 py-[6px] text-right tabular-nums'
   return (
     <tr className={`hover:[&>td]:bg-[var(--ls-sup2)] ${activa ? '' : 'opacity-55'}`}>
@@ -207,27 +319,7 @@ function FilaDeSegmentacion({ s, pujaDelGrupo, moneda, acosObjetivo, cambiarPuja
         </div>
       </td>
       <td className="border-t border-[var(--ls-linea)] px-2 py-[6px]">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={activa}
-          disabled={ocupado || (s.estado !== 'ENABLED' && s.estado !== 'PAUSED')}
-          onClick={async () => {
-            setOcupado(true)
-            try {
-              await cambiarEstado(!activa)
-            } catch (e) {
-              toast.error(e instanceof Error ? e.message : 'No se ha podido cambiar.')
-            } finally {
-              setOcupado(false)
-            }
-          }}
-          title={activa ? 'Pausar en Amazon' : 'Activar en Amazon'}
-          className="relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors disabled:opacity-50"
-          style={{ background: activa ? COLOR_ESTADO.verde : 'var(--ls-sup3)' }}
-        >
-          <span className="absolute h-[14px] w-[14px] rounded-full bg-white shadow transition-transform" style={{ transform: `translateX(${activa ? 16 : 2}px)` }} />
-        </button>
+        <InterruptorDeEstado s={s} cambiarEstado={cambiarEstado} />
       </td>
       <td className="border-t border-[var(--ls-linea)] px-2 py-[4px] text-right">
         <EditorDeNumero valor={s.puja} reserva={pujaDelGrupo} moneda={moneda} paso={10} pequeno guardar={cambiarPuja} />
@@ -276,12 +368,12 @@ function EditorDeNumero({ etiqueta, valor, reserva, moneda, paso, pequeno, guard
     const de = pujaValida(actual) ?? base ?? 0.5
     setBorrador(decimal(pujaConCambio(de, signo * paso)))
   }
-  const alto = pequeno ? 'h-[26px]' : 'h-[30px]'
+  const alto = pequeno ? 'h-[26px]' : 'h-[30px] [@media(pointer:coarse)]:h-[44px]'
   return (
     <span className="inline-flex items-center gap-[6px]">
       {etiqueta && <span className="text-[11.5px] text-[var(--ls-t3)]">{etiqueta}</span>}
       <span className={`inline-flex ${alto} items-center overflow-hidden rounded-[8px] border bg-[var(--ls-sup2)] ${cambiado ? 'border-[var(--ls-acc-graf)]' : 'border-[var(--ls-linea)]'}`}>
-        <button type="button" aria-label={`Bajar un ${paso} %`} disabled={ocupado} onClick={() => ajustar(-1)} className="flex h-full w-[22px] items-center justify-center text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"><Minus className="h-3 w-3" /></button>
+        <button type="button" aria-label={`Bajar un ${paso} %`} disabled={ocupado} onClick={() => ajustar(-1)} className="flex h-full w-[22px] items-center justify-center [@media(pointer:coarse)]:w-[40px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"><Minus className="h-3 w-3" /></button>
         <input
           value={actual}
           placeholder={reserva != null ? decimal(reserva) : '—'}
@@ -295,7 +387,7 @@ function EditorDeNumero({ etiqueta, valor, reserva, moneda, paso, pequeno, guard
           className={`w-[58px] bg-transparent text-right text-[12.5px] tabular-nums outline-none ${valor == null && guardado == null && borrador === null ? 'text-[var(--ls-t4)]' : 'text-[var(--ls-t1)]'}`}
           title={valor == null && reserva != null ? 'Usa la puja por defecto del grupo' : undefined}
         />
-        <button type="button" aria-label={`Subir un ${paso} %`} disabled={ocupado} onClick={() => ajustar(1)} className="flex h-full w-[22px] items-center justify-center text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"><Plus className="h-3 w-3" /></button>
+        <button type="button" aria-label={`Subir un ${paso} %`} disabled={ocupado} onClick={() => ajustar(1)} className="flex h-full w-[22px] items-center justify-center [@media(pointer:coarse)]:w-[40px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]"><Plus className="h-3 w-3" /></button>
       </span>
       {cambiado && (
         <>

@@ -27,7 +27,7 @@ export async function guardarUmbrales(perfilId: string, crudo: unknown, userId: 
     if (isMissingSchema(error)) throw new Error('Para guardar los umbrales de esta cuenta hay que lanzar la migración 305 en Supabase. Mientras, el motor usa los de partida.')
     throw error
   }
-  await anotarCambio({ perfilId, entidad: 'campaña', accion: 'cambiar', campo: 'umbrales estimados del motor', valorNuevo: JSON.stringify(umbrales).slice(0, 300), motivo: 'Lo cambia una persona desde Marketing Test', origen: 'manual', userId })
+  await anotarCambio({ perfilId, entidad: 'motor', accion: 'cambiar', campo: 'umbrales estimados del motor', valorNuevo: JSON.stringify(umbrales).slice(0, 1000), motivo: 'Lo cambia un administrador desde PPC · Amazon Ads', origen: 'manual', userId })
   return umbrales
 }
 
