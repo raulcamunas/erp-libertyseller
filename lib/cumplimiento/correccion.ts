@@ -452,7 +452,17 @@ export function patchesDeCorreccion(
       .filter((e): e is Esquema => e !== null)
     if (estable(nuevos) === estable(actualesNormalizados)) continue
     // Se conserva lo que el formulario no enseña de cada elemento (otros campos que Amazon ya tenía)
-    const value = nuevos.map((n, i) => (actuales[i] ? mezclar(actuales[i], n) : n))
+    const value = nuevos.map((n, i) => {
+      const base = actuales[i]
+      if (!base) return n
+      const m = mezclar(base, n)
+      // El idioma de un elemento que ya existía se respeta (en Bélgica conviven fr_BE y nl_BE en el mismo país)
+      if (typeof base.language_tag === 'string' && base.language_tag) m.language_tag = base.language_tag
+      return m
+    })
+    // Los elementos que el formulario no enseña (Amazon tiene más de los que admite el formulario, p. ej. un esquema sin
+    // maxItems, que deja el formulario en 1) se conservan tal cual: el `replace` los borraría
+    if (actuales.length > def.maxElementos) value.push(...actuales.slice(def.maxElementos))
     patches.push({ op: 'replace', path: `/attributes/${def.nombre}`, value })
     anteriores[def.nombre] = actuales
   }

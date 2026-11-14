@@ -204,7 +204,20 @@ console.log('\n=== valores: de Amazon al formulario y vuelta ===')
   const conError = patchesDeCorreccion([peso], { item_weight: [{ value: '-1', unit: 'grams' }] }, atributos, ES, 'es_ES')
   ok('los errores del formulario se devuelven', conError.errores.length === 1 && conError.errores[0].includes('mínimo 0'), JSON.stringify(conError.errores))
 
-  ok('dejar vacío no borra nada', patchesDeCorreccion([nombre], { item_name: [{ value: '' }] }, atributos, ES, 'es_ES').patches.length === 0)
+  {
+    // Un esquema sin maxItems deja el formulario en 1 elemento: el resto de lo que tiene Amazon no se puede perder
+    const unSolo = definicionDeAtributo('bullet_point', ITEM_NAME, DEFS)
+    const tres = { bullet_point: [1, 2, 3].map((n) => ({ value: `Viñeta ${n}`, language_tag: 'es_ES', marketplace_id: ES })) }
+    const r = patchesDeCorreccion([unSolo], { bullet_point: [{ value: 'Viñeta 1 nueva' }] }, tres, ES, 'es_ES')
+    const v = (r.patches[0]?.value ?? []) as Array<{ value: string }>
+    ok('los elementos que el formulario no enseña se conservan', unSolo.maxElementos === 1 && v.map((x) => x.value).join('|') === 'Viñeta 1 nueva|Viñeta 2|Viñeta 3', JSON.stringify(r.patches))
+    const belga = { item_name: [{ value: 'Chaussure', language_tag: 'fr_BE', marketplace_id: 'AMEN7PMS3EDWL' }, { value: 'Schoen', language_tag: 'nl_BE', marketplace_id: 'AMEN7PMS3EDWL' }] }
+    const dosIdiomas = definicionDeAtributo('item_name', VINETAS, DEFS)
+    const rb = patchesDeCorreccion([dosIdiomas], { item_name: [{ value: 'Chaussure rouge' }, { value: 'Rode schoen' }] }, belga, 'AMEN7PMS3EDWL', 'fr_BE')
+    const vb = (rb.patches[0]?.value ?? []) as Array<{ language_tag: string }>
+    ok('cada elemento que ya existía conserva su idioma', vb.map((x) => x.language_tag).join() === 'fr_BE,nl_BE', JSON.stringify(rb.patches))
+  }
+  ok('dejar vacío no borra nada',patchesDeCorreccion([nombre], { item_name: [{ value: '' }] }, atributos, ES, 'es_ES').patches.length === 0)
 
   const h1 = huellaDe(cambio.patches, 'SKU-1', ES)
   ok('huella estable y distinta por SKU', h1 === huellaDe(JSON.parse(JSON.stringify(cambio.patches)), 'SKU-1', ES) && h1 !== huellaDe(cambio.patches, 'SKU-2', ES))
