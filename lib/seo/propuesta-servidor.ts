@@ -3,26 +3,25 @@
  *
  *   proponer   lee la ficha y las búsquedas del producto, pide la propuesta a la IA (modelo de lib/ia/modelo.ts; el gasto lo cuenta la tarjeta «Gasto en IA» de Sistema, que lee la factura real
  *              de OpenAI) y la guarda «pendiente». NO toca Amazon.
- *   aplicar    ESCRIBE EN LA FICHA DEL CLIENTE. Solo desde el botón «Aplicar en Amazon», con confirmación. Primero valida en Amazon sin guardar nada (VALIDATION_PREVIEW); si Amazon dice que no, se
- *              enseñan sus motivos y no se manda. Si dice que sí, se manda de verdad y se apunta quién y cuándo.
+ *   aplicar    ESCRIBE EN LA FICHA DEL CLIENTE. Solo desde el botón «Aplicar en Amazon», con confirmación. Va por lib/seo/edicion-servidor.ts (la misma puerta que
+ *              el editor a mano): valida en Amazon sin guardar nada (VALIDATION_PREVIEW), manda también los Item Highlights y apunta quién y cuándo.
  *   descartar  la deja como descartada.
  */
 
 import OpenAI from 'openai'
 import { createServiceClient } from '@/lib/supabase/service'
-import { connectionCredentials } from '@/lib/amazon/data'
-import { AmazonApiError, describeIssues, type AmazonIssue } from '@/lib/amazon/errors'
-import { spApiRequest } from '@/lib/amazon/sp-api'
+import { AmazonApiError, type AmazonIssue } from '@/lib/amazon/errors'
 import { parametrosDeIa } from '@/lib/ia/modelo'
 import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
 import { coberturaDe } from './cobertura'
 import { cambiosAplicados, consultasGuardadas, fichasGuardadas, preciosDeListings, type FichaGuardada } from './datos'
 import { diagnosticarTodas, embudoDelProducto, esRelevante, NOMBRE_DE_ETAPA, RESPONSABLE } from './embudo'
-import { IDIOMA_DE_MARKETPLACE, instruccionesDeSistema, limpiarPropuesta, mensajeDeDatos, patchesDeFicha, type PropuestaLimpia, type Razonamiento, type TextosPropuestos } from './propuesta'
+import { IDIOMA_DE_MARKETPLACE, instruccionesDeSistema, limpiarPropuesta, mensajeDeDatos, type PropuestaLimpia, type Razonamiento, type TextosPropuestos } from './propuesta'
 import { perfilesAdsDe, terminosDeAdsDelAsin } from './publicidad'
 import { terminosQueFaltanEnLaFicha } from './publicidad-calculo'
 import { palabrasQueFaltanEnElTitulo } from './resumen'
 import { DIAS_ENTRE_CAMBIOS, ventanaDeCambio } from './tareas'
+import { validarYAplicar } from './edicion-servidor'
 
 export interface PropuestaGuardada {
   id: string
@@ -35,7 +34,7 @@ export interface PropuestaGuardada {
   modelo: string | null
   creadaAt: string
   aplicadaAt: string | null
-  resultado: { submissionId?: string | null; issues?: AmazonIssue[]; mensaje?: string | null } | null
+  resultado: { submissionId?: string | null; edicionId?: string | null; issues?: AmazonIssue[]; mensaje?: string | null; verificacion?: { estado: 'aplicada' | 'no_aplicada' | 'parcial' | 'pendiente'; explicacion?: string | null; campos?: Record<string, string> } } | null
   error: string | null
 }
 
@@ -64,7 +63,7 @@ export async function propuestasDe(connectionId: string, marketplaceId: string, 
   return ((data ?? []) as Array<Record<string, unknown>>).map(deFila)
 }
 
-const textosDe = (f: FichaGuardada): TextosPropuestos => ({ titulo: f.titulo ?? '', bullets: f.bullets, backend: f.backend ?? '' })
+const textosDe = (f: FichaGuardada): TextosPropuestos => ({ titulo: f.titulo ?? '', ...(f.highlights ? { highlights: f.highlights } : {}), bullets: f.bullets, backend: f.backend ?? '' })
 
 /** Pide la propuesta a la IA y la guarda pendiente. Tarda unos segundos (la IA piensa) */
 export async function proponerFicha(c: { connectionId: string; marketplaceId: string; clientId: string }, asin: string, userId: string): Promise<PropuestaGuardada> {
@@ -158,10 +157,12 @@ export async function descartarPropuesta(c: { connectionId: string; marketplaceI
   if (error) throw error
 }
 
-type RespuestaPatch = { status?: string; submissionId?: string; issues?: AmazonIssue[] }
-
 /**
  * APLICA LA PROPUESTA EN AMAZON. Escribe en la ficha del cliente. Devuelve lo que dijo Amazon.
+ *
+ * Pasa por la misma puerta que el editor a mano (lib/seo/edicion-servidor.ts): lee el listing (el «antes», ahora CON los Item Highlights), valida en
+ * Amazon, manda título, Item Highlights (con el atributo del tipo de producto; si no lo tiene, se avisa), viñetas y backend, apunta la edición y, al
+ * releer la ficha, comprueba que de verdad ha quedado.
  */
 export async function aplicarPropuesta(
   c: { connectionId: string; marketplaceId: string },
@@ -178,57 +179,27 @@ export async function aplicarPropuesta(
   const ventana = ventanaDeCambio(await cambiosAplicados(c.connectionId, c.marketplaceId), p.asin, new Date().toISOString().slice(0, 10))
   if (ventana?.bloqueada) return { ok: false, motivo: `La ficha de este producto se cambió el ${ventana.ultimo}: el SOP no deja volver a cambiarla antes de ${DIAS_ENTRE_CAMBIOS} días (desde el ${ventana.puedeDesde}).`, issues: [] }
   if (!p.sku) return { ok: false, motivo: 'No se sabe el SKU de este producto: sin él no se puede cambiar la ficha.', issues: [] }
-  const resuelta = await connectionCredentials(c.connectionId)
-  if (!resuelta) return { ok: false, motivo: 'La conexión de Amazon ya no existe.', issues: [] }
-  const creds = resuelta.credentials
-
-  // El tipo de producto (Amazon lo exige en cada cambio) y el idioma con el que está escrita la ficha
-  const { data: lectura } = await spApiRequest<{ items?: Array<{ summaries?: Array<{ marketplaceId?: string; productType?: string }>; attributes?: Record<string, Array<{ language_tag?: string; marketplace_id?: string }>> }> }>(creds, 'searchListingsItems', {
-    method: 'GET',
-    path: `/listings/2021-08-01/items/${encodeURIComponent(creds.sellingPartnerId)}`,
-    query: { marketplaceIds: [c.marketplaceId], identifiers: [p.sku], identifiersType: 'SKU', includedData: ['summaries', 'attributes'], pageSize: 1 },
-  })
-  const item = lectura.items?.[0]
-  const productType = item?.summaries?.find((s) => s.marketplaceId === c.marketplaceId)?.productType ?? item?.summaries?.[0]?.productType
-  if (!productType) return { ok: false, motivo: 'Amazon no ha devuelto el tipo de producto de este listing: no se puede cambiar desde aquí.', issues: [] }
-  const tagActual = (item?.attributes?.item_name ?? []).find((v) => !v.marketplace_id || v.marketplace_id === c.marketplaceId)?.language_tag
-  const languageTag = tagActual ?? IDIOMA_DE_MARKETPLACE[c.marketplaceId]?.tag ?? 'es_ES'
-  const patches = patchesDeFicha(p.propuesta, c.marketplaceId, languageTag)
-
-  const mandar = async (validar: boolean) =>
-    spApiRequest<RespuestaPatch>(creds, 'patchListingsItem', {
-      method: 'PATCH',
-      path: `/listings/2021-08-01/items/${encodeURIComponent(creds.sellingPartnerId)}/${encodeURIComponent(p.sku as string)}`,
-      query: { marketplaceIds: [c.marketplaceId], issueLocale: 'es_ES', mode: validar ? 'VALIDATION_PREVIEW' : undefined },
-      body: { productType, patches },
-      // replace = valor absoluto: repetirlo deja lo mismo
-      repeatable: true,
-      maxAttempts: 2,
-    })
-  const bloquea = (r: RespuestaPatch) => r.status === 'INVALID' || (r.issues ?? []).some((i) => (i.severity ?? '').toUpperCase() === 'ERROR')
 
   try {
-    // 1) Validar sin guardar nada
-    const { data: prueba } = await mandar(true)
-    if (bloquea(prueba)) {
-      const issues = prueba.issues ?? []
-      await service.from('seo_propuestas').update({ error: `Amazon no la acepta: ${describeIssues(issues)}`.slice(0, 1000), resultado: { issues, mensaje: describeIssues(issues) } }).eq('id', id)
-      return { ok: false, motivo: `Amazon no acepta la ficha propuesta: ${describeIssues(issues)}`, issues }
+    const r = await validarYAplicar(c, { asin: p.asin, sku: p.sku, despues: { titulo: p.propuesta.titulo, highlights: p.propuesta.highlights ?? null, bullets: p.propuesta.bullets, backend: p.propuesta.backend }, propuestaId: id, userId })
+    if (!r.ok) {
+      await service.from('seo_propuestas').update({ error: r.motivo.slice(0, 1000), resultado: { issues: r.issues, mensaje: r.motivo } }).eq('id', id)
+      return r
     }
-    // 2) De verdad
-    const { data: hecho } = await mandar(false)
-    const issues = hecho.issues ?? []
-    if (bloquea(hecho)) {
-      await service.from('seo_propuestas').update({ estado: 'error', error: describeIssues(issues).slice(0, 1000), resultado: { submissionId: hecho.submissionId ?? null, issues, mensaje: describeIssues(issues) } }).eq('id', id)
-      return { ok: false, motivo: `Amazon ha rechazado el cambio: ${describeIssues(issues)}`, issues }
-    }
+    const avisos = [r.avisos, ...(r.avisosPlan ?? [])].filter(Boolean).join(' ') || null
     await service
       .from('seo_propuestas')
-      .update({ estado: 'aplicada', aplicada_por: userId, aplicada_at: new Date().toISOString(), error: null, resultado: { submissionId: hecho.submissionId ?? null, issues, mensaje: issues.length > 0 ? describeIssues(issues) : null } })
+      .update({
+        estado: 'aplicada',
+        aplicada_por: userId,
+        aplicada_at: new Date().toISOString(),
+        error: null,
+        // El «antes» de verdad, leído al aplicar (con los Item Highlights, que la lectura diaria no siempre trae)
+        ...(r.antes ? { antes: { titulo: r.antes.titulo, highlights: r.antes.highlights ?? '', bullets: r.antes.bullets, backend: r.antes.backend } } : {}),
+        resultado: { submissionId: r.submissionId, edicionId: r.edicion?.id ?? null, campos: r.campos ?? [], issues: [], mensaje: avisos },
+      })
       .eq('id', id)
-    // La ficha se vuelve a leer en la pasada siguiente, para ver lo que de verdad ha quedado
-    await service.from('seo_lecturas').update({ ficha_leida_at: null }).eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId)
-    return { ok: true, submissionId: hecho.submissionId ?? null, avisos: issues.length > 0 ? describeIssues(issues) : null }
+    return { ok: true, submissionId: r.submissionId, avisos }
   } catch (e) {
     if (!(e instanceof AmazonApiError)) throw e
     await service.from('seo_propuestas').update({ error: (e.humanMessage ?? e.message).slice(0, 1000) }).eq('id', id)

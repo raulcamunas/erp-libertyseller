@@ -84,6 +84,9 @@ export type AmazonOperation =
   | 'cancelInboundPlan'
   | 'updateShipmentTrackingDetails'
   | 'createMarketplaceItemLabels'
+  // ---------- Las de SEO Test (editor de ficha y seguimiento de la competencia) ----------
+  | 'getDefinitionsProductType'
+  | 'getItemOffersBatch'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -237,6 +240,13 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   cancelInboundPlan: { rate: 2, burst: 2 },
   updateShipmentTrackingDetails: { rate: 2, burst: 2 },
   createMarketplaceItemLabels: { rate: 2, burst: 30 },
+
+  /* ---------- SEO Test ---------- */
+  // La definición del tipo de producto (qué atributos admite: el de los Item Highlights). 5 por segundo con ráfaga de 10; se guarda en memoria un día.
+  getDefinitionsProductType: { rate: 5, burst: 10 },
+  // Ofertas de un ASIN AJENO (la competencia). 0,1 por segundo: UNA CADA DIEZ SEGUNDOS, 20 ASIN por llamada. Por eso el seguimiento diario va con
+  // presupuesto (lib/seo/rivales-servidor.ts) y no pasa de unas pocas llamadas por pasada.
+  getItemOffersBatch: { rate: 0.1, burst: 1 },
 }
 
 export function sleep(ms: number): Promise<void> {

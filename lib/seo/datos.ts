@@ -116,12 +116,17 @@ export async function preciosDeListings(connectionId: string, marketplaceId: str
 
 /** Las propuestas de ficha que ya se aplicaron en Amazon (para la ventana de 30 días del SOP). [] si falta la migración 299 */
 export async function cambiosAplicados(connectionId: string, marketplaceId: string): Promise<Array<{ asin: string; aplicadaAt: string }>> {
-  const { data, error } = await createServiceClient().from('seo_propuestas').select('asin, aplicada_at').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('estado', 'aplicada').not('aplicada_at', 'is', null).order('aplicada_at', { ascending: false }).limit(200)
+  const service = createServiceClient()
+  const { data, error } = await service.from('seo_propuestas').select('asin, aplicada_at').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('estado', 'aplicada').not('aplicada_at', 'is', null).order('aplicada_at', { ascending: false }).limit(200)
   if (error) {
     if (isMissingSchema(error)) return []
     throw error
   }
-  return ((data ?? []) as Array<{ asin: string; aplicada_at: string }>).map((r) => ({ asin: r.asin, aplicadaAt: r.aplicada_at }))
+  const salida = ((data ?? []) as Array<{ asin: string; aplicada_at: string }>).map((r) => ({ asin: r.asin, aplicadaAt: r.aplicada_at }))
+  // Migración 312: los cambios de TÍTULO hechos a mano desde el editor también abren la ventana de 30 días del SOP (los de la IA ya están arriba)
+  const { data: ediciones, error: e2 } = await service.from('seo_ediciones').select('asin, enviada_at').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('origen', 'manual').in('estado', ['enviada', 'aplicada', 'parcial']).contains('campos', ['titulo']).not('enviada_at', 'is', null).order('enviada_at', { ascending: false }).limit(200)
+  if (!e2) for (const r of (ediciones ?? []) as Array<{ asin: string; enviada_at: string }>) salida.push({ asin: r.asin, aplicadaAt: r.enviada_at })
+  return salida.sort((a, b) => b.aplicadaAt.localeCompare(a.aplicadaAt))
 }
 
 export async function dejarDeSeguir(connectionId: string, marketplaceId: string, id: string): Promise<void> {
@@ -249,6 +254,20 @@ export interface FichaGuardada {
   /** El vigía de títulos (migración 304): el título de antes del último cambio detectado y cuándo. Sin la 304, no vienen */
   tituloAnterior?: string | null
   tituloCambiadoAt?: string | null
+  /** Migración 312: los Item Highlights (si el listing los trae con un atributo conocido), el tipo de producto y lo que Amazon dice que le pasa */
+  highlights?: string | null
+  productType?: string | null
+  issues?: Array<{ code: string | null; message: string; severity: string | null; atributos: string[] }>
+}
+
+/** ¿Está la migración 312 (editor, Helium 10 y competencia)? Se pregunta una vez por proceso (si sí) */
+let hay312: boolean | null = null
+export async function migracion312Lanzada(): Promise<boolean> {
+  if (hay312 === true) return true
+  const { error } = await createServiceClient().from('seo_ediciones').select('id').limit(1)
+  if (error && !isMissingSchema(error)) throw error
+  hay312 = !error
+  return hay312
 }
 
 /** ¿Está la migración 304 (vigía de títulos)? Se pregunta una vez por proceso */
@@ -262,10 +281,10 @@ export async function vigiaLanzado(): Promise<boolean> {
 }
 
 export async function fichasGuardadas(connectionId: string, marketplaceId: string): Promise<FichaGuardada[]> {
-  const vigia = await vigiaLanzado().catch(() => false)
+  const [vigia, m312] = await Promise.all([vigiaLanzado().catch(() => false), migracion312Lanzada().catch(() => false)])
   const { data, error } = await createServiceClient()
     .from('seo_fichas')
-    .select(`asin, sku, titulo, bullets, descripcion, backend, leida_at${vigia ? ', titulo_anterior, titulo_cambiado_at' : ''}`)
+    .select(`asin, sku, titulo, bullets, descripcion, backend, leida_at${vigia ? ', titulo_anterior, titulo_cambiado_at' : ''}${m312 ? ', highlights, product_type, issues' : ''}`)
     .eq('connection_id', connectionId)
     .eq('marketplace_id', marketplaceId)
   if (error) throw error
@@ -278,6 +297,7 @@ export async function fichasGuardadas(connectionId: string, marketplaceId: strin
     backend: (f.backend as string | null) ?? null,
     leidaAt: String(f.leida_at),
     ...(vigia ? { tituloAnterior: (f.titulo_anterior as string | null) ?? null, tituloCambiadoAt: (f.titulo_cambiado_at as string | null) ?? null } : {}),
+    ...(m312 ? { highlights: (f.highlights as string | null) ?? null, productType: (f.product_type as string | null) ?? null, issues: Array.isArray(f.issues) ? (f.issues as NonNullable<FichaGuardada['issues']>) : [] } : {}),
   }))
 }
 
