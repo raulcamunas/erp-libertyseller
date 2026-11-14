@@ -43,7 +43,9 @@ export interface TareaACorregir {
 }
 
 async function pedir<T>(cuerpo: Record<string, unknown>): Promise<T & { ok: boolean; error?: string; errores?: string[] }> {
-  const res = await fetch('/api/cumplimiento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) })
+  // Sin red, fetch lanza: se convierte en un fallo normal para que la pantalla no se quede «trabajando» para siempre
+  const res = await fetch('/api/cumplimiento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) }).catch(() => null)
+  if (!res) return { ok: false, error: 'Sin conexión con el ERP: vuelve a intentarlo.' } as T & { ok: boolean; error?: string }
   const json = (await res.json().catch(() => ({}))) as T & { ok?: boolean; error?: string; errores?: string[] }
   if (!res.ok) return { ...json, ok: false, error: json.error ?? `El servidor ha contestado ${res.status}` }
   return { ...json, ok: json.ok !== false }

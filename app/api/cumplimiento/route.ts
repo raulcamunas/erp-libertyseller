@@ -105,7 +105,8 @@ export async function POST(request: NextRequest) {
 
     if (body.accion === 'correcciones') {
       const mercado = filtrosValidos({ mercado: body.mercado }).mercado
-      const lista = await correccionesRecientes(cliente.amazonClientId, mercado === 'todos' ? null : mercado)
+      // 50 y no 12: «Hoy» cuenta con ellas los envíos aceptados de la semana (la lista solo enseña 8)
+      const lista = await correccionesRecientes(cliente.amazonClientId, mercado === 'todos' ? null : mercado, 50)
       return NextResponse.json({ ok: true, correcciones: lista, faltaMigracion: lista === null })
     }
 
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
       const mercado = typeof body.mercado === 'string' ? body.mercado : ''
       const sku = typeof body.sku === 'string' ? body.sku.trim() : ''
       if (!/^[A-Z0-9]{8,16}$/.test(mercado) || !sku || sku.length > 200) return fail(400, 'Listing no válido.')
-      const codigo = typeof body.codigo === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(body.codigo) ? body.codigo : null
+      const codigo = typeof body.codigo === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(body.codigo) ? body.codigo : null
       if (body.accion === 'corregir-preparar') {
         const atributos = Array.isArray(body.atributos) ? body.atributos.filter((a): a is string => typeof a === 'string' && /^[a-z0-9_]{1,80}$/.test(a)).slice(0, 12) : []
         const r = await prepararCorreccion(cliente.amazonClientId, mercado, sku, codigo, atributos)
