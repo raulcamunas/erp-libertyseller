@@ -745,7 +745,16 @@ export async function avanzar(remesaId: string, userId: string | null, service: 
     if (faltaLaMigracion(error)) return
     throw error
   }
-  if (!data) return
+  if (!data) {
+    // Un paso «en curso» sin operación viva (se cortó entre apuntar el paso y llamar a Amazon): pasados
+    // dos minutos se enseña como error para poder reintentar o cancelar
+    const paso = pasoDe(f)
+    const desde = Date.parse(f.envio_actualizado_at ?? '')
+    if (pasoEnCurso(paso) && !f.envio_error && Number.isFinite(desde) && Date.now() - desde > 120_000) {
+      await service.from('fba_remesas').update({ envio_error: 'No hay ninguna operación de Amazon en marcha para este paso. Reintenta o cancela.' }).eq('id', remesaId).eq('envio_paso', paso).is('envio_error', null)
+    }
+    return
+  }
   const op = data as { id: string; paso: string; operation_id: string | null; comprobaciones: number; comprobada_at: string | null; created_at: string }
   const ultima = Date.parse(op.comprobada_at ?? op.created_at)
   if (Date.now() - ultima < ENTRE_COMPROBACIONES_MS) return
@@ -836,6 +845,19 @@ export async function ejecutarAccion(remesaId: string, accion: AccionEnvio, p: P
 
   const apuntar = (hasta: string, detalle: Record<string, unknown> = {}) => registrarEnHistorial({ remesaId, actor: 'agencia', userId, accion: 'envio_amazon', hasta, detalle }, service)
 
+  try {
+    await hacer(ctx, accion, p, paso, apuntar)
+  } catch (e) {
+    // Si el paso quedó «en curso» sin operación (falló algo nuestro antes de llamar a Amazon), se deja el
+    // error a la vista para que se pueda reintentar o cancelar en vez de esperar para siempre
+    if (pasoEnCurso(pasoDe(ctx.fila)) && !ctx.fila.envio_error) await guardar(ctx, { envio_error: textoDeFallo(e) }).catch(() => undefined)
+    throw e
+  }
+}
+
+async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso: PasoEnvio, apuntar: (hasta: string, detalle?: Record<string, unknown>) => Promise<void>): Promise<void> {
+  const { service, fila: f, creds, userId } = ctx
+  const remesaId = f.id
   switch (accion) {
     case 'iniciar': {
       if (!(await moverPaso(ctx, ['sin_empezar', 'cancelado'], { envio_paso: 'plan', envio_error: null }))) throw new FalloDelEnvio('Alguien acaba de empezar el envío. Recarga.')
@@ -852,7 +874,7 @@ export async function ejecutarAccion(remesaId: string, accion: AccionEnvio, p: P
     case 'elegir_embalaje': {
       const o = (f.envio_datos?.opcionesEmbalaje ?? []).find((x) => x.packingOptionId === p.packingOptionId)
       if (!o) throw new FalloDelEnvio('Esa opción de embalaje ya no existe')
-      if (!(await moverPaso(ctx, 'embalaje_elegir', { packing_option_id: o.packingOptionId }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      if (!(await moverPaso(ctx, 'embalaje_elegir', { envio_paso: 'embalaje_confirmar', packing_option_id: o.packingOptionId }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       return lanzar(ctx, 'embalaje_confirmar', () => api.confirmarEmbalaje(creds, plan(ctx), o.packingOptionId), { packingOptionId: o.packingOptionId })
     }
     case 'reenviar_cajas': {
@@ -864,7 +886,7 @@ export async function ejecutarAccion(remesaId: string, accion: AccionEnvio, p: P
       return
     }
     case 'reabrir_cajas': {
-      if (!(await moverPaso(ctx, ['embalaje_elegir', 'cajas_conflicto', 'reparto_elegir'], { envio_paso: 'cajas_reabiertas', envio_error: null, envio_cajas_bloqueadas_at: null, placement_option_id: null }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      if (!(await moverPaso(ctx, ['cajas_conflicto', 'reparto_elegir'], { envio_paso: 'cajas_reabiertas', envio_error: null, envio_cajas_bloqueadas_at: null, placement_option_id: null }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       // Y la remesa vuelve a «Encajando» para que se puedan tocar (en el ERP y en el enlace)
       if (f.estado === 'lista') await service.from('fba_remesas').update({ estado: 'encajando', encajado_at: new Date().toISOString() }).eq('id', remesaId).eq('estado', 'lista')
       await apuntar('cajas_reabiertas')
@@ -874,7 +896,7 @@ export async function ejecutarAccion(remesaId: string, accion: AccionEnvio, p: P
       const o = resumirReparto(f.envio_datos?.opcionesReparto ?? []).find((x) => x.placementOptionId === p.placementOptionId)
       if (!o) throw new FalloDelEnvio('Esa opción de reparto ya no existe')
       if (o.caducada) throw new FalloDelEnvio('Esa opción de reparto ha caducado: vuelve a mandar las cajas para que Amazon la recalcule')
-      if (!(await moverPaso(ctx, 'reparto_elegir', { placement_option_id: o.placementOptionId, coste_reparto: o.neto, moneda_envio: o.moneda }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      if (!(await moverPaso(ctx, 'reparto_elegir', { envio_paso: 'reparto_confirmar', placement_option_id: o.placementOptionId, coste_reparto: o.neto, moneda_envio: o.moneda }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await apuntar('reparto_confirmando', { placementOptionId: o.placementOptionId, centros: o.centros, coste: o.neto, moneda: o.moneda })
       return lanzar(ctx, 'reparto_confirmar', () => api.confirmarReparto(creds, plan(ctx), o.placementOptionId), { placementOptionId: o.placementOptionId, coste: o.neto, centros: o.centros })
     }
@@ -886,7 +908,8 @@ export async function ejecutarAccion(remesaId: string, accion: AccionEnvio, p: P
       const telefono = (p.contacto?.telefono ?? dir?.telefono ?? '').trim()
       const email = (p.contacto?.email ?? dir?.email ?? '').trim()
       if (!nombre || !telefono) throw new FalloDelEnvio('Falta el contacto de la recogida (nombre y teléfono)', 400)
-      await guardar(ctx, { envio_datos: { ...(f.envio_datos ?? {}), recogida: { dia: p.dia as string, iso: fecha.iso, contacto: { nombre: nombre.slice(0, 80), telefono: telefono.slice(0, 30), email: email.slice(0, 120) || null } } } })
+      const recogida = { dia: p.dia as string, iso: fecha.iso, contacto: { nombre: nombre.slice(0, 80), telefono: telefono.slice(0, 30), email: email.slice(0, 120) || null } }
+      if (!(await moverPaso(ctx, ['transporte_datos', 'transporte_elegir', 'transporte_cliente'], { envio_paso: 'transporte_generar', envio_datos: { ...(f.envio_datos ?? {}), recogida } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await lanzarTransporte(ctx)
       await apuntar('transporte_cotizando', { recogida: p.dia })
       return
@@ -920,18 +943,41 @@ export async function ejecutarAccion(remesaId: string, accion: AccionEnvio, p: P
       if (!cotizacionVigente(f.transporte_caduca_at)) throw new FalloDelEnvio('La cotización de Amazon ha caducado: vuelve a pedirla (y el cliente tendrá que aceptarla otra vez)')
       const sel = f.transporte_seleccion ?? []
       const conVentana = sel.filter((s) => s.necesitaVentana).map((s) => s.shipmentId)
-      if (!(await moverPaso(ctx, 'transporte_listo', { transporte_confirmado_por: userId, envio_datos: { ...(f.envio_datos ?? {}), ventanasPendientes: conVentana, ventanaElegida: null } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      if (!(await moverPaso(ctx, 'transporte_listo', { envio_paso: conVentana.length ? 'ventana_generar' : 'transporte_confirmar', transporte_confirmado_por: userId, envio_datos: { ...(f.envio_datos ?? {}), ventanasPendientes: conVentana, ventanaElegida: null } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await apuntar('transporte_confirmando', { coste, moneda: f.moneda_envio })
       return conVentana.length ? lanzarVentana(ctx) : lanzarConfirmarTransporte(ctx)
     }
-    case 'reintentar':
+    case 'reintentar': {
+      // Solo uno reintenta: se quita el error si sigue puesto
+      const { data: suelto, error: errSuelto } = await service.from('fba_remesas').update({ envio_error: null }).eq('id', remesaId).eq('envio_paso', paso).not('envio_error', 'is', null).select('id')
+      if (errSuelto) throw errSuelto
+      if (!((suelto as unknown[] | null) ?? []).length) throw new FalloDelEnvio('Alguien ya lo está reintentando. Recarga.')
+      ctx.fila.envio_error = null
+      /**
+       * Si la operación de Amazon de este paso acabó BIEN y lo que falló fue lo de después (leer opciones, leer
+       * los envíos…), se repite solo lo de después. Relanzar un confirmPlacementOption ya hecho daría error o,
+       * peor, un segundo intento sobre algo confirmado.
+       */
+      const { data: ultima } = await service.from('fba_inbound_operaciones').select('paso, estado').eq('remesa_id', remesaId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+      const u = ultima as { paso: string; estado: string } | null
+      if (u && u.paso === paso && u.estado === 'ok') {
+        try {
+          await trasExito(ctx, paso)
+        } catch (e) {
+          await guardar(ctx, { envio_error: textoDeFallo(e) })
+          throw e
+        }
+        return
+      }
       return relanzar(ctx, paso)
+    }
     case 'cancelar': {
       if (!f.inbound_plan_id) {
         await guardar(ctx, { envio_paso: 'cancelado', envio_error: null, envio_cajas_bloqueadas_at: null })
         await apuntar('cancelado', { sinPlan: true })
         return
       }
+      if (!(await moverPaso(ctx, paso, { envio_paso: 'cancelando' }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await apuntar('cancelando', { plan: f.inbound_plan_id, desde: paso })
       return lanzar(ctx, 'cancelando', () => api.cancelarPlan(creds, plan(ctx)), { plan: f.inbound_plan_id, desde: paso })
     }

@@ -190,7 +190,7 @@ export function cajasBloqueadas(modo: ModoEnvio, paso: PasoEnvio): boolean {
 
 /** Antes de confirmar el reparto se pueden reabrir las cajas; después ya existen los FBA… con esas cajas */
 export function puedeReabrirCajas(paso: PasoEnvio): boolean {
-  return ['embalaje_elegir', 'cajas_conflicto', 'reparto_elegir'].includes(paso)
+  return ['cajas_conflicto', 'reparto_elegir'].includes(paso)
 }
 
 /** ¿Hay que mandar otra vez las cajas al seguir? (vienen de reabrirlas o de un conflicto de grupos) */
