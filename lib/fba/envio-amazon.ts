@@ -93,7 +93,7 @@ export const FASES_ENVIO: Array<{ id: FaseEnvio; texto: string; pista: string }>
   { id: 'inventario', texto: 'Inventario', pista: 'Qué se manda y desde dónde' },
   { id: 'embalaje', texto: 'Embalaje', pista: 'Las cajas, con medidas y peso' },
   { id: 'reparto', texto: 'Reparto', pista: 'A qué centros lo manda Amazon' },
-  { id: 'transporte', texto: 'Transporte UPS', pista: 'Coste, aceptación y recogida' },
+  { id: 'transporte', texto: 'Transporte', pista: 'UPS: coste y aceptación' },
   { id: 'etiquetas', texto: 'Etiquetas', pista: 'Caja y UPS, para imprimir' },
   { id: 'seguimiento', texto: 'Seguimiento', pista: 'Estado y anulación' },
 ]
@@ -342,6 +342,8 @@ export interface CajaParaValidar {
   contenido: Array<{ sku: string; unidades: number }>
 }
 
+const es = (n: number): string => n.toLocaleString('es-ES', { maximumFractionDigits: 2 })
+
 export function validarCaja(c: CajaParaValidar): Problema[] {
   const out: Problema[] = []
   const lados = [c.largoCm, c.anchoCm, c.altoCm]
@@ -350,10 +352,10 @@ export function validarCaja(c: CajaParaValidar): Problema[] {
     return out
   }
   const mayor = Math.max(...(lados as number[]))
-  if (mayor > LIMITES_CAJA.maxLadoCm) out.push({ nivel: 'error', texto: `Caja ${c.numero}: un lado mide ${mayor} cm y Amazon admite ${LIMITES_CAJA.maxLadoCm} cm como mucho` })
-  if (c.pesoKg > LIMITES_CAJA.maxPesoKg) out.push({ nivel: 'error', texto: `Caja ${c.numero}: pesa ${c.pesoKg} kg y Amazon admite ${LIMITES_CAJA.maxPesoKg} kg como mucho` })
-  else if (c.pesoKg >= LIMITES_CAJA.pesadoDesdeKg) out.push({ nivel: 'aviso', texto: `Caja ${c.numero}: ${c.pesoKg} kg. Lleva la etiqueta de «pesado» (más de ${LIMITES_CAJA.pesadoDesdeKg} kg)` })
-  if (c.pesoKg < LIMITES_CAJA.minPesoKg) out.push({ nivel: 'error', texto: `Caja ${c.numero}: un peso de ${c.pesoKg} kg no es real` })
+  if (mayor > LIMITES_CAJA.maxLadoCm) out.push({ nivel: 'error', texto: `Caja ${c.numero}: un lado mide ${es(mayor)} cm y Amazon admite ${es(LIMITES_CAJA.maxLadoCm)} cm como mucho` })
+  if (c.pesoKg > LIMITES_CAJA.maxPesoKg) out.push({ nivel: 'error', texto: `Caja ${c.numero}: pesa ${es(c.pesoKg)} kg y Amazon admite ${LIMITES_CAJA.maxPesoKg} kg como mucho` })
+  else if (c.pesoKg >= LIMITES_CAJA.pesadoDesdeKg) out.push({ nivel: 'aviso', texto: `Caja ${c.numero}: ${es(c.pesoKg)} kg. Lleva la etiqueta de «pesado» (desde ${LIMITES_CAJA.pesadoDesdeKg} kg)` })
+  if (c.pesoKg < LIMITES_CAJA.minPesoKg) out.push({ nivel: 'error', texto: `Caja ${c.numero}: un peso de ${es(c.pesoKg)} kg no es real` })
   const unidades = c.contenido.reduce((s, x) => s + x.unidades, 0)
   if (unidades <= 0) out.push({ nivel: 'error', texto: `Caja ${c.numero}: está vacía` })
   return out

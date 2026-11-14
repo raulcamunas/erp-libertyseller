@@ -65,6 +65,8 @@ const dinero = (n: number | null, moneda: string | null): string => {
   return `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moneda === 'EUR' || !moneda ? '€' : moneda}`
 }
 
+const fechaDia = (dia: string | null | undefined): string => (dia ? new Date(`${dia}T12:00:00Z`).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) : '—')
+
 const fechaHora = (iso: string | null): string => {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -146,6 +148,19 @@ function CabeceraEnvio({ e, trabajando, bloqueado, onModo, onReintentar }: { e: 
   // El modo se elige mientras se prepara; con un plan en marcha o ya enviada, no se cambia
   const fijo = bloqueado || !['sin_empezar', 'cancelado'].includes(e.paso)
   const tono: TonoEstado = e.error ? 'rojo' : e.enCurso ? 'cian' : e.paso === 'etiquetas' ? 'verde' : e.paso === 'cancelado' ? 'gris' : 'ambar'
+  const selector = (ancho: boolean) => (
+    <Segmentado
+      etiqueta="Cómo se crea el envío"
+      tamano="sm"
+      anchoCompleto={ancho}
+      opciones={[
+        { id: 'manual', texto: 'Manual', icono: Hand, desactivada: fijo || !!trabajando },
+        { id: 'api', texto: 'Desde el ERP', icono: Rocket, desactivada: fijo || !e.conConexion || !!trabajando },
+      ]}
+      valor={e.modo}
+      onCambio={(v) => v !== e.modo && onModo(v)}
+    />
+  )
   return (
     <Tarjeta
       variante="destacada"
@@ -153,19 +168,10 @@ function CabeceraEnvio({ e, trabajando, bloqueado, onModo, onReintentar }: { e: 
       icono={Send}
       titulo="Enviar a Amazon"
       subtitulo={e.modo === 'api' ? 'Desde el ERP, con la API de Amazon' : 'A mano en Seller Central, con el manifiesto'}
-      acciones={
-        <Segmentado
-          etiqueta="Cómo se crea el envío"
-          tamano="sm"
-          opciones={[
-            { id: 'manual', texto: 'Manual', icono: Hand, desactivada: fijo || !!trabajando },
-            { id: 'api', texto: 'Desde el ERP', icono: Rocket, desactivada: fijo || !e.conConexion || !!trabajando },
-          ]}
-          valor={e.modo}
-          onCambio={(v) => v !== e.modo && onModo(v)}
-        />
-      }
+      acciones={<div className="hidden sm:block">{selector(false)}</div>}
     >
+      {/* En el móvil el selector va dentro, a lo ancho: en la cabecera no cabe con el título */}
+      <div className="mb-3 sm:hidden">{selector(true)}</div>
       {e.modo === 'api' ? (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
@@ -234,7 +240,7 @@ function BarraDeFasesEnvio({ actual, vista, onVer, cancelado }: { actual: FaseEn
   const iActual = ORDEN.indexOf(actual)
   return (
     <nav aria-label="Fases del envío a Amazon" className="-mx-1 overflow-x-auto px-1 pb-1">
-      <ol className="grid min-w-[640px] grid-cols-6 gap-[6px]">
+      <ol className="grid grid-cols-6 gap-[6px] sm:min-w-[640px]">
         {FASES_ENVIO.map((f, i) => {
           const hecha = !cancelado && i < iActual
           const esActual = i === iActual
@@ -246,13 +252,14 @@ function BarraDeFasesEnvio({ actual, vista, onVer, cancelado }: { actual: FaseEn
                 type="button"
                 onClick={() => onVer(f.id)}
                 aria-current={esActual ? 'step' : undefined}
-                className="ls-elevar relative flex w-full items-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-[10px] py-2 text-left [@media(pointer:coarse)]:min-h-[44px]"
+                aria-label={`${i + 1} · ${f.texto}`}
+                className="ls-elevar relative flex w-full items-center justify-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-[6px] py-2 text-left sm:justify-start sm:px-[10px] [@media(pointer:coarse)]:min-h-[44px]"
               >
                 {vista === f.id && <motion.span layoutId="fase-envio-amazon" className="absolute inset-0 rounded-[10px]" style={{ boxShadow: `inset 0 0 0 1.5px ${ACENTO.remesas}`, background: mezcla(ACENTO.remesas, 7) }} transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
                 <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style={{ background: mezcla(color, 14), color }}>
                   <Icono className="h-[14px] w-[14px]" />
                 </span>
-                <span className="relative min-w-0">
+                <span className="relative hidden min-w-0 sm:block">
                   <span className="block truncate text-[12.5px] font-semibold text-[var(--ls-t1)]">
                     {i + 1} · {f.texto}
                   </span>
@@ -263,6 +270,9 @@ function BarraDeFasesEnvio({ actual, vista, onVer, cancelado }: { actual: FaseEn
           )
         })}
       </ol>
+      <p className="mt-2 text-[12.5px] text-[var(--ls-t3)] sm:hidden">
+        Fase {ORDEN.indexOf(vista) + 1} de 6 · <b className="text-[var(--ls-t1)]">{FASES_ENVIO[ORDEN.indexOf(vista)].texto}</b> · {FASES_ENVIO[ORDEN.indexOf(vista)].pista}
+      </p>
     </nav>
   )
 }
@@ -627,7 +637,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
               <CifraAnimada valor={e.costeTransporte ?? 0} formato={(n) => dinero(n, e.moneda)} />
             </p>
             <p className="mt-2 text-[12px] text-[var(--ls-t3)]">
-              {e.seleccion.length} envío{e.seleccion.length === 1 ? '' : 's'} · recogida el {e.recogida?.dia ?? '—'} · lo cobra Amazon en la cuenta del cliente
+              {e.seleccion.length} envío{e.seleccion.length === 1 ? '' : 's'} · recogida el {fechaDia(e.recogida?.dia)} · lo cobra Amazon en la cuenta del cliente
             </p>
             {!confirmado && (
               <p className="mt-2 inline-flex items-center gap-[6px] text-[12px]" style={{ color: e.cotizacionVigente ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo }}>

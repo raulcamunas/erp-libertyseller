@@ -118,7 +118,7 @@ export function TransporteCliente({ token }: { token: string }) {
             <p className="flex items-center gap-2 text-[13.5px] text-[#8A5A14]">
               <Clock className="h-4 w-4" /> Este precio vale hasta el {fechaHora(t.caduca)}.
             </p>
-            <label className="block text-[13px] text-[#5E5852]">
+            <label className="block max-w-[440px] text-[13px] text-[#5E5852]">
               Tu nombre
               <input
                 value={nombre}
