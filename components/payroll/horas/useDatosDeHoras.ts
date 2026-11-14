@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/supabase/paginacion'
@@ -41,6 +41,9 @@ export function useDatosDeHoras({
   const [appointments, setAppointments] = useState(qualifiedAppointments)
   const [manual, setManual] = useState<ManualAppointment[]>(initialManual)
   const [saving, setSaving] = useState(false)
+  // Los ids de las citas que hay en pantalla, para el aviso de borrado de abajo (sin volver a suscribirse en cada cambio)
+  const idsDeCitas = useRef(new Set<string>())
+  idsDeCitas.current = new Set(appointments.map((a) => a.id))
 
   useEffect(() => {
     /**
@@ -104,7 +107,19 @@ export function useDatosDeHoras({
           : { event: '*', schema: 'public', table: 'appointments', filter: `comercial_id=eq.${currentUserId}` },
         releerCitas,
       )
-      .subscribe()
+
+    /**
+     * LOS BORRADOS NO PASAN POR EL FILTRO. Realtime no puede filtrar los DELETE (solo manda el id de la fila vieja), así
+     * que con `comercial_id=eq.…` una cita borrada de la Agenda se quedaba sumando comisión hasta recargar. Se escuchan
+     * todos los borrados, pero solo se relee si la borrada es una de las que hay en pantalla: el resto no cuesta nada.
+     */
+    if (!isAdmin) {
+      channel.on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'appointments' }, (payload) => {
+        const id = (payload.old as { id?: string } | null)?.id
+        if (id && idsDeCitas.current.has(id)) releerCitas()
+      })
+    }
+    channel.subscribe()
 
     return () => {
       if (espera) clearTimeout(espera)
