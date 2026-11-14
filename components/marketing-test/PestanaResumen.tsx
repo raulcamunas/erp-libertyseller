@@ -7,7 +7,8 @@ import { CircleAlert, TrendingDown } from 'lucide-react'
 import { AVISO, BOTON, COLOR_ESTADO, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { diasDelRango, gastanSinVender, porCampana, repartoPorTipo, serieDiaria, tipoDeCampana, totalesDe } from '@/lib/ads/rendimiento-calculo'
 import { agruparPorProducto } from '@/lib/ads/productos-agrupar'
-import { COLOR_DE_TIPO, Kpi, SelectorDePeriodo, type Dias, CAJA as TARJETA } from './piezas'
+import { COLOR_DE_TIPO, SelectorDePeriodo, type Dias, CAJA as TARJETA } from './piezas'
+import { FilaDeKpis, Kpi as KpiDelKit } from '@/components/ui-ls'
 import { diaCorto, dinero, decimal, entero, porcentaje } from './formato'
 import { useRendimiento } from './useRendimiento'
 import { useProductosConocidos } from './useProductosConocidos'
@@ -51,21 +52,21 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
 
   const kpis = calculo
     ? [
-        { etiqueta: 'Gasto', valor: dinero(calculo.t.gasto, moneda), a: calculo.t.gasto, b: calculo.a.gasto, mejor: 'neutro' as const, serie: calculo.sa.map((p) => p.gasto), color: COLOR_ESTADO.azul },
-        { etiqueta: 'Ventas', valor: dinero(calculo.t.ventas, moneda), a: calculo.t.ventas, b: calculo.a.ventas, mejor: 'sube' as const, serie: calculo.sa.map((p) => p.ventas), color: COLOR_ESTADO.verde },
-        { etiqueta: 'ACoS', valor: porcentaje(calculo.t.acos), a: calculo.t.acos, b: calculo.a.acos, mejor: 'baja' as const, serie: calculo.sa.map((p) => p.acos ?? 0), color: COLOR_ESTADO.ambar },
-        { etiqueta: 'ROAS', valor: calculo.t.roas == null ? '—' : decimal(calculo.t.roas), a: calculo.t.roas, b: calculo.a.roas, mejor: 'sube' as const, serie: calculo.sa.map((p) => (p.gasto > 0 ? p.ventas / p.gasto : 0)), color: COLOR_ESTADO.verde },
-        { etiqueta: 'Pedidos', valor: entero(calculo.t.pedidos), a: calculo.t.pedidos, b: calculo.a.pedidos, mejor: 'sube' as const, serie: calculo.sa.map((p) => p.pedidos), color: COLOR_ESTADO.violeta },
-        { etiqueta: 'Clics', valor: entero(calculo.t.clics), a: calculo.t.clics, b: calculo.a.clics, mejor: 'neutro' as const, serie: calculo.sa.map((p) => p.clics), color: COLOR_ESTADO.cian },
-        { etiqueta: 'CPC medio', valor: dinero(calculo.t.cpc, moneda), a: calculo.t.cpc, b: calculo.a.cpc, mejor: 'baja' as const, serie: calculo.sa.map((p) => (p.clics > 0 ? p.gasto / p.clics : 0)), color: COLOR_ESTADO.azul },
-        { etiqueta: 'Conversión (pedidos ÷ clics)', valor: porcentaje(calculo.t.cvr), a: calculo.t.cvr, b: calculo.a.cvr, mejor: 'sube' as const, serie: calculo.sa.map((p) => (p.clics > 0 ? p.pedidos / p.clics : 0)), color: COLOR_ESTADO.verde },
+        { etiqueta: 'Gasto', formato: (n: number) => dinero(n, moneda, 0), valor: dinero(calculo.t.gasto, moneda), a: calculo.t.gasto, b: calculo.a.gasto, mejor: 'neutro' as const, serie: calculo.sa.map((p) => p.gasto), color: COLOR_ESTADO.azul },
+        { etiqueta: 'Ventas', formato: (n: number) => dinero(n, moneda, 0), valor: dinero(calculo.t.ventas, moneda), a: calculo.t.ventas, b: calculo.a.ventas, mejor: 'sube' as const, serie: calculo.sa.map((p) => p.ventas), color: COLOR_ESTADO.verde },
+        { etiqueta: 'ACoS', formato: (n: number) => porcentaje(n), valor: porcentaje(calculo.t.acos), a: calculo.t.acos, b: calculo.a.acos, mejor: 'baja' as const, serie: calculo.sa.map((p) => p.acos ?? 0), color: COLOR_ESTADO.ambar },
+        { etiqueta: 'ROAS', formato: (n: number) => decimal(n), valor: calculo.t.roas == null ? '—' : decimal(calculo.t.roas), a: calculo.t.roas, b: calculo.a.roas, mejor: 'sube' as const, serie: calculo.sa.map((p) => (p.gasto > 0 ? p.ventas / p.gasto : 0)), color: COLOR_ESTADO.verde },
+        { etiqueta: 'Pedidos', formato: undefined, valor: entero(calculo.t.pedidos), a: calculo.t.pedidos, b: calculo.a.pedidos, mejor: 'sube' as const, serie: calculo.sa.map((p) => p.pedidos), color: COLOR_ESTADO.violeta },
+        { etiqueta: 'Clics', formato: undefined, valor: entero(calculo.t.clics), a: calculo.t.clics, b: calculo.a.clics, mejor: 'neutro' as const, serie: calculo.sa.map((p) => p.clics), color: COLOR_ESTADO.cian },
+        { etiqueta: 'CPC medio', formato: (n: number) => dinero(n, moneda), valor: dinero(calculo.t.cpc, moneda), a: calculo.t.cpc, b: calculo.a.cpc, mejor: 'baja' as const, serie: calculo.sa.map((p) => (p.clics > 0 ? p.gasto / p.clics : 0)), color: COLOR_ESTADO.azul },
+        { etiqueta: 'Conversión (pedidos ÷ clics)', formato: (n: number) => porcentaje(n), valor: porcentaje(calculo.t.cvr), a: calculo.t.cvr, b: calculo.a.cvr, mejor: 'sube' as const, serie: calculo.sa.map((p) => (p.clics > 0 ? p.pedidos / p.clics : 0)), color: COLOR_ESTADO.verde },
       ]
     : null
 
   const datosGrafica = calculo?.sa.map((p) => ({ dia: diaCorto(p.fecha), gasto: Number(p.gasto.toFixed(2)), ventas: Number(p.ventas.toFixed(2)), acos: p.acos == null ? null : Number((p.acos * 100).toFixed(1)) }))
 
   return (
-    <div className="flex max-w-[1280px] flex-col gap-3 pb-8">
+    <div className="flex min-w-0 flex-col gap-4 pb-8">
       <AvisosDeCuenta perfilId={perfilId} verCampana={() => irA('campanas')} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={cargando || Boolean(datos?.sincronizando)} />
@@ -95,12 +96,23 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
         </div>
       )}
 
-      {/* ------- las cifras ------- */}
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      {/* ------- las cifras (kit: cifra que cuenta, variación frente al periodo anterior y sparkline diaria) ------- */}
+      <FilaDeKpis minimo={180}>
         {(kpis ?? Array.from({ length: 8 }, () => null)).map((k, i) => (
-          <Kpi key={i} etiqueta={k?.etiqueta ?? ['Gasto', 'Ventas', 'ACoS', 'ROAS', 'Pedidos', 'Clics', 'CPC medio', 'Conversión'][i]} valor={k?.valor ?? ''} actual={k?.a ?? null} anterior={k?.b ?? null} mejor={k?.mejor ?? 'neutro'} serie={k?.serie ?? []} color={k?.color ?? COLOR_ESTADO.gris} cargando={!k} />
+          <KpiDelKit
+            key={i}
+            indice={i}
+            etiqueta={k?.etiqueta ?? ['Gasto', 'Ventas', 'ACoS', 'ROAS', 'Pedidos', 'Clics', 'CPC medio', 'Conversión'][i]}
+            valor={k?.a ?? null}
+            formato={k?.formato}
+            anterior={k ? k.b : undefined}
+            mejor={k?.mejor ?? 'neutro'}
+            serie={k?.serie ?? []}
+            acento={k?.color ?? COLOR_ESTADO.gris}
+            cargando={!k}
+          />
         ))}
-      </div>
+      </FilaDeKpis>
 
       {/* ------- la evolución ------- */}
       <section className={TARJETA.base}>
@@ -159,15 +171,15 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
           ) : productos.length === 0 ? (
             <p className={`${TARJETA.cuerpo} ${TIPO.s} ${TEXTO.t3}`}>No hay campañas con gasto en este periodo.</p>
           ) : (
-            <table className="w-full min-w-[640px] border-separate border-spacing-0 text-[12.5px]">
+            <table className="w-full border-separate border-spacing-0 text-[12.5px]">
               <thead>
                 <tr className={`${TIPO.xs} ${TEXTO.t4}`}>
                   <th className="px-3 py-[6px] text-left font-semibold">Producto</th>
                   <th className="px-3 py-[6px] text-right font-semibold">Gasto</th>
-                  <th className="w-[120px] px-3 py-[6px] text-left font-semibold">Reparto</th>
+                  <th className="hidden w-[120px] px-3 py-[6px] text-left font-semibold sm:table-cell">Reparto</th>
                   <th className="px-3 py-[6px] text-right font-semibold">Ventas</th>
                   <th className="px-3 py-[6px] text-right font-semibold">ACoS</th>
-                  <th className="px-3 py-[6px] text-right font-semibold">Pedidos</th>
+                  <th className="hidden px-3 py-[6px] text-right font-semibold sm:table-cell">Pedidos</th>
                 </tr>
               </thead>
               <tbody>
@@ -181,11 +193,11 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
                   return (
                     <tr key={g.clave} className="cursor-pointer hover:[&>td]:bg-[var(--ls-sup2)]" onClick={() => irA('campanas')}>
                       <td className="border-t border-[var(--ls-linea)] px-3 py-[7px]">
-                        <div className={`${TEXTO.t1} max-w-[340px] truncate font-medium`} title={g.titulo}>{g.titulo}</div>
+                        <div className={`${TEXTO.t1} max-w-[130px] truncate font-medium sm:max-w-[340px]`} title={g.titulo}>{g.titulo}</div>
                         <div className={`${TIPO.xs} ${TEXTO.t4}`}>{g.asin ?? 'Sin ASIN en el nombre'} · {g.campanas.length} {g.campanas.length === 1 ? 'campaña' : 'campañas'}</div>
                       </td>
                       <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{dinero(g.totales.gasto, moneda)}</td>
-                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px]">
+                      <td className="hidden border-t border-[var(--ls-linea)] px-3 py-[7px] sm:table-cell">
                         <div className="h-[5px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
                           <div className="h-full rounded-full" style={{ width: `${(g.totales.gasto / totalGasto) * 100}%`, background: COLOR_ESTADO.azul }} />
                         </div>
@@ -196,7 +208,7 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
                         <span style={color ? { color } : undefined} className={color ? undefined : TEXTO.t1}>{porcentaje(g.totales.acos)}</span>
                         {eq !== null && <div className={`${TIPO.xs} ${TEXTO.t4}`}>{etiquetaRef} {porcentaje(eq, 0)}</div>}
                       </td>
-                      <td className="border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)]">{entero(g.totales.pedidos)}</td>
+                      <td className="hidden border-t border-[var(--ls-linea)] px-3 py-[7px] text-right tabular-nums text-[var(--ls-t1)] sm:table-cell">{entero(g.totales.pedidos)}</td>
                     </tr>
                   )
                 })}

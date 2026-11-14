@@ -45,6 +45,8 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
   const [vista, setVista] = useState<Vista>('producto')
   const [abiertos, setAbiertos] = useState<ReadonlySet<string>>(new Set())
   const [campanaAbierta, setCampanaAbierta] = useState<string | null>(null)
+  // En el móvil, de 40 en 40 (una cuenta grande tiene cientos de campañas)
+  const [cuantasMovil, setCuantasMovil] = useState(40)
   const { campanas, informe, actualizar } = useRendimiento(perfilId, dias)
   const conocidos = useProductosConocidos(perfilId)
 
@@ -163,15 +165,15 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
   }
 
   return (
-    <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
+    <div className="flex min-w-0 flex-col gap-3 pb-8">
       <AvisosDeCuenta perfilId={perfilId} verCampana={(id) => { setVista('lista'); setFiltro('TODAS'); setCampanaAbierta(id) }} />
       {/* ---- fila 1: el periodo (izquierda) y la búsqueda (derecha) ---- */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={informe.fase === 'cargando' || campanas.fase === 'cargando' || (informe.fase === 'listo' && informe.datos.sincronizando)} />
-        <label className="relative">
+        <label className="relative w-full sm:w-auto">
           <span className="sr-only">Buscar una campaña</span>
           <Search className="pointer-events-none absolute left-[10px] top-[9px] h-[13px] w-[13px] text-[var(--ls-t4)]" />
-          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar una campaña" className="h-[30px] w-[260px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none transition-colors placeholder:text-[var(--ls-t4)] hover:border-[var(--ls-linea2)] focus:border-[var(--ls-acc-graf)] focus:bg-[var(--ls-sup)]" />
+          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar una campaña" className="h-[30px] w-full rounded-[9px] sm:w-[260px] [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:text-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none transition-colors placeholder:text-[var(--ls-t4)] hover:border-[var(--ls-linea2)] focus:border-[var(--ls-acc-graf)] focus:bg-[var(--ls-sup)]" />
         </label>
       </div>
 
@@ -257,7 +259,54 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
           ))}
         </div>
       ) : (
-      <div className="min-w-0 overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+      <>
+      {/* MÓVIL Y TABLETA: una tarjeta por campaña; al pulsarla se abren sus segmentaciones debajo */}
+      <ul className="flex flex-col gap-2 lg:hidden">
+        {campanas.fase === 'cargando' && visibles.length === 0 && <li className={`${TIPO.s} ${TEXTO.t3}`}>Leyendo las campañas de Amazon…</li>}
+        {campanas.fase !== 'cargando' && visibles.length === 0 && <li className={`${TIPO.s} ${TEXTO.t3}`}>No hay campañas con ese filtro.</li>}
+        {visibles.slice(0, cuantasMovil).map((f) => {
+          const abierta = campanaAbierta === f.campaignId
+          return (
+            <li key={f.campaignId} className="overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-1)]">
+              <button type="button" onClick={() => setCampanaAbierta(abierta ? null : f.campaignId)} aria-expanded={abierta} className="flex w-full flex-col gap-2 p-3 text-left">
+                <span className="flex w-full items-start gap-2">
+                  <PuntoDeEstado estado={f.estado} />
+                  <span className="min-w-0 flex-1 text-[13.5px] font-semibold leading-[1.3] text-[var(--ls-t1)] [overflow-wrap:anywhere]">{f.nombre}</span>
+                  {abierta ? <ChevronDown className="mt-[2px] h-4 w-4 shrink-0 text-[var(--ls-t3)]" /> : <ChevronRight className="mt-[2px] h-4 w-4 shrink-0 text-[var(--ls-t3)]" />}
+                </span>
+                <span className="grid w-full grid-cols-3 gap-2 text-[12.5px]">
+                  {[
+                    ['Gasto', conCifras ? dinero(f.gasto, moneda) : '—'],
+                    ['Ventas', conCifras ? dinero(f.ventas, moneda) : '—'],
+                    ['ACoS', conCifras ? porcentaje(f.acos) : '—'],
+                    ['Pedidos', conCifras ? entero(f.pedidos) : '—'],
+                    ['Clics', conCifras ? entero(f.clics) : '—'],
+                    ['Presup./día', f.presupuesto == null ? '—' : dinero(f.presupuesto, moneda)],
+                  ].map(([k, v]) => (
+                    <span key={k} className="min-w-0 rounded-[8px] bg-[var(--ls-sup2)] px-2 py-[5px]">
+                      <span className="block text-[10.5px] uppercase tracking-[0.04em] text-[var(--ls-t4)]">{k}</span>
+                      <span className="block truncate font-semibold tabular-nums text-[var(--ls-t1)]">{v}</span>
+                    </span>
+                  ))}
+                </span>
+              </button>
+              {abierta && (
+                <div className="border-t border-[var(--ls-linea)]">
+                  <DetalleDeCampana perfilId={perfilId} campaignId={f.campaignId} nombreCampana={f.nombre} presupuesto={f.presupuesto} dias={dias} moneda={moneda} acosObjetivo={null} />
+                </div>
+              )}
+            </li>
+          )
+        })}
+        {visibles.length > cuantasMovil && (
+          <li>
+            <button type="button" onClick={() => setCuantasMovil((c) => c + 40)} className="min-h-[44px] w-full rounded-[12px] border border-[var(--ls-linea)] text-[13px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">
+              Ver {Math.min(40, visibles.length - cuantasMovil)} más
+            </button>
+          </li>
+        )}
+      </ul>
+      <div className="hidden min-w-0 overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] lg:block">
         <table className={TABLA.tabla}>
           <thead>
             <tr>
@@ -302,6 +351,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
           )}
         </table>
       </div>
+      </>
       )}
 
       <p className={`${TIPO.xs} ${TEXTO.t4}`}>Ventas y pedidos atribuidos a 7 días, como en la consola de Amazon Ads. Las cifras de hoy no están: el periodo acaba ayer.</p>
