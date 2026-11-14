@@ -96,7 +96,7 @@ export function PestanaHoy({
   const diario = panel.diario.slice(-30)
   const haceUnaSemana = diario.length > 7 ? diario[diario.length - 8] : diario[0]
   const salud = c.revisados > 0 ? (c.revisados - c.atencion) / c.revisados : null
-  const enviadasSemana = correcciones?.lista.filter((x) => x.estado === 'aceptado' && Date.now() - Date.parse(x.creadoAt) < 7 * 86_400_000).length ?? null
+  const enviadasSemana = correcciones?.faltaMigracion ? null : correcciones?.lista.filter((x) => x.estado === 'aceptado' && Date.now() - Date.parse(x.creadoAt) < 7 * 86_400_000).length ?? null
 
   /** Un resumen en texto, para pegarlo en el chat del equipo o en una tarea del cliente */
   const copiar = async () => {
@@ -133,7 +133,7 @@ export function PestanaHoy({
       <FilaDeKpis minimo={200}>
         <Kpi
           indice={0}
-          etiqueta="Con stock y bloqueados"
+          etiqueta="Bloqueados con stock"
           valor={c.atencionConStock}
           icono={EyeOff}
           acento={c.atencionConStock > 0 ? COLOR_ESTADO.rojo : COLOR_ESTADO.verde}
