@@ -1,5 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/employees/data'
+import { festivosDelLugar } from '@/lib/vacations/calendario'
+import { cargarFichas, cargarMaxALaVez, type FichaDeVacaciones } from '@/lib/vacations/servidor'
 import {
   todayKey,
   vacationBalance,
@@ -101,6 +103,15 @@ export interface VacationsServerData {
       Baja hasta el cálculo como parámetro para que el saldo no dependa del
       huso horario del navegador de quien mire la pantalla */
   today: string
+  /**
+   * Color y lugar de festivos de cada ficha de `employees` (migración 308). El saldo se calcula con los festivos de su
+   * lugar: SIN lugar solo cuentan los fines de semana, que es la regla de siempre.
+   */
+  fichas: Record<string, FichaDeVacaciones>
+  /** Cuántas personas pueden estar fuera a la vez en la empresa (308; 1 por defecto) */
+  maxALaVez: number
+  /** La 308 está lanzada (colores, festivos, excepciones). Sin ella todo funciona como antes */
+  migracion308: boolean
 }
 
 const EMPTY_DATA = (today: string): VacationsServerData => ({
@@ -109,7 +120,15 @@ const EMPTY_DATA = (today: string): VacationsServerData => ({
   people: {},
   missingTables: true,
   today,
+  fichas: {},
+  maxALaVez: 1,
+  migracion308: false,
 })
+
+/** Los festivos que no le gastan vacaciones a esa persona (vacío si su ficha no tiene lugar) */
+export function festivosDe(data: Pick<VacationsServerData, 'fichas'>, employeeId: string): string[] {
+  return festivosDelLugar(data.fichas[employeeId]?.lugar ?? null)
+}
 
 /**
  * TODO EL EQUIPO. Solo para quien ya ha comprobado que es admin.
@@ -138,12 +157,20 @@ export async function loadVacationsData(
       return q.order('start_date', { ascending: false }).order('id').range(a, b)
     })
 
+    const [people, { fichas, migracion308 }, maxALaVez] = await Promise.all([
+      loadPeople(service, requests),
+      cargarFichas(service, employees.map((e) => e.id)),
+      cargarMaxALaVez(service),
+    ])
     return {
       employees,
       requests,
-      people: await loadPeople(service, requests),
+      people,
       missingTables: false,
       today,
+      fichas,
+      maxALaVez,
+      migracion308,
     }
   } catch (error) {
     if (!isMissingSchema(error)) throw error
@@ -189,7 +216,7 @@ export async function loadMyVacations(userId: string): Promise<MyVacationsData> 
       employee,
       balance: data.missingTables
         ? null
-        : vacationBalance(employee, data.requests, data.today),
+        : vacationBalance(employee, data.requests, data.today, { holidays: festivosDe(data, employee.id) }),
     }
   } catch (error) {
     if (!isMissingSchema(error)) throw error
@@ -241,7 +268,7 @@ export function vacationBalances(data: VacationsServerData): VacationsBalanceRow
     .sort((a, b) => a.name.localeCompare(b.name, 'es'))
     .map((employee) => ({
       employee,
-      balance: vacationBalance(employee, data.requests, data.today),
+      balance: vacationBalance(employee, data.requests, data.today, { holidays: festivosDe(data, employee.id) }),
     }))
 }
 

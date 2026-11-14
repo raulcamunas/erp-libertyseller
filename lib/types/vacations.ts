@@ -92,6 +92,12 @@ export interface VacationRequest {
   late_notice: boolean
   created_at: string
   updated_at: string
+  /** Migración 308: el admin la aprobó pese a chocar con otras vacaciones de la empresa (excepción) */
+  solape_autorizado?: boolean
+  /** Migración 308: el motivo de esa excepción (obligatorio si la hay) */
+  solape_motivo?: string | null
+  /** Migración 308: por qué se anuló o se retiró */
+  cancel_reason?: string | null
 }
 
 /**

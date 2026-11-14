@@ -248,8 +248,8 @@ export const apps: AppConfig[] = [
     // la migración 116). Si baila en uno de los tres, la app queda invisible
     // sin dar ningún error.
     id: 'vacaciones',
-    name: 'Mis vacaciones',
-    description: 'Días generados, los que has cogido y los que puedes pedir',
+    name: 'Vacaciones',
+    description: 'Quién está fuera en la empresa, tus días y lo que puedes pedir',
     icon: Palmtree,
     route: '/dashboard/vacaciones',
     status: 'new',
@@ -642,7 +642,7 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
  */
 export const APPS_OCULTAS_A_ADMIN: ReadonlySet<string> = new Set([
   'commissions-shoes-f',
-  'vacaciones',
+  // 'vacaciones' ya no: desde el 14 nov 2026 es la pantalla donde el admin aprueba (bandeja «Pendientes»)
   'limpieza-ofertas',
   'disenos',
   // Quitadas del menú de Raúl el 15 oct 2026: no las usa. Siguen existiendo y sus

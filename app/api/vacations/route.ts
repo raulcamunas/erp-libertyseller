@@ -8,6 +8,8 @@ import {
   resolveEmployee,
 } from '@/lib/vacations/api'
 import { loadVacationsData, loadMyVacations } from '@/lib/employees/vacations'
+import { avisoDePedida, choquesDeEmpresa, claveDeAviso, textoDeChoque } from '@/lib/vacations/calendario'
+import { avisarEnLaCampana, cargarEquipo, festivosDeLaFicha, idsDeAdmins } from '@/lib/vacations/servidor'
 import {
   BLOCKING_STATUSES,
   checkVacationRequest,
@@ -24,7 +26,9 @@ import {
  *         admin  = todo el equipo (la cola de aprobación y el saldo de cada
  *                  persona). El resto = SU ficha y SUS peticiones, sin un solo
  *                  dato salarial y sin saber nada de nadie más.
- * POST -> pedir unos días. Nacen SIEMPRE pendientes.
+ * POST -> pedir unos días. Nacen SIEMPRE pendientes. Si chocan con las de un compañero (regla de TODA la empresa,
+ *         migración 308) se avisa en la respuesta, pero se guardan igual: quien decide es el admin al aprobar.
+ *         Los administradores reciben el aviso en la campana ('vacaciones_pedida').
  *
  * La comprobación de quién es quién sale de la sesión, nunca del cuerpo de la
  * petición. Ver la cabecera de lib/vacations/api.ts.
@@ -82,12 +86,16 @@ export async function POST(request: NextRequest) {
       .in('status', [...BLOCKING_STATUSES])
     if (existingError) throw existingError
 
+    // Los festivos de SU lugar no le gastan vacaciones (308). Los mismos que usan la pantalla, aprobar y el saldo.
+    const festivos = await festivosDeLaFicha(session.service, employee.id)
+
     const check = checkVacationRequest({
       employee,
       startDate,
       endDate,
       requests: (existing ?? []) as VacationRequest[],
       today,
+      holidays: festivos,
       // Estos avisos vuelven al navegador y se enseñan por toast a quien acaba
       // de pedirlas. Si las pide para sí misma se le habla de tú, igual que el
       // resto de «Mis vacaciones»; si es un admin registrando por otra persona,
@@ -127,11 +135,47 @@ export async function POST(request: NextRequest) {
       return fail(409, 'Alguien ha pedido esos mismos días mientras se guardaba. Vuelve a mirar el calendario.')
     }
     if (error) throw error
+    const creada = data as VacationRequest
+
+    // A PARTIR DE AQUÍ LA PETICIÓN YA ESTÁ GUARDADA. Nada de lo que sigue (el choque, que es solo un aviso, y la campana)
+    // puede convertirla en un 500: quien la pidió reintentaría y se encontraría un «ya tienes esos días pedidos».
+    const warnings = [...check.warnings]
+    let choque: ReturnType<typeof choquesDeEmpresa> | null = null
+    try {
+      // EL CHOQUE CON COMPAÑEROS: aviso, no bloqueo (Raúl, 14 nov 2026). Se mira con las pendientes y las aprobadas.
+      const equipo = await cargarEquipo(session.service, startDate, endDate)
+      choque = choquesDeEmpresa({
+        employeeId: employee.id,
+        startDate,
+        endDate,
+        ausencias: equipo.ausencias,
+        maxALaVez: equipo.maxALaVez,
+        excludeId: creada.id,
+        festivos,
+      })
+      const textoChoque = textoDeChoque(choque)
+      if (choque.hay && textoChoque) warnings.unshift(`${textoChoque} La petición queda guardada y dirección decide.`)
+    } catch (e) {
+      console.warn('[vacaciones] Petición guardada, pero no se ha podido mirar el choque con el equipo:', e)
+    }
+
+    try {
+      // La campana de los administradores (menos quien la acaba de registrar, si es uno de ellos)
+      const admins = (await idsDeAdmins(session.service)).filter((id) => id !== session.userId)
+      const texto = avisoDePedida({ nombre: employee.name, start_date: startDate, end_date: endDate, dias: check.workingDays, choque, fueraDePlazo: creada.late_notice })
+      await avisarEnLaCampana(
+        session.service,
+        admins.map((userId) => ({ userId, tipo: 'vacaciones_pedida', titulo: texto.titulo, mensaje: texto.mensaje, clave: claveDeAviso(creada.id, 'pedida'), requestId: creada.id }))
+      )
+    } catch (e) {
+      console.warn('[vacaciones] Petición guardada, pero no se ha podido avisar a los administradores:', e)
+    }
 
     return NextResponse.json(
       {
-        request: data as VacationRequest,
-        warnings: check.warnings,
+        request: creada,
+        warnings,
+        choque,
         onBehalf: employee.user_id !== session.userId,
         ...(await currentView(session)),
       },

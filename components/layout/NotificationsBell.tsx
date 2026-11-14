@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Palmtree, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { chatALaVista } from '@/lib/chat/dock-estado'
 import { pastillaDelChatVisible, publicarVistaPrevia } from '@/lib/chat/vista-previa'
@@ -59,6 +59,8 @@ const ICONOS_DE_AVISO: Record<string, { Icono: LucideIcon; tono: Tono }> = {
   fba_alerta: { Icono: Boxes, tono: 'ambar' },
   fba_resumen: { Icono: Boxes, tono: 'acc' },
   factura_impagada: { Icono: BellRing, tono: 'ambar' },
+  vacaciones_pedida: { Icono: Palmtree, tono: 'ambar' },
+  vacaciones_resuelta: { Icono: Palmtree, tono: 'verde' },
   comment: { Icono: MessageSquare, tono: 'neutro' },
   mention: { Icono: MessageSquare, tono: 'acc' },
   task_assigned: { Icono: CheckSquare, tono: 'neutro' },
@@ -296,6 +298,11 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
     // Una alerta de logística FBA (rotura de stock, envío parado…) o el resumen del lunes: al tablero de alertas
     if (notification.type === 'fba_alerta' || notification.type === 'fba_resumen') {
       return '/dashboard/remesas/alertas'
+    }
+
+    // Vacaciones: alguien las pide (al admin) o te las resuelven (a ti). Las dos llevan a la pantalla de Vacaciones
+    if (notification.type === 'vacaciones_pedida' || notification.type === 'vacaciones_resuelta') {
+      return '/dashboard/vacaciones'
     }
 
     // Un lead ha abierto su análisis de Amazon: a su ficha de Cold Calling
