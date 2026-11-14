@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Save } from 'lucide-react'
 import { toast } from 'sonner'
-import { Checkbox } from '@/components/ui/checkbox'
+import { Boton, Esqueleto } from '@/components/ui-ls'
+import { Interruptor } from './piezas'
 
 /**
  * A QUÉ CUENTAS PUEDE ENTRAR ESTE USUARIO EN REMESAS A FBA.
@@ -81,69 +82,62 @@ export function AccesosRemesas({ usuarioId }: { usuarioId: string }) {
 
   if (cargando) {
     return (
-      <div className="flex items-center gap-2 py-3 text-[12px] text-white/40">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Cargando cuentas…
+      <div className="flex flex-col gap-2" aria-busy>
+        {Array.from({ length: 4 }, (_, i) => (
+          <Esqueleto key={i} className="h-11 w-full rounded-[10px]" />
+        ))}
       </div>
     )
   }
 
+  const nVe = accesos.size
+
   return (
-    <div>
-      <p className="mb-2 text-[11px] text-white/45">
-        Marca las cuentas que puede ver. «Editar» le deja además crear y corregir remesas; borrar,
-        nunca.
+    <div className="flex flex-col gap-3">
+      <p className="text-[12px] leading-snug text-[var(--ls-t4)]">
+        Enciende las cuentas que puede ver. «Editar» le deja además crear y corregir remesas; borrar, nunca. Se guarda aparte, con su botón.
       </p>
-      <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-white/10 p-2">
+      <ul className="max-h-[420px] divide-y divide-[var(--ls-linea)] overflow-y-auto rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
         {cuentas.map((c) => {
           const ve = accesos.has(c.id)
           const edita = accesos.get(c.id) === true
           return (
-            <div key={c.id} className="flex items-center justify-between rounded px-2 py-1 hover:bg-white/[0.03]">
-              <label className="flex cursor-pointer items-center gap-2 text-[12px] text-white">
-                <Checkbox
-                  checked={ve}
-                  onCheckedChange={(v) => {
-                    const m = new Map(accesos)
-                    if (v) m.set(c.id, m.get(c.id) ?? false)
-                    else m.delete(c.id)
-                    setAccesos(m)
-                  }}
-                  className="border-white/30 data-[state=checked]:bg-[#FF6600] data-[state=checked]:border-[#FF6600]"
-                />
-                {c.nombre}
-              </label>
-              <label
-                className={`flex items-center gap-1.5 text-[11px] ${ve ? 'cursor-pointer text-white/60' : 'text-white/20'}`}
-              >
-                <Checkbox
-                  checked={edita}
-                  disabled={!ve}
-                  onCheckedChange={(v) => {
-                    const m = new Map(accesos)
-                    m.set(c.id, v === true)
-                    setAccesos(m)
-                  }}
-                  className="border-white/30 data-[state=checked]:bg-[#FF6600] data-[state=checked]:border-[#FF6600] disabled:opacity-30"
-                />
-                Editar
-              </label>
-            </div>
+            <li key={c.id} className="flex items-center gap-2 py-1 pl-3 pr-1">
+              <span className={`min-w-0 flex-1 truncate text-[13px] ${ve ? 'font-medium text-[var(--ls-t1)]' : 'text-[var(--ls-t3)]'}`}>{c.nombre}</span>
+              <span className={`text-[11.5px] ${ve ? 'text-[var(--ls-t3)]' : 'text-[var(--ls-t4)] opacity-60'}`}>Editar</span>
+              <Interruptor
+                etiqueta={`Editar remesas de ${c.nombre}`}
+                activo={edita}
+                deshabilitado={!ve}
+                onCambio={(v) => {
+                  const m = new Map(accesos)
+                  m.set(c.id, v)
+                  setAccesos(m)
+                }}
+              />
+              <Interruptor
+                etiqueta={`Ver ${c.nombre}`}
+                activo={ve}
+                onCambio={(v) => {
+                  const m = new Map(accesos)
+                  if (v) m.set(c.id, m.get(c.id) ?? false)
+                  else m.delete(c.id)
+                  setAccesos(m)
+                }}
+              />
+            </li>
           )
         })}
-        {cuentas.length === 0 && (
-          <p className="p-2 text-[11px] text-white/30">No hay clientes de Amazon dados de alta.</p>
-        )}
+        {cuentas.length === 0 && <li className="p-3 text-[12px] text-[var(--ls-t4)]">No hay clientes de Amazon dados de alta.</li>}
+      </ul>
+      <div className="flex items-center gap-3">
+        <span className="flex-1 text-[12px] tabular-nums text-[var(--ls-t3)]">
+          {nVe} {nVe === 1 ? 'cuenta' : 'cuentas'}
+        </span>
+        <Boton variante="primario" icono={Save} onClick={guardar} cargando={guardando}>
+          Guardar cuentas
+        </Boton>
       </div>
-      <button
-        type="button"
-        onClick={guardar}
-        disabled={guardando}
-        className="mt-2 flex items-center gap-1.5 rounded-lg bg-[#FF6600] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#FF6600]/85 disabled:opacity-40"
-      >
-        {guardando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-        Guardar accesos
-      </button>
     </div>
   )
 }

@@ -19,20 +19,5 @@ export default async function UsersPage() {
     redirect('/dashboard')
   }
 
-  return (
-    <div>
-      <div className="mb-8">
-        <h1 className="heading-medium text-white mb-2">
-          Gestión de Usuarios
-        </h1>
-        <p className="text-white/50">
-          Crea y gestiona usuarios del sistema con permisos específicos
-        </p>
-      </div>
-
-      <UsersManagement />
-    </div>
-  )
+  return <UsersManagement actorId={user.id} />
 }
-
-
