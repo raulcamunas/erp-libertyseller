@@ -228,6 +228,58 @@ export async function borrarKeyword(conexionId: string, profileId: number, keywo
   aislar(res, 'keywords')
 }
 
+/* ------------------------------------------------------------------ */
+/* Fichas de producto (ASIN): excluir y atacar                         */
+/* ------------------------------------------------------------------ */
+
+const T_NEGATIVA_DE_PRODUCTO = 'application/vnd.spNegativeTargetingClause.v3+json'
+
+/**
+ * EXCLUYE UN ASIN de un grupo de anuncios (segmentación negativa por productos, `ASIN_SAME_AS`). Es lo que pide el SOP cuando el término de búsqueda es un ASIN: una palabra clave negativa
+ * «b08knpppgd» no excluye nada, y Amazon la acepta igual (el fallo es SILENCIOSO). Va por GRUPO porque la negativa de producto a nivel de campaña solo existe en las automáticas.
+ * Contrastado con el OpenAPI oficial de SP v3 (POST /sp/negativeTargets; responde `negativeTargetingClauses.success[].targetId`). Devuelve ese id, que hace falta para deshacerlo.
+ */
+export async function crearNegativaDeProducto(conexionId: string, profileId: number, n: { campaignId: string; adGroupId: string; asin: string }): Promise<string> {
+  const res = await llamarAds<unknown>(conexionId, '/sp/negativeTargets', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_NEGATIVA_DE_PRODUCTO),
+    cuerpo: { negativeTargetingClauses: [{ campaignId: n.campaignId, adGroupId: n.adGroupId, expression: [{ type: 'ASIN_SAME_AS', value: n.asin.trim().toUpperCase() }], state: 'ENABLED' }] },
+  })
+  return idDe(aislar(res, 'negativeTargetingClauses'), 'targetId')
+}
+
+export async function borrarNegativaDeProducto(conexionId: string, profileId: number, negativaId: string): Promise<void> {
+  const res = await llamarAds<unknown>(conexionId, '/sp/negativeTargets/delete', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_NEGATIVA_DE_PRODUCTO),
+    cuerpo: { negativeTargetIdFilter: { include: [negativaId] } },
+  })
+  aislar(res, 'negativeTargetingClauses')
+}
+
+/** ATACA UN ASIN: segmentación por producto (`ASIN_SAME_AS`, manual) en un grupo de ATAQUE ASIN, activa y con su puja. Devuelve el targetId */
+export async function crearSegmentacionDeProducto(conexionId: string, profileId: number, s: { campaignId: string; adGroupId: string; asin: string; puja: number }): Promise<string> {
+  const res = await llamarAds<unknown>(conexionId, '/sp/targets', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_TARGET),
+    cuerpo: { targetingClauses: [{ campaignId: s.campaignId, adGroupId: s.adGroupId, expression: [{ type: 'ASIN_SAME_AS', value: s.asin.trim().toUpperCase() }], expressionType: 'MANUAL', state: 'ENABLED', bid: Math.max(0.02, Math.round(s.puja * 100) / 100) }] },
+  })
+  return idDe(aislar(res, 'targetingClauses'), 'targetId')
+}
+
+export async function borrarSegmentacion(conexionId: string, profileId: number, targetId: string): Promise<void> {
+  const res = await llamarAds<unknown>(conexionId, '/sp/targets/delete', {
+    perfilId: profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_TARGET),
+    cuerpo: { targetIdFilter: { include: [targetId] } },
+  })
+  aislar(res, 'targetingClauses')
+}
+
 /** Los grupos de anuncios activos de una campaña, para saber dónde poner una keyword */
 export async function gruposActivosDe(conexionId: string, profileId: number, campaignId: string): Promise<Array<{ adGroupId: string; nombre: string; pujaPorDefecto: number | null }>> {
   const res = await llamarAds<{ adGroups?: Array<{ adGroupId?: string | number; name?: string; defaultBid?: number }> }>(conexionId, '/sp/adGroups/list', {

@@ -11,23 +11,41 @@
  *
  *   1. MODO POR CUENTA, apagado por defecto: apagado · sugiere (propone, NO aplica nada) · aprueba (una persona pulsa «Aplicar») · autopiloto (aplica sola, y solo lo que el SOP permite sin aprobación).
  *   2. LA FICHA DE CUENTA TIENE QUE ESTAR FIRMADA para aplicar nada, ni siquiera con aprobación: los umbrales son doctrina solo cuando alguien los ha firmado.
- *   3. SOLO CAMPAÑAS CON LA NOMENCLATURA del SOP: las demás no se tocan.
- *   4. EL PILOTO AUTOMÁTICO SOLO NEGATIVIZA, y con un tope al día. Promover un término crea una keyword nueva (un cambio estructural) y el SOP exige aprobación.
+ *   3. SOLO CAMPAÑAS CON LA NOMENCLATURA del SOP (la del ERP o sus variantes reconocidas: «Manual Exacta», «FRASE H10», «ASIN H10»…, ver reglas.ts): las demás no se tocan.
+ *   4. EL PILOTO AUTOMÁTICO SOLO NEGATIVIZA, y con un tope al día. Promover un término crea una keyword nueva (un cambio estructural) y el SOP exige aprobación. Tampoco excluye ASIN (negativa
+ *      de producto) ni términos marcados «Revisar» (posibles irrelevantes): eso lo decide una persona. Pujas, pausas y presupuesto, siempre con aprobación.
  *   5. TODO SE ANOTA EN EL LOG y todo lo aplicado se puede DESHACER: se guardan los identificadores de lo creado en Amazon.
  *   6. Un término que ya se propuso o se resolvió hace menos de 14 días no se vuelve a proponer (cuarentena: un cambio cada vez y con ventana de lectura).
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { campanasDe } from './campanas'
-import { anotarCambio, leerFicha, productosDeCuenta } from './cuenta'
-import { borrarKeyword, borrarNegativaDeCampana, crearKeyword, crearNegativaDeCampana, gruposActivosDe, ponerPresupuesto, ponerPuja } from './escritura'
-import { objetivosDesdeAcos } from './margen'
+import { anotarCambio, leerFicha, productosDeCuenta, type FichaDeCuenta } from './cuenta'
+import {
+  borrarKeyword,
+  borrarNegativaDeCampana,
+  borrarNegativaDeProducto,
+  borrarSegmentacion,
+  crearKeyword,
+  crearNegativaDeCampana,
+  crearNegativaDeProducto,
+  crearSegmentacionDeProducto,
+  gruposActivosDe,
+  ponerPresupuesto,
+  ponerPuja,
+} from './escritura'
+import { objetivosDesdeAcos, precioParaMotor, ticketsMedios } from './margen'
 import { decidirSiSePuedeAplicar, planificarPropuestas, type DestinoDeCampana, type PropuestaNueva } from './motor-calculo'
 import { asinDeCampana } from './productos-agrupar'
-import { partesDeNombre, type ObjetivosParaReglas, type TipoDePropuesta } from './reglas'
+import { esAsin, normalizarTexto, palabrasDe, partesDeNombre, type ObjetivosParaReglas, type TipoDePropuesta } from './reglas'
+import { cambiarEstado } from './segmentaciones'
+import { cvrsDeCuenta, leerUmbrales } from './umbrales-cuenta'
 import { leerTerminos } from './terminos'
 import type { CuentaParaSincronizar } from './sincronizar'
 import type { Rol } from './estructura'
+
+export { guardarUmbrales, leerUmbrales } from './umbrales-cuenta'
 
 export type ModoDelMotor = 'apagado' | 'sugiere' | 'aprueba' | 'autopiloto'
 export const MODOS: readonly ModoDelMotor[] = ['apagado', 'sugiere', 'aprueba', 'autopiloto']
@@ -58,7 +76,9 @@ export interface Propuesta {
   haciaAdGroupId: string | null
   negativizarEnOrigen: boolean
   motivo: string
-  metricas: { clics: number; gasto: number; pedidos: number; ventas: number; acosPct: number | null; usoPct?: number }
+  metricas: { clics: number; gasto: number; pedidos: number; ventas: number; acosPct: number | null; usoPct?: number; precioEstimado?: number; revisar?: boolean; cvrPct?: number }
+  /** El término es un ASIN (ficha de producto): se excluye y se ataca como segmentación por producto */
+  esAsin: boolean
   /** Puja y presupuesto (migración 298): la segmentación, su tipo y el valor antes y después */
   objetivoId: string | null
   objetivoTipo: string | null
@@ -104,6 +124,7 @@ function deFila(f: Record<string, unknown>): Propuesta {
     objetivoTipo: (f.objetivo_tipo as string | null) ?? null,
     valorActual: f.valor_actual == null ? null : Number(f.valor_actual),
     valorNuevo: f.valor_nuevo == null ? null : Number(f.valor_nuevo),
+    esAsin: esAsin(f.termino as string) && (f.tipo === 'negativizar' || f.tipo === 'promover'),
     estado: f.estado as EstadoDePropuesta,
     error: (f.error as string | null) ?? null,
     automatica: Boolean(f.automatica),
@@ -143,6 +164,112 @@ export async function perfilesConMotor(): Promise<string[]> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Los objetivos de cada producto (con el precio estimado si falta)    */
+/* ------------------------------------------------------------------ */
+
+export interface ObjetivoDeProducto extends ObjetivosParaReglas {
+  cpaObjetivo: number
+  precio: number
+  /** true = el precio es el ticket medio de Ads (el producto no tiene precio en su ficha) */
+  precioEstimado: boolean
+}
+
+export interface ObjetivosDeCuenta {
+  porAsin: Map<string, ObjetivoDeProducto | null>
+  /** Productos sin ACoS objetivo fijado */
+  sinAcos: Array<{ asin: string; resumen: string }>
+  /** Productos con ACoS objetivo pero sin precio ni ventas de las que estimarlo: el motor no puede decidir nada de ellos */
+  sinPrecio: Array<{ asin: string; resumen: string }>
+  /** Productos cuyo precio es el ticket medio de Ads */
+  conPrecioEstimado: Array<{ asin: string; resumen: string; precio: number }>
+  /** Las palabras de cada producto (resumen y título de su ficha), para la regla de irrelevantes */
+  palabras: Map<string, string[]>
+  /** ASIN con campañas (con la nomenclatura) que gastan y que NO están en Productos: el motor no puede mirarlos */
+  sinFicha: string[]
+}
+
+/**
+ * El ticket medio de lo vendido por publicidad en los últimos 30 días, por ASIN (sale del nombre de la campaña), y los ASIN que han tenido campañas con gasto en ese tiempo (para avisar de los que
+ * no están dados de alta en Productos: el motor no los mira y antes no se decía).
+ */
+async function ventasDeCampanas(perfilId: string): Promise<{ tickets: Map<string, number>; conGasto: Set<string> }> {
+  const desde = new Date(Date.now() - 30 * DIA_MS).toISOString().slice(0, 10)
+  const filas: Array<{ asin: string | null; ventas: number; unidades: number }> = []
+  const conGasto = new Set<string>()
+  for (let i = 0; i < 20_000; i += 1000) {
+    const { data, error } = await createServiceClient().from('ads_rendimiento_diario').select('nombre, ventas, unidades').eq('perfil_id', perfilId).gte('fecha', desde).gt('gasto', 0).order('fecha').order('campaign_id').range(i, i + 999)
+    if (error) {
+      if (isMissingSchema(error)) return { tickets: new Map(), conGasto }
+      throw error
+    }
+    for (const r of (data ?? []) as Array<{ nombre: string | null; ventas: number; unidades: number }>) {
+      // Solo las campañas con la nomenclatura: las que el motor podría mirar
+      const asin = r.nombre && partesDeNombre(r.nombre) ? asinDeCampana(r.nombre) : null
+      if (asin) conGasto.add(asin)
+      filas.push({ asin, ventas: Number(r.ventas), unidades: Number(r.unidades) })
+    }
+    if (!data || data.length < 1000) break
+  }
+  return { tickets: ticketsMedios(filas), conGasto }
+}
+
+/**
+ * EL OBJETIVO DE CADA PRODUCTO, que es de donde cuelgan todas las reglas: el ACoS que ha FIJADO una persona en su ficha de producto y el precio (el de la ficha o, si falta, el ticket medio de Ads,
+ * marcado como estimación). Sin ACoS o sin ninguno de los dos precios, el producto no se evalúa y la pantalla lo dice en «Qué hacer hoy».
+ */
+export async function objetivosDeCuenta(perfilId: string, ficha: FichaDeCuenta): Promise<ObjetivosDeCuenta> {
+  const [productos, { tickets, conGasto }] = await Promise.all([productosDeCuenta(perfilId), ventasDeCampanas(perfilId)])
+  const conFicha = new Set(productos.map((p) => p.asin.toUpperCase()))
+  const salida: ObjetivosDeCuenta = { porAsin: new Map(), sinAcos: [], sinPrecio: [], conPrecioEstimado: [], palabras: new Map(), sinFicha: [...conGasto].filter((a) => !conFicha.has(a)).sort() }
+  for (const p of productos) {
+    const asin = p.asin.toUpperCase()
+    const resumen = p.resumen || asin
+    salida.palabras.set(asin, palabrasDe(`${p.resumen && p.resumen !== asin ? p.resumen : ''} ${p.titulo ?? ''}`))
+    if (p.acosObjetivoPct == null) {
+      salida.sinAcos.push({ asin, resumen })
+      salida.porAsin.set(asin, null)
+      continue
+    }
+    const precio = precioParaMotor(p.precio, tickets.get(asin))
+    const o = precio ? objetivosDesdeAcos(precio.precio, p.acosObjetivoPct, ficha.gastoSinVentaX) : null
+    if (!precio || !o) {
+      salida.sinPrecio.push({ asin, resumen })
+      salida.porAsin.set(asin, null)
+      continue
+    }
+    if (precio.estimado) salida.conPrecioEstimado.push({ asin, resumen, precio: precio.precio })
+    salida.porAsin.set(asin, { acosObjetivoPct: o.acosObjetivoPct, gastoMaximoSinVenta: o.gastoMaximoSinVenta, cpaObjetivo: o.cpaObjetivo, precio: precio.precio, precioEstimado: precio.estimado })
+  }
+  return salida
+}
+
+/**
+ * LAS SEGMENTACIONES QUE YA HAY en cada campaña (las keywords y ASIN con alguna impresión en 30 días, de `ads_objetivos_diario`): para no cosechar un término que ya está en su destino. Es una lectura
+ * de la base, sin tocar Amazon; una keyword recién creada y sin impresiones no sale (Amazon rechazaría el duplicado y la propuesta quedaría en «error» con su motivo).
+ */
+async function segmentacionesExistentes(perfilId: string): Promise<Map<string, Set<string>>> {
+  const desde = new Date(Date.now() - 30 * DIA_MS).toISOString().slice(0, 10)
+  const por = new Map<string, Set<string>>()
+  for (let i = 0; i < 60_000; i += 1000) {
+    const { data, error } = await createServiceClient().from('ads_objetivos_diario').select('campaign_id, texto, tipo').eq('perfil_id', perfilId).gte('fecha', desde).order('fecha').order('objetivo_id').range(i, i + 999)
+    if (error) {
+      if (isMissingSchema(error)) return por
+      throw error
+    }
+    for (const r of (data ?? []) as Array<{ campaign_id: string; texto: string; tipo: string | null }>) {
+      const asin = /(b0[a-z0-9]{8})/i.exec(r.texto)?.[1]
+      const texto = r.tipo === 'EXACT' || r.tipo === 'PHRASE' || r.tipo === 'BROAD' ? normalizarTexto(r.texto) : asin ? asin.toLowerCase() : null
+      if (!texto) continue
+      const set = por.get(r.campaign_id) ?? new Set<string>()
+      set.add(texto)
+      por.set(r.campaign_id, set)
+    }
+    if (!data || data.length < 1000) break
+  }
+  return por
+}
+
+/* ------------------------------------------------------------------ */
 /* Generar propuestas                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -169,23 +296,25 @@ export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<
   const terminos = await leerTerminos(cuenta.id)
   if (terminos.length === 0) return { ...vacio, omitido: 'sin-terminos', caducadas: caducadas?.length ?? 0 }
 
-  const [ficha, productos] = await Promise.all([leerFicha(cuenta.id), productosDeCuenta(cuenta.id)])
-  // El objetivo de cada producto es el ACoS que ha FIJADO una persona en su ficha de producto; sin él (o sin precio) el producto no se evalúa
-  const objetivos = new Map<string, ObjetivosParaReglas | null>()
-  for (const p of productos) {
-    const o = objetivosDesdeAcos(p.precio, p.acosObjetivoPct, ficha.gastoSinVentaX)
-    objetivos.set(p.asin.toUpperCase(), o ? { acosObjetivoPct: o.acosObjetivoPct, gastoMaximoSinVenta: o.gastoMaximoSinVenta } : null)
-  }
+  const ficha = await leerFicha(cuenta.id)
+  // El objetivo de cada producto es el ACoS que ha FIJADO una persona en su ficha de producto, con su precio (o el ticket medio de Ads como estimación); sin ellos el producto no se evalúa
+  const [cuentaObjetivos, existentes, { umbrales: estimados }] = await Promise.all([objetivosDeCuenta(cuenta.id, ficha), segmentacionesExistentes(cuenta.id), leerUmbrales(cuenta.id)])
+  const cvrs = await cvrsDeCuenta(cuenta.id, estimados.cvrPorDefectoPct)
+  const objetivos = new Map<string, ObjetivosParaReglas | null>([...cuentaObjetivos.porAsin].map(([asin, o]) => [asin, o ? { acosObjetivoPct: o.acosObjetivoPct, gastoMaximoSinVenta: o.gastoMaximoSinVenta, cpaObjetivo: o.cpaObjetivo } : null]))
+  const precioEstimado = new Map(cuentaObjetivos.conPrecioEstimado.map((p) => [p.asin, p.precio]))
 
   // Las campañas vivas, para saber a cuál sube cada término (la del mismo producto con el rol de destino)
   const { campanas } = await campanasDe(cuenta.conexionId, cuenta.profileId)
   const porAsinYRol = new Map<string, DestinoDeCampana & { activa: boolean }>()
+  // Todas las campañas (de cualquier estado menos archivadas) de cada producto y rol: para saber si un término ya está cosechado en alguna
+  const campanasDeRol = new Map<string, string[]>()
   for (const c of campanas) {
     if (c.estado === 'ARCHIVED') continue
     const p = partesDeNombre(c.nombre)
     const asin = asinDeCampana(c.nombre)
     if (!p || !asin) continue
     const clave = `${asin}|${p.rol}`
+    campanasDeRol.set(clave, [...(campanasDeRol.get(clave) ?? []), c.campaignId])
     const previa = porAsinYRol.get(clave)
     if (!previa || (!previa.activa && c.estado === 'ENABLED')) porAsinYRol.set(clave, { campaignId: c.campaignId, nombre: c.nombre, adGroupId: null, activa: c.estado === 'ENABLED' })
   }
@@ -200,10 +329,30 @@ export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<
     umbrales: { comprasParaExacta: ficha.comprasParaExacta, clicsMinimosNegativizar: ficha.clicsMinimosNegativizar, muestraMinimaClics: ficha.muestraMinimaClics },
     objetivos,
     destino: (asin, rol: Rol) => {
-      const d = porAsinYRol.get(`${asin}|${rol}`)
-      return d ? { campaignId: d.campaignId, nombre: d.nombre, adGroupId: null } : null
+      // La cosecha va a la ESTABILIDAD del producto; si no la tiene (el día 1 no se crea), a la DOMINIO, que es la otra exacta
+      const opciones: Rol[] = rol === 'MANUAL EXACTA / ESTABILIDAD' ? ['MANUAL EXACTA / ESTABILIDAD', 'MANUAL EXACTA / DOMINIO'] : [rol]
+      for (const r of opciones) {
+        const d = porAsinYRol.get(`${asin}|${r}`)
+        if (d) return { campaignId: d.campaignId, nombre: d.nombre, adGroupId: null, rol: r }
+      }
+      return null
     },
     yaHay: (campaignId, termino, tipo) => yaHay.has(`${campaignId}|${termino.trim().toLowerCase()}|${tipo}`),
+    // Cosechar a EXACTA lo que ya está en cualquiera de las dos EXACTA del producto (DOMINIO o ESTABILIDAD) sería duplicarlo
+    yaEsta: (asin, rol, termino) => {
+      const roles: Rol[] = rol.startsWith('MANUAL EXACTA') ? ['MANUAL EXACTA / DOMINIO', 'MANUAL EXACTA / ESTABILIDAD'] : [rol]
+      const t = esAsin(termino) ? termino.trim().toLowerCase() : normalizarTexto(termino)
+      return roles.some((r) => (campanasDeRol.get(`${asin}|${r}`) ?? []).some((id) => existentes.get(id)?.has(t)))
+    },
+    precioEstimado,
+    cvrDe: (campaignId, asin) => cvrs.de(campaignId, asin).cvr,
+    palabrasDe: (asin) => {
+      // Las del producto (ficha) y, si no las hay, el RESUMEN de sus campañas: «JAMON SERRANO DESHUESADO 2,5KG»
+      const propias = cuentaObjetivos.palabras.get(asin) ?? []
+      const deCampanas = campanas.filter((c) => asinDeCampana(c.nombre) === asin).flatMap((c) => palabrasDe(partesDeNombre(c.nombre)?.resumen ?? ''))
+      return [...new Set([...propias, ...deCampanas])]
+    },
+    estimados,
   })
 
   // El grupo de anuncios de cada campaña destino (una lectura por campaña distinta)
@@ -232,13 +381,13 @@ export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<
       hacia_campaign_nombre: n.haciaCampaignNombre,
       hacia_ad_group_id: n.haciaCampaignId ? (gruposPorCampana.get(n.haciaCampaignId) ?? null) : null,
       negativizar_en_origen: n.negativizarEnOrigen,
-      motivo: n.motivo,
+      motivo: n.motivo + (n.metricas.precioEstimado ? ` · precio estimado ${n.metricas.precioEstimado.toFixed(2).replace('.', ',')} (ticket medio de Ads)` : ''),
       metricas: n.metricas,
     })
     if (!error) nuevas += 1
     else if (error.code !== '23505') throw error // 23505 = ya había una pendiente igual: no es un error
   }
-  return { nuevas, repetidas: plan.repetidas, evaluados: plan.evaluados, sinObjetivo: plan.sinObjetivo, caducadas: caducadas?.length ?? 0 }
+  return { nuevas, repetidas: plan.repetidas + plan.yaCosechadas, evaluados: plan.evaluados, sinObjetivo: plan.sinObjetivo, caducadas: caducadas?.length ?? 0 }
 }
 
 /* ------------------------------------------------------------------ */
@@ -278,22 +427,40 @@ async function cargar(perfilId: string, id: string) {
   return data as unknown as Record<string, unknown>
 }
 
-/** Lo que se puede aplicar o no, y por qué. Se comprueba aquí en el servidor, nunca solo en la pantalla (los candados están en decidirSiSePuedeAplicar, que tiene sus pruebas) */
-export async function puedeAplicar(perfilId: string, p: Propuesta, automatica: boolean): Promise<{ ok: true } | { ok: false; motivo: string }> {
+/** Lo que hace falta para decidir si se puede aplicar: se lee UNA vez por cuenta (antes se leía por cada propuesta: tres consultas × cada fila de la pantalla) */
+export interface ContextoDeAplicar {
+  modo: ModoDelMotor
+  fichaFirmada: boolean
+  aplicadasHoy: number
+}
+
+export async function contextoDeAplicar(perfilId: string, automatica: boolean): Promise<ContextoDeAplicar> {
   const [modo, ficha, hoy] = await Promise.all([leerModo(perfilId), leerFicha(perfilId), aplicadasHoy(perfilId, automatica)])
+  return { modo, fichaFirmada: Boolean(ficha.firmadaAt), aplicadasHoy: hoy }
+}
+
+export function decidirConContexto(c: ContextoDeAplicar, p: Propuesta, automatica: boolean): { ok: true } | { ok: false; motivo: string } {
   return decidirSiSePuedeAplicar({
-    modo,
+    modo: c.modo,
     automatica,
     tipo: p.tipo,
     estado: p.estado,
-    fichaFirmada: Boolean(ficha.firmadaAt),
+    fichaFirmada: c.fichaFirmada,
     campaignNombre: p.campaignNombre,
     haciaRol: p.haciaRol,
     haciaCampaignId: p.haciaCampaignId,
     haciaAdGroupId: p.haciaAdGroupId,
-    aplicadasHoy: hoy,
+    adGroupId: p.adGroupId,
+    esAsin: p.esAsin,
+    revisar: Boolean(p.metricas.revisar),
+    aplicadasHoy: c.aplicadasHoy,
     topeDiario: automatica ? TOPE_DIARIO_AUTOPILOTO : TOPE_DIARIO_MANUAL,
   })
+}
+
+/** Lo que se puede aplicar o no, y por qué. Se comprueba aquí en el servidor, nunca solo en la pantalla (los candados están en decidirSiSePuedeAplicar, que tiene sus pruebas) */
+export async function puedeAplicar(perfilId: string, p: Propuesta, automatica: boolean): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  return decidirConContexto(await contextoDeAplicar(perfilId, automatica), p, automatica)
 }
 
 /** Aplica una propuesta en la cuenta de Amazon. Si algo falla a mitad, deshace lo que ya hubiera creado y la deja en «error» con el motivo */
@@ -305,7 +472,20 @@ export async function aplicarPropuesta(cuenta: CuentaParaSincronizar, id: string
 
   const service = createServiceClient()
   const comun = { perfilId: cuenta.id, campaignId: p.campaignId, nombreCampana: p.campaignNombre, origen: (quien.automatica ? 'automatico' : 'manual') as 'automatico' | 'manual', userId: quien.userId }
-  const creado: { keywordId?: string; negativaId?: string } = {}
+  const creado: { keywordId?: string; negativaId?: string; targetId?: string; negativaProductoId?: string } = {}
+  // Pausar: la misma función que el botón de pausa del panel de campañas (deja el log con el motivo del motor); deshacer = volver a activarla
+  if (p.tipo === 'pausar') {
+    if (!p.objetivoId || (p.objetivoTipo !== 'keyword' && p.objetivoTipo !== 'producto')) throw new Error('A la propuesta le falta la segmentación que hay que pausar.')
+    try {
+      await cambiarEstado({ cuenta: { id: cuenta.id, conexionId: cuenta.conexionId, profileId: cuenta.profileId }, campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId: quien.userId ?? '' }, { tipo: p.objetivoTipo, id: p.objetivoId, texto: p.termino, activar: false, motivo: p.motivo, origen: quien.automatica ? 'automatico' : 'manual' })
+      await service.from('ads_propuestas').update({ estado: 'aplicada', aplicada: { pausada: true }, error: null, resuelta_at: new Date().toISOString(), resuelta_por: quien.userId, automatica: quien.automatica }).eq('id', id)
+    } catch (e) {
+      const detalle = e instanceof Error ? e.message : String(e)
+      await service.from('ads_propuestas').update({ estado: 'error', error: detalle.slice(0, 500), resuelta_at: new Date().toISOString(), resuelta_por: quien.userId }).eq('id', id)
+      throw new Error(detalle)
+    }
+    return deFila(await cargar(cuenta.id, id))
+  }
   // Puja y presupuesto: un solo PUT, y deshacer es volver a poner el valor de antes
   if (p.tipo === 'puja' || p.tipo === 'presupuesto') {
     try {
@@ -316,20 +496,29 @@ export async function aplicarPropuesta(cuenta: CuentaParaSincronizar, id: string
       await service.from('ads_propuestas').update({ estado: 'aplicada', aplicada: { valorAnterior: p.valorActual }, error: null, resuelta_at: new Date().toISOString(), resuelta_por: quien.userId, automatica: quien.automatica }).eq('id', id)
     } catch (e) {
       const detalle = e instanceof Error ? e.message : String(e)
-      await anotarCambio({ ...comun, entidad: p.tipo === 'puja' ? 'keyword' : 'campaña', accion: 'cambiar', campo: p.tipo === 'puja' ? 'puja' : 'presupuesto diario', ok: false, error: detalle, motivo: p.motivo })
+      await anotarCambio({ ...comun, entidad: p.tipo === 'puja' ? (p.objetivoTipo === 'keyword' ? 'keyword' : 'target') : 'campaña', accion: 'cambiar', campo: p.tipo === 'puja' ? `puja de «${p.termino}»` : 'presupuesto diario', ok: false, error: detalle, motivo: p.motivo })
       await service.from('ads_propuestas').update({ estado: 'error', error: detalle.slice(0, 500), resuelta_at: new Date().toISOString(), resuelta_por: quien.userId }).eq('id', id)
       throw new Error(detalle)
     }
     return deFila(await cargar(cuenta.id, id))
   }
   try {
-    if (p.tipo === 'promover') {
-      const cpc = p.metricas.clics > 0 ? p.metricas.gasto / p.metricas.clics : 0.2
+    // La puja de partida de lo cosechado: el CPC que ya pagaba (lo que ha demostrado que convierte a ese precio)
+    const cpc = p.metricas.clics > 0 ? p.metricas.gasto / p.metricas.clics : 0.2
+    if (p.tipo === 'promover' && p.esAsin) {
+      creado.targetId = await crearSegmentacionDeProducto(cuenta.conexionId, cuenta.profileId, { campaignId: p.haciaCampaignId as string, adGroupId: p.haciaAdGroupId as string, asin: p.termino, puja: cpc })
+      await anotarCambio({ ...comun, campaignId: p.haciaCampaignId, nombreCampana: p.haciaCampaignNombre, entidad: 'target', accion: 'promover', campo: 'segmentación por producto (ASIN)', valorAnterior: p.desdeRol, valorNuevo: `${p.termino.toUpperCase()} → ${p.haciaRol}`, motivo: p.motivo })
+    } else if (p.tipo === 'promover') {
       const coincidencia = (p.haciaRol ?? '').includes('EXACTA') ? 'EXACT' : 'PHRASE'
       creado.keywordId = await crearKeyword(cuenta.conexionId, cuenta.profileId, { campaignId: p.haciaCampaignId as string, adGroupId: p.haciaAdGroupId as string, texto: p.termino, coincidencia, puja: cpc })
       await anotarCambio({ ...comun, campaignId: p.haciaCampaignId, nombreCampana: p.haciaCampaignNombre, entidad: 'keyword', accion: 'promover', campo: `keyword ${coincidencia === 'EXACT' ? 'exacta' : 'de frase'}`, valorAnterior: p.desdeRol, valorNuevo: `${p.termino} → ${p.haciaRol}`, motivo: p.motivo })
     }
-    if (p.tipo === 'negativizar' || p.negativizarEnOrigen) {
+    if ((p.tipo === 'negativizar' || p.negativizarEnOrigen) && p.esAsin) {
+      // Un ASIN se excluye como segmentación negativa por producto, en el grupo donde apareció (SOP: una palabra clave negativa «b0…» no excluye nada y Amazon no avisa)
+      if (!p.adGroupId) throw new Error('No se sabe en qué grupo de anuncios apareció este ASIN: exclúyelo a mano en Amazon.')
+      creado.negativaProductoId = await crearNegativaDeProducto(cuenta.conexionId, cuenta.profileId, { campaignId: p.campaignId, adGroupId: p.adGroupId, asin: p.termino })
+      await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: 'segmentación negativa por productos', valorNuevo: p.termino.toUpperCase(), motivo: p.tipo === 'promover' ? `Para que no compita con la campaña ${p.haciaRol}: ${p.motivo}` : p.motivo })
+    } else if (p.tipo === 'negativizar' || p.negativizarEnOrigen) {
       creado.negativaId = await crearNegativaDeCampana(cuenta.conexionId, cuenta.profileId, p.campaignId, p.termino)
       await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: 'palabra clave negativa exacta', valorNuevo: p.termino, motivo: p.tipo === 'promover' ? `Para que no compita con la campaña ${p.haciaRol}: ${p.motivo}` : p.motivo })
     }
@@ -339,8 +528,10 @@ export async function aplicarPropuesta(cuenta: CuentaParaSincronizar, id: string
     let detalle = e instanceof Error ? e.message : String(e)
     try {
       if (creado.keywordId) await borrarKeyword(cuenta.conexionId, cuenta.profileId, creado.keywordId)
+      if (creado.targetId) await borrarSegmentacion(cuenta.conexionId, cuenta.profileId, creado.targetId)
       if (creado.negativaId) await borrarNegativaDeCampana(cuenta.conexionId, cuenta.profileId, creado.negativaId)
-      if (creado.keywordId || creado.negativaId) detalle += ' (lo que se había creado a medias se ha deshecho)'
+      if (creado.negativaProductoId) await borrarNegativaDeProducto(cuenta.conexionId, cuenta.profileId, creado.negativaProductoId)
+      if (creado.keywordId || creado.targetId || creado.negativaId || creado.negativaProductoId) detalle += ' (lo que se había creado a medias se ha deshecho)'
     } catch (e2) {
       detalle += ` (OJO: no se ha podido deshacer lo creado a medias: ${e2 instanceof Error ? e2.message : String(e2)})`
     }
@@ -349,6 +540,38 @@ export async function aplicarPropuesta(cuenta: CuentaParaSincronizar, id: string
     throw new Error(detalle)
   }
   return deFila(await cargar(cuenta.id, id))
+}
+
+/**
+ * APLICAR VARIAS DE GOLPE (lo que el administrativo marca en la lista). Una a una y en orden, cada una con TODOS sus candados (tope diario incluido): si una falla, se apunta y se sigue con la
+ * siguiente, porque son cambios independientes. Como mucho el tope diario manual por llamada.
+ */
+export async function aplicarVarias(cuenta: CuentaParaSincronizar, ids: readonly string[], userId: string): Promise<Array<{ id: string; ok: boolean; error?: string }>> {
+  const salida: Array<{ id: string; ok: boolean; error?: string }> = []
+  for (const id of ids.slice(0, TOPE_DIARIO_MANUAL)) {
+    try {
+      await aplicarPropuesta(cuenta, id, { userId, automatica: false })
+      salida.push({ id, ok: true })
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      salida.push({ id, ok: false, error })
+      if (/Tope diario/.test(error)) break // el resto chocaría con lo mismo
+    }
+  }
+  return salida
+}
+
+export async function descartarVarias(perfilId: string, ids: readonly string[], userId: string): Promise<number> {
+  let n = 0
+  for (const id of ids.slice(0, 500)) {
+    try {
+      await descartarPropuesta(perfilId, id, userId)
+      n += 1
+    } catch {
+      /* ya resuelta por otra persona: no es un error de este lote */
+    }
+  }
+  return n
 }
 
 export async function descartarPropuesta(perfilId: string, id: string, userId: string): Promise<void> {
@@ -363,6 +586,12 @@ export async function deshacerPropuesta(cuenta: CuentaParaSincronizar, id: strin
   const fila = await cargar(cuenta.id, id)
   const p = deFila(fila)
   if (p.estado !== 'aplicada') throw new Error('Solo se puede deshacer una propuesta aplicada.')
+  if (p.tipo === 'pausar') {
+    if (!p.objetivoId || (p.objetivoTipo !== 'keyword' && p.objetivoTipo !== 'producto')) throw new Error('A la propuesta le falta la segmentación: actívala a mano desde Campañas.')
+    await cambiarEstado({ cuenta: { id: cuenta.id, conexionId: cuenta.conexionId, profileId: cuenta.profileId }, campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId }, { tipo: p.objetivoTipo, id: p.objetivoId, texto: p.termino, activar: true, motivo: `Se deshace: ${p.motivo}` })
+    await createServiceClient().from('ads_propuestas').update({ estado: 'deshecha', resuelta_at: new Date().toISOString(), resuelta_por: userId }).eq('id', id)
+    return
+  }
   if (p.tipo === 'puja' || p.tipo === 'presupuesto') {
     if (p.valorActual == null) throw new Error('No se sabe el valor de antes: no se puede deshacer.')
     if (p.tipo === 'puja') await ponerPuja(cuenta, p.objetivoTipo, p.objetivoId as string, p.valorActual)
@@ -371,11 +600,13 @@ export async function deshacerPropuesta(cuenta: CuentaParaSincronizar, id: strin
     await anotarCambio({ perfilId: cuenta.id, campaignId: p.campaignId, nombreCampana: p.campaignNombre, entidad: p.tipo === 'puja' ? 'keyword' : 'campaña', accion: 'cambiar', campo: 'deshacer', valorAnterior: p.valorNuevo == null ? null : p.valorNuevo.toFixed(2).replace('.', ','), valorNuevo: p.valorActual.toFixed(2).replace('.', ','), motivo: `Se deshace: ${p.motivo}`, origen: 'manual', userId })
     return
   }
-  const creado = (fila.aplicada ?? {}) as { keywordId?: string; negativaId?: string }
+  const creado = (fila.aplicada ?? {}) as { keywordId?: string; negativaId?: string; targetId?: string; negativaProductoId?: string }
   if (creado.keywordId) await borrarKeyword(cuenta.conexionId, cuenta.profileId, creado.keywordId)
+  if (creado.targetId) await borrarSegmentacion(cuenta.conexionId, cuenta.profileId, creado.targetId)
   if (creado.negativaId) await borrarNegativaDeCampana(cuenta.conexionId, cuenta.profileId, creado.negativaId)
+  if (creado.negativaProductoId) await borrarNegativaDeProducto(cuenta.conexionId, cuenta.profileId, creado.negativaProductoId)
   await createServiceClient().from('ads_propuestas').update({ estado: 'deshecha', resuelta_at: new Date().toISOString(), resuelta_por: userId }).eq('id', id)
-  await anotarCambio({ perfilId: cuenta.id, campaignId: p.campaignId, nombreCampana: p.campaignNombre, entidad: creado.keywordId ? 'keyword' : 'negativa', accion: 'cambiar', campo: 'deshacer', valorAnterior: p.termino, valorNuevo: 'quitado', motivo: `Se deshace: ${p.motivo}`, origen: 'manual', userId })
+  await anotarCambio({ perfilId: cuenta.id, campaignId: p.campaignId, nombreCampana: p.campaignNombre, entidad: creado.keywordId ? 'keyword' : creado.targetId ? 'target' : 'negativa', accion: 'cambiar', campo: 'deshacer', valorAnterior: p.termino, valorNuevo: 'quitado', motivo: `Se deshace: ${p.motivo}`, origen: 'manual', userId })
 }
 
 /* ------------------------------------------------------------------ */

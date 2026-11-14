@@ -53,7 +53,7 @@ export async function pasoDelMotor(cuenta: CuentaParaSincronizar): Promise<PasoD
     // Fase 3: pujas y presupuesto, con la misma cadencia diaria. Si falla, lo de arriba ya está guardado
     try {
       const r = await generarPropuestasDePujaYPresupuesto(cuenta)
-      nuevas += r.pujas + r.presupuestos
+      nuevas += r.pujas + r.presupuestos + r.pausas
     } catch (e) {
       console.error(`[ads] propuestas de puja y presupuesto de ${cuenta.id}:`, e instanceof Error ? e.message : e)
     }

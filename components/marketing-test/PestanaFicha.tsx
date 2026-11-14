@@ -25,7 +25,7 @@ const GRUPOS: Array<{ titulo: string; campos: Array<{ clave: keyof Campos; nombr
     campos: [
       { clave: 'subidaPresupuestoPct', nombre: 'Subida de presupuesto', unidad: '%', nota: '+20-25 % por movimiento.', paso: 1 },
       { clave: 'horasEntreSubidas', nombre: 'Entre subidas de presupuesto', unidad: 'horas', nota: 'Máximo una cada 72 h.' },
-      { clave: 'cambioPujaPct', nombre: 'Subida o bajada de puja', unidad: '%', nota: '±10-15 % por movimiento.', paso: 1 },
+      { clave: 'cambioPujaPct', nombre: 'Subida o bajada de puja', unidad: '%', nota: '±10-15 % por movimiento. El motor ya no usa un % fijo: puja hacia la que deja el ACoS en el objetivo, con los topes de Propuestas › Reglas y umbrales.', paso: 1 },
       { clave: 'diasEntreCambiosPuja', nombre: 'Entre cambios de puja (por keyword)', unidad: 'días', nota: 'Máximo uno cada 7 días.' },
     ],
   },
@@ -33,9 +33,9 @@ const GRUPOS: Array<{ titulo: string; campos: Array<{ clave: keyof Campos; nombr
     titulo: 'Keywords y términos',
     campos: [
       { clave: 'comprasParaExacta', nombre: 'Compras para consolidar a Exacta', unidad: 'pedidos', nota: '≥ 2 pedidos con ACoS ≤ objetivo…' },
-      { clave: 'ventanaExactaDias', nombre: '…en una ventana de', unidad: 'días', nota: '14 días.' },
-      { clave: 'gastoSinVentaX', nombre: 'Gasto sin venta antes de negativizar', unidad: '× CPA objetivo', nota: '2× el CPA objetivo…', paso: 0.5 },
-      { clave: 'clicsMinimosNegativizar', nombre: '…con un mínimo de', unidad: 'clics', nota: '15 clics.' },
+      { clave: 'ventanaExactaDias', nombre: '…en una ventana de', unidad: 'días', nota: '14 días. El motor lee 30 días cerrados (ver Propuestas › Reglas y umbrales).' },
+      { clave: 'gastoSinVentaX', nombre: 'Gasto sin venta antes de negativizar', unidad: '× CPA objetivo', nota: '2× el CPA objetivo… El motor usa ahora 3 ÷ CVR clics o 1,5× el CPA (Propuestas › Reglas y umbrales).', paso: 0.5 },
+      { clave: 'clicsMinimosNegativizar', nombre: '…con un mínimo de', unidad: 'clics', nota: '15 clics. Sustituido en el motor por el umbral según la conversión real de la campaña.' },
       { clave: 'muestraMinimaClics', nombre: 'Muestra mínima de clics', unidad: 'clics', nota: '1 ÷ CVR de la categoría. Típico: 10-15.' },
     ],
   },

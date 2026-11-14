@@ -1,4 +1,4 @@
-import { decidirSiSePuedeAplicar, planificarPropuestas, type EntradaDeAplicar } from './motor-calculo'
+import { decidirSiSePuedeAplicar, planificarPropuestas, sumarPorCampana, type EntradaDeAplicar } from './motor-calculo'
 import type { FilaDeTermino } from './terminos'
 
 let fallos = 0
@@ -32,12 +32,26 @@ console.log('\n=== sin ACoS objetivo no se propone ===')
 console.log('\n=== promover resuelve su destino ===')
 {
   const objetivos = new Map([['B0AAAAAAA1', OBJ]])
-  const prom = t({ termino: 'jamonero madera', clics: 40, gasto: 9, compras: 2, ventas: 52 })
-  const destino = (asin: string, rol: string) => (asin === 'B0AAAAAAA1' && rol === 'MANUAL AMPLIA' ? { campaignId: 'c9', nombre: nom(asin, rol), adGroupId: 'g9' } : null)
+  const prom = t({ termino: 'jamonero madera', clics: 40, gasto: 9, compras: 3, ventas: 78 })
+  // Como hace motor.ts: se pide la ESTABILIDAD y, si el producto no la tiene, contesta la DOMINIO con su rol real
+  const destino = (asin: string, rol: string) => (asin === 'B0AAAAAAA1' && rol === 'MANUAL EXACTA / ESTABILIDAD' ? { campaignId: 'c9', nombre: nom(asin, 'MANUAL EXACTA / DOMINIO'), adGroupId: 'g9', rol: 'MANUAL EXACTA / DOMINIO' } : null)
   const r = planificarPropuestas({ ...base, objetivos, terminos: [prom], destino: destino as never })
-  ok('sube a la AMPLIA del mismo producto, con su campaña y grupo', r.nuevas[0].haciaCampaignId === 'c9' && r.nuevas[0].haciaAdGroupId === 'g9' && r.nuevas[0].negativizarEnOrigen === true, JSON.stringify(r.nuevas[0]))
+  ok('cosecha a la EXACTA del mismo producto (la DOMINIO si no hay ESTABILIDAD), con su campaña, grupo y la negativa en origen', r.nuevas[0].haciaCampaignId === 'c9' && r.nuevas[0].haciaAdGroupId === 'g9' && r.nuevas[0].haciaRol === 'MANUAL EXACTA / DOMINIO' && r.nuevas[0].negativizarEnOrigen === true, JSON.stringify(r.nuevas[0]))
+  const ya = planificarPropuestas({ ...base, objetivos, terminos: [prom], destino: destino as never, yaEsta: (_a, _r, term) => term === 'jamonero madera' })
+  ok('si el término YA está en la exacta, no se cosecha otra vez (y se cuenta)', ya.nuevas.length === 0 && ya.yaCosechadas === 1)
   const sin = planificarPropuestas({ ...base, objetivos, terminos: [prom] })
   ok('si no existe la campaña destino, la propuesta sale igual pero sin destino (no se podrá aplicar)', sin.nuevas.length === 1 && sin.nuevas[0].haciaCampaignId === null)
+}
+
+console.log('\n=== el mismo término en varios grupos se juzga sumado ===')
+{
+  const filas = [t({ termino: 'fedora', adGroupId: 'g1', clics: 16, gasto: 8 }), t({ termino: 'Fedora', adGroupId: 'g2', clics: 16, gasto: 12, keyword: 'fedora' })]
+  const s = sumarPorCampana(filas)
+  ok('una fila con 32 clics y 20 gastados, en el grupo donde más gastó', s.length === 1 && s[0].clics === 32 && s[0].gasto === 20 && s[0].adGroupId === 'g2', JSON.stringify(s))
+  ok('si en algún grupo el término es su keyword, se marca', s[0].esSuSegmentacion === true)
+  const r = planificarPropuestas({ ...base, objetivos: new Map([['B0AAAAAAA1', OBJ]]), terminos: [t({ termino: 'pamela', adGroupId: 'g1', clics: 16, gasto: 3 }), t({ termino: 'pamela', adGroupId: 'g2', clics: 16, gasto: 3 })] })
+  ok('16 + 16 clics sin pedido (≥ 30) → se excluye; cada grupo por separado no llegaba', r.nuevas.length === 1 && r.nuevas[0].metricas.clics === 32, JSON.stringify(r.nuevas))
+  ok('«jamón» y «jamon» NO se suman (son búsquedas y negativas distintas)', sumarPorCampana([t({ termino: 'jamón' }), t({ termino: 'jamon' })]).length === 2)
 }
 
 console.log('\n=== cuarentena y duplicados ===')
@@ -78,6 +92,10 @@ console.log('\n=== los candados de aplicar ===')
   ok('el piloto automático NUNCA promueve, aunque todo lo demás esté bien', /solo negativiza/.test(motivo({ modo: 'autopiloto', automatica: true, tipo: 'promover', haciaRol: 'MANUAL AMPLIA', haciaCampaignId: 'c', haciaAdGroupId: 'g' })))
   ok('en modo «aprueba» no hay piloto automático', /autopiloto/.test(motivo({ modo: 'aprueba', automatica: true })))
   ok('el piloto automático respeta su tope de 5', /Tope diario.*piloto/.test(motivo({ modo: 'autopiloto', automatica: true, aplicadasHoy: 5, topeDiario: 5 })))
+  ok('el piloto automático no excluye un ASIN (lo aprueba una persona)', /ASIN/.test(motivo({ modo: 'autopiloto', automatica: true, topeDiario: 5, esAsin: true, adGroupId: 'g' })))
+  ok('el piloto automático no aplica un término marcado para revisar', /revisar/.test(motivo({ modo: 'autopiloto', automatica: true, topeDiario: 5, revisar: true })))
+  ok('una persona sí puede excluir un ASIN, si se sabe su grupo', motivo({ esAsin: true, adGroupId: 'g' }) === 'OK' && /grupo de anuncios/.test(motivo({ esAsin: true, adGroupId: null })))
+  ok('una persona sí puede aplicar una pausa', motivo({ tipo: 'pausar' }) === 'OK')
   ok('en autopiloto una persona también puede aplicar a mano (promover incluido)', motivo({ modo: 'autopiloto', automatica: false, tipo: 'promover', haciaRol: 'MANUAL AMPLIA', haciaCampaignId: 'c', haciaAdGroupId: 'g' }) === 'OK')
 }
 

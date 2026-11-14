@@ -1,8 +1,9 @@
 /**
- * AMAZON ADS · EL MOTOR, FASE 3: PROPUESTAS DE PUJA Y DE PRESUPUESTO (SOLO SERVIDOR). Solo PROPONE: aplicar lo hace una persona desde «Propuestas» (el piloto automático solo negativiza).
+ * AMAZON ADS · EL MOTOR, FASE 3: PROPUESTAS DE PUJA, PAUSA Y PRESUPUESTO (SOLO SERVIDOR). Solo PROPONE: aplicar lo hace una persona desde «Propuestas» (el piloto automático solo negativiza).
  *
  * Una vez al día (cuando llega el informe de términos), por cada cuenta con el motor encendido:
- *   · Pujas: las métricas de cada segmentación de los últimos 14 días (ads_objetivos_diario) contra el ACoS objetivo de su producto, con la puja que tiene AHORA en Amazon. Reglas en reglas-pujas.ts.
+ *   · Pujas y pausas: las métricas de cada segmentación de 14 días que acaban «días sin cerrar» antes de hoy (ads_objetivos_diario; los últimos días Amazon aún reajusta conversiones) contra el ACoS
+ *     objetivo de su producto y el CVR de referencia de su campaña, con la puja que tiene AHORA en Amazon. Reglas en reglas-pujas.ts.
  *   · Presupuesto: el gasto de los últimos 7 días de cada campaña (ads_rendimiento_diario) contra su presupuesto de hoy.
  * Cuarentena: una segmentación con una propuesta de puja pendiente o resuelta hace menos de «días entre cambios de puja» (ficha) no se vuelve a tocar; una campaña, lo mismo con «horas entre subidas».
  * Solo campañas activas con la nomenclatura del SOP y de productos con ACoS objetivo fijado.
@@ -11,12 +12,13 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { campanasDe } from './campanas'
-import { leerFicha, productosDeCuenta } from './cuenta'
+import { leerFicha } from './cuenta'
 import { llamarAds } from './datos'
-import { objetivosDesdeAcos } from './margen'
+import { objetivosDeCuenta } from './motor'
+import { cvrsDeCuenta, leerUmbrales } from './umbrales-cuenta'
 import { asinDeCampana } from './productos-agrupar'
 import { partesDeNombre } from './reglas'
-import { proponerPresupuestos, proponerPujas, type SegmentacionParaReglas } from './reglas-pujas'
+import { proponerPausas, proponerPresupuestos, proponerPujas, type SegmentacionParaReglas } from './reglas-pujas'
 import { CLAUSULA_AUTO, textoDeExpresion } from './segmentaciones-calculo'
 import type { CuentaParaSincronizar } from './sincronizar'
 
@@ -39,23 +41,26 @@ async function listar<T>(cuenta: CuentaParaSincronizar, ruta: string, tipo: stri
   return salida
 }
 
-export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSincronizar): Promise<{ pujas: number; presupuestos: number; omitido?: string }> {
+/** Lo que deja una propuesta en su motivo cuando el precio del producto es el ticket medio de Ads */
+const notaDePrecio = (precio: number | null) => (precio ? ` · precio estimado ${precio.toFixed(2).replace('.', ',')} (ticket medio de Ads)` : '')
+
+export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSincronizar): Promise<{ pujas: number; presupuestos: number; pausas: number; omitido?: string; sinMigracionPausas?: boolean }> {
   const service = createServiceClient()
   // Sin la migración 298 no hay dónde guardarlas
   const sonda = await service.from('ads_objetivos_diario').select('perfil_id').eq('perfil_id', cuenta.id).limit(1)
   if (sonda.error) {
-    if (isMissingSchema(sonda.error)) return { pujas: 0, presupuestos: 0, omitido: 'falta la migración 298' }
+    if (isMissingSchema(sonda.error)) return { pujas: 0, presupuestos: 0, pausas: 0, omitido: 'falta la migración 298' }
     throw sonda.error
   }
 
-  const [ficha, productos, { campanas }] = await Promise.all([leerFicha(cuenta.id), productosDeCuenta(cuenta.id), campanasDe(cuenta.conexionId, cuenta.profileId)])
-  const objetivoDe = new Map<string, { acosObjetivoPct: number; cpaObjetivo: number }>()
-  for (const p of productos) {
-    const o = objetivosDesdeAcos(p.precio, p.acosObjetivoPct, ficha.gastoSinVentaX)
-    if (o) objetivoDe.set(p.asin.toUpperCase(), { acosObjetivoPct: o.acosObjetivoPct, cpaObjetivo: o.cpaObjetivo })
-  }
+  const ficha = await leerFicha(cuenta.id)
+  const [objetivos, { umbrales }, { campanas }] = await Promise.all([objetivosDeCuenta(cuenta.id, ficha), leerUmbrales(cuenta.id), campanasDe(cuenta.conexionId, cuenta.profileId)])
+  const cvrs = await cvrsDeCuenta(cuenta.id, umbrales.cvrPorDefectoPct)
+  // El objetivo de cada producto (ACoS fijado + precio, o el ticket medio de Ads como estimación). Sin él, sus campañas no se tocan
+  const objetivoDe = new Map<string, { acosObjetivoPct: number; cpaObjetivo: number; gastoMaximoSinVenta: number; precioEstimado: number | null }>()
+  for (const [asin, o] of objetivos.porAsin) if (o) objetivoDe.set(asin, { acosObjetivoPct: o.acosObjetivoPct, cpaObjetivo: o.cpaObjetivo, gastoMaximoSinVenta: o.gastoMaximoSinVenta, precioEstimado: o.precioEstimado ? o.precio : null })
   const vivas = campanas.filter((c) => c.estado === 'ENABLED' && partesDeNombre(c.nombre) && asinDeCampana(c.nombre) && objetivoDe.has(asinDeCampana(c.nombre) as string))
-  if (vivas.length === 0) return { pujas: 0, presupuestos: 0, omitido: 'sin campañas de productos con ACoS objetivo' }
+  if (vivas.length === 0) return { pujas: 0, presupuestos: 0, pausas: 0, omitido: 'sin campañas de productos con ACoS objetivo' }
   const porId = new Map(vivas.map((c) => [c.campaignId, c]))
   const ids = vivas.map((c) => c.campaignId)
 
@@ -66,17 +71,18 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
     .from('ads_propuestas')
     .select('tipo, objetivo_id, campaign_id, estado, creada_at, resuelta_at')
     .eq('perfil_id', cuenta.id)
-    .in('tipo', ['puja', 'presupuesto'])
+    .in('tipo', ['puja', 'presupuesto', 'pausar'])
     .or(`estado.eq.pendiente,resuelta_at.gte.${desdePresupuesto < desdePuja ? desdePresupuesto : desdePuja}`)
   if (ePrevias) {
-    if (isMissingSchema(ePrevias)) return { pujas: 0, presupuestos: 0, omitido: 'falta la migración 298' }
+    if (isMissingSchema(ePrevias)) return { pujas: 0, presupuestos: 0, pausas: 0, omitido: 'falta la migración 298' }
     throw ePrevias
   }
   const bloqueadas = new Set<string>()
   const campanasBloqueadas = new Set<string>()
   for (const r of (previas ?? []) as Array<{ tipo: string; objetivo_id: string | null; campaign_id: string; estado: string; resuelta_at: string | null }>) {
     if (r.estado === 'caducada') continue
-    if (r.tipo === 'puja' && r.objetivo_id && (r.estado === 'pendiente' || (r.resuelta_at ?? '') >= desdePuja)) bloqueadas.add(r.objetivo_id)
+    // Una segmentación con una puja o una pausa pendiente (o resuelta hace poco) no se vuelve a tocar: un cambio cada vez y con ventana de lectura
+    if ((r.tipo === 'puja' || r.tipo === 'pausar') && r.objetivo_id && (r.estado === 'pendiente' || (r.resuelta_at ?? '') >= desdePuja)) bloqueadas.add(r.objetivo_id)
     if (r.tipo === 'presupuesto' && (r.estado === 'pendiente' || (r.resuelta_at ?? '') >= desdePresupuesto)) campanasBloqueadas.add(r.campaign_id)
   }
 
@@ -89,7 +95,9 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
   ])
   const pujaDelGrupo = new Map(grupos.filter((g) => g.adGroupId != null).map((g) => [String(g.adGroupId), typeof g.defaultBid === 'number' ? g.defaultBid : null]))
 
-  const hasta = desplazar(new Date().toISOString().slice(0, 10), -1)
+  // La ventana de pujas acaba «días sin cerrar» antes de hoy (como mínimo, ayer): las conversiones de los últimos días todavía se están atribuyendo
+  const hoy = new Date().toISOString().slice(0, 10)
+  const hasta = desplazar(hoy, -Math.max(1, umbrales.diasSinCerrar))
   const desde = desplazar(hasta, -(VENTANA_PUJAS_DIAS - 1))
   const suma = new Map<string, { impresiones: number; clics: number; gasto: number; ventas: number; pedidos: number }>()
   for (let i = 0; i < 100_000; i += 1000) {
@@ -114,7 +122,7 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
     if (!c || !m || bloqueadas.has(s.id) || !(s.puja > 0)) return
     const asin = asinDeCampana(c.nombre) as string
     const lista = porAsin.get(asin) ?? []
-    lista.push({ ...s, campaignName: c.nombre, activa: true, metricas: m })
+    lista.push({ ...s, campaignName: c.nombre, activa: true, metricas: m, cvr: cvrs.de(c.campaignId, asin).cvr, esSemilla: partesDeNombre(c.nombre)?.rol === 'MANUAL EXACTA / DOMINIO' })
     porAsin.set(asin, lista)
   }
   for (const k of keywords) {
@@ -128,10 +136,37 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
   }
 
   let pujas = 0
+  let pausas = 0
+  let sinMigracionPausas = false
   for (const [asin, segs] of porAsin) {
     const o = objetivoDe.get(asin)
     if (!o) continue
-    for (const pr of proponerPujas(segs, { acosObjetivoPct: o.acosObjetivoPct, cpaObjetivo: o.cpaObjetivo, cambioPujaPct: ficha.cambioPujaPct, muestraMinimaClics: ficha.muestraMinimaClics })) {
+    // Primero lo que se pausa (pasa el tope sin venta): a eso no se le propone además bajar la puja
+    const pausadas = new Set<string>()
+    for (const pa of proponerPausas(segs, { cpaObjetivo: o.cpaObjetivo, muestraMinimaClics: ficha.muestraMinimaClics, umbrales })) {
+      pausadas.add(pa.objetivoId)
+      if (sinMigracionPausas) continue
+      const { error } = await service.from('ads_propuestas').insert({
+        perfil_id: cuenta.id,
+        tipo: 'pausar',
+        asin,
+        termino: pa.texto.slice(0, 300),
+        campaign_id: pa.campaignId,
+        campaign_nombre: pa.campaignName,
+        ad_group_id: pa.adGroupId || null,
+        desde_rol: partesDeNombre(pa.campaignName)?.rol ?? null,
+        motivo: pa.motivo + notaDePrecio(o.precioEstimado),
+        metricas: { ...pa.metricas, ...(o.precioEstimado ? { precioEstimado: o.precioEstimado } : {}) },
+        objetivo_id: pa.objetivoId,
+        objetivo_tipo: pa.objetivoTipo,
+      })
+      if (!error) pausas += 1
+      // 23514 = la base todavía no admite el tipo «pausar» (falta la migración 305): se sigue con lo demás y se dice
+      else if (error.code === '23514') sinMigracionPausas = true
+      else if (error.code !== '23505') throw error
+    }
+    const sinPausar = segs.filter((x) => !pausadas.has(x.id))
+    for (const pr of proponerPujas(sinPausar, { acosObjetivoPct: o.acosObjetivoPct, cpaObjetivo: o.cpaObjetivo, cambioPujaPct: ficha.cambioPujaPct, muestraMinimaClics: ficha.muestraMinimaClics, umbrales })) {
       const { error } = await service.from('ads_propuestas').insert({
         perfil_id: cuenta.id,
         tipo: 'puja',
@@ -141,8 +176,8 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
         campaign_nombre: pr.campaignName,
         ad_group_id: pr.adGroupId || null,
         desde_rol: partesDeNombre(pr.campaignName)?.rol ?? null,
-        motivo: pr.motivo,
-        metricas: pr.metricas,
+        motivo: pr.motivo + notaDePrecio(o.precioEstimado),
+        metricas: { ...pr.metricas, ...(o.precioEstimado ? { precioEstimado: o.precioEstimado } : {}) },
         objetivo_id: pr.objetivoId,
         objetivo_tipo: pr.objetivoTipo,
         valor_actual: pr.pujaActual,
@@ -171,7 +206,7 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
     if (!x) continue
     const o = objetivoDe.get(asinDeCampana(c.nombre) as string)
     if (!o) continue
-    for (const pr of proponerPresupuestos([{ campaignId: c.campaignId, campaignName: c.nombre, presupuesto: c.presupuesto, activa: true, gasto7: x.gasto, diasConDatos: x.dias.size, ventas7: x.ventas }], { acosObjetivoPct: o.acosObjetivoPct, subidaPct: ficha.subidaPresupuestoPct })) {
+    for (const pr of proponerPresupuestos([{ campaignId: c.campaignId, campaignName: c.nombre, presupuesto: c.presupuesto, activa: true, gasto7: x.gasto, diasConDatos: x.dias.size, ventas7: x.ventas }], { acosObjetivoPct: o.acosObjetivoPct, subidaPct: ficha.subidaPresupuestoPct, umbrales })) {
       const { error } = await service.from('ads_propuestas').insert({
         perfil_id: cuenta.id,
         tipo: 'presupuesto',
@@ -180,8 +215,8 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
         campaign_id: c.campaignId,
         campaign_nombre: c.nombre,
         desde_rol: partesDeNombre(c.nombre)?.rol ?? null,
-        motivo: pr.motivo,
-        metricas: { clics: 0, gasto: pr.metricas.gasto, pedidos: 0, ventas: pr.metricas.ventas, acosPct: pr.metricas.acosPct, usoPct: pr.metricas.usoPct },
+        motivo: pr.motivo + notaDePrecio(o.precioEstimado),
+        metricas: { clics: 0, gasto: pr.metricas.gasto, pedidos: 0, ventas: pr.metricas.ventas, acosPct: pr.metricas.acosPct, usoPct: pr.metricas.usoPct, ...(o.precioEstimado ? { precioEstimado: o.precioEstimado } : {}) },
         valor_actual: pr.presupuestoActual,
         valor_nuevo: pr.presupuestoNuevo,
       })
@@ -189,5 +224,5 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
       else if (error.code !== '23505') throw error
     }
   }
-  return { pujas, presupuestos }
+  return { pujas, presupuestos, pausas, ...(sinMigracionPausas ? { sinMigracionPausas } : {}) }
 }

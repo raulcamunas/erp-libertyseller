@@ -196,15 +196,18 @@ export async function cambiarPuja(ctx: ContextoDeCambio, o: { tipo: TipoDeObjeti
 }
 
 /** Pausa o activa una keyword o una segmentación */
-export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObjetivo; id: string; texto: string; activar: boolean }): Promise<void> {
+export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObjetivo; id: string; texto: string; activar: boolean; motivo?: string; origen?: 'manual' | 'automatico' }): Promise<void> {
   const state = o.activar ? 'ENABLED' : 'PAUSED'
   const entidad = o.tipo === 'keyword' ? 'keyword' : 'target'
+  // El motor la usa al aplicar una propuesta de pausa: entonces el log lleva SU motivo (el dato que la justifica), no «cambio a mano»
+  const motivo = o.motivo ?? `Cambio a mano en «${o.texto.slice(0, 120)}»`
+  const origen = o.origen ?? 'manual'
   try {
     if (o.tipo === 'keyword') comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/keywords', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_KEYWORD), cuerpo: { keywords: [{ keywordId: o.id, state }] } }), 'keywords')
     else comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/targets', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_TARGET), cuerpo: { targetingClauses: [{ targetId: o.id, state }] } }), 'targetingClauses')
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: 'estado', valorAnterior: o.activar ? 'pausada' : 'activa', valorNuevo: o.activar ? 'activa' : 'pausada', motivo: `Cambio a mano en «${o.texto.slice(0, 120)}»`, origen: 'manual', userId: ctx.userId })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, valorAnterior: o.activar ? 'pausada' : 'activa', valorNuevo: o.activar ? 'activa' : 'pausada', motivo, origen, userId: ctx.userId })
   } catch (e) {
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: 'estado', motivo: `Cambio a mano en «${o.texto.slice(0, 120)}»`, origen: 'manual', ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, motivo, origen, ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId })
     throw e
   }
 }

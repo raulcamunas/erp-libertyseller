@@ -2,10 +2,10 @@
  * AMAZON ADS · LOS TÉRMINOS DE BÚSQUEDA DE UNA CUENTA (la materia prima del motor).
  * SOLO SERVIDOR. Solo LEE de Amazon; escribe únicamente en las tablas del ERP (migración 294).
  *
- * Una vez al día, por cada cuenta con el motor encendido, se pide a Amazon el informe de términos de búsqueda de los últimos 14 días, YA RESUMIDO (sin desglose por día), y se guarda reemplazando lo
- * anterior. La mecánica es la de lib/ads/sincronizar.ts: pedir y recoger son dos pasadas distintas y el estado vive en la base, así que nada se queda esperando a Amazon.
+ * Una vez al día, por cada cuenta con el motor encendido, se pide a Amazon el informe de términos de búsqueda de 30 días que acaban 3 antes de hoy, YA RESUMIDO (sin desglose por día), y se
+ * guarda reemplazando lo anterior. La mecánica es la de lib/ads/sincronizar.ts: pedir y recoger son dos pasadas distintas y el estado vive en la base, así que nada se queda esperando a Amazon.
  *
- * Solo se guardan los términos con alguna señal (al menos 5 clics, o alguna compra): los miles de términos con una impresión suelta no sirven a ninguna regla y llenarían la base.
+ * Solo se guardan los términos con algún clic (o alguna compra): los miles de términos con una impresión suelta no sirven a ninguna regla y llenarían la base.
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
@@ -14,10 +14,13 @@ import { AdsError } from './oauth'
 import { descargarCrudas, estadoDeInforme, pedirInformeDeTerminos, type Periodo } from './rendimiento'
 import { debeEmpezar, ESPERA_MAXIMA_MS, type CuentaParaSincronizar } from './sincronizar'
 import type { TerminoDeBusqueda } from './reglas'
+import { leerUmbrales } from './umbrales-cuenta'
 
 export const INTERVALO_TERMINOS_MS = 24 * 3_600_000
-export const DIAS_DE_TERMINOS = 14
-export const CLICS_MINIMOS_PARA_GUARDAR = 5
+/** 30 días: la cosecha pide «≥ 3 pedidos en 30 días» y con 14 casi ningún término de una cuenta pequeña llega a la muestra */
+export const DIAS_DE_TERMINOS = 30
+/** Desde el primer clic: la regla de irrelevantes («no comparte nada con el producto») se propone al primer clic. El tope de filas sigue protegiendo la base */
+export const CLICS_MINIMOS_PARA_GUARDAR = 1
 export const MAX_TERMINOS_GUARDADOS = 20_000
 
 const num = (v: unknown): number => {
@@ -79,10 +82,14 @@ export function paraGuardar(filas: readonly FilaDeTermino[]): FilaDeTermino[] {
     .slice(0, MAX_TERMINOS_GUARDADOS)
 }
 
-/** El periodo que se pide: los últimos 14 días, hasta ayer (hoy está a medias). `hoy` = 'YYYY-MM-DD' */
-export function periodoDeTerminos(hoy: string): Periodo {
+/**
+ * El periodo que se pide: 30 días que acaban `diasSinCerrar` antes de hoy (por defecto 3; como mínimo ayer, porque hoy está a medias). Los últimos días se dejan fuera porque Amazon sigue
+ * reajustando las conversiones (atribución a 7 días): un término que vendió anteayer todavía puede salir con cero pedidos. `hoy` = 'YYYY-MM-DD'
+ */
+export function periodoDeTerminos(hoy: string, diasSinCerrar = 3): Periodo {
   const dia = (d: number) => new Date(Date.parse(`${hoy}T00:00:00Z`) + d * 86_400_000).toISOString().slice(0, 10)
-  return { desde: dia(-DIAS_DE_TERMINOS), hasta: dia(-1) }
+  const fin = -Math.max(1, Math.round(diasSinCerrar))
+  return { desde: dia(fin - DIAS_DE_TERMINOS + 1), hasta: dia(fin) }
 }
 
 interface FilaSync {
@@ -129,7 +136,7 @@ export async function avanzarTerminos(cuenta: CuentaParaSincronizar, opciones: {
 
       const filas = paraGuardar(terminosDeInforme(await descargarCrudas(e.url)))
       const service = createServiceClient()
-      // Se REEMPLAZA lo anterior: son los últimos 14 días, no un histórico
+      // Se REEMPLAZA lo anterior: es la última ventana de 30 días, no un histórico
       const { error: errorBorrar } = await service.from('ads_terminos').delete().eq('perfil_id', cuenta.id)
       if (errorBorrar) throw errorBorrar
       const ahoraIso = new Date().toISOString()
@@ -163,7 +170,7 @@ export async function avanzarTerminos(cuenta: CuentaParaSincronizar, opciones: {
       INTERVALO_TERMINOS_MS
     )
     if (!toca) return { accion: 'nada' }
-    const periodo = periodoDeTerminos(new Date().toISOString().slice(0, 10))
+    const periodo = periodoDeTerminos(new Date().toISOString().slice(0, 10), (await leerUmbrales(cuenta.id)).umbrales.diasSinCerrar)
     const id = await pedirInformeDeTerminos(cuenta.conexionId, cuenta.profileId, periodo)
     await guardarSync(cuenta.id, { estado: 'esperando', informe_id: id, desde: periodo.desde, hasta: periodo.hasta, pedido_at: new Date(ahora).toISOString(), error: null })
     return { accion: 'pedido' }

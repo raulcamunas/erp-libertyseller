@@ -81,6 +81,34 @@ export function objetivosDesdeAcos(precio: number | null | undefined, acosObjeti
 }
 
 /**
+ * EL PRECIO CON EL QUE DECIDE EL MOTOR. El de la ficha del producto manda; si no lo hay (cuentas sin Seller Central conectado: el ERP no puede leer el precio de Amazon, caso Ham Master), se usa el
+ * TICKET MEDIO de lo que la publicidad ha vendido de ese producto (ventas atribuidas ÷ unidades) y se marca como estimación. Sin ninguno de los dos, null: no se inventa.
+ *
+ * Por qué el ticket y no nada: sin precio no hay CPA objetivo y el motor no puede decir cuánto puede gastar un término sin vender, así que la cuenta piloto se quedaba SIN NINGUNA propuesta aunque
+ * tuviera keywords quemando dinero. El SOP lo permite así: «si falta, estima, di que es estimación y deja la celda marcada».
+ */
+export function precioParaMotor(precio: number | null | undefined, ticketMedio: number | null | undefined): { precio: number; estimado: boolean } | null {
+  if (precio != null && precio > 0) return { precio, estimado: false }
+  if (ticketMedio != null && Number.isFinite(ticketMedio) && ticketMedio > 0) return { precio: redondear(ticketMedio), estimado: true }
+  return null
+}
+
+/** El ticket medio por ASIN a partir de filas de rendimiento (ventas y unidades atribuidas). Solo los ASIN con alguna unidad vendida */
+export function ticketsMedios(filas: ReadonlyArray<{ asin: string | null; ventas: number; unidades: number }>): Map<string, number> {
+  const suma = new Map<string, { ventas: number; unidades: number }>()
+  for (const f of filas) {
+    if (!f.asin) continue
+    const x = suma.get(f.asin) ?? { ventas: 0, unidades: 0 }
+    x.ventas += Number(f.ventas) || 0
+    x.unidades += Number(f.unidades) || 0
+    suma.set(f.asin, x)
+  }
+  const salida = new Map<string, number>()
+  for (const [asin, x] of suma) if (x.unidades > 0 && x.ventas > 0) salida.set(asin, redondear(x.ventas / x.unidades))
+  return salida
+}
+
+/**
  * Una puja de partida razonable: lo máximo que se puede pagar por un clic si 1 de cada 10 clics compra y se quiere quedar en el ACoS objetivo (puja = precio × ACoS objetivo × conversión).
  * Es un PUNTO DE PARTIDA que la persona ve y edita antes de crear las campañas: la conversión real de cada producto se conoce después, no antes. Mínimo 0,10 para no proponer una puja que no sirve.
  */
