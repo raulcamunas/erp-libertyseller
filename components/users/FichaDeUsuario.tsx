@@ -191,7 +191,7 @@ export function FichaDeUsuario({ abierto, usuario, actorId, onCerrar, onGuardado
 
   const protegido = esUnoMismo || esDueno
 
-  const pie = sucio ? (
+  const pie = sucio || creando ? (
     <div className="flex w-full flex-wrap items-center gap-2">
       {!creando && (
         <span className="flex min-w-0 flex-1 items-center gap-2 text-[13px] font-medium text-[var(--ls-t1)]" aria-live="polite">

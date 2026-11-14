@@ -345,10 +345,10 @@ function IconosDeAccesos({ usuario }: { usuario: UsuarioGestionado }) {
   if (usuario.role === 'cliente') return <span className="text-[12px] text-[var(--ls-t4)]">Cuentas de Remesas</span>
   if (esAdminPleno(usuario.role, usuario.puesto ?? null)) return <span className="text-[12px] text-[var(--ls-t3)]">Todo (administrador)</span>
   const ids = usuario.accesos.filter((id) => CASILLAS_GESTIONADAS.has(id))
-  if (ids.length === 0) return <span className="text-[12px] text-[var(--ls-t4)]">Sin accesos</span>
+  if (ids.length === 0) return <span className="text-[12px] text-[var(--ls-t4)]">{usuario.role === 'partner' ? 'Casi todo (socio)' : 'Sin accesos'}</span>
   const vistos = ids.slice(0, ICONOS_EN_FILA)
   return (
-    <span className="inline-flex items-center gap-1" aria-label={`${ids.length} accesos: ${ids.map((id) => CASILLA_POR_ID.get(id)?.nombre ?? id).join(', ')}`}>
+    <span className="inline-flex flex-wrap items-center gap-1" aria-label={`${ids.length} accesos: ${ids.map((id) => CASILLA_POR_ID.get(id)?.nombre ?? id).join(', ')}`}>
       {vistos.map((id) => {
         const c = CASILLA_POR_ID.get(id)
         if (!c) return null
