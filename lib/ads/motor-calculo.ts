@@ -209,3 +209,99 @@ export function decidirSiSePuedeAplicar(e: EntradaDeAplicar): { ok: true } | { o
   if (e.aplicadasHoy >= e.topeDiario) return { ok: false, motivo: `Tope diario alcanzado (${e.topeDiario} cambios ${e.automatica ? 'del piloto automático' : 'aplicados hoy'} en esta cuenta).` }
   return { ok: true }
 }
+
+/**
+ * EL ENSAYO: los mismos candados, salvo los que solo protegen la ESCRITURA (el modo, la ficha firmada y el tope diario), que se devuelven como avisos. Un ensayo no
+ * escribe nada en Amazon, y sirve justo para probar el camino antes de firmar la ficha y encender el modo que aplica.
+ */
+export function decidirEnsayo(e: EntradaDeAplicar): { ok: true; avisos: string[] } | { ok: false; motivo: string } {
+  const avisos: string[] = []
+  if (e.modo !== 'aprueba' && e.modo !== 'autopiloto') avisos.push('De verdad no se podría aplicar todavía: la cuenta está en «solo sugiere» o apagada.')
+  if (!e.fichaFirmada) avisos.push('De verdad no se podría aplicar todavía: la ficha de cuenta no está firmada.')
+  if (e.aplicadasHoy >= e.topeDiario) avisos.push(`Hoy ya se ha llegado al tope diario (${e.topeDiario}).`)
+  const r = decidirSiSePuedeAplicar({ ...e, modo: 'aprueba', automatica: false, fichaFirmada: true, aplicadasHoy: 0 })
+  return r.ok ? { ok: true, avisos } : r
+}
+
+/* ------------------------------------------------------------------ */
+/* Antes de aplicar una puja o un presupuesto: ¿sigue igual en Amazon? */
+/* ------------------------------------------------------------------ */
+
+/** ¿El valor de AHORA en Amazon es el que tenía la propuesta? (al céntimo). Sin valor de partida guardado no se puede comprobar: se da por bueno */
+export function valorSigueIgual(esperado: number | null, actual: number | null): boolean {
+  if (esperado == null) return true
+  if (actual == null) return false
+  return Math.round(esperado * 100) === Math.round(actual * 100)
+}
+
+const euros = (n: number | null) => (n == null ? '—' : n.toFixed(2).replace('.', ','))
+
+/** El motivo legible de una propuesta que se queda obsoleta porque alguien cambió el valor en Amazon (o ya no existe) */
+export function motivoDeObsoleta(tipo: 'puja' | 'presupuesto', esperado: number | null, actual: number | null): string {
+  const que = tipo === 'puja' ? 'la puja' : 'el presupuesto diario'
+  if (actual == null) return `Amazon ya no encuentra ${tipo === 'puja' ? 'esa segmentación' : 'esa campaña'}: la propuesta queda obsoleta y no se aplica.`
+  return `En Amazon ${que} ya es ${euros(actual)} (la propuesta partía de ${euros(esperado)}): alguien lo ha cambiado después. No se pisa; el motor volverá a proponer con el valor nuevo.`
+}
+
+/* ------------------------------------------------------------------ */
+/* El proceso de fondo: ¿tiene trabajo esta cuenta?                    */
+/* ------------------------------------------------------------------ */
+
+/** ¿Hay un informe de términos recogido después de la última generación de propuestas? Sin generado_at (nunca se generó) y con informe, sí */
+export function tocaGenerar(ultimoOkAt: string | null, generadoAt: string | null): boolean {
+  if (!ultimoOkAt) return false
+  if (!generadoAt) return true
+  return Date.parse(ultimoOkAt) > Date.parse(generadoAt)
+}
+
+export interface EstadoDeCuentaDelMotor {
+  modo: string
+  /** El informe de términos pedido y sin recoger */
+  esperandoTerminos: boolean
+  /** Toca pedir el informe de términos (lo dice debeEmpezar) */
+  tocaPedirTerminos: boolean
+  /** Hay un informe recogido sin propuestas generadas (tocaGenerar) */
+  tocaGenerar: boolean
+  /** Negativas pendientes (lo único que aplica el autopiloto) */
+  negativasPendientes: boolean
+  /** Lo que el autopiloto lleva aplicado hoy y su tope */
+  aplicadasHoyAuto: number
+  topeAuto: number
+}
+
+/**
+ * PURO. ¿Tiene ESTA cuenta algo que hacer en esta pasada del proceso? Antes, una cuenta en «sugiere» con negativas pendientes contaba como trabajo y abría una fila
+ * del registro cada 2 minutos para nada (717 al día). Las pendientes solo son trabajo en AUTOPILOTO y con tope por gastar.
+ */
+export function motorTieneTrabajo(e: EstadoDeCuentaDelMotor): boolean {
+  if (e.modo === 'apagado') return false
+  if (e.esperandoTerminos || e.tocaPedirTerminos || e.tocaGenerar) return true
+  return e.modo === 'autopiloto' && e.negativasPendientes && e.aplicadasHoyAuto < e.topeAuto
+}
+
+/** PURO. ¿Ha hecho algo un paso del motor? Si no (solo «Amazon sigue preparando el informe»), el proceso no abre fila en el registro */
+export function pasoHizoAlgo(p: { terminos: string; generado: boolean; nuevas: number; aplicadas: number; fallidas: number; errores: readonly string[] }): boolean {
+  return p.terminos === 'pedido' || p.terminos === 'guardado' || p.terminos === 'error' || p.generado || p.nuevas > 0 || p.aplicadas > 0 || p.fallidas > 0 || p.errores.length > 0
+}
+
+/** El comienzo del día de HOY en España (el tope diario se cuenta desde la medianoche de Madrid, no la UTC), como ISO */
+export function inicioDelDiaEnEspana(ahora: number): string {
+  const partes = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).formatToParts(new Date(ahora))
+  const v = (t: string) => Number(partes.find((x) => x.type === t)?.value ?? 0)
+  // Lo que lleva el día de Madrid (h:m:s) se resta de ahora: así sale la medianoche de Madrid sin calcular el horario de verano
+  const transcurrido = ((v('hour') % 24) * 3600 + v('minute') * 60 + v('second')) * 1000 + (ahora % 1000)
+  return new Date(ahora - transcurrido).toISOString()
+}
+
+/**
+ * PURO. Qué va a hacer el motor a continuación, en una frase para la pantalla, y cuándo (si se sabe).
+ */
+export function proximoPasoDelMotor(e: { modo: string; terminosAt: string | null; generadoAt: string | null; esperandoInforme: boolean; hayGeneradoAt: boolean; intervaloMs: number; ahora: number }): { texto: string; cuando: string | null } {
+  if (e.modo === 'apagado') return { texto: 'El motor está apagado: no lee términos ni propone nada.', cuando: null }
+  if (e.esperandoInforme) return { texto: 'Amazon está preparando el informe de términos; el proceso de fondo lo recoge y genera las propuestas en cuanto esté.', cuando: null }
+  if (e.hayGeneradoAt && tocaGenerar(e.terminosAt, e.generadoAt)) return { texto: 'Hay un informe de términos nuevo: el proceso de fondo genera las propuestas en la próxima pasada (cada 2 minutos).', cuando: null }
+  if (!e.terminosAt) return { texto: 'Todavía no hay informe de términos: el proceso de fondo lo pide en la próxima pasada.', cuando: null }
+  const siguiente = Date.parse(e.terminosAt) + e.intervaloMs
+  const texto = e.modo === 'autopiloto' ? 'Siguiente lectura de términos y propuestas; mientras, el autopiloto aplica negativas hasta su tope diario.' : 'Siguiente lectura de términos y propuestas.'
+  return { texto, cuando: new Date(Math.max(siguiente, e.ahora)).toISOString() }
+}

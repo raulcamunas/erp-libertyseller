@@ -21,6 +21,19 @@ export async function abrirCuenta(perfilId: unknown): Promise<{ sesion: AmazonSe
   return { sesion, cuenta }
 }
 
+/** ¿Es administrador quien llama? (rol 'admin'; un CEO también lo es) */
+export function esAdministrador(sesion: AmazonSession): boolean {
+  return sesion.role === 'admin'
+}
+
+/**
+ * LO QUE SOLO HACE UN ADMINISTRADOR aunque otros lleven la cuenta: cambiar el modo del motor (incluido el autopiloto), firmar o quitar la firma de la ficha y
+ * tocar sus umbrales. Aplicar y descartar propuestas, sí, quien lleve la cuenta. Devuelve la respuesta 403 o null si puede.
+ */
+export function soloAdministradores(sesion: AmazonSession, que: string): NextResponse | null {
+  return esAdministrador(sesion) ? null : fail(403, `${que} lo hace solo un administrador.`)
+}
+
 export const MENSAJE_SIN_MIGRACION = 'Falta lanzar una migración en Supabase (la 292 o la 293): las tablas de Marketing Test todavía no existen.'
 
 /** De una excepción a una respuesta legible: migración sin lanzar, error de Amazon Ads (con su motivo) o genérico */

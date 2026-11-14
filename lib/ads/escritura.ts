@@ -308,3 +308,35 @@ export async function ponerPresupuesto(cuenta: { conexionId: string; profileId: 
   const res = await llamarAds<unknown>(cuenta.conexionId, '/sp/campaigns', { perfilId: cuenta.profileId, metodo: 'PUT', cabeceras: cabeceras(T_CAMPANA), cuerpo: { campaigns: [{ campaignId, budget: { budgetType: 'DAILY', budget: Math.round(presupuesto * 100) / 100 } }] } })
   aislar(res, 'campaigns')
 }
+
+/* ------------------------------------------------------------------ */
+/* Leer el valor de AHORA antes de cambiarlo (el motor no pisa lo que otro cambió)  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La puja que tiene AHORA una keyword o una segmentación en Amazon. Si no tiene puja propia (hereda la del grupo), se devuelve la del grupo con
+ * `heredada: true`. null = Amazon no la ha encontrado (borrada o archivada). Solo LEE.
+ */
+export async function leerPujaActual(cuenta: { conexionId: string; profileId: number }, objetivoTipo: string | null, objetivoId: string): Promise<{ puja: number; heredada: boolean; estado: string | null } | null> {
+  let fila: { bid?: number; adGroupId?: string | number; state?: string } | undefined
+  if (objetivoTipo === 'keyword') {
+    const res = await llamarAds<{ keywords?: Array<{ bid?: number; adGroupId?: string | number; state?: string }> }>(cuenta.conexionId, '/sp/keywords/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cabeceras(T_KEYWORD), cuerpo: { keywordIdFilter: { include: [objetivoId] }, maxResults: 10 } })
+    fila = res.keywords?.[0]
+  } else {
+    const res = await llamarAds<{ targetingClauses?: Array<{ bid?: number; adGroupId?: string | number; state?: string }> }>(cuenta.conexionId, '/sp/targets/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cabeceras(T_TARGET), cuerpo: { targetIdFilter: { include: [objetivoId] }, maxResults: 10 } })
+    fila = res.targetingClauses?.[0]
+  }
+  if (!fila) return null
+  if (typeof fila.bid === 'number') return { puja: fila.bid, heredada: false, estado: fila.state ?? null }
+  if (fila.adGroupId == null) return null
+  const g = await llamarAds<{ adGroups?: Array<{ defaultBid?: number }> }>(cuenta.conexionId, '/sp/adGroups/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cabeceras(T_GRUPO), cuerpo: { adGroupIdFilter: { include: [String(fila.adGroupId)] }, maxResults: 10 } })
+  const porDefecto = g.adGroups?.[0]?.defaultBid
+  return typeof porDefecto === 'number' ? { puja: porDefecto, heredada: true, estado: fila.state ?? null } : null
+}
+
+/** El presupuesto diario que tiene AHORA una campaña en Amazon. null = no la encuentra. Solo LEE */
+export async function leerPresupuestoActual(cuenta: { conexionId: string; profileId: number }, campaignId: string): Promise<number | null> {
+  const res = await llamarAds<{ campaigns?: Array<{ budget?: { budget?: number } }> }>(cuenta.conexionId, '/sp/campaigns/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cabeceras(T_CAMPANA), cuerpo: { campaignIdFilter: { include: [campaignId] }, maxResults: 10 } })
+  const b = res.campaigns?.[0]?.budget?.budget
+  return typeof b === 'number' ? b : null
+}

@@ -16,7 +16,7 @@ const ORIGENES: Array<{ id: '' | EntradaDeLog['origen']; nombre: string }> = [
   { id: 'manual', nombre: 'Manual' },
 ]
 
-const ROTULO_ORIGEN: Record<EntradaDeLog['origen'], string> = { automatico: 'Automático', estructura: 'Estructura', manual: 'Manual' }
+const ROTULO_ORIGEN: Record<EntradaDeLog['origen'], string> = { automatico: 'Automático', estructura: 'Estructura', manual: 'Manual', ensayo: 'Ensayo' }
 
 const PERIODOS = [
   { dias: 1, texto: 'Hoy' },

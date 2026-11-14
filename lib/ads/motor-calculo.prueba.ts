@@ -1,4 +1,4 @@
-import { decidirSiSePuedeAplicar, planificarPropuestas, sumarPorCampana, type EntradaDeAplicar } from './motor-calculo'
+import { decidirEnsayo, decidirSiSePuedeAplicar, inicioDelDiaEnEspana, motivoDeObsoleta, motorTieneTrabajo, pasoHizoAlgo, planificarPropuestas, proximoPasoDelMotor, sumarPorCampana, tocaGenerar, valorSigueIgual, type EntradaDeAplicar } from './motor-calculo'
 import type { FilaDeTermino } from './terminos'
 
 let fallos = 0
@@ -97,6 +97,64 @@ console.log('\n=== los candados de aplicar ===')
   ok('una persona sí puede excluir un ASIN, si se sabe su grupo', motivo({ esAsin: true, adGroupId: 'g' }) === 'OK' && /grupo de anuncios/.test(motivo({ esAsin: true, adGroupId: null })))
   ok('una persona sí puede aplicar una pausa', motivo({ tipo: 'pausar' }) === 'OK')
   ok('en autopiloto una persona también puede aplicar a mano (promover incluido)', motivo({ modo: 'autopiloto', automatica: false, tipo: 'promover', haciaRol: 'MANUAL AMPLIA', haciaCampaignId: 'c', haciaAdGroupId: 'g' }) === 'OK')
+}
+
+console.log('\n=== ensayo: los candados de escribir son avisos, los demás mandan ===')
+{
+  const buena: EntradaDeAplicar = { modo: 'sugiere', automatica: false, tipo: 'negativizar', estado: 'pendiente', fichaFirmada: false, campaignNombre: 'B0AAAAAAA1 | SKU | JAMON | AUTO RADAR', haciaRol: null, haciaCampaignId: null, haciaAdGroupId: null, aplicadasHoy: 40, topeDiario: 40 }
+  const r = decidirEnsayo(buena)
+  ok('en «sugiere», sin firma y con el tope gastado se puede ensayar, con 3 avisos', r.ok && r.avisos.length === 3, JSON.stringify(r))
+  const mala = decidirEnsayo({ ...buena, campaignNombre: 'Campaña cualquiera' })
+  ok('sin la nomenclatura del SOP no se ensaya (no se aplicaría nunca)', !mala.ok && /nomenclatura/.test(mala.motivo))
+  const aplicada = decidirEnsayo({ ...buena, estado: 'aplicada' })
+  ok('una propuesta ya aplicada no se ensaya', !aplicada.ok)
+  const limpia = decidirEnsayo({ ...buena, modo: 'aprueba', fichaFirmada: true, aplicadasHoy: 0 })
+  ok('con todo en regla, sin avisos', limpia.ok && limpia.avisos.length === 0)
+}
+
+console.log('\n=== releer antes de aplicar: ¿sigue igual? ===')
+{
+  ok('mismo valor al céntimo → igual', valorSigueIgual(0.45, 0.45) && valorSigueIgual(0.45, 0.4500001))
+  ok('otro valor → no', !valorSigueIgual(0.45, 0.5))
+  ok('ya no existe en Amazon → no', !valorSigueIgual(0.45, null))
+  ok('sin valor de partida guardado no se puede comprobar → se da por bueno', valorSigueIgual(null, 0.7))
+  ok('el motivo dice el valor de ahora y el de partida', /0,50/.test(motivoDeObsoleta('puja', 0.45, 0.5)) && /0,45/.test(motivoDeObsoleta('puja', 0.45, 0.5)))
+  ok('si ya no existe, lo dice', /ya no encuentra/.test(motivoDeObsoleta('presupuesto', 10, null)))
+}
+
+console.log('\n=== el proceso de fondo: ¿hay trabajo? ===')
+{
+  const base = { modo: 'sugiere', esperandoTerminos: false, tocaPedirTerminos: false, tocaGenerar: false, negativasPendientes: true, aplicadasHoyAuto: 0, topeAuto: 5 }
+  ok('«sugiere» con negativas pendientes y nada más → SIN trabajo (antes abría fila cada 2 minutos)', !motorTieneTrabajo(base))
+  ok('«aprueba» igual', !motorTieneTrabajo({ ...base, modo: 'aprueba' }))
+  ok('autopiloto con pendientes y tope por gastar → trabajo', motorTieneTrabajo({ ...base, modo: 'autopiloto' }))
+  ok('autopiloto con el tope gastado → sin trabajo', !motorTieneTrabajo({ ...base, modo: 'autopiloto', aplicadasHoyAuto: 5 }))
+  ok('apagado nunca', !motorTieneTrabajo({ ...base, modo: 'apagado', esperandoTerminos: true }))
+  ok('esperando el informe, toca pedirlo o toca generar → trabajo', motorTieneTrabajo({ ...base, esperandoTerminos: true }) && motorTieneTrabajo({ ...base, tocaPedirTerminos: true }) && motorTieneTrabajo({ ...base, tocaGenerar: true }))
+  ok('informe más nuevo que la generación → toca generar', tocaGenerar('2026-11-14T10:00:00Z', '2026-11-13T10:00:00Z'))
+  ok('generación posterior al informe → no', !tocaGenerar('2026-11-14T10:00:00Z', '2026-11-14T10:05:00Z'))
+  ok('sin informe → no; con informe y sin generación nunca → sí', !tocaGenerar(null, null) && tocaGenerar('2026-11-14T10:00:00Z', null))
+  const nada = { terminos: 'esperando', generado: false, nuevas: 0, aplicadas: 0, fallidas: 0, errores: [] as string[] }
+  ok('«Amazon sigue preparando el informe» no merece fila en el registro', !pasoHizoAlgo(nada) && !pasoHizoAlgo({ ...nada, terminos: 'nada' }))
+  ok('pedir, recoger, generar, aplicar o fallar sí', pasoHizoAlgo({ ...nada, terminos: 'pedido' }) && pasoHizoAlgo({ ...nada, generado: true }) && pasoHizoAlgo({ ...nada, aplicadas: 1 }) && pasoHizoAlgo({ ...nada, errores: ['x'] }))
+}
+
+console.log('\n=== el día empieza a medianoche de España ===')
+{
+  // 14 nov 2026 a las 00:30 en Madrid (invierno, UTC+1) = 13 nov 23:30 UTC
+  const ahora = Date.parse('2026-11-13T23:30:00Z')
+  ok('en invierno, a las 00:30 de Madrid el día empezó a las 23:00 UTC', inicioDelDiaEnEspana(ahora) === '2026-11-13T23:00:00.000Z', inicioDelDiaEnEspana(ahora))
+  const verano = Date.parse('2026-07-10T12:00:00Z')
+  ok('en verano (UTC+2), a las 14:00 de Madrid el día empezó a las 22:00 UTC del anterior', inicioDelDiaEnEspana(verano) === '2026-07-09T22:00:00.000Z', inicioDelDiaEnEspana(verano))
+}
+
+console.log('\n=== el próximo paso, en una frase ===')
+{
+  const b = { modo: 'sugiere', terminosAt: '2026-11-14T08:00:00Z', generadoAt: '2026-11-14T08:02:00Z', esperandoInforme: false, hayGeneradoAt: true, intervaloMs: 86_400_000, ahora: Date.parse('2026-11-14T12:00:00Z') }
+  ok('apagado lo dice', /apagado/.test(proximoPasoDelMotor({ ...b, modo: 'apagado' }).texto))
+  ok('esperando a Amazon lo dice', /preparando/.test(proximoPasoDelMotor({ ...b, esperandoInforme: true }).texto))
+  ok('informe sin generar lo dice', /genera las propuestas/.test(proximoPasoDelMotor({ ...b, generadoAt: '2026-11-13T08:00:00Z' }).texto))
+  ok('al día: la siguiente lectura a las 24 h del informe', proximoPasoDelMotor(b).cuando === '2026-11-15T08:00:00.000Z')
 }
 
 console.log(fallos === 0 ? '\nTODO OK' : `\n${fallos} FALLOS`)

@@ -117,10 +117,12 @@ async function guardarSync(perfilId: string, cambios: Record<string, unknown>): 
 export type ResultadoDeTerminos = { accion: 'nada' | 'pedido' | 'esperando' | 'guardado' | 'error'; detalle?: string }
 
 /** Da UN paso en la lectura de términos de una cuenta. Nunca espera a Amazon. Lanza solo si falta la migración o la base falla */
-export async function avanzarTerminos(cuenta: CuentaParaSincronizar, opciones: { forzar?: boolean } = {}): Promise<ResultadoDeTerminos> {
+export async function avanzarTerminos(cuenta: CuentaParaSincronizar, opciones: { forzar?: boolean; soloPedir?: boolean } = {}): Promise<ResultadoDeTerminos> {
   const ahora = Date.now()
   const estado = await leerSync(cuenta.id)
   try {
+    // La PANTALLA solo pide: recoger (borrar e insertar la ventana) es cosa del proceso de fondo, para que los dos no compitan por el mismo informe
+    if (opciones.soloPedir && estado?.estado === 'esperando') return { accion: 'esperando' }
     if (estado?.estado === 'esperando' && estado.informe_id) {
       const pedidoAt = estado.pedido_at ? Date.parse(estado.pedido_at) : ahora
       if (ahora - pedidoAt > ESPERA_MAXIMA_MS) {
@@ -136,9 +138,8 @@ export async function avanzarTerminos(cuenta: CuentaParaSincronizar, opciones: {
 
       const filas = paraGuardar(terminosDeInforme(await descargarCrudas(e.url)))
       const service = createServiceClient()
-      // Se REEMPLAZA lo anterior: es la última ventana de 30 días, no un histórico
-      const { error: errorBorrar } = await service.from('ads_terminos').delete().eq('perfil_id', cuenta.id)
-      if (errorBorrar) throw errorBorrar
+      // Se REEMPLAZA lo anterior (es la última ventana de 30 días, no un histórico), pero SIN dejar la cuenta vacía a medias: primero se escribe lo nuevo
+      // (upsert, que marca actualizado_at) y DESPUÉS se borra lo que no se ha tocado. Si algo falla a mitad, queda la ventana vieja entera más lo nuevo, nunca nada
       const ahoraIso = new Date().toISOString()
       const registros = filas.map((f) => ({
         perfil_id: cuenta.id,
@@ -161,6 +162,8 @@ export async function avanzarTerminos(cuenta: CuentaParaSincronizar, opciones: {
         const { error } = await service.from('ads_terminos').upsert(registros.slice(i, i + 500), { onConflict: 'perfil_id,campaign_id,ad_group_id,termino' })
         if (error) throw error
       }
+      const { error: errorBorrar } = await service.from('ads_terminos').delete().eq('perfil_id', cuenta.id).lt('actualizado_at', ahoraIso)
+      if (errorBorrar) throw errorBorrar
       await guardarSync(cuenta.id, { estado: 'reposo', informe_id: null, ultimo_ok_at: new Date().toISOString(), filas: registros.length, error: null, intentos: 0 })
       return { accion: 'guardado', detalle: `${registros.length} términos` }
     }
