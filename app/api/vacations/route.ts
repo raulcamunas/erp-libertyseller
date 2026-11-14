@@ -137,28 +137,39 @@ export async function POST(request: NextRequest) {
     if (error) throw error
     const creada = data as VacationRequest
 
-    // EL CHOQUE CON COMPAÑEROS: aviso, no bloqueo (Raúl, 14 nov 2026). Se mira con las pendientes y las aprobadas.
-    const equipo = await cargarEquipo(session.service, startDate, endDate)
-    const choque = choquesDeEmpresa({
-      employeeId: employee.id,
-      startDate,
-      endDate,
-      ausencias: equipo.ausencias,
-      maxALaVez: equipo.maxALaVez,
-      excludeId: creada.id,
-      festivos,
-    })
+    // A PARTIR DE AQUÍ LA PETICIÓN YA ESTÁ GUARDADA. Nada de lo que sigue (el choque, que es solo un aviso, y la campana)
+    // puede convertirla en un 500: quien la pidió reintentaría y se encontraría un «ya tienes esos días pedidos».
     const warnings = [...check.warnings]
-    const textoChoque = textoDeChoque(choque)
-    if (choque.hay && textoChoque) warnings.unshift(`${textoChoque} La petición queda guardada y dirección decide.`)
+    let choque: ReturnType<typeof choquesDeEmpresa> | null = null
+    try {
+      // EL CHOQUE CON COMPAÑEROS: aviso, no bloqueo (Raúl, 14 nov 2026). Se mira con las pendientes y las aprobadas.
+      const equipo = await cargarEquipo(session.service, startDate, endDate)
+      choque = choquesDeEmpresa({
+        employeeId: employee.id,
+        startDate,
+        endDate,
+        ausencias: equipo.ausencias,
+        maxALaVez: equipo.maxALaVez,
+        excludeId: creada.id,
+        festivos,
+      })
+      const textoChoque = textoDeChoque(choque)
+      if (choque.hay && textoChoque) warnings.unshift(`${textoChoque} La petición queda guardada y dirección decide.`)
+    } catch (e) {
+      console.warn('[vacaciones] Petición guardada, pero no se ha podido mirar el choque con el equipo:', e)
+    }
 
-    // La campana de los administradores (menos quien la acaba de registrar, si es uno de ellos)
-    const admins = (await idsDeAdmins(session.service)).filter((id) => id !== session.userId)
-    const texto = avisoDePedida({ nombre: employee.name, start_date: startDate, end_date: endDate, dias: check.workingDays, choque, fueraDePlazo: creada.late_notice })
-    await avisarEnLaCampana(
-      session.service,
-      admins.map((userId) => ({ userId, tipo: 'vacaciones_pedida', titulo: texto.titulo, mensaje: texto.mensaje, clave: claveDeAviso(creada.id, 'pedida'), requestId: creada.id }))
-    )
+    try {
+      // La campana de los administradores (menos quien la acaba de registrar, si es uno de ellos)
+      const admins = (await idsDeAdmins(session.service)).filter((id) => id !== session.userId)
+      const texto = avisoDePedida({ nombre: employee.name, start_date: startDate, end_date: endDate, dias: check.workingDays, choque, fueraDePlazo: creada.late_notice })
+      await avisarEnLaCampana(
+        session.service,
+        admins.map((userId) => ({ userId, tipo: 'vacaciones_pedida', titulo: texto.titulo, mensaje: texto.mensaje, clave: claveDeAviso(creada.id, 'pedida'), requestId: creada.id }))
+      )
+    } catch (e) {
+      console.warn('[vacaciones] Petición guardada, pero no se ha podido avisar a los administradores:', e)
+    }
 
     return NextResponse.json(
       {
