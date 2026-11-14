@@ -84,6 +84,8 @@ export type AmazonOperation =
   | 'cancelInboundPlan'
   | 'updateShipmentTrackingDetails'
   | 'createMarketplaceItemLabels'
+  // ---------- La del esquema de atributos por tipo de producto (corregir desde Cumplimiento) ----------
+  | 'getDefinitionsProductType'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -109,6 +111,8 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   searchListingsItems: { rate: 5, burst: 5 },
   getListingsItem: { rate: 5, burst: 5 },
   patchListingsItem: { rate: 5, burst: 5 },
+  // Product Type Definitions API: 5 por segundo, ráfaga 10. Solo la pide el panel «Corregir» de Cumplimiento, y se guarda en memoria
+  getDefinitionsProductType: { rate: 5, burst: 5 },
   getInventorySummaries: { rate: 2, burst: 2 },
   // Una cada minuto largo, con ráfaga de 15. Por eso se llama al autorizar y se
   // guarda el resultado en la conexión, nunca en cada refresco.
