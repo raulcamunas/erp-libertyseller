@@ -22,7 +22,9 @@ const GRUPOS = ['Negativizar', 'Cosechar', 'Pujas', 'Presupuesto', 'Datos'] as c
  * LAS REGLAS Y SUS NÚMEROS, a la vista: los que vienen de la ficha de cuenta (SOP, firmados: se cambian en la ficha) y los que el SOP no fija, marcados como ESTIMACIÓN y editables aquí por cuenta.
  * Plegado por defecto: el administrativo no tiene que tocarlo, pero tiene que poder ver por qué el motor propone lo que propone.
  */
-export function PanelDeUmbrales({ perfilId, umbrales, guardables, ficha, alGuardar, irA }: { perfilId: string; umbrales: UmbralesEstimados; guardables: boolean; ficha: DatosDeFichaParaMotor; alGuardar: () => void; irA: (p: string) => void }) {
+export function PanelDeUmbrales({ perfilId, umbrales, guardables: guardablesEnBase, ficha, alGuardar, irA, esAdmin = true }: { perfilId: string; umbrales: UmbralesEstimados; guardables: boolean; ficha: DatosDeFichaParaMotor; alGuardar: () => void; irA: (p: string) => void; esAdmin?: boolean }) {
+  // Los umbrales los toca solo un administrador (el servidor también lo comprueba): los demás los ven
+  const guardables = guardablesEnBase && esAdmin
   const [abierto, setAbierto] = useState(false)
   const [borrador, setBorrador] = useState<Record<string, string>>({})
   const [guardando, setGuardando] = useState(false)
@@ -60,7 +62,8 @@ export function PanelDeUmbrales({ perfilId, umbrales, guardables, ficha, alGuard
               <button type="button" className="underline" onClick={() => irA('ficha')}>Cambiar en la ficha</button>
             </p>
           </div>
-          {!guardables && (
+          {guardablesEnBase && !esAdmin && <p className={`${TIPO.s} ${TEXTO.t3}`}>Solo un administrador puede cambiar los umbrales. Aquí los ves para entender por qué el motor propone lo que propone.</p>}
+          {!guardablesEnBase && (
             <p className={`${TIPO.s}`} style={{ color: COLOR_ESTADO.ambar }}>
               Falta lanzar la migración 305: se usan los valores de partida y no se pueden cambiar todavía.
             </p>
