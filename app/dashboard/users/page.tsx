@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { UsersManagement } from '@/components/users/UsersManagement'
+import { puedeGestionarUsuarios } from '@/lib/usuarios/gestion'
 
 export default async function UsersPage() {
   const supabase = await createClient()
@@ -13,8 +14,8 @@ export default async function UsersPage() {
 
   const profile = await getUserProfile()
 
-  // Solo el admin puede acceder (raulcamunas369@gmail.com)
-  if (!profile || profile.role !== 'admin' || profile.email !== 'raulcamunas369@gmail.com') {
+  // El mismo criterio que middleware.ts y las rutas de /api/users: administrador pleno (no CEO) con el correo del dueño
+  if (!puedeGestionarUsuarios(profile)) {
     redirect('/dashboard')
   }
 

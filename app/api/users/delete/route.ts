@@ -1,90 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/lib/auth/api'
+import { errorAlDarDeBaja } from '@/lib/usuarios/gestion'
+import { contarAdminsPlenos, leerPerfil, requireGestorDeUsuarios } from '@/lib/usuarios/gestion-servidor'
 
 /**
- * BORRAR UN USUARIO DEL ERP. SOLO ADMIN.
+ * BORRAR UN USUARIO DEL ERP PARA SIEMPRE. SOLO EL GESTOR DE USUARIOS (el mismo criterio que la pantalla: lib/usuarios/gestion.ts).
  *
- * QUÉ IMPIDE EL requireAdmin() DE ABAJO
- * -------------------------------------
- * Igual que su hermana /api/users/update: no comprobaba nada, y middleware.ts
- * (línea 41) declara pública toda /api/. Reproducido sin cookie:
+ * Al principio no comprobaba nada (middleware.ts declara pública toda /api/: un `curl` sin cookie borraba cuentas); luego bastaba ser administrador, CEO incluido. Desde el
+ * 14 nov 2026 exige lo mismo que la pantalla, y nunca deja borrarse a uno mismo, borrar al dueño ni al último administrador (errorAlDarDeBaja).
  *
- *     $ curl -X POST http://SERVIDOR/api/users/delete \
- *            -H 'Content-Type: application/json' -d '{}'
- *     {"error":"User ID es requerido"}      <- HTTP 400, NUNCA 401
- *
- * El 400 es de su propia validación: la petición anónima ya había entrado. Con
- * un `userId` de verdad, `auth.admin.deleteUser()` con SUPABASE_SERVICE_ROLE_KEY
- * borra la cuenta. Un solo curl repetido diez veces deja el ERP sin usuarios y
- * a la agencia fuera de su propia herramienta.
- *
- * POR QUÉ NO CAMBIA NADA PARA QUIEN LA USA: el único llamante es
- * components/users/UsersManagement.tsx (/dashboard/users), que ya está cerrada
- * a un admin en middleware.ts y manda cookie.
+ * En la pantalla lo normal es DESACTIVAR (/api/users/estado), que conserva el historial: borrar se lleva por delante, en cascada, lo que cuelga del perfil.
  */
 
 export async function POST(request: NextRequest) {
   try {
-    const sesion = await requireAdmin(
-      'Solo un administrador puede eliminar usuarios del ERP'
-    )
+    const sesion = await requireGestorDeUsuarios('Solo el administrador del ERP puede borrar usuarios')
     if (sesion instanceof NextResponse) return sesion
+    const { servicio } = sesion
 
     const body = await request.json()
     const { userId } = body
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID es requerido' },
-        { status: 400 }
-      )
+    if (!userId || typeof userId !== 'string') {
+      return NextResponse.json({ error: 'User ID es requerido' }, { status: 400 })
     }
 
-    // Obtener service_role key desde variables de entorno
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('Missing Supabase credentials')
-      return NextResponse.json(
-        { error: 'Error de configuración del servidor' },
-        { status: 500 }
-      )
+    const objetivo = await leerPerfil(servicio, userId)
+    if (objetivo) {
+      const prohibido = errorAlDarDeBaja('borrar', sesion.userId, objetivo, await contarAdminsPlenos(servicio))
+      if (prohibido) return NextResponse.json({ error: prohibido }, { status: 409 })
+    } else if (userId === sesion.userId) {
+      return NextResponse.json({ error: 'No puedes borrarte a ti mismo.' }, { status: 409 })
     }
 
-    // Crear cliente con service_role (bypass RLS)
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
-
-    // Eliminar usuario
-    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
-
+    const { error: deleteError } = await servicio.auth.admin.deleteUser(userId)
     if (deleteError) {
-      console.error('Error deleting user:', deleteError)
+      console.error('Usuarios · no se ha podido borrar', { codigo: deleteError.status ?? null })
       return NextResponse.json(
-        { error: deleteError.message || 'Error al eliminar usuario' },
+        { error: `No se ha podido borrar (${deleteError.message}). Si tiene historial que lo impide, desactívalo en su lugar.` },
         { status: 400 }
       )
     }
 
-    return NextResponse.json({
-      success: true,
-      message: 'Usuario eliminado correctamente',
-    })
-  } catch (error: any) {
-    console.error('Error in delete user API:', error)
-    return NextResponse.json(
-      { error: error.message || 'Error al eliminar usuario' },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: true, message: 'Usuario eliminado correctamente' })
+  } catch (error: unknown) {
+    console.error('Usuarios · error al borrar', error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Error al eliminar usuario' }, { status: 500 })
   }
 }
-
-
-
-

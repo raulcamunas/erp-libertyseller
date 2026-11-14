@@ -218,7 +218,7 @@ export async function middleware(request: NextRequest) {
         // de abajo redirige, que es el lado seguro.
         const { data: profile, error: errorPerfilUsuarios } = await supabase
           .from('profiles')
-          .select('email, role')
+          .select('email, role, puesto')
           .eq('id', user.id)
           .single()
 
@@ -231,7 +231,8 @@ export async function middleware(request: NextRequest) {
           )
         }
 
-        if (profile?.role !== 'admin' || profile?.email !== 'raulcamunas369@gmail.com') {
+        // El mismo criterio que lib/usuarios/gestion.ts (puedeGestionarUsuarios) y que las rutas de /api/users: administrador pleno (un CEO no) con el correo del dueño
+        if (profile?.role !== 'admin' || profile?.puesto === 'ceo' || profile?.email !== 'raulcamunas369@gmail.com') {
           const url = request.nextUrl.clone()
           url.pathname = '/dashboard'
           return NextResponse.redirect(url)
