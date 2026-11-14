@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, Calendar, Check, CheckCircle2, ChevronDown, Circle, Loader2, Pencil, StickyNote, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -20,6 +20,8 @@ import { BotonExcel } from './BotonExcel'
 import { EnlaceParaElCliente } from './EnlaceParaElCliente'
 import { EnlazarEnvioDialog } from './EnlazarEnvioDialog'
 import { FasesPropuesta } from './FasesPropuesta'
+import { HistorialRemesa } from './HistorialRemesa'
+import { RevisionPropuesta } from './RevisionPropuesta'
 import { ImprimirEtiquetas } from './ImprimirEtiquetas'
 import { PlantillasAmazon } from './PlantillasAmazon'
 import { TarjetaAnalisisIa } from './TarjetaAnalisisIa'
@@ -61,7 +63,7 @@ export function EspacioPropuesta({
   onEnviada: (id: string) => void
 }) {
   const router = useRouter()
-  const turno = turnoDe(remesa.estado, remesa.lineas.length)
+  const turno = turnoDe(remesa.estado, remesa.lineas.length, remesa.propuesta)
   const mio = leToca(turno, actor)
 
   const [editando, setEditando] = useState(false)
@@ -70,6 +72,13 @@ export function EspacioPropuesta({
   const [confirmarBorrado, setConfirmarBorrado] = useState(false)
   const [enlazando, setEnlazando] = useState(false)
   const [form, setForm] = useState({ nombre: remesa.nombre ?? '', fechaEnvio: remesa.fechaEnvio, nota: remesa.nota ?? '' })
+
+  // Al mandar la propuesta por el enlace, la tarjeta del enlace avisa para que se relea la remesa
+  useEffect(() => {
+    const recargar = () => router.refresh()
+    window.addEventListener('remesas:recargar', recargar)
+    return () => window.removeEventListener('remesas:recargar', recargar)
+  }, [router])
 
   async function guardar() {
     setGuardando(true)
@@ -228,6 +237,10 @@ export function EspacioPropuesta({
         {/* El porqué de una propuesta que nació con IA. Solo la agencia; abierto mientras se está revisando */}
         {esAdmin && remesa.analisisIa && <TarjetaAnalisisIa key={remesa.id} analisis={remesa.analisisIa} lineas={remesa.lineas} abierto={remesa.estado === 'borrador'} />}
 
+        {/* La propuesta por enlace: lo que propusimos frente a lo que pide el cliente, y aprobar */}
+        {remesa.estado === 'borrador' && actor === 'agencia' && <RevisionPropuesta remesa={remesa} puedeEditar={puedeEditar} />}
+        {remesa.estado === 'borrador' && actor === 'agencia' && puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="borrador" />}
+
         {remesa.estado === 'borrador' && (
           <EditorBoceto
             clienteId={clienteId}
@@ -237,6 +250,7 @@ export function EspacioPropuesta({
             conCatalogo={esClienteConCatalogo(clienteNombre)}
             remesaId={remesa.id}
             lineas={remesa.lineas}
+            version={remesa.propuesta?.lineasVersion ?? null}
             onGuardado={() => router.refresh()}
           />
         )}
@@ -252,6 +266,7 @@ export function EspacioPropuesta({
               </p>
             </Tarjeta>
             <ImprimirEtiquetas remesa={remesa} destacado />
+            {actor === 'agencia' && puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="aprobada" />}
             <ResumenLineas remesa={remesa} abierto />
           </>
         )}
@@ -260,7 +275,7 @@ export function EspacioPropuesta({
           <>
             {/* El cliente no tiene por qué entrar al ERP para encajar: se le manda un enlace. Solo para quien puede editar:
                 el enlace es una credencial de escritura sobre estas cajas */}
-            {puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} />}
+            {puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="encajando" />}
             <EditorCajas
               remesaId={remesa.id}
               lineas={remesa.lineas}
@@ -273,6 +288,7 @@ export function EspacioPropuesta({
                 contenido: c.contenido,
               }))}
               puedeEditar={puedeEditar}
+              version={cajas?.version ?? null}
             />
             {puedeImprimirEtiquetas(remesa.estado) && <ImprimirEtiquetas remesa={remesa} />}
             <ResumenLineas remesa={remesa} />
@@ -285,9 +301,12 @@ export function EspacioPropuesta({
             {esAdmin && <PlantillasAmazon remesaId={remesa.id} referencias={remesa.lineas.length} unidades={unidades} />}
             {esAdmin && <DireccionOrigen clienteId={clienteId} clienteNombre={clienteNombre} puedeEditar={puedeEditar} />}
             <ImprimirEtiquetas remesa={remesa} />
+            {actor === 'agencia' && puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="lista" />}
             <ResumenLineas remesa={remesa} />
           </>
         )}
+
+        <HistorialRemesa key={remesa.id} remesaId={remesa.id} />
       </div>
 
       {/* ================= EL SIGUIENTE PASO ================= */}

@@ -25,6 +25,8 @@ import { cx } from '../comun/ui'
 
 interface Enlace {
   url: string
+  /** El enlace directo al encaje de siempre (/encajar/<token>): el mismo token */
+  urlEncaje?: string
   creadoAt: string
   caducaAt: string
   abiertoVeces: number
@@ -46,7 +48,16 @@ function haceUnRato(iso: string | null, ahora = Date.now()): string {
 
 const fechaCorta = (iso: string) => new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
 
-export function EnlaceParaElCliente({ remesaId }: { remesaId: string }) {
+const QUE_HACE: Record<string, { titulo: string; texto: string }> = {
+  borrador: { titulo: 'Mándale la propuesta por enlace', texto: 'Al copiarlo le mandas la propuesta: ve lo que proponemos, cambia cantidades, añade productos de su catálogo y pulsa «Acepto». Tú revisas sus cambios y apruebas.' },
+  aprobada: { titulo: 'El enlace del cliente: etiquetas', texto: 'Con el envío aprobado, el cliente descarga desde su enlace las etiquetas FNSKU para pegarlas.' },
+  encajando: { titulo: 'Que el cliente encaje sin entrar al ERP', texto: 'Desde su enlace reparte las unidades en cajas y pone medidas y pesos. Sin usuario ni contraseña.' },
+  lista: { titulo: 'El enlace del cliente', texto: 'El cliente ve en su enlace que estamos preparando el envío a Amazon.' },
+  enviada: { titulo: 'El enlace del cliente', texto: 'El cliente ve en su enlace que el envío va de camino.' },
+}
+
+export function EnlaceParaElCliente({ remesaId, estado = 'encajando' }: { remesaId: string; estado?: string }) {
+  const que = QUE_HACE[estado] ?? QUE_HACE.encajando
   const [enlace, setEnlace] = useState<Enlace | null>(null)
   const [sinMigrar, setSinMigrar] = useState(false)
   const [cargando, setCargando] = useState(true)
@@ -74,15 +85,17 @@ export function EnlaceParaElCliente({ remesaId }: { remesaId: string }) {
     setTrabajando('copiar')
     try {
       const res = await fetch(`/api/fba/remesas/${remesaId}/enlace`, { method: 'POST' })
-      const p = (await res.json().catch(() => null)) as { enlace?: Enlace; error?: string } | null
+      const p = (await res.json().catch(() => null)) as { enlace?: Enlace; error?: string; propuesta?: { ok: boolean; yaEnviada?: boolean; error?: string } | null } | null
       if (!res.ok || !p?.enlace) {
         toast.error(p?.error ?? sinRespuestaDe('No se ha podido crear el enlace', res.status))
         return
       }
       setEnlace(p.enlace)
+      if (p.propuesta && !p.propuesta.ok) toast.warning(p.propuesta.error ?? 'El enlace está, pero la propuesta no se ha podido mandar.')
+      if (p.propuesta?.ok && !p.propuesta.yaEnviada) window.dispatchEvent(new Event('remesas:recargar'))
       try {
         await navigator.clipboard.writeText(p.enlace.url)
-        toast.success('Enlace copiado. Quien lo tenga puede encajar este envío, sin contraseña.')
+        toast.success('Enlace copiado. Quien lo tenga entra en el portal de este envío, sin contraseña.')
       } catch {
         // Sin permiso para el portapapeles (o sin https): la dirección queda a la vista en la tarjeta para copiarla a mano
         toast.warning('No se ha podido copiar solo. La dirección está en la tarjeta: selecciónala y cópiala.')
@@ -118,10 +131,8 @@ export function EnlaceParaElCliente({ remesaId }: { remesaId: string }) {
             <Link2 className="h-[15px] w-[15px]" />
           </span>
           <div className="min-w-0">
-            <h3 className={cx(TIPO.l, 'text-[var(--ls-t1)]')}>Que el cliente encaje sin entrar al ERP</h3>
-            <p className="mt-[2px] text-[12px] leading-[1.5] text-[var(--ls-t3)]">
-              Copia un enlace y mándaselo: abre una página con la marca de Liberty Seller donde reparte las unidades en cajas y pone medidas y pesos. Sin usuario ni contraseña.
-            </p>
+            <h3 className={cx(TIPO.l, 'text-[var(--ls-t1)]')}>{que.titulo}</h3>
+            <p className="mt-[2px] text-[12px] leading-[1.5] text-[var(--ls-t3)]">{que.texto} Es un único enlace para todo el envío.</p>
           </div>
         </div>
         <button type="button" onClick={() => void copiar()} disabled={trabajando !== null || cargando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>

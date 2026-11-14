@@ -84,7 +84,7 @@ export function BarraAcciones({
     }
   }
 
-  const turno = turnoDe(remesa.estado, remesa.lineas.length)
+  const turno = turnoDe(remesa.estado, remesa.lineas.length, remesa.propuesta)
   const mensaje = actor === 'agencia' ? turno.paraAgencia : turno.paraCliente
 
   return (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Box, Check, Loader2, Package, Plus, Trash2, TriangleAlert } from 'lucide-react'
@@ -47,11 +47,14 @@ export function EditorCajas({
   lineas,
   cajasIniciales,
   puedeEditar,
+  version = null,
 }: {
   remesaId: string
   lineas: LineaDePanel[]
   cajasIniciales: CajaUI[]
   puedeEditar: boolean
+  /** La versión de las cajas cargada (bloqueo optimista, migración 309). null = sin comprobar */
+  version?: number | null
 }) {
   const router = useRouter()
   const [cajas, setCajas] = useState<CajaUI[]>(
@@ -59,6 +62,8 @@ export function EditorCajas({
   )
   const [sucio, setSucio] = useState(false)
   const [guardando, setGuardando] = useState(false)
+  // La versión que tenemos: viaja al guardar y vuelve la nueva. Si el cliente guardó desde su enlace entre medias, 409
+  const versionRef = useRef<number | null>(version)
 
   const declaradas = useMemo(() => {
     const m = new Map<string, number>()
@@ -113,14 +118,19 @@ export function EditorCajas({
       const res = await fetch(`/api/fba/remesas/${remesaId}/cajas`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cajas }),
+        body: JSON.stringify({ cajas, version: versionRef.current }),
       })
-      const p = (await res.json().catch(() => null)) as { error?: string } | null
+      const p = (await res.json().catch(() => null)) as { error?: string; conflicto?: boolean; version?: number | null } | null
+      if (res.status === 409 && p?.conflicto) {
+        toast.error(p.error ?? 'Alguien ha cambiado las cajas. Recarga.', { action: { label: 'Recargar', onClick: () => router.refresh() }, duration: 10000 })
+        return
+      }
       if (!res.ok) {
         toast.error(p?.error ?? 'No se han podido guardar las cajas')
         return
       }
       toast.success(`${cajas.length} caja${cajas.length === 1 ? '' : 's'} guardada${cajas.length === 1 ? '' : 's'}`)
+      if (typeof p?.version === 'number') versionRef.current = p.version
       setSucio(false)
       router.refresh()
     } finally {

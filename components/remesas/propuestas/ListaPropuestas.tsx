@@ -49,7 +49,7 @@ export function ListaPropuestas({
     return c
   }, [propuestas])
 
-  const tocanAMi = propuestas.filter((r) => leToca(turnoDe(r.estado, r.lineas.length), verComo)).length
+  const tocanAMi = propuestas.filter((r) => leToca(turnoDe(r.estado, r.lineas.length, r.propuesta), verComo)).length
 
   const grupos = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -143,7 +143,7 @@ export function ListaPropuestas({
 }
 
 function TarjetaPropuesta({ remesa, activa, verComo, hoy, onClick }: { remesa: RemesaDePanel; activa: boolean; verComo: Actor; hoy: string; onClick: () => void }) {
-  const turno = turnoDe(remesa.estado, remesa.lineas.length)
+  const turno = turnoDe(remesa.estado, remesa.lineas.length, remesa.propuesta)
   const mio = leToca(turno, verComo)
   const unidades = remesa.lineas.reduce((s, l) => s + l.enviadas, 0)
   const dias = remesa.actualizadaAt ? Math.max(0, diasEntre(remesa.actualizadaAt, hoy)) : null
@@ -173,7 +173,7 @@ function TarjetaPropuesta({ remesa, activa, verComo, hoy, onClick }: { remesa: R
       <div className="mt-[7px] flex items-center justify-between gap-2">
         {mio ? (
           <Insignia tono="naranja" icono={<span className="h-[7px] w-[7px] rounded-full" style={{ background: 'currentColor' }} />} titulo={verComo === 'agencia' ? turno.paraAgencia : turno.paraCliente}>
-            Te toca
+            {remesa.estado === 'borrador' && remesa.propuesta?.aceptoAt && verComo === 'agencia' ? 'Revisar cambios' : 'Te toca'}
           </Insignia>
         ) : (
           <Insignia tono="gris" icono={<span className="h-[7px] w-[7px] rounded-full border border-current" />} titulo={verComo === 'agencia' ? turno.paraAgencia : turno.paraCliente}>

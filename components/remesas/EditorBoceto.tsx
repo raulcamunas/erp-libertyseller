@@ -54,6 +54,7 @@ export function EditorBoceto({
   conCatalogo = false,
   remesaId,
   lineas,
+  version = null,
   onGuardado,
 }: {
   clienteId: string
@@ -64,6 +65,8 @@ export function EditorBoceto({
   conCatalogo?: boolean
   remesaId: string
   lineas: LineaDePanel[]
+  /** La versión de las líneas cargada (bloqueo optimista, migración 309). null = sin comprobar */
+  version?: number | null
   onGuardado: () => void
 }) {
   const inicial = useMemo<Elegido[]>(
@@ -143,6 +146,7 @@ export function EditorBoceto({
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        version,
         lineas: elegidos.map((e) => ({
           sku: e.sku,
           unidades: e.unidades,
@@ -162,7 +166,12 @@ export function EditorBoceto({
     if (!res.ok) {
       // El servidor manda frases que se pueden enseñar tal cual: que el envío ha
       // dejado de estar en borrador mientras se editaba, que falta la migración…
-      const cuerpo = (await res.json().catch(() => null)) as { error?: string } | null
+      const cuerpo = (await res.json().catch(() => null)) as { error?: string; conflicto?: boolean } | null
+      // Alguien (el cliente desde su enlace, u otra persona de la agencia) guardó entre medias: no se pisa
+      if (res.status === 409 && cuerpo?.conflicto) {
+        toast.error(cuerpo.error ?? 'Alguien ha cambiado esto. Recarga.', { action: { label: 'Recargar', onClick: () => onGuardado() }, duration: 10000 })
+        return
+      }
       toast.error(cuerpo?.error ?? 'No se han podido guardar las referencias')
       return
     }

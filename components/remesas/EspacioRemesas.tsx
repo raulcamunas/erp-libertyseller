@@ -181,7 +181,7 @@ export function EspacioRemesas({
     const enCamino = envios.filter((r) => estaEnCamino(r.estadoAmazon)).length
     const urgentes = panel.skus.filter((s) => s.diasDeCobertura !== null && s.diasDeCobertura <= 14 && s.quedan > 0).length
     const descuadre = panel.skus.reduce((s, k) => s + (k.descuadre ?? 0), 0)
-    const tocan = propuestas.filter((r) => leToca(turnoDe(r.estado, r.lineas.length), verComo)).length
+    const tocan = propuestas.filter((r) => leToca(turnoDe(r.estado, r.lineas.length, r.propuesta), verComo)).length
     const porFase = (e: string) => propuestas.filter((r) => r.estado === e).length
     return { enviadas, vivas, enCamino, urgentes, descuadre, tocan, porFase, conDescuadre: panel.skus.filter((s) => s.descuadre !== null && s.descuadre !== 0).length }
   }, [envios, propuestas, panel.skus, verComo])
