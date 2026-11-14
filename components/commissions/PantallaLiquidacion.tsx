@@ -7,7 +7,10 @@ import {
   ArrowRight,
   Calculator,
   CheckCircle2,
+  Copy,
+  ExternalLink,
   FileSpreadsheet,
+  FileText,
   Link2,
   Loader2,
   Upload,
@@ -179,6 +182,11 @@ export function PantallaLiquidacion({
   )
   const [guardado, setGuardado] = useState<GuardadoHecho | null>(null)
 
+  // El informe que ve el cliente (la misma tabla y el mismo enlace de la calculadora antigua). Va con el cliente y el mes de los
+  // que salió, igual que el cálculo: un enlace de otro mes no se enseña bajo este.
+  const [informe, setInforme] = useState<{ clienteId: string; anio: number; mes: number; ruta: string; actualizado: boolean } | null>(null)
+  const [creandoInforme, setCreandoInforme] = useState(false)
+
   const entradaManual = useRef<HTMLInputElement>(null)
 
   /**
@@ -265,6 +273,28 @@ export function PantallaLiquidacion({
     if (entradaManual.current) entradaManual.current.value = ''
     void cargar()
   }, [cargar])
+
+  // El informe del cliente que ya existe de ese mes (de una validación anterior o de la calculadora antigua): se enseña su enlace
+  // al abrir el cliente, sin tener que validar otra vez.
+  useEffect(() => {
+    if (!clienteId) return
+    let vigente = true
+    void fetch(`/api/comisiones-puente/informe?clienteId=${encodeURIComponent(clienteId)}&anio=${anio}&mes=${mes}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: { ruta?: string | null } | null) => {
+        if (!vigente || !payload?.ruta) return
+        const ruta = payload.ruta
+        setInforme((previo) =>
+          previo && previo.clienteId === clienteId && previo.anio === anio && previo.mes === mes
+            ? previo
+            : { clienteId, anio, mes, ruta, actualizado: true }
+        )
+      })
+      .catch(() => {})
+    return () => {
+      vigente = false
+    }
+  }, [clienteId, anio, mes])
 
   /* ---------- Emparejar con Tesorería ---------- */
 
@@ -440,7 +470,46 @@ export function PantallaLiquidacion({
     avisarImporte.current?.(importe)
   }, [importe])
 
-  async function guardar(confirmar: boolean) {
+  /**
+   * GUARDA EL INFORME DEL CLIENTE Y DEJA SU ENLACE A MANO.
+   *
+   * Se llama solo al validar y también desde el botón (por ejemplo para la cuenta secundaria de un grupo, que no se valida aquí).
+   * Manda el cálculo con el cliente y el mes de los que salió, no los desplegables: el informe es de lo que se calculó.
+   */
+  async function crearInforme(avisar: boolean, corregir = false) {
+    if (!calculo) return
+    const mio = { clienteId: calculo.clienteId, anio: calculo.anio, mes: calculo.mes }
+    setCreandoInforme(true)
+    try {
+      const res = await fetch('/api/comisiones-puente/informe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...mio, data: calculo.data, corregir }),
+      })
+      const payload = (await res.json().catch(() => null)) as { ruta?: string; actualizado?: boolean; error?: string } | null
+      if (!res.ok || !payload?.ruta) {
+        toast.error(payload?.error ?? 'No se ha podido guardar el informe del cliente')
+        return
+      }
+      setInforme({ ...mio, ruta: payload.ruta, actualizado: payload.actualizado === true })
+      if (avisar) toast.success(payload.actualizado ? 'Informe del cliente actualizado (el enlace no cambia)' : 'Informe del cliente creado')
+    } catch {
+      toast.error('No hay conexión con el servidor. Inténtalo otra vez.')
+    } finally {
+      setCreandoInforme(false)
+    }
+  }
+
+  async function copiarEnlace(ruta: string) {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${ruta}`)
+      toast.success('Enlace copiado')
+    } catch {
+      toast.error('No se ha podido copiar. Ábrelo y copia la dirección del navegador.')
+    }
+  }
+
+  async function guardar(confirmar: boolean, corregir = false) {
     if (importeAGuardar == null) return
 
     /**
@@ -478,6 +547,7 @@ export function PantallaLiquidacion({
           mes: calculo.mes,
           importe: importeAGuardar,
           confirmar,
+          corregir,
         }),
       })
       const payload = (await res.json().catch(() => null)) as {
@@ -503,13 +573,15 @@ export function PantallaLiquidacion({
       // Se ha escrito, y eso no se deshace: el aviso sale siempre. Lo que solo
       // se pinta si no se ha cambiado de cliente entretanto es el estado, para
       // no enseñar el fee y la comisión de un cliente bajo el nombre de otro.
-      toast.success('Comisión guardada en Tesorería')
+      toast.success(corregir ? 'Comisión corregida en Tesorería. Falta corregir la factura.' : 'Comisión guardada en Tesorería')
       onCambio?.()
+      // Y el informe del cliente, con su enlace: sin esto la liquidación nueva no dejaba nada que enseñarle
+      void crearInforme(true, corregir)
 
       if (!sigueSiendoLoElegido(calculo.clienteId, calculo.anio, calculo.mes)) return
 
       setConflicto(null)
-      setGuardado(payload.guardado)
+      setGuardado({ ...payload.guardado, facturaPorCorregir: corregir ? (estado?.tesoreria?.numeroFactura ?? 'la factura') : null })
       if (payload.estado) setEstado(payload.estado)
     } catch {
       toast.error('No hay conexión con el servidor. Inténtalo otra vez.')
@@ -521,6 +593,8 @@ export function PantallaLiquidacion({
   /* ---------- Pintado ---------- */
 
   const perfil = estado?.cliente.perfil
+  // Factura que el cliente ya tiene (un borrador no cuenta): el informe queda congelado
+  const facturaEnviada = estado?.tesoreria?.facturado === true && estado.tesoreria.estadoFactura !== 'draft'
   const necesitaAMano = (estado?.aMano.length ?? 0) > 0
   const listoParaCalcular =
     Boolean(estado?.puedeCalcular) && (!necesitaAMano || ficheroAMano != null)
@@ -577,6 +651,10 @@ export function PantallaLiquidacion({
                 rotulo={perfil?.dosFicheros ? `Año actual (${mesDelInforme(anio, mes).anio})` : 'Informe del mes anterior'}
                 fichero={estado.ficheroActual}
               />
+
+              {perfil?.restaEnvio && (
+                <FilaFichero rotulo="Sellerboard (envío)" fichero={estado.ficheroEnvio} />
+              )}
 
               {perfil?.dosFicheros && (
                 <>
@@ -687,8 +765,60 @@ export function PantallaLiquidacion({
               guardado={guardado}
               conflicto={conflicto}
               onGuardar={(confirmar) => void guardar(confirmar)}
+              onCorregir={() => void guardar(true, true)}
               onCancelarConflicto={() => setConflicto(null)}
             />
+          )}
+
+          {/* ---------- El informe para el cliente ---------- */}
+          {resultado && calculo && (
+            <div className={TARJETA.base}>
+              <div className={TARJETA.cabecera}>
+                <FileText className={`h-[13px] w-[13px] ${TEXTO.t4}`} />
+                <span className={TITULO.seccion}>Informe para el cliente</span>
+              </div>
+              <div className={`${TARJETA.cuerpo} space-y-[9px]`}>
+                <p className={`${TIPO.s} ${TEXTO.t3}`}>
+                  El desglose de la comisión con la cuenta a la vista, en una página que se abre sin entrar al ERP. Se crea solo al validar; si la comisión ya estaba guardada en
+                  Tesorería, se crea o se actualiza aquí a mano. El enlace no cambia aunque se vuelva a guardar.
+                </p>
+                {facturaEnviada && (
+                  <Aviso tono="ambar" icono={AlertTriangle}>
+                    <span className={AVISO.fuerte}>
+                      {mesEnLetra(anio, mes)} ya está facturado
+                      {estado.tesoreria?.numeroFactura ? ` (${estado.tesoreria.numeroFactura})` : ''}.
+                    </span>{' '}
+                    El cliente tiene la factura, así que el informe no se puede cambiar: tiene que decir lo mismo que ella.
+                    {estado.tesoreria?.estadoFactura === 'paid'
+                      ? ' Ya está cobrada: si la comisión estaba mal, es un abono en Zoho.'
+                      : ' Si la comisión estaba mal, usa «Corregir la comisión facturada» arriba.'}
+                  </Aviso>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void crearInforme(true)}
+                    disabled={creandoInforme || facturaEnviada}
+                    className={`${BOTON.base} ${BOTON.secundario} disabled:opacity-45`}
+                  >
+                    {creandoInforme ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <FileText className="h-[14px] w-[14px]" />}
+                    {informe && informe.clienteId === clienteId && informe.anio === anio && informe.mes === mes ? 'Actualizar informe' : 'Crear informe'}
+                  </button>
+                  {informe && informe.clienteId === clienteId && informe.anio === anio && informe.mes === mes && (
+                    <>
+                      <button type="button" onClick={() => void copiarEnlace(informe.ruta)} className={`${BOTON.base} ${BOTON.primario}`}>
+                        <Copy className="h-[14px] w-[14px]" />
+                        Copiar enlace
+                      </button>
+                      <a href={informe.ruta} target="_blank" rel="noreferrer" className={`${BOTON.base} ${BOTON.secundario}`}>
+                        <ExternalLink className="h-[14px] w-[14px]" />
+                        Ver como lo ve el cliente
+                      </a>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </>
       )}
@@ -832,6 +962,7 @@ function Resultado({
   guardado,
   conflicto,
   onGuardar,
+  onCorregir,
   onCancelarConflicto,
 }: {
   resultado: ResultadoCalculo
@@ -846,11 +977,17 @@ function Resultado({
   guardado: GuardadoHecho | null
   conflicto: { actual: number; nuevo: number; mensaje: string } | null
   onGuardar: (confirmar: boolean) => void
+  /** Escribe la cifra nueva aunque el mes esté facturado (sin cobrar) y actualiza el informe; la factura se corrige después */
+  onCorregir: () => void
   onCancelarConflicto: () => void
 }) {
   const porMarca = esResultadoPorMarca(resultado)
   const yaFacturado = estado.tesoreria?.facturado === true
   const sinPareja = !estado.enlace.treasuryClientId
+  // La comisión que ya hay en Tesorería es la misma que sale del cálculo: validar sería escribir lo que ya está
+  const apuntada = estado.tesoreria?.commission
+  const yaApuntada =
+    apuntada != null && importeAGuardar != null && Math.abs(apuntada - importeAGuardar) < 0.005
 
   return (
     <div className={TARJETA.base}>
@@ -911,6 +1048,27 @@ function Resultado({
             <Link href="/dashboard/tesoreria" className="underline">
               Ver en Tesorería
             </Link>
+            {guardado.facturaPorCorregir && (
+              <div className="mt-[7px]">
+                <span className={AVISO.fuerte}>Falta la factura.</span> {guardado.facturaPorCorregir} sigue diciendo la cifra de antes, y el
+                informe del cliente ya dice {euros(guardado.commission)}. Ábrela en Facturación, pulsa «Poner las cifras de Tesorería», guarda y
+                vuelve a enviársela.{' '}
+                <Link href="/dashboard/facturacion" className="underline">
+                  Ir a Facturación
+                </Link>
+              </div>
+            )}
+          </Aviso>
+        ) : yaApuntada ? (
+          <Aviso tono="verde" icono={CheckCircle2}>
+            <span className={AVISO.fuerte}>
+              Ya está guardado en Tesorería: {euros(estado.tesoreria?.commission ?? null)}
+            </span>{' '}
+            en «{estado.enlace.nombre}» para {mesEnLetra(estado.anio, estado.mes)}, el mismo importe que sale del cálculo. No hay nada que
+            validar.{' '}
+            <Link href="/dashboard/tesoreria" className="underline">
+              Ver en Tesorería
+            </Link>
           </Aviso>
         ) : conflicto ? (
           <Aviso tono="ambar" icono={AlertTriangle}>
@@ -933,6 +1091,39 @@ function Resultado({
                 Dejar {euros(conflicto.actual)}
               </button>
             </div>
+          </Aviso>
+        ) : yaFacturado && !sinPareja ? (
+          <Aviso tono="ambar" icono={AlertTriangle}>
+            <span className={AVISO.fuerte}>
+              {mesEnLetra(estado.anio, estado.mes)} ya está facturado
+              {estado.tesoreria?.numeroFactura ? ` (${estado.tesoreria.numeroFactura})` : ''} con {euros(apuntada ?? null)} de comisión.
+            </span>{' '}
+            {estado.tesoreria?.estadoFactura === 'paid' ? (
+              <>Está cobrada: cambiar la comisión sería un abono, y eso se hace en Zoho.</>
+            ) : (
+              <>
+                Si el cálculo de ahora es el bueno, corrígelo: se escriben {euros(importeAGuardar)} en Tesorería, se actualiza el informe del
+                cliente y después corriges la factura en Facturación.
+                <div className="mt-[7px]">
+                  <button
+                    type="button"
+                    disabled={guardando || importeAGuardar == null}
+                    onClick={() => {
+                      const ok = window.confirm(
+                        `¿Corregir la comisión de ${mesEnLetra(estado.anio, estado.mes)}?\n\n` +
+                          `Tesorería y el informe del cliente pasarán de ${euros(apuntada ?? null)} a ${euros(importeAGuardar)}.\n` +
+                          `La factura${estado.tesoreria?.numeroFactura ? ` ${estado.tesoreria.numeroFactura}` : ''} NO cambia sola: después hay que corregirla en Facturación y volver a enviarla.`
+                      )
+                      if (ok) onCorregir()
+                    }}
+                    className={`${BOTON.base} ${BOTON.primario}`}
+                  >
+                    {guardando ? <Loader2 className="h-[13px] w-[13px] animate-spin" /> : <ArrowRight className="h-[13px] w-[13px]" />}
+                    Corregir la comisión facturada
+                  </button>
+                </div>
+              </>
+            )}
           </Aviso>
         ) : (
           <div className="flex items-center gap-2">

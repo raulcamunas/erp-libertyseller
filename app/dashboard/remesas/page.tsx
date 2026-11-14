@@ -173,7 +173,7 @@ export default async function RemesasPage({
 
   // Enlaces desde las alertas: a una vista concreta del cliente, o directos a su propuesta con IA
   const vistaPedida = uno(searchParams.vista)
-  const vistaInicial = vistaPedida && ['envios', 'propuestas', 'referencias', 'inventario'].includes(vistaPedida) ? vistaPedida : null
+  const vistaInicial = vistaPedida && ['envios', 'propuestas', 'inventario'].includes(vistaPedida) ? vistaPedida : null
 
   return (
     <EspacioRemesas
@@ -185,6 +185,7 @@ export default async function RemesasPage({
       nombreUsuario={profile.full_name ?? profile.email ?? ''}
       alertas={alertas}
       vistaInicial={vistaInicial}
+      conClientePedido={pedido !== undefined && clientes.some((c) => c.id === pedido)}
       abrirIa={uno(searchParams.ia) === '1'}
     />
   )

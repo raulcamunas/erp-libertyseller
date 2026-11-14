@@ -40,6 +40,7 @@ export function leerPreferencias(texto: string | null, puedeVerTodos: boolean): 
     if (p.nivelFilter === 1 || p.nivelFilter === 2 || p.nivelFilter === 3) filtros.nivel = p.nivelFilter
     if (p.prioridadFilter === 1 || p.prioridadFilter === 2 || p.prioridadFilter === 3 || p.prioridadFilter === 4) filtros.prioridad = p.prioridadFilter
     if (p.mencionaAmazon === true) filtros.mencionaAmazon = true
+    if (p.conInforme === true) filtros.conInforme = true
     if (typeof p.minRev === 'string') filtros.minRev = p.minRev
     if (typeof p.maxRev === 'string') filtros.maxRev = p.maxRev
     if (typeof p.sort === 'string' && ORDENES.has(p.sort)) filtros.orden = p.sort as ColdSort
@@ -79,6 +80,7 @@ export function usePreferencias(userId: string, puedeVerTodos: boolean, estado: 
           nivelFilter: estado.filtros.nivel,
           prioridadFilter: estado.filtros.prioridad,
           mencionaAmazon: estado.filtros.mencionaAmazon || undefined,
+          conInforme: estado.filtros.conInforme || undefined,
           minRev: estado.filtros.minRev,
           maxRev: estado.filtros.maxRev,
           sort: estado.filtros.orden,
@@ -88,7 +90,7 @@ export function usePreferencias(userId: string, puedeVerTodos: boolean, estado: 
     } catch {
       // Lo mismo: si no se puede guardar, la sesión de trabajo no se recuerda y ya está
     }
-  }, [listo, userId, estado.vista, estado.filtros.estado, estado.filtros.lista, estado.filtros.nivel, estado.filtros.prioridad, estado.filtros.mencionaAmazon, estado.filtros.minRev, estado.filtros.maxRev, estado.filtros.orden, estado.propietario])
+  }, [listo, userId, estado.vista, estado.filtros.estado, estado.filtros.lista, estado.filtros.nivel, estado.filtros.prioridad, estado.filtros.mencionaAmazon, estado.filtros.conInforme, estado.filtros.minRev, estado.filtros.maxRev, estado.filtros.orden, estado.propietario])
 
   return listo
 }

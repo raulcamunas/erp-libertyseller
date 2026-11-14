@@ -2,10 +2,15 @@
 
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Bell, BellOff, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { chatALaVista } from '@/lib/chat/dock-estado'
+import { pastillaDelChatVisible, publicarVistaPrevia } from '@/lib/chat/vista-previa'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
+import { publicarAviso } from '@/lib/avisos/pila'
+import { abrirDialogoDeSonidos } from '@/lib/sonidos/dialogo'
 import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
+import { activarEscritorio, avisarEnEscritorio, desactivarEscritorio, escritorioActivo, escritorioDenegado, escritorioDisponible, ficheroDeSonidoDeTarea, ponerSonidoDeTareas, probarSonidoDeTarea, sonarTarea, sonidoDeTareasActivo, suscribirSonidoDeTareas } from '@/lib/avisos/sonido-tareas'
 import { destinoDeAvisoDeCorreo, type DestinoDeAviso } from '@/lib/correo/campana-tipos'
 import { pedirAlCorreo } from '@/lib/correo/peticiones'
 import {
@@ -14,6 +19,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import Link from 'next/link'
+import { AvisosPush } from '@/components/push/AvisosPush'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -52,12 +58,19 @@ const ICONOS_DE_AVISO: Record<string, { Icono: LucideIcon; tono: Tono }> = {
   job_amazon: { Icono: AlertTriangle, tono: 'ambar' },
   fba_alerta: { Icono: Boxes, tono: 'ambar' },
   fba_resumen: { Icono: Boxes, tono: 'acc' },
+  factura_impagada: { Icono: BellRing, tono: 'ambar' },
   comment: { Icono: MessageSquare, tono: 'neutro' },
   mention: { Icono: MessageSquare, tono: 'acc' },
   task_assigned: { Icono: CheckSquare, tono: 'neutro' },
   task_updated: { Icono: CheckSquare, tono: 'neutro' },
 }
-const iconoDeAviso = (tipo: string) => ICONOS_DE_AVISO[tipo] ?? { Icono: Bell, tono: 'neutro' as Tono }
+const iconoDeAviso = (tipo: string, datos?: unknown) => {
+  // Los recordatorios de fecha de las tareas viajan como `task_updated` con su motivo dentro: se distinguen por él
+  const motivo = (datos as { motivo?: string } | null | undefined)?.motivo
+  if (motivo === 'vencidas') return { Icono: Flame, tono: 'rojo' as Tono }
+  if (motivo === 'vence') return { Icono: AlertTriangle, tono: 'ambar' as Tono }
+  return ICONOS_DE_AVISO[tipo] ?? { Icono: Bell, tono: 'neutro' as Tono }
+}
 
 /**
  * LA CAMPANA DE NOTIFICACIONES, EN LA BARRA LATERAL.
@@ -71,7 +84,7 @@ const iconoDeAviso = (tipo: string) => ICONOS_DE_AVISO[tipo] ?? { Icono: Bell, t
  * Correo → Secuencias (lib/correo/peticiones.ts, el mismo camino que el aviso de «correo nuevo» de abajo a la derecha). Escribirlos es cosa del servidor
  * (lib/correo/campana-servidor.ts); aquí solo se pintan. Los de antes (leads web, Amazon, alarmas) funcionan igual que siempre.
  */
-export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }) {
+export function NotificationsBell({ colapsado = false, conTareas = false }: { colapsado?: boolean; conTareas?: boolean }) {
   const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -83,6 +96,28 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
   // El sonido suave que avisa de un correo nuevo (lib/avisos/sonido.ts): suena aunque el ERP esté en segundo plano
   const sonidoActivo = useSyncExternalStore(suscribirSonido, sonidoDeCorreoActivo, () => true)
   const [pruebaDeSonido, setPruebaDeSonido] = useState<'' | 'bloqueado' | 'sin_audio'>('')
+  // Lo mismo para los avisos de tareas: su sonido (que puede ser un fichero propio en public/sonidos/) y las notificaciones del escritorio
+  const sonidoDeTareas = useSyncExternalStore(suscribirSonidoDeTareas, sonidoDeTareasActivo, () => true)
+  const escritorio = useSyncExternalStore(suscribirSonidoDeTareas, escritorioActivo, () => false)
+  const [notaDeTareas, setNotaDeTareas] = useState('')
+  const [ficheroPropio, setFicheroPropio] = useState<string | null>(null)
+  useEffect(() => {
+    if (conTareas) void ficheroDeSonidoDeTarea().then(setFicheroPropio)
+  }, [conTareas])
+
+  // Al abrir el ERP y cada media hora: se crean las tareas que se repiten y el servidor genera los recordatorios de fecha de esta persona (vence hoy, vence mañana, vencidas)
+  useEffect(() => {
+    if (!conTareas) return
+    // Primero las tareas que se repiten (las de hoy se crean), y después los recordatorios, que ya cuentan con ellas
+    const pedir = () =>
+      void fetch('/api/tareas-clientes/plantillas/ejecutar', { method: 'POST' })
+        .catch(() => undefined)
+        .then(() => fetch('/api/tareas-clientes/avisos/vencimientos', { method: 'POST' }))
+        .catch(() => undefined)
+    pedir()
+    const id = window.setInterval(() => document.visibilityState === 'visible' && pedir(), 30 * 60_000)
+    return () => window.clearInterval(id)
+  }, [conTareas])
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -135,8 +170,53 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
         .channel(`notifications-${user.id}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, (payload) => {
           // Un correo nuevo en MI buzón (lo escribe el servidor al leerlo, con la pestaña a la vista o no): suena. La clave es «msg:<id del correo>»
-          const fila = (payload as { new?: { type?: unknown; clave?: unknown } }).new
+          const fila = (payload as { new?: { type?: unknown; clave?: unknown; title?: unknown; message?: unknown; datos?: unknown } }).new
           if (fila?.type === 'correo_nuevo') void sonarCorreo(typeof fila.clave === 'string' ? fila.clave.replace(/^msg:/, '') : undefined)
+          // Un mensaje del chat (un directo o una mención): suena, sale en el escritorio si la pestaña está oculta y asoma abajo a la derecha. Dentro del propio chat no: allí ya se ve en la barra
+          const dChat = fila?.datos as { app?: string; canalId?: string | null; tipo?: string } | null | undefined
+          if (dChat?.app === 'chat') {
+            const rutaDelChat = typeof dChat.canalId === 'string' && /^[0-9a-f-]{36}$/i.test(dChat.canalId) ? `/dashboard/chat?canal=${dChat.canalId}` : '/dashboard/chat'
+            // Un recordatorio suena siempre; un mensaje, solo si no estás ya dentro del chat (allí se ve en la barra)
+            if (dChat.tipo === 'recordatorio' || !chatALaVista(window.location.pathname)) {
+              void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
+              avisarEnEscritorio(String(fila?.title ?? 'Chat'), String(fila?.message ?? ''), rutaDelChat)
+              const claveDelAviso = typeof fila?.clave === 'string' ? fila.clave : String(Date.now())
+              // Con la pastilla del chat a la vista, el mensaje asoma ENCIMA de ella (quién es y el principio de lo que dice); si no, el aviso lateral de siempre. Un recordatorio, siempre el lateral
+              if (dChat.tipo !== 'recordatorio' && pastillaDelChatVisible()) {
+                publicarVistaPrevia({ clave: claveDelAviso, titulo: String(fila?.title ?? 'Chat'), texto: String(fila?.message ?? ''), canalId: typeof dChat.canalId === 'string' ? dChat.canalId : null })
+              } else {
+                publicarAviso({ id: `chat:${claveDelAviso}`, tipo: 'tarea', titulo: String(fila?.title ?? 'Chat'), detalle: String(fila?.message ?? ''), duracionMs: dChat.tipo === 'recordatorio' ? 14000 : 9000, accion: { etiqueta: 'Abrir', alPulsar: () => router.push(rutaDelChat) } })
+              }
+            }
+          }
+          // Un lead está viendo su análisis de Amazon: suena, sale en el escritorio y asoma abajo a la derecha con «Abrir ficha». Es el momento de llamarle
+          const dAnalisis = fila?.datos as { app?: string; leadId?: string } | null | undefined
+          if (dAnalisis?.app === 'analisis' && typeof dAnalisis.leadId === 'string' && /^[0-9a-f-]{36}$/i.test(dAnalisis.leadId)) {
+            const rutaDelLead = `/dashboard/cold-calling?lead=${dAnalisis.leadId}`
+            void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
+            avisarEnEscritorio(String(fila?.title ?? 'Análisis abierto'), String(fila?.message ?? ''), rutaDelLead)
+            publicarAviso({
+              id: `analisis:${typeof fila?.clave === 'string' ? fila.clave : Date.now()}`,
+              tipo: 'tarea',
+              titulo: String(fila?.title ?? 'Un lead está viendo su análisis'),
+              detalle: `${String(fila?.message ?? '')} · Buen momento para llamar.`,
+              duracionMs: 20000,
+              accion: { etiqueta: 'Abrir ficha', alPulsar: () => router.push(rutaDelLead) },
+            })
+          }
+          // Un aviso de tareas (te asignan, te mencionan, comentan, o una fecha): su propio sonido, y la notificación del escritorio si la pestaña no se está viendo
+          const d = fila?.datos as { app?: string; clienteId?: string; tareaId?: string } | null | undefined
+          if (d?.app === 'tareas-clientes') {
+            void sonarTarea(typeof fila?.clave === 'string' ? fila.clave : undefined)
+            const rutaDeTarea = d.clienteId ? `/dashboard/tareas-clientes/${d.clienteId}${d.tareaId ? `?tarea=${d.tareaId}` : ''}` : null
+            if (rutaDeTarea) avisarEnEscritorio(String(fila?.title ?? 'Tareas de clientes'), String(fila?.message ?? ''), rutaDeTarea)
+            // Y el aviso lateral de abajo a la derecha, como los de las llamadas: comentarios, menciones, asignaciones y tareas propuestas. Los recordatorios de fecha («vence hoy») no: salen
+            // varios de golpe al abrir el ERP y ya están en la campana
+            const motivo = (fila?.datos as { motivo?: string } | null | undefined)?.motivo
+            if (rutaDeTarea && !motivo) {
+              publicarAviso({ id: `tarea:${typeof fila?.clave === 'string' ? fila.clave : String(Date.now())}`, tipo: 'tarea', titulo: String(fila?.title ?? 'Tareas de clientes'), detalle: String(fila?.message ?? ''), duracionMs: 9000, accion: { etiqueta: 'Abrir', alPulsar: () => router.push(rutaDeTarea) } })
+            }
+          }
           recargarEnBreve()
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, recargarEnBreve)
@@ -218,6 +298,36 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
       return '/dashboard/remesas/alertas'
     }
 
+    // Un lead ha abierto su análisis de Amazon: a su ficha de Cold Calling
+    if (notification.type === 'analisis_abierto') {
+      const id = (notification.datos as { leadId?: unknown } | null | undefined)?.leadId
+      return typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id) ? `/dashboard/cold-calling?lead=${id}` : '/dashboard/cold-calling'
+    }
+
+    // Una factura que lleva días sin pagar: Facturación → Cobros, con su recordatorio abierto
+    if (notification.type === 'factura_impagada') {
+      const id = (notification.datos as { facturaId?: unknown } | null | undefined)?.facturaId
+      return typeof id === 'string' && /^\d+$/.test(id) ? `/dashboard/facturacion?recordar=${id}` : '/dashboard/facturacion?pestana=cobros'
+    }
+
+    // Lo que toca en una cuenta de cliente: se abre su panel en Cuentas de clientes
+    if (notification.type === 'cuenta_aviso') {
+      const slug = (notification.datos as { slug?: unknown } | null | undefined)?.slug
+      return typeof slug === 'string' && /^[a-z0-9-]{1,80}$/.test(slug) ? `/dashboard/cuentas?c=${slug}` : '/dashboard/cuentas'
+    }
+
+    // Un mensaje del chat: se abre en su canal
+    const datosChat = notification.datos as { app?: string; canalId?: string | null } | null | undefined
+    if (datosChat?.app === 'chat') {
+      return typeof datosChat.canalId === 'string' && /^[0-9a-f-]{36}$/i.test(datosChat.canalId) ? `/dashboard/chat?canal=${datosChat.canalId}` : '/dashboard/chat'
+    }
+
+    // Una tarea de cliente (comentario, mención o asignación): se abre en su tablero, con la tarea a la vista
+    const datosTarea = notification.datos as { app?: string; clienteId?: string; tareaId?: string } | null | undefined
+    if (datosTarea?.app === 'tareas-clientes' && datosTarea.clienteId) {
+      return `/dashboard/tareas-clientes/${datosTarea.clienteId}${datosTarea.tareaId ? `?tarea=${datosTarea.tareaId}` : ''}`
+    }
+
     if (notification.related_client_id && notification.related_task_id) {
       return `/dashboard/clients/${notification.related_client_id}`
     }
@@ -294,7 +404,7 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
             </div>
           ) : (
             notifications.map((notification, i) => {
-              const { Icono, tono } = iconoDeAviso(notification.type)
+              const { Icono, tono } = iconoDeAviso(notification.type, notification.datos)
               const destino = destinoDeAvisoDeCorreo(notification.type, notification.datos)
               const link = destino ? null : getNotificationLink(notification)
               const propios = {
@@ -394,6 +504,64 @@ export function NotificationsBell({ colapsado = false }: { colapsado?: boolean }
               {pruebaDeSonido === 'bloqueado' ? 'El navegador no deja sonar todavía: pulsa en cualquier parte de la página y vuelve a probar.' : 'Este navegador no tiene audio.'}
             </p>
           )}
+          {conTareas && (
+            <>
+              <div className="lat-avisos-sonido">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nuevo = !sonidoDeTareas
+                    ponerSonidoDeTareas(nuevo)
+                    setNotaDeTareas('')
+                    if (nuevo) void probarSonidoDeTarea().then((r) => setNotaDeTareas(r === 'bloqueado' ? 'El navegador no deja sonar todavía: pulsa en cualquier parte de la página y vuelve a probar.' : r === 'sin_audio' ? 'Este navegador no tiene audio.' : ''))
+                  }}
+                  aria-pressed={sonidoDeTareas}
+                  className="lat-avisos-silencio"
+                  title={ficheroPropio ? `Suena ${ficheroPropio}` : 'Suena el «ding» de siempre; para poner el tuyo, copia un tarea.mp3 en public/sonidos'}
+                >
+                  {sonidoDeTareas ? <Volume2 className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <VolumeX className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+                  <span className="flex-1">{sonidoDeTareas ? 'Suena al llegar un aviso de tareas' : 'Sin sonido en los avisos de tareas'}</span>
+                  <span className="lat-avisos-silencio-accion">{sonidoDeTareas ? 'Quitar' : 'Poner'}</span>
+                </button>
+                {sonidoDeTareas && (
+                  <button type="button" className="lat-avisos-probar" onClick={() => void probarSonidoDeTarea().then((r) => setNotaDeTareas(r === 'bloqueado' ? 'El navegador no deja sonar todavía: pulsa en cualquier parte de la página y vuelve a probar.' : ''))} title="Oír el aviso">
+                    Probar
+                  </button>
+                )}
+              </div>
+              {escritorioDisponible() && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (escritorio) {
+                      desactivarEscritorio()
+                      return
+                    }
+                    const r = await activarEscritorio()
+                    setNotaDeTareas(r === 'denegado' ? 'El navegador tiene bloqueadas las notificaciones de esta página: se desbloquean en el candado de la barra de direcciones.' : '')
+                  }}
+                  aria-pressed={escritorio}
+                  className="lat-avisos-silencio"
+                  title="Una notificación del sistema cuando llegue un aviso de tareas y la pestaña del ERP no esté a la vista"
+                >
+                  <BellRing className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span className="flex-1">{escritorio ? 'Avisos del escritorio activados' : escritorioDenegado() ? 'Avisos del escritorio bloqueados' : 'Avisos del escritorio apagados'}</span>
+                  <span className="lat-avisos-silencio-accion">{escritorio ? 'Quitar' : 'Activar'}</span>
+                </button>
+              )}
+              <AvisosPush />
+              {notaDeTareas !== '' && (
+                <p className="lat-avisos-nota" role="status">
+                  {notaDeTareas}
+                </p>
+              )}
+            </>
+          )}
+          <button type="button" onClick={abrirDialogoDeSonidos} className="lat-avisos-silencio" title="Elegir qué suena en cada caso: mensajes, correo, juntas de voz y llamadas">
+            <Volume2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="flex-1">Elegir los sonidos</span>
+            <span className="lat-avisos-silencio-accion">Abrir</span>
+          </button>
           <button type="button" onClick={() => silenciarEquipo(!silenciados)} aria-pressed={silenciados} className="lat-avisos-silencio">
             {silenciados ? <BellOff className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <Bell className="h-3.5 w-3.5 shrink-0" aria-hidden />}
             <span className="flex-1">{silenciados ? 'Avisos del equipo silenciados' : 'Avisos del equipo: llamadas y citas'}</span>
