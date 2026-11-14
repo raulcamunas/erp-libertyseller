@@ -903,7 +903,7 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       return
     }
     case 'reabrir_cajas': {
-      if (!(await moverPaso(ctx, ['cajas_conflicto', 'reparto_elegir'], { envio_paso: 'cajas_reabiertas', envio_error: null, envio_cajas_bloqueadas_at: null, placement_option_id: null }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      if (!(await moverPaso(ctx, ['cajas_conflicto', 'reparto_elegir', 'cajas'], { envio_paso: 'cajas_reabiertas', envio_error: null, envio_cajas_bloqueadas_at: null, placement_option_id: null }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       // Y la remesa vuelve a «Encajando» para que se puedan tocar (en el ERP y en el enlace)
       if (f.estado === 'lista') await service.from('fba_remesas').update({ estado: 'encajando', encajado_at: new Date().toISOString() }).eq('id', remesaId).eq('estado', 'lista')
       await apuntar('cajas_reabiertas')

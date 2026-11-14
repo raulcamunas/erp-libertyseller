@@ -92,6 +92,8 @@ ok('reparto por elegir', acc('reparto_elegir'), ['reabrir_cajas', 'confirmar_rep
 ok('esperando al cliente: no se confirma el transporte', acc('transporte_cliente').includes('confirmar_transporte'), false)
 ok('cliente aceptó: se confirma', acc('transporte_listo', { clienteAcepto: true }).includes('confirmar_transporte'), true)
 ok('transporte_listo sin aceptación: no', acc('transporte_listo').includes('confirmar_transporte'), false)
+ok('cajas rechazadas por Amazon: se pueden reabrir', acc('cajas', { conError: true }).includes('reabrir_cajas'), true)
+ok('cajas en curso sin error: no se reabren', acc('cajas').includes('reabrir_cajas'), false)
 ok('transporte_listo: se puede pedir otra cotización si caduca', acc('transporte_listo', { clienteAcepto: true }).includes('generar_transporte'), true)
 ok('etiquetas dentro de plazo: cancelar', acc('etiquetas', { anulableHasta: '2026-11-15T08:00:00Z' }).includes('cancelar'), true)
 ok('etiquetas fuera de plazo: no cancelar', acc('etiquetas', { anulableHasta: '2026-11-14T09:00:00Z' }).includes('cancelar'), false)

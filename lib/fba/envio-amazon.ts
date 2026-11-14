@@ -660,6 +660,9 @@ export function accionesPermitidas(p: { modo: ModoEnvio; paso: PasoEnvio; conErr
   if (paso === 'embalaje_elegir') out.push('elegir_embalaje')
   if (hayQueMandarCajasOtraVez(paso)) out.push('reenviar_cajas')
   if (puedeReabrirCajas(paso)) out.push('reabrir_cajas')
+  // Si Amazon rechaza las cajas (setPackingInformation en FAILED: un peso o una medida mal), reintentar manda
+  // lo mismo y vuelve a fallar: hay que poder reabrirlas, corregirlas y mandarlas otra vez sin cancelar el plan
+  if (paso === 'cajas' && p.conError) out.push('reabrir_cajas')
   if (paso === 'reparto_elegir') out.push('confirmar_reparto')
   // También con el cliente ya conforme (transporte_listo): si la cotización caduca antes de que la agencia
   // confirme, hay que poder pedir otra (y el cliente vuelve a aceptarla). Sin esto solo quedaba cancelar el plan
