@@ -3,26 +3,31 @@
  *
  * La IA propone; NUNCA aplica. La propuesta se guarda como «pendiente» y solo llega a Amazon cuando una persona pulsa «Aplicar en Amazon» (propuesta-servidor.ts).
  *
- * LO QUE SE LE EXIGE (el SOP de la agencia, skill «seo-listing-amazon»):
- *   · Respetar lo que es el producto: solo hechos que ya están en la ficha. Nada de materiales, medidas, certificados, cantidades o compatibilidades inventados.
- *   · La marca, igual que en el título actual y al principio.
- *   · Título de 200 caracteres como mucho, y en los PRIMEROS 75 (lo que se ve en el móvil) la marca, el tipo de producto y la búsqueda principal.
- *   · Las palabras, por lo que VENDEN (compras de la búsqueda en Amazon) y por volumen; nunca marcas de otros.
- *   · 5 bullets, con las búsquedas secundarias de forma natural.
- *   · Backend de 250 bytes como mucho, sin repetir lo que ya está en el título, sin comas, sin marcas de otros ni ASIN.
- * Y la limpieza de aquí lo vuelve a comprobar, porque una IA se salta los límites.
+ * LO QUE SE LE EXIGE ES EL SOP DE LA AGENCIA (skill «seo-listing-amazon»), con los límites de 2026:
+ *   · Título de 75 caracteres como mucho: marca → término de categoría con MÁS DEMANDA que describa literalmente el producto → nicho → atributo diferenciador → variante. Nunca abrir con el
+ *     término de nicho (error 1 del SOP). Ninguna palabra más de dos veces; sin ! $ ? _ { } ^ ¬ ¦; sin lenguaje promocional ni precio.
+ *   · Item Highlights de 125 caracteres: lo que no cupo en el título (formato, cantidad, duración). Se indexa igual que el título.
+ *   · Cinco viñetas que sumen 1.000 bytes como mucho (unos 200 cada una), beneficio concreto delante y un grupo de búsquedas por viñeta.
+ *   · Backend de 249 bytes como mucho (un byte de más y Amazon lo ignora entero), sin comas y SIN repetir ninguna palabra que ya esté arriba (título, highlights o viñetas).
+ *   · Solo hechos que ya están en la ficha; fuera marcas ajenas, falsos amigos y búsquedas que compran a otro precio (se le pasan ya marcadas como descartadas).
+ * Y la limpieza de aquí lo vuelve a comprobar con código, porque una IA se salta los límites y el SOP pide recuentos calculados, nunca a ojo.
+ *
+ * Antes eran 200 caracteres de título (con «los primeros 75 se ven en el móvil») y 250 bytes de backend: las reglas viejas. Con ellas la IA proponía títulos que Amazon ya reescribe.
  */
 
-import { bytesDe, LIMITE_BACKEND_BYTES, LIMITE_TITULO_CARACTERES, normalizar, palabras } from './cobertura'
+import { bytesDe, caracteresDe, LIMITE_BACKEND_BYTES, LIMITE_BULLETS_BYTES, LIMITE_HIGHLIGHTS_CARACTERES, LIMITE_TITULO_CARACTERES, normalizar, palabras } from './cobertura'
+import { promocionalesEn, repetidasEnTitulo } from './norma'
 
 export interface TextosPropuestos {
   titulo: string
+  /** Item Highlights (125 caracteres). Opcional: las propuestas guardadas antes de 2026 no lo tienen, y la ficha leída de Amazon tampoco (la API no lo devuelve) */
+  highlights?: string
   bullets: string[]
   backend: string
 }
 
 export interface CambioRazonado {
-  campo: 'titulo' | 'bullets' | 'backend'
+  campo: 'titulo' | 'highlights' | 'bullets' | 'backend'
   que: string
   porQue: string
 }
@@ -31,6 +36,8 @@ export interface Razonamiento {
   resumen: string
   cambios: CambioRazonado[]
   palabrasNuevas: string[]
+  /** Lo que se ha dejado fuera a propósito y por qué (marca ajena, falso amigo, otro precio…): es un entregable del SOP */
+  descartado?: Array<{ termino: string; porQue: string }>
 }
 
 export interface PropuestaLimpia extends TextosPropuestos {
@@ -41,9 +48,7 @@ export interface PropuestaLimpia extends TextosPropuestos {
 
 /** Los caracteres que Amazon no admite en un título */
 const PROHIBIDOS_TITULO = /[!$?_{}^¬¦]/g
-export const PRIMER_TRAMO_TITULO = 75
 export const MAX_BULLETS = 5
-const MAX_BULLET = 500
 
 const espacios = (s: string) => s.replace(/\s+/g, ' ').trim()
 
@@ -54,9 +59,44 @@ export function cortarEnPalabra(texto: string, max: number): string {
   return (corte > max * 0.6 ? texto.slice(0, corte) : texto.slice(0, max)).replace(/[\s,;:\-–|]+$/, '')
 }
 
-/** Recorta el backend a los bytes de Amazon, quitando palabras repetidas y las que ya están en el título */
-export function limpiarBackend(backend: string, titulo: string): { texto: string; quitadas: number } {
-  const enTitulo = new Set(palabras(titulo))
+/** Corta un texto en el último espacio para que no pase de `max` bytes (las tildes cuentan doble) */
+export function cortarEnBytes(texto: string, max: number): string {
+  if (bytesDe(texto) <= max) return texto
+  let corte = ''
+  for (const w of texto.split(' ')) {
+    const siguiente = corte ? `${corte} ${w}` : w
+    if (bytesDe(siguiente) > max) break
+    corte = siguiente
+  }
+  // Una sola palabra más larga que el límite: se corta por caracteres
+  if (!corte) {
+    for (const ch of texto) {
+      if (bytesDe(corte + ch) > max) break
+      corte += ch
+    }
+  }
+  return corte.replace(/[\s,;:\-–|]+$/, '')
+}
+
+/** Recorta las viñetas para que sumen como mucho 1.000 bytes, quitando siempre de la más larga (las cortas ya están bien) */
+export function recortarBullets(bullets: readonly string[], max = LIMITE_BULLETS_BYTES): { bullets: string[]; recortadas: number } {
+  const salida = [...bullets]
+  let recortadas = 0
+  for (let vuelta = 0; vuelta < 20; vuelta++) {
+    const total = salida.reduce((s, b) => s + bytesDe(b), 0)
+    if (total <= max) break
+    let i = 0
+    for (let k = 1; k < salida.length; k++) if (bytesDe(salida[k]) > bytesDe(salida[i])) i = k
+    const objetivo = Math.max(60, bytesDe(salida[i]) - (total - max))
+    salida[i] = cortarEnBytes(salida[i], objetivo)
+    recortadas++
+  }
+  return { bullets: salida, recortadas }
+}
+
+/** Recorta el backend a los bytes de Amazon, quitando palabras repetidas y las que ya están arriba (título, highlights y viñetas: el SOP no deja repetir nada de lo de arriba) */
+export function limpiarBackend(backend: string, arriba: string): { texto: string; quitadas: number } {
+  const enTitulo = new Set(palabras(arriba))
   const vistas = new Set<string>()
   const salida: string[] = []
   let quitadas = 0
@@ -69,7 +109,7 @@ export function limpiarBackend(backend: string, titulo: string): { texto: string
     }
     vistas.add(k)
     const candidato = [...salida, w.toLowerCase()].join(' ')
-    if (bytesDe(candidato) > LIMITE_BACKEND_BYTES - 1) {
+    if (bytesDe(candidato) > LIMITE_BACKEND_BYTES) {
       quitadas++
       continue
     }
@@ -87,64 +127,87 @@ export function limpiarPropuesta(crudo: unknown): PropuestaLimpia | { error: str
 
   let titulo = espacios(texto(o.titulo).replace(PROHIBIDOS_TITULO, ' '))
   if (!titulo) return { error: 'La IA no ha devuelto un título.' }
-  if (titulo.length > LIMITE_TITULO_CARACTERES) {
+  if (caracteresDe(titulo) > LIMITE_TITULO_CARACTERES) {
     titulo = cortarEnPalabra(titulo, LIMITE_TITULO_CARACTERES)
-    avisos.push(`El título pasaba de ${LIMITE_TITULO_CARACTERES} caracteres y se ha recortado.`)
+    avisos.push(`El título pasaba de ${LIMITE_TITULO_CARACTERES} caracteres y se ha recortado: revisa que no haya quedado cojo.`)
+  }
+  const repes = repetidasEnTitulo(titulo)
+  if (repes.length > 0) avisos.push(`En el título hay palabras más de dos veces (${repes.join(', ')}): corrígelo antes de usarlo.`)
+  const promo = promocionalesEn(titulo)
+  if (promo.length > 0) avisos.push(`El título tiene lenguaje promocional (${promo.join(', ')}): quítalo antes de usarlo.`)
+
+  let highlights = espacios(texto(o.highlights))
+  if (caracteresDe(highlights) > LIMITE_HIGHLIGHTS_CARACTERES) {
+    highlights = cortarEnPalabra(highlights, LIMITE_HIGHLIGHTS_CARACTERES)
+    avisos.push(`Los Item Highlights pasaban de ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres y se han recortado.`)
   }
 
   const bulletsCrudos = Array.isArray(o.bullets) ? o.bullets : []
   let bullets = bulletsCrudos.map((b) => espacios(texto(b))).filter(Boolean)
   if (bullets.length > MAX_BULLETS) {
-    avisos.push(`Venían ${bullets.length} bullets: se dejan ${MAX_BULLETS}.`)
+    avisos.push(`Venían ${bullets.length} viñetas: se dejan ${MAX_BULLETS}.`)
     bullets = bullets.slice(0, MAX_BULLETS)
   }
-  bullets = bullets.map((b) => {
-    if (b.length <= MAX_BULLET) return b
-    avisos.push('Un bullet pasaba de 500 caracteres y se ha recortado.')
-    return cortarEnPalabra(b, MAX_BULLET)
-  })
+  const recorte = recortarBullets(bullets)
+  bullets = recorte.bullets
+  if (recorte.recortadas > 0) avisos.push(`Las viñetas pasaban de ${LIMITE_BULLETS_BYTES.toLocaleString('es-ES')} bytes sumando las cinco y se han recortado: revisa el final de las más largas.`)
 
-  const b = limpiarBackend(texto(o.backend), titulo)
-  if (b.quitadas > 0) avisos.push(`Del backend se han quitado ${b.quitadas} palabras (repetidas, ya en el título o por pasar de ${LIMITE_BACKEND_BYTES} bytes).`)
+  const b = limpiarBackend(texto(o.backend), [titulo, highlights, ...bullets].join(' '))
+  if (b.quitadas > 0) avisos.push(`Del backend se han quitado ${b.quitadas} palabras (repetidas, ya arriba o por pasar de ${LIMITE_BACKEND_BYTES} bytes).`)
 
   const r = (o.razonamiento && typeof o.razonamiento === 'object' ? o.razonamiento : {}) as Record<string, unknown>
   const cambios = (Array.isArray(r.cambios) ? r.cambios : [])
     .map((c) => (c && typeof c === 'object' ? (c as Record<string, unknown>) : {}))
-    .map((c) => ({ campo: (['titulo', 'bullets', 'backend'].includes(texto(c.campo)) ? texto(c.campo) : 'titulo') as CambioRazonado['campo'], que: espacios(texto(c.que)).slice(0, 400), porQue: espacios(texto(c.porQue)).slice(0, 600) }))
+    .map((c) => ({ campo: (['titulo', 'highlights', 'bullets', 'backend'].includes(texto(c.campo)) ? texto(c.campo) : 'titulo') as CambioRazonado['campo'], que: espacios(texto(c.que)).slice(0, 400), porQue: espacios(texto(c.porQue)).slice(0, 600) }))
     .filter((c) => c.que || c.porQue)
     .slice(0, 12)
   const palabrasNuevas = (Array.isArray(r.palabrasNuevas) ? r.palabrasNuevas : []).map((p) => espacios(texto(p)).slice(0, 60)).filter(Boolean).slice(0, 30)
 
-  return { titulo, bullets, backend: b.texto, razonamiento: { resumen: espacios(texto(r.resumen)).slice(0, 1200), cambios, palabrasNuevas }, avisos }
+  const descartado = (Array.isArray(r.descartado) ? r.descartado : [])
+    .map((d) => (d && typeof d === 'object' ? (d as Record<string, unknown>) : {}))
+    .map((d) => ({ termino: espacios(texto(d.termino)).slice(0, 80), porQue: espacios(texto(d.porQue)).slice(0, 300) }))
+    .filter((d) => d.termino)
+    .slice(0, 15)
+
+  return { titulo, highlights, bullets, backend: b.texto, razonamiento: { resumen: espacios(texto(r.resumen)).slice(0, 1200), cambios, palabrasNuevas, descartado }, avisos }
 }
 
 export interface DatosParaProponer {
   idioma: string
   pais: string
+  /** Nuestro precio (del listing o estimado); null si no se sabe */
+  precio: number | null
   ficha: { titulo: string | null; bullets: string[]; descripcion: string | null; backend: string | null }
-  /** Las búsquedas del producto, ordenadas por compras en Amazon */
-  busquedas: Array<{ consulta: string; volumen: number | null; comprasTotal: number | null; cuotaComprasTuya: number | null; enLaFicha: boolean }>
+  /** El diagnóstico del embudo del producto entero (la «puerta de salida» del SOP), en una frase */
+  embudo: string | null
+  /** Las búsquedas DEL producto (sin ruido ni otro precio), ordenadas por compras en Amazon, con lo que dice el embudo de cada una */
+  busquedas: Array<{ consulta: string; volumen: number | null; comprasTotal: number | null; cuotaComprasTuya: number | null; enLaFicha: boolean; diagnostico: string }>
+  /** Las que se descartan antes de elegir (paso 3 del SOP) y por qué: la IA no debe usarlas */
+  descartadas: Array<{ consulta: string; porQue: string }>
   palabrasQueFaltan: Array<{ palabra: string; peso: number }>
   terminosDeAds: Array<{ termino: string; pedidos: number }>
 }
 
-/** El mensaje de sistema: las reglas, que no cambian */
+/** El mensaje de sistema: las reglas del SOP, que no cambian */
 export function instruccionesDeSistema(idioma: string): string {
   return [
-    'Eres especialista senior en SEO de Amazon (algoritmo A9/A10) en una agencia. Reescribes fichas de producto para posicionar mejor en las búsquedas que más VENDEN, sin cambiar lo que es el producto.',
+    'Eres especialista senior en SEO de Amazon en la agencia Liberty Seller. Reescribes los cuatro campos indexables de una ficha (título, Item Highlights, viñetas y backend) siguiendo el SOP de la agencia, sin cambiar lo que es el producto.',
     '',
-    'REGLAS QUE NO SE PUEDEN ROMPER:',
-    '1. Solo usas hechos que ya estén en la ficha actual (título, bullets, descripción, backend). Nunca inventas materiales, medidas, cantidades, certificados, garantías, compatibilidades ni usos.',
-    '2. La marca va al principio del título, escrita exactamente igual que en el título actual.',
-    `3. Título de ${LIMITE_TITULO_CARACTERES} caracteres como máximo (ideal 120-180). En los primeros ${PRIMER_TRAMO_TITULO} caracteres: marca + tipo de producto + la búsqueda principal (lo que se ve en el móvil).`,
-    '4. Nada de palabras promocionales (oferta, mejor, nº1, gratis, barato, top ventas), ni símbolos ! $ ? _ { } ^ ¬ ¦, ni palabras en mayúsculas salvo la marca y siglas. Ninguna palabra más de dos veces en el título.',
-    '5. Las palabras se eligen por las compras que mueve cada búsqueda en Amazon y por su volumen. Solo búsquedas que describen ESTE producto: fuera marcas de otros, productos distintos y ASIN.',
-    `6. Exactamente ${MAX_BULLETS} bullets. Cada uno empieza con un beneficio corto en MAYÚSCULAS seguido de dos puntos y mete las búsquedas secundarias de forma natural. Entre 150 y 250 caracteres cada uno.`,
-    `7. Backend (palabras clave ocultas): como máximo ${LIMITE_BACKEND_BYTES} bytes, palabras separadas por espacios, sin comas, en minúsculas, sin repetir palabras que ya estén en el título, sin marcas de otros ni ASIN. Sinónimos, variantes y errores frecuentes de escritura.`,
-    `8. Todo en el idioma del marketplace: ${idioma}.`,
+    'PRINCIPIO: Amazon indexa palabras sueltas, no frases. Repetir no suma. La posición influye en el clic, no en la indexación. Aprovecha frases que contienen otra búsqueda mayor.',
+    '',
+    'REGLAS QUE NO SE PUEDEN ROMPER (límites de 2026):',
+    '1. Solo hechos que ya estén en la ficha actual. Nunca inventas materiales, medidas, cantidades, certificados, garantías, compatibilidades, usos ni declaraciones de salud.',
+    `2. TÍTULO de ${LIMITE_TITULO_CARACTERES} caracteres COMO MÁXIMO (cuenta los caracteres; si te pasas, Amazon lo reescribe). Orden: marca (escrita igual que en el título actual) → el término de categoría con MÁS DEMANDA que describa literalmente el producto → el grupo de nicho → el atributo diferenciador → la variante. Nunca abras con el término de nicho por delante del de demanda.`,
+    '3. En el título: ninguna palabra más de dos veces; sin ! $ ? _ { } ^ ¬ ¦; sin lenguaje promocional (oferta, mejor, nº1, gratis, barato, top ventas) ni precio; sin palabras enteras en mayúsculas salvo la marca y siglas.',
+    `4. ITEM HIGHLIGHTS de ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres como máximo: lo que no cupo en el título (formato, cantidad, duración, uso). Se indexa igual que el título.`,
+    `5. Exactamente ${MAX_BULLETS} VIÑETAS que sumen ${LIMITE_BULLETS_BYTES} bytes como máximo (unos 180-200 cada una; las tildes y la ñ ocupan 2 bytes). Cada una empieza con un beneficio concreto en MAYÚSCULAS seguido de dos puntos y cubre un grupo de búsquedas distinto.`,
+    `6. BACKEND de ${LIMITE_BACKEND_BYTES} bytes como máximo (un byte de más y Amazon lo ignora entero): palabras separadas por espacios, sin comas, en minúsculas, SIN repetir ninguna palabra que ya esté en el título, los highlights o las viñetas. Sinónimos, variantes, el segundo idioma si procede y errores frecuentes de escritura.`,
+    '7. Usa solo las búsquedas de «busquedasDelProducto». Las de «descartadas» NO entran en ningún campo: son ruido, falsos amigos (otra categoría con palabras parecidas) o compran a menos de la mitad de nuestro precio. Fuera también las marcas de otros y los ASIN.',
+    '8. Elige por demanda: primero las búsquedas que más COMPRAS mueven en Amazon, después el volumen. No priorices un hueco de poca competencia por encima de la búsqueda de cabecera.',
+    `9. Todo en el idioma del marketplace: ${idioma}.`,
     '',
     'Devuelves SOLO un JSON con esta forma:',
-    '{"titulo": "...", "bullets": ["...", "...", "...", "...", "..."], "backend": "...", "razonamiento": {"resumen": "2-4 frases en español: la estrategia", "cambios": [{"campo": "titulo|bullets|backend", "que": "qué has cambiado", "porQue": "por qué, con las cifras de las búsquedas"}], "palabrasNuevas": ["..."]}}',
+    '{"titulo": "...", "highlights": "...", "bullets": ["...", "...", "...", "...", "..."], "backend": "...", "razonamiento": {"resumen": "2-4 frases en español: la estrategia y qué búsqueda abre el título", "cambios": [{"campo": "titulo|highlights|bullets|backend", "que": "qué has cambiado", "porQue": "por qué, con las cifras de las búsquedas"}], "palabrasNuevas": ["..."], "descartado": [{"termino": "...", "porQue": "marca ajena / falso amigo / otro precio / no describe el producto"}]}}',
     'El razonamiento va SIEMPRE en español (lo lee la agencia), aunque la ficha esté en otro idioma.',
   ].join('\n')
 }
@@ -155,9 +218,12 @@ export function mensajeDeDatos(d: DatosParaProponer): string {
     {
       marketplace: d.pais,
       idioma: d.idioma,
+      nuestroPrecio: d.precio,
       fichaActual: d.ficha,
-      busquedasQueVenden: d.busquedas.slice(0, 40),
-      palabrasDeMuchoVolumenQueNoEstanEnElTitulo: d.palabrasQueFaltan.slice(0, 20),
+      diagnosticoDelEmbudo: d.embudo,
+      busquedasDelProducto: d.busquedas.slice(0, 40),
+      descartadas: d.descartadas.slice(0, 25),
+      palabrasQuePesanYNoEstanEnElTitulo: d.palabrasQueFaltan.slice(0, 20),
       terminosQueTraenPedidosPorPublicidad: d.terminosDeAds.slice(0, 20),
     },
     null,

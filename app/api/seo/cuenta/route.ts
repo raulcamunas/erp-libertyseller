@@ -1,14 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { avanzarSeo, leerEstadoSeo } from '@/lib/seo/lectura'
-import { consultasDelAnterior, consultasGuardadas, evolucionDeCuenta, fichasGuardadas, productosSeguidos } from '@/lib/seo/datos'
+import { cambiosAplicados, consultasDelAnterior, consultasGuardadas, evolucionDeCuenta, fichasGuardadas, preciosDeListings, productosSeguidos } from '@/lib/seo/datos'
 import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
 
 /**
  * SEO TEST · TODO LO DE UNA CUENTA Y PAÍS. Solo administradores. Solo LEE de Amazon.
  *
  *   GET  ?cuenta=connectionId~marketplaceId   → estado de la lectura (y del acceso a Brand Analytics), productos seguidos, búsquedas del último mes y semana, y fichas; con la migración 299,
- *                                              también la evolución de cada producto y las búsquedas del periodo anterior (para comparar)
+ *                                              también la evolución de cada producto y las búsquedas del periodo anterior (para comparar). Además, el precio de cada producto en el catálogo
+ *                                              (para descartar búsquedas que compran a otro precio) y los cambios de ficha aplicados (la ventana de 30 días del SOP)
  *   POST {cuenta, accion: 'actualizar'}         → vuelve a leer ya (fichas e informe), sin esperar al proceso de fondo
  *
  * Cada GET da también UN paso de la lectura (como Marketing Test): la pantalla no depende de que el proceso de fondo haya pasado justo ahora.
@@ -33,6 +34,12 @@ export async function GET(request: NextRequest) {
       consultasDelAnterior(c.connectionId, c.marketplaceId, 'MONTH'),
       consultasDelAnterior(c.connectionId, c.marketplaceId, 'WEEK'),
     ])
+    // Lo de apoyo no tumba la pantalla: sin precio se estima con Brand Analytics y sin cambios no hay ventana que vigilar
+    const asins = productos.map((p) => p.asin)
+    const [precios, cambios] = await Promise.all([
+      preciosDeListings(c.connectionId, c.marketplaceId, asins).catch((e) => (console.error('SEO: precios:', e instanceof Error ? e.message : e), {})),
+      cambiosAplicados(c.connectionId, c.marketplaceId).catch((e) => (console.error('SEO: cambios aplicados:', e instanceof Error ? e.message : e), [])),
+    ])
     return NextResponse.json({
       lectura: {
         acceso: estado?.acceso ?? 'desconocido',
@@ -53,6 +60,8 @@ export async function GET(request: NextRequest) {
       anteriores: { MONTH: mesAnterior, WEEK: semanaAnterior },
       evolucion,
       fichas,
+      precios,
+      cambios,
     })
   } catch (error) {
     return errorDeRutaSeo(error, 'SEO: leer la cuenta')

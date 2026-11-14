@@ -26,6 +26,7 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { AmazonApiError } from '@/lib/amazon/errors'
 import { spApiRequest } from '@/lib/amazon/sp-api'
 import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/informes'
+import { skusDelCatalogo, vigiaLanzado } from './datos'
 import { leerFichas } from './ficha-servidor'
 import { claveDePeriodo, mesesAnteriores, semanasAnteriores, tandasDeAsins, ultimaSemana, ultimoMes, type PeriodoSqp, type RangoSqp } from './periodos'
 import { leerTopFiltrado, pedirTop } from './top-servidor'
@@ -108,10 +109,26 @@ async function guardar(c: CuentaSeo, cambios: Record<string, unknown>): Promise<
   if (error) throw error
 }
 
+/**
+ * Los productos seguidos. A los que no tienen SKU (los traídos de Marketing Test pueden venir sin él) se les busca en el catálogo de la cuenta y se apunta: sin SKU la ficha no se lee nunca y la
+ * pantalla se quedaba diciendo «ficha sin leer» para siempre.
+ */
 async function productosDe(c: CuentaSeo): Promise<Array<{ asin: string; sku: string | null }>> {
-  const { data, error } = await createServiceClient().from('seo_productos').select('asin, sku').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId)
+  const service = createServiceClient()
+  const { data, error } = await service.from('seo_productos').select('id, asin, sku').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId)
   if (error) throw error
-  return (data ?? []) as Array<{ asin: string; sku: string | null }>
+  const filas = (data ?? []) as Array<{ id: string; asin: string; sku: string | null }>
+  const sinSku = filas.filter((f) => !f.sku)
+  if (sinSku.length > 0) {
+    const skus = await skusDelCatalogo(c.connectionId, c.marketplaceId, sinSku.map((f) => f.asin)).catch(() => new Map<string, string>())
+    for (const f of sinSku) {
+      const sku = skus.get(f.asin.toUpperCase())
+      if (!sku) continue
+      f.sku = sku
+      await service.from('seo_productos').update({ sku }).eq('id', f.id)
+    }
+  }
+  return filas.map((f) => ({ asin: f.asin, sku: f.sku }))
 }
 
 /**
@@ -178,7 +195,19 @@ export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean; pes
       try {
         const fichas = await leerFichas(resuelta.credentials, c.marketplaceId, skus)
         const porSku = new Map(productos.map((p) => [p.sku, p.asin]))
-        const filas = fichas.map((f) => ({ connection_id: c.connectionId, marketplace_id: c.marketplaceId, asin: (f.asin ?? porSku.get(f.sku) ?? '').toUpperCase(), sku: f.sku, titulo: f.titulo, bullets: f.bullets, descripcion: f.descripcion, backend: f.backend, leida_at: new Date().toISOString() })).filter((f) => f.asin)
+        const filas: Array<Record<string, unknown> & { asin: string }> = fichas.map((f) => ({ connection_id: c.connectionId, marketplace_id: c.marketplaceId, asin: (f.asin ?? porSku.get(f.sku) ?? '').toUpperCase(), sku: f.sku, titulo: f.titulo, bullets: f.bullets, descripcion: f.descripcion, backend: f.backend, leida_at: new Date().toISOString() })).filter((f) => f.asin)
+        // EL VIGÍA DE TÍTULOS (migración 304): si el título que llega no es el que había, se guarda el de antes y cuándo cambió. Amazon reescribe con IA los títulos fuera de norma y da 14 días
+        // para revisarlo; «Qué hacer hoy» lo avisa si el cambio no es nuestro
+        if (filas.length > 0 && (await vigiaLanzado().catch(() => false))) {
+          const { data: antes } = await service.from('seo_fichas').select('asin, titulo, titulo_anterior, titulo_cambiado_at').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).in('asin', filas.map((f) => f.asin))
+          const previo = new Map(((antes ?? []) as Array<{ asin: string; titulo: string | null; titulo_anterior: string | null; titulo_cambiado_at: string | null }>).map((a) => [a.asin, a]))
+          for (const f of filas) {
+            const viejo = previo.get(f.asin)
+            // Un upsert por lotes pone a NULL las columnas que falten en una fila: a las que no cambian se les copia lo que ya tenían, o el aviso desaparecería al día siguiente
+            if (viejo?.titulo && f.titulo && viejo.titulo.trim() !== String(f.titulo).trim()) Object.assign(f, { titulo_anterior: viejo.titulo, titulo_cambiado_at: new Date().toISOString() })
+            else Object.assign(f, { titulo_anterior: viejo?.titulo_anterior ?? null, titulo_cambiado_at: viejo?.titulo_cambiado_at ?? null })
+          }
+        }
         if (filas.length > 0) {
           const { error } = await service.from('seo_fichas').upsert(filas, { onConflict: 'connection_id,marketplace_id,asin' })
           if (error) throw error
@@ -333,10 +362,15 @@ export async function cuentasSeoConTrabajo(): Promise<CuentaSeo[]> {
   })
 }
 
-/** Al añadir o quitar productos se vuelve a leer el mes y la semana (con la lista nueva de ASIN) */
+/**
+ * Al añadir o quitar productos se vuelve a leer el mes y la semana (con la lista nueva de ASIN).
+ *
+ * Si había un informe en marcha se abandona (estado a reposo, sin report_id). Antes no se hacía y era un fallo: el informe pedido con la lista VIEJA llegaba después, no quedaban tandas pendientes
+ * y se daba el mes por leído; el producto recién añadido se quedaba sin búsquedas hasta el mes siguiente. Se pierde un informe; se gana que el nuevo salga en unos minutos.
+ */
 export async function reiniciarLectura(c: CuentaSeo): Promise<void> {
   // Con el histórico, también se vuelven a pedir las semanas y meses pasados (para los productos nuevos)
-  await guardar(c, { mes_ok: null, semana_ok: null, pendientes: [], ficha_leida_at: null, ...((await mejorasLanzadas()) ? { periodos_leidos: [] } : {}) })
+  await guardar(c, { estado: 'reposo', report_id: null, mes_ok: null, semana_ok: null, pendientes: [], ficha_leida_at: null, error: null, ...((await mejorasLanzadas()) ? { periodos_leidos: [] } : {}) })
 }
 
 const restarDias = (hoy: string, dias: number) => new Date(Date.parse(`${hoy}T00:00:00Z`) - dias * DIA_MS).toISOString().slice(0, 10)

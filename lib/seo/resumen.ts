@@ -3,17 +3,19 @@
  *
  * Cuatro números que dicen de un vistazo cómo está un producto:
  *   · cuota de compras: de todas las compras que se hicieron en Amazon tras SUS búsquedas, qué parte fue suya (suma de lo suyo ÷ suma del total, no la media de porcentajes);
- *   · cuota de impresiones: igual, con las impresiones (¿sale cuando se busca?);
+ *   · cuota de impresiones: igual, con las impresiones (¿sale cuando se busca?). Con los totales de impresiones (lo normal) es suma ÷ suma, LA MISMA cuenta que hace la evolución
+ *     (función seo_evolucion): antes aquí se ponderaba por volumen y la cifra de arriba no se podía comparar con su «antes», que sí era suma ÷ suma. Sin totales (datos viejos), por volumen;
  *   · cobertura: de sus 20 búsquedas con más volumen, cuántas tienen todas sus palabras en la ficha;
  *   · la búsqueda principal: la de más volumen.
  */
 
-import { coberturaDe, palabras, type TextosDeFicha } from './cobertura'
+import { coberturaDe, palabras, tokens, type TextosDeFicha } from './cobertura'
 
 export interface ConsultaParaResumen {
   consulta: string
   volumen: number | null
   impresionesAsin?: number | null
+  impresionesTotal?: number | null
   cuotaImpresiones: number | null
   comprasAsin: number | null
   comprasTotal: number | null
@@ -39,10 +41,16 @@ export function resumenDeProducto(consultas: readonly ConsultaParaResumen[], fic
   const volumenTotal = ordenadas.reduce((s, c) => s + (c.volumen ?? 0), 0)
   const compAsin = ordenadas.reduce((s, c) => s + (c.comprasAsin ?? 0), 0)
   const compTotal = ordenadas.reduce((s, c) => s + (c.comprasTotal ?? 0), 0)
-  // Cuota de impresiones ponderada por volumen (Amazon no da el total de impresiones de forma comparable entre búsquedas)
-  const conImp = ordenadas.filter((c) => c.cuotaImpresiones != null && (c.volumen ?? 0) > 0)
-  const pesoImp = conImp.reduce((s, c) => s + (c.volumen ?? 0), 0)
-  const cuotaImpresiones = pesoImp > 0 ? conImp.reduce((s, c) => s + (c.cuotaImpresiones as number) * (c.volumen as number), 0) / pesoImp : null
+  // Con totales: suma de lo suyo ÷ suma del total (como la evolución). Sin ellos, la cuota ponderada por volumen
+  const conTotales = ordenadas.filter((c) => c.impresionesTotal != null && c.impresionesAsin != null && (c.impresionesTotal as number) > 0)
+  let cuotaImpresiones: number | null
+  if (conTotales.length > 0) {
+    cuotaImpresiones = conTotales.reduce((s, c) => s + (c.impresionesAsin as number), 0) / conTotales.reduce((s, c) => s + (c.impresionesTotal as number), 0)
+  } else {
+    const conImp = ordenadas.filter((c) => c.cuotaImpresiones != null && (c.volumen ?? 0) > 0)
+    const pesoImp = conImp.reduce((s, c) => s + (c.volumen ?? 0), 0)
+    cuotaImpresiones = pesoImp > 0 ? conImp.reduce((s, c) => s + (c.cuotaImpresiones as number) * (c.volumen as number), 0) / pesoImp : null
+  }
   let cobertura: number | null = null
   let faltanEnFicha: number | null = null
   if (ficha) {
@@ -74,18 +82,20 @@ export function palabrasQueFaltanEnElTitulo(consultas: readonly ConsultaParaResu
   const enTitulo = new Set(palabras(ficha.titulo ?? ''))
   const enBullets = new Set(palabras(ficha.bullets.join(' ')))
   const enBackend = new Set(palabras(ficha.backend ?? ''))
-  const por = new Map<string, { peso: number; busquedas: number }>()
+  // Por raíz (para que «tarjeta» y «tarjetas» sumen juntas), con la forma que se vio primero para enseñarla
+  const por = new Map<string, { forma: string; peso: number; busquedas: number }>()
   for (const c of [...consultas].sort((a, b) => (b.volumen ?? 0) - (a.volumen ?? 0)).slice(0, top)) {
-    for (const p of new Set(palabras(c.consulta))) {
-      if (enTitulo.has(p) || p.length < 3) continue
-      const x = por.get(p) ?? { peso: 0, busquedas: 0 }
+    for (const t of new Map(tokens(c.consulta).map((x) => [x.raiz, x.forma]))) {
+      const [p, forma] = t
+      if (enTitulo.has(p) || forma.length < 3) continue
+      const x = por.get(p) ?? { forma, peso: 0, busquedas: 0 }
       x.peso += c.volumen ?? 0
       x.busquedas += 1
       por.set(p, x)
     }
   }
   return [...por.entries()]
-    .map(([palabra, x]) => ({ palabra, ...x, enBullets: enBullets.has(palabra), enBackend: enBackend.has(palabra) }))
+    .map(([r, x]) => ({ palabra: x.forma, peso: x.peso, busquedas: x.busquedas, enBullets: enBullets.has(r), enBackend: enBackend.has(r) }))
     .sort((a, b) => b.peso - a.peso)
     .slice(0, max)
 }

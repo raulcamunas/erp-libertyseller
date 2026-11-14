@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Megaphone, Search, Swords, TrendingUp } from 'lucide-react'
+import { Download, Megaphone, Search, Swords, TrendingUp } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { CAJA, Segmentado, TiraDeCifras } from '@/components/marketing-test/piezas'
@@ -9,13 +9,16 @@ import { dinero, entero, porcentaje } from '@/components/marketing-test/formato'
 import { Vacio } from '@/components/plataforma/comun'
 import { coberturaDe } from '@/lib/seo/cobertura'
 import { resumenDeProducto } from '@/lib/seo/resumen'
-import type { FilaCompetencia } from '@/lib/seo/datos'
+import type { ConsultaGuardada, FilaCompetencia } from '@/lib/seo/datos'
+import type { Veredicto } from '@/lib/seo/embudo'
 import type { BusquedaSinExacta } from '@/lib/seo/publicidad-calculo'
-import { BarraDeCuota, consultasDe, DeltaPuntos, fichaDe, mapaAnterior, Marca, SelectorDeProducto, serieDe } from './comun'
+import { consultasDe, DeltaPuntos, diagnosticoDe, EmbudoMini, EtiquetaDeVeredicto, estiloDeVeredicto, fichaDe, mapaAnterior, Marca, SelectorDeProducto, serieDe, TarjetaDeEmbudo } from './comun'
+import { esRelevante, impactoDe } from '@/lib/seo/embudo'
 import { useDelProducto } from './useDelProducto'
 import type { DatosSeo } from './useCuentaSeo'
 
-type Filtro = 'todas' | 'faltan'
+type Filtro = 'todas' | 'faltan' | 'seo' | 'no-seo' | 'descartadas'
+type Orden = 'volumen' | 'impacto'
 
 export interface DatosDePublicidad {
   hayMarketingTest: boolean
@@ -27,11 +30,13 @@ export interface DatosDePublicidad {
 /**
  * LAS BÚSQUEDAS DE UN PRODUCTO (Brand Analytics): por cada búsqueda de Amazon donde aparece, cuántas veces se buscó, qué parte de las impresiones, clics y compras se llevó y cómo ha cambiado frente al
  * periodo anterior, quién se lleva los clics (los 3 primeros de todo Amazon), a qué precio compra la gente frente al suyo y si la búsqueda está entera en el título, los bullets o el backend.
- * Arriba, la evolución del producto; abajo, las búsquedas que venden y no tienen keyword EXACTA en Marketing Test.
+ * Arriba, el embudo del producto entero (dónde se cae y de quién es el trabajo, según el SOP) y su evolución; en cada búsqueda, su diagnóstico; abajo, las búsquedas que venden y no tienen keyword
+ * EXACTA en Marketing Test. Se puede descargar en CSV para trabajarla fuera.
  */
 export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, irAProductos }: { cuentaId: string; datos: DatosSeo; moneda: string | null; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void }) {
   const [periodo, setPeriodo] = useState<'MONTH' | 'WEEK'>('MONTH')
   const [filtro, setFiltro] = useState<Filtro>('todas')
+  const [orden, setOrden] = useState<Orden>('impacto')
   const [busqueda, setBusqueda] = useState('')
 
   const ficha = asin ? fichaDe(datos, asin) : null
@@ -49,14 +54,23 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
     return m
   }, [competencia.datos])
 
+  const diagnostico = useMemo(() => (asin ? diagnosticoDe(datos, asin, periodo) : null), [datos, asin, periodo])
+  const todas = useMemo(
+    () =>
+      consultas.map((c) => {
+        const v = diagnostico?.porConsulta.get(c.consulta)
+        return { ...c, cobertura: ficha ? coberturaDe(c.consulta, ficha) : null, previa: anterior.get(c.consulta.trim().toLowerCase()), v, impacto: v ? impactoDe(c, v) : 0 }
+      }),
+    [consultas, ficha, anterior, diagnostico]
+  )
+  const cuenta = (f: Filtro) => todas.filter((c) => pasaFiltro(c, f)).length
   const filas = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
-    return consultas
-      .map((c) => ({ ...c, cobertura: ficha ? coberturaDe(c.consulta, ficha) : null, previa: anterior.get(c.consulta.trim().toLowerCase()) }))
-      .filter((c) => (!q || c.consulta.toLowerCase().includes(q)) && (filtro === 'todas' || (c.cobertura && c.cobertura.faltan.length > 0)))
-      .sort((a, b) => (b.volumen ?? 0) - (a.volumen ?? 0))
+    return todas
+      .filter((c) => (!q || c.consulta.toLowerCase().includes(q)) && pasaFiltro(c, filtro))
+      .sort((a, b) => (orden === 'impacto' ? b.impacto - a.impacto : 0) || (b.volumen ?? 0) - (a.volumen ?? 0))
       .slice(0, 400)
-  }, [consultas, ficha, filtro, busqueda, anterior])
+  }, [todas, filtro, busqueda, orden])
   const r = useMemo(() => resumenDeProducto(consultas, ficha), [consultas, ficha])
   const rango = consultas[0] ? `${new Date(`${consultas[0].desde}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })} – ${new Date(`${consultas[0].hasta}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}` : null
   const previo = serie.length >= 2 ? serie[serie.length - 2] : null
@@ -74,9 +88,15 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
       <div className="flex flex-wrap items-center gap-2">
         <SelectorDeProducto productos={datos.productos} datos={datos} asin={asin} setAsin={setAsin} />
         <Segmentado etiqueta="Periodo" opciones={[{ id: 'MONTH', texto: 'Último mes' }, { id: 'WEEK', texto: 'Última semana' }]} valor={periodo} cambiar={(v) => setPeriodo(v as 'MONTH' | 'WEEK')} />
-        <Segmentado etiqueta="Qué búsquedas" opciones={[{ id: 'todas', texto: 'Todas', cuenta: consultas.length }, { id: 'faltan', texto: 'Les falta algo en la ficha', cuenta: ficha ? consultas.filter((c) => coberturaDe(c.consulta, ficha).faltan.length > 0).length : undefined }]} valor={filtro} cambiar={(v) => setFiltro(v as Filtro)} />
+        <Segmentado etiqueta="Ordenar" opciones={[{ id: 'impacto', texto: 'Compras en juego' }, { id: 'volumen', texto: 'Volumen' }]} valor={orden} cambiar={(v) => setOrden(v as Orden)} />
         {rango && <span className="text-[11.5px] text-[var(--ls-t4)]">{rango}</span>}
-        <label className="relative ml-auto">
+        <span className="ml-auto" />
+        {filas.length > 0 && (
+          <button type="button" onClick={() => descargarCsv(filas, asin ?? '', periodo, moneda)} className="inline-flex h-[30px] items-center gap-[6px] rounded-[9px] px-[10px] text-[12px] font-medium text-[var(--ls-t2)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]" title="Descargar estas búsquedas (con el filtro puesto) en CSV, para Excel">
+            <Download className="h-[13px] w-[13px]" /> CSV
+          </button>
+        )}
+        <label className="relative">
           <span className="sr-only">Filtrar búsquedas</span>
           <Search className="pointer-events-none absolute left-[10px] top-[9px] h-[13px] w-[13px] text-[var(--ls-t4)]" />
           <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Filtrar búsquedas" className="h-[30px] w-[220px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)]" />
@@ -103,17 +123,31 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
             ]}
           />
 
+          {diagnostico && <TarjetaDeEmbudo d={diagnostico} />}
+
           {datos.lectura.mejoras && <TarjetaDeEvolucion serie={serie} periodo={periodo} />}
 
+          <Segmentado
+            etiqueta="Qué búsquedas"
+            opciones={[
+              { id: 'todas', texto: 'Todas', cuenta: consultas.length },
+              { id: 'seo', texto: 'Es SEO', cuenta: cuenta('seo') },
+              { id: 'no-seo', texto: 'No es SEO (ficha, precio, PPC…)', cuenta: cuenta('no-seo') },
+              { id: 'faltan', texto: 'Les falta algo en la ficha', cuenta: ficha ? cuenta('faltan') : undefined },
+              { id: 'descartadas', texto: 'Descartadas', cuenta: cuenta('descartadas') },
+            ]}
+            valor={filtro}
+            cambiar={(v) => setFiltro(v as Filtro)}
+          />
+
           <div className={`${CAJA.base} overflow-x-auto`}>
-            <table className={`w-full ${conCompetencia ? 'min-w-[1360px]' : 'min-w-[1120px]'} border-separate border-spacing-0 whitespace-nowrap text-[12.5px]`}>
+            <table className={`w-full ${conCompetencia ? 'min-w-[1380px]' : 'min-w-[1140px]'} border-separate border-spacing-0 whitespace-nowrap text-[12.5px]`}>
               <thead>
                 <tr className="text-[11px] text-[var(--ls-t4)]">
                   <th className="sticky top-0 bg-[var(--ls-sup2)] px-4 py-[9px] text-left font-semibold">Búsqueda</th>
                   <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-right font-semibold">Volumen</th>
-                  <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-right font-semibold">Tus impresiones</th>
-                  <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-right font-semibold">Tus clics</th>
-                  <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-right font-semibold">Tus compras</th>
+                  <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-left font-semibold" title="Tu cuota en cada escalón: impresiones › clics › carrito › compras. En rojo, donde se cae">Tu cuota · imp › clic › carrito › compra</th>
+                  <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-left font-semibold" title="Dónde se cae el embudo y de quién es el trabajo (SOP). Pasa el ratón para ver el porqué">Diagnóstico</th>
                   <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-right font-semibold" title="Cuota de compras frente al periodo anterior">vs anterior</th>
                   {conCompetencia && <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-left font-semibold">Quién se lleva los clics</th>}
                   <th className="sticky top-0 bg-[var(--ls-sup2)] px-3 py-[9px] text-right font-semibold">Precio · tú / mercado</th>
@@ -125,12 +159,15 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
                   <tr key={c.consulta} className="hover:[&>td]:bg-[var(--ls-sup2)]">
                     <td className="border-t border-[var(--ls-linea)] px-4 py-[8px]">
                       <div className="max-w-[260px] whitespace-normal font-medium text-[var(--ls-t1)]">{c.consulta}</div>
-                      {c.comprasAsin != null && c.comprasTotal != null && <div className="text-[11px] text-[var(--ls-t4)]">{entero(c.comprasAsin)} de {entero(c.comprasTotal)} compras</div>}
+                      {c.comprasAsin != null && c.comprasTotal != null && (
+                        <div className="text-[11px] text-[var(--ls-t4)]">
+                          {entero(c.comprasAsin)} de {entero(c.comprasTotal)} compras{c.impacto > 0 ? ` · ${entero(c.impacto)} en juego` : ''}
+                        </div>
+                      )}
                     </td>
                     <td className="border-t border-[var(--ls-linea)] px-3 py-[8px] text-right tabular-nums text-[var(--ls-t1)]">{entero(c.volumen)}</td>
-                    <td className="border-t border-[var(--ls-linea)] px-3 py-[8px] text-right"><BarraDeCuota valor={c.cuotaImpresiones} color={COLOR_ESTADO.cian} /></td>
-                    <td className="border-t border-[var(--ls-linea)] px-3 py-[8px] text-right"><BarraDeCuota valor={c.cuotaClics} color={COLOR_ESTADO.azul} /></td>
-                    <td className="border-t border-[var(--ls-linea)] px-3 py-[8px] text-right"><BarraDeCuota valor={c.cuotaCompras} color={COLOR_ESTADO.verde} /></td>
+                    <td className="border-t border-[var(--ls-linea)] px-3 py-[8px]"><EmbudoMini fila={c} v={c.v} /></td>
+                    <td className="border-t border-[var(--ls-linea)] px-3 py-[8px]"><EtiquetaDeVeredicto v={c.v} /></td>
                     <td className="border-t border-[var(--ls-linea)] px-3 py-[8px] text-right text-[11.5px]">
                       {c.previa ? <DeltaPuntos actual={c.cuotaCompras} anterior={c.previa.cuotaCompras} /> : anterior.size > 0 ? <span className="text-[var(--ls-t4)]" title="No salía en el periodo anterior">nueva</span> : <span className="text-[var(--ls-t4)]">—</span>}
                     </td>
@@ -170,11 +207,45 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
           <NotaDeCompetencia datos={datos} hay={conCompetencia} desde={competencia.datos?.desde ?? null} />
 
           <SinExacta publicidad={publicidad.datos} />
-          <p className="text-[11px] text-[var(--ls-t4)]">Datos de Brand Analytics (Search Query Performance). «Tus impresiones / clics / compras» es la parte que se llevó este producto de todo lo que pasó en Amazon con esa búsqueda.</p>
+          <p className="text-[11px] leading-[1.5] text-[var(--ls-t4)]">
+            Datos de Brand Analytics (Search Query Performance). «Tu cuota» es la parte que se llevó este producto de todo lo que pasó en Amazon con esa búsqueda, escalón a escalón. El diagnóstico compara cada
+            escalón con el anterior: si te llevas el 3 % de las impresiones, lo normal es llevarte un 3 % de los clics; por debajo del 70 % de lo esperado, ahí se cae (solo se juzga con al menos 3
+            esperados). «Infraexpuesta»: te llevas al menos 1,2 veces más cuota de compras que de impresiones, con menos del 20 % de impresiones: convierte de sobra y le falta exposición (PPC). Los
+            umbrales son estimaciones de la agencia. «Descartadas»: sin intención de compra, o el sector compra a menos de la mitad de tu precio.
+          </p>
         </>
       )}
     </div>
   )
+}
+
+type FilaDeTabla = ConsultaGuardada & { cobertura: ReturnType<typeof coberturaDe> | null; v: Veredicto | undefined; impacto: number; previa?: { cuotaCompras: number | null } }
+
+function pasaFiltro(c: FilaDeTabla, f: Filtro): boolean {
+  if (f === 'todas') return true
+  if (f === 'faltan') return !!c.cobertura && c.cobertura.faltan.length > 0 && (!c.v || esRelevante(c.v))
+  if (!c.v) return false
+  if (f === 'seo') return c.v.tipo === 'visibilidad'
+  if (f === 'no-seo') return c.v.tipo === 'fuga' || c.v.tipo === 'infraexpuesta'
+  return !esRelevante(c.v)
+}
+
+/** Las búsquedas en CSV (separado por «;» y con BOM, que es como lo abre bien el Excel en español) */
+function descargarCsv(filas: FilaDeTabla[], asin: string, periodo: 'MONTH' | 'WEEK', moneda: string | null) {
+  const n = (x: number | null | undefined, dec = 0) => (x == null ? '' : x.toLocaleString('es-ES', { maximumFractionDigits: dec, useGrouping: false }))
+  const p = (x: number | null | undefined) => (x == null ? '' : (x * 100).toLocaleString('es-ES', { maximumFractionDigits: 2, useGrouping: false }))
+  const q = (t: string) => `"${t.replace(/"/g, '""')}"`
+  const cabecera = ['Búsqueda', 'Volumen', 'Compras en Amazon', 'Tus compras', 'Compras en juego', '% impresiones', '% clics', '% carrito', '% compras', 'Diagnóstico', 'De quién es', 'Por qué', `Tu precio (${moneda ?? ''})`, `Precio del sector (${moneda ?? ''})`, 'En título', 'En bullets', 'En backend', 'Falta en la ficha']
+  const lineas = filas.map((c) => {
+    const e = c.v ? estiloDeVeredicto(c.v) : null
+    return [q(c.consulta), n(c.volumen), n(c.comprasTotal), n(c.comprasAsin), n(c.impacto), p(c.cuotaImpresiones), p(c.cuotaClics), p(c.cuotaCarritos), p(c.cuotaCompras), q(e?.texto ?? ''), q(e?.pista ?? ''), q(c.v?.motivo ?? ''), n(c.precioMedianoAsin, 2), n(c.precioMedianoTotal, 2), c.cobertura?.titulo ? 'sí' : 'no', c.cobertura?.bullets ? 'sí' : 'no', c.cobertura?.backend ? 'sí' : 'no', q(c.cobertura?.faltan.join(' ') ?? '')].join(';')
+  })
+  const blob = new Blob([`\ufeff${[cabecera.map(q).join(';'), ...lineas].join('\r\n')}`], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `busquedas-${asin}-${periodo === 'MONTH' ? 'mes' : 'semana'}.csv`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }
 
 function TarjetaDeEvolucion({ serie, periodo }: { serie: ReturnType<typeof serieDe>; periodo: 'MONTH' | 'WEEK' }) {

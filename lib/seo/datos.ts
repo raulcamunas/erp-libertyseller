@@ -74,9 +74,54 @@ export async function seguirProductos(connectionId: string, marketplaceId: strin
     .map((p) => ({ connection_id: connectionId, marketplace_id: marketplaceId, asin: p.asin.trim().toUpperCase(), sku: p.sku?.trim() || null, nombre: p.nombre?.trim().slice(0, 200) || null, created_by: userId }))
     .filter((p) => /^[A-Z0-9]{10}$/.test(p.asin))
   if (filas.length === 0) return 0
+  // Lo que viene de Marketing Test puede no traer SKU, y sin SKU la ficha no se lee nunca: se completa con el catálogo de la cuenta en ese país
+  const sinSku = filas.filter((f) => !f.sku).map((f) => f.asin)
+  if (sinSku.length > 0) {
+    const skus = await skusDelCatalogo(connectionId, marketplaceId, sinSku)
+    for (const f of filas) if (!f.sku) f.sku = skus.get(f.asin) ?? null
+  }
   const { data, error } = await createServiceClient().from('seo_productos').upsert(filas, { onConflict: 'connection_id,marketplace_id,asin', ignoreDuplicates: true }).select('id')
   if (error) throw error
   return data?.length ?? 0
+}
+
+/**
+ * El SKU de cada ASIN según el catálogo de la cuenta en ese país (amazon_listings). Si un ASIN tiene varios SKU, gana el que se puede comprar (BUYABLE): es el que lleva la ficha que ve el cliente.
+ */
+export async function skusDelCatalogo(connectionId: string, marketplaceId: string, asins: readonly string[]): Promise<Map<string, string>> {
+  const salida = new Map<string, string>()
+  if (asins.length === 0) return salida
+  const { data, error } = await createServiceClient().from('amazon_listings').select('sku, asin, listing_status').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).in('asin', [...asins])
+  if (error) throw error
+  const filas = ((data ?? []) as Array<{ sku: string; asin: string; listing_status: string[] | null }>).sort((a, b) => Number((b.listing_status ?? []).includes('BUYABLE')) - Number((a.listing_status ?? []).includes('BUYABLE')))
+  for (const f of filas) if (f.asin && !salida.has(f.asin.toUpperCase())) salida.set(f.asin.toUpperCase(), f.sku)
+  return salida
+}
+
+/** El precio de cada ASIN en el catálogo de la cuenta (amazon_listings): es «nuestro precio» para saber si una búsqueda compra a otro precio (falso amigo) */
+export async function preciosDeListings(connectionId: string, marketplaceId: string, asins: readonly string[]): Promise<Record<string, number | null>> {
+  const salida: Record<string, number | null> = {}
+  if (asins.length === 0) return salida
+  const { data, error } = await createServiceClient().from('amazon_listings').select('asin, price, listing_status').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).in('asin', [...asins])
+  if (error) throw error
+  // Con varios SKU del mismo ASIN, el del que se puede comprar
+  const filas = ((data ?? []) as Array<{ asin: string; price: number | string | null; listing_status: string[] | null }>).sort((a, b) => Number((b.listing_status ?? []).includes('BUYABLE')) - Number((a.listing_status ?? []).includes('BUYABLE')))
+  for (const f of filas) {
+    const k = f.asin?.toUpperCase()
+    const precio = f.price == null ? null : Number(f.price)
+    if (k && salida[k] == null && precio != null && precio > 0) salida[k] = precio
+  }
+  return salida
+}
+
+/** Las propuestas de ficha que ya se aplicaron en Amazon (para la ventana de 30 días del SOP). [] si falta la migración 299 */
+export async function cambiosAplicados(connectionId: string, marketplaceId: string): Promise<Array<{ asin: string; aplicadaAt: string }>> {
+  const { data, error } = await createServiceClient().from('seo_propuestas').select('asin, aplicada_at').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('estado', 'aplicada').not('aplicada_at', 'is', null).order('aplicada_at', { ascending: false }).limit(200)
+  if (error) {
+    if (isMissingSchema(error)) return []
+    throw error
+  }
+  return ((data ?? []) as Array<{ asin: string; aplicada_at: string }>).map((r) => ({ asin: r.asin, aplicadaAt: r.aplicada_at }))
 }
 
 export async function dejarDeSeguir(connectionId: string, marketplaceId: string, id: string): Promise<void> {
@@ -134,6 +179,11 @@ export interface ConsultaGuardada {
   comprasTotal: number | null
   clicsAsin: number | null
   impresionesAsin: number | null
+  /** Los totales de cada escalón (todo Amazon) y los carritos del producto: con ellos se diagnostica el embudo (lib/seo/embudo.ts) con recuentos, no solo con cuotas */
+  impresionesTotal: number | null
+  clicsTotal: number | null
+  carritosTotal: number | null
+  carritosAsin: number | null
   precioMedianoTotal: number | null
   precioMedianoAsin: number | null
 }
@@ -150,7 +200,7 @@ export async function consultasGuardadas(connectionId: string, marketplaceId: st
   for (let i = 0; i < 20_000; i += 1000) {
     const { data, error } = await service
       .from('seo_consultas')
-      .select('asin, periodo, desde, hasta, consulta, puntuacion, volumen, cuota_impresiones, cuota_clics, cuota_carritos, cuota_compras, compras_asin, compras_total, clics_asin, impresiones_asin, precio_mediano_total, precio_mediano_asin')
+      .select('asin, periodo, desde, hasta, consulta, puntuacion, volumen, cuota_impresiones, cuota_clics, cuota_carritos, cuota_compras, compras_asin, compras_total, clics_asin, impresiones_asin, impresiones_total, clics_total, carritos_total, carritos_asin, precio_mediano_total, precio_mediano_asin')
       .eq('connection_id', connectionId)
       .eq('marketplace_id', marketplaceId)
       .eq('periodo', periodo)
@@ -175,6 +225,10 @@ export async function consultasGuardadas(connectionId: string, marketplaceId: st
         comprasTotal: n(r.compras_total),
         clicsAsin: n(r.clics_asin),
         impresionesAsin: n(r.impresiones_asin),
+        impresionesTotal: n(r.impresiones_total),
+        clicsTotal: n(r.clics_total),
+        carritosTotal: n(r.carritos_total),
+        carritosAsin: n(r.carritos_asin),
         precioMedianoTotal: n(r.precio_mediano_total),
         precioMedianoAsin: n(r.precio_mediano_asin),
       })
@@ -192,12 +246,39 @@ export interface FichaGuardada {
   descripcion: string | null
   backend: string | null
   leidaAt: string
+  /** El vigía de títulos (migración 304): el título de antes del último cambio detectado y cuándo. Sin la 304, no vienen */
+  tituloAnterior?: string | null
+  tituloCambiadoAt?: string | null
+}
+
+/** ¿Está la migración 304 (vigía de títulos)? Se pregunta una vez por proceso */
+let hayVigia: boolean | null = null
+export async function vigiaLanzado(): Promise<boolean> {
+  if (hayVigia === true) return true
+  const { error } = await createServiceClient().from('seo_fichas').select('titulo_anterior').limit(1)
+  if (error && !isMissingSchema(error)) throw error
+  hayVigia = !error
+  return hayVigia
 }
 
 export async function fichasGuardadas(connectionId: string, marketplaceId: string): Promise<FichaGuardada[]> {
-  const { data, error } = await createServiceClient().from('seo_fichas').select('asin, sku, titulo, bullets, descripcion, backend, leida_at').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId)
+  const vigia = await vigiaLanzado().catch(() => false)
+  const { data, error } = await createServiceClient()
+    .from('seo_fichas')
+    .select(`asin, sku, titulo, bullets, descripcion, backend, leida_at${vigia ? ', titulo_anterior, titulo_cambiado_at' : ''}`)
+    .eq('connection_id', connectionId)
+    .eq('marketplace_id', marketplaceId)
   if (error) throw error
-  return ((data ?? []) as Array<Record<string, unknown>>).map((f) => ({ asin: String(f.asin), sku: (f.sku as string | null) ?? null, titulo: (f.titulo as string | null) ?? null, bullets: Array.isArray(f.bullets) ? (f.bullets as string[]) : [], descripcion: (f.descripcion as string | null) ?? null, backend: (f.backend as string | null) ?? null, leidaAt: String(f.leida_at) }))
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((f) => ({
+    asin: String(f.asin),
+    sku: (f.sku as string | null) ?? null,
+    titulo: (f.titulo as string | null) ?? null,
+    bullets: Array.isArray(f.bullets) ? (f.bullets as string[]) : [],
+    descripcion: (f.descripcion as string | null) ?? null,
+    backend: (f.backend as string | null) ?? null,
+    leidaAt: String(f.leida_at),
+    ...(vigia ? { tituloAnterior: (f.titulo_anterior as string | null) ?? null, tituloCambiadoAt: (f.titulo_cambiado_at as string | null) ?? null } : {}),
+  }))
 }
 
 export type { EstadoSeo }

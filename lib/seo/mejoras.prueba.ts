@@ -86,16 +86,16 @@ console.log('\n=== limpiar la propuesta de la IA ===')
   const r = limpiarPropuesta({ titulo: `${larga}!!`, bullets: ['a', 'b', 'c', 'd', 'e', 'f'], backend: 'jamón, paleta, paleta, B0ABCDEFGH, pata negra, ' + 'serrano '.repeat(3) + 'x'.repeat(300), razonamiento: { resumen: 'Estrategia', cambios: [{ campo: 'titulo', que: 'añade cebo', porQue: '5.000 búsquedas' }], palabrasNuevas: ['cebo'] } })
   ok('sin error', !('error' in r), JSON.stringify(r).slice(0, 200))
   if (!('error' in r)) {
-    ok('título ≤ 200, sin «!» y sin cortar una palabra', r.titulo.length <= 200 && !r.titulo.includes('!') && !/\s$/.test(r.titulo), `${r.titulo.length}: ${r.titulo}`)
+    ok('título ≤ 75 (límite de 2026), sin «!» y sin cortar una palabra', r.titulo.length <= 75 && !r.titulo.includes('!') && !/\s$/.test(r.titulo) && larga.startsWith(r.titulo), `${r.titulo.length}: ${r.titulo}`)
     ok('5 bullets como mucho', r.bullets.length === 5)
-    ok('backend ≤ 250 bytes', bytesDe(r.backend) <= 250, String(bytesDe(r.backend)))
+    ok('backend ≤ 249 bytes (un byte más y Amazon lo ignora entero)', bytesDe(r.backend) <= 249, String(bytesDe(r.backend)))
     ok('backend sin comas, sin ASIN, sin repetidas y sin palabras del título (jamón)', !r.backend.includes(',') && !/b0abcdefgh/i.test(r.backend) && r.backend.split(' ').filter((w) => w === 'paleta').length === 1 && !r.backend.split(' ').includes('jamón'), r.backend)
     ok('dice lo que ha recortado', r.avisos.length >= 2, JSON.stringify(r.avisos))
     ok('el razonamiento pasa', r.razonamiento.resumen === 'Estrategia' && r.razonamiento.cambios.length === 1 && r.razonamiento.palabrasNuevas[0] === 'cebo')
   }
   ok('sin título → error', 'error' in limpiarPropuesta({ bullets: ['x'] }))
   ok('cortar en palabra', cortarEnPalabra('uno dos tres cuatro', 10) === 'uno dos', cortarEnPalabra('uno dos tres cuatro', 10))
-  ok('backend: las tildes cuentan doble en bytes', bytesDe(limpiarBackend('ñ'.repeat(10) + ' ' + 'á'.repeat(200), '').texto) <= 250)
+  ok('backend: las tildes cuentan doble en bytes', bytesDe(limpiarBackend('ñ'.repeat(10) + ' ' + 'á'.repeat(200), '').texto) <= 249)
 }
 
 console.log('\n=== el PATCH que se manda a Amazon ===')

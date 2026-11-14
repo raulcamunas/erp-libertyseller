@@ -16,11 +16,13 @@ import { spApiRequest } from '@/lib/amazon/sp-api'
 import { parametrosDeIa } from '@/lib/ia/modelo'
 import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
 import { coberturaDe } from './cobertura'
-import { consultasGuardadas, fichasGuardadas, type FichaGuardada } from './datos'
+import { cambiosAplicados, consultasGuardadas, fichasGuardadas, preciosDeListings, type FichaGuardada } from './datos'
+import { diagnosticarTodas, embudoDelProducto, esRelevante, NOMBRE_DE_ETAPA, RESPONSABLE } from './embudo'
 import { IDIOMA_DE_MARKETPLACE, instruccionesDeSistema, limpiarPropuesta, mensajeDeDatos, patchesDeFicha, type PropuestaLimpia, type Razonamiento, type TextosPropuestos } from './propuesta'
 import { perfilesAdsDe, terminosDeAdsDelAsin } from './publicidad'
 import { terminosQueFaltanEnLaFicha } from './publicidad-calculo'
 import { palabrasQueFaltanEnElTitulo } from './resumen'
+import { DIAS_ENTRE_CAMBIOS, ventanaDeCambio } from './tareas'
 
 export interface PropuestaGuardada {
   id: string
@@ -80,15 +82,31 @@ export async function proponerFicha(c: { connectionId: string; marketplaceId: st
   const perfiles = await perfilesAdsDe(c.clientId, pais).catch(() => [])
   const ads = terminosQueFaltanEnLaFicha(await terminosDeAdsDelAsin(perfiles, asin).catch(() => []), ficha, 20)
 
+  // Paso 2 y 3 del SOP: diagnosticar el embudo y descartar antes de elegir (ruido y búsquedas que compran a otro precio no llegan a la IA como candidatas)
+  const precioListing = (await preciosDeListings(c.connectionId, c.marketplaceId, [asin]).catch(() => ({}) as Record<string, number | null>))[asin] ?? null
+  const { contexto, busquedas } = diagnosticarTodas(consultas, precioListing)
+  const producto = embudoDelProducto(busquedas, contexto)
+  const v = producto.veredicto
+  const embudo = !v ? null : v.tipo === 'fuga' ? `Se pierde en ${NOMBRE_DE_ETAPA[v.etapa].toLowerCase()} (${RESPONSABLE[v.etapa].quien}): ${v.motivo}` : v.motivo
+  const relevantes = busquedas.filter((d) => esRelevante(d.veredicto))
+  const diagnostico = (d: (typeof busquedas)[number]) => (d.veredicto.tipo === 'fuga' ? `se pierde en ${NOMBRE_DE_ETAPA[d.veredicto.etapa].toLowerCase()}` : d.veredicto.tipo === 'visibilidad' ? ((d.veredicto.fuerza ?? 0) >= 1.2 ? 'convierte bien, sale poco' : 'falta salir más') : d.veredicto.tipo === 'lider' ? 'ya manda' : '')
+
   const datos = {
     idioma,
     pais,
+    precio: contexto.precioPropio,
     ficha: { titulo: ficha.titulo, bullets: ficha.bullets, descripcion: ficha.descripcion?.slice(0, 2000) ?? null, backend: ficha.backend },
-    busquedas: [...consultas]
-      .sort((a, b) => (b.comprasTotal ?? 0) - (a.comprasTotal ?? 0) || (b.volumen ?? 0) - (a.volumen ?? 0))
+    embudo,
+    busquedas: [...relevantes]
+      .sort((a, b) => (b.fila.comprasTotal ?? 0) - (a.fila.comprasTotal ?? 0) || (b.fila.volumen ?? 0) - (a.fila.volumen ?? 0))
       .slice(0, 40)
-      .map((x) => ({ consulta: x.consulta, volumen: x.volumen, comprasTotal: x.comprasTotal, cuotaComprasTuya: x.cuotaCompras, enLaFicha: coberturaDe(x.consulta, ficha).faltan.length === 0 })),
-    palabrasQueFaltan: palabrasQueFaltanEnElTitulo(consultas, ficha, 40, 20).map((p) => ({ palabra: p.palabra, peso: p.peso })),
+      .map((d) => ({ consulta: d.fila.consulta, volumen: d.fila.volumen, comprasTotal: d.fila.comprasTotal, cuotaComprasTuya: d.fila.cuotaCompras, enLaFicha: coberturaDe(d.fila.consulta, ficha).faltan.length === 0, diagnostico: diagnostico(d) })),
+    descartadas: busquedas
+      .filter((d) => !esRelevante(d.veredicto))
+      .sort((a, b) => (b.fila.volumen ?? 0) - (a.fila.volumen ?? 0))
+      .slice(0, 25)
+      .map((d) => ({ consulta: d.fila.consulta, porQue: d.veredicto.motivo })),
+    palabrasQueFaltan: palabrasQueFaltanEnElTitulo(relevantes.map((d) => d.fila), ficha, 40, 20).map((p) => ({ palabra: p.palabra, peso: p.peso })),
     terminosDeAds: ads.map((t) => ({ termino: t.termino, pedidos: t.pedidos })),
   }
 
@@ -124,7 +142,7 @@ async function guardarPropuesta(c: { connectionId: string; marketplaceId: string
       sku: ficha.sku,
       estado: 'pendiente',
       antes: textosDe(ficha),
-      propuesta: { titulo: p.titulo, bullets: p.bullets, backend: p.backend },
+      propuesta: { titulo: p.titulo, highlights: p.highlights, bullets: p.bullets, backend: p.backend },
       razonamiento: { ...p.razonamiento, avisos: p.avisos },
       modelo,
       creada_por: userId,
@@ -156,6 +174,9 @@ export async function aplicarPropuesta(
   if (!data) return { ok: false, motivo: 'Esa propuesta no existe.', issues: [] }
   const p = deFila(data as Record<string, unknown>)
   if (p.estado !== 'pendiente') return { ok: false, motivo: `Esa propuesta ya está ${p.estado}.`, issues: [] }
+  // SOP: como mucho un cambio de título cada 30 días por producto (y 21 días para juzgarlo). Si no, el resultado no se puede atribuir a ningún cambio
+  const ventana = ventanaDeCambio(await cambiosAplicados(c.connectionId, c.marketplaceId), p.asin, new Date().toISOString().slice(0, 10))
+  if (ventana?.bloqueada) return { ok: false, motivo: `La ficha de este producto se cambió el ${ventana.ultimo}: el SOP no deja volver a cambiarla antes de ${DIAS_ENTRE_CAMBIOS} días (desde el ${ventana.puedeDesde}).`, issues: [] }
   if (!p.sku) return { ok: false, motivo: 'No se sabe el SKU de este producto: sin él no se puede cambiar la ficha.', issues: [] }
   const resuelta = await connectionCredentials(c.connectionId)
   if (!resuelta) return { ok: false, motivo: 'La conexión de Amazon ya no existe.', issues: [] }

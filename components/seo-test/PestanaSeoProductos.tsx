@@ -9,7 +9,9 @@ import { entero, porcentaje } from '@/components/marketing-test/formato'
 import { llamar } from '@/components/marketing-test/llamar'
 import { Vacio } from '@/components/plataforma/comun'
 import { resumenDeProducto } from '@/lib/seo/resumen'
-import { consultasDe, fichaDe, nombreDe, serieDe } from './comun'
+import { consultasDe, diagnosticoDe, estiloDeVeredicto, fichaDe, nombreDe, serieDe } from './comun'
+import { revisarFicha } from '@/lib/seo/norma'
+import { RESPONSABLE, RESPONSABLE_INFRAEXPUESTA } from '@/lib/seo/embudo'
 import type { PuntoDeEvolucion } from '@/lib/seo/datos'
 import type { DatosSeo } from './useCuentaSeo'
 
@@ -70,6 +72,9 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
             const consultas = mes.length > 0 ? mes : consultasDe(datos, p.asin, 'WEEK')
             const r = resumenDeProducto(consultas, ficha)
             const nombre = nombreDe(p, ficha)
+            const v = consultas.length > 0 ? diagnosticoDe(datos, p.asin).producto.veredicto : null
+            const norma = ficha ? revisarFicha(ficha).incidencias : []
+            const graves = norma.filter((i) => i.gravedad === 'grave').length
             return (
               <article key={p.id} className={`${CAJA.base} flex flex-col transition-colors hover:border-[var(--ls-linea2)]`}>
                 <div className="flex items-start gap-3 px-4 pb-3 pt-4">
@@ -91,6 +96,22 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
                   <Dato etiqueta="Cuota de impresiones" valor={porcentaje(r.cuotaImpresiones)} nota="cuánto sale cuando se busca" />
                   <Dato etiqueta="Keywords en la ficha" valor={r.cobertura == null ? '—' : porcentaje(r.cobertura, 0)} nota={r.faltanEnFicha ? `${r.faltanEnFicha} de las 20 principales no están` : ficha ? 'de las 20 principales' : 'ficha sin leer aún'} color={r.cobertura == null ? undefined : r.cobertura >= 0.8 ? COLOR_ESTADO.verde : r.cobertura >= 0.5 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo} />
                 </div>
+                {(v || ficha) && (
+                  <div className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] px-4 py-[8px] text-[11.5px]">
+                    {v && (
+                      <span className="inline-flex items-center gap-[6px]" title={v.motivo}>
+                        <span className="text-[var(--ls-t4)]">Embudo:</span>
+                        <span className="rounded-[5px] px-[6px] py-[1px] font-semibold" style={{ color: estiloDeVeredicto(v).color, background: `color-mix(in srgb, ${estiloDeVeredicto(v).color} 13%, transparent)` }}>{estiloDeVeredicto(v).texto}</span>
+                        <span className="text-[var(--ls-t3)]">{v.tipo === 'fuga' ? `le toca a ${RESPONSABLE[v.etapa].quien}` : v.tipo === 'infraexpuesta' ? `le toca a ${RESPONSABLE_INFRAEXPUESTA.quien}` : v.tipo === 'visibilidad' ? 'es SEO' : ''}</span>
+                      </span>
+                    )}
+                    {ficha && (
+                      <span className="ml-auto" style={{ color: graves > 0 ? COLOR_ESTADO.rojo : norma.length > 0 ? COLOR_ESTADO.ambar : COLOR_ESTADO.verde }} title={norma.map((i) => i.texto).join('\n')}>
+                        {graves > 0 ? `Ficha fuera de norma 2026 (${graves})` : norma.length > 0 ? `${norma.length} ${norma.length === 1 ? 'mejora' : 'mejoras'} de norma` : 'Ficha dentro de norma 2026'}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <Evolucion serie={serieDe(datos, p.asin, 'WEEK')} />
                 <div className="flex items-center gap-2 border-t border-[var(--ls-linea)] px-4 py-[10px]">
                   {r.principal ? (

@@ -28,6 +28,10 @@ export interface DatosSeo {
   anteriores?: { MONTH: ConsultaAnterior[]; WEEK: ConsultaAnterior[] }
   evolucion?: PuntoDeEvolucion[]
   fichas: FichaGuardada[]
+  /** El precio de cada producto en el catálogo de la cuenta (para descartar búsquedas que compran a otro precio) */
+  precios?: Record<string, number | null>
+  /** Las fichas cambiadas en Amazon desde aquí (la ventana de 30 días del SOP) */
+  cambios?: Array<{ asin: string; aplicadaAt: string }>
 }
 
 const ESPERA_MS = 8000
@@ -54,7 +58,9 @@ export function useCuentaSeo(cuentaId: string) {
           if (!vigente()) return
           setDatos(d)
           setError(null)
-          const esperar = d.productos.length > 0 && d.lectura.acceso !== 'no' && (d.lectura.sincronizando || !d.lectura.mesOk || !d.lectura.semanaOk || !d.lectura.fichaLeidaAt)
+          // Con un error apuntado y nada en marcha no se vuelve a preguntar: la lectura no se reintenta hasta dentro de 30 minutos y la pantalla ya enseña el error (antes se quedaba
+          // preguntando diez minutos con la ruedita, sin decir nada)
+          const esperar = d.productos.length > 0 && d.lectura.acceso !== 'no' && !(d.lectura.error && !d.lectura.sincronizando) && (d.lectura.sincronizando || !d.lectura.mesOk || !d.lectura.semanaOk || !d.lectura.fichaLeidaAt)
           if (!esperar) return
           await new Promise((r) => setTimeout(r, ESPERA_MS))
         }
